@@ -99,11 +99,6 @@ function taskBusy(task: AgentTaskDto): boolean {
   return task.state === 'OPEN' && task.mutationClaim !== null && task.mutationClaim !== undefined;
 }
 
-/** The branch the backend derives for a task, named before deletion so the person knows what goes with it. */
-function taskBranch(task: Pick<AgentTaskDto, 'id'>): string {
-  return `bytequay/task/${task.id}`;
-}
-
 type TaskGroup = { key: string; label: string; date: string; tasks: AgentTaskDto[] };
 
 function dayStart(at: Date): Date {
@@ -1015,11 +1010,9 @@ export function AgentTaskList({
           <ul className="agt-del-list">
             <li>Transcript, events, approvals and queued inputs</li>
             <li>Image attachments and runtime logs</li>
-            <li>
-              <span>
-                Generated branch <code>{confirm.length === 1 ? taskBranch(confirm[0]) : `bytequay/task/… ×${confirm.length}`}</code> and its worktree
-              </span>
-            </li>
+            {confirm.map(task => task.generatedBranch === null ? null : (
+              <li key={task.id}>Generated branch <code>{task.generatedBranch}</code> and its worktree</li>
+            ))}
           </ul>
           {confirm.some(task => task.developmentCi != null) && <>
             <p>Linked CI tasks and their local worktrees are also removed after their agents stop. These remote results remain on GitHub:</p>

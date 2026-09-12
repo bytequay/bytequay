@@ -794,10 +794,13 @@ public interface WorktreeService
 }
 ```
 
-The command carries a ByteQuay-generated task ID, trusted workspace ID, the
-physical selected-repository/origin identity, and exact starting commit. The
-service derives the managed repository, path, and generated branch; there is no
-caller-selected path or arbitrary branch. Repeating the exact request is
+The command carries a backend-validated task ID, trusted workspace ID, the
+physical selected-repository/origin identity, exact starting commit, and the
+application's frozen generated branch. For new tasks, `TaskBranches` derives
+`<authenticated-github-login>/bytequay/<description-slug>-<short-task-id>` from
+the initial description and first eight task-ID characters. The worktree
+service derives the managed repository and full-task-ID path and validates the
+branch; the renderer selects neither an arbitrary branch nor a path. Repeating the exact request is
 idempotent when the existing worktree matches exactly. A half-finished or
 mismatched orphan is preserved and reported rather than adopted or deleted.
 
@@ -812,8 +815,10 @@ personal-fork workspaces. A failed synchronization prevents creation instead
 of using an older remote-tracking commit. Fetch updates remote-tracking refs
 without moving local branches or existing task worktrees. This changes the
 starting commit, not the immutable physical selected-repository identity.
-Creation retries and later turns reuse the existing task's recorded worktree
-and starting commit. Existing tasks also keep their recorded worktree ownership
+Creation retries and later turns reuse the existing task's recorded worktree,
+branch, and starting commit, including previously generated UUID-only branch
+names. Background title generation, user renames, and GitHub login changes do
+not rename a task's branch. Existing tasks also keep their recorded worktree ownership
 when later watches resolve a personal fork; see
 [Watched Repository / Workspace](watched-repo.md).
 
@@ -3728,8 +3733,10 @@ The public task-creation DTO contains the client-generated `taskId`,
 `workspaceId`, first `message`, immutable `laneId`, defaults, and an
 `idempotencyKey`, not a title or filesystem path. The first message provides
 the bounded provisional task label and the input to best-effort background
-title generation. `app` resolves the managed repository and exact
-starting commit, verifies the task belongs to that workspace, and only then
+title generation. Its first line also supplies the readable branch slug;
+branch creation does not wait for the title helper. `app` resolves the
+authenticated GitHub login, managed repository, and exact starting commit,
+freezes the generated branch, verifies the task belongs to that workspace, and only then
 builds the core command. Trusted internal workflow callers such as cherry-pick
 and CI Autofix supply their own already-frozen commit, but they use the same
 `WorktreeService` and cannot submit an arbitrary path.

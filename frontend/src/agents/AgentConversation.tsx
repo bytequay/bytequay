@@ -485,8 +485,9 @@ function TurnFooter({ turn, durable, models }: {
   );
 }
 
-export function TurnView({ turn, first, open, now, models, durableTurns, activityChoice, previews, agentLabels, onToggle, onToggleActivity, onDecide, onOpenAgent, generatedRequest = false }: {
+export function TurnView({ turn, first, open, now, models, durableTurns, activityChoice, previews, agentLabels, onToggle, onToggleActivity, onDecide, onOpenAgent, generatedRequest = false, generatedBranch = null }: {
   generatedRequest?: boolean;
+  generatedBranch?: string | null;
   turn: TranscriptTurn;
   first: boolean;
   open: boolean;
@@ -507,7 +508,7 @@ export function TurnView({ turn, first, open, now, models, durableTurns, activit
   const durable = turn.turnId === null ? undefined : durableTurns[turn.turnId];
   const generatedLabel = developmentTurnLabel(durable) ?? (generatedRequest ? 'Review request' : null);
   const opening = turn.users[0];
-  const request = opening?.delivery === 'TURN' ? draftPullRequestRequest(durable, opening.text) : null;
+  const request = opening?.delivery === 'TURN' ? draftPullRequestRequest(durable, opening.text, generatedBranch) : null;
   return (
     <section className="agt-turn" data-history-anchor={turn.turnId ?? `turn-${turn.ordinal}`} aria-label={turn.ordinal > 0 ? `Turn ${turn.ordinal}` : 'Turn'}>
       {turn.users.map((user, index) => (
@@ -518,7 +519,7 @@ export function TurnView({ turn, first, open, now, models, durableTurns, activit
               <div className="agt-user__request">
                 <GitPullRequest aria-hidden="true" />
                 <span className="agt-user__request-action">Open draft pull request</span>
-                {' '}<span className="agt-user__request-head" title={request.head}>{request.head}</span>
+                {request.head !== null && <>{' '}<span className="agt-user__request-head" title={request.head}>{request.head}</span></>}
                 {request.base !== null && <>{' '}<span className="agt-user__request-base">→ {request.base}</span></>}
               </div>
             ) : (
@@ -754,7 +755,7 @@ export function useConversationHistory(events: AgentEventEnvelope[], endedAt: st
 export function AgentConversation({
   turns, durableTurns, models, now, scroll, connection, running, activeTurn, activeTurnId = activeTurn?.id, waiting, gap = false,
   activityChoice, turnChoice, onToggleTurn, onToggleActivity, onDecide,
-  previews = {}, agentLabels = {}, pendingApprovals = [], generatedTurnIds,
+  previews = {}, agentLabels = {}, pendingApprovals = [], generatedTurnIds, generatedBranch,
   onOpenAgent, children, transcriptFooter, label = 'Task transcript',
 }: {
   turns: TranscriptTurn[];
@@ -777,6 +778,7 @@ export function AgentConversation({
   agentLabels?: Record<string, string>;
   pendingApprovals?: AgentPendingApprovalDto[];
   generatedTurnIds?: ReadonlySet<string>;
+  generatedBranch?: string | null;
   onOpenAgent?: (threadId: string) => void;
   children: React.ReactNode;
   transcriptFooter?: React.ReactNode;
@@ -811,7 +813,7 @@ export function AgentConversation({
               models={models} durableTurns={durableTurns} activityChoice={activityChoice}
               previews={previews} agentLabels={agentLabels} onToggle={() => onToggleTurn(id, !open)}
               onToggleActivity={onToggleActivity} onDecide={onDecide} onOpenAgent={onOpenAgent}
-              generatedRequest={turn.turnId !== null && generatedTurnIds?.has(turn.turnId)} />;
+              generatedRequest={turn.turnId !== null && generatedTurnIds?.has(turn.turnId)} generatedBranch={generatedBranch} />;
           })}
         {running && scroll.after === null && scroll.following && <LiveActivity label={liveLabel} animated={!waiting && connection === 'open' && !gap} />}
         {transcriptFooter}

@@ -29,13 +29,13 @@ const DRAFT_PULL_REQUEST_OPENING = 'Open a draft pull request for this task.';
  * origin, the panel button's ordinary turn by its opening line. The head is the task's generated
  * branch; the base is read back from the request, so history keeps the branch that was asked for.
  */
-export function draftPullRequestRequest(turn: AgentTurnDto | undefined, text: string): { head: string; base: string | null } | null {
+export function draftPullRequestRequest(turn: AgentTurnDto | undefined, text: string, generatedBranch: string | null): { head: string | null; base: string | null } | null {
   if (turn === undefined) return null;
   // ponytail: parses the two prompt templates; rewording either one drops only the "→ base" half.
   const base = turn.developmentOrigin?.kind === 'CREATE_DRAFT_PR'
     ? /^Base repository\/branch: \S+ \/ '([^']+)'\./m.exec(text)
     : text.startsWith(DRAFT_PULL_REQUEST_OPENING) ? / --base (\S+) /.exec(text) : undefined;
-  return base === undefined ? null : { head: `bytequay/task/${turn.taskId}`, base: base?.[1] ?? null };
+  return base === undefined ? null : { head: generatedBranch, base: base?.[1] ?? null };
 }
 
 function boundedError(error: string): string {

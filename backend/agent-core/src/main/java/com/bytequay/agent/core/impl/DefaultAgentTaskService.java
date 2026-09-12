@@ -97,7 +97,8 @@ public final class DefaultAgentTaskService
                 command.taskId(),
                 command.workspaceId(),
                 command.physicalRepository(),
-                command.startCommit()));
+                command.startCommit(),
+                command.generatedBranch()));
         // The dedicated naming request may replace this prompt fallback after creation returns.
         return createManaged(
                 command.taskId(),
@@ -122,7 +123,8 @@ public final class DefaultAgentTaskService
                 command.taskId(),
                 command.workspaceId(),
                 command.physicalRepository(),
-                command.startCommit()));
+                command.startCommit(),
+                command.generatedBranch()));
         return createManaged(
                 command.taskId(),
                 false,

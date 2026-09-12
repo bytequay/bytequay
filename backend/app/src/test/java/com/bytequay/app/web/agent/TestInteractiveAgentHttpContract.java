@@ -87,6 +87,7 @@ class TestInteractiveAgentHttpContract
                 .containsExactly(
                         "id",
                         "workspaceId",
+                        "generatedBranch",
                         "title",
                         "titleSource",
                         "laneId",
@@ -263,6 +264,7 @@ class TestInteractiveAgentHttpContract
         JsonNode turnJson = objectMapper.valueToTree(InteractiveAgentHttpContract.turn(turn));
 
         assertThat(taskJson.path("defaults").get("model").isNull()).isTrue();
+        assertThat(taskJson.get("generatedBranch").isNull()).isTrue();
         assertThat(taskJson.toString()).doesNotContain("worktree", "repository", "sessionReference");
         assertThat(turnJson.get("settings").isNull()).isTrue();
         assertThat(turnJson.toString()).doesNotContain("private-idempotency-key", "providerTurnReference");

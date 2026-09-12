@@ -25,6 +25,7 @@ import com.bytequay.agent.core.CompleteAgentTaskCommand;
 import com.bytequay.agent.core.CreateAgentTaskCommand;
 import com.bytequay.agent.core.RepositoryIdentity;
 import com.bytequay.agent.core.StartAgentTurnCommand;
+import com.bytequay.agent.core.TaskBranches;
 import com.bytequay.agent.core.TaskCompletion;
 import com.bytequay.agent.core.TaskId;
 import com.bytequay.agent.core.TaskState;
@@ -1495,13 +1496,16 @@ public class DefaultCiAutofixService
     private AgentTask createAgentTask(CiAutofixRun run, RepositoryIdentity repository, String startCommit)
     {
         requireWriteAuthority(run);
+        TaskId taskId = TaskId.valueOf(run.agentTaskId().orElseThrow());
+        String title = "CI Autofix " + run.scope().pullRequest().fullName();
         return taskService.create(new CreateAgentTaskCommand(
-                TaskId.valueOf(run.agentTaskId().orElseThrow()),
+                taskId,
                 run.scope().workspaceId(),
                 new AgentLaneId(run.scope().laneId()),
                 repository,
                 startCommit,
-                "CI Autofix " + run.scope().pullRequest().fullName(),
+                TaskBranches.generate(taskId, run.scope().author(), title),
+                title,
                 AgentTaskDefaults.forPermission(AgentPermissionPolicy.CI_AUTOFIX)));
     }
 

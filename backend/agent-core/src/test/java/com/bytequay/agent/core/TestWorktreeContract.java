@@ -33,7 +33,8 @@ class TestWorktreeContract
                 taskId,
                 "workspace-1",
                 RepositoryIdentity.valueOf("bytequay/bytequay"),
-                START_COMMIT);
+                START_COMMIT,
+                TaskBranches.generate(taskId, "user", "Test task"));
 
         assertThat(command.taskId()).isEqualTo(taskId);
         assertThat(command.workspaceId()).isEqualTo("workspace-1");
@@ -44,14 +45,16 @@ class TestWorktreeContract
                 taskId,
                 " ",
                 RepositoryIdentity.valueOf("bytequay/bytequay"),
-                START_COMMIT))
+                START_COMMIT,
+                TaskBranches.generate(taskId, "user", "Test task")))
                 .isInstanceOf(IllegalArgumentException.class)
                 .hasMessageContaining("workspaceId");
         assertThatThrownBy(() -> new ProvisionWorktreeCommand(
                 taskId,
                 "workspace-1",
                 RepositoryIdentity.valueOf("bytequay/bytequay"),
-                "main"))
+                "main",
+                TaskBranches.generate(taskId, "user", "Test task")))
                 .isInstanceOf(IllegalArgumentException.class)
                 .hasMessageContaining("exact Git object ID");
     }

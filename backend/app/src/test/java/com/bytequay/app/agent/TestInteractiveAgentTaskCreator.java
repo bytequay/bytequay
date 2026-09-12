@@ -34,6 +34,8 @@ import com.bytequay.agent.spi.AgentProviderStatus;
 import com.bytequay.agent.spi.AgentProviderUnavailableException;
 import com.bytequay.agent.spi.AgentUnavailableException;
 import com.bytequay.app.git.GitCommandRunner;
+import com.bytequay.app.service.credentials.CredentialService;
+import com.bytequay.app.service.credentials.CredentialService.GitHubCredential;
 import com.bytequay.app.service.settings.AppSettingsService;
 import com.bytequay.app.service.settings.ModelSettingsService;
 import com.bytequay.app.workspace.WorkspaceCodeSyncResult;
@@ -41,6 +43,7 @@ import com.bytequay.app.workspace.WorkspaceProvisioningService;
 import com.bytequay.app.workspace.WorkspaceRepositoryContext;
 import com.bytequay.app.workspace.WorkspaceRepositoryService;
 import com.bytequay.core.domain.RepoRef;
+import com.bytequay.core.domain.UserProfile;
 import com.google.common.collect.ImmutableList;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -83,6 +86,7 @@ class TestInteractiveAgentTaskCreator
     private WorkspaceProvisioningService provisioning;
     private GitCommandRunner git;
     private InteractiveAgentTaskCreator creator;
+    private CredentialService credentials;
 
     @BeforeEach
     void setUp()
@@ -105,7 +109,10 @@ class TestInteractiveAgentTaskCreator
             throw new AgentTaskNotFoundException(invocation.getArgument(1));
         });
         ready();
-        creator = new InteractiveAgentTaskCreator(tasks, turns, drivers, models, workspaces, provisioning, git, settings);
+        credentials = mock(CredentialService.class);
+        when(credentials.resolveGitHubCredential()).thenReturn(new GitHubCredential(
+                "test-token", new UserProfile("chenjian2664", "", "", "", 0, 0, 0, "", "", "", "")));
+        creator = new InteractiveAgentTaskCreator(tasks, turns, drivers, models, workspaces, provisioning, git, settings, credentials);
     }
 
     @Test
@@ -129,6 +136,7 @@ class TestInteractiveAgentTaskCreator
         assertThat(command.getValue().physicalRepository())
                 .isEqualTo(new RepositoryIdentity("selected", "fork"));
         assertThat(command.getValue().startCommit()).isEqualTo(START_COMMIT);
+        assertThat(command.getValue().generatedBranch()).isEqualTo("chenjian2664/bytequay/review-11111111");
         assertThat(command.getValue().defaults().developmentAutomation()).contains(DevelopmentAutomation.DEFAULT);
         InOrder order = inOrder(provisioning, workspaces, git, tasks);
         order.verify(provisioning).synchronizeCode("workspace-1");
@@ -205,7 +213,7 @@ class TestInteractiveAgentTaskCreator
                     TitleSource.USER,
                     command.laneId(),
                     new TaskWorktree(command.taskId(), command.workspaceId(), command.physicalRepository(),
-                            temporaryDirectory.resolve(command.taskId().toString()), "bytequay/task/" + command.taskId(), START_COMMIT),
+                            temporaryDirectory.resolve(command.taskId().toString()), command.generatedBranch(), START_COMMIT),
                     command.defaults(),
                     Instant.parse("2026-09-01T00:00:00Z"));
         });
@@ -216,10 +224,12 @@ class TestInteractiveAgentTaskCreator
         assertThat(created.defaults().developmentAutomation()).contains(DevelopmentAutomation.DEFAULT);
         when(settings.developmentAutomation()).thenReturn(DevelopmentAutomation.LOCAL_ONLY);
         doReturn(created).when(tasks).getInteractive("workspace-1", taskId);
+        when(credentials.resolveGitHubCredential()).thenThrow(new IllegalStateException("Account no longer available"));
 
         assertThat(creator.create(taskId, "workspace-1", "Task", AgentLaneId.CODEX_CLI,
                 defaults(), "create-key", Optional.empty(), Optional.of(DevelopmentAutomation.LOCAL_ONLY)))
                 .isSameAs(created);
+        verify(credentials, times(1)).resolveGitHubCredential();
         verify(settings, times(1)).developmentAutomation();
         verify(tasks, times(1)).createInteractive(any());
         assertThatThrownBy(() -> creator.create(taskId, "workspace-1", "Task", AgentLaneId.CODEX_CLI,

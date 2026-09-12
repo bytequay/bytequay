@@ -344,6 +344,7 @@ class TestDefaultCiAutofixService
         assertThat(task.getValue().workspaceId()).isEqualTo("workspace-1");
         assertThat(task.getValue().physicalRepository()).isEqualTo(REPOSITORY);
         assertThat(task.getValue().startCommit()).isEqualTo(HEAD);
+        assertThat(task.getValue().generatedBranch()).isEqualTo("author/bytequay/ci-autofix-bytequay-sample-2234-" + taskId.toString().substring(0, 8));
 
         ArgumentCaptor<StartAgentTurnCommand> turn = ArgumentCaptor.forClass(StartAgentTurnCommand.class);
         InOrder order = inOrder(memoryService, turnService);
@@ -826,12 +827,14 @@ class TestDefaultCiAutofixService
         CiAutofixRun persisted = store.listRecent(10).getFirst();
         TaskId reserved = TaskId.valueOf(persisted.agentTaskId().orElseThrow());
 
+        when(credentials.resolveGitHubCredential()).thenReturn(new CredentialService.GitHubCredential("token", profile("another-user")));
         doAnswer(invocation -> task(invocation.getArgument(0))).when(taskService).create(any());
         CiAutofixRun recovered = service.advance(persisted.id());
 
         assertThat(recovered.status()).isEqualTo(Status.ACTIVE);
         assertThat(taskId).isEqualTo(reserved);
         assertThat(taskService.get(reserved).taskWorktree()).contains(taskWorktree);
+        assertThat(taskWorktree.generatedBranch()).isEqualTo("author/bytequay/ci-autofix-bytequay-sample-2234-" + reserved.toString().substring(0, 8));
     }
 
     @Test
@@ -2119,7 +2122,7 @@ class TestDefaultCiAutofixService
                 command.workspaceId(),
                 command.physicalRepository(),
                 worktree,
-                "bytequay/task/" + taskId,
+                command.generatedBranch(),
                 command.startCommit());
         openTask = AgentTask.created(
                 taskId,

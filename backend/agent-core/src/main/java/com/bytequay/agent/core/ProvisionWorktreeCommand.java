@@ -24,7 +24,8 @@ public record ProvisionWorktreeCommand(
         TaskId taskId,
         String workspaceId,
         RepositoryIdentity physicalRepository,
-        String startCommit)
+        String startCommit,
+        String generatedBranch)
 {
     private static final Pattern GIT_OBJECT_ID = Pattern.compile("(?:[0-9a-f]{40}|[0-9a-f]{64})");
 
@@ -34,6 +35,7 @@ public record ProvisionWorktreeCommand(
         checkNotBlank(workspaceId, "workspaceId");
         requireNonNull(physicalRepository, "physicalRepository is null");
         checkObjectId(startCommit, "startCommit");
+        TaskWorktree.checkGeneratedBranch(taskId, generatedBranch);
     }
 
     static void checkObjectId(String value, String name)

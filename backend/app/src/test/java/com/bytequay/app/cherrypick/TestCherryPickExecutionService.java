@@ -53,6 +53,7 @@ import com.bytequay.core.cherrypick.CherryPickInvalidRequestException;
 import com.bytequay.core.cherrypick.CherryPickItem;
 import com.bytequay.core.cherrypick.CherryPickItem.Result;
 import com.bytequay.core.domain.RepoRef;
+import com.bytequay.core.domain.UserProfile;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
@@ -106,6 +107,7 @@ class TestCherryPickExecutionService
     private CherryPickExecutionService service;
     private ScriptedCherryPickAgent agent;
     private AgentDriver driver;
+    private CredentialService credentials;
     private WorkspaceRepositoryService workspaceRepositories;
 
     @BeforeEach
@@ -128,7 +130,9 @@ class TestCherryPickExecutionService
         worktreeParent = Files.createDirectories(temporaryDirectory.resolve(WORKSPACE_ID).resolve("worktrees"));
 
         store = new InMemoryCherryPickExecutionStore();
-        CredentialService credentials = mock(CredentialService.class);
+        credentials = mock(CredentialService.class);
+        when(credentials.resolveGitHubCredential()).thenReturn(new CredentialService.GitHubCredential(
+                "token", new UserProfile("chenjian2664", "Jack", "", "", 0, 0, 0, "", "", "", "")));
         when(credentials.gitAuthenticationEnvironment(anyString(), anyCollection()))
                 .thenReturn(ImmutableMap.of());
         WorkspaceRemoteSourceService remoteSources = mock(WorkspaceRemoteSourceService.class);
@@ -179,6 +183,7 @@ class TestCherryPickExecutionService
                 agent,
                 agent,
                 drivers,
+                credentials,
                 workspaceRepositories,
                 workspacePaths,
                 CLOCK);
@@ -198,6 +203,7 @@ class TestCherryPickExecutionService
         assertThat(finished.status()).isEqualTo(Status.FINISHED);
         assertThat(finished.finishReason()).contains(FinishReason.COMPLETED);
         assertThat(finished.items()).allMatch(item -> item.result() == Result.APPLIED);
+        assertThat(finished.workspace().workBranch()).isEqualTo("chenjian2664/bytequay/cherry-pick-main-" + finished.agentTaskId().orElseThrow().substring(0, 8));
 
         assertThat(finished.workspace().worktree()).doesNotExist();
         assertThat(git(clone, "rev-list", "--count",
@@ -342,11 +348,13 @@ class TestCherryPickExecutionService
         TaskId taskId = TaskId.valueOf(persisted.agentTaskId().orElseThrow());
         assertThatThrownBy(() -> agent.get(taskId)).isInstanceOf(AgentTaskNotFoundException.class);
         assertThat(head(persisted.workspace().worktree())).isEqualTo(persisted.range().initialTargetSha());
+        when(credentials.resolveGitHubCredential()).thenThrow(new IllegalStateException("GitHub credentials unavailable"));
 
         CherryPickExecution recovered = service.advance(persisted.id());
 
         assertThat(agent.get(taskId).taskWorktree().orElseThrow().canonicalWorktree())
                 .isEqualTo(persisted.workspace().worktree());
+        assertThat(agent.get(taskId).taskWorktree().orElseThrow().generatedBranch()).isEqualTo(persisted.workspace().workBranch());
         assertThat(recovered.items().stream().filter(item -> item.result() == Result.APPLIED)).hasSize(1);
     }
 
@@ -1410,7 +1418,7 @@ class TestCherryPickExecutionService
         @Override
         public TaskWorktree provision(ProvisionWorktreeCommand command)
         {
-            String branch = "bytequay/task/" + command.taskId();
+            String branch = command.generatedBranch();
             Path path = worktreeParent.resolve(command.taskId().toString());
             if (Files.isDirectory(path)) {
                 try {

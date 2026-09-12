@@ -240,6 +240,7 @@ export function parseAgentTask(value: unknown, path = 'task'): AgentTaskDto {
   return {
     id: text(source.id, `${path}.id`),
     workspaceId: text(source.workspaceId, `${path}.workspaceId`),
+    generatedBranch: optionalText(source.generatedBranch, `${path}.generatedBranch`),
     ...(source.interactive === undefined ? {} : { interactive: flag(source.interactive, `${path}.interactive`) }),
     developmentContinuationUnfinished: flag(source.developmentContinuationUnfinished, `${path}.developmentContinuationUnfinished`),
     developmentCi: source.developmentCi === null || source.developmentCi === undefined ? null : parseAgentDevelopmentCi(source.developmentCi, `${path}.developmentCi`),

@@ -19,6 +19,7 @@
   "createResponse": {
     "id": "<task-id>",
     "workspaceId": "<workspace-id>",
+    "generatedBranch": "<generated-branch>",
     "title": "first",
     "titleSource": "PROVISIONAL",
     "laneId": "codex",
@@ -698,7 +699,7 @@
     "taskId": "<task-id>",
     "summary": {
       "finalResponse": "deterministic: second",
-      "resultBranch": "bytequay/task/<task-id>",
+      "resultBranch": "<generated-branch>",
       "resultHead": "<head>",
       "metrics": {
         "inputTokens": 0,
@@ -723,6 +724,7 @@
   "finalTask": {
     "id": "<task-id>",
     "workspaceId": "<workspace-id>",
+    "generatedBranch": "<generated-branch>",
     "title": "Name first task",
     "titleSource": "AGENT",
     "laneId": "codex",
@@ -761,7 +763,7 @@
     },
     "summary": {
       "finalResponse": "deterministic: second",
-      "resultBranch": "bytequay/task/<task-id>",
+      "resultBranch": "<generated-branch>",
       "resultHead": "<head>",
       "metrics": {
         "inputTokens": 0,

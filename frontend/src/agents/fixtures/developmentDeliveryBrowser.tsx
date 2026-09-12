@@ -201,7 +201,7 @@ async function deliveryResult(outcome: 'ready' | 'draft' | 'sync failure'): Prom
     render();
     await settle();
     assert(Number(submitted) === 1, 'Reopening final results must never send development or publication again');
-    assert(host.textContent?.includes('ByteQuay · Auto commit') === true && host.textContent?.includes(`Open draft pull request bytequay/task/${task.id}`) === true
+    assert(host.textContent?.includes('ByteQuay · Auto commit') === true && host.textContent?.includes(`Open draft pull request ${task.generatedBranch}`) === true
       && !host.textContent?.includes('Push the revision and create its draft'), 'Replay must retain the commit label and show publication as its action');
     if (outcome === 'ready') {
       turn = { ...turn, id: 'later-question', developmentOrigin: null, developmentResult: { readyForDelivery: false, message: question, stopAfter: null } };

@@ -153,7 +153,8 @@ final class ScriptedCherryPickAgent
                 command.taskId(),
                 command.workspaceId(),
                 command.physicalRepository(),
-                command.startCommit()));
+                command.startCommit(),
+                command.generatedBranch()));
         Runnable callback = beforeTaskCreate;
         beforeTaskCreate = () -> {};
         callback.run();

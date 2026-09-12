@@ -48,6 +48,6 @@ public record TaskWorktree(
     {
         requireNonNull(taskId, "taskId is null");
         checkNotBlank(branch, "branch");
-        checkArgument(branch.equals("bytequay/task/" + taskId), "branch is not derived from taskId");
+        checkArgument(branch.equals("bytequay/task/" + taskId) || TaskBranches.matches(taskId, branch), "branch is not derived from taskId");
     }
 }

@@ -28,6 +28,7 @@ import com.bytequay.agent.core.RenameAgentTaskCommand;
 import com.bytequay.agent.core.RepositoryIdentity;
 import com.bytequay.agent.core.StoreAgentAttachmentCommand;
 import com.bytequay.agent.core.StoredAgentAttachment;
+import com.bytequay.agent.core.TaskBranches;
 import com.bytequay.agent.core.TaskId;
 import com.bytequay.agent.core.TaskResources;
 import com.bytequay.agent.core.TaskState;
@@ -363,12 +364,14 @@ class TestDefaultAgentTaskService
 
     private CreateAgentTaskCommand command(AgentPermissionPolicy permissionPolicy)
     {
+        TaskId taskId = TaskId.random();
         return new CreateAgentTaskCommand(
-                TaskId.random(),
+                taskId,
                 WORKSPACE_ID,
                 DeterministicAgentDriver.LANE_ID,
                 REPOSITORY,
                 "0123456789012345678901234567890123456789",
+                TaskBranches.generate(taskId, "user", "Test task"),
                 "Test task",
                 AgentTaskDefaults.forPermission(permissionPolicy));
     }
@@ -381,6 +384,7 @@ class TestDefaultAgentTaskService
                 DeterministicAgentDriver.LANE_ID,
                 REPOSITORY,
                 "0123456789012345678901234567890123456789",
+                TaskBranches.generate(taskId, "user", "Interactive task"),
                 "Interactive task",
                 AgentTaskDefaults.forPermission(AgentPermissionPolicy.AUTO),
                 "creation-fingerprint");
@@ -444,7 +448,7 @@ class TestDefaultAgentTaskService
                     command.workspaceId(),
                     command.physicalRepository(),
                     worktreeRoot.resolve(command.taskId().toString()),
-                    "bytequay/task/" + command.taskId(),
+                    command.generatedBranch(),
                     command.startCommit());
             provisioned.add(worktree);
             return worktree;

@@ -1133,6 +1133,7 @@ export function AgentTaskBody({
 
       <AgentConversation
         turns={turns} durableTurns={state.turns} models={models} now={now} scroll={scroll}
+        generatedBranch={state.task?.generatedBranch}
         connection={state.connection} running={status === 'running'} activeTurn={state.turn} activeTurnId={state.turn?.id ?? state.latestTurnId}
         waiting={waiting} gap={state.gap} activityChoice={activityChoice} turnChoice={turnChoice}
         previews={previews} agentLabels={agentLabels} pendingApprovals={pendingApprovals ?? []}

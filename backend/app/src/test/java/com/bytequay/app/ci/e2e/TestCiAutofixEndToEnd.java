@@ -232,8 +232,10 @@ class TestCiAutofixEndToEnd
         PullRequestRef pr = repository.pullRequest();
         RepoRef repo = RepoRef.of(pr.owner(), pr.repo());
         DevelopmentAutomation automation = new DevelopmentAutomation(true, true, true, Optional.of(ScriptedAgentDriver.LANE));
+        TaskId sourceTaskId = TaskId.random();
         AgentTask source = tasks.createInteractive(new CreateInteractiveAgentTaskCommand(
-                TaskId.random(), fixture.workspaceId(), ScriptedAgentDriver.LANE, RepositoryIdentity.valueOf(pr.repoFullName()), repository.baseSha(),
+                sourceTaskId, fixture.workspaceId(), ScriptedAgentDriver.LANE, RepositoryIdentity.valueOf(pr.repoFullName()), repository.baseSha(),
+                "author/bytequay/implement-the-requested-change-" + sourceTaskId.toString().substring(0, 8),
                 "Implement the requested change", AgentTaskDefaults.forPermission(AgentPermissionPolicy.AUTO).withDevelopmentAutomation(automation), "development-e2e"));
         Path sourceWorktree = source.taskWorktree().orElseThrow().canonicalWorktree();
         String branch = source.taskWorktree().orElseThrow().generatedBranch();
@@ -373,7 +375,7 @@ class TestCiAutofixEndToEnd
         AgentTask task = tasks.get(TaskId.valueOf(run.agentTaskId().orElseThrow()));
         assertThat(task.taskWorktree()).hasValueSatisfying(worktree -> {
             assertThat(worktree.canonicalWorktree()).isNotEqualTo(fixture.repository().worktree());
-            assertThat(worktree.generatedBranch()).startsWith("bytequay/task/");
+            assertThat(worktree.generatedBranch()).startsWith("author/bytequay/ci-autofix-");
             assertThat(worktree.startCommit()).isEqualTo(fixture.repository().initialHeadSha());
             assertThat(started.response().required("generatedLocalBranch").textValue())
                     .isEqualTo(worktree.generatedBranch());

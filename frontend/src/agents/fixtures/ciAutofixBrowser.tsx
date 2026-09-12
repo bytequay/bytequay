@@ -260,6 +260,8 @@ async function deleteReferences(): Promise<{ name: string; error?: string }> {
     remove.click();
     await settle();
     const dialog = document.querySelector('dialog');
+    assert(task.generatedBranch !== null && dialog?.textContent?.includes(task.generatedBranch) === true, 'Delete must name the persisted generated branch');
+    assert(dialog?.textContent?.includes(`bytequay/task/${task.id}`) === false, 'Delete must not reconstruct the generated branch from the task ID');
     assert(dialog?.textContent?.includes('Linked CI tasks and their local worktrees are also removed after their agents stop.') === true, 'Delete must disclose linked local cleanup');
     assert(dialog?.textContent?.includes('These remote results remain on GitHub:') === true, 'Delete must preserve remote results explicitly');
     assert(dialog?.querySelector('a[href="https://github.com/acme/demo/pull/17"]') !== null, 'Delete must show the retained PR reference');

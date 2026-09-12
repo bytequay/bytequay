@@ -95,15 +95,34 @@ validated input to a state-changing service method. It contains only:
 - `TaskId taskId`;
 - trusted `workspaceId`;
 - `RepositoryIdentity physicalRepository`, equal to the workspace's selected
-  repository/`origin`; and
-- an exact commit object ID already fetched into the managed repository.
+  repository/`origin`;
+- an exact commit object ID already fetched into the managed repository; and
+- the generated branch frozen by the application before provisioning.
 
-The service derives both:
+The service derives the worktree path from the full task ID:
 
 ```text
 <workspace-root>/worktrees/<task-id>
-bytequay/task/<task-id>
 ```
+
+For new tasks, the application uses `TaskBranches` to generate:
+
+```text
+<authenticated-github-login>/bytequay/<description-slug>-<first-eight-task-id-characters>
+```
+
+The login comes from the user's authenticated GitHub identity, independently of
+the selected repository owner. The slug uses lowercase words separated by
+hyphens, a bounded length, and `task` when the description contains no usable
+characters. Interactive tasks use the initial message's first line; workflows
+use their initial descriptive label. Generation is synchronous and does not
+wait for the optional task-title helper.
+
+The application freezes the branch once and passes it through task creation
+and provisioning. The renderer cannot submit an arbitrary branch. Existing
+task and workflow records remain authoritative: retries, resumed work, later
+title changes, and a changed GitHub login never rename a recorded branch.
+The full task UUID remains the internal identity and worktree directory name.
 
 `TaskWorktree` contains only the immutable facts needed to use and revalidate
 that result:
@@ -124,9 +143,12 @@ facts for an existing verified worktree or throws; it does not represent
 absence with another state or optional HEAD.
 
 The contract accepts only lowercase 40- or 64-character Git object IDs for the
-exact start commit and observed HEAD. The generated branch is exactly
-`bytequay/task/<task-id>`, and the normalized absolute path has the task ID as
-its basename. The application implementation additionally proves containment
+exact start commit and observed HEAD. Generated branches must match the strict
+login/`bytequay`/slug format and this task's eight-character ID suffix. Exact
+previously recorded `bytequay/task/<full-task-id>` names remain valid for their
+owning task. Validation rejects arbitrary refs and unsafe Git-ref characters.
+The normalized absolute path has the full task ID as its basename. The
+application implementation additionally proves containment
 beneath the selected workspace's `worktrees` root and verifies symlink and Git
 ownership.
 
@@ -144,7 +166,7 @@ that physically owns the Git worktree.
 1. Resolves the trusted workspace and selected managed repository.
 2. Verifies the supplied physical repository identity and that the exact start
    object exists as a commit.
-3. Derives the task path and generated branch; callers cannot override either.
+3. Derives the task path and validates the application's frozen generated branch.
 4. Runs the equivalent of
    `git worktree add --quiet -b <branch> <path> <start-commit>`.
 5. Verifies the canonical path, common Git directory, origin, branch, exact
@@ -154,7 +176,9 @@ that physically owns the Git worktree.
 Repeating the same command may return an already-created worktree only when all
 of those exact facts match and it is still clean. A conflicting path, branch,
 repository, or Git state is preserved and reported rather than adopted or
-deleted.
+deleted. If distinct tasks produce the same short-ID branch name, provisioning
+reports a collision without overwriting the branch or silently choosing another
+name.
 
 The method may make a best-effort non-force removal after a definite local
 failure when it can still prove that the just-created worktree is exact and
@@ -186,7 +210,7 @@ second worktree lifecycle.
    rebase, merge, or other Git operation.
 3. Runs non-force `git worktree remove` for that exact path.
 4. Verifies that Git no longer registers the worktree.
-5. Leaves `bytequay/task/<task-id>` in the managed repository as the local
+5. Leaves the recorded generated branch in the managed repository as the local
    result.
 
 Cleanup never runs `--force` and never deletes the generated branch. Therefore
@@ -215,7 +239,8 @@ For a new task, the application synchronously fetches the workspace remotes,
 requires a successful synchronization, then resolves the monitored repository's default branch:
 `refs/remotes/upstream/<upstream-default-branch>^{commit}` when linked, otherwise
 `refs/remotes/origin/<default-branch>^{commit}`. It validates the interactive
-client-generated task ID, provisions its worktree, and stores the returned
+client-generated task ID, freezes the branch from the authenticated GitHub login
+and initial message, provisions its worktree, and stores the returned
 facts with the task. The selected write repository remains the physical worktree
 identity in both cases. Fetch leaves local branches and existing worktrees
 unchanged. A failed fetch prevents new task allocation; a replayed creation
@@ -232,8 +257,12 @@ branch.
 
 ### Cherry-pick range
 
-The execution provisions its task worktree at the synchronized frozen target
-before the first cherry-pick and stores the returned facts with the execution.
+The execution freezes its generated branch in the existing execution record
+before task creation and passes that exact branch when provisioning its task
+worktree at the synchronized frozen target. It stores the returned facts with
+the execution before the first cherry-pick. Repeated starts and recovery use
+the recorded branch rather than reconstructing it from the task ID or current
+GitHub login.
 The sequencer and conflict turns use that one worktree. A successful range
 verifies a clean generated branch, removes the worktree, and retains the branch
 for delivery from the managed repository.
@@ -262,8 +291,10 @@ until the full top-level workflow has settled.
 
 ## 6. Safety invariants
 
-- One backend-validated task ID deterministically names one path and generated
-  branch; interactive IDs are client-generated idempotency values, not paths.
+- One backend-validated full task ID deterministically names one path. Its
+  generated branch is frozen from the authenticated login, initial description,
+  and short task ID; interactive IDs are client-generated idempotency values,
+  not paths.
 - A task is published only after `provision(...)` returns a verified clean
   worktree at the exact starting commit.
 - Provider readiness failure creates no task worktree.

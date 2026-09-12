@@ -25,6 +25,7 @@ public record CreateInteractiveAgentTaskCommand(
         AgentLaneId laneId,
         RepositoryIdentity physicalRepository,
         String startCommit,
+        String generatedBranch,
         String message,
         AgentTaskDefaults defaults,
         String creationFingerprint)
@@ -36,6 +37,7 @@ public record CreateInteractiveAgentTaskCommand(
         requireNonNull(laneId, "laneId is null");
         requireNonNull(physicalRepository, "physicalRepository is null");
         ProvisionWorktreeCommand.checkObjectId(startCommit, "startCommit");
+        TaskWorktree.checkGeneratedBranch(taskId, generatedBranch);
         checkNotBlank(message, "message");
         requireNonNull(defaults, "defaults is null");
         checkNotBlank(creationFingerprint, "creationFingerprint");

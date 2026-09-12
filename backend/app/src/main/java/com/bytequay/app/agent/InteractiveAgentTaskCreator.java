@@ -22,12 +22,14 @@ import com.bytequay.agent.core.AgentTaskService;
 import com.bytequay.agent.core.AgentTurnService;
 import com.bytequay.agent.core.CreateInteractiveAgentTaskCommand;
 import com.bytequay.agent.core.DevelopmentAutomation;
+import com.bytequay.agent.core.TaskBranches;
 import com.bytequay.agent.core.TaskId;
 import com.bytequay.agent.spi.AgentDriverRegistry;
 import com.bytequay.agent.spi.AgentLaneId;
 import com.bytequay.agent.spi.AgentUnavailableException;
 import com.bytequay.app.git.GitCommandRunner;
 import com.bytequay.app.git.GitCommandRunner.Result;
+import com.bytequay.app.service.credentials.CredentialService;
 import com.bytequay.app.service.settings.AppSettingsService;
 import com.bytequay.app.service.settings.ModelSettingsService;
 import com.bytequay.app.workspace.WorkspaceProvisioningService;
@@ -60,6 +62,7 @@ public final class InteractiveAgentTaskCreator
     private final WorkspaceRepositoryService workspaces;
     private final WorkspaceProvisioningService provisioning;
     private final GitCommandRunner git;
+    private final CredentialService credentials;
     private final Striped<Lock> creationLocks = Striped.lock(64);
 
     public InteractiveAgentTaskCreator(
@@ -70,7 +73,8 @@ public final class InteractiveAgentTaskCreator
             WorkspaceRepositoryService workspaces,
             WorkspaceProvisioningService provisioning,
             GitCommandRunner git,
-            AppSettingsService settings)
+            AppSettingsService settings,
+            CredentialService credentials)
     {
         this.tasks = requireNonNull(tasks, "tasks is null");
         this.turns = requireNonNull(turns, "turns is null");
@@ -80,6 +84,7 @@ public final class InteractiveAgentTaskCreator
         this.provisioning = requireNonNull(provisioning, "provisioning is null");
         this.git = requireNonNull(git, "git is null");
         this.settings = requireNonNull(settings, "settings is null");
+        this.credentials = requireNonNull(credentials, "credentials is null");
     }
 
     public AgentTask create(
@@ -178,6 +183,7 @@ public final class InteractiveAgentTaskCreator
                     laneId,
                     repositoryIdentity(workspace.selectedRepository()),
                     head.output().strip(),
+                    TaskBranches.generate(taskId, credentials.resolveGitHubCredential().profile().login(), message),
                     message,
                     defaults.withDevelopmentAutomation(automation),
                     fingerprint));

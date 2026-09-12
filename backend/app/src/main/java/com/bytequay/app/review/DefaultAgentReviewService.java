@@ -25,6 +25,7 @@ import com.bytequay.agent.core.CreateAgentTaskCommand;
 import com.bytequay.agent.core.QueueAgentInputCommand;
 import com.bytequay.agent.core.QueuedAgentInput;
 import com.bytequay.agent.core.StartAgentTurnCommand;
+import com.bytequay.agent.core.TaskBranches;
 import com.bytequay.agent.core.TaskId;
 import com.bytequay.agent.core.TaskState;
 import com.bytequay.agent.core.TaskWorktree;
@@ -179,13 +180,16 @@ public class DefaultAgentReviewService
             WorkflowAgentTasks.requireReady(drivers, selection.laneId(), AgentPermissionPolicy.AUTO);
             Snapshot snapshot = snapshot(workspace, repository, number);
             TaskId taskId = TaskId.random();
+            String title = "Review " + repository + "#" + number;
+            String branch = TaskBranches.generate(taskId, credentials.resolveGitHubCredential().profile().login(), title);
             AgentTask task = WorkflowAgentTasks.createOrGet(tasks, taskId, () -> tasks.create(new CreateAgentTaskCommand(
                     taskId,
                     workspaceId,
                     selection.laneId(),
                     WorkflowAgentTasks.repositoryIdentity(workspace.selectedRepository()),
                     snapshot.headSha(),
-                    "Review " + repository + "#" + number,
+                    branch,
+                    title,
                     selection.defaults())));
             Instant now = Instant.now(clock);
             String reviewId = UUID.randomUUID().toString();

@@ -18,6 +18,7 @@ import com.bytequay.agent.core.AgentTaskDefaults;
 import com.bytequay.agent.core.InvalidAgentRequestException;
 import com.bytequay.agent.core.ProvisionWorktreeCommand;
 import com.bytequay.agent.core.RepositoryIdentity;
+import com.bytequay.agent.core.TaskBranches;
 import com.bytequay.agent.core.TaskId;
 import com.bytequay.agent.core.TaskWorktree;
 import com.bytequay.agent.core.TitleSource;
@@ -110,8 +111,9 @@ class TestDevelopmentGitInspector
         when(credentials.gitAuthenticationEnvironment(eq(WORKSPACE_ID), anyCollection())).thenReturn(ImmutableMap.of());
         when(credentials.resolveGitHubToken(WORKSPACE_ID)).thenReturn("test-token");
         worktreeService = new ManagedWorktreeService(paths, workspaces, git);
+        TaskId taskId = TaskId.random();
         worktree = worktreeService.provision(new ProvisionWorktreeCommand(
-                TaskId.random(), WORKSPACE_ID, RepositoryIdentity.valueOf(REPOSITORY.fullName()), baseSha));
+                taskId, WORKSPACE_ID, RepositoryIdentity.valueOf(REPOSITORY.fullName()), baseSha, TaskBranches.generate(taskId, "user", "Development test")));
         task = AgentTask.created(worktree.taskId(), true, "Development test", TitleSource.USER, AgentLaneId.CODEX_CLI,
                 worktree, AgentTaskDefaults.forPermission(AgentPermissionPolicy.AUTO), NOW);
         inspector = new DevelopmentGitInspector(worktreeService, workspaces, git, credentials, pullRequests);

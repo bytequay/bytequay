@@ -17,6 +17,7 @@ import com.bytequay.agent.core.AgentConflictException;
 import com.bytequay.agent.core.InvalidAgentRequestException;
 import com.bytequay.agent.core.ProvisionWorktreeCommand;
 import com.bytequay.agent.core.RepositoryIdentity;
+import com.bytequay.agent.core.TaskBranches;
 import com.bytequay.agent.core.TaskId;
 import com.bytequay.agent.core.TaskWorktree;
 import com.bytequay.agent.core.WorktreeSnapshot;
@@ -105,6 +106,33 @@ class TestManagedWorktreeService
         assertThat(snapshot.head()).isEqualTo(startCommit);
         assertThat(snapshot.dirty()).isFalse();
         assertThat(snapshot.gitOperationInProgress()).isFalse();
+    }
+
+    @Test
+    void shortIdCollisionNeverAdoptsOrOverwritesAnotherTasksBranch()
+    {
+        TaskId firstId = TaskId.valueOf("c587a121-0000-4000-8000-000000000001");
+        TaskId secondId = TaskId.valueOf("c587a121-0000-4000-8000-000000000002");
+        TaskWorktree first = service.provision(command(firstId));
+
+        assertThatThrownBy(() -> service.provision(command(secondId)))
+                .isInstanceOf(AgentConflictException.class)
+                .hasMessageContaining("branch already exists");
+        assertThat(service.inspect(first).head()).isEqualTo(startCommit);
+        assertThat(paths.worktrees(WORKSPACE_ID).resolve(secondId.toString())).doesNotExist();
+    }
+
+    @Test
+    void recordedUuidBranchesStillInspectAndCleanUp()
+    {
+        TaskId taskId = TaskId.random();
+        TaskWorktree existing = service.provision(new ProvisionWorktreeCommand(
+                taskId, WORKSPACE_ID, REPOSITORY, startCommit, "bytequay/task/" + taskId));
+
+        assertThat(service.inspect(existing).head()).isEqualTo(startCommit);
+        service.cleanup(existing);
+        assertThat(existing.canonicalWorktree()).doesNotExist();
+        assertThat(run(repository, "rev-parse", "refs/heads/" + existing.generatedBranch()).output().strip()).isEqualTo(startCommit);
     }
 
     @Test
@@ -291,12 +319,12 @@ class TestManagedWorktreeService
         TaskId taskId = TaskId.random();
 
         assertThatThrownBy(() -> service.provision(
-                new ProvisionWorktreeCommand(taskId, WORKSPACE_ID, REPOSITORY, tagObject)))
+                new ProvisionWorktreeCommand(taskId, WORKSPACE_ID, REPOSITORY, tagObject, command(taskId).generatedBranch())))
                 .isInstanceOf(InvalidAgentRequestException.class)
                 .hasMessageContaining("exact start commit");
 
         assertThat(paths.worktrees(WORKSPACE_ID).resolve(taskId.toString())).doesNotExist();
-        assertThat(git.run(repository, "show-ref", "--verify", "--quiet", "refs/heads/bytequay/task/" + taskId).exitCode())
+        assertThat(git.run(repository, "show-ref", "--verify", "--quiet", "refs/heads/" + command(taskId).generatedBranch()).exitCode())
                 .isEqualTo(1);
     }
 
@@ -304,7 +332,7 @@ class TestManagedWorktreeService
     void existingGeneratedBranchIsPreservedAndReported()
     {
         TaskId taskId = TaskId.random();
-        String branch = "bytequay/task/" + taskId;
+        String branch = command(taskId).generatedBranch();
         run(repository, "branch", branch, startCommit);
 
         assertThatThrownBy(() -> service.provision(command(taskId)))
@@ -359,18 +387,20 @@ class TestManagedWorktreeService
                 .thenReturn(Optional.of(workspace(linkedWorkspaceId, linkedRepository)));
         ManagedWorktreeService linkedService = new ManagedWorktreeService(linkedPaths, linkedWorkspaces, git);
 
+        TaskId taskId = TaskId.random();
         assertThatThrownBy(() -> linkedService.provision(new ProvisionWorktreeCommand(
-                TaskId.random(),
+                taskId,
                 linkedWorkspaceId,
                 REPOSITORY,
-                startCommit)))
+                startCommit,
+                command(taskId).generatedBranch())))
                 .isInstanceOf(InvalidAgentRequestException.class)
                 .hasMessageContaining("primary checkout");
     }
 
     private ProvisionWorktreeCommand command(TaskId taskId)
     {
-        return new ProvisionWorktreeCommand(taskId, WORKSPACE_ID, REPOSITORY, startCommit);
+        return new ProvisionWorktreeCommand(taskId, WORKSPACE_ID, REPOSITORY, startCommit, TaskBranches.generate(taskId, "user", "Test task"));
     }
 
     private Workspace workspace()

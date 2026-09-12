@@ -31,6 +31,7 @@ import com.bytequay.agent.core.CreateAgentTaskCommand;
 import com.bytequay.agent.core.DevelopmentAutomation;
 import com.bytequay.agent.core.EventId;
 import com.bytequay.agent.core.RepositoryIdentity;
+import com.bytequay.agent.core.TaskBranches;
 import com.bytequay.agent.core.TaskId;
 import com.bytequay.agent.core.TaskResources;
 import com.bytequay.agent.core.TaskWorktree;
@@ -262,6 +263,8 @@ class TestAgentHttpApi
         driver.reset();
         claudeDriver.reset();
         reset(provisioning);
+        when(credentials.resolveGitHubCredential()).thenReturn(
+                new GitHubCredential("pat", new UserProfile("chenjian2664", "Chen", "", "", 0, 0, 0, "", "", "", "")));
         doReturn(new DevelopmentPublicationFacts(Optional.empty(), ImmutableList.of())).when(developmentGit).inspectPublication(any(), any());
         models.refreshCatalogs();
         workspaceId = "agent-http-" + UUID.randomUUID();
@@ -616,6 +619,7 @@ class TestAgentHttpApi
                 AgentLaneId.CODEX_CLI,
                 RepositoryIdentity.valueOf(REPOSITORY),
                 run("git", "-C", repository.toString(), "rev-parse", "--verify", "HEAD^{commit}"),
+                TaskBranches.generate(workflowTaskId, "user", "Workflow-owned task"),
                 "Workflow-owned task",
                 AgentTaskDefaults.forPermission(AgentPermissionPolicy.AUTO)));
         ResponseEntity<JsonNode> nonInteractive = post(
@@ -693,8 +697,8 @@ class TestAgentHttpApi
         // Nothing was written, so the checkout goes while its branch stays behind as the result.
         assertThat(failed.getBody().get("checkoutRemovedAt").isTextual()).isTrue();
         assertThat(cleanWorktree).doesNotExist();
-        assertThat(run("git", "-C", repository.toString(), "branch", "--list", "bytequay/task/" + cleanTaskId))
-                .contains(cleanTaskId);
+        assertThat(run("git", "-C", repository.toString(), "branch", "--list", clean.required("generatedBranch").asText()))
+                .contains(clean.required("generatedBranch").asText());
 
         JsonNode dirty = post("/agent/tasks", createTaskBody("codex"), null).getBody();
         String dirtyTaskId = dirty.required("id").asText();
@@ -934,6 +938,8 @@ class TestAgentHttpApi
         assertThat(createdTask).isNotNull();
         String taskId = createdTask.get("id").asText();
         assertThat(createdTask.get("workspaceId").asText()).isEqualTo(workspaceId);
+        assertThat(createdTask.required("generatedBranch").asText())
+                .isEqualTo(tasks.get(TaskId.valueOf(taskId)).taskWorktree().orElseThrow().generatedBranch());
         assertThat(createdTask.has("worktree")).isFalse();
         assertThat(createdTask.has("repository")).isFalse();
         assertThat(createdTask.has("sessionReference")).isFalse();
@@ -1245,6 +1251,7 @@ class TestAgentHttpApi
     {
         Map<String, String> values = ImmutableMap.<String, String>builder()
                 .put(workspaceId, "<workspace-id>")
+                .put(tasks.get(TaskId.valueOf(taskId)).taskWorktree().orElseThrow().generatedBranch(), "<generated-branch>")
                 .put(taskId, "<task-id>")
                 .put(firstTurnId, "<turn-1>")
                 .put(secondTurnId, "<turn-2>")

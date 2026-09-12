@@ -24,6 +24,7 @@ import com.bytequay.agent.core.CompleteAgentTaskCommand;
 import com.bytequay.agent.core.CreateAgentTaskCommand;
 import com.bytequay.agent.core.RepositoryIdentity;
 import com.bytequay.agent.core.StartAgentTurnCommand;
+import com.bytequay.agent.core.TaskBranches;
 import com.bytequay.agent.core.TaskId;
 import com.bytequay.agent.core.TaskWorktree;
 import com.bytequay.agent.core.TurnId;
@@ -36,6 +37,7 @@ import com.bytequay.app.git.GitCommandRunner;
 import com.bytequay.app.git.GitSequencerDriver;
 import com.bytequay.app.git.GitSequencerDriver.NormalizationResult;
 import com.bytequay.app.git.SequenceState;
+import com.bytequay.app.service.credentials.CredentialService;
 import com.bytequay.app.workspace.WorkspacePaths;
 import com.bytequay.app.workspace.WorkspaceRepositoryContext;
 import com.bytequay.app.workspace.WorkspaceRepositoryService;
@@ -107,6 +109,7 @@ public class CherryPickExecutionService
     private final AgentTurnService turns;
     private final AgentCompletionService completions;
     private final AgentDriverRegistry drivers;
+    private final CredentialService credentials;
     private final WorkspaceRepositoryService workspaceRepositories;
     private final WorkspacePaths workspacePaths;
     private final Clock clock;
@@ -121,6 +124,7 @@ public class CherryPickExecutionService
             AgentTurnService turns,
             AgentCompletionService completions,
             AgentDriverRegistry drivers,
+            CredentialService credentials,
             WorkspaceRepositoryService workspaceRepositories,
             WorkspacePaths workspacePaths,
             Clock clock)
@@ -133,6 +137,7 @@ public class CherryPickExecutionService
         this.turns = requireNonNull(turns, "turns is null");
         this.completions = requireNonNull(completions, "completions is null");
         this.drivers = requireNonNull(drivers, "drivers is null");
+        this.credentials = requireNonNull(credentials, "credentials is null");
         this.workspaceRepositories = requireNonNull(workspaceRepositories, "workspaceRepositories is null");
         this.workspacePaths = requireNonNull(workspacePaths, "workspacePaths is null");
         this.clock = requireNonNull(clock, "clock is null");
@@ -189,6 +194,7 @@ public class CherryPickExecutionService
         }
 
         TaskId taskId = TaskId.random();
+        String branch = TaskBranches.generate(taskId, credentials.resolveGitHubCredential().profile().login(), "Cherry-pick " + preview.targetBranch());
         CherryPickExecution proposed = CherryPickExecution.create(
                 CherryPickExecutionId.random(),
                 command.idempotencyKey(),
@@ -200,7 +206,7 @@ public class CherryPickExecutionService
                         preview.targetRemote(),
                         preview.targetBranch(),
                         preview.localTargetBranch(),
-                        "bytequay/task/" + taskId,
+                        branch,
                         plannedWorktree(workspaceId, taskId),
                         command.laneId()),
                 Optional.of(command.pullRequestDraft()),
@@ -928,7 +934,8 @@ public class CherryPickExecutionService
             String workspaceId,
             AgentLaneId laneId,
             RepositoryIdentity physicalRepository,
-            String startCommit)
+            String startCommit,
+            String generatedBranch)
     {
         return tasks.create(new CreateAgentTaskCommand(
                 taskId,
@@ -936,6 +943,7 @@ public class CherryPickExecutionService
                 laneId,
                 physicalRepository,
                 startCommit,
+                generatedBranch,
                 "Cherry-pick task " + taskId,
                 AgentTaskDefaults.forPermission(AgentPermissionPolicy.CHERRY_PICK)));
     }
@@ -972,7 +980,8 @@ public class CherryPickExecutionService
                     workspaceId,
                     new AgentLaneId(execution.workspace().laneId()),
                     created,
-                    execution.range().initialTargetSha()));
+                    execution.range().initialTargetSha(),
+                    execution.workspace().workBranch()));
             return requireAgentTask(execution, task, repository);
         }
         requireSelectedRepository(selectedRepository, repository, CherryPickConflictException::new);

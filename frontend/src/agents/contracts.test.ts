@@ -79,9 +79,12 @@ describe('agent contract parsing', () => {
     const task = parseAgentTask(fixture.task);
 
     expect(task.id).toBe(fixture.task.id);
+    expect(task.generatedBranch).toBe(fixture.task.generatedBranch);
     expect(task.state).toBe(fixture.task.state);
     expect(task.defaults.permissionPolicy).toBe('AUTO');
     expect(task.summary).toBeNull();
+    expect(parseAgentTask({ ...fixture.task, generatedBranch: null }).generatedBranch).toBeNull();
+    expect(() => parseAgentTask({ ...fixture.task, generatedBranch: 42 })).toThrow(/generatedBranch/);
   });
 
   it('reads a completed task with its summary', () => {

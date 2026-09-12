@@ -85,7 +85,7 @@ public final class ManagedWorktreeService
 
             Path requestedPath = paths.canonicalTaskWorktree(
                     command.workspaceId(), command.taskId().toString());
-            String branch = "bytequay/task/" + command.taskId();
+            String branch = command.generatedBranch();
             if (Files.exists(requestedPath, LinkOption.NOFOLLOW_LINKS)) {
                 if (Files.isSymbolicLink(requestedPath)
                         || !Files.isDirectory(requestedPath, LinkOption.NOFOLLOW_LINKS)) {

@@ -3,6 +3,7 @@
     "developmentContinuationUnfinished": false,
     "id": "<task-id>",
     "workspaceId": "<workspace-id>",
+    "generatedBranch": "chenjian2664/bytequay/agent-http-test-c587a121",
     "title": "Agent HTTP test",
     "titleSource": "PROVISIONAL",
     "laneId": "codex",
@@ -63,7 +64,7 @@
     "taskId": "<task-id>",
     "summary": {
       "finalResponse": "deterministic: second",
-      "resultBranch": "bytequay/task/<task-id>",
+      "resultBranch": "chenjian2664/bytequay/agent-http-test-c587a121",
       "resultHead": "<head>",
       "metrics": {
         "inputTokens": 0,
@@ -81,6 +82,7 @@
     "developmentContinuationUnfinished": false,
     "id": "<task-id>",
     "workspaceId": "<workspace-id>",
+    "generatedBranch": "chenjian2664/bytequay/agent-http-test-c587a121",
     "title": "Agent HTTP test",
     "titleSource": "PROVISIONAL",
     "laneId": "codex",
@@ -105,7 +107,7 @@
     },
     "summary": {
       "finalResponse": "deterministic: second",
-      "resultBranch": "bytequay/task/<task-id>",
+      "resultBranch": "chenjian2664/bytequay/agent-http-test-c587a121",
       "resultHead": "<head>",
       "metrics": {
         "inputTokens": 0,

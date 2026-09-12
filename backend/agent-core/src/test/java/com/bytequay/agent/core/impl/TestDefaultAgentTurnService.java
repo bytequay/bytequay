@@ -55,6 +55,7 @@ import com.bytequay.agent.core.ResolveApprovalCommand;
 import com.bytequay.agent.core.StartAgentTurnCommand;
 import com.bytequay.agent.core.SteerAgentTurnCommand;
 import com.bytequay.agent.core.StoreAgentAttachmentCommand;
+import com.bytequay.agent.core.TaskBranches;
 import com.bytequay.agent.core.TaskCompletion;
 import com.bytequay.agent.core.TaskId;
 import com.bytequay.agent.core.TaskState;
@@ -173,12 +174,14 @@ class TestDefaultAgentTurnService
                 () -> codeGraphEnabled,
                 Runnable::run,
                 CLOCK);
+        TaskId taskId = TaskId.random();
         task = taskService.create(new CreateAgentTaskCommand(
-                TaskId.random(),
+                taskId,
                 "workspace-a",
                 DeterministicAgentDriver.LANE_ID,
                 new RepositoryIdentity("bytequay", "bytequay"),
                 "0123456789012345678901234567890123456789",
+                TaskBranches.generate(taskId, "user", "Lifecycle test"),
                 "Lifecycle test",
                 new AgentTaskDefaults(
                         Optional.of("model-a"),
@@ -217,7 +220,7 @@ class TestDefaultAgentTurnService
                     command.workspaceId(),
                     command.physicalRepository(),
                     worktree.resolve(command.taskId().toString()),
-                    "bytequay/task/" + command.taskId(),
+                    command.generatedBranch(),
                     command.startCommit());
         }
 
@@ -439,12 +442,14 @@ class TestDefaultAgentTurnService
 
     private AgentTask interactiveTask(String firstMessage)
     {
+        TaskId taskId = TaskId.random();
         return taskService.createInteractive(new CreateInteractiveAgentTaskCommand(
-                TaskId.random(),
+                taskId,
                 "workspace-a",
                 DeterministicAgentDriver.LANE_ID,
                 new RepositoryIdentity("bytequay", "bytequay"),
                 "0123456789012345678901234567890123456789",
+                TaskBranches.generate(taskId, "user", firstMessage),
                 firstMessage,
                 new AgentTaskDefaults(
                         Optional.of("model-a"),

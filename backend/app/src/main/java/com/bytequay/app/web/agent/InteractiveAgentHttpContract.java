@@ -22,6 +22,7 @@ import com.bytequay.agent.core.AgentTurn;
 import com.bytequay.agent.core.AgentTurnSettings;
 import com.bytequay.agent.core.QueuedAgentInput;
 import com.bytequay.agent.core.TaskSummary;
+import com.bytequay.agent.core.TaskWorktree;
 import com.bytequay.agent.core.WorktreeMutationClaim;
 import com.bytequay.agent.spi.AgentLaneId;
 import com.bytequay.agent.spi.AgentPermissionPolicy;
@@ -62,6 +63,7 @@ final class InteractiveAgentHttpContract
         return new TaskResponse(
                 task.id().toString(),
                 task.workspaceId().orElseThrow(),
+                task.taskWorktree().map(TaskWorktree::generatedBranch),
                 task.title(),
                 task.titleSource().name(),
                 task.laneId().value(),
@@ -300,6 +302,7 @@ final class InteractiveAgentHttpContract
     record TaskResponse(
             String id,
             String workspaceId,
+            Optional<String> generatedBranch,
             String title,
             String titleSource,
             String laneId,

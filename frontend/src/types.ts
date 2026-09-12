@@ -596,6 +596,7 @@ export type AgentTaskDto = {
   developmentCi?: AgentDevelopmentCiDto | null;
   id: string;
   workspaceId: string;
+  generatedBranch: string | null;
   title: string;
   /** PROVISIONAL until the agent's first answer proposes a name (AGENT); a rename is USER and final. */
   titleSource: string;

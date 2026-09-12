@@ -58,6 +58,7 @@ import com.bytequay.app.agent.DevelopmentPublicationRoute;
 import com.bytequay.app.agent.InteractiveAgentTaskCreator;
 import com.bytequay.app.ci.CiAutofixService;
 import com.bytequay.app.git.GitCommandRunner;
+import com.bytequay.app.service.credentials.CredentialService;
 import com.bytequay.app.service.pr.PullRequestService;
 import com.bytequay.app.service.recent.RecentTouchRecorder;
 import com.bytequay.app.service.settings.AppSettingsService;
@@ -146,7 +147,8 @@ class TestAgentHttpErrors
                         workspaces,
                         mock(WorkspaceProvisioningService.class),
                         git,
-                        appSettings),
+                        appSettings,
+                        mock(CredentialService.class)),
                 startupRecovery,
                 turnService,
                 mock(AgentEventService.class),

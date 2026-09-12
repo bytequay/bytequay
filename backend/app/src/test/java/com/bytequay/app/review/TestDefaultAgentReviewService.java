@@ -162,6 +162,7 @@ class TestDefaultAgentReviewService
         assertThat(created.getValue().workspaceId()).isEqualTo(WORKSPACE);
         assertThat(created.getValue().startCommit()).isEqualTo(HEAD);
         assertThat(created.getValue().title()).isEqualTo("Review owner/repo#7");
+        assertThat(created.getValue().generatedBranch()).isEqualTo("octocat/bytequay/review-owner-repo-7-" + created.getValue().taskId().toString().substring(0, 8));
 
         // The review request is written by ByteQuay, so the transcript must not attribute it to the user.
         ArgumentCaptor<StartAgentTurnCommand> started = ArgumentCaptor.forClass(StartAgentTurnCommand.class);
@@ -203,10 +204,26 @@ class TestDefaultAgentReviewService
     }
 
     @Test
-    void preparationFailureEndsTheRunAndPausesFollowUp()
+    void unavailableGitHubAccountPreventsTaskCreation()
     {
         Fixture fixture = new Fixture();
         when(fixture.credentials.resolveGitHubCredential()).thenThrow(new IllegalStateException("GitHub credential unavailable"));
+
+        assertThatThrownBy(() -> fixture.service.start(WORKSPACE, REPO, NUMBER))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("GitHub credential unavailable");
+
+        assertThat(fixture.store.findOpenReview(WORKSPACE, REPO, NUMBER)).isEmpty();
+        verify(fixture.tasks, never()).create(any(CreateAgentTaskCommand.class));
+        verify(fixture.turns, never()).start(any(StartAgentTurnCommand.class));
+    }
+
+    @Test
+    void preparationFailureEndsTheRunAndPausesFollowUp()
+    {
+        Fixture fixture = new Fixture();
+        GitHubCredential credential = fixture.credentials.resolveGitHubCredential();
+        when(fixture.credentials.resolveGitHubCredential()).thenReturn(credential).thenThrow(new IllegalStateException("GitHub credential unavailable"));
 
         assertThatThrownBy(() -> fixture.service.start(WORKSPACE, REPO, NUMBER))
                 .isInstanceOf(IllegalStateException.class)
@@ -225,7 +242,8 @@ class TestDefaultAgentReviewService
     void reconcileSettlesAStartupThatStoppedBeforeTurnAcceptance()
     {
         Fixture fixture = new Fixture();
-        when(fixture.credentials.resolveGitHubCredential()).thenThrow(new NoClassDefFoundError("Startup class unavailable"));
+        GitHubCredential credential = fixture.credentials.resolveGitHubCredential();
+        when(fixture.credentials.resolveGitHubCredential()).thenReturn(credential).thenThrow(new NoClassDefFoundError("Startup class unavailable"));
         assertThatThrownBy(() -> fixture.service.start(WORKSPACE, REPO, NUMBER)).isInstanceOf(NoClassDefFoundError.class);
         String reviewId = fixture.store.findOpenReview(WORKSPACE, REPO, NUMBER).orElseThrow().id();
         assertThat(fixture.store.listRuns(reviewId).getLast().state()).isEqualTo(ReviewRun.State.RUNNING);
@@ -244,6 +262,7 @@ class TestDefaultAgentReviewService
         Fixture fixture = new Fixture();
         GitHubCredential credential = fixture.credentials.resolveGitHubCredential();
         when(fixture.credentials.resolveGitHubCredential())
+                .thenReturn(credential)
                 .thenThrow(new NoClassDefFoundError("Startup class unavailable"))
                 .thenReturn(credential);
         assertThatThrownBy(() -> fixture.service.start(WORKSPACE, REPO, NUMBER)).isInstanceOf(NoClassDefFoundError.class);
@@ -319,7 +338,7 @@ class TestDefaultAgentReviewService
         CountDownLatch preparing = new CountDownLatch(1);
         CountDownLatch continueStartup = new CountDownLatch(1);
         CountDownLatch reconciling = new CountDownLatch(1);
-        when(fixture.credentials.resolveGitHubCredential()).thenAnswer(invocation -> {
+        when(fixture.credentials.resolveGitHubCredential()).thenReturn(credential).thenAnswer(invocation -> {
             preparing.countDown();
             assertThat(continueStartup.await(5, TimeUnit.SECONDS)).isTrue();
             return credential;

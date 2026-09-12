@@ -126,12 +126,13 @@ it('attributes generated requests using trusted durable origins and names live a
 
 it('shows both create-PR requests as the action and the branches they name, never as the prompt', () => {
   const ordinary: AgentTurnDto = { ...baseTurn, taskId: 'c587a121' };
-  const route = { head: 'bytequay/task/c587a121', base: 'master' };
+  const branch = 'chenjian2664/bytequay/find-and-refactor-minor-issue-c587a121';
+  const route = { head: branch, base: 'master' };
   const generated: AgentTurnDto = { ...ordinary, developmentOrigin: { kind: 'CREATE_DRAFT_PR', parentUserTurnId: 'source-turn' } };
   // The lines DevelopmentFollowupCoordinator.publicationPrompt writes for a fork route.
   const publication = [
     'ByteQuay · Create draft PR',
-    "Worktree: '/w/worktrees/t'. Branch: 'bytequay/task/t'. Exact clean HEAD to publish: e5083dc3.",
+    `Worktree: '/w/worktrees/t'. Branch: '${branch}'. Exact clean HEAD to publish: e5083dc3.`,
     "Base repository/branch: trinodb/trino / 'master'. Push repository: alice/trino. Push URL: 'https://github.com/alice/trino.git'.",
   ].join('\n');
   const workspace: WorkspaceDto = {
@@ -140,19 +141,20 @@ it('shows both create-PR requests as the action and the branches they name, neve
     topology: 'FORK', defaultBranch: 'main', upstreamDefaultBranch: 'master', localRepositoryPath: '/w', lastCodeSyncAt: null, lastMetadataSyncAt: null, displayOrder: 0,
   };
   const panel = draftPullRequestPrompt(workspace);
-  expect(draftPullRequestRequest(generated, publication)).toEqual(route);
-  expect(draftPullRequestRequest(ordinary, panel)).toEqual(route);
+  expect(draftPullRequestRequest(generated, publication, branch)).toEqual(route);
+  expect(draftPullRequestRequest(ordinary, panel, branch)).toEqual(route);
+  expect(draftPullRequestRequest(ordinary, panel, null)).toEqual({ ...route, head: null });
   // A reworded template still reads as the action; only its base goes unnamed.
-  expect(draftPullRequestRequest(generated, 'Push the revision and create its draft')).toEqual({ ...route, base: null });
+  expect(draftPullRequestRequest(generated, 'Push the revision and create its draft', branch)).toEqual({ ...route, base: null });
   // Only the trusted origin or the panel's own request qualifies, and only with its durable turn.
-  expect(draftPullRequestRequest(ordinary, publication)).toBeNull();
-  expect(draftPullRequestRequest(ordinary, 'Please open a draft pull request for this task.')).toBeNull();
-  expect(draftPullRequestRequest(undefined, panel)).toBeNull();
+  expect(draftPullRequestRequest(ordinary, publication, branch)).toBeNull();
+  expect(draftPullRequestRequest(ordinary, 'Please open a draft pull request for this task.', branch)).toBeNull();
+  expect(draftPullRequestRequest(undefined, panel, branch)).toBeNull();
 
   const html = renderToStaticMarkup(<TurnView
     turn={{ turnId: ordinary.id, ordinal: 1, blocks: [], answer: null, startedAt: null, endedAt: null, outcome: null, usage: null,
       users: [{ id: 'request', text: panel, attachments: [], delivery: 'TURN', at: '2026-01-01T12:00:00Z' }] }}
-    first={false} open={false} now={0} models={[]} durableTurns={{ [ordinary.id]: ordinary }} activityChoice={{}} previews={{}} agentLabels={{}}
+    first={false} open={false} now={0} models={[]} durableTurns={{ [ordinary.id]: ordinary }} activityChoice={{}} previews={{}} agentLabels={{}} generatedBranch={branch}
     onToggle={() => {}} onToggleActivity={() => {}} />);
   expect(html).toContain('Open draft pull request');
   expect(html).toContain(`title="${route.head}">${route.head}</span>`);

@@ -17,6 +17,7 @@ import { Archive, ArchiveRestore, Check, ChevronRight, LoaderCircle, SquareCheck
 import { ConfirmDialog } from '../ConfirmDialog';
 import { relativeTime } from '../relativeTime';
 import { INTERACTIVE_LANE_ID, displayModelName, laneLabel, providerAvailable, providerRemedy, remedyCommand } from '../settings/model';
+import { getCached, setCached } from '../dataCache';
 import Toast from '../Toast';
 import { AutomationControl } from './AutomationControl';
 import { automationForSubmission } from './developmentAutomation';
@@ -180,8 +181,11 @@ export function useAgentTaskCreation({ workspaceId, initialLaneId, bridge, onOpe
   bridge: () => AgentBridgePort;
   onOpenTask: (taskId: string) => void;
 }) {
-  const [tasks, setTasks] = useState<AgentTaskDto[]>([]);
-  const [loading, setLoading] = useState(true);
+  // Home and the Tasks page remount on every tab switch; the last list paints the first frame, and
+  // the mount still re-reads it.
+  const seed = `agent-tasks:${workspaceId}`;
+  const [tasks, setTasks] = useState<AgentTaskDto[]>(() => getCached<AgentTaskDto[]>(seed) ?? []);
+  const [loading, setLoading] = useState(() => getCached(seed) === undefined);
   const [error, setError] = useState<string | null>(null);
   const [catalog, setCatalog] = useState<ModelSettingsDto | null>(null);
   const [laneId, setLaneId] = useState(initialLaneId);
@@ -244,7 +248,6 @@ export function useAgentTaskCreation({ workspaceId, initialLaneId, bridge, onOpe
 
   useEffect(() => {
     let active = true;
-    setLoading(true);
     bridge().listAgentTasks(workspaceId)
       .then((found) => {
         if (!active) return;
@@ -260,6 +263,11 @@ export function useAgentTaskCreation({ workspaceId, initialLaneId, bridge, onOpe
       });
     return () => { active = false; };
   }, [bridge, workspaceId]);
+
+  useEffect(() => {
+    // A failed read leaves nothing worth painting on the next visit.
+    if (!loading && error === null) setCached(seed, tasks);
+  }, [error, loading, seed, tasks]);
 
   useEffect(() => {
     let active = true;

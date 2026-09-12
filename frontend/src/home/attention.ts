@@ -134,6 +134,13 @@ export function assignedIssues(
     }));
 }
 
+/**
+ * The dataCache entries Home and every workspace Home paint their first frame from: the last
+ * /prs/attention rows, the viewer's profile, and every workspace's assigned issues. Rows are ranked
+ * with all three, so seeding the rows alone would re-sort them once the login and issues land.
+ */
+export const ATTENTION_SEED = { prs: 'home:attention', profile: 'home:profile', issues: 'home:issues' };
+
 export function attentionCandidates(
   prs: PullRequestDto[],
   issues: AttentionItem[] = [],

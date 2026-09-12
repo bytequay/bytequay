@@ -19,6 +19,7 @@ import ActivityRow from '../ActivityRow';
 import { groupRecentEvents } from '../activityNarrative';
 import AttentionList from './AttentionList';
 import {
+  ATTENTION_SEED,
   assignedIssues,
   attentionCandidates,
   loadHandled,
@@ -51,11 +52,11 @@ const ACTIVITY_TTL_MS = 5 * 60 * 1000;
 // first frame; every mount still fetches and overwrites them, so they carry no
 // expiry.
 const SEED = {
-  profile: 'home:profile',
+  profile: ATTENTION_SEED.profile,
   workspaces: 'home:workspaces',
   prs: 'home:prs',
-  attention: 'home:attention',
-  issues: 'home:issues',
+  attention: ATTENTION_SEED.prs,
+  issues: ATTENTION_SEED.issues,
 };
 
 function openUrl(url: string) {

@@ -16,8 +16,10 @@ import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { CircleDot, ListChecks, Search, type LucideIcon } from 'lucide-react';
 import { INTERACTIVE_LANE_ID } from '../settings/model';
 import RepoAvatar from '../RepoAvatar';
+import { getCached, setCached } from '../dataCache';
 import AttentionList from '../home/AttentionList';
 import {
+  ATTENTION_SEED,
   assignedIssues,
   attentionCandidates,
   loadHandled,
@@ -68,14 +70,18 @@ function useWorkspaceAttention(workspaceId: string, repository: string): {
   handled: Handled;
   applyHandled: (handled: Handled) => void;
 } {
-  const [prs, setPrs] = useState<PullRequestDto[]>([]);
-  const [login, setLogin] = useState<string | null>(null);
-  const [issues, setIssues] = useState<AttentionItem[]>([]);
+  // Every tab switch remounts this page; the last reads any Home made paint the first frame, and
+  // the mount still re-reads them.
+  const [prs, setPrs] = useState<PullRequestDto[]>(() => getCached<PullRequestDto[]>(ATTENTION_SEED.prs) ?? []);
+  const [login, setLogin] = useState<string | null>(() => getCached<{ login: string }>(ATTENTION_SEED.profile)?.login ?? null);
+  const [issues, setIssues] = useState<AttentionItem[]>(
+    () => (getCached<AttentionItem[]>(ATTENTION_SEED.issues) ?? []).filter(item => item.workspaceId === workspaceId));
   const [handled, setHandled] = useState<Handled>(loadHandled);
   useEffect(() => {
     let active = true;
     const apply = (rows: PullRequestDto[]) => {
-      if (active) setPrs(rows.filter(pr => pr.repo.toLowerCase() === repository.toLowerCase()));
+      setCached(ATTENTION_SEED.prs, rows);
+      if (active) setPrs(rows);
     };
     const reload = () => { void window.bridge.fetchAttentionPrs().then(apply).catch(() => {}); };
     const updated = (event: Event) => apply((event as CustomEvent<PullRequestDto[]>).detail);
@@ -87,9 +93,14 @@ function useWorkspaceAttention(workspaceId: string, repository: string): {
     window.addEventListener('bytequay:attention-handled-changed', handledChanged);
     window.bridge.getUserProfile()
       .then(profile => {
+        setCached(ATTENTION_SEED.profile, profile);
         if (active) setLogin(profile.login);
-        return window.bridge.fetchWorkspaceIssues(workspaceId, 0, 100)
-          .then(snapshot => { if (active) setIssues(assignedIssues(snapshot, workspaceId, profile.login)); });
+        return window.bridge.fetchWorkspaceIssues(workspaceId, 0, 100).then(snapshot => {
+          const assigned = assignedIssues(snapshot, workspaceId, profile.login);
+          setCached(ATTENTION_SEED.issues, (getCached<AttentionItem[]>(ATTENTION_SEED.issues) ?? [])
+            .filter(item => item.workspaceId !== workspaceId).concat(assigned));
+          if (active) setIssues(assigned);
+        });
       })
       .catch(() => {});
     return () => {
@@ -99,8 +110,9 @@ function useWorkspaceAttention(workspaceId: string, repository: string): {
       window.removeEventListener('bytequay:pr-monitor-changed', reload);
       window.removeEventListener('bytequay:attention-handled-changed', handledChanged);
     };
-  }, [repository, workspaceId]);
-  const candidates = useMemo(() => attentionCandidates(prs, issues, login), [issues, login, prs]);
+  }, [workspaceId]);
+  const candidates = useMemo(() => attentionCandidates(
+    prs.filter(pr => pr.repo.toLowerCase() === repository.toLowerCase()), issues, login), [issues, login, prs, repository]);
   // The same store as Home, so acknowledging here clears the row there too.
   const applyHandled = useCallback((next: Handled) => {
     setHandled(next);

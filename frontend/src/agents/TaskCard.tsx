@@ -14,12 +14,13 @@
 
 import React, { useEffect, useReducer, useRef, useState } from 'react';
 import { EyeOff, LoaderCircle, Pencil } from 'lucide-react';
+import { getCached, setCached } from '../dataCache';
 import { relativeTime } from '../relativeTime';
 import { displayModelName, laneLabel } from '../settings/model';
 import { TurnView } from './AgentTaskScreen';
 import { taskStatePill } from './AgentTasksView';
 import type { AgentEventEnvelope } from './events';
-import { agentTaskReducer, initialAgentTaskState, pollAgentTask, type AgentBridgePort } from './model';
+import { agentTaskReducer, initialAgentTaskState, pollAgentTask, type AgentBridgePort, type AgentTaskState } from './model';
 import { projectTranscript, settleFinalTurn } from './transcript';
 import type { AgentTaskDto, ModelProviderDto } from '../types';
 
@@ -205,7 +206,11 @@ function TaskWindow({ task: listed, tick, bridge, hidden = false, renamable = fa
   onOpen: () => void;
   onClose?: () => void;
 }): React.JSX.Element | null {
-  const [state, dispatch] = useReducer(agentTaskReducer, undefined, initialAgentTaskState);
+  // Home remounts on every tab switch; the window's last state paints the thumbnail until the poll replaces it.
+  // ponytail: one retained state per task shown this session; evict closed tasks if renderer memory ever matters.
+  const seed = `task-window:${listed.id}`;
+  const [state, dispatch] = useReducer(agentTaskReducer, seed, (key) => getCached<AgentTaskState>(key) ?? initialAgentTaskState());
+  useEffect(() => { setCached(seed, state); }, [seed, state]);
   const [pendingApprovalCount, setPendingApprovalCount] = useState(0);
   useEffect(() => {
     let active = true;

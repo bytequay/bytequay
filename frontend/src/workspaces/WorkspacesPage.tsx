@@ -13,7 +13,7 @@
  */
 import { useEffect, useRef, useState } from 'react';
 import AddRepoModal from '../AddRepoModal';
-import { getCachedFresh, setCached } from '../dataCache';
+import { getCached, getCachedFresh, setCached } from '../dataCache';
 import { pullRequestNeedsReview } from '../pulls/model';
 import { relativeTime } from '../relativeTime';
 import RepoAvatar from '../RepoAvatar';
@@ -38,6 +38,13 @@ const SPARK_MAX_AGE_MS = 300_000;
 /** How long a clone may sit unfinished before the card offers a retry. */
 const SLOW_CLONE_MS = 60_000;
 
+// This page unmounts on every tab switch. These hold the last lists purely to
+// paint the first frame; every mount still fetches and overwrites them.
+const SEED = {
+  watched: 'workspaces:watched',
+  retired: 'workspaces:retired',
+};
+
 function sparkKey(workspace: WorkspaceDto): string {
   return `workspace-spark:${workspace.id}:${workspace.monitoredRepositoryId}:${workspace.upstreamDefaultBranch ?? workspace.defaultBranch}`;
 }
@@ -55,11 +62,11 @@ type WorkspaceActivity = {
 type WorkspaceFailure = { at: number; message: string };
 
 export default function WorkspacesPage({ onOpen }: { onOpen: (workspaceId: string) => void }) {
-  const [workspaces, setWorkspaces] = useState<WorkspaceDto[]>([]);
-  const [retired, setRetired] = useState<WorkspaceDto[]>([]);
+  const [workspaces, setWorkspaces] = useState<WorkspaceDto[]>(() => getCached<WorkspaceDto[]>(SEED.watched) ?? []);
+  const [retired, setRetired] = useState<WorkspaceDto[]>(() => getCached<WorkspaceDto[]>(SEED.retired) ?? []);
   const [tab, setTab] = useState<'watched' | 'retired'>('watched');
   const [refresh, setRefresh] = useState(0);
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState(() => getCached(SEED.watched) === undefined);
   const [error, setError] = useState<string | null>(null);
   const [prs, setPrs] = useState<PullRequestDto[]>([]);
   const [executions, setExecutions] = useState<CherryPickExecution[]>([]);
@@ -89,6 +96,13 @@ export default function WorkspacesPage({ onOpen }: { onOpen: (workspaceId: strin
       .finally(() => { if (!cancelled) setLoading(false); });
     return () => { cancelled = true; };
   }, [refresh]);
+
+  // A failed first load leaves empty lists, which must not seed the next visit.
+  useEffect(() => {
+    if (loading || error !== null) return;
+    setCached(SEED.watched, workspaces);
+    setCached(SEED.retired, retired);
+  }, [error, loading, retired, workspaces]);
 
   useEffect(() => {
     let cancelled = false;
@@ -232,10 +246,10 @@ export default function WorkspacesPage({ onOpen }: { onOpen: (workspaceId: strin
       </div>
       <div className="ws-tabs" aria-label="Workspace views">
         <button type="button" aria-pressed={tab === 'watched'} onClick={() => setTab('watched')}>
-          Watched <span>{workspaces.length}</span>
+          Watched {!loading && <span>{workspaces.length}</span>}
         </button>
         <button type="button" aria-pressed={tab === 'retired'} onClick={() => setTab('retired')}>
-          Retired <span>{retired.length}</span>
+          Retired {!loading && <span>{retired.length}</span>}
         </button>
       </div>
       <p className="ws-lede">
@@ -247,7 +261,7 @@ export default function WorkspacesPage({ onOpen }: { onOpen: (workspaceId: strin
       {error && <div className="ws-error" role="alert">{error}</div>}
       {loading && <div className="ws-empty">Loading workspaces…</div>}
 
-      {tab === 'watched' ? <WorkspaceCards
+      {!loading && (tab === 'watched' ? <WorkspaceCards
         workspaces={workspaces}
         onOpen={onOpen}
         onWatch={() => openWatch()}
@@ -259,12 +273,12 @@ export default function WorkspacesPage({ onOpen }: { onOpen: (workspaceId: strin
         onUnwatch={workspace => { setError(null); setUnwatchTarget(workspace); }}
         onDelete={setDeleting}
         unwatching={unwatching}
-      /> : !loading && <RetiredWorkspaceCards
+      /> : <RetiredWorkspaceCards
         workspaces={retired}
         onOpen={onOpen}
         onWatch={workspace => openWatch(workspace.selectedRepositoryId)}
         onDelete={setDeleting}
-      />}
+      />)}
 
       {showModal && (
         <AddRepoModal

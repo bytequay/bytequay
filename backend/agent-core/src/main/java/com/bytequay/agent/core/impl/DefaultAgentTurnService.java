@@ -1739,15 +1739,9 @@ public final class DefaultAgentTurnService
         String itemId = result.source().providerItemId().orElseThrow(() -> new IllegalArgumentException("Development report has no native tool identity"));
         EventId eventId = EventId.developmentResult(taskId, turn.id(), itemId);
         ProviderAgentEventAdapter.CanonicalEvent event = ProviderAgentEventAdapter.adapt(result);
-        unitOfWork.execute(() -> {
-            if (outboxStore.find(eventId).isPresent()) {
-                return null;
-            }
-            turnStore.update(turn.withDevelopmentResult(result.report()));
-            outboxStore.insert(pendingInline(eventId, taskId, Optional.of(turn.id()), event.source(), event.payload(), Instant.now(clock)));
-            return null;
-        });
-        eventService.drain(eventId);
+        eventCommitter.commitIfAbsent(
+                pendingInline(eventId, taskId, Optional.of(turn.id()), event.source(), event.payload(), Instant.now(clock)),
+                () -> turnStore.update(turn.withDevelopmentResult(result.report())));
     }
 
     private void recordUsage(TaskId taskId, AgentTurn turn, ProviderAgentEvent.Usage usage)
@@ -1758,21 +1752,9 @@ public final class DefaultAgentTurnService
                 .orElseGet(EventId::random);
         ProviderAgentEventAdapter.CanonicalEvent event = ProviderAgentEventAdapter.adapt(usage);
         Instant occurredAt = Instant.now(clock);
-        unitOfWork.execute(() -> {
-            if (outboxStore.find(eventId).isPresent()) {
-                return null;
-            }
-            metricsService.record(taskId, turn.id(), usage.sample());
-            outboxStore.insert(pendingInline(
-                    eventId,
-                    taskId,
-                    Optional.of(turn.id()),
-                    event.source(),
-                    event.payload(),
-                    occurredAt));
-            return null;
-        });
-        eventService.drain(eventId);
+        eventCommitter.commitIfAbsent(
+                pendingInline(eventId, taskId, Optional.of(turn.id()), event.source(), event.payload(), occurredAt),
+                () -> metricsService.record(taskId, turn.id(), usage.sample()));
     }
 
     private static boolean stateCoupled(ProviderAgentEvent.LifecyclePhase phase)

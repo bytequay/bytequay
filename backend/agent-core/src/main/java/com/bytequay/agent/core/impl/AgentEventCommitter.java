@@ -53,6 +53,26 @@ final class AgentEventCommitter
         return result;
     }
 
+    /**
+     * Runs {@code mutation} and inserts {@code event} in one unit of work unless that event is
+     * already recorded, then drains it. A repeated provider callback re-publishes rather than
+     * mutating twice.
+     */
+    void commitIfAbsent(AgentEventOutboxEntry event, Runnable mutation)
+    {
+        requireNonNull(event, "event is null");
+        requireNonNull(mutation, "mutation is null");
+        unitOfWork.execute(() -> {
+            if (outboxStore.find(event.eventId()).isPresent()) {
+                return null;
+            }
+            mutation.run();
+            outboxStore.insert(event);
+            return null;
+        });
+        eventService.drain(event.eventId());
+    }
+
     /** Publishes an event that announces no state change of its own. */
     void publish(AgentEventOutboxEntry event)
     {

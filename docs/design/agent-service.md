@@ -55,6 +55,10 @@ interactive development turns. Application/task choices and accepted user/queued
 turn snapshots now carry optional `developmentAutomation`; ordinary workflow
 tasks carry none. Local only changes one submission. Managed instructions use
 the accepted snapshot, including when it disables all automation.
+An absent CI lane means **Same agent as development**: CI inherits the task's
+chosen provider, whose creation defaults resolve workspace before global.
+An explicit CI provider overrides inheritance; readiness is still checked at
+CI attachment.
 
 Codex and Claude expose the fixed root readiness tool independently of CodeGraph.
 Only a successful current-root native tool result is persisted as the turn's

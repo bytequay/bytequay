@@ -64,7 +64,7 @@ class TestAppSettingsService
     }, new ObjectMapper().findAndRegisterModules(), Clock.systemUTC(), drivers);
 
     @Test
-    void automationDefaultsRemainUnselectedAndReadOnly()
+    void automationDefaultsInheritTheDevelopmentAgentWithoutWritingSettings()
     {
         assertThat(settings.developmentAutomation()).isEqualTo(DevelopmentAutomation.DEFAULT);
         assertThat(settings.developmentAutomation().ciLaneId()).isEmpty();

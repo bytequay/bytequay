@@ -49,9 +49,14 @@ do not duplicate them in a new delivery lifecycle.
 
 Store defaults in the existing `AppSettingsStore`. Copy them into a new task,
 allow per-task overrides, and snapshot them when a user turn is accepted.
-Generated follow-ups inherit that snapshot. **CI repair agent** selects a lane
-that advertises `CI_AUTOFIX`; Codex and Claude Code are eligible when available.
-It chooses the agent that repairs code, not the CI host (GitHub Actions).
+Generated follow-ups inherit that snapshot. **CI repair agent** defaults to
+**Same agent as development**, stored as an absent `ciLaneId`. It uses the
+provider already chosen for the development task. Task creation resolves an
+explicit task choice first, otherwise the workspace Development setting, then
+the global Development setting. CI does not reread those mutable defaults for
+an existing task. An explicit CI provider overrides that inheritance; Codex and
+Claude Code are eligible when they advertise `CI_AUTOFIX`. This selects the
+agent that repairs code; GitHub Actions remains the CI host.
 The task's **Automation** control
 is separate from its **Auto** permission mode. While a continuation is active,
 settings edits are labeled **For future turns**; **Stop automation** stops the
@@ -92,7 +97,9 @@ Respect independent settings:
 - Missing/unsupported CI shows the actual partial result, not full success.
   CI requires an authored PR with a verified workspace head remote and a `CI_AUTOFIX`
   provider. Both Codex and Claude support it. The explicitly selected CI repair
-  agent may differ from the development agent; there is no provider fallback.
+  agent may differ from the development agent. With no explicit CI selection,
+  use that task's development provider. An unsupported or unavailable resolved
+  provider still fails visibly; do not silently switch providers after failure.
   Fork PRs use the selected repository for repair pushes and the monitored
   upstream repository for checks and base synchronization. Missing upstream
   rerun permission pauses the existing CI run for user action; it does not

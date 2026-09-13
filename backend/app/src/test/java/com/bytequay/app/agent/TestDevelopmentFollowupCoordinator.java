@@ -683,13 +683,17 @@ class TestDevelopmentFollowupCoordinator
         verify(ci).startDevelopment(any(), eq(taskId), eq(source.id()), eq(pr(HEAD, true)), eq(NOW));
     }
 
-    @Test
-    void missingCiRepairAgentFailsAfterPreservingTheVerifiedDraft()
+    @ParameterizedTest
+    @ValueSource(booleans = {false, true})
+    void ciUsesTheDevelopmentAgentUnlessExplicitlyOverridden(boolean explicitCiAgent)
     {
-        preparePublished(DevelopmentAutomation.DEFAULT);
+        preparePublished(explicitCiAgent ? FULL : DevelopmentAutomation.DEFAULT);
         advance();
-        verify(turns).failDevelopmentContinuation(eq(taskId), eq(source.id()), contains("Select a supported CI repair agent"));
-        verify(ci, never()).startDevelopment(any(), any(), any(), any(), any());
+        ArgumentCaptor<StartCiAutofixCommand> command = ArgumentCaptor.forClass(StartCiAutofixCommand.class);
+        verify(ci).startDevelopment(command.capture(), eq(taskId), eq(source.id()), eq(pr(HEAD, true)), eq(NOW));
+        assertThat(command.getValue().laneId()).isEqualTo(explicitCiAgent ? AgentLaneId.CLAUDE_CLI : AgentLaneId.CODEX_CLI);
+        verify(turns).finishDevelopmentContinuation(taskId, source.id());
+        verify(turns, never()).failDevelopmentContinuation(any(), any(), anyString());
         noFollowup();
     }
 
@@ -1008,7 +1012,7 @@ class TestDevelopmentFollowupCoordinator
     {
         return CiAutofixRun.create(CiAutofixRunId.random(), "owned-ci",
                 new CiAutofixRun.Scope(pr(HEAD, true).pullRequest(), route.headRepository(), "workspace", Optional.of(route.headRepository()), "owner", route.headBranch(), "main",
-                        source.settings().orElseThrow().developmentAutomation().orElseThrow().ciLaneId().orElseThrow().value(), Optional.of(taskId.toString())),
+                        source.settings().orElseThrow().developmentAutomation().orElseThrow().ciLaneId().orElse(task.laneId()).value(), Optional.of(taskId.toString())),
                 deliveredHead, deliveredHead, BASE, new CiAutofixRun.Authorization(true, true, true, 3, NOW, NOW.plus(Duration.ofHours(8))), NOW);
     }
 

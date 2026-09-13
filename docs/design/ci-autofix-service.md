@@ -13,8 +13,12 @@ read-only service and is not covered here.
 ## Development handoff
 
 [Development Task Delivery](development-delivery.md) now calls
-`startDevelopment` after independently verified draft publication. The selected
-CI-capable provider is rechecked at attachment without fallback. The caller
+`startDevelopment` after independently verified draft publication. The caller
+uses the explicitly selected CI provider, or the development task's provider
+for **Same agent as development**. That task already captures its provider from
+the user's task choice or the workspace-then-global Development defaults.
+The resolved CI-capable provider is rechecked at attachment; an unavailable
+provider does not trigger a switch to another provider. The caller
 supplies exact PR/head/base facts, parent task/source turn, and continuation
 activation time. Idempotent reuse keeps the same scope and original three-fix,
 three-rerun-per-head, eight-hour budget; it cannot adopt standalone or another

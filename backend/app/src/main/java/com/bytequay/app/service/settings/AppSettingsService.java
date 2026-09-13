@@ -79,7 +79,7 @@ public class AppSettingsService
         return automation;
     }
 
-    /** A missing lane remains unselected. Authentication is checked when CI is actually launched. */
+    /** An absent CI lane inherits the development task's lane. Readiness is checked when CI launches. */
     public void validateDevelopmentAutomation(DevelopmentAutomation automation)
     {
         requireNonNull(automation, "automation is null");

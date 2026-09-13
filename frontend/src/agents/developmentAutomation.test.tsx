@@ -59,6 +59,8 @@ it('changes request identity when automation or its first-turn override changes'
 
 it('validates and narrows automation and durable readiness at the bridge', () => {
   expect(parseDevelopmentAutomation({ ...defaults, backendSecret: 'never forward' })).toEqual(defaults);
+  expect(parseDevelopmentAutomation(defaults).ciLaneId).toBeNull();
+  expect(parseDevelopmentAutomation({ ...defaults, ciLaneId: 'claude' }).ciLaneId).toBe('claude');
   expect(() => parseDevelopmentAutomation({ ...defaults, autoCommit: 'true' })).toThrow();
   expect(parseDevelopmentResult(report)).toEqual(report);
   expect(() => parseDevelopmentResult({ ...report, readyForDelivery: 'false' })).toThrow();
@@ -139,20 +141,20 @@ it('explains stop using the matching active turn policy instead of mutable task 
   expect(stoppingEndsDevelopment({ ...state, task: { ...task, developmentContinuationUnfinished: true } }, null)).toBe(true);
 });
 
-it('shows all switches and explicit CI repair agent selection in settings and the composer', () => {
+it('shows all switches and inherited CI repair agent selection in settings and the composer', () => {
   const page = renderToStaticMarkup(<WorkflowPage value={defaults} providers={[]} busy={false} error={null} onChange={() => {}} />);
   expect(page.match(/aria-checked="true"/g)).toHaveLength(3);
-  expect(page).toContain('Choose CI repair agent');
-  expect(page).toContain('Choose the agent that repairs failing CI checks.');
+  expect(page).toContain('Same agent as development');
+  expect(page).toContain('Use the development agent or choose another agent to repair failing CI checks.');
   const composer = renderToStaticMarkup(<AutomationControl value={defaults} providers={[]} localOnly={false}
     futureTurns onChange={() => {}} onLocalOnlyChange={() => {}} />);
   expect(composer).toContain('For future turns');
   expect(composer).toContain('Local only for this turn');
   expect(composer).toContain('mark the draft ready');
-  expect(composer).toContain('Choose CI repair agent');
+  expect(composer).toContain('Same agent as development');
 });
 
-it('offers Codex and Claude for CI repair when supported without inventing a fallback', () => {
+it('offers inherited CI repair by default and supported Codex or Claude overrides', () => {
   const provider = (id: string, supported: boolean): ModelProviderDto => ({ id, label: id, readiness: 'READY', version: '1', diagnostic: '', signInCommand: null,
     models: [], selectedModel: '', selectedEffort: '', capabilities: { ...NO_AGENT_CAPABILITIES, permissionPolicies: supported ? ['CI_AUTOFIX'] : ['AUTO'] } });
   const providers = [provider('codex', true), provider('claude', true), provider('unsupported', false)];
@@ -160,10 +162,16 @@ it('offers Codex and Claude for CI repair when supported without inventing a fal
   expect(html).toContain('value="codex"');
   expect(html).toContain('value="claude"');
   expect(html).not.toContain('value="unsupported"');
-  expect(html).toContain('value="" selected=""');
-  const selected = renderToStaticMarkup(<CiProviderSelect value="codex" providers={providers} onChange={() => {}} />);
-  expect(selected).toContain('value="codex" selected=""');
-  expect(selected).not.toContain('value="claude" selected=""');
+  expect(html).toContain('value="" selected="">Same agent as development');
+  expect(html).toContain('CI repairs use the task’s development agent.');
+  expect(html).not.toContain('Select a supported agent');
+  expect(html).not.toContain('does not support CI Autofix');
+  for (const laneId of ['codex', 'claude']) {
+    const selected = renderToStaticMarkup(<CiProviderSelect value={laneId} providers={providers} onChange={() => {}} />);
+    expect(selected).toContain(`value="${laneId}" selected=""`);
+    expect(selected).not.toContain('value="" selected=""');
+    expect(selected).not.toContain('CI repairs use the task’s development agent.');
+  }
 });
 
 it('makes Workflow discoverable and deep-linkable', () => {

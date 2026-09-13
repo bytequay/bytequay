@@ -19,7 +19,7 @@ import java.util.Optional;
 
 import static java.util.Objects.requireNonNull;
 
-/** The user's independent delivery choices, copied into each accepted development turn. */
+/** The user's accepted delivery choices; an absent CI lane inherits the development task's lane. */
 public record DevelopmentAutomation(
         boolean autoCommit,
         boolean autoDraftPr,

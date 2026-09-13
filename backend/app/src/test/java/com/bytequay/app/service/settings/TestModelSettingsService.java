@@ -277,6 +277,23 @@ class TestModelSettingsService
     }
 
     @Test
+    void workspaceDevelopmentProviderOverridesGlobalAndClearingRestoresIt()
+    {
+        service.setAgentModel(AgentModelType.DEVELOPMENT, "claude", "sonnet", Optional.of("High"));
+        service.setWorkspaceOverride("ws-1", AgentModelType.DEVELOPMENT, "codex", "gpt-5.6-sol", Optional.of("xhigh"));
+
+        assertThat(service.agentModel(AgentModelType.DEVELOPMENT, Optional.of("ws-1")))
+                .extracting(AgentModelSetting::configId, AgentModelSetting::model).containsExactly("codex", "gpt-5.6-sol");
+        assertThat(service.agentModel(AgentModelType.DEVELOPMENT, Optional.of("ws-2")))
+                .extracting(AgentModelSetting::configId, AgentModelSetting::model).containsExactly("claude", "sonnet");
+        assertThat(service.agentModel(AgentModelType.DEVELOPMENT))
+                .extracting(AgentModelSetting::configId, AgentModelSetting::model).containsExactly("claude", "sonnet");
+
+        assertThat(service.clearWorkspaceOverride("ws-1", AgentModelType.DEVELOPMENT))
+                .extracting(AgentModelSetting::configId, AgentModelSetting::model).containsExactly("claude", "sonnet");
+    }
+
+    @Test
     void aMissingCatalogStillAnswersInsteadOfFailingEverySurface()
     {
         ModelSettingsService fresh = new ModelSettingsService(

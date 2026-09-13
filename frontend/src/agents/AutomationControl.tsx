@@ -28,13 +28,14 @@ export function CiProviderSelect({ value, providers, disabled, onChange }: {
   return <div className="agt-automation-ci">
     <label htmlFor={id}>CI repair agent</label>
     <select id={id} value={value ?? ''} disabled={disabled} onChange={event => onChange(event.target.value || null)}>
-      <option value="">Choose CI repair agent</option>
+      <option value="">Same agent as development</option>
       {value !== null && selected === undefined && <option value={value}>{value} · Unavailable</option>}
       {supported.map(provider => <option key={provider.id} value={provider.id}>
         {provider.label}{provider.readiness === 'READY' || provider.readiness === 'DEGRADED' ? '' : ' · Unavailable'}
       </option>)}
     </select>
-    {selected === undefined && <small>{value === null ? 'Select a supported agent to enable CI repairs.' : 'This agent does not support CI Autofix.'}</small>}
+    {value === null && <small>CI repairs use the task’s development agent.</small>}
+    {value !== null && selected === undefined && <small>This agent does not support CI Autofix.</small>}
     {selected !== undefined && selected.readiness !== 'READY' && selected.readiness !== 'DEGRADED' && <small>{selected.diagnostic}</small>}
   </div>;
 }

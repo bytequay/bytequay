@@ -1410,6 +1410,21 @@
   flex-direction: column;
 }
 
+/*
+ * The transcript's content height less the trailing notices: at the bottom this turn starts exactly at
+ * the top padding. Without flex-shrink: 0 the percentage floor lets a long turn shrink and overflow.
+ */
+.agt-turn.is-latest {
+  flex-shrink: 0;
+  min-height: calc(100% - var(--agt-tail, 0px));
+}
+
+/* A flex column keeps its children's margins inside the height measured for --agt-tail. */
+.agt-transcript-tail {
+  display: flex;
+  flex-direction: column;
+}
+
 .agt-turn__head {
   display: flex;
   align-items: center;

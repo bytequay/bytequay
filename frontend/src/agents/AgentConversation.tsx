@@ -487,8 +487,10 @@ function TurnFooter({ turn, durable, models }: {
   );
 }
 
-export function TurnView({ turn, first, open, now, models, durableTurns, activityChoice, previews, agentLabels, onToggle, onToggleActivity, onDecide, onOpenAgent, generatedRequest = false, generatedBranch = null, localReview }: {
+export function TurnView({ turn, first, open, now, models, durableTurns, activityChoice, previews, agentLabels, onToggle, onToggleActivity, onDecide, onOpenAgent, generatedRequest = false, generatedBranch = null, localReview, latest = false, children }: {
   localReview?: LocalReviewThreads;
+  latest?: boolean;
+  children?: React.ReactNode;
   generatedRequest?: boolean;
   generatedBranch?: string | null;
   turn: TranscriptTurn;
@@ -513,7 +515,7 @@ export function TurnView({ turn, first, open, now, models, durableTurns, activit
   const opening = turn.users[0];
   const request = opening?.delivery === 'TURN' ? draftPullRequestRequest(durable, opening.text, generatedBranch) : null;
   return (
-    <section className="agt-turn" data-history-anchor={turn.turnId ?? `turn-${turn.ordinal}`} aria-label={turn.ordinal > 0 ? `Turn ${turn.ordinal}` : 'Turn'}>
+    <section className={`agt-turn${latest ? ' is-latest' : ''}`} data-history-anchor={turn.turnId ?? `turn-${turn.ordinal}`} aria-label={turn.ordinal > 0 ? `Turn ${turn.ordinal}` : 'Turn'}>
       {turn.users.map((user, index) => {
         const localThread = localReview?.threads.find(thread => thread.messages.some(message =>
           message.author === 'USER' && (message.messageEventId === user.id || (index === 0 && turn.turnId !== null && message.turnId === turn.turnId))));
@@ -577,6 +579,7 @@ export function TurnView({ turn, first, open, now, models, durableTurns, activit
         <div className="agt-answer" data-history-anchor={turn.answer.anchorId ?? turn.answer.id}>{renderMarkdown(turn.answer.text)}{!turn.answer.complete && !turn.answer.historical && <span className="agt-cursor" aria-hidden="true" />}</div>
       )}
       {turn.endedAt !== null && <TurnFooter turn={turn} durable={turn.turnId === null ? undefined : durableTurns[turn.turnId]} models={models} />}
+      {children}
     </section>
   );
 }
@@ -801,6 +804,19 @@ export function AgentConversation({
       : activeTurn?.cancellationRequestedAt != null ? 'Stopping…'
         : activeTurn?.state === 'ACCEPTED' ? 'Starting…'
           : liveTurn?.endedAt != null ? 'Finishing…' : currentActivityLabel(liveTurn);
+  const liveActivity = running && scroll.after === null && scroll.following
+    && <LiveActivity label={liveLabel} animated={!waiting && connection === 'open' && !gap} />;
+  const tailRef = useRef<HTMLDivElement>(null);
+  const transcriptRef = scroll.transcriptProps.ref;
+  useLayoutEffect(() => {
+    const tail = tailRef.current;
+    const transcript = transcriptRef.current;
+    if (tail === null || transcript === null) return undefined;
+    // Trailing notices share the latest turn's reserved viewport instead of pushing its request off the top.
+    const observer = new ResizeObserver(() => transcript.style.setProperty('--agt-tail', `${tail.offsetHeight}px`));
+    observer.observe(tail);
+    return () => observer.disconnect();
+  }, [transcriptRef]);
   return (
     <div className="agt-conversation">
       {scroll.loading && <div className="agt-history-edge" role="status">Loading activity…</div>}
@@ -820,21 +836,29 @@ export function AgentConversation({
           : turns.map((turn, index) => {
             const id = turn.turnId ?? `turn-${turn.ordinal}`;
             const open = turnChoice[id] ?? (turn.endedAt === null || turn.answer === null);
+            // At the live edge the latest turn reserves a viewport, so following the bottom puts a new
+            // request at the top with room for its reply beneath, and nothing jumps when it settles.
+            const latest = scroll.after === null && index === turns.length - 1;
             return <TurnView key={id} turn={turn} first={index === 0} open={open} now={now}
               models={models} durableTurns={durableTurns} activityChoice={activityChoice}
               previews={previews} agentLabels={agentLabels} onToggle={() => onToggleTurn(id, !open)}
               onToggleActivity={onToggleActivity} onDecide={onDecide} onOpenAgent={onOpenAgent}
-              localReview={localReview}
-              generatedRequest={turn.turnId !== null && generatedTurnIds?.has(turn.turnId)} generatedBranch={generatedBranch} />;
+              localReview={localReview} latest={latest}
+              generatedRequest={turn.turnId !== null && generatedTurnIds?.has(turn.turnId)} generatedBranch={generatedBranch}>
+              {latest && liveActivity}
+            </TurnView>;
           })}
-        {running && scroll.after === null && scroll.following && <LiveActivity label={liveLabel} animated={!waiting && connection === 'open' && !gap} />}
-        {localReview?.threads.filter(thread => thread.messages.some(message => message.author === 'USER'
-          && message.turnId === null && message.deliveryState !== 'REMOVED' && message.deliveryState !== 'ABANDONED')).map(thread => (
-          <div className="agt-local-review" key={thread.id} data-history-anchor={`local-review-${thread.id}`}>
-            <LocalReviewThreadCard {...localReview} thread={thread} />
-          </div>
-        ))}
-        {transcriptFooter}
+        {turns.length === 0 && liveActivity}
+        {/* Kept outside the latest turn so a new turn cannot remount a card holding a reply draft. */}
+        <div className="agt-transcript-tail" ref={tailRef}>
+          {localReview?.threads.filter(thread => thread.messages.some(message => message.author === 'USER'
+            && message.turnId === null && message.deliveryState !== 'REMOVED' && message.deliveryState !== 'ABANDONED')).map(thread => (
+            <div className="agt-local-review" key={thread.id} data-history-anchor={`local-review-${thread.id}`}>
+              <LocalReviewThreadCard {...localReview} thread={thread} />
+            </div>
+          ))}
+          {transcriptFooter}
+        </div>
       </div>
       <div className="agt-bottom">{children}</div>
     </div>

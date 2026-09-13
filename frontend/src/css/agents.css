@@ -779,13 +779,40 @@
   border-radius: 14px;
 }
 
-.agt-compose-dock.is-task .agt-compose__row {
-  flex-wrap: wrap;
+/*
+ * The control row stays on one line in a narrow pane. The automation summary gives way first: a zero
+ * basis hands it only the space the fixed controls leave, and the cap stops it growing past its text.
+ * Only once it reaches its floor does the effort label shrink. An auto margin, not a flex spacer,
+ * pushes the model picker right, because a growing spacer would take half of the summary's space.
+ */
+.agt-compose-dock.is-task .agt-automation {
+  flex: 1 1 0;
+  min-width: 72px;
+  max-width: max-content;
+}
+
+.agt-compose-dock.is-task .agt-automation summary {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 /* Anchor the menu to the card so running-turn controls cannot push it outside the pane. */
 .agt-compose-dock.is-task .agt-picker {
   position: static;
+  flex: 0 1 auto;
+  min-width: 0;
+  margin-left: auto;
+}
+
+.agt-compose-dock.is-task .agt-picker__chip {
+  min-width: 0;
+}
+
+.agt-compose-dock.is-task .agt-picker__chip .agt-picker__effort {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .agt-compose-dock.is-task .agt-picker__card {

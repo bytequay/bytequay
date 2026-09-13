@@ -902,7 +902,6 @@ export function ConversationComposer({
             {permissionLabel(permissionPolicy)}
           </span>
           {automation}
-          <span className="agt-spacer" />
           <ModelPicker
             ariaLabel="Model and effort for the next message"
             disabled={models.length === 0 || sending || onSelectModel === undefined}

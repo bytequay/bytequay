@@ -697,6 +697,39 @@ class TestDefaultAgentReviewService
         verify(fixture.turns, times(1)).start(any(StartAgentTurnCommand.class));
     }
 
+    @Test
+    void rewrittenHistoryPausesFollowUpInsteadOfRefusingOnEveryRefresh()
+    {
+        Fixture fixture = new Fixture();
+        String reviewId = fixture.service.start(WORKSPACE, REPO, NUMBER).review().id();
+        ReviewRun run = fixture.store.listRuns(reviewId).getLast();
+        fixture.store.updateRun(run.withSummary(summary(), NOW).withCoverage(coverage(), NOW));
+        when(fixture.turns.get(TURN_ONE)).thenReturn(settledTurn(TURN_ONE, TurnState.COMPLETED, Optional.empty()));
+        fixture.service.reconcile(reviewId);
+        when(fixture.pullRequests.findHeadSha(REPO, NUMBER)).thenReturn(Optional.of(NEW_HEAD));
+        when(fixture.git.run(REPOSITORY, "rev-parse", "--verify", "refs/bytequay/review/" + NUMBER + "^{commit}")).thenReturn(ok(NEW_HEAD));
+        when(fixture.git.run(REPOSITORY, "merge-base", NEW_HEAD, BASE_SHA)).thenReturn(ok(MERGE_BASE));
+        when(fixture.git.run(REPOSITORY, "log", "--reverse", "--format=%H%x1f%an%x1f%s", MERGE_BASE + ".." + NEW_HEAD))
+                .thenReturn(ok(NEW_HEAD + FIELD + "Alice" + FIELD + "Fix the parser\n"));
+        when(fixture.worktrees.inspect(taskWorktree())).thenReturn(new WorktreeSnapshot(taskWorktree(), HEAD, false, false));
+        when(fixture.git.run(REPOSITORY, "merge-base", "--is-ancestor", HEAD, NEW_HEAD)).thenReturn(new GitCommandRunner.Result(1, "", false));
+
+        assertThatThrownBy(() -> fixture.service.observeHead(REPO, NUMBER, NEW_HEAD))
+                .isInstanceOf(ReviewConflictException.class)
+                .hasMessageContaining("history was rewritten");
+        assertThat(fixture.store.findReview(reviewId).orElseThrow().followUpPaused()).isTrue();
+
+        // A later refresh leaves the paused review alone instead of fetching and refusing again.
+        fixture.service.observeHead(REPO, NUMBER, NEW_HEAD);
+        verify(fixture.worktrees, times(1)).inspect(taskWorktree());
+
+        // An explicit retry is refused the same way and stays paused.
+        assertThatThrownBy(() -> fixture.service.resume(reviewId)).hasMessageContaining("history was rewritten");
+        assertThat(fixture.store.findReview(reviewId).orElseThrow().followUpPaused()).isTrue();
+        assertThat(fixture.store.listRuns(reviewId)).hasSize(1);
+        verify(fixture.turns, times(1)).start(any(StartAgentTurnCommand.class));
+    }
+
     private static AgentTask idleTask()
     {
         return AgentTask.created(TASK_ID, true, "Review owner/repo#7", TitleSource.USER, LANE, taskWorktree(), DEFAULTS, NOW);

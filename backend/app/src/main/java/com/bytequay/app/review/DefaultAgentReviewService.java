@@ -481,8 +481,8 @@ public class DefaultAgentReviewService
 
     /**
      * Starts a run for the newest observed head when nothing is running and the task is idle: a new
-     * head, or a retry the user asked for. A worktree that cannot move safely blocks the run and
-     * says why instead of touching the agent's work.
+     * head, or a retry the user asked for. A worktree that cannot move safely blocks the run, pauses
+     * follow-up, and says why instead of touching the agent's work.
      */
     private void followHead(AgentReview review, boolean retry)
     {
@@ -508,7 +508,14 @@ public class DefaultAgentReviewService
         }
         Optional<ReviewRun> previous = runs.stream().filter(run -> run.state() == ReviewRun.State.ACCEPTED).reduce((first, second) -> second);
         if (newHead) {
-            moveWorktree(task, snapshot.headSha(), workspace);
+            try {
+                moveWorktree(task, snapshot.headSha(), workspace);
+            }
+            catch (ReviewConflictException refusal) {
+                // Only the user can clear a refused move; unpaused, every PR refresh would fetch and refuse again.
+                store.updateReview(store.findReview(review.id()).orElseThrow().withFollowUpPaused(true, Instant.now(clock)));
+                throw refusal;
+            }
         }
         List<ReviewFinding> findings = store.listFindings(review.id());
         startRun(store.findReview(review.id()).orElseThrow(), snapshot, workspace, runs.size() + 1, previous, findings);

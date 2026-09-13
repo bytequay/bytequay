@@ -132,7 +132,7 @@ interface AgentTaskScreenProps {
   onBack: () => void;
   /** Opens the existing pull-request page for one found on the task's branch. */
   onOpenPullRequest?: (number: number) => void;
-  /** The workspace the task runs in; names the repository and base a draft pull request targets. */
+  /** The workspace the task runs in; names the repository a draft pull request targets. */
   workspace?: WorkspaceDto;
   /** Opens the provider settings used by authentication recovery. */
   onOpenSettings?: () => void;
@@ -937,7 +937,7 @@ export function AgentTaskBody({
   repository?: string | null;
   onSelectPanelTab?: (tab: PanelTab) => void;
   onOpenPullRequest?: (number: number) => void;
-  /** Asks the agent to open a draft pull request; absent when no workspace names its base. */
+  /** Asks ByteQuay to publish the task's committed work as a draft pull request; absent in a static render. */
   onCreatePullRequest?: () => void;
   logChoice?: string | null;
   onToggleLog?: (choice: string) => void;
@@ -2268,7 +2268,7 @@ export default function AgentTaskScreen({
       logChoice={logChoice}
       onToggleLog={setLogChoice}
       onOpenPullRequest={onOpenPullRequest}
-      onCreatePullRequest={workspace === undefined ? undefined : () => { void createPullRequest(); }}
+      onCreatePullRequest={() => { void createPullRequest(); }}
       onSteer={() => { void steer(); }}
       onQueue={() => { void queueNext(); }}
       onRemoveQueued={(queuedInputId) => { void removeQueued(queuedInputId); }}

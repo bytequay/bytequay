@@ -229,7 +229,7 @@ export function TaskChangesView({
 export function NoPullRequestView({ branch, repository, onCreate, createBlocked = null }: {
   branch: string | null;
   repository: string | null;
-  /** Absent when the screen has no workspace to name the pull request's base. */
+  /** Absent in a static render. */
   onCreate?: () => void;
   createBlocked?: string | null;
 }): React.JSX.Element {

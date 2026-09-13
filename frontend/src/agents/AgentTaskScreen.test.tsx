@@ -843,9 +843,6 @@ describe('agent task side panel', () => {
     const create = { panelOpen: true, onCreatePullRequest: () => {} };
     const idle = renderToStaticMarkup(<AgentTaskBody state={state} pullRequests={[]} {...create} {...props} />);
     expect(idle).toMatch(/<button type="button" class="agt-nopr__create" title="Asks ByteQuay[^"]*">Create draft PR<\/button>/);
-    // Without a workspace to name the base repository there is nothing to ask for.
-    const anonymous = renderToStaticMarkup(<AgentTaskBody state={state} panelOpen pullRequests={[]} {...props} />);
-    expect(anonymous).not.toContain('Create draft PR');
     const running = renderToStaticMarkup(
       <AgentTaskBody state={{ ...state, turn: turn('RUNNING') }} pullRequests={[]} {...create} {...props} />);
     expect(running).toMatch(/class="agt-nopr__create" disabled="" title="Available once the agent is idle"/);

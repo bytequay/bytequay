@@ -325,12 +325,11 @@ describe('agent task list', () => {
     const markup = renderToStaticMarkup(
       <AgentTaskList {...listProps} tasks={[]} loading={false} error={null} />);
 
-    // Creation selects a real ready lane; permission is the truthful fixed Auto policy.
+    // Creation selects a real ready lane.
     expect(markup).toContain('Codex');
     expect(markup).toMatch(/<button[^>]*class="agt-compose__chip"[^>]*aria-label="Provider: Codex"/);
     expect(markup).toContain('5.6 Terra');
     expect(markup).toContain('High');
-    expect(markup).toContain('class="agt-compose__chip is-fact"');
     // The one real choice, the model, is live.
     expect(markup).not.toMatch(/class="agt-picker__chip"[^>]*disabled/);
     expect(markup).not.toMatch(/class="agt-send"[^>]*disabled/);
@@ -543,12 +542,13 @@ describe('agent prose', () => {
 });
 
 describe('truthful task controls', () => {
-  it('ships no placeholder marker and renders Auto as a noninteractive fact', () => {
+  it('shows no permission chip in either composer', () => {
     const list = renderToStaticMarkup(<AgentTaskList {...listProps} tasks={[]} loading={false} error={null} />);
     const drafting = body({ task: task('t-1', 'OPEN', 'x'), turn: turn('RUNNING'), connection: 'open', composer: 'x' });
     expect(list).toContain('aria-label="Provider: Codex"');
-    expect(drafting).toContain('<span class="agt-compose__chip is-fact"');
-    expect(drafting).not.toMatch(/<button[^>]*>Auto<\/button>/);
+    expect(list).not.toContain('>Auto<');
+    expect(drafting).toContain('aria-label="Message the agent"');
+    expect(drafting).not.toContain('>Auto<');
   });
 });
 
@@ -1027,7 +1027,6 @@ describe('agent task detail', () => {
     expect(idle.match(/role="status"/g)).toHaveLength(1);
     // The settings the next turn runs with are the chips, in prose rather than enum names.
     expect(idle).toContain('5.6 Terra');
-    expect(idle).toContain('Auto');
     expect(idle).not.toContain('AUTO');
     // A disabled Complete has to say why it is disabled.
     expect(body({ connection: 'open' })).toContain('Available when the task is idle');

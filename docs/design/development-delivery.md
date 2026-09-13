@@ -58,10 +58,9 @@ the global Development setting. CI does not reread those mutable defaults for
 an existing task. An explicit CI provider overrides that inheritance; Codex and
 Claude Code are eligible when they advertise `CI_AUTOFIX`. This selects the
 agent that repairs code; GitHub Actions remains the CI host.
-The task's **Automation** control
-is separate from its **Auto** permission mode. While a continuation is active,
-settings edits are labeled **For future turns**; **Stop automation** stops the
-current continuation. Local only supplies all three false for one user turn.
+While a continuation is active, the task's **Automation** control labels
+settings edits **For future turns**; **Stop automation** stops the current
+continuation. Local only supplies all three false for one user turn.
 
 Submitting the request with its visible settings records authority for that
 request's generated branch, repository/base, initial push/draft, bounded CI

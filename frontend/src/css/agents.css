@@ -571,8 +571,7 @@
   white-space: nowrap;
 }
 
-.agt-compose__chip:disabled,
-.agt-compose__chip.is-fact {
+.agt-compose__chip:disabled {
   cursor: default;
 }
 

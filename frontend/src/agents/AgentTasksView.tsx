@@ -605,7 +605,7 @@ export default function AgentTasksView({
   );
 }
 
-/** The card that creates a task: the first message above its provider, permission and model facts. */
+/** The card that creates a task: the first message above its provider, automation and model controls. */
 export function TaskComposer({
   draft, blocker, laneId, providers, models, selection, onDraftChange, onSelectProvider, onSelectModel, onCreate, onOpenSettings,
   images = [], busy = false, attaching = false, onAttach, onPasteImages, onRemoveImage, automation,
@@ -682,7 +682,6 @@ export function TaskComposer({
             onSelect={onSelectProvider}
             onOpenSettings={onOpenSettings}
           />
-          <span className="agt-compose__chip is-fact" title="Auto asks before anything risky">Auto</span>
           {automation}
           <span className="agt-spacer" />
           <ModelPicker

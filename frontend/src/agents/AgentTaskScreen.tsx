@@ -1298,7 +1298,6 @@ export function AgentTaskBody({
           queueTitle={queueImageBlocked ? 'The next-turn model does not accept images' : 'Runs after this turn finishes'}
           attachments={state.attachments} previews={previews} onRemoveAttachment={onRemoveAttachment}
           onAttach={onAttach} attachEnabled={!routedToCi && imagesAccepted} attachTitle={routedToCi ? 'CI Autofix accepts text only' : attachTitle}
-          permissionPolicy={state.task?.defaults.permissionPolicy ?? 'AUTO'}
           models={models} provider={provider} model={state.task?.defaults.model ?? null}
           effort={state.task?.defaults.effort} serviceTier={state.task?.defaults.serviceTier} onSelectModel={onSelectModel}
           footer={<TaskStats task={state.task} turns={turns} now={now} />} />

@@ -3,10 +3,10 @@
 ## Development delivery presentation
 
 [Development Task Delivery](development-delivery.md#7-task-presentation)
-defines the Automation control, separate from the composer's Auto permission
-mode. New and existing interactive task composers now expose the three choices
-and Local only for one submission; workflow tasks hide the control. Accepted
-request identities and authentication retries retain the same choices.
+defines the Automation control. New and existing interactive task composers now
+expose the three choices and Local only for one submission; workflow tasks hide
+the control. Accepted request identities and authentication retries retain the
+same choices.
 
 A completed turn's durable false readiness report shows Waiting for your answer
 in the normal conversation. This survives bounded-history eviction and clears

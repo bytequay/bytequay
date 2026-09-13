@@ -869,7 +869,7 @@ export function AgentConversation({
 export function ConversationComposer({
   value, onChange, onSend, onStop, onSteer, onQueue, running, sending, disabled,
   sendEnabled, steerEnabled, queueEnabled, models, model, effort, serviceTier, provider = '',
-  permissionPolicy = 'AUTO', onSelectModel, onAttach, attachEnabled = false,
+  onSelectModel, onAttach, attachEnabled = false,
   attachTitle = 'Image attachments are unavailable', attachments = [], previews = {}, onRemoveAttachment, footer, automation,
   composerRef, onPaste, connection, closing = false, ciMention = false, routedToCi = false, ciMessageHint,
   steerTitle = 'Sends into the running turn now', queueTitle = 'Runs after this turn finishes',
@@ -892,7 +892,6 @@ export function ConversationComposer({
   effort?: string | null;
   serviceTier?: string | null;
   provider?: string;
-  permissionPolicy?: string;
   onSelectModel?: (model: string, effort: string | null, serviceTier: string | null) => void;
   onAttach?: () => void;
   attachEnabled?: boolean;
@@ -1006,9 +1005,6 @@ export function ConversationComposer({
         <div className="agt-compose__row">
           <button type="button" className="agt-attach" aria-label="Attach an image" title={attachTitle}
             disabled={!attachEnabled || onAttach === undefined || closing || sending} onClick={onAttach}>+</button>
-          <span className="agt-compose__chip is-fact" title="Routine work proceeds automatically; other actions may need your authorization">
-            {permissionLabel(permissionPolicy)}
-          </span>
           {automation}
           <ModelPicker
             ariaLabel="Model and effort for the next message"

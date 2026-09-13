@@ -378,6 +378,37 @@ class TestDefaultCiAutofixService
         verify(eventService, never()).readHistory(any(), any(), any());
     }
 
+    @ParameterizedTest
+    @ValueSource(booleans = {false, true})
+    void startsRepairWithFailedStepEvidenceWhenEveryLogIsUnavailable(boolean development)
+    {
+        when(gitHub.readLog(any())).thenReturn(BoundedCiLog.unavailable("GitHub Actions log download failed after one retry"));
+        CiAutofixRun run;
+        if (development) {
+            AgentTask parent = developmentParent();
+            TurnId source = reserveParent(parent);
+            run = service.startDevelopment(startCommand("unavailable-logs"), parent.id(), source, publishedPr(), NOW);
+            assertThat(runtimes.ownsDevelopmentContinuation(parent.id(), source)).isTrue();
+        }
+        else {
+            run = service.start(startCommand("unavailable-logs"));
+        }
+
+        assertThat(run.status()).isEqualTo(Status.ACTIVE);
+        assertThat(run.currentTurnId()).contains(turnId.toString());
+        assertThat(run.attemptsUsed()).isEqualTo(1);
+        assertThat(run.rerunCounter().used()).isZero();
+        assertThat(run.attempts().getFirst().failures()).singleElement().satisfies(failure -> {
+            assertThat(failure.summary()).contains("Build / compile failed at Compile", "log unavailable");
+            assertThat(failure.log()).isEmpty();
+        });
+        ArgumentCaptor<StartAgentTurnCommand> turn = ArgumentCaptor.forClass(StartAgentTurnCommand.class);
+        verify(turnService).start(turn.capture());
+        assertThat(turn.getValue().attachments()).isEmpty();
+        assertThat(turn.getValue().message()).contains("Build / compile failed at Compile", "log download failed after one retry", "not evidence that a check passed");
+        verify(gitHub, never()).rerunFailedJobs(any());
+    }
+
     @Test
     void waitsForTheOwnedRebaseBeforeStartingTheFirstFixTurn()
     {

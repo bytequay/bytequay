@@ -71,7 +71,9 @@ unambiguous without requiring the user to open the panel first.
 workflow attempt. The application reuses CI Autofix's `GitHubActionsClient`
 bounded, credential-redacted log reader and task-owned blob storage, then
 returns error lines and a compact diagnostic excerpt from at most 1 MiB of
-downloaded log. Redirected downloads request the tail where byte ranges are
+downloaded log per attempt. Temporary download failures permit one read-only
+retry before returning an explicit unavailable reason; this adds no repair or
+GitHub rerun. Redirected downloads request the tail where byte ranges are
 supported, with a bounded-prefix fallback. The shared filter removes timestamps
 and ANSI formatting, collapses repeated lines, and retains failure context,
 stack traces, and beginning/ending context within 32 KiB of stored text.

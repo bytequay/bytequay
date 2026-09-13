@@ -787,8 +787,8 @@ existing agent event log:
 
 Failed-job downloads use at most four concurrent requests per collection and
 retain the snapshot's job order, with at most 50 failed jobs. Passing and
-pending jobs are not downloaded. Each job keeps the existing 1 MiB transfer
-budget. A credential-free HEAD request to the redirected URL discovers the log
+pending jobs are not downloaded. Each download attempt keeps the existing 1 MiB
+transfer budget. A credential-free HEAD request to the redirected URL discovers the log
 size, then GET uses explicit byte offsets for the tail of a large log. This
 works with Azure Blob's range format and adds one headers-only request. Missing
 or unsupported size discovery uses a bounded ordinary GET. A partial response
@@ -799,6 +799,14 @@ Partial lines at either download boundary are discarded before redaction to
 avoid retaining incomplete secrets.
 Missing or expired logs at either HTTP hop return unavailable evidence without
 discarding the job's failed-step metadata or aborting the whole repair flow.
+Temporary server or transport failures receive at most one read-only retry,
+obtaining a fresh download URL. If both attempts fail, the log becomes explicitly
+unavailable and the remaining evidence still reaches the repair agent. This
+allows at most two bounded downloads per job; it does not consume an extra repair
+attempt or rerun a GitHub job. Rate-limited downloads are unavailable without an
+immediate retry. Authentication, interruption, and local blob-storage failures
+remain errors. Even when every log is unavailable, the agent receives the failed
+jobs and steps with their retrieval reasons; missing logs never imply passing CI.
 
 After credential redaction, one shared deterministic filter removes ANSI
 formatting and timestamps and collapses consecutive repeated lines. Large

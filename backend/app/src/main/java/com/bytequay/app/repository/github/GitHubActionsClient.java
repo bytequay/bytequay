@@ -42,6 +42,7 @@ import org.springframework.http.HttpStatus;
 import org.springframework.http.HttpStatusCode;
 import org.springframework.http.ResponseEntity;
 import org.springframework.stereotype.Component;
+import org.springframework.web.client.ResourceAccessException;
 import org.springframework.web.client.RestClient;
 import org.springframework.web.client.RestClientException;
 import org.springframework.web.client.RestClientResponseException;
@@ -62,6 +63,7 @@ import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
+import java.util.concurrent.CancellationException;
 import java.util.function.Supplier;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
@@ -321,9 +323,7 @@ public class GitHubActionsClient
     {
         requireNonNull(query, "query is null");
         String pat = token();
-        PullRequestRef pullRequest = query.pullRequest();
-        LogHop first = requestLogRedirect(pat, pullRequest, query.job().id(), query.maximumBytes());
-        LogHop result = first.redirect() == null ? first : downloadRedirect(first.redirect(), query.maximumBytes());
+        LogHop result = retrieveLog(pat, query);
         if (result.unavailableReason() != null) {
             return BoundedCiLog.unavailable(result.unavailableReason());
         }
@@ -351,6 +351,38 @@ public class GitHubActionsClient
                 excerpt.compacted(),
                 terminalErrors(text),
                 Optional.empty());
+    }
+
+    private LogHop retrieveLog(String pat, ReadCiLogQuery query)
+    {
+        String unavailableReason = "GitHub Actions log could not be downloaded";
+        for (int attempt = 0; attempt < 2; attempt++) {
+            if (Thread.currentThread().isInterrupted()) {
+                throw new CancellationException("GitHub Actions log retrieval was interrupted");
+            }
+            try {
+                // Each retry obtains a new short-lived storage URL.
+                LogHop first = requestLogRedirect(pat, query.pullRequest(), query.job().id(), query.maximumBytes());
+                return first.redirect() == null ? first : downloadRedirect(first.redirect(), query.maximumBytes());
+            }
+            catch (ResponseStatusException failure) {
+                int status = failure.getStatusCode().value();
+                if (Thread.currentThread().isInterrupted() || (status != 408 && status != 429 && !failure.getStatusCode().is5xxServerError())) {
+                    throw failure;
+                }
+                if (status == 429) {
+                    return LogHop.unavailable("GitHub Actions log retrieval is rate limited; no immediate retry was attempted");
+                }
+                unavailableReason = "GitHub Actions log retrieval failed after 2 attempts (HTTP " + status + ")";
+            }
+            catch (ResourceAccessException failure) {
+                if (Thread.currentThread().isInterrupted()) {
+                    throw failure;
+                }
+                unavailableReason = "GitHub Actions log retrieval failed after 2 attempts because of a network or read timeout error";
+            }
+        }
+        return LogHop.unavailable(unavailableReason);
     }
 
     @Override
@@ -643,6 +675,9 @@ public class GitHubActionsClient
     {
         try {
             return logRestClient.head().uri(location).header(HttpHeaders.ACCEPT_ENCODING, "identity").exchange((request, response) -> {
+                if (response.getStatusCode().value() == 429) {
+                    throw new ResponseStatusException(HttpStatus.TOO_MANY_REQUESTS, "GitHub Actions log size probe was rate limited");
+                }
                 if (response.getStatusCode().value() != 200
                         || !"identity".equalsIgnoreCase(Optional.ofNullable(response.getHeaders().getFirst(HttpHeaders.CONTENT_ENCODING)).orElse("identity"))) {
                     return Optional.empty();
@@ -651,6 +686,9 @@ public class GitHubActionsClient
             });
         }
         catch (RestClientException | IllegalArgumentException ignored) {
+            if (Thread.currentThread().isInterrupted()) {
+                throw ignored;
+            }
             return Optional.empty();
         }
     }

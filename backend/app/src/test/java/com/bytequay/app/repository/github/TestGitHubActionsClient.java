@@ -13,6 +13,7 @@
  */
 package com.bytequay.app.repository.github;
 
+import com.bytequay.agent.core.AgentStorageException;
 import com.bytequay.agent.core.BlobRef;
 import com.bytequay.agent.core.TaskId;
 import com.bytequay.app.ci.BoundedCiLog;
@@ -34,14 +35,18 @@ import org.springframework.http.HttpMethod;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
 import org.springframework.test.web.client.MockRestServiceServer;
+import org.springframework.web.client.ResourceAccessException;
 import org.springframework.web.client.RestClient;
+import org.springframework.web.server.ResponseStatusException;
 
 import java.io.IOException;
+import java.net.SocketTimeoutException;
 import java.nio.ByteBuffer;
 import java.nio.charset.StandardCharsets;
 import java.time.Instant;
 import java.util.List;
 import java.util.Optional;
+import java.util.concurrent.CancellationException;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.stream.IntStream;
 
@@ -55,6 +60,7 @@ import static org.springframework.test.web.client.match.MockRestRequestMatchers.
 import static org.springframework.test.web.client.match.MockRestRequestMatchers.headerDoesNotExist;
 import static org.springframework.test.web.client.match.MockRestRequestMatchers.method;
 import static org.springframework.test.web.client.match.MockRestRequestMatchers.requestTo;
+import static org.springframework.test.web.client.response.MockRestResponseCreators.withException;
 import static org.springframework.test.web.client.response.MockRestResponseCreators.withStatus;
 import static org.springframework.test.web.client.response.MockRestResponseCreators.withSuccess;
 
@@ -514,6 +520,206 @@ class TestGitHubActionsClient
     }
 
     @Test
+    void retriesTransientApiErrorsOnceBeforeReturningLog()
+    {
+        for (HttpStatus status : ImmutableList.of(HttpStatus.REQUEST_TIMEOUT, HttpStatus.INTERNAL_SERVER_ERROR, HttpStatus.SERVICE_UNAVAILABLE)) {
+            Fixture fixture = fixture();
+            fixture.apiServer.expect(requestTo("https://api.github.test/repos/owner/repo/actions/jobs/902/logs")).andRespond(withStatus(status));
+            fixture.apiServer.expect(requestTo("https://api.github.test/repos/owner/repo/actions/jobs/902/logs"))
+                    .andRespond(withSuccess("error: failed\n", MediaType.TEXT_PLAIN));
+
+            assertThat(fixture.client.readLog(logQuery(1024)).terminalErrorLines()).containsExactly("error: failed");
+            fixture.verify();
+        }
+    }
+
+    @Test
+    void refreshesRedirectBeforeRetryingHttpOrTransportDownloadFailure()
+    {
+        for (boolean transportFailure : ImmutableList.of(false, true)) {
+            Fixture fixture = fixture();
+            fixture.apiServer.expect(requestTo("https://api.github.test/repos/owner/repo/actions/jobs/902/logs"))
+                    .andRespond(withStatus(HttpStatus.FOUND).header(HttpHeaders.LOCATION, "https://logs.github.test/job-902"));
+            fixture.apiServer.expect(requestTo("https://api.github.test/repos/owner/repo/actions/jobs/902/logs"))
+                    .andRespond(withStatus(HttpStatus.FOUND).header(HttpHeaders.LOCATION, "https://logs.github.test/job-902?sig=fresh"));
+            expectLogLength(fixture, 5120);
+            fixture.logServer.expect(requestTo("https://logs.github.test/job-902"))
+                    .andRespond(transportFailure ? withException(new IOException("connection reset")) : withStatus(HttpStatus.BAD_GATEWAY));
+            fixture.logServer.expect(requestTo("https://logs.github.test/job-902?sig=fresh"))
+                    .andExpect(method(HttpMethod.HEAD)).andExpect(headerDoesNotExist(HttpHeaders.AUTHORIZATION))
+                    .andRespond(withStatus(HttpStatus.OK).header(HttpHeaders.CONTENT_LENGTH, "16"));
+            fixture.logServer.expect(requestTo("https://logs.github.test/job-902?sig=fresh"))
+                    .andExpect(method(HttpMethod.GET)).andExpect(headerDoesNotExist(HttpHeaders.AUTHORIZATION))
+                    .andRespond(withSuccess("error: failed\n", MediaType.TEXT_PLAIN));
+
+            assertThat(fixture.client.readLog(logQuery(1024)).terminalErrorLines()).containsExactly("error: failed");
+            fixture.verify();
+        }
+    }
+
+    @Test
+    void reportsExhaustedTransientApiAndRedirectFailuresWithoutWritingBlob()
+    {
+        for (HttpStatus status : ImmutableList.of(HttpStatus.REQUEST_TIMEOUT, HttpStatus.INTERNAL_SERVER_ERROR, HttpStatus.SERVICE_UNAVAILABLE)) {
+            for (boolean redirected : ImmutableList.of(false, true)) {
+                Fixture fixture = fixture();
+                for (int attempt = 0; attempt < 2; attempt++) {
+                    if (redirected) {
+                        fixture.apiServer.expect(requestTo("https://api.github.test/repos/owner/repo/actions/jobs/902/logs"))
+                                .andRespond(withStatus(HttpStatus.FOUND).header(HttpHeaders.LOCATION, "https://logs.github.test/job-902"));
+                        expectLogLength(fixture, 5120);
+                        fixture.logServer.expect(requestTo("https://logs.github.test/job-902")).andRespond(withStatus(status).body(PAT));
+                    }
+                    else {
+                        fixture.apiServer.expect(requestTo("https://api.github.test/repos/owner/repo/actions/jobs/902/logs")).andRespond(withStatus(status).body(PAT));
+                    }
+                }
+
+                BoundedCiLog log = fixture.client.readLog(logQuery(1024));
+
+                assertThat(log.blob()).isEmpty();
+                assertThat(log.unavailableReason()).contains("GitHub Actions log retrieval failed after 2 attempts (HTTP " + status.value() + ")");
+                assertThat(fixture.stored.get()).isNull();
+                fixture.verify();
+            }
+        }
+    }
+
+    @Test
+    void reportsExhaustedApiAndRedirectIoErrorsWithoutExposingRequestDetails()
+    {
+        for (IOException failure : ImmutableList.of(new IOException(PAT), new SocketTimeoutException("https://logs.github.test/?sig=private"))) {
+            for (boolean redirected : ImmutableList.of(false, true)) {
+                Fixture fixture = fixture();
+                for (int attempt = 0; attempt < 2; attempt++) {
+                    if (redirected) {
+                        fixture.apiServer.expect(requestTo("https://api.github.test/repos/owner/repo/actions/jobs/902/logs"))
+                                .andRespond(withStatus(HttpStatus.FOUND).header(HttpHeaders.LOCATION, "https://logs.github.test/job-902"));
+                        expectLogLength(fixture, 5120);
+                        fixture.logServer.expect(requestTo("https://logs.github.test/job-902")).andRespond(withException(failure));
+                    }
+                    else {
+                        fixture.apiServer.expect(requestTo("https://api.github.test/repos/owner/repo/actions/jobs/902/logs")).andRespond(withException(failure));
+                    }
+                }
+
+                BoundedCiLog log = fixture.client.readLog(logQuery(1024));
+
+                assertThat(log.blob()).isEmpty();
+                assertThat(log.unavailableReason()).contains("GitHub Actions log retrieval failed after 2 attempts because of a network or read timeout error");
+                assertThat(fixture.stored.get()).isNull();
+                fixture.verify();
+            }
+        }
+    }
+
+    @Test
+    void doesNotRetryAuthorizationErrorsOrRateLimits()
+    {
+        for (HttpStatus status : ImmutableList.of(HttpStatus.UNAUTHORIZED, HttpStatus.FORBIDDEN, HttpStatus.TOO_MANY_REQUESTS)) {
+            for (boolean redirected : ImmutableList.of(false, true)) {
+                Fixture fixture = fixture();
+                if (redirected) {
+                    fixture.apiServer.expect(requestTo("https://api.github.test/repos/owner/repo/actions/jobs/902/logs"))
+                            .andRespond(withStatus(HttpStatus.FOUND).header(HttpHeaders.LOCATION, "https://logs.github.test/job-902"));
+                    expectLogLength(fixture, 5120);
+                    fixture.logServer.expect(requestTo("https://logs.github.test/job-902")).andRespond(withStatus(status).header(HttpHeaders.RETRY_AFTER, "120"));
+                }
+                else {
+                    fixture.apiServer.expect(requestTo("https://api.github.test/repos/owner/repo/actions/jobs/902/logs"))
+                            .andRespond(withStatus(status).header(HttpHeaders.RETRY_AFTER, "120"));
+                }
+
+                if (status == HttpStatus.TOO_MANY_REQUESTS) {
+                    assertThat(fixture.client.readLog(logQuery(1024)).unavailableReason())
+                            .contains("GitHub Actions log retrieval is rate limited; no immediate retry was attempted");
+                }
+                else {
+                    assertThatThrownBy(() -> fixture.client.readLog(logQuery(1024))).isInstanceOfSatisfying(ResponseStatusException.class,
+                            failure -> assertThat(failure.getStatusCode()).isEqualTo(status));
+                }
+                assertThat(fixture.stored.get()).isNull();
+                fixture.verify();
+            }
+        }
+    }
+
+    @Test
+    void propagatesInterruptionDuringApiProbeOrDownloadWithoutRetrying()
+    {
+        for (String stage : ImmutableList.of("api", "probe", "download")) {
+            Fixture fixture = fixture();
+            MockRestServiceServer server = fixture.apiServer;
+            String url = "https://api.github.test/repos/owner/repo/actions/jobs/902/logs";
+            if (!stage.equals("api")) {
+                fixture.apiServer.expect(requestTo(url)).andRespond(withStatus(HttpStatus.FOUND).header(HttpHeaders.LOCATION, "https://logs.github.test/job-902"));
+                server = fixture.logServer;
+                url = "https://logs.github.test/job-902";
+                if (stage.equals("download")) {
+                    expectLogLength(fixture, 5120);
+                }
+            }
+            server.expect(requestTo(url)).andRespond(request -> {
+                Thread.currentThread().interrupt();
+                throw new IOException("interrupted");
+            });
+
+            try {
+                assertThatThrownBy(() -> fixture.client.readLog(logQuery(1024))).isInstanceOf(ResourceAccessException.class);
+                assertThat(Thread.currentThread().isInterrupted()).isTrue();
+            }
+            finally {
+                Thread.interrupted();
+            }
+            assertThat(fixture.stored.get()).isNull();
+            fixture.verify();
+        }
+    }
+
+    @Test
+    void doesNotDownloadAfterRateLimitedSizeProbe()
+    {
+        Fixture fixture = fixture();
+        fixture.apiServer.expect(requestTo("https://api.github.test/repos/owner/repo/actions/jobs/902/logs"))
+                .andRespond(withStatus(HttpStatus.FOUND).header(HttpHeaders.LOCATION, "https://logs.github.test/job-902"));
+        fixture.logServer.expect(requestTo("https://logs.github.test/job-902"))
+                .andExpect(method(HttpMethod.HEAD))
+                .andRespond(withStatus(HttpStatus.TOO_MANY_REQUESTS).header(HttpHeaders.RETRY_AFTER, "120"));
+
+        assertThat(fixture.client.readLog(logQuery(1024)).unavailableReason())
+                .contains("GitHub Actions log retrieval is rate limited; no immediate retry was attempted");
+        assertThat(fixture.stored.get()).isNull();
+        fixture.verify();
+    }
+
+    @Test
+    void doesNotHideCancellationOrProgrammingErrors()
+    {
+        for (RuntimeException failure : ImmutableList.of(new CancellationException("stopped"), new IllegalStateException("unexpected response"))) {
+            Fixture fixture = fixture();
+            fixture.apiServer.expect(requestTo("https://api.github.test/repos/owner/repo/actions/jobs/902/logs")).andRespond(request -> {
+                throw failure;
+            });
+
+            assertThatThrownBy(() -> fixture.client.readLog(logQuery(1024))).isSameAs(failure);
+            assertThat(fixture.stored.get()).isNull();
+            fixture.verify();
+        }
+    }
+
+    @Test
+    void doesNotRetryOrHideBlobStorageFailure()
+    {
+        Fixture fixture = fixture(PAT, true);
+        fixture.apiServer.expect(requestTo("https://api.github.test/repos/owner/repo/actions/jobs/902/logs"))
+                .andRespond(withSuccess("error: failed\n", MediaType.TEXT_PLAIN));
+
+        assertThatThrownBy(() -> fixture.client.readLog(logQuery(1024))).isInstanceOf(AgentStorageException.class).hasMessage("disk unavailable");
+        assertThat(fixture.stored.get()).isNull();
+        fixture.verify();
+    }
+
+    @Test
     void rejectsUnsafeLogRedirectWithoutDownloadingOrWriting()
     {
         Fixture fixture = fixture();
@@ -868,6 +1074,11 @@ class TestGitHubActionsClient
 
     private static Fixture fixture(String token)
     {
+        return fixture(token, false);
+    }
+
+    private static Fixture fixture(String token, boolean failBlobWrite)
+    {
         RestClient.Builder apiBuilder = RestClient.builder().baseUrl("https://api.github.test");
         MockRestServiceServer apiServer = MockRestServiceServer.bindTo(apiBuilder).build();
         RestClient.Builder logBuilder = RestClient.builder();
@@ -877,7 +1088,12 @@ class TestGitHubActionsClient
                 apiBuilder.build(),
                 logBuilder.build(),
                 () -> token,
-                (taskId, content, mediaType) -> storeBlob(stored, content, mediaType));
+                (taskId, content, mediaType) -> {
+                    if (failBlobWrite) {
+                        throw new AgentStorageException("disk unavailable");
+                    }
+                    return storeBlob(stored, content, mediaType);
+                });
         return new Fixture(client, apiServer, logServer, stored);
     }
 

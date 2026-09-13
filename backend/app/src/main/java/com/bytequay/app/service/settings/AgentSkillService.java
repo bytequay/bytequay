@@ -61,7 +61,8 @@ public class AgentSkillService
             Required output formats, complete review coverage, evidence, tool contracts, and \
             permission/publication boundaries take precedence. Skills grant no tools or permission and do not \
             require slash commands. For structured output, apply writing preferences within prose fields \
-            without omitting required fields or entries.
+            without omitting required fields or entries. Writing preferences in the selected scope also apply \
+            to its task summaries, automatic summary refinement, and private card replies.
             """;
 
     private final AppSettingsStore store;

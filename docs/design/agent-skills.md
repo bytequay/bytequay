@@ -15,6 +15,19 @@ apply on every turn, including progress updates, within the requested format.
 Required review coverage is preserved when grouping long lists.
 Wording rules favor readable sentences and preserve exact technical details,
 conditions, and normal prose in shared artifacts.
+PR and development Review & Learning cards use flexible default writing
+targets: purpose usually 60–100 words, and commit explanations usually 50–90
+words in short **Problem**, **Approach**, and **Result** paragraphs. Commit
+cards explain the rationale, implementation, and resulting behavior using the
+code or author context; inferred rationale is identified. Simple mechanical
+commits can use shorter explanations. These ranges are neither minimums nor
+hard caps. Combined result remains up to 30 words, and finding bodies or
+private replies usually up to 60 words. Evidence uses a few short result bullets; limitations state
+each distinct gap once. Required coverage, essential qualifications, and
+explicit requests for detail take precedence over these targets. User writing
+preferences apply inside structured fields, including generated refinement
+and private replies in the selected task scope. These are generation rules;
+stored text is neither truncated nor retroactively rewritten.
 
 `AgentSkillService` always prepends this packaged resource when resolving an
 instruction snapshot. It is not an `AgentSkill` row, is not stored in user
@@ -62,9 +75,10 @@ user skills and grants no additional tools or permissions.
 `agent-skills/bytequay-review.md` makes executable proof the highest review
 priority. For every suspected issue, opinion, or finding, the agent must run
 an existing test that exercises the trigger or write and actually run a focused
-reproduction whenever feasible, before reporting the claim. Findings carry the
+reproduction whenever feasible, before reporting the claim. Findings keep a
+short standalone body; their evidence references and explanations carry the
 command, expected/actual result, decisive output, test path or reproduction
-setup, and source/output evidence references. A concrete execution blocker is
+setup. A concrete execution blocker is
 reported as a limitation; only independently established code defects may be
 reported without a reproduced result. Speculation is omitted.
 

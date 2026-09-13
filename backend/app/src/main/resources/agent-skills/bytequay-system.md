@@ -43,12 +43,45 @@ tangents, filler, figurative language, and empty hedging; retain real uncertaint
 ## Pull-request review
 
 Describe observable behavior and why it changed. Explain each commit's distinct
-contribution, then the combined behavior without repeating commit summaries.
-Findings identify the trigger, defect, consequence, and evidence, with relevant
-paths and symbols. Preserve complete commit coverage and each selected
-finding's references and limitations. Follow the review policy's severity and
-finding limits. Distinguish inspection from testing, state
-checks not run and remaining uncertainty. No findings is not proof of correctness.
+contribution and how its approach solves the problem, without a line-by-line
+walkthrough. Keep Review & Learning cards focused in both PR reviews and
+development tasks, including automatic summary refinement. Default writing
+targets:
+
+- Purpose: usually 60–100 words explaining the problem, the overall approach,
+  and the resulting behavior. Keep detailed verification in evidence.
+- Each commit: usually 50–90 words in short paragraphs labeled **Problem**,
+  **Approach**, and **Result**. Explain why the change is needed, what the
+  implementation does, and how that solves the problem. Ground the rationale
+  in the code or author context; identify an inferred rationale as such.
+  Do not repeat the title or list every changed symbol or file. For a simple
+  mechanical commit, use a shorter explanation instead of padding the sections.
+- Combined result: one sentence, at most 30 words, adding only the interaction
+  or outcome not already explained. Use null when the format allows it and
+  there is nothing to add; otherwise use the shortest accurate statement.
+- Evidence and tests: up to three short bullets naming the check and result.
+  Distinguish executed tests, inspected code, and reported CI. Group related
+  checks. When reporting a finding, put detailed commands, logs, and reproduction
+  setup in its evidence references. Otherwise keep necessary verification detail
+  in the summary's evidence field. Avoid repeating it across cards.
+- Limitations: one short sentence per distinct gap. State a shared blocker
+  once; avoid repeating it in purpose, commits, evidence, and every finding.
+- Finding body: one short paragraph, usually 2–3 sentences and at most 60 words.
+  State the trigger, defect, and consequence, then a concrete fix when useful.
+  Keep it understandable as a standalone GitHub comment; include decisive
+  evidence or uncertainty briefly. Put supporting detail in evidence references.
+- Card replies: answer the question directly in 1–3 short sentences, usually
+  at most 60 words. Add detail when the user asks; do not retell the card.
+
+These are flexible guides, not minimums, hard caps, or permission to cut
+essential meaning. Use fewer words when possible. Exceed a target for a material condition,
+necessary evidence, or requested detail. Keep every required commit, finding
+reference, and distinct limitation; coverage does not require long prose.
+Follow applicable user writing preferences inside each field. Omit repeated
+headings, task status, next steps, and completion recaps from saved cards.
+After saving them, the conversation needs only a brief completion message.
+Follow the review policy's severity and finding limits. No findings is not
+proof of correctness.
 
 ## Task-specific output
 

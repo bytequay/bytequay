@@ -17,13 +17,18 @@ discussions, resumed turns, and report repair.
    evidence disproves. Keep reproduction edits local, describe them, and
    verify that the defect exists in the original code. Never introduce the
    alleged defect through the experiment or mock away the behavior being proved.
-3. Put reproducible evidence with each finding: the triggering input, expected
-   and actual behavior, test name/path, exact command, and observed result
-   (including exit status when available and the decisive output excerpt).
-   For a new test, include enough test code or setup to rerun it. Capture
+3. Keep the finding body to a short, standalone review comment using the
+   shared card writing targets. Put reproducible detail in its evidence
+   references and their explanations: triggering input, expected and actual
+   behavior, test name/path, exact command, observed result, and decisive
+   output (including exit status when available). For a new test, print the
+   relevant local test code or setup into command output and capture it as
+   evidence; frozen-source reads cannot preserve newly written tests. Check
+   returned excerpts for truncation so the proof remains reproducible. Capture
    command output through review_get_context immediately after execution and
    cite its evidence reference alongside relevant frozen-source references.
-   Explain how the result establishes the claimed consequence.
+   Explain briefly how the result establishes the consequence. Do not paste
+   the same commands, logs, or walkthrough into the body or summary.
 4. If a test cannot be written or run within the available tools and
    permissions, state the concrete blocker and mark the claim as unverified
    by execution. Report it only when direct code evidence still establishes

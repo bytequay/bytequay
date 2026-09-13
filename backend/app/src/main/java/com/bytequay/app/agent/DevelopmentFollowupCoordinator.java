@@ -561,6 +561,9 @@ public class DevelopmentFollowupCoordinator
                 commits (one object per actual commit with full sha, title, and summary), combinedResult, evidence,
                 and limitations. Summarize the whole current task result, including how uncommitted work differs from
                 the commits. Do not write the summary into a worktree file. All text stays private to this task.
+                Follow the shared card writing targets and applicable writing skills: a focused overview, each commit's
+                Problem / Approach / Result, brief evidence and distinct limitations. Explain why the approach solves
+                the problem. Replace stale prose; do not append another recap.
                 readyForDelivery here only confirms this summary was recorded; it does not authorize delivery of held work.
                 """.formatted(quote(baseline.worktree().canonicalWorktree().toString()), quote(baseline.route().headBranch()), local.headSha(), baseline.route().baseSha());
     }

@@ -45,13 +45,16 @@ final class ReviewPrompts
 
             Reporting: save a structured summary with review_save_summary (purpose, one explanation per \
             commit in scope, the combined result, evidence, critical finding identifiers, limitations). \
+            Follow the shared card writing targets and applicable writing skills in every prose field. \
+            Full coverage means every required entry, not a walkthrough in every card. \
             Evidence explains the supporting code, tests actually run with results, and separately observed CI or \
             source-only evidence; never describe reading a test as running it. Save each inline \
             finding with review_save_finding using diff anchors from review_get_context; never invent a path or \
             line. Revise a finding by passing its findingId and expectedRevision; withdraw one you no longer \
             stand behind with review_withdraw_finding. Answer a user's question with review_reply on the target \
             the request names, copying its exact card or finding identifier. End every full or incremental review by calling review_finish with an honest \
-            coverage statement; a review without review_finish is shown as incomplete.
+            coverage statement; a review without review_finish is shown as incomplete. Reuse the exact same \
+            limitation text in the summary and coverage so a shared gap is displayed once.
 
             Every write tool needs an operationKey unique to that operation in this run. Reuse the key only to \
             retry the exact same call; choose a new key for a new write. Validation errors name the field to fix.

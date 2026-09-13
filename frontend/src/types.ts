@@ -12,9 +12,9 @@
  * limitations under the License.
  */
 
+import { AgentEventEnvelope } from './agents/events';
 import type { CreateLocalReviewRequest, LocalReviewQuery, ReplyLocalReviewRequest, ResolveLocalReviewRequest, RetryLocalReviewRequest } from './pulls/local-review/contracts';
 import type { LocalReviewThreadDto } from './pulls/local-review/types';
-import { AgentEventEnvelope } from './agents/events';
 import type {
   AgentReviewDto,
   ReviewDraftDto,

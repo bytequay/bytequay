@@ -111,11 +111,11 @@ class TestInteractiveAgentTaskCreator
             throw new AgentTaskNotFoundException(invocation.getArgument(1));
         });
         ready();
+        progress = new AgentTaskStartupProgress();
         credentials = mock(CredentialService.class);
         when(credentials.resolveGitHubCredential()).thenReturn(new GitHubCredential(
                 "test-token", new UserProfile("chenjian2664", "", "", "", 0, 0, 0, "", "", "", "")));
-        progress = new AgentTaskStartupProgress();
-        creator = new InteractiveAgentTaskCreator(tasks, turns, drivers, models, workspaces, provisioning, git, settings, credentials, progress);
+        creator = new InteractiveAgentTaskCreator(tasks, turns, drivers, models, workspaces, provisioning, git, settings, progress, credentials);
     }
 
     @Test

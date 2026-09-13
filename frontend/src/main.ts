@@ -11,7 +11,6 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-import { parseLocalReviewThread, parseLocalReviewThreads, type CreateLocalReviewRequest, type LocalReviewQuery, type ReplyLocalReviewRequest, type ResolveLocalReviewRequest, type RetryLocalReviewRequest } from './pulls/local-review/contracts';
 import { app, BrowserWindow, clipboard, dialog, ipcMain, Menu, nativeImage, Notification, shell, WebContentsView } from 'electron';
 import fs from 'node:fs';
 import { randomUUID } from 'node:crypto';
@@ -39,6 +38,7 @@ import {
   parseDevelopmentAutomation,
   parseModelSettings,
 } from './agents/contracts';
+import { parseLocalReviewThread, parseLocalReviewThreads, type CreateLocalReviewRequest, type LocalReviewQuery, type ReplyLocalReviewRequest, type ResolveLocalReviewRequest, type RetryLocalReviewRequest } from './pulls/local-review/contracts';
 import { parseAgentEventSequence, parseAgentHistoryPage, parseAgentPendingApprovals } from './agents/events';
 import {
   parseAgentReview,

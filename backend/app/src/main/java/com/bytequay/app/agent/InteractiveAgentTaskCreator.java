@@ -76,8 +76,8 @@ public final class InteractiveAgentTaskCreator
             WorkspaceProvisioningService provisioning,
             GitCommandRunner git,
             AppSettingsService settings,
-            CredentialService credentials,
-            AgentTaskStartupProgress progress)
+            AgentTaskStartupProgress progress,
+            CredentialService credentials)
     {
         this.tasks = requireNonNull(tasks, "tasks is null");
         this.turns = requireNonNull(turns, "turns is null");
@@ -87,8 +87,8 @@ public final class InteractiveAgentTaskCreator
         this.provisioning = requireNonNull(provisioning, "provisioning is null");
         this.git = requireNonNull(git, "git is null");
         this.settings = requireNonNull(settings, "settings is null");
-        this.credentials = requireNonNull(credentials, "credentials is null");
         this.progress = requireNonNull(progress, "progress is null");
+        this.credentials = requireNonNull(credentials, "credentials is null");
     }
 
     public AgentTask create(

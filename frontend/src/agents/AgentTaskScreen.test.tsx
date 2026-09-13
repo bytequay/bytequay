@@ -861,7 +861,7 @@ describe('agent task side panel', () => {
     expect(markup).toContain('No pull request yet');
     expect(markup).toContain('<code>reuse-resolved-field-index</code>');
     expect(markup).toContain('<strong>trinodb/trino</strong>');
-    expect(markup).toContain('ByteQuay never writes to GitHub on its own');
+    expect(markup).toContain('under its usual approvals');
   });
 
   it('offers a draft pull request only while the agent is idle and the branch has none open', () => {

@@ -254,7 +254,7 @@ export function NoPullRequestView({ branch, repository, onCreate, createBlocked 
       )}
       <div className="agt-nopr__note">
         Sends one request into this task&apos;s conversation. The agent commits, pushes and opens
-        the draft; ByteQuay never writes to GitHub on its own.
+        the draft itself, under its usual approvals.
       </div>
     </div>
   );

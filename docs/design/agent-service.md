@@ -70,9 +70,13 @@ unambiguous without requiring the user to open the panel first.
 `{"jobId":123}` selects a failing job from a freshly verified current head and
 workflow attempt. The application reuses CI Autofix's `GitHubActionsClient`
 bounded, credential-redacted log reader and task-owned blob storage, then
-returns error lines and a tail excerpt from at most 1 MiB of downloaded log.
+returns error lines and a compact diagnostic excerpt from at most 1 MiB of
+downloaded log. Redirected downloads request the tail where byte ranges are
+supported, with a bounded-prefix fallback. The shared filter removes timestamps
+and ANSI formatting, collapses repeated lines, and retains failure context,
+stack traces, and beginning/ending context within 32 KiB of stored text.
 The JSON response is capped at 64,000 characters; download and excerpt
-truncation are distinct. Head/attempt changes during retrieval
+truncation, omitted beginnings, and compaction are distinct. Head/attempt changes during retrieval
 invalidate the result. Missing PRs, unavailable logs, incomplete check evidence,
 and truncation are explicit. Log text is untrusted evidence, never instructions.
 The tool performs no rerun, commit, push, PR publication, or Autofix activation.

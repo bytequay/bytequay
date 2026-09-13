@@ -24,6 +24,7 @@ import com.bytequay.agent.spi.PullRequestCiBridgeResolver;
 import com.bytequay.app.ci.BoundedCiLog;
 import com.bytequay.app.ci.CiHeadSnapshot;
 import com.bytequay.app.ci.CiJob;
+import com.bytequay.app.ci.CiLogExcerpt;
 import com.bytequay.app.ci.CiWorkflowRun;
 import com.bytequay.app.ci.GitHubActionsClient;
 import com.bytequay.app.ci.InspectCiHeadQuery;
@@ -271,7 +272,7 @@ public class PullRequestCiBridgeResolverImpl
         }
         ObjectNode result = anchor(head);
         ObjectNode log = result.putObject("log").put("jobId", job.id()).put("workflowRunId", run.id()).put("attempt", job.attempt())
-                .put("downloadTruncated", fetched.truncated()).put("unavailableReason", fetched.unavailableReason().orElse(null));
+                .put("downloadTruncated", fetched.truncated() || fetched.omittedBeginning()).put("unavailableReason", fetched.unavailableReason().orElse(null));
         ArrayNode errors = log.putArray("terminalErrorLines");
         log.put("terminalErrorLinesOmitted", fetched.terminalErrorLines().size());
         for (String error : fetched.terminalErrorLines()) {
@@ -282,18 +283,17 @@ public class PullRequestCiBridgeResolverImpl
             }
         }
         log.put("terminalErrorLinesOmitted", fetched.terminalErrorLines().size() - errors.size());
-        int length = Math.min(contents.length(), 24_000);
+        int excerptBudget = 24_000;
         while (true) {
-            int start = contents.length() - length;
-            if (start > 0 && start < contents.length() && Character.isLowSurrogate(contents.charAt(start))) {
-                start++;
-            }
-            log.put("excerpt", contents.substring(start)).put("excerptOmittedBeginning", start > 0)
-                    .put("excerptOmittedEnd", fetched.truncated()).put("truncated", fetched.truncated() || start > 0 || errors.size() < fetched.terminalErrorLines().size());
+            CiLogExcerpt excerpt = CiLogExcerpt.from(contents, excerptBudget);
+            boolean compacted = fetched.compacted() || excerpt.compacted();
+            log.put("excerpt", excerpt.text()).put("excerptOmittedBeginning", fetched.omittedBeginning())
+                    .put("excerptOmittedEnd", fetched.truncated()).put("excerptCompacted", compacted)
+                    .put("truncated", fetched.truncated() || fetched.omittedBeginning() || compacted || errors.size() < fetched.terminalErrorLines().size());
             if (json(result).length() <= PullRequestCiBridge.MAXIMUM_OUTPUT_LENGTH) {
                 return json(result);
             }
-            length /= 2;
+            excerptBudget = Math.max(1, excerptBudget / 2);
         }
     }
 

@@ -20,6 +20,7 @@ import com.bytequay.agent.core.store.TaskLogStore;
 import com.bytequay.app.ci.BoundedCiLog;
 import com.bytequay.app.ci.CiHeadSnapshot;
 import com.bytequay.app.ci.CiJob;
+import com.bytequay.app.ci.CiLogExcerpt;
 import com.bytequay.app.ci.CiRerunResult;
 import com.bytequay.app.ci.CiStep;
 import com.bytequay.app.ci.CiWorkflowRun;
@@ -42,6 +43,7 @@ import org.springframework.http.HttpStatusCode;
 import org.springframework.http.ResponseEntity;
 import org.springframework.stereotype.Component;
 import org.springframework.web.client.RestClient;
+import org.springframework.web.client.RestClientException;
 import org.springframework.web.client.RestClientResponseException;
 import org.springframework.web.server.ResponseStatusException;
 
@@ -61,6 +63,7 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 import java.util.function.Supplier;
+import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
 import static com.bytequay.app.ci.CiRerunResult.Outcome.ACCEPTED;
@@ -85,6 +88,7 @@ public class GitHubActionsClient
     private static final int MAX_TERMINAL_ERRORS = 20;
     private static final int MAX_ERROR_LINE = 500;
     private static final String LOG_MEDIA_TYPE = "text/plain; charset=utf-8";
+    private static final Pattern LOG_CONTENT_RANGE = Pattern.compile("bytes (\\d+)-(\\d+)/(\\d+)");
     private static final Pattern ANSI_ESCAPE = Pattern.compile("\\x1B(?:[@-Z\\\\-_]|\\[[0-?]*[ -/]*[@-~])");
     private static final Pattern TIMESTAMP_PREFIX = Pattern.compile(
             "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}(?:\\.\\d+)?Z\\s+");
@@ -319,23 +323,33 @@ public class GitHubActionsClient
         String pat = token();
         PullRequestRef pullRequest = query.pullRequest();
         LogHop first = requestLogRedirect(pat, pullRequest, query.job().id(), query.maximumBytes());
-        if (first.unavailableReason() != null) {
-            return BoundedCiLog.unavailable(first.unavailableReason());
+        LogHop result = first.redirect() == null ? first : downloadRedirect(first.redirect(), query.maximumBytes());
+        if (result.unavailableReason() != null) {
+            return BoundedCiLog.unavailable(result.unavailableReason());
         }
-        RawLog raw = first.raw() != null
-                ? first.raw()
-                : downloadRedirect(first.redirect(), query.maximumBytes());
+        RawLog raw = result.raw();
         byte[] fullyRedacted = redact(raw.bytes(), pat);
         byte[] redacted = fullyRedacted.length <= query.maximumBytes()
                 ? fullyRedacted
                 : Arrays.copyOf(fullyRedacted, query.maximumBytes());
         boolean truncated = raw.truncated() || redacted.length < fullyRedacted.length;
-        BlobRef blob = blobWriter.write(query.taskId(), ByteBuffer.wrap(redacted), LOG_MEDIA_TYPE);
+        String text = new String(redacted, StandardCharsets.UTF_8);
+        String captureNote = (raw.omittedBeginning() ? "[Beginning of log omitted; downloaded tail.]\n" : "")
+                + (truncated ? "[Log byte limit reached; end of log omitted.]\n" : "");
+        int maximumExcerptBytes = Math.min(query.maximumBytes(), 32 * 1024);
+        if (captureNote.length() >= maximumExcerptBytes) {
+            return BoundedCiLog.unavailable("CI log byte limit is too small to include omitted-content details");
+        }
+        CiLogExcerpt excerpt = CiLogExcerpt.from(text, maximumExcerptBytes - captureNote.length());
+        byte[] stored = (captureNote + excerpt.text()).getBytes(StandardCharsets.UTF_8);
+        BlobRef blob = blobWriter.write(query.taskId(), ByteBuffer.wrap(stored), LOG_MEDIA_TYPE);
         return new BoundedCiLog(
                 Optional.of(blob),
-                redacted.length,
+                stored.length,
                 truncated,
-                terminalErrors(new String(redacted, StandardCharsets.UTF_8)),
+                raw.omittedBeginning(),
+                excerpt.compacted(),
+                terminalErrors(text),
                 Optional.empty());
     }
 
@@ -595,19 +609,84 @@ public class GitHubActionsClient
                 });
     }
 
-    private RawLog downloadRedirect(URI location, int maximumBytes)
+    private LogHop downloadRedirect(URI location, int maximumBytes)
     {
-        return logRestClient.get()
+        Optional<Long> length = logLength(location).filter(value -> value > maximumBytes);
+        RestClient.RequestHeadersSpec<?> request = logRestClient.get()
                 .uri(location)
-                .exchange((request, response) -> {
-                    int status = response.getStatusCode().value();
-                    if (status != 200) {
-                        throw new ResponseStatusException(
-                                HttpStatusCode.valueOf(status),
-                                "GitHub Actions log download failed with status " + status);
-                    }
-                    return readBounded(response.getBody(), maximumBytes);
-                });
+                .header(HttpHeaders.ACCEPT_ENCODING, "identity");
+        length.ifPresent(value -> request.header(HttpHeaders.RANGE, "bytes=" + (value - maximumBytes) + "-" + (value - 1)));
+        return request.exchange((logRequest, response) -> {
+            int status = response.getStatusCode().value();
+            if (status == 404 || status == 410) {
+                return LogHop.unavailable("GitHub Actions log is missing or expired");
+            }
+            if (status == 416) {
+                return LogHop.unavailable("GitHub Actions log is empty or the requested byte range is unavailable");
+            }
+            if (status == 206) {
+                if (length.isEmpty()) {
+                    return LogHop.unavailable("GitHub returned an unsolicited ranged log response");
+                }
+                return readLogRange(response.getBody(), response.getHeaders(), maximumBytes, length.orElseThrow());
+            }
+            if (status != 200) {
+                throw new ResponseStatusException(
+                        HttpStatusCode.valueOf(status),
+                        "GitHub Actions log download failed with status " + status);
+            }
+            return new LogHop(null, readBounded(response.getBody(), maximumBytes), null);
+        });
+    }
+
+    private Optional<Long> logLength(URI location)
+    {
+        try {
+            return logRestClient.head().uri(location).header(HttpHeaders.ACCEPT_ENCODING, "identity").exchange((request, response) -> {
+                if (response.getStatusCode().value() != 200
+                        || !"identity".equalsIgnoreCase(Optional.ofNullable(response.getHeaders().getFirst(HttpHeaders.CONTENT_ENCODING)).orElse("identity"))) {
+                    return Optional.empty();
+                }
+                return Optional.of(response.getHeaders().getContentLength()).filter(value -> value >= 0);
+            });
+        }
+        catch (RestClientException | IllegalArgumentException ignored) {
+            return Optional.empty();
+        }
+    }
+
+    private static LogHop readLogRange(InputStream input, HttpHeaders headers, int maximumBytes, long expectedLength)
+            throws IOException
+    {
+        Matcher range = LOG_CONTENT_RANGE.matcher(Optional.ofNullable(headers.getFirst(HttpHeaders.CONTENT_RANGE)).orElse(""));
+        if (!range.matches() || !"identity".equalsIgnoreCase(Optional.ofNullable(headers.getFirst(HttpHeaders.CONTENT_ENCODING)).orElse("identity"))) {
+            return LogHop.unavailable("GitHub returned an invalid ranged log response");
+        }
+        try {
+            long first = Long.parseLong(range.group(1));
+            long last = Long.parseLong(range.group(2));
+            long total = Long.parseLong(range.group(3));
+            if (total != expectedLength || first != total - maximumBytes || last != total - 1) {
+                return LogHop.unavailable("GitHub returned an invalid ranged log response");
+            }
+            int expectedBytes = (int) (last - first + 1);
+            byte[] bytes = input.readNBytes(expectedBytes + 1);
+            if (bytes.length != expectedBytes) {
+                return LogHop.unavailable("GitHub returned an incomplete ranged log response");
+            }
+            if (first > 0) {
+                // A suffix can start inside a secret, before its recognizable token prefix.
+                int start = 0;
+                while (start < bytes.length && bytes[start] != '\n') {
+                    start++;
+                }
+                bytes = Arrays.copyOfRange(bytes, Math.min(bytes.length, start + 1), bytes.length);
+            }
+            return new LogHop(null, new RawLog(bytes, false, first > 0), null);
+        }
+        catch (NumberFormatException ignored) {
+            return LogHop.unavailable("GitHub returned an invalid ranged log response");
+        }
     }
 
     private static RawLog readBounded(InputStream input, int maximumBytes)
@@ -615,7 +694,15 @@ public class GitHubActionsClient
     {
         byte[] bytes = input.readNBytes(maximumBytes + 1);
         boolean truncated = bytes.length > maximumBytes;
-        return new RawLog(truncated ? Arrays.copyOf(bytes, maximumBytes) : bytes, truncated);
+        if (truncated) {
+            // A cut-off credential no longer matches full-value secret redaction.
+            int end = maximumBytes;
+            while (end > 0 && bytes[end - 1] != '\n') {
+                end--;
+            }
+            bytes = Arrays.copyOf(bytes, end);
+        }
+        return new RawLog(bytes, truncated, false);
     }
 
     private static byte[] redact(byte[] bytes, String pat)
@@ -723,7 +810,7 @@ public class GitHubActionsClient
         BlobRef write(TaskId taskId, ByteBuffer content, String mediaType);
     }
 
-    private record RawLog(byte[] bytes, boolean truncated) {}
+    private record RawLog(byte[] bytes, boolean truncated, boolean omittedBeginning) {}
 
     private record LogHop(
             URI redirect,

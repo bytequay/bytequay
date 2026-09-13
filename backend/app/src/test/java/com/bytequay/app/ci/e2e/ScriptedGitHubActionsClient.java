@@ -132,6 +132,8 @@ final class ScriptedGitHubActionsClient
                 Optional.of(blob),
                 length,
                 scripted.content().length > length,
+                false,
+                false,
                 scripted.terminalErrorLines(),
                 Optional.empty());
     }

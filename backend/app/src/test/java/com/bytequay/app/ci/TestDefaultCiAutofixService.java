@@ -266,6 +266,8 @@ class TestDefaultCiAutofixService
                         Files.size(log))),
                 toIntExact(Files.size(log)),
                 false,
+                false,
+                false,
                 ImmutableList.of("error: compilation failed"),
                 Optional.empty()));
         when(worktreeService.inspect(any())).thenAnswer(invocation ->

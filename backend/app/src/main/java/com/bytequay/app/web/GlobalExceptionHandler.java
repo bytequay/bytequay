@@ -50,6 +50,7 @@ import org.springframework.web.context.request.async.AsyncRequestNotUsableExcept
 import org.springframework.web.method.annotation.MethodArgumentTypeMismatchException;
 import org.springframework.web.server.ResponseStatusException;
 import org.springframework.web.servlet.HandlerMapping;
+import org.springframework.web.servlet.resource.NoResourceFoundException;
 
 import java.time.Instant;
 import java.util.Optional;
@@ -142,8 +143,9 @@ public class GlobalExceptionHandler
             ApprovalNotFoundException.class,
             CherryPickNotFoundException.class,
             CiAutofixNotFoundException.class,
-            ReviewNotFoundException.class})
-    public ResponseEntity<ErrorResponse> handleAgentNotFound(RuntimeException exception, HttpServletRequest request)
+            ReviewNotFoundException.class,
+            NoResourceFoundException.class})
+    public ResponseEntity<ErrorResponse> handleNotFound(Exception exception, HttpServletRequest request)
     {
         return errorResponse(HttpStatus.NOT_FOUND.value(), exception.getMessage(), request.getRequestURI());
     }

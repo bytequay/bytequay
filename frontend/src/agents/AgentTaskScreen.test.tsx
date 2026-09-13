@@ -1256,6 +1256,7 @@ describe('agent task detail', () => {
     expect(blocked).not.toContain('Retry last message');
 
     const released = body(preserved);
+    expect(released).toContain(reason);
     expect(released).toContain('Continue with the smaller change</textarea>');
     expect(released).toMatch(/<button(?![^>]*disabled)[^>]*aria-label="Send message"/);
     expect(released).not.toContain('Could not verify shutdown');

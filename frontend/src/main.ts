@@ -569,9 +569,9 @@ function registerIpc(): void {
       + `${refresh === true ? '/sync' : ''}?${new URLSearchParams({ workspaceId })}`,
     { method: refresh === true ? 'POST' : 'GET', headers: agentHeaders() }));
   ipcMain.handle('ci-autofix:get', (_event, runId: string) =>
-    backendJson(`${backendBase()}/ci-autofix/runs/${encodeURIComponent(runId)}`, { headers: agentHeaders() }).then(parseCiAutofixRun));
+    backendJson(`${backendBase()}/api/ci-autofix/runs/${encodeURIComponent(runId)}`, { headers: agentHeaders() }).then(parseCiAutofixRun));
   ipcMain.handle('ci-autofix:message', (_event, runId: string, message: string, idempotencyKey: string) =>
-    backendJson(`${backendBase()}/ci-autofix/runs/${encodeURIComponent(runId)}/messages`,
+    backendJson(`${backendBase()}/api/ci-autofix/runs/${encodeURIComponent(runId)}/messages`,
       jsonInit('POST', { message }, { ...agentHeaders(), 'Idempotency-Key': idempotencyKey })).then(parseCiAutofixRun));
   ipcMain.handle('agent:task:rename', (
     _event,

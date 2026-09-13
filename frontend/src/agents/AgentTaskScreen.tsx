@@ -1135,6 +1135,10 @@ export function AgentTaskBody({
       {state.task?.developmentCi != null && <DevelopmentCiStatus ci={state.task.developmentCi} active={automationActive && !terminal && currentCi != null}
         error={ciPollingError} onOpen={onOpenDevelopmentCi} />}
 
+      {!automationActive && state.developmentProgress?.message.startsWith('Automation stopped.') && <div className="agt-notice" role="alert">
+        {state.developmentProgress.message}
+      </div>}
+
       {!terminal && automationActive && currentCi == null && status !== 'recovery' && <div className="agt-barrier" role="status">
         {state.developmentProgress?.message || 'Automation is running.'} Your next message stays in the composer until it finishes.
       </div>}

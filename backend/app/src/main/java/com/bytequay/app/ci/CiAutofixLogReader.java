@@ -31,11 +31,15 @@ import org.springframework.stereotype.Component;
 import java.nio.file.Path;
 import java.util.List;
 import java.util.Optional;
+import java.util.concurrent.Callable;
+import java.util.concurrent.Executors;
 
 import static com.bytequay.app.utils.FileChecks.requireRealDirectory;
 import static com.bytequay.app.utils.FileChecks.requireRealFile;
 import static com.google.common.base.Ascii.truncate;
 import static com.google.common.base.Preconditions.checkArgument;
+import static com.google.common.collect.ImmutableList.toImmutableList;
+import static com.google.common.util.concurrent.Futures.getUnchecked;
 import static java.lang.Math.toIntExact;
 import static java.util.Objects.requireNonNull;
 
@@ -43,6 +47,7 @@ import static java.util.Objects.requireNonNull;
 final class CiAutofixLogReader
 {
     private static final int MAXIMUM_FAILURES = 50;
+    private static final int LOG_DOWNLOAD_CONCURRENCY = 4;
     private static final int MAXIMUM_LOG_BYTES = 1024 * 1024;
     private static final int EVENT_PAGE_SIZE = 1000;
     private static final int MAXIMUM_EVENT_PAGES = 10;
@@ -98,39 +103,39 @@ final class CiAutofixLogReader
     {
         requireNonNull(taskId, "taskId is null");
         requireNonNull(snapshot, "snapshot is null");
-        ImmutableList.Builder<FailureEvidence> failures = ImmutableList.builder();
-        int count = 0;
-        for (CiWorkflowRun workflow : snapshot.workflowRuns()) {
-            for (CiJob job : workflow.jobs()) {
-                if (!job.actionableFailure()) {
-                    continue;
-                }
-                BoundedCiLog log = gitHub.readLog(new ReadCiLogQuery(
-                        taskId,
-                        snapshot.pullRequest(),
-                        workflow,
-                        job,
-                        MAXIMUM_LOG_BYTES));
-                Optional<LogReference> reference = log.blob().map(blob -> new LogReference(
-                        blob.relativePath(),
-                        blob.mediaType(),
-                        toIntExact(blob.size()),
-                        log.truncated()));
-                failures.add(new FailureEvidence(
-                        CiFailureSignature.compute(workflow, job, log),
-                        workflow.name() + " / " + job.failureSummary(),
-                        workflow.id(),
-                        workflow.attempt(),
-                        job.id(),
-                        job.attempt(),
-                        reference));
-                count++;
-                if (count == MAXIMUM_FAILURES) {
-                    return failures.build();
-                }
-            }
+        List<Callable<FailureEvidence>> downloads = snapshot.workflowRuns().stream()
+                .flatMap(workflow -> workflow.jobs().stream()
+                        .filter(CiJob::actionableFailure)
+                        .map(job -> (Callable<FailureEvidence>) () -> readFailure(taskId, snapshot, workflow, job)))
+                .limit(MAXIMUM_FAILURES)
+                .collect(toImmutableList());
+        try (var executor = Executors.newFixedThreadPool(LOG_DOWNLOAD_CONCURRENCY, Thread.ofVirtual().factory())) {
+            return executor.invokeAll(downloads).stream()
+                    .map(future -> getUnchecked(future))
+                    .collect(toImmutableList());
         }
-        return failures.build();
+        catch (InterruptedException failure) {
+            Thread.currentThread().interrupt();
+            throw new IllegalStateException("GitHub Actions log collection was interrupted", failure);
+        }
+    }
+
+    private FailureEvidence readFailure(TaskId taskId, CiHeadSnapshot snapshot, CiWorkflowRun workflow, CiJob job)
+    {
+        BoundedCiLog log = gitHub.readLog(new ReadCiLogQuery(taskId, snapshot.pullRequest(), workflow, job, MAXIMUM_LOG_BYTES));
+        Optional<LogReference> reference = log.blob().map(blob -> new LogReference(
+                blob.relativePath(),
+                blob.mediaType(),
+                toIntExact(blob.size()),
+                log.truncated() || log.omittedBeginning() || log.compacted()));
+        return new FailureEvidence(
+                CiFailureSignature.compute(workflow, job, log),
+                workflow.name() + " / " + job.failureSummary() + log.unavailableReason().map(reason -> "; log unavailable: " + reason).orElse(""),
+                workflow.id(),
+                workflow.attempt(),
+                job.id(),
+                job.attempt(),
+                reference);
     }
 
     List<AgentAttachment> attachments(TaskId taskId, List<FailureEvidence> failures)

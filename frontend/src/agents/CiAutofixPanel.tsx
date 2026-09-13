@@ -19,7 +19,17 @@ import { agentTaskReducer, historyAfter, historyBefore, initialAgentTaskState, r
 import { projectTranscript, withApprovalAuthority } from './transcript';
 
 export function ciActivity(ci: Pick<AgentDevelopmentCiDto, 'status' | 'activity' | 'attemptsUsed' | 'maxAttempts' | 'finishReason' | 'canMessage'>): string {
-  if (ci.status === 'FINISHED') return ci.finishReason === 'GREEN' ? 'CI passed' : 'CI Autofix ended';
+  if (ci.status === 'FINISHED') {
+    switch (ci.finishReason) {
+      case 'GREEN': return 'CI passed';
+      case 'CANCELLED': return 'CI Autofix stopped';
+      case 'ERROR': return 'CI Autofix failed';
+      case 'MAX_ATTEMPTS': return 'CI repair limit reached';
+      case 'AUTHORIZATION_EXPIRED': return 'CI Autofix authorization expired';
+      case 'STALE_HEAD': return 'CI Autofix stopped: PR branch changed';
+      default: return 'CI Autofix ended';
+    }
+  }
   if (ci.status === 'PAUSED') return ci.canMessage ? 'CI needs your input' : 'CI Autofix paused';
   switch (ci.activity) {
     case 'FIXING': return `Fixing CI ${ci.attemptsUsed}/${ci.maxAttempts}`;
@@ -58,6 +68,8 @@ export function CiAutofixPanel({ ci, parentTaskId, workspaceId, active, bridge, 
 }) {
   const [run, setRun] = useState<CiAutofixRunDto | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [refresh, setRefresh] = useState(0);
+  const [loading, setLoading] = useState(true);
   const acceptRun = useCallback((value: CiAutofixRunDto) => {
     if (value.id !== ci.runId || value.parentTaskId !== parentTaskId || value.workspaceId !== workspaceId) {
       throw new Error('CI run does not belong to this development task');
@@ -68,31 +80,42 @@ export function CiAutofixPanel({ ci, parentTaskId, workspaceId, active, bridge, 
     let live = true;
     let timer: ReturnType<typeof setTimeout> | undefined;
     const read = async () => {
+      setLoading(true);
       try {
         const result = await bridge.getCiAutofixRun(ci.runId);
         if (!live) return;
         acceptRun(result);
         setError(null);
       } catch (failure) { if (live) setError(errorText(failure)); }
-      finally { if (live && active) timer = setTimeout(() => { void read(); }, 5000); }
+      finally {
+        if (live) {
+          setLoading(false);
+          if (active) timer = setTimeout(() => { void read(); }, 5000);
+        }
+      }
     };
     void read();
     return () => { live = false; clearTimeout(timer); };
-  }, [bridge, ci.runId, active, acceptRun]);
+  }, [bridge, ci.runId, active, acceptRun, refresh]);
   const status = run === null ? ci : { ...ci, ...run, maxAttempts: run.authorization.maxAttempts };
   return <aside className="agt-ci-panel" style={{ width }} aria-label="CI Autofix run">
     <div className="agt-ci-panel__head"><strong>CI Autofix</strong><button type="button" className="agt-action" onClick={onClose}>Close CI</button></div>
     <div className="agt-ci-panel__summary">
       <strong>{ciActivity(status)}</strong><span>{status.attemptsUsed}/{status.maxAttempts} repair attempts · {status.rerunsUsed}/3 reruns</span>
       <a href={ci.pullRequestUrl}>PR #{ci.pullRequestNumber}</a>
-      {run?.summary && <span>{errorText(run.summary)}</span>}
+      {status.summary && <span>{errorText(status.summary)}</span>}
       {active && <button type="button" className="agt-action" onClick={onStop}>Stop automation</button>}
-      {error !== null && <span className="agt-development-ci__error">Could not refresh CI. {error}</span>}
+      {error !== null && <>
+        <span className="agt-development-ci__error" role="alert">Could not load CI Autofix details. {error}</span>
+        <button type="button" className="agt-action" disabled={loading} onClick={() => setRefresh(value => value + 1)}>{loading ? 'Loading CI…' : 'Retry loading CI'}</button>
+      </>}
     </div>
     {run?.agentTaskId != null
       ? <CiConversation key={run.agentTaskId} taskId={run.agentTaskId} run={run} bridge={bridge}
           ownerActive={active} canMessage={active && error === null && ci.canMessage && run.canMessage} onRun={acceptRun} />
-      : <p className="agt-muted">Preparing the CI agent task…</p>}
+      : error === null && <p className="agt-muted">{run === null ? 'Loading CI Autofix…'
+        : run.status === 'FINISHED' ? 'No CI agent task was started.'
+          : active && run.status === 'ACTIVE' ? 'Preparing the CI agent task…' : 'No CI agent task is available.'}</p>}
   </aside>;
 }
 

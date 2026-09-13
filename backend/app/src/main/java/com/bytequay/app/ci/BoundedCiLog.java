@@ -24,10 +24,17 @@ import static com.bytequay.core.domain.Checks.checkText;
 import static com.google.common.base.Preconditions.checkArgument;
 import static java.util.Objects.requireNonNull;
 
+/**
+ * A diagnostic blob, with download omissions separate from excerpt compaction.
+ * {@code truncated} means the download's ending was omitted; a suffix instead
+ * sets {@code omittedBeginning}. Error signatures precede excerpt compaction.
+ */
 public record BoundedCiLog(
         Optional<BlobRef> blob,
         int byteCount,
         boolean truncated,
+        boolean omittedBeginning,
+        boolean compacted,
         List<String> terminalErrorLines,
         Optional<String> unavailableReason)
 {
@@ -44,11 +51,11 @@ public record BoundedCiLog(
         blob.ifPresent(value -> {
             checkArgument(value.size() == byteCount, "blob size and byteCount disagree");
         });
-        checkArgument(blob.isPresent() || (byteCount == 0 && !truncated && terminalErrorLines.isEmpty()), "unavailable log carries content facts");
+        checkArgument(blob.isPresent() || (byteCount == 0 && !truncated && !omittedBeginning && !compacted && terminalErrorLines.isEmpty()), "unavailable log has content facts");
     }
 
     public static BoundedCiLog unavailable(String reason)
     {
-        return new BoundedCiLog(Optional.empty(), 0, false, ImmutableList.of(), Optional.of(reason));
+        return new BoundedCiLog(Optional.empty(), 0, false, false, false, ImmutableList.of(), Optional.of(reason));
     }
 }

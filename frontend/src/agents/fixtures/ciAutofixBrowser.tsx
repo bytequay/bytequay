@@ -14,9 +14,10 @@
 
 import { flushSync } from 'react-dom';
 import { createRoot } from 'react-dom/client';
-import type { AgentStreamMessage, AgentTaskDto, AgentTurnDto, CiAutofixRunDto } from '../../types';
+import type { AgentDevelopmentCiDto, AgentStreamMessage, AgentTaskDto, AgentTurnDto, CiAutofixRunDto } from '../../types';
 import { AgentTaskList } from '../AgentTasksView';
 import AgentTaskScreen from '../AgentTaskScreen';
+import { CiAutofixPanel } from '../CiAutofixPanel';
 import { CI_PROJECTION, CI_RUN } from './ciAutofix';
 import { createPreviewBridge } from './previewBridge';
 
@@ -170,7 +171,47 @@ async function sourcePolling(): Promise<{ name: string; error?: string }> {
 }
 
 export async function runCiAutofixScenarios(): Promise<{ name: string; error?: string }[]> {
-  return [await ciReplyAndOwnership(), await sourcePolling(), await laterRunAndRecovery(), await deleteReferences()];
+  return [await ciReplyAndOwnership(), await sourcePolling(), await laterRunAndRecovery(), await deleteReferences(), await ciDetailLoading()];
+}
+
+async function ciDetailLoading(): Promise<{ name: string; error?: string }> {
+  const bridge = createPreviewBridge('workspace-1');
+  const ci: AgentDevelopmentCiDto = { ...CI_PROJECTION, status: 'FINISHED', finishReason: 'CANCELLED', canMessage: false, agentTaskId: null,
+    summary: 'Development automation stopped; local and remote results were preserved' };
+  const run = { ...CI_RUN, ...ci, id: ci.runId, version: 2 };
+  let rejectRead: (error: Error) => void = () => {};
+  let reads = 0;
+  bridge.getCiAutofixRun = async id => {
+    assert(id === ci.runId, 'Retry must inspect the same run');
+    reads++;
+    return reads === 1 ? await new Promise<CiAutofixRunDto>((_resolve, reject) => { rejectRead = reject; }) : run;
+  };
+  const host = document.createElement('div');
+  document.body.append(host);
+  const root = createRoot(host);
+  flushSync(() => root.render(<CiAutofixPanel ci={ci} parentTaskId="source-task" workspaceId="workspace-1" active={false}
+    bridge={bridge} width={600} onClose={() => {}} onStop={() => { throw new Error('Inspection must not stop or start automation'); }} />));
+  try {
+    await settle();
+    assert(host.textContent?.includes('Loading CI Autofix…') === true, 'Initial lookup must identify loading, not agent preparation');
+    assert(ci.summary !== null && host.textContent?.includes(ci.summary) === true, 'Known stopped explanation must remain while details load');
+    rejectRead(new Error('Internal server error'));
+    await settle();
+    assert(host.querySelector('[role="alert"]')?.textContent?.includes('Internal server error') === true, 'A failed GET must show its error');
+    assert(!host.textContent?.includes('Preparing') && !host.textContent?.includes('Loading CI Autofix…'), 'Failure must not claim ongoing work');
+    assert(host.textContent?.includes(ci.summary) === true, 'Known summary must survive a failed GET');
+    const retry = Array.from(host.querySelectorAll('button')).find(button => button.textContent === 'Retry loading CI');
+    assert(retry !== undefined, 'An inactive run must offer a read-only retry after GET failure');
+    retry.click();
+    await settle();
+    assert(reads === 2 && host.querySelector('[role="alert"]') === null, 'Retry must reload details and clear the error');
+    assert(host.textContent?.includes('CI Autofix stopped') === true, 'Loaded cancellation must remain stopped');
+    assert(host.textContent?.includes('No CI agent task was started.') === true, 'A stopped run without a task must not claim preparation');
+    assert(!host.textContent?.includes('Preparing') && !host.textContent?.includes('Send to CI agent'), 'Inspection cannot offer nonexistent execution');
+    assert(!bridge.commands.some(command => command.name === 'startAgentTurn' || command.name === 'sendCiAutofixMessage'), 'Read retry must not mutate CI');
+    return { name: 'Stopped CI details preserve known status through loading failure and explicit read-only retry' };
+  } catch (error) { return { name: 'CI detail loading and retry', error: error instanceof Error ? error.message : String(error) }; }
+  finally { flushSync(() => root.unmount()); host.remove(); }
 }
 
 async function laterRunAndRecovery(): Promise<{ name: string; error?: string }> {

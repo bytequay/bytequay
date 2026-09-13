@@ -389,7 +389,8 @@ class TestPullRequestCiBridgeResolverImpl
         assertThat(result.at("/log/excerpt").asText()).contains("subject: 64 characters");
         assertThat(result.at("/log/truncated").asBoolean()).isTrue();
         assertThat(result.at("/log/downloadTruncated").asBoolean()).isTrue();
-        assertThat(result.at("/log/excerptOmittedBeginning").asBoolean()).isTrue();
+        assertThat(result.at("/log/excerptCompacted").asBoolean()).isTrue();
+        assertThat(result.at("/log/excerptOmittedEnd").asBoolean()).isTrue();
     }
 
     @Test
@@ -444,7 +445,7 @@ class TestPullRequestCiBridgeResolverImpl
     {
         byte[] bytes = text.getBytes(UTF_8);
         BlobRef blob = new BlobRef("ci/check-commit-messages.log", "text/plain", bytes.length);
-        when(actions.readLog(any())).thenReturn(new BoundedCiLog(Optional.of(blob), bytes.length, truncated,
+        when(actions.readLog(any())).thenReturn(new BoundedCiLog(Optional.of(blob), bytes.length, truncated, false, false,
                 ImmutableList.of("##[error]Process completed with exit code 1."), Optional.empty()));
         when(logs.readBlob(taskId, blob)).thenAnswer(ignored -> ByteBuffer.wrap(bytes));
     }

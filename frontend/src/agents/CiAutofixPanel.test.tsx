@@ -46,6 +46,29 @@ it('derives CI activity from observed run facts without claiming the PR is ready
   expect(html).not.toContain('ready for review');
 });
 
+it.each([
+  ['CANCELLED', 'CI Autofix stopped'],
+  ['ERROR', 'CI Autofix failed'],
+  ['MAX_ATTEMPTS', 'CI repair limit reached'],
+  ['AUTHORIZATION_EXPIRED', 'CI Autofix authorization expired'],
+  ['STALE_HEAD', 'CI Autofix stopped: PR branch changed'],
+])('explains a finished %s run without claiming CI passed', (finishReason, label) => {
+  expect(ciActivity({ ...CI_PROJECTION, status: 'FINISHED', finishReason })).toBe(label);
+});
+
+it('shows the recorded automation failure after a successful source turn and stopped CI', () => {
+  const ci = { ...CI_PROJECTION, status: 'FINISHED' as const, finishReason: 'CANCELLED', canMessage: false, attemptsUsed: 0 };
+  const task: AgentTaskDto = { ...previewTask('workspace-1', 'source-task'), interactive: true, mutationClaim: null, developmentContinuationUnfinished: false, developmentCi: ci };
+  const reason = 'Automation stopped. CI Autofix: GitHub Actions log download failed with status 404';
+  const state = { ...initialAgentTaskState(), task, connection: 'open' as const, developmentProgress: { sequence: 12, message: reason } };
+  const html = renderToStaticMarkup(<AgentTaskBody state={state} models={[]} onBack={() => {}} onSend={() => {}} onCancel={() => {}}
+    onComplete={() => {}} onDecide={() => {}} onCompose={() => {}} onSelectModel={() => {}} onStopServer={() => {}} onMarkFailed={() => {}} />);
+  expect(html).toContain('CI Autofix stopped');
+  expect(html).toContain(reason);
+  expect(html).not.toContain('CI Autofix is running');
+  expect(html).not.toContain('CI passed');
+});
+
 it('keeps source input drafts while CI owns Send, queue and Complete', () => {
   const task = { ...previewTask('workspace-1', 'source-task'), interactive: true, developmentContinuationUnfinished: true, developmentCi: CI_PROJECTION };
   const state = { ...initialAgentTaskState(), task, composer: 'Keep this source draft', connection: 'open' as const };

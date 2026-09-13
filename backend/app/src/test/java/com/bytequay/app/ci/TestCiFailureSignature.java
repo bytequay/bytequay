@@ -81,6 +81,8 @@ class TestCiFailureSignature
                 Optional.of(new BlobRef("blobs/log", "text/plain", 10)),
                 10,
                 false,
+                false,
+                false,
                 errors,
                 Optional.empty());
     }

@@ -101,7 +101,13 @@ public final class DevelopmentFollowupCoordinator
         DevelopmentAutomation automation = turn.settings().orElseThrow().developmentAutomation().orElseThrow();
         if (automation.autoDraftPr() || automation.autoCiFix()) {
             try {
-                publication = Optional.of(git.inspectPublication(baseline.worktree(), baseline.route()));
+                DevelopmentPublicationFacts current = git.inspectPublication(baseline.worktree(), baseline.route());
+                publication = Optional.of(current);
+                if (!pending) {
+                    // A queued turn captures its baseline after the previous turn's CLI publication.
+                    pending = previous.filter(prior -> prior.remoteFailure().isEmpty() && prior.baseline().route().equals(baseline.route()))
+                            .flatMap(Accepted::publication).filter(original -> newlyPublished(baseline, original, current)).isPresent();
+                }
             }
             catch (RuntimeException failure) {
                 // Remote prerequisites must not prevent the initial local development work.
@@ -150,7 +156,8 @@ public final class DevelopmentFollowupCoordinator
             }
             DevelopmentBaseline baseline = source.baseline();
             DevelopmentLocalFacts local = inspectLocal(baseline);
-            if (!changed(baseline.local(), local) && !source.pendingDelivery()) {
+            boolean pendingWork = changed(baseline.local(), local) || source.pendingDelivery();
+            if (!pendingWork && local.uncommittedFileCount() > 0) {
                 finish(completion);
                 return;
             }
@@ -187,6 +194,10 @@ public final class DevelopmentFollowupCoordinator
                         "The task's pull request changed during development");
             }
             boolean alreadyPushed = publication.remoteHeadSha().filter(local.headSha()::equals).isPresent();
+            if (!pendingWork && !newlyPublished(baseline, original, publication)) {
+                finish(completion);
+                return;
+            }
             boolean alreadyPublished = alreadyPushed
                     && currentPr.map(GitHubPullRequestIdentity::headSha).filter(local.headSha()::equals).isPresent();
             if (!alreadyPublished) {
@@ -432,6 +443,24 @@ public final class DevelopmentFollowupCoordinator
     private static boolean changed(DevelopmentLocalFacts before, DevelopmentLocalFacts after)
     {
         return !before.headSha().equals(after.headSha()) || !before.fingerprint().equals(after.fingerprint());
+    }
+
+    private static boolean newlyPublished(DevelopmentBaseline baseline, DevelopmentPublicationFacts original, DevelopmentPublicationFacts current)
+    {
+        if (baseline.local().uncommittedFileCount() > 0) {
+            return false;
+        }
+        Optional<GitHubPullRequestIdentity> originalPr = matchingPr(baseline.route(), original);
+        Optional<GitHubPullRequestIdentity> currentPr = matchingPr(baseline.route(), current);
+        boolean samePr = currentPr.map(GitHubPullRequestIdentity::pullRequest).equals(originalPr.map(GitHubPullRequestIdentity::pullRequest));
+        checkState(originalPr.isEmpty() || samePr, "The task's pull request changed during development");
+        if (current.remoteHeadSha().equals(original.remoteHeadSha()) && samePr) {
+            return false;
+        }
+        // A push or PR creation can publish finished work without changing the local checkout.
+        checkState(current.remoteHeadSha().filter(baseline.local().headSha()::equals).isPresent(),
+                "The published revision does not match the clean task revision");
+        return true;
     }
 
     private static DevelopmentResultReport requireResult(DevelopmentTurnCompletion completion)

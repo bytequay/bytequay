@@ -251,7 +251,7 @@ after a stopped user development turn:
     if accepted user work already queued: run it first; check after it ends
 
     inspect actual Git and the accepted automation selection
-    if nothing changed and no explicitly requested pending delivery: finish
+    if local work is unchanged, dirty, and has no pending delivery: finish locally
 
     if dirty:
         if auto commit off: show uncommitted work; finish locally
@@ -261,6 +261,9 @@ after a stopped user development turn:
         inspect again; if still dirty/invalid: fail
 
     inspect remote branch and the exact matching PR
+    if local work is unchanged and has no pending delivery:
+        if remote SHA and matching PR identity are unchanged: finish
+        require the new publication to match the exact clean local HEAD
     if clean local revision needs publication and auto draft PR on:
         run one ordinary "push this revision / create draft if absent" turn
         wait for its completion, gate report, and verified shutdown
@@ -292,6 +295,12 @@ When an already-accepted user queue takes precedence, atomically hand admission
 to its FIFO turn under the task lock and end the current continuation. That
 user turn's live completion callback starts the next checker. Do not wait on
 a queued turn while retaining the ownership that prevents it from starting.
+The queued turn's baseline capture also compares its fresh publication facts
+with the preceding turn's snapshot on the same accepted route. A verified
+publication transition carries the existing pending-delivery flag forward,
+just like local changes, so queue priority cannot hide a completed CLI push.
+The queued turn's own readiness and accepted automation settings still govern
+the eventual follow-up.
 
 Allow at most one automatic commit request and one automatic publication
 request per continuation. No repeated "please try again" loop, scheduled
@@ -305,6 +314,18 @@ open Git operations, actual commit/diff changes, remote ref, and PR identity.
 Compare with the user turn's starting Git snapshot and the last observed
 published revision, not merely the task's original start commit. An existing
 PR alone must not cause every question to start another CI run.
+
+An otherwise unchanged clean turn can publish existing commits with an
+authorized CLI push or create their matching PR. Before treating that turn as
+a no-op, compare its captured publication snapshot with fresh remote and PR
+evidence. A remote SHA change to the exact clean local HEAD, or a newly created
+matching PR at that HEAD, continues through the existing publication and CI
+steps under the accepted automation settings. The same open PR identity and
+head/base routing checks still apply. PR metadata changes alone do not count.
+Unchanged dirty work cannot release its committed subset through this path.
+Missing baseline evidence or inconsistent remote/PR revisions stops the check
+without a publication or CI write. Already-published revisions do not restart
+CI on an ordinary unchanged turn, and completed turns are never replayed.
 
 Automatic publication accepts a fast-forward update or a rewrite of history
 that belonged to the accepted user turn's starting HEAD. In either case the

@@ -53,6 +53,7 @@ import com.google.common.collect.ImmutableList;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.CsvSource;
 import org.junit.jupiter.params.provider.EnumSource;
 import org.junit.jupiter.params.provider.ValueSource;
 import org.mockito.ArgumentCaptor;
@@ -229,11 +230,11 @@ class TestDevelopmentFollowupCoordinator
     }
 
     @ParameterizedTest
-    @ValueSource(booleans = {true, false})
-    void explicitCliPushContinuesWithTheMissingDraft(boolean existingRemote)
+    @CsvSource({"true, true", "true, false", "false, true", "false, false"})
+    void explicitCliPushContinuesWithTheMissingDraft(boolean existingRemote, boolean localChanged)
     {
         when(git.inspectPublication(worktree, route)).thenReturn(publication(existingRemote ? Optional.of(BASE) : Optional.empty(), Optional.empty()));
-        prepare(local(BASE, false), local(HEAD, false), new DevelopmentAutomation(true, true, false, Optional.empty()), true);
+        prepare(local(localChanged ? BASE : HEAD, false), local(HEAD, false), new DevelopmentAutomation(true, true, false, Optional.empty()), true);
         when(git.inspectPublication(worktree, route)).thenReturn(
                 publication(Optional.of(HEAD), Optional.empty()), publication(Optional.of(HEAD), Optional.of(pr(HEAD, true))));
         generated(CREATE_DRAFT_PR, true);
@@ -244,6 +245,156 @@ class TestDevelopmentFollowupCoordinator
         verify(turns).finishDevelopmentContinuation(taskId, source.id());
         verify(turns, never()).failDevelopmentContinuation(any(), any(), anyString());
         verifyNoInteractions(ci, writes);
+    }
+
+    @ParameterizedTest
+    @ValueSource(booleans = {true, false})
+    void queuedTurnInheritsPublishedWorkAndControlsWhetherCiStarts(boolean autoCiFix)
+    {
+        when(git.inspectPublication(worktree, route)).thenReturn(publication(Optional.of(NEXT), Optional.of(pr(NEXT, true))));
+        prepare(local(HEAD, false), local(HEAD, false), FULL, true);
+        TurnId previous = source.id();
+        when(git.inspectPublication(worktree, route)).thenReturn(publication(Optional.of(HEAD), Optional.of(pr(HEAD, true))));
+        when(turns.handoffDevelopmentContinuationToQueue(taskId, previous)).thenAnswer(ignored -> {
+            prepare(local(HEAD, false), local(HEAD, false), autoCiFix ? FULL : new DevelopmentAutomation(true, true, false, Optional.empty()), true);
+            return true;
+        });
+
+        advance();
+
+        verifyNoInteractions(ci, writes);
+        noFollowup();
+        verify(turns, never()).finishDevelopmentContinuation(any(), any());
+
+        advance();
+
+        if (autoCiFix) {
+            verify(ci).startDevelopment(any(), eq(taskId), eq(source.id()), eq(pr(HEAD, true)), eq(NOW));
+        }
+        else {
+            verifyNoInteractions(ci, writes);
+        }
+        noFollowup();
+        verify(turns).finishDevelopmentContinuation(taskId, source.id());
+        verify(turns, never()).finishDevelopmentContinuation(taskId, previous);
+        verify(turns, never()).failDevelopmentContinuation(any(), any(), anyString());
+    }
+
+    @ParameterizedTest
+    @ValueSource(booleans = {true, false})
+    void pushOnlyTurnStartsCiForTheRewrittenPublishedHead(boolean autoDraftPr)
+    {
+        when(git.inspectPublication(worktree, route)).thenReturn(publication(Optional.of(NEXT), Optional.of(pr(NEXT, true))));
+        prepare(local(HEAD, false), local(HEAD, false), new DevelopmentAutomation(true, autoDraftPr, true, Optional.empty()), true);
+        when(git.inspectPublication(worktree, route)).thenReturn(publication(Optional.of(HEAD), Optional.of(pr(HEAD, true))));
+
+        advance();
+
+        verify(ci).startDevelopment(any(), eq(taskId), eq(source.id()), eq(pr(HEAD, true)), eq(NOW));
+        noFollowup();
+        verify(turns).finishDevelopmentContinuation(taskId, source.id());
+        verify(turns, never()).failDevelopmentContinuation(any(), any(), anyString());
+    }
+
+    @Test
+    void pullRequestOnlyTurnStartsCiForTheAlreadyPushedHead()
+    {
+        when(git.inspectPublication(worktree, route)).thenReturn(publication(Optional.of(HEAD), Optional.empty()));
+        prepare(local(HEAD, false), local(HEAD, false), FULL, true);
+        when(git.inspectPublication(worktree, route)).thenReturn(publication(Optional.of(HEAD), Optional.of(pr(HEAD, true))));
+
+        advance();
+
+        verify(ci).startDevelopment(any(), eq(taskId), eq(source.id()), eq(pr(HEAD, true)), eq(NOW));
+        noFollowup();
+        verify(turns).finishDevelopmentContinuation(taskId, source.id());
+        verify(turns, never()).failDevelopmentContinuation(any(), any(), anyString());
+    }
+
+    @ParameterizedTest
+    @ValueSource(booleans = {true, false})
+    void unchangedPublishedHeadDoesNotRestartCiWhenDraftStatusChanges(boolean draft)
+    {
+        when(git.inspectPublication(worktree, route)).thenReturn(publication(Optional.of(HEAD), Optional.of(pr(HEAD, true))));
+        prepare(local(HEAD, false), local(HEAD, false), FULL, true);
+        when(git.inspectPublication(worktree, route)).thenReturn(publication(Optional.of(HEAD), Optional.of(pr(HEAD, draft))));
+
+        advance();
+
+        verifyNoInteractions(ci, writes);
+        noFollowup();
+        verify(turns).finishDevelopmentContinuation(taskId, source.id());
+        verify(turns, never()).failDevelopmentContinuation(any(), any(), anyString());
+    }
+
+    @Test
+    void unchangedUnpublishedHeadDoesNotPublishExistingWork()
+    {
+        prepare(local(HEAD, false), local(HEAD, false), FULL, true);
+
+        advance();
+
+        verifyNoInteractions(ci, writes);
+        noFollowup();
+        verify(turns).finishDevelopmentContinuation(taskId, source.id());
+        verify(turns, never()).failDevelopmentContinuation(any(), any(), anyString());
+    }
+
+    @Test
+    void pushOnlyTurnDoesNotStartDisabledCi()
+    {
+        when(git.inspectPublication(worktree, route)).thenReturn(publication(Optional.of(NEXT), Optional.of(pr(NEXT, true))));
+        prepare(local(HEAD, false), local(HEAD, false), new DevelopmentAutomation(true, true, false, Optional.empty()), true);
+        when(git.inspectPublication(worktree, route)).thenReturn(publication(Optional.of(HEAD), Optional.of(pr(HEAD, true))));
+
+        advance();
+
+        verifyNoInteractions(ci, writes);
+        noFollowup();
+        verify(turns).finishDevelopmentContinuation(taskId, source.id());
+        verify(turns, never()).failDevelopmentContinuation(any(), any(), anyString());
+    }
+
+    @Test
+    void pushOnlyTurnRequiresTheAcceptedRemoteBaseline()
+    {
+        when(git.inspectPublication(worktree, route)).thenThrow(new IllegalStateException("Authentication unavailable"));
+        prepare(local(HEAD, false), local(HEAD, false), FULL, true);
+        doReturn(publication(Optional.of(HEAD), Optional.of(pr(HEAD, true)))).when(git).inspectPublication(worktree, route);
+
+        advance();
+
+        verifyNoInteractions(ci, writes);
+        noFollowup();
+        verify(turns).failDevelopmentContinuation(eq(taskId), eq(source.id()), contains("Remote baseline unavailable: Authentication unavailable"));
+    }
+
+    @Test
+    void pushOnlyTurnCannotAttachCiToAPrWithAnotherHead()
+    {
+        when(git.inspectPublication(worktree, route)).thenReturn(publication(Optional.of(NEXT), Optional.of(pr(NEXT, true))));
+        prepare(local(HEAD, false), local(HEAD, false), FULL, true);
+        when(git.inspectPublication(worktree, route)).thenReturn(publication(Optional.of(HEAD), Optional.of(pr(NEXT, true))));
+
+        advance();
+
+        verifyNoInteractions(ci, writes);
+        noFollowup();
+        verify(turns).failDevelopmentContinuation(eq(taskId), eq(source.id()), contains("Pull request and remote branch revisions do not agree"));
+    }
+
+    @Test
+    void unchangedLocalWorkCannotAdoptAnotherPublishedHead()
+    {
+        when(git.inspectPublication(worktree, route)).thenReturn(publication(Optional.of(BASE), Optional.of(pr(BASE, true))));
+        prepare(local(HEAD, false), local(HEAD, false), FULL, true);
+        when(git.inspectPublication(worktree, route)).thenReturn(publication(Optional.of(NEXT), Optional.of(pr(NEXT, true))));
+
+        advance();
+
+        verifyNoInteractions(ci, writes);
+        noFollowup();
+        verify(turns).failDevelopmentContinuation(eq(taskId), eq(source.id()), contains("The published revision does not match the clean task revision"));
     }
 
     @Test

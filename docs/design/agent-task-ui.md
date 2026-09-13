@@ -13,7 +13,7 @@ in the normal conversation. This survives bounded-history eviction and clears
 when a new answer starts. Active execution/approval and cleanup ownership remain
 separate; the banner never infers a question from arbitrary transcript text.
 
-An unfinished continuation blocks Send, steer, queue start, Complete, and the
+An unfinished continuation blocks ordinary Send, steer, queue start, Complete, and the
 manual draft action while preserving composer text. A quiet continuation shows
 Automation running; active provider/approval and recovery facts take precedence.
 Stop automation uses the existing runtime-stop API and explains that verified
@@ -22,8 +22,7 @@ another message. Questions disable Resume queue while allowing a normal
 answer after continuation ownership settles. Marker changes refresh the task
 through the existing lifecycle event stream.
 
-The task now uses an Idle runtime label, generated follow-up labels, and CI run
-controls. One pull-request chip above the composer names the pull request found
+The task uses an Idle runtime label and generated follow-up and CI activity labels. One pull-request chip above the composer names the pull request found
 on the task's branch and opens the side panel on it; a task whose branch already
 has one opens with that panel open. CI GREEN keeps the source busy until full
 checks and synchronization finish; the final marker refreshes the PR list.
@@ -35,14 +34,21 @@ progress. Questions retain display precedence. Shared conversation components
 remain the implementation boundary; no stored workflow stages or Resume delivery
 control are introduced.
 
-Finished CI records are labeled as previous runs, with their recorded failure
-inside collapsed run details instead of an active alert. The matching PR's
-already-loaded check result appears separately as latest known PR checks;
-it never changes the saved Autofix outcome. Opening CI history only reads the
-run. This presentation adds no polling or restart action.
-The run's stored terminal time must follow the loaded latest source turn before
-its CI failure is folded into history. A newer CI-start failure that retains an
-older run, or unavailable timing evidence, keeps the visible failure alert.
+Development tasks offer `@ci` as the default recipient suggestion as soon as
+`@` is typed. Click, Enter, or Tab inserts the mention; Escape dismisses it.
+A standalone `@ci` token sends the remaining text through the existing CI
+message endpoint. It never falls back to a source turn, steer, or queue.
+The source must still own an eligible paused run whose current projection
+permits messages. Finished or unavailable runs explain why Send is disabled.
+CI replies are text only, up to 16,384 characters, and retain their draft and
+idempotency key after a failed request. The composer keeps Stop available.
+
+The separate CI status/log block, history action, and CI conversation panel
+are removed. Task-header activity and sequential source-task polling remain;
+PR checks stay in the PR surface. Removing presentation does not delete saved
+CI records or change run authority. Historical CI failure notices are omitted
+when the run's terminal time follows the latest source turn; newer attachment
+failures remain visible.
 
 ## Shared conversation presentation
 

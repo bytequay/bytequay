@@ -61,8 +61,16 @@ run history and remote PR/head references. Lost-parent runs never resume through
 the standalone schedulers, including terminal cleanup; standalone CI retains its
 existing behavior and recovery.
 
-The task UI displays CI activity and attempt counts and opens a scoped CI
-conversation panel. A general existing-PR UI entry remains separate. The shared
+The task header displays the current CI activity. Typing `@` in the normal
+composer offers `ci` first; selecting it addresses the message to the linked CI
+agent through the existing run message endpoint. The composer removes the
+`@ci` routing mention before sending and accepts text only, up to 16,384
+characters. Sending requires the open source task's live continuation and the
+run's derived `canMessage` permission for an eligible paused run. The mention
+does not expand write authority, start a run, or revive a finished run. The
+source task keeps its existing polling so message availability stays current.
+There is no separate CI status/log block, transcript panel, or history action.
+A general existing-PR UI entry remains separate. The shared
 `green()` predicate requires every observed workflow to be completed and passing
 with nonempty passing jobs; a queued workflow cannot hide behind another passing
 job. The development coordinator rechecks Actions and required checks/statuses
@@ -822,10 +830,12 @@ selection. No model call, workflow archive download, or extra cache is needed.
 
 Interactive `read_pull_request_ci` uses this same fetch/filter path and applies
 its existing smaller tool-response budget with the same context selection.
-The CI details panel uses `/api/ci-autofix/runs/{id}` and can retry a failed
-read. Stopped runs show their actual terminal outcome; a failed details read
-does not claim a CI agent is being prepared. The source task retains the
-original automation failure alongside the CI run's shutdown summary.
+The normal composer routes `@ci` replies through
+`/api/ci-autofix/runs/{id}/messages`; the run read API remains available for
+scope and eligibility checks. Removing the separate CI log/history UI does
+not remove stored diagnostic excerpts, agent events, or CI memory. The source
+task retains its original automation failure and the run retains its shutdown
+summary.
 
 `ci-memory.md` is a disposable summary grouped by the program-computed failure
 signature. Each `## Failure <signature>` section contains:

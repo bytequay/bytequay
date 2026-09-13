@@ -432,11 +432,13 @@ internal ownership token. Manual CI attachment to the same task branch must
 honor the same exclusion.
 
 For the MVP, the composer can retain a draft while CI owns the branch, but
-Send/queue start is disabled with **CI Autofix is running · Stop to start over**.
+ordinary source submission and queue start remain disabled. The composer keeps
+Stop available, and the task header shows the current CI activity.
 Do not extend queue storage/admission to support delivery queues. Previously
-accepted user work is drained before the continuation; new work waits. Existing
-CI pause/message controls may resolve a repair question in that same CI run;
-source development cannot compete with it. Stop or an unrecoverable CI result
+accepted user work is drained before the continuation; new work waits. An `@ci`
+message may resolve a repair question in the same run when its eligible paused
+state reports `canMessage`; source development cannot compete with it.
+Stop or an unrecoverable CI result
 fails this MVP continuation rather than creating a recovery journey.
 
 Before releasing a successful continuation, bring the source to the exact
@@ -585,7 +587,17 @@ or destructive cleanup happens just because the continuation failed.
 Show actual observations and the current operation, not a workflow diagram's
 stored state. The runtime-only label becomes **Idle**, not an ambiguous Ready.
 Examples of derived activity are Committing, Creating draft PR, Waiting for CI,
-and Fixing CI 1/3. The current CI run keeps its own status row.
+and Fixing CI 1/3. Current CI activity stays in the task header; the separate
+CI log/status block, history action, and conversation panel are removed.
+
+Typing `@` in the normal composer offers `ci` first. An `@ci` message routes
+to the linked run's existing message endpoint while the source task is open,
+its continuation is live, and the run reports `canMessage` for an eligible
+pause. The routing mention is removed before submission. CI messages contain
+text only, up to 16,384 characters; they do not accept attachments or use the
+source task's steer or queue paths. The mention grants no additional write
+authority and cannot restart a finished run. Existing source-task polling
+continues to refresh the current CI activity and message eligibility.
 
 A blocking question takes precedence:
 

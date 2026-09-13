@@ -13,7 +13,7 @@
  */
 
 import { BookOpen,Check,ChevronsDownUp,Circle,CircleAlert,CircleCheck,CircleX,CornerDownRight,FilePenLine,FolderOpen,GitPullRequest,Globe,Image,ListChecks,ListPlus,LoaderCircle,MessageSquare,Search,ShieldCheck,ShieldX,SquareTerminal,Trash2,TriangleAlert,Wrench,X,type LucideIcon } from 'lucide-react';
-import React,{ useEffect,useLayoutEffect,useRef,useState } from 'react';
+import React,{ useCallback,useEffect,useId,useLayoutEffect,useRef,useState } from 'react';
 import { Chevron } from '../Chevron';
 import '../css/agents.css';
 import { displayModelName } from '../settings/model';
@@ -871,7 +871,7 @@ export function ConversationComposer({
   sendEnabled, steerEnabled, queueEnabled, models, model, effort, serviceTier, provider = '',
   permissionPolicy = 'AUTO', onSelectModel, onAttach, attachEnabled = false,
   attachTitle = 'Image attachments are unavailable', attachments = [], previews = {}, onRemoveAttachment, footer, automation,
-  composerRef, onPaste, connection, closing = false,
+  composerRef, onPaste, connection, closing = false, ciMention = false, routedToCi = false, ciMessageHint,
   steerTitle = 'Sends into the running turn now', queueTitle = 'Runs after this turn finishes',
   stopLabel = 'Stop this turn', stopTitle = 'Interrupts the running turn and waits for its work to stop',
 }: {
@@ -906,11 +906,50 @@ export function ConversationComposer({
   onPaste?: React.ClipboardEventHandler<HTMLTextAreaElement>;
   connection: AgentStreamConnectionState;
   closing?: boolean;
+  ciMention?: boolean;
+  routedToCi?: boolean;
+  ciMessageHint?: string;
   steerTitle?: string;
   queueTitle?: string;
   stopLabel?: string;
   stopTitle?: string;
 }): React.JSX.Element {
+  const inputRef = useRef<HTMLTextAreaElement>(null);
+  const composing = useRef(false);
+  const nextCaret = useRef<number | null>(null);
+  const dismissedMention = useRef<{ value: string; start: number; end: number } | null>(null);
+  const mentionId = useId();
+  const [mention, setMention] = useState<{ value: string; start: number; end: number } | null>(null);
+  const activeMention = ciMention && !disabled && mention?.value === value ? mention : null;
+  const setComposerRef = useCallback((input: HTMLTextAreaElement | null) => {
+    inputRef.current = input;
+    if (typeof composerRef === 'function') return composerRef(input);
+    if (composerRef !== undefined && composerRef !== null) composerRef.current = input;
+  }, [composerRef]);
+  const updateMention = (input: HTMLTextAreaElement): void => {
+    const caret = input.selectionStart;
+    const dismissed = dismissedMention.current;
+    if (dismissed?.value === input.value && dismissed.start === caret && dismissed.end === input.selectionEnd) return;
+    dismissedMention.current = null;
+    const match = /(?:^|\s)@([^\s@]*)$/.exec(input.value.slice(0, caret));
+    const suffix = input.value.slice(caret).match(/^\S*/)?.[0] ?? '';
+    setMention(ciMention && !composing.current && caret === input.selectionEnd && match !== null && 'ci'.startsWith((match[1] + suffix).toLowerCase())
+      ? { value: input.value, start: caret - match[1].length - 1, end: caret + suffix.length }
+      : null);
+  };
+  const selectCi = (): void => {
+    if (activeMention === null) return;
+    const prefix = value.slice(0, activeMention.start) + '@ci ';
+    nextCaret.current = prefix.length;
+    onChange(prefix + value.slice(activeMention.end));
+    setMention(null);
+  };
+  useLayoutEffect(() => {
+    if (nextCaret.current === null || inputRef.current === null) return;
+    inputRef.current.focus();
+    inputRef.current.setSelectionRange(nextCaret.current, nextCaret.current);
+    nextCaret.current = null;
+  });
   return (
     <div className="agt-compose-dock is-task">
       <div className="agt-compose" aria-busy={sending}>
@@ -928,15 +967,42 @@ export function ConversationComposer({
             ))}
           </div>
         )}
-        <textarea ref={composerRef} className="agt-compose__input" rows={1} value={value}
+        {activeMention !== null && <div className="agt-mentions" id={mentionId} role="listbox" aria-label="Mention an agent">
+          <button type="button" id={`${mentionId}-ci`} role="option" aria-selected="true" tabIndex={-1}
+            onMouseDown={event => event.preventDefault()} onClick={selectCi}>
+            <strong>@ci</strong><span>CI Autofix</span>
+          </button>
+        </div>}
+        <textarea ref={setComposerRef} className="agt-compose__input" rows={1} value={value}
           aria-label="Message the agent" placeholder={connection === 'connecting' ? 'Connecting…' : closing ? 'Closing…' : 'Message the agent'} disabled={disabled}
-          onChange={event => onChange(event.target.value)} onPaste={onPaste}
+          aria-autocomplete={ciMention ? 'list' : undefined} aria-controls={activeMention !== null ? mentionId : undefined}
+          aria-activedescendant={activeMention !== null ? `${mentionId}-ci` : undefined}
+          aria-describedby={ciMessageHint ? `${mentionId}-hint` : undefined}
+          onChange={event => { onChange(event.target.value); updateMention(event.currentTarget); }} onPaste={onPaste}
+          onFocus={event => updateMention(event.currentTarget)} onSelect={event => updateMention(event.currentTarget)}
+          onBlur={() => setMention(null)}
+          onCompositionStart={() => { composing.current = true; setMention(null); }}
+          onCompositionEnd={event => { composing.current = false; updateMention(event.currentTarget); }}
           onKeyDown={event => {
-            if (event.key === 'Enter' && !event.shiftKey && !event.nativeEvent.isComposing) {
+            if (event.nativeEvent.isComposing || composing.current || event.keyCode === 229) return;
+            if (activeMention !== null) {
+              if (event.key === 'Escape') {
+                event.preventDefault();
+                dismissedMention.current = { value, start: event.currentTarget.selectionStart, end: event.currentTarget.selectionEnd };
+                setMention(null);
+                return;
+              }
+              if ((event.key === 'Enter' || event.key === 'Tab') && !event.shiftKey) {
+                event.preventDefault(); selectCi(); return;
+              }
+              if (event.key === 'ArrowDown' || event.key === 'ArrowUp') { event.preventDefault(); return; }
+            }
+            if (event.key === 'Enter' && !event.shiftKey) {
               event.preventDefault();
               if (sendEnabled) onSend();
             }
           }} />
+        {ciMessageHint && <div className="agt-compose__hint" id={`${mentionId}-hint`} role="status">{ciMessageHint}</div>}
         <div className="agt-compose__row">
           <button type="button" className="agt-attach" aria-label="Attach an image" title={attachTitle}
             disabled={!attachEnabled || onAttach === undefined || closing || sending} onClick={onAttach}>+</button>
@@ -950,17 +1016,18 @@ export function ConversationComposer({
             models={models} provider={provider} selectedModel={model ?? ''}
             selectedEffort={effort ?? undefined} selectedServiceTier={serviceTier}
             onSelect={onSelectModel ?? (() => {})} />
-          {running && value.trim() !== '' && <>
+          {running && !routedToCi && value.trim() !== '' && <>
             <button type="button" className="agt-steer" disabled={!steerEnabled} title={steerTitle} onClick={onSteer}>Steer</button>
             <button type="button" className="agt-compose__chip" disabled={!queueEnabled} title={queueTitle} onClick={onQueue}>Run next</button>
           </>}
-          {running
+          {(!running || routedToCi) && <button type="button" className="agt-send" aria-label={routedToCi ? 'Send to CI agent' : 'Send message'}
+            title={routedToCi ? 'Send to CI agent' : 'Send'} onClick={onSend} disabled={!sendEnabled}>↑</button>}
+          {running &&
             // A development turn reads as running during its baseline capture, before it can be stopped cleanly.
-            ? <button type="button" className="agt-send is-stop" aria-label={stopLabel}
+            <button type="button" className="agt-send is-stop" aria-label={stopLabel}
                 title={stopTitle} onClick={onStop} disabled={sending}>
                 <span className="agt-stop-square" aria-hidden="true" />
-              </button>
-            : <button type="button" className="agt-send" aria-label="Send message" title="Send" onClick={onSend} disabled={!sendEnabled}>↑</button>}
+              </button>}
         </div>
       </div>
       {footer}

@@ -14,10 +14,9 @@
 
 import { flushSync } from 'react-dom';
 import { createRoot } from 'react-dom/client';
-import type { AgentDevelopmentCiDto, AgentStreamMessage, AgentTaskDto, AgentTurnDto, CiAutofixRunDto } from '../../types';
+import type { AgentStreamMessage, AgentTaskDto, AgentTurnDto, CiAutofixRunDto } from '../../types';
 import { AgentTaskList } from '../AgentTasksView';
 import AgentTaskScreen from '../AgentTaskScreen';
-import { CiAutofixPanel } from '../CiAutofixPanel';
 import { CI_PROJECTION, CI_RUN } from './ciAutofix';
 import { createPreviewBridge } from './previewBridge';
 
@@ -27,6 +26,7 @@ function changeInput(input: HTMLTextAreaElement, value: string) {
   Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value')?.set?.call(input, value);
   input.dispatchEvent(new Event('input', { bubbles: true }));
 }
+function pressEnter(input: HTMLTextAreaElement) { input.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true })); }
 
 /** Only advance CI's five-second reads; ordinary rendering and stream coalescing use real timers. */
 function ciTimers() {
@@ -55,27 +55,29 @@ async function ciReplyAndOwnership(): Promise<{ name: string; error?: string }> 
   let task: AgentTaskDto = { ...await bridge.getAgentTask(event.taskId, 'workspace-1'), id: 'source-task', interactive: true,
     mutationClaim: null, developmentContinuationUnfinished: true, developmentCi: CI_PROJECTION };
   const sourceEvent = { ...event, taskId: task.id };
-  const childEvent = { ...sourceEvent, taskId: 'ci-task', turnId: 'ci-turn', eventId: 'ci-user', sequence: 1 };
   const sourceTurn: AgentTurnDto = { ...await bridge.getAgentTurn(event.turnId), taskId: task.id, state: 'COMPLETED', endedAt: '2026-01-01T12:00:00Z' };
-  const childTurn: AgentTurnDto = { ...sourceTurn, id: 'ci-turn', taskId: 'ci-task' };
   let run: CiAutofixRunDto = { ...CI_RUN };
   let sourceNotify: (message: AgentStreamMessage) => void = () => {};
   let failReply = true;
   const replies: { runId: string; message: string; key: string }[] = [];
   bridge.getAgentTask = async id => { assert(id === task.id, 'CI child must never use the generic interactive task endpoint'); return task; };
-  bridge.getAgentTurn = async id => id === childTurn.id ? childTurn : sourceTurn;
-  bridge.readAgentHistory = async id => ({ events: [id === task.id ? sourceEvent : childEvent], beforeCursor: null, afterCursor: null, latestSequence: 1 });
+  bridge.getAgentTurn = async () => sourceTurn;
+  bridge.readAgentHistory = async id => {
+    assert(id === task.id, 'The source screen must not load a separate CI conversation');
+    return { events: [sourceEvent], beforeCursor: null, afterCursor: null, latestSequence: 1 };
+  };
   bridge.readAgentPendingApprovals = async () => [];
   bridge.subscribeAgentTask = async (id, _after, notify) => {
     if (id === task.id) sourceNotify = notify;
     notify({ subscriptionId: id, taskId: id, kind: 'state', state: 'open' });
     return () => {};
   };
-  bridge.getCiAutofixRun = async () => run;
+  bridge.getCiAutofixRun = async () => { throw new Error('The source projection already identifies the CI recipient'); };
   bridge.sendCiAutofixMessage = async (runId, message, key) => {
     replies.push({ runId, message, key });
     if (failReply) throw new Error('Message transport unavailable');
     run = { ...run, version: run.version + 1, status: 'ACTIVE', activity: 'FIXING', canMessage: false };
+    task = { ...task, version: task.version + 1, developmentCi: { ...CI_PROJECTION, status: 'ACTIVE', activity: 'FIXING', canMessage: false } };
     return run;
   };
   const timers = ciTimers();
@@ -89,46 +91,56 @@ async function ciReplyAndOwnership(): Promise<{ name: string; error?: string }> 
     assert(sourceInput !== null, 'Source composer must remain visible during CI');
     changeInput(sourceInput, 'Continue development later');
     await settle();
-    sourceInput.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));
+    pressEnter(sourceInput);
     assert(!bridge.commands.some(command => command.name === 'startAgentTurn'), 'Source Enter must not compete with CI');
-    const open = Array.from(host.querySelectorAll('button')).find(button => button.textContent === 'Open CI Autofix');
-    assert(open !== undefined, 'Source must navigate to its CI run');
-    open.click();
+    changeInput(sourceInput, '@ciOther');
+    sourceInput.setSelectionRange(3, 3);
+    sourceInput.dispatchEvent(new Event('select', { bubbles: true }));
     await settle();
-    const reply = host.querySelector<HTMLTextAreaElement>('.agt-ci-reply textarea');
-    assert(reply !== null, 'The linked CI task must have a scoped reply form');
-    changeInput(reply, 'Use the compatibility fix');
+    assert(host.querySelector('[role="option"]') === null && sourceInput.value === '@ciOther', 'Editing an unrelated mention must not offer or overwrite its @ci prefix');
+    changeInput(sourceInput, '@');
     await settle();
-    const form = host.querySelector<HTMLFormElement>('.agt-ci-reply');
-    assert(form !== null, 'CI reply form must exist');
-    form.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }));
-    form.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }));
+    const option = host.querySelector('[role="option"]');
+    assert(option?.textContent?.includes('@ci') === true && option.getAttribute('aria-selected') === 'true', 'Typing @ must select CI Autofix by default');
+    sourceInput.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', isComposing: true, bubbles: true, cancelable: true }));
     await settle();
-    assert(replies.length === 1, 'Simultaneous child sends must make one CI message request');
-    assert(reply.value === 'Use the compatibility fix', 'Transport failure must preserve the CI draft');
-    assert(sourceInput.value === 'Continue development later', 'CI interaction must preserve the source draft');
+    assert(String(sourceInput.value) === '@' && replies.length === 0, 'IME Enter must not select a recipient or submit');
+    pressEnter(sourceInput);
+    await settle();
+    assert(String(sourceInput.value) === '@ci ' && replies.length === 0, 'Choosing the default recipient must insert @ci without submitting');
+    changeInput(sourceInput, '@ci Use the compatibility fix');
+    await settle();
+    assert(!Array.from(host.querySelectorAll('button')).some(button => button.textContent === 'Steer' || button.textContent === 'Run next'), 'CI messages must not expose source steering or queueing');
+    assert(host.querySelector('button[aria-label="Stop automation"]') !== null, 'The main composer must retain Stop while sending to CI');
+    pressEnter(sourceInput);
+    pressEnter(sourceInput);
+    await settle();
+    assert(Number(replies.length) === 1, 'Simultaneous sends must make one CI message request');
+    assert(String(sourceInput.value) === '@ci Use the compatibility fix', 'Transport failure must preserve the complete routed draft');
+    assert(host.textContent?.includes('Message transport unavailable') === true, 'Transport failure must remain visible for an explicit retry');
     failReply = false;
-    form.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }));
+    host.querySelector<HTMLButtonElement>('button[aria-label="Send to CI agent"]')?.click();
     await settle();
     assert(Number(replies.length) === 2 && replies[0].key === replies[1].key, 'Explicit retry must retain the same CI message idempotency key');
-    assert(replies[1].runId === CI_RUN.id, 'Reply must target the CI run');
-    assert(!bridge.commands.some(command => command.name === 'startAgentTurn'), 'No child reply may go through generic task Send');
-    assert(String(reply.value) === '', 'Accepted child reply should clear only its own draft');
-    changeInput(reply, 'Keep another CI draft');
+    assert(replies[1].runId === CI_RUN.id && replies[1].message === 'Use the compatibility fix', 'Reply must target the linked run and strip the recipient token');
+    assert(!bridge.commands.some(command => ['startAgentTurn', 'steerAgentTurn', 'queueAgentInput'].includes(command.name)), 'CI replies must never use generic task delivery');
+    assert(String(sourceInput.value) === '', 'Accepted CI reply must clear the composer');
+    changeInput(sourceInput, '@ci Keep another CI draft');
     await settle();
-    run = { ...run, version: run.version + 1, status: 'PAUSED', activity: 'PAUSED', canMessage: false };
     task = { ...task, version: task.version + 1, developmentCi: { ...CI_PROJECTION, canMessage: false } };
     timers.tick();
     await settle();
-    assert(String(reply.value) === 'Keep another CI draft', 'Run polling must not discard a CI draft');
-    assert(host.querySelector<HTMLButtonElement>('.agt-ci-reply button')?.disabled === true, 'Revoked child message authority must disable Send');
+    assert(String(sourceInput.value) === '@ci Keep another CI draft', 'Source polling must not discard a CI draft');
+    assert(host.querySelector<HTMLButtonElement>('button[aria-label="Send to CI agent"]')?.disabled === true, 'Revoked CI message authority must disable Send');
+    pressEnter(sourceInput);
+    assert(Number(replies.length) === 2 && !bridge.commands.some(command => command.name === 'startAgentTurn'), 'Revoked CI authority must block Enter without falling back to the source');
     task = { ...task, version: task.version + 1, state: 'FAILED', developmentContinuationUnfinished: false };
     sourceNotify({ subscriptionId: task.id, taskId: task.id, kind: 'events', events: [{ ...sourceEvent, eventId: 'source-stopped', sequence: 2,
       turnId: null, type: 'lifecycle', payload: { phase: 'DEVELOPMENT_AUTOMATION_UPDATED', message: 'Stopped' } }] });
     await settle();
-    assert(timers.size() === 0, 'Terminal parent must stop both CI polling loops');
-    return { name: 'CI replies preserve source drafts, use child scope, retain retry identity and stop on revoked authority' };
-  } catch (error) { return { name: 'CI child reply and ownership', error: error instanceof Error ? error.message : String(error) }; }
+    assert(timers.size() === 0, 'Terminal parent must stop CI polling');
+    return { name: '@ci routes composer messages, preserves retry identity, and honors revoked CI authority' };
+  } catch (error) { return { name: 'CI mention routing and ownership', error: error instanceof Error ? error.message : String(error) }; }
   finally { flushSync(() => root.unmount()); host.remove(); timers.restore(); }
 }
 
@@ -171,55 +183,62 @@ async function sourcePolling(): Promise<{ name: string; error?: string }> {
 }
 
 export async function runCiAutofixScenarios(): Promise<{ name: string; error?: string }[]> {
-  return [await ciReplyAndOwnership(), await sourcePolling(), await laterRunAndRecovery(), await deleteReferences(), await ciDetailLoading()];
+  return [await ciReplyAndOwnership(), await sourcePolling(), await laterRunAndRecovery(), await deleteReferences(), await finishedCiRouting()];
 }
 
-async function ciDetailLoading(): Promise<{ name: string; error?: string }> {
+async function finishedCiRouting(): Promise<{ name: string; error?: string }> {
   const bridge = createPreviewBridge('workspace-1');
-  const ci: AgentDevelopmentCiDto = { ...CI_PROJECTION, status: 'FINISHED', finishReason: 'CANCELLED', canMessage: false, agentTaskId: null,
-    summary: 'Development automation stopped; local and remote results were preserved' };
-  const run = { ...CI_RUN, ...ci, id: ci.runId, version: 2 };
-  let rejectRead: (error: Error) => void = () => {};
-  let reads = 0;
-  bridge.getCiAutofixRun = async id => {
-    assert(id === ci.runId, 'Retry must inspect the same run');
-    reads++;
-    return reads === 1 ? await new Promise<CiAutofixRunDto>((_resolve, reject) => { rejectRead = reject; }) : run;
-  };
+  const event = bridge.events[0];
+  assert(event.turnId !== null, 'Fixture needs a source turn');
+  const task: AgentTaskDto = { ...await bridge.getAgentTask(event.taskId, 'workspace-1'), interactive: true, mutationClaim: null,
+    developmentContinuationUnfinished: false, developmentCi: { ...CI_PROJECTION, status: 'FINISHED', finishReason: 'CANCELLED', canMessage: false,
+      summary: 'Development automation stopped; local and remote results were preserved' } };
+  const sourceTurn: AgentTurnDto = { ...await bridge.getAgentTurn(event.turnId), taskId: task.id, state: 'COMPLETED', endedAt: '2026-01-01T12:00:00Z' };
+  bridge.getAgentTask = async () => task;
+  bridge.getAgentTurn = async () => sourceTurn;
+  bridge.readAgentHistory = async () => ({ events: [event], beforeCursor: null, afterCursor: null, latestSequence: event.sequence });
+  bridge.readAgentPendingApprovals = async () => [];
+  bridge.subscribeAgentTask = async (id, _after, notify) => { notify({ subscriptionId: id, taskId: id, kind: 'state', state: 'open' }); return () => {}; };
+  bridge.getCiAutofixRun = async () => { throw new Error('The removed CI panel must not fetch run details'); };
+  const replies: string[] = [];
+  bridge.sendCiAutofixMessage = async runId => { replies.push(runId); return CI_RUN; };
   const host = document.createElement('div');
   document.body.append(host);
   const root = createRoot(host);
-  flushSync(() => root.render(<CiAutofixPanel ci={ci} parentTaskId="source-task" workspaceId="workspace-1" active={false}
-    checks={{ repo: 'acme/demo', number: 17, ciStatus: 'PASSING', unavailableSections: [] }}
-    bridge={bridge} width={600} onClose={() => {}} onStop={() => { throw new Error('Inspection must not stop or start automation'); }} />));
+  flushSync(() => root.render(<AgentTaskScreen workspaceId="workspace-1" taskId={task.id} bridge={bridge} onBack={() => {}} />));
   try {
     await settle();
-    assert(host.textContent?.includes('Loading CI Autofix…') === true, 'Initial lookup must identify loading, not agent preparation');
-    assert(ci.summary !== null && host.textContent?.includes(ci.summary) === true, 'Known stopped explanation must remain while details load');
-    rejectRead(new Error('Internal server error'));
+    assert(host.querySelector('.agt-ci-panel, .agt-ci-history, .agt-ci-checks') === null, 'The task must not render the removed CI log or panel');
+    assert(!host.textContent?.includes('View CI Autofix history') && !host.textContent?.includes('Previous CI Autofix run'), 'Finished CI must not add history controls or summaries');
+    assert(!host.textContent?.includes(task.developmentCi?.summary ?? 'missing summary'), 'The removed CI run summary must not remain above the composer');
+    const input = host.querySelector<HTMLTextAreaElement>('textarea[aria-label="Message the agent"]');
+    assert(input !== null, 'A completed CI run must leave the source composer available');
+    changeInput(input, '@');
     await settle();
-    assert(host.querySelector('[role="alert"]')?.textContent?.includes('Internal server error') === true, 'A failed GET must show its error');
-    assert(!host.textContent?.includes('Preparing') && !host.textContent?.includes('Loading CI Autofix…'), 'Failure must not claim ongoing work');
-    assert(host.textContent?.includes(ci.summary) === true, 'Known summary must survive a failed GET');
-    const retry = Array.from(host.querySelectorAll('button')).find(button => button.textContent === 'Retry loading CI');
-    assert(retry !== undefined, 'An inactive run must offer a read-only retry after GET failure');
-    retry.click();
+    const option = host.querySelector<HTMLButtonElement>('[role="option"]');
+    assert(option !== null && option.textContent?.includes('@ci') === true, '@ must still offer CI as the default recipient after a run ends');
+    option.click();
     await settle();
-    assert(reads === 2 && host.querySelector('[role="alert"]') === null, 'Retry must reload details and clear the error');
-    assert(host.querySelector('.agt-ci-checks')?.textContent === 'Latest known PR checks: Passed', 'Current passing checks must stay separate from the stopped run');
-    assert(host.textContent?.includes('Previous CI Autofix run') === true, 'The panel must identify its terminal run as history');
-    const history = host.querySelector<HTMLDetailsElement>('details.agt-ci-history');
-    assert(history !== null && !history.open, 'Recorded stopped details must start collapsed');
-    assert(history.textContent?.includes(ci.summary) === true, 'Historical details must preserve the recorded reason');
-    history.querySelector('summary')?.click();
+    assert(input.value === '@ci ' && replies.length === 0, 'Clicking a recipient must insert the mention without sending');
+    changeInput(input, 'Please @CI retry the check');
     await settle();
-    assert(history.open && reads === 2, 'Opening recorded history must not refresh or restart CI');
-    assert(host.textContent?.includes('CI Autofix stopped') === true, 'Loaded cancellation must remain stopped');
-    assert(host.textContent?.includes('No CI agent task was started.') === true, 'A stopped run without a task must not claim preparation');
-    assert(!host.textContent?.includes('Preparing') && !host.textContent?.includes('Send to CI agent'), 'Inspection cannot offer nonexistent execution');
-    assert(!bridge.commands.some(command => command.name === 'startAgentTurn' || command.name === 'sendCiAutofixMessage'), 'Read retry must not mutate CI');
-    return { name: 'Stopped CI details preserve known status through loading failure and explicit read-only retry' };
-  } catch (error) { return { name: 'CI detail loading and retry', error: error instanceof Error ? error.message : String(error) }; }
+    assert(host.querySelector<HTMLButtonElement>('button[aria-label="Send to CI agent"]')?.disabled === true, 'A finished run must not accept a routed message');
+    pressEnter(input);
+    await settle();
+    assert(replies.length === 0 && !bridge.commands.some(command => command.name === 'startAgentTurn'), 'A finished CI recipient must never fall back to source Send');
+    assert(String(input.value) === 'Please @CI retry the check', 'Blocked CI input must retain its draft');
+    changeInput(input, 'Continue development after CI');
+    await settle();
+    const send = host.querySelector<HTMLButtonElement>('button[aria-label="Send message"]');
+    assert(send !== null && !send.disabled, 'Ordinary source input must be available after CI finishes');
+    send.click();
+    await settle();
+    const command = bridge.commands.find(entry => entry.name === 'startAgentTurn');
+    const request = command?.args[0] as { taskId?: string; message?: string } | undefined;
+    assert(request?.taskId === task.id && request.message === 'Continue development after CI', 'Ordinary source input must use the normal turn endpoint');
+    assert(replies.length === 0, 'Ordinary source input must not restart CI');
+    return { name: 'Finished CI removes its log and panel, blocks @ci, and permits ordinary source messages' };
+  } catch (error) { return { name: 'Finished CI routing', error: error instanceof Error ? error.message : String(error) }; }
   finally { flushSync(() => root.unmount()); host.remove(); }
 }
 
@@ -230,20 +249,18 @@ async function laterRunAndRecovery(): Promise<{ name: string; error?: string }> 
   const oldCi = { ...CI_PROJECTION, status: 'FINISHED' as const, finishReason: 'GREEN', canMessage: false };
   let task: AgentTaskDto = { ...await bridge.getAgentTask(event.taskId, 'workspace-1'), id: 'source-task', interactive: true,
     mutationClaim: null, developmentContinuationUnfinished: true, developmentCi: oldCi };
-  let run: CiAutofixRunDto = { ...CI_RUN, version: 100, status: 'FINISHED', finishReason: 'GREEN', canMessage: false };
   const sourceEvent = { ...event, taskId: task.id };
   const sourceTurn: AgentTurnDto = { ...await bridge.getAgentTurn(event.turnId), taskId: task.id, state: 'COMPLETED', endedAt: '2026-01-01T12:00:00Z' };
-  const childTurn = { ...sourceTurn, id: 'old-ci-turn', taskId: 'ci-task' };
-  const newTurn = { ...childTurn, id: 'new-ci-turn', taskId: 'new-ci-task' };
   bridge.getAgentTask = async id => { assert(id === task.id, 'CI child must not use generic task GET'); return task; };
-  bridge.getAgentTurn = async id => id === newTurn.id ? newTurn : id === childTurn.id ? childTurn : sourceTurn;
-  bridge.readAgentHistory = async id => ({ events: [id === task.id ? sourceEvent : { ...sourceEvent, taskId: id,
-    turnId: id === newTurn.taskId ? newTurn.id : childTurn.id, eventId: `user-${id}`, payload: {
-      text: id === newTurn.taskId ? 'Repair the new CI run' : 'Repair the earlier CI run', attachments: [], deliveryKind: 'TURN',
-    } }], beforeCursor: null, afterCursor: null, latestSequence: 1 });
+  bridge.getAgentTurn = async () => sourceTurn;
+  bridge.readAgentHistory = async () => ({ events: [sourceEvent], beforeCursor: null, afterCursor: null, latestSequence: 1 });
   bridge.readAgentPendingApprovals = async () => [];
   bridge.subscribeAgentTask = async (id, _after, notify) => { notify({ subscriptionId: id, taskId: id, kind: 'state', state: 'open' }); return () => {}; };
-  bridge.getCiAutofixRun = async id => { assert(id === run.id, 'Panel must load the current run'); return run; };
+  const replies: { runId: string; message: string }[] = [];
+  bridge.sendCiAutofixMessage = async (runId, message) => {
+    replies.push({ runId, message });
+    return { ...CI_RUN, id: 'new-ci-run', agentTaskId: 'new-ci-task' };
+  };
   const timers = ciTimers();
   const host = document.createElement('div');
   document.body.append(host);
@@ -253,29 +270,24 @@ async function laterRunAndRecovery(): Promise<{ name: string; error?: string }> 
     await settle();
     const input = host.querySelector<HTMLTextAreaElement>('textarea[aria-label="Message the agent"]');
     assert(input !== null, 'Source composer must remain available for drafting');
-    changeInput(input, 'Continue after this delivery');
+    changeInput(input, 'Please @ci continue after this delivery');
     await settle();
     assert(host.querySelector('.agt-status')?.textContent?.startsWith('Automation running') === true, 'Historical green must not label a new continuation CI passed');
-    assert(!host.textContent?.includes('CI Autofix is running'), 'A finished historical CI run must not display the active CI barrier');
-    Array.from(host.querySelectorAll('button')).find(button => button.textContent === 'View CI Autofix history')?.click();
-    await settle();
-    assert(host.querySelector('.agt-ci-panel')?.textContent?.includes('Repair the earlier CI run') === true, 'The earlier run must be inspectable');
-    assert(!host.querySelector('.agt-ci-panel')?.textContent?.includes('Stop automation'), 'The historical CI panel must not offer active controls');
+    assert(host.querySelector<HTMLButtonElement>('button[aria-label="Send to CI agent"]')?.disabled === true, 'The previous finished run must not accept CI messages');
 
-    task = { ...task, version: task.version + 1, developmentCi: { ...CI_PROJECTION, runId: 'new-ci-run', agentTaskId: newTurn.taskId } };
-    run = { ...CI_RUN, id: 'new-ci-run', agentTaskId: newTurn.taskId, version: 1 };
+    task = { ...task, version: task.version + 1, developmentCi: { ...CI_PROJECTION, runId: 'new-ci-run', agentTaskId: 'new-ci-task' } };
     timers.tick();
     await settle();
-    const panel = host.querySelector('.agt-ci-panel');
-    assert(panel?.textContent?.includes('Repair the new CI run') === true, 'A new run version1 must replace the earlier version100 conversation');
-    assert(!panel?.textContent?.includes('Repair the earlier CI run'), 'The old transcript must not remain under the new run');
-    assert(panel?.querySelector('textarea[id="ci-reply-new-ci-run"]') !== null, 'Replies must now target the new run');
-    assert(input.value === 'Continue after this delivery', 'Replacing the CI run must preserve the source draft');
+    assert(input.value === 'Please @ci continue after this delivery', 'Replacing the CI run must preserve the composer draft');
+    const send = host.querySelector<HTMLButtonElement>('button[aria-label="Send to CI agent"]');
+    assert(send !== null && !send.disabled, 'The current paused run must become the message recipient');
+    send.click();
+    await settle();
+    assert(replies.length === 1 && replies[0].runId === 'new-ci-run' && replies[0].message === 'Please continue after this delivery', 'A CI mention must route to the replacement run and strip its token');
 
     task = { ...task, version: task.version + 1,
       mutationClaim: { kind: 'RECOVERY', ownerId: 'lost-owner', acquiredAt: '2026-01-01T12:00:00Z' },
-      developmentCi: { ...CI_PROJECTION, runId: run.id, agentTaskId: newTurn.taskId, canMessage: false } };
-    run = { ...run, version: 2, canMessage: false };
+      developmentCi: { ...CI_PROJECTION, runId: 'new-ci-run', agentTaskId: 'new-ci-task', canMessage: false } };
     timers.tick();
     await settle();
     const recovery = host.querySelector('.agt-recovery');
@@ -287,7 +299,7 @@ async function laterRunAndRecovery(): Promise<{ name: string; error?: string }> 
     await settle();
     assert(bridge.commands.some(command => command.name === 'getAgentRuntimeStopImpact'), 'Recovery Stop must use the existing stop confirmation path');
     assert(!bridge.commands.some(command => command.name === 'markAgentTaskFailed'), 'Recovery controls must not call Mark failed');
-    return { name: 'A later CI run replaces old history, while unresolved linked cleanup only offers Stop' };
+    return { name: 'A later CI run receives @ci messages, while unresolved linked cleanup only offers Stop' };
   } catch (error) { return { name: 'Later CI run and recovery', error: error instanceof Error ? error.message : String(error) }; }
   finally { flushSync(() => root.unmount()); host.remove(); timers.restore(); }
 }

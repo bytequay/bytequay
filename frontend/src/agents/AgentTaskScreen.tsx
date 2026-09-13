@@ -64,7 +64,7 @@ import { pullRequestDiffRevision, usePullRequestChanges } from '../pulls/usePull
 import { usePullRequestDetail } from '../pulls/usePullRequestDetail';
 import { AutomationControl } from './AutomationControl';
 import { automationForSubmission, developmentQuestion, stoppingEndsDevelopment } from './developmentAutomation';
-import { CiAutofixPanel, ciActivity, DevelopmentCiStatus } from './CiAutofixPanel';
+import { ciActivity, ciMessage, ciMessageUnavailable } from './ciAutofix';
 import { AgentMark } from './AgentMark';
 import { taskArchived } from './AgentTasksView';
 import { NO_AGENT_CAPABILITIES } from './capabilities';
@@ -821,8 +821,7 @@ export function AgentTaskBody({
   pullRequestError = null,
   pullRequestLoading = false,
   ciPollingError = null,
-  onOpenDevelopmentCi,
-  renderCiPanel,
+  ciSubmissionBlocked = false,
   onRefreshPullRequests,
   pullRequestDetail = NO_PULL_REQUEST_DETAIL,
   pullRequestChanges = NO_PULL_REQUEST_CHANGES,
@@ -923,8 +922,7 @@ export function AgentTaskBody({
   pullRequestError?: string | null;
   pullRequestLoading?: boolean;
   ciPollingError?: string | null;
-  onOpenDevelopmentCi?: () => void;
-  renderCiPanel?: (width: number) => React.ReactNode;
+  ciSubmissionBlocked?: boolean;
   onRefreshPullRequests?: () => void;
   /** What the wrapper has read for the panel's pull request; this body reads nothing itself. */
   pullRequestDetail?: TaskPullRequestDetail;
@@ -987,7 +985,7 @@ export function AgentTaskBody({
     onSelectPanelTab('pr');
     if (!panelOpen) onTogglePanel();
   };
-  const pullRequestShowing = panelOpen && renderCiPanel === undefined && visiblePanelTab === 'pr';
+  const pullRequestShowing = panelOpen && visiblePanelTab === 'pr';
   /**
    * A link to this task's own pull request reads in the panel instead of leaving for GitHub.
    * The task route does not change, and every other link keeps its ordinary behaviour. It runs in the
@@ -1001,6 +999,8 @@ export function AgentTaskBody({
     showPullRequest();
   };
   const status = runtimeStatus(state);
+  const routedToCi = ciMessage(state.composer) !== null;
+  const ciUnavailable = ciMessageUnavailable(state);
   const automationActive = state.task?.developmentContinuationUnfinished === true;
   const currentCi = state.task?.developmentCi?.status === 'FINISHED' ? null : state.task?.developmentCi;
   const automationFailure = !automationActive && state.developmentProgress?.message.startsWith('Automation stopped.') ? state.developmentProgress.message : null;
@@ -1039,7 +1039,7 @@ export function AgentTaskBody({
   const queueImageBlocked = hasDraftImages && !nextImagesAccepted;
   const authenticationFailure = state.turn?.failureKind === 'AUTHENTICATION_REQUIRED';
   const providerBlocked = providerStatus !== null && !providerAvailable(providerStatus.readiness);
-  const providerRecoveryRequired = status === 'idle' && !automationActive && (authenticationFailure || providerBlocked);
+  const providerRecoveryRequired = !routedToCi && status === 'idle' && !automationActive && (authenticationFailure || providerBlocked);
   const providerStartBlocked = providerBlocked || (authenticationFailure && !providerStatusFresh);
   const authenticationRetry = authenticationFailure ? retryableInput(state) : null;
   return (
@@ -1138,8 +1138,7 @@ export function AgentTaskBody({
 
       {!terminal && question !== null && <div className="agt-development-question" role="status"><strong>Waiting for your answer</strong>{question}</div>}
 
-      {state.task?.developmentCi != null && <DevelopmentCiStatus ci={state.task.developmentCi} active={automationActive && !terminal && currentCi != null}
-        error={ciPollingError} recordedFailure={recordedCiFailure} checks={pullRequestDetail.detail} onOpen={onOpenDevelopmentCi} />}
+      {automationActive && ciPollingError !== null && <div className="agt-notice" role="alert">{ciPollingError}</div>}
 
       {automationFailure !== null && recordedCiFailure === null && <div className="agt-notice" role="alert">
         {automationFailure}
@@ -1205,20 +1204,23 @@ export function AgentTaskBody({
       {!terminal && status !== 'recovery' && !providerRecoveryRequired && (
         <ConversationComposer
           automation={automation}
+          ciMention={state.task?.interactive === true} routedToCi={routedToCi}
+          ciMessageHint={routedToCi ? ciUnavailable ?? 'Send to CI Autofix' : undefined}
           value={state.composer} onChange={onCompose} onSend={onSend} onStop={automationActive ? onStopServer : onCancel} onSteer={onSteer} onQueue={onQueue}
           running={status === 'running' || automationActive} sending={state.sending}
           stopLabel={automationActive ? 'Stop automation' : undefined}
           stopTitle={automationActive ? 'Stops automation and keeps this task open after its agents stop' : undefined}
           disabled={status === 'closing' || state.connection === 'connecting' || (state.sending && !attaching)}
-          sendEnabled={canSend(state) && !submissionBlocked} steerEnabled={canSteer(state) && !steerImageBlocked} queueEnabled={canQueue(state) && !queueImageBlocked && !submissionBlocked}
+          sendEnabled={routedToCi ? ciUnavailable === null && ciPollingError === null && !ciSubmissionBlocked : canSend(state) && !submissionBlocked}
+          steerEnabled={!routedToCi && canSteer(state) && !steerImageBlocked} queueEnabled={!routedToCi && canQueue(state) && !queueImageBlocked && !submissionBlocked}
           connection={state.connection} closing={status === 'closing'}
           composerRef={composerRef}
-          onPaste={event => pasteImage(event, imagesAccepted && (status === 'idle' || status === 'running') && !state.sending, onPasteImages)}
+          onPaste={event => pasteImage(event, !routedToCi && imagesAccepted && (status === 'idle' || status === 'running') && !state.sending, onPasteImages)}
           steerTitle={steerImageBlocked ? 'The running turn’s model does not accept images'
             : state.capabilities?.steering === true ? 'Sends into the running turn now' : 'This provider cannot take input into a running turn'}
           queueTitle={queueImageBlocked ? 'The next-turn model does not accept images' : 'Runs after this turn finishes'}
           attachments={state.attachments} previews={previews} onRemoveAttachment={onRemoveAttachment}
-          onAttach={onAttach} attachEnabled={imagesAccepted} attachTitle={attachTitle}
+          onAttach={onAttach} attachEnabled={!routedToCi && imagesAccepted} attachTitle={routedToCi ? 'CI Autofix accepts text only' : attachTitle}
           permissionPolicy={state.task?.defaults.permissionPolicy ?? 'AUTO'}
           models={models} provider={provider} model={state.task?.defaults.model ?? null}
           effort={state.task?.defaults.effort} serviceTier={state.task?.defaults.serviceTier} onSelectModel={onSelectModel}
@@ -1236,7 +1238,7 @@ export function AgentTaskBody({
             title="Drag to resize the panel"
             onMouseDown={sidePanel.startResize}
           />
-          {renderCiPanel !== undefined ? renderCiPanel(sidePanel.width) : <SidePanel
+          <SidePanel
             agents={agents}
             openAgent={supportsNestedAgents ? openAgent : null}
             expiredChildren={expiredChildren}
@@ -1278,7 +1280,7 @@ export function AgentTaskBody({
             showAgents={supportsNestedAgents}
             logChoice={logChoice}
             onToggleLog={onToggleLog}
-          />}
+          />
         </>
       )}
       </div>
@@ -1380,7 +1382,6 @@ export default function AgentTaskScreen({
   const [turnChoice, setTurnChoice] = useState<Record<string, boolean>>({});
   const [planOpen, setPlanOpen] = useState(true);
   const [panelChoice, setPanelChoice] = useState<boolean | null>(null);
-  const [ciPanelOpen, setCiPanelOpen] = useState(false);
   const [ciPollingError, setCiPollingError] = useState<string | null>(null);
   const [openAgent, setOpenAgent] = useState<string | null>(null);
   const [panelTab, setPanelTab] = useState<PanelTab>('pr');
@@ -1420,6 +1421,8 @@ export default function AgentTaskScreen({
   if (submissionRef.current === null) submissionRef.current = createDraftSubmissionTracker();
   const submissions = submissionRef.current;
   const inlineSending = useRef(false);
+  const ciSending = useRef(false);
+  const ciRequest = useRef<{ runId: string; message: string; key: string } | null>(null);
 
   useEffect(() => {
     mountedRef.current = true;
@@ -1607,7 +1610,6 @@ export default function AgentTaskScreen({
   const pullRequestPanelVisible = panelOpen && panelTab !== 'agents';
   const canRefreshPullRequests = taskLoaded && state.connection === 'open' && pullRequestTurnKnown && !running;
   const continuationUnfinished = state.task?.developmentContinuationUnfinished ?? false;
-  const developmentCi = state.task?.developmentCi ?? null;
   const pollContinuation = continuationUnfinished && state.task?.state === 'OPEN';
   useEffect(() => {
     if (!pollContinuation) return;
@@ -1658,10 +1660,10 @@ export default function AgentTaskScreen({
   // The panel reads the pull request itself, so the detail and its diff are read here rather
   // than by the body, which stays a pure function of the state a test can hand it.
   // Every panel tab keeps the shared PR toolbar's permissions and status current.
-  const detailSource = usePullRequestDetail(taskPr, { active: panelOpen && !ciPanelOpen });
+  const detailSource = usePullRequestDetail(taskPr, { active: panelOpen });
   const diffRevision = pullRequestDiffRevision(detailSource.detail, taskPr?.headPushedAt);
   const pullRequestChanges = usePullRequestChanges(taskPr, {
-    active: panelOpen && panelTab === 'changes' && !ciPanelOpen,
+    active: panelOpen && panelTab === 'changes',
     revision: diffRevision,
   });
   const pullRequestDetail = {
@@ -1808,8 +1810,37 @@ export default function AgentTaskScreen({
   }, [applyTurn, live, recordProviderUnavailable, refreshProjection, submissions, taskId]);
 
   const send = useCallback(() => run(async () => {
+    const draft = stateRef.current;
+    const ciText = ciMessage(draft.composer);
+    if (ciText !== null) {
+      if (ciSending.current || attachmentPendingRef.current || confirmation !== null || confirming || ciPollingError !== null || ciMessageUnavailable(draft) !== null) return;
+      const ci = draft.task?.developmentCi;
+      if (ci == null) return;
+      ciSending.current = true;
+      dispatch({ type: 'composer/sending', sending: true });
+      if (ciRequest.current?.runId !== ci.runId || ciRequest.current.message !== ciText) {
+        ciRequest.current = { runId: ci.runId, message: ciText, key: crypto.randomUUID() };
+      }
+      try {
+        const result = await live().sendCiAutofixMessage(ci.runId, ciText, ciRequest.current.key);
+        if (!mountedRef.current) return;
+        if (result.id !== ci.runId || result.parentTaskId !== taskId || result.workspaceId !== workspaceId) {
+          throw new Error('CI run does not belong to this development task');
+        }
+        ciRequest.current = null;
+        dispatch({ type: 'composer/changed', text: '' });
+        dispatch({ type: 'notice/changed', notice: 'Message sent to CI Autofix.' });
+        try { await refreshProjection(stateRef.current.latestTurnId); }
+        catch { /* The CI service accepted the message; task polling will refresh its activity. */ }
+      } finally {
+        ciSending.current = false;
+        if (mountedRef.current) dispatch({ type: 'composer/sending', sending: false });
+      }
+      return;
+    }
     if (attachmentPendingRef.current || automationBlocked || !canSend(stateRef.current)) return;
     const message = state.composer.trim();
+    if (ciMessage(message) !== null) return;
     const task = state.task;
     if (message.length === 0 || task === null) return;
     const attachmentIds = state.attachments.map((attachment) => attachment.id);
@@ -1829,7 +1860,7 @@ export default function AgentTaskScreen({
       throw failure;
     }
     setLocalOnly(false);
-  }), [automationBlocked, run, startTurn, state.attachments, state.composer, state.task, submissionAutomation, submissions, taskId]);
+  }), [automationBlocked, ciPollingError, confirmation, confirming, live, refreshProjection, run, startTurn, state.attachments, state.composer, state.task, submissionAutomation, submissions, taskId, workspaceId]);
 
   const agentCommentDisabled = taskPr === null || taskPr.state === 'merged' || taskPr.state === 'closed'
     ? 'Code feedback requires an open pull request.'
@@ -1887,6 +1918,7 @@ export default function AgentTaskScreen({
   const steer = useCallback(() => run(async () => {
     if (attachmentPendingRef.current || !canSteer(stateRef.current)) return;
     const message = state.composer.trim();
+    if (ciMessage(message) !== null) return;
     const turn = state.turn;
     if (message.length === 0 || turn === null) return;
     const attachmentIds = state.attachments.map((attachment) => attachment.id);
@@ -1919,6 +1951,7 @@ export default function AgentTaskScreen({
   const queueNext = useCallback(() => run(async () => {
     if (attachmentPendingRef.current || automationBlocked || !canQueue(stateRef.current)) return;
     const message = state.composer.trim();
+    if (ciMessage(message) !== null) return;
     const task = state.task;
     if (message.length === 0 || task === null) return;
     const attachmentIds = state.attachments.map((attachment) => attachment.id);
@@ -2249,11 +2282,7 @@ export default function AgentTaskScreen({
       pullRequestError={pullRequestError}
       pullRequestLoading={pullRequestLoading}
       ciPollingError={ciPollingError}
-      onOpenDevelopmentCi={() => { setCiPanelOpen(true); setPanelChoice(true); }}
-      renderCiPanel={ciPanelOpen && developmentCi !== null ? width => <CiAutofixPanel
-        key={developmentCi.runId} ci={developmentCi} checks={pullRequestDetail.detail} parentTaskId={taskId} workspaceId={workspaceId}
-        active={continuationUnfinished && developmentCi.status !== 'FINISHED' && state.task?.state === 'OPEN' && !confirming}
-        bridge={live()} width={width} onClose={() => { setCiPanelOpen(false); setPanelChoice(false); }} onStop={() => { void stopServer(); }} /> : undefined}
+      ciSubmissionBlocked={confirmation !== null || confirming}
       onRefreshPullRequests={canRefreshPullRequests ? () => setPullRequestRefresh((revision) => revision + 1) : undefined}
       pullRequestDetail={pullRequestDetail}
       pullRequestChanges={pullRequestChanges}
@@ -2267,10 +2296,10 @@ export default function AgentTaskScreen({
         ? current
         : { key: reviewKey, pendingComments })}
       repository={workspace === undefined ? null : `${workspace.monitoredOwner}/${workspace.monitoredRepo}`}
-      onTogglePanel={() => { setCiPanelOpen(false); setPanelChoice(!panelOpen); }}
-      onOpenAgent={(threadId) => { setCiPanelOpen(false); setPanelChoice(true); setPanelTab('agents'); setOpenAgent(threadId); }}
+      onTogglePanel={() => { setPanelChoice(!panelOpen); }}
+      onOpenAgent={(threadId) => { setPanelChoice(true); setPanelTab('agents'); setOpenAgent(threadId); }}
       onCloseAgent={() => setOpenAgent(null)}
-      onSelectPanelTab={(tab) => { setCiPanelOpen(false); setPanelTab(tab); setOpenAgent(null); }}
+      onSelectPanelTab={(tab) => { setPanelTab(tab); setOpenAgent(null); }}
       logChoice={logChoice}
       onToggleLog={setLogChoice}
       onOpenPullRequest={onOpenPullRequest}

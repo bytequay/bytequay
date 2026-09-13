@@ -624,7 +624,6 @@ describe('agent task side panel', () => {
     // It reads as pressed only where clicking it folds the panel away again.
     expect(chip({ panelOpen: true })).toContain('class="agt-pr-chip" aria-pressed="true"');
     expect(chip({ panelOpen: true, panelTab: 'changes' })).toContain('class="agt-pr-chip" aria-pressed="false"');
-    expect(chip({ panelOpen: true, renderCiPanel: (): null => null })).toContain('class="agt-pr-chip" aria-pressed="false"');
     // A branch without a pull request has nothing to open.
     expect(renderToStaticMarkup(<AgentTaskBody state={state} {...props} />)).not.toContain('agt-pr-chip');
     // The pill keeps its own width and ring; the dock's flex column would otherwise stretch it.

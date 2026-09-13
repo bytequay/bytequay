@@ -363,29 +363,6 @@
   outline-offset: 1px;
 }
 
-.agt-development-ci__error { color: #9a6700; overflow-wrap: anywhere; }
-
-.agt-development-ci, .agt-ci-panel__summary { display: flex; flex-direction: column; gap: 4px; color: #57606a; font-size: 12px; }
-.agt-development-ci { margin: 8px 0; }
-.agt-ci-checks { padding-bottom: 8px; color: #1f2328; }
-.agt-ci-history { overflow-wrap: anywhere; }
-.agt-ci-history > summary { cursor: pointer; }
-.agt-ci-history > p { margin: 6px 0; }
-.agt-development-ci__actions { display: flex; align-items: center; gap: 12px; }
-.agt-ci-panel { min-width: 240px; display: flex; flex-direction: column; min-height: 0; flex-shrink: 0; border-left: 1px solid #d0d7de; background: #fff; }
-.agt-ci-panel__head { display: flex; justify-content: space-between; align-items: center; padding: 12px; border-bottom: 1px solid #d0d7de; }
-.agt-ci-panel__summary { padding: 12px; }
-.agt-ci-panel > .agt-conversation { min-height: 0; flex: 1; }
-.agt-ci-panel .agt-transcript { padding: 12px; }
-.agt-ci-panel .agt-bottom { padding: 12px; }
-.agt-ci-panel .agt-user__bubble { max-width: 100%; }
-.agt-ci-panel .agt-answer { overflow-wrap: anywhere; }
-.agt-ci-panel a, .agt-development-ci a { color: #0969da; }
-.agt-ci-reply { display: flex; flex-direction: column; gap: 8px; font-size: 12px; }
-.agt-ci-reply textarea { border: 1px solid #d0d7de; border-radius: 6px; padding: 8px; min-height: 70px; resize: vertical; }
-.agt-ci-reply button { align-self: flex-end; }
-.agt-ci-reply small { color: #6e7781; }
-
 .agt-state.is-recovery {
   color: #9a6700;
   background: #fff8c5;
@@ -482,6 +459,46 @@
   align-items: center;
   gap: 6px;
   padding: 8px 10px 10px;
+}
+
+.agt-mentions {
+  position: absolute;
+  bottom: calc(100% + 8px);
+  left: 10px;
+  z-index: 12;
+  min-width: 220px;
+  max-width: calc(100% - 20px);
+  padding: 4px;
+  border: 1px solid #d0d7de;
+  border-radius: 10px;
+  background: #ffffff;
+  box-shadow: 0 8px 24px rgba(31, 35, 40, 0.14);
+}
+
+.agt-mentions button {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+  padding: 9px 10px;
+  border: 0;
+  border-radius: 6px;
+  background: #f0f6ff;
+  color: #1f2328;
+  font: inherit;
+  font-size: 13px;
+  text-align: left;
+  cursor: pointer;
+}
+
+.agt-mentions button span {
+  color: #57606a;
+}
+
+.agt-compose__hint {
+  padding: 4px 14px;
+  color: #57606a;
+  font-size: 12px;
 }
 
 .agt-compose.is-new-task {

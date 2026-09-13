@@ -348,9 +348,11 @@ does not acquire a synthetic checklist, image input, or steering control.
 
 The transcript displays:
 
-- user messages and their attachments, except ByteQuay's create-PR requests
-  (the panel's **Create draft PR** action or Auto draft PR), which show as one
-  **Open draft pull request** `head → base` row instead of the prompt;
+- user messages and their attachments, except ByteQuay's create-PR request,
+  which shows as one **Open draft pull request** `head → base` row instead of
+  the prompt, or **Update pull request #N** when a pull request already tracks
+  the branch. The panel action and Auto draft PR start the same turn, so the row
+  is chosen by that turn's publication origin and never by matching its words;
 - partial and completed assistant messages;
 - provider-supported readable reasoning summaries, never hidden
   chain-of-thought;
@@ -619,13 +621,16 @@ treated as authoritative association, and no separate durable task-to-PR link
 is introduced. Matching stored rows remains repository plus branch.
 
 Its **Create draft PR** action, offered while the task is idle and the branch
-has no open or merged pull request, sends one fixed request into the task's conversation
-as an ordinary turn: the agent commits pending work, reads the repository's
-pull request template, pushes the branch to `origin`, and opens the draft with
-the GitHub CLI against the workspace's monitored repository and default branch,
-under the lane's normal approval policy. ByteQuay itself writes nothing to
-GitHub here and never publishes on its own. Once that turn ends, the same
-branch refresh discovers the new draft without waiting for scheduled sync.
+has no open or merged pull request, asks ByteQuay to publish the task's
+committed work. The click is the authorization: ByteQuay verifies the branch,
+builds the same publication request the accepted Auto draft PR automation uses,
+and starts that turn itself. The agent reads the repository's pull request
+template, chooses a title and body, and calls the task's publish tool; ByteQuay
+performs the push and opens the draft against the monitored repository and its
+default branch. No session needs a remote write, a GitHub CLI, or a credential,
+and the action commits nothing — a task with uncommitted changes is refused
+until they are committed. Once that turn ends, the same branch refresh discovers
+the new draft without waiting for scheduled sync.
 
 ### 2.6 Queue and steering
 

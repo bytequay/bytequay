@@ -23,6 +23,7 @@ import com.bytequay.agent.core.DevelopmentAutomation;
 import com.bytequay.agent.core.DevelopmentTurnCompletion;
 import com.bytequay.agent.core.DevelopmentTurnOrigin;
 import com.bytequay.agent.core.RepositoryIdentity;
+import com.bytequay.agent.core.StartAgentTurnCommand;
 import com.bytequay.agent.core.TaskId;
 import com.bytequay.agent.core.TaskWorktree;
 import com.bytequay.agent.core.TitleSource;
@@ -768,6 +769,67 @@ class TestDevelopmentFollowupCoordinator
                 ci, actions, credentials, pullRequests, writes, clock, waitForCi);
         rejected.completed(outcome);
         verify(turns).failDevelopmentContinuation(eq(taskId), eq(source.id()), contains("Could not start"));
+    }
+
+    @Test
+    void panelRequestStartsByteQuaysOwnPublicationTurnCarryingTheBackendPrompt()
+    {
+        prepare(local(BASE, false), local(HEAD, false), DRAFT_ONLY, true);
+        trackedRemote(Optional.empty(), Optional.empty());
+        AgentTurn publication = publicationTurn();
+        when(turns.startPublicationTurn(any(), eq(source.id()))).thenReturn(publication);
+
+        assertThat(coordinator.requestDraftPullRequest(task, task.version(), "panel-1")).isEqualTo(publication);
+
+        ArgumentCaptor<StartAgentTurnCommand> command = ArgumentCaptor.forClass(StartAgentTurnCommand.class);
+        verify(turns).startPublicationTurn(command.capture(), eq(source.id()));
+        assertThat(command.getValue().message())
+                .contains("ByteQuay · Create draft PR", DevelopmentResultBridge.PUBLISH_TOOL_NAME, HEAD)
+                .doesNotContain("gh ", "--force-with-lease");
+        assertThat(command.getValue().idempotencyKey()).isEqualTo("panel-1");
+        assertThat(command.getValue().attachments()).isEmpty();
+    }
+
+    @Test
+    void panelRequestOpensTheWindowOnlyForItsOwnTurn()
+    {
+        prepare(local(BASE, false), local(HEAD, false), DRAFT_ONLY, true);
+        trackedRemote(Optional.empty(), Optional.empty());
+        AgentTurn publication = publicationTurn();
+        when(turns.startPublicationTurn(any(), eq(source.id()))).thenReturn(publication);
+        coordinator.requestDraftPullRequest(task, task.version(), "panel-1");
+
+        // The user's own next turn must not be able to spend the window the click opened.
+        history.add(running(DRAFT_ONLY));
+        assertThatThrownBy(() -> coordinator.publishDraftPullRequest(taskId.toString(), "Title", "Body"))
+                .hasMessageContaining("not ByteQuay's draft pull request request");
+
+        history.set(history.size() - 1, publication);
+        assertThat(coordinator.publishDraftPullRequest(taskId.toString(), "Title", "Body"))
+                .contains(HEAD, "created draft pull request");
+        verify(writes).createPullRequest("token", route.baseRepository(), route.headBranch(), route.baseBranch(), "Title", "Body", true);
+    }
+
+    @Test
+    void panelRequestRefusesUncommittedWorkAndAnEmptyBranch()
+    {
+        prepare(local(BASE, false), local(HEAD, true), DRAFT_ONLY, true);
+        assertThatThrownBy(() -> coordinator.requestDraftPullRequest(task, task.version(), "panel-1"))
+                .hasMessageContaining("Commit this task's changes");
+
+        prepare(local(BASE, false), local(BASE, false), DRAFT_ONLY, true);
+        assertThatThrownBy(() -> coordinator.requestDraftPullRequest(task, task.version(), "panel-2"))
+                .hasMessageContaining("nothing to publish");
+        verify(turns, never()).startPublicationTurn(any(), any());
+    }
+
+    /** The turn ByteQuay starts for a panel click: an ordinary running turn carrying the publication origin. */
+    private AgentTurn publicationTurn()
+    {
+        return AgentTurn.accepted(TurnId.random(), taskId, "publication", source.settings().orElseThrow(), NOW)
+                .withDevelopmentOrigin(origin(CREATE_DRAFT_PR))
+                .markDeliveryStarted(NOW)
+                .running(new ProviderTurnRef("publication"), Optional.empty());
     }
 
     @Test

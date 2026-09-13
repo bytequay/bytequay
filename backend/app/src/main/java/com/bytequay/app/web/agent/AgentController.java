@@ -55,6 +55,7 @@ import com.bytequay.agent.spi.AgentPermissionPolicy;
 import com.bytequay.agent.spi.AgentProviderStatus;
 import com.bytequay.app.agent.AgentStartupRecovery;
 import com.bytequay.app.agent.AgentTaskStartupProgress;
+import com.bytequay.app.agent.DevelopmentFollowupCoordinator;
 import com.bytequay.app.agent.InteractiveAgentTaskCreator;
 import com.bytequay.app.ci.CiAutofixService;
 import com.bytequay.app.service.pr.PullRequestService;
@@ -144,6 +145,7 @@ public class AgentController
     private final CiAutofixStore ciRuns;
     private final CiAutofixService ci;
     private final AgentTaskStartupProgress startupProgress;
+    private final DevelopmentFollowupCoordinator developmentFollowups;
 
     public AgentController(
             AgentTaskService taskService,
@@ -166,7 +168,8 @@ public class AgentController
             AppSettingsService appSettings,
             CiAutofixStore ciRuns,
             CiAutofixService ci,
-            AgentTaskStartupProgress startupProgress)
+            AgentTaskStartupProgress startupProgress,
+            DevelopmentFollowupCoordinator developmentFollowups)
     {
         this.taskService = requireNonNull(taskService, "taskService is null");
         this.taskTitles = requireNonNull(taskTitles, "taskTitles is null");
@@ -189,6 +192,7 @@ public class AgentController
         this.ciRuns = requireNonNull(ciRuns, "ciRuns is null");
         this.ci = requireNonNull(ci, "ci is null");
         this.startupProgress = requireNonNull(startupProgress, "startupProgress is null");
+        this.developmentFollowups = requireNonNull(developmentFollowups, "developmentFollowups is null");
     }
 
     /**
@@ -719,6 +723,28 @@ public class AgentController
         TaskId id = TaskId.valueOf(taskId);
         taskService.getInteractive(workspaceId, id);
         return ResponseEntity.accepted().body(InteractiveAgentHttpContract.turn(turnService.resumeQueued(id)));
+    }
+
+    /**
+     * Publishes this task's committed work as a draft pull request.
+     *
+     * <p>The click is the authorization. ByteQuay builds the request, opens its publication window,
+     * and starts the turn; the agent chooses the title and body and calls back through the task's
+     * publish tool, so no session needs a remote write or a credential.
+     */
+    @PostMapping("/tasks/{taskId}/pull-requests/draft")
+    public ResponseEntity<InteractiveAgentHttpContract.TurnResponse> createDraftPullRequest(
+            @PathVariable String taskId,
+            @RequestParam String workspaceId,
+            @RequestParam long expectedVersion,
+            @RequestHeader("Idempotency-Key") String idempotencyKey)
+    {
+        requireNotBlank(idempotencyKey, "Idempotency-Key must not be blank");
+        checkArgument(expectedVersion >= 0, "expectedVersion is negative");
+        TaskId id = TaskId.valueOf(taskId);
+        AgentTask task = taskService.getInteractive(workspaceId, id);
+        return ResponseEntity.accepted().body(InteractiveAgentHttpContract.turn(
+                developmentFollowups.requestDraftPullRequest(task, expectedVersion, idempotencyKey)));
     }
 
     /** Files the user's prompt in Recent. Never on the path that decides the response. */

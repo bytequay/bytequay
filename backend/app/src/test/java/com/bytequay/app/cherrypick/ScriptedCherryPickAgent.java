@@ -298,6 +298,12 @@ final class ScriptedCherryPickAgent
     }
 
     @Override
+    public AgentTurn startPublicationTurn(StartAgentTurnCommand command, TurnId sourceTurnId)
+    {
+        throw new UnsupportedOperationException("Development automation is not used by cherry-pick tests");
+    }
+
+    @Override
     public boolean handoffDevelopmentContinuationToQueue(TaskId taskId, TurnId sourceTurnId)
     {
         throw new UnsupportedOperationException("Development automation is not used by cherry-pick tests");

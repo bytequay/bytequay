@@ -289,6 +289,8 @@ const bridge: Bridge = {
   removeAgentQueuedInput: (taskId, workspaceId, queuedInputId) =>
     ipcRenderer.invoke('agent:queue:remove', taskId, workspaceId, queuedInputId),
   resumeAgentQueue: (taskId, workspaceId) => ipcRenderer.invoke('agent:queue:resume', taskId, workspaceId),
+  requestAgentDraftPullRequest: (taskId, workspaceId, expectedVersion, idempotencyKey) =>
+    ipcRenderer.invoke('agent:pull-requests:draft', taskId, workspaceId, expectedVersion, idempotencyKey),
   getAgentTurn: turnId => ipcRenderer.invoke('agent:turns:get', turnId),
   cancelAgentTurn: turnId => ipcRenderer.invoke('agent:turns:cancel', turnId),
   resolveAgentApproval: (approvalId, decision, scopedPermission) =>

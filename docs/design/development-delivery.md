@@ -290,7 +290,8 @@ This is ordinary control flow, not saved `COMMITTING → PUBLISHING → WATCHING
 transitions. The coordinator waits asynchronously on each generated turn;
 its completion continues the same function. The commit turn is labeled
 **ByteQuay · Auto commit**; the publication turn shows its request as one
-**Open draft pull request** `head → base` row instead of the prompt. Generated
+**Open draft pull request** `head → base` row instead of the prompt, or as
+**Update pull request #N** when it reuses an open pull request. Generated
 turns carry trusted origin metadata and never start a second coordinator. They
 reuse existing turn execution, approvals, transcript, and metrics.
 
@@ -352,6 +353,19 @@ the task-bound `create_draft_pull_request` tool with a title and body chosen
 from the actual change and the repository template. ByteQuay performs the push
 and the GitHub write itself. Reuse an existing open PR; closed/merged/ambiguous
 matches stop the MVP.
+
+The task's pull-request panel reaches the same request without any accepted
+automation: its **Create draft PR** action asks ByteQuay to verify the branch,
+build this request, and start the turn, with the click as the authorization. The
+turn carries the same publication origin, so the conversation renders it as the
+same action, and its completion drives no follow-up — a manual publication owns
+no continuation. It refuses uncommitted work rather than committing, because a
+publication request never commits.
+
+Manual draft creation has no pre-turn publication baseline, so an existing
+remote branch must be an ancestor of the current local HEAD. The panel offers
+this action only when there is no open PR; it is not a force-update or delivery
+retry action for a previously stopped continuation.
 
 The tool authorizes nothing by itself. Tool publication is open only while ByteQuay
 is running the task's draft-pull-request follow-up, and that window carries the

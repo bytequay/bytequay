@@ -477,29 +477,6 @@ function AgentRow({ agent, now, onOpen }: { agent: AgentNode; now: number; onOpe
  * from the task's kept summary, and opening it says its activity expired rather than inventing it.
  */
 
-/**
- * The fixed request behind the panel's Create draft PR button. It goes through the ordinary turn
- * path, so the agent commits, pushes and opens the draft with its own tools under its usual
- * approvals; ByteQuay itself writes nothing to GitHub here. A linked workspace's pull request
- * targets the upstream it monitors, with the head named through the fork the branch is pushed to.
- */
-export function draftPullRequestPrompt(workspace: WorkspaceDto): string {
-  const linked = workspace.upstreamOwner !== null;
-  const repository = `${workspace.monitoredOwner}/${workspace.monitoredRepo}`;
-  const base = (linked ? workspace.upstreamDefaultBranch : null) ?? workspace.defaultBranch;
-  const head = linked ? `${workspace.selectedOwner}:<branch>` : '<branch>';
-  return [
-    'Open a draft pull request for this task.',
-    '',
-    '1. Commit any uncommitted changes on the current branch in focused commits with clear messages that follow the repository\'s conventions. Do not amend or rewrite commits that already exist.',
-    '2. Read the repository\'s pull request template if it has one (.github/PULL_REQUEST_TEMPLATE.md, .github/pull_request_template.md, PULL_REQUEST_TEMPLATE.md, docs/PULL_REQUEST_TEMPLATE.md, or a file under .github/PULL_REQUEST_TEMPLATE/). Write the title and description for what actually changed, filling in every section of the template; without one, describe what changed, why, and how it was verified.',
-    '3. Push the current branch: git push -u origin HEAD',
-    '4. Create the pull request as a draft with the GitHub CLI, where <branch> is the current branch name (git branch --show-current):',
-    `   gh pr create --draft --repo ${repository} --base ${base} --head ${head} --title "<title>" --body-file <a temporary file outside the checkout>`,
-    '5. Reply with the pull request URL. If the push or the GitHub CLI fails, report exactly what failed; do not publish another way.',
-  ].join('\n');
-}
-
 /** The same tab styling before the task's branch has a pull request. */
 function PanelTabs({ tab, agentTab, onSelect }: {
   tab: PanelTab;
@@ -1880,15 +1857,22 @@ export default function AgentTaskScreen({
     }
   }, [agentCommentDisabled, createLocalReview, recordProviderUnavailable, refreshProjection, taskId, taskPr, workspaceId]);
 
-  /** One click, one ordinary turn: the agent does the committing, pushing and opening itself. */
+  /** One click, one publication: ByteQuay builds the request, starts the turn and owns the write. */
   const createPullRequest = useCallback(() => run(async () => {
     const current = stateRef.current;
     const task = current.task;
-    if (task === null || workspace === undefined || runtimeStatus(current) !== 'idle' || task.developmentContinuationUnfinished || current.sending) return;
-    const message = draftPullRequestPrompt(workspace);
-    const idempotencyKey = submissions.keyFor('send', taskId, taskId, message, [], task.defaults);
-    await startTurn(message, [], idempotencyKey, task.version);
-  }), [run, startTurn, submissions, taskId, workspace]);
+    if (task === null || runtimeStatus(current) !== 'idle' || task.developmentContinuationUnfinished || current.sending) return;
+    const idempotencyKey = submissions.keyFor('send', taskId, taskId, `draft-pull-request:${task.version}`, [], task.defaults);
+    try {
+      const turn = await live().requestAgentDraftPullRequest(taskId, workspaceId, task.version, idempotencyKey);
+      applyTurn(turn);
+      await refreshProjection(turn.id);
+    }
+    catch (failure) {
+      recordProviderUnavailable(failure);
+      throw failure;
+    }
+  }), [applyTurn, live, recordProviderUnavailable, refreshProjection, run, submissions, taskId, workspaceId]);
 
   const steer = useCallback(() => run(async () => {
     if (attachmentPendingRef.current || !canSteer(stateRef.current)) return;

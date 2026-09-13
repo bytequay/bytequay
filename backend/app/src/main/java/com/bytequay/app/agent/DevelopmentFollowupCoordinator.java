@@ -19,6 +19,7 @@ import com.bytequay.agent.core.AgentTurnService;
 import com.bytequay.agent.core.DevelopmentAutomation;
 import com.bytequay.agent.core.DevelopmentTurnCompletion;
 import com.bytequay.agent.core.DevelopmentTurnOrigin;
+import com.bytequay.agent.core.StartAgentTurnCommand;
 import com.bytequay.agent.core.TaskId;
 import com.bytequay.agent.core.TaskWorktree;
 import com.bytequay.agent.core.TurnId;
@@ -38,6 +39,7 @@ import com.bytequay.app.repository.github.GitHubPullRequestReadClient;
 import com.bytequay.app.repository.github.GitHubPullRequestWriteClient;
 import com.bytequay.app.service.credentials.CredentialService;
 import com.bytequay.core.ci.CiAutofixRun;
+import com.google.common.collect.ImmutableList;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -57,7 +59,7 @@ import static com.google.common.base.Preconditions.checkState;
 import static java.util.Objects.requireNonNull;
 
 /** One live continuation per development task; neither history reads nor restart replay it. */
-public final class DevelopmentFollowupCoordinator
+public class DevelopmentFollowupCoordinator
 {
     private static final Logger log = LoggerFactory.getLogger(DevelopmentFollowupCoordinator.class);
     private static final Pattern ATTRIBUTION = Pattern.compile(
@@ -529,6 +531,50 @@ public final class DevelopmentFollowupCoordinator
     }
 
     /**
+     * Starts the draft-pull-request turn the user asked for from the task's pull-request panel.
+     *
+     * <p>This is the manual twin of the accepted automation: the same verification, the same
+     * backend-built prompt, and the same publication window, driven by a click instead of a
+     * previously accepted setting. It owns no continuation, so nothing follows the turn it starts.
+     * The task's work must already be committed — the publication request never commits, exactly as
+     * it does not in the automation chain.
+     *
+     * @param task the interactive task to publish
+     * @param expectedVersion the task version the caller saw
+     * @param idempotencyKey replay key for the started turn
+     * @return the accepted turn
+     */
+    public AgentTurn requestDraftPullRequest(AgentTask task, long expectedVersion, String idempotencyKey)
+    {
+        requireNonNull(task, "task is null");
+        AgentTurn source = turnStore.list(task.id()).reversed().stream()
+                .filter(turn -> turn.developmentOrigin().isEmpty())
+                .findFirst()
+                .orElseThrow(() -> new IllegalStateException("This task has no work to publish yet"));
+        DevelopmentBaseline baseline = git.capture(task);
+        DevelopmentLocalFacts local = inspectLocal(baseline);
+        checkState(local.uncommittedFileCount() == 0, "Commit this task's changes before opening a draft pull request");
+        checkState(local.commitCount() > 0 && local.diffFromBase(), "This task's branch has nothing to publish");
+        DevelopmentPublicationFacts publication = git.inspectPublication(baseline.worktree(), baseline.route());
+        Optional<GitHubPullRequestIdentity> currentPr = matchingPr(baseline.route(), publication);
+        if (publication.remoteHeadSha().isPresent()) {
+            checkState(git.isAncestor(baseline.worktree(), publication.remoteHeadSha().orElseThrow(), local.headSha()),
+                    "Publication would replace unrelated remote history");
+        }
+        PendingPublication window = new PendingPublication(
+                source.id(), baseline, local.headSha(), publication.remoteHeadSha(), currentPr);
+        publications.put(task.id(), window);
+        try {
+            return turns.startPublicationTurn(new StartAgentTurnCommand(task.id(), expectedVersion,
+                    publicationPrompt(baseline, local, currentPr), ImmutableList.of(), idempotencyKey), source.id());
+        }
+        catch (RuntimeException failure) {
+            publications.remove(task.id(), window);
+            throw failure;
+        }
+    }
+
+    /**
      * Publishes the pending revision for one task; the provider tool calls this instead of a shell.
      *
      * <p>Only an open publication window authorizes the write, and the window carries the verified
@@ -551,6 +597,13 @@ public final class DevelopmentFollowupCoordinator
         TaskId id = TaskId.valueOf(taskId);
         PendingPublication window = publications.get(id);
         checkState(window != null, "ByteQuay is not requesting a draft pull request for this task right now");
+        // A window outlives the manual turn it was opened for, so identity is checked here rather
+        // than by removing it: only a publication turn may spend one.
+        checkState(turnStore.findActive(id)
+                        .flatMap(AgentTurn::developmentOrigin)
+                        .filter(origin -> origin.kind() == DevelopmentTurnOrigin.Kind.CREATE_DRAFT_PR)
+                        .isPresent(),
+                "This turn is not ByteQuay's draft pull request request");
         DevelopmentPublicationRoute route = window.baseline().route();
         TaskWorktree worktree = window.baseline().worktree();
         DevelopmentLocalFacts local = git.inspectLocal(worktree, route);

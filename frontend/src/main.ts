@@ -702,6 +702,13 @@ function registerIpc(): void {
     backendJson(`${backendBase()}/agent/tasks/${encodeURIComponent(taskId)}/queue/resume`
       + `?${new URLSearchParams({ workspaceId })}`, { method: 'POST', headers: agentHeaders() })
       .then((turn) => parseAgentTurn(turn)));
+  ipcMain.handle('agent:pull-requests:draft', (
+    _event, taskId: string, workspaceId: string, expectedVersion: number, idempotencyKey: string,
+  ) =>
+    backendJson(`${backendBase()}/agent/tasks/${encodeURIComponent(taskId)}/pull-requests/draft`
+      + `?${new URLSearchParams({ workspaceId, expectedVersion: String(expectedVersion) })}`,
+      { method: 'POST', headers: { ...agentHeaders(), 'Idempotency-Key': idempotencyKey } })
+      .then((turn) => parseAgentTurn(turn)));
   ipcMain.handle('agent:attachments:pick-drafts', async () => {
     if (mainWindow === null) return [];
     const picked = await dialog.showOpenDialog(mainWindow, {

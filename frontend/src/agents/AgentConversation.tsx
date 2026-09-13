@@ -513,7 +513,7 @@ export function TurnView({ turn, first, open, now, models, durableTurns, activit
   const durable = turn.turnId === null ? undefined : durableTurns[turn.turnId];
   const generatedLabel = developmentTurnLabel(durable) ?? (generatedRequest ? 'Review request' : null);
   const opening = turn.users[0];
-  const request = opening?.delivery === 'TURN' ? draftPullRequestRequest(durable, opening.text, generatedBranch) : null;
+  const request = opening?.delivery === 'TURN' ? draftPullRequestRequest(durable, opening, generatedBranch) : null;
   return (
     <section className={`agt-turn${latest ? ' is-latest' : ''}`} data-history-anchor={turn.turnId ?? `turn-${turn.ordinal}`} aria-label={turn.ordinal > 0 ? `Turn ${turn.ordinal}` : 'Turn'}>
       {turn.users.map((user, index) => {
@@ -530,7 +530,7 @@ export function TurnView({ turn, first, open, now, models, durableTurns, activit
             {index === 0 && request !== null ? (
               <div className="agt-user__request">
                 <GitPullRequest aria-hidden="true" />
-                <span className="agt-user__request-action">Open draft pull request</span>
+                <span className="agt-user__request-action">{request.action}</span>
                 {request.head !== null && <>{' '}<span className="agt-user__request-head" title={request.head}>{request.head}</span></>}
                 {request.base !== null && <>{' '}<span className="agt-user__request-base">→ {request.base}</span></>}
               </div>

@@ -51,6 +51,7 @@ import com.bytequay.agent.spi.AgentUnavailableException;
 import com.bytequay.app.agent.AgentServingGate;
 import com.bytequay.app.agent.AgentStartupRecovery;
 import com.bytequay.app.agent.AgentTaskStartupProgress;
+import com.bytequay.app.agent.DevelopmentFollowupCoordinator;
 import com.bytequay.app.agent.InteractiveAgentTaskCreator;
 import com.bytequay.app.ci.CiAutofixService;
 import com.bytequay.app.git.GitCommandRunner;
@@ -160,7 +161,8 @@ class TestAgentHttpErrors
                 appSettings,
                 ciRuns,
                 ci,
-                startupProgress);
+                startupProgress,
+                mock(DevelopmentFollowupCoordinator.class));
         mvc = standaloneSetup(controller)
                 .setControllerAdvice(new GlobalExceptionHandler())
                 .build();

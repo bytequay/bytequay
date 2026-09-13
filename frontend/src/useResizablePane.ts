@@ -22,10 +22,10 @@ export function useResizablePane(
   const [width, setWidth] = useState(initialWidth);
   const [resizing, setResizing] = useState(false);
 
-  const startResize = useCallback((event: ReactMouseEvent) => {
+  const startResize = useCallback((event: ReactMouseEvent, renderedWidth = width) => {
     event.preventDefault();
     const startX = event.clientX;
-    const startWidth = width;
+    const startWidth = renderedWidth;
     const move = (next: globalThis.MouseEvent) => {
       const distance = resizeEdge === 'start' ? startX - next.clientX : next.clientX - startX;
       setWidth(Math.max(minimumWidth, Math.min(maximumWidth, startWidth + distance)));

@@ -55,7 +55,7 @@ ModelOptionDto,
 PullRequestDto,
 WorkspaceDto
 } from '../types';
-import { useResizablePane } from '../useResizablePane';
+import TaskPaneDivider, { useTaskPane } from './TaskPaneDivider';
 import { AgentConversation,BlockView,clock,codeGraphText,ConversationComposer,ConversationQueue,Glyph,modelName,PlanSteps,serviceTierName,shortDate,Spinner,stateClass,useConversationHistory,useOutputWheel,type AttachmentPreview } from './AgentConversation';
 import { type CommitRange, type DiffAgentComment } from '../pulls/PullChanges';
 import { useLocalReviewThreads } from '../pulls/local-review/useLocalReviewThreads';
@@ -947,7 +947,7 @@ export function AgentTaskBody({
   /** Retries safe checkout removal for a terminal task whose first attempt failed. */
   onCleanup?: () => void;
 }): React.JSX.Element {
-  const sidePanel = useResizablePane(960, 360, 1600, 'start');
+  const sidePanel = useTaskPane();
   const before = historyBefore(state);
   const after = historyAfter(state);
   const scroll = useConversationHistory(state.events, state.turn?.endedAt, {
@@ -1230,14 +1230,7 @@ export function AgentTaskBody({
       </section>
       {panelOpen && state.task !== null && (
         <>
-          <div
-            className={`agt-panel-resize${sidePanel.resizing ? ' is-resizing' : ''}`}
-            role="separator"
-            aria-orientation="vertical"
-            aria-label="Resize side panel"
-            title="Drag to resize the panel"
-            onMouseDown={sidePanel.startResize}
-          />
+          <TaskPaneDivider pane={sidePanel} />
           <SidePanel
             agents={agents}
             openAgent={supportsNestedAgents ? openAgent : null}

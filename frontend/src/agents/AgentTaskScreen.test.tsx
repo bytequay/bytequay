@@ -1082,6 +1082,8 @@ describe('agent task detail', () => {
 
     const running = body({ task: vision, turn: turn('RUNNING'), connection: 'open' });
     expect(running).toMatch(/<button[^>]*class="agt-send is-stop"[^>]*aria-label="Stop this turn"/);
+    expect(running).not.toMatch(/class="agt-send is-stop"[^>]*disabled/);
+    expect(body({ task: vision, turn: turn('ACCEPTED'), connection: 'open', sending: true })).toMatch(/<button[^>]*class="agt-send is-stop"[^>]*disabled/);
     expect(running).not.toContain('aria-label="Send message"');
     expect(running).toContain('>Running<');
     // The last-resort server stop lives on the recovery card, not beside a running turn.

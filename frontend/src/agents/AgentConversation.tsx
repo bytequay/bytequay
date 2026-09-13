@@ -931,8 +931,9 @@ export function ConversationComposer({
             <button type="button" className="agt-compose__chip" disabled={!queueEnabled} title={queueTitle} onClick={onQueue}>Run next</button>
           </>}
           {running
+            // A development turn reads as running during its baseline capture, before it can be stopped cleanly.
             ? <button type="button" className="agt-send is-stop" aria-label={stopLabel}
-                title={stopTitle} onClick={onStop}>
+                title={stopTitle} onClick={onStop} disabled={sending}>
                 <span className="agt-stop-square" aria-hidden="true" />
               </button>
             : <button type="button" className="agt-send" aria-label="Send message" title="Send" onClick={onSend} disabled={!sendEnabled}>↑</button>}

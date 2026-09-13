@@ -633,6 +633,9 @@ public final class DefaultAgentTurnService
             AgentTask task;
             synchronized (runtimeRegistry.taskLock(taskId)) {
                 task = requireAcceptedLaunch(turn);
+                // The development baseline capture below takes seconds of Git and GitHub reads; publish
+                // the accepted message first so the transcript shows it while Send is still waiting.
+                eventService.drain(acceptance.deliveryEventId());
             }
             if (developmentTurnEligible(task, turn)) {
                 developmentAccepted.accept(task, turn);

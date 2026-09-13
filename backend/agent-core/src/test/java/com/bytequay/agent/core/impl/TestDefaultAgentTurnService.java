@@ -641,6 +641,8 @@ class TestDefaultAgentTurnService
             assertThat(stores.find(turn.id())).contains(turn);
             assertThat(acceptedTask.worktreeMutationClaim()).contains(WorktreeMutationClaim.turn(turn.id(), turn.createdAt()));
             assertThat(acceptedTask.developmentContinuationUnfinished()).isTrue();
+            assertThat(events.readAfter(task.id(), 0, 100)).filteredOn(event -> event.turnId().equals(Optional.of(turn.id())))
+                    .extracting(AgentEventEnvelope::payload).hasAtLeastOneElementOfType(AgentEventPayload.UserMessage.class);
             captured.add(turn.id());
         };
         enableDevelopment(ignored -> {});

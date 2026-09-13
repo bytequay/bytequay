@@ -1827,11 +1827,21 @@ export default function AgentTaskScreen({
     if (message.length === 0 || task === null) return;
     const attachmentIds = state.attachments.map((attachment) => attachment.id);
     const idempotencyKey = submissions.keyFor('send', taskId, taskId, message, attachmentIds, { ...task.defaults, developmentAutomation: submissionAutomation });
-    await startTurn(message, attachmentIds, idempotencyKey, task.version, submissionAutomation);
-    setLocalOnly(false);
-    // The transcript still waits for the durable user-message event rather than inventing it.
+    // The backend publishes the user-message event on acceptance, seconds before a development turn's
+    // request returns, so the draft leaves the composer now instead of sitting there beside it. The
+    // transcript still waits for that durable event rather than inventing it. Restoring the draft
+    // without draftChanged keeps its idempotency key for a retry.
     dispatch({ type: 'composer/changed', text: '' });
     dispatch({ type: 'attachments/cleared' });
+    try {
+      await startTurn(message, attachmentIds, idempotencyKey, task.version, submissionAutomation);
+    }
+    catch (failure) {
+      dispatch({ type: 'composer/changed', text: state.composer });
+      dispatch({ type: 'attachments/added', attachments: state.attachments });
+      throw failure;
+    }
+    setLocalOnly(false);
   }), [automationBlocked, run, startTurn, state.attachments, state.composer, state.task, submissionAutomation, submissions, taskId]);
 
   const agentCommentDisabled = taskPr === null || taskPr.state === 'merged' || taskPr.state === 'closed'

@@ -20,7 +20,6 @@ import {
   parseAgentApproval,
   parseAgentAttachment,
   parseAgentCompletion,
-  parseAgentDevelopmentFacts,
   parseCiAutofixRun,
   parseAgentInputDelivery,
   parseAgentProviderStatuses,
@@ -560,10 +559,6 @@ function registerIpc(): void {
     backendJson(`${backendBase()}/agent/tasks/${encodeURIComponent(taskId)}/pull-requests`
       + `${refresh === true ? '/sync' : ''}?${new URLSearchParams({ workspaceId })}`,
     { method: refresh === true ? 'POST' : 'GET', headers: agentHeaders() }));
-  ipcMain.handle('agent:task:development-facts', (_event, taskId: string, workspaceId: string) =>
-    backendJson(`${backendBase()}/agent/tasks/${encodeURIComponent(taskId)}/development-facts`
-      + `?${new URLSearchParams({ workspaceId })}`, { headers: agentHeaders() })
-      .then((facts) => parseAgentDevelopmentFacts(facts)));
   ipcMain.handle('ci-autofix:get', (_event, runId: string) =>
     backendJson(`${backendBase()}/ci-autofix/runs/${encodeURIComponent(runId)}`, { headers: agentHeaders() }).then(parseCiAutofixRun));
   ipcMain.handle('ci-autofix:message', (_event, runId: string, message: string, idempotencyKey: string) =>

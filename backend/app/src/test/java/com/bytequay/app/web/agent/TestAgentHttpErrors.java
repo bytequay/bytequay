@@ -50,11 +50,6 @@ import com.bytequay.agent.spi.AgentProviderStatus;
 import com.bytequay.agent.spi.AgentUnavailableException;
 import com.bytequay.app.agent.AgentServingGate;
 import com.bytequay.app.agent.AgentStartupRecovery;
-import com.bytequay.app.agent.DevelopmentBaseline;
-import com.bytequay.app.agent.DevelopmentGitInspector;
-import com.bytequay.app.agent.DevelopmentLocalFacts;
-import com.bytequay.app.agent.DevelopmentPublicationFacts;
-import com.bytequay.app.agent.DevelopmentPublicationRoute;
 import com.bytequay.app.agent.InteractiveAgentTaskCreator;
 import com.bytequay.app.ci.CiAutofixService;
 import com.bytequay.app.git.GitCommandRunner;
@@ -86,13 +81,11 @@ import java.time.Clock;
 import java.time.Instant;
 import java.util.Optional;
 
-import static org.hamcrest.Matchers.nullValue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.inOrder;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
-import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.verifyNoMoreInteractions;
@@ -116,7 +109,6 @@ class TestAgentHttpErrors
     private WorkspaceRepositoryService workspaces;
     private GitCommandRunner git;
     private AgentCompletionService completionService;
-    private DevelopmentGitInspector developmentGit;
     private CiAutofixStore ciRuns;
     private CiAutofixService ci;
 
@@ -131,7 +123,6 @@ class TestAgentHttpErrors
         workspaces = mock(WorkspaceRepositoryService.class);
         git = mock(GitCommandRunner.class);
         completionService = mock(AgentCompletionService.class);
-        developmentGit = mock(DevelopmentGitInspector.class);
         ciRuns = mock(CiAutofixStore.class);
         ci = mock(CiAutofixService.class);
         AppSettingsService appSettings = mock(AppSettingsService.class);
@@ -164,7 +155,6 @@ class TestAgentHttpErrors
                 mock(PullRequestService.class),
                 mock(WorkspaceStore.class),
                 appSettings,
-                developmentGit,
                 ciRuns,
                 ci);
         mvc = standaloneSetup(controller)
@@ -289,49 +279,6 @@ class TestAgentHttpErrors
     }
 
     @Test
-    void developmentFactsAreWorkspaceScopedAndNeverStartWork()
-            throws Exception
-    {
-        TaskId taskId = TaskId.random();
-        String sha = "a".repeat(40);
-        String branch = "bytequay/task/" + taskId;
-        TaskWorktree worktree = new TaskWorktree(taskId, "workspace-1", new RepositoryIdentity("bytequay", "sample"),
-                Path.of("/tmp/bytequay-worktrees").resolve(taskId.toString()), branch, sha);
-        AgentTask task = AgentTask.created(taskId, true, "Development facts", TitleSource.USER, AgentLaneId.CODEX_CLI,
-                worktree, AgentTaskDefaults.forPermission(AgentPermissionPolicy.AUTO), Instant.parse("2026-08-16T00:00:00Z"));
-        RepoRef repository = new RepoRef("bytequay", "sample");
-        DevelopmentPublicationRoute route = new DevelopmentPublicationRoute(
-                repository, repository, "https://github.com/bytequay/sample.git", "origin", "main", sha, branch);
-        DevelopmentLocalFacts local = new DevelopmentLocalFacts(branch, sha, sha, "fingerprint", 1, 0, 0, 1, 0, false, false);
-        when(taskService.getInteractive("workspace-1", taskId)).thenReturn(task);
-        when(taskService.getInteractive("another-workspace", taskId)).thenThrow(new AgentTaskNotFoundException(taskId));
-        when(developmentGit.capture(task)).thenReturn(new DevelopmentBaseline(worktree, route, local));
-        when(developmentGit.inspectPublication(worktree, route)).thenReturn(new DevelopmentPublicationFacts(Optional.empty(), ImmutableList.of()));
-
-        for (int read = 0; read < 2; read++) {
-            mvc.perform(get("/agent/tasks/{taskId}/development-facts", taskId).queryParam("workspaceId", "workspace-1"))
-                    .andExpect(status().isOk())
-                    .andExpect(jsonPath("$.local.uncommittedFileCount").value(1))
-                    .andExpect(jsonPath("$.localError").value(nullValue()))
-                    .andExpect(jsonPath("$.remote").isMap())
-                    .andExpect(jsonPath("$.remote.headSha").value(nullValue()))
-                    .andExpect(jsonPath("$.remote.pullRequest").value(nullValue()))
-                    .andExpect(jsonPath("$.remoteError").value(nullValue()));
-        }
-        mvc.perform(get("/agent/tasks/{taskId}/development-facts", taskId).queryParam("workspaceId", "another-workspace"))
-                .andExpect(status().isNotFound());
-        mvc.perform(get("/agent/tasks/{taskId}/development-facts", taskId)).andExpect(status().isBadRequest());
-
-        verify(taskService, times(2)).getInteractive("workspace-1", taskId);
-        verify(taskService).getInteractive("another-workspace", taskId);
-        verifyNoMoreInteractions(taskService);
-        verify(developmentGit, times(2)).capture(task);
-        verify(developmentGit, times(2)).inspectPublication(worktree, route);
-        verifyNoMoreInteractions(developmentGit);
-        verifyNoInteractions(turnService, completionService, driverRegistry, driver, workspaces, git);
-    }
-
-    @Test
     void taskReadsExposeLinkedCiWithoutDrivingItOrInspectingGit()
             throws Exception
     {
@@ -356,7 +303,7 @@ class TestAgentHttpErrors
                 .andExpect(jsonPath("$.developmentCi.pullRequestUrl").value("https://github.com/bytequay/sample/pull/42"));
         verify(ci).canMessage(run);
         verifyNoMoreInteractions(ci);
-        verifyNoInteractions(developmentGit, turnService, completionService, git);
+        verifyNoInteractions(turnService, completionService, git);
     }
 
     @Test

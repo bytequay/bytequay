@@ -257,10 +257,6 @@ Evidence:
   leases against a bare fixture remote. The exact object is pushed even when
   local HEAD subsequently advances. GitHub identity fixtures cover exact head
   validation, incomplete responses, and pagination bounds.
-- `TestDevelopmentFactsResponse`, `TestAgentHttpErrors`, and `TestAgentHttpApi`
-  cover factual unknown-versus-absent results, historical PRs with a deleted
-  remote ref, exact workspace scope, and repeated GET without delivery writes.
-  The HTTP fixture retains real local Git inspection and stubs remote reads.
 - `npm run lint`, `npx tsc --noEmit`, and `npm test` passed: 762 frontend tests
   in 65 files. The Chromium bridge regression covers generated-turn labels and
   question precedence.
@@ -275,9 +271,9 @@ Evidence:
   failures stop without an alternate publisher or retry. No live-model or
   GitHub-write smoke was performed.
 - Canonical delivery and agent-service contracts describe the implemented
-  accepted baseline, generated turns, and read-only HTTP/IPC facts surface.
-  CI attachment, child ownership, green validation, synchronization, and
-  promotion remain CP4–CP5; this checkpoint is not the complete-chain release.
+  accepted baseline and generated turns. CI attachment, child ownership, green
+  validation, synchronization, and promotion remain CP4–CP5; this checkpoint
+  is not the complete-chain release.
 - `npm run package` produced the macOS arm64 app with the freshly verified
   backend jar. Build outputs stayed ignored and the temporary dependency
   symlink was removed without changing the original dependencies.

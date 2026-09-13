@@ -2663,14 +2663,8 @@ coordinates the narrower interfaces shown in the last column.
 | 9. Close | `POST /agent/tasks/{taskId}/complete?workspaceId=...` | `AgentCompletionService.complete(CompleteAgentTaskCommand)`, then `cleanupWorktree(TaskId)` | The controller first resolves `getInteractive(workspaceId, taskId)`, so neither another workspace nor a workflow-owned task can cross this endpoint. It rejects an active turn or any last-turn process not already verified stopped, live `QUEUED`/`PAUSED`/`STARTING` input, dirty worktree, or open Git operation; Complete abandons uncertain inputs, claims the worktree-mutation boundary, collects Git/turn/metric facts, and atomically commits the summary, `COMPLETED`, and release of the matching claim. The interactive controller then removes the reverified worktree without force. Workflow callers insert their durable `FINISHED` result between these calls |
 | 10. Delete runtime | Automatic retention job after seven days | `AgentCompletionService.cleanup(TaskId)` | Retries verified worktree removal before `AgentResourceService.delete(...)`, then records cleanup as `DELETED`; failure records `RETRY_PENDING` for the same operation |
 
-Interactive tasks also expose the read-only
-`GET /agent/tasks/{taskId}/development-facts?workspaceId=...` projection through
-Electron's `getAgentDevelopmentFacts` bridge. It uses `getInteractive` scope
-validation and reports dated local file/commit/HEAD observations independently
-of remote branch/PR observations. Unknown reads differ from confirmed absence.
-The task UI uses **Idle**, names generated commit/publication turns, and shows
-these facts above the composer without deriving success from transcript text.
-Reading this projection never reserves ownership or advances delivery.
+The task UI uses **Idle** and names generated commit/publication turns without
+deriving success from transcript text.
 
 Task GET/list responses also include optional `developmentCi` derived from the
 latest parent-linked CI run: activity, attempts/reruns, head/PR references, and

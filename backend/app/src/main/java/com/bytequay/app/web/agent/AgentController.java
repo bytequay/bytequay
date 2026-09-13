@@ -54,7 +54,6 @@ import com.bytequay.agent.spi.AgentLaneId;
 import com.bytequay.agent.spi.AgentPermissionPolicy;
 import com.bytequay.agent.spi.AgentProviderStatus;
 import com.bytequay.app.agent.AgentStartupRecovery;
-import com.bytequay.app.agent.DevelopmentGitInspector;
 import com.bytequay.app.agent.InteractiveAgentTaskCreator;
 import com.bytequay.app.ci.CiAutofixService;
 import com.bytequay.app.service.pr.PullRequestService;
@@ -138,7 +137,6 @@ public class AgentController
     private final ManagedWorktreeService worktrees;
     private final PullRequestService pullRequestCatalog;
     private final WorkspaceStore workspaces;
-    private final DevelopmentGitInspector developmentGit;
     private final CiAutofixStore ciRuns;
     private final CiAutofixService ci;
 
@@ -161,7 +159,6 @@ public class AgentController
             PullRequestService pullRequestCatalog,
             WorkspaceStore workspaces,
             AppSettingsService appSettings,
-            DevelopmentGitInspector developmentGit,
             CiAutofixStore ciRuns,
             CiAutofixService ci)
     {
@@ -183,7 +180,6 @@ public class AgentController
         this.pullRequestCatalog = requireNonNull(pullRequestCatalog, "pullRequestCatalog is null");
         this.workspaces = requireNonNull(workspaces, "workspaces is null");
         this.appSettings = requireNonNull(appSettings, "appSettings is null");
-        this.developmentGit = requireNonNull(developmentGit, "developmentGit is null");
         this.ciRuns = requireNonNull(ciRuns, "ciRuns is null");
         this.ci = requireNonNull(ci, "ci is null");
     }
@@ -298,13 +294,6 @@ public class AgentController
             @RequestParam String workspaceId)
     {
         return taskResponse(taskService.getInteractive(workspaceId, TaskId.valueOf(taskId)));
-    }
-
-    @GetMapping("/tasks/{taskId}/development-facts")
-    public DevelopmentFactsResponse developmentFacts(@PathVariable String taskId, @RequestParam String workspaceId)
-    {
-        AgentTask task = taskService.getInteractive(workspaceId, TaskId.valueOf(taskId));
-        return DevelopmentFactsResponse.inspect(task, developmentGit);
     }
 
     @PutMapping("/tasks/{taskId}/defaults")

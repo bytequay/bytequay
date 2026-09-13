@@ -27,6 +27,7 @@ import com.bytequay.agent.core.TaskId;
 import com.bytequay.agent.spi.AgentDriverRegistry;
 import com.bytequay.agent.spi.AgentLaneId;
 import com.bytequay.agent.spi.AgentUnavailableException;
+import com.bytequay.app.agent.AgentTaskStartupProgress.Phase;
 import com.bytequay.app.git.GitCommandRunner;
 import com.bytequay.app.git.GitCommandRunner.Result;
 import com.bytequay.app.service.credentials.CredentialService;
@@ -62,6 +63,7 @@ public final class InteractiveAgentTaskCreator
     private final WorkspaceRepositoryService workspaces;
     private final WorkspaceProvisioningService provisioning;
     private final GitCommandRunner git;
+    private final AgentTaskStartupProgress progress;
     private final CredentialService credentials;
     private final Striped<Lock> creationLocks = Striped.lock(64);
 
@@ -74,7 +76,8 @@ public final class InteractiveAgentTaskCreator
             WorkspaceProvisioningService provisioning,
             GitCommandRunner git,
             AppSettingsService settings,
-            CredentialService credentials)
+            CredentialService credentials,
+            AgentTaskStartupProgress progress)
     {
         this.tasks = requireNonNull(tasks, "tasks is null");
         this.turns = requireNonNull(turns, "turns is null");
@@ -85,6 +88,7 @@ public final class InteractiveAgentTaskCreator
         this.git = requireNonNull(git, "git is null");
         this.settings = requireNonNull(settings, "settings is null");
         this.credentials = requireNonNull(credentials, "credentials is null");
+        this.progress = requireNonNull(progress, "progress is null");
     }
 
     public AgentTask create(
@@ -160,12 +164,14 @@ public final class InteractiveAgentTaskCreator
         DevelopmentAutomation automation = defaults.developmentAutomation().orElseGet(settings::developmentAutomation);
         settings.validateDevelopmentAutomation(automation);
         initialAutomation.ifPresent(settings::validateDevelopmentAutomation);
+        progress.record(taskId, Phase.PROVIDER);
         requireReady(drivers, laneId, defaults.permissionPolicy());
         models.validateSelection(
                 laneId.value(),
                 defaults.model().orElseThrow(() -> new IllegalArgumentException("model must not be blank")),
                 defaults.effort(),
                 defaults.serviceTier());
+        progress.record(taskId, Phase.REPOSITORY);
         if (!provisioning.synchronizeCode(workspaceId).successful()) {
             throw new AgentUnavailableException(
                     "Cannot start task: workspace repository synchronization failed. Check repository access and connectivity, then retry.");
@@ -176,6 +182,7 @@ public final class InteractiveAgentTaskCreator
         if (!head.successful() || head.truncated() || head.output().isBlank()) {
             throw new AgentStorageException("Cannot resolve the workspace start commit");
         }
+        progress.record(taskId, Phase.WORKTREE);
         try {
             return tasks.createInteractive(new CreateInteractiveAgentTaskCommand(
                     taskId,

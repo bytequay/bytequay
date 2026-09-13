@@ -259,6 +259,25 @@
   color: #57606a;
 }
 
+.agt-starting-steps {
+  list-style: none;
+  margin: 10px 0 0;
+  padding: 0;
+}
+
+.agt-starting-step {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 3px 0;
+  font-size: 12.5px;
+  color: #57606a;
+}
+
+.agt-starting-step.is-pending {
+  color: #8c959f;
+}
+
 .agt-pre {
   margin: 0;
   font: 11.5px/1.5 ui-monospace, SFMono-Regular, Menlo, monospace;

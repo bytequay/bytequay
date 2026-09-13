@@ -73,6 +73,7 @@ import static org.mockito.Mockito.when;
 class TestInteractiveAgentTaskCreator
 {
     private static final String START_COMMIT = "0123456789012345678901234567890123456789";
+    private static final TaskId TASK_ID = TaskId.valueOf("11111111-1111-1111-1111-111111111111");
 
     @TempDir
     private Path temporaryDirectory;
@@ -85,6 +86,7 @@ class TestInteractiveAgentTaskCreator
     private WorkspaceRepositoryService workspaces;
     private WorkspaceProvisioningService provisioning;
     private GitCommandRunner git;
+    private AgentTaskStartupProgress progress;
     private InteractiveAgentTaskCreator creator;
     private CredentialService credentials;
 
@@ -112,7 +114,8 @@ class TestInteractiveAgentTaskCreator
         credentials = mock(CredentialService.class);
         when(credentials.resolveGitHubCredential()).thenReturn(new GitHubCredential(
                 "test-token", new UserProfile("chenjian2664", "", "", "", 0, 0, 0, "", "", "", "")));
-        creator = new InteractiveAgentTaskCreator(tasks, turns, drivers, models, workspaces, provisioning, git, settings, credentials);
+        progress = new AgentTaskStartupProgress();
+        creator = new InteractiveAgentTaskCreator(tasks, turns, drivers, models, workspaces, provisioning, git, settings, credentials, progress);
     }
 
     @Test
@@ -143,6 +146,8 @@ class TestInteractiveAgentTaskCreator
         order.verify(workspaces).requireReadyRepository("workspace-1");
         order.verify(git).run(repository, "rev-parse", "--verify", "refs/remotes/origin/main^{commit}");
         order.verify(tasks).createInteractive(any());
+        // The controller clears the phase once its request returns; the creator leaves its last step behind.
+        assertThat(progress.current(TASK_ID)).contains(AgentTaskStartupProgress.Phase.WORKTREE);
     }
 
     @Test
@@ -321,7 +326,7 @@ class TestInteractiveAgentTaskCreator
     private AgentTask create(AgentTaskDefaults defaults)
     {
         return creator.create(
-                TaskId.valueOf("11111111-1111-1111-1111-111111111111"),
+                TASK_ID,
                 "workspace-1",
                 "Review",
                 AgentLaneId.CODEX_CLI,

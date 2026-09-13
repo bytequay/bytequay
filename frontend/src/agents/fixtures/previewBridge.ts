@@ -173,6 +173,8 @@ export function createPreviewBridge(
       record('getAgentTask', taskId, id);
       return { ...previewTask(id, taskId), defaults: previewDefaults, version: previewVersion };
     },
+    // Not recorded: the creation screen polls this on a timer, which would make command logs timing-dependent.
+    getAgentTaskStartup: async () => ({ phase: null }),
     updateAgentTaskDefaults: async (taskId, id, expectedVersion, defaults) => {
       record('updateAgentTaskDefaults', taskId, id, expectedVersion, defaults);
       if (expectedVersion !== previewVersion) {

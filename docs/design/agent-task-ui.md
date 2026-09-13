@@ -673,7 +673,13 @@ the starting branch or a creation hint; the surrounding screen supplies that
 context while the input keeps its accessible name.
 Sending immediately replaces Home or the task list with a starting conversation
 showing the submitted message, image previews, and a visible **Starting task…**
-indicator. This is local request progress: it does not invent a persisted task
+indicator that lists the creation steps in order — provider check, repository
+fetch, worktree provisioning, image storage when images were attached, and
+provider session start — and marks the one in progress. While the create
+request is in flight the renderer polls `GET /agent/tasks/{taskId}/startup`
+with its client-generated task id; the backend answers from an in-memory phase
+map that the creator and controller write and clear when the request returns.
+This is local request progress: it does not invent a persisted task
 or start replay/SSE before creation is acknowledged. Success opens the durable
 task route; failure restores the composer with its text, images, and retry error.
 The workspace is already fixed by the route, so the HTTP request carries

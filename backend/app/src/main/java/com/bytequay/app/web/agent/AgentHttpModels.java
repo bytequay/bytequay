@@ -187,6 +187,9 @@ public final class AgentHttpModels
             Optional<String> activeTurnId,
             boolean liveProcess) {}
 
+    /** The creation step an in-flight create request is in, or empty once that request has returned. */
+    public record StartupProgressResponse(Optional<String> phase) {}
+
     public record CleanupResponse(
             String taskId,
             String state,

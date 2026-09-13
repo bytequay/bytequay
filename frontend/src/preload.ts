@@ -259,6 +259,7 @@ const bridge: Bridge = {
   listAgentTasks: (workspaceId, limit) => ipcRenderer.invoke('agent:tasks:list', workspaceId, limit),
   createAgentTask: request => ipcRenderer.invoke('agent:tasks:create', request),
   getAgentTask: (taskId, workspaceId) => ipcRenderer.invoke('agent:tasks:get', taskId, workspaceId),
+  getAgentTaskStartup: taskId => ipcRenderer.invoke('agent:tasks:startup', taskId),
   updateAgentTaskDefaults: (taskId, workspaceId, expectedVersion, defaults) =>
     ipcRenderer.invoke('agent:task:defaults', taskId, workspaceId, expectedVersion, defaults),
   listAgentTaskPullRequests: (taskId, workspaceId, refresh) =>

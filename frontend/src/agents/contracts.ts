@@ -36,6 +36,8 @@ import type {
   AgentTaskChangesDto,
   AgentTaskDto,
   AgentTaskPullRequestDto,
+  AgentTaskStartupDto,
+  AgentTaskStartupPhase,
   AgentTaskSummaryDto,
   AgentTurnDto,
   AgentTurnSettingsDto,
@@ -616,6 +618,14 @@ export function parseAgentRuntimeStopImpact(value: unknown, path = 'stopImpact')
     activeTurnId: optionalText(source.activeTurnId, `${path}.activeTurnId`),
     liveProcess: source.liveProcess === true,
   };
+}
+
+const STARTUP_PHASES: readonly AgentTaskStartupPhase[] = ['PROVIDER', 'REPOSITORY', 'WORKTREE', 'ATTACHMENTS', 'SESSION'];
+
+export function parseAgentTaskStartup(value: unknown, path = 'startup'): AgentTaskStartupDto {
+  const phase = optionalText(object(value, path).phase, `${path}.phase`);
+  // A phase this build does not know reads as "not started yet" rather than failing the poll.
+  return { phase: STARTUP_PHASES.find((known) => known === phase) ?? null };
 }
 
 export function parseAgentAttachment(value: unknown, path = 'attachment'): AgentAttachmentDto {

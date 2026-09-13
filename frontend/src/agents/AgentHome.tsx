@@ -30,7 +30,7 @@ import {
 import { StartingAgentTask, TaskComposer, taskArchived, useAgentTaskCreation, type DraftImage, type TaskModelSelection } from './AgentTasksView';
 import { HOME_WINDOW_MIN, TaskWindows } from './TaskCard';
 import type { AgentBridgePort } from './model';
-import type { AgentTaskDto, ModelOptionDto, ModelProviderDto, PullRequestDto } from '../types';
+import type { AgentTaskDto, AgentTaskStartupPhase, ModelOptionDto, ModelProviderDto, PullRequestDto } from '../types';
 
 /** Starting points that fill the composer; the user edits or sends them as they are. */
 const SUGGESTIONS: { icon: LucideIcon; title: string; prompt: string }[] = [
@@ -183,6 +183,7 @@ export default function AgentHome({
       blocker={creation.blocker}
       error={creation.error}
       busy={creation.busy}
+      startup={creation.startup}
       attaching={creation.attaching}
       images={creation.images}
       onAttach={() => { void creation.attach(); }}
@@ -204,7 +205,7 @@ export function AgentHomeView({
   onDraftChange, onSelectProvider, onSelectModel, onCreate, onOpenTask, onOpenSettings, onShowAll,
   hiddenTaskIds, onHideTask, onRevealTask,
   attention = [], handled = {}, onHandledChange = () => {}, onOpenAttention = () => {}, onSeeAllAttention = () => {},
-  images = [], busy = false, attaching = false, onAttach, onPasteImages, onRemoveImage, error = null, automation,
+  images = [], busy = false, startup = null, attaching = false, onAttach, onPasteImages, onRemoveImage, error = null, automation,
 }: {
   repository: string;
   laneId: string;
@@ -236,12 +237,14 @@ export function AgentHomeView({
   error?: string | null;
   images?: DraftImage[];
   busy?: boolean;
+  /** Which creation step the in-flight create request is in, for the starting screen. */
+  startup?: AgentTaskStartupPhase | null;
   attaching?: boolean;
   onAttach?: () => void;
   onPasteImages?: () => void;
   onRemoveImage?: (id: string) => void;
 }): React.JSX.Element {
-  if (busy && !attaching) return <StartingAgentTask {...{ draft, images, laneId, providers, models, selection }} />;
+  if (busy && !attaching) return <StartingAgentTask {...{ draft, images, laneId, providers, models, selection, startup }} />;
   const slash = repository.indexOf('/');
   const owner = slash < 0 ? repository : repository.slice(0, slash);
   const repo = slash < 0 ? '' : repository.slice(slash + 1);

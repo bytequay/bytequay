@@ -828,6 +828,10 @@ export type AgentRuntimeStopImpactDto = {
   liveProcess: boolean;
 };
 
+/** The creation step an in-flight createAgentTask is in; null before the first step and once the call has returned. */
+export type AgentTaskStartupPhase = 'PROVIDER' | 'REPOSITORY' | 'WORKTREE' | 'ATTACHMENTS' | 'SESSION';
+export type AgentTaskStartupDto = { phase: AgentTaskStartupPhase | null };
+
 export type AgentCompletionDto = {
   taskId: string;
   summary: AgentTaskSummaryDto;
@@ -1528,6 +1532,8 @@ export type Bridge = {
   listAgentTasks: (workspaceId: string, limit?: number) => Promise<AgentTaskDto[]>;
   createAgentTask: (request: CreateAgentTaskRequest) => Promise<AgentTaskDto>;
   getAgentTask: (taskId: string, workspaceId: string) => Promise<AgentTaskDto>;
+  /** Polled while createAgentTask is in flight; the task may not exist yet, so it takes no workspace. */
+  getAgentTaskStartup: (taskId: string) => Promise<AgentTaskStartupDto>;
   /** Version-checked, so a stale screen cannot overwrite a change it never saw. */
   updateAgentTaskDefaults: (
     taskId: string,

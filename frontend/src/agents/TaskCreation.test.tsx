@@ -18,7 +18,7 @@ import { AgentHomeView } from './AgentHome';
 import { AgentTaskList } from './AgentTasksView';
 import { NO_AGENT_CAPABILITIES } from './capabilities';
 import { createPreviewBridge, previewTask } from './fixtures/previewBridge';
-import type { ModelOptionDto, ModelProviderDto } from '../types';
+import type { AgentTaskStartupPhase, ModelOptionDto, ModelProviderDto } from '../types';
 
 const MODELS: ModelOptionDto[] = [
   { id: 'gpt-5.6-sol', name: '5.6 Sol', description: '', efforts: ['medium'], defaultEffort: 'medium', inputModalities: ['text', 'image'] },
@@ -39,6 +39,7 @@ const props = {
   images: [{ id: 'draft-1', name: 'failure.png', url: 'blob:preview' }],
   blocker: null as string | null,
   busy: false,
+  startup: null as AgentTaskStartupPhase | null,
   attaching: false,
   onDraftChange: () => {},
   onSelectProvider: () => {},
@@ -69,6 +70,25 @@ describe.each(['Home', 'Tasks'])('first-message feedback on %s', (surface) => {
     expect(markup).not.toContain('aria-label="Model and effort for the new task"');
     expect(markup).not.toContain('aria-label="Send — creates the task"');
     expect(markup).not.toContain('aria-label="Remove image failure.png"');
+  });
+
+  it('names every creation step and marks the reported one as the current step', () => {
+    const markup = render({ busy: true, startup: 'WORKTREE' });
+
+    expect([...markup.matchAll(/agt-starting-step is-(\w+)/g)].map((match) => match[1]))
+      .toEqual(['done', 'done', 'current', 'pending', 'pending']);
+    expect(markup).toContain('Checking that Codex is installed and signed in');
+    expect(markup).toContain('Creating the task branch and worktree');
+    expect(markup).toContain('Storing the attached images');
+    expect(markup).toContain('Starting Codex and sending your message');
+  });
+
+  it('lists every step as pending until the backend reports one', () => {
+    const markup = render({ busy: true, images: [] });
+
+    expect([...markup.matchAll(/agt-starting-step is-(\w+)/g)].map((match) => match[1]))
+      .toEqual(['pending', 'pending', 'pending', 'pending']);
+    expect(markup).not.toContain('Storing the attached images');
   });
 
   it('keeps the draft editable while an attachment loads, without showing task startup', () => {

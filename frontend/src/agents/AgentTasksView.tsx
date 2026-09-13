@@ -13,7 +13,7 @@
  */
 
 import React, { useCallback, useEffect, useRef, useState } from 'react';
-import { Archive, ArchiveRestore, Check, ChevronRight, FilePen, GitCommitHorizontal, LoaderCircle, SquareCheck, Trash2, X } from 'lucide-react';
+import { Archive, ArchiveRestore, Check, ChevronRight, Circle, FilePen, GitCommitHorizontal, LoaderCircle, SquareCheck, Trash2, X } from 'lucide-react';
 import { ConfirmDialog } from '../ConfirmDialog';
 import { relativeTime } from '../relativeTime';
 import { INTERACTIVE_LANE_ID, displayModelName, laneLabel, providerAvailable, providerRemedy, remedyCommand } from '../settings/model';
@@ -24,7 +24,7 @@ import { automationForSubmission } from './developmentAutomation';
 import { ModelPicker } from './ModelPicker';
 import { ProviderPicker } from './ProviderPicker';
 import '../css/agents.css';
-import type { AgentTaskChangesDto, AgentTaskDto, AgentTaskPullRequestDto, DevelopmentAutomationDto, ModelOptionDto, ModelProviderDto, ModelSettingsDto } from '../types';
+import type { AgentTaskChangesDto, AgentTaskDto, AgentTaskPullRequestDto, AgentTaskStartupPhase, DevelopmentAutomationDto, ModelOptionDto, ModelProviderDto, ModelSettingsDto } from '../types';
 import { acceptsImages, createTaskCreationTracker, type AgentBridgePort, type TaskCreationTracker } from './model';
 import { agentProviderUnavailableFrom } from './contracts';
 import { pasteImage } from './clipboard';
@@ -39,6 +39,8 @@ type TaskTab = 'active' | 'archived';
 
 /** What the backend's sweep does to a completed task nobody came back to; the hint names it. */
 const AUTO_ARCHIVE_DAYS = 7;
+/** How often the starting screen asks which creation step the in-flight request is in. */
+const STARTUP_POLL_MS = 500;
 
 interface AgentTasksViewProps {
   workspaceId: string;
@@ -191,6 +193,7 @@ export function useAgentTaskCreation({ workspaceId, initialLaneId, bridge, onOpe
   const [automationError, setAutomationError] = useState<string | null>(null);
   const [images, setImages] = useState<DraftImage[]>([]);
   const [operation, setOperation] = useState<'attachment' | 'sending' | null>(null);
+  const [startup, setStartup] = useState<AgentTaskStartupPhase | null>(null);
   const busy = operation !== null;
   const busyRef = useRef(false);
   const imagesRef = useRef<DraftImage[]>([]);
@@ -350,6 +353,13 @@ export function useAgentTaskCreation({ workspaceId, initialLaneId, bridge, onOpe
       serviceTier: selection.serviceTier ?? null,
       developmentAutomation: automation,
     }, images.map((image) => image.id), automationForSubmission(automation, localOnly));
+    // The create call blocks until the first turn is running; the backend names the step it is in meanwhile.
+    let watching = true;
+    const watch = setInterval(() => {
+      bridge().getAgentTaskStartup(request.taskId)
+        .then((progress) => { if (watching && mountedRef.current) setStartup(progress.phase); })
+        .catch(() => {});
+    }, STARTUP_POLL_MS);
     const acceptCreatedTask = (task: AgentTaskDto) => {
       submissions.settled(request.taskId);
       setTasks((current) => [task, ...current.filter((existing) => existing.id !== task.id)]);
@@ -391,6 +401,9 @@ export function useAgentTaskCreation({ workspaceId, initialLaneId, bridge, onOpe
       }
     }
     finally {
+      watching = false;
+      clearInterval(watch);
+      setStartup(null);
       busyRef.current = false;
       setOperation(null);
     }
@@ -413,6 +426,7 @@ export function useAgentTaskCreation({ workspaceId, initialLaneId, bridge, onOpe
     setDraft,
     blocker,
     busy,
+    startup,
     attaching: operation === 'attachment',
     images,
     attach,
@@ -421,14 +435,38 @@ export function useAgentTaskCreation({ workspaceId, initialLaneId, bridge, onOpe
   };
 }
 
+/** The creation steps in backend order; the image step exists only when images were attached. */
+const STARTUP_STEPS: { phase: AgentTaskStartupPhase; withImages?: true; label: (provider: string) => string }[] = [
+  { phase: 'PROVIDER', label: (provider) => `Checking that ${provider} is installed and signed in` },
+  { phase: 'REPOSITORY', label: () => 'Fetching the latest commits from GitHub' },
+  { phase: 'WORKTREE', label: () => 'Creating the task branch and worktree' },
+  { phase: 'ATTACHMENTS', withImages: true, label: () => 'Storing the attached images' },
+  { phase: 'SESSION', label: (provider) => `Starting ${provider} and sending your message` },
+];
+
+/** One reported phase places every step: earlier ones are done, later ones pending, none current before the first report. */
+export function startupSteps(
+  phase: AgentTaskStartupPhase | null,
+  provider: string,
+  withImages: boolean,
+): { label: string; state: 'done' | 'current' | 'pending' }[] {
+  const steps = STARTUP_STEPS.filter((step) => withImages || step.withImages === undefined);
+  const at = steps.findIndex((step) => step.phase === phase);
+  return steps.map((step, index) => ({
+    label: step.label(provider),
+    state: at !== -1 && index < at ? 'done' : index === at ? 'current' : 'pending',
+  }));
+}
+
 /** The first message is visible while the existing create-and-start request is in flight. */
-export function StartingAgentTask({ draft, images, laneId, providers, models, selection }: {
+export function StartingAgentTask({ draft, images, laneId, providers, models, selection, startup = null }: {
   draft: string;
   images: DraftImage[];
   laneId: string;
   providers: ModelProviderDto[];
   models: ModelOptionDto[];
   selection: TaskModelSelection | null;
+  startup?: AgentTaskStartupPhase | null;
 }): React.JSX.Element {
   const provider = providers.find((candidate) => candidate.id === laneId)?.label ?? laneLabel(laneId);
   const model = models.find((candidate) => candidate.id === selection?.model);
@@ -457,7 +495,16 @@ export function StartingAgentTask({ draft, images, laneId, providers, models, se
             <LoaderCircle className="agt-spin" aria-hidden="true" />
             <span>Starting task…</span>
           </div>
-          <p className="agt-muted agt-small">Preparing your workspace and starting {provider}.</p>
+          <ol className="agt-starting-steps" aria-label="Task startup steps">
+            {startupSteps(startup, provider, images.length > 0).map((step) => (
+              <li key={step.label} className={`agt-starting-step is-${step.state}`}>
+                <span className={`agt-icon${step.state === 'current' ? ' is-running' : step.state === 'done' ? ' is-ok' : ''}`} aria-hidden="true">
+                  {step.state === 'current' ? <LoaderCircle className="agt-spin" /> : step.state === 'done' ? <Check /> : <Circle />}
+                </span>
+                <span>{step.label}</span>
+              </li>
+            ))}
+          </ol>
         </div>
       </div>
       <div className="agt-bottom">
@@ -535,6 +582,7 @@ export default function AgentTasksView({
       draft={creation.draft}
       blocker={creation.blocker}
       busy={creation.busy}
+      startup={creation.startup}
       attaching={creation.attaching}
       images={creation.images}
       onAttach={() => { void creation.attach(); }}
@@ -768,7 +816,7 @@ type ToastState = { id: number; text: string; undo?: () => void };
 export function AgentTaskList({
   tasks, loading, error, laneId, providers, models, selection, draft, blocker, children, reviewTasks,
   onDraftChange, onSelectProvider, onSelectModel, onCreate, onOpenTask, onOpenSettings, onArchive, onDelete,
-  images = [], busy = false, attaching = false, onAttach, onPasteImages, onRemoveImage, automation,
+  images = [], busy = false, startup = null, attaching = false, onAttach, onPasteImages, onRemoveImage, automation,
   now = Date.now(), initialTab = 'active', changes = {},
 }: {
   tasks: AgentTaskDto[];
@@ -797,6 +845,8 @@ export function AgentTaskList({
   automation?: React.ReactNode;
   images?: DraftImage[];
   busy?: boolean;
+  /** Which creation step the in-flight create request is in, for the starting screen. */
+  startup?: AgentTaskStartupPhase | null;
   attaching?: boolean;
   onAttach?: () => void;
   onPasteImages?: () => void;
@@ -822,7 +872,7 @@ export function AgentTaskList({
     return () => window.removeEventListener('keydown', onKey);
   }, [selecting]);
 
-  if (busy && !attaching) return <StartingAgentTask {...{ draft, images, laneId, providers, models, selection }} />;
+  if (busy && !attaching) return <StartingAgentTask {...{ draft, images, laneId, providers, models, selection, startup }} />;
 
   const active = tab === 'active';
   const visible = tasks.filter((task) => taskArchived(task) === !active);

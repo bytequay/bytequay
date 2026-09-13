@@ -43,6 +43,7 @@ export type AgentBridgePort = Pick<Bridge,
   | 'listAgentTasks'
   | 'createAgentTask'
   | 'getAgentTask'
+  | 'getAgentTaskStartup'
   | 'readAgentEvents'
   | 'readAgentHistory'
   | 'readAgentPendingApprovals'

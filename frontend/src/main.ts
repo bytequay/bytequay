@@ -32,6 +32,7 @@ import {
   parseAgentSkills,
   parseAgentTask,
   parseAgentTaskChanges,
+  parseAgentTaskStartup,
   parseAgentTasks,
   parseAgentTurn,
   parseAgentTurnSettings,
@@ -546,6 +547,9 @@ function registerIpc(): void {
     backendJson(`${backendBase()}/agent/tasks/${encodeURIComponent(taskId)}`
       + `?${new URLSearchParams({ workspaceId })}`, { headers: agentHeaders() })
       .then((task) => parseAgentTask(task)));
+  ipcMain.handle('agent:tasks:startup', (_event, taskId: string) =>
+    backendJson(`${backendBase()}/agent/tasks/${encodeURIComponent(taskId)}/startup`, { headers: agentHeaders() })
+      .then((progress) => parseAgentTaskStartup(progress)));
   ipcMain.handle('agent:task:defaults', (
     _event,
     taskId: string,

@@ -50,6 +50,7 @@ import com.bytequay.agent.spi.AgentProviderStatus;
 import com.bytequay.agent.spi.AgentUnavailableException;
 import com.bytequay.app.agent.AgentServingGate;
 import com.bytequay.app.agent.AgentStartupRecovery;
+import com.bytequay.app.agent.AgentTaskStartupProgress;
 import com.bytequay.app.agent.InteractiveAgentTaskCreator;
 import com.bytequay.app.ci.CiAutofixService;
 import com.bytequay.app.git.GitCommandRunner;
@@ -127,6 +128,7 @@ class TestAgentHttpErrors
         ci = mock(CiAutofixService.class);
         AppSettingsService appSettings = mock(AppSettingsService.class);
         when(appSettings.developmentAutomation()).thenReturn(DevelopmentAutomation.DEFAULT);
+        AgentTaskStartupProgress startupProgress = new AgentTaskStartupProgress();
         AgentController controller = new AgentController(
                 taskService,
                 mock(com.bytequay.agent.core.AgentTaskTitleService.class),
@@ -139,7 +141,8 @@ class TestAgentHttpErrors
                         mock(WorkspaceProvisioningService.class),
                         git,
                         appSettings,
-                        mock(CredentialService.class)),
+                        mock(CredentialService.class),
+                        startupProgress),
                 startupRecovery,
                 turnService,
                 mock(AgentEventService.class),
@@ -156,7 +159,8 @@ class TestAgentHttpErrors
                 mock(WorkspaceStore.class),
                 appSettings,
                 ciRuns,
-                ci);
+                ci,
+                startupProgress);
         mvc = standaloneSetup(controller)
                 .setControllerAdvice(new GlobalExceptionHandler())
                 .build();

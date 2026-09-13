@@ -3859,6 +3859,7 @@ Stable localhost endpoints:
 ```text
 POST /agent/tasks
 GET  /agent/tasks/{taskId}
+GET  /agent/tasks/{taskId}/startup
 GET  /agent/tasks?workspaceId=...&limit=...
 PATCH /agent/tasks/{taskId}/defaults
 POST /agent/tasks/{taskId}/turns
@@ -3888,6 +3889,12 @@ Both direct completion and direct cleanup are interactive workspace routes.
 They resolve `getInteractive(workspaceId, taskId)` before mutation; CI Autofix
 and cherry-pick close and clean their tasks only through their workflow
 services after the workflow's own terminal barrier is durable.
+
+`GET /agent/tasks/{taskId}/startup` names the creation step an in-flight
+`POST /agent/tasks` is in — `PROVIDER`, `REPOSITORY`, `WORKTREE`,
+`ATTACHMENTS`, or `SESSION` — or `null`. It reads an in-memory map keyed by the
+client-generated task id, so it needs no persisted task or workspace scope and
+holds nothing once the create request has returned.
 
 `GET /api/settings/models` is the existing cached, cross-provider model
 catalog; the agent surface reuses it rather than creating another registry.

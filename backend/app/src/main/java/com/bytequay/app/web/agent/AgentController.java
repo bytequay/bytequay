@@ -54,6 +54,7 @@ import com.bytequay.agent.spi.AgentLaneId;
 import com.bytequay.agent.spi.AgentPermissionPolicy;
 import com.bytequay.agent.spi.AgentProviderStatus;
 import com.bytequay.app.agent.AgentStartupRecovery;
+import com.bytequay.app.agent.AgentTaskStartupProgress;
 import com.bytequay.app.agent.InteractiveAgentTaskCreator;
 import com.bytequay.app.ci.CiAutofixService;
 import com.bytequay.app.service.pr.PullRequestService;
@@ -142,6 +143,7 @@ public class AgentController
     private final WorkspaceStore workspaces;
     private final CiAutofixStore ciRuns;
     private final CiAutofixService ci;
+    private final AgentTaskStartupProgress startupProgress;
 
     public AgentController(
             AgentTaskService taskService,
@@ -163,7 +165,8 @@ public class AgentController
             WorkspaceStore workspaces,
             AppSettingsService appSettings,
             CiAutofixStore ciRuns,
-            CiAutofixService ci)
+            CiAutofixService ci,
+            AgentTaskStartupProgress startupProgress)
     {
         this.taskService = requireNonNull(taskService, "taskService is null");
         this.taskTitles = requireNonNull(taskTitles, "taskTitles is null");
@@ -185,6 +188,7 @@ public class AgentController
         this.appSettings = requireNonNull(appSettings, "appSettings is null");
         this.ciRuns = requireNonNull(ciRuns, "ciRuns is null");
         this.ci = requireNonNull(ci, "ci is null");
+        this.startupProgress = requireNonNull(startupProgress, "startupProgress is null");
     }
 
     /**
@@ -241,35 +245,45 @@ public class AgentController
                 request.defaults().serviceTier(),
                 request.defaults().developmentAutomation().map(DevelopmentAutomationDto::toDomain));
         TaskId taskId = TaskId.valueOf(request.taskId());
-        boolean replay = initialTurnExists(taskId, request.idempotencyKey());
-        if (!replay && !uploads.isEmpty()) {
-            uploads.forEach(resourceService::validateAttachment);
-            requireImageInput(new AgentLaneId(request.laneId()), defaults.model(), uploads.stream().map(StoreAgentAttachmentCommand::mediaType).collect(toImmutableList()));
+        try {
+            boolean replay = initialTurnExists(taskId, request.idempotencyKey());
+            if (!replay && !uploads.isEmpty()) {
+                uploads.forEach(resourceService::validateAttachment);
+                requireImageInput(new AgentLaneId(request.laneId()), defaults.model(), uploads.stream().map(StoreAgentAttachmentCommand::mediaType).collect(toImmutableList()));
+            }
+            AgentTask task = taskCreator.create(
+                    taskId,
+                    request.workspaceId(),
+                    request.message(),
+                    new AgentLaneId(request.laneId()),
+                    defaults,
+                    request.idempotencyKey(),
+                    uploads.isEmpty() ? Optional.empty() : Optional.of(attachmentDigest(uploads)),
+                    request.developmentAutomation().map(DevelopmentAutomationDto::toDomain));
+            if (!replay && !uploads.isEmpty()) {
+                startupProgress.record(taskId, AgentTaskStartupProgress.Phase.ATTACHMENTS);
+            }
+            List<AgentAttachment> attachments = replay ? ImmutableList.of() : uploads.stream()
+                    .map(resourceService::storeAttachment)
+                    .map(StoredAgentAttachment::input)
+                    .collect(toImmutableList());
+            startupProgress.record(taskId, AgentTaskStartupProgress.Phase.SESSION);
+            AgentTurn initialTurn = turnService.start(StartAgentTurnCommand.trustedInitialInteractiveTurn(
+                    taskId,
+                    request.message(),
+                    attachments,
+                    request.idempotencyKey()).withDevelopmentAutomation(request.developmentAutomation().map(DevelopmentAutomationDto::toDomain)));
+            InteractiveAgentHttpContract.TaskResponse response = taskResponse(taskService.get(taskId));
+            if (!replay) {
+                taskTitles.generate(task, initialTurn.id(), request.message());
+                recordPrompt(taskId.toString(), request.idempotencyKey(), request.message());
+            }
+            return ResponseEntity.status(HttpStatus.CREATED).body(response);
         }
-        AgentTask task = taskCreator.create(
-                taskId,
-                request.workspaceId(),
-                request.message(),
-                new AgentLaneId(request.laneId()),
-                defaults,
-                request.idempotencyKey(),
-                uploads.isEmpty() ? Optional.empty() : Optional.of(attachmentDigest(uploads)),
-                request.developmentAutomation().map(DevelopmentAutomationDto::toDomain));
-        List<AgentAttachment> attachments = replay ? ImmutableList.of() : uploads.stream()
-                .map(resourceService::storeAttachment)
-                .map(StoredAgentAttachment::input)
-                .collect(toImmutableList());
-        AgentTurn initialTurn = turnService.start(StartAgentTurnCommand.trustedInitialInteractiveTurn(
-                taskId,
-                request.message(),
-                attachments,
-                request.idempotencyKey()).withDevelopmentAutomation(request.developmentAutomation().map(DevelopmentAutomationDto::toDomain)));
-        InteractiveAgentHttpContract.TaskResponse response = taskResponse(taskService.get(taskId));
-        if (!replay) {
-            taskTitles.generate(task, initialTurn.id(), request.message());
-            recordPrompt(taskId.toString(), request.idempotencyKey(), request.message());
+        finally {
+            // The screen polling this is about to get the answer or the error; a phase must not outlive either.
+            startupProgress.clear(taskId);
         }
-        return ResponseEntity.status(HttpStatus.CREATED).body(response);
     }
 
     private boolean initialTurnExists(TaskId taskId, String idempotencyKey)
@@ -293,6 +307,13 @@ public class AgentController
             digest.putInt(upload.bytes().length).putBytes(upload.bytes());
         }
         return digest.hash().toString();
+    }
+
+    /** Which creation step an in-flight create request is in; the task may not exist yet, so no workspace scope applies. */
+    @GetMapping("/tasks/{taskId}/startup")
+    public AgentHttpModels.StartupProgressResponse taskStartup(@PathVariable String taskId)
+    {
+        return new AgentHttpModels.StartupProgressResponse(startupProgress.current(TaskId.valueOf(taskId)).map(Enum::name));
     }
 
     @GetMapping("/tasks/{taskId}")

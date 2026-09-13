@@ -333,6 +333,16 @@ class TestAgentHttpApi
     }
 
     @Test
+    void startupPhaseIsEmptyOutsideAnInFlightCreation()
+            throws Exception
+    {
+        String taskId = post("/agent/tasks", createTaskBody("codex"), null).getBody().required("id").asText();
+
+        assertThat(get("/agent/tasks/" + taskId + "/startup").getBody().required("phase").isNull()).isTrue();
+        assertThat(get("/agent/tasks/" + UUID.randomUUID() + "/startup").getBody().required("phase").isNull()).isTrue();
+    }
+
+    @Test
     void listsThePullRequestsOnTheTasksBranch()
             throws Exception
     {

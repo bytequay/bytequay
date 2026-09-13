@@ -158,12 +158,15 @@ it('shows all switches and inherited CI repair agent selection in settings and t
   expect(page.match(/aria-checked="true"/g)).toHaveLength(3);
   expect(page).toContain('Same agent as development');
   expect(page).toContain('Use the development agent or choose another agent to repair failing CI checks.');
+  expect(page).toContain('mark the draft ready');
   const composer = renderToStaticMarkup(<AutomationControl value={defaults} providers={[]} localOnly={false}
     futureTurns onChange={() => {}} onLocalOnlyChange={() => {}} />);
   expect(composer).toContain('For future turns');
   expect(composer).toContain('Local only for this turn');
-  expect(composer).toContain('mark the draft ready');
   expect(composer).toContain('Same agent as development');
+  // The popover names each choice; only Settings describes them.
+  expect(composer).not.toContain('mark the draft ready');
+  expect(composer).not.toContain('<small>');
 });
 
 it('offers inherited CI repair by default and supported Codex or Claude overrides', () => {
@@ -175,14 +178,12 @@ it('offers inherited CI repair by default and supported Codex or Claude override
   expect(html).toContain('value="claude"');
   expect(html).not.toContain('value="unsupported"');
   expect(html).toContain('value="" selected="">Same agent as development');
-  expect(html).toContain('CI repairs use the task’s development agent.');
   expect(html).not.toContain('Select a supported agent');
   expect(html).not.toContain('does not support CI Autofix');
   for (const laneId of ['codex', 'claude']) {
     const selected = renderToStaticMarkup(<CiProviderSelect value={laneId} providers={providers} onChange={() => {}} />);
     expect(selected).toContain(`value="${laneId}" selected=""`);
     expect(selected).not.toContain('value="" selected=""');
-    expect(selected).not.toContain('CI repairs use the task’s development agent.');
   }
 });
 

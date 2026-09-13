@@ -34,7 +34,6 @@ export function CiProviderSelect({ value, providers, disabled, onChange }: {
         {provider.label}{provider.readiness === 'READY' || provider.readiness === 'DEGRADED' ? '' : ' · Unavailable'}
       </option>)}
     </select>
-    {value === null && <small>CI repairs use the task’s development agent.</small>}
     {value !== null && selected === undefined && <small>This agent does not support CI Autofix.</small>}
     {selected !== undefined && selected.readiness !== 'READY' && selected.readiness !== 'DEGRADED' && <small>{selected.diagnostic}</small>}
   </div>;
@@ -67,13 +66,13 @@ export function AutomationControl({ value, providers, disabled, futureTurns, loc
       {AUTOMATION_OPTIONS.map(option => <label key={option.key} className="agt-automation-option">
         <input type="checkbox" checked={value[option.key]} disabled={disabled || localOnly}
           onChange={event => onChange({ ...value, [option.key]: event.target.checked })} />
-        <span>{option.title}<small>{option.description}</small></span>
+        {option.title}
       </label>)}
       <CiProviderSelect value={value.ciLaneId} providers={providers} disabled={disabled || localOnly || !value.autoCiFix}
         onChange={ciLaneId => onChange({ ...value, ciLaneId })} />
       <label className="agt-automation-option is-local">
         <input type="checkbox" checked={localOnly} disabled={disabled} onChange={event => onLocalOnlyChange(event.target.checked)} />
-        <span>Local only for this turn<small>Skip all three steps for this submission.</small></span>
+        Local only for this turn
       </label>
     </div>
   </details>;

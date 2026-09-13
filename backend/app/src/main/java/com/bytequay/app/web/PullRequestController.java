@@ -120,7 +120,7 @@ public class PullRequestController
     @GetMapping("/prs/{prId}/detail")
     public PullRequestDetail detail(@PathVariable long prId)
     {
-        return pullRequests.getPullRequestDetail(prId);
+        return pullRequests.openPullRequestDetail(prId);
     }
 
     @GetMapping("/prs/detail")
@@ -128,7 +128,7 @@ public class PullRequestController
             @RequestParam("repo") String repo,
             @RequestParam("number") int number)
     {
-        return pullRequests.getPullRequestDetail(repo, number);
+        return pullRequests.openPullRequestDetail(repo, number);
     }
 
     @PostMapping("/prs/detail/refresh")

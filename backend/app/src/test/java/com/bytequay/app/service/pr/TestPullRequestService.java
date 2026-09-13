@@ -685,6 +685,19 @@ class TestPullRequestService
     }
 
     @Test
+    void onlyOpeningDetailMarksThePullRequestViewed()
+    {
+        when(store.findIdByRepoAndNumber("owner/repo", 7)).thenReturn(Optional.of(12L));
+        when(detailStore.find(12L)).thenReturn(Optional.of(stored()));
+
+        service.getPullRequestDetail("owner/repo", 7);
+        verify(viewStateStore, never()).markViewed(12L);
+
+        service.openPullRequestDetail("owner/repo", 7);
+        verify(viewStateStore).markViewed(12L);
+    }
+
+    @Test
     void detailReadDoesNotMutateTheStoredListRow()
     {
         Instant updatedAt = Instant.parse("2026-08-21T01:00:00Z");

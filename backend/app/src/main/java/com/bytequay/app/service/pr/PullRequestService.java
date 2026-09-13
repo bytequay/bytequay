@@ -444,25 +444,31 @@ public class PullRequestService
         CompletableFuture.allOf(statuses.toArray(CompletableFuture[]::new)).join();
     }
 
-    /** Returns persisted detail for a stored row, fetching it on a local miss. */
-    public PullRequestDetail getPullRequestDetail(long prId)
+    /** Opens a stored row, fetching its detail on a local miss. */
+    public PullRequestDetail openPullRequestDetail(long prId)
     {
         PullRequestRef ref = store.findRefById(prId)
                 .orElseThrow(() -> localSnapshotMissing("Pull request"));
-        return getPullRequestDetail(ref.repoFullName(), ref.number());
+        return openPullRequestDetail(ref.repoFullName(), ref.number());
+    }
+
+    /** Returns detail for a pull request the user opened. Background readers use {@link #getPullRequestDetail} instead. */
+    public PullRequestDetail openPullRequestDetail(String repo, int number)
+    {
+        PullRequestDetail detail = getPullRequestDetail(repo, number);
+        // Opening the pull request dates the "since you last looked"
+        // comparison. It is deliberately unconditional and separate from the
+        // Recent stream, which needs a stronger signal than a triage click.
+        markViewed(detail.id());
+        return detail;
     }
 
     /** Returns persisted detail, fetching and caching it on a local miss. */
     public PullRequestDetail getPullRequestDetail(String repo, int number)
     {
         parseRef(repo, number);
-        PullRequestDetail detail = findPullRequestDetail(repo, number)
+        return findPullRequestDetail(repo, number)
                 .orElseGet(() -> refreshPullRequestDetailFromGitHub(repo, number).detail());
-        // Opening the pull request dates the "since you last looked"
-        // comparison. It is deliberately unconditional and separate from the
-        // Recent stream, which needs a stronger signal than a triage click.
-        markViewed(detail.id());
-        return detail;
     }
 
     private void markViewed(long prId)

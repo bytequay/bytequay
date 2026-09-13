@@ -172,11 +172,11 @@ class TestPullRequestRefreshControllers
         PullRequestService pullRequests = mock(PullRequestService.class);
         PullRequestController controller = new PullRequestController(
                 pullRequests, mock(PullRequestRefreshService.class));
-        when(pullRequests.getPullRequestDetail(50L)).thenReturn(detail());
+        when(pullRequests.openPullRequestDetail(50L)).thenReturn(detail());
 
         assertThat(controller.detail(50L)).isEqualTo(detail());
 
-        verify(pullRequests).getPullRequestDetail(50L);
+        verify(pullRequests).openPullRequestDetail(50L);
     }
 
     @Test

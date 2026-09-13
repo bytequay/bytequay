@@ -53,7 +53,7 @@ class TestGitHubTransportErrors
     {
         PullRequestService pullRequests = mock(PullRequestService.class);
         PullRequestRefreshService refresh = mock(PullRequestRefreshService.class);
-        when(pullRequests.getPullRequestDetail("owner/repo", 7)).thenThrow(new ResourceAccessException("Operation timed out"));
+        when(pullRequests.openPullRequestDetail("owner/repo", 7)).thenThrow(new ResourceAccessException("Operation timed out"));
         when(refresh.refreshDetail("owner/repo", 7)).thenThrow(new ResourceAccessException("Operation timed out"));
         when(refresh.refreshAllDetail("owner/repo", 7)).thenThrow(new ResourceAccessException("Operation timed out"));
         var mvc = standaloneSetup(new PullRequestController(pullRequests, refresh))

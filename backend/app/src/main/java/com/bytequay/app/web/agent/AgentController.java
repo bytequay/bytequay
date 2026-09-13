@@ -65,6 +65,7 @@ import com.bytequay.app.web.ci.CiAutofixHttpModels;
 import com.bytequay.app.workspace.ManagedWorktreeService;
 import com.bytequay.app.workspace.WorkspaceException;
 import com.bytequay.app.workspace.WorkspaceOperationLocks;
+import com.bytequay.app.workspace.WorktreeChanges;
 import com.bytequay.core.ci.CiAutofixRun;
 import com.bytequay.core.ci.CiAutofixStore;
 import com.bytequay.core.domain.PullRequest;
@@ -98,6 +99,7 @@ import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.OptionalLong;
 import java.util.UUID;
@@ -107,6 +109,7 @@ import java.util.stream.Stream;
 import static com.bytequay.app.utils.StringInputUtil.requireNotBlank;
 import static com.google.common.base.Preconditions.checkArgument;
 import static com.google.common.collect.ImmutableList.toImmutableList;
+import static com.google.common.collect.ImmutableMap.toImmutableMap;
 import static java.util.Comparator.comparing;
 import static java.util.Comparator.comparingInt;
 import static java.util.Objects.requireNonNull;
@@ -383,6 +386,18 @@ public class AgentController
         return task.taskWorktree()
                 .map(worktree -> taskPullRequests(taskPullRequestRepository(workspaceId), taskBranches(worktree)))
                 .orElse(ImmutableList.of());
+    }
+
+    /** What each listed task's live checkout holds, by task id; a checkout that cannot be read is absent. */
+    @GetMapping("/tasks/changes")
+    public Map<String, WorktreeChanges> taskChanges(@RequestParam String workspaceId)
+    {
+        List<TaskWorktree> checkouts = taskService.list(workspaceId, 100).stream()
+                .filter(task -> task.worktreeRemovedAt().isEmpty())
+                .flatMap(task -> task.taskWorktree().stream())
+                .collect(toImmutableList());
+        return worktrees.changes(workspaceId, checkouts).entrySet().stream()
+                .collect(toImmutableMap(entry -> entry.getKey().toString(), Map.Entry::getValue));
     }
 
     @PostMapping("/tasks/{taskId}/pull-requests/sync")

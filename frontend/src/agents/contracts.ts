@@ -33,6 +33,7 @@ import type {
   AgentSkillDto,
   AgentSkillInput,
   AgentTaskDefaultsDto,
+  AgentTaskChangesDto,
   AgentTaskDto,
   AgentTaskPullRequestDto,
   AgentTaskSummaryDto,
@@ -279,6 +280,17 @@ function taskPullRequest(value: unknown, path: string): AgentTaskPullRequestDto 
     state: text(source.state, `${path}.state`),
     draft: flag(source.draft, `${path}.draft`),
   };
+}
+
+export function parseAgentTaskChanges(value: unknown): Record<string, AgentTaskChangesDto> {
+  const source = object(value, 'taskChanges');
+  return Object.fromEntries(Object.entries(source).map(([taskId, entry]) => {
+    const changes = object(entry, `taskChanges.${taskId}`);
+    return [taskId, {
+      uncommitted: flag(changes.uncommitted, `taskChanges.${taskId}.uncommitted`),
+      commits: count(changes.commits, `taskChanges.${taskId}.commits`),
+    }];
+  }));
 }
 
 export function parseAgentTasks(value: unknown): AgentTaskDto[] {

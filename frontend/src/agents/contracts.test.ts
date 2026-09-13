@@ -28,6 +28,7 @@ import {
   parseAgentSkillInput,
   parseAgentSkills,
   parseAgentTask,
+  parseAgentTaskChanges,
   parseAgentTasks,
   parseAgentTurn,
   parseModelSettings,
@@ -89,6 +90,13 @@ describe('agent contract parsing', () => {
     const pullRequest = { number: 31105, title: 'Clean up nits', state: 'open', draft: true, htmlUrl: 'https://example.test/31105' };
     expect(parseAgentTask({ ...fixture.task, pullRequest }).pullRequest).toEqual({ number: 31105, title: 'Clean up nits', state: 'open', draft: true });
     expect(() => parseAgentTask({ ...fixture.task, pullRequest: { ...pullRequest, draft: 'yes' } })).toThrow(/pullRequest\.draft/);
+  });
+
+  it('reads what each task checkout holds by task id', () => {
+    expect(parseAgentTaskChanges({ 't-1': { uncommitted: true, commits: 2 }, 't-2': { uncommitted: false, commits: 0 } }))
+      .toEqual({ 't-1': { uncommitted: true, commits: 2 }, 't-2': { uncommitted: false, commits: 0 } });
+    expect(() => parseAgentTaskChanges({ 't-1': { uncommitted: true } })).toThrow(/taskChanges\.t-1\.commits/);
+    expect(() => parseAgentTaskChanges([])).toThrow();
   });
 
   it('reads a completed task with its summary', () => {

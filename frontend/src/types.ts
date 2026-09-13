@@ -595,6 +595,9 @@ export type AgentMutationClaimDto = {
 /** What a task list row names about its pull request. */
 export type AgentTaskPullRequestDto = Pick<PullRequestDto, 'number' | 'title' | 'state' | 'draft'>;
 
+/** What a task's checkout holds beyond its start: files not yet committed, and commits made since. */
+export type AgentTaskChangesDto = { uncommitted: boolean; commits: number };
+
 export type AgentTaskDto = {
   interactive?: boolean;
   developmentContinuationUnfinished: boolean;
@@ -1538,6 +1541,8 @@ export type Bridge = {
   deleteAgentTask: (taskId: string, workspaceId: string) => Promise<void>;
   /** Reads cached PRs on the task's generated/current branch, or refreshes those branches directly from GitHub. */
   listAgentTaskPullRequests: (taskId: string, workspaceId: string, refresh?: boolean) => Promise<PullRequestDto[]>;
+  /** Reads every listed task's live checkout at once, by task id; a checkout that cannot be read is absent. */
+  listAgentTaskChanges: (workspaceId: string) => Promise<Record<string, AgentTaskChangesDto>>;
   getCiAutofixRun: (runId: string) => Promise<CiAutofixRunDto>;
   sendCiAutofixMessage: (runId: string, message: string, idempotencyKey: string) => Promise<CiAutofixRunDto>;
   /** What the next turn on this task would be given, derived from what starting one snapshots. */

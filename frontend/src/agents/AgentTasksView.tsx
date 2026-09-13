@@ -13,7 +13,7 @@
  */
 
 import React, { useCallback, useEffect, useRef, useState } from 'react';
-import { Archive, ArchiveRestore, Check, ChevronRight, LoaderCircle, SquareCheck, Trash2, X } from 'lucide-react';
+import { Archive, ArchiveRestore, Check, ChevronRight, FilePen, GitCommitHorizontal, LoaderCircle, SquareCheck, Trash2, X } from 'lucide-react';
 import { ConfirmDialog } from '../ConfirmDialog';
 import { relativeTime } from '../relativeTime';
 import { INTERACTIVE_LANE_ID, displayModelName, laneLabel, providerAvailable, providerRemedy, remedyCommand } from '../settings/model';
@@ -24,7 +24,7 @@ import { automationForSubmission } from './developmentAutomation';
 import { ModelPicker } from './ModelPicker';
 import { ProviderPicker } from './ProviderPicker';
 import '../css/agents.css';
-import type { AgentTaskDto, AgentTaskPullRequestDto, DevelopmentAutomationDto, ModelOptionDto, ModelProviderDto, ModelSettingsDto } from '../types';
+import type { AgentTaskChangesDto, AgentTaskDto, AgentTaskPullRequestDto, DevelopmentAutomationDto, ModelOptionDto, ModelProviderDto, ModelSettingsDto } from '../types';
 import { acceptsImages, createTaskCreationTracker, type AgentBridgePort, type TaskCreationTracker } from './model';
 import { agentProviderUnavailableFrom } from './contracts';
 import { pasteImage } from './clipboard';
@@ -506,10 +506,26 @@ export default function AgentTasksView({
       setTasks((list) => list.filter((task) => task.id !== id));
     }
   }, [live, setTasks, workspaceId]);
+  // Reading checkouts takes Git a moment each, so rows paint with the last answer and take the new one when it lands.
+  const changesSeed = `agent-task-changes:${workspaceId}`;
+  const [changes, setChanges] = useState<Record<string, AgentTaskChangesDto>>(() => getCached(changesSeed) ?? {});
+  // Keyed by the ids alone, so archiving a row does not read every checkout again.
+  const taskIds = creation.tasks.map((task) => task.id).join(' ');
+  useEffect(() => {
+    if (taskIds === '') return;
+    let active = true;
+    // A failed read keeps the last answer; a row without one simply names nothing.
+    void live().listAgentTaskChanges(workspaceId).then((found) => {
+      setCached(changesSeed, found);
+      if (active) setChanges(found);
+    }, () => {});
+    return () => { active = false; };
+  }, [live, changesSeed, taskIds, workspaceId]);
   return (
     <AgentTaskList
       automation={creation.automationControl}
       tasks={creation.tasks}
+      changes={changes}
       loading={creation.loading}
       error={creation.error}
       laneId={creation.laneId}
@@ -645,9 +661,18 @@ export function TaskComposer({
 }
 
 /** One task as a row of a day group: the selection slot, the name, its facts, and what can be done to it. */
-function TaskRow({ task, pullRequest, providers, now, checked, selecting, onOpen, onToggle, onArchive, onDelete }: {
+/** Commits first, since they are the result a pull request would carry; uncommitted files are work still in the checkout. */
+function changesLabel({ uncommitted, commits }: AgentTaskChangesDto): string {
+  const committed = commits === 0 ? null : `${commits} ${commits === 1 ? 'commit' : 'commits'}`;
+  if (committed === null) return uncommitted ? 'Uncommitted changes' : 'No changes';
+  return uncommitted ? `${committed} · uncommitted changes` : committed;
+}
+
+function TaskRow({ task, pullRequest, changes, providers, now, checked, selecting, onOpen, onToggle, onArchive, onDelete }: {
   task: AgentTaskDto;
   pullRequest: AgentTaskPullRequestDto | null;
+  /** What the checkout holds, named only while the task has no pull request to name instead. */
+  changes: AgentTaskChangesDto | null;
   providers: ModelProviderDto[];
   now: number;
   checked: boolean;
@@ -689,10 +714,15 @@ function TaskRow({ task, pullRequest, providers, now, checked, selecting, onOpen
       </button>
       <span className="agt-trow__name">
         <span className={`agt-trow__title${archived ? ' is-archived' : ''}`}>{task.title}</span>
-        {pullRequest !== null && (
+        {pullRequest !== null ? (
           <span className="agt-trow__pr" title={`#${pullRequest.number} ${pullRequest.title}`}>
             <PullRequestStateIcon pullRequest={pullRequest} size={13} />
             {`#${pullRequest.number} ${pullRequest.title}`}
+          </span>
+        ) : changes !== null && (
+          <span className="agt-trow__changes" title="Commits since the task started, and files its checkout has not committed">
+            {changes.uncommitted ? <FilePen size={13} aria-hidden="true" /> : changes.commits > 0 && <GitCommitHorizontal size={13} aria-hidden="true" />}
+            {changesLabel(changes)}
           </span>
         )}
       </span>
@@ -739,7 +769,7 @@ export function AgentTaskList({
   tasks, loading, error, laneId, providers, models, selection, draft, blocker, children, reviewTasks,
   onDraftChange, onSelectProvider, onSelectModel, onCreate, onOpenTask, onOpenSettings, onArchive, onDelete,
   images = [], busy = false, attaching = false, onAttach, onPasteImages, onRemoveImage, automation,
-  now = Date.now(), initialTab = 'active',
+  now = Date.now(), initialTab = 'active', changes = {},
 }: {
   tasks: AgentTaskDto[];
   loading: boolean;
@@ -774,6 +804,8 @@ export function AgentTaskList({
   /** The clock the day groups are drawn against. */
   now?: number;
   initialTab?: TaskTab;
+  /** What each task's checkout holds, by task id, for rows without a pull request to name. */
+  changes?: Record<string, AgentTaskChangesDto>;
 }): React.JSX.Element {
   const [tab, setTab] = useState<TaskTab>(initialTab);
   const [selected, setSelected] = useState<string[]>([]);
@@ -925,6 +957,7 @@ export function AgentTaskList({
                     key={task.id}
                     task={task}
                     pullRequest={task.pullRequest ?? null}
+                    changes={changes[task.id] ?? null}
                     providers={providers}
                     now={now}
                     checked={selected.includes(task.id)}

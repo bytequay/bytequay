@@ -741,7 +741,13 @@ the state pill, always visible icon actions and a chevron. The pull request is
 the one the side panel reads — open, else merged — shown as its state icon,
 number and title. The task list response carries it, picked on the backend from
 the generated branch's stored rows, so it paints with the row and the list never
-asks GitHub or Git for it. A task without one shows the title alone. Archive is a
+asks GitHub or Git for it. A task without one names what its checkout holds
+instead: **No changes**, **Uncommitted changes**, **N commits** since the
+task's start commit, or both. One batched read, `GET /agent/tasks/changes`,
+checks every listed live checkout after the rows paint; the page keeps the last
+answer per workspace, so a return visit paints it with the rows and replaces it
+when the read lands. A row whose checkout is removed or unreadable names nothing
+beyond its title. Archive is a
 backend-persisted `archivedAt`
 flag on the task, toggled through `PATCH /agent/tasks/{taskId}` with
 `{ archived, expectedVersion }`; it never changes task state, checkout, branch or

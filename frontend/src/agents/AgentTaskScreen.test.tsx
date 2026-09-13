@@ -1888,13 +1888,33 @@ describe('task list tabs, day groups and row actions', () => {
       't-today-2': pullRequest(482, 'Fix preview output limit', 'open', true),
     };
     const tasks = rows.map((row) => ({ ...row, pullRequest: pullRequests[row.id] ?? null }));
-    const markup = renderToStaticMarkup(<AgentTaskList {...listProps} tasks={tasks} loading={false} error={null} now={noon} />);
+    // A pull request outranks the checkout: its row names the pull request even with changes known.
+    const changes = { 't-yesterday': { uncommitted: true, commits: 2 } };
+    const markup = renderToStaticMarkup(<AgentTaskList {...listProps} tasks={tasks} loading={false} error={null} now={noon} changes={changes} />);
 
     expect(markup).toContain('class="agt-trow__title">trino issue reading</span><span class="agt-trow__pr" title="#31101 Refactor a minor issue">');
     expect(markup).toMatch(/title="#31101 Refactor a minor issue"><svg[^>]*class="[^"]*lucide-git-merge[^"]*agt-pr-icon is-merged"[^>]*>.*?<\/svg>#31101 Refactor a minor issue<\/span><\/span>/);
     expect(markup).toMatch(/title="#482 Fix preview output limit"><svg[^>]*class="[^"]*lucide-git-pull-request-draft[^"]*agt-pr-icon is-draft"/);
-    // A task without one shows its title alone.
+    expect(markup).not.toContain('agt-trow__changes');
+    // A task without one, and without a read of its checkout yet, shows its title alone.
     expect(markup).toContain('<span class="agt-trow__name"><span class="agt-trow__title">hello</span></span><span class="agt-mono agt-trow__meta">');
+  });
+
+  it('says whether a task without a pull request has changes, and whether they are committed', () => {
+    const changes = {
+      't-today': { uncommitted: false, commits: 0 },
+      't-today-2': { uncommitted: true, commits: 0 },
+      't-yesterday': { uncommitted: false, commits: 1 },
+      't-wed': { uncommitted: true, commits: 3 },
+    };
+    const markup = renderToStaticMarkup(<AgentTaskList {...listProps} tasks={rows} loading={false} error={null} now={noon} changes={changes} />);
+    const label = (title: string) => markup.match(new RegExp(`class="agt-trow__title">${title}</span><span class="agt-trow__changes"[^>]*>(.*?)</span>`))?.[1];
+
+    expect(label('hello')).toBe('No changes');
+    expect(label('Ask about the model')).toMatch(/^<svg[^>]*lucide-file-pen[^>]*>.*<\/svg>Uncommitted changes$/);
+    expect(label('trino issue reading')).toMatch(/^<svg[^>]*lucide-git-commit-horizontal[^>]*>.*<\/svg>1 commit$/);
+    expect(label('Image journey')).toMatch(/<\/svg>3 commits · uncommitted changes$/);
+    expect(declarations('.agt-trow__pr,\n.agt-trow__changes')).toContain('text-overflow: ellipsis');
   });
 
   it('offers Archive or Restore in the task header beside Complete', () => {

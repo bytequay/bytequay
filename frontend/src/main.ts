@@ -31,6 +31,7 @@ import {
   parseAgentSkillInput,
   parseAgentSkills,
   parseAgentTask,
+  parseAgentTaskChanges,
   parseAgentTasks,
   parseAgentTurn,
   parseAgentTurnSettings,
@@ -556,6 +557,9 @@ function registerIpc(): void {
       + `?${new URLSearchParams({ workspaceId })}`,
     jsonInit('PUT', { expectedVersion, defaults }, agentHeaders()))
       .then((task) => parseAgentTask(task)));
+  ipcMain.handle('agent:tasks:changes', (_event, workspaceId: string) =>
+    backendJson(`${backendBase()}/agent/tasks/changes?${new URLSearchParams({ workspaceId })}`, { headers: agentHeaders() })
+      .then(parseAgentTaskChanges));
   ipcMain.handle('agent:task:pull-requests', (_event, taskId: string, workspaceId: string, refresh?: boolean) =>
     backendJson(`${backendBase()}/agent/tasks/${encodeURIComponent(taskId)}/pull-requests`
       + `${refresh === true ? '/sync' : ''}?${new URLSearchParams({ workspaceId })}`,

@@ -187,6 +187,10 @@ export function createPreviewBridge(
       record('listAgentTaskPullRequests', taskId, id);
       return [];
     },
+    listAgentTaskChanges: async (id) => {
+      record('listAgentTaskChanges', id);
+      return {};
+    },
     listLocalReviewComments: async query => {
       record('listLocalReviewComments', query);
       return [];

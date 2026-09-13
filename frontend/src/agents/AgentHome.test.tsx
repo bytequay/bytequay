@@ -63,14 +63,17 @@ describe('agent home on a return visit', () => {
     expect(seeded).not.toContain('Finished work');
   });
 
-  it('paints task rows with the pull request their list read carried', () => {
+  it('paints task rows with their pull request and their checkout\'s last known changes', () => {
     setCached('agent-tasks:workspace-rows', [
       { ...previewTask('workspace-rows', 'row-1'), title: 'Refactor nits', pullRequest: { number: 31105, title: 'Clean up nits', state: 'open', draft: true } },
+      { ...previewTask('workspace-rows', 'row-2'), title: 'Another nit' },
     ]);
+    setCached('agent-task-changes:workspace-rows', { 'row-2': { uncommitted: false, commits: 2 } });
     const markup = renderToStaticMarkup(
       <AgentTasksView workspaceId="workspace-rows" bridge={createPreviewBridge('workspace-rows')} onOpenTask={() => {}} onOpenReview={() => {}} />);
 
     expect(markup).toContain('#31105 Clean up nits');
+    expect(markup).toContain('2 commits');
   });
 
   it('paints a window from its last state instead of an empty card', () => {

@@ -207,6 +207,16 @@ again before completion or cleanup. A missing or mismatched worktree is a normal
 operation failure for the owning task/workflow; it is not converted into a
 second worktree lifecycle.
 
+### Changes
+
+`changes(...)` reports, for a workspace's listed task checkouts, whether each
+holds uncommitted files (ignored files excluded) and how many commits it has
+made since its recorded start commit. It verifies the managed repository once
+and each checkout's ownership as `inspect(...)` does. Because it only reads, it
+takes no workspace lock, asks Git for no optional index lock, and reads a few
+checkouts in parallel. A checkout that fails verification or disappears
+mid-read is left out rather than reported as clean.
+
 ### Cleanup
 
 `cleanup(...)`:

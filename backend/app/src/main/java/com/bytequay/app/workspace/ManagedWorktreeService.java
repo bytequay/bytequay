@@ -18,6 +18,7 @@ import com.bytequay.agent.core.AgentStorageException;
 import com.bytequay.agent.core.InvalidAgentRequestException;
 import com.bytequay.agent.core.ProvisionWorktreeCommand;
 import com.bytequay.agent.core.RepositoryIdentity;
+import com.bytequay.agent.core.TaskId;
 import com.bytequay.agent.core.TaskWorktree;
 import com.bytequay.agent.core.WorktreeService;
 import com.bytequay.agent.core.WorktreeSnapshot;
@@ -26,6 +27,7 @@ import com.bytequay.app.git.GitCommandRunner.Result;
 import com.bytequay.core.domain.Workspace;
 import com.bytequay.core.store.WorkspaceStore;
 import com.google.common.collect.ImmutableList;
+import com.google.common.collect.ImmutableMap;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Component;
@@ -35,7 +37,11 @@ import java.nio.file.Files;
 import java.nio.file.LinkOption;
 import java.nio.file.Path;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
 import java.util.concurrent.locks.Lock;
 
 import static java.util.Objects.requireNonNull;
@@ -191,6 +197,51 @@ public final class ManagedWorktreeService
         }
         finally {
             lock.unlock();
+        }
+    }
+
+    /**
+     * What each listed checkout holds: uncommitted files, and commits since its start commit.
+     *
+     * <p>Only reads, so it skips the workspace lock, which would queue a workspace's checkouts behind
+     * one another and behind any sync holding it, and it asks Git for no optional index lock that a
+     * running agent's commit could collide with. A checkout that fails verification or disappears
+     * mid-read, as cleanup may remove one, is left out instead of guessed.
+     */
+    public Map<TaskId, WorktreeChanges> changes(String workspaceId, List<TaskWorktree> worktrees)
+    {
+        requireNonNull(workspaceId, "workspaceId is null");
+        List<TaskWorktree> checkouts = ImmutableList.copyOf(worktrees);
+        if (checkouts.isEmpty()) {
+            return ImmutableMap.of();
+        }
+        Workspace workspace = requireWorkspace(workspaceId);
+        Path repository = verifyManagedRepository(workspace);
+        Map<TaskId, WorktreeChanges> changes = new ConcurrentHashMap<>();
+        // ponytail: four readers measured fastest on large checkouts, where status dominates; more only contend for the disk.
+        try (ExecutorService readers = Executors.newFixedThreadPool(4)) {
+            for (TaskWorktree worktree : checkouts) {
+                readers.execute(() -> readChanges(workspace, repository, worktree).ifPresent(found -> changes.put(worktree.taskId(), found)));
+            }
+        }
+        return ImmutableMap.copyOf(changes);
+    }
+
+    private Optional<WorktreeChanges> readChanges(Workspace workspace, Path repository, TaskWorktree worktree)
+    {
+        try {
+            verifyPhysicalRepository(workspace, worktree.physicalRepository());
+            Path canonical = verifyOwnedWorktree(workspace, repository, worktree);
+            Result status = git.run(canonical, "--no-optional-locks", "status", "--porcelain=v1");
+            if (!status.successful()) {
+                throw new AgentStorageException("Cannot read task worktree status: " + diagnostic(status));
+            }
+            String commits = requireOutput(git.run(canonical, "rev-list", "--count", worktree.startCommit() + "..HEAD"), "count task worktree commits");
+            return Optional.of(new WorktreeChanges(status.truncated() || !status.output().isBlank(), Long.parseLong(commits)));
+        }
+        catch (RuntimeException failure) {
+            log.debug("Left out the changes of task worktree {}: {}", worktree.taskId(), failure.getMessage());
+            return Optional.empty();
         }
     }
 

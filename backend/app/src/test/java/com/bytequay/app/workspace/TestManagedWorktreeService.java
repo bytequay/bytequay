@@ -28,6 +28,7 @@ import com.bytequay.core.domain.RepoRef;
 import com.bytequay.core.domain.Workspace;
 import com.bytequay.core.store.RemoteSourceStore;
 import com.bytequay.core.store.WorkspaceStore;
+import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -261,6 +262,37 @@ class TestManagedWorktreeService
 
         assertThat(ignored).hasContent("keep me\n");
         assertThat(worktree.canonicalWorktree()).isDirectory();
+    }
+
+    @Test
+    void readsUncommittedFilesAndCommitsWithoutOptionalLocks()
+            throws IOException
+    {
+        Path exclude = reportedPath(repository, "info/exclude");
+        Files.writeString(exclude, Files.readString(exclude) + "*.ignored\n");
+        TaskWorktree clean = service.provision(command(TaskId.random()));
+        TaskWorktree ignoredOnly = service.provision(command(TaskId.random()));
+        Files.writeString(ignoredOnly.canonicalWorktree().resolve("build.ignored"), "output\n");
+        TaskWorktree untracked = service.provision(command(TaskId.random()));
+        Files.writeString(untracked.canonicalWorktree().resolve("new.txt"), "new\n");
+        TaskWorktree committed = service.provision(command(TaskId.random()));
+        Files.writeString(committed.canonicalWorktree().resolve("change.txt"), "change\n");
+        run(committed.canonicalWorktree(), "add", "change.txt");
+        run(committed.canonicalWorktree(), "commit", "-m", "Change");
+        Files.writeString(committed.canonicalWorktree().resolve("README.md"), "edited\n");
+        TaskWorktree removed = service.provision(command(TaskId.random()));
+        service.cleanup(removed);
+        git.clear();
+
+        assertThat(service.changes(WORKSPACE_ID, ImmutableList.of(clean, ignoredOnly, untracked, committed, removed))).isEqualTo(ImmutableMap.of(
+                clean.taskId(), new WorktreeChanges(false, 0),
+                ignoredOnly.taskId(), new WorktreeChanges(false, 0),
+                untracked.taskId(), new WorktreeChanges(true, 0),
+                committed.taskId(), new WorktreeChanges(true, 1)));
+        assertThat(git.arguments())
+                .contains(ImmutableList.of("--no-optional-locks", "status", "--porcelain=v1"))
+                .noneMatch(arguments -> arguments.contains("status") && !arguments.contains("--no-optional-locks"));
+        assertThat(service.changes(WORKSPACE_ID, ImmutableList.of())).isEmpty();
     }
 
     @Test

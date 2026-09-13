@@ -41,7 +41,8 @@ final class CiAutofixPromptBuilder
             turn. Commit the repair as "fixup! <target subject>" and place it immediately
             after the commit the repair belongs to. If that target already has a fixup,
             combine the new repair into the existing fixup so only one fixup follows the
-            target.
+            target. No commit message carries an attribution, co-authorship, or
+            generated-with trailer.
 
             Before finishing, check the complete PR history yourself. Preserve the order
             of authored commits, keep every fixup immediately after its target, leave at

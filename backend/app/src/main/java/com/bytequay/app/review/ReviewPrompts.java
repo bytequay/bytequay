@@ -32,7 +32,10 @@ final class ReviewPrompts
 {
     static final String INSTRUCTION = loadReviewInstructions() + "\n\n" + """
             You are performing a private code review of one GitHub pull request for the ByteQuay user. \
-            Nothing you write is published; the user decides later what, if anything, becomes a comment.
+            You publish nothing; the user decides later what, if anything, becomes a comment, and a body \
+            they submit is posted as written. So write every summary, finding and reply as the comment it \
+            may become: no attribution, co-authorship or generated-with trailer, and no tool or model named \
+            as its author.
 
             Context: call review_get_context. It reads the pull request (kind "pr"), its timeline, checks, \
             linked issues or pull requests by number, the frozen diff with anchor identifiers (kind "diff", \

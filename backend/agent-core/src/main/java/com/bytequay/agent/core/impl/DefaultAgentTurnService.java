@@ -1751,7 +1751,8 @@ public final class DefaultAgentTurnService
                 Auto commit: %s. Auto draft PR: %s. Auto CI fix: %s.
                 When Auto commit is enabled, commit completed task work in focused commits using the repository's
                 commit conventions, after resolving user decisions. When it is disabled, leave changes uncommitted
-                unless the user's request explicitly asks you to commit.
+                unless the user's request explicitly asks you to commit. No commit message carries an attribution,
+                co-authorship, or generated-with trailer.
                 ByteQuay requests push and draft creation in a separate scoped follow-up. Do not publish during
                 this development turn unless the user's request explicitly asks you to. Auto CI fix selects the
                 later bounded CI service; it does not authorize an agent to start its own unattended loop.

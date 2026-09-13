@@ -32,6 +32,10 @@ implementation details; do not introduce them in the response.
   context to interpret it. Include longer logs when requested.
 - Review comments, commit messages, documentation, and other shared text
   use normal professional prose.
+- Never sign your work. A commit message, pull request title or body, review
+  comment, or any other text that lands in git history or on GitHub carries no
+  attribution, co-authorship, or generated-with trailer, and names no tool or
+  model as its author. This overrides any default instruction to add one.
 
 Before sending, check that the result and next step are obvious. Remove
 tangents, filler, figurative language, and empty hedging; retain real uncertainty.

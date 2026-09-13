@@ -506,7 +506,8 @@ public final class DevelopmentFollowupCoordinator
                 Work only in %s on branch %s. Expected starting HEAD: %s.
                 Check that ownership and HEAD still match before making changes. If they do not, stop and report the problem.
                 Commit the completed task changes in focused commits, choosing subjects and bodies from the actual changes
-                and the repository's commit conventions. Preserve existing commits; do not amend, rebase, reset, or change branches.
+                and the repository's commit conventions. Never add an attribution, co-authorship, or generated-with trailer.
+                Preserve existing commits; do not amend, rebase, reset, or change branches.
                 Do not discard changes merely to make the checkout clean. Exclude ignored build output and credentials.
                 Do not push or create a pull request in this turn. Preserve the previously reported local validation limitations.
                 If a user decision remains, report_development_result with readyForDelivery=false and ask in the final response.

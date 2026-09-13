@@ -188,6 +188,7 @@ export type PullRequestDetailDto = {
     conclusion: string | null;
     detailsUrl: string | null;
     source: string | null;
+    startedAt: string | null;
     completedAt: string | null;
     category: 'failing' | 'pending' | 'successful' | 'neutral' | 'skipped' | 'cancelled';
   }>;

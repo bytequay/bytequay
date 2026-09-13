@@ -386,6 +386,7 @@ class TestGitHubActionsClient
                 .andRespond(withSuccess("""
                         {"total_count":1,"check_runs":[{
                           "id":99,"name":"build","status":"completed","conclusion":"failure",
+                          "started_at":"2026-08-25T12:30:00Z",
                           "completed_at":"2026-08-25T12:34:56Z",
                           "html_url":"https://github.com/owner/repo/actions/runs/7/job/9",
                           "output":{"title":"Tests failed","summary":"One failure"}
@@ -410,11 +411,14 @@ class TestGitHubActionsClient
         assertThat(check.githubId()).isEqualTo(99L);
         assertThat(check.name()).isEqualTo("build");
         assertThat(check.conclusion()).isEqualTo("failure");
+        assertThat(check.startedAt()).isEqualTo(Instant.parse("2026-08-25T12:30:00Z"));
         assertThat(check.completedAt()).isEqualTo(Instant.parse("2026-08-25T12:34:56Z"));
         assertThat(checks).hasSize(3);
         assertThat(checks.get(1).source()).isEqualTo("status");
+        assertThat(checks.get(1).startedAt()).isNull();
         assertThat(checks.get(1).completedAt()).isEqualTo(Instant.parse("2026-08-25T12:35:00Z"));
         assertThat(checks.get(2).status()).isEqualTo("in_progress");
+        assertThat(checks.get(2).startedAt()).isEqualTo(Instant.parse("2026-08-25T12:36:00Z"));
         assertThat(checks.get(2).completedAt()).isNull();
         fixture.verify();
     }

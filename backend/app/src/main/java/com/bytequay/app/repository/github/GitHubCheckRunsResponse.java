@@ -31,5 +31,6 @@ public record GitHubCheckRunsResponse(
             String status,
             String conclusion,
             @JsonProperty("details_url") String detailsUrl,
+            @JsonProperty("started_at") Instant startedAt,
             @JsonProperty("completed_at") Instant completedAt) {}
 }

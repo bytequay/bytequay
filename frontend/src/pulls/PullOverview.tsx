@@ -1445,7 +1445,11 @@ function ChecksCard({ pr, detail, onRefresh }: {
               <div className="pr-check" key={check.githubId ?? `${check.name}-${checkIndex}`}>
                 <CheckStatusIcon check={check} />
                 <strong>{check.name ?? 'Check'}</strong>
-                {check.completedAt && <time dateTime={check.completedAt}>Finished {relativeTime(check.completedAt)}</time>}
+                {check.completedAt
+                  ? <time dateTime={check.completedAt}>Finished {relativeTime(check.completedAt)}</time>
+                  // GitHub stamps started_at when a run is created, so only in_progress has really started.
+                  : check.startedAt && <time dateTime={check.startedAt}>
+                    {check.status === 'in_progress' ? 'Started' : 'Queued'} {relativeTime(check.startedAt)}</time>}
                 {check.source === 'status' && <small>status</small>}
               </div>
             ))}

@@ -47,6 +47,7 @@ class TestPullRequestDetailMapper
     @Test
     void mapsOnlyTheDetailFieldsTheRendererUses()
     {
+        Instant startedAt = Instant.parse("2026-01-01T00:00:30Z");
         Instant completedAt = Instant.parse("2026-01-01T00:01:00Z");
         StoredPrDetail stored = new StoredPrDetail(
                 raw(),
@@ -59,7 +60,7 @@ class TestPullRequestDetailMapper
                         "verified push",
                         Optional.of("ci-autofix:event"))),
                 ImmutableList.of(new PrCheckRunState(
-                        1L, "build", "completed", "success", null, "check_run", completedAt)));
+                        1L, "build", "completed", "success", null, "check_run", startedAt, completedAt)));
 
         PullRequestDetail detail = PullRequestDetailMapper.toPullRequestDetail(12L, "owner/repo", 5, stored, true);
 
@@ -76,6 +77,7 @@ class TestPullRequestDetailMapper
         });
         assertThat(detail.checkRuns()).singleElement().satisfies(check -> {
             assertThat(check.name()).isEqualTo("build");
+            assertThat(check.startedAt()).isEqualTo(startedAt);
             assertThat(check.completedAt()).isEqualTo(completedAt);
         });
         assertThat(detail.viewerCanWrite()).isTrue();

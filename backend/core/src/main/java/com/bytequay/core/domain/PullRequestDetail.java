@@ -105,6 +105,7 @@ public record PullRequestDetail(
             String detailsUrl,
             String source,
             String category,
+            Instant startedAt,
             Instant completedAt)
     {
     }

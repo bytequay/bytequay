@@ -589,15 +589,15 @@ describe('PullOverview', () => {
     }])).toHaveLength(2);
   });
 
-  it('distinguishes queued and running checks and shows completed check times', () => {
+  it('distinguishes queued and running checks and shows check times', () => {
     const now = vi.spyOn(Date, 'now').mockReturnValue(Date.parse('2026-08-20T10:00:00Z'));
     const value = detail();
     value.ciStatus = 'PENDING';
     value.checkRuns = [
-      { ...value.checkRuns[0], status: 'in_progress', conclusion: null, completedAt: null, category: 'pending' },
-      { ...value.checkRuns[0], githubId: 12, name: 'queued', status: 'queued', conclusion: null, completedAt: null, category: 'pending' },
+      { ...value.checkRuns[0], status: 'in_progress', conclusion: null, startedAt: '2026-08-20T09:55:00Z', completedAt: null, category: 'pending' },
+      { ...value.checkRuns[0], githubId: 12, name: 'queued', status: 'queued', conclusion: null, startedAt: '2026-08-20T09:57:00Z', completedAt: null, category: 'pending' },
       { ...value.checkRuns[0], githubId: 13, name: 'pending', status: null, conclusion: null, completedAt: null, category: 'pending' },
-      { ...value.checkRuns[1], completedAt: '2026-08-20T09:58:00Z' },
+      { ...value.checkRuns[1], startedAt: '2026-08-20T09:50:00Z', completedAt: '2026-08-20T09:58:00Z' },
     ];
 
     const html = renderToStaticMarkup(<PullOverview pr={pullRequest()} detail={value} onRefresh={async () => {}} />);
@@ -610,6 +610,9 @@ describe('PullOverview', () => {
     expect(html).toContain('aria-label="Pending"');
     expect(html).not.toContain('<header><span class="is-failure">');
     expect(html).toContain('<time dateTime="2026-08-20T09:58:00Z">Finished 2m ago</time>');
+    expect(html).toContain('<time dateTime="2026-08-20T09:55:00Z">Started 5m ago</time>');
+    expect(html).toContain('<time dateTime="2026-08-20T09:57:00Z">Queued 3m ago</time>');
+    expect(html).not.toContain('10m ago');
   });
 
   it('uses distinct Lucide icons for completed check states', () => {
@@ -1486,8 +1489,8 @@ function detail(): PullRequestDetailDto {
       },
     ],
     checkRuns: [
-      { githubId: 10, name: 'build', status: 'completed', conclusion: 'failure', detailsUrl: null, source: 'check_run', completedAt: null, category: 'failing' },
-      { githubId: 11, name: 'license', status: 'completed', conclusion: 'success', detailsUrl: null, source: 'status', completedAt: null, category: 'successful' },
+      { githubId: 10, name: 'build', status: 'completed', conclusion: 'failure', detailsUrl: null, source: 'check_run', startedAt: null, completedAt: null, category: 'failing' },
+      { githubId: 11, name: 'license', status: 'completed', conclusion: 'success', detailsUrl: null, source: 'status', startedAt: null, completedAt: null, category: 'successful' },
     ],
     unavailableSections: [],
     viewerCanWrite: false,

@@ -204,6 +204,7 @@ public class GitHubActionsClient
                         check.conclusion(),
                         check.detailsUrl(),
                         "check_run",
+                        check.startedAt(),
                         check.completedAt()));
             }
             collected += response.checkRuns().size();
@@ -243,6 +244,9 @@ public class GitHubActionsClient
                             },
                             status.targetUrl(),
                             "status",
+                            // ponytail: statuses are immutable, so a pending one was posted when its context started;
+                            // a CI that re-posts pending progress moves this forward
+                            "pending".equals(status.state()) ? status.updatedAt() : null,
                             "pending".equals(status.state()) ? null : status.updatedAt()))
                     .collect(toImmutableList());
             return new ConditionalChecks(Optional.of(statuses), responseEtag);

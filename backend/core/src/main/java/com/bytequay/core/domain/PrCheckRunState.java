@@ -25,6 +25,7 @@ public record PrCheckRunState(
         String conclusion,
         String detailsUrl,
         String source,
+        Instant startedAt,
         Instant completedAt)
 {
     public PrCheckRunState
@@ -34,11 +35,11 @@ public record PrCheckRunState(
 
     public PrCheckRunState(Long githubId, String name, String status, String conclusion)
     {
-        this(githubId, name, status, conclusion, null, "check_run", null);
+        this(githubId, name, status, conclusion, null, "check_run", null, null);
     }
 
     public PrCheckRunState(Long githubId, String name, String status, String conclusion, String detailsUrl, String source)
     {
-        this(githubId, name, status, conclusion, detailsUrl, source, null);
+        this(githubId, name, status, conclusion, detailsUrl, source, null, null);
     }
 }

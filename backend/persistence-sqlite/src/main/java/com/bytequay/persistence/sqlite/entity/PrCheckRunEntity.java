@@ -58,6 +58,9 @@ public class PrCheckRunEntity
 
     private String source;
 
+    @Column(name = "started_at")
+    private Instant startedAt;
+
     @Column(name = "completed_at")
     private Instant completedAt;
 
@@ -72,6 +75,7 @@ public class PrCheckRunEntity
                 getConclusion(),
                 getDetailsUrl(),
                 getSource(),
+                getStartedAt(),
                 getCompletedAt());
     }
 
@@ -84,6 +88,7 @@ public class PrCheckRunEntity
         setConclusion(check.conclusion());
         setDetailsUrl(check.detailsUrl());
         setSource(check.source());
+        setStartedAt(check.startedAt());
         setCompletedAt(check.completedAt());
         return this;
     }

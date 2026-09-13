@@ -303,7 +303,7 @@ class TestSqlitePrDetailStore
                 ImmutableList.of(new PrCheckRunState(1L, "build", "completed", "success")));
         store.save(prId, original);
         PrCheckRunState completedCheck = new PrCheckRunState(
-                2L, "test", "completed", "failure", null, "check_run", NOW.plusSeconds(30));
+                2L, "test", "completed", "failure", null, "check_run", NOW.plusSeconds(10), NOW.plusSeconds(30));
         StoredPrDetail status = new StoredPrDetail(
                 original.raw().withMergeability(false, "dirty"),
                 ImmutableList.of(),

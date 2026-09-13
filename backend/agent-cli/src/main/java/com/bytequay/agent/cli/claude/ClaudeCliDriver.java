@@ -99,7 +99,8 @@ public final class ClaudeCliDriver
     private static final int MAX_STDERR_BYTES = 1024 * 1024;
     private static final int MAX_PROTOCOL_LINE_BYTES = 4 * 1024 * 1024;
     private static final int MAX_DIAGNOSTIC_LINE_BYTES = 16 * 1024;
-    private static final int MAX_PROBE_OUTPUT_BYTES = 32 * 1024;
+    // Auto-mode defaults include the native policy, which exceeds 32 KiB on supported releases.
+    private static final int MAX_PROBE_OUTPUT_BYTES = 256 * 1024;
     private static final Set<String> REQUIRED_FLAGS = ImmutableSet.of(
             "--add-dir",
             "--allowedTools",
@@ -292,11 +293,23 @@ public final class ClaudeCliDriver
             forwardSubagentText = version.compareTo(SUBAGENT_TEXT_VERSION) >= 0
                     && help.stdout().contains("--forward-subagent-text");
             CommandResult defaults = run(executable, "auto-mode", "defaults");
-            if (defaults.exitCode() != 0 || defaults.truncated()) {
+            if (defaults.timedOut()) {
                 return status(
-                        AgentProviderStatus.Readiness.UNSUPPORTED,
+                        AgentProviderStatus.Readiness.TEMPORARILY_UNAVAILABLE,
                         Optional.of(version.toString()),
-                        "Claude CLI does not expose auto-mode hard-deny defaults");
+                        "Claude auto-mode defaults timed out");
+            }
+            if (defaults.truncated()) {
+                return status(
+                        AgentProviderStatus.Readiness.TEMPORARILY_UNAVAILABLE,
+                        Optional.of(version.toString()),
+                        "Claude auto-mode defaults output was truncated");
+            }
+            if (defaults.exitCode() != 0) {
+                return status(
+                        AgentProviderStatus.Readiness.TEMPORARILY_UNAVAILABLE,
+                        Optional.of(version.toString()),
+                        "claude auto-mode defaults failed: " + defaults.combinedOutput());
             }
             if (!supportsAutoModeHardDeny(defaults.stdout())) {
                 return status(

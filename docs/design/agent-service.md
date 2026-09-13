@@ -3736,9 +3736,10 @@ The driver probe runs `claude --version` and checks each optional observability
 flag. It also requires `--permission-mode` to list the `auto` token every task
 runs under; a CLI that exposes the flag without that mode is unsupported.
 It then requires `claude auto-mode defaults` to return one complete JSON object
-with a string-array `hard_deny` field. Missing, malformed, truncated, or failed
-output makes the lane unsupported instead of silently omitting native rule
-support.
+with a string-array `hard_deny` field. Probe output is bounded at 256 KiB so the
+native policy fits. Missing or malformed rule support makes the lane unsupported;
+timeouts, truncated output, and failed commands report temporary unavailability
+with the actual failure instead of claiming that the capability is absent.
 `--forward-subagent-text` requires a sufficiently recent Claude Code version;
 when unavailable, the driver omits it and reports subagent transcript streaming
 as unsupported rather than failing the entire lane. Required streaming or

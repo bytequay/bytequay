@@ -90,6 +90,7 @@ class TestClaudeCliDriver
     void terminalClaudeReviewResolvesARealSupervisorObservationGapAndResumes()
             throws Exception
     {
+        Files.writeString(worktree.resolve("defaults.json"), "{\"allow\":[\"" + "policy ".repeat(12 * 1024) + "\"],\"hard_deny\":[]}");
         Path executable = Files.writeString(worktree.resolve("claude-fixture"), """
                 #!/bin/bash
                 case "$1" in
@@ -101,7 +102,7 @@ class TestClaudeCliDriver
                     printf '%s\\n' '--allowedTools --permission-prompt-tool --print --verbose --resume --session-id'
                     exit 0 ;;
                   auth) printf '{"loggedIn":true}\\n'; exit 0 ;;
-                  auto-mode) printf '{"hard_deny":[]}\\n'; exit 0 ;;
+                  auto-mode) cat "$(dirname "$0")/defaults.json"; exit 0 ;;
                 esac
                 while [ "$#" -gt 0 ]; do
                   case "$1" in --session-id|--resume) session_id="$2"; shift ;; esac
@@ -550,6 +551,60 @@ class TestClaudeCliDriver
             supervisor.autoModeDefaults = defaults;
             try (ClaudeCliDriver driver = driver(supervisor)) {
                 assertThat(driver.probe().readiness()).isEqualTo(AgentProviderStatus.Readiness.UNSUPPORTED);
+                assertThat(supervisor.authenticationProbes()).isZero();
+            }
+        }
+    }
+
+    @Test
+    void acceptsLargeAutoModeDefaultsBeforeAuthentication()
+    {
+        ScriptedProcessSupervisor supervisor = new ScriptedProcessSupervisor();
+        supervisor.autoModeDefaults = "{\"hard_deny\":[\"" + "policy ".repeat(16 * 1024) + "\"]}";
+        try (ClaudeCliDriver driver = driver(supervisor)) {
+            assertThat(driver.probe().readiness()).isEqualTo(AgentProviderStatus.Readiness.READY);
+            assertThat(supervisor.authenticationProbes()).isOne();
+        }
+    }
+
+    @Test
+    void refusesTruncatedAutoModeDefaultsBeforeAuthentication()
+    {
+        for (boolean stderr : ImmutableList.of(false, true)) {
+            ScriptedProcessSupervisor supervisor = new ScriptedProcessSupervisor();
+            String oversized = "{\"hard_deny\":[\"" + "policy ".repeat(64 * 1024) + "\"]}";
+            if (stderr) {
+                supervisor.autoModeStderr = oversized;
+            }
+            else {
+                supervisor.autoModeDefaults = oversized;
+            }
+            try (ClaudeCliDriver driver = driver(supervisor)) {
+                AgentProviderStatus status = driver.probe();
+                assertThat(status.readiness()).isEqualTo(AgentProviderStatus.Readiness.TEMPORARILY_UNAVAILABLE);
+                assertThat(status.diagnostic()).contains("auto-mode defaults output was truncated");
+                assertThat(supervisor.authenticationProbes()).isZero();
+            }
+        }
+    }
+
+    @Test
+    void reportsAutoModeProbeTimeoutAndRedactsCommandFailures()
+    {
+        for (boolean timeout : ImmutableList.of(false, true)) {
+            ScriptedProcessSupervisor supervisor = new ScriptedProcessSupervisor();
+            supervisor.autoModeTimeout = timeout;
+            supervisor.autoModeExitCode = 1;
+            supervisor.autoModeStderr = "Unable to load defaults: known-secret";
+            try (ClaudeCliDriver driver = driver(supervisor)) {
+                AgentProviderStatus status = driver.probe();
+                assertThat(status.readiness()).isEqualTo(AgentProviderStatus.Readiness.TEMPORARILY_UNAVAILABLE);
+                if (timeout) {
+                    assertThat(status.diagnostic()).contains("auto-mode defaults timed out");
+                }
+                else {
+                    assertThat(status.diagnostic()).contains("auto-mode defaults failed", "Unable to load defaults: [REDACTED]").doesNotContain("known-secret");
+                }
                 assertThat(supervisor.authenticationProbes()).isZero();
             }
         }
@@ -1369,6 +1424,9 @@ class TestClaudeCliDriver
                 """;
         private String authenticationStdout = "{\"loggedIn\":true}";
         private String autoModeDefaults = "{\"hard_deny\":[]}";
+        private String autoModeStderr = "";
+        private int autoModeExitCode;
+        private boolean autoModeTimeout;
         private String authenticationStderr = "";
         private int authenticationExitCode;
         private int authenticationProbes;
@@ -1440,8 +1498,16 @@ class TestClaudeCliDriver
                 return ImmediateProcess.success();
             }
             if (spec.argv().contains("auto-mode") && spec.argv().contains("defaults")) {
-                output.onOutput(ProcessStream.STDOUT, StandardCharsets.UTF_8.encode(autoModeDefaults));
-                return ImmediateProcess.success();
+                ByteBuffer stdout = StandardCharsets.UTF_8.encode(autoModeDefaults);
+                ByteBuffer stderr = StandardCharsets.UTF_8.encode(autoModeStderr);
+                int stdoutLimit = spec.stdoutCaptureLimit().orElseThrow();
+                boolean stdoutTruncated = stdout.remaining() > stdoutLimit;
+                boolean stderrTruncated = stderr.remaining() > spec.maximumStderrBytes();
+                stdout.limit(Math.min(stdout.remaining(), stdoutLimit));
+                stderr.limit(Math.min(stderr.remaining(), spec.maximumStderrBytes()));
+                output.onOutput(ProcessStream.STDOUT, stdout);
+                output.onOutput(ProcessStream.STDERR, stderr);
+                return new ImmediateProcess(autoModeExitCode, autoModeTimeout ? ProcessExit.Reason.TIMED_OUT : ProcessExit.Reason.EXITED, stdoutTruncated, stderrTruncated);
             }
             if (spec.argv().contains("auth") && spec.argv().contains("status")) {
                 authenticationProbes++;

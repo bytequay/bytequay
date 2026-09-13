@@ -618,6 +618,29 @@ describe('agent task side panel', () => {
     expect(declarations('.agt-task-column')).toContain('min-width: 0');
   });
 
+  it('opens the task pull request from one chip above the composer', () => {
+    const draft = [pullRequest(31105, 'Clean up nits in Delta Lake', 'open', true)];
+    const chip = (extra: object = {}) => renderToStaticMarkup(
+      <AgentTaskBody state={state} pullRequests={draft} {...extra} {...props} />);
+    // GitHub's own pill on the composer: the state mark, PR, and the number, and nothing dated.
+    const closed = chip();
+    expect(closed).toMatch(/<button type="button" class="agt-pr-chip" aria-pressed="false" title="#31105 Clean up nits in Delta Lake">/);
+    expect(closed).toContain('agt-pr-icon is-draft');
+    expect(closed).toContain('class="agt-pr-chip__number">#31105<');
+    expect(closed.indexOf('agt-pr-chip')).toBeLessThan(closed.indexOf('agt-compose__input'));
+    expect(closed).not.toContain('Last checked');
+    // It reads as pressed only where clicking it folds the panel away again.
+    expect(chip({ panelOpen: true })).toContain('class="agt-pr-chip" aria-pressed="true"');
+    expect(chip({ panelOpen: true, panelTab: 'changes' })).toContain('class="agt-pr-chip" aria-pressed="false"');
+    expect(chip({ panelOpen: true, renderCiPanel: (): null => null })).toContain('class="agt-pr-chip" aria-pressed="false"');
+    // A branch without a pull request has nothing to open.
+    expect(renderToStaticMarkup(<AgentTaskBody state={state} {...props} />)).not.toContain('agt-pr-chip');
+    // The pill keeps its own width and ring; the dock's flex column would otherwise stretch it.
+    expect(declarations('.agt-pr-chip')).toContain('align-self: flex-start');
+    expect(declarations('.agt-pr-chip')).toContain('border-radius: 999px');
+    expect(declarations('.agt-pr-chip:focus-visible')).toContain('outline: 2px solid #0969da');
+  });
+
   it('keeps the subagent list unchanged under its own tab', () => {
     const markup = renderToStaticMarkup(
       <AgentTaskBody state={state} panelOpen panelTab="agents" pullRequests={[]} {...props} />);
@@ -1201,7 +1224,6 @@ describe('agent task detail', () => {
 
     const released = body(preserved);
     expect(released).toContain('Continue with the smaller change</textarea>');
-    expect(released).toContain(reason);
     expect(released).toMatch(/<button(?![^>]*disabled)[^>]*aria-label="Send message"/);
     expect(released).not.toContain('Could not verify shutdown');
     expect(released).not.toContain('Stop automation');

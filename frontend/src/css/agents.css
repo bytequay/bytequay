@@ -317,17 +317,34 @@
   white-space: nowrap;
 }
 
-.agt-development-facts {
-  color: #57606a;
-  font-size: 12px;
-  line-height: 1.6;
-  margin: 8px 0;
+/* The task's pull request as one pill on the composer, opening the panel that reads it. */
+.agt-pr-chip {
+  display: inline-flex;
+  align-self: flex-start;
+  align-items: center;
+  gap: 8px;
+  margin: 0 0 8px;
+  padding: 5px 12px;
+  border: 1px solid #d0d7de;
+  border-radius: 999px;
+  background: #ffffff;
+  color: #1f2328;
+  font: inherit;
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
 }
 
-.agt-development-facts__observed { color: #6e7781; font-size: 11px; }
-.agt-development-facts__values { display: flex; flex-wrap: wrap; column-gap: 10px; }
-.agt-development-facts__values a { color: #0969da; }
-.agt-development-facts__error { color: #9a6700; overflow-wrap: anywhere; }
+.agt-pr-chip:hover { background: #f6f8fa; }
+.agt-pr-chip[aria-pressed="true"] { background: #f6f8fa; }
+.agt-pr-chip__number { color: #59636e; font-weight: 400; }
+
+.agt-pr-chip:focus-visible {
+  outline: 2px solid #0969da;
+  outline-offset: 1px;
+}
+
+.agt-development-ci__error { color: #9a6700; overflow-wrap: anywhere; }
 
 .agt-development-ci, .agt-ci-panel__summary { display: flex; flex-direction: column; gap: 4px; color: #57606a; font-size: 12px; }
 .agt-development-ci { margin: 8px 0; }

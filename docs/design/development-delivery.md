@@ -492,44 +492,34 @@ or destructive cleanup happens just because the continuation failed.
 Show actual observations and the current operation, not a workflow diagram's
 stored state. The runtime-only label becomes **Idle**, not an ambiguous Ready.
 Examples of derived activity are Committing, Creating draft PR, Waiting for CI,
-and Fixing CI 1/3. A separate compact result shows local changes, commit count
-and HEAD, pushed revision, PR link/draft flag, and current CI outcome.
+and Fixing CI 1/3. The current CI run keeps its own status row.
 
 A blocking question takes precedence:
 
 ```text
 Waiting for your answer: Which implementation should I use?
-1 local commit · 2 uncommitted files · Not pushed · No PR
 ```
 
 The user replies in the normal composer. A successful answered turn leads
 back to the checker; ByteQuay never asks the agent to commit simply because
-those two files exist while the decision remains open. Existing published
+uncommitted files exist while the decision remains open. Existing published
 results are displayed truthfully and never undone by the gate.
 
-For failures show **Automation stopped**, with the failing operation and actual
-local/remote result. Once cleanup succeeds, the normal composer accepts a new
-message in the retained task. Browser/renderer reload
-can reread existing facts while the backend continues; backend restart fails
-the live continuation. No Resume delivery or automatic recovery control is
-part of this MVP. Task closure is explicit; both settled success and failure
-retain the open development conversation and worktree.
+Once cleanup succeeds, the normal composer accepts a new message in the
+retained task. A browser/renderer reload leaves the backend continuation
+running; backend restart fails the live continuation. No Resume delivery or
+automatic recovery control is part of this MVP. Task closure is explicit; both
+settled success and failure retain the open development conversation and
+worktree.
 
-`GET /agent/tasks/{taskId}/development-facts?workspaceId=...` provides dated,
-read-only local and remote observations after interactive workspace scoping.
-The compact result row appears below any blocking question and above the queue
-and composer. The renderer reads on initial settled load, turn settlement, or
-continuation-marker change, and does not launch work. During active execution
-it retains clearly dated earlier observations. A failed remote lookup produces
-an unknown result, never inferred "Not pushed" or "No PR"; confirmed absence
-is represented separately. Known PR references remain in the existing panel.
-Local validation limitations remain in the agent transcript. An open non-draft
-PR is labeled **Ready for review**. The existing task-level lifecycle event
-carries bounded messages for full-check waiting, source synchronization, and
-promotion. Only changed waiting reasons are emitted; the renderer retains the
-latest message outside loaded history, hides it on settlement, and cannot
-resurrect it for a newer continuation. The task PR list refreshes when the
-continuation settles.
+Known PR references live in the side panel. One pull-request chip above the
+composer opens that panel on the PR tab, and a task whose branch already has a
+pull request opens with that panel open. Local validation limitations remain in
+the agent transcript. The existing task-level lifecycle event carries bounded
+messages for full-check waiting, source synchronization, and promotion. Only
+changed waiting reasons are emitted; the renderer retains the latest message
+outside loaded history, hides it on settlement, and cannot resurrect it for a
+newer continuation. The task PR list refreshes when the continuation settles.
 
 ## 8. Implemented scope and checks
 

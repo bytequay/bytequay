@@ -14,7 +14,7 @@
 
 import { flushSync } from 'react-dom';
 import { createRoot } from 'react-dom/client';
-import type { AgentDevelopmentFactsDto, AgentStreamMessage, AgentTaskDto, AgentTurnDto } from '../../types';
+import type { AgentStreamMessage, AgentTaskDto, AgentTurnDto, PullRequestDetailDto, PullRequestDetailRefreshDto, PullRequestDto, RepoLabelDto, RepoUserDto } from '../../types';
 import AgentTaskScreen from '../AgentTaskScreen';
 import { DEFAULT_DEVELOPMENT_AUTOMATION } from '../developmentAutomation';
 import type { AgentEventEnvelope } from '../events';
@@ -28,8 +28,31 @@ function changeInput(input: HTMLTextAreaElement, value: string) {
   input.dispatchEvent(new Event('input', { bubbles: true }));
 }
 
+/** The published pull request's detail, which the opened panel reads through the window bridge. */
+function publishedDetail(draft: boolean): PullRequestDetailDto {
+  return {
+    id: CI_PROJECTION.pullRequestNumber, repo: 'acme/demo', number: CI_PROJECTION.pullRequestNumber, title: 'Preserve the public API',
+    htmlUrl: CI_PROJECTION.pullRequestUrl, state: 'open', draft, mergeable: null, mergeableState: null, author: 'alice',
+    authorAvatarUrl: null, createdAt: '2026-01-01T12:10:00Z', updatedAt: '2026-01-01T12:10:00Z', mergedAt: null, baseRef: 'master',
+    headRef: CI_PROJECTION.headRef, body: 'Keeps the public API.', labels: [], assignees: [], milestone: null, reviewers: [],
+    additions: 3, deletions: 1, changedFiles: 1, approvalCount: 0, ciStatus: 'NONE', recentActivity: [], checkRuns: [],
+    unavailableSections: [], viewerCanWrite: false,
+  };
+}
+
+/** The published pull request as the task's own list reports it, which is all the chip reads. */
+function publishedPullRequest(draft: boolean): PullRequestDto {
+  return {
+    id: CI_PROJECTION.pullRequestNumber, repo: 'acme/demo', number: CI_PROJECTION.pullRequestNumber, title: 'Preserve the public API',
+    author: 'alice', htmlUrl: CI_PROJECTION.pullRequestUrl, createdAt: '2026-01-01T12:10:00Z', updatedAt: '2026-01-01T12:10:00Z',
+    origin: 'AUTHORED', labels: [], labelColors: null, draft, viewedAt: null, reviewedAt: null, handledAction: null,
+    requestedReviewers: [], ciStatus: null, additions: 3, deletions: 1, commentCount: 0, attentionReason: null, state: 'open',
+    mergeable: null, mergeableState: null, headPushedAt: '2026-01-01T12:10:00Z', headRef: CI_PROJECTION.headRef,
+  };
+}
+
 /** Server projections exercise display/admission; they never launch providers or write to GitHub. */
-async function deliveryResult(outcome: 'ready' | 'draft' | 'sync failure'): Promise<{ name: string; error?: string }> {
+async function deliveryResult(outcome: 'ready' | 'draft' | 'sync failure', publish: (detail: PullRequestDetailDto) => void): Promise<{ name: string; error?: string }> {
   const name = `Delivery ${outcome}: question, generated turns, CI repair, final observations and reconnect`;
   const bridge = createPreviewBridge('workspace-1');
   const event = bridge.events[0];
@@ -49,13 +72,8 @@ async function deliveryResult(outcome: 'ready' | 'draft' | 'sync failure'): Prom
   let sequence = event.sequence;
   let notify: (message: AgentStreamMessage) => void = () => {};
   let submitted = 0;
-  let factsReads = 0;
   let prReads = 0;
-  let facts: AgentDevelopmentFactsDto = {
-    observedAt: '2026-01-01T12:00:00Z',
-    local: { branch: 'codex/change', headSha: 'aaaaaaaa00', stagedFiles: 0, unstagedFiles: 1, untrackedFiles: 0, uncommittedFileCount: 1, commitCount: 0 },
-    localError: null, remote: { headSha: null, pullRequest: null }, remoteError: null,
-  };
+  let pullRequests: PullRequestDto[] = [];
   const emit = (phase: 'TURN_STARTED' | 'TURN_COMPLETED' | 'DEVELOPMENT_AUTOMATION_UPDATED', message = 'Development changed') => {
     const change: AgentEventEnvelope = { ...event, eventId: `delivery-${++sequence}`, sequence, taskId: task.id,
       turnId: phase === 'DEVELOPMENT_AUTOMATION_UPDATED' ? null : turn.id, type: 'lifecycle', payload: { phase, message } };
@@ -91,8 +109,7 @@ async function deliveryResult(outcome: 'ready' | 'draft' | 'sync failure'): Prom
     listener({ subscriptionId: 'delivery', taskId: id, kind: 'state', state: 'open' });
     return () => {};
   };
-  bridge.getAgentDevelopmentFacts = async () => { factsReads++; return facts; };
-  bridge.listAgentTaskPullRequests = async () => { prReads++; return []; };
+  bridge.listAgentTaskPullRequests = async () => { prReads++; return pullRequests; };
   bridge.startAgentTurn = async request => {
     submitted++;
     assert(request.message === 'Preserve the public API', 'Only an explicit user answer may start development');
@@ -110,7 +127,8 @@ async function deliveryResult(outcome: 'ready' | 'draft' | 'sync failure'): Prom
   render();
   try {
     await settle();
-    assert(host.textContent?.includes(question) === true && host.textContent?.includes('1 uncommitted file') === true, 'Question must coexist with dirty work');
+    assert(host.textContent?.includes(question) === true, 'A durable question must be visible before any delivery');
+    assert(host.querySelector('.agt-pr-chip') === null, 'A branch without a pull request must offer no chip');
     assert(submitted === 0, 'Opening a questioning task must not launch delivery');
     let input = host.querySelector<HTMLTextAreaElement>('textarea[aria-label="Message the agent"]');
     assert(input !== null, 'Normal answer composer must exist');
@@ -123,31 +141,25 @@ async function deliveryResult(outcome: 'ready' | 'draft' | 'sync failure'): Prom
     await settle();
     await finishTurn();
     await generated('AUTO_COMMIT');
-    assert(facts.local !== null, 'Commit fixture requires local observations');
-    facts = { ...facts, local: { ...facts.local, headSha: 'bbbbbbbb11', unstagedFiles: 0, uncommittedFileCount: 0, commitCount: 1 } };
     await finishTurn();
     await generated('CREATE_DRAFT_PR');
-    const pr = { number: 17, url: CI_PROJECTION.pullRequestUrl, state: 'OPEN', draft: true, headSha: 'bbbbbbbb11' };
-    facts = { ...facts, remote: { headSha: 'bbbbbbbb11', pullRequest: pr } };
+    pullRequests = [publishedPullRequest(true)];
+    publish(publishedDetail(true));
     await finishTurn();
     task = { ...task, version: task.version + 1, developmentCi: { ...CI_PROJECTION, status: 'ACTIVE', activity: 'FIXING', canMessage: false } };
     emit('DEVELOPMENT_AUTOMATION_UPDATED');
     await settle();
     assert(host.textContent?.includes('Fixing CI 1/3') === true, 'CI repair must be visible on the source');
-    assert(host.textContent?.includes('Automation running; showing previous observations') === true, 'CI must not make old Git facts appear settled');
-    let duringCiReads = factsReads;
     task = { ...task, version: task.version + 1, developmentCi: { ...CI_PROJECTION, status: 'FINISHED', finishReason: 'GREEN', canMessage: false } };
     emit('DEVELOPMENT_AUTOMATION_UPDATED');
     await settle();
     assert(host.textContent?.includes('CI passed') === true && !host.textContent?.includes('Ready for review'), 'Green alone must not imply promotion');
     assert(host.querySelector<HTMLButtonElement>('button[aria-label="Send message"]')?.disabled !== false
       && host.querySelector('button[aria-label="Stop automation"]') !== null, 'Green must retain ownership until source synchronization and final checks finish');
-    assert(factsReads === duringCiReads, 'CI activity updates must not poll GitHub facts');
     const checkWait = 'Waiting for PR checks: required external build has not reported a result';
     emit('DEVELOPMENT_AUTOMATION_UPDATED', checkWait);
     await settle();
-    assert(host.querySelector('.agt-barrier')?.textContent?.includes(checkWait) === true, 'Post-green missing checks must be visible without another GitHub fact read');
-    assert(factsReads === duringCiReads, 'Check-wait messages must use existing events without polling GitHub');
+    assert(host.querySelector('.agt-barrier')?.textContent?.includes(checkWait) === true, 'Post-green missing checks must stay visible');
     flushSync(() => root.unmount());
     root = createRoot(host);
     render();
@@ -157,7 +169,6 @@ async function deliveryResult(outcome: 'ready' | 'draft' | 'sync failure'): Prom
     assert(input !== null, 'Reloaded source must keep the composer available for drafting');
     changeInput(input, 'Keep my next development request');
     await settle();
-    duringCiReads = factsReads;
 
     notify({ subscriptionId: 'delivery', taskId: task.id, kind: 'state', state: 'reconnecting' });
     await settle();
@@ -167,31 +178,25 @@ async function deliveryResult(outcome: 'ready' | 'draft' | 'sync failure'): Prom
     await settle();
     assert(host.querySelector('.agt-barrier')?.textContent?.includes('Synchronizing source worktree') === true, 'Fresh progress must replace the older check wait');
     const beforeReleasePrReads = prReads;
-    assert(facts.local !== null, 'Synchronization fixture requires local observations');
-    facts = { ...facts, observedAt: '2026-01-01T12:30:00Z', local: { ...facts.local, headSha: outcome === 'sync failure' ? 'bbbbbbbb11' : 'cccccccc22', commitCount: outcome === 'sync failure' ? 1 : 2 },
-      remote: { headSha: 'cccccccc22', pullRequest: { ...pr, headSha: 'cccccccc22', draft: outcome !== 'ready' } } };
+    pullRequests = [publishedPullRequest(outcome !== 'ready')];
+    publish(publishedDetail(outcome !== 'ready'));
     task = { ...task, version: task.version + 1, developmentContinuationUnfinished: false, state: 'OPEN', terminalReason: null, terminalAt: null };
     emit('DEVELOPMENT_AUTOMATION_UPDATED', outcome === 'sync failure'
       ? 'Automation stopped. Source synchronization failed; published CI repairs remain on the draft. Your task and files are retained; send a message to continue.'
       : 'Development automation settled');
     await settle();
-    assert(factsReads === duringCiReads, 'Disconnected settlement must wait for readable facts');
     notify({ subscriptionId: 'delivery', taskId: task.id, kind: 'state', state: 'open' });
     await settle();
-    const result = host.querySelector('[aria-label="Observed development results"]');
-    assert(result?.textContent?.includes('cccccccc') === true, 'Reconnect must read the repaired published head');
+    const chip = host.querySelector('.agt-pr-chip');
+    assert(chip?.textContent?.includes('#17') === true, 'Settled delivery must name its pull request on the composer');
     assert(prReads > beforeReleasePrReads, 'Final release/reconnect must refresh the task PR list');
-    assert(!result?.textContent?.includes('Automation running'), 'Settled final observations must no longer be labeled active');
     assert(!host.querySelector('.agt-barrier')?.textContent?.includes('Synchronizing source worktree'), 'Marker release must hide stale coordinator progress');
-    assert(outcome === 'ready' ? result?.textContent?.includes('Ready for review · PR #17') === true : result?.textContent?.includes('Draft PR #17') === true,
-      'Observed draft status must determine the final PR label');
+    assert(chip?.querySelector(outcome === 'ready' ? '.agt-pr-icon.is-open' : '.agt-pr-icon.is-draft') !== null,
+      'The observed draft state must determine the chip mark');
+    assert(host.querySelector('.agt-panel') !== null, 'A task that published a pull request must open on it');
     if (outcome === 'sync failure') {
-      assert(result?.textContent?.includes('Local HEAD differs from remote') === true, 'Failed synchronization must expose the retained local and remote heads');
-      assert(host.textContent?.includes('Automation stopped. Source synchronization failed') === true, 'The stopped continuation must name its failure');
       assert(!host.textContent?.includes('Resume delivery'), 'Failed delivery must not offer a recovery continuation');
       assert(!host.textContent?.includes('Delete task'), 'A stopped continuation must not require deleting the task');
-    } else {
-      assert(!result?.textContent?.includes('Local HEAD differs from remote'), 'Successful source synchronization must show matching heads');
     }
     assert(input.value === 'Keep my next development request', 'Settling the continuation must preserve the source draft');
     assert(host.querySelector<HTMLButtonElement>('button[aria-label="Send message"]')?.disabled === false, 'Settled delivery must keep the source task open');
@@ -201,9 +206,6 @@ async function deliveryResult(outcome: 'ready' | 'draft' | 'sync failure'): Prom
     render();
     await settle();
     assert(Number(submitted) === 1, 'Reopening final results must never send development or publication again');
-    if (outcome === 'sync failure') {
-      assert(host.textContent?.includes('Automation stopped. Source synchronization failed') === true, 'The stopped reason must survive reopening');
-    }
     assert(host.textContent?.includes('ByteQuay · Auto commit') === true && host.textContent?.includes(`Open draft pull request ${task.generatedBranch}`) === true
       && !host.textContent?.includes('Push the revision and create its draft'), 'Replay must retain the commit label and show publication as its action');
     if (outcome === 'ready') {
@@ -213,13 +215,34 @@ async function deliveryResult(outcome: 'ready' | 'draft' | 'sync failure'): Prom
       await settle();
       assert(host.querySelector('.agt-status')?.textContent?.startsWith('Waiting for your answer') === true, 'A later question must take precedence over prior green/ready results');
       const html = host.innerHTML;
-      assert(html.indexOf('agt-development-question') < html.indexOf('Observed development results'), 'The question must appear before the published result');
+      assert(html.indexOf('agt-development-question') < html.indexOf('agt-pr-chip'), 'The question must appear before the published result');
     }
     return { name };
   } catch (error) { return { name, error: error instanceof Error ? error.message : String(error) }; }
   finally { flushSync(() => root.unmount()); host.remove(); }
 }
 
+/**
+ * A published pull request now opens the task's panel, and that panel reads GitHub through the
+ * window bridge rather than the task bridge, so these scenarios supply the reads it makes on open.
+ */
 export async function runDevelopmentDeliveryScenarios(): Promise<{ name: string; error?: string }[]> {
-  return [await deliveryResult('ready'), await deliveryResult('draft'), await deliveryResult('sync failure')];
+  const original = Object.getOwnPropertyDescriptor(window, 'bridge');
+  let detail = publishedDetail(true);
+  Object.defineProperty(window, 'bridge', { configurable: true, value: {
+    fetchPullRequestDetailByRef: async (): Promise<PullRequestDetailDto> => detail,
+    refreshPullRequestDetailByRef: async (): Promise<PullRequestDetailRefreshDto> => ({ full: true, detail, status: null }),
+    getUserProfile: async (): Promise<null> => null,
+    fetchRepoUsers: async (): Promise<RepoUserDto[]> => [],
+    fetchRepoLabels: async (): Promise<RepoLabelDto[]> => [],
+  } });
+  try {
+    return [await deliveryResult('ready', value => { detail = value; }),
+      await deliveryResult('draft', value => { detail = value; }),
+      await deliveryResult('sync failure', value => { detail = value; })];
+  }
+  finally {
+    if (original === undefined) delete (window as { bridge?: unknown }).bridge;
+    else Object.defineProperty(window, 'bridge', original);
+  }
 }

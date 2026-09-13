@@ -153,7 +153,7 @@ async function sourcePolling(): Promise<{ name: string; error?: string }> {
   try {
     await settle();
     const before = reads;
-    const facts = bridge.commands.filter(command => command.name === 'getAgentDevelopmentFacts').length;
+    const lookups = bridge.commands.filter(command => command.name === 'listAgentTaskPullRequests').length;
     pauseRead = true;
     timers.tick();
     await settle();
@@ -162,9 +162,9 @@ async function sourcePolling(): Promise<{ name: string; error?: string }> {
     (resolveRead as (value: AgentTaskDto) => void)({ ...task, developmentCi: { ...CI_PROJECTION, status: 'ACTIVE', activity: 'FIXING', attemptsUsed: 2 } });
     await settle();
     assert(host.textContent?.includes('Fixing CI 2/3') === true, 'Cheap task projection must update CI activity');
-    assert(bridge.commands.filter(command => command.name === 'getAgentDevelopmentFacts').length === facts, 'CI polling must not re-read Git or GitHub facts');
+    assert(bridge.commands.filter(command => command.name === 'listAgentTaskPullRequests').length === lookups, 'CI polling must not re-read GitHub pull requests');
     assert(timers.size() === 1, 'The next poll starts only after the previous read settles');
-    return { name: 'Source CI polling is sequential and does not poll GitHub facts' };
+    return { name: 'Source CI polling is sequential and does not poll GitHub' };
   } catch (error) { return { name: 'Source CI polling', error: error instanceof Error ? error.message : String(error) }; }
   finally { flushSync(() => root.unmount()); host.remove(); timers.restore(); }
 }

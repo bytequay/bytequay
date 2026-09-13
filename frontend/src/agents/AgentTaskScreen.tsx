@@ -41,7 +41,6 @@ import type {
 AgentApprovalDecision,
 AgentCapabilitiesDto,
 AgentChildSummaryDto,
-AgentDevelopmentFactsDto,
 AgentPendingApprovalDto,
 AgentProviderStatus,
 AgentProviderUnavailableDto,
@@ -61,7 +60,6 @@ import { AgentConversation,BlockView,clock,codeGraphText,ConversationComposer,Co
 import type { CommitRange } from '../pulls/PullChanges';
 import { AutomationControl } from './AutomationControl';
 import { automationForSubmission, developmentQuestion, stoppingEndsDevelopment } from './developmentAutomation';
-import { DevelopmentFacts } from './DevelopmentFacts';
 import { CiAutofixPanel, ciActivity, DevelopmentCiStatus } from './CiAutofixPanel';
 import { AgentMark } from './AgentMark';
 import { taskArchived } from './AgentTasksView';
@@ -110,6 +108,7 @@ import {
 NO_PULL_REQUEST_CHANGES,
 NO_PULL_REQUEST_DETAIL,
 NoPullRequestView,
+PullRequestStateIcon,
 samePullRequest,
 TaskChangesView,
 TaskPullRequestView,
@@ -835,9 +834,6 @@ export function AgentTaskBody({
   pullRequests = [],
   pullRequestError = null,
   pullRequestLoading = false,
-  developmentFacts = null,
-  developmentFactsLoading = false,
-  developmentFactsError = null,
   ciPollingError = null,
   onOpenDevelopmentCi,
   renderCiPanel,
@@ -936,9 +932,6 @@ export function AgentTaskBody({
   pullRequests?: PullRequestDto[];
   pullRequestError?: string | null;
   pullRequestLoading?: boolean;
-  developmentFacts?: AgentDevelopmentFactsDto | null;
-  developmentFactsLoading?: boolean;
-  developmentFactsError?: string | null;
   ciPollingError?: string | null;
   onOpenDevelopmentCi?: () => void;
   renderCiPanel?: (width: number) => React.ReactNode;
@@ -999,6 +992,12 @@ export function AgentTaskBody({
   const visiblePanelTab: PanelTab = supportsNestedAgents || panelTab !== 'agents' ? panelTab : 'pr';
   const taskPr = taskPullRequest(pullRequests);
   const resultBranch = state.task?.summary?.resultBranch ?? null;
+  /** The chip and a transcript link both open the panel on the pull request, never another tab. */
+  const showPullRequest = (): void => {
+    onSelectPanelTab('pr');
+    if (!panelOpen) onTogglePanel();
+  };
+  const pullRequestShowing = panelOpen && renderCiPanel === undefined && visiblePanelTab === 'pr';
   /**
    * A link to this task's own pull request reads in the panel instead of leaving for GitHub.
    * The task route does not change, and every other link keeps its ordinary behaviour. It runs in the
@@ -1009,8 +1008,7 @@ export function AgentTaskBody({
     const link = (event.target as Element | null)?.closest?.('a');
     if (link === null || link === undefined || !samePullRequest(link.getAttribute('href'), taskPr)) return;
     event.preventDefault();
-    onSelectPanelTab('pr');
-    if (!panelOpen) onTogglePanel();
+    showPullRequest();
   };
   const status = runtimeStatus(state);
   const automationActive = state.task?.developmentContinuationUnfinished === true;
@@ -1143,18 +1141,11 @@ export function AgentTaskBody({
 
       {!terminal && question !== null && <div className="agt-development-question" role="status"><strong>Waiting for your answer</strong>{question}</div>}
 
-      {state.task?.interactive === true && state.task.checkoutRemovedAt === null && <DevelopmentFacts
-        facts={developmentFacts} loading={developmentFactsLoading} error={developmentFactsError} running={status === 'running'} automationActive={automationActive && !terminal} />}
-
       {state.task?.developmentCi != null && <DevelopmentCiStatus ci={state.task.developmentCi} active={automationActive && !terminal && currentCi != null}
         error={ciPollingError} onOpen={onOpenDevelopmentCi} />}
 
       {!terminal && automationActive && currentCi == null && status !== 'recovery' && <div className="agt-barrier" role="status">
         {state.developmentProgress?.message || 'Automation is running.'} Your next message stays in the composer until it finishes.
-      </div>}
-
-      {status === 'idle' && !automationActive && state.developmentProgress?.message.startsWith('Automation stopped.') && <div className="agt-note" role="status">
-        {state.developmentProgress.message}
       </div>}
 
       {!terminal && plan !== null && <PlanCard steps={plan.steps} open={planOpen} onToggle={onTogglePlan} />}
@@ -1193,6 +1184,19 @@ export function AgentTaskBody({
           onRetry={onRetryAuthentication}
           onOpenSettings={onOpenSettings}
         />
+      )}
+
+      {taskPr !== null && (
+        <button
+          type="button"
+          className="agt-pr-chip"
+          aria-pressed={pullRequestShowing}
+          title={`#${taskPr.number} ${taskPr.title}`}
+          onClick={() => { if (pullRequestShowing) onTogglePanel(); else showPullRequest(); }}
+        >
+          <PullRequestStateIcon pullRequest={taskPr} size={16} />
+          PR <span className="agt-pr-chip__number">#{taskPr.number}</span>
+        </button>
       )}
 
       {/* The design's composer: the message above one row of controls, and one round button. */}
@@ -1370,7 +1374,7 @@ export default function AgentTaskScreen({
   const [activityChoice, setActivityChoice] = useState<Record<string, boolean>>({});
   const [turnChoice, setTurnChoice] = useState<Record<string, boolean>>({});
   const [planOpen, setPlanOpen] = useState(true);
-  const [panelOpen, setPanelOpen] = useState(false);
+  const [panelChoice, setPanelChoice] = useState<boolean | null>(null);
   const [ciPanelOpen, setCiPanelOpen] = useState(false);
   const [ciPollingError, setCiPollingError] = useState<string | null>(null);
   const [openAgent, setOpenAgent] = useState<string | null>(null);
@@ -1380,9 +1384,6 @@ export default function AgentTaskScreen({
   const [pullRequestError, setPullRequestError] = useState<string | null>(null);
   const [pullRequestLoading, setPullRequestLoading] = useState(false);
   const [pullRequestRefresh, setPullRequestRefresh] = useState(0);
-  const [developmentFacts, setDevelopmentFacts] = useState<AgentDevelopmentFactsDto | null>(null);
-  const [developmentFactsLoading, setDevelopmentFactsLoading] = useState(false);
-  const [developmentFactsError, setDevelopmentFactsError] = useState<string | null>(null);
   const [now, setNow] = useState(() => Date.now());
   const [historyLoading, setHistoryLoading] = useState(false);
   const historyLoadingRef = useRef(false);
@@ -1593,10 +1594,12 @@ export default function AgentTaskScreen({
   const pullRequestTurnId = state.turn?.id ?? null;
   const pullRequestTurnEndedAt = state.turn?.endedAt ?? null;
   const pullRequestTurnKnown = latestTurnId === null || latestTurnId === pullRequestTurnId;
+  const taskPr = taskPullRequest(pullRequests);
+  // A task whose branch already has a pull request opens on it; from the first deliberate
+  // open or close the panel is the user's, until they leave the task.
+  const panelOpen = panelChoice ?? taskPr !== null;
   const pullRequestPanelVisible = panelOpen && panelTab !== 'agents';
   const canRefreshPullRequests = taskLoaded && state.connection === 'open' && pullRequestTurnKnown && !running;
-  const factsAvailable = state.task?.interactive === true && state.task.checkoutRemovedAt === null;
-  const canReadFacts = factsAvailable && canRefreshPullRequests;
   const continuationUnfinished = state.task?.developmentContinuationUnfinished ?? false;
   const developmentCi = state.task?.developmentCi ?? null;
   const pollContinuation = continuationUnfinished && state.task?.state === 'OPEN';
@@ -1619,26 +1622,6 @@ export default function AgentTaskScreen({
     timer = setTimeout(() => { void read(); }, 5000);
     return () => { active = false; clearTimeout(timer); };
   }, [live, taskId, workspaceId, pollContinuation]);
-  useEffect(() => {
-    if (!canReadFacts) {
-      setDevelopmentFactsLoading(false);
-      return;
-    }
-    let active = true;
-    setDevelopmentFactsLoading(true);
-    void live().getAgentDevelopmentFacts(taskId, workspaceId)
-      .then((facts) => {
-        if (!active) return;
-        setDevelopmentFacts(facts);
-        setDevelopmentFactsError(null);
-      })
-      .catch((failure: unknown) => {
-        if (active) setDevelopmentFactsError(`Could not refresh results. ${failureText(failure)}`);
-      })
-      .finally(() => { if (active) setDevelopmentFactsLoading(false); });
-    return () => { active = false; };
-  }, [live, taskId, workspaceId, canReadFacts, pullRequestTurnId, pullRequestTurnEndedAt, continuationUnfinished]);
-
   useEffect(() => {
     if (!canRefreshPullRequests) {
       setPullRequestLoading(false);
@@ -1668,7 +1651,6 @@ export default function AgentTaskScreen({
 
   // The panel reads the pull request itself, so the detail and its diff are read here rather
   // than by the body, which stays a pure function of the state a test can hand it.
-  const taskPr = taskPullRequest(pullRequests);
   // Every panel tab keeps the shared PR toolbar's permissions and status current.
   const pullRequestDetail = useTaskPullRequestDetail(taskPr, panelOpen && !ciPanelOpen);
   const pullRequestChanges = useTaskPullRequestChanges(taskPr, panelOpen && panelTab === 'changes');
@@ -2191,15 +2173,12 @@ export default function AgentTaskScreen({
       pullRequests={pullRequests}
       pullRequestError={pullRequestError}
       pullRequestLoading={pullRequestLoading}
-      developmentFacts={developmentFacts}
-      developmentFactsLoading={developmentFactsLoading}
-      developmentFactsError={developmentFactsError}
       ciPollingError={ciPollingError}
-      onOpenDevelopmentCi={() => { setCiPanelOpen(true); setPanelOpen(true); }}
+      onOpenDevelopmentCi={() => { setCiPanelOpen(true); setPanelChoice(true); }}
       renderCiPanel={ciPanelOpen && developmentCi !== null ? width => <CiAutofixPanel
         key={developmentCi.runId} ci={developmentCi} parentTaskId={taskId} workspaceId={workspaceId}
         active={continuationUnfinished && developmentCi.status !== 'FINISHED' && state.task?.state === 'OPEN' && !confirming}
-        bridge={live()} width={width} onClose={() => { setCiPanelOpen(false); setPanelOpen(false); }} onStop={() => { void stopServer(); }} /> : undefined}
+        bridge={live()} width={width} onClose={() => { setCiPanelOpen(false); setPanelChoice(false); }} onStop={() => { void stopServer(); }} /> : undefined}
       onRefreshPullRequests={canRefreshPullRequests ? () => setPullRequestRefresh((revision) => revision + 1) : undefined}
       pullRequestDetail={pullRequestDetail}
       pullRequestChanges={pullRequestChanges}
@@ -2212,8 +2191,8 @@ export default function AgentTaskScreen({
         ? current
         : { key: pullRequestKey, commitRange: current.key === pullRequestKey ? current.commitRange : null, pendingComments })}
       repository={workspace === undefined ? null : `${workspace.monitoredOwner}/${workspace.monitoredRepo}`}
-      onTogglePanel={() => { setCiPanelOpen(false); setPanelOpen((open) => !open); }}
-      onOpenAgent={(threadId) => { setCiPanelOpen(false); setPanelOpen(true); setPanelTab('agents'); setOpenAgent(threadId); }}
+      onTogglePanel={() => { setCiPanelOpen(false); setPanelChoice(!panelOpen); }}
+      onOpenAgent={(threadId) => { setCiPanelOpen(false); setPanelChoice(true); setPanelTab('agents'); setOpenAgent(threadId); }}
       onCloseAgent={() => setOpenAgent(null)}
       onSelectPanelTab={(tab) => { setCiPanelOpen(false); setPanelTab(tab); setOpenAgent(null); }}
       logChoice={logChoice}

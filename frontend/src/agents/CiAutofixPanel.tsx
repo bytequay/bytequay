@@ -47,7 +47,7 @@ export function DevelopmentCiStatus({ ci, active, error, onOpen }: {
       {onOpen !== undefined && <button type="button" className="agt-action" onClick={onOpen}>Open CI Autofix</button>}
     </div>
     {active && <span>CI Autofix is running · Stop to start over</span>}
-    {error && <span className="agt-development-facts__error">{errorText(error)}</span>}
+    {error && <span className="agt-development-ci__error">{errorText(error)}</span>}
   </div>;
 }
 
@@ -87,7 +87,7 @@ export function CiAutofixPanel({ ci, parentTaskId, workspaceId, active, bridge, 
       <a href={ci.pullRequestUrl}>PR #{ci.pullRequestNumber}</a>
       {run?.summary && <span>{errorText(run.summary)}</span>}
       {active && <button type="button" className="agt-action" onClick={onStop}>Stop automation</button>}
-      {error !== null && <span className="agt-development-facts__error">Could not refresh CI. {error}</span>}
+      {error !== null && <span className="agt-development-ci__error">Could not refresh CI. {error}</span>}
     </div>
     {run?.agentTaskId != null
       ? <CiConversation key={run.agentTaskId} taskId={run.agentTaskId} run={run} bridge={bridge}
@@ -193,7 +193,7 @@ function CiConversation({ taskId, run, canMessage, ownerActive, bridge, onRun }:
     onToggleTurn={(id, open) => setTurnChoice(values => ({ ...values, [id]: open }))}
     onToggleActivity={(id, open) => setActivityChoice(values => ({ ...values, [id]: open }))}
     onDecide={(id, decision) => { void decide(id, decision); }}>
-    {state.notice !== null && <div className="agt-development-facts__error" role="alert">{state.notice}</div>}
+    {state.notice !== null && <div className="agt-development-ci__error" role="alert">{state.notice}</div>}
     <form className="agt-ci-reply" onSubmit={event => { event.preventDefault(); void send(); }}>
       <label htmlFor={`ci-reply-${run.id}`}>Reply to the CI agent</label>
       <textarea id={`ci-reply-${run.id}`} className="agt-compose__input" value={state.composer} rows={3} disabled={state.sending}

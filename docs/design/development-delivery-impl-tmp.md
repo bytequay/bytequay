@@ -221,8 +221,8 @@ the manual draft-PR prompt and turn rendering in `AgentTaskScreen`.
   automatic retry. Keep known branch/PR references, or show Remote result unknown.
   Never roll back remote results or quietly attach a replacement task to them.
 - [x] Show ByteQuay · Auto commit and ByteQuay · Create draft PR in normal
-  turn history. Replace runtime Ready with Idle and add observed file/commit,
-  HEAD, push, and PR facts. Keep missing local checks honest, such as missing Bun.
+  turn history. Replace runtime Ready with Idle. Keep missing local checks
+  honest, such as missing Bun.
 
 Acceptance checks:
 
@@ -262,10 +262,8 @@ Evidence:
   remote ref, exact workspace scope, and repeated GET without delivery writes.
   The HTTP fixture retains real local Git inspection and stubs remote reads.
 - `npm run lint`, `npx tsc --noEmit`, and `npm test` passed: 762 frontend tests
-  in 65 files. The Chromium bridge regression covers generated-turn labels,
-  question precedence, settled facts refresh, and unavailable remote evidence.
-  A merged PR with no current remote branch retains its link and never claims
-  that it was never pushed.
+  in 65 files. The Chromium bridge regression covers generated-turn labels and
+  question precedence.
 - The full build exposed a reproducible pre-existing process-test teardown
   race: the final receipt could arrive during temporary-directory deletion.
   One test-only await now waits for `process.exit()` before cleanup, as its
@@ -394,10 +392,9 @@ integration, coordinator, managed Git operations, and task result rendering.
   checked clean-worktree transition. Verify the result; never hard-reset dirt.
 - [x] Fail source synchronization visibly without private checkpoint refs,
   replay machinery, or automatic repair. Preserve the published CI result.
-- [x] Finish with actual local/remote/CI facts and retain the open task/worktree
-  for later development. Questions take display precedence; failures show the
-  stopped action while retaining the task and its files for a new message,
-  with no Resume delivery control.
+- [x] Finish with the actual CI result and retain the open task/worktree for
+  later development. Questions take display precedence; a failure retains the
+  task and its files for a new message, with no Resume delivery control.
 
 Acceptance checks:
 
@@ -413,8 +410,8 @@ Acceptance checks:
 - [x] Exercise question → answer without new edits → pending delivery,
   questions in generated turns, all toggles off and mixed settings,
   unavailable/exhausted CI, stop, backend restart, and Delete/start-over.
-- [x] Verify settings, question precedence, generated-turn labels, result
-  facts, CI busy controls, and renderer reconnect through the actual UI bridge.
+- [x] Verify settings, question precedence, generated-turn labels, CI busy
+  controls, and renderer reconnect through the actual UI bridge.
 - [x] Run `mvn verify` in `backend/`.
 - [x] Run `npm run lint`, `npx tsc --noEmit`, `npm test`, and
   `npm run package` in `frontend/`.
@@ -832,7 +829,7 @@ GitHub/provider interactions use fixtures; no live PR was changed by verificatio
 - [x] Finish stopped owned CI runs after child shutdown so they release the
   source branch reservation while retaining child files and remote results.
 - [x] Show a static shutdown warning for unresolved cleanup and restore the
-  same composer after Stop succeeds; preserve the stopped-operation reason.
+  same composer after Stop succeeds.
 - [x] Verify typed approval expiry and interruption for Codex first, then Claude.
 - [x] Verify that confirmed-dead startup children do not invent a process
   tracking gap; genuine live/unreadable identities retain the shutdown guard.

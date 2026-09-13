@@ -22,11 +22,12 @@ another message. Questions disable Resume queue while allowing a normal
 answer after continuation ownership settles. Marker changes refresh the task
 through the existing lifecycle event stream.
 
-The task now uses an Idle runtime label, generated follow-up labels, dated
-Git/remote/PR observations, and CI run controls. The compact result shows Ready
-for review only for an observed open non-draft PR. CI GREEN keeps the source busy
-until full checks and synchronization finish; the final marker refreshes both
-facts and the PR list. Waiting/synchronization/promotion messages use existing
+The task now uses an Idle runtime label, generated follow-up labels, and CI run
+controls. One pull-request chip above the composer names the pull request found
+on the task's branch and opens the side panel on it; a task whose branch already
+has one opens with that panel open. CI GREEN keeps the source busy until full
+checks and synchronization finish; the final marker refreshes the PR list.
+Waiting/synchronization/promotion messages use existing
 task-level lifecycle events, with one bounded latest message retained outside
 the loaded transcript. Status-only subscriptions forward those messages while
 coalescing ordinary transcript activity. New user turns cannot revive older

@@ -14,7 +14,7 @@
 import { useCallback } from 'react';
 import { flushSync } from 'react-dom';
 import { createRoot } from 'react-dom/client';
-import type { AgentDevelopmentFactsDto, AgentStreamMessage, AgentTaskDto, AgentTurnDto, CreateAgentTaskRequest, StartAgentTurnRequest } from '../../types';
+import type { AgentStreamMessage, AgentTaskDto, AgentTurnDto, CreateAgentTaskRequest, StartAgentTurnRequest } from '../../types';
 import type { AgentEventEnvelope } from '../events';
 import { TaskComposer, useAgentTaskCreation } from '../AgentTasksView';
 import { createPreviewBridge } from './previewBridge';
@@ -121,7 +121,7 @@ async function retryLocalTurn(): Promise<{ name: string; error?: string }[]> {
 }
 
 export async function run(): Promise<{ name: string; error?: string }[]> {
-  return [...await createLocalTask(), ...await retryLocalTurn(), ...await continuationAdmission(), ...await stopPreservesTask(), ...await observedResultsRefresh(), ...await runCiAutofixScenarios(), ...await runDevelopmentDeliveryScenarios()];
+  return [...await createLocalTask(), ...await retryLocalTurn(), ...await continuationAdmission(), ...await stopPreservesTask(), ...await pullRequestLookupPolicy(), ...await runCiAutofixScenarios(), ...await runDevelopmentDeliveryScenarios()];
 }
 
 async function stopPreservesTask(): Promise<{ name: string; error?: string }[]> {
@@ -262,7 +262,7 @@ async function continuationAdmission(): Promise<{ name: string; error?: string }
   finally { flushSync(() => root.unmount()); host.remove(); }
 }
 
-async function observedResultsRefresh(): Promise<{ name: string; error?: string }[]> {
+async function pullRequestLookupPolicy(): Promise<{ name: string; error?: string }[]> {
   const bridge = createPreviewBridge('workspace-1');
   const event = bridge.events[0];
   assert(event.turnId !== null, 'Fixture must identify a turn');
@@ -278,18 +278,7 @@ async function observedResultsRefresh(): Promise<{ name: string; error?: string 
     listener({ subscriptionId: 'observations', taskId, kind: 'state', state: 'open' });
     return () => {};
   };
-  let reads = 0;
-  let rejectRead = false;
-  const facts: AgentDevelopmentFactsDto = {
-    observedAt: '2026-01-01T12:00:00Z',
-    local: { branch: 'codex/change', headSha: '1234567890', stagedFiles: 0, unstagedFiles: 0, untrackedFiles: 0, uncommittedFileCount: 0, commitCount: 1 },
-    localError: null, remote: { headSha: null, pullRequest: null }, remoteError: null,
-  };
-  bridge.getAgentDevelopmentFacts = async () => {
-    reads++;
-    if (rejectRead) throw new Error('GitHub temporarily unavailable');
-    return facts;
-  };
+  const lookups = (): number => bridge.commands.filter(command => command.name === 'listAgentTaskPullRequests').length;
   let sequence = event.sequence;
   const emit = (phase: 'TURN_STARTED' | 'TURN_COMPLETED' | 'DEVELOPMENT_AUTOMATION_UPDATED') => {
     const current = ++sequence;
@@ -303,8 +292,8 @@ async function observedResultsRefresh(): Promise<{ name: string; error?: string 
   flushSync(() => root.render(<AgentTaskScreen workspaceId="workspace-1" taskId={task.id} bridge={bridge} onBack={() => {}} />));
   try {
     await settle();
-    assert(reads === 1, `Initial settled task must read results once, saw ${reads}`);
-    assert(host.textContent?.includes('1 local commit') === true, 'Observed commits must appear beside the conversation');
+    const settled = lookups();
+    assert(settled > 0, 'A settled task must look up its branch pull requests once');
     const input = host.querySelector<HTMLTextAreaElement>('textarea');
     assert(input !== null, 'Composer must exist');
     Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value')?.set?.call(input, 'Keep this draft');
@@ -312,37 +301,31 @@ async function observedResultsRefresh(): Promise<{ name: string; error?: string 
     task = { ...task, version: task.version + 1 };
     emit('DEVELOPMENT_AUTOMATION_UPDATED');
     await settle();
-    assert(reads === 1, 'Typing and unrelated task version changes must not fetch GitHub');
+    assert(lookups() === settled, 'Typing and unrelated task version changes must not reach GitHub');
 
     turn = { ...turn, id: 'next-development-turn', version: turn.version + 1, state: 'RUNNING', endedAt: null };
     task = { ...task, version: task.version + 1, mutationClaim: { kind: 'TURN', ownerId: turn.id, acquiredAt: '' } };
     emit('TURN_STARTED');
     await settle();
-    assert(reads === 1, 'An active provider must not trigger a fresh fact read');
-    assert(host.textContent?.includes('Agent running; showing previous observations') === true, 'Running work must identify retained observations');
+    assert(lookups() === settled, 'An active provider must not trigger a fresh lookup');
     task = { ...task, version: task.version + 1, developmentContinuationUnfinished: true };
     emit('DEVELOPMENT_AUTOMATION_UPDATED');
     await settle();
-    assert(reads === 1, 'Marker changes while a provider runs must not fetch facts');
+    assert(lookups() === settled, 'Marker changes while a provider runs must not reach GitHub');
 
     turn = { ...turn, version: turn.version + 1, state: 'COMPLETED', endedAt: '2026-01-01T12:01:00Z' };
     task = { ...task, version: task.version + 1, mutationClaim: null };
     emit('TURN_COMPLETED');
     await settle();
-    assert(Number(reads) === 2, 'Settled latest turn must refresh exactly once');
-    rejectRead = true;
-    const beforePrReads = bridge.commands.filter(command => command.name === 'listAgentTaskPullRequests').length;
+    const afterTurn = lookups();
+    assert(afterTurn > settled, 'A settled latest turn must refresh the task pull requests');
     task = { ...task, version: task.version + 1, developmentContinuationUnfinished: false };
     emit('DEVELOPMENT_AUTOMATION_UPDATED');
     await settle();
-    assert(Number(reads) === 3, 'Settled automation marker must trigger one final observation');
-    assert(bridge.commands.filter(command => command.name === 'listAgentTaskPullRequests').length > beforePrReads,
-      'Final automation settlement without another turn must refresh the task PR list');
-    assert(host.textContent?.includes('Could not refresh results. GitHub temporarily unavailable') === true, 'Failed refresh must be visible');
-    assert(host.textContent?.includes('Last checked') === true && host.textContent?.includes('1 local commit') === true, 'Failed refresh must retain its dated local observation');
-    assert(input.value === 'Keep this draft', 'Fact updates must preserve the composer draft');
-    return [{ name: 'Development facts refresh only on settled changes and retain dated observations during execution or failure' }];
+    assert(lookups() > afterTurn, 'Final automation settlement without another turn must refresh the task PR list');
+    assert(input.value === 'Keep this draft', 'Lookups must preserve the composer draft');
+    return [{ name: 'Task pull requests are looked up only on settled turns and settled automation markers' }];
   }
-  catch (error) { return [{ name: 'Development fact refresh', error: error instanceof Error ? error.message : String(error) }]; }
+  catch (error) { return [{ name: 'Task pull request lookup', error: error instanceof Error ? error.message : String(error) }]; }
   finally { flushSync(() => root.unmount()); host.remove(); }
 }

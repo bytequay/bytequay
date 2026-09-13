@@ -314,6 +314,7 @@ export function parseAgentDevelopmentCi(value: unknown, path = 'developmentCi'):
     rerunsUsed: count(source.rerunsUsed, `${path}.rerunsUsed`),
     summary: optionalText(source.summary, `${path}.summary`),
     finishReason: optionalText(source.finishReason, `${path}.finishReason`),
+    terminalAt: optionalText(source.terminalAt, `${path}.terminalAt`),
     headRef: text(source.headRef, `${path}.headRef`),
     expectedRemoteHead: text(source.expectedRemoteHead, `${path}.expectedRemoteHead`),
     pullRequestNumber: count(source.pullRequestNumber, `${path}.pullRequestNumber`),

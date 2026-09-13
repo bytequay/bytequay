@@ -1003,6 +1003,12 @@ export function AgentTaskBody({
   const status = runtimeStatus(state);
   const automationActive = state.task?.developmentContinuationUnfinished === true;
   const currentCi = state.task?.developmentCi?.status === 'FINISHED' ? null : state.task?.developmentCi;
+  const automationFailure = !automationActive && state.developmentProgress?.message.startsWith('Automation stopped.') ? state.developmentProgress.message : null;
+  const ciEndedAt = Date.parse(state.task?.developmentCi?.terminalAt ?? '');
+  const sourceStartedAt = state.turn?.id === state.latestTurnId ? Date.parse(state.turn.createdAt) : NaN;
+  // A new source turn can fail CI attachment before replacing the previous run.
+  const recordedCiFailure = state.task?.developmentCi?.status === 'FINISHED' && sourceStartedAt < ciEndedAt
+    && automationFailure?.startsWith('Automation stopped. CI Autofix:') ? automationFailure : null;
   const terminal = status === 'completed' || status === 'failed';
   const waiting = state.historyPages.length > 0 ? (pendingApprovals?.length ?? 0) > 0
     : turns.some((turn) => turn.blocks.some((block) => block.kind === 'approval' && block.actionable && block.outcome === null));
@@ -1133,10 +1139,10 @@ export function AgentTaskBody({
       {!terminal && question !== null && <div className="agt-development-question" role="status"><strong>Waiting for your answer</strong>{question}</div>}
 
       {state.task?.developmentCi != null && <DevelopmentCiStatus ci={state.task.developmentCi} active={automationActive && !terminal && currentCi != null}
-        error={ciPollingError} onOpen={onOpenDevelopmentCi} />}
+        error={ciPollingError} recordedFailure={recordedCiFailure} checks={pullRequestDetail.detail} onOpen={onOpenDevelopmentCi} />}
 
-      {!automationActive && state.developmentProgress?.message.startsWith('Automation stopped.') && <div className="agt-notice" role="alert">
-        {state.developmentProgress.message}
+      {automationFailure !== null && recordedCiFailure === null && <div className="agt-notice" role="alert">
+        {automationFailure}
       </div>}
 
       {!terminal && automationActive && currentCi == null && status !== 'recovery' && <div className="agt-barrier" role="status">
@@ -2245,7 +2251,7 @@ export default function AgentTaskScreen({
       ciPollingError={ciPollingError}
       onOpenDevelopmentCi={() => { setCiPanelOpen(true); setPanelChoice(true); }}
       renderCiPanel={ciPanelOpen && developmentCi !== null ? width => <CiAutofixPanel
-        key={developmentCi.runId} ci={developmentCi} parentTaskId={taskId} workspaceId={workspaceId}
+        key={developmentCi.runId} ci={developmentCi} checks={pullRequestDetail.detail} parentTaskId={taskId} workspaceId={workspaceId}
         active={continuationUnfinished && developmentCi.status !== 'FINISHED' && state.task?.state === 'OPEN' && !confirming}
         bridge={live()} width={width} onClose={() => { setCiPanelOpen(false); setPanelChoice(false); }} onStop={() => { void stopServer(); }} /> : undefined}
       onRefreshPullRequests={canRefreshPullRequests ? () => setPullRequestRefresh((revision) => revision + 1) : undefined}

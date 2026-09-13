@@ -686,6 +686,7 @@ export type AgentDevelopmentCiDto = {
   rerunsUsed: number;
   summary: string | null;
   finishReason: string | null;
+  terminalAt: string | null;
   headRef: string;
   expectedRemoteHead: string;
   pullRequestNumber: number;

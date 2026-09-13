@@ -13,10 +13,11 @@
  */
 
 import React, { useCallback, useEffect, useReducer, useRef, useState } from 'react';
-import type { AgentApprovalDecision, AgentDevelopmentCiDto, AgentPendingApprovalDto, CiAutofixRunDto } from '../types';
+import type { AgentApprovalDecision, AgentDevelopmentCiDto, AgentPendingApprovalDto, CiAutofixRunDto, PullRequestDetailDto } from '../types';
 import { AgentConversation, useConversationHistory } from './AgentConversation';
 import { agentTaskReducer, historyAfter, historyBefore, initialAgentTaskState, readRecentAgentHistory, startAgentConversationSession, unloadedTurnIds, type AgentBridgePort } from './model';
 import { projectTranscript, withApprovalAuthority } from './transcript';
+import { samePullRequest } from './TaskPullRequestPanel';
 
 export function ciActivity(ci: Pick<AgentDevelopmentCiDto, 'status' | 'activity' | 'attemptsUsed' | 'maxAttempts' | 'finishReason' | 'canMessage'>): string {
   if (ci.status === 'FINISHED') {
@@ -45,16 +46,39 @@ export function ciActivity(ci: Pick<AgentDevelopmentCiDto, 'status' | 'activity'
 
 const errorText = (error: unknown) => (error instanceof Error ? error.message : String(error)).replace(/\s+/g, ' ').slice(0, 240);
 
-export function DevelopmentCiStatus({ ci, active, error, onOpen }: {
-  ci: AgentDevelopmentCiDto; active: boolean; error?: string | null; onOpen?: () => void;
+type CiCheckDetails = Pick<PullRequestDetailDto, 'repo' | 'number' | 'ciStatus' | 'unavailableSections'>;
+
+function CiRunSummary({ ci, checks, recordedFailure }: {
+  ci: AgentDevelopmentCiDto; checks?: CiCheckDetails | null; recordedFailure?: string | null;
 }) {
-  return <div className="agt-development-ci" aria-label="CI Autofix status">
+  const finished = ci.status === 'FINISHED';
+  const matchingChecks = checks != null && samePullRequest(ci.pullRequestUrl, checks) ? checks : null;
+  const checkLabel = matchingChecks === null ? null : matchingChecks.unavailableSections.includes('checks') ? 'Unavailable'
+    : { PASSING: 'Passed', FAILING: 'Failing', PENDING: 'In progress', NONE: 'No checks reported' }[matchingChecks.ciStatus];
+  return <>
+    {finished && checkLabel !== null && <span className="agt-ci-checks" role="status">Latest known PR checks: <strong>{checkLabel}</strong></span>}
+    {finished && <span>Previous CI Autofix run</span>}
     <strong>{ciActivity(ci)}</strong>
     <span>{ci.attemptsUsed}/{ci.maxAttempts} repair attempts · {ci.rerunsUsed}/3 reruns</span>
-    {ci.summary !== null && <span>{errorText(ci.summary)}</span>}
+    {finished ? <>
+      <span>This run has ended and is no longer monitoring CI.</span>
+      {(ci.summary || recordedFailure) && <details className="agt-ci-history">
+        <summary>Run details</summary>
+        {ci.summary && <p>{errorText(ci.summary)}</p>}
+        {recordedFailure && <p>Recorded failure: {recordedFailure}</p>}
+      </details>}
+    </> : ci.summary !== null && <span>{errorText(ci.summary)}</span>}
+  </>;
+}
+
+export function DevelopmentCiStatus({ ci, active, error, recordedFailure, checks, onOpen }: {
+  ci: AgentDevelopmentCiDto; active: boolean; error?: string | null; recordedFailure?: string | null; checks?: CiCheckDetails | null; onOpen?: () => void;
+}) {
+  return <div className="agt-development-ci" aria-label="CI Autofix status">
+    <CiRunSummary ci={ci} checks={checks} recordedFailure={recordedFailure} />
     <div className="agt-development-ci__actions">
       <a href={ci.pullRequestUrl}>PR #{ci.pullRequestNumber}</a>
-      {onOpen !== undefined && <button type="button" className="agt-action" onClick={onOpen}>Open CI Autofix</button>}
+      {onOpen !== undefined && <button type="button" className="agt-action" onClick={onOpen}>{ci.status === 'FINISHED' ? 'View CI Autofix history' : 'Open CI Autofix'}</button>}
     </div>
     {active && <span>CI Autofix is running · Stop to start over</span>}
     {error && <span className="agt-development-ci__error">{errorText(error)}</span>}
@@ -62,8 +86,9 @@ export function DevelopmentCiStatus({ ci, active, error, onOpen }: {
 }
 
 /** Keeps repair replies in the CI service's scope while the source composer remains mounted. */
-export function CiAutofixPanel({ ci, parentTaskId, workspaceId, active, bridge, width, onClose, onStop }: {
+export function CiAutofixPanel({ ci, checks, parentTaskId, workspaceId, active, bridge, width, onClose, onStop }: {
   ci: AgentDevelopmentCiDto; parentTaskId: string; workspaceId: string; active: boolean;
+  checks?: CiCheckDetails | null;
   bridge: AgentBridgePort; width: number; onClose: () => void; onStop: () => void;
 }) {
   const [run, setRun] = useState<CiAutofixRunDto | null>(null);
@@ -101,9 +126,8 @@ export function CiAutofixPanel({ ci, parentTaskId, workspaceId, active, bridge, 
   return <aside className="agt-ci-panel" style={{ width }} aria-label="CI Autofix run">
     <div className="agt-ci-panel__head"><strong>CI Autofix</strong><button type="button" className="agt-action" onClick={onClose}>Close CI</button></div>
     <div className="agt-ci-panel__summary">
-      <strong>{ciActivity(status)}</strong><span>{status.attemptsUsed}/{status.maxAttempts} repair attempts · {status.rerunsUsed}/3 reruns</span>
+      <CiRunSummary ci={status} checks={checks} />
       <a href={ci.pullRequestUrl}>PR #{ci.pullRequestNumber}</a>
-      {status.summary && <span>{errorText(status.summary)}</span>}
       {active && <button type="button" className="agt-action" onClick={onStop}>Stop automation</button>}
       {error !== null && <>
         <span className="agt-development-ci__error" role="alert">Could not load CI Autofix details. {error}</span>

@@ -367,6 +367,10 @@
 
 .agt-development-ci, .agt-ci-panel__summary { display: flex; flex-direction: column; gap: 4px; color: #57606a; font-size: 12px; }
 .agt-development-ci { margin: 8px 0; }
+.agt-ci-checks { padding-bottom: 8px; color: #1f2328; }
+.agt-ci-history { overflow-wrap: anywhere; }
+.agt-ci-history > summary { cursor: pointer; }
+.agt-ci-history > p { margin: 6px 0; }
 .agt-development-ci__actions { display: flex; align-items: center; gap: 12px; }
 .agt-ci-panel { min-width: 240px; display: flex; flex-direction: column; min-height: 0; flex-shrink: 0; border-left: 1px solid #d0d7de; background: #fff; }
 .agt-ci-panel__head { display: flex; justify-content: space-between; align-items: center; padding: 12px; border-bottom: 1px solid #d0d7de; }

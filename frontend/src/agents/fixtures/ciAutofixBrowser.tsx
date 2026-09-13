@@ -190,6 +190,7 @@ async function ciDetailLoading(): Promise<{ name: string; error?: string }> {
   document.body.append(host);
   const root = createRoot(host);
   flushSync(() => root.render(<CiAutofixPanel ci={ci} parentTaskId="source-task" workspaceId="workspace-1" active={false}
+    checks={{ repo: 'acme/demo', number: 17, ciStatus: 'PASSING', unavailableSections: [] }}
     bridge={bridge} width={600} onClose={() => {}} onStop={() => { throw new Error('Inspection must not stop or start automation'); }} />));
   try {
     await settle();
@@ -205,6 +206,14 @@ async function ciDetailLoading(): Promise<{ name: string; error?: string }> {
     retry.click();
     await settle();
     assert(reads === 2 && host.querySelector('[role="alert"]') === null, 'Retry must reload details and clear the error');
+    assert(host.querySelector('.agt-ci-checks')?.textContent === 'Latest known PR checks: Passed', 'Current passing checks must stay separate from the stopped run');
+    assert(host.textContent?.includes('Previous CI Autofix run') === true, 'The panel must identify its terminal run as history');
+    const history = host.querySelector<HTMLDetailsElement>('details.agt-ci-history');
+    assert(history !== null && !history.open, 'Recorded stopped details must start collapsed');
+    assert(history.textContent?.includes(ci.summary) === true, 'Historical details must preserve the recorded reason');
+    history.querySelector('summary')?.click();
+    await settle();
+    assert(history.open && reads === 2, 'Opening recorded history must not refresh or restart CI');
     assert(host.textContent?.includes('CI Autofix stopped') === true, 'Loaded cancellation must remain stopped');
     assert(host.textContent?.includes('No CI agent task was started.') === true, 'A stopped run without a task must not claim preparation');
     assert(!host.textContent?.includes('Preparing') && !host.textContent?.includes('Send to CI agent'), 'Inspection cannot offer nonexistent execution');
@@ -248,7 +257,7 @@ async function laterRunAndRecovery(): Promise<{ name: string; error?: string }> 
     await settle();
     assert(host.querySelector('.agt-status')?.textContent?.startsWith('Automation running') === true, 'Historical green must not label a new continuation CI passed');
     assert(!host.textContent?.includes('CI Autofix is running'), 'A finished historical CI run must not display the active CI barrier');
-    Array.from(host.querySelectorAll('button')).find(button => button.textContent === 'Open CI Autofix')?.click();
+    Array.from(host.querySelectorAll('button')).find(button => button.textContent === 'View CI Autofix history')?.click();
     await settle();
     assert(host.querySelector('.agt-ci-panel')?.textContent?.includes('Repair the earlier CI run') === true, 'The earlier run must be inspectable');
     assert(!host.querySelector('.agt-ci-panel')?.textContent?.includes('Stop automation'), 'The historical CI panel must not offer active controls');

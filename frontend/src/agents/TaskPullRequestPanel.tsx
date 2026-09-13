@@ -49,7 +49,7 @@ export function taskPullRequest(pullRequests: PullRequestDto[]): PullRequestDto 
  * The agent writes the URL GitHub gave it, which may carry a comment anchor or tracking query.
  * Only the repository and number decide, so `#issuecomment-1` still resolves to the same row.
  */
-export function samePullRequest(href: string | null, pr: PullRequestDto): boolean {
+export function samePullRequest(href: string | null, pr: Pick<PullRequestDto, 'repo' | 'number'>): boolean {
   if (href === null) return false;
   const path = href.split('#')[0].split('?')[0].replace(/\/+$/, '').toLowerCase();
   return path.endsWith(`/${pr.repo.toLowerCase()}/pull/${pr.number}`);

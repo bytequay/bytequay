@@ -100,7 +100,7 @@ public final class CiAutofixHttpModels
         return new DevelopmentResponse(
                 run.id().toString(), run.agentTaskId(), run.status().name(), activity(run, run.agentTaskId().isPresent()),
                 run.attemptsUsed(), run.authorization().maxFixAttempts(), run.rerunCounter().used(), run.summary(),
-                run.finishReason().map(Enum::name), run.scope().headRef(), run.expectedRemoteHead(),
+                run.finishReason().map(Enum::name), run.terminalAt(), run.scope().headRef(), run.expectedRemoteHead(),
                 run.scope().pullRequest().number(), "https://github.com/" + run.scope().pullRequest().repoFullName() + "/pull/" + run.scope().pullRequest().number(),
                 canMessage);
     }
@@ -115,6 +115,7 @@ public final class CiAutofixHttpModels
             int rerunsUsed,
             Optional<String> summary,
             Optional<String> finishReason,
+            Optional<Instant> terminalAt,
             String headRef,
             String expectedRemoteHead,
             int pullRequestNumber,

@@ -35,6 +35,15 @@ progress. Questions retain display precedence. Shared conversation components
 remain the implementation boundary; no stored workflow stages or Resume delivery
 control are introduced.
 
+Finished CI records are labeled as previous runs, with their recorded failure
+inside collapsed run details instead of an active alert. The matching PR's
+already-loaded check result appears separately as latest known PR checks;
+it never changes the saved Autofix outcome. Opening CI history only reads the
+run. This presentation adds no polling or restart action.
+The run's stored terminal time must follow the loaded latest source turn before
+its CI failure is folded into history. A newer CI-start failure that retains an
+older run, or unavailable timing evidence, keeps the visible failure alert.
+
 ## Shared conversation presentation
 
 Tasks and PR review Activity use `AgentConversation` for the transcript,

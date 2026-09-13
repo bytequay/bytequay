@@ -33,6 +33,7 @@ import com.bytequay.core.ci.CiAutofixConflictException;
 import com.bytequay.core.ci.CiAutofixNotFoundException;
 import com.bytequay.core.ci.CiAutofixRun;
 import com.bytequay.core.ci.CiAutofixRun.Authorization;
+import com.bytequay.core.ci.CiAutofixRun.FinishReason;
 import com.bytequay.core.ci.CiAutofixRun.Scope;
 import com.bytequay.core.ci.CiAutofixRunId;
 import com.bytequay.core.domain.PullRequestRef;
@@ -255,6 +256,20 @@ class TestCiAutofixHttpApi
         assertThat(git.changedPathsTruncated()).isTrue();
         assertThat(git.commitSubjects()).hasSize(200);
         assertThat(git.commitSubjectsTruncated()).isTrue();
+    }
+
+    @Test
+    void exposesTheSavedDevelopmentCiTerminalTimeAndOutcome()
+    {
+        Instant endedAt = NOW.plusSeconds(10);
+        CiAutofixRun finished = run().finish(FinishReason.CANCELLED, "Development automation stopped", endedAt);
+
+        CiAutofixHttpModels.DevelopmentResponse response = CiAutofixHttpModels.development(finished, false);
+
+        assertThat(response.terminalAt()).contains(endedAt);
+        assertThat(response.status()).isEqualTo("FINISHED");
+        assertThat(response.finishReason()).contains("CANCELLED");
+        assertThat(CiAutofixHttpModels.development(run(), false).terminalAt()).isEmpty();
     }
 
     @Test

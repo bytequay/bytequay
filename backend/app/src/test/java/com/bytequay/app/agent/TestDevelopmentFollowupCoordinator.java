@@ -31,6 +31,7 @@ import com.bytequay.agent.core.TurnState;
 import com.bytequay.agent.core.store.AgentTurnStore;
 import com.bytequay.agent.spi.AgentLaneId;
 import com.bytequay.agent.spi.AgentPermissionPolicy;
+import com.bytequay.agent.spi.DevelopmentResultBridge;
 import com.bytequay.agent.spi.DevelopmentResultReport;
 import com.bytequay.agent.spi.ProviderTurnRef;
 import com.bytequay.app.ci.CiAutofixService;
@@ -39,12 +40,12 @@ import com.bytequay.app.ci.CiJob;
 import com.bytequay.app.ci.CiWorkflowRun;
 import com.bytequay.app.ci.GitHubActionsClient;
 import com.bytequay.app.ci.StartCiAutofixCommand;
+import com.bytequay.app.repository.github.CreatedPullRequest;
 import com.bytequay.app.repository.github.GitHubDeliveryChecks;
 import com.bytequay.app.repository.github.GitHubPullRequestIdentity;
 import com.bytequay.app.repository.github.GitHubPullRequestReadClient;
 import com.bytequay.app.repository.github.GitHubPullRequestWriteClient;
 import com.bytequay.app.service.credentials.CredentialService;
-import com.bytequay.app.service.github.GhCliService;
 import com.bytequay.core.ci.CiAutofixRun;
 import com.bytequay.core.ci.CiAutofixRunId;
 import com.bytequay.core.domain.PullRequestRef;
@@ -68,11 +69,14 @@ import java.util.List;
 import java.util.Optional;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.RejectedExecutionException;
+import java.util.concurrent.atomic.AtomicReference;
 
 import static com.bytequay.agent.core.DevelopmentTurnOrigin.Kind.AUTO_COMMIT;
 import static com.bytequay.agent.core.DevelopmentTurnOrigin.Kind.CREATE_DRAFT_PR;
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyBoolean;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.contains;
 import static org.mockito.ArgumentMatchers.eq;
@@ -92,13 +96,13 @@ class TestDevelopmentFollowupCoordinator
 {
     private static final Instant NOW = Instant.EPOCH;
     private static final DevelopmentAutomation FULL = new DevelopmentAutomation(true, true, true, Optional.of(AgentLaneId.CLAUDE_CLI));
+    private static final DevelopmentAutomation DRAFT_ONLY = new DevelopmentAutomation(true, true, false, Optional.empty());
     private static final String BASE = "a".repeat(40);
     private static final String HEAD = "b".repeat(40);
     private static final String NEXT = "c".repeat(40);
     private final AgentTurnService turns = mock(AgentTurnService.class);
     private final AgentTurnStore turnStore = mock(AgentTurnStore.class);
     private final DevelopmentGitInspector git = mock(DevelopmentGitInspector.class);
-    private final GhCliService gh = mock(GhCliService.class);
     private final CiAutofixService ci = mock(CiAutofixService.class);
     private final GitHubActionsClient actions = mock(GitHubActionsClient.class);
     private final CredentialService credentials = mock(CredentialService.class);
@@ -111,7 +115,7 @@ class TestDevelopmentFollowupCoordinator
     private final ArrayDeque<Runnable> pending = new ArrayDeque<>();
     private final List<AgentTurn> history = new ArrayList<>();
     private final DevelopmentFollowupCoordinator coordinator = new DevelopmentFollowupCoordinator(
-            turns, turnStore, git, gh, pending::add, ci, actions, credentials, pullRequests, writes, clock, waitForCi);
+            turns, turnStore, git, pending::add, ci, actions, credentials, pullRequests, writes, clock, waitForCi);
     private final TaskId taskId = TaskId.random();
     private final TaskWorktree worktree = new TaskWorktree(taskId, "workspace", new RepositoryIdentity("owner", "repo"),
             Path.of("/tmp", taskId.toString()), "bytequay/task/" + taskId, BASE);
@@ -135,7 +139,6 @@ class TestDevelopmentFollowupCoordinator
             String descendant = call.getArgument(2);
             return ancestor.equals(descendant) || ancestor.equals(BASE) || (ancestor.equals(HEAD) && descendant.equals(NEXT));
         });
-        when(gh.findBinary()).thenReturn(Optional.of("/usr/local/bin/gh"));
         when(ci.startDevelopment(any(), any(), any(), any(), any())).thenAnswer(call -> {
             GitHubPullRequestIdentity published = call.getArgument(3);
             deliveredHead = published.headSha();
@@ -230,24 +233,6 @@ class TestDevelopmentFollowupCoordinator
     }
 
     @ParameterizedTest
-    @CsvSource({"true, true", "true, false", "false, true", "false, false"})
-    void explicitCliPushContinuesWithTheMissingDraft(boolean existingRemote, boolean localChanged)
-    {
-        when(git.inspectPublication(worktree, route)).thenReturn(publication(existingRemote ? Optional.of(BASE) : Optional.empty(), Optional.empty()));
-        prepare(local(localChanged ? BASE : HEAD, false), local(HEAD, false), new DevelopmentAutomation(true, true, false, Optional.empty()), true);
-        when(git.inspectPublication(worktree, route)).thenReturn(
-                publication(Optional.of(HEAD), Optional.empty()), publication(Optional.of(HEAD), Optional.of(pr(HEAD, true))));
-        generated(CREATE_DRAFT_PR, true);
-
-        advance();
-
-        verify(turns).startGeneratedTurn(eq(taskId), eq(origin(CREATE_DRAFT_PR)), contains("If the remote already equals the exact HEAD, no push is necessary"));
-        verify(turns).finishDevelopmentContinuation(taskId, source.id());
-        verify(turns, never()).failDevelopmentContinuation(any(), any(), anyString());
-        verifyNoInteractions(ci, writes);
-    }
-
-    @ParameterizedTest
     @ValueSource(booleans = {true, false})
     void queuedTurnInheritsPublishedWorkAndControlsWhetherCiStarts(boolean autoCiFix)
     {
@@ -256,7 +241,7 @@ class TestDevelopmentFollowupCoordinator
         TurnId previous = source.id();
         when(git.inspectPublication(worktree, route)).thenReturn(publication(Optional.of(HEAD), Optional.of(pr(HEAD, true))));
         when(turns.handoffDevelopmentContinuationToQueue(taskId, previous)).thenAnswer(ignored -> {
-            prepare(local(HEAD, false), local(HEAD, false), autoCiFix ? FULL : new DevelopmentAutomation(true, true, false, Optional.empty()), true);
+            prepare(local(HEAD, false), local(HEAD, false), autoCiFix ? FULL : DRAFT_ONLY, true);
             return true;
         });
 
@@ -280,123 +265,6 @@ class TestDevelopmentFollowupCoordinator
         verify(turns, never()).failDevelopmentContinuation(any(), any(), anyString());
     }
 
-    @ParameterizedTest
-    @ValueSource(booleans = {true, false})
-    void pushOnlyTurnStartsCiForTheRewrittenPublishedHead(boolean autoDraftPr)
-    {
-        when(git.inspectPublication(worktree, route)).thenReturn(publication(Optional.of(NEXT), Optional.of(pr(NEXT, true))));
-        prepare(local(HEAD, false), local(HEAD, false), new DevelopmentAutomation(true, autoDraftPr, true, Optional.empty()), true);
-        when(git.inspectPublication(worktree, route)).thenReturn(publication(Optional.of(HEAD), Optional.of(pr(HEAD, true))));
-
-        advance();
-
-        verify(ci).startDevelopment(any(), eq(taskId), eq(source.id()), eq(pr(HEAD, true)), eq(NOW));
-        noFollowup();
-        verify(turns).finishDevelopmentContinuation(taskId, source.id());
-        verify(turns, never()).failDevelopmentContinuation(any(), any(), anyString());
-    }
-
-    @Test
-    void pullRequestOnlyTurnStartsCiForTheAlreadyPushedHead()
-    {
-        when(git.inspectPublication(worktree, route)).thenReturn(publication(Optional.of(HEAD), Optional.empty()));
-        prepare(local(HEAD, false), local(HEAD, false), FULL, true);
-        when(git.inspectPublication(worktree, route)).thenReturn(publication(Optional.of(HEAD), Optional.of(pr(HEAD, true))));
-
-        advance();
-
-        verify(ci).startDevelopment(any(), eq(taskId), eq(source.id()), eq(pr(HEAD, true)), eq(NOW));
-        noFollowup();
-        verify(turns).finishDevelopmentContinuation(taskId, source.id());
-        verify(turns, never()).failDevelopmentContinuation(any(), any(), anyString());
-    }
-
-    @ParameterizedTest
-    @ValueSource(booleans = {true, false})
-    void unchangedPublishedHeadDoesNotRestartCiWhenDraftStatusChanges(boolean draft)
-    {
-        when(git.inspectPublication(worktree, route)).thenReturn(publication(Optional.of(HEAD), Optional.of(pr(HEAD, true))));
-        prepare(local(HEAD, false), local(HEAD, false), FULL, true);
-        when(git.inspectPublication(worktree, route)).thenReturn(publication(Optional.of(HEAD), Optional.of(pr(HEAD, draft))));
-
-        advance();
-
-        verifyNoInteractions(ci, writes);
-        noFollowup();
-        verify(turns).finishDevelopmentContinuation(taskId, source.id());
-        verify(turns, never()).failDevelopmentContinuation(any(), any(), anyString());
-    }
-
-    @Test
-    void unchangedUnpublishedHeadDoesNotPublishExistingWork()
-    {
-        prepare(local(HEAD, false), local(HEAD, false), FULL, true);
-
-        advance();
-
-        verifyNoInteractions(ci, writes);
-        noFollowup();
-        verify(turns).finishDevelopmentContinuation(taskId, source.id());
-        verify(turns, never()).failDevelopmentContinuation(any(), any(), anyString());
-    }
-
-    @Test
-    void pushOnlyTurnDoesNotStartDisabledCi()
-    {
-        when(git.inspectPublication(worktree, route)).thenReturn(publication(Optional.of(NEXT), Optional.of(pr(NEXT, true))));
-        prepare(local(HEAD, false), local(HEAD, false), new DevelopmentAutomation(true, true, false, Optional.empty()), true);
-        when(git.inspectPublication(worktree, route)).thenReturn(publication(Optional.of(HEAD), Optional.of(pr(HEAD, true))));
-
-        advance();
-
-        verifyNoInteractions(ci, writes);
-        noFollowup();
-        verify(turns).finishDevelopmentContinuation(taskId, source.id());
-        verify(turns, never()).failDevelopmentContinuation(any(), any(), anyString());
-    }
-
-    @Test
-    void pushOnlyTurnRequiresTheAcceptedRemoteBaseline()
-    {
-        when(git.inspectPublication(worktree, route)).thenThrow(new IllegalStateException("Authentication unavailable"));
-        prepare(local(HEAD, false), local(HEAD, false), FULL, true);
-        doReturn(publication(Optional.of(HEAD), Optional.of(pr(HEAD, true)))).when(git).inspectPublication(worktree, route);
-
-        advance();
-
-        verifyNoInteractions(ci, writes);
-        noFollowup();
-        verify(turns).failDevelopmentContinuation(eq(taskId), eq(source.id()), contains("Remote baseline unavailable: Authentication unavailable"));
-    }
-
-    @Test
-    void pushOnlyTurnCannotAttachCiToAPrWithAnotherHead()
-    {
-        when(git.inspectPublication(worktree, route)).thenReturn(publication(Optional.of(NEXT), Optional.of(pr(NEXT, true))));
-        prepare(local(HEAD, false), local(HEAD, false), FULL, true);
-        when(git.inspectPublication(worktree, route)).thenReturn(publication(Optional.of(HEAD), Optional.of(pr(NEXT, true))));
-
-        advance();
-
-        verifyNoInteractions(ci, writes);
-        noFollowup();
-        verify(turns).failDevelopmentContinuation(eq(taskId), eq(source.id()), contains("Pull request and remote branch revisions do not agree"));
-    }
-
-    @Test
-    void unchangedLocalWorkCannotAdoptAnotherPublishedHead()
-    {
-        when(git.inspectPublication(worktree, route)).thenReturn(publication(Optional.of(BASE), Optional.of(pr(BASE, true))));
-        prepare(local(HEAD, false), local(HEAD, false), FULL, true);
-        when(git.inspectPublication(worktree, route)).thenReturn(publication(Optional.of(NEXT), Optional.of(pr(NEXT, true))));
-
-        advance();
-
-        verifyNoInteractions(ci, writes);
-        noFollowup();
-        verify(turns).failDevelopmentContinuation(eq(taskId), eq(source.id()), contains("The published revision does not match the clean task revision"));
-    }
-
     @Test
     void commitsThenPublishesExactlyOnceAndVerifiesBothResults()
     {
@@ -407,7 +275,7 @@ class TestDevelopmentFollowupCoordinator
         generated(CREATE_DRAFT_PR, true);
         advance();
         verify(turns).startGeneratedTurn(eq(taskId), eq(origin(AUTO_COMMIT)), contains("Do not push"));
-        verify(turns).startGeneratedTurn(eq(taskId), eq(origin(CREATE_DRAFT_PR)), contains("--force-with-lease="));
+        verify(turns).startGeneratedTurn(eq(taskId), eq(origin(CREATE_DRAFT_PR)), contains(DevelopmentResultBridge.PUBLISH_TOOL_NAME));
         verify(ci).startDevelopment(any(), eq(taskId), eq(source.id()), eq(pr(HEAD, true)), eq(NOW));
         verify(writes).markReadyForReview("token", "node-7");
         verify(turns).finishDevelopmentContinuation(taskId, source.id());
@@ -489,6 +357,144 @@ class TestDevelopmentFollowupCoordinator
         verify(turns).finishDevelopmentContinuation(taskId, source.id());
     }
 
+    @ParameterizedTest
+    @ValueSource(booleans = {true, false})
+    void pushOnlyTurnStartsCiForTheRewrittenPublishedHead(boolean autoDraftPr)
+    {
+        when(git.inspectPublication(worktree, route)).thenReturn(publication(Optional.of(NEXT), Optional.of(pr(NEXT, true))));
+        prepare(local(HEAD, false), local(HEAD, false), new DevelopmentAutomation(true, autoDraftPr, true, Optional.empty()), true);
+        when(git.inspectPublication(worktree, route)).thenReturn(publication(Optional.of(HEAD), Optional.of(pr(HEAD, true))));
+
+        advance();
+
+        verify(ci).startDevelopment(any(), eq(taskId), eq(source.id()), eq(pr(HEAD, true)), eq(NOW));
+        noFollowup();
+        verify(turns).finishDevelopmentContinuation(taskId, source.id());
+        verify(turns, never()).failDevelopmentContinuation(any(), any(), anyString());
+    }
+
+    @Test
+    void pullRequestOnlyTurnStartsCiForTheAlreadyPushedHead()
+    {
+        when(git.inspectPublication(worktree, route)).thenReturn(publication(Optional.of(HEAD), Optional.empty()));
+        prepare(local(HEAD, false), local(HEAD, false), FULL, true);
+        when(git.inspectPublication(worktree, route)).thenReturn(publication(Optional.of(HEAD), Optional.of(pr(HEAD, true))));
+
+        advance();
+
+        verify(ci).startDevelopment(any(), eq(taskId), eq(source.id()), eq(pr(HEAD, true)), eq(NOW));
+        noFollowup();
+        verify(turns).finishDevelopmentContinuation(taskId, source.id());
+        verify(turns, never()).failDevelopmentContinuation(any(), any(), anyString());
+    }
+
+    @ParameterizedTest
+    @ValueSource(booleans = {true, false})
+    void unchangedPublishedHeadDoesNotRestartCiWhenDraftStatusChanges(boolean draft)
+    {
+        when(git.inspectPublication(worktree, route)).thenReturn(publication(Optional.of(HEAD), Optional.of(pr(HEAD, true))));
+        prepare(local(HEAD, false), local(HEAD, false), FULL, true);
+        when(git.inspectPublication(worktree, route)).thenReturn(publication(Optional.of(HEAD), Optional.of(pr(HEAD, draft))));
+
+        advance();
+
+        verifyNoInteractions(ci, writes);
+        noFollowup();
+        verify(turns).finishDevelopmentContinuation(taskId, source.id());
+        verify(turns, never()).failDevelopmentContinuation(any(), any(), anyString());
+    }
+
+    @Test
+    void unchangedUnpublishedHeadDoesNotPublishExistingWork()
+    {
+        prepare(local(HEAD, false), local(HEAD, false), FULL, true);
+
+        advance();
+
+        verifyNoInteractions(ci, writes);
+        noFollowup();
+        verify(turns).finishDevelopmentContinuation(taskId, source.id());
+        verify(turns, never()).failDevelopmentContinuation(any(), any(), anyString());
+    }
+
+    @Test
+    void pushOnlyTurnDoesNotStartDisabledCi()
+    {
+        when(git.inspectPublication(worktree, route)).thenReturn(publication(Optional.of(NEXT), Optional.of(pr(NEXT, true))));
+        prepare(local(HEAD, false), local(HEAD, false), DRAFT_ONLY, true);
+        when(git.inspectPublication(worktree, route)).thenReturn(publication(Optional.of(HEAD), Optional.of(pr(HEAD, true))));
+
+        advance();
+
+        verifyNoInteractions(ci, writes);
+        noFollowup();
+        verify(turns).finishDevelopmentContinuation(taskId, source.id());
+        verify(turns, never()).failDevelopmentContinuation(any(), any(), anyString());
+    }
+
+    @Test
+    void pushOnlyTurnRequiresTheAcceptedRemoteBaseline()
+    {
+        when(git.inspectPublication(worktree, route)).thenThrow(new IllegalStateException("Authentication unavailable"));
+        prepare(local(HEAD, false), local(HEAD, false), FULL, true);
+        doReturn(publication(Optional.of(HEAD), Optional.of(pr(HEAD, true)))).when(git).inspectPublication(worktree, route);
+
+        advance();
+
+        verifyNoInteractions(ci, writes);
+        noFollowup();
+        verify(turns).failDevelopmentContinuation(eq(taskId), eq(source.id()), contains("Remote baseline unavailable: Authentication unavailable"));
+    }
+
+    @Test
+    void pushOnlyTurnCannotAttachCiToAPrWithAnotherHead()
+    {
+        when(git.inspectPublication(worktree, route)).thenReturn(publication(Optional.of(NEXT), Optional.of(pr(NEXT, true))));
+        prepare(local(HEAD, false), local(HEAD, false), FULL, true);
+        when(git.inspectPublication(worktree, route)).thenReturn(publication(Optional.of(HEAD), Optional.of(pr(NEXT, true))));
+
+        advance();
+
+        verifyNoInteractions(ci, writes);
+        noFollowup();
+        verify(turns).failDevelopmentContinuation(eq(taskId), eq(source.id()), contains("Pull request and remote branch revisions do not agree"));
+    }
+
+    @Test
+    void unchangedLocalWorkCannotAdoptAnotherPublishedHead()
+    {
+        when(git.inspectPublication(worktree, route)).thenReturn(publication(Optional.of(BASE), Optional.of(pr(BASE, true))));
+        prepare(local(HEAD, false), local(HEAD, false), FULL, true);
+        when(git.inspectPublication(worktree, route)).thenReturn(publication(Optional.of(NEXT), Optional.of(pr(NEXT, true))));
+
+        advance();
+
+        verifyNoInteractions(ci, writes);
+        noFollowup();
+        verify(turns).failDevelopmentContinuation(eq(taskId), eq(source.id()), contains("The published revision does not match the clean task revision"));
+    }
+
+    @ParameterizedTest
+    @CsvSource({"true, true", "true, false", "false, true", "false, false"})
+    void explicitCliPushCreatesTheMissingDraftWithoutPushingAgain(boolean existingRemote, boolean localChanged)
+    {
+        when(git.inspectPublication(worktree, route)).thenReturn(publication(existingRemote ? Optional.of(BASE) : Optional.empty(), Optional.empty()));
+        prepare(local(localChanged ? BASE : HEAD, false), local(HEAD, false), DRAFT_ONLY, true);
+        AtomicReference<DevelopmentPublicationFacts> remote = trackedRemote(Optional.of(HEAD), Optional.empty());
+        generated(CREATE_DRAFT_PR, true,
+                () -> coordinator.publishDraftPullRequest(taskId.toString(), "Add a thing", "Body"));
+
+        advance();
+
+        verify(turns).startGeneratedTurn(eq(taskId), eq(origin(CREATE_DRAFT_PR)), anyString());
+        verify(git, never()).pushDevelopmentHead(any(), any(), anyString(), any());
+        verify(writes).createPullRequest("token", route.baseRepository(), route.headBranch(), route.baseBranch(), "Add a thing", "Body", true);
+        assertThat(remote.get().matchingPullRequests()).containsExactly(pr(HEAD, true));
+        verify(turns).finishDevelopmentContinuation(taskId, source.id());
+        verify(turns, never()).failDevelopmentContinuation(any(), any(), anyString());
+        verifyNoInteractions(ci);
+    }
+
     @Test
     void laterRevisionReusesExistingPr()
     {
@@ -499,13 +505,13 @@ class TestDevelopmentFollowupCoordinator
                 publication(Optional.of(HEAD), Optional.of(existing)), publication(Optional.of(NEXT), Optional.of(pr(NEXT, false))));
         generated(CREATE_DRAFT_PR, true);
         advance();
-        verify(turns).startGeneratedTurn(eq(taskId), eq(origin(CREATE_DRAFT_PR)), contains("Reuse existing PR"));
+        verify(turns).startGeneratedTurn(eq(taskId), eq(origin(CREATE_DRAFT_PR)), contains("already tracks this branch"));
         verify(turns).finishDevelopmentContinuation(taskId, source.id());
     }
 
     @ParameterizedTest
     @ValueSource(booleans = {true, false})
-    void rewrittenPublishedHistoryIsPublishedAndMonitoredAtTheNewHead(boolean unpublishedCommit)
+    void rewrittenPublishedHistoryIsPushedAndMonitoredAtTheNewHead(boolean unpublishedCommit)
     {
         String startingHead = unpublishedCommit ? "d".repeat(40) : NEXT;
         GitHubPullRequestIdentity existing = pr(NEXT, true);
@@ -513,19 +519,18 @@ class TestDevelopmentFollowupCoordinator
         when(git.isAncestor(worktree, NEXT, startingHead)).thenReturn(true);
         DevelopmentLocalFacts rewritten = new DevelopmentLocalFacts(route.headBranch(), HEAD, startingHead, HEAD + ":false", 0, 0, 0, 0, 1, true, false);
         prepare(local(startingHead, false), rewritten, FULL, true);
-        when(git.inspectPublication(worktree, route)).thenReturn(
-                publication(Optional.of(NEXT), Optional.of(existing)), publication(Optional.of(HEAD), Optional.of(pr(HEAD, true))));
-        generated(CREATE_DRAFT_PR, true);
+        AtomicReference<DevelopmentPublicationFacts> remote = trackedRemote(Optional.of(NEXT), Optional.of(existing));
+        generated(CREATE_DRAFT_PR, true,
+                () -> coordinator.publishDraftPullRequest(taskId.toString(), "Remove commit trailers", "Body"));
 
         advance();
 
-        ArgumentCaptor<String> prompt = ArgumentCaptor.forClass(String.class);
-        var order = inOrder(turns, ci);
-        order.verify(turns).startGeneratedTurn(eq(taskId), eq(origin(CREATE_DRAFT_PR)), prompt.capture());
+        var order = inOrder(git, ci, turns);
+        order.verify(git).pushDevelopmentHead(worktree, route, HEAD, Optional.of(NEXT));
         order.verify(ci).startDevelopment(any(), eq(taskId), eq(source.id()), eq(pr(HEAD, true)), eq(NOW));
         order.verify(turns).finishDevelopmentContinuation(taskId, source.id());
-        assertThat(prompt.getValue()).contains("--force-with-lease=refs/heads/" + route.headBranch() + ":" + NEXT,
-                HEAD + ":refs/heads/" + route.headBranch(), "Reuse existing PR " + existing.url());
+        assertThat(remote.get().remoteHeadSha()).contains(HEAD);
+        verify(writes, never()).createPullRequest(anyString(), any(), anyString(), anyString(), anyString(), anyString(), anyBoolean());
         verify(turns, never()).failDevelopmentContinuation(any(), any(), anyString());
     }
 
@@ -538,20 +543,32 @@ class TestDevelopmentFollowupCoordinator
         advance();
 
         noFollowup();
+        verify(git, never()).pushDevelopmentHead(any(), any(), anyString(), any());
         verify(ci, never()).startDevelopment(any(), any(), any(), any(), any());
         verify(turns).failDevelopmentContinuation(eq(taskId), eq(source.id()), contains("neither the current nor the starting task revision"));
     }
 
-    @Test
-    void rewrittenHistoryCannotReplaceARemoteChangeDuringDevelopment()
+    @ParameterizedTest
+    @ValueSource(booleans = {true, false})
+    void rewriteCannotReplaceARemoteChangeDuringDevelopmentOrPublication(boolean duringPublication)
     {
         when(git.inspectPublication(worktree, route)).thenReturn(publication(Optional.of(NEXT), Optional.of(pr(NEXT, true))));
         prepare(local(NEXT, false), local(HEAD, false), FULL, true);
-        when(git.inspectPublication(worktree, route)).thenReturn(publication(Optional.of(BASE), Optional.of(pr(BASE, true))));
+        DevelopmentPublicationFacts changed = publication(Optional.of(BASE), Optional.of(pr(BASE, true)));
+        if (duringPublication) {
+            AtomicReference<DevelopmentPublicationFacts> remote = trackedRemote(Optional.of(NEXT), Optional.of(pr(NEXT, true)));
+            generated(CREATE_DRAFT_PR, true, () -> {
+                remote.set(changed);
+                coordinator.publishDraftPullRequest(taskId.toString(), "Remove commit trailers", "Body");
+            });
+        }
+        else {
+            when(git.inspectPublication(worktree, route)).thenReturn(changed);
+        }
 
         advance();
 
-        noFollowup();
+        verify(git, never()).pushDevelopmentHead(any(), any(), anyString(), any());
         verify(ci, never()).startDevelopment(any(), any(), any(), any(), any());
         verify(turns).failDevelopmentContinuation(eq(taskId), eq(source.id()), contains("remote branch changed"));
         verify(turns, never()).finishDevelopmentContinuation(any(), any());
@@ -747,10 +764,119 @@ class TestDevelopmentFollowupCoordinator
     void rejectedExecutorFailsTheContinuation()
     {
         prepare(local(BASE, false), local(HEAD, false), FULL, true);
-        var rejected = new DevelopmentFollowupCoordinator(turns, turnStore, git, gh, ignored -> { throw new RejectedExecutionException("stopped"); },
+        var rejected = new DevelopmentFollowupCoordinator(turns, turnStore, git, ignored -> { throw new RejectedExecutionException("stopped"); },
                 ci, actions, credentials, pullRequests, writes, clock, waitForCi);
         rejected.completed(outcome);
         verify(turns).failDevelopmentContinuation(eq(taskId), eq(source.id()), contains("Could not start"));
+    }
+
+    @Test
+    void publishedBodiesCarryNoProviderSignOff()
+    {
+        String signed = """
+                Three small cleanups, one per commit.
+
+                🤖 Generated with [Claude Code](https://claude.com/claude-code)
+                Co-Authored-By: Claude <noreply@anthropic.com>""";
+        assertThat(DevelopmentFollowupCoordinator.withoutAttribution(signed))
+                .isEqualTo("Three small cleanups, one per commit.");
+        // A body that never signed itself is published exactly as the agent wrote it.
+        assertThat(DevelopmentFollowupCoordinator.withoutAttribution("Body.\n\n- one\n- two\n"))
+                .isEqualTo("Body.\n\n- one\n- two");
+        // The model name in the trailer must not let it through, and the title is scrubbed too.
+        assertThat(DevelopmentFollowupCoordinator.withoutAttribution(
+                "Clean up nits\nCo-Authored-By: Claude Opus 5 <noreply@anthropic.com>")).isEqualTo("Clean up nits");
+    }
+
+    @Test
+    void publicationPromptAsksForNoToolingNotesAndNoSignOff()
+    {
+        String prompt = DevelopmentFollowupCoordinator.publicationPrompt(new DevelopmentBaseline(worktree, route, local(BASE, false)),
+                local(HEAD, false), Optional.empty());
+        assertThat(prompt).contains(
+                "an empty section is better than one filled to look complete",
+                "attribution, co-authorship, or generated-with trailer");
+        assertThat(prompt).doesNotContain("preserve local-check limitations", "local-check limitations");
+    }
+
+    @Test
+    void publishIsRefusedWhenByteQuayIsNotRequestingADraftPullRequest()
+    {
+        assertThatThrownBy(() -> coordinator.publishDraftPullRequest(taskId.toString(), "Title", "Body"))
+                .hasMessageContaining("not requesting a draft pull request");
+        verifyNoInteractions(writes);
+    }
+
+    @Test
+    void publishPushesTheVerifiedRevisionAndOpensADraftPullRequest()
+    {
+        prepare(local(BASE, false), local(HEAD, false), DRAFT_ONLY, true);
+        AtomicReference<DevelopmentPublicationFacts> remote = trackedRemote(Optional.empty(), Optional.empty());
+        generated(CREATE_DRAFT_PR, true, () -> assertThat(
+                coordinator.publishDraftPullRequest(taskId.toString(), "Add a thing", "Body"))
+                .contains(HEAD, "created draft pull request"));
+
+        advance();
+
+        verify(git).pushDevelopmentHead(worktree, route, HEAD, Optional.empty());
+        verify(writes).createPullRequest("token", route.baseRepository(), route.headBranch(), route.baseBranch(), "Add a thing", "Body", true);
+        assertThat(remote.get().remoteHeadSha()).contains(HEAD);
+        verify(turns).finishDevelopmentContinuation(taskId, source.id());
+    }
+
+    @Test
+    void publishReusesTheTrackingPullRequestInsteadOfOpeningASecond()
+    {
+        GitHubPullRequestIdentity existing = pr(BASE, true);
+        when(git.inspectPublication(worktree, route)).thenReturn(publication(Optional.of(BASE), Optional.of(existing)));
+        prepare(local(BASE, false), local(HEAD, false), DRAFT_ONLY, true);
+        AtomicReference<DevelopmentPublicationFacts> remote = trackedRemote(Optional.of(BASE), Optional.of(existing));
+        generated(CREATE_DRAFT_PR, true, () -> assertThat(
+                coordinator.publishDraftPullRequest(taskId.toString(), "Add a thing", "Body"))
+                .contains(existing.url(), "already tracks this branch"));
+
+        advance();
+
+        verify(git).pushDevelopmentHead(worktree, route, HEAD, Optional.of(BASE));
+        verify(writes, never()).createPullRequest(anyString(), any(), anyString(), anyString(), anyString(), anyString(), anyBoolean());
+        assertThat(remote.get().remoteHeadSha()).contains(HEAD);
+    }
+
+    @Test
+    void publishSendsAForkQualifiedHeadForACrossRepositoryRoute()
+    {
+        route = new DevelopmentPublicationRoute(new RepoRef("forker", "repo"), new RepoRef("upstream", "repo"),
+                "https://github.com/forker/repo.git", "upstream", "release", BASE, worktree.generatedBranch());
+        when(git.inspectPublication(worktree, route)).thenReturn(publication(Optional.empty(), Optional.empty()));
+        prepare(local(BASE, false), local(HEAD, false), DRAFT_ONLY, true);
+        trackedRemote(Optional.empty(), Optional.empty());
+        generated(CREATE_DRAFT_PR, true,
+                () -> coordinator.publishDraftPullRequest(taskId.toString(), "Add a thing", "Body"));
+
+        advance();
+
+        verify(writes).createPullRequest("token", new RepoRef("upstream", "repo"),
+                "forker:" + route.headBranch(), "release", "Add a thing", "Body", true);
+    }
+
+    /**
+     * Models the remote the way publication moves it: the push lands the revision, and creating the
+     * pull request is what makes one appear on the branch.
+     */
+    private AtomicReference<DevelopmentPublicationFacts> trackedRemote(Optional<String> remoteHead, Optional<GitHubPullRequestIdentity> existing)
+    {
+        AtomicReference<DevelopmentPublicationFacts> remote = new AtomicReference<>(publication(remoteHead, existing));
+        when(git.inspectPublication(worktree, route)).thenAnswer(ignored -> remote.get());
+        doAnswer(call -> {
+            remote.set(publication(Optional.of(HEAD), existing.map(ignored -> pr(HEAD, true))));
+            return null;
+        }).when(git).pushDevelopmentHead(worktree, route, HEAD, remoteHead);
+        when(writes.createPullRequest(anyString(), any(), anyString(), anyString(), anyString(), anyString(), anyBoolean()))
+                .thenAnswer(call -> {
+                    remote.set(publication(Optional.of(HEAD), Optional.of(pr(HEAD, true))));
+                    return new CreatedPullRequest(1, 7, pr(HEAD, true).url());
+                });
+        return remote;
     }
 
     @Test
@@ -759,18 +885,21 @@ class TestDevelopmentFollowupCoordinator
         var fork = new DevelopmentPublicationRoute(new RepoRef("forker", "repo"), new RepoRef("upstream", "repo"), "https://github.com/forker/repo.git",
                 "upstream", "release", BASE, route.headBranch());
         var baseline = new DevelopmentBaseline(worktree, fork, local(BASE, false));
-        String prompt = DevelopmentFollowupCoordinator.publicationPrompt(baseline, local(HEAD, false), publication(Optional.empty(), Optional.empty()),
-                Optional.empty(), "/path with spaces/gh");
-        assertThat(prompt).contains("--force-with-lease=refs/heads/" + route.headBranch() + ":'", HEAD + ":refs/heads/" + route.headBranch(),
-                "--repo 'upstream/repo'", "--base 'release'", "--head 'forker:", "pr create --draft", "Do not commit", "without retrying");
+        String prompt = DevelopmentFollowupCoordinator.publicationPrompt(baseline, local(HEAD, false), Optional.empty());
+        assertThat(prompt).contains(HEAD, "upstream/repo", "'release'", "forker/repo",
+                DevelopmentResultBridge.PUBLISH_TOOL_NAME, "Do not commit", "stop without");
+        assertThat(prompt).doesNotContain("--force-with-lease", "pr create", "--repo", "--base '");
     }
 
     @Test
-    void sameRepositoryPublicationUsesBranchOnlyHeadForOrganizationSupport()
+    void publicationPromptTellsTheAgentToPublishThroughTheToolWithoutCredentials()
     {
         String prompt = DevelopmentFollowupCoordinator.publicationPrompt(new DevelopmentBaseline(worktree, route, local(BASE, false)),
-                local(HEAD, false), publication(Optional.empty(), Optional.empty()), Optional.empty(), "/usr/local/bin/gh");
-        assertThat(prompt).contains("--head '" + route.headBranch() + "'").doesNotContain("--head 'owner:");
+                local(HEAD, false), Optional.of(pr(BASE, true)));
+        assertThat(prompt).contains(DevelopmentResultBridge.PUBLISH_TOOL_NAME, "already tracks this branch",
+                "ByteQuay owns the push and the GitHub write", "never read or ask for credentials");
+        assertThat(prompt).contains("Never run git push, a GitHub CLI command");
+        assertThat(prompt).doesNotContain("--force-with-lease", "pr create", "--body-file");
     }
 
     @ParameterizedTest
@@ -1188,12 +1317,23 @@ class TestDevelopmentFollowupCoordinator
 
     private void generated(DevelopmentTurnOrigin.Kind kind, boolean ready)
     {
+        generated(kind, ready, () -> {});
+    }
+
+    /** The provider turn the coordinator starts, with {@code duringTurn} standing in for the root agent's tool call. */
+    private void generated(DevelopmentTurnOrigin.Kind kind, boolean ready, Runnable duringTurn)
+    {
         when(turns.startGeneratedTurn(eq(taskId), eq(origin(kind)), anyString())).thenAnswer(ignored -> {
-            AgentTurn acceptedTurn = AgentTurn.accepted(TurnId.random(), taskId, "generated-" + kind, source.settings().orElseThrow(), NOW)
-                    .withDevelopmentOrigin(origin(kind));
-            AgentTurn generated = acceptedTurn.markDeliveryStarted(NOW).running(new ProviderTurnRef("generated-" + kind), Optional.empty())
-                    .withDevelopmentResult(report(ready)).finish(TurnState.COMPLETED, AgentMetrics.empty(), Optional.empty(), NOW);
-            history.add(generated);
+            // The generated turn is the active one while the agent works, which is when it may call
+            // ByteQuay's tools; it settles only once that work is done.
+            AgentTurn active = AgentTurn.accepted(TurnId.random(), taskId, "generated-" + kind, source.settings().orElseThrow(), NOW)
+                    .withDevelopmentOrigin(origin(kind))
+                    .markDeliveryStarted(NOW).running(new ProviderTurnRef("generated-" + kind), Optional.empty());
+            history.add(active);
+            duringTurn.run();
+            AgentTurn generated = active.withDevelopmentResult(report(ready))
+                    .finish(TurnState.COMPLETED, AgentMetrics.empty(), Optional.empty(), NOW);
+            history.set(history.size() - 1, generated);
             return CompletableFuture.completedFuture(new DevelopmentTurnCompletion(task, generated, true, Optional.empty()));
         });
     }

@@ -278,11 +278,10 @@ extension point currently justified.
    a second shell command parser. Attended development may use authenticated
    `git` and `gh`, with GitHub writes requiring direct explicit authorization
    from user input or accepted automation. Review, CI, cherry-pick, and helpers
-   retain narrower profiles. ByteQuay does not expose product actions as
-   model-callable tools.
-   The CodeGraph service adds exactly one fixed, optional, fail-open
-   structural-exploration tool, `codegraph_explore`, behind its own
-   isolation gate.
+   retain narrower profiles. Fixed task tools are defined by their feature
+   designs: CodeGraph exploration, review/local reporting, and the bounded
+   development publication tool. They do not create a general product-tool
+   framework.
 8. Java Platform Module System descriptors are unnecessary; Maven dependency
    direction is sufficient.
 
@@ -469,12 +468,12 @@ React projection implement this end-to-end flow:
 9. The renderer derives transcript grouping, folded activity prose, plans,
    icons, elapsed clocks, queue state, and root/child navigation without
    interpreting raw provider payloads.
-10. Phase one stops at the stock App Server harness. It
-    does not register ByteQuay actions as model-callable tools or add custom
-    product-tool routing. The CodeGraph service is the only narrow
-    exception: one fixed, fail-open structural tool, added after the base
-    protocol, event streaming, approvals, and recovery paths worked end to
-    end.
+10. Native execution remains in the provider harness. Fixed task tools follow
+    the separately defined CodeGraph, review, local-comment, and development
+    delivery contracts. Generated draft publication uses its task-bound tool
+    and backend-verified destination and lease; an ordinary user turn may
+    instead perform explicitly authorized CLI publishing under the shared
+    command policy.
 
 The detailed backend contract is in
 [Agent Service Design](agent-service.md); the frontend behavior is in
@@ -517,8 +516,8 @@ The detailed backend contract is in
 - Stock provider tool workloads run through the selected sandbox and approval
   policy. App Server and Claude retain the provider traffic their control loops
   require; endpoint-level OS filtering is not claimed by this first design.
-  ByteQuay product-action tools are deferred. The optional one-tool CodeGraph
-  boundary is specified separately and remains fail-open. Directly owned App
+  Fixed task-tool boundaries are specified separately; the optional CodeGraph
+  tool remains fail-open. Directly owned App
   Server and Claude processes use durable launch intents/markers. Codex first
   verifies current-run agent status, tools, children, and background terminals,
   records finished work on that launch, and stops the per-turn App Server.

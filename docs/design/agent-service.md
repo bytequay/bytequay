@@ -3733,6 +3733,16 @@ destination-allowlisted by this sandbox. The permission-prompt MCP adapter is
 only the provider's approval callback; it is not a model-callable ByteQuay
 business tool and cannot perform product actions.
 
+One task MCP tool does perform a product action: `create_draft_pull_request`
+pushes the task's verified revision and opens its draft pull request. Both lanes
+reach it through the same broker during ByteQuay's generated publication step,
+which must use this tool rather than a competing shell write. The tool decides
+nothing: the destination, exact revision, and remote lease come from the
+coordinator's own follow-up, the caller supplies only a title and body, and a
+call outside that follow-up is refused. Ordinary user turns may perform
+explicitly authorized CLI publishing under the shared policy; the tool's
+bounded publication window does not prohibit that independent path.
+
 The driver never enables `--dangerously-skip-permissions`. It also does not use
 `--bare`: bare mode does not read Claude subscription OAuth or keychain
 credentials and therefore would break the supported no-API-key deployment.

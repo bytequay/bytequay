@@ -52,6 +52,7 @@ import static java.util.Objects.requireNonNull;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyBoolean;
 import static org.mockito.ArgumentMatchers.argThat;
 import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.mock;
@@ -84,7 +85,7 @@ class TestDefaultWorkspacePullRequestService
 
         verify(fixture.git()).pushBranch(fixture.workspace(), WORK_BRANCH, PARENT_SHA);
         verify(fixture.pullRequests(), times(1)).createPullRequest(
-                "token", RepoRef.of("owner", "project"), WORK_BRANCH, "main", "PR title", "PR body");
+                "token", RepoRef.of("owner", "project"), WORK_BRANCH, "main", "PR title", "PR body", false);
         verify(fixture.pullRequestCatalog(), times(2))
                 .observeWorkspacePullRequest(RepoRef.of("owner", "project"), 12);
         verify(fixture.ciAutofix(), times(2)).start(argThat(command ->
@@ -115,7 +116,8 @@ class TestDefaultWorkspacePullRequestService
                 "contributor:" + WORK_BRANCH,
                 "main",
                 "PR title",
-                "PR body");
+                "PR body",
+                false);
         verify(fixture.pullRequestCatalog())
                 .observeWorkspacePullRequest(RepoRef.of("upstream", "project"), 12);
         verifyNoInteractions(fixture.ciAutofix());
@@ -135,7 +137,7 @@ class TestDefaultWorkspacePullRequestService
 
         verify(fixture.git()).pushBranch(fixture.workspace(), WORK_BRANCH, PARENT_SHA);
         verify(fixture.pullRequests()).createPullRequest(
-                "token", RepoRef.of("upstream", "project"), "contributor:" + WORK_BRANCH, "release/478", "PR title", "PR body");
+                "token", RepoRef.of("upstream", "project"), "contributor:" + WORK_BRANCH, "release/478", "PR title", "PR body", false);
         assertThat(result.baseRepository()).isEqualTo(RepoRef.of("upstream", "project"));
         assertThat(result.baseBranch()).isEqualTo("release/478");
         assertThat(fixture.service().getStatus("workspace", fixture.executionId()).baseBranch()).isEqualTo("release/478");
@@ -159,7 +161,7 @@ class TestDefaultWorkspacePullRequestService
 
         assertThat(retried.number()).isEqualTo(12);
         verify(fixture.pullRequests(), times(1)).createPullRequest(
-                any(), any(), any(), any(), any(), any());
+                any(), any(), any(), any(), any(), any(), anyBoolean());
         verify(fixture.ciAutofix(), times(1)).start(any());
     }
 
@@ -194,7 +196,7 @@ class TestDefaultWorkspacePullRequestService
                         failure -> assertThat(failure.code()).isEqualTo("DELIVERY_CONFIRMATION_REQUIRED"));
 
         verify(fixture.git(), times(1)).pushBranch(fixture.workspace(), WORK_BRANCH, PARENT_SHA);
-        verify(fixture.pullRequests(), never()).createPullRequest(any(), any(), any(), any(), any(), any());
+        verify(fixture.pullRequests(), never()).createPullRequest(any(), any(), any(), any(), any(), any(), anyBoolean());
     }
 
     @Test
@@ -239,7 +241,7 @@ class TestDefaultWorkspacePullRequestService
                 .thenReturn(Optional.of(selected));
         when(repositories.fetchRepository("token", 300L)).thenReturn(Optional.of(upstreamRepository()));
         GitHubPullRequestWriteClient pullRequests = mock(GitHubPullRequestWriteClient.class);
-        when(pullRequests.createPullRequest(any(), any(), any(), any(), any(), any()))
+        when(pullRequests.createPullRequest(any(), any(), any(), any(), any(), any(), anyBoolean()))
                 .thenReturn(new CreatedPullRequest(
                         900,
                         12,

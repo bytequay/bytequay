@@ -178,7 +178,8 @@ public final class DefaultWorkspacePullRequestService
                     head,
                     execution.workspace().targetBranch(),
                     draft.title(),
-                    draft.body());
+                    draft.body(),
+                    false);
             CherryPickExecution saved = executions.save(execution.recordPullRequest(
                     created.id(), created.number(), created.url(), clock.instant()));
             Delivery savedDelivery = saved.delivery().orElseThrow();

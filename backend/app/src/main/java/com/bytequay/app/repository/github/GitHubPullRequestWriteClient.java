@@ -388,7 +388,8 @@ public class GitHubPullRequestWriteClient
             String head,
             String base,
             String title,
-            String body)
+            String body,
+            boolean draft)
     {
         requireNonNull(baseRepository, "baseRepository is null");
         checkText(head, "head");
@@ -396,7 +397,8 @@ public class GitHubPullRequestWriteClient
         checkText(title, "title");
         requireNonNull(body, "body is null");
         return translating(() -> {
-            GitHubCreatedPullRequest created = requireBody(send(gitHubRestClient, HttpMethod.POST, pat, ImmutableMap.of("title", title, "body", body, "head", head, "base", base),
+            GitHubCreatedPullRequest created = requireBody(send(gitHubRestClient, HttpMethod.POST, pat,
+                    ImmutableMap.of("title", title, "body", body, "head", head, "base", base, "draft", draft),
                     "/repos/{owner}/{repo}/pulls", baseRepository.owner(), baseRepository.repo())
                     .body(GitHubCreatedPullRequest.class), "Empty response from GitHub when creating pull request");
             return new CreatedPullRequest(created.id(), created.number(), created.htmlUrl());

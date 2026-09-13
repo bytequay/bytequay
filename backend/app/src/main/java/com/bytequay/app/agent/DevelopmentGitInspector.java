@@ -146,6 +146,38 @@ public class DevelopmentGitInspector
         return new DevelopmentPublicationFacts(remoteHead, matches);
     }
 
+    /**
+     * Pushes one verified development revision to its accepted route under an explicit lease.
+     *
+     * <p>The lease is the remote SHA the coordinator verified moments earlier; an empty expected
+     * value means the remote branch must still be absent. Credentials reach Git through the
+     * workspace transport environment, never the command line or the agent.
+     *
+     * @param worktree the task's leased worktree
+     * @param route the accepted publication destination
+     * @param localHead exact commit to publish
+     * @param expectedRemoteSha remote SHA the lease requires, empty when no remote branch exists
+     */
+    public void pushDevelopmentHead(TaskWorktree worktree, DevelopmentPublicationRoute route, String localHead, Optional<String> expectedRemoteSha)
+    {
+        requireNonNull(worktree, "worktree is null");
+        requireNonNull(route, "route is null");
+        requireNonNull(expectedRemoteSha, "expectedRemoteSha is null");
+        requireCommit(worktree, localHead);
+        expectedRemoteSha.ifPresent(DevelopmentGitInspector::requireSha);
+        verify(worktree, route);
+        String ref = "refs/heads/" + route.headBranch();
+        Result result = git.run(worktree.canonicalWorktree(), Duration.ofSeconds(120),
+                credentials.gitAuthenticationEnvironment(worktree.workspaceId(), ImmutableList.of(route.pushUrl())),
+                ImmutableList.of(
+                        "push", "--porcelain",
+                        "--force-with-lease=" + ref + ":" + expectedRemoteSha.orElse(""),
+                        "--", route.pushUrl(), localHead + ":" + ref));
+        checkState(!result.truncated(), "Remote push response was truncated");
+        checkState(result.successful(), "Could not push the development branch: %s", result.output().strip());
+        verify(worktree, route);
+    }
+
     /** Synchronizes a stopped, clean source to the coordinator's verified published CI revision. */
     public DevelopmentLocalFacts synchronizeSource(DevelopmentBaseline baseline, String expectedSourceHead, String publishedHead, Runnable requireAuthority)
     {

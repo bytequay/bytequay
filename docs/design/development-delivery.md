@@ -24,7 +24,8 @@ the task panel does not stop the backend's running continuation.
 | Edit, choose local checks, write commit messages, commit | Development agent |
 | Check actual worktree, commits, remote branch, and PR | ByteQuay |
 | Decide whether a commit/publication follow-up is needed | ByteQuay |
-| Push the development revision and create the draft with native tools | Development agent, on ByteQuay's scoped follow-up |
+| Choose publication text and invoke the scoped draft tool | Development agent, on ByteQuay's follow-up |
+| Push the verified revision and create or reuse its open PR | ByteQuay, through the scoped publication tool |
 | Watch CI and start repair turns | Existing CI Autofix service, driven by the coordinator |
 | Fix CI and make repair commits | CI repair agent |
 | Validate and push CI repairs | Existing CI Autofix service |
@@ -95,6 +96,8 @@ requested action in the user's message. Existing task authorization need not
 be repeated, but the agent still verifies the actual destination, outgoing
 changes, and any exact rewrite lease. A general development request supplies
 no remote-write authority. Narrower user instructions remain binding.
+Generated publication remains the bounded tool-only step described below;
+its tool window does not limit otherwise authorized ordinary CLI operations.
 
 Respect independent settings:
 
@@ -343,32 +346,40 @@ It skips a second push and still verifies the repository, branch, revision,
 and PR identity. An unrelated remote change does not qualify for this path.
 
 The commit request only commits finished task work with repository-convention
-messages. The publication request never commits: it checks the supplied exact
-HEAD/remote, pushes that object to the authorized ref, and uses
-`gh pr create --draft` with the repository template when no matching PR exists.
-Reuse an existing open PR; closed/merged/ambiguous matches stop the MVP.
-Enforce expected remote absence or exact SHA at push time and do not overwrite
-outside changes. The generated command pins the exact push URL/ref/object and
-uses `--force-with-lease=<ref>:<expected-SHA>`, with an empty expected value for
-confirmed absence. Git enforces that lease when the command runs. Native agent
-tools retain their normal approval policy; this scoped instruction is not a
-sandbox for arbitrary agent commands. ByteQuay independently rereads the remote
-SHA and exact head/base repository/branch identities afterward; a reported URL
-or successful agent response cannot establish publication.
+messages. The publication request never commits, and the agent performs no
+remote write: it rechecks the supplied exact HEAD and clean status, then calls
+the task-bound `create_draft_pull_request` tool with a title and body chosen
+from the actual change and the repository template. ByteQuay performs the push
+and the GitHub write itself. Reuse an existing open PR; closed/merged/ambiguous
+matches stop the MVP.
 
-Publication uses the installed `gh` login and its Git credential helper; app
-workspace credentials are used separately for ByteQuay's read-only verification.
-No app token is injected into the generated prompt. An unavailable `gh` login
-fails the publication action. Same-repository PR commands use a branch-only
-`--head`; forks use `owner:branch`. The installed CLI does not support an
-organization-owned fork in that syntax; such a creation fails visibly without
-an alternate publisher or retry. Existing PRs keep their current draft status;
-PRs created by the publication follow-up must independently verify as drafts.
+The tool authorizes nothing by itself. Tool publication is open only while ByteQuay
+is running the task's draft-pull-request follow-up, and that window carries the
+accepted destination, the verified revision, and the remote lease, so a session
+chooses the title and body and nothing else. A call outside the window is
+refused as tool text the agent can report. Repeating the call is safe: an
+already-published revision reports the existing pull request instead of opening
+a second one.
+
+The push enforces expected remote absence or an exact SHA through
+`--force-with-lease=<ref>:<expected-SHA>`, with an empty expected value for
+confirmed absence, and does not overwrite outside changes. ByteQuay
+independently rereads the remote SHA and exact head/base repository/branch
+identities afterward; a tool result cannot establish publication.
+
+Tool publication uses the workspace Git transport credential and the same
+authenticated write client as other PR actions. ByteQuay does not copy that
+credential into the provider process, generated prompt, or agent shell.
+The GitHub CLI is unnecessary for this tool path. Separately, ordinary
+authorized CLI publishing uses the user's normal Git/`gh` authentication;
+ByteQuay's stored token does not supply it. Same-repository pull requests use a branch-only head; forks use
+`owner:branch`. Existing PRs keep their current draft status; PRs created by the
+publication follow-up must independently verify as drafts.
 
 Useful local validation belongs to the agent. Missing Bun, for example,
 remains an explicit local-check limitation; it is not proof of passing tests
 and need not block a finished commit/draft. Missing prerequisites for the next
-action, such as GitHub CLI authentication, stop that action visibly.
+action stop that action visibly.
 
 ## 5. CI and concurrent input
 

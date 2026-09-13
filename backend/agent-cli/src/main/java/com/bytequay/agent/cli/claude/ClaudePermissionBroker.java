@@ -23,6 +23,7 @@ import com.bytequay.agent.spi.CodeGraphBridge;
 import com.bytequay.agent.spi.DevelopmentResultBridge;
 import com.bytequay.agent.spi.DevelopmentResultBridgeResolver;
 import com.bytequay.agent.spi.DevelopmentResultReport;
+import com.bytequay.agent.spi.DraftPullRequestPublisher;
 import com.bytequay.agent.spi.LocalReviewBridge;
 import com.bytequay.agent.spi.LocalReviewBridgeResolver;
 import com.bytequay.agent.spi.ProviderApprovalDecision;
@@ -75,6 +76,9 @@ public final class ClaudePermissionBroker
 {
     private static final Duration APPROVAL_TIMEOUT = Duration.ofMinutes(5);
     private static final int MAX_DETAIL_CHARACTERS = 16 * 1024;
+    private static final int MAXIMUM_TITLE_CHARACTERS = 256;
+    private static final int MAXIMUM_BODY_CHARACTERS = 60_000;
+    private static final Set<String> PUBLISH_ARGUMENTS = ImmutableSet.of("title", "body");
     private static final SecureRandom RANDOM = new SecureRandom();
     private static final Pattern CHERRY_PICK_FIXUP = Pattern.compile(
             "^git\\s+commit\\s+(?:(?:--allow-empty\\s+--fixup=)|(?:--fixup=))([0-9a-f]{40}|[0-9a-f]{64})(?:\\s+--allow-empty)?$");
@@ -88,6 +92,7 @@ public final class ClaudePermissionBroker
     private final CiMemoryReader ciMemoryReader;
     private final ReviewBridgeResolver reviews;
     private final DevelopmentResultBridgeResolver developments;
+    private final DraftPullRequestPublisher draftPullRequests;
     private final LocalReviewBridgeResolver localReviews;
     private final Map<String, PermissionContext> contexts = new ConcurrentHashMap<>();
 
@@ -115,7 +120,7 @@ public final class ClaudePermissionBroker
             ReviewBridgeResolver reviews,
             DevelopmentResultBridgeResolver developments)
     {
-        this(endpoint, objectMapper, ciMemoryReader, reviews, developments, LocalReviewBridgeResolver.NONE);
+        this(endpoint, objectMapper, ciMemoryReader, reviews, developments, DraftPullRequestPublisher.NONE);
     }
 
     public ClaudePermissionBroker(
@@ -124,6 +129,18 @@ public final class ClaudePermissionBroker
             CiMemoryReader ciMemoryReader,
             ReviewBridgeResolver reviews,
             DevelopmentResultBridgeResolver developments,
+            DraftPullRequestPublisher draftPullRequests)
+    {
+        this(endpoint, objectMapper, ciMemoryReader, reviews, developments, draftPullRequests, LocalReviewBridgeResolver.NONE);
+    }
+
+    public ClaudePermissionBroker(
+            Supplier<URI> endpoint,
+            ObjectMapper objectMapper,
+            CiMemoryReader ciMemoryReader,
+            ReviewBridgeResolver reviews,
+            DevelopmentResultBridgeResolver developments,
+            DraftPullRequestPublisher draftPullRequests,
             LocalReviewBridgeResolver localReviews)
     {
         this.endpoint = requireNonNull(endpoint, "endpoint is null");
@@ -134,6 +151,7 @@ public final class ClaudePermissionBroker
         this.ciMemoryReader = requireNonNull(ciMemoryReader, "ciMemoryReader is null");
         this.reviews = requireNonNull(reviews, "reviews is null");
         this.developments = requireNonNull(developments, "developments is null");
+        this.draftPullRequests = requireNonNull(draftPullRequests, "draftPullRequests is null");
         this.localReviews = requireNonNull(localReviews, "localReviews is null");
     }
 
@@ -319,6 +337,7 @@ public final class ClaudePermissionBroker
             case "read_ci_memory" -> readCiMemory(request.id(), params.arguments(), context);
             case CodeGraphBridge.TOOL_NAME -> codeGraphExplore(request.id(), params.arguments(), context);
             case DevelopmentResultBridge.TOOL_NAME -> developmentResult(request.id(), params.arguments(), context);
+            case DevelopmentResultBridge.PUBLISH_TOOL_NAME -> createDraftPullRequest(request.id(), params.arguments(), context);
             case LocalReviewBridge.LIST_TOOL, LocalReviewBridge.REPLY_TOOL, LocalReviewBridge.RESOLVE_TOOL -> localReviewTool(request.id(), params, context);
             default -> reviewTool(request.id(), params, context);
         };
@@ -409,6 +428,52 @@ public final class ClaudePermissionBroker
         catch (IllegalArgumentException failure) {
             return error(id, -32602, "Invalid report_development_result arguments");
         }
+    }
+
+    /**
+     * Publishes the task's verified revision as a draft pull request.
+     *
+     * <p>The caller supplies only a title and body. The destination, the exact revision, and the
+     * lease all come from ByteQuay's own publication follow-up, so a session cannot choose where
+     * its work lands, and a call made outside that follow-up is refused. A refusal is tool text
+     * the agent can report, not a dropped connection.
+     */
+    private McpHttpResponse createDraftPullRequest(JsonNode id, JsonNode arguments, PermissionContext context)
+    {
+        if (context.development().isEmpty()) {
+            return error(id, -32602, "Draft pull request publication is unavailable for this task");
+        }
+        String title;
+        String body;
+        try {
+            checkArgument(arguments != null && arguments.isObject(), "arguments must be an object");
+            arguments.fieldNames().forEachRemaining(name ->
+                    checkArgument(PUBLISH_ARGUMENTS.contains(name), "unknown argument: %s", name));
+            title = requireText(arguments, "title", MAXIMUM_TITLE_CHARACTERS);
+            body = requireText(arguments, "body", MAXIMUM_BODY_CHARACTERS);
+        }
+        catch (IllegalArgumentException failure) {
+            return error(id, -32602, "Invalid " + DevelopmentResultBridge.PUBLISH_TOOL_NAME + " arguments");
+        }
+        try {
+            String result = draftPullRequests.publish(context.taskId(), title, body);
+            return response(id, new ToolResult(ImmutableList.of(new TextContent("text", context.redactor().redact(result))), false));
+        }
+        catch (RuntimeException failure) {
+            String detail = Optional.ofNullable(failure.getMessage()).orElseGet(() -> failure.getClass().getSimpleName());
+            return response(id, new ToolResult(
+                    ImmutableList.of(new TextContent("text", context.redactor().redact("Publication was refused: " + detail))), true));
+        }
+    }
+
+    private static String requireText(JsonNode arguments, String field, int maximumCharacters)
+    {
+        JsonNode value = arguments.get(field);
+        checkArgument(value != null && value.isTextual(), "%s must be a string", field);
+        String text = value.asText();
+        checkArgument(text.length() <= maximumCharacters, "%s is too long", field);
+        checkArgument(!field.equals("title") || !text.isBlank(), "title is blank");
+        return text;
     }
 
     /**
@@ -629,6 +694,16 @@ public final class ClaudePermissionBroker
                                 "readyForDelivery", ImmutableMap.of("type", "boolean"),
                                 "message", ImmutableMap.of("type", "string", "minLength", 1, "maxLength", DevelopmentResultReport.MAXIMUM_MESSAGE_LENGTH)),
                         "required", ImmutableList.of("readyForDelivery"),
+                        "additionalProperties", false))));
+        context.development().ifPresent(ignored -> tools.add(new ToolDefinition(
+                DevelopmentResultBridge.PUBLISH_TOOL_NAME,
+                "Publish this task's verified revision as a draft pull request; ByteQuay owns the push and the GitHub write",
+                ImmutableMap.of(
+                        "type", "object",
+                        "properties", ImmutableMap.of(
+                                "title", ImmutableMap.of("type", "string", "minLength", 1, "maxLength", MAXIMUM_TITLE_CHARACTERS),
+                                "body", ImmutableMap.of("type", "string", "maxLength", MAXIMUM_BODY_CHARACTERS)),
+                        "required", ImmutableList.of("title", "body"),
                         "additionalProperties", false))));
         if (context.permissionPolicy() == AgentPermissionPolicy.CI_AUTOFIX) {
             tools.add(new ToolDefinition(

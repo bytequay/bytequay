@@ -56,4 +56,17 @@ class TestAgentCommandPolicy
                 "without exposing their values",
                 "native denials still apply");
     }
+
+    @Test
+    void publicationToolOwnershipDoesNotForbidAuthorizedCliWork()
+    {
+        assertThat(DevelopmentResultBridge.INSTRUCTION).contains(
+                "readyForDelivery=false before asking for an unresolved decision",
+                "Missing or invalid reports never authorize delivery",
+                "During ByteQuay's generated draft-publication step",
+                "use the tool without duplicating its writes",
+                "explicitly requested git or gh publishing follows the shared command authorization",
+                "Its refusal does not block an authorized CLI operation");
+        assertThat(DevelopmentResultBridge.INSTRUCTION).doesNotContain("never run git push", "never ask\nfor credentials");
+    }
 }

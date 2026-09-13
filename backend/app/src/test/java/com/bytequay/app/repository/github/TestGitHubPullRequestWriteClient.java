@@ -425,7 +425,8 @@ class TestGitHubPullRequestWriteClient
                           "title":"PR title",
                           "body":"PR body",
                           "head":"contributor:bump-branch",
-                          "base":"main"
+                          "base":"main",
+                          "draft":false
                         }
                         """))
                 .andRespond(withSuccess("""
@@ -438,7 +439,8 @@ class TestGitHubPullRequestWriteClient
                 "contributor:bump-branch",
                 "main",
                 "PR title",
-                "PR body");
+                "PR body",
+                false);
 
         assertThat(created).isEqualTo(new CreatedPullRequest(
                 900, 12, "https://github.com/upstream/project/pull/12"));

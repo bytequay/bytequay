@@ -39,6 +39,7 @@ import com.bytequay.agent.spi.AgentTurnResult;
 import com.bytequay.agent.spi.AgentUnavailableException;
 import com.bytequay.agent.spi.CodeGraphBridge;
 import com.bytequay.agent.spi.DevelopmentResultBridgeResolver;
+import com.bytequay.agent.spi.DraftPullRequestPublisher;
 import com.bytequay.agent.spi.LocalReviewBridge;
 import com.bytequay.agent.spi.ProviderAgentEvent;
 import com.bytequay.agent.spi.ProviderApprovalDecision;
@@ -2624,7 +2625,7 @@ class TestCodexCliDriver
         LocalReviewBridge local = new LocalReviewBridge(commentId -> "[]", reply -> "{}", resolution -> "{}", LocalReviewBridge.INSTRUCTION);
         ClaudePermissionBroker broker = new ClaudePermissionBroker(
                 () -> URI.create(MCP_ENDPOINT), objectMapper, (taskId, query) -> "",
-                ReviewBridgeResolver.NONE, DevelopmentResultBridgeResolver.NONE, taskId -> Optional.of(local));
+                ReviewBridgeResolver.NONE, DevelopmentResultBridgeResolver.NONE, DraftPullRequestPublisher.NONE, taskId -> Optional.of(local));
         CodexHome.prepare(codexHome());
         CodexCliDriver driver = new CodexCliDriver("/fake/codex", "0.153.4", objectMapper, supervisor,
                 ImmutableMap.of("HOME", worktree.toString()), codexHome(), broker, Duration.ofSeconds(30));

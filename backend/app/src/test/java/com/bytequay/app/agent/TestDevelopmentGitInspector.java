@@ -343,7 +343,7 @@ class TestDevelopmentGitInspector
                 .isEqualTo(run(worktree.canonicalWorktree(), "rev-parse", original + "^{tree}"));
         assertThat(inspector.isAncestor(worktree, original, rewritten)).isFalse();
 
-        run(worktree.canonicalWorktree(), "push", "--force-with-lease=" + ref + ":" + original, "--", bareRemote.toString(), rewritten + ":" + ref);
+        inspector.pushDevelopmentHead(worktree, route, rewritten, Optional.of(original));
 
         assertThat(inspector.inspectPublication(worktree, route).remoteHeadSha()).contains(rewritten);
         run(worktree.canonicalWorktree(), "commit", "--amend", "-m", "Revise commit message again");
@@ -352,8 +352,8 @@ class TestDevelopmentGitInspector
         run(other, "reset", "--hard", rewritten);
         String advanced = publishCi(other, "later remote change");
 
-        Result stale = git.run(worktree.canonicalWorktree(), "push", "--force-with-lease=" + ref + ":" + rewritten, "--", bareRemote.toString(), nextRewrite + ":" + ref);
-        assertThat(stale.successful()).isFalse();
+        assertThatThrownBy(() -> inspector.pushDevelopmentHead(worktree, route, nextRewrite, Optional.of(rewritten)))
+                .isInstanceOf(IllegalStateException.class).hasMessageContaining("Could not push the development branch");
         assertThat(inspector.inspectPublication(worktree, route).remoteHeadSha()).contains(advanced);
         assertThat(run(worktree.canonicalWorktree(), "rev-parse", "HEAD")).isEqualTo(nextRewrite);
     }
@@ -643,6 +643,10 @@ class TestDevelopmentGitInspector
                         .map(this::localRemote).collect(ImmutableList.toImmutableList())));
                 afterFetch.run();
                 return result;
+            }
+            if (!arguments.isEmpty() && arguments.getFirst().equals("push")) {
+                return super.run(directory, timeout, environment, arguments.stream()
+                        .map(this::localRemote).collect(ImmutableList.toImmutableList()));
             }
             if (arguments.contains("--no-overwrite-ignore")) {
                 transitions.add(ImmutableList.copyOf(arguments));

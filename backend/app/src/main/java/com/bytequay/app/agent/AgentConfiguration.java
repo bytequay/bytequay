@@ -69,7 +69,6 @@ import com.bytequay.app.git.GitCommandRunner;
 import com.bytequay.app.repository.github.GitHubPullRequestReadClient;
 import com.bytequay.app.repository.github.GitHubPullRequestWriteClient;
 import com.bytequay.app.service.credentials.CredentialService;
-import com.bytequay.app.service.github.GhCliService;
 import com.bytequay.app.service.settings.AgentSkillService;
 import com.bytequay.app.service.settings.AppSettingsService;
 import com.bytequay.app.service.settings.CodeGraphMode;
@@ -132,7 +131,8 @@ public class AgentConfiguration
             CiMemoryService ciMemoryService,
             ReviewBridgeResolver reviews,
             DevelopmentResultBridgeResolver developmentResults,
-            LocalReviewBridgeResolver localReviews)
+            LocalReviewBridgeResolver localReviews,
+            ObjectProvider<DevelopmentFollowupCoordinator> developmentFollowups)
     {
         return new ClaudePermissionBroker(
                 () -> URI.create("http://127.0.0.1:" + ((WebServerApplicationContext) context).getWebServer().getPort()
@@ -142,6 +142,7 @@ public class AgentConfiguration
                         new ReadCiMemoryCommand(TaskId.valueOf(taskId), query)).markdown(),
                 reviews,
                 developmentResults,
+                (taskId, title, body) -> developmentFollowups.getObject().publishDraftPullRequest(taskId, title, body),
                 localReviews);
     }
 
@@ -364,10 +365,10 @@ public class AgentConfiguration
 
     @Bean
     public DevelopmentFollowupCoordinator developmentFollowupCoordinator(AgentTurnService turns, AgentTurnStore turnStore, DevelopmentGitInspector git,
-            GhCliService gh, CiAutofixService ci, GitHubActionsClient actions, CredentialService credentials, GitHubPullRequestReadClient pullRequests,
+            CiAutofixService ci, GitHubActionsClient actions, CredentialService credentials, GitHubPullRequestReadClient pullRequests,
             GitHubPullRequestWriteClient writes, Clock agentClock)
     {
-        return new DevelopmentFollowupCoordinator(turns, turnStore, git, gh,
+        return new DevelopmentFollowupCoordinator(turns, turnStore, git,
                 command -> Thread.ofVirtual().name("bytequay-development-followup").start(command), ci, actions, credentials, pullRequests, writes, agentClock, () -> {
                     try {
                         Thread.sleep(Duration.ofSeconds(5));

@@ -20,21 +20,23 @@ import com.bytequay.agent.core.DevelopmentAutomation;
 import com.bytequay.agent.core.DevelopmentTurnCompletion;
 import com.bytequay.agent.core.DevelopmentTurnOrigin;
 import com.bytequay.agent.core.TaskId;
+import com.bytequay.agent.core.TaskWorktree;
 import com.bytequay.agent.core.TurnId;
 import com.bytequay.agent.core.TurnState;
 import com.bytequay.agent.core.store.AgentTurnStore;
+import com.bytequay.agent.spi.DevelopmentResultBridge;
 import com.bytequay.agent.spi.DevelopmentResultReport;
 import com.bytequay.app.ci.CiAutofixService;
 import com.bytequay.app.ci.CiHeadSnapshot;
 import com.bytequay.app.ci.GitHubActionsClient;
 import com.bytequay.app.ci.InspectCiHeadQuery;
 import com.bytequay.app.ci.StartCiAutofixCommand;
+import com.bytequay.app.repository.github.CreatedPullRequest;
 import com.bytequay.app.repository.github.GitHubDeliveryChecks;
 import com.bytequay.app.repository.github.GitHubPullRequestIdentity;
 import com.bytequay.app.repository.github.GitHubPullRequestReadClient;
 import com.bytequay.app.repository.github.GitHubPullRequestWriteClient;
 import com.bytequay.app.service.credentials.CredentialService;
-import com.bytequay.app.service.github.GhCliService;
 import com.bytequay.core.ci.CiAutofixRun;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -48,7 +50,9 @@ import java.util.concurrent.CompletionException;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
 import java.util.concurrent.Executor;
+import java.util.regex.Pattern;
 
+import static com.google.common.base.Preconditions.checkArgument;
 import static com.google.common.base.Preconditions.checkState;
 import static java.util.Objects.requireNonNull;
 
@@ -56,11 +60,12 @@ import static java.util.Objects.requireNonNull;
 public final class DevelopmentFollowupCoordinator
 {
     private static final Logger log = LoggerFactory.getLogger(DevelopmentFollowupCoordinator.class);
+    private static final Pattern ATTRIBUTION = Pattern.compile(
+            "(?im)^.*(?:generated with[^\\n]{0,40}claude code|co-authored-by:\\s*claude\\b).*$\\R?");
 
     private final AgentTurnService turns;
     private final AgentTurnStore turnStore;
     private final DevelopmentGitInspector git;
-    private final GhCliService gh;
     private final Executor executor;
     private final CiAutofixService ci;
     private final GitHubActionsClient actions;
@@ -70,15 +75,15 @@ public final class DevelopmentFollowupCoordinator
     private final Clock clock;
     private final Runnable waitForCi;
     private final ConcurrentMap<TaskId, Accepted> accepted = new ConcurrentHashMap<>();
+    private final ConcurrentMap<TaskId, PendingPublication> publications = new ConcurrentHashMap<>();
 
-    public DevelopmentFollowupCoordinator(AgentTurnService turns, AgentTurnStore turnStore, DevelopmentGitInspector git, GhCliService gh,
+    public DevelopmentFollowupCoordinator(AgentTurnService turns, AgentTurnStore turnStore, DevelopmentGitInspector git,
             Executor executor, CiAutofixService ci, GitHubActionsClient actions, CredentialService credentials, GitHubPullRequestReadClient pullRequests,
             GitHubPullRequestWriteClient writes, Clock clock, Runnable waitForCi)
     {
         this.turns = requireNonNull(turns, "turns is null");
         this.turnStore = requireNonNull(turnStore, "turnStore is null");
         this.git = requireNonNull(git, "git is null");
-        this.gh = requireNonNull(gh, "gh is null");
         this.executor = requireNonNull(executor, "executor is null");
         this.ci = requireNonNull(ci, "ci is null");
         this.actions = requireNonNull(actions, "actions is null");
@@ -217,10 +222,18 @@ public final class DevelopmentFollowupCoordinator
                             "Remote history belongs to neither the current nor the starting task revision");
                 }
                 action = "Create draft PR";
-                String binary = gh.findBinary().orElseThrow(() -> new IllegalStateException("GitHub CLI is unavailable; install and authenticate gh"));
-                gh.readCredential();
-                DevelopmentTurnCompletion published = followup(completion, DevelopmentTurnOrigin.Kind.CREATE_DRAFT_PR,
-                        publicationPrompt(baseline, local, publication, currentPr, binary));
+                PendingPublication window = new PendingPublication(
+                        completion.turn().id(), baseline, local.headSha(), publication.remoteHeadSha(), currentPr);
+                publications.put(completion.task().id(), window);
+                DevelopmentTurnCompletion published;
+                try {
+                    published = followup(completion, DevelopmentTurnOrigin.Kind.CREATE_DRAFT_PR,
+                            publicationPrompt(baseline, local, currentPr));
+                }
+                finally {
+                    // The window authorizes exactly this follow-up; a later turn must not publish.
+                    publications.remove(completion.task().id(), window);
+                }
                 if (!requireResult(published).readyForDelivery()) {
                     finish(completion);
                     return;
@@ -515,42 +528,119 @@ public final class DevelopmentFollowupCoordinator
                 """.formatted(quote(baseline.worktree().canonicalWorktree().toString()), quote(baseline.route().headBranch()), local.headSha());
     }
 
-    static String publicationPrompt(DevelopmentBaseline baseline, DevelopmentLocalFacts local, DevelopmentPublicationFacts publication,
-            Optional<GitHubPullRequestIdentity> pullRequest, String ghBinary)
+    /**
+     * Publishes the pending revision for one task; the provider tool calls this instead of a shell.
+     *
+     * <p>Only an open publication window authorizes the write, and the window carries the verified
+     * revision, the accepted destination, and the remote lease. The caller chooses the title and
+     * body and nothing else, so a session cannot retarget the push, publish a different commit, or
+     * reach a credential. Repeating the call is safe: an already-published revision reports the
+     * existing pull request rather than opening a second one.
+     *
+     * @param taskId task whose publication window must be open
+     * @param title pull request title
+     * @param body pull request body
+     * @return a short result naming the created or reused pull request
+     */
+    public String publishDraftPullRequest(String taskId, String title, String body)
+    {
+        requireNonNull(taskId, "taskId is null");
+        requireNonNull(title, "title is null");
+        requireNonNull(body, "body is null");
+        checkArgument(!title.isBlank(), "The pull request title is blank");
+        TaskId id = TaskId.valueOf(taskId);
+        PendingPublication window = publications.get(id);
+        checkState(window != null, "ByteQuay is not requesting a draft pull request for this task right now");
+        DevelopmentPublicationRoute route = window.baseline().route();
+        TaskWorktree worktree = window.baseline().worktree();
+        DevelopmentLocalFacts local = git.inspectLocal(worktree, route);
+        checkState(local.headSha().equals(window.localHead()) && local.uncommittedFileCount() == 0,
+                "The verified local revision changed; publication was not attempted");
+        DevelopmentPublicationFacts facts = git.inspectPublication(worktree, route);
+        if (facts.remoteHeadSha().filter(window.localHead()::equals).isEmpty()) {
+            checkState(facts.remoteHeadSha().equals(window.expectedRemoteSha()), "The remote branch changed; publication was not attempted");
+            git.pushDevelopmentHead(worktree, route, window.localHead(), window.expectedRemoteSha());
+            facts = git.inspectPublication(worktree, route);
+        }
+        checkState(facts.remoteHeadSha().filter(window.localHead()::equals).isPresent(),
+                "The pushed revision was not verified on the remote branch");
+        Optional<GitHubPullRequestIdentity> existing = matchingPr(route, facts);
+        if (existing.isPresent()) {
+            GitHubPullRequestIdentity pullRequest = existing.orElseThrow();
+            window.existingPr().ifPresent(original -> checkState(pullRequest.pullRequest().equals(original.pullRequest()),
+                    "Publication replaced the task's pull request"));
+            return "Pushed " + window.localHead() + "; pull request " + pullRequest.url() + " already tracks this branch.";
+        }
+        String head = route.headRepository().equals(route.baseRepository())
+                ? route.headBranch()
+                : route.headRepository().owner() + ":" + route.headBranch();
+        CreatedPullRequest created = writes.createPullRequest(
+                credentials.resolveGitHubToken(worktree.workspaceId()),
+                route.baseRepository(), head, route.baseBranch(), withoutAttribution(title), withoutAttribution(body), true);
+        return "Pushed " + window.localHead() + "; created draft pull request " + created.url();
+    }
+
+    /**
+     * Drops a provider's own sign-off from a body about to be published.
+     *
+     * <p>A session's built-in rules tell it to sign what it writes; this repository's rules do not,
+     * and the request says so. Reviewers read this body on a public pull request, so the prompt is
+     * not left as the only thing standing between them and a tool advertisement.
+     */
+    static String withoutAttribution(String body)
+    {
+        return ATTRIBUTION.matcher(body).replaceAll("").strip();
+    }
+
+    /** One task's authorization to publish: the accepted destination, revision, and remote lease. */
+    private record PendingPublication(
+            TurnId turnId,
+            DevelopmentBaseline baseline,
+            String localHead,
+            Optional<String> expectedRemoteSha,
+            Optional<GitHubPullRequestIdentity> existingPr)
+    {
+        private PendingPublication
+        {
+            requireNonNull(turnId, "turnId is null");
+            requireNonNull(baseline, "baseline is null");
+            requireNonNull(localHead, "localHead is null");
+            requireNonNull(expectedRemoteSha, "expectedRemoteSha is null");
+            requireNonNull(existingPr, "existingPr is null");
+        }
+    }
+
+    static String publicationPrompt(DevelopmentBaseline baseline, DevelopmentLocalFacts local,
+            Optional<GitHubPullRequestIdentity> pullRequest)
     {
         DevelopmentPublicationRoute route = baseline.route();
-        String remoteRef = "refs/heads/" + route.headBranch();
-        String push = "git -c credential.helper= -c " + quote("credential.https://github.com.helper=!" + quote(ghBinary) + " auth git-credential")
-                + " push --porcelain " + quote("--force-with-lease=" + remoteRef + ":" + publication.remoteHeadSha().orElse(""))
-                + " -- " + quote(route.pushUrl()) + " " + quote(local.headSha() + ":" + remoteRef);
-        // gh rejects organization:branch heads; a same-repository head needs only the branch.
-        String head = route.headRepository().equals(route.baseRepository()) ? route.headBranch() : route.headRepository().owner() + ":" + route.headBranch();
-        String create = quote(ghBinary) + " pr create --draft --repo " + quote(route.baseRepository().fullName())
-                + " --base " + quote(route.baseBranch()) + " --head " + quote(head)
-                + " --title <chosen-title> --body-file <prepared-body-file>";
-        String prInstruction = pullRequest.map(pr -> "Reuse existing PR " + pr.url() + "; do not create another or change its draft/readiness status.")
-                .orElse("No matching PR existed at verification. Check again before creating; reuse only one open PR with this exact base/head. "
-                        + "Stop on closed, merged, wrong-base, or ambiguous matches. If still absent, run once: " + create);
+        String prInstruction = pullRequest
+                .map(pr -> "Pull request " + pr.url() + " already tracks this branch; publishing updates it and creates no second one.")
+                .orElse("No pull request tracked this branch at verification.");
         return """
                 ByteQuay · Create draft PR
                 The user's accepted Auto draft PR setting authorizes this single publication of the verified revision.
                 Worktree: %s. Branch: %s. Exact clean HEAD to publish: %s.
-                Base repository/branch: %s / %s. Push repository: %s. Push URL: %s.
+                Base repository/branch: %s / %s. Push repository: %s.
                 Do not commit, edit code, amend, rebase, reset, switch branches, or run an independent CI repair loop.
-                Recheck the branch, exact HEAD, clean staged/unstaged/untracked status (excluding ignored build output), and no open Git operation.
-                If any check differs, stop. Verify gh authentication; keep normal tool approvals. Never print credentials.
-                If the remote already equals the exact HEAD, no push is necessary. Otherwise use this exact push command once:
-                %s
-                Its explicit lease must stay intact: an empty expected SHA means the remote branch must still be absent.
-                Never replace it with plain --force, an implicit lease, another destination, another ref, or a different object.
-                %s
-                Choose PR title/body from the actual change, follow the repository PR template, and preserve local-check limitations.
-                The title/body placeholders mean prepare those values; write the body file with real newlines outside this worktree,
-                such as in the system temporary directory, so publication leaves the checkout clean. Never mark the PR ready.
-                If any push/create result is uncertain or fails, stop without retrying; report the error and any known URL.
+                Recheck the branch, exact HEAD, clean staged/unstaged/untracked status (excluding ignored build output),
+                and no open Git operation. If any check differs, stop and report the difference.
+                Publish by calling %s exactly once with a title and body.
+                ByteQuay owns the push and the GitHub write: it pushes that exact HEAD under its own lease and opens the
+                pull request as a draft. Never run git push, a GitHub CLI command, or any other remote write for this,
+                and never read or ask for credentials. %s
+                Choose title and body from the actual change and the repository PR template. Fill only the
+                template sections this change actually has something to say for, and leave the rest exactly as
+                the template leaves them: an empty section is better than one filled to look complete. Do not
+                describe your own tooling, sandbox, or which checks you could not run, and never add an
+                attribution, co-authorship, or generated-with trailer.
+                Pass the body as tool input; do not write a body file into the worktree.
+                The tool reports the resulting pull request. If it refuses or its result is uncertain, stop without
+                retrying and report what it said.
                 If a user decision is needed, report readyForDelivery=false and ask it. Otherwise report readiness before ending.
                 """.formatted(quote(baseline.worktree().canonicalWorktree().toString()), quote(route.headBranch()), local.headSha(),
-                        route.baseRepository().fullName(), quote(route.baseBranch()), route.headRepository().fullName(), quote(route.pushUrl()), push, prInstruction);
+                        route.baseRepository().fullName(), quote(route.baseBranch()), route.headRepository().fullName(),
+                        DevelopmentResultBridge.PUBLISH_TOOL_NAME, prInstruction);
     }
 
     private static String quote(String value)

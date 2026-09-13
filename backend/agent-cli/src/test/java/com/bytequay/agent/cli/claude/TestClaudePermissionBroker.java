@@ -20,6 +20,7 @@ import com.bytequay.agent.spi.AgentPermissionPolicy;
 import com.bytequay.agent.spi.CodeGraphBridge;
 import com.bytequay.agent.spi.DevelopmentResultBridge;
 import com.bytequay.agent.spi.DevelopmentResultBridgeResolver;
+import com.bytequay.agent.spi.DraftPullRequestPublisher;
 import com.bytequay.agent.spi.LocalReviewBridge;
 import com.bytequay.agent.spi.ProviderApprovalDecision;
 import com.bytequay.agent.spi.ProviderApprovalRequest;
@@ -79,6 +80,7 @@ class TestClaudePermissionBroker
                 () -> URI.create("http://127.0.0.1:9000/internal/agent/claude/mcp"), objectMapper,
                 (taskId, query) -> "memory", ReviewBridgeResolver.NONE,
                 taskId -> taskId.equals("task-1") ? Optional.of(new DevelopmentResultBridge("turn-1", DevelopmentResultBridge.INSTRUCTION)) : Optional.empty(),
+                DraftPullRequestPublisher.NONE,
                 taskId -> taskId.equals("task-1") && available.get() ? Optional.of(local) : Optional.empty());
         SecretRedactor redactor = SecretRedactor.fromEnvironment(ImmutableMap.of("OPENAI_API_KEY", "known-secret"));
         String closedToken;
@@ -146,7 +148,7 @@ class TestClaudePermissionBroker
         }
         ClaudePermissionBroker localOnly = new ClaudePermissionBroker(
                 () -> URI.create("http://127.0.0.1:9000/internal/agent/claude/mcp"), objectMapper,
-                (taskId, query) -> "memory", ReviewBridgeResolver.NONE, DevelopmentResultBridgeResolver.NONE,
+                (taskId, query) -> "memory", ReviewBridgeResolver.NONE, DevelopmentResultBridgeResolver.NONE, DraftPullRequestPublisher.NONE,
                 taskId -> Optional.of(local));
         try (ClaudePermissionBroker.CodeGraphRegistration registration = localOnly.registerTools(
                 "task-1", temporaryDirectory, AgentPermissionPolicy.AUTO,
@@ -214,6 +216,67 @@ class TestClaudePermissionBroker
         }
         assertThat(broker.registerTools("task-2", temporaryDirectory, AgentPermissionPolicy.AUTO,
                 (request, timeout) -> CompletableFuture.completedFuture(ProviderApprovalDecision.deny()), redactor, Optional.empty())).isEmpty();
+    }
+
+    @Test
+    void draftPullRequestToolPublishesThroughByteQuayAndReportsARefusalAsToolText()
+            throws Exception
+    {
+        List<String> published = new ArrayList<>();
+        ClaudePermissionBroker broker = new ClaudePermissionBroker(
+                () -> URI.create("http://127.0.0.1:9000/internal/agent/claude/mcp"), objectMapper,
+                (taskId, query) -> "memory", ReviewBridgeResolver.NONE,
+                taskId -> Optional.of(new DevelopmentResultBridge("turn-1", DevelopmentResultBridge.INSTRUCTION)),
+                (taskId, title, body) -> {
+                    if (title.equals("Closed window")) {
+                        throw new IllegalStateException("ByteQuay is not requesting a draft pull request for this task right now");
+                    }
+                    published.add(taskId + "|" + title + "|" + body);
+                    return "Pushed abc; created draft pull request https://github.com/owner/repo/pull/7 known-secret";
+                });
+        SecretRedactor redactor = SecretRedactor.fromEnvironment(ImmutableMap.of("OPENAI_API_KEY", "known-secret"));
+        try (ClaudePermissionBroker.Registration claude = broker.register(
+                "task-1", temporaryDirectory, temporaryDirectory, temporaryDirectory, AgentPermissionPolicy.AUTO,
+                false, (request, timeout) -> CompletableFuture.completedFuture(ProviderApprovalDecision.deny()), redactor, Optional.empty())) {
+            String token = claude.token();
+            JsonNode listed = broker.handle(token, objectMapper.readTree("""
+                    {"jsonrpc":"2.0","id":1,"method":"tools/list","params":{}}
+                    """)).body().orElseThrow();
+            assertThat(listed.at("/result/tools").findValuesAsText("name")).contains(DevelopmentResultBridge.PUBLISH_TOOL_NAME);
+
+            JsonNode created = publishCall(broker, token, """
+                    {"title":"Add a thing","body":"Why it changed"}
+                    """);
+            assertThat(created.at("/result/isError").booleanValue()).isFalse();
+            assertThat(created.at("/result/content/0/text").textValue())
+                    .contains("created draft pull request", "[REDACTED]").doesNotContain("known-secret");
+            assertThat(published).containsExactly("task-1|Add a thing|Why it changed");
+
+            // A refusal must reach the agent as readable text, never as a dropped connection.
+            JsonNode refused = publishCall(broker, token, """
+                    {"title":"Closed window","body":"Why it changed"}
+                    """);
+            assertThat(refused.at("/result/isError").booleanValue()).isTrue();
+            assertThat(refused.at("/result/content/0/text").textValue()).contains("Publication was refused", "not requesting a draft pull request");
+            assertThat(published).hasSize(1);
+
+            for (String input : ImmutableList.of(
+                    "{}", "{\"title\":\"Only a title\"}", "{\"body\":\"Only a body\"}",
+                    "{\"title\":\"  \",\"body\":\"blank title\"}", "{\"title\":42,\"body\":\"wrong type\"}",
+                    "{\"title\":\"Add a thing\",\"body\":\"x\",\"draft\":false}",
+                    "{\"title\":\"" + "a".repeat(257) + "\",\"body\":\"too long\"}")) {
+                assertThat(publishCall(broker, token, input).at("/error/code").intValue()).isEqualTo(-32602);
+            }
+            assertThat(published).hasSize(1);
+        }
+    }
+
+    private JsonNode publishCall(ClaudePermissionBroker broker, String token, String arguments)
+            throws Exception
+    {
+        return broker.handle(token, objectMapper.readTree("""
+                {"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"create_draft_pull_request","arguments":%s}}
+                """.formatted(arguments))).body().orElseThrow();
     }
 
     private JsonNode developmentCall(ClaudePermissionBroker broker, String token, String arguments)

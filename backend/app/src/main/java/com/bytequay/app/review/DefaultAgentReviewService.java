@@ -548,22 +548,26 @@ public class DefaultAgentReviewService
 
     /**
      * Fast-forwards the generated branch to a descendant head. When the pull request history was
-     * rewritten, a user action resets a clean worktree that still sits on the last reviewed head;
-     * local commits or changes are preserved and refused.
+     * rewritten, a user action realigns a clean worktree that still sits on the last reviewed head.
+     * Local commits or changes are preserved and refused. Ignored build output survives both moves,
+     * and a head that tracks one of its paths is refused.
      */
     private void moveWorktree(AgentTask task, Optional<String> reviewedHead, String headSha, WorkspaceRepositoryContext workspace, boolean userAction)
     {
         TaskWorktree worktree = task.taskWorktree().orElseThrow(() -> new ReviewConflictException("The review task has no managed worktree"));
         WorktreeSnapshot snapshot = worktrees.inspect(worktree);
-        if (snapshot.dirty() || snapshot.gitOperationInProgress()) {
+        // The snapshot counts ignored build output as dirty; a review agent that ran tests has not left experiments behind.
+        GitCommandRunner.Result status = git.run(worktree.canonicalWorktree(), "status", "--porcelain=v1", "-z", "--untracked-files=all", "--ignore-submodules=none");
+        if (snapshot.gitOperationInProgress() || !status.successful() || !status.output().isEmpty()) {
             throw new ReviewConflictException("The review worktree has uncommitted experiments or an open Git operation; clean it up before updating the review");
         }
         if (snapshot.head().equals(headSha)) {
             return;
         }
+        // Hooks stay off so a hooks path inside the tree cannot run the pull request's own scripts.
         List<String> move;
         if (git.run(workspace.repository(), "merge-base", "--is-ancestor", snapshot.head(), headSha).successful()) {
-            move = ImmutableList.of("merge", "--ff-only", headSha);
+            move = ImmutableList.of("-c", "core.hooksPath=/dev/null", "merge", "--ff-only", "--no-overwrite-ignore", headSha);
         }
         else if (!snapshot.head().equals(reviewedHead.orElse(worktree.startCommit()))) {
             throw new ReviewConflictException("The review worktree has local commits on top of the reviewed head; remove them before updating the review");
@@ -572,8 +576,8 @@ public class DefaultAgentReviewService
             throw new ReviewConflictException("The pull request history was rewritten; Update review realigns the review to the new head");
         }
         else {
-            // --keep still refuses to overwrite a file that became dirty or untracked after the inspection.
-            move = ImmutableList.of("reset", "--keep", headSha);
+            // Unlike reset --keep, checkout refuses to overwrite ignored files, not only files that became dirty or untracked after the inspection.
+            move = ImmutableList.of("-c", "core.hooksPath=/dev/null", "checkout", "--no-overwrite-ignore", "--no-recurse-submodules", "-B", worktree.generatedBranch(), headSha);
         }
         GitCommandRunner.Result moved = git.run(worktree.canonicalWorktree(), move);
         if (!moved.successful() || !worktrees.inspect(worktree).head().equals(headSha)) {

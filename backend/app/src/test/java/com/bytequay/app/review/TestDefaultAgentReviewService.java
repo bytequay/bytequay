@@ -741,9 +741,10 @@ class TestDefaultAgentReviewService
         verify(fixture.git, never()).run(eq(taskWorktree().canonicalWorktree()), anyList());
 
         // Update is the user's realignment decision: the clean worktree moves and a full review runs.
+        // Ignored build output from the agent's test runs marks the snapshot dirty without blocking the move.
         when(fixture.worktrees.inspect(taskWorktree()))
-                .thenReturn(new WorktreeSnapshot(taskWorktree(), HEAD, false, false), new WorktreeSnapshot(taskWorktree(), NEW_HEAD, false, false));
-        when(fixture.git.run(taskWorktree().canonicalWorktree(), ImmutableList.of("reset", "--keep", NEW_HEAD))).thenReturn(ok(""));
+                .thenReturn(new WorktreeSnapshot(taskWorktree(), HEAD, true, false), new WorktreeSnapshot(taskWorktree(), NEW_HEAD, true, false));
+        when(fixture.git.run(taskWorktree().canonicalWorktree(), realign(NEW_HEAD))).thenReturn(ok(""));
 
         fixture.service.update(reviewId);
 
@@ -769,12 +770,12 @@ class TestDefaultAgentReviewService
         when(fixture.git.run(REPOSITORY, "merge-base", "--is-ancestor", HEAD, mid)).thenReturn(ok(""));
         when(fixture.worktrees.inspect(taskWorktree()))
                 .thenReturn(new WorktreeSnapshot(taskWorktree(), HEAD, false, false), new WorktreeSnapshot(taskWorktree(), mid, false, false));
-        when(fixture.git.run(worktree, ImmutableList.of("merge", "--ff-only", mid))).thenReturn(ok(""));
+        when(fixture.git.run(worktree, fastForward(mid))).thenReturn(ok(""));
 
         fixture.service.resume(reviewId);
 
         assertThat(fixture.store.listRuns(reviewId).getLast().headSha()).isEqualTo(mid);
-        verify(fixture.git).run(worktree, ImmutableList.of("merge", "--ff-only", mid));
+        verify(fixture.git).run(worktree, fastForward(mid));
 
         // The worktree now sits on MID, not the start commit; the rewrite is realigned from there.
         when(fixture.turns.get(TURN_TWO)).thenReturn(settledTurn(TURN_TWO, TurnState.FAILED, Optional.of("Provider failed")));
@@ -783,12 +784,12 @@ class TestDefaultAgentReviewService
         when(fixture.git.run(REPOSITORY, "merge-base", "--is-ancestor", mid, NEW_HEAD)).thenReturn(new GitCommandRunner.Result(1, "", false));
         when(fixture.worktrees.inspect(taskWorktree()))
                 .thenReturn(new WorktreeSnapshot(taskWorktree(), mid, false, false), new WorktreeSnapshot(taskWorktree(), NEW_HEAD, false, false));
-        when(fixture.git.run(worktree, ImmutableList.of("reset", "--keep", NEW_HEAD))).thenReturn(ok(""));
+        when(fixture.git.run(worktree, realign(NEW_HEAD))).thenReturn(ok(""));
 
         fixture.service.update(reviewId);
 
         assertThat(fixture.store.listRuns(reviewId).getLast().headSha()).isEqualTo(NEW_HEAD);
-        verify(fixture.git).run(worktree, ImmutableList.of("reset", "--keep", NEW_HEAD));
+        verify(fixture.git).run(worktree, realign(NEW_HEAD));
     }
 
     @Test
@@ -799,6 +800,8 @@ class TestDefaultAgentReviewService
         String localCommit = "c3d4e5f6a70123456789abcdef0123456789abcd";
         when(fixture.worktrees.inspect(taskWorktree()))
                 .thenReturn(new WorktreeSnapshot(taskWorktree(), HEAD, true, false), new WorktreeSnapshot(taskWorktree(), localCommit, false, false));
+        when(fixture.git.run(taskWorktree().canonicalWorktree(), "status", "--porcelain=v1", "-z", "--untracked-files=all", "--ignore-submodules=none"))
+                .thenReturn(ok("?? repro.txt\0"), ok(""));
         when(fixture.git.run(REPOSITORY, "merge-base", "--is-ancestor", localCommit, NEW_HEAD)).thenReturn(new GitCommandRunner.Result(1, "", false));
 
         assertThatThrownBy(() -> fixture.service.update(reviewId)).hasMessageContaining("uncommitted experiments");
@@ -821,6 +824,16 @@ class TestDefaultAgentReviewService
         pushHead(fixture, NEW_HEAD);
         when(fixture.git.run(REPOSITORY, "merge-base", "--is-ancestor", HEAD, NEW_HEAD)).thenReturn(new GitCommandRunner.Result(1, "", false));
         return fixture;
+    }
+
+    private static List<String> fastForward(String head)
+    {
+        return ImmutableList.of("-c", "core.hooksPath=/dev/null", "merge", "--ff-only", "--no-overwrite-ignore", head);
+    }
+
+    private static List<String> realign(String head)
+    {
+        return ImmutableList.of("-c", "core.hooksPath=/dev/null", "checkout", "--no-overwrite-ignore", "--no-recurse-submodules", "-B", taskWorktree().generatedBranch(), head);
     }
 
     /** GitHub and the fetched pull request ref both report the given head. */
@@ -1022,6 +1035,7 @@ class TestDefaultAgentReviewService
         private void stubGit()
         {
             when(git.run(eq(REPOSITORY), anyList())).thenReturn(ok(""));
+            when(git.run(taskWorktree().canonicalWorktree(), "status", "--porcelain=v1", "-z", "--untracked-files=all", "--ignore-submodules=none")).thenReturn(ok(""));
             when(git.run(REPOSITORY, "rev-parse", "--verify", "refs/bytequay/review/" + NUMBER + "^{commit}")).thenReturn(ok(HEAD));
             when(git.run(REPOSITORY, "rev-parse", "--verify", "refs/remotes/origin/main^{commit}")).thenReturn(ok(BASE_SHA));
             when(git.run(REPOSITORY, "merge-base", HEAD, BASE_SHA)).thenReturn(ok(MERGE_BASE));

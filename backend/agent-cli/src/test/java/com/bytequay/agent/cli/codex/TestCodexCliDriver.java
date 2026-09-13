@@ -41,9 +41,11 @@ import com.bytequay.agent.spi.CodeGraphBridge;
 import com.bytequay.agent.spi.DevelopmentResultBridgeResolver;
 import com.bytequay.agent.spi.DraftPullRequestPublisher;
 import com.bytequay.agent.spi.LocalReviewBridge;
+import com.bytequay.agent.spi.LocalReviewBridgeResolver;
 import com.bytequay.agent.spi.ProviderAgentEvent;
 import com.bytequay.agent.spi.ProviderApprovalDecision;
 import com.bytequay.agent.spi.ProviderApprovalRequest;
+import com.bytequay.agent.spi.PullRequestCiBridge;
 import com.bytequay.agent.spi.ReviewBridgeResolver;
 import com.bytequay.agent.spi.RunningTurn;
 import com.fasterxml.jackson.databind.JsonNode;
@@ -2612,6 +2614,41 @@ class TestCodexCliDriver
         supervisor.emitScriptedActivity("thread-1");
         supervisor.server().completeTurn();
         return turn.completion().toCompletableFuture().get(10, TimeUnit.SECONDS);
+    }
+
+    @Test
+    void pullRequestCiToolUsesTheTaskEndpointOnOpenAndResumeWithoutRestrictingChildren()
+            throws Exception
+    {
+        ScriptedProcessSupervisor supervisor = new ScriptedProcessSupervisor(objectMapper);
+        supervisor.reportModelVersion(Optional.of("v2"));
+        supervisor.configBody = "{\"mcp_servers\":{\"bytequay\":{\"url\":\"" + MCP_ENDPOINT + "\"}}}";
+        supervisor.mcpStatuses = "{\"data\":[{\"name\":\"bytequay\",\"pluginId\":null}],\"nextCursor\":null}";
+        PullRequestCiBridge ci = new PullRequestCiBridge(jobId -> "No pull request associated yet", PullRequestCiBridge.INSTRUCTION);
+        ClaudePermissionBroker broker = new ClaudePermissionBroker(
+                () -> URI.create(MCP_ENDPOINT), objectMapper, (taskId, query) -> "",
+                ReviewBridgeResolver.NONE, DevelopmentResultBridgeResolver.NONE, DraftPullRequestPublisher.NONE, LocalReviewBridgeResolver.NONE,
+                taskId -> Optional.of(ci));
+        CodexHome.prepare(codexHome());
+        CodexCliDriver driver = new CodexCliDriver("/fake/codex", "0.153.4", objectMapper, supervisor,
+                ImmutableMap.of("HOME", worktree.toString()), codexHome(), broker, Duration.ofSeconds(30));
+        Optional<AgentSessionRef> reference = Optional.empty();
+        for (int index = 0; index < 2; index++) {
+            AgentSession session = driver.open(context(reference, new AtomicReference<>()), event -> {});
+            List<String> arguments = supervisor.serverArgv().getLast();
+            assertThat(arguments).containsSequence("--enable", "multi_agent_v2");
+            assertThat(supervisor.servers().getLast().threadRequests().getFirst().path("developerInstructions").asText()).contains(PullRequestCiBridge.INSTRUCTION);
+            String token = supervisor.environments().stream().filter(environment -> environment.containsKey("BYTEQUAY_CODEGRAPH_TOKEN"))
+                    .reduce((previous, current) -> current).orElseThrow().get("BYTEQUAY_CODEGRAPH_TOKEN");
+            assertThat(arguments).noneMatch(argument -> argument.contains(token));
+            JsonNode listed = broker.handle(token, objectMapper.readTree("""
+                    {"jsonrpc":"2.0","id":1,"method":"tools/list","params":{}}
+                    """)).body().orElseThrow();
+            assertThat(listed.at("/result/tools").findValuesAsText("name")).containsExactly(PullRequestCiBridge.TOOL_NAME);
+            reference = Optional.of(session.reference());
+            session.close();
+            assertThat(broker.handle(token, objectMapper.readTree("{}")).status()).isEqualTo(401);
+        }
     }
 
     @Test

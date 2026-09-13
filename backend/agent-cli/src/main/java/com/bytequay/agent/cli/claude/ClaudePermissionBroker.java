@@ -28,6 +28,8 @@ import com.bytequay.agent.spi.LocalReviewBridge;
 import com.bytequay.agent.spi.LocalReviewBridgeResolver;
 import com.bytequay.agent.spi.ProviderApprovalDecision;
 import com.bytequay.agent.spi.ProviderApprovalRequest;
+import com.bytequay.agent.spi.PullRequestCiBridge;
+import com.bytequay.agent.spi.PullRequestCiBridgeResolver;
 import com.bytequay.agent.spi.ReviewBridge;
 import com.bytequay.agent.spi.ReviewBridgeResolver;
 import com.bytequay.agent.spi.ReviewTool;
@@ -94,6 +96,7 @@ public final class ClaudePermissionBroker
     private final DevelopmentResultBridgeResolver developments;
     private final DraftPullRequestPublisher draftPullRequests;
     private final LocalReviewBridgeResolver localReviews;
+    private final PullRequestCiBridgeResolver pullRequestChecks;
     private final Map<String, PermissionContext> contexts = new ConcurrentHashMap<>();
 
     public ClaudePermissionBroker(
@@ -143,6 +146,19 @@ public final class ClaudePermissionBroker
             DraftPullRequestPublisher draftPullRequests,
             LocalReviewBridgeResolver localReviews)
     {
+        this(endpoint, objectMapper, ciMemoryReader, reviews, developments, draftPullRequests, localReviews, PullRequestCiBridgeResolver.NONE);
+    }
+
+    public ClaudePermissionBroker(
+            Supplier<URI> endpoint,
+            ObjectMapper objectMapper,
+            CiMemoryReader ciMemoryReader,
+            ReviewBridgeResolver reviews,
+            DevelopmentResultBridgeResolver developments,
+            DraftPullRequestPublisher draftPullRequests,
+            LocalReviewBridgeResolver localReviews,
+            PullRequestCiBridgeResolver pullRequestChecks)
+    {
         this.endpoint = requireNonNull(endpoint, "endpoint is null");
         this.objectMapper = requireNonNull(objectMapper, "objectMapper is null")
                 .copy()
@@ -153,6 +169,7 @@ public final class ClaudePermissionBroker
         this.developments = requireNonNull(developments, "developments is null");
         this.draftPullRequests = requireNonNull(draftPullRequests, "draftPullRequests is null");
         this.localReviews = requireNonNull(localReviews, "localReviews is null");
+        this.pullRequestChecks = requireNonNull(pullRequestChecks, "pullRequestChecks is null");
     }
 
     Registration register(
@@ -217,6 +234,8 @@ public final class ClaudePermissionBroker
         Optional<ReviewBridge> review = reviews.resolve(taskId);
         Optional<DevelopmentResultBridge> development = textOnly || review.isPresent() ? Optional.empty() : developments.resolve(taskId);
         Optional<LocalReviewBridge> localReview = textOnly || review.isPresent() ? Optional.empty() : localReviews.resolve(taskId);
+        Optional<PullRequestCiBridge> pullRequestCi = permissionPolicy.allowsGitHubCommands(textOnly, review.isPresent())
+                ? pullRequestChecks.resolve(taskId) : Optional.empty();
         contexts.put(token, new PermissionContext(
                 taskId,
                 worktree,
@@ -227,7 +246,8 @@ public final class ClaudePermissionBroker
                 codeGraph,
                 review,
                 development,
-                localReview));
+                localReview,
+                pullRequestCi));
         try {
             Files.createDirectories(providerDirectory);
             // Claude's HTTP first-response deadline otherwise expires after 60 seconds, before the approval card.
@@ -240,7 +260,7 @@ public final class ClaudePermissionBroker
                             APPROVAL_TIMEOUT.plusSeconds(30).toMillis()))));
             writeOwnerOnly(configFile, json);
             writeOwnerOnly(settingsFile, sandboxSettings(permissionPolicy, textOnly, review.isPresent(), runtimeDirectory.toRealPath(), environment));
-            return new Registration(configFile, settingsFile, token, codeGraph, review, development, localReview);
+            return new Registration(configFile, settingsFile, token, codeGraph, review, development, localReview, pullRequestCi);
         }
         catch (IOException e) {
             contexts.remove(token);
@@ -272,23 +292,29 @@ public final class ClaudePermissionBroker
         Optional<ReviewBridge> review = reviews.resolve(taskId);
         Optional<DevelopmentResultBridge> development = review.isPresent() ? Optional.empty() : developments.resolve(taskId);
         Optional<LocalReviewBridge> localReview = review.isPresent() ? Optional.empty() : localReviews.resolve(taskId);
-        if (permissionPolicy != AgentPermissionPolicy.CI_AUTOFIX && codeGraph.isEmpty() && review.isEmpty() && development.isEmpty() && localReview.isEmpty()) {
+        Optional<PullRequestCiBridge> pullRequestCi = permissionPolicy.allowsGitHubCommands(false, review.isPresent())
+                ? pullRequestChecks.resolve(taskId) : Optional.empty();
+        if (permissionPolicy != AgentPermissionPolicy.CI_AUTOFIX
+                && codeGraph.isEmpty() && review.isEmpty() && development.isEmpty() && localReview.isEmpty() && pullRequestCi.isEmpty()) {
             return Optional.empty();
         }
         String token = token();
-        contexts.put(token, new PermissionContext(taskId, worktree, permissionPolicy, approvals, redactor.withSecret(token), false, codeGraph, review, development, localReview));
-        return Optional.of(new CodeGraphRegistration(token, requireNonNull(endpoint.get(), "endpoint URI is null"), codeGraph, review, development, localReview));
+        contexts.put(token, new PermissionContext(
+                taskId, worktree, permissionPolicy, approvals, redactor.withSecret(token), false, codeGraph, review, development, localReview, pullRequestCi));
+        return Optional.of(new CodeGraphRegistration(token, requireNonNull(endpoint.get(), "endpoint URI is null"), codeGraph, review, development, localReview, pullRequestCi));
     }
 
     /** Combines the fixed capabilities' guidance for the session's instruction channel. */
     static Optional<String> managedInstruction(
-            Optional<CodeGraphBridge> codeGraph, Optional<ReviewBridge> review, Optional<DevelopmentResultBridge> development, Optional<LocalReviewBridge> localReview)
+            Optional<CodeGraphBridge> codeGraph, Optional<ReviewBridge> review, Optional<DevelopmentResultBridge> development,
+            Optional<LocalReviewBridge> localReview, Optional<PullRequestCiBridge> pullRequestCi)
     {
         String joined = Stream.of(
                         review.map(ReviewBridge::instruction),
                         codeGraph.map(CodeGraphBridge::instruction),
                         development.map(DevelopmentResultBridge::instruction),
-                        localReview.map(LocalReviewBridge::instruction))
+                        localReview.map(LocalReviewBridge::instruction),
+                        pullRequestCi.map(PullRequestCiBridge::instruction))
                 .flatMap(Optional::stream)
                 .collect(Collectors.joining("\n\n"));
         return joined.isBlank() ? Optional.empty() : Optional.of(joined);
@@ -338,9 +364,48 @@ public final class ClaudePermissionBroker
             case CodeGraphBridge.TOOL_NAME -> codeGraphExplore(request.id(), params.arguments(), context);
             case DevelopmentResultBridge.TOOL_NAME -> developmentResult(request.id(), params.arguments(), context);
             case DevelopmentResultBridge.PUBLISH_TOOL_NAME -> createDraftPullRequest(request.id(), params.arguments(), context);
+            case PullRequestCiBridge.TOOL_NAME -> pullRequestCi(request.id(), params.arguments(), context);
             case LocalReviewBridge.LIST_TOOL, LocalReviewBridge.REPLY_TOOL, LocalReviewBridge.RESOLVE_TOOL -> localReviewTool(request.id(), params, context);
             default -> reviewTool(request.id(), params, context);
         };
+    }
+
+    private McpHttpResponse pullRequestCi(JsonNode id, JsonNode arguments, PermissionContext context)
+    {
+        if (context.pullRequestCi().isEmpty()) {
+            return error(id, -32602, "Unknown tool");
+        }
+        Optional<Long> jobId;
+        try {
+            checkArgument(arguments != null && arguments.isObject(), "arguments must be an object");
+            checkArgument(arguments.isEmpty() || arguments.size() == 1 && arguments.has("jobId"), "Only jobId may be supplied");
+            jobId = Optional.empty();
+            if (arguments.has("jobId")) {
+                JsonNode selected = arguments.get("jobId");
+                checkArgument(selected.isIntegralNumber() && selected.canConvertToLong() && selected.longValue() > 0, "jobId must be a positive integer");
+                jobId = Optional.of(selected.longValue());
+            }
+        }
+        catch (IllegalArgumentException failure) {
+            return error(id, -32602, failure.getMessage());
+        }
+        String text;
+        boolean failed = false;
+        try {
+            PullRequestCiBridge bridge = pullRequestChecks.resolve(context.taskId())
+                    .orElseThrow(() -> new IllegalStateException("Pull-request CI is unavailable for this task"));
+            text = bridge.read().apply(jobId);
+        }
+        catch (RuntimeException failure) {
+            text = "Unable to read pull-request CI: " + Optional.ofNullable(failure.getMessage()).orElse(failure.getClass().getSimpleName());
+            failed = true;
+        }
+        text = context.redactor().redact(text);
+        if (text.length() > PullRequestCiBridge.MAXIMUM_OUTPUT_LENGTH) {
+            String suffix = "\n[Output truncated by ByteQuay]";
+            text = text.substring(0, PullRequestCiBridge.MAXIMUM_OUTPUT_LENGTH - suffix.length()) + suffix;
+        }
+        return response(id, new ToolResult(ImmutableList.of(new TextContent("text", text)), failed));
     }
 
     private McpHttpResponse localReviewTool(JsonNode id, ToolCallParams params, PermissionContext context)
@@ -659,6 +724,13 @@ public final class ClaudePermissionBroker
             tools.add(codeGraphTool());
         }
         context.review().ifPresent(review -> review.tools().forEach(tool -> tools.add(new ToolDefinition(tool.name(), tool.description(), tool.inputSchema()))));
+        context.pullRequestCi().ifPresent(ignored -> tools.add(new ToolDefinition(
+                PullRequestCiBridge.TOOL_NAME,
+                "Read this task's current pull-request CI overview, or supply a returned failed jobId for its bounded log; unavailable and truncated evidence is marked",
+                ImmutableMap.of(
+                        "type", "object",
+                        "properties", ImmutableMap.of("jobId", ImmutableMap.of("type", "integer", "minimum", 1, "maximum", Long.MAX_VALUE)),
+                        "additionalProperties", false))));
         context.localReview().ifPresent(ignored -> {
             Map<String, Object> identifier = ImmutableMap.of("type", "string", "minLength", 1, "maxLength", LocalReviewBridge.MAXIMUM_ID_LENGTH);
             tools.add(new ToolDefinition(
@@ -902,6 +974,7 @@ public final class ClaudePermissionBroker
         private final Optional<ReviewBridge> review;
         private final Optional<DevelopmentResultBridge> development;
         private final Optional<LocalReviewBridge> localReview;
+        private final Optional<PullRequestCiBridge> pullRequestCi;
 
         private Registration(
                 Path configFile,
@@ -910,7 +983,8 @@ public final class ClaudePermissionBroker
                 Optional<CodeGraphBridge> codeGraph,
                 Optional<ReviewBridge> review,
                 Optional<DevelopmentResultBridge> development,
-                Optional<LocalReviewBridge> localReview)
+                Optional<LocalReviewBridge> localReview,
+                Optional<PullRequestCiBridge> pullRequestCi)
         {
             this.configFile = requireNonNull(configFile, "configFile is null");
             this.settingsFile = requireNonNull(settingsFile, "settingsFile is null");
@@ -919,11 +993,17 @@ public final class ClaudePermissionBroker
             this.review = requireNonNull(review, "review is null");
             this.development = requireNonNull(development, "development is null");
             this.localReview = requireNonNull(localReview, "localReview is null");
+            this.pullRequestCi = requireNonNull(pullRequestCi, "pullRequestCi is null");
         }
 
         public Optional<DevelopmentResultBridge> development()
         {
             return development;
+        }
+
+        Optional<PullRequestCiBridge> pullRequestCi()
+        {
+            return pullRequestCi;
         }
 
         Optional<LocalReviewBridge> localReview()
@@ -940,7 +1020,7 @@ public final class ClaudePermissionBroker
         /** The managed guidance this session's instruction channel carries, if any tool needs one. */
         Optional<String> instruction()
         {
-            return managedInstruction(codeGraph, review, development, localReview);
+            return managedInstruction(codeGraph, review, development, localReview, pullRequestCi);
         }
 
         Path configFile()
@@ -978,10 +1058,11 @@ public final class ClaudePermissionBroker
         private final Optional<ReviewBridge> review;
         private final Optional<DevelopmentResultBridge> development;
         private final Optional<LocalReviewBridge> localReview;
+        private final Optional<PullRequestCiBridge> pullRequestCi;
 
         private CodeGraphRegistration(
                 String token, URI endpoint, Optional<CodeGraphBridge> codeGraph, Optional<ReviewBridge> review,
-                Optional<DevelopmentResultBridge> development, Optional<LocalReviewBridge> localReview)
+                Optional<DevelopmentResultBridge> development, Optional<LocalReviewBridge> localReview, Optional<PullRequestCiBridge> pullRequestCi)
         {
             this.token = requireNonNull(token, "token is null");
             this.endpoint = requireNonNull(endpoint, "endpoint is null");
@@ -989,6 +1070,7 @@ public final class ClaudePermissionBroker
             this.review = requireNonNull(review, "review is null");
             this.development = requireNonNull(development, "development is null");
             this.localReview = requireNonNull(localReview, "localReview is null");
+            this.pullRequestCi = requireNonNull(pullRequestCi, "pullRequestCi is null");
         }
 
         public Optional<DevelopmentResultBridge> development()
@@ -1005,7 +1087,7 @@ public final class ClaudePermissionBroker
         /** The managed guidance for the launch's instruction channel; empty only for a token without any guidance. */
         public String instruction()
         {
-            return managedInstruction(codeGraph, review, development, localReview).orElse("");
+            return managedInstruction(codeGraph, review, development, localReview, pullRequestCi).orElse("");
         }
 
         public String token()
@@ -1043,7 +1125,8 @@ public final class ClaudePermissionBroker
             Optional<CodeGraphBridge> codeGraph,
             Optional<ReviewBridge> review,
             Optional<DevelopmentResultBridge> development,
-            Optional<LocalReviewBridge> localReview)
+            Optional<LocalReviewBridge> localReview,
+            Optional<PullRequestCiBridge> pullRequestCi)
     {
         private PermissionContext
         {
@@ -1056,6 +1139,7 @@ public final class ClaudePermissionBroker
             requireNonNull(review, "review is null");
             requireNonNull(development, "development is null");
             requireNonNull(localReview, "localReview is null");
+            requireNonNull(pullRequestCi, "pullRequestCi is null");
         }
     }
 

@@ -279,9 +279,9 @@ extension point currently justified.
    `git` and `gh`, with GitHub writes requiring direct explicit authorization
    from user input or accepted automation. Review, CI, cherry-pick, and helpers
    retain narrower profiles. Fixed task tools are defined by their feature
-   designs: CodeGraph exploration, review/local reporting, and the bounded
-   development publication tool. They do not create a general product-tool
-   framework.
+   designs: CodeGraph exploration, review/local reporting, task-scoped CI
+   evidence, and the bounded development publication tool. They do not create
+   a general product-tool framework.
 8. Java Platform Module System descriptors are unnecessary; Maven dependency
    direction is sufficient.
 

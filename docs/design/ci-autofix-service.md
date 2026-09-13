@@ -319,6 +319,13 @@ public interface GitHubActionsClient
 }
 ```
 
+The development task's fixed `read_pull_request_ci` tool also uses `inspect`
+and `readLog` directly. It resolves the associated PR and current failing job
+inside ByteQuay, returns bounded evidence, and never starts or advances an
+Autofix run. See [Development-agent CI evidence](agent-service.md#development-agent-ci-evidence).
+This reuses the existing authenticated log downloader and redaction; the PR
+panel's cached check summaries do not imply that raw logs are already local.
+
 ### 3.3 `CiGitService`
 
 This is one concrete application collaborator, not a provider framework.

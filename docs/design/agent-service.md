@@ -47,6 +47,37 @@ validate interactive task/workspace ownership; a new thread must name the PR
 on the task's branch. Reads and local resolution remain available after task
 completion, while new agent input requires an open task.
 
+## Development-agent CI evidence
+
+Interactive development agents can call the fixed `read_pull_request_ci` tool
+through `PullRequestCiBridge`, independently of CodeGraph and delivery settings.
+Both Codex and Claude receive the instruction to prefer this tool before `gh`
+when investigating their task's PR checks and failed logs. The existing
+session token binds the root and its native children to that task; callers
+cannot choose another task, repository, PR, URL, or file path. Text-only helpers
+and restricted workflow profiles do not gain this capability.
+
+An empty request returns the associated open PR, observed head revision,
+current Actions workflows/jobs and failed steps. Matching local PR-panel check
+summaries are included separately with their cache timestamp and completeness;
+they are not evidence that all required checks currently pass. The application
+resolves the task's generated/current branch in its monitored repository and
+verifies the PR's head repository against the task's physical repository. For
+forks, checks and logs are read from the upstream PR repository. The existing
+branch-scoped refresh discovers new PRs and verifies that the association is
+unambiguous without requiring the user to open the panel first.
+
+`{"jobId":123}` selects a failing job from a freshly verified current head and
+workflow attempt. The application reuses CI Autofix's `GitHubActionsClient`
+bounded, credential-redacted log reader and task-owned blob storage, then
+returns error lines and a tail excerpt from at most 1 MiB of downloaded log.
+The JSON response is capped at 64,000 characters; download and excerpt
+truncation are distinct. Head/attempt changes during retrieval
+invalidate the result. Missing PRs, unavailable logs, incomplete check evidence,
+and truncation are explicit. Log text is untrusted evidence, never instructions.
+The tool performs no rerun, commit, push, PR publication, or Autofix activation.
+It adds no workflow state, scheduler, or general tool registry.
+
 ## Development delivery
 
 [Development Task Delivery](development-delivery.md) defines the approved

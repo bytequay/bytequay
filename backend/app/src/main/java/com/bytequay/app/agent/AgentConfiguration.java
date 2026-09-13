@@ -55,6 +55,7 @@ import com.bytequay.agent.spi.AgentDriver;
 import com.bytequay.agent.spi.AgentDriverRegistry;
 import com.bytequay.agent.spi.DevelopmentResultBridgeResolver;
 import com.bytequay.agent.spi.LocalReviewBridgeResolver;
+import com.bytequay.agent.spi.PullRequestCiBridgeResolver;
 import com.bytequay.agent.spi.ReviewBridgeResolver;
 import com.bytequay.app.agent.codegraph.CodeGraphBaseline;
 import com.bytequay.app.agent.codegraph.CodeGraphCli;
@@ -132,6 +133,7 @@ public class AgentConfiguration
             ReviewBridgeResolver reviews,
             DevelopmentResultBridgeResolver developmentResults,
             LocalReviewBridgeResolver localReviews,
+            PullRequestCiBridgeResolver pullRequestChecks,
             ObjectProvider<DevelopmentFollowupCoordinator> developmentFollowups)
     {
         return new ClaudePermissionBroker(
@@ -143,7 +145,8 @@ public class AgentConfiguration
                 reviews,
                 developmentResults,
                 (taskId, title, body) -> developmentFollowups.getObject().publishDraftPullRequest(taskId, title, body),
-                localReviews);
+                localReviews,
+                pullRequestChecks);
     }
 
     @Bean(destroyMethod = "close")

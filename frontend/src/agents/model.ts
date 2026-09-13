@@ -35,6 +35,11 @@ import type {
 
 /** The slice of the bridge an agent screen uses, so a screen can be driven by a test double. */
 export type AgentBridgePort = Pick<Bridge,
+  | 'listLocalReviewComments'
+  | 'createLocalReviewComment'
+  | 'replyLocalReviewComment'
+  | 'resolveLocalReviewComment'
+  | 'retryLocalReviewComment'
   | 'listAgentTasks'
   | 'createAgentTask'
   | 'getAgentTask'

@@ -1,5 +1,14 @@
 # ByteQuay Architecture
 
+Private development **Local review comments** use domain values and a storage
+port in `core`, one SQLite aggregate adapter in `persistence-sqlite`, and
+application orchestration/HTTP in `app`. Existing task turns and queued inputs
+deliver user discussion; their identities correlate the private card with the
+transcript. A fixed task-scoped bridge in `agent-spi`/`agent-cli` permits local
+agent replies and resolution without changing the development execution profile.
+Task, diff, and PR timeline surfaces render the same saved discussions through
+the shared review-card presentation. No GitHub comment is created by this path.
+
 App-wide [managed agent skills](agent-skills.md) combine private packaged
 system guidance with user-added skills in the existing SQLite application-settings
 port. Application services own the composition and user skill collection;
@@ -304,14 +313,16 @@ Display and refresh are separate paths:
 3. `CredentialService` binds the resolved token to its GitHub user profile in one in-memory account
    record. Repeated profile, PR-sync, and CI-autofix reads reuse that record; changing the resolved
    token invalidates it and resolves `/user` once for the new credential.
-4. Selecting a stored PR requests detail by its stable local row ID. The backend resolves the
-   repository and number from SQLite, renders persisted detail first, then the frontend starts a
-   non-overlapping five-second conditional refresh loop. An unchanged PR ETag refreshes only CI and
+4. The PR page and task panel share one detail hook addressed by repository and PR number.
+   Both render persisted detail first, then start a non-overlapping five-second conditional refresh
+   loop while visible. An unchanged PR ETag refreshes only CI and
    mergeability and returns a status-only response; a changed PR ETag rebuilds and returns the full
    UI detail snapshot. Check runs and combined commit statuses carry their own stored ETags. An
    exhausted GitHub rate limit pauses the loop until GitHub's reported reset time.
 5. The user-triggered detail refresh bypasses the PR ETag, rebuilds the complete local detail and
-   default diff snapshots, and returns the full detail response.
+   default diff snapshots, and returns the full detail response. Both surfaces share a diff hook
+   that reloads cached files and commits after refresh and fetches the exact parent-to-head
+   comparison when the user selects a commit range.
 
 The normalized repository name and PR number uniquely identify a pull request in SQLite. GitHub's
 search and pull-request endpoints expose different numeric IDs for the same PR, so ingestion retains

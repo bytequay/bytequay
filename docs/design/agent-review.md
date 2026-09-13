@@ -44,7 +44,9 @@ Running**. Inside it, provide two views:
 - **Activity**: the existing agent transcript presentation, progress, tools,
   command/test output, approvals, errors, and task input controls.
 
-The original PR view continues to show GitHub data. Changes shows local
+The original PR view shows GitHub data and explicitly marked private
+[development Local review comments](agent-service.md#local-review-comments).
+Agent Review findings remain in this workflow's own tab. Changes shows local
 findings at their validated diff locations. A finding there and its card in
 Agent review are projections of the same finding ID and discussion; neither
 copies the other's state. **View in Changes** opens the exact file/range and

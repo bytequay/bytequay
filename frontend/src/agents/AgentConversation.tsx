@@ -17,6 +17,8 @@ import React,{ useEffect,useLayoutEffect,useRef,useState } from 'react';
 import { Chevron } from '../Chevron';
 import '../css/agents.css';
 import { displayModelName } from '../settings/model';
+import LocalReviewThreadCard from '../pulls/local-review/LocalReviewThreadCard';
+import type { LocalReviewThreads } from '../pulls/local-review/types';
 import type { AgentApprovalDecision,AgentAttachmentDto,AgentPendingApprovalDto,AgentQueuedInputDto,AgentStreamConnectionState,AgentTurnDto,ModelOptionDto,ToolCountersDto } from '../types';
 import { AgentMark } from './AgentMark';
 import { developmentTurnLabel,draftPullRequestRequest } from './DevelopmentFacts';
@@ -485,7 +487,8 @@ function TurnFooter({ turn, durable, models }: {
   );
 }
 
-export function TurnView({ turn, first, open, now, models, durableTurns, activityChoice, previews, agentLabels, onToggle, onToggleActivity, onDecide, onOpenAgent, generatedRequest = false, generatedBranch = null }: {
+export function TurnView({ turn, first, open, now, models, durableTurns, activityChoice, previews, agentLabels, onToggle, onToggleActivity, onDecide, onOpenAgent, generatedRequest = false, generatedBranch = null, localReview }: {
+  localReview?: LocalReviewThreads;
   generatedRequest?: boolean;
   generatedBranch?: string | null;
   turn: TranscriptTurn;
@@ -511,10 +514,17 @@ export function TurnView({ turn, first, open, now, models, durableTurns, activit
   const request = opening?.delivery === 'TURN' ? draftPullRequestRequest(durable, opening.text, generatedBranch) : null;
   return (
     <section className="agt-turn" data-history-anchor={turn.turnId ?? `turn-${turn.ordinal}`} aria-label={turn.ordinal > 0 ? `Turn ${turn.ordinal}` : 'Turn'}>
-      {turn.users.map((user, index) => (
+      {turn.users.map((user, index) => {
+        const localThread = localReview?.threads.find(thread => thread.messages.some(message =>
+          message.author === 'USER' && (message.messageEventId === user.id || (index === 0 && turn.turnId !== null && message.turnId === turn.turnId))));
+        return (
         <React.Fragment key={user.id}>
           {first && index === 0 && <div className="agt-stamp">{stamp(user.at, now)}</div>}
-          <div className="agt-user" data-history-anchor={user.id}>
+          {localThread !== undefined && localReview !== undefined ? (
+            <div className="agt-local-review" data-history-anchor={user.id}>
+              <LocalReviewThreadCard {...localReview} thread={localThread} />
+            </div>
+          ) : <div className="agt-user" data-history-anchor={user.id}>
             {index === 0 && request !== null ? (
               <div className="agt-user__request">
                 <GitPullRequest aria-hidden="true" />
@@ -543,9 +553,9 @@ export function TurnView({ turn, first, open, now, models, durableTurns, activit
                 )}
               </div>
             )}
-          </div>
+          </div>}
         </React.Fragment>
-      ))}
+      ); })}
       {hasLog && (
         <button type="button" className="agt-turn__head" aria-expanded={open} onClick={onToggle} title="Show or hide this turn's log">
           {live && <Spinner />}
@@ -756,7 +766,7 @@ export function AgentConversation({
   turns, durableTurns, models, now, scroll, connection, running, activeTurn, activeTurnId = activeTurn?.id, waiting, gap = false,
   activityChoice, turnChoice, onToggleTurn, onToggleActivity, onDecide,
   previews = {}, agentLabels = {}, pendingApprovals = [], generatedTurnIds, generatedBranch,
-  onOpenAgent, children, transcriptFooter, label = 'Task transcript',
+  onOpenAgent, children, transcriptFooter, localReview, label = 'Task transcript',
 }: {
   turns: TranscriptTurn[];
   durableTurns: Record<string, AgentTurnDto>;
@@ -782,6 +792,7 @@ export function AgentConversation({
   onOpenAgent?: (threadId: string) => void;
   children: React.ReactNode;
   transcriptFooter?: React.ReactNode;
+  localReview?: LocalReviewThreads;
   label?: string;
 }): React.JSX.Element {
   const liveTurn = turns.find(turn => turn.turnId === activeTurnId);
@@ -813,9 +824,16 @@ export function AgentConversation({
               models={models} durableTurns={durableTurns} activityChoice={activityChoice}
               previews={previews} agentLabels={agentLabels} onToggle={() => onToggleTurn(id, !open)}
               onToggleActivity={onToggleActivity} onDecide={onDecide} onOpenAgent={onOpenAgent}
+              localReview={localReview}
               generatedRequest={turn.turnId !== null && generatedTurnIds?.has(turn.turnId)} generatedBranch={generatedBranch} />;
           })}
         {running && scroll.after === null && scroll.following && <LiveActivity label={liveLabel} animated={!waiting && connection === 'open' && !gap} />}
+        {localReview?.threads.filter(thread => thread.messages.some(message => message.author === 'USER'
+          && message.turnId === null && message.deliveryState !== 'REMOVED' && message.deliveryState !== 'ABANDONED')).map(thread => (
+          <div className="agt-local-review" key={thread.id} data-history-anchor={`local-review-${thread.id}`}>
+            <LocalReviewThreadCard {...localReview} thread={thread} />
+          </div>
+        ))}
         {transcriptFooter}
       </div>
       <div className="agt-bottom">{children}</div>

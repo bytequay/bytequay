@@ -17,18 +17,17 @@ import type { LucideIcon } from 'lucide-react';
 import { isFindShortcut } from '../FindBar';
 import type { NavigationMode } from '../navigationHistory';
 import Toast from '../Toast';
-import type { Bridge, DiffCommitDto, DiffFileDto, InlineReviewCommentDto, PullRequestDetailDto, PullRequestDetailRefreshDto, PullRequestDto, PullRequestPageDto, UserProfileDto } from '../types';
+import type { Bridge, DiffCommitDto, DiffFileDto, InlineReviewCommentDto, PullRequestDetailDto, PullRequestDto, PullRequestPageDto, UserProfileDto } from '../types';
 import AgentReviewTab, { type ReviewNavigationTarget } from './agent-review/AgentReviewTab';
 import type { AgentReviewDto } from './agent-review/contracts';
 import { pendingDraftCount, reviewStatus } from './agent-review/model';
+import { useLocalReviewThreads } from './local-review/useLocalReviewThreads';
+import type { LocalReviewThreads } from './local-review/types';
 import PullChanges, { type CommitRange } from './PullChanges';
 import PullOverview, { isQueued, mergePullRequestWriteDetail, remoteErrorMessage, type PullDetailUpdater } from './PullOverview';
 import PullRowItem, { PullRequestIcon } from './PullRowItem';
-import {
-  DETAIL_REFRESH_INTERVAL,
-  mergePullRequestDetailStatus,
-  pullRequestDetailRefreshDelay,
-} from './usePullRequestDetail';
+import { mergePullRequestDetailStatus, usePullRequestDetail } from './usePullRequestDetail';
+import { pullRequestDiffRevision, usePullRequestChanges } from './usePullRequestChanges';
 import { useRecentTouch } from '../recent/useRecentTouch';
 import {
   PULL_TABS,
@@ -297,12 +296,7 @@ export default function PullsScreen({
   const [focusFindingId, setFocusFindingId] = useState<string | null>(null);
   const [tab, setTab] = useState<PullTab>(initialTab ?? 'all');
   const [selected, setSelected] = useState<number | null>(null);
-  const [detail, setDetail] = useState<PullRequestDetailDto | null>(null);
   const [detailTab, setDetailTab] = useState<DetailTab>(initialReviewId === undefined ? 'overview' : 'review');
-  const [diffs, setDiffs] = useState<DiffFileDto[] | null>(null);
-  const [diffCommits, setDiffCommits] = useState<DiffCommitDto[]>([]);
-  const [diffRange, setDiffRange] = useState<CommitRange>(null);
-  const [diffLoading, setDiffLoading] = useState(false);
   const [pendingReviewComments, setPendingReviewComments] = useState<InlineReviewCommentDto[]>([]);
   const [paneOpen, setPaneOpen] = useState(true);
   const [detailZoomed, setDetailZoomed] = useState(false);
@@ -312,7 +306,6 @@ export default function PullsScreen({
   const [loadingMore, setLoadingMore] = useState(false);
   const [page, setPage] = useState(0);
   const [hasMore, setHasMore] = useState(false);
-  const [detailLoading, setDetailLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [syncError, setSyncError] = useState<string | null>(null);
   const [monitorError, setMonitorError] = useState<string | null>(null);
@@ -330,16 +323,13 @@ export default function PullsScreen({
   const loadMoreMarker = useRef<HTMLDivElement | null>(null);
   const openedInitialPr = useRef<string | null>(null);
   const routingInitialPr = useRef<string | null>(null);
-  const detailSnapshot = useRef<string | null>(null);
   const detailState = useRef<PullRequestDetailDto | null>(null);
   const detailMutationVersion = useRef(0);
   const selectedPullRequest = useRef<{ id: number; key: string } | null>(null);
   const listRequest = useRef(0);
   const manualDetailRefreshRequest = useRef(0);
-  const diffRequest = useRef(0);
   const toastId = useRef(0);
   const listContext = useRef({ workspaceId: repositoryScope?.workspaceId, query });
-  const detailRefreshInFlight = useRef<Promise<PullRequestDetailRefreshDto> | null>(null);
   const browserWasOpen = useRef(browserOpen);
   const monitorRequests = useRef(new Set<number>());
   viewerLoginRef.current = viewerLogin;
@@ -365,69 +355,6 @@ export default function PullsScreen({
       .catch(() => { if (!cancelled) setViewerLogin(null); });
     return () => { cancelled = true; };
   }, []);
-
-  const applyDetail = useCallback((
-    prId: number,
-    value: PullRequestDetailDto,
-    refreshDiff: boolean,
-    requestMutationVersion?: number,
-  ) => {
-    if (requestMutationVersion !== undefined && requestMutationVersion !== detailMutationVersion.current) return false;
-    const snapshot = JSON.stringify(value);
-    if (detailSnapshot.current === snapshot) return false;
-    detailSnapshot.current = snapshot;
-    detailState.current = value;
-    setDetail(value);
-    setPrs(current => current.map(pr => pr.id === prId
-      ? reconcilePullRequestDetail(pr, value, viewerLoginRef.current)
-      : pr));
-    if (refreshDiff) {
-      diffRequest.current += 1;
-      setDiffs(null);
-      setDiffCommits([]);
-      setDiffRange(null);
-      setDiffLoading(false);
-    }
-    return true;
-  }, []);
-
-  const updateSelectedDetail: PullDetailUpdater = useCallback((repo, number, update) => {
-    const key = `${repo.toLowerCase()}#${number}`;
-    const selected = selectedPullRequest.current;
-    const current = detailState.current;
-    if (selected?.key !== key || current === null
-        || `${current.repo.toLowerCase()}#${current.number}` !== key) return;
-    const next = update(current);
-    detailMutationVersion.current += 1;
-    detailSnapshot.current = JSON.stringify(next);
-    detailState.current = next;
-    setDetail(next);
-    setPrs(rows => rows.map(pr => pr.id === selected.id
-      ? reconcilePullRequestDetail(pr, next, viewerLoginRef.current)
-      : pr));
-  }, []);
-
-  const applyDetailRefresh = useCallback((
-    prId: number,
-    value: PullRequestDetailRefreshDto,
-    requestMutationVersion: number,
-  ) => {
-    if (value.full) {
-      applyDetail(prId, value.detail, true, requestMutationVersion);
-      return;
-    }
-    const status = value.status;
-    const current = detailState.current;
-    if (current !== null) {
-      const next = mergePullRequestDetailStatus(current, status);
-      detailSnapshot.current = JSON.stringify(next);
-      detailState.current = next;
-      setDetail(next);
-    }
-    setPrs(current => current.map(pr => pr.id === prId
-      ? { ...pr, ciStatus: status.ciStatus, mergeable: status.mergeable, mergeableState: status.mergeableState }
-      : pr));
-  }, [applyDetail]);
 
   const applyPage = useCallback((result: PullRequestPageDto) => {
     const selected = selectedPullRequest.current;
@@ -634,14 +561,13 @@ export default function PullsScreen({
       if (cancelled) return;
       const remote = tracked.find(pr => pr.id === value.id) ?? remotePullRequest(value, viewerLogin ?? undefined);
       setPrs(current => current.some(pr => pr.id === remote.id) ? current : [remote, ...current]);
-      applyDetail(remote.id, value, false);
       setTab(current => tabForInitialPullRequest(remote, current, viewerLogin));
       setSelected(remote.id);
     }).catch(e => {
       if (!cancelled) setError(e instanceof Error ? e.message : String(e));
     });
     return () => { cancelled = true; };
-  }, [applyDetail, initialPr, loading, prs, viewerLogin]);
+  }, [initialPr, loading, prs, viewerLogin]);
 
   const rows = useMemo(() => query ? rowsForSearch(prs) : rowsForTab(prs, tab, viewerLogin), [prs, query, tab, viewerLogin]);
   const compact = compactToolbar(toolbarWidth);
@@ -675,89 +601,63 @@ export default function PullsScreen({
     onSelectPullRequest?.({ repo: selectedPrRepo, number: selectedPrNumber }, 'replace');
   }, [onSelectPullRequest, overlay, selected, selectedPrId, selectedPrNumber, selectedPrRepo]);
 
+  const localReview = useLocalReviewThreads(selectedPr === null ? null : {
+    repo: selectedPr.repo, number: selectedPr.number, workspaceId: repositoryScope?.workspaceId,
+  }, { active: paneOpen });
+
+  const {
+    detail,
+    loading: detailLoading,
+    error: detailError,
+    refresh: refreshDetail,
+    update: updateDetail,
+  } = usePullRequestDetail(selectedPr, {
+    active: paneOpen,
+    onDetail: value => {
+      detailState.current = value;
+      setPrs(current => current.map(pr => pr.id === value.id
+        ? reconcilePullRequestDetail(pr, value, viewerLoginRef.current)
+        : pr));
+    },
+    onStatus: status => {
+      if (detailState.current !== null) {
+        detailState.current = mergePullRequestDetailStatus(detailState.current, status);
+      }
+      const selected = selectedPullRequest.current;
+      setPrs(current => current.map(pr => pr.id === selected?.id
+        ? { ...pr, ciStatus: status.ciStatus, mergeable: status.mergeable, mergeableState: status.mergeableState }
+        : pr));
+    },
+  });
+  detailState.current = detail;
+  const diffRevision = pullRequestDiffRevision(detail, selectedPr?.headPushedAt);
+  const changes = usePullRequestChanges(selectedPr, {
+    active: paneOpen && detailTab === 'changes' && detail !== null,
+    revision: diffRevision,
+  });
+  const { files: diffs, commits: diffCommits, commitRange: diffRange, loading: diffLoading } = changes;
+  const displayedDetailError = detailError ?? (detailTab === 'changes' ? changes.error : null) ?? error;
+
+  const updateSelectedDetail = useCallback<PullDetailUpdater>((repo, number, update) => {
+    updateDetail(repo, number, current => {
+      const next = update(current);
+      detailMutationVersion.current += 1;
+      detailState.current = next;
+      setPrs(rows => rows.map(pr => pr.id === next.id
+        ? reconcilePullRequestDetail(pr, next, viewerLoginRef.current)
+        : pr));
+      return next;
+    });
+  }, [updateDetail]);
+
   useEffect(() => {
     manualDetailRefreshRequest.current += 1;
-    if (selectedPrId === undefined || selectedPrNumber === undefined || selectedPrRepo === undefined) {
-      detailSnapshot.current = null;
-      detailState.current = null;
-      setDetail(null);
-      return;
-    }
-    let cancelled = false;
-    let refreshTimer: number | undefined;
-    detailSnapshot.current = null;
-    detailState.current = null;
-    setDetail(null);
-    setDetailLoading(true);
     setError(null);
-    const fetchSelectedDetail = () =>
-      window.bridge.fetchPullRequestDetailByRef(selectedPrRepo, selectedPrNumber);
-    const refreshSelectedDetail = () =>
-      window.bridge.refreshPullRequestDetailByRef(selectedPrRepo, selectedPrNumber);
-    let polling = false;
-    // A hidden window spends requests nobody is reading, so the loop stops
-    // rather than idling. It has no pending timer while hidden, which is what
-    // lets the visibility listener restart it without racing one.
-    const schedule = (delay: number) => {
-      if (cancelled || document.hidden || polling || refreshTimer !== undefined) return;
-      refreshTimer = window.setTimeout((): void => {
-        refreshTimer = undefined;
-        void poll();
-      }, delay);
-    };
-    const poll = async (): Promise<void> => {
-      polling = true;
-      let nextDelay = DETAIL_REFRESH_INTERVAL;
-      let request: Promise<PullRequestDetailRefreshDto> | null = null;
-      try {
-        while (detailRefreshInFlight.current !== null) {
-          const pending = detailRefreshInFlight.current;
-          await pending.then((): undefined => undefined, (): undefined => undefined);
-        }
-        if (cancelled || document.hidden) return;
-        const requestMutationVersion = detailMutationVersion.current;
-        request = refreshSelectedDetail();
-        detailRefreshInFlight.current = request;
-        const value = await request;
-        if (!cancelled) {
-          applyDetailRefresh(selectedPrId, value, requestMutationVersion);
-          setError(null);
-        }
-      }
-      catch (e) {
-        nextDelay = pullRequestDetailRefreshDelay(e);
-        if (!cancelled) setError(remoteErrorMessage(e));
-      }
-      finally {
-        if (detailRefreshInFlight.current === request) detailRefreshInFlight.current = null;
-        polling = false;
-        schedule(nextDelay);
-      }
-    };
-    // Coming back deserves current data now, not up to five seconds from now.
-    const resume = () => schedule(0);
-    document.addEventListener('visibilitychange', resume);
+  }, [selectedPrNumber, selectedPrRepo]);
 
-    const initialMutationVersion = detailMutationVersion.current;
-    fetchSelectedDetail()
-      .then(value => {
-        if (!cancelled) applyDetail(selectedPrId, value, false, initialMutationVersion);
-      })
-      .catch(e => {
-        if (!cancelled) setError(e instanceof Error ? e.message : String(e));
-      })
-      .finally(() => {
-        if (!cancelled) {
-          setDetailLoading(false);
-          schedule(0);
-        }
-      });
-    return () => {
-      cancelled = true;
-      document.removeEventListener('visibilitychange', resume);
-      if (refreshTimer !== undefined) window.clearTimeout(refreshTimer);
-    };
-  }, [applyDetail, applyDetailRefresh, selectedPrId, selectedPrNumber, selectedPrRepo]);
+  useEffect(() => {
+    setPendingReviewComments([]);
+  }, [diffRevision, selectedPrNumber, selectedPrRepo]);
 
   const scopedWorkspaceId = repositoryScope?.workspaceId;
   const requestedReviewId = selectedPrRepo?.toLowerCase() === initialPr?.repo.toLowerCase() && selectedPrNumber === initialPr?.number
@@ -795,36 +695,10 @@ export default function PullsScreen({
       : current);
   }, [reviewKey, selectedPrRepo, selectedPrNumber]);
 
-  useEffect(() => {
-    if (detailTab !== 'changes' || !selectedPr || diffs !== null) return;
-    const request = ++diffRequest.current;
-    setDiffLoading(true);
-    Promise.all([
-      window.bridge.fetchPrDiffFiles(selectedPr.repo, selectedPr.number),
-      window.bridge.fetchPrDiffCommits(selectedPr.repo, selectedPr.number),
-    ])
-      .then(([files, commits]) => {
-        if (request !== diffRequest.current) return;
-        setDiffs(files);
-        setDiffCommits(commits);
-      })
-      .catch(e => {
-        if (request === diffRequest.current) setError(e instanceof Error ? e.message : String(e));
-      })
-      .finally(() => {
-        if (request === diffRequest.current) setDiffLoading(false);
-      });
-  }, [detailTab, selectedPr, diffs]);
-
   const pick = (row: PullRow) => {
     onSelectPullRequest?.({ repo: row.repo, number: row.num }, 'push');
-    diffRequest.current += 1;
     setSelected(row.id);
     setDetailTab('overview');
-    setDiffs(null);
-    setDiffCommits([]);
-    setDiffRange(null);
-    setDiffLoading(false);
     setPendingReviewComments([]);
     setReviewNavigation(null);
     setFocusFindingId(null);
@@ -850,34 +724,11 @@ export default function PullsScreen({
   };
 
   const changeCommitRange = (range: CommitRange) => {
-    if (!selectedPr) return;
-    const start = range === null ? null : diffCommits[range.start];
-    const end = range === null ? null : diffCommits[range.end];
-    if (range !== null && (!start?.parentSha || !end?.sha)) {
-      setError('This commit range does not have enough Git history to compare.');
-      return;
-    }
-    setDiffRange(range);
-    setDiffs([]);
+    changes.changeCommitRange(range);
     setPendingReviewComments([]);
-    setDiffLoading(true);
-    setError(null);
-    const request = ++diffRequest.current;
-    const filesRequest = range === null
-      ? window.bridge.fetchPrDiffFiles(selectedPr.repo, selectedPr.number)
-      : window.bridge.refreshPrDiffFiles(selectedPr.repo, selectedPr.number, start?.parentSha, end?.sha);
-    filesRequest
-      .then(files => {
-        if (request === diffRequest.current) setDiffs(files);
-      })
-      .catch(e => {
-        if (request === diffRequest.current) setError(e instanceof Error ? e.message : String(e));
-      })
-      .finally(() => {
-        if (request === diffRequest.current) setDiffLoading(false);
-      });
   };
 
+  const refreshChanges = changes.refresh;
   const refresh = useCallback(async () => {
     if (!selectedPr || detailLoading) return;
     const selectedKey = `${selectedPr.repo.toLowerCase()}#${selectedPr.number}`;
@@ -885,37 +736,25 @@ export default function PullsScreen({
     const request = ++manualDetailRefreshRequest.current;
     const listVersion = listRequest.current;
     const requestMutationVersion = detailMutationVersion.current;
-    setDetailLoading(true);
+    await refreshDetail();
+    if (request !== manualDetailRefreshRequest.current
+        || selectedPullRequest.current?.key !== selectedKey) return;
+    refreshChanges();
+    setPendingReviewComments([]);
+    if (overlay || listVersion !== listRequest.current) return;
     try {
-      const value = await window.bridge.refreshAllPullRequestDetailByRef(
-        selectedPr.repo, selectedPr.number);
-      if (request !== manualDetailRefreshRequest.current
-          || selectedPullRequest.current?.key !== selectedKey) return;
-      applyDetail(selectedPr.id, value, true, requestMutationVersion);
-      if (!overlay && listVersion === listRequest.current) {
-        try {
-          const result = await window.bridge.fetchPrs(repositoryScope?.workspaceId, 0, PAGE_SIZE, query);
-          if (request === manualDetailRefreshRequest.current
-              && selectedPullRequest.current?.key === selectedKey
-              && listVersion === listRequest.current
-              && requestMutationVersion === detailMutationVersion.current) applyPage(result);
-        }
-        catch (e) {
-          if (listVersion === listRequest.current) throw e;
-        }
-      }
-    }
-    catch (e) {
+      const result = await window.bridge.fetchPrs(repositoryScope?.workspaceId, 0, PAGE_SIZE, query);
       if (request === manualDetailRefreshRequest.current
-          && selectedPullRequest.current?.key === selectedKey) {
-        setError(e instanceof Error ? e.message : String(e));
-      }
+          && selectedPullRequest.current?.key === selectedKey
+          && listVersion === listRequest.current
+          && requestMutationVersion === detailMutationVersion.current) applyPage(result);
     }
-    finally {
+    catch (failure) {
       if (request === manualDetailRefreshRequest.current
-          && selectedPullRequest.current?.key === selectedKey) setDetailLoading(false);
+          && selectedPullRequest.current?.key === selectedKey
+          && listVersion === listRequest.current) setError(remoteErrorMessage(failure));
     }
-  }, [applyDetail, applyPage, detailLoading, overlay, query, repositoryScope?.workspaceId, selectedPr]);
+  }, [applyPage, detailLoading, overlay, query, refreshChanges, refreshDetail, repositoryScope?.workspaceId, selectedPr]);
 
   const applyPostedDetail = useCallback((value: PullRequestDetailDto, kind: 'discussion' | 'review') => {
     const current = selectedPullRequest.current;
@@ -1118,11 +957,11 @@ export default function PullsScreen({
             onZoom={() => setDetailZoomed(value => !value)}
             onClose={onClose}
           />
-          {error && <div className="pull-detail__error">{error}</div>}
+          {displayedDetailError && <div className="pull-detail__error">{displayedDetailError}</div>}
           {showBlockingDetailLoading(detailLoading, detail !== null) ? (
             <div className="pull-detail__loading">Loading details…</div>
           ) : detail === null ? (
-            !error && <div className="pull-detail__loading">Select a pull request.</div>
+            !displayedDetailError && <div className="pull-detail__loading">Select a pull request.</div>
           ) : detailTab === 'review' && (reviewLoading || reviewError !== null) ? (
             <div className="pull-detail__body pull-detail__review">
               {reviewLoading ? <div className="hp-loading" role="status">Loading agent review…</div> : (
@@ -1133,7 +972,10 @@ export default function PullsScreen({
               )}
             </div>
           ) : (
+            <>
+            {localReview.error !== null && <div className="agr-error" role="alert">Local review comments: {localReview.error}</div>}
             <DetailBody
+              localReview={localReview}
               tab={detailTab}
               pr={selectedPr}
               detail={detail}
@@ -1168,6 +1010,7 @@ export default function PullsScreen({
               onDiscussionPosted={value => applyPostedDetail(value, 'discussion')}
               onReviewPosted={value => applyPostedDetail(value, 'review')}
             />
+            </>
           )}
         </section>
       )}
@@ -1721,7 +1564,7 @@ function ConflictIcon() {
 }
 
 function DetailBody({
-  tab,
+  tab, localReview,
   pr,
   detail,
   workspaceId,
@@ -1746,6 +1589,7 @@ function DetailBody({
   onReviewPosted,
 }: {
   tab: DetailTab;
+  localReview?: LocalReviewThreads;
   pr: PullRequestDto;
   detail: PullRequestDetailDto;
   workspaceId: string | undefined;
@@ -1784,6 +1628,7 @@ function DetailBody({
   if (tab === 'changes') {
     if (diffs === null) return <div className="hp-loading">Loading files…</div>;
     return <div className="pull-detail__body pull-detail__changes"><PullChanges
+      localReview={localReview}
       repo={detail.repo}
       number={detail.number}
       workspaceId={contributorsWorkspaceId}
@@ -1814,6 +1659,7 @@ function DetailBody({
     /></div>;
   }
   return <div className="pull-detail__body"><PullOverview
+    localReview={localReview}
     key={`${pr.repo.toLowerCase()}#${pr.number}`}
     pr={pr}
     detail={detail}

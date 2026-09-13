@@ -64,6 +64,17 @@ Provider approval and authentication checks still apply. Generated text is
 not itself a user authorization. Existing tasks do not auto-publish on app
 startup or page load; their next explicit submission carries the selection.
 
+**Send to agent** on a task's linked PR diff is another explicit submission.
+Its visible action commits and pushes requested edits while keeping draft PRs
+draft: the input snapshots `autoCommit=true`, `autoDraftPr=true`, and
+`autoCiFix=false`, without changing task defaults or the main composer's Local
+only choice. A busy task queues that input with the same settings. This action
+requires an existing open PR and keeps feedback private in the task transcript;
+it does not post GitHub comments or replace the PR description. Questions ask
+for an explanation without edits or release of prior held work. Existing
+readiness, unchanged-work, and publication checks still decide whether any
+commit or push is necessary.
+
 Only interactive development tasks enter this continuation. CI, cherry-pick,
 review-owned tasks, helpers, and child agents cannot recursively start it.
 An unchanged read-only turn produces no new commit, PR, or CI run.

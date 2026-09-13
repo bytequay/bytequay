@@ -22,6 +22,8 @@ import com.bytequay.agent.spi.CodeGraphBridge;
 import com.bytequay.agent.spi.DevelopmentResultBridge;
 import com.bytequay.agent.spi.DevelopmentResultBridgeResolver;
 import com.bytequay.agent.spi.DevelopmentResultReport;
+import com.bytequay.agent.spi.LocalReviewBridge;
+import com.bytequay.agent.spi.LocalReviewBridgeResolver;
 import com.bytequay.agent.spi.ProviderApprovalDecision;
 import com.bytequay.agent.spi.ProviderApprovalRequest;
 import com.bytequay.agent.spi.ReviewBridge;
@@ -35,6 +37,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.datatype.jdk8.Jdk8Module;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
+import com.google.common.collect.ImmutableSet;
 
 import java.io.IOException;
 import java.net.URI;
@@ -49,6 +52,7 @@ import java.util.Base64;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ExecutionException;
@@ -62,6 +66,7 @@ import java.util.stream.Stream;
 import static com.bytequay.agent.spi.ProviderAgentEventSource.root;
 import static com.bytequay.agent.spi.ProviderApprovalRequest.Decision.ALLOW_ONCE;
 import static com.bytequay.agent.spi.ProviderApprovalRequest.Decision.DENY;
+import static com.google.common.base.Preconditions.checkArgument;
 import static java.util.Objects.requireNonNull;
 
 /** Serves ByteQuay's task-scoped Claude MCP tools. */
@@ -82,6 +87,7 @@ public final class ClaudePermissionBroker
     private final CiMemoryReader ciMemoryReader;
     private final ReviewBridgeResolver reviews;
     private final DevelopmentResultBridgeResolver developments;
+    private final LocalReviewBridgeResolver localReviews;
     private final Map<String, PermissionContext> contexts = new ConcurrentHashMap<>();
 
     public ClaudePermissionBroker(
@@ -108,6 +114,17 @@ public final class ClaudePermissionBroker
             ReviewBridgeResolver reviews,
             DevelopmentResultBridgeResolver developments)
     {
+        this(endpoint, objectMapper, ciMemoryReader, reviews, developments, LocalReviewBridgeResolver.NONE);
+    }
+
+    public ClaudePermissionBroker(
+            Supplier<URI> endpoint,
+            ObjectMapper objectMapper,
+            CiMemoryReader ciMemoryReader,
+            ReviewBridgeResolver reviews,
+            DevelopmentResultBridgeResolver developments,
+            LocalReviewBridgeResolver localReviews)
+    {
         this.endpoint = requireNonNull(endpoint, "endpoint is null");
         this.objectMapper = requireNonNull(objectMapper, "objectMapper is null")
                 .copy()
@@ -116,6 +133,7 @@ public final class ClaudePermissionBroker
         this.ciMemoryReader = requireNonNull(ciMemoryReader, "ciMemoryReader is null");
         this.reviews = requireNonNull(reviews, "reviews is null");
         this.developments = requireNonNull(developments, "developments is null");
+        this.localReviews = requireNonNull(localReviews, "localReviews is null");
     }
 
     Registration register(
@@ -163,6 +181,7 @@ public final class ClaudePermissionBroker
         requireNonNull(codeGraph, "codeGraph is null");
         Optional<ReviewBridge> review = reviews.resolve(taskId);
         Optional<DevelopmentResultBridge> development = textOnly || review.isPresent() ? Optional.empty() : developments.resolve(taskId);
+        Optional<LocalReviewBridge> localReview = textOnly || review.isPresent() ? Optional.empty() : localReviews.resolve(taskId);
         contexts.put(token, new PermissionContext(
                 taskId,
                 worktree,
@@ -172,7 +191,8 @@ public final class ClaudePermissionBroker
                 true,
                 codeGraph,
                 review,
-                development));
+                development,
+                localReview));
         try {
             Files.createDirectories(providerDirectory);
             // Claude's HTTP first-response deadline otherwise expires after 60 seconds, before the approval card.
@@ -185,7 +205,7 @@ public final class ClaudePermissionBroker
                             APPROVAL_TIMEOUT.plusSeconds(30).toMillis()))));
             writeOwnerOnly(configFile, json);
             writeOwnerOnly(settingsFile, sandboxSettings(permissionPolicy, textOnly, review.isPresent(), runtimeDirectory.toRealPath()));
-            return new Registration(configFile, settingsFile, token, codeGraph, review, development);
+            return new Registration(configFile, settingsFile, token, codeGraph, review, development, localReview);
         }
         catch (IOException e) {
             contexts.remove(token);
@@ -197,7 +217,7 @@ public final class ClaudePermissionBroker
 
     /**
      * Registers a token for a provider that reaches this endpoint through its own MCP
-     * configuration, exposing its CI memory, graph, review, or development reporting capability. Empty
+     * configuration, exposing its CI memory, graph, review, development, or local discussion capability. Empty
      * when the task has no local tools.
      */
     public Optional<CodeGraphRegistration> registerTools(
@@ -216,21 +236,24 @@ public final class ClaudePermissionBroker
         requireNonNull(codeGraph, "codeGraph is null");
         Optional<ReviewBridge> review = reviews.resolve(taskId);
         Optional<DevelopmentResultBridge> development = review.isPresent() ? Optional.empty() : developments.resolve(taskId);
-        if (permissionPolicy != AgentPermissionPolicy.CI_AUTOFIX && codeGraph.isEmpty() && review.isEmpty() && development.isEmpty()) {
+        Optional<LocalReviewBridge> localReview = review.isPresent() ? Optional.empty() : localReviews.resolve(taskId);
+        if (permissionPolicy != AgentPermissionPolicy.CI_AUTOFIX && codeGraph.isEmpty() && review.isEmpty() && development.isEmpty() && localReview.isEmpty()) {
             return Optional.empty();
         }
         String token = token();
-        contexts.put(token, new PermissionContext(taskId, worktree, permissionPolicy, approvals, redactor.withSecret(token), false, codeGraph, review, development));
-        return Optional.of(new CodeGraphRegistration(token, requireNonNull(endpoint.get(), "endpoint URI is null"), codeGraph, review, development));
+        contexts.put(token, new PermissionContext(taskId, worktree, permissionPolicy, approvals, redactor.withSecret(token), false, codeGraph, review, development, localReview));
+        return Optional.of(new CodeGraphRegistration(token, requireNonNull(endpoint.get(), "endpoint URI is null"), codeGraph, review, development, localReview));
     }
 
     /** Combines the fixed capabilities' guidance for the session's instruction channel. */
-    static Optional<String> managedInstruction(Optional<CodeGraphBridge> codeGraph, Optional<ReviewBridge> review, Optional<DevelopmentResultBridge> development)
+    static Optional<String> managedInstruction(
+            Optional<CodeGraphBridge> codeGraph, Optional<ReviewBridge> review, Optional<DevelopmentResultBridge> development, Optional<LocalReviewBridge> localReview)
     {
         String joined = Stream.of(
                         review.map(ReviewBridge::instruction),
                         codeGraph.map(CodeGraphBridge::instruction),
-                        development.map(DevelopmentResultBridge::instruction))
+                        development.map(DevelopmentResultBridge::instruction),
+                        localReview.map(LocalReviewBridge::instruction))
                 .flatMap(Optional::stream)
                 .collect(Collectors.joining("\n\n"));
         return joined.isBlank() ? Optional.empty() : Optional.of(joined);
@@ -279,8 +302,77 @@ public final class ClaudePermissionBroker
             case "read_ci_memory" -> readCiMemory(request.id(), params.arguments(), context);
             case CodeGraphBridge.TOOL_NAME -> codeGraphExplore(request.id(), params.arguments(), context);
             case DevelopmentResultBridge.TOOL_NAME -> developmentResult(request.id(), params.arguments(), context);
+            case LocalReviewBridge.LIST_TOOL, LocalReviewBridge.REPLY_TOOL, LocalReviewBridge.RESOLVE_TOOL -> localReviewTool(request.id(), params, context);
             default -> reviewTool(request.id(), params, context);
         };
+    }
+
+    private McpHttpResponse localReviewTool(JsonNode id, ToolCallParams params, PermissionContext context)
+    {
+        if (context.localReview().isEmpty()) {
+            return error(id, -32602, "Unknown tool");
+        }
+        Optional<LocalReviewBridge> bridge;
+        try {
+            bridge = localReviews.resolve(context.taskId());
+        }
+        catch (RuntimeException failure) {
+            return error(id, -32602, "Local review is unavailable for this task");
+        }
+        if (bridge.isEmpty()) {
+            return error(id, -32602, "Local review is unavailable for this task");
+        }
+        Supplier<String> action;
+        try {
+            JsonNode arguments = params.arguments();
+            checkArgument(arguments != null && arguments.isObject(), "arguments must be an object");
+            Set<String> fields = switch (params.name()) {
+                case LocalReviewBridge.LIST_TOOL -> arguments.has("commentId") ? ImmutableSet.of("commentId") : ImmutableSet.of();
+                case LocalReviewBridge.REPLY_TOOL -> ImmutableSet.of("commentId", "body", "operationKey");
+                case LocalReviewBridge.RESOLVE_TOOL -> ImmutableSet.of("commentId", "resolved", "operationKey");
+                default -> throw new IllegalArgumentException("Unknown local review tool");
+            };
+            checkArgument(arguments.size() == fields.size(), "arguments do not match the tool schema");
+            fields.forEach(field -> checkArgument(arguments.has(field), "missing argument: %s", field));
+            if (params.name().equals(LocalReviewBridge.LIST_TOOL)) {
+                Optional<String> commentId = Optional.empty();
+                if (arguments.has("commentId")) {
+                    checkArgument(arguments.get("commentId").isTextual(), "commentId must be a string");
+                    String value = arguments.get("commentId").textValue();
+                    checkArgument(!value.isBlank() && value.length() <= LocalReviewBridge.MAXIMUM_ID_LENGTH, "Invalid commentId");
+                    commentId = Optional.of(value);
+                }
+                Optional<String> selectedComment = commentId;
+                action = () -> bridge.orElseThrow().list().apply(selectedComment);
+            }
+            else {
+                checkArgument(arguments.path("commentId").isTextual(), "commentId must be a string");
+                checkArgument(arguments.path("operationKey").isTextual(), "operationKey must be a string");
+                String commentId = arguments.get("commentId").textValue();
+                String operationKey = arguments.get("operationKey").textValue();
+                if (params.name().equals(LocalReviewBridge.REPLY_TOOL)) {
+                    checkArgument(arguments.path("body").isTextual(), "body must be a string");
+                    checkArgument(arguments.get("body").textValue().length() <= LocalReviewBridge.MAXIMUM_BODY_LENGTH, "body is too long");
+                    LocalReviewBridge.Reply reply = new LocalReviewBridge.Reply(commentId, context.redactor().redact(arguments.get("body").textValue()), operationKey);
+                    action = () -> bridge.orElseThrow().reply().apply(reply);
+                }
+                else {
+                    checkArgument(arguments.path("resolved").isBoolean(), "resolved must be a boolean");
+                    LocalReviewBridge.Resolution resolution = new LocalReviewBridge.Resolution(commentId, arguments.get("resolved").booleanValue(), operationKey);
+                    action = () -> bridge.orElseThrow().resolve().apply(resolution);
+                }
+            }
+        }
+        catch (IllegalArgumentException failure) {
+            return error(id, -32602, "Invalid " + params.name() + " arguments: " + context.redactor().redact(failure.getMessage()));
+        }
+        try {
+            return response(id, new ToolResult(ImmutableList.of(new TextContent("text", context.redactor().redact(action.get()))), false));
+        }
+        catch (RuntimeException failure) {
+            String reason = Optional.ofNullable(failure.getMessage()).orElse(failure.getClass().getSimpleName());
+            return response(id, new ToolResult(ImmutableList.of(new TextContent("text", "Local review operation failed: " + context.redactor().redact(reason))), true));
+        }
     }
 
     private McpHttpResponse developmentResult(JsonNode id, JsonNode arguments, PermissionContext context)
@@ -485,6 +577,32 @@ public final class ClaudePermissionBroker
             tools.add(codeGraphTool());
         }
         context.review().ifPresent(review -> review.tools().forEach(tool -> tools.add(new ToolDefinition(tool.name(), tool.description(), tool.inputSchema()))));
+        context.localReview().ifPresent(ignored -> {
+            Map<String, Object> identifier = ImmutableMap.of("type", "string", "minLength", 1, "maxLength", LocalReviewBridge.MAXIMUM_ID_LENGTH);
+            tools.add(new ToolDefinition(
+                    LocalReviewBridge.LIST_TOOL,
+                    "Read bounded unresolved/recent summaries, or supply commentId for its anchored code and recent discussion; omissions and excerpts are marked",
+                    ImmutableMap.of("type", "object", "properties", ImmutableMap.of("commentId", identifier), "additionalProperties", false)));
+            tools.add(new ToolDefinition(
+                    LocalReviewBridge.REPLY_TOOL,
+                    "Reply privately to one returned comment; reuse the operationKey when retrying the same reply",
+                    ImmutableMap.of(
+                            "type", "object",
+                            "properties", ImmutableMap.of(
+                                    "commentId", identifier,
+                                    "operationKey", identifier,
+                                    "body", ImmutableMap.of("type", "string", "minLength", 1, "maxLength", LocalReviewBridge.MAXIMUM_BODY_LENGTH)),
+                            "required", ImmutableList.of("commentId", "body", "operationKey"),
+                            "additionalProperties", false)));
+            tools.add(new ToolDefinition(
+                    LocalReviewBridge.RESOLVE_TOOL,
+                    "Resolve or reopen one private comment; resolved is explicit and operationKey identifies this exact update",
+                    ImmutableMap.of(
+                            "type", "object",
+                            "properties", ImmutableMap.of("commentId", identifier, "operationKey", identifier, "resolved", ImmutableMap.of("type", "boolean")),
+                            "required", ImmutableList.of("commentId", "resolved", "operationKey"),
+                            "additionalProperties", false)));
+        });
         context.development().ifPresent(ignored -> tools.add(new ToolDefinition(
                 DevelopmentResultBridge.TOOL_NAME,
                 "Report the current root development result; optional stopAfter only narrows accepted delivery settings",
@@ -670,6 +788,7 @@ public final class ClaudePermissionBroker
         private final Optional<CodeGraphBridge> codeGraph;
         private final Optional<ReviewBridge> review;
         private final Optional<DevelopmentResultBridge> development;
+        private final Optional<LocalReviewBridge> localReview;
 
         private Registration(
                 Path configFile,
@@ -677,7 +796,8 @@ public final class ClaudePermissionBroker
                 String token,
                 Optional<CodeGraphBridge> codeGraph,
                 Optional<ReviewBridge> review,
-                Optional<DevelopmentResultBridge> development)
+                Optional<DevelopmentResultBridge> development,
+                Optional<LocalReviewBridge> localReview)
         {
             this.configFile = requireNonNull(configFile, "configFile is null");
             this.settingsFile = requireNonNull(settingsFile, "settingsFile is null");
@@ -685,11 +805,17 @@ public final class ClaudePermissionBroker
             this.codeGraph = requireNonNull(codeGraph, "codeGraph is null");
             this.review = requireNonNull(review, "review is null");
             this.development = requireNonNull(development, "development is null");
+            this.localReview = requireNonNull(localReview, "localReview is null");
         }
 
         public Optional<DevelopmentResultBridge> development()
         {
             return development;
+        }
+
+        Optional<LocalReviewBridge> localReview()
+        {
+            return localReview;
         }
 
         /** The review capability this token exposes, resolved from the task when it registered. */
@@ -701,7 +827,7 @@ public final class ClaudePermissionBroker
         /** The managed guidance this session's instruction channel carries, if any tool needs one. */
         Optional<String> instruction()
         {
-            return managedInstruction(codeGraph, review, development);
+            return managedInstruction(codeGraph, review, development, localReview);
         }
 
         Path configFile()
@@ -738,14 +864,18 @@ public final class ClaudePermissionBroker
         private final Optional<CodeGraphBridge> codeGraph;
         private final Optional<ReviewBridge> review;
         private final Optional<DevelopmentResultBridge> development;
+        private final Optional<LocalReviewBridge> localReview;
 
-        private CodeGraphRegistration(String token, URI endpoint, Optional<CodeGraphBridge> codeGraph, Optional<ReviewBridge> review, Optional<DevelopmentResultBridge> development)
+        private CodeGraphRegistration(
+                String token, URI endpoint, Optional<CodeGraphBridge> codeGraph, Optional<ReviewBridge> review,
+                Optional<DevelopmentResultBridge> development, Optional<LocalReviewBridge> localReview)
         {
             this.token = requireNonNull(token, "token is null");
             this.endpoint = requireNonNull(endpoint, "endpoint is null");
             this.codeGraph = requireNonNull(codeGraph, "codeGraph is null");
             this.review = requireNonNull(review, "review is null");
             this.development = requireNonNull(development, "development is null");
+            this.localReview = requireNonNull(localReview, "localReview is null");
         }
 
         public Optional<DevelopmentResultBridge> development()
@@ -762,7 +892,7 @@ public final class ClaudePermissionBroker
         /** The managed guidance for the launch's instruction channel; empty only for a token without any guidance. */
         public String instruction()
         {
-            return managedInstruction(codeGraph, review, development).orElse("");
+            return managedInstruction(codeGraph, review, development, localReview).orElse("");
         }
 
         public String token()
@@ -799,7 +929,8 @@ public final class ClaudePermissionBroker
             boolean permissionTools,
             Optional<CodeGraphBridge> codeGraph,
             Optional<ReviewBridge> review,
-            Optional<DevelopmentResultBridge> development)
+            Optional<DevelopmentResultBridge> development,
+            Optional<LocalReviewBridge> localReview)
     {
         private PermissionContext
         {
@@ -811,6 +942,7 @@ public final class ClaudePermissionBroker
             requireNonNull(codeGraph, "codeGraph is null");
             requireNonNull(review, "review is null");
             requireNonNull(development, "development is null");
+            requireNonNull(localReview, "localReview is null");
         }
     }
 

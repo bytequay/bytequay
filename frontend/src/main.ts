@@ -11,6 +11,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
+import { parseLocalReviewThread, parseLocalReviewThreads, type CreateLocalReviewRequest, type LocalReviewQuery, type ReplyLocalReviewRequest, type ResolveLocalReviewRequest, type RetryLocalReviewRequest } from './pulls/local-review/contracts';
 import { app, BrowserWindow, clipboard, dialog, ipcMain, Menu, nativeImage, Notification, shell, WebContentsView } from 'electron';
 import fs from 'node:fs';
 import { randomUUID } from 'node:crypto';
@@ -622,6 +623,35 @@ function registerIpc(): void {
       { headers: agentHeaders() },
     );
     return parseAgentPendingApprovals(approvals, taskId, turnId);
+  });
+  const localReviewUrl = (taskId: string, workspaceId: string, suffix = ''): string =>
+    `${backendBase()}/agent/tasks/${encodeURIComponent(taskId)}/local-review-comments${suffix}?${new URLSearchParams({ workspaceId })}`;
+  ipcMain.handle('agent:local-review:list', async (_event, query: LocalReviewQuery) => {
+    const url = 'taskId' in query ? localReviewUrl(query.taskId, query.workspaceId)
+      : `${backendBase()}/agent/local-review-comments?${new URLSearchParams({
+        repo: query.repo, number: String(query.number), ...(query.workspaceId === undefined ? {} : { workspaceId: query.workspaceId }),
+      })}`;
+    return parseLocalReviewThreads(await backendJson(url, { headers: agentHeaders() }));
+  });
+  ipcMain.handle('agent:local-review:create', async (_event, request: CreateLocalReviewRequest) => {
+    const { taskId, workspaceId, idempotencyKey, ...body } = request;
+    return parseLocalReviewThread(await backendJson(localReviewUrl(taskId, workspaceId),
+      jsonInit('POST', body, { ...agentHeaders(true), 'Idempotency-Key': idempotencyKey })));
+  });
+  ipcMain.handle('agent:local-review:reply', async (_event, request: ReplyLocalReviewRequest) => {
+    const { taskId, workspaceId, threadId, idempotencyKey, ...body } = request;
+    return parseLocalReviewThread(await backendJson(localReviewUrl(taskId, workspaceId, `/${encodeURIComponent(threadId)}/messages`),
+      jsonInit('POST', body, { ...agentHeaders(true), 'Idempotency-Key': idempotencyKey })));
+  });
+  ipcMain.handle('agent:local-review:resolve', async (_event, request: ResolveLocalReviewRequest) => {
+    const { taskId, workspaceId, threadId, idempotencyKey, ...body } = request;
+    return parseLocalReviewThread(await backendJson(localReviewUrl(taskId, workspaceId, `/${encodeURIComponent(threadId)}`),
+      jsonInit('PATCH', body, { ...agentHeaders(true), 'Idempotency-Key': idempotencyKey })));
+  });
+  ipcMain.handle('agent:local-review:retry', async (_event, request: RetryLocalReviewRequest) => {
+    const { taskId, workspaceId, threadId, messageId, ...body } = request;
+    return parseLocalReviewThread(await backendJson(localReviewUrl(taskId, workspaceId,
+      `/${encodeURIComponent(threadId)}/messages/${encodeURIComponent(messageId)}/retry`), jsonInit('POST', body, agentHeaders(true))));
   });
   ipcMain.handle('agent:turns:start', (_event, request: StartAgentTurnRequest) =>
     backendJson(`${backendBase()}/agent/tasks/${encodeURIComponent(request.taskId)}/turns`, {

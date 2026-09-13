@@ -54,6 +54,7 @@ import com.bytequay.agent.core.store.TaskLogStore;
 import com.bytequay.agent.spi.AgentDriver;
 import com.bytequay.agent.spi.AgentDriverRegistry;
 import com.bytequay.agent.spi.DevelopmentResultBridgeResolver;
+import com.bytequay.agent.spi.LocalReviewBridgeResolver;
 import com.bytequay.agent.spi.ReviewBridgeResolver;
 import com.bytequay.app.agent.codegraph.CodeGraphBaseline;
 import com.bytequay.app.agent.codegraph.CodeGraphCli;
@@ -130,7 +131,8 @@ public class AgentConfiguration
             ApplicationContext context,
             CiMemoryService ciMemoryService,
             ReviewBridgeResolver reviews,
-            DevelopmentResultBridgeResolver developmentResults)
+            DevelopmentResultBridgeResolver developmentResults,
+            LocalReviewBridgeResolver localReviews)
     {
         return new ClaudePermissionBroker(
                 () -> URI.create("http://127.0.0.1:" + ((WebServerApplicationContext) context).getWebServer().getPort()
@@ -139,7 +141,8 @@ public class AgentConfiguration
                 (taskId, query) -> ciMemoryService.read(
                         new ReadCiMemoryCommand(TaskId.valueOf(taskId), query)).markdown(),
                 reviews,
-                developmentResults);
+                developmentResults,
+                localReviews);
     }
 
     @Bean(destroyMethod = "close")

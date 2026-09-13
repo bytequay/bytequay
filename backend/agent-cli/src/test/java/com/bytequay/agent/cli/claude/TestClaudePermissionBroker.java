@@ -18,6 +18,8 @@ import com.bytequay.agent.spi.AgentApprovalHandler;
 import com.bytequay.agent.spi.AgentPermissionPolicy;
 import com.bytequay.agent.spi.CodeGraphBridge;
 import com.bytequay.agent.spi.DevelopmentResultBridge;
+import com.bytequay.agent.spi.DevelopmentResultBridgeResolver;
+import com.bytequay.agent.spi.LocalReviewBridge;
 import com.bytequay.agent.spi.ProviderApprovalDecision;
 import com.bytequay.agent.spi.ProviderApprovalRequest;
 import com.bytequay.agent.spi.ReviewBridge;
@@ -36,6 +38,8 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.attribute.PosixFilePermissions;
 import java.time.Duration;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.Optional;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.atomic.AtomicInteger;
@@ -49,6 +53,114 @@ class TestClaudePermissionBroker
 
     @TempDir
     private Path temporaryDirectory;
+
+    @Test
+    void privateLocalReviewToolsShareTheTaskScopeWithoutChangingItsDevelopmentProfile()
+            throws Exception
+    {
+        List<String> operations = new ArrayList<>();
+        AtomicReference<Boolean> available = new AtomicReference<>(true);
+        LocalReviewBridge local = new LocalReviewBridge(
+                commentId -> "[{\"id\":\"" + commentId.orElse("comment-1") + "\"}]",
+                reply -> {
+                    if (!reply.commentId().equals("comment-1")) {
+                        throw new IllegalArgumentException("Comment belongs to another task known-secret");
+                    }
+                    operations.add(reply.commentId() + "|" + reply.body() + "|" + reply.operationKey());
+                    return "reply accepted";
+                },
+                resolution -> {
+                    operations.add(resolution.commentId() + "|" + resolution.resolved() + "|" + resolution.operationKey());
+                    return "resolution accepted";
+                },
+                LocalReviewBridge.INSTRUCTION);
+        ClaudePermissionBroker broker = new ClaudePermissionBroker(
+                () -> URI.create("http://127.0.0.1:9000/internal/agent/claude/mcp"), objectMapper,
+                (taskId, query) -> "memory", ReviewBridgeResolver.NONE,
+                taskId -> taskId.equals("task-1") ? Optional.of(new DevelopmentResultBridge("turn-1", DevelopmentResultBridge.INSTRUCTION)) : Optional.empty(),
+                taskId -> taskId.equals("task-1") && available.get() ? Optional.of(local) : Optional.empty());
+        SecretRedactor redactor = SecretRedactor.fromEnvironment(ImmutableMap.of("OPENAI_API_KEY", "known-secret"));
+        String closedToken;
+        try (ClaudePermissionBroker.CodeGraphRegistration codex = broker.registerTools(
+                "task-1", temporaryDirectory, AgentPermissionPolicy.AUTO,
+                (request, timeout) -> CompletableFuture.completedFuture(ProviderApprovalDecision.deny()), redactor, Optional.empty()).orElseThrow();
+                ClaudePermissionBroker.Registration claude = broker.register(
+                        "task-1", temporaryDirectory, temporaryDirectory, temporaryDirectory, AgentPermissionPolicy.AUTO,
+                        false, (request, timeout) -> CompletableFuture.completedFuture(ProviderApprovalDecision.deny()), redactor, Optional.empty())) {
+            closedToken = codex.token();
+            assertThat(codex.review()).isEmpty();
+            assertThat(claude.review()).isEmpty();
+            assertThat(codex.development()).isPresent();
+            assertThat(claude.development()).isPresent();
+            assertThat(codex.instruction()).contains(LocalReviewBridge.INSTRUCTION, DevelopmentResultBridge.INSTRUCTION);
+            for (String token : ImmutableList.of(codex.token(), claude.token())) {
+                JsonNode listed = broker.handle(token, objectMapper.readTree("""
+                        {"jsonrpc":"2.0","id":1,"method":"tools/list","params":{}}
+                        """)).body().orElseThrow();
+                assertThat(listed.at("/result/tools").findValuesAsText("name"))
+                        .contains(LocalReviewBridge.LIST_TOOL, LocalReviewBridge.REPLY_TOOL, LocalReviewBridge.RESOLVE_TOOL, DevelopmentResultBridge.TOOL_NAME);
+                assertThat(localReviewCall(broker, token, LocalReviewBridge.LIST_TOOL, "{}").at("/result/content/0/text").textValue()).contains("comment-1");
+                assertThat(localReviewCall(broker, token, LocalReviewBridge.REPLY_TOOL, """
+                        {"commentId":"comment-1","body":"Answer known-secret","operationKey":"reply-1"}
+                        """).at("/result/isError").booleanValue()).isFalse();
+                for (boolean resolved : ImmutableList.of(true, false)) {
+                    assertThat(localReviewCall(broker, token, LocalReviewBridge.RESOLVE_TOOL, """
+                            {"commentId":"comment-1","resolved":%s,"operationKey":"resolve-%s"}
+                            """.formatted(resolved, resolved)).at("/result/isError").booleanValue()).isFalse();
+                }
+                for (String invalid : ImmutableList.of(
+                        "{}", "[]", "{\"commentId\":\"comment-1\",\"body\":\"Answer\",\"operationKey\":null}",
+                        "{\"commentId\":\"comment-1\",\"body\":\" \",\"operationKey\":\"reply-2\"}",
+                        "{\"commentId\":\"comment-1\",\"body\":\"Answer\",\"operationKey\":\"reply-2\",\"taskId\":\"task-2\"}",
+                        "{\"commentId\":\"comment-1\",\"body\":\"" + "a".repeat(LocalReviewBridge.MAXIMUM_BODY_LENGTH + 1) + "\",\"operationKey\":\"reply-2\"}")) {
+                    assertThat(localReviewCall(broker, token, LocalReviewBridge.REPLY_TOOL, invalid).at("/error/code").intValue()).isEqualTo(-32602);
+                }
+                assertThat(localReviewCall(broker, token, LocalReviewBridge.LIST_TOOL, "{\"commentId\":\"comment-1\"}").at("/result/content/0/text").textValue()).contains("comment-1");
+                for (String invalid : ImmutableList.of("{\"taskId\":\"task-2\"}", "{\"commentId\":null}", "{\"commentId\":\" \"}", "{\"commentId\":\"comment-1\",\"taskId\":\"task-2\"}")) {
+                    assertThat(localReviewCall(broker, token, LocalReviewBridge.LIST_TOOL, invalid).at("/error/code").intValue()).isEqualTo(-32602);
+                }
+                assertThat(localReviewCall(broker, token, LocalReviewBridge.RESOLVE_TOOL, """
+                        {"commentId":"comment-1","resolved":"true","operationKey":"wrong-type"}
+                        """).at("/error/code").intValue()).isEqualTo(-32602);
+                JsonNode foreign = localReviewCall(broker, token, LocalReviewBridge.REPLY_TOOL, """
+                        {"commentId":"foreign-comment","body":"Answer","operationKey":"foreign"}
+                        """);
+                assertThat(foreign.at("/result/isError").booleanValue()).isTrue();
+                assertThat(foreign.at("/result/content/0/text").textValue()).contains("another task", "[REDACTED]").doesNotContain("known-secret");
+            }
+            assertThat(operations).containsExactly(
+                    "comment-1|Answer [REDACTED]|reply-1", "comment-1|true|resolve-true", "comment-1|false|resolve-false",
+                    "comment-1|Answer [REDACTED]|reply-1", "comment-1|true|resolve-true", "comment-1|false|resolve-false");
+            available.set(false);
+            assertThat(localReviewCall(broker, codex.token(), LocalReviewBridge.LIST_TOOL, "{}").at("/error/code").intValue()).isEqualTo(-32602);
+        }
+        assertThat(broker.handle(closedToken, objectMapper.readTree("{}")).status()).isEqualTo(401);
+        assertThat(broker.registerTools("task-2", temporaryDirectory, AgentPermissionPolicy.AUTO,
+                (request, timeout) -> CompletableFuture.completedFuture(ProviderApprovalDecision.deny()), redactor, Optional.empty())).isEmpty();
+        available.set(true);
+        try (ClaudePermissionBroker.Registration helper = broker.register(
+                "task-1", temporaryDirectory, temporaryDirectory, temporaryDirectory, AgentPermissionPolicy.AUTO,
+                true, (request, timeout) -> CompletableFuture.completedFuture(ProviderApprovalDecision.deny()), redactor, Optional.empty())) {
+            assertThat(helper.localReview()).isEmpty();
+        }
+        ClaudePermissionBroker localOnly = new ClaudePermissionBroker(
+                () -> URI.create("http://127.0.0.1:9000/internal/agent/claude/mcp"), objectMapper,
+                (taskId, query) -> "memory", ReviewBridgeResolver.NONE, DevelopmentResultBridgeResolver.NONE,
+                taskId -> Optional.of(local));
+        try (ClaudePermissionBroker.CodeGraphRegistration registration = localOnly.registerTools(
+                "task-1", temporaryDirectory, AgentPermissionPolicy.AUTO,
+                (request, timeout) -> CompletableFuture.completedFuture(ProviderApprovalDecision.deny()), redactor, Optional.empty()).orElseThrow()) {
+            assertThat(registration.instruction()).isEqualTo(LocalReviewBridge.INSTRUCTION);
+        }
+    }
+
+    private JsonNode localReviewCall(ClaudePermissionBroker broker, String token, String tool, String arguments)
+            throws Exception
+    {
+        return broker.handle(token, objectMapper.readTree("""
+                {"jsonrpc":"2.0","id":4,"method":"tools/call","params":{"name":"%s","arguments":%s}}
+                """.formatted(tool, arguments))).body().orElseThrow();
+    }
 
     @Test
     void developmentReportsAreAvailableWithoutCodeGraphAndRejectExpiredOrInvalidClaims()

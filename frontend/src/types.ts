@@ -12,6 +12,8 @@
  * limitations under the License.
  */
 
+import type { CreateLocalReviewRequest, LocalReviewQuery, ReplyLocalReviewRequest, ResolveLocalReviewRequest, RetryLocalReviewRequest } from './pulls/local-review/contracts';
+import type { LocalReviewThreadDto } from './pulls/local-review/types';
 import { AgentEventEnvelope } from './agents/events';
 import type {
   AgentReviewDto,
@@ -1539,6 +1541,11 @@ export type Bridge = {
   readAgentEvents: (taskId: string, after?: number, limit?: number) => Promise<AgentEventEnvelope[]>;
   readAgentHistory: (taskId: string, before?: string, after?: string) => Promise<AgentHistoryPageDto>;
   readAgentPendingApprovals: (taskId: string, turnId: string) => Promise<AgentPendingApprovalDto[]>;
+  listLocalReviewComments: (query: LocalReviewQuery) => Promise<LocalReviewThreadDto[]>;
+  createLocalReviewComment: (request: CreateLocalReviewRequest) => Promise<LocalReviewThreadDto>;
+  replyLocalReviewComment: (request: ReplyLocalReviewRequest) => Promise<LocalReviewThreadDto>;
+  resolveLocalReviewComment: (request: ResolveLocalReviewRequest) => Promise<LocalReviewThreadDto>;
+  retryLocalReviewComment: (request: RetryLocalReviewRequest) => Promise<LocalReviewThreadDto>;
   startAgentTurn: (request: StartAgentTurnRequest) => Promise<AgentTurnDto>;
   /** Adds input to the running turn; the reply says whether it arrived, and UNKNOWN is never retried. */
   steerAgentTurn: (request: SteerAgentTurnRequest) => Promise<AgentInputDeliveryDto>;

@@ -57,7 +57,11 @@ WorkspaceDto
 } from '../types';
 import { useResizablePane } from '../useResizablePane';
 import { AgentConversation,BlockView,clock,codeGraphText,ConversationComposer,ConversationQueue,Glyph,modelName,PlanSteps,serviceTierName,shortDate,Spinner,stateClass,useConversationHistory,useOutputWheel,type AttachmentPreview } from './AgentConversation';
-import type { CommitRange } from '../pulls/PullChanges';
+import { type CommitRange, type DiffAgentComment } from '../pulls/PullChanges';
+import { useLocalReviewThreads } from '../pulls/local-review/useLocalReviewThreads';
+import type { LocalReviewThreads } from '../pulls/local-review/types';
+import { pullRequestDiffRevision, usePullRequestChanges } from '../pulls/usePullRequestChanges';
+import { usePullRequestDetail } from '../pulls/usePullRequestDetail';
 import { AutomationControl } from './AutomationControl';
 import { automationForSubmission, developmentQuestion, stoppingEndsDevelopment } from './developmentAutomation';
 import { CiAutofixPanel, ciActivity, DevelopmentCiStatus } from './CiAutofixPanel';
@@ -113,8 +117,6 @@ samePullRequest,
 TaskChangesView,
 TaskPullRequestView,
 taskPullRequest,
-useTaskPullRequestChanges,
-useTaskPullRequestDetail,
 type TaskPullRequestChanges,
 type TaskPullRequestDetail
 } from './TaskPullRequestPanel';
@@ -474,6 +476,7 @@ function AgentRow({ agent, now, onOpen }: { agent: AgentNode; now: number; onOpe
  * not a second subscription. Once retention has removed the transcript the agent is still listed
  * from the task's kept summary, and opening it says its activity expired rather than inventing it.
  */
+
 /**
  * The fixed request behind the panel's Create draft PR button. It goes through the ordinary turn
  * path, so the agent commits, pushes and opens the draft with its own tools under its usual
@@ -558,7 +561,7 @@ function SidePanel({
   pullRequestDetail, pullRequestChanges, pullRequestCommitRange, pullRequestPendingComments,
   onPullRequestCommitRangeChange, onPullRequestPendingCommentsChange, workspaceId, branch, repository,
   activityChoice, onOpenAgent, onCloseAgent, onToggleActivity, onDecide, onSelectTab, onOpenPullRequest,
-  onCreatePullRequest, createPullRequestBlocked = null,
+  onCreatePullRequest, createPullRequestBlocked = null, onAskAgent, onAskAgentDisabled, localReview,
   width, showAgents, logChoice = null, onToggleLog = () => {}, historyUnloaded = false, onLoadEarlier = () => {}, historyLoading = false,
 }: {
   agents: AgentNode[];
@@ -595,6 +598,9 @@ function SidePanel({
   onOpenPullRequest?: (number: number) => void;
   onCreatePullRequest?: () => void;
   createPullRequestBlocked?: string | null;
+  onAskAgent?: (comment: DiffAgentComment) => Promise<void>;
+  onAskAgentDisabled?: string | null;
+  localReview?: LocalReviewThreads;
   width: number;
   showAgents: boolean;
   /** The agent whose log the user opened, or "!thread" for one they folded; live agents open by default. */
@@ -648,7 +654,7 @@ function SidePanel({
         {pullRequest === null
           ? pullRequestNotice === null && <NoPullRequestView branch={branch} repository={repository} onCreate={onCreatePullRequest} createBlocked={createPullRequestBlocked} />
           : (
-            <TaskPullRequestView
+            <TaskPullRequestView localReview={localReview}
               key={`${pullRequest.repo.toLowerCase()}#${pullRequest.number}`}
               pr={pullRequest}
               workspaceId={workspaceId}
@@ -674,6 +680,9 @@ function SidePanel({
           workspaceId={workspaceId}
           commitRange={pullRequestCommitRange}
           pendingComments={pullRequestPendingComments}
+          localReview={localReview}
+          onAskAgent={onAskAgent}
+          onAskAgentDisabled={onAskAgentDisabled}
           onCommitRangeChange={onPullRequestCommitRangeChange}
           onPendingCommentsChange={onPullRequestPendingCommentsChange}
           onRefresh={pullRequestDetail.refresh}
@@ -872,11 +881,15 @@ export function AgentTaskBody({
   automation,
   headerAction,
   submissionBlocked = false,
+  onAskAgent, onAskAgentDisabled, localReview,
 }: {
   state: AgentTaskState;
   automation?: React.ReactNode;
   headerAction?: React.ReactNode;
   submissionBlocked?: boolean;
+  onAskAgent?: (comment: DiffAgentComment) => Promise<void>;
+  onAskAgentDisabled?: string | null;
+  localReview?: LocalReviewThreads;
   models: ModelOptionDto[];
   historyLoading?: boolean;
   onLoadHistory?: (direction: 'older' | 'newer' | 'latest') => void;
@@ -1123,6 +1136,7 @@ export function AgentTaskBody({
 
       <AgentConversation
         turns={turns} durableTurns={state.turns} models={models} now={now} scroll={scroll}
+        localReview={localReview}
         generatedBranch={state.task?.generatedBranch}
         connection={state.connection} running={status === 'running'} activeTurn={state.turn} activeTurnId={state.turn?.id ?? state.latestTurnId}
         waiting={waiting} gap={state.gap} activityChoice={activityChoice} turnChoice={turnChoice}
@@ -1154,6 +1168,7 @@ export function AgentTaskBody({
         <ConversationQueue
           queue={state.queue.map(input => ({
             ...input,
+            preview: localReview?.threads.flatMap(thread => thread.messages).find(message => message.queuedInputId === input.id)?.body ?? input.preview,
             attachmentCount: input.settings.attachments.length,
             modelLabel: `${modelName(models, input.settings.model)}${input.settings.effort === null ? '' : ` ${input.settings.effort}`}${input.settings.serviceTier == null ? '' : ` · ${serviceTierName(models, input.settings.model, input.settings.serviceTier)}`}`,
           }))}
@@ -1253,6 +1268,9 @@ export function AgentTaskBody({
             pullRequestChanges={pullRequestChanges}
             pullRequestCommitRange={pullRequestCommitRange}
             pullRequestPendingComments={pullRequestPendingComments}
+            localReview={localReview}
+            onAskAgent={state.task?.state === 'OPEN' ? onAskAgent : undefined}
+            onAskAgentDisabled={onAskAgentDisabled}
             onPullRequestCommitRangeChange={onPullRequestCommitRangeChange}
             onPullRequestPendingCommentsChange={onPullRequestPendingCommentsChange}
             workspaceId={state.task.workspaceId}
@@ -1414,6 +1432,7 @@ export default function AgentTaskScreen({
   const submissionRef = useRef<DraftSubmissionTracker | null>(null);
   if (submissionRef.current === null) submissionRef.current = createDraftSubmissionTracker();
   const submissions = submissionRef.current;
+  const inlineSending = useRef(false);
 
   useEffect(() => {
     mountedRef.current = true;
@@ -1652,18 +1671,30 @@ export default function AgentTaskScreen({
   // The panel reads the pull request itself, so the detail and its diff are read here rather
   // than by the body, which stays a pure function of the state a test can hand it.
   // Every panel tab keeps the shared PR toolbar's permissions and status current.
-  const pullRequestDetail = useTaskPullRequestDetail(taskPr, panelOpen && !ciPanelOpen);
-  const pullRequestChanges = useTaskPullRequestChanges(taskPr, panelOpen && panelTab === 'changes');
+  const detailSource = usePullRequestDetail(taskPr, { active: panelOpen && !ciPanelOpen });
+  const diffRevision = pullRequestDiffRevision(detailSource.detail, taskPr?.headPushedAt);
+  const pullRequestChanges = usePullRequestChanges(taskPr, {
+    active: panelOpen && panelTab === 'changes' && !ciPanelOpen,
+    revision: diffRevision,
+  });
+  const pullRequestDetail = {
+    ...detailSource,
+    refresh: async () => {
+      setPullRequestReview(current => ({ ...current, pendingComments: [] }));
+      await detailSource.refresh();
+      if (currentReviewKey.current === reviewKey) pullRequestChanges.refresh();
+    },
+  };
+  const pullRequestCommitRange = pullRequestChanges.commitRange;
   const pullRequestKey = taskPr === null ? null : `${taskPr.repo.toLowerCase()}#${taskPr.number}`;
-  const currentPullRequestKey = useRef(pullRequestKey);
-  currentPullRequestKey.current = pullRequestKey;
+  const reviewKey = `${pullRequestKey}:${diffRevision}:${JSON.stringify(pullRequestCommitRange)}`;
+  const currentReviewKey = useRef(reviewKey);
+  currentReviewKey.current = reviewKey;
   const [pullRequestReview, setPullRequestReview] = useState<{
-    key: string | null;
-    commitRange: CommitRange;
+    key: string;
     pendingComments: InlineReviewCommentDto[];
-  }>({ key: pullRequestKey, commitRange: null, pendingComments: [] });
-  const pullRequestCommitRange = pullRequestReview.key === pullRequestKey ? pullRequestReview.commitRange : null;
-  const pullRequestPendingComments = pullRequestReview.key === pullRequestKey ? pullRequestReview.pendingComments : [];
+  }>({ key: reviewKey, pendingComments: [] });
+  const pullRequestPendingComments = pullRequestReview.key === reviewKey ? pullRequestReview.pendingComments : [];
 
   /** Runs one bridge command, surfacing its failure in the notice strip instead of losing it. */
   const run = useCallback(async (action: () => Promise<void>) => {
@@ -1802,6 +1833,42 @@ export default function AgentTaskScreen({
     dispatch({ type: 'composer/changed', text: '' });
     dispatch({ type: 'attachments/cleared' });
   }), [automationBlocked, run, startTurn, state.attachments, state.composer, state.task, submissionAutomation, submissions, taskId]);
+
+  const agentCommentDisabled = taskPr === null || taskPr.state === 'merged' || taskPr.state === 'closed'
+    ? 'Code feedback requires an open pull request.'
+    : state.task?.state !== 'OPEN' ? 'This task is closed.'
+    : state.task?.developmentContinuationUnfinished ? 'Wait for delivery to finish before sending code feedback.'
+    : state.connection !== 'open' ? 'Reconnect to the task before sending code feedback.'
+    : state.sending || attaching ? 'Wait for the current submission to finish.'
+    : !['idle', 'running'].includes(runtimeStatus(state)) ? 'Wait until this task can accept another message.' : null;
+  const localReview = useLocalReviewThreads({ taskId, workspaceId }, {
+    active: state.task?.interactive === true,
+    bridge: explicitBridge,
+    disabledReason: agentCommentDisabled,
+    onDispatch: () => refreshProjection(stateRef.current.latestTurnId),
+  });
+  const createLocalReview = localReview.create;
+  const sendAgentComment = useCallback(async (comment: DiffAgentComment) => {
+    const task = stateRef.current.task;
+    if (inlineSending.current) throw new Error('A code comment is already being sent.');
+    if (task === null || task.state !== 'OPEN' || task.interactive !== true) throw new Error('Open a development task to send code feedback.');
+    if (taskPr === null || taskPr.state === 'merged' || taskPr.state === 'closed') throw new Error('Code feedback requires an open pull request.');
+    if (agentCommentDisabled !== null || attachmentPendingRef.current) throw new Error(agentCommentDisabled ?? 'Wait for the attachment to finish.');
+    inlineSending.current = true;
+    dispatch({ type: 'composer/sending', sending: true });
+    try {
+      await createLocalReview(comment, { taskId, workspaceId, repo: taskPr.repo, number: taskPr.number, expectedTaskVersion: task.version });
+    }
+    catch (failure) {
+      recordProviderUnavailable(failure);
+      await refreshProjection(stateRef.current.latestTurnId).catch(() => {});
+      throw failure;
+    }
+    finally {
+      inlineSending.current = false;
+      dispatch({ type: 'composer/sending', sending: false });
+    }
+  }, [agentCommentDisabled, createLocalReview, recordProviderUnavailable, refreshProjection, taskId, taskPr, workspaceId]);
 
   /** One click, one ordinary turn: the agent does the committing, pushing and opening itself. */
   const createPullRequest = useCallback(() => run(async () => {
@@ -2115,10 +2182,14 @@ export default function AgentTaskScreen({
   }), [live, run]);
 
   return (<>
+    {localReview.error !== null && <div className="agt-notice" role="alert">Local review comments: {localReview.error}</div>}
     <AgentTaskBody
       state={state}
       headerAction={headerAction}
       submissionBlocked={automationBlocked}
+      onAskAgent={state.task?.interactive === true ? sendAgentComment : undefined}
+      onAskAgentDisabled={agentCommentDisabled}
+      localReview={localReview}
       automation={automationEligible && automationSelection !== null ? <AutomationControl value={automationSelection} providers={automationProviders}
         disabled={state.sending || automationSaving} futureTurns={running || state.task?.developmentContinuationUnfinished} localOnly={localOnly}
         onChange={value => { void selectAutomation(value); }} onLocalOnlyChange={setLocalOnly} /> : automationEligible ? <span className="agt-meta">Loading automation settings…</span> : undefined}
@@ -2184,12 +2255,13 @@ export default function AgentTaskScreen({
       pullRequestChanges={pullRequestChanges}
       pullRequestCommitRange={pullRequestCommitRange}
       pullRequestPendingComments={pullRequestPendingComments}
-      onPullRequestCommitRangeChange={commitRange => setPullRequestReview(current => currentPullRequestKey.current !== pullRequestKey
+      onPullRequestCommitRangeChange={commitRange => {
+        pullRequestChanges.changeCommitRange(commitRange);
+        setPullRequestReview({ key: reviewKey, pendingComments: [] });
+      }}
+      onPullRequestPendingCommentsChange={pendingComments => setPullRequestReview(current => currentReviewKey.current !== reviewKey
         ? current
-        : { key: pullRequestKey, commitRange, pendingComments: [] })}
-      onPullRequestPendingCommentsChange={pendingComments => setPullRequestReview(current => currentPullRequestKey.current !== pullRequestKey
-        ? current
-        : { key: pullRequestKey, commitRange: current.key === pullRequestKey ? current.commitRange : null, pendingComments })}
+        : { key: reviewKey, pendingComments })}
       repository={workspace === undefined ? null : `${workspace.monitoredOwner}/${workspace.monitoredRepo}`}
       onTogglePanel={() => { setCiPanelOpen(false); setPanelChoice(!panelOpen); }}
       onOpenAgent={(threadId) => { setCiPanelOpen(false); setPanelChoice(true); setPanelTab('agents'); setOpenAgent(threadId); }}

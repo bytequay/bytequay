@@ -532,13 +532,55 @@ so the pull request is read beside the conversation without leaving the task. A
 transcript link to that pull request selects the tab instead of navigating, and
 the task route does not change. **Changes** shows the same pull request's diff
 with the review threads already on those lines; agent-review findings stay on
-the full-width surface, which **Open full width** opens. The inline comment
-gutter follows the same rule it does there, so a pull request this account
-authored offers none. Tab selection is renderer-local panel state, never a
-route. The panel reads the detail and the diff through the same hook the
-pull-request screen uses, so it holds the same five-second conditional refresh
-loop rather than a single read: a stored snapshot carries no age, and reading it
-once froze the timeline at whatever the last refresh happened to write.
+the full-width surface, which **Open full width** opens. Both surfaces use the
+same diff loader, commit-range selection, line selection, inline composer,
+review-thread renderer, detail loader, and timeline. Selecting a commit compares
+its parent to that commit; selecting consecutive commits compares the first
+parent to the last commit. Pending comparisons clear the previous patch and
+ignore responses for earlier selections. New PR revisions reset the selected
+range and its pending review comments.
+
+An open interactive development task offers **Send to agent** from the shared
+inline composer, including on the user's own PR and while GitHub detail
+permissions are loading. One click submits the comment, file, old/new line
+range, known revision, and selected code directly to the task. An idle task
+starts a normal user turn; a busy task queues a normal input for its next turn.
+The main message draft and its attachments are untouched. Submission disables
+the inline controls until acceptance; failures preserve the comment and its
+retry identity and show the error beside it. A disconnected task, unfinished
+delivery, recovery, or closed PR disables submission with a visible reason.
+
+The inline action visibly authorizes committing and pushing requested changes
+to the existing open PR. It snapshots Auto commit and Auto draft PR on and Auto
+CI fix off for this input only, preserving a draft's status and all saved task
+and composer settings. Questions request an explanation without edits or
+release of earlier held work. The agent must locate the selected code in the
+current checkout before editing because its quoted revision may be older.
+Each accepted submission creates a durable **Local review comment**, marked
+**Private**, with the selected code snapshot and its revision. The conversation
+shows its review card instead of the generated agent-context prompt. The same
+thread appears in the task PR timeline, full-width PR timeline, and diff.
+Local cards reuse the GitHub review card presentation with a distinct subtle
+background. Code from another revision stays available as a labeled snapshot;
+it must never attach to an unrelated line in the current diff.
+
+User and agent replies belong to the same saved thread. **Reply to agent** sends
+directly, and **Resolve**/**Reopen** update local resolution without starting
+work. The agent can reply or change resolution through the task's fixed local
+review tools. A saved message whose delivery failed remains visible with an
+explicit **Retry** action. The existing delivery identity prevents duplicate
+inputs after retry or reload. Neither the comment nor its code context is
+published as a GitHub comment, review, PR description, or quoted in commit
+messages. GitHub review actions retain their separate explicit buttons and
+permission checks.
+Changes continues to show the linked PR snapshot, not unpushed worktree edits.
+
+Tab selection is renderer-local panel state, never a route. The shared detail
+hook holds one five-second conditional refresh loop per visible surface rather
+than a single read: a stored snapshot carries no age, and reading it once froze
+the timeline at whatever the last refresh happened to write. Both surfaces
+invalidate their cached diff when a new detail revision arrives or the user
+refreshes the PR.
 
 Branch matching is unchanged. It matches the task's generated branch and the
 current branch of its verified managed checkout, so an agent-renamed branch

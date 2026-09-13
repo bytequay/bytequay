@@ -187,6 +187,26 @@ export function createPreviewBridge(
       record('listAgentTaskPullRequests', taskId, id);
       return [];
     },
+    listLocalReviewComments: async query => {
+      record('listLocalReviewComments', query);
+      return [];
+    },
+    createLocalReviewComment: async request => {
+      record('createLocalReviewComment', request);
+      throw new Error('This preview has no local review discussion');
+    },
+    replyLocalReviewComment: async request => {
+      record('replyLocalReviewComment', request);
+      throw new Error('This preview has no local review discussion');
+    },
+    resolveLocalReviewComment: async request => {
+      record('resolveLocalReviewComment', request);
+      throw new Error('This preview has no local review discussion');
+    },
+    retryLocalReviewComment: async request => {
+      record('retryLocalReviewComment', request);
+      throw new Error('This preview has no local review discussion');
+    },
     getCiAutofixRun: async () => { throw new Error('This preview has no CI run'); },
     sendCiAutofixMessage: async () => { throw new Error('This preview has no CI run'); },
     syncPrs: async (id) => {

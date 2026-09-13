@@ -13,11 +13,12 @@
  */
 
 import { GitMerge, GitPullRequest, GitPullRequestClosed, GitPullRequestDraft } from 'lucide-react';
-import React, { useEffect, useState } from 'react';
-import PullChanges, { DiffViewer, type CommitRange } from '../pulls/PullChanges';
-import PullOverview, { remoteErrorMessage, type PullDetailUpdater } from '../pulls/PullOverview';
+import React from 'react';
+import type { LocalReviewThreads } from '../pulls/local-review/types';
+import PullChanges, { DiffViewer, type CommitRange, type DiffAgentComment } from '../pulls/PullChanges';
+import PullOverview, { type PullDetailUpdater } from '../pulls/PullOverview';
 import { canSubmitReview } from '../pulls/PullsScreen';
-import { usePullRequestDetail, type PullRequestDetailSource } from '../pulls/usePullRequestDetail';
+import type { PullRequestDetailSource } from '../pulls/usePullRequestDetail';
 import type {
   DiffCommitDto,
   DiffFileDto,
@@ -25,11 +26,6 @@ import type {
   PullRequestDetailDto,
   PullRequestDto,
 } from '../types';
-
-/** Identifies a pull request the way GitHub addresses it, so a re-read can be matched to its row. */
-function reference(pr: PullRequestDto | null): string | null {
-  return pr === null ? null : `${pr.repo.toLowerCase()}#${pr.number}`;
-}
 
 /**
  * The one pull request the panel reads for this task's branch.
@@ -76,18 +72,6 @@ export function PullRequestStateIcon({ pullRequest, size, className }: {
 
 export type TaskPullRequestDetail = PullRequestDetailSource;
 
-/**
- * The task's pull request detail, read and kept current exactly as the pull-request page reads it.
- *
- * The panel used to read the stored snapshot once and stop, on the premise that the branch refresh
- * at the end of a turn would carry new activity in. It does not — that sync writes list rows and
- * never touches the detail snapshot — so the panel showed a timeline frozen at whatever the last
- * refresh happened to write, and merge-queue traffic hours old simply never appeared.
- */
-export function useTaskPullRequestDetail(pr: PullRequestDto | null, active: boolean): TaskPullRequestDetail {
-  return usePullRequestDetail(pr === null ? null : { repo: pr.repo, number: pr.number }, { active });
-}
-
 /** What a panel rendered without a live bridge — a static render, a preview, a test — has read. */
 export const NO_PULL_REQUEST_DETAIL: TaskPullRequestDetail = {
   detail: null,
@@ -112,40 +96,6 @@ export const NO_PULL_REQUEST_CHANGES: TaskPullRequestChanges = {
   error: null,
 };
 
-/** The pull request's diff, read the first time the Changes tab is opened for it. */
-export function useTaskPullRequestChanges(pr: PullRequestDto | null, active: boolean): TaskPullRequestChanges {
-  const [changes, setChanges] = useState<{ key: string; files: DiffFileDto[]; commits: DiffCommitDto[] } | null>(null);
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const repo = pr?.repo ?? null;
-  const number = pr?.number ?? null;
-  const key = reference(pr);
-
-  useEffect(() => {
-    if (!active || repo === null || number === null || key === null || changes?.key === key) return;
-    let live = true;
-    setLoading(true);
-    setError(null);
-    Promise.all([
-      window.bridge.fetchPrDiffFiles(repo, number),
-      window.bridge.fetchPrDiffCommits(repo, number),
-    ])
-      .then(([files, commits]) => {
-        if (live) setChanges({ key, files, commits });
-      })
-      .catch((failure: unknown) => {
-        if (live) setError(remoteErrorMessage(failure));
-      })
-      .finally(() => {
-        if (live) setLoading(false);
-      });
-    return () => { live = false; };
-  }, [active, changes?.key, key, number, repo]);
-
-  const current = changes?.key === key ? changes : null;
-  return { files: current?.files ?? [], commits: current?.commits ?? [], loading, error };
-}
-
 /**
  * The task's pull request, read in the panel beside the conversation.
  *
@@ -153,9 +103,10 @@ export function useTaskPullRequestChanges(pr: PullRequestDto | null, active: boo
  * reads and leaves navigation alone, so opening a task's pull request never leaves the task.
  */
 export function TaskPullRequestView({
-  pr, workspaceId, detail, loading, error, onRefresh, onDetailUpdate, onDetailChange,
+  pr, workspaceId, detail, loading, error, onRefresh, onDetailUpdate, onDetailChange, localReview,
 }: {
   pr: PullRequestDto;
+  localReview?: LocalReviewThreads;
   workspaceId?: string;
   detail: PullRequestDetailDto | null;
   loading: boolean;
@@ -175,6 +126,7 @@ export function TaskPullRequestView({
     <>
       {error !== null && <div className="agt-note">{error}</div>}
       <PullOverview
+        localReview={localReview}
         pr={pr}
         detail={detail}
         contributorsWorkspaceId={workspaceId}
@@ -196,14 +148,17 @@ export function TaskPullRequestView({
  */
 export function TaskChangesView({
   pr, detail, changes, workspaceId, commitRange, pendingComments,
-  onCommitRangeChange, onPendingCommentsChange, onRefresh, onDetailUpdate, onDetailChange,
+  onCommitRangeChange, onPendingCommentsChange, onRefresh, onDetailUpdate, onDetailChange, onAskAgent, onAskAgentDisabled, localReview,
 }: {
   pr: PullRequestDto | null;
+  localReview?: LocalReviewThreads;
   detail: PullRequestDetailDto | null;
   changes: TaskPullRequestChanges;
   workspaceId?: string;
   commitRange: CommitRange;
   pendingComments: InlineReviewCommentDto[];
+  onAskAgent?: (comment: DiffAgentComment) => Promise<void>;
+  onAskAgentDisabled?: string | null;
   onCommitRangeChange: (range: CommitRange) => void;
   onPendingCommentsChange: (comments: InlineReviewCommentDto[]) => void;
   onRefresh: () => Promise<void>;
@@ -213,46 +168,54 @@ export function TaskChangesView({
   if (pr === null) {
     return <div className="agt-muted agt-panel__empty">No changes yet — this task&apos;s branch has no pull request.</div>;
   }
-  if (changes.error !== null && changes.files.length === 0) {
-    return <div className="agt-muted agt-panel__empty">{changes.error}</div>;
-  }
+  const pullRequestReview = localReview === undefined ? undefined : { ...localReview,
+    threads: localReview.threads.filter(thread => thread.repo.toLowerCase() === pr.repo.toLowerCase() && thread.number === pr.number),
+  };
   const loadFileContent = (path: string, baseSha?: string, headSha?: string) =>
     window.bridge.refreshPrDiffFileContent(pr.repo, pr.number, path, baseSha, headSha);
-  if (detail === null) {
-    return (
-      <DiffViewer
-        files={changes.files}
-        commits={changes.commits}
-        commitRange={commitRange}
-        loading={changes.loading}
-        onCommitRangeChange={onCommitRangeChange}
-        loadFileContent={loadFileContent}
-      />
-    );
-  }
   return (
-    <PullChanges
-      repo={detail.repo}
-      number={detail.number}
-      workspaceId={workspaceId}
-      files={changes.files}
-      commits={changes.commits}
-      commitRange={commitRange}
-      loading={changes.loading}
-      canReview={canSubmitReview(pr, detail)}
-      pendingComments={pendingComments}
-      onCommitRangeChange={onCommitRangeChange}
-      reviewThreads={{
-        activities: detail.recentActivity,
-        pr,
-        workspaceId,
-        unavailable: detail.unavailableSections.includes('reviewThreads'),
-        onRefresh,
-        onDetailUpdate,
-      }}
-      onPendingCommentsChange={onPendingCommentsChange}
-      onDetailChange={onDetailChange}
-    />
+    <>
+      {changes.error !== null && <div className="agt-note" role="alert">{changes.error}</div>}
+      {detail === null ? (
+        <DiffViewer
+          files={changes.files}
+          commits={changes.commits}
+          commitRange={commitRange}
+          loading={changes.loading}
+          onCommitRangeChange={onCommitRangeChange}
+          loadFileContent={loadFileContent}
+          localReview={pullRequestReview}
+          onAskAgent={onAskAgent}
+          onAskAgentDisabled={onAskAgentDisabled}
+        />
+      ) : (
+        <PullChanges
+          repo={detail.repo}
+          number={detail.number}
+          workspaceId={workspaceId}
+          files={changes.files}
+          commits={changes.commits}
+          commitRange={commitRange}
+          loading={changes.loading}
+          canReview={canSubmitReview(pr, detail)}
+          localReview={pullRequestReview}
+          onAskAgent={onAskAgent}
+          onAskAgentDisabled={onAskAgentDisabled}
+          pendingComments={pendingComments}
+          onCommitRangeChange={onCommitRangeChange}
+          reviewThreads={{
+            activities: detail.recentActivity,
+            pr,
+            workspaceId,
+            unavailable: detail.unavailableSections.includes('reviewThreads'),
+            onRefresh,
+            onDetailUpdate,
+          }}
+          onPendingCommentsChange={onPendingCommentsChange}
+          onDetailChange={onDetailChange}
+        />
+      )}
+    </>
   );
 }
 

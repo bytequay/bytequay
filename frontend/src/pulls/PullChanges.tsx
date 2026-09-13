@@ -34,8 +34,16 @@ import type { AgentReviewDto } from './agent-review/contracts';
 import ReviewFindingCard from './agent-review/ReviewFindingCard';
 import { useFindingActions } from './agent-review/useFindingActions';
 import { relativeTime } from '../relativeTime';
+import LocalReviewThreadCard, { localReviewMatchesRevision } from './local-review/LocalReviewThreadCard';
+import type { LocalReviewThreadDto, LocalReviewThreads } from './local-review/types';
 
 export type CommitRange = { start: number; end: number } | null;
+
+export type DiffAgentComment = {
+  comment: InlineReviewCommentDto;
+  baseSha: string | null;
+  code: string;
+};
 
 /**
  * The Agent review findings projected onto this diff.
@@ -76,6 +84,9 @@ type PullChangesProps = {
   pendingComments: InlineReviewCommentDto[];
   reviewThreads: ReviewThreads;
   agentReview?: AgentReviewProjection;
+  localReview?: LocalReviewThreads;
+  onAskAgent?: (comment: DiffAgentComment) => Promise<void>;
+  onAskAgentDisabled?: string | null;
   onCommitRangeChange: (range: CommitRange) => void;
   onPendingCommentsChange: (comments: InlineReviewCommentDto[]) => void;
   onDetailChange: (detail: PullRequestDetailDto) => void;
@@ -100,6 +111,9 @@ export type DiffViewerProps = {
   review?: ReviewOptions;
   reviewThreads?: ReviewThreads;
   agentReview?: AgentReviewProjection;
+  localReview?: LocalReviewThreads;
+  onAskAgent?: (comment: DiffAgentComment) => Promise<void>;
+  onAskAgentDisabled?: string | null;
   loadFileContent?: (
     path: string,
     baseSha?: string,
@@ -119,6 +133,9 @@ export default function PullChanges({
   pendingComments,
   reviewThreads,
   agentReview,
+  localReview,
+  onAskAgent,
+  onAskAgentDisabled,
   onCommitRangeChange,
   onPendingCommentsChange,
   onDetailChange,
@@ -131,6 +148,9 @@ export default function PullChanges({
       loading={loading}
       reviewThreads={reviewThreads}
       agentReview={agentReview}
+      localReview={localReview}
+      onAskAgent={onAskAgent}
+      onAskAgentDisabled={onAskAgentDisabled}
       onCommitRangeChange={onCommitRangeChange}
       review={{
         repo,
@@ -156,6 +176,9 @@ export function DiffViewer({
   review,
   reviewThreads,
   agentReview,
+  localReview,
+  onAskAgent,
+  onAskAgentDisabled,
   loadFileContent,
 }: DiffViewerProps) {
   const viewer = useViewer(Boolean(review?.canReview || review?.pendingComments.length || reviewThreads));
@@ -324,6 +347,9 @@ export function DiffViewer({
               review={review}
               reviewThreads={reviewThreads}
               agentReview={agentReview}
+              localReview={localReview}
+              onAskAgent={onAskAgent}
+              onAskAgentDisabled={onAskAgentDisabled}
               fullDiff={commitRange === null}
               viewer={viewer}
               loadFileContent={loadFileContent}
@@ -338,6 +364,9 @@ export function DiffViewer({
               && !files.some(file => file.filename === activity.payload.path))}
             label="Review comments on files outside this diff"
           />}
+          {localReview && <UnplacedLocalReviewThreads localReview={localReview}
+            threads={localReview.threads.filter(thread => !files.some(file => file.filename === thread.path))}
+            baseSha={baseSha} headSha={headSha} />}
         </div>
       </div>
     </div>
@@ -640,10 +669,14 @@ export function insertSuggestion(value: string, start: number, end: number, line
 
 /** Head-side text of new lines start..end from the diff rows, else the loaded head file; null if any line is unknown. */
 export function headLines(hunks: Array<{ rows: DiffRow[] }>, newLines: string[], start: number, end: number): string[] | null {
-  const rows = new Map(hunks.flatMap(hunk => hunk.rows).map(row => [row.newLine, row.content] as const));
+  return diffSideLines(hunks, newLines, 'RIGHT', start, end);
+}
+
+function diffSideLines(hunks: Array<{ rows: DiffRow[] }>, source: string[], side: ReviewSide, start: number, end: number): string[] | null {
+  const rows = new Map(hunks.flatMap(hunk => hunk.rows).map(row => [side === 'LEFT' ? row.oldLine : row.newLine, row.content] as const));
   const lines: string[] = [];
   for (let line = start; line <= end; line++) {
-    const text = rows.get(line) ?? newLines[line - 1];
+    const text = rows.get(line) ?? source[line - 1];
     if (text === undefined) return null;
     lines.push(text);
   }
@@ -701,14 +734,16 @@ const MARKDOWN_GROUPS: Array<Array<{ command: MarkdownCommand; label: string }>>
   ],
 ];
 
-export function MarkdownToolbar({ onCommand, onSuggest }: {
+export function MarkdownToolbar({ onCommand, onSuggest, disabled = false }: {
   onCommand: (command: MarkdownCommand) => void;
   onSuggest?: () => void;
+  disabled?: boolean;
 }) {
   return (
     <div className="pull-diff-review__toolbar">
       {onSuggest && <>
         <button type="button" title="Add a suggestion" aria-label="Add a suggestion"
+          disabled={disabled}
           onMouseDown={event => event.preventDefault()}
           onClick={onSuggest}>
           <ToolbarIcon paths={SUGGESTION_ICON} />
@@ -720,6 +755,7 @@ export function MarkdownToolbar({ onCommand, onSuggest }: {
           {groupIndex > 0 && <span className="pull-diff-review__divider" aria-hidden="true" />}
           {group.map(({ command, label }) => (
             <button type="button" key={command} title={label} aria-label={label}
+              disabled={disabled}
               // The textarea keeps its selection because the button never takes focus.
               onMouseDown={event => event.preventDefault()}
               onClick={() => onCommand(command)}>
@@ -739,6 +775,9 @@ function DiffFileCard({
   review,
   reviewThreads,
   agentReview,
+  localReview,
+  onAskAgent,
+  onAskAgentDisabled,
   fullDiff,
   viewer,
   loadFileContent,
@@ -751,6 +790,9 @@ function DiffFileCard({
   review?: ReviewOptions;
   reviewThreads?: ReviewThreads;
   agentReview?: AgentReviewProjection;
+  localReview?: LocalReviewThreads;
+  onAskAgent?: DiffViewerProps['onAskAgent'];
+  onAskAgentDisabled?: string | null;
   fullDiff: boolean;
   viewer?: UserProfileDto | null;
   loadFileContent?: DiffViewerProps['loadFileContent'];
@@ -775,13 +817,22 @@ function DiffFileCard({
   const [preview, setPreview] = useState(false);
   const bodyRef = useRef<HTMLTextAreaElement>(null);
   const [posting, setPosting] = useState(false);
+  const [sendingToAgent, setSendingToAgent] = useState(false);
+  const submissionInFlight = useRef(false);
+  const submitting = posting || sendingToAgent;
   const [pendingEdit, setPendingEdit] = useState<{ comment: InlineReviewCommentDto; body: string } | null>(null);
   const oldLines = sourceLines(content?.oldContent);
   const newLines = sourceLines(content?.newContent);
   const canReview = review?.canReview ?? false;
+  const canComment = canReview || onAskAgent !== undefined;
   const fileThreads = reviewThreads?.activities.filter(activity =>
     activity.eventType === 'review_thread' && activity.payload.path === file.filename) ?? [];
   const placedThreads = new Set<PullRequestDetailDto['recentActivity'][number]>();
+  const fileLocalThreads = localReview?.threads.filter(thread => thread.path === file.filename) ?? [];
+  const anchoredLocalThreads = fileLocalThreads.filter(thread => localReviewMatchesRevision(thread, baseSha, headSha)
+    && diffSideLines(hunks, thread.side === 'LEFT' ? oldLines : newLines,
+      thread.side, thread.startLine ?? thread.line, thread.line)?.join('\n') === thread.code);
+  const placedLocalThreads = new Set<string>();
   // An outdated finding has no trustworthy line here; its card stays in Agent review with its
   // recorded snapshot rather than pointing at an unrelated line of the current diff.
   const fileFindings = (fullDiff && agentReview !== undefined
@@ -815,7 +866,7 @@ function DiffFileCard({
     setContentLoading(true);
     setContentError(null);
     try {
-      const value = await loadFileContent(file.filename, baseSha, headSha);
+      const value = await loadFileContent(file.filename, fullDiff ? undefined : baseSha, fullDiff ? undefined : headSha);
       setContent(value);
       return value;
     }
@@ -836,6 +887,7 @@ function DiffFileCard({
   };
 
   const selectLine = (side: ReviewSide, line: number, extend: boolean, row: number) => {
+    if (submitting) return;
     setReviewError(null);
     setSelection(previous => nextLineSelection(previous, side, line, extend, row));
   };
@@ -848,6 +900,7 @@ function DiffFileCard({
     newLine: number | null,
     row: number,
   ) => {
+    if (submitting) return;
     dragAnchor.current = { side, line, oldLine, newLine, row };
     setSelectingRange(true);
     selectLine(side, line, extend, row);
@@ -865,7 +918,7 @@ function DiffFileCard({
   };
 
   const comment = (): InlineReviewCommentDto | null => {
-    if (review === undefined || selection === null || !reviewBody.trim()) return null;
+    if (selection === null || !reviewBody.trim()) return null;
     return {
       path: file.filename,
       body: reviewBody.trim(),
@@ -881,6 +934,7 @@ function DiffFileCard({
   const suggestionLines = selection?.side === 'RIGHT' ? headLines(hunks, newLines, selection.start, selection.end) : null;
 
   const editReviewBody = (edit: (value: string, start: number, end: number) => { value: string; start: number; end: number }) => {
+    if (submitting) return;
     const textarea = bodyRef.current;
     if (textarea === null) return;
     const next = edit(textarea.value, textarea.selectionStart, textarea.selectionEnd);
@@ -899,14 +953,15 @@ function DiffFileCard({
 
   const addPending = () => {
     const value = comment();
-    if (value === null || review === undefined) return;
+    if (value === null || !review?.canReview || submissionInFlight.current) return;
     review.onPendingCommentsChange([...review.pendingComments, value]);
     closeComposer();
   };
 
   const postNow = async () => {
     const value = comment();
-    if (value === null || review === undefined) return;
+    if (value === null || !review?.canReview || submissionInFlight.current) return;
+    submissionInFlight.current = true;
     setPosting(true);
     setReviewError(null);
     try {
@@ -918,7 +973,32 @@ function DiffFileCard({
       setReviewError(remoteErrorMessage(error));
     }
     finally {
+      submissionInFlight.current = false;
       setPosting(false);
+    }
+  };
+
+  const askAgent = async () => {
+    const value = comment();
+    if (value === null || onAskAgent === undefined || onAskAgentDisabled || submissionInFlight.current) return;
+    submissionInFlight.current = true;
+    const lines = diffSideLines(hunks, value.side === 'LEFT' ? oldLines : newLines,
+      value.side, value.startLine ?? value.line, value.line);
+    const gutter = bodyRef.current?.closest('.pull-diff-file')?.querySelector<HTMLButtonElement>(
+      `[aria-label="Select ${value.side === 'LEFT' ? 'old' : 'new'} line ${value.line}"]`);
+    setSendingToAgent(true);
+    setReviewError(null);
+    try {
+      await onAskAgent({ comment: value, baseSha: baseSha ?? null, code: lines?.join('\n') ?? '' });
+      closeComposer();
+      requestAnimationFrame(() => gutter?.focus());
+    }
+    catch (error) {
+      setReviewError(remoteErrorMessage(error));
+    }
+    finally {
+      submissionInFlight.current = false;
+      setSendingToAgent(false);
     }
   };
 
@@ -951,6 +1031,8 @@ function DiffFileCard({
       && (activity.payload.side === 'LEFT' ? activity.payload.line === oldLine
         : activity.payload.side === 'RIGHT' && activity.payload.line === newLine)) : [];
     rowThreads.forEach(activity => placedThreads.add(activity));
+    const rowLocalThreads = anchoredLocalThreads.filter(thread => thread.line === (thread.side === 'LEFT' ? oldLine : newLine));
+    rowLocalThreads.forEach(thread => placedLocalThreads.add(thread.id));
     return (
       <Fragment key={displayRow.key}>
         <tr
@@ -958,8 +1040,9 @@ function DiffFileCard({
           data-diff-row={rowSide === null || rowLine === null ? undefined : `${file.filename}:${rowSide}:${rowLine}`}
           onMouseEnter={() => extendLineSelection(oldLine, newLine, row)}>
           <td className="is-line">
-            {oldLine !== null && canReview && (
+            {oldLine !== null && canComment && (
               <button type="button"
+                disabled={submitting}
                 aria-label={`Select old line ${oldLine}`}
                 onMouseDown={event => {
                   if (event.button !== 0) return;
@@ -972,11 +1055,12 @@ function DiffFileCard({
                   selectLine('LEFT', oldLine, event.shiftKey, row);
                 }}>{oldLine}</button>
             )}
-            {oldLine !== null && !canReview && oldLine}
+            {oldLine !== null && !canComment && oldLine}
           </td>
           <td className="is-line">
-            {newLine !== null && canReview && (
+            {newLine !== null && canComment && (
               <button type="button"
+                disabled={submitting}
                 aria-label={`Select new line ${newLine}`}
                 onMouseDown={event => {
                   if (event.button !== 0) return;
@@ -989,11 +1073,12 @@ function DiffFileCard({
                   selectLine('RIGHT', newLine, event.shiftKey, row);
                 }}>{newLine}</button>
             )}
-            {newLine !== null && !canReview && newLine}
+            {newLine !== null && !canComment && newLine}
           </td>
           <td className="is-source">
-            {canReview && target !== null && (
+            {canComment && target !== null && (
               <button type="button" className="pull-diff-code__add-comment"
+                disabled={submitting}
                 aria-label={`Add a comment on ${target.side === 'RIGHT' ? 'new' : 'old'} line ${target.line}`}
                 onMouseDown={event => {
                   if (event.button !== 0) return;
@@ -1030,6 +1115,9 @@ function DiffFileCard({
             <ReviewThread {...reviewThreads} activity={activity} viewerLogin={viewer?.login} showCode={false} />
           </td></tr>
         ))}
+        {localReview && rowLocalThreads.map(thread => <tr className="is-review-thread is-local-review-thread" key={`local:${thread.id}`}>
+          <td colSpan={3}><LocalReviewThreadCard {...localReview} thread={thread} showCode={false} /></td>
+        </tr>)}
         {review && rowComments.map((comment, index) => (
           <PendingReviewCommentRow
             key={`${comment.side}:${comment.startLine ?? comment.line}:${comment.line}:${index}`}
@@ -1075,6 +1163,7 @@ function DiffFileCard({
                     className={preview ? 'is-active' : ''} onClick={() => setPreview(true)}>Preview</button>
                 </div>
                 {!preview && <MarkdownToolbar
+                  disabled={submitting}
                   onCommand={command => editReviewBody((value, start, end) => applyMarkdownCommand(value, start, end, command))}
                   onSuggest={suggestionLines === null
                     ? undefined
@@ -1082,22 +1171,31 @@ function DiffFileCard({
               </div>
               {preview && <div className="pull-diff-review__preview">
                 {reviewBody.trim()
-                  ? <MarkdownBody body={reviewBody} repository={review.repo}
+                  ? <MarkdownBody body={reviewBody} repository={review?.repo}
                     suggestion={selection.side === 'RIGHT' ? { startLine: selection.start, lines: suggestionLines } : undefined} />
                   : <p className="pull-diff-review__nothing">Nothing to preview</p>}
               </div>}
-              <textarea ref={bodyRef} value={reviewBody} autoFocus hidden={preview}
-                placeholder="Leave a review comment…" onChange={event => setReviewBody(event.target.value)} />
+              <textarea ref={bodyRef} value={reviewBody} autoFocus hidden={preview} disabled={submitting}
+                placeholder={canReview ? 'Leave a review comment…' : 'Ask about this implementation…'}
+                onChange={event => setReviewBody(event.target.value)} />
               {reviewError && <span role="alert">{reviewError}</span>}
+              {onAskAgent && <p className="pull-diff-review__nothing">Private feedback. Requested changes are committed and pushed; draft PRs stay draft.</p>}
+              {onAskAgent && onAskAgentDisabled && !sendingToAgent && <p className="pull-diff-review__nothing" role="status">{onAskAgentDisabled}</p>}
               <footer>
-                <BetterWordsButton text={reviewBody} textareaRef={bodyRef} repository={review.repo}
+                {review && <BetterWordsButton text={reviewBody} textareaRef={bodyRef} repository={review.repo}
                   workspaceId={review.workspaceId}
-                  disabled={preview || posting}
-                  onError={failure => setReviewError(failure === null ? null : remoteErrorMessage(failure))} />
-                <button type="button" onClick={closeComposer}>Cancel</button>
-                <button type="button" disabled={!reviewBody.trim() || posting} onClick={addPending}>Add to review</button>
-                <button className="is-primary" type="button" disabled={!reviewBody.trim() || posting}
-                  onClick={() => { void postNow(); }}>{posting ? 'Posting…' : 'Post now'}</button>
+                  disabled={preview || submitting}
+                  onError={failure => setReviewError(failure === null ? null : remoteErrorMessage(failure))} />}
+                <button type="button" disabled={submitting} onClick={closeComposer}>Cancel</button>
+                {onAskAgent && <button type="button" className={canReview ? '' : 'is-primary'}
+                  disabled={!reviewBody.trim() || submitting || Boolean(onAskAgentDisabled)}
+                  title={onAskAgentDisabled ?? undefined}
+                  onClick={() => { void askAgent(); }}>{sendingToAgent ? 'Sending…' : 'Send to agent'}</button>}
+                {canReview && <>
+                  <button type="button" disabled={!reviewBody.trim() || submitting} onClick={addPending}>Add to review</button>
+                  <button className="is-primary" type="button" disabled={!reviewBody.trim() || submitting}
+                    onClick={() => { void postNow(); }}>{posting ? 'Posting…' : 'Post now'}</button>
+                </>}
               </footer>
             </div>
           </td></tr>
@@ -1209,8 +1307,24 @@ function DiffFileCard({
         activities={fileThreads.filter(activity => !placedThreads.has(activity))}
         label={fullDiff ? 'Review comments outside the visible lines' : 'Review comments on the full pull request'}
       />}
+      {open && localReview && <UnplacedLocalReviewThreads localReview={localReview}
+        threads={fileLocalThreads.filter(thread => !placedLocalThreads.has(thread.id))} baseSha={baseSha} headSha={headSha} />}
     </article>
   );
+}
+
+function UnplacedLocalReviewThreads({ localReview, threads, baseSha, headSha }: {
+  localReview: LocalReviewThreads;
+  threads: LocalReviewThreadDto[];
+  baseSha?: string;
+  headSha?: string;
+}) {
+  if (threads.length === 0) return null;
+  return <section className="pull-diff-threads" aria-label="Local review comments outside the visible lines">
+    <p>Local review comments outside the visible lines</p>
+    {threads.map(thread => <LocalReviewThreadCard key={thread.id} {...localReview} thread={thread}
+      outdated={!localReviewMatchesRevision(thread, baseSha, headSha)} />)}
+  </section>;
 }
 
 function UnplacedReviewThreads({ reviewThreads, viewerLogin, activities, label }: {

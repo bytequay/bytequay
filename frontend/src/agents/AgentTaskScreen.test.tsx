@@ -778,11 +778,13 @@ describe('agent task side panel', () => {
     const withoutDetail = renderToStaticMarkup(
       <AgentTaskBody
         state={state} panelOpen panelTab="changes" pullRequests={[pr]}
+        onAskAgent={async () => {}}
         pullRequestChanges={changes}
         {...props} />);
     const withDetail = renderToStaticMarkup(
       <AgentTaskBody
         state={state} panelOpen panelTab="changes" pullRequests={[pr]}
+        onAskAgent={async () => {}}
         pullRequestChanges={changes}
         pullRequestDetail={{
           detail: reviewedDetail(),
@@ -798,6 +800,38 @@ describe('agent task side panel', () => {
     expect(withoutDetail).not.toContain('pr-inline-thread');
     expect(withDetail).toContain('class="is-review-thread is-add"');
     expect(withDetail).toContain('Comment on line <strong>R2</strong>');
+    expect(withoutDetail).toContain('aria-label="Add a comment on new line 2"');
+    expect(withDetail).toContain('aria-label="Add a comment on new line 2"');
+  });
+
+  it('keeps commit selection available after a comparison fails', () => {
+    const markup = renderToStaticMarkup(<AgentTaskBody
+      state={state} panelOpen panelTab="changes"
+      pullRequests={[pullRequest(482, 'Fix preview output limit')]}
+      pullRequestChanges={{
+        files: [], loading: false, error: 'Comparison failed',
+        commits: [{ sha: 'abcdef1', parentSha: 'abcdef0', message: 'Fix output', author: 'alice', authoredAt: null }],
+      }}
+      pullRequestCommitRange={{ start: 0, end: 0 }}
+      {...props} />);
+    expect(markup).toContain('role="alert">Comparison failed');
+    expect(markup).toContain('All commits');
+    expect(markup).toContain('aria-label="Deselect abcdef1: Fix output"');
+  });
+
+  it('does not offer private code comments on a completed task', () => {
+    const markup = renderToStaticMarkup(<AgentTaskBody
+      state={{ ...state, task: { ...state.task, state: 'COMPLETED' } }}
+      onAskAgent={async () => {}}
+      panelOpen panelTab="changes"
+      pullRequests={[pullRequest(482, 'Fix preview output limit')]}
+      pullRequestChanges={{ files: [{
+        filename: 'src/Example.java', status: 'modified', additions: 1, deletions: 0,
+        patch: '@@ -1,1 +1,2 @@\n line one\n+line two',
+      }], commits: [], loading: false, error: null }}
+      {...props} />);
+    expect(markup).toContain('src/Example.java');
+    expect(markup).not.toContain('aria-label="Add a comment on new line 2"');
   });
 
   it('shows the no-pull-request state with the branch, the repository and the draft action', () => {

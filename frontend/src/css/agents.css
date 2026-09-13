@@ -3463,3 +3463,6 @@
 .agt-user__request-base {
   flex: none;
 }
+
+.agt-local-review { margin: 16px 0; min-width: 0; }
+.agt-local-review .pr-thread { width: 100%; min-width: 0; }

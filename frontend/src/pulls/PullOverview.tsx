@@ -11,6 +11,8 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
+import LocalReviewThreadCard from './local-review/LocalReviewThreadCard';
+import type { LocalReviewThreads, LocalReviewThreadDto } from './local-review/types';
 import { useEffect, useId, useMemo, useRef, useState } from 'react';
 import { Check, CircleCheck, CircleDot, CircleMinus, CircleSlash2, CircleX, Clock3, Copy, Ellipsis, Eye, GitCommitHorizontal, Link, LoaderCircle, Pencil, Quote, SmilePlus, Tag, User } from 'lucide-react';
 import Avatar from '../Avatar';
@@ -35,6 +37,7 @@ import type {
 import BetterWordsButton from './BetterWordsButton';
 import MarkdownBody, { GitHubReferenceLink, toggleMarkdownTask, type SuggestionBase } from './MarkdownBody';
 import { PullRequestIcon } from './PullRowItem';
+import { ReviewThreadCard, ReviewThreadMessage } from './ReviewThreadCard';
 
 type Activity = PullRequestDetailDto['recentActivity'][number];
 const EMPTY_TIMELINE_PAYLOAD: PullTimelinePayloadDto = {
@@ -101,10 +104,11 @@ export function isViewerComment(actor: string | null | undefined, viewerLogin: s
   return Boolean(actor && viewerLogin && actor.toLowerCase() === viewerLogin.toLowerCase());
 }
 
-export default function PullOverview({ pr, detail, contributorsWorkspaceId, onRefresh, onDetailUpdate = () => {}, onDetailChange = () => { void onRefresh(); } }: {
+export default function PullOverview({ pr, detail, contributorsWorkspaceId, localReview, onRefresh, onDetailUpdate = () => {}, onDetailChange = () => { void onRefresh(); } }: {
   pr: PullRequestDto;
   detail: PullRequestDetailDto;
   contributorsWorkspaceId?: string;
+  localReview?: LocalReviewThreads;
   onRefresh: () => Promise<void>;
   onDetailUpdate?: PullDetailUpdater;
   onDetailChange?: (detail: PullRequestDetailDto) => void;
@@ -123,6 +127,17 @@ export default function PullOverview({ pr, detail, contributorsWorkspaceId, onRe
         : isQueued(detail.recentActivity)
           ? 'Queued'
           : 'Open';
+
+  const timeline: ({ kind: 'remote'; activities: Activity[]; key: string; at: string }
+    | { kind: 'local'; thread: LocalReviewThreadDto; key: string; at: string })[] = [
+    ...groupTimelineActivities(detail.recentActivity).map((activities, index) => ({
+      kind: 'remote' as const, activities, key: `remote-${activities[0].githubId ?? `${activities[0].eventType}-${index}`}`,
+      at: activities[0].timestamp,
+    })),
+    ...(localReview?.threads ?? []).filter(thread => thread.repo.toLowerCase() === pr.repo.toLowerCase() && thread.number === pr.number)
+      .map(thread => ({ kind: 'local' as const, thread, key: `local-${thread.id}`, at: thread.createdAt })),
+  ];
+  timeline.sort((left, right) => left.at.localeCompare(right.at));
 
   return (
     <div className="pr-overview pull-request-overview">
@@ -166,16 +181,18 @@ export default function PullOverview({ pr, detail, contributorsWorkspaceId, onRe
         <DescriptionCard pr={pr} detail={detail} fallbackAuthor={pr.author} fallbackUrl={pr.htmlUrl}
           onDetailUpdate={onDetailUpdate}
           onQuote={body => setQuotedReply(current => ({ id: (current?.id ?? 0) + 1, body }))} />
-        {groupTimelineActivities(detail.recentActivity).map((activities, index) => (
-          // display:contents wrapper — Recent needs an addressable node per
-          // activity without changing the timeline's own layout.
-          <div className="pr-timeline__slot" key={activities[0].githubId ?? `${activities[0].eventType}-${index}`}
-            id={activities[0].githubId === null ? undefined : `pr-activity-${activities[0].githubId}`}>
-            <TimelineItem activities={activities} viewerLogin={viewerLogin}
+        {timeline.map(item => item.kind === 'local' && localReview !== undefined ? (
+          <div className="pr-timeline__slot" key={item.key}>
+            <LocalReviewThreadCard {...localReview} thread={item.thread} />
+          </div>
+        ) : item.kind === 'remote' ? (
+          <div className="pr-timeline__slot" key={item.key}
+            id={item.activities[0].githubId === null ? undefined : `pr-activity-${item.activities[0].githubId}`}>
+            <TimelineItem activities={item.activities} viewerLogin={viewerLogin}
               pr={pr} workspaceId={contributorsWorkspaceId} onRefresh={onRefresh} onDetailUpdate={onDetailUpdate}
               onQuote={body => setQuotedReply(current => ({ id: (current?.id ?? 0) + 1, body }))} />
           </div>
-        ))}
+        ) : null)}
         <ChecksCard pr={pr} detail={detail} onRefresh={onRefresh} />
       </section>
       <DiscussionComposer
@@ -1036,36 +1053,13 @@ export function ReviewThread({ activity, viewerLogin, pr, workspaceId, onRefresh
       </button>
     </footer>
   );
-  if (resolved) {
-    return (
-      <details className="pr-thread-row">
-        <summary>
-          <span className="pr-thread-chevron" aria-hidden="true">›</span>
-          {location}
-          <span className="pr-thread-row__resolved"><CircleCheck size={14} aria-hidden="true" /> Resolved</span>
-        </summary>
-        <div className="pr-thread-row__comments">
-          {payload.comments.map(comment => <ThreadComment comment={comment} fallbackUrl={payload.htmlUrl ?? pr.htmlUrl} suggestion={suggestion}
-            viewerLogin={viewerLogin} pr={pr} onDetailUpdate={onDetailUpdate} onQuote={quoteReply} edit={edit} onEditChange={setEdit}
-            key={comment.githubId ?? comment.timestamp} />)}
-          {controls}
-        </div>
-      </details>
-    );
-  }
   return (
-    <details className="pr-inline-thread" open>
-      <summary>
-        <span className="pr-thread-chevron" aria-hidden="true">›</span>
-        {location}
-        {payload.outdated && <span className="pr-thread-outdated">Outdated</span>}
-      </summary>
-      {commentedLine && <CommentedCodeLine line={commentedLine} />}
+    <ReviewThreadCard location={location} resolved={resolved} outdated={payload.outdated}
+      code={commentedLine && <CommentedCodeLine line={commentedLine} />} controls={controls}>
       {payload.comments.map(comment => <ThreadComment comment={comment} fallbackUrl={payload.htmlUrl ?? pr.htmlUrl} suggestion={suggestion}
         viewerLogin={viewerLogin} pr={pr} onDetailUpdate={onDetailUpdate} onQuote={quoteReply} edit={edit} onEditChange={setEdit}
         key={comment.githubId ?? comment.timestamp} />)}
-      {controls}
-    </details>
+    </ReviewThreadCard>
   );
 }
 
@@ -1094,25 +1088,23 @@ function ThreadComment({ comment, fallbackUrl, suggestion, viewerLogin, pr, onDe
       updatePullReactionDetail(current, 'review_comment', comment.githubId, reactions, onlyIf)),
   );
   return (
-    <div className="pr-thread-comment">
-      <div className="pr-thread-comment__author">
+    <ReviewThreadMessage timestamp={comment.timestamp} author={<>
         <UserAvatar login={comment.actor ?? 'github'} avatarUrl={comment.actorAvatarUrl} size={22} showLogin />
         {comment.actorBot && <span className="pr-bot">Bot</span>}
-        <time>{relativeTime(comment.timestamp)}</time>
-        <div className="pr-thread-comment__menu">{reaction && <ReactionPicker action={reaction} />}{comment.body && <CardActionsMenu actions={{
+      </>}
+      menu={<>{reaction && <ReactionPicker action={reaction} />}{comment.body && <CardActionsMenu actions={{
           link: comment.htmlUrl ?? fallbackUrl,
           markdown: comment.body,
           onQuote: () => onQuote(comment.body ?? ''),
           onEdit: canEdit && commentId !== null ? () => onEditChange({ commentId, draft: comment.body ?? '' }) : undefined,
-        }} />}</div>
-      </div>
+        }} />}</>}
+      reactions={<Reactions reactions={reaction?.reactions ?? comment.reactions} reaction={reaction} />}>
       {comment.body && (editDraft !== null && commentId !== null
         ? <CommentEditor pr={pr} target="review_comment" commentId={commentId} body={comment.body} suggestion={suggestion}
           draft={editDraft} onDraftChange={draft => onEditChange({ commentId, draft })}
           onDetailUpdate={onDetailUpdate} onClose={() => onEditChange(null)} />
         : <MarkdownBody body={comment.body} repository={pr.repo} suggestion={suggestion} />)}
-      <Reactions reactions={reaction?.reactions ?? comment.reactions} reaction={reaction} />
-    </div>
+    </ReviewThreadMessage>
   );
 }
 

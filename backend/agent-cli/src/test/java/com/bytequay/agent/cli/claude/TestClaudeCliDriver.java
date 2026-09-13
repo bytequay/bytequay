@@ -35,6 +35,8 @@ import com.bytequay.agent.spi.AgentTurnFailureKind;
 import com.bytequay.agent.spi.AgentTurnResult;
 import com.bytequay.agent.spi.AgentUnavailableException;
 import com.bytequay.agent.spi.CodeGraphBridge;
+import com.bytequay.agent.spi.DevelopmentResultBridge;
+import com.bytequay.agent.spi.LocalReviewBridge;
 import com.bytequay.agent.spi.ProviderAgentEvent;
 import com.bytequay.agent.spi.ProviderApprovalDecision;
 import com.bytequay.agent.spi.ReviewBridge;
@@ -823,6 +825,39 @@ class TestClaudeCliDriver
 
         supervisor.turns().getFirst().verifyNextStop();
         session.close();
+        driver.close();
+    }
+
+    @Test
+    void privateLocalReviewToolsPreserveDevelopmentAndNativeDelegationOnResume()
+            throws Exception
+    {
+        ScriptedProcessSupervisor supervisor = new ScriptedProcessSupervisor();
+        LocalReviewBridge local = new LocalReviewBridge(commentId -> "[]", reply -> "{}", resolution -> "{}", LocalReviewBridge.INSTRUCTION);
+        ClaudePermissionBroker broker = new ClaudePermissionBroker(
+                () -> URI.create("http://127.0.0.1:9000/internal/agent/claude/mcp"), objectMapper,
+                (taskId, query) -> "memory", ReviewBridgeResolver.NONE,
+                taskId -> Optional.of(new DevelopmentResultBridge("turn-1", DevelopmentResultBridge.INSTRUCTION)),
+                taskId -> Optional.of(local));
+        ClaudeCliDriver driver = new ClaudeCliDriver("/fake/claude", objectMapper, broker, supervisor, ImmutableMap.of());
+        AgentSessionRef reference;
+        try (AgentSession session = driver.open(context(Optional.empty()), event -> {})) {
+            await(session.start(command("local-review")));
+            reference = session.reference();
+        }
+        try (AgentSession session = driver.open(context(Optional.of(reference)), event -> {})) {
+            await(session.start(command("local-review-again")));
+        }
+        for (ScriptedTurn turn : supervisor.turns()) {
+            List<String> argv = turn.spec().argv();
+            assertThat(argv).doesNotContain("--disable-slash-commands", "--tools");
+            assertThat(argv.get(argv.indexOf("--allowedTools") + 1)).contains(
+                    "mcp__bytequay__" + LocalReviewBridge.LIST_TOOL,
+                    "mcp__bytequay__" + LocalReviewBridge.REPLY_TOOL,
+                    "mcp__bytequay__" + LocalReviewBridge.RESOLVE_TOOL,
+                    "mcp__bytequay__" + DevelopmentResultBridge.TOOL_NAME);
+            assertThat(argv.get(argv.indexOf("--append-system-prompt") + 1)).contains(LocalReviewBridge.INSTRUCTION, DevelopmentResultBridge.INSTRUCTION);
+        }
         driver.close();
     }
 

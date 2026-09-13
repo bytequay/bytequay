@@ -38,6 +38,7 @@ import com.bytequay.agent.spi.AgentTurnResult;
 import com.bytequay.agent.spi.AgentUnavailableException;
 import com.bytequay.agent.spi.CodeGraphBridge;
 import com.bytequay.agent.spi.DevelopmentResultBridge;
+import com.bytequay.agent.spi.LocalReviewBridge;
 import com.bytequay.agent.spi.ProviderAgentEvent;
 import com.bytequay.agent.spi.ProviderApprovalDecision;
 import com.bytequay.agent.spi.ProviderApprovalRequest;
@@ -409,6 +410,7 @@ public final class ClaudeCliDriver
         }
         codeGraph.ifPresent(bridge -> allowedTools.add("mcp__bytequay__" + CodeGraphBridge.TOOL_NAME));
         registration.development().ifPresent(bridge -> allowedTools.add("mcp__bytequay__" + DevelopmentResultBridge.TOOL_NAME));
+        registration.localReview().ifPresent(bridge -> LocalReviewBridge.TOOL_NAMES.forEach(name -> allowedTools.add("mcp__bytequay__" + name)));
         registration.review().ifPresent(bridge -> bridge.tools()
                 .forEach(tool -> allowedTools.add("mcp__bytequay__" + tool.name())));
         String instruction = Stream.of(managedInstructions, registration.instruction().orElse(""))

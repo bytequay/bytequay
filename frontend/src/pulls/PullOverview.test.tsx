@@ -12,6 +12,7 @@
  * limitations under the License.
  */
 import { renderToStaticMarkup } from 'react-dom/server';
+import type { LocalReviewThreadDto } from './local-review/types';
 import type { ReactElement } from 'react';
 import { describe, expect, it, vi } from 'vitest';
 import type { InlineReviewCommentDto, PullRequestDetailDto, PullRequestDto, PullTimelinePayloadDto } from '../types';
@@ -50,6 +51,29 @@ const emptyPayload: PullTimelinePayloadDto = {
 };
 
 describe('PullOverview', () => {
+  it('places private local review cards among GitHub activity without changing remote comments', () => {
+    const pr = pullRequest();
+    const local: LocalReviewThreadDto = {
+      id: 'local-comment', taskId: 'task', workspaceId: 'workspace', repo: pr.repo, number: pr.number,
+      path: 'src/Example.java', side: 'RIGHT' as const, startLine: 10, line: 10, baseSha: null, headSha: 'a'.repeat(40),
+      code: 'private Result result() {}', resolved: false, version: 1,
+      createdAt: '2026-08-20T09:15:00Z', updatedAt: '2026-08-20T09:15:00Z',
+      messages: [{ id: 'local-message', author: 'USER' as const, body: 'Private implementation question',
+        createdAt: '2026-08-20T09:15:00Z', turnId: null, queuedInputId: null, messageEventId: null, deliveryState: 'UNSENT', deliveryError: null }],
+    };
+    const value = { ...detail(), recentActivity: [
+      { actor: 'bob', eventType: 'commented', timestamp: '2026-08-20T09:10:00Z', body: 'Earlier public discussion', githubId: 71, payload: emptyPayload },
+      { actor: 'bob', eventType: 'commented', timestamp: '2026-08-20T09:20:00Z', body: 'Later public discussion', githubId: 72, payload: emptyPayload },
+    ] };
+    const html = renderToStaticMarkup(<PullOverview pr={pr} detail={value} onRefresh={async () => {}}
+      localReview={{ threads: [local], onReply: async () => {}, onResolve: async () => {}, onRetry: async () => {} }} />);
+    expect(html.indexOf('Earlier public discussion')).toBeLessThan(html.indexOf('Private implementation question'));
+    expect(html.indexOf('Private implementation question')).toBeLessThan(html.indexOf('Later public discussion'));
+    expect(html).toContain('is-local-review');
+    expect(html).toContain('data-local-review-thread="local-comment"');
+    expect(value.recentActivity).toHaveLength(2);
+  });
+
   it.each(['PENDING', 'FAILING', 'PASSING'] as const)('offers draft promotion in the checks popup with %s checks', ciStatus => {
     const value: PullRequestDetailDto = {
       ...detail(),

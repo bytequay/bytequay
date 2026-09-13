@@ -1,0 +1,113 @@
+/*
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+import { useRef, useState } from 'react';
+import Avatar from '../../Avatar';
+import BetterWordsButton from '../BetterWordsButton';
+import MarkdownBody from '../MarkdownBody';
+import { ReviewThreadCard, ReviewThreadMessage } from '../ReviewThreadCard';
+import type { LocalReviewThreadActions, LocalReviewThreadDto } from './types';
+
+export default function LocalReviewThreadCard({ thread, onReply, onResolve, onRetry, disabledReason,
+  showCode = true, outdated = false }: LocalReviewThreadActions & {
+  thread: LocalReviewThreadDto;
+  showCode?: boolean;
+  outdated?: boolean;
+}) {
+  const [replying, setReplying] = useState(false);
+  const [body, setBody] = useState('');
+  const [preview, setPreview] = useState(false);
+  const [pending, setPending] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const inFlight = useRef(false);
+  const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const busy = pending !== null;
+  const prefix = thread.side === 'LEFT' ? 'L' : 'R';
+  const start = thread.startLine ?? thread.line;
+  const range = start === thread.line ? `${prefix}${thread.line}` : `${prefix}${start}–${prefix}${thread.line}`;
+  const close = () => { setReplying(false); setBody(''); setPreview(false); setError(null); };
+  const mutate = async (action: string, operation: () => Promise<void>) => {
+    if (inFlight.current) return;
+    inFlight.current = true;
+    setPending(action);
+    setError(null);
+    try { await operation(); if (action === 'reply') close(); }
+    catch (cause) { setError(cause instanceof Error ? cause.message : 'Could not update the local review.'); }
+    finally { inFlight.current = false; setPending(null); }
+  };
+  const reply = () => {
+    if (!body.trim() || disabledReason) return;
+    void mutate('reply', () => onReply(thread.id, body.trim()));
+  };
+  const controls = replying ? <footer className="pr-thread-reply">
+    <div className="pr-thread-reply__tabs" role="group" aria-label="Reply editor mode">
+      <button type="button" className={preview ? '' : 'is-active'} aria-pressed={!preview}
+        onClick={() => { setPreview(false); requestAnimationFrame(() => textareaRef.current?.focus()); }}>Write</button>
+      <button type="button" className={preview ? 'is-active' : ''} aria-pressed={preview} onClick={() => setPreview(true)}>Preview</button>
+    </div>
+    {preview && <MarkdownBody body={body || 'Nothing to preview.'} repository={thread.repo} />}
+    <textarea ref={textareaRef} autoFocus hidden={preview} aria-label="Reply to local review" value={body} rows={4}
+      placeholder="Reply privately to this thread…" disabled={busy} onChange={event => setBody(event.target.value)}
+      onKeyDown={event => {
+        if ((event.metaKey || event.ctrlKey) && event.key === 'Enter') { event.preventDefault(); reply(); }
+      }} />
+    <p className="pr-local-review__note">Private feedback. Requested changes are committed and pushed; draft PRs stay draft.</p>
+    {error && <span className="pr-thread-reply__error" role="alert">{error}</span>}
+    {disabledReason && <p className="pr-local-review__note" role="status">{disabledReason}</p>}
+    <div className="pr-thread-reply__actions">
+      <BetterWordsButton text={body} textareaRef={textareaRef} repository={thread.repo} workspaceId={thread.workspaceId}
+        disabled={preview || busy} onError={cause => setError(cause === null ? null : cause instanceof Error ? cause.message : 'Could not improve the reply.')} />
+      <button type="button" disabled={busy} onClick={close}>Cancel</button>
+      <button className="is-primary" type="button" disabled={busy || !body.trim() || Boolean(disabledReason)}
+        onClick={reply}>{pending === 'reply' ? 'Replying…' : 'Reply to agent'}</button>
+    </div>
+  </footer> : <footer>
+    <button className="pr-thread-reply__open" type="button" disabled={busy || Boolean(disabledReason)} title={disabledReason ?? undefined}
+      onClick={() => { setError(null); setPreview(false); setReplying(true); }}>Reply</button>
+    {error && <span className="pr-thread-reply__error" role="alert">{error}</span>}
+    {disabledReason && <span className="pr-local-review__note" role="status">{disabledReason}</span>}
+    <button className="pr-thread-resolve" type="button" disabled={busy}
+      onClick={() => { void mutate('resolve', () => onResolve(thread.id, !thread.resolved)); }}>
+      {pending === 'resolve' ? 'Saving…' : thread.resolved ? 'Reopen' : 'Resolve'}
+    </button>
+  </footer>;
+  const snapshot = showCode && thread.code ? <div className="pr-local-review__snapshot">
+    <div>{outdated ? 'Recorded code' : 'Selected code'} · {thread.side === 'LEFT' ? 'base' : 'head'}{' '}
+      <code>{(thread.side === 'LEFT' ? thread.baseSha : thread.headSha)?.slice(0, 8) ?? 'at recorded PR revision'}</code></div>
+    <pre>{thread.code}</pre>
+  </div> : undefined;
+  return <ReviewThreadCard localId={thread.id} resolved={thread.resolved} outdated={outdated}
+    location={showCode ? <code className="pr-local-review__location" title={thread.path}>{thread.path}:{range}</code>
+      : <span className="pr-local-review__location">Comment on {start === thread.line ? 'line' : 'lines'} <strong>{range}</strong></span>}
+    code={snapshot} controls={controls}>
+    {thread.messages.map(message => <ReviewThreadMessage key={message.id} timestamp={message.createdAt}
+      author={<><Avatar login={message.author === 'USER' ? 'You' : 'Agent'} size={22} allowGitHubFallback={false} />
+        <strong>{message.author === 'USER' ? 'You' : 'Agent'}</strong></>}
+      menu={message.author === 'USER' && message.deliveryState !== null && message.deliveryState !== 'COMPLETED'
+        && <span className="pr-local-review__delivery">{message.deliveryState === 'UNSENT' ? 'Not sent'
+          : message.deliveryState.toLowerCase().replaceAll('_', ' ')}</span>}>
+      <MarkdownBody body={message.body} repository={thread.repo} />
+      {message.deliveryError && <p className="pr-local-review__delivery-error" role="alert">{message.deliveryError}</p>}
+      {message.author === 'USER' && message.deliveryState === 'UNSENT' && <div className="pr-local-review__retry">
+        <button type="button" disabled={busy || Boolean(disabledReason)} title={disabledReason ?? undefined}
+          onClick={() => { void mutate(`retry:${message.id}`, () => onRetry(thread.id, message.id)); }}>
+          {pending === `retry:${message.id}` ? 'Retrying…' : 'Retry'}
+        </button>
+      </div>}
+    </ReviewThreadMessage>)}
+  </ReviewThreadCard>;
+}
+
+export function localReviewMatchesRevision(thread: LocalReviewThreadDto, baseSha?: string, headSha?: string): boolean {
+  return thread.headSha !== null && thread.headSha === headSha && thread.baseSha === (baseSha ?? null);
+}

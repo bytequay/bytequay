@@ -158,7 +158,7 @@
   text-align: left;
 }
 .agr-error {
-  margin: 14px 34px 0;
+  margin: 14px max(34px, calc((100% - 864px) / 2)) 0;
   border: 1px solid #ff8182;
   border-radius: 8px;
   background: #fff1f0;
@@ -179,7 +179,8 @@
 .agr-banner__text { min-width: 200px; flex: 1; color: #1f2328; font-size: 13px; line-height: 1.5; }
 
 /* Shared private review cards, without the GitHub timeline's indentation. */
-.agr-summary { min-height: 0; flex: 1; overflow-y: auto; padding: 18px 34px 40px; }
+/* Wide windows keep the 864px content column of .pull-request-overview; padding, not max-width, so the scrollbar stays at the edge. */
+.agr-summary { min-height: 0; flex: 1; overflow-y: auto; padding: 18px max(34px, calc((100% - 864px) / 2)) 40px; }
 .agr-learning-cards, .agr-local-comments { display: flex; flex-direction: column; gap: 12px; }
 .agr-development-learning { flex: 1; min-height: 0; overflow: auto; padding: 20px; display: flex; flex-direction: column; gap: 24px; }
 .agr-learning-history > summary { padding: 12px 0; cursor: pointer; color: #59636e; }

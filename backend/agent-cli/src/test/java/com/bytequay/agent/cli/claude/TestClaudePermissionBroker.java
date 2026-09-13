@@ -632,7 +632,9 @@ class TestClaudePermissionBroker
         assertThat(settings.at("/sandbox/enabled").asBoolean()).isTrue();
         assertThat(settings.at("/sandbox/autoAllowBashIfSandboxed").asBoolean()).isFalse();
         assertThat(settings.at("/sandbox/allowUnsandboxedCommands").asBoolean()).isFalse();
-        assertThat(settings.at("/sandbox/network").isMissingNode()).isTrue();
+        assertThat(settings.at("/sandbox/network/allowedDomains"))
+                .isEqualTo(objectMapper.valueToTree(ImmutableList.of("*")));
+        assertThat(settings.at("/sandbox/network/allowUnixSockets").isMissingNode()).isTrue();
         assertThat(settings.at("/sandbox/filesystem/allowWrite").toString()).contains("~/.m2", "/var/tmp");
         assertThat(settings.at("/permissions/allow").isMissingNode()).isTrue();
         assertThat(settings.at("/permissions/deny")).isEmpty();
@@ -688,6 +690,8 @@ class TestClaudePermissionBroker
                             assertThat(json).doesNotContain("provider-secret", "github-secret");
                             assertThat(settings.at("/sandbox/allowUnsandboxedCommands").asBoolean()).isFalse();
                             if (interactive) {
+                                assertThat(settings.at("/sandbox/network/allowedDomains"))
+                                        .isEqualTo(objectMapper.valueToTree(ImmutableList.of("*")));
                                 assertThat(settings.at("/sandbox/network/allowUnixSockets"))
                                         .isEqualTo(objectMapper.valueToTree(ImmutableList.of(socket)));
                                 assertThat(settings.at("/permissions/deny")).isEmpty();
@@ -695,6 +699,13 @@ class TestClaudePermissionBroker
                                 assertThat(settings.at("/autoMode/classifyAllShell").asBoolean()).isTrue();
                             }
                             else {
+                                if (policy.unattended() || textOnly) {
+                                    assertThat(settings.at("/sandbox/network/allowedDomains"))
+                                            .isEqualTo(objectMapper.valueToTree(ImmutableList.of()));
+                                }
+                                else {
+                                    assertThat(settings.at("/sandbox/network").isMissingNode()).isTrue();
+                                }
                                 assertThat(settings.path("autoMode").isMissingNode()).isTrue();
                                 assertThat(settings.at("/sandbox/network/allowUnixSockets").isMissingNode()).isTrue();
                                 assertThat(settings.at("/permissions/deny").toString()).contains("Bash(gh:*)", "Bash(git push:*)");

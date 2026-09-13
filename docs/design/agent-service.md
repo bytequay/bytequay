@@ -3707,9 +3707,16 @@ a session that set `dangerouslyDisableSandbox` wrote outside its worktree with n
 escalation. With the option off that request is refused and the write fails, so
 no session can waive its own confinement. The sandbox otherwise permits only the
 worktree and `TMPDIR`, which no build can populate a dependency cache from, so
-`filesystem.allowWrite` names the ordinary toolchain caches. Network access
-inside the sandbox stays open for attended tasks and closed for the unattended
-ones.
+`filesystem.allowWrite` names the ordinary toolchain caches. Interactive
+development explicitly sets `sandbox.network.allowedDomains` to `["*"]`,
+alongside the optional SSH-agent socket. An omitted domain list is empty and
+triggers a separate proxy approval, so merely allowing the Git command and its
+credentials does not make its remote reachable. Claude 2.1.270 evaluates that
+domain request separately in Auto mode; a denial can report `user denied`
+without a ByteQuay tool-approval card. Development network effects
+are governed by complete-command classification and the shared authorization
+rules; this is not a destination allowlist. Unattended and text-only profiles
+keep an empty domain list, and review sessions retain their existing settings.
 
 `CI_AUTOFIX` and `CHERRY_PICK` remain unattended; the ByteQuay broker answers
 every escalation from their fixed policy and never waits for a frontend

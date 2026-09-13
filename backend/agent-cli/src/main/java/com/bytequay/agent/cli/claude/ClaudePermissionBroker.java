@@ -754,8 +754,13 @@ public final class ClaudePermissionBroker
             sandbox.put("network", ImmutableMap.of("allowedDomains", ImmutableList.of()));
         }
         else if (gitHubCommands) {
+            // An omitted domain list is empty, so even reviewed commands need a separate proxy approval.
+            // Development egress is governed by complete-command review, including the shared remote-write rules.
+            ImmutableMap.Builder<String, Object> network = ImmutableMap.<String, Object>builder()
+                    .put("allowedDomains", ImmutableList.of("*"));
             Optional.ofNullable(environment.get("SSH_AUTH_SOCK")).filter(value -> !value.isBlank())
-                    .ifPresent(socket -> sandbox.put("network", ImmutableMap.of("allowUnixSockets", ImmutableList.of(socket))));
+                    .ifPresent(socket -> network.put("allowUnixSockets", ImmutableList.of(socket)));
+            sandbox.put("network", network.buildOrThrow());
         }
         ImmutableMap.Builder<String, Object> settings = ImmutableMap.<String, Object>builder()
                 .put("autoMemoryEnabled", false)

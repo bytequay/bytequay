@@ -39,7 +39,7 @@ export function useFindingActions({
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  const guard = useCallback(async (action: () => Promise<void>) => {
+  const guard = useCallback(async (action: () => Promise<void>, propagate = false) => {
     setBusy(true);
     setError(null);
     try {
@@ -47,6 +47,7 @@ export function useFindingActions({
     }
     catch (failure) {
       setError(remoteErrorMessage(failure));
+      if (propagate) throw failure;
     }
     finally {
       setBusy(false);
@@ -62,7 +63,7 @@ export function useFindingActions({
   const actions: FindingActions = {
     onAsk: (finding, message) => guard(async () => {
       onReviewChange(await window.bridge.askAgentReview(review.id, finding.id, finding.revision, message));
-    }),
+    }, true),
     onResolve: finding => guard(async () => {
       const reason = onAskReason();
       if (reason === null) return;
@@ -92,13 +93,13 @@ export function useFindingActions({
       }
       await window.bridge.publishReviewDraftComment(review.repo, review.number, version, itemId);
       await reload();
-    }),
+    }, true),
     onEditDraft: (finding, body) => guard(async () => {
       const item = review.draft?.items.find(candidate => candidate.findingId === finding.id) ?? null;
       if (item === null) return;
       await window.bridge.editReviewDraftComment(review.repo, review.number, draftVersion(), item.id, body, item.included);
       await reload();
-    }),
+    }, true),
     onNavigate,
   };
 

@@ -18,6 +18,7 @@ import com.bytequay.agent.core.AgentTaskDefaults;
 import com.bytequay.agent.core.AgentTurn;
 import com.bytequay.agent.core.AgentTurnSettings;
 import com.bytequay.agent.core.DevelopmentAutomation;
+import com.bytequay.agent.core.DevelopmentTurnOrigin;
 import com.bytequay.agent.core.RepositoryIdentity;
 import com.bytequay.agent.core.TaskId;
 import com.bytequay.agent.core.TurnId;
@@ -73,6 +74,19 @@ class TestDevelopmentResultBridgeResolverImpl
 
         accept(task, Optional.empty());
         assertThat(resolver.resolve(task.id().toString())).isEmpty();
+    }
+
+    @Test
+    void summaryRefinementAloneCanReportLearningWithAutomationOff()
+    {
+        AgentTask task = task(true, Optional.of(LOCAL_ONLY));
+        AgentTurn source = accept(task, Optional.of(LOCAL_ONLY));
+        AgentTurn refinement = accept(task, Optional.of(LOCAL_ONLY))
+                .withDevelopmentOrigin(new DevelopmentTurnOrigin(DevelopmentTurnOrigin.Kind.REFINE_SUMMARY, source.id()));
+        when(turns.findActive(task.id())).thenReturn(Optional.of(refinement));
+        assertThat(resolver.resolve(task.id().toString()).orElseThrow().learningSummaryAllowed()).isTrue();
+        accept(task, Optional.of(AUTOMATION));
+        assertThat(resolver.resolve(task.id().toString()).orElseThrow().learningSummaryAllowed()).isFalse();
     }
 
     @Test

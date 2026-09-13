@@ -13,9 +13,18 @@
  */
 import { flushSync } from 'react-dom';
 import { createRoot } from 'react-dom/client';
+import DevelopmentLearningPanel from '../../../agents/DevelopmentLearningPanel';
+import { parseAgentTurn } from '../../../agents/contracts';
+import agentContracts from '../../../agents/fixtures/agent-contracts-v1.json';
+import { previewTask } from '../../../agents/fixtures/previewBridge';
+import type { AgentTurnDto, Bridge, DevelopmentLearningSummaryDto } from '../../../types';
 import { DiffViewer } from '../../PullChanges';
+import ReviewSummaryCard from '../../agent-review/ReviewSummaryCard';
+import { reviewFixture } from '../../agent-review/fixtures/review';
+import type { ReviewMessageDto } from '../../agent-review/contracts';
 import LocalReviewThreadCard from '../LocalReviewThreadCard';
 import type { LocalReviewThreadDto, LocalReviewThreads } from '../types';
+import { useLocalReviewThreads, type LocalReviewBridgePort } from '../useLocalReviewThreads';
 
 const settle = () => new Promise<void>(resolve => requestAnimationFrame(() => requestAnimationFrame(() => resolve())));
 function assert(condition: boolean, message: string): asserts condition { if (!condition) throw new Error(message); }
@@ -29,7 +38,7 @@ function changeInput(input: HTMLTextAreaElement, value: string) {
   input.dispatchEvent(new Event('input', { bubbles: true }));
 }
 function initialThread(): LocalReviewThreadDto {
-  return { id: 'local-1', taskId: 'task-1', workspaceId: 'workspace-1', repo: 'owner/repo', number: 17,
+  return { id: 'local-1', taskId: 'task-1', taskVersion: 1, workspaceId: 'workspace-1', repo: 'owner/repo', number: 17,
     path: 'src/Example.java', side: 'RIGHT', startLine: null, line: 2, baseSha: '1111111', headSha: '2222222',
     code: 'new value', resolved: false, version: 1, createdAt: '2026-01-01T00:00:00Z', updatedAt: '2026-01-01T00:00:00Z',
     messages: [{ id: 'user-1', author: 'USER', body: 'Why is this needed?', createdAt: '2026-01-01T00:00:00Z',
@@ -165,11 +174,242 @@ async function anchoredDiff(): Promise<void> {
   finally { flushSync(() => root.unmount()); host.remove(); }
 }
 
+async function independentLearningCards(): Promise<void> {
+  const host = document.createElement('div');
+  document.body.append(host);
+  let root = createRoot(host);
+  let review = reviewFixture({ messages: [] });
+  const run = review.runs[0];
+  const purposeId = `${run.id}:purpose`;
+  const commitId = `${run.id}:commit:${run.commits[0].sha}`;
+  const requests: string[] = [];
+  const render = () => flushSync(() => root.render(<ReviewSummaryCard review={review} run={run} findings={review.findings}
+    viewerLogin="reader" viewerAvatarUrl={null} busy={false} onSelectFinding={() => {}}
+    onAsk={async (body, revision, cardId) => {
+      assert(revision === run.summary?.revision, 'The question must retain the summary revision');
+      requests.push(cardId);
+      const message: ReviewMessageDto = { id: `question-${requests.length}`, findingId: null, runId: run.id, cardId,
+        author: 'USER' as const, body, targetRevision: revision, turnId: 'turn-question', queuedInputId: null, createdAt: run.createdAt };
+      review = { ...review, messages: [...review.messages, message,
+        { ...message, id: `answer-${requests.length}`, author: 'AGENT', body: `Answer to ${body}` }] };
+      render();
+    }} />));
+  const section = (id: string) => {
+    const card = host.querySelector<HTMLElement>(`[data-review-card="${id}"]`);
+    assert(card !== null, `Missing independent learning card ${id}`);
+    return card;
+  };
+  const ask = async (id: string, question: string) => {
+    button(section(id), 'Ask agent').click();
+    await settle();
+    const input = section(id).querySelector<HTMLTextAreaElement>('textarea');
+    assert(input !== null, 'Each card must open its own question composer');
+    changeInput(input, question);
+    await settle();
+    button(section(id), 'Ask agent').click();
+    await settle();
+  };
+  render();
+  try {
+    assert(section(purposeId).querySelector('.pr-inline-thread.is-local-review') !== null,
+      'Learning cards must reuse the development private review card');
+    await ask(purposeId, 'Explain the PR goal');
+    await ask(commitId, 'Explain this implementation');
+    assert(requests.length === 2 && requests[0] === purposeId && requests[1] === commitId,
+      'Questions on independent cards must send different saved targets');
+    flushSync(() => root.unmount());
+    root = createRoot(host);
+    render();
+    const purpose = section(purposeId);
+    const commit = section(commitId);
+    assert(purpose.textContent?.includes('Answer to Explain the PR goal') === true
+      && purpose.textContent?.includes('Explain this implementation') === false,
+    'The overview must retain only its own user question and agent answer after reload');
+    assert(commit.textContent?.includes('Answer to Explain this implementation') === true
+      && commit.textContent?.includes('Explain the PR goal') === false,
+    'The commit must retain only its own user question and agent answer after reload');
+    assert(purpose.querySelectorAll('.pr-thread-comment').length === 3 && commit.querySelectorAll('.pr-thread-comment').length === 3,
+      'Each card must display its report, question and answer using shared comment rows');
+  }
+  finally { flushSync(() => root.unmount()); host.remove(); }
+}
+
+async function reviewOwnedLocalDiscussion(): Promise<void> {
+  const host = document.createElement('div');
+  document.body.append(host);
+  const root = createRoot(host);
+  let saved = { ...initialThread(), taskId: 'review-owned-task' };
+  let replies = 0;
+  const bridge: LocalReviewBridgePort = {
+    listLocalReviewComments: async () => [saved],
+    createLocalReviewComment: async () => { throw new Error('This discussion already exists'); },
+    resolveLocalReviewComment: async () => { throw new Error('No resolution requested'); },
+    retryLocalReviewComment: async () => { throw new Error('No retry requested'); },
+    replyLocalReviewComment: async request => {
+      assert(request.taskId === 'review-owned-task' && request.expectedTaskVersion === 9,
+        'The reply must use the review-owned task and its latest version from the discussion endpoint');
+      replies++;
+      saved = { ...saved, version: saved.version + 1, taskVersion: 10,
+        messages: [...saved.messages, { ...saved.messages[0], id: request.messageId, body: request.body }] };
+      return saved;
+    },
+  };
+  function ReviewHookHarness() {
+    const localReview = useLocalReviewThreads({ repo: saved.repo, number: saved.number, workspaceId: saved.workspaceId }, { bridge });
+    return <>{localReview.threads.map(thread => <LocalReviewThreadCard key={thread.id} thread={thread} {...localReview} />)}</>;
+  }
+  flushSync(() => root.render(<ReviewHookHarness />));
+  try {
+    await settle();
+    saved = { ...saved, taskVersion: 9 };
+    button(host, 'Reply').click();
+    await settle();
+    const input = host.querySelector<HTMLTextAreaElement>('textarea');
+    assert(input !== null, 'Review-owned discussions must allow private replies');
+    changeInput(input, 'Explain this code without changing it');
+    await settle();
+    button(host, 'Reply to agent').click();
+    await settle();
+    assert(replies === 1 && host.querySelector('[role="alert"]') === null && host.textContent?.includes('Explain this code without changing it') === true,
+      'Review-owned tasks must accept local replies without the interactive task endpoint');
+  }
+  finally { flushSync(() => root.unmount()); host.remove(); }
+}
+
+async function developmentLearningRefresh(): Promise<void> {
+  const host = document.createElement('div');
+  document.body.append(host);
+  let root = createRoot(host);
+  const task = { ...previewTask('workspace-learning', 'task-learning'), version: 3 };
+  const summary: DevelopmentLearningSummaryDto = {
+    purpose: 'Preserve statistics when a transaction rolls back.',
+    commits: [
+      { sha: '1'.repeat(40), title: 'Keep the previous statistics', summary: 'Capture a snapshot before the first write.' },
+      { sha: '2'.repeat(40), title: 'Restore the saved snapshot', summary: 'Restore the snapshot using one overwrite.' },
+    ],
+    combinedResult: 'A partial write can be undone without losing prior statistics.',
+    evidence: 'Ran the rollback unit tests. Both snapshot and partial-write cases passed.',
+    limitations: ['A live metastore was unavailable.'],
+  };
+  const firstTurn: AgentTurnDto = { ...parseAgentTurn(agentContracts.turn), id: 'refinement-1', taskId: task.id, state: 'COMPLETED',
+    developmentOrigin: { kind: 'REFINE_SUMMARY', parentUserTurnId: 'implementation-1' },
+    developmentResult: { readyForDelivery: true, message: null, learningSummary: summary } };
+  let savedTurn: AgentTurnDto | null = null;
+  let savedThreads: LocalReviewThreadDto[] = [];
+  let refreshKey = 0;
+  let reads = 0;
+  let questions = 0;
+  const commitId = `commit:${summary.commits[0].sha}`;
+  const bridge: LocalReviewBridgePort & Pick<Bridge, 'getAgentTask' | 'getDevelopmentLearning'> = {
+    getAgentTask: async (taskId, workspaceId) => {
+      assert(taskId === task.id && workspaceId === task.workspaceId, 'A question must refresh its owning development task');
+      return { ...task, version: 12 };
+    },
+    getDevelopmentLearning: async (taskId, workspaceId) => {
+      assert(taskId === task.id && workspaceId === task.workspaceId, 'Learning must load the report for this development task');
+      reads++;
+      return savedTurn;
+    },
+    listLocalReviewComments: async query => {
+      assert('taskId' in query && query.taskId === task.id && query.workspaceId === task.workspaceId, 'Learning discussions must remain task-scoped');
+      return savedThreads;
+    },
+    createDevelopmentLearningComment: async request => {
+      assert(request.taskId === task.id && request.workspaceId === task.workspaceId && request.summaryTurnId === firstTurn.id
+        && request.cardId === commitId && request.expectedTaskVersion === 12,
+      'A learning question must retain its exact source turn and commit while using the latest task version');
+      questions++;
+      const old = initialThread();
+      const thread: LocalReviewThreadDto = { ...old, id: request.id, taskId: task.id, workspaceId: task.workspaceId,
+        repo: 'owner/repo', number: 0, path: '', line: 0, startLine: 0, code: '', headSha: null, baseSha: null,
+        learningAnchor: { turnId: firstTurn.id, cardId: commitId, title: `${summary.commits[0].sha.slice(0, 7)} · ${summary.commits[0].title}`,
+          body: summary.commits[0].summary },
+        messages: [{ ...old.messages[0], id: request.messageId, body: request.body },
+          { ...old.messages[1], body: 'The snapshot is captured before mutation so rollback restores the original values.' }] };
+      savedThreads = [thread];
+      return thread;
+    },
+    createLocalReviewComment: async () => { throw new Error('Learning questions must not create diff comments'); },
+    replyLocalReviewComment: async () => { throw new Error('No follow-up reply requested'); },
+    resolveLocalReviewComment: async () => { throw new Error('No resolution requested'); },
+    retryLocalReviewComment: async () => { throw new Error('No retry requested'); },
+  };
+  function LearningHarness() {
+    const localReview = useLocalReviewThreads({ taskId: task.id, workspaceId: task.workspaceId }, { bridge });
+    return <DevelopmentLearningPanel task={task} repository="owner/repo" refreshKey={refreshKey} refining={savedTurn === null}
+      disabledReason={null} localReview={localReview} bridge={bridge} />;
+  }
+  const render = () => flushSync(() => root.render(<LearningHarness />));
+  const card = (id: string) => {
+    const found = host.querySelector<HTMLElement>(`[data-learning-card="${id}"]`);
+    assert(found !== null, `Missing development learning card ${id}`);
+    return found;
+  };
+  render();
+  try {
+    await settle();
+    assert(host.textContent?.includes('Refining summary') === true && !host.textContent?.includes('Start review'),
+      'Development learning must refine automatically without starting a separate review');
+    savedTurn = firstTurn;
+    refreshKey++;
+    render();
+    await settle();
+    assert(card('purpose').textContent?.includes(summary.purpose) === true
+      && card(commitId).textContent?.includes(summary.commits[0].summary) === true
+      && card(`commit:${summary.commits[1].sha}`).textContent?.includes(summary.commits[1].summary) === true
+      && card('evidence').textContent?.includes(summary.evidence) === true,
+    'The saved report must refresh into independent overview, commit and evidence cards');
+    assert(host.querySelectorAll('[data-learning-card]').length === 6 && !host.textContent?.includes('Start review'),
+      'Every report section must be an independent private card with no separate review launcher');
+    button(card(commitId), 'Ask agent').click();
+    await settle();
+    const input = card(commitId).querySelector<HTMLTextAreaElement>('textarea');
+    assert(input !== null, 'Each implementation card must allow a scoped question');
+    changeInput(input, 'Why capture the snapshot before writing?');
+    await settle();
+    button(card(commitId), 'Ask agent').click();
+    await settle();
+    const discussion = host.querySelector<HTMLElement>('[data-local-review-thread]');
+    assert(questions === 1 && discussion?.querySelectorAll('.pr-thread-comment').length === 3
+      && discussion.textContent?.includes(summary.commits[0].summary) === true
+      && discussion.textContent?.includes('rollback restores the original values') === true,
+    'The accepted question must display its saved summary, user message and agent reply in the shared private card');
+    assert(card('purpose').textContent?.includes('Why capture the snapshot') === false
+      && card('evidence').textContent?.includes('rollback restores the original values') === false,
+    'Commit questions and answers must remain separate from overview and evidence cards');
+    savedTurn = { ...firstTurn, id: 'refinement-2', developmentResult: { readyForDelivery: true, message: null,
+      learningSummary: { ...summary, purpose: 'Preserve statistics and reject conflicting updates.',
+        commits: [{ ...summary.commits[0], summary: 'Capture the snapshot and check the update version.' }, summary.commits[1]] } } };
+    refreshKey++;
+    render();
+    await settle();
+    assert(card('purpose').textContent?.includes('reject conflicting updates') === true
+      && card(commitId).textContent?.includes('check the update version') === true
+      && card(commitId).textContent?.includes('Why capture the snapshot') === false,
+    'A later refinement must show its new report without inheriting an older card discussion');
+    const earlier = host.querySelector<HTMLDetailsElement>('.agr-learning-history');
+    assert(earlier !== null && earlier.querySelectorAll('[data-local-review-thread]').length === 1
+      && earlier.textContent?.includes(summary.commits[0].summary) === true,
+    'Questions on an older report must remain available with the original summary under earlier discussions');
+    flushSync(() => root.unmount());
+    root = createRoot(host);
+    render();
+    await settle();
+    assert(reads >= 4 && card('purpose').textContent?.includes('reject conflicting updates') === true
+      && host.querySelector('.agr-learning-history')?.textContent?.includes('rollback restores the original values') === true,
+    'Reload must restore the kept report and earlier discussions without loading conversation history');
+  }
+  finally { flushSync(() => root.unmount()); host.remove(); }
+}
+
 export async function run(): Promise<{ name: string; error?: string }[]> {
   const cases: Array<[string, () => Promise<void>]> = [
     ['Local discussion reply, resolution and remount', replyAndResolve],
     ['Saved unsent message retry', savedRetry],
     ['Private diff anchors preserve revision and code', anchoredDiff],
+    ['Independent overview and commit discussions survive reload', independentLearningCards],
+    ['Review-owned private replies use the fresh task version', reviewOwnedLocalDiscussion],
+    ['Development learning refreshes and retains source-bound discussions', developmentLearningRefresh],
   ];
   const results: { name: string; error?: string }[] = [];
   for (const [name, scenario] of cases) {

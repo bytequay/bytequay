@@ -148,6 +148,8 @@ describe('workspace review tasks', () => {
     expect(markup).toMatch(/class="[^"]*lucide-git-pull-request-draft[^"]*agt-pr-icon is-draft agt-review-row__icon"/);
     // A pull request ByteQuay has not stored yet keeps its repository and number beside a grey mark.
     expect(markup).toContain('title="trinodb/trino #27365">trinodb/trino #27365</span>');
+    expect(markup).toContain('aria-label="View review #31020 inside workspace"');
+    expect(markup.match(/title="View inside workspace"/g)).toHaveLength(3);
     expect(markup).toMatch(/class="[^"]*lucide-git-pull-request[^"]*agt-pr-icon agt-review-row__icon"/);
   });
 
@@ -164,7 +166,7 @@ describe('workspace review tasks', () => {
 
     const empty = renderToStaticMarkup(<ReviewTaskList {...props} reviews={[]} />);
     expect(empty).toContain('No review tasks yet');
-    expect(empty).toContain('Start an agent review from a pull request');
+    expect(empty).toContain('Review &amp; Learning tab');
     expect(empty).not.toContain('role="alert"');
     expect(empty).not.toContain('class="agt-group"');
   });

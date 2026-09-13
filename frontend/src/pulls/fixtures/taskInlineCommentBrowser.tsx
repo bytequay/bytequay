@@ -109,7 +109,7 @@ async function scenario(mode: 'idle' | 'queued' | 'unsent'): Promise<void> {
       messageEventId: mode === 'idle' ? 'inline-event' : null,
       deliveryState: mode === 'unsent' ? 'UNSENT' : mode === 'queued' ? 'QUEUED' : 'COMPLETED',
       deliveryError: mode === 'unsent' ? 'Agent unavailable; retry this saved comment' : null };
-    const thread: LocalReviewThreadDto = { id: request.id, taskId: request.taskId, workspaceId: request.workspaceId,
+    const thread: LocalReviewThreadDto = { id: request.id, taskId: request.taskId, taskVersion: task.version, workspaceId: request.workspaceId,
       repo: request.repo, number: request.number, path: request.path, side: request.side, startLine: request.startLine,
       line: request.line, baseSha: request.baseSha, headSha: request.headSha, code: request.code,
       resolved: false, version: 1, createdAt, updatedAt: createdAt, messages: [message] };
@@ -153,6 +153,7 @@ async function scenario(mode: 'idle' | 'queued' | 'unsent'): Promise<void> {
   };
   let githubWrites = 0;
   const prBridge = {
+    findAgentReview: async () => null,
     getUserProfile: async () => ({ login: 'alice', name: null, avatarUrl: '', htmlUrl: '', publicRepos: 0, followers: 0,
       following: 0, bio: null, location: null, company: null, email: null }),
     fetchPullRequestDetailByRef: async () => detail,
@@ -162,7 +163,7 @@ async function scenario(mode: 'idle' | 'queued' | 'unsent'): Promise<void> {
       assert(base === '1111111' && head === '2222222', 'Task selection must compare the requested commit'); return [file];
     },
     postPrReviewComment: async () => { githubWrites++; throw new Error('Private feedback must not post to GitHub'); },
-  } satisfies Pick<Bridge, 'getUserProfile' | 'fetchPullRequestDetailByRef' | 'refreshPullRequestDetailByRef'
+  } satisfies Pick<Bridge, 'findAgentReview' | 'getUserProfile' | 'fetchPullRequestDetailByRef' | 'refreshPullRequestDetailByRef'
     | 'fetchPrDiffFiles' | 'fetchPrDiffCommits' | 'refreshPrDiffFiles' | 'postPrReviewComment'>;
   const originalBridge = window.bridge;
   Object.defineProperty(window, 'bridge', { configurable: true, value: { ...bridge, ...prBridge } });
@@ -245,6 +246,13 @@ async function scenario(mode: 'idle' | 'queued' | 'unsent'): Promise<void> {
       const timelineCard = host.querySelector<HTMLElement>('.pr-timeline [data-local-review-thread]');
       assert(timelineCard?.textContent?.includes('Resolved') === true && timelineCard.textContent?.includes('The implementation is simpler now.') === true,
         'The PR timeline must show the same resolved user/agent discussion');
+      button(host, 'Review & Learning').click(); await settle();
+      const learningCard = host.querySelector<HTMLElement>('.agr-local-comments [data-local-review-thread]');
+      assert(learningCard?.textContent?.includes('The implementation is simpler now.') === true && learningCard.textContent?.includes('Resolved') === true,
+        'Review & Learning must show the same private discussion before the first agent review');
+      assert(![...host.querySelectorAll('button')].some(element => element.textContent === 'Start review')
+        && host.textContent?.includes('After a turn changes code or commits') === true && !host.querySelector('.agr-strip__tabs'),
+        'The development PR must use automatic learning summaries without manual startup or Activity subtabs');
     }
     assert(githubWrites === 0 && !bridge.commands.some(command => ['startAgentTurn', 'queueAgentInput', 'steerAgentTurn'].includes(command.name)),
       'Private UI must dispatch through the durable local-review endpoint without direct task or GitHub writes');

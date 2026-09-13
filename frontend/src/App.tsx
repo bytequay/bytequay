@@ -76,6 +76,7 @@ export default function App() {
   const [initialWorkspacePrNumber, setInitialWorkspacePrNumber] = useState<number | null>(null);
   const [initialIssueNumber, setInitialIssueNumber] = useState<number | null>(null);
   const [initialAgentTaskId, setInitialAgentTaskId] = useState<string | null>(null);
+  const [initialAgentReviewId, setInitialAgentReviewId] = useState<string | null>(null);
   const [browserUrl, setBrowserUrl] = useState<string | null>(null);
   const [previewPr, setPreviewPr] = useState<{ repo: string; number: number; workspaceId?: string } | null>(null);
   const [paletteOpen, setPaletteOpen] = useState(false);
@@ -156,6 +157,7 @@ export default function App() {
         setInitialWorkspacePrNumber(null);
         setInitialIssueNumber(null);
         setInitialAgentTaskId(null);
+        setInitialAgentReviewId(null);
         const pullRequest = pullRequestFromRoute(window.location.hash);
         setInitialPr(pullRequest ?? undefined);
         setPage(pullRequest ? 'pulls' : pageFromRoute(window.location.hash));
@@ -168,6 +170,7 @@ export default function App() {
       setInitialWorkspacePrNumber(workspaceLocation.pullRequestNumber);
       setInitialIssueNumber(workspaceLocation.issueNumber);
       setInitialAgentTaskId(workspaceLocation.agentTaskId);
+      setInitialAgentReviewId(workspaceLocation.reviewId ?? null);
       if (workspaceRef.current?.id === workspaceLocation.workspaceId) return;
       updateWorkspace(null);
       void window.bridge.getWorkspace(workspaceLocation.workspaceId)
@@ -181,6 +184,7 @@ export default function App() {
             setInitialWorkspacePrNumber(null);
             setInitialIssueNumber(null);
             setInitialAgentTaskId(null);
+            setInitialAgentReviewId(null);
             replaceCurrentRoute('#/workspaces');
           }
         });
@@ -421,6 +425,7 @@ export default function App() {
               initialPullRequestNumber={initialWorkspacePrNumber}
               initialIssueNumber={initialIssueNumber}
               initialAgentTaskId={initialAgentTaskId}
+              initialAgentReviewId={initialAgentReviewId}
               browserOpen={browserUrl !== null}
               onSelectPullRequest={selectWorkspacePullRequest}
               onPreviewPullRequest={previewWorkspacePullRequest}

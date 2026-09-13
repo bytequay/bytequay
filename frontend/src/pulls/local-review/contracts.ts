@@ -16,6 +16,10 @@ import type { LocalReviewMessageDto, LocalReviewThreadDto } from './types';
 
 export type LocalReviewQuery = { taskId: string; workspaceId: string } | { repo: string; number: number; workspaceId?: string };
 export type LocalReviewTarget = { taskId: string; workspaceId: string; threadId: string };
+export type CreateDevelopmentLearningCommentRequest = {
+  taskId: string; workspaceId: string; idempotencyKey: string;
+  summaryTurnId: string; cardId: string; id: string; messageId: string; body: string; expectedTaskVersion: number;
+};
 export type CreateLocalReviewRequest = {
   taskId: string;
   workspaceId: string;
@@ -80,9 +84,13 @@ export function parseLocalReviewThread(value: unknown): LocalReviewThreadDto {
   if (side !== 'LEFT' && side !== 'RIGHT') throw new Error('Invalid local review side');
   const line = count(row.line);
   const startLine = row.startLine == null ? null : count(row.startLine);
-  if (line === 0 || (startLine !== null && (startLine === 0 || startLine > line))) throw new Error('Invalid local review range');
+  const anchor = row.learningAnchor == null ? null : object(row.learningAnchor);
+  if (anchor === null && (line === 0 || (startLine !== null && (startLine === 0 || startLine > line)))) throw new Error('Invalid local review range');
   return {
-    id: text(row.id), taskId: text(row.taskId), workspaceId: text(row.workspaceId),
+    ...(row.learningAnchor === undefined ? {} : { learningAnchor: anchor === null ? null : {
+      turnId: text(anchor.turnId), cardId: text(anchor.cardId), title: text(anchor.title), body: text(anchor.body),
+    } }),
+    id: text(row.id), taskId: text(row.taskId), taskVersion: count(row.taskVersion), workspaceId: text(row.workspaceId),
     repo: text(row.repo), number: count(row.number), path: text(row.path), side, startLine, line,
     baseSha: optionalText(row.baseSha), headSha: optionalText(row.headSha), code: text(row.code),
     resolved: flag(row.resolved), version: count(row.version),

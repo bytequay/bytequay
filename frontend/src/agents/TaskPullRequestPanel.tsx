@@ -15,7 +15,7 @@
 import { GitMerge, GitPullRequest, GitPullRequestClosed, GitPullRequestDraft } from 'lucide-react';
 import React from 'react';
 import type { LocalReviewThreads } from '../pulls/local-review/types';
-import PullChanges, { DiffViewer, type CommitRange, type DiffAgentComment } from '../pulls/PullChanges';
+import PullChanges, { DiffViewer, type AgentReviewProjection, type CommitRange, type DiffAgentComment } from '../pulls/PullChanges';
 import PullOverview, { type PullDetailUpdater } from '../pulls/PullOverview';
 import { canSubmitReview } from '../pulls/PullsScreen';
 import type { PullRequestDetailSource } from '../pulls/usePullRequestDetail';
@@ -147,10 +147,11 @@ export function TaskPullRequestView({
  * detail there is nothing to hang threads on, so it falls back to the plain viewer.
  */
 export function TaskChangesView({
-  pr, detail, changes, workspaceId, commitRange, pendingComments,
+  pr, detail, changes, workspaceId, commitRange, pendingComments, agentReview,
   onCommitRangeChange, onPendingCommentsChange, onRefresh, onDetailUpdate, onDetailChange, onAskAgent, onAskAgentDisabled, localReview,
 }: {
   pr: PullRequestDto | null;
+  agentReview?: AgentReviewProjection;
   localReview?: LocalReviewThreads;
   detail: PullRequestDetailDto | null;
   changes: TaskPullRequestChanges;
@@ -185,6 +186,7 @@ export function TaskChangesView({
           onCommitRangeChange={onCommitRangeChange}
           loadFileContent={loadFileContent}
           localReview={pullRequestReview}
+          agentReview={agentReview}
           onAskAgent={onAskAgent}
           onAskAgentDisabled={onAskAgentDisabled}
         />
@@ -199,6 +201,7 @@ export function TaskChangesView({
           loading={changes.loading}
           canReview={canSubmitReview(pr, detail)}
           localReview={pullRequestReview}
+          agentReview={agentReview}
           onAskAgent={onAskAgent}
           onAskAgentDisabled={onAskAgentDisabled}
           pendingComments={pendingComments}

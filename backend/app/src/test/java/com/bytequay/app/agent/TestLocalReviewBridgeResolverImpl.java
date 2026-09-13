@@ -16,6 +16,7 @@ package com.bytequay.app.agent;
 import com.bytequay.agent.spi.LocalReviewBridge;
 import com.bytequay.app.localreview.LocalReviewService;
 import com.bytequay.app.localreview.LocalReviewView;
+import com.bytequay.core.localreview.LocalReviewLearningAnchor;
 import com.bytequay.core.localreview.LocalReviewMessage.Author;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.google.common.collect.ImmutableList;
@@ -46,7 +47,7 @@ class TestLocalReviewBridgeResolverImpl
         LocalReviewBridgeResolverImpl resolver = new LocalReviewBridgeResolverImpl(beans.getBeanProvider(LocalReviewService.class), mapper);
         LocalReviewView thread = new LocalReviewView("comment-1", "task-1", "workspace-1", "owner/repo", 7,
                 "Example.java", "RIGHT", 1, 2, Optional.of("base"), Optional.of("head"), "selected code", false, 1,
-                Instant.EPOCH, Instant.EPOCH, ImmutableList.of());
+                Instant.EPOCH, Instant.EPOCH, 0, ImmutableList.of());
         when(service.availableForAgent("task-1")).thenReturn(true);
         when(service.listForAgent("task-1")).thenReturn(ImmutableList.of(thread));
         when(service.replyFromAgent("task-1", "comment-1", "Answer", "reply-1")).thenReturn(thread);
@@ -65,6 +66,31 @@ class TestLocalReviewBridgeResolverImpl
     }
 
     @Test
+    void learningToolsExposeTheSavedCardAndOmitNonexistentCodeLocations()
+            throws Exception
+    {
+        LocalReviewService service = mock(LocalReviewService.class);
+        ObjectMapper mapper = new ObjectMapper().findAndRegisterModules();
+        DefaultListableBeanFactory beans = new DefaultListableBeanFactory();
+        beans.registerSingleton("localReviewService", service);
+        LocalReviewBridgeResolverImpl resolver = new LocalReviewBridgeResolverImpl(beans.getBeanProvider(LocalReviewService.class), mapper);
+        LocalReviewLearningAnchor anchor = new LocalReviewLearningAnchor("summary-turn", "purpose", "What this change does", "Saved implementation summary");
+        LocalReviewView thread = new LocalReviewView("learning", "task-1", "workspace-1", "owner/repo", 0,
+                "", "RIGHT", 0, 0, Optional.empty(), Optional.empty(), "", false, 1,
+                Instant.EPOCH, Instant.EPOCH, 0, ImmutableList.of(), Optional.of(anchor));
+        when(service.availableForAgent("task-1")).thenReturn(true);
+        when(service.listForAgent("task-1")).thenReturn(ImmutableList.of(thread));
+        LocalReviewBridge bridge = resolver.resolve("task-1").orElseThrow();
+        var detail = mapper.readTree(bridge.list().apply(Optional.of("learning")));
+        assertThat(detail.at("/learningAnchor/turnId").asText()).isEqualTo("summary-turn");
+        assertThat(detail.at("/learningAnchor/body").asText()).isEqualTo("Saved implementation summary");
+        assertThat(detail.has("path") || detail.has("number") || detail.has("side") || detail.has("line") || detail.has("code")).isFalse();
+        var listed = mapper.readTree(bridge.list().apply(Optional.empty())).path("comments").get(0);
+        assertThat(listed.path("learningAnchor")).isEqualTo(detail.path("learningAnchor"));
+        assertThat(listed.has("path")).isFalse();
+    }
+
+    @Test
     void boundsEscapedModelOutputAndMarksOmittedDiscussion()
             throws Exception
     {
@@ -80,7 +106,7 @@ class TestLocalReviewBridgeResolverImpl
         List<LocalReviewView> threads = IntStream.range(0, 500)
                 .mapToObj(index -> new LocalReviewView("comment-" + index, "task-1", "workspace-1", "owner/repo", 7,
                         "\u0001".repeat(4096), "RIGHT", 1, 2, Optional.empty(), Optional.empty(), "\u0001".repeat(60_000),
-                        index != 499, 1, Instant.EPOCH, Instant.EPOCH, messages))
+                        index != 499, 1, Instant.EPOCH, Instant.EPOCH, 0, messages))
                 .toList();
         when(service.availableForAgent("task-1")).thenReturn(true);
         when(service.listForAgent("task-1")).thenReturn(threads);

@@ -101,7 +101,7 @@ describe('the pane tab row', () => {
     const html = header('overview', null);
     expect(html).toContain('PR #30304');
     expect(html).toContain('Changes');
-    expect(html).toContain('Agent review');
+    expect(html).toContain('Review &amp; Learning');
     // The existing tabs keep their counters and classes.
     expect(html).toContain('pull-detail__change-count is-addition');
     expect(html).toContain('pull-detail__change-count is-deletion');
@@ -110,7 +110,7 @@ describe('the pane tab row', () => {
   it('marks whichever tab is open, including the third one', () => {
     const active = (html: string) => html.split('<button').filter(part => part.includes('aria-pressed="true"'));
     expect(active(header('review', null))).toHaveLength(1);
-    expect(active(header('review', null))[0]).toContain('Agent review');
+    expect(active(header('review', null))[0]).toContain('Review &amp; Learning');
     expect(active(header('changes', null))[0]).toContain('Changes');
     expect(active(header('overview', null))[0]).toContain('PR #30304');
   });
@@ -121,18 +121,18 @@ describe('the pane tab row', () => {
       zoomLabel: 'Open this pull request full width',
     });
     expect(html).toContain('Subagents 2');
-    expect(html).not.toContain('Agent review');
+    expect(html).toContain('Review &amp; Learning');
     expect(html.match(/aria-pressed="true"/g)).toHaveLength(1);
     expect(html).toContain('aria-label="Open this pull request full width"');
     expect(html).toContain('aria-label="Refresh pull request"');
     expect(html).toContain('Submit review');
   });
 
-  it('hides the agent tab and full-width action when the task supplies neither', () => {
+  it('keeps Review & Learning when the task supplies no Subagents tab or full-width action', () => {
     const html = header('overview', null, { agentTab: null, onZoom: undefined });
     expect(html).toContain('PR #30304');
     expect(html).toContain('Changes');
-    expect(html).not.toContain('Agent review');
+    expect(html).toContain('Review &amp; Learning');
     expect(html).not.toContain('Enter full screen');
     expect(html).toContain('aria-label="Refresh pull request"');
   });
@@ -176,13 +176,13 @@ describe('the same finding in Changes', () => {
     expect(html).toContain('data-diff-row="plugin/trino-iceberg/src/main/java/io/trino/plugin/iceberg/IcebergSortField.java:RIGHT:131"');
   });
 
-  it('offers the same actions and the way back to Agent review', () => {
+  it('offers the same actions and the way back to Review & Learning', () => {
     const html = changes(review);
     expect(html).toContain('Ask agent');
     expect(html).toContain('Resolve locally');
     expect(html).toContain('Add to my review');
     expect(html).toContain('Post comment now');
-    expect(html).toContain('Open in Agent review');
+    expect(html).toContain('Open in Review &amp; Learning');
     expect(html).not.toContain('View in Changes');
   });
 

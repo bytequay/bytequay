@@ -219,6 +219,47 @@ class TestClaudePermissionBroker
     }
 
     @Test
+    void learningReportsAreExposedOnlyToSummaryRefinementInBothProviders()
+            throws Exception
+    {
+        for (boolean allowed : ImmutableList.of(false, true)) {
+            DevelopmentResultBridge bridge = new DevelopmentResultBridge("turn-1", DevelopmentResultBridge.INSTRUCTION, allowed);
+            ClaudePermissionBroker broker = new ClaudePermissionBroker(
+                    () -> URI.create("http://127.0.0.1:9000/internal/agent/claude/mcp"), objectMapper,
+                    (taskId, query) -> "memory", ReviewBridgeResolver.NONE, taskId -> Optional.of(bridge));
+            SecretRedactor redactor = SecretRedactor.fromEnvironment(ImmutableMap.of("OPENAI_API_KEY", "known-secret"));
+            try (ClaudePermissionBroker.CodeGraphRegistration codex = broker.registerTools(
+                    "task-1", temporaryDirectory, AgentPermissionPolicy.AUTO,
+                    (request, timeout) -> CompletableFuture.completedFuture(ProviderApprovalDecision.deny()), redactor, Optional.empty()).orElseThrow();
+                    ClaudePermissionBroker.Registration claude = broker.register(
+                            "task-1", temporaryDirectory, temporaryDirectory, temporaryDirectory, AgentPermissionPolicy.AUTO,
+                            false, (request, timeout) -> CompletableFuture.completedFuture(ProviderApprovalDecision.deny()), redactor, Optional.empty())) {
+                for (String token : ImmutableList.of(codex.token(), claude.token())) {
+                    JsonNode listed = broker.handle(token, objectMapper.readTree("""
+                            {"jsonrpc":"2.0","id":1,"method":"tools/list","params":{}}
+                            """)).body().orElseThrow();
+                    for (JsonNode tool : listed.at("/result/tools")) {
+                        if (tool.path("name").asText().equals(DevelopmentResultBridge.TOOL_NAME)) {
+                            assertThat(tool.at("/inputSchema/properties").has("learningSummary")).isEqualTo(allowed);
+                        }
+                    }
+                    JsonNode result = developmentCall(broker, token, """
+                            {"readyForDelivery":true,"learningSummary":{"purpose":"Purpose known-secret","commits":[],
+                              "evidence":"Tests known-secret","limitations":["Limit known-secret"]}}
+                            """);
+                    if (allowed) {
+                        assertThat(result.at("/result/content/0/text").textValue()).contains("Purpose [REDACTED]", "Tests [REDACTED]", "Limit [REDACTED]")
+                                .doesNotContain("known-secret");
+                    }
+                    else {
+                        assertThat(result.at("/error/code").intValue()).isEqualTo(-32602);
+                    }
+                }
+            }
+        }
+    }
+
+    @Test
     void draftPullRequestToolPublishesThroughByteQuayAndReportsARefusalAsToolText()
             throws Exception
     {

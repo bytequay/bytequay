@@ -15,20 +15,22 @@ import type { ReactNode } from 'react';
 import { CircleCheck } from 'lucide-react';
 import { relativeTime } from '../relativeTime';
 
-export function ReviewThreadCard({ location, resolved, outdated = false, localId, code, children, controls }: {
+export function ReviewThreadCard({ location, resolved, outdated = false, localId, privateLabel, defaultOpen, code, children, controls }: {
   location: ReactNode;
   resolved: boolean;
   outdated?: boolean;
   localId?: string;
+  privateLabel?: string;
+  defaultOpen?: boolean;
   code?: ReactNode;
   children: ReactNode;
   controls: ReactNode;
 }) {
-  const local = localId !== undefined;
-  const label = local && <span className="pr-local-review__label">Local review · Private</span>;
+  const local = localId !== undefined || privateLabel !== undefined;
+  const label = local && <span className="pr-local-review__label">{privateLabel ?? 'Local review · Private'}</span>;
   const old = outdated && <span className="pr-thread-outdated">Outdated</span>;
   if (resolved) {
-    return <details className={`pr-thread-row${local ? ' is-local-review' : ''}`} data-local-review-thread={localId}>
+    return <details className={`pr-thread-row${local ? ' is-local-review' : ''}`} data-local-review-thread={localId} open={defaultOpen ?? false}>
       <summary>
         <span className="pr-thread-chevron" aria-hidden="true">›</span>
         {location}{label}{local && old}
@@ -39,7 +41,7 @@ export function ReviewThreadCard({ location, resolved, outdated = false, localId
       </div>
     </details>;
   }
-  return <details className={`pr-inline-thread${local ? ' is-local-review' : ''}`} data-local-review-thread={localId} open>
+  return <details className={`pr-inline-thread${local ? ' is-local-review' : ''}`} data-local-review-thread={localId} open={defaultOpen ?? true}>
     <summary>
       <span className="pr-thread-chevron" aria-hidden="true">›</span>
       {location}{label}{old}

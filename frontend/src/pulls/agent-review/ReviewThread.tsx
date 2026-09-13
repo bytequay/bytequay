@@ -13,7 +13,7 @@
  */
 import Avatar from '../../Avatar';
 import MarkdownBody from '../MarkdownBody';
-import { relativeTime } from '../../relativeTime';
+import { ReviewThreadMessage } from '../ReviewThreadCard';
 import type { AgentReviewDto, ReviewMessageDto } from './contracts';
 import { queued } from './model';
 
@@ -39,21 +39,14 @@ export default function ReviewThread({ review, messages, viewerLogin, viewerAvat
       {messages.map(message => {
         const mine = message.author === 'USER';
         return (
-          <div className="agr-thread__row" key={message.id}>
-            {mine
-              ? <Avatar login={viewerLogin} avatarUrl={viewerAvatarUrl} size={22} allowGitHubFallback={false} />
-              : <span className="agr-agent-mark" aria-hidden="true">A</span>}
-            <div className="agr-thread__body">
-              <div className="agr-thread__meta">
-                <strong>{mine ? viewerLogin : 'Agent'}</strong>
-                <span>· {relativeTime(message.createdAt)}</span>
-                {queued(review, message) && (
-                  <span className="agr-pill is-queued"><Spinner />Queued · runs after the current turn</span>
-                )}
-              </div>
-              <MarkdownBody body={message.body} repository={review.repo} />
-            </div>
-          </div>
+          <ReviewThreadMessage key={message.id} timestamp={message.createdAt}
+            author={<><Avatar login={mine ? viewerLogin : 'Agent'} avatarUrl={mine ? viewerAvatarUrl : null}
+              size={22} allowGitHubFallback={false} /><strong>{mine ? 'You' : 'Agent'}</strong></>}
+            menu={queued(review, message) && (
+              <span className="agr-pill is-queued"><Spinner />Queued · runs after the current turn</span>
+            )}>
+            <MarkdownBody body={message.body} repository={review.repo} />
+          </ReviewThreadMessage>
         );
       })}
     </div>

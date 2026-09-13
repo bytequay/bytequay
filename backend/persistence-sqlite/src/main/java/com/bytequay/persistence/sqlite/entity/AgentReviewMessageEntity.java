@@ -44,6 +44,9 @@ public class AgentReviewMessageEntity
     @Column(name = "finding_id")
     private String findingId;
 
+    @Column(name = "card_id")
+    private String cardId;
+
     @Column(nullable = false)
     @Enumerated(EnumType.STRING)
     private ReviewMessage.Author author;
@@ -86,6 +89,7 @@ public class AgentReviewMessageEntity
     {
         reviewId = message.reviewId();
         findingId = message.findingId().orElse(null);
+        cardId = message.cardId().orElse(null);
         author = message.author();
         body = message.body();
         targetRevision = message.targetRevision();
@@ -101,6 +105,7 @@ public class AgentReviewMessageEntity
                 id,
                 reviewId,
                 Optional.ofNullable(findingId),
+                Optional.ofNullable(cardId),
                 author,
                 body,
                 targetRevision,

@@ -2,12 +2,31 @@
 
 ## Local review comments
 
-Interactive development tasks own private **Local review comments** on a file
-line or range. These are durable discussions, separate from GitHub comments and
-from the PR-owned Agent Review investigation workflow. A comment records its
+Interactive development and PR-owned review tasks own private **Local review
+comments** on a file line or range. These durable discussions appear in the
+shared **Review & Learning** tab, alongside the PR overview, commit explanations,
+supporting evidence/tests, coverage, limitations, and agent findings. Every
+report card has its own private discussion; the report's run and card identity
+keep questions attached to the reviewed version as later reviews finish.
+Development tasks keep their own report in the generated **Refine summary**
+turn's structured result, using the existing completion coordinator. The
+learning tab reads that report independently of the retained transcript.
+Refinement provenance uses a nullable parent-turn column added by Hibernate;
+existing SQLite databases retain the delivery-origin enum constraint and their
+old task history. No database reset or migration-history service is required.
+GitHub comments remain separate. A code comment records its
 task, workspace, PR identity, immutable path/side/range, base/head revisions,
 selected code, user and agent messages, and local resolution. SQLite retains
 them independently of disposable task logs; explicit task deletion removes them.
+
+Development learning discussions reuse the same local thread and message
+storage with an explicit learning anchor: source summary turn, fixed card
+identity, title, and immutable body snapshot. They have no file/range or PR
+requirement. The server derives this anchor from a completed report belonging
+to the task; clients cannot supply its contents. These discussions appear in
+the task conversation and learning tab, with earlier versions retained below
+the current cards, and never appear as file comments in the diff. Questions
+carry local-only settings and use the same private reply/resolve tools.
 
 The application service saves a user message before dispatching it through the
 existing turn or FIFO queue service. Its operation key and accepted input
@@ -18,21 +37,26 @@ the review card in place of the generated context prompt; it does not infer
 review comments by parsing user text. Failed delivery retains the comment and
 offers explicit Retry. Reads never dispatch work.
 
-Posting or replying sends directly to the associated development agent. The
-accepted input authorizes committing and updating the existing PR for requested
+Posting or replying sends directly to the associated task agent. For development
+tasks, the accepted input authorizes committing and updating the existing PR for requested
 changes, with Auto CI fix off so a draft stays draft. A question asks for an
 answer without edits or release of earlier held work. User text and captured
 code remain private and must not be published as GitHub discussion, PR text, or
 quoted in commit messages. Resolve and reopen are local mutations and do not
-start an agent turn.
+start an agent turn. Review-owned inputs retain the review execution profile and
+carry no development delivery authorization; their comments cannot publish or
+update the contributor's branch. Review-owned comment admission takes the same
+review lock as head updates and closure, so a discussion cannot start while the
+review advances its worktree.
 
 A separate fixed `LocalReviewBridge` exposes listing, replying, and changing
-resolution within the registered interactive task. Both the task's root and its
+resolution within the registered development or review-owned task. Both the task's root and its
 native children may use this local capability. Tool arguments cannot select
 another task, workspace, PR, or GitHub write. Mutation keys prevent duplicate
 replies after tool retries. Registration is revoked with the existing provider
-session. This bridge does not activate the read-only ReviewBridge execution
-profile or disable development tools and subagents. No general tool registry,
+session. This bridge is available alongside ReviewBridge for review tasks. For
+development tasks it does not activate the review execution profile or disable
+development tools and subagents. No general tool registry,
 new runner, or remote publication capability is added.
 
 The authenticated desktop API lists a task's discussions at
@@ -43,9 +67,19 @@ and sends its first message; POST on `/{id}/messages` replies and sends.
 `/{id}/messages/{messageId}/retry` retries the saved input, and PATCH on `/{id}`
 changes resolution with an observed version. Create, reply, and resolution
 carry operation keys. Code identity is immutable after creation. Public writes
-validate interactive task/workspace ownership; a new thread must name the PR
-on the task's branch. Reads and local resolution remain available after task
-completion, while new agent input requires an open task.
+validate task/workspace ownership. Development threads must name the PR on the
+task's branch; review-owned threads must name the owning review's exact PR. Other
+workflow tasks cannot access this API. Views carry the current task version so
+reply and retry do not need the development-only task endpoint. Reads and local resolution remain available after task
+completion, while new agent input requires an open task and, for review tasks,
+an open review.
+
+`GET /agent/tasks/{taskId}/learning?workspaceId=...` returns the most recent
+completed, verified refinement turn or null, without starting work. POST on
+`/learning/comments` records a question with `summaryTurnId` and `cardId` and
+dispatches through the same local discussion path. Replies, retries, and
+resolution use the existing local-review endpoints. The previous report stays
+available while a new refinement is unfinished or fails validation.
 
 ## Development-agent CI evidence
 

@@ -25,8 +25,10 @@ export type LocalReviewMessageDto = {
 };
 
 export type LocalReviewThreadDto = {
+  learningAnchor?: { turnId: string; cardId: string; title: string; body: string } | null;
   id: string;
   taskId: string;
+  taskVersion: number;
   workspaceId: string;
   repo: string;
   number: number;
@@ -49,6 +51,8 @@ export type LocalReviewThreadActions = {
   onResolve: (threadId: string, resolved: boolean) => Promise<void>;
   onRetry: (threadId: string, messageId: string) => Promise<void>;
   disabledReason?: string | null;
+  /** Learning discussions belong to the task and do not require an open pull request. */
+  learningDisabledReason?: string | null;
 };
 
 export type LocalReviewThreads = LocalReviewThreadActions & {

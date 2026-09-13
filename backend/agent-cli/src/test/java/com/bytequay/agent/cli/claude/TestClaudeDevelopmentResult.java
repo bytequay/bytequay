@@ -15,10 +15,12 @@ package com.bytequay.agent.cli.claude;
 
 import com.bytequay.agent.cli.development.DevelopmentResultTool;
 import com.bytequay.agent.cli.process.SecretRedactor;
+import com.bytequay.agent.spi.DevelopmentLearningSummary;
 import com.bytequay.agent.spi.DevelopmentResultBridge;
 import com.bytequay.agent.spi.DevelopmentResultReport;
 import com.bytequay.agent.spi.ProviderAgentEvent;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import org.junit.jupiter.api.Test;
 
@@ -31,8 +33,9 @@ class TestClaudeDevelopmentResult
 {
     private final ObjectMapper json = new ObjectMapper();
     private final ClaudeProtocolCodec codec = new ClaudeProtocolCodec(json);
-    private final DevelopmentResultBridge bridge = new DevelopmentResultBridge("turn-1", DevelopmentResultBridge.INSTRUCTION);
-    private final DevelopmentResultReport report = new DevelopmentResultReport(true, Optional.of("done known-secret"));
+    private final DevelopmentResultBridge bridge = new DevelopmentResultBridge("turn-1", DevelopmentResultBridge.INSTRUCTION, true);
+    private final DevelopmentResultReport report = new DevelopmentResultReport(true, Optional.of("done known-secret"),
+                        Optional.of(new DevelopmentLearningSummary("Purpose known-secret", ImmutableList.of(), Optional.empty(), "Tests known-secret", ImmutableList.of())));
 
     @Test
     void acceptsOnlySuccessfulCurrentRootToolCompletion()
@@ -45,6 +48,10 @@ class TestClaudeDevelopmentResult
                 .isInstanceOfSatisfying(ProviderAgentEvent.DevelopmentResult.class, result -> {
                     assertThat(result.report().readyForDelivery()).isTrue();
                     assertThat(result.report().message()).contains("done [REDACTED]");
+                    assertThat(result.report().learningSummary()).hasValueSatisfying(summary -> {
+                        assertThat(summary.purpose()).isEqualTo("Purpose [REDACTED]");
+                        assertThat(summary.evidence()).isEqualTo("Tests [REDACTED]");
+                    });
                     assertThat(result.source().providerThreadId()).contains("session-1");
                     assertThat(result.source().providerTurnId()).contains("turn-1");
                     assertThat(result.source().providerItemId()).contains("tool-1");
@@ -68,7 +75,7 @@ class TestClaudeDevelopmentResult
         assertThat(finish(mapper(), bridge, false, false)).noneMatch(ProviderAgentEvent.DevelopmentResult.class::isInstance);
         ClaudeEventMapper stale = mapper();
         start(stale, false);
-        assertThat(finish(stale, new DevelopmentResultBridge("previous-turn", bridge.instruction()), false, false))
+        assertThat(finish(stale, new DevelopmentResultBridge("previous-turn", bridge.instruction(), true), false, false))
                 .noneMatch(ProviderAgentEvent.DevelopmentResult.class::isInstance);
     }
 

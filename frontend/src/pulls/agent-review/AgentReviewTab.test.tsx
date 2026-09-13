@@ -44,6 +44,7 @@ function tab(review: AgentReviewDto | null, workspaceId: string | typeof NO_WORK
       viewer={viewer}
       review={review}
       onReviewChange={() => {}}
+      onOpenWorkspace={() => {}}
       onNavigateToChanges={() => {}}
       focusFindingId={null} />);
 }
@@ -144,11 +145,13 @@ describe('the status strip', () => {
     expect(html).not.toContain('preparing the review');
   });
 
-  it('shows both views, defaulting to the summary', () => {
+  it('keeps cards in the PR pane and opens the conversation in the workspace', () => {
     const html = tab(reviewFixture());
-    expect(html).toContain('Summary &amp; comments');
-    expect(html).toContain('>Activity');
-    expect(html).toContain('role="tablist" aria-label="Agent review views"');
+    expect(html).not.toContain('Summary &amp; comments');
+    expect(html).not.toContain('>Activity');
+    expect(html).not.toContain('aria-label="Agent review views"');
+    expect(html).toContain('aria-label="View in workspace"');
+    expect(html).toContain('data-review-card="run-1:purpose"');
   });
 });
 
@@ -210,7 +213,9 @@ describe('the summary card', () => {
   it('keeps the summary discussion private and never publishable', () => {
     const html = summary(review);
     expect(html).toContain('Private — never published');
-    expect(html).toContain('Discussion about this summary · 2 messages');
+    expect(html).toContain('pr-inline-thread is-local-review');
+    expect(html).toContain('Why does the second commit change IcebergUtil');
+    expect(html.match(/data-review-card=/g)).toHaveLength(11);
     expect(html).toContain('Ask agent');
     expect(html).not.toContain('Post comment now');
   });
@@ -242,7 +247,7 @@ describe('the finding card', () => {
 
   it('labels the way back differently in each projection but keeps one identity', () => {
     expect(card(review, finding, 'review')).toContain('View in Changes');
-    expect(card(review, finding, 'changes')).toContain('Open in Agent review');
+    expect(card(review, finding, 'changes')).toContain('Open in Review &amp; Learning');
     expect(card(review, finding, 'changes')).toContain('data-finding-id="finding-1"');
     expect(card(review, finding, 'review')).toContain('data-finding-id="finding-1"');
   });
@@ -326,7 +331,7 @@ describe('styles', () => {
   const css = readFileSync(resolve(process.cwd(), 'src/css/agent-review.css'), 'utf8');
 
   function declarations(selector: string): string[] {
-    const start = css.indexOf(`${selector} {`);
+    const start = css.indexOf(`\n${selector} {`);
     expect(start, `${selector} is missing from agent-review.css`).toBeGreaterThan(-1);
     return css.slice(css.indexOf('{', start) + 1, css.indexOf('}', start))
       .split(';')
@@ -334,24 +339,16 @@ describe('styles', () => {
       .filter(declaration => declaration !== '');
   }
 
-  it('reuses the pull-request page card shape rather than inventing one', () => {
-    expect(declarations('.agr-card')).toContain('border: 1px solid #d0d7de');
-    expect(declarations('.agr-card')).toContain('border-radius: 8px');
-    expect(declarations('.agr-card__head')).toContain('background: #f6f8fa');
-    expect(declarations('.agr-finding')).toContain('border: 1px solid #d0d7de');
-    expect(declarations('.agr-finding__head')).toContain('background: #f6f8fa');
+  it('uses the development private review card for summaries and findings', () => {
+    expect(summary(reviewFixture())).toContain('pr-inline-thread is-local-review');
+    expect(card(reviewFixture(), reviewFixture().findings[0])).toContain('pr-inline-thread is-local-review');
+    expect(declarations(':is(.agr-learning-card, .agr-finding, .agr-local-comments) :is(.pr-inline-thread, .pr-thread-row)'))
+      .toContain('margin-left: 0');
   });
 
   it('gives only the GitHub-bound action the green primary treatment', () => {
     expect(declarations('.agr-action.is-primary')).toContain('background: #1f883d');
     expect(declarations('.agr-action')).toContain('background: #fff');
-  });
-
-  it('ellipsizes a long path so the file name survives', () => {
-    const path = declarations('.agr-finding__path');
-    expect(path).toContain('overflow: hidden');
-    expect(path).toContain('text-overflow: ellipsis');
-    expect(path).toContain('white-space: nowrap');
   });
 
   it('bounds an evidence excerpt instead of letting it run the card', () => {

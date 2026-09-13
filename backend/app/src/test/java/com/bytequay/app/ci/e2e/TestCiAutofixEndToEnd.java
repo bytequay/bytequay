@@ -31,6 +31,7 @@ import com.bytequay.agent.core.TurnState;
 import com.bytequay.agent.core.store.AgentTurnStore;
 import com.bytequay.agent.core.store.TaskLogStore;
 import com.bytequay.agent.spi.AgentPermissionPolicy;
+import com.bytequay.agent.spi.DevelopmentResultBridgeResolver;
 import com.bytequay.app.ci.CiAutofixMonitorTestDriver;
 import com.bytequay.app.ci.CiAutofixService;
 import com.bytequay.app.ci.CiMemoryService;
@@ -283,6 +284,11 @@ class TestCiAutofixEndToEnd
             E2eGitRepository.git(worktree, "add", "development.txt");
             E2eGitRepository.git(worktree, "commit", "--amend", "--no-edit");
         }, "ci-repair", Optional.empty(), Optional.of("development.txt"));
+        agent.enqueueCompleted(pr, "Refined the learning summary for the synchronized repair.", worktree -> {
+            assertThat(worktree).isEqualTo(sourceWorktree);
+            assertThat(E2eGitRepository.git(worktree, "rev-parse", "HEAD")).isEqualTo(remoteHead.get()).isNotEqualTo(initialPublishedHead.get());
+            assertThat(E2eGitRepository.git(worktree, "show", "HEAD:development.txt")).isEqualTo("implementation\nCI repair");
+        }, "refine-summary", Optional.empty(), Optional.empty());
 
         try {
             String request = "Implement the requested change. Only edit development.txt; do not change workflows or delete remote branches.";
@@ -326,7 +332,7 @@ class TestCiAutofixEndToEnd
             assertThat(E2eGitRepository.git(sourceWorktree, "log", "-1", "--format=%B"))
                     .isEqualTo("Implement the requested change\n\nAdd the requested behavior and keep its intent in the commit.");
             List<AgentTurn> sourceTurns = turnStore.list(source.id());
-            assertThat(sourceTurns).hasSize(3).allSatisfy(turn -> {
+            assertThat(sourceTurns).hasSize(4).allSatisfy(turn -> {
                 assertThat(turn.state()).isEqualTo(TurnState.COMPLETED);
                 assertThat(turn.developmentResult().orElseThrow().readyForDelivery()).isTrue();
                 assertThat(turn.settings().orElseThrow().developmentAutomation()).contains(automation);
@@ -334,9 +340,18 @@ class TestCiAutofixEndToEnd
             assertThat(sourceTurns.getFirst().developmentOrigin()).isEmpty();
             assertThat(sourceTurns.get(1).developmentOrigin()).contains(new DevelopmentTurnOrigin(DevelopmentTurnOrigin.Kind.AUTO_COMMIT, initial.id()));
             assertThat(sourceTurns.get(2).developmentOrigin()).contains(new DevelopmentTurnOrigin(DevelopmentTurnOrigin.Kind.CREATE_DRAFT_PR, initial.id()));
+            assertThat(sourceTurns.getLast().developmentOrigin()).contains(new DevelopmentTurnOrigin(DevelopmentTurnOrigin.Kind.REFINE_SUMMARY, initial.id()));
+            assertThat(sourceTurns.subList(0, 3)).allSatisfy(turn -> assertThat(turn.developmentResult().orElseThrow().learningSummary()).isEmpty());
+            assertThat(sourceTurns.getLast().developmentResult().orElseThrow().learningSummary()).hasValueSatisfying(summary -> {
+                assertThat(summary.commits()).singleElement().satisfies(commit -> {
+                    assertThat(commit.sha()).isEqualTo(finished.expectedRemoteHead()).isNotEqualTo(initialPublishedHead.get());
+                    assertThat(commit.title()).isEqualTo("Implement the requested change");
+                    assertThat(commit.summary()).contains("+implementation", "+CI repair");
+                });
+            });
             assertThat(agent.gitActions()).extracting(ScriptedAgentDriver.GitAction::name)
-                    .containsExactly("development-edit", "development-commit", "development-draft", "ci-repair");
-            assertThat(agent.turns().getLast().instructions()).contains(request, "Development request scope for this CI task")
+                    .containsExactly("development-edit", "development-commit", "development-draft", "ci-repair", "refine-summary");
+            assertThat(agent.turns().get(3).instructions()).contains(request, "Development request scope for this CI task")
                     .doesNotContain("Create the draft pull request for this completed development revision");
             assertThat(agent.turns().subList(0, 3)).allSatisfy(turn -> assertThat(turn.instructions()).doesNotContain("Development request scope for this CI task"));
             verify(publicationWrites).markReadyForReview("test-token", "development-pr-node");
@@ -994,9 +1009,9 @@ class TestCiAutofixEndToEnd
         }
 
         @Bean
-        ScriptedAgentDriver scriptedAgentDriver(CiMemoryService memory)
+        ScriptedAgentDriver scriptedAgentDriver(CiMemoryService memory, DevelopmentResultBridgeResolver developmentResults)
         {
-            return new ScriptedAgentDriver(memory);
+            return new ScriptedAgentDriver(memory, developmentResults);
         }
 
         @Bean

@@ -84,15 +84,16 @@ commit or push is necessary.
 Only interactive development tasks enter this continuation. CI, cherry-pick,
 review-owned tasks, helpers, and child agents cannot recursively start it.
 An unchanged read-only turn produces no new commit, PR, or CI run.
-When all three settings are off, use ordinary task behavior: do not activate
-a continuation or require its readiness report. Git facts may still be read
-for display. A failed turn preserves the task with either selection.
+With all three settings off, successful changed work still receives a private
+summary refinement through the same completion hook. The source turn needs no
+readiness report, and no delivery action runs. Unchanged work skips refinement.
+A failed turn preserves the task with either selection.
 
 Ordinary attended development also permits explicitly requested `git` and
 `gh` publishing through the provider's native tools and risk review, under
 the [shared command policy](agent-service.md#shared-development-command-policy).
-Turning automation off disables generated follow-ups, not an explicitly
-requested action in the user's message. Existing task authorization need not
+Turning automation off disables generated delivery follow-ups, while private
+summary refinement and explicitly requested actions remain available. Existing task authorization need not
 be repeated, but the agent still verifies the actual destination, outgoing
 changes, and any exact rewrite lease. A general development request supplies
 no remote-write authority. Narrower user instructions remain binding.
@@ -141,8 +142,11 @@ a task/workflow state. Store it on the existing turn/event, so the UI can show
 why the agent stopped. A missing/invalid report never implies true: stop the
 MVP continuation with a clear failure instead of guessing from final prose.
 
-The report contains only `readyForDelivery` and `message`. The user's accepted
-Auto commit, Auto draft PR, and Auto CI fix controls determine which actions
+Ordinary reports contain `readyForDelivery` and `message`. A trusted generated
+`REFINE_SUMMARY` turn additionally reports optional `learningSummary`: purpose,
+per-commit full SHA/title/explanation, combined result, evidence, and limitations.
+Only that turn's bridge exposes and accepts the structured summary field.
+The user's accepted Auto commit, Auto draft PR, and Auto CI fix controls determine which actions
 run. A report cannot change those choices, add authority, choose a destination,
 or perform a remote write. The provider binding accepts only the current root
 turn's report, not a child agent's claim. The report conveys the agent's
@@ -218,8 +222,9 @@ terminal result and marker, but cannot reserve the owner or dispatch work.
 Only the live completion path notifies `DevelopmentFollowupCoordinator`;
 ordinary reads and terminal retries do not create continuations. The app runs
 its readiness/queue gate, Git inspection, and commit/publication waits outside
-the task lock. `advance` drives at most one commit turn and one publication
-turn through `startGeneratedTurn`, verifying each result before continuing.
+the task lock. `advance` drives at most one commit turn, one publication turn,
+and one final summary refinement through `startGeneratedTurn`, verifying each
+result before continuing.
 
 An optional `DevelopmentTurnOrigin` on a generated turn names its bounded
 operation and original user turn. That user-turn ID is the in-memory owner;
@@ -227,6 +232,10 @@ there is no delivery ID or step journal. The internal start path carries the
 source turn's complete accepted settings, including model, effort, permission,
 service tier, attachments, and automation choices. Every generated turn must
 report readiness before the coordinator continues under that same selection.
+Summary refinement can follow successful work whose delivery readiness is false
+or absent; its own true report confirms only that the summary was recorded.
+It cannot release an earlier user decision or held delivery. Question lookups
+ignore refinement reports and absent reports from local explanation turns.
 
 Before an ordinary development provider starts, its accepted hook captures the
 starting HEAD, file fingerprint, commit count, frozen base SHA, and exact PR
@@ -247,10 +256,10 @@ The coordinator applies these decisions in order:
 
 ```text
 after a stopped user development turn:
-    if all automation settings off: show facts; return to normal task behavior
-    if failed or execution uncertain: fail the MVP continuation
-    if readiness report missing/invalid: fail the MVP continuation
-    if not readyForDelivery: release ownership; wait for user
+    if failed or execution uncertain: fail the continuation
+    if all automation settings off: finish locally with summary refinement
+    if readiness report missing/invalid: fail the continuation
+    if not readyForDelivery: finish locally with summary refinement; wait for user
     if accepted user work already queued: run it first; check after it ends
 
     inspect actual Git and the accepted automation selection
@@ -283,8 +292,28 @@ after a stopped user development turn:
     synchronize published CI repairs back into the clean source worktree
     recheck current PR/head/base/checks and clean synchronized source
     if PR is draft: mark ready once; verify afterward
-    show the result; release ownership; keep the source task open
+    finish locally with summary refinement; keep the source task open
 ```
+
+Every successful local finish gives already accepted user work FIFO priority,
+unless a user decision is still held. If the final HEAD or file fingerprint
+differs from the accepted summary baseline, start one reporting-only
+`REFINE_SUMMARY` turn on the same task, showing **Refining summary…**. This runs
+also with all delivery controls off, after commit/publication changes, and after
+successful CI source synchronization. Coalesced queued turns retain the earlier
+unrefined baseline, so their final state gets one summary. A read-only question
+with no changes does not start a generated turn.
+
+The refinement reads actual commits, current uncommitted changes, and observed
+test/CI evidence. It must distinguish executed tests from inspected tests and
+reported CI, state limitations, and make no code edits, commits, or remote
+writes. After successful provider completion and verified shutdown, require a
+structured summary and recheck the same HEAD/file fingerprint before accepting
+it. The result is provisional while the existing unfinished marker remains set.
+Failure, Stop, or lost-continuation recovery discards only the provisional
+summary payload before releasing the marker; previous validated summaries and
+the source work remain. Refinement never recursively starts another completion
+coordinator and inherits the source turn's accepted provider settings.
 
 This is ordinary control flow, not saved `COMMITTING → PUBLISHING → WATCHING`
 transitions. The coordinator waits asynchronously on each generated turn;
@@ -306,8 +335,8 @@ just like local changes, so queue priority cannot hide a completed CLI push.
 The queued turn's own readiness and accepted automation settings still govern
 the eventual follow-up.
 
-Allow at most one automatic commit request and one automatic publication
-request per continuation. No repeated "please try again" loop, scheduled
+Allow at most one automatic commit request, one automatic publication request,
+and one summary refinement per continuation. No repeated "please try again" loop, scheduled
 handoff retry, or separate model deciding which workflow step comes next.
 An explicit user answer starts fresh normal work; the checker runs again
 once that work declares readiness. Existing per-turn request IDs guard

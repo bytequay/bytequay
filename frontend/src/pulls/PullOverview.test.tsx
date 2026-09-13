@@ -54,7 +54,7 @@ describe('PullOverview', () => {
   it('places private local review cards among GitHub activity without changing remote comments', () => {
     const pr = pullRequest();
     const local: LocalReviewThreadDto = {
-      id: 'local-comment', taskId: 'task', workspaceId: 'workspace', repo: pr.repo, number: pr.number,
+      id: 'local-comment', taskId: 'task', taskVersion: 1, workspaceId: 'workspace', repo: pr.repo, number: pr.number,
       path: 'src/Example.java', side: 'RIGHT' as const, startLine: 10, line: 10, baseSha: null, headSha: 'a'.repeat(40),
       code: 'private Result result() {}', resolved: false, version: 1,
       createdAt: '2026-08-20T09:15:00Z', updatedAt: '2026-08-20T09:15:00Z',
@@ -1330,6 +1330,18 @@ describe('PullOverview', () => {
     expect(html).toContain('role="status">Loading details…');
     expect(html).not.toContain('class="pulls-list"');
     expect(html).not.toContain('Search pull requests');
+  });
+
+  it('shows a review conversation beside the PR in its workspace without a PR list or modal', () => {
+    const html = renderToStaticMarkup(<PullsScreen initialPr={{ repo: 'owner/repo', number: 42 }}
+      initialReviewId="review-42" repositoryScope={{ workspaceId: 'workspace-1', repository: 'owner/repo' }}
+      reviewWorkspace={{ onBack: () => {} }} />);
+    expect(html).toContain('class="pulls-page pulls-page--review-workspace"');
+    expect(html).toContain('aria-label="Review agent conversation"');
+    expect(html).toContain('aria-label="Back to tasks"');
+    expect(html).toContain('Loading review conversation…');
+    expect(html).not.toContain('class="pulls-list"');
+    expect(html).not.toContain('aria-modal="true"');
   });
 
   it('offers close instead of resize controls in a PR preview header', () => {

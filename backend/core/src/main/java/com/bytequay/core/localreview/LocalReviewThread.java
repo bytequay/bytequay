@@ -27,8 +27,17 @@ import static java.util.Objects.requireNonNull;
 /** Task-owned discussion and immutable code evidence, independent of disposable agent history. */
 public record LocalReviewThread(String id, String taskId, String workspaceId, String repo, int number,
         String path, String side, int startLine, int line, Optional<String> baseSha, Optional<String> headSha, String code,
-        boolean resolved, long version, Instant createdAt, Instant updatedAt, List<LocalReviewMessage> messages, Map<String, String> operations)
+        boolean resolved, long version, Instant createdAt, Instant updatedAt, List<LocalReviewMessage> messages, Map<String, String> operations,
+        Optional<LocalReviewLearningAnchor> learningAnchor)
 {
+    public LocalReviewThread(String id, String taskId, String workspaceId, String repo, int number,
+            String path, String side, int startLine, int line, Optional<String> baseSha, Optional<String> headSha, String code,
+            boolean resolved, long version, Instant createdAt, Instant updatedAt, List<LocalReviewMessage> messages, Map<String, String> operations)
+    {
+        this(id, taskId, workspaceId, repo, number, path, side, startLine, line, baseSha, headSha, code,
+                resolved, version, createdAt, updatedAt, messages, operations, Optional.empty());
+    }
+
     public LocalReviewThread
     {
         requireNonNull(id, "id is null");
@@ -42,13 +51,21 @@ public record LocalReviewThread(String id, String taskId, String workspaceId, St
         requireNonNull(code, "code is null");
         requireNonNull(createdAt, "createdAt is null");
         requireNonNull(updatedAt, "updatedAt is null");
+        requireNonNull(learningAnchor, "learningAnchor is null");
         checkArgument(id.matches("[A-Za-z0-9._:-]{1,100}"), "Invalid comment id");
         checkArgument(!taskId.isBlank() && !workspaceId.isBlank(), "Task and workspace are required");
-        checkArgument(repo.matches("[^/\\s]+/[^/\\s]+") && repo.length() <= 300 && number > 0, "Invalid pull request");
-        checkArgument(!path.isBlank() && path.length() <= 4096 && !path.startsWith("/") && path.indexOf('\0') < 0, "Invalid relative path");
-        checkArgument(!path.contains("\\") && !path.matches("(^|.*/)\\.\\.?(/.*|$)"), "Path contains traversal segments");
+        checkArgument(repo.matches("[^/\\s]+/[^/\\s]+") && repo.length() <= 300, "Invalid repository");
+        if (learningAnchor.isPresent()) {
+            checkArgument(number == 0 && path.isEmpty() && code.isEmpty() && startLine == 0 && line == 0
+                    && baseSha.isEmpty() && headSha.isEmpty(), "Learning discussion cannot claim a code location");
+        }
+        else {
+            checkArgument(number > 0, "Invalid pull request");
+            checkArgument(!path.isBlank() && path.length() <= 4096 && !path.startsWith("/") && path.indexOf('\0') < 0, "Invalid relative path");
+            checkArgument(!path.contains("\\") && !path.matches("(^|.*/)\\.\\.?(/.*|$)"), "Path contains traversal segments");
+            checkArgument(startLine > 0 && line >= startLine && line <= 10_000_000, "Invalid line range");
+        }
         checkArgument(side.equals("LEFT") || side.equals("RIGHT"), "Invalid diff side");
-        checkArgument(startLine > 0 && line >= startLine && line <= 10_000_000, "Invalid line range");
         checkArgument(code.length() <= 60_000, "Selected code exceeds 60000 characters");
         baseSha.ifPresent(value -> checkArgument(value.matches("[0-9a-fA-F]{7,64}"), "Invalid base revision"));
         headSha.ifPresent(value -> checkArgument(value.matches("[0-9a-fA-F]{7,64}"), "Invalid head revision"));
@@ -61,12 +78,12 @@ public record LocalReviewThread(String id, String taskId, String workspaceId, St
     public LocalReviewThread withVersion(long value)
     {
         return new LocalReviewThread(id, taskId, workspaceId, repo, number, path, side, startLine, line, baseSha, headSha, code,
-                resolved, value, createdAt, updatedAt, messages, operations);
+                resolved, value, createdAt, updatedAt, messages, operations, learningAnchor);
     }
 
     public LocalReviewThread update(boolean nextResolved, List<LocalReviewMessage> nextMessages, Map<String, String> nextOperations, Instant now)
     {
         return new LocalReviewThread(id, taskId, workspaceId, repo, number, path, side, startLine, line, baseSha, headSha, code,
-                nextResolved, version, createdAt, now, nextMessages, nextOperations);
+                nextResolved, version, createdAt, now, nextMessages, nextOperations, learningAnchor);
     }
 }

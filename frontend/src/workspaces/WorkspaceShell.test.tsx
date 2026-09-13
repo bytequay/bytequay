@@ -228,6 +228,12 @@ describe('watched repository workspace UI', () => {
     expect(open.match(/aria-label="Show all tasks"/g)).toHaveLength(1);
     expect(open).toMatch(/<div class="agt-screen-head">.*aria-label="Show all tasks".*<\/button><\/div>/);
     expect(open).not.toContain('agt-overview-toggle');
+
+    const review = renderToStaticMarkup(<WorkspaceShell {...props} initialAgentReviewId="review-1" />);
+    expect(review).toContain('aria-label="Review task"');
+    expect(review).toContain('Loading review task…');
+    expect(review).not.toContain('Message the agent');
+    expect(review.match(/aria-label="Show all tasks"/g)).toHaveLength(1);
   });
 
   it('keeps repository-scoped PRs and Issues available before metadata is synchronized', () => {
@@ -285,6 +291,34 @@ describe('watched repository workspace UI', () => {
 
     home?.props.onOpenPullRequests();
     expect(onSelectTab).toHaveBeenCalledWith('prs');
+  });
+
+  it('opens a task PR full width over the task instead of the PR tab', () => {
+    const onPreviewPullRequest = vi.fn();
+    const onSelectPullRequest = vi.fn();
+    let task: ReactElement<{ onOpenPullRequest: (number: number) => void }> | undefined;
+    function CaptureTask() {
+      const view = WorkspaceShell({
+        workspace: workspace('FORK'),
+        tab: 'tasks',
+        onSelectTab: () => {},
+        onWorkspaceChanged: () => {},
+        initialPullRequestNumber: null,
+        initialIssueNumber: null,
+        initialAgentTaskId: 'task-1',
+        onSelectAgentTask: () => {},
+        onSelectPullRequest,
+        onPreviewPullRequest,
+        onSelectIssue: () => {},
+      });
+      task = view.props.children[0];
+      return view;
+    }
+    renderToStaticMarkup(<CaptureTask />);
+
+    task?.props.onOpenPullRequest(42);
+    expect(onPreviewPullRequest).toHaveBeenCalledWith(42);
+    expect(onSelectPullRequest).not.toHaveBeenCalled();
   });
 
   it('loads the saved target before opening fork workspace commits', () => {

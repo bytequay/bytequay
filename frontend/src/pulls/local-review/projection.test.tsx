@@ -20,7 +20,7 @@ import { parseLocalReviewThread } from './contracts';
 import type { LocalReviewThreadDto, LocalReviewThreads } from './types';
 
 const thread: LocalReviewThreadDto = {
-  id: 'local-1', taskId: 'task-1', workspaceId: 'workspace-1', repo: 'owner/repo', number: 10,
+  id: 'local-1', taskId: 'task-1', taskVersion: 1, workspaceId: 'workspace-1', repo: 'owner/repo', number: 10,
   path: 'src/Example.java', side: 'RIGHT', startLine: 12, line: 13, baseSha: null, headSha: 'a'.repeat(40),
   code: 'private Result result() {\n  return value;\n}', resolved: false, version: 1,
   createdAt: '2026-01-01T10:00:00Z', updatedAt: '2026-01-01T10:00:00Z',
@@ -39,6 +39,18 @@ function render(value: TranscriptTurn, review: LocalReviewThreads): string {
 }
 
 describe('Local review conversation projection', () => {
+  it('allows learning replies in the conversation before a PR exists while preserving task restrictions', () => {
+    const learning = parseLocalReviewThread({ ...thread, number: 0, path: '', startLine: 0, line: 0, code: '', headSha: null,
+      learningAnchor: { turnId: 'summary-turn', cardId: 'purpose', title: 'What this change does', body: 'Makes the result reusable.' } });
+    const review: LocalReviewThreads = { ...actions, threads: [learning], disabledReason: 'Code feedback requires an open pull request.', learningDisabledReason: null };
+    const html = render(turn, review);
+    expect(html).toContain('Makes the result reusable.');
+    expect(html).not.toContain('PRIVATE INTERNAL CONTEXT PROMPT');
+    expect(html).not.toContain('Code feedback requires an open pull request.');
+    expect(html).not.toContain('disabled=""');
+    expect(render(turn, { ...review, learningDisabledReason: 'Reconnect to the task.' })).toContain('Reconnect to the task.');
+    expect(render(turn, { ...review, threads: [thread] })).toContain('Code feedback requires an open pull request.');
+  });
   it('uses the saved user input identity to replace context with the private code discussion after reload', () => {
     const saved = parseLocalReviewThread(JSON.parse(JSON.stringify(thread)));
     const html = render(turn, { ...actions, threads: [saved] });

@@ -572,7 +572,7 @@ describe('agent task side panel', () => {
     capabilities: CAPABILITIES,
   };
 
-  it('opens on the task pull request with Changes and Subagents beside it', () => {
+  it('opens on the task pull request with Changes, Review & Learning and Subagents beside it', () => {
     const markup = renderToStaticMarkup(
       <AgentTaskBody
         state={state}
@@ -594,6 +594,7 @@ describe('agent task side panel', () => {
     expect(markup).toContain('aria-label="Refresh pull request"');
     expect(markup).not.toContain('aria-label="Hide the side panel"');
     expect(markup).not.toContain('Agent review');
+    expect(markup).toContain('Review &amp; Learning');
     expect(markup).toContain('title="Drag to resize the panel"');
     expect(markup).toContain('style="width:960px"');
     expect(markup).toContain('class="pull-detail__body"');

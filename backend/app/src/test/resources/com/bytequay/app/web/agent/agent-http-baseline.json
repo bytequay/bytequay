@@ -1,7 +1,5 @@
 {
   "createRequest": {
-    "taskId": "<task-id>",
-    "workspaceId": "<workspace-id>",
     "laneId": "codex",
     "message": "first",
     "defaults": {
@@ -14,7 +12,9 @@
         "autoCiFix": false
       }
     },
-    "idempotencyKey": "request-1"
+    "taskId": "<task-id>",
+    "idempotencyKey": "request-1",
+    "workspaceId": "<workspace-id>"
   },
   "createResponse": {
     "id": "<task-id>",
@@ -37,7 +37,7 @@
     },
     "state": "OPEN",
     "mutationClaim": null,
-    "version": 4,
+    "version": 5,
     "createdAt": "<timestamp>",
     "updatedAt": "<timestamp>",
     "terminalAt": null,
@@ -64,7 +64,7 @@
     "codegraph": false,
     "archivedAt": null,
     "interactive": true,
-    "developmentContinuationUnfinished": false,
+    "developmentContinuationUnfinished": true,
     "developmentCi": null,
     "pullRequest": null
   },
@@ -492,6 +492,28 @@
       "eventId": "<event-id>",
       "sequence": 7,
       "taskId": "<task-id>",
+      "turnId": null,
+      "source": {
+        "providerThreadId": null,
+        "parentProviderThreadId": null,
+        "logicalAgentPath": null,
+        "providerTurnId": null,
+        "providerItemId": null,
+        "providerEventId": null,
+        "providerOccurredAt": null
+      },
+      "occurredAt": "<timestamp>",
+      "type": "lifecycle",
+      "payload": {
+        "phase": "DEVELOPMENT_AUTOMATION_UPDATED",
+        "message": "Development automation settled"
+      }
+    },
+    {
+      "schemaVersion": 2,
+      "eventId": "<event-id>",
+      "sequence": 8,
+      "taskId": "<task-id>",
       "turnId": "<turn-2>",
       "source": {
         "providerThreadId": null,
@@ -513,7 +535,7 @@
     {
       "schemaVersion": 2,
       "eventId": "<event-id>",
-      "sequence": 8,
+      "sequence": 9,
       "taskId": "<task-id>",
       "turnId": "<turn-2>",
       "source": {
@@ -535,7 +557,7 @@
     {
       "schemaVersion": 2,
       "eventId": "<event-id>",
-      "sequence": 9,
+      "sequence": 10,
       "taskId": "<task-id>",
       "turnId": "<turn-2>",
       "source": {
@@ -558,7 +580,7 @@
     {
       "schemaVersion": 2,
       "eventId": "<event-id>",
-      "sequence": 10,
+      "sequence": 11,
       "taskId": "<task-id>",
       "turnId": "<turn-2>",
       "source": {
@@ -575,6 +597,28 @@
       "payload": {
         "phase": "TURN_COMPLETED",
         "message": "Turn completed"
+      }
+    },
+    {
+      "schemaVersion": 2,
+      "eventId": "<event-id>",
+      "sequence": 12,
+      "taskId": "<task-id>",
+      "turnId": null,
+      "source": {
+        "providerThreadId": null,
+        "parentProviderThreadId": null,
+        "logicalAgentPath": null,
+        "providerTurnId": null,
+        "providerItemId": null,
+        "providerEventId": null,
+        "providerOccurredAt": null
+      },
+      "occurredAt": "<timestamp>",
+      "type": "lifecycle",
+      "payload": {
+        "phase": "DEVELOPMENT_AUTOMATION_UPDATED",
+        "message": "Development automation settled"
       }
     }
   ],
@@ -582,7 +626,7 @@
     {
       "schemaVersion": 2,
       "eventId": "<event-id>",
-      "sequence": 7,
+      "sequence": 8,
       "taskId": "<task-id>",
       "turnId": "<turn-2>",
       "source": {
@@ -605,7 +649,7 @@
     {
       "schemaVersion": 2,
       "eventId": "<event-id>",
-      "sequence": 8,
+      "sequence": 9,
       "taskId": "<task-id>",
       "turnId": "<turn-2>",
       "source": {
@@ -627,7 +671,7 @@
     {
       "schemaVersion": 2,
       "eventId": "<event-id>",
-      "sequence": 9,
+      "sequence": 10,
       "taskId": "<task-id>",
       "turnId": "<turn-2>",
       "source": {
@@ -650,7 +694,7 @@
     {
       "schemaVersion": 2,
       "eventId": "<event-id>",
-      "sequence": 10,
+      "sequence": 11,
       "taskId": "<task-id>",
       "turnId": "<turn-2>",
       "source": {
@@ -668,12 +712,34 @@
         "phase": "TURN_COMPLETED",
         "message": "Turn completed"
       }
+    },
+    {
+      "schemaVersion": 2,
+      "eventId": "<event-id>",
+      "sequence": 12,
+      "taskId": "<task-id>",
+      "turnId": null,
+      "source": {
+        "providerThreadId": null,
+        "parentProviderThreadId": null,
+        "logicalAgentPath": null,
+        "providerTurnId": null,
+        "providerItemId": null,
+        "providerEventId": null,
+        "providerOccurredAt": null
+      },
+      "occurredAt": "<timestamp>",
+      "type": "lifecycle",
+      "payload": {
+        "phase": "DEVELOPMENT_AUTOMATION_UPDATED",
+        "message": "Development automation settled"
+      }
     }
   ],
   "sse": {
     "schemaVersion": 2,
     "eventId": "<event-id>",
-    "sequence": 7,
+    "sequence": 8,
     "taskId": "<task-id>",
     "turnId": "<turn-2>",
     "source": {
@@ -743,7 +809,7 @@
     },
     "state": "COMPLETED",
     "mutationClaim": null,
-    "version": 11,
+    "version": 15,
     "createdAt": "<timestamp>",
     "updatedAt": "<timestamp>",
     "terminalAt": "<timestamp>",

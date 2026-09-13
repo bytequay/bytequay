@@ -51,6 +51,7 @@ interface AgentTasksViewProps {
   /** The route owns which task is open, so opening one is a navigation. */
   onOpenTask: (taskId: string) => void;
   onOpenReview: (review: AgentReviewDto) => void;
+  onOpenReviewWorkspace?: (review: AgentReviewDto) => void;
   /** Where a provider that is not ready gets fixed. */
   onOpenSettings?: () => void;
   /** Initial provider selection; the person may change it until the first message creates a task. */
@@ -528,6 +529,7 @@ export default function AgentTasksView({
   bridge: explicitBridge,
   onOpenTask,
   onOpenReview,
+  onOpenReviewWorkspace,
   onOpenSettings,
   laneId = INTERACTIVE_LANE_ID,
 }: AgentTasksViewProps): React.JSX.Element {
@@ -596,7 +598,7 @@ export default function AgentTasksView({
       onOpenSettings={onOpenSettings}
       onArchive={archive}
       onDelete={remove}
-      reviewTasks={<ReviewTasksView workspaceId={workspaceId} onOpenReview={onOpenReview} />}
+      reviewTasks={<ReviewTasksView workspaceId={workspaceId} onOpenReview={onOpenReview} onOpenWorkspace={onOpenReviewWorkspace} />}
     >
       {children}
     </AgentTaskList>

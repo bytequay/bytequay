@@ -82,6 +82,7 @@ import com.bytequay.agent.spi.AgentTurnInput;
 import com.bytequay.agent.spi.AgentTurnResult;
 import com.bytequay.agent.spi.AgentUnavailableException;
 import com.bytequay.agent.spi.CodeGraphBridge;
+import com.bytequay.agent.spi.DevelopmentLearningSummary;
 import com.bytequay.agent.spi.DevelopmentResultReport;
 import com.bytequay.agent.spi.ProviderAgentEvent;
 import com.bytequay.agent.spi.ProviderAgentEventSource;
@@ -628,7 +629,8 @@ class TestDefaultAgentTurnService
                 .isEqualTo(new AgentEventPayload.Lifecycle(AgentEventPayload.LifecyclePhase.DEVELOPMENT_AUTOMATION_UPDATED, "Development automation settled"));
         service.start(command("Local follow-up", "local-only").withDevelopmentAutomation(Optional.of(DevelopmentAutomation.LOCAL_ONLY)));
         driver.complete("Done locally");
-        assertThat(completed).hasSize(1);
+        assertThat(completed).hasSize(2);
+        service.finishDevelopmentContinuation(task.id(), completed.getLast().turn().id());
     }
 
     @Test
@@ -874,6 +876,68 @@ class TestDefaultAgentTurnService
         assertThatThrownBy(() -> service.startGeneratedTurn(task.id(), new DevelopmentTurnOrigin(DevelopmentTurnOrigin.Kind.CREATE_DRAFT_PR, source.id()), "Publish"))
                 .isInstanceOf(IllegalArgumentException.class).hasMessageContaining("user answer");
         service.finishDevelopmentContinuation(task.id(), source.id());
+    }
+
+    @Test
+    void refinementIgnoresDeliveryReadinessAndNeverRecursivelyStartsAContinuation()
+    {
+        List<DevelopmentTurnCompletion> completed = new ArrayList<>();
+        enableDevelopment(completed::add);
+        AgentTurn source = service.start(command("Change locally", "summary-source")
+                .withDevelopmentAutomation(Optional.of(DevelopmentAutomation.LOCAL_ONLY)));
+        driver.complete("Local edits complete");
+        assertThat(completed).hasSize(1);
+        DevelopmentTurnOrigin origin = new DevelopmentTurnOrigin(DevelopmentTurnOrigin.Kind.REFINE_SUMMARY, source.id());
+        CompletionStage<DevelopmentTurnCompletion> refinement = service.startGeneratedTurn(task.id(), origin, "Refine the private summary");
+        assertThat(stores.findActive(task.id()).orElseThrow().settings()).isEqualTo(source.settings());
+        reportReady(stores.findActive(task.id()).orElseThrow());
+        driver.complete("Summary recorded");
+        assertThat(refinement.toCompletableFuture().join().providerQuiescent()).isTrue();
+        assertThat(completed).hasSize(1);
+        assertThatThrownBy(() -> service.startGeneratedTurn(task.id(), new DevelopmentTurnOrigin(DevelopmentTurnOrigin.Kind.AUTO_COMMIT, source.id()), "Commit"))
+                .isInstanceOf(IllegalArgumentException.class);
+        service.finishDevelopmentContinuation(task.id(), source.id());
+    }
+
+    @Test
+    void refinementAndLocalQuestionsPreserveHeldDelivery()
+    {
+        enableDevelopment(ignored -> {});
+        AgentTurn source = service.start(command("Change but ask first", "held-source"));
+        driver.emit(developmentReport(source, "held", new DevelopmentResultReport(false, Optional.of("Which implementation?")), Optional.empty()));
+        driver.complete("Please choose");
+        service.startGeneratedTurn(task.id(), new DevelopmentTurnOrigin(DevelopmentTurnOrigin.Kind.REFINE_SUMMARY, source.id()), "Refine summary");
+        reportReady(stores.findActive(task.id()).orElseThrow());
+        driver.complete("Summary recorded");
+        assertThatThrownBy(() -> service.handoffDevelopmentContinuationToQueue(task.id(), source.id()))
+                .isInstanceOf(IllegalArgumentException.class).hasMessageContaining("user answer");
+        service.finishDevelopmentContinuation(task.id(), source.id());
+
+        AgentTurn question = service.start(command("Explain this card", "local-question")
+                .withDevelopmentAutomation(Optional.of(DevelopmentAutomation.LOCAL_ONLY)));
+        driver.complete("Explanation");
+        assertThatThrownBy(() -> service.handoffDevelopmentContinuationToQueue(task.id(), question.id()))
+                .isInstanceOf(IllegalArgumentException.class).hasMessageContaining("user answer");
+        service.finishDevelopmentContinuation(task.id(), question.id());
+    }
+
+    @Test
+    void stopDiscardsCompletedSummaryBeforeReleasingItsVerificationMarker()
+    {
+        enableDevelopment(ignored -> {});
+        AgentTurn source = service.start(command("Change locally", "stop-summary-source")
+                .withDevelopmentAutomation(Optional.of(DevelopmentAutomation.LOCAL_ONLY)));
+        driver.complete("Done");
+        service.startGeneratedTurn(task.id(), new DevelopmentTurnOrigin(DevelopmentTurnOrigin.Kind.REFINE_SUMMARY, source.id()), "Refine summary");
+        AgentTurn refinement = stores.findActive(task.id()).orElseThrow();
+        var summary = new DevelopmentLearningSummary("Purpose", ImmutableList.of(), Optional.empty(), "Tests were inspected", ImmutableList.of());
+        driver.emit(developmentReport(refinement, "summary", new DevelopmentResultReport(true, Optional.empty(), Optional.of(summary)), Optional.empty()));
+        driver.complete("Summary recorded");
+
+        service.stopRuntime(task.id(), service.stopImpact(task.id()).generation());
+
+        assertThat(taskService.get(task.id()).developmentContinuationUnfinished()).isFalse();
+        assertThat(service.get(refinement.id()).developmentResult().orElseThrow().learningSummary()).isEmpty();
     }
 
     @Test

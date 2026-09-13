@@ -17,17 +17,25 @@ import java.util.Optional;
 
 import static com.bytequay.agent.spi.AgentChecks.checkOptionalText;
 import static com.google.common.base.Preconditions.checkArgument;
+import static java.util.Objects.requireNonNull;
 
 /** A root agent's explicit assessment of its current development turn. */
 public record DevelopmentResultReport(
         boolean readyForDelivery,
-        Optional<String> message)
+        Optional<String> message,
+        Optional<DevelopmentLearningSummary> learningSummary)
 {
     public static final int MAXIMUM_MESSAGE_LENGTH = 4_000;
+
+    public DevelopmentResultReport(boolean readyForDelivery, Optional<String> message)
+    {
+        this(readyForDelivery, message, Optional.empty());
+    }
 
     public DevelopmentResultReport
     {
         checkOptionalText(message, "message");
         message.ifPresent(value -> checkArgument(value.length() <= MAXIMUM_MESSAGE_LENGTH, "message is too long"));
+        requireNonNull(learningSummary, "learningSummary is null");
     }
 }

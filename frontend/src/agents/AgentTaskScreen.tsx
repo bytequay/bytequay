@@ -21,6 +21,7 @@ CircleX,
 FileDiff,
 GitPullRequest,
 ListChecks,
+MessageCircle,
 PanelRight,
 TriangleAlert
 } from 'lucide-react';
@@ -59,7 +60,12 @@ import TaskPaneDivider, { useTaskPane } from './TaskPaneDivider';
 import { AgentConversation,BlockView,clock,codeGraphText,ConversationComposer,ConversationQueue,Glyph,modelName,PlanSteps,serviceTierName,shortDate,Spinner,stateClass,useConversationHistory,useOutputWheel,type AttachmentPreview } from './AgentConversation';
 import { type CommitRange, type DiffAgentComment } from '../pulls/PullChanges';
 import { useLocalReviewThreads } from '../pulls/local-review/useLocalReviewThreads';
-import type { LocalReviewThreads } from '../pulls/local-review/types';
+import type { LocalReviewThreadDto, LocalReviewThreads } from '../pulls/local-review/types';
+import AgentReviewTab, { type ReviewNavigationTarget } from '../pulls/agent-review/AgentReviewTab';
+import type { AgentReviewDto } from '../pulls/agent-review/contracts';
+import { workspaceReviewTaskRoute } from '../workspaces/model';
+import DevelopmentLearningPanel from './DevelopmentLearningPanel';
+import LocalReviewThreadCard from '../pulls/local-review/LocalReviewThreadCard';
 import { pullRequestDiffRevision, usePullRequestChanges } from '../pulls/usePullRequestChanges';
 import { usePullRequestDetail } from '../pulls/usePullRequestDetail';
 import { AutomationControl } from './AutomationControl';
@@ -122,7 +128,7 @@ type TaskPullRequestDetail
 } from './TaskPullRequestPanel';
 export { TurnView,type AttachmentPreview } from './AgentConversation';
 
-type PanelTab = 'pr' | 'changes' | 'agents';
+type PanelTab = 'pr' | 'changes' | 'review' | 'agents';
 
 interface AgentTaskScreenProps {
   workspaceId: string;
@@ -130,7 +136,7 @@ interface AgentTaskScreenProps {
   /** Electron's bridge unless a test supplies its own. */
   bridge?: AgentBridgePort;
   onBack: () => void;
-  /** Opens the existing pull-request page for one found on the task's branch. */
+  /** Opens the pull request found on the task's branch full width over the task. */
   onOpenPullRequest?: (number: number) => void;
   /** The workspace the task runs in; names the repository a draft pull request targets. */
   workspace?: WorkspaceDto;
@@ -492,6 +498,9 @@ function PanelTabs({ tab, agentTab, onSelect }: {
         <button type="button" className={tab === 'changes' ? 'is-active' : ''} aria-pressed={tab === 'changes'} onClick={() => onSelect('changes')}>
           <FileDiff aria-hidden="true" /> Changes
         </button>
+        <button type="button" className={tab === 'review' ? 'is-active' : ''} aria-pressed={tab === 'review'} onClick={() => onSelect('review')}>
+          <MessageCircle aria-hidden="true" /> Review &amp; Learning
+        </button>
         {agentTab}
       </nav>
     </header>
@@ -538,7 +547,7 @@ function SidePanel({
   pullRequestDetail, pullRequestChanges, pullRequestCommitRange, pullRequestPendingComments,
   onPullRequestCommitRangeChange, onPullRequestPendingCommentsChange, workspaceId, branch, repository,
   activityChoice, onOpenAgent, onCloseAgent, onToggleActivity, onDecide, onSelectTab, onOpenPullRequest,
-  onCreatePullRequest, createPullRequestBlocked = null, onAskAgent, onAskAgentDisabled, localReview,
+  onCreatePullRequest, createPullRequestBlocked = null, onAskAgent, onAskAgentDisabled, localReview, learning,
   width, showAgents, logChoice = null, onToggleLog = () => {}, historyUnloaded = false, onLoadEarlier = () => {}, historyLoading = false,
 }: {
   agents: AgentNode[];
@@ -578,12 +587,58 @@ function SidePanel({
   onAskAgent?: (comment: DiffAgentComment) => Promise<void>;
   onAskAgentDisabled?: string | null;
   localReview?: LocalReviewThreads;
+  learning?: React.ReactNode;
   width: number;
   showAgents: boolean;
   /** The agent whose log the user opened, or "!thread" for one they folded; live agents open by default. */
   logChoice?: string | null;
   onToggleLog?: (choice: string) => void;
 }): React.JSX.Element {
+  const [review, setReview] = useState<AgentReviewDto | null>(null);
+  const [reviewLoading, setReviewLoading] = useState(true);
+  const [reviewError, setReviewError] = useState<string | null>(null);
+  const [reviewReload, setReviewReload] = useState(0);
+  const [reviewNavigation, setReviewNavigation] = useState<ReviewNavigationTarget | null>(null);
+  const [focusFindingId, setFocusFindingId] = useState<string | null>(null);
+  const prRepo = pullRequest?.repo;
+  const prNumber = pullRequest?.number;
+  const prLocalReview = useLocalReviewThreads(prRepo === undefined || prNumber === undefined ? null : {
+    repo: prRepo, number: prNumber, workspaceId,
+  });
+  // The task hook accepts new comments immediately; the PR hook adds discussions from other tasks.
+  const localSources = new Map<string, { thread: LocalReviewThreadDto; actions: LocalReviewThreads }>();
+  for (const source of [localReview, prLocalReview]) {
+    if (source === undefined) continue;
+    for (const thread of source.threads) {
+      if (thread.repo.toLowerCase() === prRepo?.toLowerCase() && thread.number === prNumber
+        && (localSources.get(thread.id)?.thread.version ?? -1) < thread.version) {
+        localSources.set(thread.id, { thread, actions: source });
+      }
+    }
+  }
+  const localThreads: LocalReviewThreads = {
+    threads: [...localSources.values()].map(value => value.thread).sort((left, right) => left.createdAt.localeCompare(right.createdAt)),
+    onReply: (id, body) => (localSources.get(id)?.actions ?? prLocalReview).onReply(id, body),
+    onResolve: (id, resolved) => (localSources.get(id)?.actions ?? prLocalReview).onResolve(id, resolved),
+    onRetry: (id, messageId) => (localSources.get(id)?.actions ?? prLocalReview).onRetry(id, messageId),
+  };
+  useEffect(() => {
+    setReview(null);
+    setReviewError(null);
+    setReviewLoading(true);
+    setReviewNavigation(null);
+    setFocusFindingId(null);
+    if (workspaceId === undefined || prRepo === undefined || prNumber === undefined) {
+      setReviewLoading(false);
+      return;
+    }
+    let active = true;
+    void Promise.resolve().then(() => window.bridge.findAgentReview(workspaceId, prRepo, prNumber))
+      .then(value => { if (active) setReview(value); })
+      .catch(failure => { if (active) setReviewError(failure instanceof Error ? failure.message : 'Unable to load review'); })
+      .finally(() => { if (active) setReviewLoading(false); });
+    return () => { active = false; };
+  }, [workspaceId, prRepo, prNumber, reviewReload]);
   const active = activeAgents(agents);
   const done = agents.filter((agent) => agent.status !== 'running');
   const labels = Object.fromEntries(agents.map((agent) => [agent.threadId, agent.label]));
@@ -599,9 +654,10 @@ function SidePanel({
     : <PullDetailHeader
       pr={pullRequest}
       detail={pullRequestDetail.detail}
-      tab={tab === 'pr' ? 'overview' : tab === 'changes' ? 'changes' : null}
+      tab={tab === 'pr' ? 'overview' : tab === 'agents' ? null : tab}
+      review={review}
       agentTab={agentTab}
-      onTab={tab => onSelectTab(tab === 'overview' ? 'pr' : 'changes')}
+      onTab={tab => onSelectTab(tab === 'overview' ? 'pr' : tab)}
       onRefresh={pullRequestDetail.refresh}
       refreshing={pullRequestDetail.loading}
       onReviewSubmitted={pullRequestDetail.replace}
@@ -631,7 +687,7 @@ function SidePanel({
         {pullRequest === null
           ? pullRequestNotice === null && <NoPullRequestView branch={branch} repository={repository} onCreate={onCreatePullRequest} createBlocked={createPullRequestBlocked} />
           : (
-            <TaskPullRequestView localReview={localReview}
+            <TaskPullRequestView localReview={localThreads}
               key={`${pullRequest.repo.toLowerCase()}#${pullRequest.number}`}
               pr={pullRequest}
               workspaceId={workspaceId}
@@ -646,6 +702,23 @@ function SidePanel({
       </PanelFrame>
     );
   }
+  if (tab === 'review') return <PanelFrame label="Review & Learning" tabs={tabs} width={width} flush>
+    <div className="agr-development-learning">
+    {learning ?? <p className="agr-card__empty">After a turn changes code or commits, the agent will refine the summary here automatically.</p>}
+    {localThreads.threads.length > 0 && <section className="agr-local-comments" aria-label="Local review comments">
+      <div className="agr-findings__head"><h2>Local review comments</h2><span className="agr-findings__count">{localThreads.threads.length} private discussions</span></div>
+      {localThreads.threads.map(thread => <LocalReviewThreadCard key={thread.id} thread={thread} {...localThreads} />)}
+    </section>}
+    {pullRequest !== null && reviewLoading ? <div className="agt-panel__empty" role="status">Loading review cards…</div>
+      : reviewError !== null ? <div className="agt-panel__empty" role="alert">{reviewError}
+        <button type="button" className="agt-action" onClick={() => setReviewReload(value => value + 1)}>Retry</button>
+      </div>
+      : review !== null && pullRequestDetail.detail !== null && <AgentReviewTab detail={pullRequestDetail.detail} workspaceId={workspaceId} viewer={null}
+        review={review} onReviewChange={setReview} focusFindingId={focusFindingId}
+        onOpenWorkspace={review === null ? undefined : () => { window.location.hash = workspaceReviewTaskRoute(review.workspaceId, review.id); }}
+        onNavigateToChanges={target => { setReviewNavigation(target); setFocusFindingId(null); onSelectTab('changes'); }} />}
+    </div>
+  </PanelFrame>;
   if (tab === 'changes') {
     return (
       <PanelFrame label="Changes" tabs={tabs} width={width} flush={pullRequest !== null}>
@@ -657,7 +730,9 @@ function SidePanel({
           workspaceId={workspaceId}
           commitRange={pullRequestCommitRange}
           pendingComments={pullRequestPendingComments}
-          localReview={localReview}
+          localReview={localThreads}
+          agentReview={review === null ? undefined : { review, viewer: null, navigation: reviewNavigation,
+            onReviewChange: setReview, onOpenInReview: findingId => { setFocusFindingId(findingId); onSelectTab('review'); } }}
           onAskAgent={onAskAgent}
           onAskAgentDisabled={onAskAgentDisabled}
           onCommitRangeChange={onPullRequestCommitRangeChange}
@@ -857,7 +932,7 @@ export function AgentTaskBody({
   automation,
   headerAction,
   submissionBlocked = false,
-  onAskAgent, onAskAgentDisabled, localReview,
+  onAskAgent, onAskAgentDisabled, localReview, learning,
 }: {
   state: AgentTaskState;
   automation?: React.ReactNode;
@@ -866,6 +941,7 @@ export function AgentTaskBody({
   onAskAgent?: (comment: DiffAgentComment) => Promise<void>;
   onAskAgentDisabled?: string | null;
   localReview?: LocalReviewThreads;
+  learning?: React.ReactNode;
   models: ModelOptionDto[];
   historyLoading?: boolean;
   onLoadHistory?: (direction: 'older' | 'newer' | 'latest') => void;
@@ -1014,7 +1090,8 @@ export function AgentTaskBody({
     : turns.some((turn) => turn.blocks.some((block) => block.kind === 'approval' && block.actionable && block.outcome === null));
   const question = developmentQuestion(state);
   const generatedActivity = state.turn?.developmentOrigin?.kind === 'AUTO_COMMIT' ? 'Committing'
-    : state.turn?.developmentOrigin?.kind === 'CREATE_DRAFT_PR' ? 'Creating draft PR' : null;
+    : state.turn?.developmentOrigin?.kind === 'CREATE_DRAFT_PR' ? 'Creating draft PR'
+    : state.turn?.developmentOrigin?.kind === 'REFINE_SUMMARY' ? 'Refining summary…' : null;
   const statusLabel = question !== null ? 'Waiting for your answer' : status === 'running' && waiting ? 'Needs approval'
     : status === 'running' && generatedActivity !== null ? generatedActivity
     : status === 'idle' && automationActive && currentCi != null ? ciActivity(currentCi)
@@ -1251,6 +1328,7 @@ export function AgentTaskBody({
             pullRequestCommitRange={pullRequestCommitRange}
             pullRequestPendingComments={pullRequestPendingComments}
             localReview={localReview}
+            learning={learning}
             onAskAgent={state.task?.state === 'OPEN' ? onAskAgent : undefined}
             onAskAgentDisabled={onAskAgentDisabled}
             onPullRequestCommitRangeChange={onPullRequestCommitRangeChange}
@@ -1855,17 +1933,18 @@ export default function AgentTaskScreen({
     setLocalOnly(false);
   }), [automationBlocked, ciPollingError, confirmation, confirming, live, refreshProjection, run, startTurn, state.attachments, state.composer, state.task, submissionAutomation, submissions, taskId, workspaceId]);
 
-  const agentCommentDisabled = taskPr === null || taskPr.state === 'merged' || taskPr.state === 'closed'
-    ? 'Code feedback requires an open pull request.'
-    : state.task?.state !== 'OPEN' ? 'This task is closed.'
-    : state.task?.developmentContinuationUnfinished ? 'Wait for delivery to finish before sending code feedback.'
-    : state.connection !== 'open' ? 'Reconnect to the task before sending code feedback.'
+  const taskCommentDisabled = state.task?.state !== 'OPEN' ? 'This task is closed.'
+    : state.task?.developmentContinuationUnfinished ? 'Wait for the current follow-up to finish.'
+    : state.connection !== 'open' ? 'Reconnect to the task before replying.'
     : state.sending || attaching ? 'Wait for the current submission to finish.'
     : !['idle', 'running'].includes(runtimeStatus(state)) ? 'Wait until this task can accept another message.' : null;
+  const agentCommentDisabled = taskPr === null || taskPr.state === 'merged' || taskPr.state === 'closed'
+    ? 'Code feedback requires an open pull request.' : taskCommentDisabled;
   const localReview = useLocalReviewThreads({ taskId, workspaceId }, {
     active: state.task?.interactive === true,
     bridge: explicitBridge,
     disabledReason: agentCommentDisabled,
+    learningDisabledReason: taskCommentDisabled,
     onDispatch: () => refreshProjection(stateRef.current.latestTurnId),
   });
   const createLocalReview = localReview.create;
@@ -2220,6 +2299,10 @@ export default function AgentTaskScreen({
       onAskAgent={state.task?.interactive === true ? sendAgentComment : undefined}
       onAskAgentDisabled={agentCommentDisabled}
       localReview={localReview}
+      learning={state.task === null ? undefined : <DevelopmentLearningPanel key={taskId} task={state.task} repository={workspace === undefined ? '' : `${workspace.monitoredOwner}/${workspace.monitoredRepo}`}
+        refreshKey={state.lifecycleEpoch} refining={state.task.developmentContinuationUnfinished && state.turn?.developmentOrigin?.kind === 'REFINE_SUMMARY'}
+        disabledReason={taskCommentDisabled}
+        localReview={localReview} bridge={live()} />}
       automation={automationEligible && automationSelection !== null ? <AutomationControl value={automationSelection} providers={automationProviders}
         disabled={state.sending || automationSaving} futureTurns={running || state.task?.developmentContinuationUnfinished} localOnly={localOnly}
         onChange={value => { void selectAutomation(value); }} onLocalOnlyChange={setLocalOnly} /> : automationEligible ? <span className="agt-meta">Loading automation settings…</span> : undefined}

@@ -16,20 +16,21 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import type { Bridge } from '../../types';
 import type { DiffAgentComment } from '../PullChanges';
 import { remoteErrorMessage } from '../PullOverview';
-import type { LocalReviewQuery } from './contracts';
+import type { CreateDevelopmentLearningCommentRequest, LocalReviewQuery } from './contracts';
 import type { LocalReviewThreadDto, LocalReviewThreads } from './types';
 
 export type LocalReviewBridgePort = Pick<Bridge,
   'listLocalReviewComments' | 'createLocalReviewComment' | 'replyLocalReviewComment'
-  | 'resolveLocalReviewComment' | 'retryLocalReviewComment' | 'getAgentTask'>;
+  | 'resolveLocalReviewComment' | 'retryLocalReviewComment'> & Partial<Pick<Bridge, 'createDevelopmentLearningComment'>>;
 
 /** The diff, PR timeline and task transcript all read the same durable discussions. */
 export function useLocalReviewThreads(query: LocalReviewQuery | null, options: {
-  active?: boolean; bridge?: LocalReviewBridgePort; disabledReason?: string | null; onDispatch?: () => Promise<void>;
+  active?: boolean; bridge?: LocalReviewBridgePort; disabledReason?: string | null; learningDisabledReason?: string | null; onDispatch?: () => Promise<void>;
 } = {}): LocalReviewThreads & {
   error: string | null;
   refresh: () => Promise<void>;
   create: (comment: DiffAgentComment, target: { taskId: string; workspaceId: string; repo: string; number: number; expectedTaskVersion: number }) => Promise<void>;
+  createLearning: (request: Omit<CreateDevelopmentLearningCommentRequest, 'id' | 'messageId' | 'idempotencyKey'>) => Promise<void>;
 } {
   const key = JSON.stringify(query);
   const [snapshot, setSnapshot] = useState<{ key: string; threads: LocalReviewThreadDto[] }>({ key, threads: [] });
@@ -112,19 +113,31 @@ export function useLocalReviewThreads(query: LocalReviewQuery | null, options: {
     await dispatched();
   }, [accept, dispatched, live, operation]);
   const onReply = useCallback(async (threadId: string, body: string) => {
-    const thread = find(threadId);
     const scope = latest.current.key;
+    await refresh();
+    if (latest.current.key !== scope) return;
+    const thread = find(threadId);
     const signature = JSON.stringify(['reply', threadId, body]);
     const request = operation(signature);
-    const task = await live().getAgentTask(thread.taskId, thread.workspaceId);
     const updated = await live().replyLocalReviewComment({
       taskId: thread.taskId, workspaceId: thread.workspaceId, threadId,
-      messageId: request.messageId, idempotencyKey: request.key, body, expectedTaskVersion: task.version,
+      messageId: request.messageId, idempotencyKey: request.key, body, expectedTaskVersion: thread.taskVersion,
     });
     accept(updated, scope);
     operations.current.delete(signature);
     await dispatched();
-  }, [accept, dispatched, find, live, operation]);
+  }, [accept, dispatched, find, live, operation, refresh]);
+  const createLearning = useCallback(async (input: Omit<CreateDevelopmentLearningCommentRequest, 'id' | 'messageId' | 'idempotencyKey'>) => {
+    const createComment = live().createDevelopmentLearningComment;
+    if (createComment === undefined) throw new Error('Learning discussions are unavailable.');
+    const scope = latest.current.key;
+    const { expectedTaskVersion, ...identity } = input;
+    const signature = JSON.stringify(['learning', identity]);
+    const request = operation(signature);
+    accept(await createComment({ ...input, expectedTaskVersion, id: request.threadId, messageId: request.messageId, idempotencyKey: request.key }), scope);
+    operations.current.delete(signature);
+    await dispatched();
+  }, [accept, dispatched, live, operation]);
   const onResolve = useCallback(async (threadId: string, resolved: boolean) => {
     const thread = find(threadId);
     const scope = latest.current.key;
@@ -140,14 +153,15 @@ export function useLocalReviewThreads(query: LocalReviewQuery | null, options: {
     catch (failure) { await refresh(); throw failure; }
   }, [accept, find, live, operation, refresh]);
   const onRetry = useCallback(async (threadId: string, messageId: string) => {
-    const thread = find(threadId);
     const scope = latest.current.key;
-    const task = await live().getAgentTask(thread.taskId, thread.workspaceId);
+    await refresh();
+    if (latest.current.key !== scope) return;
+    const thread = find(threadId);
     accept(await live().retryLocalReviewComment({
-      taskId: thread.taskId, workspaceId: thread.workspaceId, threadId, messageId, expectedTaskVersion: task.version,
+      taskId: thread.taskId, workspaceId: thread.workspaceId, threadId, messageId, expectedTaskVersion: thread.taskVersion,
     }), scope);
     await dispatched();
-  }, [accept, dispatched, find, live]);
+  }, [accept, dispatched, find, live, refresh]);
   return { threads: snapshot.key === key ? snapshot.threads : [], onReply, onResolve, onRetry,
-    disabledReason: options.disabledReason, error, refresh, create };
+    disabledReason: options.disabledReason, learningDisabledReason: options.learningDisabledReason, error, refresh, create, createLearning };
 }

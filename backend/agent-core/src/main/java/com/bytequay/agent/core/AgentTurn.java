@@ -282,6 +282,18 @@ public record AgentTurn(
                 providerTurnReference, knownUnsent, model, settings, terminalReason, failureKind, metrics, Optional.of(report), developmentOrigin);
     }
 
+    public AgentTurn withoutLearningSummary()
+    {
+        checkState(state.terminal(), "cannot discard a summary while its turn is active");
+        if (developmentResult.flatMap(DevelopmentResultReport::learningSummary).isEmpty()) {
+            return this;
+        }
+        DevelopmentResultReport report = developmentResult.orElseThrow();
+        return new AgentTurn(id, taskId, idempotencyKey, state, version, createdAt, startedAt, endedAt, cancellationRequestedAt,
+                providerTurnReference, knownUnsent, model, settings, terminalReason, failureKind, metrics,
+                Optional.of(new DevelopmentResultReport(report.readyForDelivery(), report.message())), developmentOrigin);
+    }
+
     public AgentTurn withMetrics(AgentMetrics updatedMetrics)
     {
         requireNonNull(updatedMetrics, "updatedMetrics is null");

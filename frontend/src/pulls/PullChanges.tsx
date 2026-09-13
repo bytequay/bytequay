@@ -52,7 +52,7 @@ export type DiffAgentComment = {
  * tab draws: one finding ID and one discussion, shown in two places. An outdated finding has no
  * trustworthy location here, so it stays in the tab with its recorded snapshot instead.
  */
-type AgentReviewProjection = {
+export type AgentReviewProjection = {
   review: AgentReviewDto;
   viewer: UserProfileDto | null;
   /** The range Agent review asked to show; a new token re-scrolls even to the same lines. */
@@ -365,7 +365,7 @@ export function DiffViewer({
             label="Review comments on files outside this diff"
           />}
           {localReview && <UnplacedLocalReviewThreads localReview={localReview}
-            threads={localReview.threads.filter(thread => !files.some(file => file.filename === thread.path))}
+            threads={localReview.threads.filter(thread => thread.learningAnchor == null && !files.some(file => file.filename === thread.path))}
             baseSha={baseSha} headSha={headSha} />}
         </div>
       </div>
@@ -1179,7 +1179,7 @@ function DiffFileCard({
                 placeholder={canReview ? 'Leave a review comment…' : 'Ask about this implementation…'}
                 onChange={event => setReviewBody(event.target.value)} />
               {reviewError && <span role="alert">{reviewError}</span>}
-              {onAskAgent && <p className="pull-diff-review__nothing">Private feedback. Requested changes are committed and pushed; draft PRs stay draft.</p>}
+              {onAskAgent && <p className="pull-diff-review__nothing">Private — only you and the agent. Questions and replies stay in this thread.</p>}
               {onAskAgent && onAskAgentDisabled && !sendingToAgent && <p className="pull-diff-review__nothing" role="status">{onAskAgentDisabled}</p>}
               <footer>
                 {review && <BetterWordsButton text={reviewBody} textareaRef={bodyRef} repository={review.repo}

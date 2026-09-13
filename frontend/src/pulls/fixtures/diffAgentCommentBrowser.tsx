@@ -153,8 +153,8 @@ async function asynchronousSubmission(): Promise<void> {
     await writeComment(host, 'Please explain this removal');
     assert(button(host, 'Send to agent').disabled && host.querySelector('[role="status"]')?.textContent === 'The agent is reconnecting.',
       'Unavailable private submission must stay visible with its reason');
-    assert(host.textContent?.includes('Private feedback. Requested changes are committed and pushed; draft PRs stay draft.') === true,
-      'Private submission must disclose the scope of requested changes');
+    assert(host.textContent?.includes('Private — only you and the agent. Questions and replies stay in this thread.') === true,
+      'Private submission must identify its local discussion without promising GitHub writes');
     button(host, 'Send to agent').click();
     assert(requests.length === 0, 'A disabled private action must not submit');
     render(null);

@@ -76,6 +76,7 @@ class TestSqliteReviewStores
             "Explain the new review tool surface",
             ImmutableList.of(new ReviewSummary.CommitExplanation(HEAD_SHA, "Adds the review tool surface and its prompts")),
             "Two findings, one of them critical",
+            Optional.of("The focused parser tests passed"),
             ImmutableList.of("finding-1"),
             ImmutableList.of("did not read the generated bindings"));
     private static final ReviewCoverage COVERAGE = new ReviewCoverage(
@@ -396,6 +397,7 @@ class TestSqliteReviewStores
                 id,
                 "review-1",
                 findingId,
+                findingId.isEmpty() ? Optional.of("run-1:purpose") : Optional.empty(),
                 author,
                 body,
                 2,

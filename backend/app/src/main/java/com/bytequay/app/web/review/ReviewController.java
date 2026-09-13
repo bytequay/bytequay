@@ -18,10 +18,8 @@ import com.bytequay.agent.core.AgentEventService;
 import com.bytequay.agent.core.AgentTask;
 import com.bytequay.agent.core.AgentTurn;
 import com.bytequay.agent.core.AgentTurnService;
-import com.bytequay.agent.core.QueueAgentInputCommand;
 import com.bytequay.agent.core.QueuedInputId;
 import com.bytequay.agent.core.ResolveApprovalCommand;
-import com.bytequay.agent.core.StartAgentTurnCommand;
 import com.bytequay.agent.core.SteerAgentTurnCommand;
 import com.bytequay.agent.core.TaskId;
 import com.bytequay.agent.core.TurnId;
@@ -185,6 +183,7 @@ public class ReviewController
         reviews.ask(
                 reviewId,
                 Optional.ofNullable(request.findingId()).filter(id -> !id.isBlank()),
+                Optional.ofNullable(request.cardId()).filter(id -> !id.isBlank()),
                 required(request.targetRevision(), "targetRevision"),
                 request.message());
         return ReviewHttpModels.review(reviews.get(reviewId));
@@ -205,9 +204,9 @@ public class ReviewController
         AgentTask task = reviews.task(reviewId);
         String delivery = Optional.ofNullable(request.delivery()).orElse("TURN").toUpperCase(Locale.ROOT);
         switch (delivery) {
-            case "TURN" -> turns.start(new StartAgentTurnCommand(task.id(), task.version(), request.message(), ImmutableList.of(), idempotencyKey));
+            case "TURN" -> reviews.sendMessage(reviewId, task.version(), request.message(), idempotencyKey, false);
             case "STEER" -> turns.steer(new SteerAgentTurnCommand(activeTurn(task).id(), request.message(), ImmutableList.of(), idempotencyKey));
-            case "QUEUE" -> turns.enqueue(new QueueAgentInputCommand(task.id(), task.version(), request.message(), ImmutableList.of(), idempotencyKey));
+            case "QUEUE" -> reviews.sendMessage(reviewId, task.version(), request.message(), idempotencyKey, true);
             default -> throw new ReviewInvalidRequestException("delivery must be TURN, STEER or QUEUE");
         }
         return ReviewHttpModels.review(reviews.get(reviewId));

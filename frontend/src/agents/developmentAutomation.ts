@@ -35,7 +35,9 @@ export function automationSummary(settings: DevelopmentAutomationDto): string {
 export function developmentQuestion(state: AgentTaskState): string | null {
   if (state.task?.state !== 'OPEN' || state.task.developmentContinuationUnfinished || state.task.mutationClaim !== null || state.turn?.state !== 'COMPLETED'
     || (state.latestTurnId !== null && state.latestTurnId !== state.turn.id)) return null;
-  const report = state.turn.developmentResult;
+  const report = (state.turn.developmentOrigin?.kind === 'REFINE_SUMMARY' ? null : state.turn.developmentResult) ?? Object.values(state.turns)
+    .filter(turn => turn.developmentOrigin?.kind !== 'REFINE_SUMMARY' && turn.developmentResult != null)
+    .sort((left, right) => right.createdAt.localeCompare(left.createdAt))[0]?.developmentResult;
   return report != null && !report.readyForDelivery
     ? report.message ?? 'The agent is waiting for your answer.' : null;
 }

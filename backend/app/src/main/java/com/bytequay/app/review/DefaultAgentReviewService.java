@@ -289,16 +289,21 @@ public class DefaultAgentReviewService
     }
 
     @Override
-    public ReviewMessage ask(String reviewId, Optional<String> findingId, int targetRevision, String message)
+    public ReviewMessage ask(String reviewId, Optional<String> findingId, Optional<String> cardId, int targetRevision, String message)
     {
         requireNonNull(findingId, "findingId is null");
+        requireNonNull(cardId, "cardId is null");
+        if (findingId.isPresent() && cardId.isPresent()) {
+            throw new ReviewInvalidRequestException("A question must target either a finding or a summary card");
+        }
         String text = requireNonNull(message, "message is null").strip();
         if (text.isEmpty()) {
             throw new ReviewInvalidRequestException("message must not be blank");
         }
         return locked(reviewId, () -> {
             AgentReview review = requireOpen(reviewId);
-            ReviewRun run = latestRun(reviewId).orElseThrow(() -> new ReviewConflictException("The review has no run yet"));
+            ReviewRun run = cardId.map(id -> ReviewCards.requireRun(store, reviewId, id))
+                    .orElseGet(() -> latestRun(reviewId).orElseThrow(() -> new ReviewConflictException("The review has no run yet")));
             String label;
             String runId = run.id();
             if (findingId.isPresent()) {
@@ -309,7 +314,7 @@ public class DefaultAgentReviewService
                 if (finding.revision() != targetRevision) {
                     throw new ReviewConflictException("The finding was revised to revision " + finding.revision() + "; reload before asking");
                 }
-                label = "finding " + finding.id() + " (" + finding.label() + ")";
+                label = finding.id();
                 runId = finding.runId();
             }
             else {
@@ -317,9 +322,11 @@ public class DefaultAgentReviewService
                 if (revision != targetRevision) {
                     throw new ReviewConflictException("The summary was revised to revision " + revision + "; reload before asking");
                 }
-                label = "the summary";
+                label = cardId.orElse("summary");
             }
-            String prompt = ReviewPrompts.question(label, targetRevision, run.headSha(), text);
+            ReviewRun targetRun = store.findRun(runId).orElseThrow();
+            String prompt = ReviewPrompts.question(label, targetRevision, targetRun.headSha(), text)
+                    + cardId.map(id -> "\n\nSelected card:\n" + ReviewCards.content(targetRun, id)).orElse("");
             String messageId = UUID.randomUUID().toString();
             TaskId taskId = TaskId.valueOf(review.taskId());
             AgentTask task = tasks.get(taskId);
@@ -335,6 +342,7 @@ public class DefaultAgentReviewService
                     messageId,
                     reviewId,
                     findingId,
+                    cardId,
                     ReviewMessage.Author.USER,
                     text,
                     targetRevision,
@@ -343,6 +351,21 @@ public class DefaultAgentReviewService
                     queuedId,
                     0,
                     Instant.now(clock)));
+        });
+    }
+
+    @Override
+    public void sendMessage(String reviewId, long expectedTaskVersion, String message, String idempotencyKey, boolean queued)
+    {
+        locked(reviewId, () -> {
+            TaskId taskId = TaskId.valueOf(requireOpen(reviewId).taskId());
+            if (queued) {
+                turns.enqueue(new QueueAgentInputCommand(taskId, expectedTaskVersion, message, ImmutableList.of(), idempotencyKey));
+            }
+            else {
+                turns.start(new StartAgentTurnCommand(taskId, expectedTaskVersion, message, ImmutableList.of(), idempotencyKey));
+            }
+            return null;
         });
     }
 

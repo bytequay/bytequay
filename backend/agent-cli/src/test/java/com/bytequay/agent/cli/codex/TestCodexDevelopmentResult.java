@@ -15,6 +15,7 @@ package com.bytequay.agent.cli.codex;
 
 import com.bytequay.agent.cli.development.DevelopmentResultTool;
 import com.bytequay.agent.cli.process.SecretRedactor;
+import com.bytequay.agent.spi.DevelopmentLearningSummary;
 import com.bytequay.agent.spi.DevelopmentResultBridge;
 import com.bytequay.agent.spi.DevelopmentResultReport;
 import com.bytequay.agent.spi.ProviderAgentEvent;
@@ -34,7 +35,7 @@ class TestCodexDevelopmentResult
     private final CodexProtocolCodec codec = new CodexProtocolCodec(json);
     private final CodexEventMapper mapper = new CodexEventMapper(Path.of("/tmp"),
             SecretRedactor.fromEnvironment(ImmutableMap.of("OPENAI_API_KEY", "known-secret")));
-    private final DevelopmentResultBridge bridge = new DevelopmentResultBridge("app-turn", DevelopmentResultBridge.INSTRUCTION);
+    private final DevelopmentResultBridge bridge = new DevelopmentResultBridge("app-turn", DevelopmentResultBridge.INSTRUCTION, true);
 
     @Test
     void acceptsSuccessfulLiveRootCompletionAndKeepsReplayAsOrdinaryActivity()
@@ -47,6 +48,10 @@ class TestCodexDevelopmentResult
                 .hasValueSatisfying(result -> {
                     assertThat(result.report().readyForDelivery()).isTrue();
                     assertThat(result.report().message()).contains("done [REDACTED]");
+                    assertThat(result.report().learningSummary()).hasValueSatisfying(summary -> {
+                        assertThat(summary.purpose()).isEqualTo("Purpose [REDACTED]");
+                        assertThat(summary.evidence()).isEqualTo("Tests [REDACTED]");
+                    });
                     assertThat(result.source().providerThreadId()).contains("root-thread");
                     assertThat(result.source().providerTurnId()).contains("native-turn");
                     assertThat(result.source().providerItemId()).contains("tool-1");
@@ -64,7 +69,7 @@ class TestCodexDevelopmentResult
                 notification("item/started", "native-turn", "inProgress", "null", bridge),
                 notification("item/completed", "native-turn", "failed", "null", bridge),
                 notification("item/completed", "native-turn", "completed", "{\"message\":\"failed\"}", bridge),
-                notification("item/completed", "native-turn", "completed", "null", new DevelopmentResultBridge("old-app-turn", bridge.instruction())))) {
+                notification("item/completed", "native-turn", "completed", "null", new DevelopmentResultBridge("old-app-turn", bridge.instruction(), true)))) {
             assertThat(mapper.developmentResult(notification, true, "native-turn", Optional.of(bridge))).isEmpty();
         }
     }
@@ -73,7 +78,8 @@ class TestCodexDevelopmentResult
             throws Exception
     {
         String receipt = json.writeValueAsString(DevelopmentResultTool.receipt(receiptBridge,
-                new DevelopmentResultReport(true, Optional.of("done known-secret"))));
+                new DevelopmentResultReport(true, Optional.of("done known-secret"),
+                        Optional.of(new DevelopmentLearningSummary("Purpose known-secret", ImmutableList.of(), Optional.empty(), "Tests known-secret", ImmutableList.of())))));
         return codec.decodeNotification("""
                 {"method":"%s","params":{"threadId":"root-thread","turnId":"%s","item":{
                 "type":"mcpToolCall","id":"tool-1","server":"bytequay","tool":"report_development_result",

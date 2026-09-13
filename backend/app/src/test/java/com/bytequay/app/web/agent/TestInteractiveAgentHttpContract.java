@@ -329,7 +329,8 @@ class TestInteractiveAgentHttpContract
         assertThat(json.path("settings").path("developmentAutomation").path("autoCommit").asBoolean()).isFalse();
         assertThat(json.path("developmentResult").path("readyForDelivery").asBoolean()).isFalse();
         assertThat(json.path("developmentResult").path("message").asText()).isEqualTo("Choose the expected behavior.");
-        assertThat(json.path("developmentResult").size()).isEqualTo(2);
+        assertThat(json.path("developmentResult").size()).isEqualTo(3);
+        assertThat(json.path("developmentResult").path("learningSummary").isNull()).isTrue();
         assertThat(json.path("developmentOrigin").path("kind").asText()).isEqualTo("AUTO_COMMIT");
         assertThat(json.path("developmentOrigin").path("parentUserTurnId").asText()).isEqualTo(turn.developmentOrigin().orElseThrow().parentUserTurnId().toString());
     }

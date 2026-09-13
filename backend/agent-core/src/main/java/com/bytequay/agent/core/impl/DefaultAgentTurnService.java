@@ -375,10 +375,15 @@ public final class DefaultAgentTurnService
                 return repeated.orElseThrow();
             }
             AgentTask task = requireReady(requireStartableTaskWithoutReadiness(taskId, Optional.of(origin.parentUserTurnId())));
-            AgentTurn source = requireContinuationReady(taskId, origin.parentUserTurnId());
+            boolean refinement = origin.kind() == DevelopmentTurnOrigin.Kind.REFINE_SUMMARY;
+            AgentTurn source = requireContinuationReady(taskId, origin.parentUserTurnId(), !refinement);
             AgentTurnSettings settings = source.settings().orElseThrow();
-            DevelopmentAutomation automation = settings.developmentAutomation().orElseThrow();
-            boolean enabled = origin.kind() == DevelopmentTurnOrigin.Kind.AUTO_COMMIT ? automation.autoCommit() : automation.autoDraftPr();
+            DevelopmentAutomation automation = settings.developmentAutomation().orElse(DevelopmentAutomation.LOCAL_ONLY);
+            boolean enabled = switch (origin.kind()) {
+                case AUTO_COMMIT -> automation.autoCommit();
+                case CREATE_DRAFT_PR -> automation.autoDraftPr();
+                case REFINE_SUMMARY -> true;
+            };
             checkArgument(enabled, "The accepted automation settings do not allow this follow-up");
             List<AgentAttachment> attachments = settings.attachments().stream()
                     .map(reference -> resourceService.readAttachment(taskId, reference.id()).input())
@@ -409,7 +414,9 @@ public final class DefaultAgentTurnService
         TurnAcceptance acceptance;
         synchronized (runtimeRegistry.taskLock(taskId)) {
             requireDevelopmentOwner(taskId, sourceTurnId);
-            requireContinuationReady(taskId, sourceTurnId);
+            boolean delivery = requireTurn(sourceTurnId).settings().flatMap(AgentTurnSettings::developmentAutomation).filter(DevelopmentAutomation::enabled).isPresent();
+            requireContinuationReady(taskId, sourceTurnId, delivery);
+            checkArgument(!waitingForDevelopmentAnswer(taskId), "Development work is waiting for a user answer");
             Optional<QueuedAgentInput> head = queueHead(taskId).filter(input -> input.state() == QueuedAgentInput.State.QUEUED);
             if (head.isEmpty()) {
                 return false;
@@ -526,6 +533,11 @@ public final class DefaultAgentTurnService
             String message = reason.startsWith("Automation stopped.") ? reason : "Automation stopped. " + reason;
             stopped = unitOfWork.execute(() -> {
                 Instant now = Instant.now(clock);
+                runtimeRegistry.latestAcceptedTurn(taskId).map(this::requireTurn)
+                        .or(() -> turnStore.list(taskId).reversed().stream().findFirst())
+                        .filter(turn -> turn.developmentOrigin().filter(origin -> origin.kind() == DevelopmentTurnOrigin.Kind.REFINE_SUMMARY).isPresent())
+                        .filter(turn -> turn.developmentResult().flatMap(DevelopmentResultReport::learningSummary).isPresent())
+                        .ifPresent(turn -> turnStore.update(turn.withoutLearningSummary()));
                 for (QueuedAgentInput input : queueStore.listQueued(taskId)) {
                     if (input.state() == QueuedAgentInput.State.QUEUED) {
                         queueStore.update(input.paused(message, now));
@@ -629,12 +641,17 @@ public final class DefaultAgentTurnService
 
     private AgentTurn requireContinuationReady(TaskId taskId, TurnId sourceTurnId)
     {
+        return requireContinuationReady(taskId, sourceTurnId, true);
+    }
+
+    private AgentTurn requireContinuationReady(TaskId taskId, TurnId sourceTurnId, boolean requireDeliveryReport)
+    {
         AgentTurn source = requireTurn(sourceTurnId);
         checkArgument(source.taskId().equals(taskId) && source.developmentOrigin().isEmpty(), "Invalid development source turn");
         for (AgentTurn prior : continuationTurns(taskId, sourceTurnId)) {
             checkArgument(prior.state() == TurnState.COMPLETED, "Development turn did not complete successfully");
             checkArgument(prior.cancellationRequestedAt().isEmpty(), "Development turn was cancelled");
-            checkArgument(prior.developmentResult().filter(DevelopmentResultReport::readyForDelivery).isPresent(),
+            checkArgument(!requireDeliveryReport || prior.developmentResult().filter(DevelopmentResultReport::readyForDelivery).isPresent(),
                     "Development work is waiting for a readiness report or user answer");
         }
         return source;
@@ -1802,8 +1819,12 @@ public final class DefaultAgentTurnService
 
     private void recordDevelopmentResult(TaskId taskId, AgentTurn turn, ProviderAgentEvent.DevelopmentResult result)
     {
-        checkArgument(turn.settings().flatMap(AgentTurnSettings::developmentAutomation).filter(DevelopmentAutomation::enabled).isPresent(),
+        checkArgument(turn.settings().flatMap(AgentTurnSettings::developmentAutomation).filter(DevelopmentAutomation::enabled).isPresent()
+                        || turn.developmentOrigin().filter(origin -> origin.kind() == DevelopmentTurnOrigin.Kind.REFINE_SUMMARY).isPresent(),
                 "Development reporting is not enabled for this turn");
+        checkArgument(result.report().learningSummary().isEmpty()
+                        || turn.developmentOrigin().filter(origin -> origin.kind() == DevelopmentTurnOrigin.Kind.REFINE_SUMMARY).isPresent(),
+                "Learning summaries require a generated refinement turn");
         checkArgument(result.source().parentProviderThreadId().isEmpty()
                         && result.source().logicalAgentPath().map(path -> path.equals("/") || path.equals("root")).orElse(true),
                 "Development report is not from the root agent");
@@ -1962,8 +1983,7 @@ public final class DefaultAgentTurnService
 
     private boolean developmentTurnEligible(AgentTask task, AgentTurn turn)
     {
-        return developmentCompletion.isPresent() && task.interactive() && developmentEligibility.test(task)
-                && turn.settings().flatMap(AgentTurnSettings::developmentAutomation).filter(DevelopmentAutomation::enabled).isPresent();
+        return developmentCompletion.isPresent() && task.interactive() && developmentEligibility.test(task);
     }
 
     private void notifyDevelopmentCompletion(TurnId turnId, Optional<String> failure)
@@ -2002,8 +2022,9 @@ public final class DefaultAgentTurnService
 
     private boolean waitingForDevelopmentAnswer(TaskId taskId)
     {
-        Optional<AgentTurn> latest = runtimeRegistry.latestAcceptedTurn(taskId).map(this::requireTurn)
-                .or(() -> turnStore.list(taskId).reversed().stream().findFirst());
+        Optional<AgentTurn> latest = turnStore.list(taskId).reversed().stream()
+                .filter(turn -> turn.developmentOrigin().filter(origin -> origin.kind() == DevelopmentTurnOrigin.Kind.REFINE_SUMMARY).isEmpty())
+                .filter(turn -> turn.developmentResult().isPresent()).findFirst();
         return latest.filter(turn -> turn.state() == TurnState.COMPLETED)
                 .flatMap(AgentTurn::developmentResult).filter(result -> !result.readyForDelivery()).isPresent();
     }
@@ -2163,7 +2184,8 @@ public final class DefaultAgentTurnService
             String outcome,
             Instant endedAt)
     {
-        boolean deliveryGate = developmentTurnEligible(requireTask(terminal.taskId()), terminal);
+        boolean deliveryGate = developmentTurnEligible(requireTask(terminal.taskId()), terminal)
+                && terminal.settings().flatMap(AgentTurnSettings::developmentAutomation).filter(DevelopmentAutomation::enabled).isPresent();
         boolean ready = terminal.developmentResult().filter(DevelopmentResultReport::readyForDelivery).isPresent();
         boolean success = terminal.state() == TurnState.COMPLETED && providerQuiescent && (!deliveryGate || ready);
         String pauseReason = terminal.state() != TurnState.COMPLETED ? outcome

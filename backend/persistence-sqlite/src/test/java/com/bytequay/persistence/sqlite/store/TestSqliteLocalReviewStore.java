@@ -20,6 +20,7 @@ import com.bytequay.agent.core.RepositoryIdentity;
 import com.bytequay.agent.core.TaskId;
 import com.bytequay.agent.spi.AgentLaneId;
 import com.bytequay.agent.spi.AgentPermissionPolicy;
+import com.bytequay.core.localreview.LocalReviewLearningAnchor;
 import com.bytequay.core.localreview.LocalReviewMessage;
 import com.bytequay.core.localreview.LocalReviewMessage.Author;
 import com.bytequay.core.localreview.LocalReviewMessage.Routing;
@@ -80,6 +81,29 @@ class TestSqliteLocalReviewStore
         entityManager.clear();
         assertThat(store.find("thread").orElseThrow().resolved()).isTrue();
         assertThatThrownBy(() -> store.update(stored)).isInstanceOf(AgentConflictException.class);
+    }
+
+    @Test
+    void roundTripsLearningSnapshotWithoutAClaimedPullRequestOrCodeLocation()
+    {
+        LocalReviewLearningAnchor anchor = new LocalReviewLearningAnchor("summary-turn", "purpose", "What this change does", "Preserves nullable values");
+        LocalReviewMessage question = new LocalReviewMessage("question", Author.USER, "Why allow null?", Instant.EPOCH,
+                Optional.of("learning-input"), Optional.of(Routing.SEND), Optional.empty(), Optional.empty());
+        LocalReviewThread thread = new LocalReviewThread("learning", "task", "workspace", "owner/repo", 0, "", "RIGHT", 0, 0,
+                Optional.empty(), Optional.empty(), "", false, 0, Instant.EPOCH, Instant.EPOCH,
+                ImmutableList.of(question), ImmutableMap.of("create", "fingerprint"), Optional.of(anchor));
+        LocalReviewThread stored = store.insert(thread);
+        entityManager.clear();
+        assertThat(store.find("learning")).contains(stored);
+        assertThat(store.listByTask("task")).containsExactly(stored);
+        assertThat(store.listByPullRequest("owner/repo", 7)).isEmpty();
+        LocalReviewThread resolved = store.update(stored.update(true, stored.messages(), stored.operations(), Instant.EPOCH.plusSeconds(1)));
+        entityManager.clear();
+        assertThat(store.find("learning")).contains(resolved);
+        assertThat(resolved.learningAnchor()).contains(anchor);
+        assertThatThrownBy(() -> new LocalReviewThread("invalid", "task", "workspace", "owner/repo", 7, "Example.java", "RIGHT", 1, 1,
+                Optional.empty(), Optional.empty(), "code", false, 0, Instant.EPOCH, Instant.EPOCH, ImmutableList.of(), ImmutableMap.of(), Optional.of(anchor)))
+                .hasMessageContaining("cannot claim a code location");
     }
 
     @Test

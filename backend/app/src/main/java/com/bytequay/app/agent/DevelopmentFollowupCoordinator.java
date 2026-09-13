@@ -105,7 +105,7 @@ public class DevelopmentFollowupCoordinator
                 || changed(prior.baseline().local(), baseline.local())).isPresent();
         Optional<DevelopmentPublicationFacts> publication = Optional.empty();
         Optional<String> remoteFailure = Optional.empty();
-        DevelopmentAutomation automation = turn.settings().orElseThrow().developmentAutomation().orElseThrow();
+        DevelopmentAutomation automation = turn.settings().orElseThrow().developmentAutomation().orElse(DevelopmentAutomation.LOCAL_ONLY);
         if (automation.autoDraftPr() || automation.autoCiFix()) {
             try {
                 DevelopmentPublicationFacts current = git.inspectPublication(baseline.worktree(), baseline.route());
@@ -121,7 +121,7 @@ public class DevelopmentFollowupCoordinator
                 remoteFailure = Optional.of(message(failure));
             }
         }
-        Accepted captured = new Accepted(turn.id(), baseline, pending, publication, remoteFailure);
+        Accepted captured = new Accepted(turn.id(), baseline, previous.map(Accepted::summaryBaseline).orElse(baseline.local()), pending, publication, remoteFailure);
         accepted.put(task.id(), captured);
         // Stop can settle the turn while the read above is still in flight.
         if (turnStore.findActive(task.id()).filter(active -> active.id().equals(turn.id())).isEmpty()) {
@@ -152,6 +152,12 @@ public class DevelopmentFollowupCoordinator
         }
         String action = "Check development result";
         try {
+            requireSuccessful(completion);
+            DevelopmentAutomation automation = completion.turn().settings().orElseThrow().developmentAutomation().orElse(DevelopmentAutomation.LOCAL_ONLY);
+            if (!automation.enabled()) {
+                finish(completion);
+                return;
+            }
             DevelopmentResultReport report = requireResult(completion);
             if (!report.readyForDelivery()) {
                 finish(completion);
@@ -168,7 +174,6 @@ public class DevelopmentFollowupCoordinator
                 finish(completion);
                 return;
             }
-            DevelopmentAutomation automation = completion.turn().settings().orElseThrow().developmentAutomation().orElseThrow();
             if (local.uncommittedFileCount() > 0) {
                 if (!automation.autoCommit()) {
                     finish(completion);
@@ -268,11 +273,12 @@ public class DevelopmentFollowupCoordinator
             finish(completion);
         }
         catch (RuntimeException failure) {
-            fail(completion, action + ": " + message(failure)
+            String detail = message(failure);
+            fail(completion, detail.startsWith("Refine summary:") ? detail : action + ": " + detail
                     + (action.equals("Create draft PR") ? ". Remote result may have changed; inspect the branch and PR before another publication attempt." : ""));
         }
         finally {
-            captured.ifPresent(value -> accepted.remove(completion.task().id(), value));
+            accepted.computeIfPresent(completion.task().id(), (id, value) -> value.turnId().equals(completion.turn().id()) ? null : value);
         }
     }
 
@@ -450,7 +456,9 @@ public class DevelopmentFollowupCoordinator
 
     private boolean priorQuestion(TaskId taskId, TurnId acceptedTurn)
     {
-        List<AgentTurn> history = turnStore.list(taskId).stream().filter(turn -> !turn.id().equals(acceptedTurn)).toList();
+        List<AgentTurn> history = turnStore.list(taskId).stream().filter(turn -> !turn.id().equals(acceptedTurn))
+                .filter(turn -> turn.developmentOrigin().filter(origin -> origin.kind() == DevelopmentTurnOrigin.Kind.REFINE_SUMMARY).isEmpty())
+                .filter(turn -> turn.developmentResult().isPresent()).toList();
         return !history.isEmpty() && history.getLast().state() == TurnState.COMPLETED
                 && history.getLast().developmentResult().filter(report -> !report.readyForDelivery()).isPresent();
     }
@@ -478,21 +486,83 @@ public class DevelopmentFollowupCoordinator
         return true;
     }
 
-    private static DevelopmentResultReport requireResult(DevelopmentTurnCompletion completion)
+    private static void requireSuccessful(DevelopmentTurnCompletion completion)
     {
         checkState(completion.turn().state() == TurnState.COMPLETED, "%s",
                 completion.turn().terminalReason().orElse("Development turn did not complete successfully"));
         checkState(completion.turn().cancellationRequestedAt().isEmpty(), "Development was stopped before delivery");
         checkState(completion.providerQuiescent(), "Provider shutdown could not be verified");
         checkState(completion.failure().isEmpty(), "Development turn cleanup failed: %s", completion.failure().orElse(""));
+    }
+
+    private static DevelopmentResultReport requireResult(DevelopmentTurnCompletion completion)
+    {
+        requireSuccessful(completion);
         return completion.turn().developmentResult().orElseThrow(() -> new IllegalStateException("The root agent did not report a valid development result"));
     }
 
     private void finish(DevelopmentTurnCompletion completion)
     {
+        if (!owns(completion)) {
+            return;
+        }
+        boolean waitingForAnswer = turnStore.list(completion.task().id()).reversed().stream()
+                .filter(turn -> turn.developmentOrigin().filter(origin -> origin.kind() == DevelopmentTurnOrigin.Kind.REFINE_SUMMARY).isEmpty())
+                .filter(turn -> turn.developmentResult().isPresent())
+                .findFirst().flatMap(AgentTurn::developmentResult).filter(report -> !report.readyForDelivery()).isPresent();
+        if (!waitingForAnswer && turns.handoffDevelopmentContinuationToQueue(completion.task().id(), completion.turn().id())) {
+            return;
+        }
+        Accepted source = Optional.ofNullable(accepted.get(completion.task().id())).filter(value -> value.turnId().equals(completion.turn().id()))
+                .orElseThrow(() -> new IllegalStateException("The accepted development baseline is unavailable"));
+        DevelopmentLocalFacts current = inspectLocal(source.baseline());
+        if (changed(source.summaryBaseline(), current)) {
+            progress(completion, "Refining summary…");
+            try {
+                DevelopmentTurnCompletion refined = followup(completion, DevelopmentTurnOrigin.Kind.REFINE_SUMMARY, summaryPrompt(source.baseline(), current));
+                DevelopmentResultReport report = requireResult(refined);
+                checkState(report.readyForDelivery() && report.learningSummary().isPresent(), "The agent did not record the refined learning summary");
+                checkState(!changed(current, inspectLocal(source.baseline())), "Summary refinement changed the task's code or commits");
+                checkState(owns(completion), "Summary refinement was stopped");
+                accepted.replace(completion.task().id(), source,
+                        new Accepted(source.turnId(), source.baseline(), current, source.pendingDelivery(), source.publication(), source.remoteFailure()));
+            }
+            catch (RuntimeException failure) {
+                turnStore.list(completion.task().id()).stream()
+                            .filter(turn -> turn.state().terminal())
+                            .filter(turn -> turn.developmentOrigin().filter(origin -> origin.kind() == DevelopmentTurnOrigin.Kind.REFINE_SUMMARY
+                                    && origin.parentUserTurnId().equals(completion.turn().id())).isPresent())
+                            .filter(turn -> turn.developmentResult().flatMap(DevelopmentResultReport::learningSummary).isPresent())
+                            .forEach(turn -> turnStore.update(turn.withoutLearningSummary()));
+                throw new IllegalStateException("Refine summary: " + message(failure), failure);
+            }
+        }
+        if (!waitingForAnswer && owns(completion)
+                && turns.handoffDevelopmentContinuationToQueue(completion.task().id(), completion.turn().id())) {
+            return;
+        }
         if (owns(completion)) {
             turns.finishDevelopmentContinuation(completion.task().id(), completion.turn().id());
         }
+    }
+
+    static String summaryPrompt(DevelopmentBaseline baseline, DevelopmentLocalFacts local)
+    {
+        return """
+                ByteQuay · Refining summary
+                Refresh this development task's private Review & Learning cards from the final code and actual commits.
+                Worktree: %s. Branch: %s. Expected HEAD: %s. Frozen comparison base: %s.
+                Read the current diff and commit history, including any uncommitted changes; use the preceding work and
+                observed test/CI results to explain what was achieved and the evidence supporting it. Distinguish tests
+                actually executed from tests only inspected and externally reported CI. Do not invent verification.
+                This is a reporting-only follow-up. Do not edit files, create or rewrite commits, push, publish, run
+                repairs, release held work, or resolve a pending user decision. Preserve the task's existing question.
+                Call report_development_result with readyForDelivery=true and learningSummary containing purpose,
+                commits (one object per actual commit with full sha, title, and summary), combinedResult, evidence,
+                and limitations. Summarize the whole current task result, including how uncommitted work differs from
+                the commits. Do not write the summary into a worktree file. All text stays private to this task.
+                readyForDelivery here only confirms this summary was recorded; it does not authorize delivery of held work.
+                """.formatted(quote(baseline.worktree().canonicalWorktree().toString()), quote(baseline.route().headBranch()), local.headSha(), baseline.route().baseSha());
     }
 
     private boolean owns(DevelopmentTurnCompletion completion)
@@ -707,6 +777,6 @@ public class DevelopmentFollowupCoordinator
         return Optional.ofNullable(cause.getMessage()).filter(value -> !value.isBlank()).orElse(cause.getClass().getSimpleName());
     }
 
-    private record Accepted(TurnId turnId, DevelopmentBaseline baseline, boolean pendingDelivery,
+    private record Accepted(TurnId turnId, DevelopmentBaseline baseline, DevelopmentLocalFacts summaryBaseline, boolean pendingDelivery,
             Optional<DevelopmentPublicationFacts> publication, Optional<String> remoteFailure) {}
 }

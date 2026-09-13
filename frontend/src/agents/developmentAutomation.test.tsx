@@ -24,7 +24,7 @@ import contracts from './fixtures/agent-contracts-v1.json';
 import events from './fixtures/agent-events-v2.json';
 import WorkflowPage from '../settings/WorkflowPage';
 import { entryFor, matchesSearch, settingsLocationFromRoute, settingsRoute } from '../settings/routes';
-import type { AgentQueuedInputDto, AgentTaskDto, AgentTaskDefaultsDto, ModelProviderDto } from '../types';
+import type { AgentQueuedInputDto, AgentTaskDto, AgentTaskDefaultsDto, AgentTurnDto, ModelProviderDto } from '../types';
 import { NO_AGENT_CAPABILITIES } from './capabilities';
 import { AgentTaskBody } from './AgentTaskScreen';
 
@@ -89,6 +89,18 @@ describe('waiting for the user', () => {
     expect(developmentQuestion({ ...state, turn: { ...turn, state: 'RUNNING' } })).toBeNull();
     expect(developmentQuestion({ ...state, turn: { ...turn, developmentResult: { ...report, readyForDelivery: true } } })).toBeNull();
     expect(developmentQuestion({ ...state, task: { ...task, mutationClaim: { kind: 'TURN', ownerId: turn.id, acquiredAt: '' } } })).toBeNull();
+  });
+  it('keeps a pending decision after summary refinement and a local explanation', () => {
+    const refined = { ...turn, id: 'summary-turn', developmentOrigin: { kind: 'REFINE_SUMMARY' as const, parentUserTurnId: turn.id },
+      developmentResult: { readyForDelivery: true, message: 'Summary refreshed.' } };
+    expect(developmentQuestion({ ...state, turn: refined, latestTurnId: refined.id, turns: { [turn.id]: turn, [refined.id]: refined } })).toBe(report.message);
+    const explanation: AgentTurnDto = { ...turn, id: 'explanation-turn', developmentResult: null };
+    expect(developmentQuestion({ ...state, turn: explanation, latestTurnId: explanation.id,
+      turns: { [turn.id]: turn, [refined.id]: refined, [explanation.id]: explanation } })).toBe(report.message);
+    const commitQuestion: AgentTurnDto = { ...turn, id: 'auto-commit-question', createdAt: '2099-01-01T00:00:00Z',
+      developmentOrigin: { kind: 'AUTO_COMMIT', parentUserTurnId: turn.id }, developmentResult: { readyForDelivery: false, message: 'Which files should be committed?' } };
+    expect(developmentQuestion({ ...state, turn: refined, latestTurnId: refined.id,
+      turns: { [turn.id]: { ...turn, developmentResult: { readyForDelivery: true, message: null } }, [commitQuestion.id]: commitQuestion } })).toBe('Which files should be committed?');
   });
   it('renders the question before the composer without claiming publication', () => {
     const html = renderToStaticMarkup(<AgentTaskBody state={state} models={[]} onBack={() => {}} onSend={() => {}} onCancel={() => {}}

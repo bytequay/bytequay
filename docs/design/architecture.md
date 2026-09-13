@@ -1,13 +1,15 @@
 # ByteQuay Architecture
 
-Private development **Local review comments** use domain values and a storage
+Private development and PR-owned **Local review comments** use domain values and a storage
 port in `core`, one SQLite aggregate adapter in `persistence-sqlite`, and
 application orchestration/HTTP in `app`. Existing task turns and queued inputs
 deliver user discussion; their identities correlate the private card with the
 transcript. A fixed task-scoped bridge in `agent-spi`/`agent-cli` permits local
-agent replies and resolution without changing the development execution profile.
-Task, diff, and PR timeline surfaces render the same saved discussions through
-the shared review-card presentation. No GitHub comment is created by this path.
+agent replies and resolution without changing either task's execution profile.
+Task, diff, and **Review & Learning** surfaces render the same saved discussions
+through the shared review-card presentation. PR-owned report messages retain a
+run-scoped card identity for independent summary, commit, evidence, and finding
+discussions, and development PRs reuse that report workflow. No GitHub comment is created by this path.
 
 App-wide [managed agent skills](agent-skills.md) combine private packaged
 system guidance with user-added skills in the existing SQLite application-settings

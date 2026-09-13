@@ -32,6 +32,7 @@ import com.bytequay.agent.core.TurnState;
 import com.bytequay.agent.core.store.AgentTurnStore;
 import com.bytequay.agent.spi.AgentLaneId;
 import com.bytequay.agent.spi.AgentPermissionPolicy;
+import com.bytequay.agent.spi.DevelopmentLearningSummary;
 import com.bytequay.agent.spi.DevelopmentResultBridge;
 import com.bytequay.agent.spi.DevelopmentResultReport;
 import com.bytequay.agent.spi.ProviderTurnRef;
@@ -74,11 +75,13 @@ import java.util.concurrent.atomic.AtomicReference;
 
 import static com.bytequay.agent.core.DevelopmentTurnOrigin.Kind.AUTO_COMMIT;
 import static com.bytequay.agent.core.DevelopmentTurnOrigin.Kind.CREATE_DRAFT_PR;
+import static com.bytequay.agent.core.DevelopmentTurnOrigin.Kind.REFINE_SUMMARY;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyBoolean;
 import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.ArgumentMatchers.argThat;
 import static org.mockito.ArgumentMatchers.contains;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.clearInvocations;
@@ -132,6 +135,15 @@ class TestDevelopmentFollowupCoordinator
     {
         when(clock.instant()).thenReturn(NOW);
         when(turnStore.list(taskId)).thenAnswer(ignored -> ImmutableList.copyOf(history));
+        when(turnStore.update(any())).thenAnswer(call -> {
+            AgentTurn updated = call.getArgument(0);
+            for (int index = 0; index < history.size(); index++) {
+                if (history.get(index).id().equals(updated.id())) {
+                    history.set(index, updated);
+                }
+            }
+            return updated;
+        });
         when(turnStore.findActive(taskId)).thenAnswer(ignored -> history.stream()
                 .filter(turn -> turn.state() == TurnState.ACCEPTED || turn.state() == TurnState.RUNNING).findFirst());
         when(git.inspectPublication(worktree, route)).thenReturn(publication(Optional.empty(), Optional.empty()));
@@ -169,15 +181,44 @@ class TestDevelopmentFollowupCoordinator
 
     @ParameterizedTest
     @ValueSource(booleans = {true, false})
-    void questionSettlesBeforeInspectingDirtyOrCommittedWork(boolean dirty)
+    void questionRefinesChangedWorkWithoutReleasingDelivery(boolean dirty)
     {
         prepare(local(BASE, false), local(HEAD, dirty), FULL, false);
         advance();
         verify(turns).finishDevelopmentContinuation(taskId, source.id());
-        verify(git, never()).inspectLocal(any(), any());
+        verify(turns).startGeneratedTurn(eq(taskId), eq(origin(REFINE_SUMMARY)), anyString());
         verify(git, never()).inspectPublication(any(), any());
         verifyNoInteractions(ci, writes);
         noFollowup();
+    }
+
+    @Test
+    void localOnlyChangedWorkRefinesWithoutAReadinessReport()
+    {
+        prepare(local(BASE, false), local(HEAD, true), DevelopmentAutomation.LOCAL_ONLY, true);
+        AgentTurn noReport = AgentTurn.accepted(source.id(), taskId, source.idempotencyKey(), source.settings().orElseThrow(), NOW)
+                .markDeliveryStarted(NOW).running(new ProviderTurnRef("provider"), Optional.empty())
+                .finish(TurnState.COMPLETED, AgentMetrics.empty(), Optional.empty(), NOW);
+        history.set(history.size() - 1, noReport);
+        outcome = new DevelopmentTurnCompletion(task, noReport, true, Optional.empty());
+        advance();
+        verify(turns).reportDevelopmentProgress(taskId, source.id(), "Refining summary…");
+        verify(turns).startGeneratedTurn(eq(taskId), eq(origin(REFINE_SUMMARY)), contains("including any uncommitted changes"));
+        verify(turns).finishDevelopmentContinuation(taskId, source.id());
+        verify(turns, never()).failDevelopmentContinuation(any(), any(), anyString());
+        verifyNoInteractions(ci, writes);
+        noFollowup();
+    }
+
+    @Test
+    void refinementThatChangesCodeDiscardsOnlyItsCandidate()
+    {
+        prepare(local(BASE, false), local(HEAD, false), DevelopmentAutomation.LOCAL_ONLY, true);
+        generated(REFINE_SUMMARY, true, () -> when(git.inspectLocal(worktree, route)).thenReturn(local(NEXT, false)));
+        advance();
+        verify(turns).failDevelopmentContinuation(eq(taskId), eq(source.id()), contains("Summary refinement changed"));
+        assertThat(history.getLast().developmentResult().orElseThrow().learningSummary()).isEmpty();
+        assertThat(history.getLast().developmentResult().orElseThrow().readyForDelivery()).isTrue();
     }
 
     @Test
@@ -186,6 +227,7 @@ class TestDevelopmentFollowupCoordinator
         prepare(local(HEAD, true), local(HEAD, true), FULL, true);
         advance();
         noFollowup();
+        verify(turns, never()).startGeneratedTurn(eq(taskId), eq(origin(REFINE_SUMMARY)), anyString());
         verify(git, never()).inspectPublication(any(), any());
         verify(turns).finishDevelopmentContinuation(taskId, source.id());
     }
@@ -210,8 +252,26 @@ class TestDevelopmentFollowupCoordinator
         when(turns.handoffDevelopmentContinuationToQueue(taskId, source.id())).thenReturn(true);
         advance();
         noFollowup();
+        verify(turns, never()).startGeneratedTurn(eq(taskId), eq(origin(REFINE_SUMMARY)), anyString());
         verify(git, never()).inspectLocal(any(), any());
         verify(turns, never()).finishDevelopmentContinuation(taskId, source.id());
+    }
+
+    @Test
+    void localOnlyQueueCoalescesChangesIntoTheFinalSummary()
+    {
+        prepare(local(BASE, false), local(HEAD, true), DevelopmentAutomation.LOCAL_ONLY, true);
+        TurnId previous = source.id();
+        when(turns.handoffDevelopmentContinuationToQueue(taskId, previous)).thenAnswer(ignored -> {
+            prepare(local(HEAD, true), local(HEAD, true), DevelopmentAutomation.LOCAL_ONLY, true);
+            return true;
+        });
+        advance();
+        verify(turns, never()).startGeneratedTurn(eq(taskId), eq(new DevelopmentTurnOrigin(REFINE_SUMMARY, previous)), anyString());
+        advance();
+        verify(turns).startGeneratedTurn(eq(taskId), eq(origin(REFINE_SUMMARY)), anyString());
+        verify(turns).finishDevelopmentContinuation(taskId, source.id());
+        verifyNoInteractions(ci, writes);
     }
 
     @Test
@@ -1374,6 +1434,7 @@ class TestDevelopmentFollowupCoordinator
         outcome = new DevelopmentTurnCompletion(task, source, true, Optional.empty());
         when(turns.ownsDevelopmentContinuation(taskId, source.id())).thenReturn(true);
         when(git.inspectLocal(worktree, route)).thenReturn(after);
+        generated(REFINE_SUMMARY, true);
         clearInvocations(git);
     }
 
@@ -1385,7 +1446,7 @@ class TestDevelopmentFollowupCoordinator
     /** The provider turn the coordinator starts, with {@code duringTurn} standing in for the root agent's tool call. */
     private void generated(DevelopmentTurnOrigin.Kind kind, boolean ready, Runnable duringTurn)
     {
-        when(turns.startGeneratedTurn(eq(taskId), eq(origin(kind)), anyString())).thenAnswer(ignored -> {
+        doAnswer(ignored -> {
             // The generated turn is the active one while the agent works, which is when it may call
             // ByteQuay's tools; it settles only once that work is done.
             AgentTurn active = AgentTurn.accepted(TurnId.random(), taskId, "generated-" + kind, source.settings().orElseThrow(), NOW)
@@ -1393,11 +1454,15 @@ class TestDevelopmentFollowupCoordinator
                     .markDeliveryStarted(NOW).running(new ProviderTurnRef("generated-" + kind), Optional.empty());
             history.add(active);
             duringTurn.run();
-            AgentTurn generated = active.withDevelopmentResult(report(ready))
+            DevelopmentResultReport result = kind == REFINE_SUMMARY
+                    ? new DevelopmentResultReport(ready, Optional.empty(), Optional.of(new DevelopmentLearningSummary(
+                            "Current task changes", ImmutableList.of(), Optional.empty(), "Focused tests passed", ImmutableList.of())))
+                    : report(ready);
+            AgentTurn generated = active.withDevelopmentResult(result)
                     .finish(TurnState.COMPLETED, AgentMetrics.empty(), Optional.empty(), NOW);
             history.set(history.size() - 1, generated);
             return CompletableFuture.completedFuture(new DevelopmentTurnCompletion(task, generated, true, Optional.empty()));
-        });
+        }).when(turns).startGeneratedTurn(eq(taskId), eq(origin(kind)), anyString());
     }
 
     private void advance()
@@ -1408,7 +1473,7 @@ class TestDevelopmentFollowupCoordinator
 
     private void noFollowup()
     {
-        verify(turns, never()).startGeneratedTurn(any(), any(), anyString());
+        verify(turns, never()).startGeneratedTurn(any(), argThat(origin -> origin.kind() != REFINE_SUMMARY), anyString());
     }
 
     private AgentTurn running(DevelopmentAutomation automation)

@@ -17,6 +17,7 @@ import { projectTranscript, withApprovalAuthority } from '../../agents/transcrip
 import type { AgentEventEnvelope } from '../../agents/events';
 import type { AgentApprovalDecision, AgentPendingApprovalDto, AgentStreamConnectionState, AgentTurnDto, ModelOptionDto } from '../../types';
 import type { AgentReviewDto } from './contracts';
+import type { LocalReviewThreads } from '../local-review/types';
 import { reviewRecoveryRequired, reviewRunning } from './model';
 
 const EMPTY_HISTORY: ConversationHistory = { before: null, after: null, loading: false, onLoad: () => {}, onFollow: () => {} };
@@ -24,10 +25,12 @@ const EMPTY_HISTORY: ConversationHistory = { before: null, after: null, loading:
 /** Review owns its scoped actions; Tasks owns the shared conversation presentation. */
 export default function ReviewActivity({
   review, events, turns, models, pendingApprovals, now, composer, busy,
+  localReview,
   connection = 'open', history = EMPTY_HISTORY, lastSequence = events.at(-1)?.sequence ?? 0,
   onCompose, onSend, onSteer, onQueue, onStop, onDecide, onRemoveQueued,
 }: {
   review: AgentReviewDto;
+  localReview?: LocalReviewThreads;
   events: AgentEventEnvelope[];
   turns: Record<string, AgentTurnDto>;
   models: ModelOptionDto[];
@@ -62,9 +65,10 @@ export default function ReviewActivity({
   return (
     <AgentConversation
       turns={projected} durableTurns={turns} models={models} now={now} scroll={scroll}
+      localReview={localReview}
       connection={connection} running={running} activeTurn={review.activeTurn} waiting={waiting}
       activityChoice={activityChoice} turnChoice={turnChoice} pendingApprovals={pendingApprovals}
-      generatedTurnIds={new Set(review.byteQuayTurnIds)} label="Review activity"
+      generatedTurnIds={new Set(review.byteQuayTurnIds)} label="Review agent conversation"
       onToggleTurn={(id, open) => setTurnChoice(choices => ({ ...choices, [id]: open }))}
       onToggleActivity={(id, open) => setActivityChoice(choices => ({ ...choices, [id]: open }))}
       onDecide={onDecide}>

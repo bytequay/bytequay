@@ -52,7 +52,7 @@ it('renders persistent private review cards and safe diff anchors in Chromium', 
     const command = process.platform === 'linux' && !process.env.DISPLAY ? 'xvfb-run' : executable;
     const result = await promisify(execFile)(command, command === executable ? args : ['-a', executable, ...args], { env: environment, timeout: 20_000 });
     const results = JSON.parse(result.stdout.trim()) as { name: string; error?: string }[];
-    expect(results).toHaveLength(3);
+    expect(results).toHaveLength(6);
     expect(results.filter(result => result.error !== undefined)).toEqual([]);
   }
   finally { await rm(directory, { recursive: true, force: true }); }

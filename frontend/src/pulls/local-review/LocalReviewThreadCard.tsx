@@ -18,12 +18,13 @@ import MarkdownBody from '../MarkdownBody';
 import { ReviewThreadCard, ReviewThreadMessage } from '../ReviewThreadCard';
 import type { LocalReviewThreadActions, LocalReviewThreadDto } from './types';
 
-export default function LocalReviewThreadCard({ thread, onReply, onResolve, onRetry, disabledReason,
+export default function LocalReviewThreadCard({ thread, onReply, onResolve, onRetry, disabledReason: codeDisabledReason, learningDisabledReason,
   showCode = true, outdated = false }: LocalReviewThreadActions & {
   thread: LocalReviewThreadDto;
   showCode?: boolean;
   outdated?: boolean;
 }) {
+  const disabledReason = thread.learningAnchor != null && learningDisabledReason !== undefined ? learningDisabledReason : codeDisabledReason;
   const [replying, setReplying] = useState(false);
   const [body, setBody] = useState('');
   const [preview, setPreview] = useState(false);
@@ -61,7 +62,7 @@ export default function LocalReviewThreadCard({ thread, onReply, onResolve, onRe
       onKeyDown={event => {
         if ((event.metaKey || event.ctrlKey) && event.key === 'Enter') { event.preventDefault(); reply(); }
       }} />
-    <p className="pr-local-review__note">Private feedback. Requested changes are committed and pushed; draft PRs stay draft.</p>
+    <p className="pr-local-review__note">Private — only you and the agent. Questions and replies stay in this thread.</p>
     {error && <span className="pr-thread-reply__error" role="alert">{error}</span>}
     {disabledReason && <p className="pr-local-review__note" role="status">{disabledReason}</p>}
     <div className="pr-thread-reply__actions">
@@ -87,9 +88,15 @@ export default function LocalReviewThreadCard({ thread, onReply, onResolve, onRe
     <pre>{thread.code}</pre>
   </div> : undefined;
   return <ReviewThreadCard localId={thread.id} resolved={thread.resolved} outdated={outdated}
-    location={showCode ? <code className="pr-local-review__location" title={thread.path}>{thread.path}:{range}</code>
+    privateLabel={thread.learningAnchor == null ? undefined : 'Review & Learning · Private'}
+    location={thread.learningAnchor != null ? <span className="pr-local-review__location agr-learning-card__title">{thread.learningAnchor.title}</span>
+      : showCode ? <code className="pr-local-review__location" title={thread.path}>{thread.path}:{range}</code>
       : <span className="pr-local-review__location">Comment on {start === thread.line ? 'line' : 'lines'} <strong>{range}</strong></span>}
     code={snapshot} controls={controls}>
+    {thread.learningAnchor != null && <ReviewThreadMessage timestamp={thread.createdAt}
+      author={<><Avatar login="Agent" size={22} allowGitHubFallback={false} /><strong>Agent</strong><span>Summary at time of question</span></>}>
+      <MarkdownBody body={thread.learningAnchor.body} repository={thread.repo} />
+    </ReviewThreadMessage>}
     {thread.messages.map(message => <ReviewThreadMessage key={message.id} timestamp={message.createdAt}
       author={<><Avatar login={message.author === 'USER' ? 'You' : 'Agent'} size={22} allowGitHubFallback={false} />
         <strong>{message.author === 'USER' ? 'You' : 'Agent'}</strong></>}
@@ -109,5 +116,5 @@ export default function LocalReviewThreadCard({ thread, onReply, onResolve, onRe
 }
 
 export function localReviewMatchesRevision(thread: LocalReviewThreadDto, baseSha?: string, headSha?: string): boolean {
-  return thread.headSha !== null && thread.headSha === headSha && thread.baseSha === (baseSha ?? null);
+  return thread.learningAnchor == null && thread.headSha !== null && thread.headSha === headSha && thread.baseSha === (baseSha ?? null);
 }

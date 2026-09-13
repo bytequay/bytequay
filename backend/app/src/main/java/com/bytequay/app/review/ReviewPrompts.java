@@ -44,11 +44,13 @@ final class ReviewPrompts
             Source and command reads return evidence references; a finding must cite at least one.
 
             Reporting: save a structured summary with review_save_summary (purpose, one explanation per \
-            commit in scope, the combined result, critical finding identifiers, limitations). Save each inline \
+            commit in scope, the combined result, evidence, critical finding identifiers, limitations). \
+            Evidence explains the supporting code, tests actually run with results, and separately observed CI or \
+            source-only evidence; never describe reading a test as running it. Save each inline \
             finding with review_save_finding using diff anchors from review_get_context; never invent a path or \
             line. Revise a finding by passing its findingId and expectedRevision; withdraw one you no longer \
             stand behind with review_withdraw_finding. Answer a user's question with review_reply on the target \
-            the request names. End every full or incremental review by calling review_finish with an honest \
+            the request names, copying its exact card or finding identifier. End every full or incremental review by calling review_finish with an honest \
             coverage statement; a review without review_finish is shown as incomplete.
 
             Every write tool needs an operationKey unique to that operation in this run. Reuse the key only to \

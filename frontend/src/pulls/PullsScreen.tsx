@@ -23,12 +23,15 @@ import type { AgentReviewDto } from './agent-review/contracts';
 import { pendingDraftCount, reviewStatus } from './agent-review/model';
 import { useLocalReviewThreads } from './local-review/useLocalReviewThreads';
 import type { LocalReviewThreads } from './local-review/types';
-import PullChanges, { type CommitRange } from './PullChanges';
+import PullChanges, { type CommitRange, type DiffAgentComment } from './PullChanges';
 import PullOverview, { isQueued, mergePullRequestWriteDetail, remoteErrorMessage, type PullDetailUpdater } from './PullOverview';
 import PullRowItem, { PullRequestIcon } from './PullRowItem';
 import { mergePullRequestDetailStatus, usePullRequestDetail } from './usePullRequestDetail';
 import { pullRequestDiffRevision, usePullRequestChanges } from './usePullRequestChanges';
 import { useRecentTouch } from '../recent/useRecentTouch';
+import { workspaceReviewTaskRoute } from '../workspaces/model';
+import TaskPaneDivider, { useTaskPane } from '../agents/TaskPaneDivider';
+import '../css/review-tasks.css';
 import {
   PULL_TABS,
   reconcilePostedComment,
@@ -270,6 +273,7 @@ export default function PullsScreen({
   browserOpen = false,
   onSelectPullRequest,
   onClose,
+  reviewWorkspace,
 }: {
   initialPr?: { repo: string; number: number };
   /** Filter tab to open on (from the Home review card). */
@@ -281,8 +285,11 @@ export default function PullsScreen({
   onSelectPullRequest?: (reference: { repo: string; number: number }, mode: NavigationMode) => void;
   /** Opens only initialPr over the current page, without list reads or navigation. */
   onClose?: () => void;
+  reviewWorkspace?: { onBack: () => void; headerAction?: ReactNode };
 }) {
+  const singlePullRequest = onClose !== undefined || reviewWorkspace !== undefined;
   const overlay = onClose !== undefined;
+  const reviewPane = useTaskPane();
   const overlayRef = useRef<HTMLDivElement | null>(null);
   const [prs, setPrs] = useState<PullRequestDto[]>([]);
   const [viewerLogin, setViewerLogin] = useState<string | null>();
@@ -301,7 +308,7 @@ export default function PullsScreen({
   const [paneOpen, setPaneOpen] = useState(true);
   const [detailZoomed, setDetailZoomed] = useState(false);
   const [detailWidth, setDetailWidth] = useState(DETAIL_DEFAULT);
-  const [loading, setLoading] = useState(!overlay);
+  const [loading, setLoading] = useState(!singlePullRequest);
   const [syncing, setSyncing] = useState(false);
   const [loadingMore, setLoadingMore] = useState(false);
   const [page, setPage] = useState(0);
@@ -380,7 +387,7 @@ export default function PullsScreen({
   }, []);
 
   useEffect(() => {
-    if (overlay) return;
+    if (singlePullRequest) return;
     return window.bridge.onPullRequestsSynced(() => {
       const current = listContext.current;
       const request = ++listRequest.current;
@@ -388,7 +395,7 @@ export default function PullsScreen({
         .then(result => { if (request === listRequest.current) applyPage(result); })
         .catch(() => {});
     });
-  }, [applyPage, overlay]);
+  }, [applyPage, singlePullRequest]);
 
   useEffect(() => {
     const updateAttention = (event: Event) => {
@@ -443,7 +450,7 @@ export default function PullsScreen({
   }, [browserOpen, detailZoomed, onClose, overlay]);
 
   useEffect(() => {
-    if (overlay) return;
+    if (singlePullRequest) return;
     const request = ++listRequest.current;
     setLoading(true);
     setError(null);
@@ -461,7 +468,7 @@ export default function PullsScreen({
       .finally(() => {
         if (request === listRequest.current) setLoading(false);
       });
-  }, [applyPage, overlay, query, repositoryScope?.workspaceId]);
+  }, [applyPage, singlePullRequest, query, repositoryScope?.workspaceId]);
 
   useEffect(() => {
     const timeout = window.setTimeout(() => setQuery(search.trim()), 250);
@@ -485,7 +492,7 @@ export default function PullsScreen({
   // Capture phase: on this screen Command-F belongs to the list search, and
   // the window-level find bar would otherwise open on top of it.
   useEffect(() => {
-    if (overlay) return;
+    if (singlePullRequest) return;
     const handleKeyDown = (event: KeyboardEvent) => {
       if (isFindShortcut(event)) {
         event.preventDefault();
@@ -500,7 +507,7 @@ export default function PullsScreen({
     };
     window.addEventListener('keydown', handleKeyDown, true);
     return () => window.removeEventListener('keydown', handleKeyDown, true);
-  }, [overlay, selectTab]);
+  }, [singlePullRequest, selectTab]);
 
   const loadMore = useCallback(async () => {
     if (!hasMore || loadingMoreRequest.current) return;
@@ -577,7 +584,7 @@ export default function PullsScreen({
     () => PULL_TABS.map(item => `${rowsForTab(prs, item.key, viewerLogin).length}${hasMore ? '+' : ''}`),
     [hasMore, prs, viewerLogin],
   );
-  const visibleSelected = overlay ? selected : visibleSelectedId(rows, selected);
+  const visibleSelected = singlePullRequest ? selected : visibleSelectedId(rows, selected);
   const selectedPr = prs.find(pr => pr.id === visibleSelected) ?? null;
   const selectedPrId = selectedPr?.id;
   const selectedPrNumber = selectedPr?.number;
@@ -587,7 +594,7 @@ export default function PullsScreen({
     : { id: selectedPr.id, key: `${selectedPr.repo.toLowerCase()}#${selectedPr.number}` };
 
   useEffect(() => {
-    if (overlay) return;
+    if (singlePullRequest) return;
     if (selectedPrId === undefined || selectedPrNumber === undefined || selectedPrRepo === undefined) return;
     const selectedKey = `${selectedPrRepo.toLowerCase()}#${selectedPrNumber}`;
     if (routingInitialPr.current !== null) {
@@ -599,7 +606,7 @@ export default function PullsScreen({
       return;
     }
     onSelectPullRequest?.({ repo: selectedPrRepo, number: selectedPrNumber }, 'replace');
-  }, [onSelectPullRequest, overlay, selected, selectedPrId, selectedPrNumber, selectedPrRepo]);
+  }, [onSelectPullRequest, singlePullRequest, selected, selectedPrId, selectedPrNumber, selectedPrRepo]);
 
   const localReview = useLocalReviewThreads(selectedPr === null ? null : {
     repo: selectedPr.repo, number: selectedPr.number, workspaceId: repositoryScope?.workspaceId,
@@ -741,7 +748,7 @@ export default function PullsScreen({
         || selectedPullRequest.current?.key !== selectedKey) return;
     refreshChanges();
     setPendingReviewComments([]);
-    if (overlay || listVersion !== listRequest.current) return;
+    if (singlePullRequest || listVersion !== listRequest.current) return;
     try {
       const result = await window.bridge.fetchPrs(repositoryScope?.workspaceId, 0, PAGE_SIZE, query);
       if (request === manualDetailRefreshRequest.current
@@ -754,7 +761,7 @@ export default function PullsScreen({
           && selectedPullRequest.current?.key === selectedKey
           && listVersion === listRequest.current) setError(remoteErrorMessage(failure));
     }
-  }, [applyPage, detailLoading, overlay, query, refreshChanges, refreshDetail, repositoryScope?.workspaceId, selectedPr]);
+  }, [applyPage, detailLoading, singlePullRequest, query, refreshChanges, refreshDetail, repositoryScope?.workspaceId, selectedPr]);
 
   const applyPostedDetail = useCallback((value: PullRequestDetailDto, kind: 'discussion' | 'review') => {
     const current = selectedPullRequest.current;
@@ -821,14 +828,14 @@ export default function PullsScreen({
   const paneShown = paneOpen && selectedPr !== null;
 
   return (
-    <div className={`pulls-page${overlay ? ' pulls-page--overlay' : ''}`}
+    <div className={`pulls-page${overlay ? ' pulls-page--overlay' : ''}${reviewWorkspace === undefined ? '' : ' pulls-page--review-workspace'}`}
       ref={overlayRef}
       role={overlay ? 'dialog' : undefined}
       aria-modal={overlay ? true : undefined}
       aria-label={overlay ? `Pull request ${initialPr?.repo} #${initialPr?.number}` : undefined}
       tabIndex={overlay ? -1 : undefined}
       onMouseDown={event => { if (overlay && event.target === event.currentTarget) onClose?.(); }}>
-      {!overlay && <section className="pulls-list">
+      {!singlePullRequest && <section className="pulls-list">
         <header className="pulls-toolbar" ref={toolbar}>
           <PullFilterTabs
             tab={tab}
@@ -915,8 +922,26 @@ export default function PullsScreen({
         </div>
       </section>}
 
-      {overlay && selectedPr === null && (
-        <section className="pull-detail is-zoomed">
+      {reviewWorkspace !== undefined && <section className="agr-workspace-conversation" aria-label="Review agent conversation">
+        <header className="agt-screen-head">
+          <button type="button" className="agt-back" aria-label="Back to tasks" onClick={reviewWorkspace.onBack}>‹ Tasks</button>
+          <strong>{selectedPr?.title ?? 'Review & Learning'}</strong>
+          <span className="agt-spacer" />{reviewWorkspace.headerAction}
+        </header>
+        {detail !== null && review !== null ? <AgentReviewTab detail={detail} workspaceId={workspaceId} viewer={viewer}
+          review={review} onReviewChange={updateReview} mode="conversation" localReview={localReview}
+          focusFindingId={null} onNavigateToChanges={target => { setReviewNavigation(target); setDetailTab('changes'); }} />
+          : <div className="agt-panel__empty" role={reviewError === null ? 'status' : 'alert'}>
+            {reviewError ?? 'Loading review conversation…'}
+            {reviewError !== null && <button type="button" className="agt-action" onClick={() => setReviewReload(value => value + 1)}>Retry</button>}
+          </div>}
+      </section>}
+
+      {reviewWorkspace !== undefined && <TaskPaneDivider pane={reviewPane} />}
+
+      {singlePullRequest && selectedPr === null && (
+        <section className={`pull-detail${overlay ? ' is-zoomed' : ''}${reviewWorkspace === undefined ? '' : ' agt-panel'}`}
+          style={reviewWorkspace === undefined ? undefined : { width: reviewPane.width }}>
           <header className="pull-detail__header pull-detail__header--tabs">
             <div className="pull-detail__toolbar">
               <span>{initialPr?.repo} #{initialPr?.number}</span>
@@ -934,10 +959,10 @@ export default function PullsScreen({
       )}
 
       {paneShown && selectedPr !== null && (
-        <section className={`pull-detail${detailZoomed || overlay ? ' is-zoomed' : ''}`}
-          style={detailZoomed || overlay ? undefined : { width: detailWidth }}>
-          <div className="pull-detail__resize" role="separator" aria-orientation="vertical"
-            aria-label="Resize pull request panes" onMouseDown={resizeDetail} title="Drag to resize" />
+        <section className={`pull-detail${detailZoomed || overlay ? ' is-zoomed' : reviewWorkspace === undefined ? '' : ' agt-panel'}`}
+          style={detailZoomed || overlay ? undefined : { width: reviewWorkspace === undefined ? detailWidth : reviewPane.width }}>
+          {reviewWorkspace === undefined && <div className="pull-detail__resize" role="separator" aria-orientation="vertical"
+            aria-label="Resize pull request panes" onMouseDown={resizeDetail} title="Drag to resize" />}
           <PullDetailHeader
             pr={selectedPr}
             detail={detail}
@@ -985,6 +1010,16 @@ export default function PullsScreen({
               reviewNavigation={reviewNavigation}
               focusFindingId={focusFindingId}
               onReviewChange={updateReview}
+              onOpenWorkspace={review === null || reviewWorkspace !== undefined ? undefined : () => {
+                onClose?.();
+                window.location.hash = workspaceReviewTaskRoute(review.workspaceId, review.id);
+              }}
+              onAskAgent={review?.state !== 'OPEN' ? undefined : async comment => {
+                const current = await window.bridge.getAgentReview(review.id);
+                await localReview.create(comment, { taskId: current.task.id, workspaceId: current.workspaceId,
+                  repo: current.repo, number: current.number, expectedTaskVersion: current.task.version });
+                updateReview(await window.bridge.getAgentReview(review.id));
+              }}
               onNavigateToChanges={target => {
                 setReviewNavigation(target);
                 setFocusFindingId(null);
@@ -1161,19 +1196,20 @@ export function PullDetailHeader({
             <span className="pull-detail__change-count is-addition">+{detail?.additions ?? pr.additions}</span>
             <span className="pull-detail__change-count is-deletion">−{detail?.deletions ?? pr.deletions}</span>
           </button>
-          {agentTab === undefined ? <button
+          <button
             className={tab === 'review' ? 'is-active' : ''}
             type="button"
             aria-pressed={tab === 'review'}
             onClick={() => onTab('review')}>
-            <CommentIcon /> Agent review
+            <CommentIcon /> Review &amp; Learning
             {reviewChip?.chip != null && (
               <span className={`pull-detail__review-chip is-${reviewChip.tone}`}>
                 {reviewChip.busy && <span className="agr-spinner" aria-hidden="true" />}
                 {reviewChip.chip}
               </span>
             )}
-          </button> : agentTab}
+          </button>
+          {agentTab}
         </nav>
         <div className="pull-detail__header-actions">
           {onClose ? <button className="pull-detail__icon-action" type="button"
@@ -1573,6 +1609,8 @@ function DetailBody({
   reviewNavigation,
   focusFindingId,
   onReviewChange,
+  onOpenWorkspace,
+  onAskAgent,
   onNavigateToChanges,
   onOpenInReview,
   diffs,
@@ -1598,6 +1636,8 @@ function DetailBody({
   reviewNavigation: ReviewNavigationTarget | null;
   focusFindingId: string | null;
   onReviewChange: (review: AgentReviewDto) => void;
+  onOpenWorkspace?: () => void;
+  onAskAgent?: (comment: DiffAgentComment) => Promise<void>;
   onNavigateToChanges: (target: ReviewNavigationTarget) => void;
   onOpenInReview: (findingId: string) => void;
   diffs: DiffFileDto[] | null;
@@ -1621,6 +1661,8 @@ function DetailBody({
       viewer={viewer}
       review={review}
       onReviewChange={onReviewChange}
+      localReview={localReview}
+      onOpenWorkspace={onOpenWorkspace}
       onNavigateToChanges={onNavigateToChanges}
       focusFindingId={focusFindingId}
     /></div>;
@@ -1629,6 +1671,7 @@ function DetailBody({
     if (diffs === null) return <div className="hp-loading">Loading files…</div>;
     return <div className="pull-detail__body pull-detail__changes"><PullChanges
       localReview={localReview}
+      onAskAgent={onAskAgent}
       repo={detail.repo}
       number={detail.number}
       workspaceId={contributorsWorkspaceId}

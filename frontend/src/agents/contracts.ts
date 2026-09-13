@@ -364,9 +364,20 @@ export function parseAgentTurnSettings(value: unknown, path = 'effectiveSettings
 
 export function parseDevelopmentResult(value: unknown, path = 'developmentResult'): DevelopmentResultDto {
   const source = object(value, path);
+  const summary = source.learningSummary == null ? null : object(source.learningSummary, `${path}.learningSummary`);
   return {
     readyForDelivery: flag(source.readyForDelivery, `${path}.readyForDelivery`),
     message: optionalText(source.message, `${path}.message`),
+    ...(source.learningSummary === undefined ? {} : { learningSummary: summary === null ? null : {
+      purpose: text(summary.purpose, `${path}.learningSummary.purpose`),
+      commits: list(summary.commits, `${path}.learningSummary.commits`).map((value, index) => {
+        const commit = object(value, `${path}.learningSummary.commits[${index}]`);
+        return { sha: text(commit.sha, 'commit.sha'), title: text(commit.title, 'commit.title'), summary: text(commit.summary, 'commit.summary') };
+      }),
+      combinedResult: optionalText(summary.combinedResult, `${path}.learningSummary.combinedResult`),
+      evidence: text(summary.evidence, `${path}.learningSummary.evidence`),
+      limitations: textList(summary.limitations, `${path}.learningSummary.limitations`),
+    } }),
   };
 }
 
@@ -377,7 +388,7 @@ export function parseAgentTurn(value: unknown, path = 'turn'): AgentTurnDto {
     id: text(source.id, `${path}.id`),
     taskId: text(source.taskId, `${path}.taskId`),
     developmentOrigin: origin === null ? null : {
-      kind: enumText(origin.kind, ['AUTO_COMMIT', 'CREATE_DRAFT_PR'] as const, `${path}.developmentOrigin.kind`),
+      kind: enumText(origin.kind, ['AUTO_COMMIT', 'CREATE_DRAFT_PR', 'REFINE_SUMMARY'] as const, `${path}.developmentOrigin.kind`),
       parentUserTurnId: text(origin.parentUserTurnId, `${path}.developmentOrigin.parentUserTurnId`),
     },
     ...(source.developmentResult === undefined ? {} : { developmentResult: source.developmentResult === null ? null : parseDevelopmentResult(source.developmentResult, `${path}.developmentResult`) }),

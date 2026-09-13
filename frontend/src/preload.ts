@@ -278,6 +278,8 @@ const bridge: Bridge = {
   readAgentHistory: (taskId, before, after) => ipcRenderer.invoke('agent:history:read', taskId, before, after),
   readAgentPendingApprovals: (taskId, turnId) => ipcRenderer.invoke('agent:approvals:pending', taskId, turnId),
   listLocalReviewComments: query => ipcRenderer.invoke('agent:local-review:list', query),
+  getDevelopmentLearning: (taskId, workspaceId) => ipcRenderer.invoke('agent:learning:get', taskId, workspaceId),
+  createDevelopmentLearningComment: request => ipcRenderer.invoke('agent:learning:comment', request),
   createLocalReviewComment: request => ipcRenderer.invoke('agent:local-review:create', request),
   replyLocalReviewComment: request => ipcRenderer.invoke('agent:local-review:reply', request),
   resolveLocalReviewComment: request => ipcRenderer.invoke('agent:local-review:resolve', request),
@@ -324,8 +326,8 @@ const bridge: Bridge = {
   resumeAgentReview: reviewId => ipcRenderer.invoke('review:resume', reviewId),
   updateAgentReview: reviewId => ipcRenderer.invoke('review:update', reviewId),
   endAgentReview: reviewId => ipcRenderer.invoke('review:end', reviewId),
-  askAgentReview: (reviewId, findingId, targetRevision, message) =>
-    ipcRenderer.invoke('review:ask', reviewId, findingId, targetRevision, message),
+  askAgentReview: (reviewId, findingId, targetRevision, message, cardId) =>
+    ipcRenderer.invoke('review:ask', reviewId, findingId, targetRevision, message, cardId),
   messageAgentReview: (reviewId, message, delivery, idempotencyKey) =>
     ipcRenderer.invoke('review:message', reviewId, message, delivery, idempotencyKey),
   removeAgentReviewQueued: (reviewId, queuedInputId) => ipcRenderer.invoke('review:queue:remove', reviewId, queuedInputId),

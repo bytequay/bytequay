@@ -68,7 +68,9 @@ public class LocalReviewBridgeResolverImpl
                     .findFirst()
                     .orElseThrow(() -> new IllegalArgumentException("Local review comment does not belong to this task"));
             ObjectNode result = anchor(thread);
-            excerpt(result, "code", thread.code(), 4000);
+            if (thread.learningAnchor().isEmpty()) {
+                excerpt(result, "code", thread.code(), 4000);
+            }
             ArrayNode messages = result.putArray("messages");
             result.put("omittedMessageCount", thread.messages().size());
             // Add newest messages first for the budget, but return the retained conversation in time order.
@@ -109,19 +111,23 @@ public class LocalReviewBridgeResolverImpl
 
     private ObjectNode anchor(LocalReviewView thread)
     {
-        return objectMapper.createObjectNode()
+        ObjectNode result = objectMapper.createObjectNode()
                 .put("id", thread.id())
                 .put("repo", thread.repo())
-                .put("number", thread.number())
-                .put("path", thread.path())
-                .put("side", thread.side())
-                .put("startLine", thread.startLine())
-                .put("line", thread.line())
-                .put("baseSha", thread.baseSha().orElse(null))
-                .put("headSha", thread.headSha().orElse(null))
                 .put("resolved", thread.resolved())
                 .put("version", thread.version())
                 .put("updatedAt", thread.updatedAt().toString());
+        if (thread.learningAnchor().isPresent()) {
+            var anchor = thread.learningAnchor().orElseThrow();
+            ObjectNode learning = result.putObject("learningAnchor").put("turnId", anchor.turnId()).put("cardId", anchor.cardId()).put("title", anchor.title());
+            excerpt(learning, "body", anchor.body(), 4000);
+        }
+        else {
+            result.put("number", thread.number()).put("path", thread.path()).put("side", thread.side())
+                    .put("startLine", thread.startLine()).put("line", thread.line())
+                    .put("baseSha", thread.baseSha().orElse(null)).put("headSha", thread.headSha().orElse(null));
+        }
+        return result;
     }
 
     private ObjectNode message(LocalReviewView.Message message, int limit)

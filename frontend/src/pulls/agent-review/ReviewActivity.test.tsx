@@ -30,6 +30,22 @@ const render = (overrides: Partial<typeof props> = {}) => renderToStaticMarkup(<
 const liveLine = (overrides: Partial<typeof props> = {}) => render(overrides).match(/<div class="agt-live"[^]*?<\/div>/)?.[0];
 
 describe('the unified review conversation', () => {
+  it('renders saved local discussions in place of their generated context prompt', () => {
+    const first = events[0];
+    const html = render({ localReview: {
+      threads: [{ id: 'local-review', taskId: props.review.task.id, taskVersion: 1, workspaceId: props.review.workspaceId,
+        repo: props.review.repo, number: props.review.number, path: 'src/Example.java', side: 'RIGHT', startLine: null,
+        line: 2, baseSha: null, headSha: null, code: 'return value;', resolved: false, version: 1,
+        createdAt: first.occurredAt, updatedAt: first.occurredAt,
+        messages: [{ id: 'question', author: 'USER', body: 'Explain this return value', createdAt: first.occurredAt,
+          turnId: first.turnId, queuedInputId: null, messageEventId: first.eventId, deliveryState: 'COMPLETED', deliveryError: null }] }],
+      onReply: async () => {}, onResolve: async () => {}, onRetry: async () => {},
+    } });
+    expect(html).toContain('data-local-review-thread="local-review"');
+    expect(html).toContain('Explain this return value');
+    expect(html).not.toContain('Review the authentication change');
+  });
+
   it('uses the task live status for thinking, commands, reconnect, approval and completion', () => {
     expect(liveLine()).toContain('>Thinking</span>');
     const command = events.find(event => event.type === 'command');

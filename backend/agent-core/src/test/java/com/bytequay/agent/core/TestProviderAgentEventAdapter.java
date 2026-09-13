@@ -13,6 +13,7 @@
  */
 package com.bytequay.agent.core;
 
+import com.bytequay.agent.spi.DevelopmentLearningSummary;
 import com.bytequay.agent.spi.DevelopmentResultReport;
 import com.bytequay.agent.spi.ProviderAgentEvent;
 import com.bytequay.agent.spi.ProviderAgentEventSource;
@@ -33,11 +34,13 @@ class TestProviderAgentEventAdapter
                 Optional.of("root-thread"), Optional.empty(), Optional.of("/"), Optional.of("turn-1"), Optional.of("report-1"));
         ProviderAgentEvent.DevelopmentResult result = new ProviderAgentEvent.DevelopmentResult(
                 Optional.of("event-1"), Optional.empty(),
-                new DevelopmentResultReport(false, Optional.of("Which approach?")), source);
+                new DevelopmentResultReport(false, Optional.of("Which approach?"),
+                        Optional.of(new DevelopmentLearningSummary("Purpose", ImmutableList.of(), Optional.empty(), "Tests", ImmutableList.of()))), source);
 
         ProviderAgentEventAdapter.CanonicalEvent canonical = ProviderAgentEventAdapter.adapt(result);
 
         assertThat(canonical.payload()).isEqualTo(new AgentEventPayload.DevelopmentResult(result.report()));
+        assertThat(((AgentEventPayload.DevelopmentResult) canonical.payload()).learningSummary()).isEqualTo(result.report().learningSummary());
         assertThat(canonical.source().providerTurnId()).contains("turn-1");
         assertThat(canonical.source().providerItemId()).contains("report-1");
         assertThat(canonical.source().logicalAgentPath()).contains("/");

@@ -1,6 +1,6 @@
 # Agent Review
 
-Status: locked initial design; implementation is not implied. Changes to the
+This is the canonical design for the PR-owned Review & Learning workflow. Changes to the
 product boundary or the invariants below require explicit approval. Delivery
 and verification belong in [the implementation checklist](agent-review-impl-tmp.md),
 not in this document. Keep this document as final design content, without a
@@ -31,22 +31,39 @@ or restoration of deleted task/development-flow systems.
 
 ## 2. UI placement and reuse
 
-Keep the existing three-column shell: navigation, PR list, and right-hand PR
-content pane. Add **Agent review** beside **PR #number** and **Changes** in
-that pane's existing top navigation. Do not add a permanent fourth column or
-insert the agent summary into the GitHub description/timeline.
+The PR list and development task PR pane both expose **Review & Learning**
+beside **PR #number** and **Changes**. The tab shows independent private cards
+for what the PR does, each commit's implementation, the combined result,
+evidence and tests, critical issues, coverage and limitations, and findings.
+Each card has its own discussion and uses the same review-card presentation
+as [Local review comments](agent-service.md#local-review-comments).
+The tab also collects local comments for this PR across development and review
+tasks. Changes retains the same selected-line/range composer and saved threads.
 
-The tab can append a compact derived status, for example **Agent review ·
-Running**. Inside it, provide two views:
+The tab can append a compact derived status, such as **Running**. It has no
+**Summary & comments** or **Activity** subtab. **View in workspace** opens the
+exact review task with the existing navigation, its agent conversation on the
+left, and the PR pane on the right. That conversation reuses task transcript,
+approval, queue, steering and composer controls. Review routes preserve their
+own ownership checks; they do not become interactive development task routes.
+Opening and closing these views never starts or cancels execution.
 
-- **Summary & comments**, the default: plain-language summary, its discussion,
-  then the local finding cards and their individual discussions.
-- **Activity**: the existing agent transcript presentation, progress, tools,
-  command/test output, approvals, errors, and task input controls.
+In PR browsing, keep **Start review** and its existing scope/provider checks.
+Development tasks maintain their own learning report through a dedicated
+**Refine summary** turn after successful work changes code or commits, using
+the existing [development follow-up](development-delivery.md) coordinator.
+Their tab is available before a PR exists and shows the overview, individual
+commit explanations, combined result, evidence/tests, and limitations without
+requiring a separate review task. **Refining summary…** appears in task activity.
+The report is stored with the generated turn and read independently of the
+conversation retention window. Unchanged turns do not regenerate it.
+Questions use the existing private local-discussion service with an explicit
+learning-card anchor containing the source turn, card identity, and immutable
+text snapshot. Refreshes preserve earlier discussions and their source version.
+Existing PR-owned findings remain visible when a separate review exists.
+Reviews run in the backend and populate cards as structured results arrive.
 
-The original PR view shows GitHub data and explicitly marked private
-[development Local review comments](agent-service.md#local-review-comments).
-Agent Review findings remain in this workflow's own tab. Changes shows local
+The original PR view continues to show GitHub data. Changes shows local
 findings at their validated diff locations. A finding there and its card in
 Agent review are projections of the same finding ID and discussion; neither
 copies the other's state. **View in Changes** opens the exact file/range and
@@ -72,10 +89,11 @@ open and ended reviews. Group reviews by their local calendar start date into
 **Today**, **Yesterday**, **Recent 7 days**, **Recent 30 days**, and **Older**.
 Each review appears once, empty groups are hidden, and rows are newest first.
 A row names the pull request by number and stored title beside its state icon.
-Opening a row selects the exact review ID in the existing
-PR-owned Agent review pane, including an ended review when a newer review exists
-for the same PR. This is workspace navigation; review ownership and controls stay
-in the PR workflow. Interactive task routes remain restricted to interactive tasks.
+Opening a row selects the exact review ID in the PR pane, including an ended
+review when a newer review exists for the same PR. A separate workspace icon
+opens its conversation and PR together at
+`/workspaces/:workspaceId/tasks/review/:reviewId`. Review ownership and controls
+stay in the PR workflow. Interactive task routes remain restricted to interactive tasks.
 
 `GET /api/agent-review?workspaceId=...` reads those reviews from local storage in
 descending update order, with review ID as the stable ascending tie-breaker. It
@@ -138,9 +156,9 @@ this is not a second task engine:
 | --- | --- |
 | Review | Workspace and logical PR identity, physical repository/head-branch identity, agent task ID, latest completed run, latest observed remote head, follow-up execution enabled/paused, optimistic version, explicit closure |
 | Run | Review ID, full/incremental scope, frozen base tip and merge base, head SHA, prior successful reviewed head if any, prompt version, turn IDs, accepted result/coverage, terminal outcome and limitations |
-| Summary | Run ID, revision, purpose, actual commit explanations, combined result, critical finding references, limitations |
+| Summary | Run ID, revision, purpose, actual commit explanations, combined result, evidence/tests, critical finding references, limitations |
 | Finding | Stable ID, source run, immutable anchor mapping, title/body, evidence references, current revision, local resolution/withdrawal and reason, revalidation result for later runs |
-| Discussion message | Stable ID, review and summary/finding target, author, body, target revision/run, correlated task input/turn or reply, delivery outcome |
+| Discussion message | Stable ID, review and summary-card/finding target, author, body, target revision/run, correlated task input/turn or reply, delivery outcome |
 | Outgoing draft/publication | PR/account-owned draft usable without Agent Review; stable item ID, MANUAL or AGENT_FINDING source, optional finding ID/revision, frozen location, user-editable body/version, inclusion, review body/event, exact publication attempt/payload and returned remote identities |
 
 These are logical records, not a mandate for one table per row. Reuse existing
@@ -400,6 +418,8 @@ The summary contains:
 - what the PR is trying to achieve, in simple words;
 - a short explanation of each actual commit, using IDs from the frozen scope;
 - what the combined change achieves;
+- supporting evidence and tests, distinguishing executed checks from source
+  inspection or reported CI evidence and naming any execution limits;
 - critical issues linked to accepted finding IDs, or an explicit none found;
 - relevant limitations, omitted scope, and test/evidence qualifications.
 
@@ -432,12 +452,20 @@ limitation; a skipped essential diff is incomplete coverage.
 
 ## 7. Discussion and progress
 
-**Ask agent** includes the selected summary/finding identity and revision,
+**Ask agent** includes the selected summary-card/finding identity and revision,
 reviewed code version, user message, and relevant discussion context. It does
 not dump every PR comment into every prompt. Idle input starts a turn; busy
 input goes into the existing durable queue with a visible queued status.
 Route answers back to the selected discussion through `review_reply`; do not
 guess a target from prose or scatter one final response across all cards.
+
+Summary card identities include the run ID and a fixed target: `purpose`,
+`commit:<full-sha>`, `combined-result`, `critical-issues`, `coverage`,
+`limitations`, or `evidence`. Validate both the run's review ownership and the
+selected commit before accepting input. Persist this target with the message
+and carry it through the existing reply tool, so one commit's discussion never
+appears in another card or run. Existing unscoped summary discussion belongs
+to the PR-purpose card for its recorded run.
 
 **Steer now** sends guidance to the matching active turn only when supported.
 **Run next** queues a later turn. Preserve existing failure/uncertain-delivery
@@ -635,13 +663,13 @@ this is ByteQuay's design.
 Copy the following prompt into the UI-design task. Supply the current PR
 details screenshot and access to the current frontend when available.
 
-> Design the Agent review tab for ByteQuay, a macOS desktop app. This is a
+> Design the Review & Learning tab for ByteQuay, a macOS desktop app. This is a
 > design/prototype task, not backend implementation. Follow
 > `docs/design/agent-review.md`; do not change its product behavior.
 >
 > Preserve the existing shell: left navigation, middle PR list, and the
-> right-hand PR pane. Add Agent review beside PR #number and Changes in that
-> pane's current top navigation. Its running label is Agent review · Running.
+> right-hand PR pane. Add Review & Learning beside PR #number and Changes in
+> both the PR list and development task PR pane. Append the derived run status.
 > Do not add a fourth column or put the summary into the GitHub timeline.
 >
 > The existing PR details page is the visual source of truth. Inspect and
@@ -655,16 +683,18 @@ details screenshot and access to the current frontend when available.
 > do not introduce a review-only dark theme. If source is unavailable, use the
 > screenshot and explicitly list assumptions instead of claiming code reuse.
 >
-> Inside Agent review, show Summary & comments by default and Activity as the
-> alternate view. The summary explains the PR's purpose, each actual commit,
-> combined result, critical issues and limitations in simple language. Put
-> its private Ask agent discussion directly with it. Below, reuse review
+> Review & Learning uses independent private cards for the PR's purpose, each
+> actual commit, combined result, evidence and tests, critical issues, coverage
+> and limitations. Put each card's own Ask agent discussion directly with it.
+> Collect local user comments from both development and review tasks. Reuse review
 > comment cards with file/line or range, evidence, private replies, Ask agent,
 > Resolve locally, Add to my review and Post comment now. View in Changes
 > opens the same finding at its diff location; both views share one thread.
 > Do not make users approve the summary before opening findings.
 >
-> Activity reuses the existing task transcript: ByteQuay's initial review
+> A View in workspace icon opens the exact review with its conversation on the
+> left and the PR pane on the right. No Activity subtab remains in the PR page.
+> The conversation reuses the existing task transcript: ByteQuay's initial review
 > request, agent messages, folded tools/commands/output, approvals and errors.
 > Show compact truthful status and elapsed time, with Stop and supported
 > Steer/Run next controls. Ask agent starts a turn when idle and visibly queues

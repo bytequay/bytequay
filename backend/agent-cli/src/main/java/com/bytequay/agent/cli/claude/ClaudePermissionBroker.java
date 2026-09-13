@@ -233,7 +233,7 @@ public final class ClaudePermissionBroker
         requireNonNull(codeGraph, "codeGraph is null");
         Optional<ReviewBridge> review = reviews.resolve(taskId);
         Optional<DevelopmentResultBridge> development = textOnly || review.isPresent() ? Optional.empty() : developments.resolve(taskId);
-        Optional<LocalReviewBridge> localReview = textOnly || review.isPresent() ? Optional.empty() : localReviews.resolve(taskId);
+        Optional<LocalReviewBridge> localReview = textOnly ? Optional.empty() : localReviews.resolve(taskId);
         Optional<PullRequestCiBridge> pullRequestCi = permissionPolicy.allowsGitHubCommands(textOnly, review.isPresent())
                 ? pullRequestChecks.resolve(taskId) : Optional.empty();
         contexts.put(token, new PermissionContext(
@@ -291,7 +291,7 @@ public final class ClaudePermissionBroker
         requireNonNull(codeGraph, "codeGraph is null");
         Optional<ReviewBridge> review = reviews.resolve(taskId);
         Optional<DevelopmentResultBridge> development = review.isPresent() ? Optional.empty() : developments.resolve(taskId);
-        Optional<LocalReviewBridge> localReview = review.isPresent() ? Optional.empty() : localReviews.resolve(taskId);
+        Optional<LocalReviewBridge> localReview = localReviews.resolve(taskId);
         Optional<PullRequestCiBridge> pullRequestCi = permissionPolicy.allowsGitHubCommands(false, review.isPresent())
                 ? pullRequestChecks.resolve(taskId) : Optional.empty();
         if (permissionPolicy != AgentPermissionPolicy.CI_AUTOFIX
@@ -484,9 +484,8 @@ public final class ClaudePermissionBroker
             return error(id, -32602, "Development reporting is unavailable for this turn");
         }
         try {
-            DevelopmentResultReport report = DevelopmentResultTool.parse(arguments);
-            String receipt = DevelopmentResultTool.receipt(bridge.orElseThrow(), new DevelopmentResultReport(
-                    report.readyForDelivery(), report.message().map(context.redactor()::redact)));
+            DevelopmentResultReport report = DevelopmentResultTool.parse(arguments, bridge.orElseThrow());
+            String receipt = DevelopmentResultTool.receipt(bridge.orElseThrow(), DevelopmentResultTool.redact(report, context.redactor()));
             // This is a candidate only: the native provider stream must prove current root ownership.
             return response(id, new ToolResult(ImmutableList.of(new TextContent("text", receipt)), false));
         }
@@ -757,16 +756,10 @@ public final class ClaudePermissionBroker
                             "required", ImmutableList.of("commentId", "resolved", "operationKey"),
                             "additionalProperties", false)));
         });
-        context.development().ifPresent(ignored -> tools.add(new ToolDefinition(
+        context.development().ifPresent(bridge -> tools.add(new ToolDefinition(
                 DevelopmentResultBridge.TOOL_NAME,
                 "Report current root development readiness; the user's accepted automation settings control delivery",
-                ImmutableMap.of(
-                        "type", "object",
-                        "properties", ImmutableMap.of(
-                                "readyForDelivery", ImmutableMap.of("type", "boolean"),
-                                "message", ImmutableMap.of("type", "string", "minLength", 1, "maxLength", DevelopmentResultReport.MAXIMUM_MESSAGE_LENGTH)),
-                        "required", ImmutableList.of("readyForDelivery"),
-                        "additionalProperties", false))));
+                DevelopmentResultTool.schema(bridge))));
         context.development().ifPresent(ignored -> tools.add(new ToolDefinition(
                 DevelopmentResultBridge.PUBLISH_TOOL_NAME,
                 "Publish this task's verified revision as a draft pull request; ByteQuay owns the push and the GitHub write",

@@ -16,6 +16,7 @@ package com.bytequay.persistence.sqlite.converter;
 import com.bytequay.agent.spi.DevelopmentResultReport;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.DeserializationFeature;
+import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import jakarta.persistence.AttributeConverter;
 import jakarta.persistence.Converter;
@@ -26,7 +27,6 @@ public class DevelopmentResultReportConverter
 {
     private static final ObjectMapper MAPPER = new ObjectMapper().findAndRegisterModules()
             .disable(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES)
-            .enable(DeserializationFeature.FAIL_ON_MISSING_CREATOR_PROPERTIES)
             .enable(DeserializationFeature.FAIL_ON_NULL_FOR_PRIMITIVES);
 
     @Override
@@ -50,7 +50,11 @@ public class DevelopmentResultReportConverter
             return null;
         }
         try {
-            return MAPPER.readValue(json, DevelopmentResultReport.class);
+            JsonNode value = MAPPER.readTree(json);
+            if (value == null || !value.path("readyForDelivery").isBoolean()) {
+                throw new IllegalArgumentException("Development readiness must be a boolean");
+            }
+            return MAPPER.treeToValue(value, DevelopmentResultReport.class);
         }
         catch (JsonProcessingException failure) {
             throw new IllegalArgumentException("Cannot deserialize development readiness", failure);

@@ -45,7 +45,11 @@ it('keeps the durable question ahead of the composer', () => {
 });
 
 it('attributes generated requests using trusted durable origins and names live activity', () => {
-  for (const [kind, shown, activity] of [['AUTO_COMMIT', 'ByteQuay · Auto commit', 'Committing'], ['CREATE_DRAFT_PR', 'Open draft pull request', 'Creating draft PR']] as const) {
+  for (const [kind, shown, activity] of [
+    ['AUTO_COMMIT', 'ByteQuay · Auto commit', 'Committing'],
+    ['CREATE_DRAFT_PR', 'Open draft pull request', 'Creating draft PR'],
+    ['REFINE_SUMMARY', 'ByteQuay · Refine summary', 'Refining summary'],
+  ] as const) {
     const origin = { kind, parentUserTurnId: 'source-turn' };
     const turn = parseAgentTurn({ ...contracts.turn, state: 'RUNNING', developmentOrigin: { ...origin, hiddenPath: '/secret' } });
     expect(turn.developmentOrigin).toEqual(origin);

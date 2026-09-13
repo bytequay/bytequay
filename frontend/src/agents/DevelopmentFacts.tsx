@@ -15,6 +15,7 @@
 import type { AgentTurnDto } from '../types';
 
 export function developmentTurnLabel(turn: AgentTurnDto | null | undefined): string | null {
+  if (turn?.developmentOrigin?.kind === 'REFINE_SUMMARY') return 'Refine summary';
   if (turn?.developmentOrigin?.kind === 'AUTO_COMMIT') return 'Auto commit';
   return null;
 }

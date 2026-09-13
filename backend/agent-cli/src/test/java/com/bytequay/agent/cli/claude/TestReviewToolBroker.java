@@ -16,6 +16,9 @@ package com.bytequay.agent.cli.claude;
 import com.bytequay.agent.cli.process.SecretRedactor;
 import com.bytequay.agent.spi.AgentPermissionPolicy;
 import com.bytequay.agent.spi.CodeGraphBridge;
+import com.bytequay.agent.spi.DevelopmentResultBridgeResolver;
+import com.bytequay.agent.spi.DraftPullRequestPublisher;
+import com.bytequay.agent.spi.LocalReviewBridge;
 import com.bytequay.agent.spi.ProviderApprovalDecision;
 import com.bytequay.agent.spi.ReviewBridge;
 import com.bytequay.agent.spi.ReviewTool;
@@ -63,6 +66,35 @@ class TestReviewToolBroker
                                     throw new IllegalStateException("run already ended");
                                 })),
                 "Review policy: report through the review tools.");
+    }
+
+    @Test
+    void reviewSessionsRetainTheirLocalDiscussionToolsForBothProviders()
+            throws Exception
+    {
+        LocalReviewBridge local = new LocalReviewBridge(id -> "[]", reply -> "saved", resolution -> "resolved", LocalReviewBridge.INSTRUCTION);
+        ClaudePermissionBroker broker = new ClaudePermissionBroker(
+                () -> URI.create("http://127.0.0.1:9000/internal/agent/claude/mcp"), objectMapper, (taskId, query) -> "memory",
+                taskId -> Optional.of(bridge(new AtomicReference<>())), DevelopmentResultBridgeResolver.NONE, DraftPullRequestPublisher.NONE,
+                taskId -> Optional.of(local));
+        SecretRedactor redactor = SecretRedactor.fromEnvironment(ImmutableMap.of());
+        try (ClaudePermissionBroker.CodeGraphRegistration registration = broker.registerTools("review-task", temporaryDirectory, AgentPermissionPolicy.AUTO,
+                (request, timeout) -> CompletableFuture.completedFuture(ProviderApprovalDecision.deny()), redactor, Optional.empty()).orElseThrow()) {
+            assertThat(registration.review()).isPresent();
+            assertThat(registration.instruction()).contains(LocalReviewBridge.INSTRUCTION);
+            JsonNode reply = broker.handle(registration.token(), objectMapper.readTree("""
+                    {"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"reply_local_review_comment",
+                    "arguments":{"commentId":"local-1","body":"An explanation","operationKey":"reply"}}}
+                    """)).body().orElseThrow();
+            assertThat(reply.at("/result/isError").asBoolean()).isFalse();
+            assertThat(reply.at("/result/content/0/text").asText()).isEqualTo("saved");
+        }
+        try (ClaudePermissionBroker.Registration registration = broker.register("review-task", temporaryDirectory, temporaryDirectory,
+                temporaryDirectory, AgentPermissionPolicy.AUTO, false,
+                (request, timeout) -> CompletableFuture.completedFuture(ProviderApprovalDecision.deny()), redactor, Optional.empty())) {
+            assertThat(registration.review()).isPresent();
+            assertThat(registration.localReview()).contains(local);
+        }
     }
 
     @Test

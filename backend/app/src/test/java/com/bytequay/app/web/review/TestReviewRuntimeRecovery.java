@@ -113,6 +113,18 @@ class TestReviewRuntimeRecovery
     }
 
     @Test
+    void conversationInputUsesReviewAdmissionRatherThanStartingAnUncoordinatedTurn()
+    {
+        when(reviews.task(REVIEW_ID)).thenReturn(task());
+        when(reviews.get(REVIEW_ID)).thenReturn(projection());
+        controller.message(REVIEW_ID, "send", new ReviewHttpModels.MessageRequest("Explain the change", "TURN"));
+        controller.message(REVIEW_ID, "queue", new ReviewHttpModels.MessageRequest("Check the next line", "QUEUE"));
+        verify(reviews).sendMessage(REVIEW_ID, task().version(), "Explain the change", "send", false);
+        verify(reviews).sendMessage(REVIEW_ID, task().version(), "Check the next line", "queue", true);
+        verifyNoInteractions(turns);
+    }
+
+    @Test
     void listingRequiresANonBlankWorkspace()
             throws Exception
     {

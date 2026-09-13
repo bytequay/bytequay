@@ -13,17 +13,19 @@
  */
 
 import { useEffect, useState } from 'react';
-import { ChevronRight, LoaderCircle } from 'lucide-react';
+import { ChevronRight, LoaderCircle, PanelLeft } from 'lucide-react';
 import type { AgentReviewDto } from '../pulls/agent-review/contracts';
 import { reviewStatus } from '../pulls/agent-review/model';
 import { relativeTime } from '../relativeTime';
 import { displayModelName } from '../settings/model';
 import { PullRequestStateIcon } from './TaskPullRequestPanel';
+import { workspaceReviewTaskRoute } from '../workspaces/model';
 import '../css/review-tasks.css';
 
-export function ReviewTasksView({ workspaceId, onOpenReview }: {
+export function ReviewTasksView({ workspaceId, onOpenReview, onOpenWorkspace }: {
   workspaceId: string;
   onOpenReview: (review: AgentReviewDto) => void;
+  onOpenWorkspace?: (review: AgentReviewDto) => void;
 }): React.JSX.Element {
   const [reviews, setReviews] = useState<AgentReviewDto[]>([]);
   const [loading, setLoading] = useState(true);
@@ -58,7 +60,7 @@ export function ReviewTasksView({ workspaceId, onOpenReview }: {
     return () => { mounted = false; clearTimeout(timer); };
   }, [workspaceId, retry]);
 
-  return <ReviewTaskList reviews={reviews} loading={loading} error={error} onRetry={() => setRetry(current => current + 1)} onOpenReview={onOpenReview} />;
+  return <ReviewTaskList reviews={reviews} loading={loading} error={error} onRetry={() => setRetry(current => current + 1)} onOpenReview={onOpenReview} onOpenWorkspace={onOpenWorkspace} />;
 }
 
 const STATUS_CLASSES = { running: 'is-running', warn: 'is-waiting', ready: 'is-idle', danger: 'is-failed', neutral: '' };
@@ -80,12 +82,13 @@ export function groupReviewsByDate(reviews: AgentReviewDto[], now: number): Revi
   return groups.filter(group => group.reviews.length > 0);
 }
 
-export function ReviewTaskList({ reviews, loading, error, onRetry, onOpenReview, now = Date.now() }: {
+export function ReviewTaskList({ reviews, loading, error, onRetry, onOpenReview, onOpenWorkspace = review => { window.location.hash = workspaceReviewTaskRoute(review.workspaceId, review.id); }, now = Date.now() }: {
   reviews: AgentReviewDto[];
   loading: boolean;
   error: string | null;
   onRetry: () => void;
   onOpenReview: (review: AgentReviewDto) => void;
+  onOpenWorkspace?: (review: AgentReviewDto) => void;
   now?: number;
 }): React.JSX.Element {
   return (
@@ -93,7 +96,7 @@ export function ReviewTaskList({ reviews, loading, error, onRetry, onOpenReview,
       <div className="agt-head">
         <span className="agt-section-label">Review tasks</span>
         <span className="agt-spacer" />
-        <span className="agt-section-hint">Open a review to see its findings and activity</span>
+        <span className="agt-section-hint">Open review cards or continue the conversation in the workspace</span>
       </div>
       {error !== null && (
         <div className="cmt-error agt-review-error" role="alert">
@@ -105,7 +108,7 @@ export function ReviewTaskList({ reviews, loading, error, onRetry, onOpenReview,
       {!loading && error === null && reviews.length === 0 && (
         <div className="agt-empty-hero">
           <div className="agt-empty-hero__title">No review tasks yet</div>
-          <div className="agt-muted">Start an agent review from a pull request to see it here.</div>
+          <div className="agt-muted">Start a review from a pull request&apos;s Review &amp; Learning tab to see it here.</div>
         </div>
       )}
       {reviews.length > 0 && (
@@ -120,7 +123,8 @@ export function ReviewTaskList({ reviews, loading, error, onRetry, onOpenReview,
               {group.reviews.map(review => {
                 const status = reviewStatus(review);
                 return (
-                  <button type="button" className="agt-trow agt-review-row" key={review.id} onClick={() => onOpenReview(review)}>
+                  <div className="agt-review-entry" key={review.id}>
+                  <button type="button" className="agt-trow agt-review-row" onClick={() => onOpenReview(review)}>
                     <PullRequestStateIcon pullRequest={review.pullRequest} size={16} className="agt-review-row__icon" />
                     <span className="agt-trow__title" title={`${review.repo} #${review.number}${review.pullRequest === null ? '' : ` ${review.pullRequest.title}`}`}>
                       {review.pullRequest === null ? `${review.repo} #${review.number}` : `#${review.number} ${review.pullRequest.title}`}
@@ -135,6 +139,11 @@ export function ReviewTaskList({ reviews, loading, error, onRetry, onOpenReview,
                     </span>
                     <ChevronRight className="agt-trow__chev" size={14} aria-hidden="true" />
                   </button>
+                  <button type="button" className="agt-headbtn agt-review-entry__workspace" title="View inside workspace"
+                    aria-label={`View review #${review.number} inside workspace`} onClick={() => onOpenWorkspace(review)}>
+                    <PanelLeft size={16} aria-hidden="true" />
+                  </button>
+                  </div>
                 );
               })}
             </div>

@@ -23,6 +23,7 @@ import {
   workspaceMetadataState,
   workspacePullRequestRoute,
   workspaceAgentTaskRoute,
+  workspaceReviewTaskRoute,
   workspaceRoute,
   workspaceSyncState,
 } from './model';
@@ -131,6 +132,18 @@ describe('workspace model', () => {
     // Forward to a second task, then across tabs: leaving tasks clears the open task.
     expect(workspaceLocationFromRoute(workspaceAgentTaskRoute('w', 'task-2'))?.agentTaskId).toBe('task-2');
     expect(workspaceLocationFromRoute(workspaceRoute('w', 'prs'))?.agentTaskId).toBeNull();
+  });
+
+  it('reopens an exact review in its workspace without selecting a development task', () => {
+    const route = workspaceReviewTaskRoute('workspace/id', 'review/1');
+    expect(route).toBe('#/workspaces/workspace%2Fid/tasks/review/review%2F1');
+    expect(workspaceLocationFromRoute(route)).toEqual({
+      workspaceId: 'workspace/id', tab: 'tasks', pullRequestNumber: null,
+      issueNumber: null, agentTaskId: null, reviewId: 'review/1',
+    });
+    expect(workspaceLocationFromRoute('#/workspaces/w/prs/review/r')).toBeNull();
+    expect(workspaceLocationFromRoute('#/workspaces/w/tasks/review/%')).toBeNull();
+    expect(workspaceLocationFromRoute(workspaceRoute('w', 'tasks'))?.reviewId).toBeUndefined();
   });
 
   it('round-trips every workspace tab through the renderer route', () => {

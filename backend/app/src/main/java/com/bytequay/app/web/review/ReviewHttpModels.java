@@ -96,6 +96,7 @@ final class ReviewHttpModels
                 summary.purpose(),
                 summary.commits().stream().map(commit -> new CommitExplanationResponse(commit.sha(), commit.explanation())).collect(toImmutableList()),
                 summary.combinedResult(),
+                summary.evidence(),
                 summary.criticalFindingIds(),
                 summary.limitations());
     }
@@ -141,6 +142,8 @@ final class ReviewHttpModels
         return new MessageResponse(
                 message.id(),
                 message.findingId(),
+                message.cardId(),
+                message.runId(),
                 message.author().name(),
                 message.body(),
                 message.targetRevision(),
@@ -249,6 +252,7 @@ final class ReviewHttpModels
             String purpose,
             List<CommitExplanationResponse> commits,
             String combinedResult,
+            Optional<String> evidence,
             List<String> criticalFindingIds,
             List<String> limitations) {}
 
@@ -283,6 +287,8 @@ final class ReviewHttpModels
     record MessageResponse(
             String id,
             Optional<String> findingId,
+            Optional<String> cardId,
+            String runId,
             String author,
             String body,
             int targetRevision,
@@ -343,7 +349,7 @@ final class ReviewHttpModels
     record StopRuntimeRequest(String generation) {}
 
     /** A private question on the summary or one finding, with the revision the user was looking at. */
-    record AskRequest(String findingId, Integer targetRevision, String message) {}
+    record AskRequest(String findingId, String cardId, Integer targetRevision, String message) {}
 
     /** A free-form message to the review agent: TURN starts one, STEER joins the running one, QUEUE runs next. */
     record MessageRequest(String message, String delivery) {}

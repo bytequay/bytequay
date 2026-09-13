@@ -14,13 +14,16 @@
 package com.bytequay.app.localreview;
 
 import com.bytequay.agent.core.AgentConflictException;
+import com.bytequay.agent.core.AgentMetrics;
 import com.bytequay.agent.core.AgentTask;
 import com.bytequay.agent.core.AgentTaskDefaults;
+import com.bytequay.agent.core.AgentTaskNotFoundException;
 import com.bytequay.agent.core.AgentTaskService;
 import com.bytequay.agent.core.AgentTurn;
 import com.bytequay.agent.core.AgentTurnService;
 import com.bytequay.agent.core.AgentTurnSettings;
 import com.bytequay.agent.core.BlobRef;
+import com.bytequay.agent.core.DevelopmentTurnOrigin;
 import com.bytequay.agent.core.EventId;
 import com.bytequay.agent.core.QueuedAgentInput;
 import com.bytequay.agent.core.QueuedInputId;
@@ -30,22 +33,31 @@ import com.bytequay.agent.core.TaskId;
 import com.bytequay.agent.core.TaskWorktree;
 import com.bytequay.agent.core.TitleSource;
 import com.bytequay.agent.core.TurnId;
+import com.bytequay.agent.core.TurnState;
 import com.bytequay.agent.core.store.AgentTurnStore;
 import com.bytequay.agent.core.store.QueuedInputStore;
 import com.bytequay.agent.spi.AgentLaneId;
 import com.bytequay.agent.spi.AgentPermissionPolicy;
+import com.bytequay.agent.spi.DevelopmentLearningCommit;
+import com.bytequay.agent.spi.DevelopmentLearningSummary;
+import com.bytequay.agent.spi.DevelopmentResultReport;
 import com.bytequay.agent.spi.ProviderTurnRef;
 import com.bytequay.app.git.GitCommandRunner;
+import com.bytequay.app.review.AgentReviewService;
 import com.bytequay.app.web.GlobalExceptionHandler;
 import com.bytequay.app.web.agent.LocalReviewController;
+import com.bytequay.app.web.agent.TaskLearningController;
 import com.bytequay.app.workspace.ManagedWorktreeService;
 import com.bytequay.app.workspace.WorkspacePaths;
 import com.bytequay.core.domain.PullRequest;
 import com.bytequay.core.domain.RepoRef;
 import com.bytequay.core.domain.Workspace;
+import com.bytequay.core.localreview.LocalReviewLearningAnchor;
 import com.bytequay.core.localreview.LocalReviewMessage.Author;
 import com.bytequay.core.localreview.LocalReviewStore;
 import com.bytequay.core.localreview.LocalReviewThread;
+import com.bytequay.core.review.AgentReview;
+import com.bytequay.core.review.AgentReviewStore;
 import com.bytequay.core.store.PullRequestStore;
 import com.bytequay.core.store.WorkspaceStore;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -67,6 +79,7 @@ import java.time.ZoneOffset;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.Optional;
+import java.util.OptionalLong;
 
 import static com.google.common.collect.ImmutableList.toImmutableList;
 import static org.assertj.core.api.Assertions.assertThat;
@@ -91,6 +104,8 @@ import static org.springframework.test.web.servlet.setup.MockMvcBuilders.standal
 class TestLocalReviewService
 {
     private final LocalReviewStore store = mock(LocalReviewStore.class);
+    private final AgentReviewService reviewTasks = mock(AgentReviewService.class);
+    private final AgentReviewStore reviews = mock(AgentReviewStore.class);
     private final AgentTaskService tasks = mock(AgentTaskService.class);
     private final AgentTurnService turns = mock(AgentTurnService.class);
     private final AgentTurnStore turnStore = mock(AgentTurnStore.class);
@@ -132,7 +147,7 @@ class TestLocalReviewService
         turn = AgentTurn.accepted(TurnId.random(), taskId, "turn", settings, Instant.EPOCH)
                 .markDeliveryStarted(Instant.EPOCH).running(new ProviderTurnRef("provider"), Optional.empty());
         ManagedWorktreeService worktrees = new ManagedWorktreeService(paths, workspaces, new GitCommandRunner());
-        service = new LocalReviewService(store, tasks, turns, turnStore, queueStore, workspaces, pullRequests, worktrees, clock);
+        service = new LocalReviewService(store, tasks, turns, turnStore, queueStore, workspaces, pullRequests, worktrees, reviews, reviewTasks, clock);
         when(store.find(anyString())).thenAnswer(call -> Optional.ofNullable(stored.get(call.getArgument(0))));
         when(store.listByTask(anyString())).thenAnswer(call -> stored.values().stream()
                 .filter(value -> value.taskId().equals(call.getArgument(0))).collect(toImmutableList()));
@@ -277,6 +292,40 @@ class TestLocalReviewService
     }
 
     @Test
+    void reviewOwnedTaskAcceptsPrivateCommentsWithoutDevelopmentDelivery()
+    {
+        task = AgentTask.created(taskId, false, "Review", TitleSource.USER, AgentLaneId.CODEX_CLI, task.taskWorktree().orElseThrow(),
+                AgentTaskDefaults.forPermission(AgentPermissionPolicy.AUTO), Instant.EPOCH);
+        when(tasks.get(taskId)).thenReturn(task);
+        AgentReview review = new AgentReview("review", "workspace", "owner/repo", 7, OptionalLong.empty(), taskId.toString(), AgentReview.State.OPEN,
+                false, Optional.empty(), Optional.empty(), 0, Instant.EPOCH, Instant.EPOCH, Optional.empty());
+        when(reviews.findReviewByTask(taskId.toString())).thenReturn(Optional.of(review));
+        doAnswer(call -> {
+            String prompt = call.getArgument(2);
+            assertThat(prompt).contains("reply_local_review_comment", "never commit, push, or publish changes").doesNotContain("finish and commit the change");
+            accepted.put(call.getArgument(3), turn);
+            return null;
+        }).when(reviewTasks).sendMessage(eq("review"), eq(0L), anyString(), anyString(), eq(false));
+
+        LocalReviewView comment = create(0);
+        assertThat(comment.taskVersion()).isEqualTo(task.version());
+        assertThat(service.availableForAgent(taskId.toString())).isTrue();
+        assertThat(service.replyFromAgent(taskId.toString(), comment.id(), "The value is nullable", "answer").messages()).hasSize(2);
+        assertThat(service.list(taskId.toString(), "workspace")).hasSize(1);
+        assertThatThrownBy(() -> service.list(taskId.toString(), "another-workspace")).isInstanceOf(AgentTaskNotFoundException.class);
+        assertThatThrownBy(() -> service.create(taskId.toString(), "workspace", new LocalReviewService.Create("other", "message", "owner/repo", 8,
+                "src/Example.java", "RIGHT", 10, 11, Optional.empty(), Optional.empty(), "newValue", "Please explain", 0), "other"))
+                .hasMessageContaining("does not belong");
+        when(reviews.findReviewByTask(taskId.toString())).thenReturn(Optional.of(review.closed(Instant.EPOCH)));
+        assertThat(service.availableForAgent(taskId.toString())).isFalse();
+        assertThat(service.list(taskId.toString(), "workspace")).hasSize(1);
+        assertThatThrownBy(() -> service.reply(taskId.toString(), "workspace", comment.id(), "later", "Explain", 0, "later"))
+                .hasMessageContaining("open review");
+        when(reviews.findReviewByTask(taskId.toString())).thenReturn(Optional.empty());
+        assertThatThrownBy(() -> service.list(taskId.toString(), "workspace")).isInstanceOf(AgentTaskNotFoundException.class);
+    }
+
+    @Test
     void creationMustMatchTheTaskBranch()
     {
         when(pullRequests.findByHeadRef("owner/repo", task.taskWorktree().orElseThrow().generatedBranch())).thenReturn(ImmutableList.of());
@@ -311,6 +360,139 @@ class TestLocalReviewService
                 .isInstanceOf(AgentConflictException.class);
         assertThat(service.availableForAgent(taskId.toString())).isFalse();
         verify(turns, times(1)).start(any());
+    }
+
+    @Test
+    void latestLearningPreservesThePreviousVerifiedSummaryDuringRefinement()
+    {
+        AgentTurn previous = learningTurn(0);
+        AgentTurn candidate = learningTurn(10);
+        when(turnStore.list(taskId)).thenReturn(ImmutableList.of(previous, candidate));
+        when(tasks.getInteractive("workspace", taskId)).thenReturn(task.withDevelopmentContinuation(true, Instant.EPOCH));
+        assertThat(service.latestLearning(taskId.toString(), "workspace")).contains(previous);
+        when(turnStore.list(taskId)).thenReturn(ImmutableList.of(candidate));
+        assertThat(service.latestLearning(taskId.toString(), "workspace")).isEmpty();
+
+        when(tasks.getInteractive("workspace", taskId)).thenReturn(task);
+        assertThat(service.latestLearning(taskId.toString(), "workspace")).contains(candidate);
+        AgentTurn noSummary = turn.finish(TurnState.COMPLETED, AgentMetrics.empty(), Optional.empty(), Instant.EPOCH.plusSeconds(20));
+        AgentTurn failed = learningTurn(30, TurnState.FAILED);
+        AgentTurn stopped = AgentTurn.accepted(TurnId.random(), taskId, "stopped-summary", turn.settings().orElseThrow(), Instant.EPOCH)
+                .withDevelopmentOrigin(new DevelopmentTurnOrigin(DevelopmentTurnOrigin.Kind.REFINE_SUMMARY, turn.id()))
+                .markDeliveryStarted(Instant.EPOCH).running(new ProviderTurnRef("stopped"), Optional.empty())
+                .withDevelopmentResult(candidate.developmentResult().orElseThrow()).requestCancellation(Instant.EPOCH)
+                .finish(TurnState.COMPLETED, AgentMetrics.empty(), Optional.empty(), Instant.EPOCH.plusSeconds(40));
+        when(turnStore.list(taskId)).thenReturn(ImmutableList.of(previous, noSummary, failed, stopped));
+        assertThat(service.latestLearning(taskId.toString(), "workspace")).contains(previous);
+        when(tasks.getInteractive("another-workspace", taskId)).thenThrow(new AgentTaskNotFoundException(taskId));
+        assertThatThrownBy(() -> service.latestLearning(taskId.toString(), "another-workspace")).isInstanceOf(AgentTaskNotFoundException.class);
+    }
+
+    @Test
+    void learningDiscussionDerivesItsSnapshotWithoutAPullRequestAndReusesReplies()
+    {
+        AgentTurn summary = learningTurn(0);
+        when(turnStore.list(taskId)).thenReturn(ImmutableList.of(summary));
+        when(pullRequests.findByHeadRef(anyString(), anyString())).thenReturn(ImmutableList.of());
+        doAnswer(call -> {
+            StartAgentTurnCommand command = call.getArgument(0);
+            assertThat(stored).containsKey("learning-thread");
+            assertThat(command.developmentAutomation().orElseThrow().autoCommit()).isFalse();
+            assertThat(command.developmentAutomation().orElseThrow().autoDraftPr()).isFalse();
+            assertThat(command.developmentAutomation().orElseThrow().autoCiFix()).isFalse();
+            assertThat(command.message()).contains("Saved card body:\nKeep null values", "reply_local_review_comment", "without editing files",
+                    "releasing prior held work", "reference evidence", "User comment:");
+            accepted.put(command.idempotencyKey(), turn);
+            return turn;
+        }).when(turns).start(any());
+        LocalReviewService.LearningCreate request = new LocalReviewService.LearningCreate(summary.id().toString(), "commit:" + "a".repeat(40),
+                "learning-thread", "question", "Why allow null?", 0);
+        LocalReviewView saved = service.createLearning(taskId.toString(), "workspace", request, "create-learning");
+        LocalReviewLearningAnchor anchor = saved.learningAnchor().orElseThrow();
+        assertThat(anchor).isEqualTo(new LocalReviewLearningAnchor(summary.id().toString(), "commit:" + "a".repeat(40), "aaaaaaa · Preserve nullable values", "Keep null values"));
+        assertThat(saved.repo()).isEqualTo("owner/repo");
+        assertThat(saved.number()).isZero();
+        assertThat(saved.path()).isEmpty();
+        assertThat(saved.code()).isEmpty();
+        assertThat(saved.line()).isZero();
+        assertThat(service.createLearning(taskId.toString(), "workspace", request, "create-learning").messages()).hasSize(1);
+        LocalReviewView sameCard = service.createLearning(taskId.toString(), "workspace", new LocalReviewService.LearningCreate(summary.id().toString(), request.cardId(),
+                "another-browser-id", "second-question", "Is the map mutable?", 1), "second-learning");
+        assertThat(sameCard.id()).isEqualTo(saved.id());
+        assertThat(stored).hasSize(1);
+        assertThat(sameCard.messages()).hasSize(2);
+        assertThat(service.reply(taskId.toString(), "workspace", saved.id(), "third-question", "Explain more", 2, "reply").messages()).hasSize(3);
+        when(turnStore.findActive(taskId)).thenReturn(Optional.of(turn));
+        assertThat(service.replyFromAgent(taskId.toString(), saved.id(), "Null values represent missing partitions", "answer").messages()).hasSize(4);
+        assertThat(service.resolveFromAgent(taskId.toString(), saved.id(), true, "resolve").learningAnchor()).contains(anchor);
+        assertThat(service.list(taskId.toString(), "workspace").getFirst().resolved()).isTrue();
+        verify(turns, times(3)).start(any());
+    }
+
+    @Test
+    void learningCommentsRejectUnverifiedForeignAndMissingCards()
+    {
+        AgentTurn summary = learningTurn(0);
+        when(turnStore.list(taskId)).thenReturn(ImmutableList.of(summary));
+        LocalReviewService.LearningCreate request = new LocalReviewService.LearningCreate(summary.id().toString(), "purpose", "learning", "question", "Explain", 0);
+        when(tasks.getInteractive("workspace", taskId)).thenReturn(task.withDevelopmentContinuation(true, Instant.EPOCH));
+        assertThatThrownBy(() -> service.createLearning(taskId.toString(), "workspace", request, "create")).hasMessageContaining("Verified learning summary");
+        when(tasks.getInteractive("workspace", taskId)).thenReturn(task);
+        assertThatThrownBy(() -> service.createLearning(taskId.toString(), "workspace", new LocalReviewService.LearningCreate(TurnId.random().toString(),
+                "purpose", "learning", "question", "Explain", 0), "create")).hasMessageContaining("does not belong");
+        assertThatThrownBy(() -> service.createLearning(taskId.toString(), "workspace", new LocalReviewService.LearningCreate(summary.id().toString(),
+                "commit:missing", "learning", "question", "Explain", 0), "create")).hasMessageContaining("card does not exist");
+        assertThat(stored).isEmpty();
+        verify(turns, never()).start(any());
+    }
+
+    @Test
+    void learningHttpContractReturnsNullOrTheSavedTurnAndCreatesPrivateComments()
+            throws Exception
+    {
+        MockMvc mvc = standaloneSetup(new TaskLearningController(service)).setControllerAdvice(new GlobalExceptionHandler()).build();
+        String route = "/agent/tasks/" + taskId + "/learning";
+        String empty = mvc.perform(get(route).param("workspaceId", "workspace")).andExpect(status().isOk()).andReturn().getResponse().getContentAsString();
+        assertThat(empty).isEqualTo("null");
+        AgentTurn summary = learningTurn(0);
+        when(turnStore.list(taskId)).thenReturn(ImmutableList.of(summary));
+        mvc.perform(get(route).param("workspaceId", "workspace")).andExpect(status().isOk())
+                .andExpect(jsonPath("$.id").value(summary.id().toString()))
+                .andExpect(jsonPath("$.developmentResult.learningSummary.purpose").value("Make partition values reusable"))
+                .andExpect(jsonPath("$.developmentOrigin.kind").value("REFINE_SUMMARY"));
+        doThrow(new IllegalStateException("Provider unavailable")).when(turns).start(any());
+        ObjectMapper mapper = new ObjectMapper().findAndRegisterModules();
+        String request = mapper.writeValueAsString(new LocalReviewService.LearningCreate(summary.id().toString(), "evidence", "learning", "question", "Which test?", 0));
+        mvc.perform(post(route + "/comments").param("workspaceId", "workspace").header("Idempotency-Key", "create")
+                        .contentType(MediaType.APPLICATION_JSON).content(request))
+                .andExpect(status().isOk()).andExpect(jsonPath("$.learningAnchor.turnId").value(summary.id().toString()))
+                .andExpect(jsonPath("$.learningAnchor.cardId").value("evidence"))
+                .andExpect(jsonPath("$.learningAnchor.body").value("Unit tests passed"))
+                .andExpect(jsonPath("$.number").value(0)).andExpect(jsonPath("$.messages[0].deliveryState").value("UNSENT"));
+        mvc.perform(post(route + "/comments").param("workspaceId", "workspace").contentType(MediaType.APPLICATION_JSON).content(request))
+                .andExpect(status().isBadRequest());
+        String limitations = mapper.writeValueAsString(new LocalReviewService.LearningCreate(summary.id().toString(), "limitations", "limits", "question", "Any limits?", 0));
+        mvc.perform(post(route + "/comments").param("workspaceId", "workspace").header("Idempotency-Key", "limits")
+                        .contentType(MediaType.APPLICATION_JSON).content(limitations))
+                .andExpect(status().isOk()).andExpect(jsonPath("$.learningAnchor.body").value("None recorded."));
+    }
+
+    private AgentTurn learningTurn(long second)
+    {
+        return learningTurn(second, TurnState.COMPLETED);
+    }
+
+    private AgentTurn learningTurn(long second, TurnState state)
+    {
+        DevelopmentLearningSummary summary = new DevelopmentLearningSummary("Make partition values reusable",
+                ImmutableList.of(new DevelopmentLearningCommit("a".repeat(40), "Preserve nullable values", "Keep null values")),
+                Optional.of("Reuse one helper"), "Unit tests passed", ImmutableList.of());
+        Instant created = Instant.EPOCH.plusSeconds(second);
+        return AgentTurn.accepted(TurnId.random(), taskId, "summary-" + second, turn.settings().orElseThrow(), created)
+                .withDevelopmentOrigin(new DevelopmentTurnOrigin(DevelopmentTurnOrigin.Kind.REFINE_SUMMARY, turn.id()))
+                .markDeliveryStarted(created).running(new ProviderTurnRef("summary-provider"), Optional.empty())
+                .withDevelopmentResult(new DevelopmentResultReport(false, Optional.empty(), Optional.of(summary)))
+                .finish(state, AgentMetrics.empty(), state == TurnState.COMPLETED ? Optional.empty() : Optional.of("Verification failed"), created.plusSeconds(1));
     }
 
     @Test

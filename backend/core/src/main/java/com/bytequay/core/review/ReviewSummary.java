@@ -16,6 +16,7 @@ package com.bytequay.core.review;
 import com.google.common.collect.ImmutableList;
 
 import java.util.List;
+import java.util.Optional;
 
 import static com.google.common.base.Preconditions.checkArgument;
 import static java.util.Objects.requireNonNull;
@@ -26,6 +27,7 @@ public record ReviewSummary(
         String purpose,
         List<CommitExplanation> commits,
         String combinedResult,
+        Optional<String> evidence,
         List<String> criticalFindingIds,
         List<String> limitations)
 {
@@ -35,6 +37,7 @@ public record ReviewSummary(
         requireNonNull(purpose, "purpose is null");
         commits = ImmutableList.copyOf(commits);
         requireNonNull(combinedResult, "combinedResult is null");
+        requireNonNull(evidence, "evidence is null");
         criticalFindingIds = ImmutableList.copyOf(criticalFindingIds);
         limitations = ImmutableList.copyOf(limitations);
     }

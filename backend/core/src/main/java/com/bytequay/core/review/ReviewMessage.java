@@ -20,9 +20,10 @@ import static com.google.common.base.Preconditions.checkArgument;
 import static java.util.Objects.requireNonNull;
 
 /**
- * One private discussion message on the summary or on a finding.
+ * One private discussion message on a summary card or a finding.
  *
- * @param findingId the finding discussed, or empty for the summary discussion
+ * @param findingId the finding discussed, or empty for a summary discussion
+ * @param cardId the run-scoped summary card, or empty for a finding or a whole-summary discussion
  * @param queuedInputId the queue row carrying a user question while the agent was busy; a question
  *        with a queue row and no turn is still waiting
  */
@@ -30,6 +31,7 @@ public record ReviewMessage(
         String id,
         String reviewId,
         Optional<String> findingId,
+        Optional<String> cardId,
         Author author,
         String body,
         int targetRevision,
@@ -44,6 +46,8 @@ public record ReviewMessage(
         requireNonNull(id, "id is null");
         requireNonNull(reviewId, "reviewId is null");
         requireNonNull(findingId, "findingId is null");
+        requireNonNull(cardId, "cardId is null");
+        checkArgument(findingId.isEmpty() || cardId.isEmpty(), "A message cannot target both a finding and a summary card");
         requireNonNull(author, "author is null");
         requireNonNull(body, "body is null");
         checkArgument(targetRevision > 0, "targetRevision is not positive");
@@ -56,12 +60,12 @@ public record ReviewMessage(
 
     public ReviewMessage withVersion(long updatedVersion)
     {
-        return new ReviewMessage(id, reviewId, findingId, author, body, targetRevision, runId, turnId, queuedInputId, updatedVersion, createdAt);
+        return new ReviewMessage(id, reviewId, findingId, cardId, author, body, targetRevision, runId, turnId, queuedInputId, updatedVersion, createdAt);
     }
 
     public ReviewMessage withTurn(String startedTurnId)
     {
-        return new ReviewMessage(id, reviewId, findingId, author, body, targetRevision, runId, Optional.of(startedTurnId), queuedInputId, version, createdAt);
+        return new ReviewMessage(id, reviewId, findingId, cardId, author, body, targetRevision, runId, Optional.of(startedTurnId), queuedInputId, version, createdAt);
     }
 
     public enum Author

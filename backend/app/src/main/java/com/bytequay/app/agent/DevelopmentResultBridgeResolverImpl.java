@@ -15,6 +15,7 @@ package com.bytequay.app.agent;
 
 import com.bytequay.agent.core.AgentTurnSettings;
 import com.bytequay.agent.core.DevelopmentAutomation;
+import com.bytequay.agent.core.DevelopmentTurnOrigin;
 import com.bytequay.agent.core.TaskId;
 import com.bytequay.agent.core.TaskState;
 import com.bytequay.agent.core.store.AgentTaskStore;
@@ -52,10 +53,9 @@ public class DevelopmentResultBridgeResolverImpl
                 .filter(task -> task.interactive() && task.state() == TaskState.OPEN)
                 .filter(task -> reviews.findReviewByTask(taskId).isEmpty())
                 .flatMap(task -> turns.findActive(id))
-                .filter(turn -> turn.settings()
-                        .flatMap(AgentTurnSettings::developmentAutomation)
-                        .filter(DevelopmentAutomation::enabled)
-                        .isPresent())
-                .map(turn -> new DevelopmentResultBridge(turn.id().toString(), DevelopmentResultBridge.INSTRUCTION));
+                .filter(turn -> turn.settings().flatMap(AgentTurnSettings::developmentAutomation).filter(DevelopmentAutomation::enabled).isPresent()
+                        || turn.developmentOrigin().filter(origin -> origin.kind() == DevelopmentTurnOrigin.Kind.REFINE_SUMMARY).isPresent())
+                .map(turn -> new DevelopmentResultBridge(turn.id().toString(), DevelopmentResultBridge.INSTRUCTION,
+                        turn.developmentOrigin().filter(origin -> origin.kind() == DevelopmentTurnOrigin.Kind.REFINE_SUMMARY).isPresent()));
     }
 }

@@ -13,7 +13,7 @@
  */
 
 import { describe, expect, it } from 'vitest';
-import type { AgentSkillDto } from '../types';
+import type { AgentSkillDto, DevelopmentResultDto } from '../types';
 import fixture from './fixtures/agent-contracts-v1.json';
 import {
   parseAgentApproval,
@@ -31,6 +31,7 @@ import {
   parseAgentTaskChanges,
   parseAgentTasks,
   parseAgentTurn,
+  parseDevelopmentResult,
   parseModelSettings,
 } from './contracts';
 
@@ -144,6 +145,27 @@ describe('agent contract parsing', () => {
     expect(parseAgentTurn({ ...fixture.turn, settings: { ...fixture.turn.settings, serviceTier: 'priority' } }).settings?.serviceTier)
       .toBe('priority');
     expect(() => parseAgentTurn({ ...fixture.turn, settings: { ...fixture.turn.settings, serviceTier: true } })).toThrow(/serviceTier/);
+  });
+
+  it('reads structured learning reports on refinement turns while preserving older report shapes', () => {
+    const summary = { purpose: 'Preserve the previous statistics.',
+      commits: [{ sha: 'a'.repeat(40), title: 'Keep a snapshot', summary: 'Read the old values before mutation.' }],
+      combinedResult: 'Failed updates can restore the original state.', evidence: 'The rollback unit tests passed.',
+      limitations: ['No live metastore was available.'] };
+    const report: DevelopmentResultDto = { readyForDelivery: true, message: null, learningSummary: summary };
+    const turn = parseAgentTurn({ ...fixture.turn, developmentOrigin: { kind: 'REFINE_SUMMARY', parentUserTurnId: 'implementation-1' },
+      developmentResult: { ...report, internalReceiptPath: '/private/report.json',
+        learningSummary: { ...summary, rawProviderPayload: 'private', commits: [{ ...summary.commits[0], worktreePath: '/private/worktree' }] } } });
+    expect(turn.developmentOrigin).toEqual({ kind: 'REFINE_SUMMARY', parentUserTurnId: 'implementation-1' });
+    expect(turn.developmentResult).toEqual(report);
+    expect(parseDevelopmentResult({ readyForDelivery: false, message: 'Which option should I use?' }))
+      .toEqual({ readyForDelivery: false, message: 'Which option should I use?' });
+    expect(parseDevelopmentResult({ readyForDelivery: true })).toEqual({ readyForDelivery: true, message: null });
+    expect(parseDevelopmentResult({ ...report, learningSummary: null }).learningSummary).toBeNull();
+    expect(() => parseDevelopmentResult({ ...report, learningSummary: { ...summary, evidence: 42 } })).toThrow(/learningSummary.evidence/);
+    expect(() => parseDevelopmentResult({ ...report, learningSummary: { ...summary, commits: [{ ...summary.commits[0], summary: null }] } }))
+      .toThrow(/commit.summary/);
+    expect(() => parseDevelopmentResult({ ...report, learningSummary: { ...summary, limitations: [false] } })).toThrow(/learningSummary.limitations\[0\]/);
   });
 
   it('keeps the typed authentication cause and rejects an invented failure kind', () => {

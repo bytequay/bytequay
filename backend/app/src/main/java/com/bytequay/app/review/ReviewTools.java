@@ -153,13 +153,13 @@ public class ReviewTools
                                 .put("page", ImmutableMap.of("type", "integer", "minimum", 1))
                                 .put("startLine", ImmutableMap.of("type", "integer", "minimum", 1))
                                 .put("endLine", ImmutableMap.of("type", "integer", "minimum", 1))
-                                .put("target", ImmutableMap.of("type", "string", "maxLength", 100))
+                                .put("target", ImmutableMap.of("type", "string", "maxLength", 200))
                                 .put("ref", ImmutableMap.of("type", "string", "maxLength", 20))
                                 .buildOrThrow(), ImmutableList.of("kind")),
                         arguments -> call(reviewId, arguments, this::getContext)),
                 new ReviewTool("review_save_summary",
                         "Save the structured review summary for the current run: what the pull request does, one explanation per commit in scope, "
-                                + "the combined result, critical finding ids, and limitations. Saving again creates the next revision.",
+                                + "the combined result, supporting evidence and actual test results, critical findings, and limitations. Saving again creates the next revision.",
                         schema(ImmutableMap.<String, Object>builder()
                                 .put("operationKey", ImmutableMap.of("type", "string", "minLength", 1, "maxLength", MAX_KEY))
                                 .put("purpose", ImmutableMap.of("type", "string", "minLength", 1, "maxLength", 2000))
@@ -183,6 +183,7 @@ public class ReviewTools
                                                         "required",
                                                         ImmutableList.of("sha", "explanation"))))
                                 .put("combinedResult", ImmutableMap.of("type", "string", "minLength", 1, "maxLength", 3000))
+                                .put("evidence", ImmutableMap.of("type", "string", "maxLength", 8000))
                                 .put("criticalFindingIds", ImmutableMap.of("type", "array", "maxItems", 50, "items", ImmutableMap.of("type", "string")))
                                 .put("limitations", ImmutableMap.of("type", "array", "maxItems", 20, "items", ImmutableMap.of("type", "string", "maxLength", 500)))
                                 .buildOrThrow(), ImmutableList.of("operationKey", "purpose", "commits", "combinedResult", "criticalFindingIds", "limitations")),
@@ -223,7 +224,7 @@ public class ReviewTools
                                 .buildOrThrow(), ImmutableList.of("operationKey", "title", "body", "startAnchor", "evidence")),
                         arguments -> call(reviewId, arguments, this::saveFinding)),
                 new ReviewTool("review_reply",
-                        "Append your private answer to a discussion: target is \"summary\" or a findingId.",
+                        "Append your private answer to a discussion: target is \"summary\", a run-scoped cardId, or a findingId.",
                         schema(ImmutableMap.of(
                                 "operationKey", ImmutableMap.of("type", "string", "minLength", 1, "maxLength", MAX_KEY),
                                 "target", ImmutableMap.of("type", "string", "minLength", 1),
@@ -339,6 +340,7 @@ public class ReviewTools
                 text(arguments, "purpose", 2000, true),
                 commits,
                 text(arguments, "combinedResult", 3000, true),
+                Optional.of(text(arguments, "evidence", 8000, false)).filter(value -> !value.isBlank()),
                 critical,
                 strings(arguments, "limitations", 20, 500));
         ObjectNode result = objectMapper.createObjectNode().put("revision", revision).put("status", "accepted");
@@ -440,27 +442,36 @@ public class ReviewTools
             return replay.result().orElseThrow();
         }
         ObjectNode arguments = call.arguments();
-        String target = text(arguments, "target", 100, true);
+        String target = text(arguments, "target", 200, true);
         String body = text(arguments, "body", MAX_TEXT, true);
         Optional<String> findingId = Optional.empty();
+        Optional<String> cardId = Optional.empty();
+        ReviewRun targetRun = call.run();
         int revision;
         if (target.equalsIgnoreCase("summary")) {
             revision = call.run().summary().map(ReviewSummary::revision).orElse(1);
+        }
+        else if (target.contains(":")) {
+            targetRun = ReviewCards.requireRun(store, call.review().id(), target);
+            cardId = Optional.of(target);
+            revision = targetRun.summary().map(ReviewSummary::revision).orElse(1);
         }
         else {
             ReviewFinding finding = store.listFindings(call.review().id()).stream().filter(candidate -> candidate.id().equals(target)).findFirst()
                     .orElseThrow(() -> new ReviewInvalidRequestException("target: unknown finding " + target + "; use \"summary\" or a findingId"));
             findingId = Optional.of(finding.id());
+            targetRun = store.findRun(finding.runId()).orElseThrow();
             revision = finding.revision();
         }
         ReviewMessage message = new ReviewMessage(
                 UUID.randomUUID().toString(),
                 call.review().id(),
                 findingId,
+                cardId,
                 ReviewMessage.Author.AGENT,
                 body,
                 revision,
-                call.run().id(),
+                targetRun.id(),
                 Optional.empty(),
                 Optional.empty(),
                 0,
@@ -490,8 +501,8 @@ public class ReviewTools
         ReviewFinding updated = finding.state() == ReviewFinding.State.OPEN
                 ? finding.withState(ReviewFinding.State.WITHDRAWN, Optional.of(explanation), now)
                 : finding;
-        ReviewMessage message = new ReviewMessage(UUID.randomUUID().toString(), call.review().id(), Optional.of(finding.id()), ReviewMessage.Author.AGENT,
-                "Withdrawn: " + explanation, finding.revision(), call.run().id(), Optional.empty(), Optional.empty(), 0, now);
+        ReviewMessage message = new ReviewMessage(UUID.randomUUID().toString(), call.review().id(), Optional.of(finding.id()), Optional.empty(), ReviewMessage.Author.AGENT,
+                "Withdrawn: " + explanation, finding.revision(), finding.runId(), Optional.empty(), Optional.empty(), 0, now);
         ObjectNode result = objectMapper.createObjectNode().put("findingId", finding.id()).put("state", updated.state().name()).put("status", "accepted");
         store.saveFinding(updated, false, call.run().withOperation(replay.key(), new ReviewOperation(replay.digest(), result.toString()), now));
         store.insertMessage(message);
@@ -536,7 +547,7 @@ public class ReviewTools
             case "command_output" -> commandOutput(call);
             case "findings" -> findings(call);
             case "summary" -> summary(call);
-            case "discussion" -> discussion(call, text(arguments, "target", 100, true));
+            case "discussion" -> discussion(call, text(arguments, "target", 200, true));
             case "evidence" -> evidence(call, text(arguments, "ref", 20, true));
             default -> throw new ReviewInvalidRequestException("kind: unknown context kind " + kind);
         };
@@ -747,25 +758,29 @@ public class ReviewTools
 
     private JsonNode summary(Call call)
     {
+        String target = text(call.arguments(), "target", 200, false);
+        if (!target.isBlank() && !target.equalsIgnoreCase("summary")) {
+            ReviewRun run = ReviewCards.requireRun(store, call.review().id(), target);
+            return objectMapper.createObjectNode().put("cardId", target).put("runId", run.id()).put("headSha", run.headSha())
+                    .put("revision", run.summary().map(ReviewSummary::revision).orElse(1)).put("body", ReviewCards.content(run, target));
+        }
         return call.run().summary().<JsonNode>map(summary -> objectMapper.valueToTree(summary))
                 .orElseGet(() -> objectMapper.createObjectNode().put("summary", "none saved for this run yet"));
     }
 
     private JsonNode discussion(Call call, String target)
     {
-        Optional<String> findingId = target.equalsIgnoreCase("summary") ? Optional.empty() : Optional.of(target);
+        Optional<String> cardId = target.contains(":") ? Optional.of(target) : Optional.empty();
+        cardId.ifPresent(id -> ReviewCards.requireRun(store, call.review().id(), id));
+        Optional<String> findingId = target.equalsIgnoreCase("summary") || cardId.isPresent() ? Optional.empty() : Optional.of(target);
+        Optional<String> purposeRun = cardId.filter(id -> id.endsWith(":purpose")).map(id -> id.substring(0, id.indexOf(':')));
         return objectMapper.createObjectNode().putPOJO("messages", store.listMessages(call.review().id()).stream()
                 .filter(message -> message.findingId().equals(findingId))
-                .map(
-                        message -> ImmutableMap.of(
-                                "author",
-                                message.author().name(),
-                                "at",
-                                message.createdAt().toString(),
-                                "targetRevision",
-                                message.targetRevision(),
-                                "body",
-                                message.body()))
+                .filter(message -> message.cardId().equals(cardId)
+                        || (message.cardId().isEmpty() && purposeRun.filter(message.runId()::equals).isPresent()))
+                .filter(message -> findingId.isPresent() || cardId.isPresent() || message.runId().equals(call.run().id()))
+                .map(message -> ImmutableMap.of("author", message.author().name(), "at", message.createdAt().toString(),
+                        "targetRevision", message.targetRevision(), "body", message.body()))
                 .collect(toImmutableList()));
     }
 

@@ -13,6 +13,7 @@
  */
 package com.bytequay.agent.core;
 
+import com.bytequay.agent.spi.DevelopmentLearningSummary;
 import com.bytequay.agent.spi.DevelopmentResultReport;
 import com.bytequay.agent.spi.ProviderAgentEvent.ActivityState;
 import com.bytequay.agent.spi.ProviderAgentEvent.ChangeKind;
@@ -93,17 +94,22 @@ public sealed interface AgentEventPayload
     }
 
     /** The root agent's readiness report; execution completion and Git facts remain separate. */
-    record DevelopmentResult(boolean readyForDelivery, Optional<String> message)
+    record DevelopmentResult(boolean readyForDelivery, Optional<String> message, Optional<DevelopmentLearningSummary> learningSummary)
             implements AgentEventPayload
     {
         public DevelopmentResult(DevelopmentResultReport report)
         {
-            this(report.readyForDelivery(), report.message());
+            this(report.readyForDelivery(), report.message(), report.learningSummary());
+        }
+
+        public DevelopmentResult(boolean readyForDelivery, Optional<String> message)
+        {
+            this(readyForDelivery, message, Optional.empty());
         }
 
         public DevelopmentResult
         {
-            new DevelopmentResultReport(readyForDelivery, message);
+            new DevelopmentResultReport(readyForDelivery, message, learningSummary);
         }
 
         @Override

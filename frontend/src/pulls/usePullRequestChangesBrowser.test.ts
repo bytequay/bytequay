@@ -35,7 +35,7 @@ it('loads selected PR commits and rejects stale comparison responses in Chromium
         lib: { entry: resolve('src/pulls/fixtures/pullRequestChangesBrowser.tsx'), name: 'PullChangesTests', formats: ['iife'], fileName: () => 'renderer.js' },
       },
     });
-    await writeFile(join(directory, 'index.html'), '<!doctype html><body><script src="renderer.js"></script>');
+    await writeFile(join(directory, 'index.html'), '<!doctype html><link rel="stylesheet" href="style.css"><body><script src="renderer.js"></script>');
     await writeFile(join(directory, 'main.cjs'), `
       const { app, BrowserWindow } = require('electron');
       app.setPath('userData', ${JSON.stringify(join(directory, 'profile'))});
@@ -56,7 +56,7 @@ it('loads selected PR commits and rejects stale comparison responses in Chromium
     const args = [join(directory, 'main.cjs')];
     const command = process.platform === 'linux' && !process.env.DISPLAY ? 'xvfb-run' : executable;
     const result = await promisify(execFile)(command, command === executable ? args : ['-a', executable, ...args], { env: environment, timeout: 20_000 });
-    expect(JSON.parse(result.stdout.trim())).toHaveLength(6);
+    expect(JSON.parse(result.stdout.trim())).toHaveLength(7);
   }
   finally { await rm(directory, { recursive: true, force: true }); }
 }, 30_000);

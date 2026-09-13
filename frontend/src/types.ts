@@ -13,7 +13,7 @@
  */
 
 import { AgentEventEnvelope } from './agents/events';
-import type { CreateLocalReviewRequest, LocalReviewQuery, ReplyLocalReviewRequest, ResolveLocalReviewRequest, RetryLocalReviewRequest } from './pulls/local-review/contracts';
+import type { CreateDevelopmentLearningCommentRequest, CreateLocalReviewRequest, LocalReviewQuery, ReplyLocalReviewRequest, ResolveLocalReviewRequest, RetryLocalReviewRequest } from './pulls/local-review/contracts';
 import type { LocalReviewThreadDto } from './pulls/local-review/types';
 import type {
   AgentReviewDto,
@@ -649,14 +649,23 @@ export type AgentTurnSettingsDto = {
   attachments: AgentAttachmentReferenceDto[];
 };
 
+export type DevelopmentLearningSummaryDto = {
+  purpose: string;
+  commits: { sha: string; title: string; summary: string }[];
+  combinedResult: string | null;
+  evidence: string;
+  limitations: string[];
+};
+
 export type DevelopmentResultDto = {
   readyForDelivery: boolean;
   message: string | null;
+  learningSummary?: DevelopmentLearningSummaryDto | null;
 };
 
 export type AgentTurnDto = {
   developmentResult?: DevelopmentResultDto | null;
-  developmentOrigin?: { kind: 'AUTO_COMMIT' | 'CREATE_DRAFT_PR'; parentUserTurnId: string } | null;
+  developmentOrigin?: { kind: 'AUTO_COMMIT' | 'CREATE_DRAFT_PR' | 'REFINE_SUMMARY'; parentUserTurnId: string } | null;
   id: string;
   taskId: string;
   state: string;
@@ -1559,6 +1568,8 @@ export type Bridge = {
   readAgentHistory: (taskId: string, before?: string, after?: string) => Promise<AgentHistoryPageDto>;
   readAgentPendingApprovals: (taskId: string, turnId: string) => Promise<AgentPendingApprovalDto[]>;
   listLocalReviewComments: (query: LocalReviewQuery) => Promise<LocalReviewThreadDto[]>;
+  getDevelopmentLearning: (taskId: string, workspaceId: string) => Promise<AgentTurnDto | null>;
+  createDevelopmentLearningComment: (request: CreateDevelopmentLearningCommentRequest) => Promise<LocalReviewThreadDto>;
   createLocalReviewComment: (request: CreateLocalReviewRequest) => Promise<LocalReviewThreadDto>;
   replyLocalReviewComment: (request: ReplyLocalReviewRequest) => Promise<LocalReviewThreadDto>;
   resolveLocalReviewComment: (request: ResolveLocalReviewRequest) => Promise<LocalReviewThreadDto>;
@@ -1623,6 +1634,7 @@ export type Bridge = {
     findingId: string | null,
     targetRevision: number,
     message: string,
+    cardId?: string,
   ) => Promise<AgentReviewDto>;
   /** A free-form message to the review agent: a turn, a steer into the running turn, or the queue. */
   messageAgentReview: (

@@ -16,7 +16,7 @@ package com.bytequay.agent.spi;
 import static com.bytequay.agent.spi.AgentChecks.checkNotBlank;
 
 /** Binds the fixed reporting and publication capability to an accepted ByteQuay turn. */
-public record DevelopmentResultBridge(String turnId, String instruction)
+public record DevelopmentResultBridge(String turnId, String instruction, boolean learningSummaryAllowed)
 {
     public static final String TOOL_NAME = "report_development_result";
     public static final String PUBLISH_TOOL_NAME = "create_draft_pull_request";
@@ -42,6 +42,11 @@ public record DevelopmentResultBridge(String turnId, String instruction)
             turns, explicitly requested git or gh publishing follows the shared command authorization
             policy and does not require this tool. Its refusal does not block an authorized CLI operation.
             """;
+
+    public DevelopmentResultBridge(String turnId, String instruction)
+    {
+        this(turnId, instruction, false);
+    }
 
     public DevelopmentResultBridge
     {

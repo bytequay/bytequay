@@ -356,9 +356,15 @@ class TestDefaultAgentReviewService
                 });
                 assertThat(reconciling.await(5, TimeUnit.SECONDS)).isTrue();
                 assertThatThrownBy(() -> reconciled.get(100, TimeUnit.MILLISECONDS)).isInstanceOf(TimeoutException.class);
+                var localComment = executor.submit(() -> fixture.service.sendMessage(reviewId, 0, "Explain this line", "local-comment", false));
+                assertThatThrownBy(() -> localComment.get(100, TimeUnit.MILLISECONDS)).isInstanceOf(TimeoutException.class);
                 continueStartup.countDown();
                 assertThat(started.get(5, TimeUnit.SECONDS).runs().getLast().state()).isEqualTo(ReviewRun.State.RUNNING);
                 reconciled.get(5, TimeUnit.SECONDS);
+                localComment.get(5, TimeUnit.SECONDS);
+                ArgumentCaptor<StartAgentTurnCommand> startedTurns = ArgumentCaptor.forClass(StartAgentTurnCommand.class);
+                verify(fixture.turns, times(2)).start(startedTurns.capture());
+                assertThat(startedTurns.getValue().developmentAutomation()).isEmpty();
                 assertThat(fixture.store.listRuns(reviewId).getLast().state()).isEqualTo(ReviewRun.State.RUNNING);
                 verify(fixture.turns, never()).findTurnByIdempotencyKey(any(TaskId.class), anyString());
             }
@@ -375,7 +381,7 @@ class TestDefaultAgentReviewService
         String reviewId = fixture.service.start(WORKSPACE, REPO, NUMBER).review().id();
         String runId = fixture.store.listRuns(reviewId).getLast().id();
 
-        ReviewMessage message = fixture.service.ask(reviewId, Optional.empty(), 1, "  Why is the parser reset here?  ");
+        ReviewMessage message = fixture.service.ask(reviewId, Optional.empty(), Optional.empty(), 1, "  Why is the parser reset here?  ");
 
         assertThat(message.body()).isEqualTo("Why is the parser reset here?");
         assertThat(message.author()).isEqualTo(ReviewMessage.Author.USER);
@@ -386,9 +392,29 @@ class TestDefaultAgentReviewService
 
         ArgumentCaptor<StartAgentTurnCommand> started = ArgumentCaptor.forClass(StartAgentTurnCommand.class);
         verify(fixture.turns, times(2)).start(started.capture());
-        assertThat(started.getValue().message()).contains("Question about the summary").contains("Why is the parser reset here?");
+        assertThat(started.getValue().message()).contains("Question about summary").contains("Why is the parser reset here?");
         assertThat(started.getValue().idempotencyKey()).isEqualTo("review-ask:" + message.id());
         verify(fixture.turns, never()).enqueue(any(QueueAgentInputCommand.class));
+    }
+
+    @Test
+    void cardQuestionKeepsItsRunAndSelectedContent()
+    {
+        Fixture fixture = new Fixture();
+        String reviewId = fixture.service.start(WORKSPACE, REPO, NUMBER).review().id();
+        ReviewRun original = fixture.store.listRuns(reviewId).getLast();
+        fixture.store.updateRun(original.withSummary(summary(), NOW));
+        String cardId = original.id() + ":purpose";
+        ReviewMessage message = fixture.service.ask(reviewId, Optional.empty(), Optional.of(cardId), 1, "Why this approach?");
+        assertThat(message.cardId()).contains(cardId);
+        assertThat(message.runId()).isEqualTo(original.id());
+        ArgumentCaptor<StartAgentTurnCommand> started = ArgumentCaptor.forClass(StartAgentTurnCommand.class);
+        verify(fixture.turns, times(2)).start(started.capture());
+        assertThat(started.getValue().message()).contains("review_reply targeting " + cardId, "Selected card:\nFix the parser reset");
+        assertThatThrownBy(() -> fixture.service.ask(reviewId, Optional.empty(), Optional.of(original.id() + ":commit:unknown"), 1, "Explain"))
+                .hasMessageContaining("unknown commit");
+        assertThatThrownBy(() -> fixture.service.ask(reviewId, Optional.empty(), Optional.of("another-run:purpose"), 1, "Explain"))
+                .hasMessageContaining("does not belong");
     }
 
     @Test
@@ -399,7 +425,7 @@ class TestDefaultAgentReviewService
         when(fixture.tasks.get(TASK_ID)).thenReturn(busyTask());
         when(fixture.turns.enqueue(any(QueueAgentInputCommand.class))).thenReturn(queuedInput());
 
-        ReviewMessage message = fixture.service.ask(reviewId, Optional.empty(), 1, "Does this handle an empty patch?");
+        ReviewMessage message = fixture.service.ask(reviewId, Optional.empty(), Optional.empty(), 1, "Does this handle an empty patch?");
 
         assertThat(message.queuedInputId()).contains(QUEUED_INPUT.toString());
         assertThat(message.turnId()).isEmpty();
@@ -423,13 +449,13 @@ class TestDefaultAgentReviewService
         ReviewFinding withdrawn = fixture.store.insertFinding(finding("finding-2", reviewId, runId, 2, ReviewFinding.State.WITHDRAWN));
 
         assertThat(revised.revision()).isEqualTo(2);
-        assertThatThrownBy(() -> fixture.service.ask(reviewId, Optional.of(revised.id()), 1, "Still true?"))
+        assertThatThrownBy(() -> fixture.service.ask(reviewId, Optional.of(revised.id()), Optional.empty(), 1, "Still true?"))
                 .isInstanceOf(ReviewConflictException.class)
                 .hasMessageContaining("revised to revision 2");
-        assertThatThrownBy(() -> fixture.service.ask(reviewId, Optional.of(withdrawn.id()), 1, "Still true?"))
+        assertThatThrownBy(() -> fixture.service.ask(reviewId, Optional.of(withdrawn.id()), Optional.empty(), 1, "Still true?"))
                 .isInstanceOf(ReviewConflictException.class)
                 .hasMessageContaining("withdrew this finding");
-        assertThatThrownBy(() -> fixture.service.ask(reviewId, Optional.empty(), 4, "Still true?"))
+        assertThatThrownBy(() -> fixture.service.ask(reviewId, Optional.empty(), Optional.empty(), 4, "Still true?"))
                 .isInstanceOf(ReviewConflictException.class)
                 .hasMessageContaining("The summary was revised to revision 1");
 
@@ -778,7 +804,7 @@ class TestDefaultAgentReviewService
 
     private static ReviewSummary summary()
     {
-        return new ReviewSummary(1, "Fix the parser reset", ImmutableList.of(), "The change is sound", ImmutableList.of(), ImmutableList.of());
+        return new ReviewSummary(1, "Fix the parser reset", ImmutableList.of(), "The change is sound", Optional.empty(), ImmutableList.of(), ImmutableList.of());
     }
 
     private static ReviewCoverage coverage()

@@ -530,14 +530,29 @@ Such an inventory-only child does not manufacture cards or a V2 path, including
 saved children of resumed turns.
 
 The panel opens on the task's pull request and uses the main PR page's toolbar,
-content spacing, and actions. **Subagents**, with its total count, replaces
-**Agent review** beside **PR #&lt;number&gt;** and **Changes**; providers without
-nested activity omit that tab. Refresh, **Submit review**, and the checks/merge
+content spacing, and actions. **Review & Learning** sits beside
+**PR #&lt;number&gt;** and **Changes** for both development and review tasks.
+Development tasks also expose the learning tab before a PR exists. After a
+successful turn changes code or commits, a dedicated **Refine summary** turn
+updates the overview, each commit explanation, combined result, evidence/tests,
+and limitations. This uses the existing completion coordinator and runs after
+accepted delivery work, including source synchronization from CI. It also runs
+with commit/publication automation off. The conversation labels the generated
+request **ByteQuay · Refine summary** and the active step **Refining summary…**.
+The tab keeps the last completed report while the update runs; it has no manual
+**Start review** empty state for development. Questions appear inside private
+cards and preserve the original summary snapshot when newer reports replace
+the cards. Earlier summary discussions remain accessible below the current
+report. An explanation or summary refresh never releases a pending decision.
+**Subagents**, with its total count, remains available when the development
+provider supports nested activity. Refresh, **Submit review**, and the checks/merge
 button remain in the toolbar. An author can submit a comment review on their
-own PR, without approval or request-changes choices. **Open full width** opens
-the main PR page. Pull-request state, `base ← head`, and checks scroll with the
-body. The dialog opened by the checks button exposes **Ready for review** for
-the author or a repository writer on open drafts, beside the merge action.
+own PR, without approval or request-changes choices. **Open full width** shows
+the same pull request in a dialog over 90% of the window, dimming the task
+behind it; closing it returns to the task.
+Pull-request state, `base ← head`, and checks scroll with the body. The dialog
+opened by the checks button exposes **Ready for review** for the author or a
+repository writer on open drafts, beside the merge action.
 Both buttons remain visible: drafts enable **Ready for review** and disable
 merge, while open non-drafts disable **Ready for review** and enable merge when
 its existing permission, checks, and merge-mode requirements pass. Only clicking
@@ -548,8 +563,9 @@ The PR tab mounts ByteQuay's existing pull-request detail surface in the panel,
 so the pull request is read beside the conversation without leaving the task. A
 transcript link to that pull request selects the tab instead of navigating, and
 the task route does not change. **Changes** shows the same pull request's diff
-with the review threads already on those lines; agent-review findings stay on
-the full-width surface, which **Open full width** opens. Both surfaces use the
+with GitHub threads, private local discussions, and agent findings on their
+reviewed lines. **View in Changes** and **Open in Review & Learning** navigate
+the same finding within the panel. Both the panel and full-width surface use the
 same diff loader, commit-range selection, line selection, inline composer,
 review-thread renderer, detail loader, and timeline. Selecting a commit compares
 its parent to that commit; selecting consecutive commits compares the first
@@ -567,8 +583,8 @@ the inline controls until acceptance; failures preserve the comment and its
 retry identity and show the error beside it. A disconnected task, unfinished
 delivery, recovery, or closed PR disables submission with a visible reason.
 
-The inline action visibly authorizes committing and pushing requested changes
-to the existing open PR. It snapshots Auto commit and Auto draft PR on and Auto
+In a development task, the inline action authorizes committing and pushing
+requested changes to the existing open PR. It snapshots Auto commit and Auto draft PR on and Auto
 CI fix off for this input only, preserving a draft's status and all saved task
 and composer settings. Questions request an explanation without edits or
 release of earlier held work. The agent must locate the selected code in the
@@ -576,7 +592,10 @@ current checkout before editing because its quoted revision may be older.
 Each accepted submission creates a durable **Local review comment**, marked
 **Private**, with the selected code snapshot and its revision. The conversation
 shows its review card instead of the generated agent-context prompt. The same
-thread appears in the task PR timeline, full-width PR timeline, and diff.
+thread appears in **Review & Learning**, the task PR timeline, full-width PR
+timeline, and diff. The learning tab lists private discussions from all tasks
+associated with that PR, including its separate review task. Each discussion
+continues with its owning agent.
 Local cards reuse the GitHub review card presentation with a distinct subtle
 background. Code from another revision stays available as a labeled snapshot;
 it must never attach to an unrelated line in the current diff.
@@ -757,7 +776,21 @@ grey icon. Reviews are grouped by local calendar start date into **Today**, **Ye
 **Recent 7 days**, **Recent 30 days**, and **Older**. Groups do not overlap;
 empty groups are hidden, and rows are newest first within each group.
 Selecting a row opens that exact review in the existing PR detail
-overlay's Agent review tab; closing the overlay returns to the selected list.
+overlay's **Review & Learning** tab; closing the overlay returns to the
+selected list. Each row also has a **View inside workspace** icon. It opens the
+exact review at `tasks/review/{reviewId}`, so reload and back/forward retain
+the selected review. The workspace shows the existing review conversation on
+the left and the same PR page on the right. Both development and review tasks
+use the same draggable divider, pane widths, and minimum/maximum bounds; the
+conversation fills the remaining space, and changing PR tabs retains the width.
+Dragging begins at the rendered width when the window constrains the pane.
+The PR page contains independent
+learning and finding cards; it has no **Summary & comments** or **Activity**
+subtabs. The **View in workspace** action on its review opens that same route.
+Starting a review from the PR keeps its existing start screen and runs the
+backend task independently of which page is open. Private inline comments in
+that review send questions to its review agent and retain the read-only review
+execution profile.
 Review rows use review-scoped reads and actions and do not expose interactive
 task creation, archive, or deletion. Agent tasks are grouped
 into Commits-style day cards by the local calendar day of `updatedAt`

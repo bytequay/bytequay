@@ -21,12 +21,22 @@
   min-height: 60px;
   padding-top: 10px;
   padding-bottom: 10px;
+  padding-right: 54px;
   border-right: 0;
   border-bottom: 0;
   border-left: 0;
   text-align: left;
   font: inherit;
 }
+
+.agt-review-entry { position: relative; }
+.agt-review-entry__workspace { position: absolute; right: 12px; top: calc(50% - 15px); }
+
+.pulls-page--review-workspace .pull-detail { flex: none; min-width: 0; }
+.agr-workspace-conversation { display: flex; flex: 1; flex-direction: column; min-width: 0; min-height: 0; }
+.agr-workspace-conversation > .agr-pane { flex: 1; min-height: 0; }
+.agr-workspace-conversation .agt-screen-head { min-height: 45px; }
+.agr-workspace-conversation .agt-screen-head strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
 .agt-review-row__icon {
   grid-column: 1;

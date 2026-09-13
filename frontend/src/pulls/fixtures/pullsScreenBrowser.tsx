@@ -16,6 +16,10 @@ import { flushSync } from 'react-dom';
 import { createRoot } from 'react-dom/client';
 import type { Bridge, DiffCommitDto, DiffFileDto, PullRequestDetailDto, PullTimelinePayloadDto } from '../../types';
 import PullsScreen, { remotePullRequest } from '../PullsScreen';
+import ReviewTaskScreen from '../../agents/ReviewTaskScreen';
+import { createPreviewBridge } from '../../agents/fixtures/previewBridge';
+import { reviewFixture } from '../agent-review/fixtures/review';
+import '../../css/base.css';
 
 const settle = () => new Promise<void>(resolve => requestAnimationFrame(() => requestAnimationFrame(() => resolve())));
 function assert(condition: boolean, message: string): asserts condition { if (!condition) throw new Error(message); }
@@ -133,5 +137,119 @@ export async function runMainScreen(): Promise<string> {
     flushSync(() => root.unmount());
     host.remove();
     window.setTimeout = originalTimeout;
+  }
+}
+
+export async function runReviewWorkspace(): Promise<string> {
+  const agent = createPreviewBridge('workspace-1', { replayThrough: Number.MAX_SAFE_INTEGER });
+  const review = reviewFixture({ id: 'retained-review', state: 'CLOSED', closedAt: '2026-09-07T00:00:00Z' });
+  review.task = { ...review.task, id: agent.events[0].taskId };
+  const detail: PullRequestDetailDto = {
+    id: 42, repo: review.repo, number: review.number, title: 'Review this retained pull request', htmlUrl: null, state: 'open', draft: true,
+    mergeable: null, mergeableState: null, author: 'alice', authorAvatarUrl: null, createdAt: null, updatedAt: null,
+    mergedAt: null, baseRef: 'main', headRef: 'feature', body: 'Pull request implementation', labels: [], assignees: [], milestone: null,
+    reviewers: [], additions: 1, deletions: 1, changedFiles: 1, approvalCount: 0, ciStatus: null, recentActivity: [],
+    checkRuns: [], unavailableSections: [], viewerCanWrite: false,
+  };
+  const reviewReads: string[] = [];
+  let historyReads = 0;
+  let listReads = 0;
+  let back = 0;
+  const bridge = {
+    getUserProfile: async () => ({ login: 'bob', name: null, avatarUrl: '', htmlUrl: '', publicRepos: 0, followers: 0,
+      following: 0, bio: null, location: null, company: null, email: null }),
+    getModelSettings: agent.getModelSettings,
+    getAgentTurn: agent.getAgentTurn,
+    getAgentReview: async id => {
+      reviewReads.push(id);
+      assert(id === review.id, 'Workspace reads must keep the exact retained review ID');
+      return review;
+    },
+    findAgentReview: async () => { throw new Error('An exact retained review must not be replaced by the newest review'); },
+    readAgentReviewHistory: async (id, taskId, before, after) => {
+      assert(id === review.id && taskId === review.task.id, 'Conversation history must stay scoped to the retained review and task');
+      historyReads++;
+      return agent.readAgentHistory(taskId, before, after);
+    },
+    fetchAttentionPrs: async () => [],
+    fetchPrs: async () => { listReads++; throw new Error('A review workspace must not load the PR list'); },
+    fetchPullRequestDetailByRef: async (repo, number) => {
+      assert(repo === review.repo && number === review.number, 'Review workspace must open the owning pull request');
+      return detail;
+    },
+    refreshPullRequestDetailByRef: async () => ({ full: true as const, detail, status: null }),
+    listLocalReviewComments: async () => [],
+    recordRecentTouch: async () => {},
+  } satisfies Pick<Bridge, 'getUserProfile' | 'getModelSettings' | 'getAgentTurn' | 'getAgentReview' | 'findAgentReview'
+    | 'readAgentReviewHistory' | 'fetchAttentionPrs' | 'fetchPrs' | 'fetchPullRequestDetailByRef'
+    | 'refreshPullRequestDetailByRef' | 'listLocalReviewComments' | 'recordRecentTouch'>;
+  const originalBridge = window.bridge;
+  Object.assign(window, { bridge });
+  const host = document.createElement('div');
+  host.style.width = '1200px';
+  host.style.height = '800px';
+  document.body.append(host);
+  const root = createRoot(host);
+  try {
+    flushSync(() => root.render(<ReviewTaskScreen workspaceId={review.workspaceId} reviewId={review.id} browserOpen={false}
+      onBack={() => { back++; }} />));
+    for (let attempt = 0; attempt < 20 && !host.textContent?.includes('I found one authentication regression.'); attempt++) await settle();
+    const conversation = host.querySelector<HTMLElement>('[aria-label="Review agent conversation"]');
+    const pane = host.querySelector<HTMLElement>('.pull-detail');
+    assert(conversation?.textContent?.includes('I found one authentication regression.') === true,
+      'The left workspace conversation must replay the review agent response');
+    assert(pane?.textContent?.includes('What this PR does') === true && pane.querySelector('[data-finding-id="finding-1"]') !== null,
+      'The right PR pane must show independent learning and finding cards');
+    assert(conversation.parentElement === pane.parentElement
+      && Boolean(conversation.compareDocumentPosition(pane) & Node.DOCUMENT_POSITION_FOLLOWING),
+    'Conversation and PR cards must be sibling panes in left-to-right order');
+    assert(host.querySelector('.pulls-list') === null && listReads === 0 && host.querySelector('[aria-modal="true"]') === null,
+      'The workspace layout must show neither a PR list nor a modal');
+    assert(reviewReads.length >= 2 && reviewReads.every(id => id === review.id) && historyReads > 0,
+      'Opening and loading the workspace must retain its exact review identity');
+    assert(!host.textContent?.includes('Summary & comments') && host.querySelector('.agr-strip__tabs') === null,
+      'Review cards must not restore Summary or Activity subtabs');
+    const divider = host.querySelector<HTMLElement>('[aria-label="Resize side panel"]');
+    assert(divider !== null && divider.nextElementSibling === pane && getComputedStyle(divider).cursor === 'col-resize',
+      'The review workspace must use the same visible draggable separator as development tasks');
+    const initialWidth = pane.getBoundingClientRect().width;
+    const initialConversationWidth = conversation.getBoundingClientRect().width;
+    const drag = async (distance: number) => {
+      const startX = divider.getBoundingClientRect().left;
+      divider.dispatchEvent(new MouseEvent('mousedown', { bubbles: true, button: 0, clientX: startX }));
+      await settle();
+      assert(divider.classList.contains('is-resizing'), 'Dragging must show the shared active divider state');
+      window.dispatchEvent(new MouseEvent('mousemove', { clientX: startX + distance }));
+      await settle();
+      window.dispatchEvent(new MouseEvent('mouseup'));
+      await settle();
+      assert(!divider.classList.contains('is-resizing') && document.body.style.cursor === '' && document.body.style.userSelect === '',
+        'Releasing the divider must restore normal pointer and text selection');
+    };
+    await drag(80);
+    const resizedWidth = pane.getBoundingClientRect().width;
+    assert(Math.abs(initialWidth - resizedWidth - 80) < 1
+      && Math.abs(conversation.getBoundingClientRect().width - initialConversationWidth - 80) < 1,
+    `Dragging must resize the visible panes immediately, including when CSS constrained the starting width: PR ${initialWidth} -> ${resizedWidth}, conversation ${initialConversationWidth} -> ${conversation.getBoundingClientRect().width}`);
+    pane.querySelector<HTMLButtonElement>('.pull-detail__pr-tab')?.click(); await settle();
+    const learningTab = [...pane.querySelectorAll<HTMLButtonElement>('button')].find(button => button.textContent?.includes('Review & Learning'));
+    assert(learningTab !== undefined, 'The resized PR must retain its learning tab');
+    learningTab.click(); await settle();
+    assert(Math.abs(pane.getBoundingClientRect().width - resizedWidth) < 1,
+      'Changing PR tabs must retain the user-selected pane width');
+    await drag(5000);
+    assert(pane.style.getPropertyValue('width') === '360px', 'The shared pane minimum must keep the PR readable');
+    await drag(-5000);
+    assert(pane.style.getPropertyValue('width') === '1600px' && conversation.getBoundingClientRect().width > 0
+      && pane.getBoundingClientRect().right <= host.getBoundingClientRect().right + 1,
+    'The shared maximum and CSS bounds must retain the conversation without overflowing the workspace');
+    conversation.querySelector<HTMLButtonElement>('[aria-label="Back to tasks"]')?.click();
+    assert(back === 1, 'The review workspace back action must return to its task list');
+    return 'Retained review workspace replays its conversation beside learning cards and returns to tasks';
+  }
+  finally {
+    flushSync(() => root.unmount());
+    host.remove();
+    Object.assign(window, { bridge: originalBridge });
   }
 }

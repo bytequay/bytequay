@@ -26,6 +26,10 @@ import com.bytequay.agent.spi.AgentSessionContext;
 import com.bytequay.agent.spi.AgentSessionRef;
 import com.bytequay.agent.spi.AgentTurnCommand;
 import com.bytequay.agent.spi.AgentTurnResult;
+import com.bytequay.agent.spi.DevelopmentLearningCommit;
+import com.bytequay.agent.spi.DevelopmentLearningSummary;
+import com.bytequay.agent.spi.DevelopmentResultBridge;
+import com.bytequay.agent.spi.DevelopmentResultBridgeResolver;
 import com.bytequay.agent.spi.DevelopmentResultReport;
 import com.bytequay.agent.spi.ProviderAgentEvent;
 import com.bytequay.agent.spi.ProviderAgentEventSource;
@@ -68,10 +72,17 @@ final class ScriptedAgentDriver
     private final List<GitAction> gitActions = new ArrayList<>();
     private final List<TurnCall> cancellations = new ArrayList<>();
     private final CiMemoryService memory;
+    private final DevelopmentResultBridgeResolver developmentResults;
 
     ScriptedAgentDriver(CiMemoryService memory)
     {
+        this(memory, DevelopmentResultBridgeResolver.NONE);
+    }
+
+    ScriptedAgentDriver(CiMemoryService memory, DevelopmentResultBridgeResolver developmentResults)
+    {
         this.memory = requireNonNull(memory, "memory is null");
+        this.developmentResults = requireNonNull(developmentResults, "developmentResults is null");
     }
 
     synchronized void reset()
@@ -364,9 +375,21 @@ final class ScriptedAgentDriver
             }
             if (!action.waitsForCancellation()) {
                 if (context.permissionPolicy() == AgentPermissionPolicy.AUTO && action.result().state() == AgentTurnResult.State.COMPLETED) {
+                    Optional<DevelopmentLearningSummary> learningSummary = developmentResults.resolve(context.taskId())
+                            .filter(bridge -> bridge.turnId().equals(command.turnId()))
+                            .filter(DevelopmentResultBridge::learningSummaryAllowed)
+                            .map(ignored -> new DevelopmentLearningSummary(
+                                    "Summarize the delivered development change.",
+                                    ImmutableList.of(new DevelopmentLearningCommit(
+                                            E2eGitRepository.git(context.worktree(), "rev-parse", "HEAD"),
+                                            E2eGitRepository.git(context.worktree(), "log", "-1", "--format=%s"),
+                                            E2eGitRepository.git(context.worktree(), "show", "--format=", "--no-ext-diff", "HEAD"))),
+                                    Optional.empty(),
+                                    "Read the synchronized committed diff.",
+                                    ImmutableList.of("This scripted report does not execute tests.")));
                     events.emit(new ProviderAgentEvent.DevelopmentResult(
                             Optional.of("report-" + command.turnId()), Optional.empty(),
-                            new DevelopmentResultReport(true, Optional.empty()),
+                            new DevelopmentResultReport(true, Optional.empty(), learningSummary),
                             new ProviderAgentEventSource(Optional.empty(), Optional.empty(), Optional.empty(),
                                     Optional.of("ci-e2e-" + command.turnId()), Optional.of("report-" + command.turnId()))));
                 }

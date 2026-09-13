@@ -926,6 +926,7 @@ class TestAgentHttpApi
                 .getStatusCode()).isEqualTo(HttpStatus.CREATED);
         driver.completeHeldTurn();
         awaitCondition(() -> get(queuePath).getBody().get(0).path("state").asText().equals("PAUSED"));
+        awaitContinuationSettled(taskId);
         JsonNode waiting = get(taskPath).getBody();
         assertThat(waiting.required("state").asText()).isEqualTo("OPEN");
         assertThat(waiting.required("developmentContinuationUnfinished").asBoolean()).isFalse();
@@ -1004,9 +1005,9 @@ class TestAgentHttpApi
         JsonNode secondTerminal = get("/agent/turns/" + second.get("id").asText()).getBody();
         assertThat(secondTerminal.get("state").asText()).isEqualTo("COMPLETED");
 
-        JsonNode events = get("/agent/tasks/" + taskId + "/events?after=0&limit=10").getBody();
+        JsonNode events = get("/agent/tasks/" + taskId + "/events?after=0&limit=20").getBody();
         assertThat(events).isNotNull();
-        assertThat(events).hasSize(10);
+        assertThat(events).hasSize(12);
         assertThat(events)
                 .extracting(event -> event.get("type").asText())
                 .containsExactly(
@@ -1016,9 +1017,11 @@ class TestAgentHttpApi
                         "assistant_message",
                         "lifecycle",
                         "lifecycle",
+                        "lifecycle",
                         "user_message",
                         "lifecycle",
                         "assistant_message",
+                        "lifecycle",
                         "lifecycle");
         assertThat(events.get(0).get("payload").get("text").asText()).isEqualTo("first");
         assertThat(events.get(1).get("payload").get("phase").asText()).isEqualTo("SESSION_OPENED");
@@ -1026,11 +1029,13 @@ class TestAgentHttpApi
         assertThat(events.get(3).get("payload").get("text").asText()).isEqualTo("deterministic: first");
         assertThat(events.get(4).get("payload").get("phase").asText()).isEqualTo("TURN_COMPLETED");
         assertThat(events.get(5).get("payload").get("phase").asText()).isEqualTo("TITLE_UPDATED");
-        assertThat(events.get(6).get("payload").get("text").asText()).isEqualTo("second");
-        assertThat(events.get(7).get("payload").get("phase").asText()).isEqualTo("TURN_STARTED");
-        assertThat(events.get(8).get("payload").get("text").asText()).isEqualTo("deterministic: second");
-        assertThat(events.get(9).get("payload").get("phase").asText()).isEqualTo("TURN_COMPLETED");
-        long firstSequence = events.get(5).get("sequence").asLong();
+        assertThat(events.get(6).get("payload").get("phase").asText()).isEqualTo("DEVELOPMENT_AUTOMATION_UPDATED");
+        assertThat(events.get(7).get("payload").get("text").asText()).isEqualTo("second");
+        assertThat(events.get(8).get("payload").get("phase").asText()).isEqualTo("TURN_STARTED");
+        assertThat(events.get(9).get("payload").get("text").asText()).isEqualTo("deterministic: second");
+        assertThat(events.get(10).get("payload").get("phase").asText()).isEqualTo("TURN_COMPLETED");
+        assertThat(events.get(11).get("payload").get("phase").asText()).isEqualTo("DEVELOPMENT_AUTOMATION_UPDATED");
+        long firstSequence = events.get(6).get("sequence").asLong();
         assertThat(events.get(0).get("schemaVersion").asInt()).isEqualTo(2);
         assertThat(events.get(0).get("eventId").asText()).isNotBlank();
         assertThat(events.get(0).get("source").isObject()).isTrue();
@@ -1039,7 +1044,7 @@ class TestAgentHttpApi
         JsonNode afterFirst = get("/agent/tasks/" + taskId + "/events?after=" + firstSequence + "&limit=10")
                 .getBody();
         assertThat(afterFirst).isNotNull();
-        assertThat(afterFirst).hasSize(4);
+        assertThat(afterFirst).hasSize(5);
         assertThat(afterFirst.get(0).get("type").asText()).isEqualTo("user_message");
         assertThat(afterFirst.get(0).get("payload").get("text").asText()).isEqualTo("second");
         assertThat(afterFirst.get(1).get("type").asText()).isEqualTo("lifecycle");
@@ -1048,6 +1053,7 @@ class TestAgentHttpApi
         assertThat(afterFirst.get(2).get("payload").get("text").asText()).isEqualTo("deterministic: second");
         assertThat(afterFirst.get(3).get("type").asText()).isEqualTo("lifecycle");
         assertThat(afterFirst.get(3).get("payload").get("phase").asText()).isEqualTo("TURN_COMPLETED");
+        assertThat(afterFirst.get(4).get("payload").get("phase").asText()).isEqualTo("DEVELOPMENT_AUTOMATION_UPDATED");
         JsonNode sseEvent = objectMapper.readTree(firstSseData(taskId, firstSequence));
         assertThat(sseEvent).isEqualTo(afterFirst.get(0));
 
@@ -1148,7 +1154,7 @@ class TestAgentHttpApi
         assertThat(claudeEvents)
                 .extracting(event -> event.required("type").asText())
                 .containsExactly(
-                        "user_message", "lifecycle", "lifecycle", "assistant_message", "lifecycle", "lifecycle");
+                        "user_message", "lifecycle", "lifecycle", "assistant_message", "lifecycle", "lifecycle", "lifecycle");
         assertThat(claudeEvents.get(0).required("payload").required("text").asText()).isEqualTo("Claude first");
         assertThat(claudeEvents.get(3).required("payload").required("text").asText()).isEqualTo("deterministic: Claude first");
         String turnId = claudeEvents.get(0).required("turnId").asText();
@@ -1156,7 +1162,7 @@ class TestAgentHttpApi
 
         long userSequence = claudeEvents.get(0).required("sequence").asLong();
         JsonNode replay = get("/agent/tasks/" + claudeTaskId + "/events?after=" + userSequence + "&limit=20").getBody();
-        assertThat(replay).hasSize(5);
+        assertThat(replay).hasSize(6);
         assertThat(objectMapper.readTree(firstSseData(claudeTaskId, userSequence))).isEqualTo(replay.get(0));
 
         ResponseEntity<JsonNode> codexCreated = post(
@@ -1371,7 +1377,7 @@ class TestAgentHttpApi
                 "/agent/tasks/" + taskId + "/turns",
                 ImmutableMap.of("message", message, "expectedVersion", taskVersion(taskId)),
                 idempotencyKey);
-        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.ACCEPTED);
+        assertThat(response.getStatusCode()).as("start response: %s", response.getBody()).isEqualTo(HttpStatus.ACCEPTED);
         return response.getBody();
     }
 
@@ -1464,11 +1470,31 @@ class TestAgentHttpApi
         if (idempotencyKey != null) {
             requestHeaders.set("Idempotency-Key", idempotencyKey);
         }
-        return rest.exchange(
+        ResponseEntity<JsonNode> response = rest.exchange(
                 url(path),
                 HttpMethod.POST,
                 new HttpEntity<>(objectMapper.writeValueAsString(body), requestHeaders),
                 JsonNode.class);
+        JsonNode result = response.getBody();
+        // Immediate provider completion still leaves the real Git checker running; later
+        // fixture actions require its ownership to settle. Held provider turns remain immediate.
+        if (response.getStatusCode().is2xxSuccessful() && result != null) {
+            if (path.equals("/agent/tasks") && result.path("mutationClaim").isNull()) {
+                awaitContinuationSettled(result.required("id").asText());
+            }
+            else if (result.path("state").asText().equals("COMPLETED") && result.hasNonNull("taskId")) {
+                awaitContinuationSettled(result.required("taskId").asText());
+            }
+        }
+        return response;
+    }
+
+    private void awaitContinuationSettled(String taskId)
+    {
+        awaitCondition(() -> {
+            JsonNode current = get("/agent/tasks/" + taskId + "?workspaceId=" + workspaceId).getBody();
+            return !current.path("developmentContinuationUnfinished").asBoolean() && current.path("mutationClaim").isNull();
+        });
     }
 
     @Test
@@ -1504,7 +1530,7 @@ class TestAgentHttpApi
                 .isEqualTo(HttpStatus.CONFLICT);
         driver.completeHeldTurn();
         awaitCondition(() -> get(queuePath).getBody().isEmpty());
-        awaitCondition(() -> get("/agent/tasks/" + taskId + "?workspaceId=" + workspaceId).getBody().path("mutationClaim").isNull());
+        awaitContinuationSettled(taskId);
         JsonNode events = get("/agent/tasks/" + taskId + "/events?after=0&limit=20").getBody();
         assertThat(events).anySatisfy(event -> {
             assertThat(event.required("type").asText()).isEqualTo("user_message");

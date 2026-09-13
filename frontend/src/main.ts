@@ -38,7 +38,7 @@ import {
   parseDevelopmentAutomation,
   parseModelSettings,
 } from './agents/contracts';
-import { parseLocalReviewThread, parseLocalReviewThreads, type CreateLocalReviewRequest, type LocalReviewQuery, type ReplyLocalReviewRequest, type ResolveLocalReviewRequest, type RetryLocalReviewRequest } from './pulls/local-review/contracts';
+import { parseLocalReviewThread, parseLocalReviewThreads, type CreateDevelopmentLearningCommentRequest, type CreateLocalReviewRequest, type LocalReviewQuery, type ReplyLocalReviewRequest, type ResolveLocalReviewRequest, type RetryLocalReviewRequest } from './pulls/local-review/contracts';
 import { parseAgentEventSequence, parseAgentHistoryPage, parseAgentPendingApprovals } from './agents/events';
 import {
   parseAgentReview,
@@ -634,6 +634,17 @@ function registerIpc(): void {
   });
   const localReviewUrl = (taskId: string, workspaceId: string, suffix = ''): string =>
     `${backendBase()}/agent/tasks/${encodeURIComponent(taskId)}/local-review-comments${suffix}?${new URLSearchParams({ workspaceId })}`;
+  const learningUrl = (taskId: string, workspaceId: string, suffix = ''): string =>
+    `${backendBase()}/agent/tasks/${encodeURIComponent(taskId)}/learning${suffix}?${new URLSearchParams({ workspaceId })}`;
+  ipcMain.handle('agent:learning:get', async (_event, taskId: string, workspaceId: string) => {
+    const turn = await backendJson(learningUrl(taskId, workspaceId), { headers: agentHeaders() });
+    return turn === null ? null : parseAgentTurn(turn);
+  });
+  ipcMain.handle('agent:learning:comment', async (_event, request: CreateDevelopmentLearningCommentRequest) => {
+    const { taskId, workspaceId, idempotencyKey, ...body } = request;
+    return parseLocalReviewThread(await backendJson(learningUrl(taskId, workspaceId, '/comments'),
+      jsonInit('POST', body, { ...agentHeaders(true), 'Idempotency-Key': idempotencyKey })));
+  });
   ipcMain.handle('agent:local-review:list', async (_event, query: LocalReviewQuery) => {
     const url = 'taskId' in query ? localReviewUrl(query.taskId, query.workspaceId)
       : `${backendBase()}/agent/local-review-comments?${new URLSearchParams({
@@ -860,10 +871,10 @@ function registerIpc(): void {
   ipcMain.handle('review:resume', (_event, reviewId: string) => review(`/${encodeURIComponent(reviewId)}/resume`, {}, { method: 'POST' }));
   ipcMain.handle('review:update', (_event, reviewId: string) => review(`/${encodeURIComponent(reviewId)}/update`, {}, { method: 'POST' }));
   ipcMain.handle('review:end', (_event, reviewId: string) => review(`/${encodeURIComponent(reviewId)}/end`, {}, { method: 'POST' }));
-  ipcMain.handle('review:ask', (_event, reviewId: string, findingId: string | null, targetRevision: number, message: string) =>
+  ipcMain.handle('review:ask', (_event, reviewId: string, findingId: string | null, targetRevision: number, message: string, cardId?: string) =>
     review(`/${encodeURIComponent(reviewId)}/questions`, {}, {
       method: 'POST',
-      body: JSON.stringify({ findingId, targetRevision, message }),
+      body: JSON.stringify({ findingId, targetRevision, message, cardId }),
     }));
   ipcMain.handle('review:message', (_event, reviewId: string, message: string, delivery: string, idempotencyKey: string) =>
     backendJson(reviewUrl(`/${encodeURIComponent(reviewId)}/messages`), {

@@ -51,7 +51,10 @@ public interface AgentReviewService
     AgentReviewProjection end(String reviewId);
 
     /** A private question on the summary or a finding: a turn when idle, a visible queue entry when busy. */
-    ReviewMessage ask(String reviewId, Optional<String> findingId, int targetRevision, String message);
+    ReviewMessage ask(String reviewId, Optional<String> findingId, Optional<String> cardId, int targetRevision, String message);
+
+    /** Admits a discussion input under the same lock as review head updates and closure. */
+    void sendMessage(String reviewId, long expectedTaskVersion, String message, String idempotencyKey, boolean queued);
 
     ReviewFinding resolveFinding(String reviewId, String findingId, long expectedVersion, String reason);
 

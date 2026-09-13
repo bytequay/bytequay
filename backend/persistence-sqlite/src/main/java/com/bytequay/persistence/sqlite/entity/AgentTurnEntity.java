@@ -135,6 +135,10 @@ public class AgentTurnEntity
 
     private String parentUserTurnId;
 
+    // Existing SQLite enum CHECK constraints cannot grow through Hibernate update; refinement has additive provenance.
+    @Column(name = "refinement_parent_user_turn_id")
+    private String refinementParentUserTurnId;
+
     @Enumerated(EnumType.STRING)
     private AgentTurnFailureKind failureKind;
 
@@ -205,8 +209,11 @@ public class AgentTurnEntity
                 .orElse(null);
         terminalReason = turn.terminalReason().orElse(null);
         developmentResult = turn.developmentResult().orElse(null);
-        developmentOriginKind = turn.developmentOrigin().map(DevelopmentTurnOrigin::kind).orElse(null);
-        parentUserTurnId = turn.developmentOrigin().map(DevelopmentTurnOrigin::parentUserTurnId).map(TurnId::toString).orElse(null);
+        Optional<DevelopmentTurnOrigin> deliveryOrigin = turn.developmentOrigin().filter(origin -> origin.kind() != DevelopmentTurnOrigin.Kind.REFINE_SUMMARY);
+        developmentOriginKind = deliveryOrigin.map(DevelopmentTurnOrigin::kind).orElse(null);
+        parentUserTurnId = deliveryOrigin.map(DevelopmentTurnOrigin::parentUserTurnId).map(TurnId::toString).orElse(null);
+        refinementParentUserTurnId = turn.developmentOrigin().filter(origin -> origin.kind() == DevelopmentTurnOrigin.Kind.REFINE_SUMMARY)
+                .map(DevelopmentTurnOrigin::parentUserTurnId).map(TurnId::toString).orElse(null);
         failureKind = turn.failureKind().orElse(null);
         inputTokens = turn.metrics().inputTokens();
         cachedInputTokens = turn.metrics().cachedInputTokens();
@@ -260,6 +267,9 @@ public class AgentTurnEntity
 
     private Optional<DevelopmentTurnOrigin> developmentOrigin()
     {
+        if (refinementParentUserTurnId != null) {
+            return Optional.of(new DevelopmentTurnOrigin(DevelopmentTurnOrigin.Kind.REFINE_SUMMARY, TurnId.valueOf(refinementParentUserTurnId)));
+        }
         if (developmentOriginKind == null && parentUserTurnId == null) {
             return Optional.empty();
         }

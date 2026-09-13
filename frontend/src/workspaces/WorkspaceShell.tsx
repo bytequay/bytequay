@@ -15,6 +15,7 @@ import React, { useCallback, useEffect, useState } from 'react';
 import AgentHome from '../agents/AgentHome';
 import AgentTaskScreen from '../agents/AgentTaskScreen';
 import AgentTasksView from '../agents/AgentTasksView';
+import ReviewTaskScreen from '../agents/ReviewTaskScreen';
 import TaskOverview from '../agents/TaskOverview';
 import CommitsTab, { type CommitSourceSelection } from '../commits/CommitsTab';
 import TasksView from '../commits/TasksView';
@@ -27,11 +28,12 @@ import type { CherryPickExecution, WorkspaceDto } from '../types';
 import {
   workspaceHasReadableCode,
   workspaceIsUpdating,
+  workspaceReviewTaskRoute,
   type WorkspaceTab,
 } from './model';
 import '../css/workspaces.css';
 
-export default function WorkspaceShell({ workspace, tab, onSelectTab, onWorkspaceChanged, initialPullRequestNumber, initialIssueNumber, initialAgentTaskId, browserOpen = false, onSelectAgentTask, onSelectPullRequest, onPreviewPullRequest, onSelectIssue }: {
+export default function WorkspaceShell({ workspace, tab, onSelectTab, onWorkspaceChanged, initialPullRequestNumber, initialIssueNumber, initialAgentTaskId, initialAgentReviewId = null, browserOpen = false, onSelectAgentTask, onSelectPullRequest, onPreviewPullRequest, onSelectIssue }: {
   workspace: WorkspaceDto;
   tab: WorkspaceTab;
   onSelectTab: (tab: WorkspaceTab) => void;
@@ -40,6 +42,7 @@ export default function WorkspaceShell({ workspace, tab, onSelectTab, onWorkspac
   initialIssueNumber: number | null;
   /** Route-owned: which agent task is open, so a reload reopens the same one. */
   initialAgentTaskId: string | null;
+  initialAgentReviewId?: string | null;
   browserOpen?: boolean;
   onSelectAgentTask: (taskId: string | null, mode: NavigationMode) => void;
   onSelectPullRequest: (number: number, mode: NavigationMode) => void;
@@ -53,7 +56,11 @@ export default function WorkspaceShell({ workspace, tab, onSelectTab, onWorkspac
   const [overviewOpen, setOverviewOpen] = useState(false);
   const [openReview, setOpenReview] = useState<Pick<AgentReviewDto, 'id' | 'repo' | 'number'> | null>(null);
   const agentScreens = tab === 'home' || tab === 'tasks';
-  const taskDetail = tab === 'tasks' && initialAgentTaskId !== null;
+  const taskDetail = tab === 'tasks' && (initialAgentTaskId !== null || initialAgentReviewId !== null);
+  const openReviewWorkspace = (review: AgentReviewDto): void => {
+    setOpenReview(null);
+    window.location.hash = workspaceReviewTaskRoute(review.workspaceId, review.id);
+  };
   useEffect(() => {
     if (!agentScreens) return;
     const onKey = (event: KeyboardEvent): void => {
@@ -170,6 +177,14 @@ export default function WorkspaceShell({ workspace, tab, onSelectTab, onWorkspac
     />;
   }
   if (tab === 'tasks') {
+    if (initialAgentReviewId !== null) return stage(<ReviewTaskScreen
+      key={initialAgentReviewId}
+      workspaceId={workspace.id}
+      reviewId={initialAgentReviewId}
+      onBack={() => onSelectAgentTask(null, 'push')}
+      headerAction={overviewOpen ? undefined : overviewToggle}
+      browserOpen={browserOpen}
+    />);
     if (initialAgentTaskId !== null) {
       // Not wrapped in ws-tab-page: the screen scrolls its transcript, not the whole page.
       // Keyed by task: moving between two open tasks must not carry one task's transcript and
@@ -182,7 +197,7 @@ export default function WorkspaceShell({ workspace, tab, onSelectTab, onWorkspac
           taskId={initialAgentTaskId}
           onBack={() => onSelectAgentTask(null, 'push')}
           headerAction={overviewOpen ? undefined : overviewToggle}
-          onOpenPullRequest={(number) => onSelectPullRequest(number, 'push')}
+          onOpenPullRequest={onPreviewPullRequest}
           workspace={workspace}
           onOpenSettings={() => { window.location.hash = settingsRoute('ws-agents', workspace.id); }}
         />,
@@ -208,6 +223,7 @@ export default function WorkspaceShell({ workspace, tab, onSelectTab, onWorkspac
       <AgentTasksView
         workspaceId={workspace.id}
         onOpenReview={(review) => setOpenReview({ id: review.id, repo: review.repo, number: review.number })}
+        onOpenReviewWorkspace={openReviewWorkspace}
         onOpenTask={(taskId) => onSelectAgentTask(taskId, 'push')}
         onOpenSettings={() => { window.location.hash = settingsRoute('ws-agents', workspace.id); }}
       >

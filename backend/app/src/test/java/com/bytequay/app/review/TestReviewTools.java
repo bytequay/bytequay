@@ -339,6 +339,39 @@ class TestReviewTools
     }
 
     @Test
+    void summaryCardsKeepIndependentDiscussionAndEvidence()
+    {
+        Map<String, Object> report = ImmutableMap.<String, Object>builder()
+                .put("operationKey", "report").put("purpose", "Avoid losing parser state")
+                .put("commits", ImmutableList.of(ImmutableMap.of("sha", COMMIT_SHA, "explanation", "Keep the parser snapshot")))
+                .put("combinedResult", "State survives rollback").put("evidence", "Ran parser tests: 3 passed; CI was not inspected")
+                .put("criticalFindingIds", ImmutableList.of()).put("limitations", ImmutableList.of()).buildOrThrow();
+        assertThat(call("review_save_summary", report).path("status").asText()).isEqualTo("accepted");
+        assertThat(store.findRun(RUN_ID).orElseThrow().summary().orElseThrow().evidence()).contains("Ran parser tests: 3 passed; CI was not inspected");
+        assertThat(call("review_reply", ImmutableMap.of("operationKey", "old-summary", "target", "summary", "body", "Earlier summary answer"))
+                .path("status").asText()).isEqualTo("accepted");
+        store.insertRun(run("newer-run", 2));
+        String purposeCard = RUN_ID + ":purpose";
+        String commitCard = RUN_ID + ":commit:" + COMMIT_SHA;
+        assertThat(call("review_reply", ImmutableMap.of("operationKey", "purpose-reply", "target", purposeCard, "body", "Purpose answer"))
+                .path("status").asText()).isEqualTo("accepted");
+        assertThat(call("review_reply", ImmutableMap.of("operationKey", "commit-reply", "target", commitCard, "body", "Commit answer"))
+                .path("status").asText()).isEqualTo("accepted");
+        assertThat(store.listMessages(REVIEW_ID)).extracting(ReviewMessage::runId).containsOnly(RUN_ID);
+        assertThat(store.listMessages(REVIEW_ID)).extracting(ReviewMessage::cardId).containsExactly(Optional.empty(), Optional.of(purposeCard), Optional.of(commitCard));
+        JsonNode discussion = call("review_get_context", ImmutableMap.of("kind", "discussion", "target", purposeCard));
+        assertThat(discussion.path("messages")).hasSize(2);
+        assertThat(discussion.at("/messages/0/body").asText()).isEqualTo("Earlier summary answer");
+        assertThat(discussion.at("/messages/1/body").asText()).isEqualTo("Purpose answer");
+        JsonNode context = call("review_get_context", ImmutableMap.of("kind", "summary", "target", commitCard));
+        assertThat(context.path("body").asText()).contains("Add the beta line", "Keep the parser snapshot");
+        assertThat(context.path("headSha").asText()).isEqualTo(HEAD_SHA);
+        assertThat(call("review_reply", ImmutableMap.of("operationKey", "foreign", "target", "foreign-run:purpose", "body", "Wrong target"))
+                .path("error").path("field").asText()).isEqualTo("cardId");
+        assertThat(store.listMessages(REVIEW_ID)).hasSize(3);
+    }
+
+    @Test
     void withdrawFindingLeavesAUserResolutionStanding()
     {
         store.insertFinding(resolvedFinding());
@@ -459,10 +492,15 @@ class TestReviewTools
 
     private static ReviewRun run()
     {
+        return run(RUN_ID, 1);
+    }
+
+    private static ReviewRun run(String id, int ordinal)
+    {
         return new ReviewRun(
-                RUN_ID,
+                id,
                 REVIEW_ID,
-                1,
+                ordinal,
                 ReviewRun.Scope.FULL,
                 "main",
                 BASE_SHA,

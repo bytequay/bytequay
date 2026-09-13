@@ -25,6 +25,7 @@ type ReviewSummaryDto = {
   purpose: string;
   commits: Array<{ sha: string; explanation: string }>;
   combinedResult: string;
+  evidence?: string | null;
   criticalFindingIds: string[];
   limitations: string[];
 };
@@ -88,6 +89,8 @@ export type ReviewFindingDto = {
 
 export type ReviewMessageDto = {
   id: string;
+  runId?: string;
+  cardId?: string | null;
   findingId: string | null;
   author: 'USER' | 'AGENT';
   body: string;
@@ -238,6 +241,7 @@ function parseSummary(value: unknown): ReviewSummaryDto | null {
       return { sha: text(commit.sha, 'commit sha'), explanation: text(commit.explanation, 'commit explanation') };
     }),
     combinedResult: text(summary.combinedResult, 'combined result'),
+    evidence: optionalText(summary.evidence),
     criticalFindingIds: strings(summary.criticalFindingIds),
     limitations: strings(summary.limitations),
   };
@@ -318,6 +322,8 @@ function parseMessage(value: unknown): ReviewMessageDto {
   const message = object(value, 'discussion message');
   return {
     id: text(message.id, 'message id'),
+    runId: optionalText(message.runId) ?? undefined,
+    cardId: optionalText(message.cardId),
     findingId: optionalText(message.findingId),
     author: oneOf(message.author, ['USER', 'AGENT'] as const, 'message author'),
     body: text(message.body, 'message body'),

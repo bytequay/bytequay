@@ -39,10 +39,11 @@ historical checkpoint evidence and explicitly deferred future work.
   storage, and per-turn provider-neutral
   instruction delivery, including always-applied internal ByteQuay guidance
   that is excluded from user-facing skill management.
-- [Agent Review](agent-review.md) locks the initial PR-owned review design:
-  a sibling PR-pane tab, reused agent tasks and PR cards, private discussions,
-  evidence-backed local findings, incremental review, and explicit user
-  publication. Its [implementation checklist](agent-review-impl-tmp.md)
+- [Agent Review](agent-review.md) defines **Review & Learning** for both PR
+  browsing and development tasks: independent private summary, commit,
+  evidence and finding cards, shared local discussions, and workspace review
+  conversations beside the PR. It reuses agent tasks, incremental review and
+  explicit user publication. Its [implementation checklist](agent-review-impl-tmp.md)
   records delivery gates; the design is not a claim of implementation.
 - [CI Autofix Service](ci-autofix-service.md) specifies a user-started,
   bounded watch/fix/commit/push loop for pending or failing GitHub Actions checks. Review

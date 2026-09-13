@@ -95,22 +95,28 @@ export function workspaceAgentTaskRoute(workspaceId: string, taskId: string): st
   return `${workspaceRoute(workspaceId, 'tasks')}/agent/${encodeURIComponent(taskId)}`;
 }
 
+export function workspaceReviewTaskRoute(workspaceId: string, reviewId: string): string {
+  return `${workspaceRoute(workspaceId, 'tasks')}/review/${encodeURIComponent(reviewId)}`;
+}
+
 export function workspaceLocationFromRoute(hash: string): {
   workspaceId: string;
   tab: WorkspaceTab | null;
   pullRequestNumber: number | null;
   issueNumber: number | null;
   agentTaskId: string | null;
+  reviewId?: string;
 } | null {
-  const match = /^#\/workspaces\/([^/]+)(?:\/(home|tasks|prs|issues|commits)(?:\/(?:agent\/([^/]+)|(\d+)))?)?$/
+  const match = /^#\/workspaces\/([^/]+)(?:\/(home|tasks|prs|issues|commits)(?:\/(?:agent\/([^/]+)|(\d+)|review\/([^/]+)))?)?$/
     .exec(hash);
   if (!match) return null;
   const tab = match[2] as WorkspaceTab | undefined;
   const agentTaskId = match[3];
+  const reviewId = match[5];
   const number = match[4] ? Number(match[4]) : null;
   if (number !== null && (number < 1 || tab !== 'prs' && tab !== 'issues')) return null;
   // Only the tasks tab owns an agent task, so `prs/agent/x` is not a route at all.
-  if (agentTaskId !== undefined && tab !== 'tasks') return null;
+  if ((agentTaskId !== undefined || reviewId !== undefined) && tab !== 'tasks') return null;
   try {
     return {
       workspaceId: decodeURIComponent(match[1]),
@@ -118,6 +124,7 @@ export function workspaceLocationFromRoute(hash: string): {
       pullRequestNumber: tab === 'prs' ? number : null,
       issueNumber: tab === 'issues' ? number : null,
       agentTaskId: agentTaskId === undefined ? null : decodeURIComponent(agentTaskId),
+      ...(reviewId === undefined ? {} : { reviewId: decodeURIComponent(reviewId) }),
     };
   }
   catch {

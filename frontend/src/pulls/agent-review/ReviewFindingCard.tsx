@@ -14,11 +14,12 @@
 import { useState } from 'react';
 import { Chevron } from '../../Chevron';
 import MarkdownBody from '../MarkdownBody';
-import { relativeTime } from '../../relativeTime';
+import Avatar from '../../Avatar';
+import { ReviewThreadCard, ReviewThreadMessage } from '../ReviewThreadCard';
 import ReviewComposer from './ReviewComposer';
 import ReviewThread from './ReviewThread';
 import type { AgentReviewDto, ReviewFindingDto } from './contracts';
-import { askLabel, findingPill, findingPublication, messagesFor, shortPath } from './model';
+import { askLabel, findingPill, findingPublication, messagesFor, shortPath, shortSha } from './model';
 
 export type FindingActions = {
   onAsk: (finding: ReviewFindingDto, message: string) => Promise<void>;
@@ -66,10 +67,10 @@ export default function ReviewFindingCard({
   busy?: boolean;
   defaultOpen?: boolean;
 }) {
-  const [open, setOpen] = useState(defaultOpen);
   const [evidenceOpen, setEvidenceOpen] = useState(false);
   const [composer, setComposer] = useState<'ask' | 'post' | 'draft' | null>(null);
   const [text, setText] = useState('');
+  const [error, setError] = useState<string | null>(null);
   const pill = findingPill(review, finding);
   const publication = findingPublication(review, finding);
   const messages = messagesFor(review, finding.id);
@@ -80,6 +81,7 @@ export default function ReviewFindingCard({
     : `${finding.evidence.length} references`;
 
   const openComposer = (kind: 'ask' | 'post' | 'draft', initial: string) => {
+    setError(null);
     setComposer(kind);
     setText(initial);
   };
@@ -90,41 +92,82 @@ export default function ReviewFindingCard({
   const submit = async () => {
     const body = text.trim();
     if (body === '') return;
-    if (composer === 'ask') await actions.onAsk(finding, body);
-    if (composer === 'post') await actions.onPostNow(finding, body);
-    if (composer === 'draft') await actions.onEditDraft(finding, body);
-    close();
+    setError(null);
+    try {
+      if (composer === 'ask') await actions.onAsk(finding, body);
+      if (composer === 'post') await actions.onPostNow(finding, body);
+      if (composer === 'draft') await actions.onEditDraft(finding, body);
+      close();
+    }
+    catch (cause) { setError(cause instanceof Error ? cause.message : 'Could not send your message.'); }
   };
 
   return (
     <article className={`agr-finding${withdrawn || finding.state === 'RESOLVED' || finding.outdated ? ' is-muted' : ''}${publication.kind === 'draft' ? ' is-draft' : ''}`}
-      id={`agent-review-finding-${finding.id}`}
-      data-finding-id={finding.id}>
-      <button type="button" className="agr-finding__head" aria-expanded={open} onClick={() => setOpen(value => !value)}>
-        <Chevron open={open} />
-        <span className="agr-finding__path" title={finding.path}>{shortPath(finding.path)}</span>
-        <span className="agr-finding__range">{finding.range}</span>
-        <span className="agr-spacer" />
-        <span className={`agr-pill is-${pill.tone}`}>{pill.text}</span>
-      </button>
-      {open && (
-        <div className="agr-finding__body">
-          <div className="agr-finding__meta">
-            <span className="agr-agent-mark" aria-hidden="true">A</span>
-            <strong>Agent</strong>
-            <span>· {review.task.laneLabel} · {relativeTime(finding.updatedAt)}</span>
-            {finding.severity !== null && (
-              <span className={`agr-severity ${severityTone(finding.severity)}`}>{finding.severity}</span>
-            )}
-            {publication.kind === 'blocked' && publication.reason.startsWith('Publishing unlocks') && (
-              <span className="agr-pill is-provisional">Provisional</span>
-            )}
-            <span className="agr-spacer" />
-            <span className="agr-finding__id">{finding.label} · rev {finding.revision}</span>
-          </div>
+      id={`agent-review-finding-${finding.id}`} data-finding-id={finding.id}>
+      <ReviewThreadCard resolved={finding.state === 'RESOLVED'} outdated={finding.outdated} defaultOpen={defaultOpen}
+        privateLabel="Agent finding · Private"
+        location={<><code className="pr-local-review__location" title={finding.path}>{shortPath(finding.path)} {finding.range}</code>
+          {pill.text !== 'Private' && <span className={`agr-pill is-${pill.tone}`}>{pill.text}</span>}</>}
+        code={finding.excerpt.length > 0 && <div className="pr-local-review__snapshot">
+          <div>{finding.outdated ? 'Recorded code' : 'Reviewed code'} · head <code>{shortSha(finding.validatedHeadSha)}</code></div>
+          <pre className={finding.outdated ? 'agr-snapshot' : undefined}>{finding.excerpt.join('\n')}</pre>
+        </div>}
+        controls={<footer className="agr-finding__controls">
+          {composer !== null && (
+            <ReviewComposer
+              repository={review.repo}
+              value={text}
+              autoFocus
+              busy={busy}
+              placeholder={composer === 'ask' ? 'Ask the agent about this finding…' : 'Comment text (edits here never change the finding)'}
+              ariaLabel={composer === 'ask' ? 'Ask the agent about this finding' : 'Outgoing comment text'}
+              primaryLabel={composer === 'ask' ? askLabel(review) : composer === 'post' ? 'Post now' : 'Save'}
+              outgoing={composer === 'ask'
+                ? null
+                : composer === 'post'
+                  ? `Posts to GitHub on ${shortPath(finding.path, 28)} ${finding.range} · the head is re-checked on send`
+                  : 'Your outgoing text; the agent never sees these edits'}
+              onChange={setText}
+              onSubmit={() => { void submit(); }}
+              onCancel={close} />
+          )}
+
+          {composer === null && !withdrawn && (
+            <div className="agr-actions">
+              <button type="button" className="agr-action" disabled={busy || review.state === 'CLOSED'}
+                onClick={() => openComposer('ask', '')}>Ask agent</button>
+              {finding.state === 'OPEN' && (
+                <button type="button" className="agr-action" disabled={busy}
+                  onClick={() => { void actions.onResolve(finding); }}>Resolve locally</button>
+              )}
+              <button type="button" className="agr-action" onClick={() => actions.onNavigate(finding)}>
+                {projection === 'review' ? 'View in Changes' : 'Open in Review & Learning'}
+              </button>
+              <span className="agr-spacer" />
+              {publication.kind === 'publishable' && (
+                <>
+                  <span className="agr-actions__divider" aria-hidden="true" />
+                  <button type="button" className="agr-action" disabled={busy}
+                    onClick={() => { void actions.onAddToReview(finding); }}>Add to my review</button>
+                  <button type="button" className="agr-action is-primary" disabled={busy}
+                    onClick={() => openComposer('post', finding.body)}>Post comment now</button>
+                </>
+              )}
+              {publication.kind === 'blocked' && <span className="agr-actions__blocked">{publication.reason}</span>}
+              {publication.kind === 'draft' && <span className="agr-actions__blocked">In your pending review</span>}
+            </div>
+          )}
+          {error && <span className="pr-thread-reply__error" role="alert">{error}</span>}
+        </footer>}>
+        <ReviewThreadMessage timestamp={finding.updatedAt}
+          author={<><Avatar login="Agent" size={22} allowGitHubFallback={false} /><strong>Agent</strong><span>{review.task.laneLabel}</span></>}
+          menu={<>{finding.severity !== null && <span className={`agr-severity ${severityTone(finding.severity)}`}>{finding.severity}</span>}
+            {publication.kind === 'blocked' && publication.reason.startsWith('Publishing unlocks') && <span className="agr-pill is-provisional">Provisional</span>}
+            <span className="agr-finding__id">{finding.label} · rev {finding.revision}</span></>}>
           <h3 className="agr-finding__title">{finding.title}</h3>
           <MarkdownBody body={finding.body} repository={review.repo} />
-
+          <div className="agr-finding__details">
           {finding.evidence.length > 0 && (
             <div className="agr-evidence">
               <button type="button" className="agr-evidence__toggle" aria-expanded={evidenceOpen}
@@ -167,15 +210,10 @@ export default function ReviewFindingCard({
             <div className="agr-notice is-outdated">
               <span aria-hidden="true">⚠</span>
               <span>
-                New commits moved these lines and no unambiguous mapping was found. The recorded snapshot below is the
+                New commits moved these lines and no unambiguous mapping was found. The recorded snapshot above is the
                 version reviewed; it is not publishable until Update review re-anchors it.
               </span>
             </div>
-          )}
-          {finding.outdated && finding.excerpt.length > 0 && (
-            <pre className="agr-snapshot" aria-label="Recorded snapshot of the reviewed lines">
-              {finding.excerpt.join('\n')}
-            </pre>
           )}
           {item !== null && !item.published && (
             <div className="agr-draft">
@@ -199,54 +237,10 @@ export default function ReviewFindingCard({
             </div>
           )}
 
-          <ReviewThread review={review} messages={messages} viewerLogin={viewerLogin} viewerAvatarUrl={viewerAvatarUrl} />
-
-          {composer !== null && (
-            <ReviewComposer
-              repository={review.repo}
-              value={text}
-              autoFocus
-              busy={busy}
-              placeholder={composer === 'ask' ? 'Ask the agent about this finding…' : 'Comment text (edits here never change the finding)'}
-              ariaLabel={composer === 'ask' ? 'Ask the agent about this finding' : 'Outgoing comment text'}
-              primaryLabel={composer === 'ask' ? askLabel(review) : composer === 'post' ? 'Post now' : 'Save'}
-              outgoing={composer === 'ask'
-                ? null
-                : composer === 'post'
-                  ? `Posts to GitHub on ${shortPath(finding.path, 28)} ${finding.range} · the head is re-checked on send`
-                  : 'Your outgoing text; the agent never sees these edits'}
-              onChange={setText}
-              onSubmit={() => { void submit(); }}
-              onCancel={close} />
-          )}
-
-          {composer === null && !withdrawn && (
-            <div className="agr-actions">
-              <button type="button" className="agr-action" disabled={busy}
-                onClick={() => openComposer('ask', '')}>Ask agent</button>
-              {finding.state === 'OPEN' && (
-                <button type="button" className="agr-action" disabled={busy}
-                  onClick={() => { void actions.onResolve(finding); }}>Resolve locally</button>
-              )}
-              <button type="button" className="agr-action" onClick={() => actions.onNavigate(finding)}>
-                {projection === 'review' ? 'View in Changes' : 'Open in Agent review'}
-              </button>
-              <span className="agr-spacer" />
-              {publication.kind === 'publishable' && (
-                <>
-                  <span className="agr-actions__divider" aria-hidden="true" />
-                  <button type="button" className="agr-action" disabled={busy}
-                    onClick={() => { void actions.onAddToReview(finding); }}>Add to my review</button>
-                  <button type="button" className="agr-action is-primary" disabled={busy}
-                    onClick={() => openComposer('post', finding.body)}>Post comment now</button>
-                </>
-              )}
-              {publication.kind === 'blocked' && <span className="agr-actions__blocked">{publication.reason}</span>}
-              {publication.kind === 'draft' && <span className="agr-actions__blocked">In your pending review</span>}
-            </div>
-          )}
-        </div>
-      )}
+          </div>
+        </ReviewThreadMessage>
+        <ReviewThread review={review} messages={messages} viewerLogin={viewerLogin} viewerAvatarUrl={viewerAvatarUrl} />
+      </ReviewThreadCard>
     </article>
   );
 }

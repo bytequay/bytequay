@@ -12,6 +12,7 @@
  * limitations under the License.
  */
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { PanelsTopLeft } from 'lucide-react';
 import { ConfirmDialog } from '../../ConfirmDialog';
 import {
   agentTaskReducer,
@@ -32,6 +33,8 @@ import type {
   UserProfileDto,
 } from '../../types';
 import { remoteErrorMessage } from '../PullOverview';
+import LocalReviewThreadCard from '../local-review/LocalReviewThreadCard';
+import type { LocalReviewThreads } from '../local-review/types';
 import ReviewActivity from './ReviewActivity';
 import ReviewFindingCard from './ReviewFindingCard';
 import { useFindingActions } from './useFindingActions';
@@ -49,7 +52,6 @@ export type ReviewNavigationTarget = {
   token: number;
 };
 
-type View = 'summary' | 'activity';
 type PendingAction = 'resume' | 'other';
 
 /** A placeholder for the hook's contract while no review exists; its actions are never reachable. */
@@ -68,6 +70,9 @@ export default function AgentReviewTab({
   onReviewChange,
   onNavigateToChanges,
   focusFindingId,
+  mode = 'cards',
+  onOpenWorkspace,
+  localReview,
 }: {
   detail: PullRequestDetailDto;
   /** The workspace whose managed clone the review runs in; without one there is nothing to check out. */
@@ -78,8 +83,10 @@ export default function AgentReviewTab({
   onNavigateToChanges: (target: ReviewNavigationTarget) => void;
   /** A finding the Changes tab asked to show; the card is opened and scrolled to. */
   focusFindingId: string | null;
+  mode?: 'cards' | 'conversation';
+  onOpenWorkspace?: () => void;
+  localReview?: LocalReviewThreads;
 }) {
-  const [view, setView] = useState<View>('summary');
   const [starting, setStarting] = useState(false);
   const [pendingAction, setPendingAction] = useState<PendingAction | null>(null);
   const busy = pendingAction !== null;
@@ -128,7 +135,7 @@ export default function AgentReviewTab({
   // The catalog names the model each turn ran with; the transcript shows a name, never a raw slug.
   const laneId = review?.task.laneId ?? null;
   useEffect(() => {
-    if (laneId === null) return;
+    if (laneId === null || mode !== 'conversation') return;
     let live = true;
     void window.bridge.getModelSettings()
       .then(catalog => {
@@ -136,7 +143,7 @@ export default function AgentReviewTab({
       })
       .catch(() => {});
     return () => { live = false; };
-  }, [laneId]);
+  }, [laneId, mode]);
 
   const dispatchConversation = useCallback((action: AgentTaskAction) => {
     setConversation(current => agentTaskReducer(current, action));
@@ -146,15 +153,15 @@ export default function AgentReviewTab({
     const revision = ++projectionRevision.current;
     const [updated, turn] = await Promise.all([
       window.bridge.getAgentReview(reviewId),
-      turnId === null ? Promise.resolve(null) : window.bridge.getAgentTurn(turnId),
+      turnId === null || mode !== 'conversation' ? Promise.resolve(null) : window.bridge.getAgentTurn(turnId),
     ]);
     if (currentReviewId.current !== reviewId || projectionRevision.current !== revision) return null;
     if (turn !== null) dispatchConversation({ type: 'turn/changed', turn });
     onReviewChange(updated);
     return updated;
-  }, [dispatchConversation, onReviewChange]);
+  }, [dispatchConversation, mode, onReviewChange]);
 
-  const run_ = useCallback(async (action: () => Promise<void>, pending: PendingAction = 'other') => {
+  const run_ = useCallback(async (action: () => Promise<void>, pending: PendingAction = 'other', propagate = false) => {
     projectionRevision.current++;
     setPendingAction(pending);
     setError(null);
@@ -163,6 +170,7 @@ export default function AgentReviewTab({
     }
     catch (failure) {
       setError(remoteErrorMessage(failure));
+      if (propagate) throw failure;
     }
     finally {
       projectionRevision.current++;
@@ -235,7 +243,14 @@ export default function AgentReviewTab({
         if (live) setError(remoteErrorMessage(failure));
       }
     };
-    const session = startAgentConversationSession(conversationBridge, taskId, action => {
+    const session = mode === 'cards'
+      ? reviewOpen ? window.bridge.subscribeAgentReview(reviewId, 0, message => {
+        if (!live) return;
+        if (message.kind === 'changed') void reload(message.turnId);
+        else if (message.kind === 'events') void reload(message.events.at(-1)?.turnId ?? null);
+        else if (message.state === 'open') void reload(null);
+      }, true) : Promise.resolve(() => {})
+      : startAgentConversationSession(conversationBridge, taskId, action => {
       if (!live) return;
       dispatchConversation(action);
       if (action.type === 'live/changed') void reload(action.turnId);
@@ -250,7 +265,7 @@ export default function AgentReviewTab({
       if (settlingRefresh !== undefined) clearTimeout(settlingRefresh);
       void session.then(stop => stop(), () => {});
     };
-  }, [conversationBridge, dispatchConversation, refresh, reviewId, reviewOpen, taskId]);
+  }, [conversationBridge, dispatchConversation, mode, refresh, reviewId, reviewOpen, taskId]);
 
   const loadHistory = useCallback(async (direction: 'older' | 'newer' | 'latest') => {
     if (conversationBridge === null || taskId === null || historyRequestRef.current !== null) return;
@@ -298,7 +313,7 @@ export default function AgentReviewTab({
 
   const activeTurnId = review?.activeTurn?.id ?? null;
   useEffect(() => {
-    if (reviewId === null || taskId === null || activeTurnId === null) {
+    if (reviewId === null || taskId === null || activeTurnId === null || mode !== 'conversation') {
       setApprovals([]);
       return;
     }
@@ -307,13 +322,11 @@ export default function AgentReviewTab({
       .then(pending => { if (live) setApprovals(pending); })
       .catch(() => { if (live) setApprovals([]); });
     return () => { live = false; };
-  }, [reviewId, taskId, activeTurnId, conversation.lastSequence]);
+  }, [reviewId, taskId, activeTurnId, conversation.lastSequence, mode]);
 
   useEffect(() => {
     if (focusFindingId === null) return;
-    setView('summary');
-    const element = document.getElementById(`agent-review-finding-${focusFindingId}`);
-    element?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    scrollToFinding(focusFindingId);
   }, [focusFindingId]);
 
   const start = () => {
@@ -361,6 +374,8 @@ export default function AgentReviewTab({
   if (review === null) {
     const commits = detail.recentActivity.filter(activity => activity.eventType === 'committed').length;
     return (
+      <div className="agr-summary">
+      <LocalComments localReview={localReview} />
       <div className="agr-empty">
         <svg width="26" height="26" viewBox="0 0 16 16" fill="none" aria-hidden="true" className="agr-empty__icon">
           <path d="M2.5 3.5h11v7h-6l-3 2.5v-2.5h-2z" stroke="currentColor" strokeWidth="1.2" strokeLinejoin="round" />
@@ -386,6 +401,7 @@ export default function AgentReviewTab({
           pull request&apos;s normal review permissions.
         </div>
       </div>
+      </div>
     );
   }
 
@@ -398,23 +414,19 @@ export default function AgentReviewTab({
   });
 
   return (
-    <div className="agr-pane">
+    <div className={`agr-pane${mode === 'conversation' ? ' agr-pane--conversation' : ''}`}>
       <div className="agr-strip">
-        <div className="agr-strip__views" role="tablist" aria-label="Agent review views">
-          <button type="button" role="tab" aria-selected={view === 'summary'} className={view === 'summary' ? 'is-active' : ''}
-            onClick={() => setView('summary')}>Summary &amp; comments</button>
-          <button type="button" role="tab" aria-selected={view === 'activity'} className={view === 'activity' ? 'is-active' : ''}
-            onClick={() => setView('activity')}>
-            Activity
-            {waiting && view !== 'activity' && <span className="agr-strip__dot" aria-hidden="true" />}
-          </button>
-        </div>
         <span className={`agr-strip__status is-${status?.tone ?? 'neutral'}`}>
           {status?.busy && <span className="agr-spinner" aria-hidden="true" />}
           <strong>{status?.label}</strong>
           <span className="agr-strip__detail">· {status?.detail}</span>
         </span>
         <span className="agr-spacer" />
+        {mode === 'cards' && onOpenWorkspace !== undefined && (
+          <button type="button" className="agr-action" aria-label="View in workspace" title="View in workspace" onClick={onOpenWorkspace}>
+            <PanelsTopLeft size={16} aria-hidden="true" />
+          </button>
+        )}
         {!resuming && reviewElapsed(review, now) !== null && (
           <span className="agr-strip__elapsed">{reviewElapsed(review, now)}</span>
         )}
@@ -440,6 +452,7 @@ export default function AgentReviewTab({
       </div>
 
       {error !== null && <div className="agr-error" role="alert">{error}</div>}
+      {findingActions.error !== null && <div className="agr-error" role="alert">{findingActions.error}</div>}
       {recovery && (
         <div className="agr-banner is-danger" role="status">
           Provider shutdown could not be verified. New turns and worktree changes are blocked until recovery finishes.
@@ -449,15 +462,15 @@ export default function AgentReviewTab({
         </div>
       )}
 
-      {view === 'summary' ? (
+      {mode === 'cards' ? (
         <div className="agr-summary">
           {waiting && (
             <div className="agr-banner is-warn">
               <span className="agr-banner__chip">Approval needed</span>
               <div className="agr-banner__text">
-                The agent is waiting for your answer before it can continue. The full request is in Activity.
+                The agent is waiting for your answer before it can continue. Open its workspace conversation to respond.
               </div>
-              <button type="button" className="agr-action" onClick={() => setView('activity')}>Details</button>
+              {onOpenWorkspace !== undefined && <button type="button" className="agr-action" onClick={onOpenWorkspace}>View in workspace</button>}
             </div>
           )}
           {status?.status === 'incomplete' && (
@@ -471,7 +484,7 @@ export default function AgentReviewTab({
                 onClick={() => { void run_(async () => onReviewChange(await window.bridge.resumeAgentReview(review.id)), 'resume'); }}>
                 {resuming ? 'Resuming…' : 'Run review again'}
               </button>
-              <button type="button" className="agr-action is-quiet" onClick={() => setView('activity')}>See what happened</button>
+              {onOpenWorkspace !== undefined && <button type="button" className="agr-action is-quiet" onClick={onOpenWorkspace}>See what happened</button>}
             </div>
           )}
           {newCommits(review) && (
@@ -502,11 +515,11 @@ export default function AgentReviewTab({
             viewerLogin={viewer?.login ?? ''}
             viewerAvatarUrl={viewer?.avatarUrl ?? null}
             busy={busy || recovery}
-            onAsk={(text, revision) => run_(async () => {
-              onReviewChange(await window.bridge.askAgentReview(review.id, null, revision, text));
-            })}
+            onAsk={(text, revision, cardId) => run_(async () => {
+              onReviewChange(await window.bridge.askAgentReview(review.id, null, revision, text, cardId));
+            }, 'other', true)}
             onSelectFinding={finding => {
-              document.getElementById(`agent-review-finding-${finding.id}`)?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+              scrollToFinding(finding.id);
             }} />
 
           <div className="agr-findings__head">
@@ -544,7 +557,7 @@ export default function AgentReviewTab({
               viewerAvatarUrl={viewer?.avatarUrl ?? null}
               projection="review"
               actions={actions}
-              busy={busy}
+              busy={busy || recovery || findingActions.busy}
               defaultOpen={finding.state === 'OPEN'} />
           ))}
           {withdrawn.map(finding => (
@@ -556,14 +569,16 @@ export default function AgentReviewTab({
               viewerAvatarUrl={viewer?.avatarUrl ?? null}
               projection="review"
               actions={actions}
-              busy={busy}
+              busy={busy || recovery || findingActions.busy}
               defaultOpen={false} />
           ))}
+          <LocalComments localReview={localReview} />
         </div>
       ) : (
         <ReviewActivity
           key={review.id}
           review={review}
+          localReview={localReview === undefined ? undefined : { ...localReview, threads: localReview.threads.filter(thread => thread.taskId === review.task.id) }}
           events={events}
           turns={turns}
           models={models}
@@ -615,4 +630,22 @@ export default function AgentReviewTab({
       )}
     </div>
   );
+}
+
+function scrollToFinding(findingId: string) {
+  const element = document.getElementById(`agent-review-finding-${findingId}`);
+  const card = element?.querySelector('details');
+  if (card !== null && card !== undefined) card.open = true;
+  element?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+}
+
+function LocalComments({ localReview }: { localReview: LocalReviewThreads | undefined }) {
+  if (localReview === undefined || localReview.threads.length === 0) return null;
+  return <section className="agr-local-comments" aria-label="Local review comments">
+    <div className="agr-findings__head">
+      <h2>Local review comments</h2>
+      <span className="agr-findings__count">{localReview.threads.length} private discussions</span>
+    </div>
+    {localReview.threads.map(thread => <LocalReviewThreadCard key={thread.id} {...localReview} thread={thread} />)}
+  </section>;
 }

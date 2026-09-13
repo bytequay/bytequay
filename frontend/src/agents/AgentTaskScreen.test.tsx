@@ -836,13 +836,13 @@ describe('agent task side panel', () => {
     expect(markup).toContain('No pull request yet');
     expect(markup).toContain('<code>reuse-resolved-field-index</code>');
     expect(markup).toContain('<strong>trinodb/trino</strong>');
-    expect(markup).toContain('under its usual approvals');
+    expect(markup).toContain('It commits nothing; ByteQuay pushes the branch and opens the draft.');
   });
 
   it('offers a draft pull request only while the agent is idle and the branch has none open', () => {
     const create = { panelOpen: true, onCreatePullRequest: () => {} };
     const idle = renderToStaticMarkup(<AgentTaskBody state={state} pullRequests={[]} {...create} {...props} />);
-    expect(idle).toMatch(/<button type="button" class="agt-nopr__create" title="Asks the agent[^"]*">Create draft PR<\/button>/);
+    expect(idle).toMatch(/<button type="button" class="agt-nopr__create" title="Asks ByteQuay[^"]*">Create draft PR<\/button>/);
     // Without a workspace to name the base repository there is nothing to ask for.
     const anonymous = renderToStaticMarkup(<AgentTaskBody state={state} panelOpen pullRequests={[]} {...props} />);
     expect(anonymous).not.toContain('Create draft PR');
@@ -860,7 +860,7 @@ describe('agent task side panel', () => {
     // A closed, unmerged one does not stand in the way of a fresh draft.
     const closed = renderToStaticMarkup(
       <AgentTaskBody state={state} pullRequests={[pullRequest(480, 'Earlier attempt', 'closed')]} {...create} {...props} />);
-    expect(closed).toMatch(/<button type="button" class="agt-nopr__create" title="Asks the agent/);
+    expect(closed).toMatch(/<button type="button" class="agt-nopr__create" title="Asks ByteQuay/);
   });
 
   it('reads the branch pull request the task is working on, then the one it delivered', () => {

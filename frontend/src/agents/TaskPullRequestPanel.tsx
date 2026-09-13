@@ -222,9 +222,9 @@ export function TaskChangesView({
 /**
  * The PR tab before the branch has one.
  *
- * Create draft PR is the only button in the panel. It sends the task's fixed request as an
- * ordinary turn, so the agent opens the draft under its usual approvals and ByteQuay itself
- * still writes nothing to GitHub.
+ * Create draft PR is the only button in the panel, and the click is what authorizes ByteQuay to
+ * push the task's committed work and open the draft. It commits nothing, so the backend refuses a
+ * task that still has uncommitted changes.
  */
 export function NoPullRequestView({ branch, repository, onCreate, createBlocked = null }: {
   branch: string | null;
@@ -246,15 +246,15 @@ export function NoPullRequestView({ branch, repository, onCreate, createBlocked 
           type="button"
           className="agt-nopr__create"
           disabled={createBlocked !== null}
-          title={createBlocked ?? 'Asks the agent to commit, push this branch and open a draft pull request from the repository template'}
+          title={createBlocked ?? 'Asks ByteQuay to push this branch and open a draft pull request from the repository template'}
           onClick={onCreate}
         >
           Create draft PR
         </button>
       )}
       <div className="agt-nopr__note">
-        Sends one request into this task&apos;s conversation. The agent commits, pushes and opens
-        the draft itself, under its usual approvals.
+        Asks ByteQuay to publish this task&apos;s committed work. It commits nothing; ByteQuay
+        pushes the branch and opens the draft.
       </div>
     </div>
   );

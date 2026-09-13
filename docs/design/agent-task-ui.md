@@ -597,11 +597,8 @@ without a pull request, which is the state below.
 Without an open or merged pull request the PR tab reads **Pull request**,
 without a number, and renders a centred empty state: the title, the task's
 branch and the monitored repository, the **Create draft PR** action, and one
-line saying the action sends a request into the task's conversation and that the
-agent commits, pushes and opens the draft itself under its usual approvals. That
-line describes this action only. It is not a claim about the product: the
-accepted Auto draft PR automation and CI Autofix both have ByteQuay perform the
-push and the GitHub write itself.
+line saying the action asks ByteQuay to publish the task's committed work, that
+it commits nothing, and that ByteQuay pushes the branch and opens the draft.
 
 Opening an idle task, ending any ordinary turn, or selecting the PR panel
 refreshes those branches through GitHub's head-filtered pull-request endpoint.

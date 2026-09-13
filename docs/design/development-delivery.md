@@ -87,6 +87,15 @@ When all three settings are off, use ordinary task behavior: do not activate
 a continuation or require its readiness report. Git facts may still be read
 for display. A failed turn preserves the task with either selection.
 
+Ordinary attended development also permits explicitly requested `git` and
+`gh` publishing through the provider's native tools and risk review, under
+the [shared command policy](agent-service.md#shared-development-command-policy).
+Turning automation off disables generated follow-ups, not an explicitly
+requested action in the user's message. Existing task authorization need not
+be repeated, but the agent still verifies the actual destination, outgoing
+changes, and any exact rewrite lease. A general development request supplies
+no remote-write authority. Narrower user instructions remain binding.
+
 Respect independent settings:
 
 - Auto commit off plus dirty files stops before publication, even if Auto
@@ -305,6 +314,12 @@ or reorder the task's published commits without a separate push request. After
 verifying the rewritten revision on the same PR, continue into the enabled CI
 flow for that revision. History already divergent from the task when the turn
 started remains blocked unless the completed work incorporates it.
+
+When an explicitly authorized CLI push during the user turn has already put
+the exact verified clean local HEAD on the expected remote branch, the
+coordinator may create a missing draft PR under the accepted automation.
+It skips a second push and still verifies the repository, branch, revision,
+and PR identity. An unrelated remote change does not qualify for this path.
 
 The commit request only commits finished task work with repository-convention
 messages. The publication request never commits: it checks the supplied exact

@@ -25,6 +25,7 @@ import com.bytequay.agent.cli.process.ProcessStream;
 import com.bytequay.agent.cli.process.ProcessSupervisor;
 import com.bytequay.agent.cli.process.impl.DefaultProcessSupervisor;
 import com.bytequay.agent.spi.AgentAttachment;
+import com.bytequay.agent.spi.AgentCommandPolicy;
 import com.bytequay.agent.spi.AgentPermissionPolicy;
 import com.bytequay.agent.spi.AgentProviderStatus;
 import com.bytequay.agent.spi.AgentSession;
@@ -100,6 +101,7 @@ class TestClaudeCliDriver
                     printf '%s\\n' '--allowedTools --permission-prompt-tool --print --verbose --resume --session-id'
                     exit 0 ;;
                   auth) printf '{"loggedIn":true}\\n'; exit 0 ;;
+                  auto-mode) printf '{"hard_deny":[]}\\n'; exit 0 ;;
                 esac
                 while [ "$#" -gt 0 ]; do
                   case "$1" in --session-id|--resume) session_id="$2"; shift ;; esac
@@ -233,7 +235,8 @@ class TestClaudeCliDriver
         List<ProviderAgentEvent> events = new CopyOnWriteArrayList<>();
         try (ClaudeCliDriver driver = new ClaudeCliDriver(
                 executable.toString(), objectMapper, permissions, supervisor, ImmutableMap.of("HOME", worktree.toString(), "PATH", "/usr/bin:/bin"))) {
-            assertThat(driver.probe().readiness()).isEqualTo(AgentProviderStatus.Readiness.READY);
+            AgentProviderStatus status = driver.probe();
+            assertThat(status.readiness()).as(status.diagnostic()).isEqualTo(AgentProviderStatus.Readiness.READY);
             AgentSession session = driver.open(context(Optional.empty()), events::add);
             for (String prompt : ImmutableList.of("first-real-turn", "failed-real-turn", "second-real-turn")) {
                 AgentTurnResult result = session.start(command(prompt)).completion().toCompletableFuture().get(15, TimeUnit.SECONDS);
@@ -293,7 +296,7 @@ class TestClaudeCliDriver
         AgentSession session = driver.open(bridged, event -> {});
         await(session.start(command("first")));
         ProcessSpec spec = supervisor.turns().getFirst().spec();
-        assertThat(spec.argv()).containsSequence("--append-system-prompt", "use the graph");
+        assertThat(spec.argv()).containsSequence("--append-system-prompt", AgentCommandPolicy.instructions() + "\n\nuse the graph");
         int allowed = spec.argv().indexOf("--allowedTools");
         assertThat(allowed).isPositive();
         assertThat(spec.argv().get(allowed + 1)).contains("mcp__bytequay__codegraph_explore");
@@ -302,7 +305,7 @@ class TestClaudeCliDriver
         AgentSession unbridged = driver.open(plain, event -> {});
         await(unbridged.start(command("second")));
         ProcessSpec plainSpec = supervisor.turns().get(1).spec();
-        assertThat(plainSpec.argv()).contains("--append-system-prompt=");
+        assertThat(plainSpec.argv()).containsSequence("--append-system-prompt", AgentCommandPolicy.instructions());
         assertThat(plainSpec.argv()).noneMatch(argument -> argument.contains("codegraph_explore"));
         unbridged.close();
     }
@@ -318,12 +321,8 @@ class TestClaudeCliDriver
             AgentSession session = driver.open(context(reference, instruction), event -> {});
             await(session.start(command("configured")));
             List<String> arguments = supervisor.turns().getLast().spec().argv();
-            if (instruction.isEmpty()) {
-                assertThat(arguments).contains("--append-system-prompt=");
-            }
-            else {
-                assertThat(arguments).containsSequence("--append-system-prompt", instruction);
-            }
+            String expected = AgentCommandPolicy.instructions() + (instruction.isEmpty() ? "" : "\n\n" + instruction);
+            assertThat(arguments).containsSequence("--append-system-prompt", expected);
             assertThat(arguments.stream().filter(argument -> argument.startsWith("--append-system-prompt"))).hasSize(1);
             assertThat(arguments).noneMatch(argument -> argument.contains("codegraph_explore") || argument.contains("review_finish"));
             assertThat(arguments.contains("--resume")).isEqualTo(reference.isPresent());
@@ -389,10 +388,11 @@ class TestClaudeCliDriver
                 messages.getFirst().source().providerItemId().orElseThrow(),
                 "authoritative [REDACTED]"));
         ProcessSpec firstSpec = supervisor.turns().getFirst().spec();
+        assertThat(firstSpec.environment()).containsEntry("GH_TOKEN", "github-sentinel").containsEntry("ANTHROPIC_API_KEY", "known-secret");
         assertThat(firstSpec.owner().kind()).isEqualTo(ProcessOwner.Kind.CLAUDE_TURN);
         assertThat(firstSpec.argv()).containsSequence("--session-id", reference.providerValue());
         assertThat(firstSpec.argv()).contains("--permission-prompt-tool", "mcp__bytequay__permission_prompt");
-        assertThat(firstSpec.argv()).containsSequence("--permission-mode", "manual");
+        assertThat(firstSpec.argv()).containsSequence("--permission-mode", "auto");
         assertThat(firstSpec.argv()).doesNotContain("first");
         assertThat(supervisor.turns().getFirst().prompt()).isEqualTo("first\n");
         assertThat(events).anyMatch(ProviderAgentEvent.Error.class::isInstance);
@@ -445,7 +445,7 @@ class TestClaudeCliDriver
         assertThat(ciSpec.argv().get(allowedTools + 1))
                 .contains("mcp__bytequay__read_ci_memory", "Read(/" + realLog + ")");
         assertThat(supervisor.turns().getLast().prompt()).contains(realLog.toString());
-        assertThat(ciSpec.environment()).doesNotContainKeys("GH_TOKEN", "GITHUB_TOKEN");
+        assertThat(ciSpec.environment()).doesNotContainKeys("GH_TOKEN", "GITHUB_TOKEN", "GH_CONFIG_DIR", "SSH_AUTH_SOCK");
         Path settingsFile = runtimeDirectory().resolve("provider/scratch/sandbox-settings.json");
         assertThat(settingsFile).exists();
         ciSession.close();
@@ -454,6 +454,7 @@ class TestClaudeCliDriver
         AgentSession cherryPickSession = driver.open(context(Optional.empty(), AgentPermissionPolicy.CHERRY_PICK), events::add);
         assertThat(await(cherryPickSession.start(command("resolve"))).state()).isEqualTo(AgentTurnResult.State.COMPLETED);
         ProcessSpec cherryPickSpec = supervisor.turns().getLast().spec();
+        assertThat(cherryPickSpec.environment()).doesNotContainKeys("GH_TOKEN", "GH_CONFIG_DIR");
         assertThat(cherryPickSpec.argv()).containsSequence("--permission-mode", "auto");
         assertThat(cherryPickSpec.argv()).contains("--strict-mcp-config", "--setting-sources=", "--settings");
         assertThat(cherryPickSpec.argv()).doesNotContain("--allowedTools");
@@ -465,8 +466,9 @@ class TestClaudeCliDriver
         AgentSession autoSession = driver.open(context(Optional.empty(), AgentPermissionPolicy.AUTO), events::add);
         assertThat(await(autoSession.start(command("auto"))).state()).isEqualTo(AgentTurnResult.State.COMPLETED);
         ProcessSpec autoSpec = supervisor.turns().getLast().spec();
+        assertThat(autoSpec.environment()).containsEntry("GH_TOKEN", "github-sentinel");
         assertThat(autoSpec.stdoutCaptureLimit()).isEmpty();
-        assertThat(autoSpec.argv()).containsSequence("--permission-mode", "manual");
+        assertThat(autoSpec.argv()).containsSequence("--permission-mode", "auto");
         assertThat(autoSpec.argv()).contains("--strict-mcp-config", "--setting-sources=", "--settings");
         assertThat(autoSpec.argv()).contains("--permission-prompt-tool", "mcp__bytequay__permission_prompt");
         assertThat(settingsFile).exists();
@@ -478,6 +480,7 @@ class TestClaudeCliDriver
                 events::add);
         assertThat(await(textSession.start(command("rewrite"))).state()).isEqualTo(AgentTurnResult.State.COMPLETED);
         ProcessSpec textSpec = supervisor.turns().getLast().spec();
+        assertThat(textSpec.environment()).doesNotContainKeys("GH_TOKEN", "GH_CONFIG_DIR");
         assertThat(textSpec.stdoutCaptureLimit()).isEmpty();
         assertThat(textSpec.owner()).isEqualTo(new ProcessOwner(ProcessOwner.Kind.CLI_PROBE, "task-1"));
         assertThat(textSpec.workingDirectory().normalize().startsWith(runtimeDirectory().normalize())).isTrue();
@@ -525,18 +528,31 @@ class TestClaudeCliDriver
     }
 
     @Test
-    void rejectsClaudeWithoutManualPermissionMode()
+    void rejectsClaudeWithoutAutoPermissionMode()
     {
         ScriptedProcessSupervisor supervisor = new ScriptedProcessSupervisor();
-        supervisor.helpOutput(supervisor.helpOutput().replace(" \"manual\"", ""));
+        supervisor.helpOutput(supervisor.helpOutput().replace("\"auto\" ", ""));
         ClaudeCliDriver driver = driver(supervisor);
 
         AgentProviderStatus status = driver.probe();
 
         assertThat(status.readiness()).isEqualTo(AgentProviderStatus.Readiness.UNSUPPORTED);
-        assertThat(status.diagnostic()).contains("manual permission mode");
+        assertThat(status.diagnostic()).contains("auto permission mode");
         assertThat(supervisor.authenticationProbes()).isZero();
         driver.close();
+    }
+
+    @Test
+    void rejectsMissingOrMalformedAutoModeHardDenySupportBeforeAuthentication()
+    {
+        for (String defaults : ImmutableList.of("{}", "{\"hard_deny\":false}", "{\"hard_deny\":[1]}", "{\"hard_deny\":[]}{}", "invalid")) {
+            ScriptedProcessSupervisor supervisor = new ScriptedProcessSupervisor();
+            supervisor.autoModeDefaults = defaults;
+            try (ClaudeCliDriver driver = driver(supervisor)) {
+                assertThat(driver.probe().readiness()).isEqualTo(AgentProviderStatus.Readiness.UNSUPPORTED);
+                assertThat(supervisor.authenticationProbes()).isZero();
+            }
+        }
     }
 
     @Test
@@ -1252,7 +1268,9 @@ class TestClaudeCliDriver
                 supervisor,
                 ImmutableMap.of(
                         "HOME", worktree.toString(),
-                        "ANTHROPIC_API_KEY", "known-secret"));
+                        "ANTHROPIC_API_KEY", "known-secret",
+                        "GH_TOKEN", "github-sentinel",
+                        "GH_CONFIG_DIR", worktree.resolve("gh-config").toString()));
     }
 
     private AgentSessionContext context(Optional<AgentSessionRef> reference)
@@ -1350,6 +1368,7 @@ class TestClaudeCliDriver
                 --allowedTools --permission-prompt-tool --print --verbose --resume --session-id
                 """;
         private String authenticationStdout = "{\"loggedIn\":true}";
+        private String autoModeDefaults = "{\"hard_deny\":[]}";
         private String authenticationStderr = "";
         private int authenticationExitCode;
         private int authenticationProbes;
@@ -1418,6 +1437,10 @@ class TestClaudeCliDriver
             }
             if (spec.argv().contains("--help")) {
                 output.onOutput(ProcessStream.STDOUT, StandardCharsets.UTF_8.encode(helpOutput));
+                return ImmediateProcess.success();
+            }
+            if (spec.argv().contains("auto-mode") && spec.argv().contains("defaults")) {
+                output.onOutput(ProcessStream.STDOUT, StandardCharsets.UTF_8.encode(autoModeDefaults));
                 return ImmediateProcess.success();
             }
             if (spec.argv().contains("auth") && spec.argv().contains("status")) {

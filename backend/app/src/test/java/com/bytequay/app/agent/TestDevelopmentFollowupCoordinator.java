@@ -228,6 +228,24 @@ class TestDevelopmentFollowupCoordinator
         verify(turns, never()).finishDevelopmentContinuation(taskId, previous);
     }
 
+    @ParameterizedTest
+    @ValueSource(booleans = {true, false})
+    void explicitCliPushContinuesWithTheMissingDraft(boolean existingRemote)
+    {
+        when(git.inspectPublication(worktree, route)).thenReturn(publication(existingRemote ? Optional.of(BASE) : Optional.empty(), Optional.empty()));
+        prepare(local(BASE, false), local(HEAD, false), new DevelopmentAutomation(true, true, false, Optional.empty()), true);
+        when(git.inspectPublication(worktree, route)).thenReturn(
+                publication(Optional.of(HEAD), Optional.empty()), publication(Optional.of(HEAD), Optional.of(pr(HEAD, true))));
+        generated(CREATE_DRAFT_PR, true);
+
+        advance();
+
+        verify(turns).startGeneratedTurn(eq(taskId), eq(origin(CREATE_DRAFT_PR)), contains("If the remote already equals the exact HEAD, no push is necessary"));
+        verify(turns).finishDevelopmentContinuation(taskId, source.id());
+        verify(turns, never()).failDevelopmentContinuation(any(), any(), anyString());
+        verifyNoInteractions(ci, writes);
+    }
+
     @Test
     void commitsThenPublishesExactlyOnceAndVerifiesBothResults()
     {

@@ -105,6 +105,14 @@ repository builds.
   tool. Agent Review separately authorizes its fixed context/local-reporting
   tools for review-owned tasks, subject to its implementation gates. Neither
   creates a general tool framework or model-callable GitHub publisher.
+- Attended development allows authenticated `git` and `gh` under a shared
+  provider-independent authorization policy and the provider's native risk
+  review. Every GitHub write needs explicit authority from user input or
+  accepted automation. Complete action and target checks are model-based;
+  sandbox boundaries remain enforced separately. Review, CI, cherry-pick, and
+  text-only sessions retain narrower profiles. Provider login versus API-key
+  authentication does not change permissions. See
+  [the shared command policy](agent-service.md#shared-development-command-policy).
 - Treat proposed designs as implementation guidance, not compatibility
   requirements for deleted systems.
 
@@ -231,8 +239,8 @@ account type is `chatgpt`, and use a temporary
 `CODEX_SQLITE_HOME` for its database state. The fixture holds an exclusive
 profile lock before reading mutable auth/runtime state, rejects persistent
 Codex-home instruction files, and removes its run-scoped rollout, writer-lock,
-shell-snapshot, and trust records after every owned process stops. Model-requested
-tool processes remain credential-free: model-requested commands must prove that `CODEX_API_KEY`,
+shell-snapshot, and trust records after every owned process stops. The fixture's
+model-requested tool processes remain credential-free: commands must prove that `CODEX_API_KEY`,
 `OPENAI_API_KEY`, `CODEX_HOME`, and the App Server-only sentinel are absent.
 API-key fixture support is deferred. The live paths' presence is not evidence;
 both the no-child `--live` fixture and recursive `--live-children` fixture

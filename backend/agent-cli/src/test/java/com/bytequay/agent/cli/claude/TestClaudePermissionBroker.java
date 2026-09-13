@@ -15,6 +15,7 @@ package com.bytequay.agent.cli.claude;
 
 import com.bytequay.agent.cli.process.SecretRedactor;
 import com.bytequay.agent.spi.AgentApprovalHandler;
+import com.bytequay.agent.spi.AgentCommandPolicy;
 import com.bytequay.agent.spi.AgentPermissionPolicy;
 import com.bytequay.agent.spi.CodeGraphBridge;
 import com.bytequay.agent.spi.DevelopmentResultBridge;
@@ -605,7 +606,7 @@ class TestClaudePermissionBroker
     }
 
     @Test
-    void sandboxesAutoTasksWhileStillEscalatingToTheUser()
+    void reviewsInteractiveGitHubCommandsWhileKeepingTheSandbox()
             throws Exception
     {
         ClaudePermissionBroker broker = new ClaudePermissionBroker(
@@ -629,15 +630,18 @@ class TestClaudePermissionBroker
 
         JsonNode settings = objectMapper.readTree(Files.readString(registration.settingsFile()));
         assertThat(settings.at("/sandbox/enabled").asBoolean()).isTrue();
-        assertThat(settings.at("/sandbox/autoAllowBashIfSandboxed").asBoolean()).isTrue();
-        assertThat(settings.at("/sandbox/allowUnsandboxedCommands").asBoolean()).isTrue();
+        assertThat(settings.at("/sandbox/autoAllowBashIfSandboxed").asBoolean()).isFalse();
+        assertThat(settings.at("/sandbox/allowUnsandboxedCommands").asBoolean()).isFalse();
         assertThat(settings.at("/sandbox/network").isMissingNode()).isTrue();
-        assertThat(settings.at("/sandbox/filesystem/denyRead").toString()).contains(".ssh");
+        assertThat(settings.at("/sandbox/filesystem/allowWrite").toString()).contains("~/.m2", "/var/tmp");
+        assertThat(settings.at("/permissions/allow").isMissingNode()).isTrue();
+        assertThat(settings.at("/permissions/deny")).isEmpty();
+        assertThat(settings.at("/sandbox/filesystem/denyRead")).isEmpty();
+        assertThat(settings.at("/autoMode/classifyAllShell").asBoolean()).isTrue();
+        assertThat(settings.at("/autoMode/hard_deny"))
+                .isEqualTo(objectMapper.valueToTree(ImmutableList.<String>builder().add("$defaults").addAll(AgentCommandPolicy.restrictions()).build()));
         assertThat(settings.at("/sandbox/filesystem/denyWrite").toString())
                 .contains(temporaryDirectory.toRealPath().toString());
-        assertThat(settings.at("/permissions/deny").toString())
-                .contains("Bash(git push:*)", "Bash(gh:*)", "Read(~/.ssh/**)")
-                .doesNotContain("WebFetch", "WebSearch");
 
         ClaudePermissionBroker.McpHttpResponse listed = broker.handle(token, objectMapper.readTree("""
                 {"jsonrpc":"2.0","id":1,"method":"tools/list","params":{}}
@@ -648,7 +652,61 @@ class TestClaudePermissionBroker
         assertThat(permission(broker, token, "Write", "file_path", temporaryDirectory.resolve("outside.txt").toString()))
                 .isEqualTo("deny");
         assertThat(approval.get().kind()).isEqualTo(ProviderApprovalRequest.Kind.FILE_CHANGE);
+        String chain = "git status && gh pr view 42 && git push origin HEAD";
+        assertThat(permission(broker, token, "Bash", "command", chain)).isEqualTo("deny");
+        assertThat(approval.get().detail()).contains(chain);
         registration.close();
+    }
+
+    @Test
+    void scopesAuthenticationAndNativeReviewIndependentlyOfProviderLogin()
+            throws Exception
+    {
+        Path worktree = Files.createDirectories(temporaryDirectory.resolve("auth-worktree"));
+        Path runtime = Files.createDirectories(temporaryDirectory.resolve("auth-runtime"));
+        String socket = temporaryDirectory.resolve("ssh-agent.sock").toString();
+        String ghConfig = temporaryDirectory.resolve("github-config").toString();
+        String xdgConfig = temporaryDirectory.resolve("xdg-config").toString();
+        ReviewBridge review = new ReviewBridge(ImmutableList.of(new ReviewTool(
+                "review_context", "Read review context", ImmutableMap.of("type", "object"), arguments -> "review context")), "Review only");
+        for (AgentPermissionPolicy policy : AgentPermissionPolicy.values()) {
+            for (boolean textOnly : ImmutableList.of(false, true)) {
+                for (boolean reviewSession : ImmutableList.of(false, true)) {
+                    ClaudePermissionBroker broker = new ClaudePermissionBroker(
+                            () -> URI.create("http://127.0.0.1:9000/internal/agent/claude/mcp"), objectMapper,
+                            (taskId, query) -> "", taskId -> reviewSession ? Optional.of(review) : Optional.empty());
+                    boolean interactive = policy == AgentPermissionPolicy.AUTO && !textOnly && !reviewSession;
+                    Optional<JsonNode> previous = Optional.empty();
+                    for (String loginVariable : ImmutableList.of("ANTHROPIC_API_KEY", "CLAUDE_CODE_OAUTH_TOKEN")) {
+                        var environment = ImmutableMap.of(loginVariable, "provider-secret", "GH_TOKEN", "github-secret",
+                                "SSH_AUTH_SOCK", socket, "GH_CONFIG_DIR", ghConfig, "XDG_CONFIG_HOME", xdgConfig);
+                        try (var registration = broker.register("task-auth", worktree, runtime, runtime.resolve("provider"), policy, textOnly,
+                                (request, timeout) -> CompletableFuture.completedFuture(ProviderApprovalDecision.deny()),
+                                SecretRedactor.fromEnvironment(environment), Optional.empty(), environment)) {
+                            String json = Files.readString(registration.settingsFile());
+                            JsonNode settings = objectMapper.readTree(json);
+                            assertThat(json).doesNotContain("provider-secret", "github-secret");
+                            assertThat(settings.at("/sandbox/allowUnsandboxedCommands").asBoolean()).isFalse();
+                            if (interactive) {
+                                assertThat(settings.at("/sandbox/network/allowUnixSockets"))
+                                        .isEqualTo(objectMapper.valueToTree(ImmutableList.of(socket)));
+                                assertThat(settings.at("/permissions/deny")).isEmpty();
+                                assertThat(settings.at("/sandbox/filesystem/denyRead")).isEmpty();
+                                assertThat(settings.at("/autoMode/classifyAllShell").asBoolean()).isTrue();
+                            }
+                            else {
+                                assertThat(settings.path("autoMode").isMissingNode()).isTrue();
+                                assertThat(settings.at("/sandbox/network/allowUnixSockets").isMissingNode()).isTrue();
+                                assertThat(settings.at("/permissions/deny").toString()).contains("Bash(gh:*)", "Bash(git push:*)");
+                                assertThat(settings.at("/sandbox/filesystem/denyRead").toString()).contains(ghConfig, xdgConfig + "/gh");
+                            }
+                            previous.ifPresent(prior -> assertThat(settings).isEqualTo(prior));
+                            previous = Optional.of(settings);
+                        }
+                    }
+                }
+            }
+        }
     }
 
     private String permission(

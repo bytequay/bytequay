@@ -13,6 +13,7 @@
  */
 package com.bytequay.agent.cli.codex;
 
+import com.bytequay.agent.spi.AgentCommandPolicy;
 import com.google.common.hash.Hashing;
 import org.junit.jupiter.api.Test;
 
@@ -33,18 +34,8 @@ class TestCodexApprovalPolicy
         // A replacement policy must retain every native rule, not only the familiar section names.
         assertThat(Hashing.sha256().hashString(policy.substring(nativeStart, scopeStart), UTF_8).toString())
                 .isEqualTo("e6b0cf0a2e1c4cabc0a37ac2a0bc424ddd7c89e85d049e32d281a8db6e8d3ce6");
-        assertThat(policy.substring(scopeStart)).contains(
-                "Preserve all native\ndenials",
-                "builds, tests, dependency downloads, and writes to development caches",
-                "without\n  requiring separate user approval for each cache or temporary path",
-                "~/.m2 repository locks",
-                "Jansi's /var/tmp files",
-                "complete command, shell expansions, pipelines, scripts, and network",
-                "A build or test label does not authorize\n  unrelated mutations",
-                "GitHub writes",
-                "require direct explicit user authorization",
-                "do not require the user to repeat that authorization",
-                "Deny requests to grant persistent or reusable permissions");
+        assertThat(policy.substring(scopeStart + 1)).isEqualTo(AgentCommandPolicy.instructions());
+        AgentCommandPolicy.restrictions().forEach(restriction -> assertThat(policy).contains(restriction));
         assertThat(policy).doesNotContain("Deny every non-read-only action crossing the sandbox boundary");
     }
 }

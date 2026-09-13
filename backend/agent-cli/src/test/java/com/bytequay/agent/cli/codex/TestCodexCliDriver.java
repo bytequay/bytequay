@@ -26,6 +26,7 @@ import com.bytequay.agent.cli.process.ProcessSupervisor;
 import com.bytequay.agent.cli.process.SecretRedactor;
 import com.bytequay.agent.spi.AgentApprovalHandler;
 import com.bytequay.agent.spi.AgentAttachment;
+import com.bytequay.agent.spi.AgentCommandPolicy;
 import com.bytequay.agent.spi.AgentDeliveryUncertainException;
 import com.bytequay.agent.spi.AgentPermissionPolicy;
 import com.bytequay.agent.spi.AgentProviderStatus;
@@ -103,10 +104,13 @@ class TestCodexCliDriver
         AtomicReference<ProviderApprovalRequest> approval = new AtomicReference<>();
 
         assertThat(driver.probe().readiness()).isEqualTo(AgentProviderStatus.Readiness.READY);
+        assertThat(supervisor.environments()).allSatisfy(environment -> assertThat(environment).doesNotContainKeys("GH_TOKEN", "GH_CONFIG_DIR"));
         AgentSession initial = driver.open(context(Optional.empty(), approval), events::add);
+        assertThat(supervisor.environments().getLast()).containsEntry("GH_TOKEN", "github-sentinel").containsKey("GH_CONFIG_DIR");
         AgentSessionRef reference = initial.reference();
         initial.close();
         AgentSession resumed = driver.open(context(Optional.of(reference), approval), events::add);
+        assertThat(supervisor.environments().getLast()).containsEntry("GH_TOKEN", "github-sentinel");
         // Each session owns its own process, so the resume is served by a second one.
         assertThat(supervisor.servers()).hasSize(2);
         AppServerProcess resumedServer = supervisor.servers().getLast();
@@ -194,6 +198,7 @@ class TestCodexCliDriver
         for (int attempt = 0; attempt < 2; attempt++) {
             AgentSessionContext context = ciContext(reference);
             try (AgentSession session = driver.open(context, event -> {})) {
+                assertThat(supervisor.environments().getLast()).doesNotContainKeys("GH_TOKEN", "GH_CONFIG_DIR");
                 RunningTurn turn = session.start(command("repair CI"));
                 AppServerProcess server = supervisor.servers().getLast();
                 JsonNode thread = server.threadRequests().getFirst();
@@ -382,6 +387,8 @@ class TestCodexCliDriver
                 true);
 
         AgentSession session = driver.open(textOnly, event -> {});
+
+        assertThat(supervisor.environments().getLast()).doesNotContainKeys("GH_TOKEN", "GH_CONFIG_DIR");
 
         assertThat(supervisor.serverOwners()).extracting(ProcessOwner::kind)
                 .containsExactly(ProcessOwner.Kind.CLI_PROBE);
@@ -1163,6 +1170,35 @@ class TestCodexCliDriver
                 .isEqualTo(AgentTurnResult.State.CANCELLED);
     }
 
+    @ParameterizedTest
+    @ValueSource(strings = {"gh pr view 42", "git status && gh pr view 42 && git push origin HEAD", "sh -lc 'git -C /task/worktree status && gh api repos/owner/repo'"})
+    void preservesNativeApprovalRequestsForGitHubCommands(String shellCommand)
+    {
+        ScriptedProcessSupervisor supervisor = new ScriptedProcessSupervisor(objectMapper);
+        CodexCliDriver driver = driver(supervisor);
+        AtomicReference<ProviderApprovalRequest> approval = new AtomicReference<>();
+        AtomicReference<ProviderApprovalDecision> decision = new AtomicReference<>(ProviderApprovalDecision.deny());
+        try (AgentSession session = driver.open(context(Optional.empty(), approval, decision), event -> {})) {
+            session.start(command("GitHub approval"));
+            AppServerProcess server = supervisor.server();
+            ObjectNode params = objectMapper.createObjectNode()
+                    .put("threadId", "thread-1")
+                    .put("turnId", server.activeTurn())
+                    .put("itemId", "github-command")
+                    .put("command", shellCommand)
+                    .put("startedAtMs", 1786884871461L);
+            params.set("availableDecisions", objectMapper.valueToTree(ImmutableList.of("accept", "decline")));
+            ObjectNode request = objectMapper.createObjectNode().put("id", 95).put("method", "item/commandExecution/requestApproval");
+            request.set("params", params);
+            server.emit(request.toString());
+            awaitCondition(() -> server.result(95) != null);
+            assertThat(approval.get().detail()).isEqualTo(shellCommand);
+            assertThat(approval.get().taskScope()).isEmpty();
+            assertThat(approval.get().availableDecisions()).containsExactly(ProviderApprovalRequest.Decision.ALLOW_ONCE, ProviderApprovalRequest.Decision.DENY);
+            assertThat(server.result(95).path("decision").asText()).isEqualTo("decline");
+        }
+    }
+
     @Test
     void mapsOnlyOfferedUnscopedBinaryApprovalDecisions()
     {
@@ -1202,8 +1238,8 @@ class TestCodexCliDriver
         assertThat(approval.get().kind()).isEqualTo(ProviderApprovalRequest.Kind.COMMAND);
 
         // Measured on codex-cli 0.152.1: an escalated command offers accept, the amendment variant
-        // and cancel, but no decline. The card offers Allow once, ByteQuay's own Allow for this task
-        // and Deny; the amendment is never offered, and a deny is sent as decline, which the server honours.
+        // and cancel, but no decline. The card offers only Allow once and Deny; the amendment is never
+        // offered, and a deny is sent as decline, which the server honours.
         decision.set(ProviderApprovalDecision.deny());
         server.emit("""
                 {"id":98,"method":"item/commandExecution/requestApproval","params":{
@@ -1216,12 +1252,10 @@ class TestCodexCliDriver
         assertThat(approval.get().availableDecisions())
                 .containsExactly(
                         ProviderApprovalRequest.Decision.ALLOW_ONCE,
-                        ProviderApprovalRequest.Decision.ALLOW_FOR_TASK,
                         ProviderApprovalRequest.Decision.DENY);
-        // A redirect makes the script compound, so only this exact command line is covered.
-        assertThat(approval.get().taskScope()).contains("/bin/zsh -lc 'printf hello > /Users/me/probe.txt'");
+        assertThat(approval.get().taskScope()).isEmpty();
 
-        // A read of GitHub is answered without a card: nothing reaches the core, and the server gets accept.
+        // Native review decides whether even a read needs approval; ByteQuay does not classify the shell again.
         ProviderApprovalRequest before = approval.get();
         server.emit("""
                 {"id":99,"method":"item/commandExecution/requestApproval","params":{
@@ -1230,8 +1264,9 @@ class TestCodexCliDriver
                 "startedAtMs":1786884871465,"threadId":"thread-1","turnId":"%s"}}
                 """.formatted(server.activeTurn()));
         awaitCondition(() -> server.result(99) != null);
-        assertThat(server.result(99).path("decision").asText()).isEqualTo("accept");
-        assertThat(approval.get()).isSameAs(before);
+        assertThat(server.result(99).path("decision").asText()).isEqualTo("decline");
+        assertThat(approval.get()).isNotSameAs(before);
+        assertThat(approval.get().taskScope()).isEmpty();
     }
 
     @Test
@@ -2445,7 +2480,9 @@ class TestCodexCliDriver
                         "HOME", worktree.toString(),
                         // A shell that exports its own home must not redirect ByteQuay's processes.
                         "CODEX_HOME", "/Users/someone/.codex",
-                        "OPENAI_API_KEY", "known-secret"),
+                        "OPENAI_API_KEY", "known-secret",
+                        "GH_TOKEN", "github-sentinel",
+                        "GH_CONFIG_DIR", worktree.resolve("gh-config").toString()),
                 codexHome(),
                 new ClaudePermissionBroker(() -> URI.create(MCP_ENDPOINT), objectMapper, (taskId, query) -> ""),
                 quiescenceTimeout);
@@ -2648,7 +2685,7 @@ class TestCodexCliDriver
         // The thread leaves the MCP map to the launch flags instead of emptying it.
         assertThat(supervisor.server().threadRequests().getFirst().path("config").has("mcp_servers")).isFalse();
         assertThat(supervisor.server().threadRequests().getFirst().path("developerInstructions").asText())
-                .isEqualTo("Keep explanations concise\n\nuse the graph");
+                .isEqualTo(AgentCommandPolicy.instructions() + "\n\nKeep explanations concise\n\nuse the graph");
         // Opening ran the isolation guard against the effective config, which exposes exactly this server.
         session.close();
     }
@@ -2668,7 +2705,8 @@ class TestCodexCliDriver
             AppServerProcess server = supervisor.servers().getLast();
             JsonNode request = server.threadRequests().getFirst();
             assertThat(request.has("developerInstructions")).isTrue();
-            assertThat(request.path("developerInstructions").asText()).isEqualTo(instruction);
+            assertThat(request.path("developerInstructions").asText())
+                    .isEqualTo(AgentCommandPolicy.instructions() + (instruction.isEmpty() ? "" : "\n\n" + instruction));
             assertThat(request.path("config").path("mcp_servers")).isEmpty();
             assertThat(supervisor.serverArgv().getLast()).noneMatch(argument -> argument.startsWith("mcp_servers"));
             assertThat(server.resumeCount()).isEqualTo(reference.isPresent() ? 1 : 0);
@@ -3343,7 +3381,7 @@ class TestCodexCliDriver
                 CodexLaunchProfile.ChildProfile childProfile = childProfile();
                 List<String> ciRoots = ciWritableRoots();
                 ObjectNode config = objectMapper.valueToTree(
-                        CodexLaunchProfile.threadConfig(childProfile, false, textOnlyProfile(), ciRoots));
+                        CodexLaunchProfile.threadConfig(childProfile, false, textOnlyProfile(), ciRoots, allowsGitHubCommands()));
                 ObjectNode shell = (ObjectNode) config.path("shell_environment_policy");
                 shell.putNull("exclude");
                 shell.putNull("set");
@@ -3375,7 +3413,7 @@ class TestCodexCliDriver
                     sessionLayer.set(
                             "config",
                             objectMapper.valueToTree(
-                                    CodexLaunchProfile.threadConfig(childProfile, false, textOnlyProfile(), ciRoots)));
+                                    CodexLaunchProfile.threadConfig(childProfile, false, textOnlyProfile(), ciRoots, allowsGitHubCommands())));
                     sessionLayer.putNull("disabledReason");
                 }
                 ObjectNode response = objectMapper.createObjectNode();
@@ -3403,6 +3441,11 @@ class TestCodexCliDriver
         private boolean textOnlyProfile()
         {
             return hasArguments("--disable", "shell_tool");
+        }
+
+        private boolean allowsGitHubCommands()
+        {
+            return argv.contains("shell_environment_policy.inherit=\"all\"");
         }
 
         private List<String> ciWritableRoots()

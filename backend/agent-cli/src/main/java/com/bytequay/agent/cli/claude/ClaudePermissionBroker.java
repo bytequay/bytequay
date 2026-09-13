@@ -16,6 +16,7 @@ package com.bytequay.agent.cli.claude;
 import com.bytequay.agent.cli.development.DevelopmentResultTool;
 import com.bytequay.agent.cli.process.SecretRedactor;
 import com.bytequay.agent.spi.AgentApprovalHandler;
+import com.bytequay.agent.spi.AgentCommandPolicy;
 import com.bytequay.agent.spi.AgentPermissionPolicy;
 import com.bytequay.agent.spi.AgentUnavailableException;
 import com.bytequay.agent.spi.CodeGraphBridge;
@@ -168,6 +169,21 @@ public final class ClaudePermissionBroker
             SecretRedactor redactor,
             Optional<CodeGraphBridge> codeGraph)
     {
+        return register(taskId, worktree, runtimeDirectory, providerDirectory, permissionPolicy, textOnly, approvals, redactor, codeGraph, ImmutableMap.of());
+    }
+
+    Registration register(
+            String taskId,
+            Path worktree,
+            Path runtimeDirectory,
+            Path providerDirectory,
+            AgentPermissionPolicy permissionPolicy,
+            boolean textOnly,
+            AgentApprovalHandler approvals,
+            SecretRedactor redactor,
+            Optional<CodeGraphBridge> codeGraph,
+            Map<String, String> environment)
+    {
         requireNonNull(taskId, "taskId is null");
         requireNonNull(worktree, "worktree is null");
         requireNonNull(runtimeDirectory, "runtimeDirectory is null");
@@ -175,6 +191,7 @@ public final class ClaudePermissionBroker
         requireNonNull(permissionPolicy, "permissionPolicy is null");
         requireNonNull(approvals, "approvals is null");
         requireNonNull(redactor, "redactor is null");
+        requireNonNull(environment, "environment is null");
         String token = token();
         Path configFile = providerDirectory.resolve("bytequay-mcp.json");
         Path settingsFile = providerDirectory.resolve("sandbox-settings.json");
@@ -204,7 +221,7 @@ public final class ClaudePermissionBroker
                             ImmutableMap.of("Authorization", "Bearer " + token),
                             APPROVAL_TIMEOUT.plusSeconds(30).toMillis()))));
             writeOwnerOnly(configFile, json);
-            writeOwnerOnly(settingsFile, sandboxSettings(permissionPolicy, textOnly, review.isPresent(), runtimeDirectory.toRealPath()));
+            writeOwnerOnly(settingsFile, sandboxSettings(permissionPolicy, textOnly, review.isPresent(), runtimeDirectory.toRealPath(), environment));
             return new Registration(configFile, settingsFile, token, codeGraph, review, development, localReview);
         }
         catch (IOException e) {
@@ -692,19 +709,22 @@ public final class ClaudePermissionBroker
             AgentPermissionPolicy permissionPolicy,
             boolean textOnly,
             boolean reviewSession,
-            Path runtimeDirectory)
+            Path runtimeDirectory,
+            Map<String, String> environment)
             throws IOException
     {
+        boolean gitHubCommands = permissionPolicy.allowsGitHubCommands(textOnly, reviewSession);
         ImmutableList.Builder<String> deny = ImmutableList.builder();
-        deny.add(
-                "Bash(git credential)",
-                "Bash(git credential:*)",
-                "Bash(git push:*)",
-                "Bash(gh:*)",
-                "Read(~/.config/gh/**)",
-                "Read(~/.git-credentials)",
-                "Read(~/.netrc)",
-                "Read(~/.ssh/**)");
+        ImmutableList.Builder<String> denyRead = ImmutableList.builder();
+        if (!gitHubCommands) {
+            deny.add("Bash(git credential)", "Bash(git credential:*)", "Bash(git push:*)", "Bash(gh:*)",
+                    "Read(~/.config/gh/**)", "Read(~/.git-credentials)", "Read(~/.netrc)", "Read(~/.ssh/**)");
+            denyRead.add("~/.config/gh", "~/.git-credentials", "~/.netrc", "~/.ssh");
+            // Custom CLI config locations must not evade the restricted session's credential boundary.
+            Optional.ofNullable(environment.get("XDG_CONFIG_HOME")).filter(value -> !value.isBlank())
+                    .map(value -> Path.of(value).resolve("gh").toString()).ifPresent(denyRead::add);
+            Optional.ofNullable(environment.get("GH_CONFIG_DIR")).filter(value -> !value.isBlank()).ifPresent(denyRead::add);
+        }
         if (reviewSession) {
             // This task's MCP token does not distinguish a root agent from a child caller.
             // Skills and workflows can start children; SendMessage can resume earlier children.
@@ -713,15 +733,18 @@ public final class ClaudePermissionBroker
         ImmutableMap.Builder<String, Object> sandbox = ImmutableMap.builder();
         sandbox.put("enabled", true)
                 .put("failIfUnavailable", true)
-                .put("autoAllowBashIfSandboxed", permissionPolicy != AgentPermissionPolicy.CHERRY_PICK)
-                .put("allowUnsandboxedCommands", !permissionPolicy.unattended() && !textOnly)
+                .put("autoAllowBashIfSandboxed", !gitHubCommands && permissionPolicy != AgentPermissionPolicy.CHERRY_PICK)
+                // Auto mode grants an unsandboxed command without asking, so the agent could
+                // waive its own confinement for any path. The sandbox is the containment boundary
+                // and nothing may opt out of it.
+                .put("allowUnsandboxedCommands", false)
                 .put("excludedCommands", ImmutableList.of())
                 .put("filesystem", ImmutableMap.of(
-                        "denyRead", ImmutableList.of(
-                                "~/.config/gh",
-                                "~/.git-credentials",
-                                "~/.netrc",
-                                "~/.ssh"),
+                        // The sandbox otherwise permits only the worktree and TMPDIR, so a build
+                        // cannot populate its dependency cache.
+                        // ponytail: add a root here when a task toolchain needs one.
+                        "allowWrite", ImmutableList.of("~/.m2", "~/.gradle", "~/.npm", "/var/tmp"),
+                        "denyRead", denyRead.build(),
                         // The task runtime directory holds the CI logs, the event log, and this
                         // settings file. The agent reads its attachments from there and must not
                         // be able to rewrite the evidence its own work is judged on.
@@ -730,10 +753,21 @@ public final class ClaudePermissionBroker
             deny.add("WebFetch", "WebSearch");
             sandbox.put("network", ImmutableMap.of("allowedDomains", ImmutableList.of()));
         }
-        return objectMapper.writeValueAsString(ImmutableMap.of(
-                "autoMemoryEnabled", false,
-                "permissions", ImmutableMap.of("deny", deny.build()),
-                "sandbox", sandbox.buildOrThrow()));
+        else if (gitHubCommands) {
+            Optional.ofNullable(environment.get("SSH_AUTH_SOCK")).filter(value -> !value.isBlank())
+                    .ifPresent(socket -> sandbox.put("network", ImmutableMap.of("allowUnixSockets", ImmutableList.of(socket))));
+        }
+        ImmutableMap.Builder<String, Object> settings = ImmutableMap.<String, Object>builder()
+                .put("autoMemoryEnabled", false)
+                .put("permissions", ImmutableMap.of("deny", deny.build()))
+                .put("sandbox", sandbox.buildOrThrow());
+        if (gitHubCommands) {
+            // Native allow rules must not skip review, and native exceptions must not waive ByteQuay's authorization scope.
+            settings.put("autoMode", ImmutableMap.of(
+                    "classifyAllShell", true,
+                    "hard_deny", ImmutableList.<String>builder().add("$defaults").addAll(AgentCommandPolicy.restrictions()).build()));
+        }
+        return objectMapper.writeValueAsString(settings.buildOrThrow());
     }
 
     private static void writeOwnerOnly(Path path, String content)

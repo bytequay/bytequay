@@ -13,6 +13,7 @@
  */
 package com.bytequay.agent.cli.codex;
 
+import com.bytequay.agent.spi.AgentCommandPolicy;
 import com.google.common.io.Resources;
 
 import java.io.IOException;
@@ -34,7 +35,8 @@ final class CodexApprovalPolicy
     private static String readPolicy()
     {
         try {
-            return Resources.toString(Resources.getResource(CodexApprovalPolicy.class, "codex-auto-review-policy.md"), UTF_8);
+            return Resources.toString(Resources.getResource(CodexApprovalPolicy.class, "codex-auto-review-policy.md"), UTF_8)
+                    + "\n" + AgentCommandPolicy.instructions();
         }
         catch (IOException failure) {
             throw new UncheckedIOException("Cannot load the Codex automatic approval policy", failure);

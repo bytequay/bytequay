@@ -243,7 +243,7 @@ directory.
 | --- | --- | --- |
 | `core` | Shared immutable PR/repository values, credential storage values, and current-feature storage ports | Spring, JPA, SQLite, HTTP, provider protocols, or UI DTOs |
 | `persistence-sqlite` | JPA entities, repositories, converters, encrypted credential storage, current-feature stores, and agent stores | Controllers, GitHub clients, task orchestration, or provider protocols |
-| `agent-spi` | Driver/session/run contracts, lane IDs, capabilities, typed readiness, normalized provider events with opaque source identity, and usage samples | Spring, JPA, HTTP, SQLite, CLI process code, or provider SDKs |
+| `agent-spi` | Driver/session/run contracts, shared command authorization policy, lane IDs, capabilities, typed readiness, normalized provider events with opaque source identity, and usage samples | Spring, JPA, HTTP, SQLite, CLI process code, or provider SDKs |
 | `agent-core` | Agent task/turn state, the shared worktree-service contract, mutation claims, event sequencing, approvals, input delivery, durable queued inputs, attachment references, metrics, completion, cleanup, and agent storage ports | Workspace path resolution, Git process implementation, Codex/Claude wire formats, JPA entities, or HTTP DTOs |
 | `agent-cli` | Per-turn task-owned Codex App Server client, Claude `stream-json` client, binary discovery, owned-process supervision, event mapping, and fixtures | Task tables, SSE, GitHub PR behavior, or database code |
 | `app` | Spring composition, HTTP/SSE, GitHub clients, application services, managed workspace/worktree Git operations, schedulers, configuration, and executable packaging | Provider branching in controllers or direct JPA access from web code |
@@ -272,9 +272,14 @@ extension point currently justified.
 4. `core`, `agent-core`, and `agent-spi` contain no Spring annotations.
 5. `persistence-sqlite` never exposes JPA entities across its public ports.
 6. `agent-cli` never writes SQLite or publishes SSE.
-7. Phase one uses only provider-native tools under the selected task sandbox
-   and approval policy. ByteQuay does not expose product actions as
-   model-callable tools; GitHub writes remain behind direct product actions.
+7. Native tools follow the selected task sandbox and approval policy. Shared
+   `AgentCommandPolicy` instructions and restrictions belong in `agent-spi`;
+   adapters translate them into native model and reviewer configuration without
+   a second shell command parser. Attended development may use authenticated
+   `git` and `gh`, with GitHub writes requiring direct explicit authorization
+   from user input or accepted automation. Review, CI, cherry-pick, and helpers
+   retain narrower profiles. ByteQuay does not expose product actions as
+   model-callable tools.
    The CodeGraph service adds exactly one fixed, optional, fail-open
    structural-exploration tool, `codegraph_explore`, behind its own
    isolation gate.
@@ -496,6 +501,19 @@ The detailed backend contract is in
   worktree without force, and always retains that branch as the local result.
   Worktree add/remove operations are serialized per managed repository; work
   inside different ready worktrees remains concurrent.
+- Interactive development exposes `git` and `gh` through native provider tools.
+  Shared scope rules require authorization and verification of the actual
+  repository, remote, task branch, outgoing changes, and complete shell action.
+  These are model-based checks, not OS-enforced remote or branch capabilities.
+  Existing filesystem isolation and native denials remain. Codex keeps shell
+  networking off until native escalation; Claude sends interactive Bash through
+  native classification and keeps sandbox escape disabled. Provider decisions
+  can differ while following the same ByteQuay scope.
+  A finite shared Git CLI environment allowlist supports existing CLI login,
+  credential helpers, SSH-agent routing, and configured GitHub environment
+  tokens in eligible sessions. ByteQuay never injects its stored GitHub token.
+  Provider authentication does not select permissions; Claude subscription and
+  API-key use share the same policy, and no new API driver is introduced.
 - Stock provider tool workloads run through the selected sandbox and approval
   policy. App Server and Claude retain the provider traffic their control loops
   require; endpoint-level OS filtering is not claimed by this first design.

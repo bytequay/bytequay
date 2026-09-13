@@ -58,6 +58,7 @@ final class CodexIsolationGuard
     private final Optional<URI> codeGraphEndpoint;
     private final boolean textOnly;
     private final List<String> ciWritableRoots;
+    private final boolean allowGitHubCommands;
 
     /**
      * @param codexHome the isolated home ByteQuay assigned to this process
@@ -100,7 +101,7 @@ final class CodexIsolationGuard
             Optional<URI> codeGraphEndpoint,
             boolean textOnly)
     {
-        this(client, codexHome, childProfile, codeGraphEndpoint, textOnly, ImmutableList.of());
+        this(client, codexHome, childProfile, codeGraphEndpoint, textOnly, ImmutableList.of(), false);
     }
 
     CodexIsolationGuard(
@@ -109,7 +110,8 @@ final class CodexIsolationGuard
             CodexLaunchProfile.ChildProfile childProfile,
             Optional<URI> codeGraphEndpoint,
             boolean textOnly,
-            List<String> ciWritableRoots)
+            List<String> ciWritableRoots,
+            boolean allowGitHubCommands)
     {
         this.client = requireNonNull(client, "client is null");
         this.codexHome = requireNonNull(codexHome, "codexHome is null").toAbsolutePath().normalize();
@@ -117,6 +119,7 @@ final class CodexIsolationGuard
         this.codeGraphEndpoint = requireNonNull(codeGraphEndpoint, "codeGraphEndpoint is null");
         this.textOnly = textOnly;
         this.ciWritableRoots = ImmutableList.copyOf(ciWritableRoots);
+        this.allowGitHubCommands = allowGitHubCommands;
     }
 
     /**
@@ -314,16 +317,16 @@ final class CodexIsolationGuard
         if (!shell.isObject()) {
             throw unavailable("config/read omitted the shell environment policy");
         }
-        requireTextValue(shell, "inherit", "core");
-        requireBooleanValue(shell, "ignore_default_excludes", false);
+        requireTextValue(shell, "inherit", allowGitHubCommands ? "all" : "core");
+        requireBooleanValue(shell, "ignore_default_excludes", allowGitHubCommands);
         requireBooleanValue(shell, "experimental_use_profile", false);
         JsonNode includeOnly = shell.path("include_only");
         if (!includeOnly.isArray()
-                || includeOnly.size() != CodexLaunchProfile.expectedShellEnvironmentIncludeOnly().size()) {
+                || includeOnly.size() != CodexLaunchProfile.expectedShellEnvironmentIncludeOnly(allowGitHubCommands).size()) {
             throw unavailable("Codex shell environment allowlist does not match the launch profile");
         }
         int index = 0;
-        for (String expected : CodexLaunchProfile.expectedShellEnvironmentIncludeOnly()) {
+        for (String expected : CodexLaunchProfile.expectedShellEnvironmentIncludeOnly(allowGitHubCommands)) {
             if (!includeOnly.get(index++).isTextual()
                     || !includeOnly.get(index - 1).asText().equals(expected)) {
                 throw unavailable("Codex shell environment allowlist does not match the launch profile");

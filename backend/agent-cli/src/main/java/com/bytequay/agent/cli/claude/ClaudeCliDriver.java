@@ -13,6 +13,7 @@
  */
 package com.bytequay.agent.cli.claude;
 
+import com.bytequay.agent.cli.process.GitCliEnvironment;
 import com.bytequay.agent.cli.process.ManagedProcess;
 import com.bytequay.agent.cli.process.ProcessExit;
 import com.bytequay.agent.cli.process.ProcessOutputSink;
@@ -24,6 +25,7 @@ import com.bytequay.agent.cli.process.SecretRedactor;
 import com.bytequay.agent.cli.process.Utf8LineBuffer;
 import com.bytequay.agent.spi.AgentAttachment;
 import com.bytequay.agent.spi.AgentCapabilities;
+import com.bytequay.agent.spi.AgentCommandPolicy;
 import com.bytequay.agent.spi.AgentDriver;
 import com.bytequay.agent.spi.AgentEventSink;
 import com.bytequay.agent.spi.AgentLaneId;
@@ -281,14 +283,27 @@ public final class ClaudeCliDriver
                         Optional.of(version.toString()),
                         "Claude CLI does not support " + missing.orElseThrow());
             }
-            if (!help.stdout().contains("\"manual\"")) {
+            if (!help.stdout().contains("\"auto\"")) {
                 return status(
                         AgentProviderStatus.Readiness.UNSUPPORTED,
                         Optional.of(version.toString()),
-                        "Claude CLI does not support manual permission mode");
+                        "Claude CLI does not support auto permission mode");
             }
             forwardSubagentText = version.compareTo(SUBAGENT_TEXT_VERSION) >= 0
                     && help.stdout().contains("--forward-subagent-text");
+            CommandResult defaults = run(executable, "auto-mode", "defaults");
+            if (defaults.exitCode() != 0 || defaults.truncated()) {
+                return status(
+                        AgentProviderStatus.Readiness.UNSUPPORTED,
+                        Optional.of(version.toString()),
+                        "Claude CLI does not expose auto-mode hard-deny defaults");
+            }
+            if (!supportsAutoModeHardDeny(defaults.stdout())) {
+                return status(
+                        AgentProviderStatus.Readiness.UNSUPPORTED,
+                        Optional.of(version.toString()),
+                        "Claude CLI does not support auto-mode hard-deny rules");
+            }
             AuthenticationProbe authentication = probeAuthentication();
             if (authentication.readiness() != AgentProviderStatus.Readiness.READY) {
                 return status(authentication.readiness(), Optional.of(version.toString()), authentication.diagnostic());
@@ -413,7 +428,10 @@ public final class ClaudeCliDriver
         registration.localReview().ifPresent(bridge -> LocalReviewBridge.TOOL_NAMES.forEach(name -> allowedTools.add("mcp__bytequay__" + name)));
         registration.review().ifPresent(bridge -> bridge.tools()
                 .forEach(tool -> allowedTools.add("mcp__bytequay__" + tool.name())));
-        String instruction = Stream.of(managedInstructions, registration.instruction().orElse(""))
+        String instruction = Stream.of(
+                        permissionPolicy.allowsGitHubCommands(textOnly, registration.review().isPresent()) ? AgentCommandPolicy.instructions() : "",
+                        managedInstructions,
+                        registration.instruction().orElse(""))
                 .filter(value -> !value.isBlank())
                 .collect(joining("\n\n"));
         if (instruction.isEmpty()) {
@@ -427,7 +445,7 @@ public final class ClaudeCliDriver
             argv.add("--allowedTools", allowed.stream().collect(joining(",")));
         }
         argv.add(
-                "--permission-mode", permissionPolicy.unattended() ? "auto" : "manual",
+                "--permission-mode", "auto",
                 "--mcp-config", registration.configFile().toString(),
                 "--permission-prompt-tool", "mcp__bytequay__permission_prompt",
                 resume ? "--resume" : "--session-id", sessionId);
@@ -502,6 +520,25 @@ public final class ClaudeCliDriver
         }
     }
 
+    private boolean supportsAutoModeHardDeny(String stdout)
+    {
+        try (var parser = objectMapper.createParser(stdout)) {
+            JsonNode defaults = objectMapper.readTree(parser);
+            if (defaults == null || !defaults.isObject() || parser.nextToken() != null || !defaults.path("hard_deny").isArray()) {
+                return false;
+            }
+            for (JsonNode rule : defaults.path("hard_deny")) {
+                if (!rule.isTextual()) {
+                    return false;
+                }
+            }
+            return true;
+        }
+        catch (IOException ignored) {
+            return false;
+        }
+    }
+
     private CommandResult run(String... command)
             throws InterruptedException
     {
@@ -520,7 +557,8 @@ public final class ClaudeCliDriver
                         Path.of(System.getProperty("user.dir")).toAbsolutePath(),
                         maximumRuntime,
                         OptionalInt.of(MAX_PROBE_OUTPUT_BYTES),
-                        MAX_PROBE_OUTPUT_BYTES))
+                        MAX_PROBE_OUTPUT_BYTES,
+                        false))
                 .start((stream, bytes) -> append(
                         stream == ProcessStream.STDOUT ? stdout : stderr,
                         bytes));
@@ -582,13 +620,14 @@ public final class ClaudeCliDriver
             Path workingDirectory,
             Duration maximumRuntime,
             OptionalInt stdoutCaptureLimit,
-            int maximumStderrBytes)
+            int maximumStderrBytes,
+            boolean allowGitHubCommands)
     {
         return new ProcessSpec(
                 owner,
                 argv,
                 workingDirectory,
-                environment,
+                GitCliEnvironment.forSession(environment, allowGitHubCommands),
                 stdoutCaptureLimit,
                 maximumStderrBytes,
                 maximumRuntime,
@@ -605,7 +644,7 @@ public final class ClaudeCliDriver
     private static Map<String, String> inheritedEnvironment()
     {
         ImmutableMap.Builder<String, String> environment = ImmutableMap.builder();
-        for (String name : INHERITED_ENVIRONMENT) {
+        for (String name : ImmutableSet.<String>builder().addAll(INHERITED_ENVIRONMENT).addAll(GitCliEnvironment.variables()).build()) {
             String value = System.getenv(name);
             if (value != null) {
                 environment.put(name, value);
@@ -724,7 +763,8 @@ public final class ClaudeCliDriver
                     context.textOnly(),
                     this::requestApproval,
                     ClaudeCliDriver.this.redactor,
-                    context.codeGraph());
+                    context.codeGraph(),
+                    environment);
             this.redactor = ClaudeCliDriver.this.redactor.withSecret(registration.token());
             this.resume = resume;
         }
@@ -900,7 +940,8 @@ public final class ClaudeCliDriver
                     session.context.worktree(),
                     command.maximumRuntime(),
                     OptionalInt.empty(),
-                    MAX_STDERR_BYTES);
+                    MAX_STDERR_BYTES,
+                    session.context.permissionPolicy().allowsGitHubCommands(session.context.textOnly(), session.registration.review().isPresent()));
             completeSubagentStream = spec.argv().contains("--forward-subagent-text");
             ManagedProcess started = supervisor.prepare(spec).start(this);
             this.process = started;

@@ -1078,9 +1078,11 @@ permission payload/scope, while legacy `applyPatchApproval` and
 `execCommandApproval` requests failed closed. CP2 then froze the finite shipped
 decision matrix and immutable safety ceiling. The current provider-neutral
 request carries an inspectable command, file-change, tool, or other kind; its
-source; requested permissions; and only the applicable subset of
-`ALLOW_ONCE`, `ALLOW_FOR_TASK`, and `DENY`. A task-wide allow is offered only
-with a non-empty task scope. The product-permitted set is the intersection of
+source; requested permissions; and the applicable decisions. Current command
+approval cards for both Codex and Claude offer only `ALLOW_ONCE` and `DENY`,
+with no reusable task or prefix grant. The provider-neutral value can represent
+scoped decisions, but neither command adapter issues a task scope or remembers
+command approval for later calls. The product-permitted set is the intersection of
 the provider's legal offered decisions and ByteQuay's immutable safety ceiling;
 an empty set fails closed instead of producing an actionable approval.
 Undisplayable, unrouteable, additional/network, overly broad, scoped-but-
@@ -2963,6 +2965,63 @@ JSON-RPC and `ClaudeCliDriver` consumes Claude `stream-json`. Each maps raw
 provider messages to `ProviderAgentEvent` before calling `AgentEventSink`; raw
 provider JSON never reaches `agent-core`, `TaskLogStore`, SQLite, or SSE.
 
+### Shared development command policy
+
+Attended `AUTO` development sessions allow `git` and `gh` through the native
+provider tools and permission review. `AgentPermissionPolicy` in `agent-spi`
+selects this capability only when the session is neither text-only nor
+review-owned. CI Autofix, cherry-pick, review, and text-only sessions retain
+their narrower execution profiles and do not receive interactive GitHub
+credentials. Authentication by subscription or API key does not select a
+different permission policy. Claude's existing login and API-key paths use the
+same policy; this change adds no API driver or Codex API-key task support.
+
+`AgentCommandPolicy` owns the provider-independent authorization instructions
+and restrictions in `agent-spi`. Both adapters supply those instructions to
+the development agent and their native reviewer configuration. Adapters own
+only the translation to their provider settings. Interactive development
+permissions use no ByteQuay shell parser or second command approval engine.
+
+- Task-required local Git commands may operate wherever the existing
+  filesystem permissions and native review permit. Remote reads needed for
+  the task are allowed.
+- Every GitHub write needs direct explicit authorization for its action and
+  scope. An earlier request in the same task or accepted automation selection
+  supplies that authorization without repetition; a general development goal
+  does not. Narrower user restrictions still apply.
+- Remote writes require verification of the actual repository, configured
+  remote, task branch, outgoing commits, and GitHub resource or content.
+  Starting a shell in the worktree is insufficient. History rewrites require
+  one task-branch push with an exact `--force-with-lease` naming the observed
+  remote revision. Unleased force pushes, broad refspecs, and branch deletion
+  remain prohibited.
+- Native review evaluates the complete action, including shell chains,
+  substitutions, pipelines, invoked scripts, and network payloads. One allowed
+  Git command cannot authorize its surrounding commands. Unclear targets need
+  read-only evidence before approval.
+- Normal CLI authentication may use existing login, credential helpers, SSH
+  agents, or configured environment credentials without exposing their values.
+  Failed authentication is reported; it does not authorize searching unrelated
+  files or exporting secrets. Persistent grants and sandbox weakening remain
+  prohibited.
+
+The shared `GitCliEnvironment` in `agent-cli` admits only the finite GitHub
+CLI token/host/config variables and `SSH_AUTH_SOCK` to eligible development
+sessions, alongside the existing provider-specific environment allowlists.
+It does not inherit arbitrary `GIT_*` repository or command overrides and never
+copies ByteQuay's stored GitHub token into a provider process. Codex's
+model-facing shell still excludes provider API keys and `CODEX_HOME`. CLI
+authentication can fail independently of ByteQuay's own GitHub connection.
+
+Repository, branch, and authorization checks here are model-based scope rules,
+not hard filesystem or remote capability boundaries. Native reviewers retain
+their own risk rules and can deny an authorized action. Codex sandboxed actions
+that need no escalation do not necessarily invoke its reviewer; shell network
+access remains disabled so remote commands require native escalation. Claude
+interactive Bash uses its normal permission flow with all shell actions
+configured for its classifier, while its sandbox remains enabled. Neither provider promises
+identical decisions or successful authentication for every command.
+
 ### 8.1 CodexCliDriver
 
 The Codex lane uses the documented
@@ -3218,7 +3277,8 @@ selected provider configuration but does not claim that the command sandbox or
 first-release process profile enforces a destination allowlist for that control
 traffic. The driver sets `approvalsReviewer: "auto_review"` at start, resume, and
 turn start for ordinary tasks. A separate native reviewer applies the complete
-pinned native tenant policy from Codex 0.152.1 through `auto_review.policy`.
+pinned native tenant policy from Codex 0.152.1 plus the shared
+`AgentCommandPolicy` instructions through `auto_review.policy`.
 Routine task-required actions use native risk-based review, including build and
 test commands that need bounded cache, lock, or temporary-file writes outside
 the worktree. The user's task request authorizes its normal prerequisites;
@@ -3226,15 +3286,16 @@ the user need not separately name Maven's cache or temporary paths. The reviewer
 still evaluates the complete action and its side effects, so `AUTO` does not
 promise that every build or test command will be approved.
 
-ByteQuay retains an additional direct explicit authorization requirement for
-every GitHub write, including pushes and pull-request publication. A general
-task goal is insufficient for those remote side effects. Native denials remain
-in force, including their credential-probing and private-data transmission
-rules; persistent grants and blanket future permissions remain prohibited.
-The resource records its provenance; future native policy changes require
-review of that resource, rather than being silently inherited. Effective config
-and session flags must contain the exact policy before any task thread starts
-or resumes.
+The shared development command policy requires direct explicit authorization
+for GitHub writes, including pushes and pull-request publication, while allowing
+ordinary authenticated Git and GitHub CLI use. Native denials remain in force,
+including their credential-probing and private-data transmission rules;
+persistent grants and blanket future permissions remain prohibited. The native
+resource records its provenance; future native policy changes require review
+of that resource, rather than being silently inherited. Effective config and
+session flags must contain the exact composed policy before any task thread
+starts or resumes. There is no ByteQuay shortcut that auto-accepts a command
+because it looks like a read-only `gh` invocation.
 
 Native review-start and review-completion notifications become normalized tool
 activity with independent review IDs, status, risk, and redacted rationale.
@@ -3385,7 +3446,7 @@ writer-lock, shell-snapshot, and trust records that App Server places in the
 fixture-only profile are removed only after every owned process group stops;
 `auth.json` and the profile remain.
 
-Every model-requested tool process instead receives a
+Those historical fixture runs gave model-requested tool processes a
 minimal allowlisted, credential-free environment; both live gates proved that model-requested
 commands receive no `CODEX_API_KEY`, `OPENAI_API_KEY`, `CODEX_HOME`, or App
 Server-only sentinel. A bounded Git-worktree action and credential isolation,
@@ -3477,7 +3538,7 @@ claude
   --strict-mcp-config
   --setting-sources=
   --settings <task-provider-directory>/claude-sandbox-settings.json
-  --permission-mode manual
+  --permission-mode auto
   --mcp-config <task-provider-directory>/bytequay-mcp.json
   --permission-prompt-tool mcp__bytequay__permission_prompt
   --session-id <generated-claude-session-id>
@@ -3621,20 +3682,41 @@ minute while its approval card remains actionable. Native request cancellation
 is not yet propagated to an individual approval; turn termination and the
 approval deadline still deny pending requests.
 
-The attended `AUTO` policy runs `--permission-mode manual`. Its generated
-sandbox keeps `autoAllowBashIfSandboxed: true`, so ordinary sandboxed commands
-run without a card, while an unsandboxed command or another tool permission is
-routed through the ByteQuay permission-prompt tool for a direct user decision.
-The driver readiness check requires the running CLI's `--help` output to
-advertise the `manual` mode before the lane is usable. This fail-closed split is
-required because Claude 2.1.260 `auto` mode may classify an explicitly requested
-unsandboxed command as allowed without invoking the configured host prompt.
+Every policy runs `--permission-mode auto`, and the driver readiness check
+requires the running CLI's `--help` output to advertise that mode before the
+lane is usable. Both lanes use the same development authorization scope with
+their own native risk review. An ordinary task request supplies authority for
+bounded local preparation and verification, without promising approval of
+every build or identical provider decisions.
 
-`CI_AUTOFIX` and `CHERRY_PICK` remain unattended and run
-`--permission-mode auto`; the ByteQuay broker answers any escalation from their
-fixed policy and never waits for a frontend decision. The interactive path
-must not use Claude's auto-mode classifier as a substitute for ByteQuay's
-durable approval card.
+For interactive development, the generated settings set
+`sandbox.autoAllowBashIfSandboxed=false` and
+`autoMode.classifyAllShell=true`. Bash therefore follows normal permission
+review even when the sandbox can execute it, and narrow command allow rules
+cannot skip the classifier. `autoMode.hard_deny` includes `$defaults` followed
+by the shared `AgentCommandPolicy` restrictions, preserving native denial
+rules. There is no unconditional `git push` allow rule. The generated
+Git/`gh` command denies and usual Git credential-path read denies are removed
+only for eligible development sessions; review and unattended profiles keep
+their restrictions.
+
+Containment is the sandbox, not the card. `allowUnsandboxedCommands` is false
+for every policy, because auto mode grants an explicitly requested unsandboxed
+command without invoking the configured host prompt: measured on Claude 2.1.269,
+a session that set `dangerouslyDisableSandbox` wrote outside its worktree with no
+escalation. With the option off that request is refused and the write fails, so
+no session can waive its own confinement. The sandbox otherwise permits only the
+worktree and `TMPDIR`, which no build can populate a dependency cache from, so
+`filesystem.allowWrite` names the ordinary toolchain caches. Network access
+inside the sandbox stays open for attended tasks and closed for the unattended
+ones.
+
+`CI_AUTOFIX` and `CHERRY_PICK` remain unattended; the ByteQuay broker answers
+every escalation from their fixed policy and never waits for a frontend
+decision. The attended `AUTO` policy forwards requests that reach the host
+permission callback to the frontend as durable approval cards. Native review
+and the shared authorization rules govern interactive GitHub writes; these
+writes are no longer categorically denied by generated command rules.
 
 Containment does not depend on that answer. The generated settings apply the
 selected task sandbox and workspace roots, and keep the task event log and
@@ -3651,8 +3733,12 @@ credentials and therefore would break the supported no-API-key deployment.
 sources, and remain off by default.
 
 The driver probe runs `claude --version` and checks each optional observability
-flag. It also requires `--permission-mode` to list the `manual` token used by
-attended tasks; a CLI that exposes the flag without that mode is unsupported.
+flag. It also requires `--permission-mode` to list the `auto` token every task
+runs under; a CLI that exposes the flag without that mode is unsupported.
+It then requires `claude auto-mode defaults` to return one complete JSON object
+with a string-array `hard_deny` field. Missing, malformed, truncated, or failed
+output makes the lane unsupported instead of silently omitting native rule
+support.
 `--forward-subagent-text` requires a sufficiently recent Claude Code version;
 when unavailable, the driver omits it and reports subagent transcript streaming
 as unsupported rather than failing the entire lane. Required streaming or
@@ -4289,10 +4375,10 @@ proved:
    CodeGraph bridge enables exactly its one fixed optional structural tool;
 13. Claude new/resumed invocation fixtures carry each turn's effective model,
    effort, strict MCP config, empty inherited setting sources, and generated
-   sandbox settings; attended `AUTO` uses CLI `manual` mode so sandbox escapes
-   reach the ByteQuay approval adapter, unattended policies remain CLI `auto`,
-   and the allocation-free readiness probe rejects a CLI without the `manual`
-   token while verifying the exact executable and authentication contract; and
+   sandbox settings; every policy uses CLI `auto` mode with unsandboxed commands
+   refused, so no session can waive its own confinement, and the allocation-free
+   readiness probe rejects a CLI without the `auto` token while verifying the
+   exact executable and authentication contract; and
 14. the release explicitly accepts App Server's documented experimental
    maturity, maintains
    the exact v0.151.0 reference fixture, compact projection, and experimental

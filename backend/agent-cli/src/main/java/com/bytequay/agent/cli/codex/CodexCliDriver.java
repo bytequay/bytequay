@@ -14,6 +14,7 @@
 package com.bytequay.agent.cli.codex;
 
 import com.bytequay.agent.cli.claude.ClaudePermissionBroker;
+import com.bytequay.agent.cli.process.GitCliEnvironment;
 import com.bytequay.agent.cli.process.ManagedProcess;
 import com.bytequay.agent.cli.process.ProcessExit;
 import com.bytequay.agent.cli.process.ProcessOwner;
@@ -22,6 +23,7 @@ import com.bytequay.agent.cli.process.ProcessSupervisor;
 import com.bytequay.agent.cli.process.SecretRedactor;
 import com.bytequay.agent.spi.AgentAttachment;
 import com.bytequay.agent.spi.AgentCapabilities;
+import com.bytequay.agent.spi.AgentCommandPolicy;
 import com.bytequay.agent.spi.AgentDeliveryUncertainException;
 import com.bytequay.agent.spi.AgentDriver;
 import com.bytequay.agent.spi.AgentEventSink;
@@ -82,7 +84,6 @@ import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 import java.util.stream.Stream;
 
-import static com.bytequay.agent.spi.ProviderApprovalRequest.Decision.ALLOW_FOR_TASK;
 import static com.bytequay.agent.spi.ProviderApprovalRequest.Decision.ALLOW_ONCE;
 import static com.bytequay.agent.spi.ProviderApprovalRequest.Decision.DENY;
 import static com.google.common.base.Preconditions.checkArgument;
@@ -265,7 +266,7 @@ public final class CodexCliDriver
             Path workingDirectory,
             CodexLaunchProfile.ChildProfile childProfile)
     {
-        return appServerClient(ownerId, workingDirectory, childProfile, Optional.empty(), Optional.empty(), false, ImmutableList.of());
+        return appServerClient(ownerId, workingDirectory, childProfile, Optional.empty(), Optional.empty(), false, ImmutableList.of(), false);
     }
 
     private CodexAppServerClient appServerClient(
@@ -275,19 +276,21 @@ public final class CodexCliDriver
             Optional<CodexLaunchProfile.CodeGraphLaunch> codeGraph,
             Optional<String> codeGraphToken,
             boolean textOnly,
-            List<String> ciWritableRoots)
+            List<String> ciWritableRoots,
+            boolean allowGitHubCommands)
     {
+        Map<String, String> sessionEnvironment = GitCliEnvironment.forSession(environment, allowGitHubCommands);
         Map<String, String> processEnvironment = codeGraphToken
                 .<Map<String, String>>map(token -> ImmutableMap.<String, String>builder()
-                        .putAll(environment)
+                        .putAll(sessionEnvironment)
                         .put(CodexLaunchProfile.CodeGraphLaunch.TOKEN_VARIABLE, token)
                         .buildOrThrow())
-                .orElse(environment);
+                .orElse(sessionEnvironment);
         return new CodexAppServerClient(
                 supervisor,
                 new ProcessSpec(
                         new ProcessOwner(textOnly ? ProcessOwner.Kind.CLI_PROBE : ProcessOwner.Kind.APP_SERVER, ownerId),
-                        CodexLaunchProfile.arguments(executable, childProfile, codeGraph, textOnly, ciWritableRoots),
+                        CodexLaunchProfile.arguments(executable, childProfile, codeGraph, textOnly, ciWritableRoots, allowGitHubCommands),
                         workingDirectory,
                         processEnvironment,
                         OptionalInt.empty(),
@@ -490,6 +493,7 @@ public final class CodexCliDriver
         Optional<ClaudePermissionBroker.CodeGraphRegistration> codeGraph = context.textOnly() ? Optional.empty() : permissions.registerTools(
                 context.taskId(), context.worktree(), context.permissionPolicy(), context.approvals(), redactor, context.codeGraph());
         boolean review = codeGraph.flatMap(ClaudePermissionBroker.CodeGraphRegistration::review).isPresent();
+        boolean allowGitHubCommands = context.permissionPolicy().allowsGitHubCommands(context.textOnly(), review);
         // CI runs the single-agent profile verified by the native sandbox probe.
         CodexLaunchProfile.ChildProfile childProfile = ciWritableRoots.isEmpty()
                 ? childProfile(modelProfile.childProfile(), context.textOnly(), review)
@@ -503,14 +507,15 @@ public final class CodexCliDriver
                     codeGraph.map(registration -> new CodexLaunchProfile.CodeGraphLaunch(registration.endpoint(), registration.instruction())),
                     codeGraph.map(ClaudePermissionBroker.CodeGraphRegistration::token),
                     context.textOnly(),
-                    ciWritableRoots);
+                    ciWritableRoots,
+                    allowGitHubCommands);
         }
         catch (RuntimeException failure) {
             codeGraph.ifPresent(ClaudePermissionBroker.CodeGraphRegistration::close);
             throw failure;
         }
         try {
-            return new CodexSession(client, context, events, modelProfile, childProfile, codeGraph, ciWritableRoots);
+            return new CodexSession(client, context, events, modelProfile, childProfile, codeGraph, ciWritableRoots, allowGitHubCommands);
         }
         catch (RuntimeException failure) {
             // The process is running by the time anything below it can fail, and nothing else
@@ -642,7 +647,7 @@ public final class CodexCliDriver
                 owner,
                 argv,
                 workingDirectory,
-                environment,
+                GitCliEnvironment.forSession(environment, false),
                 OptionalInt.of(maximumStdoutBytes),
                 maximumStderrBytes,
                 maximumRuntime,
@@ -659,7 +664,7 @@ public final class CodexCliDriver
     private static Map<String, String> inheritedEnvironment()
     {
         ImmutableMap.Builder<String, String> environment = ImmutableMap.builder();
-        for (String name : INHERITED_ENVIRONMENT) {
+        for (String name : ImmutableSet.<String>builder().addAll(INHERITED_ENVIRONMENT).addAll(GitCliEnvironment.variables()).build()) {
             String value = System.getenv(name);
             if (value != null) {
                 environment.put(name, value);
@@ -724,6 +729,7 @@ public final class CodexCliDriver
         private final ModelProfile modelProfile;
         private final CodexLaunchProfile.ChildProfile childProfile;
         private final List<String> ciWritableRoots;
+        private final boolean allowGitHubCommands;
         /** Every thread this task's process has shown us, root and subagents alike. */
         private final Set<String> observedThreads = ConcurrentHashMap.newKeySet();
         /** Every subagent this process has named, by thread, with its parent and label. */
@@ -764,7 +770,8 @@ public final class CodexCliDriver
                 ModelProfile modelProfile,
                 CodexLaunchProfile.ChildProfile childProfile,
                 Optional<ClaudePermissionBroker.CodeGraphRegistration> codeGraph,
-                List<String> ciWritableRoots)
+                List<String> ciWritableRoots,
+                boolean allowGitHubCommands)
         {
             this.client = requireNonNull(client, "client is null");
             this.context = requireNonNull(context, "context is null");
@@ -773,6 +780,7 @@ public final class CodexCliDriver
             this.childProfile = requireNonNull(childProfile, "childProfile is null");
             this.codeGraph = requireNonNull(codeGraph, "codeGraph is null");
             this.ciWritableRoots = ImmutableList.copyOf(ciWritableRoots);
+            this.allowGitHubCommands = allowGitHubCommands;
             this.eventMapper = new CodexEventMapper(context.worktree(), redactor);
             this.isolation = new CodexIsolationGuard(
                     client,
@@ -780,7 +788,8 @@ public final class CodexCliDriver
                     childProfile,
                     codeGraph.map(ClaudePermissionBroker.CodeGraphRegistration::endpoint),
                     context.textOnly(),
-                    ciWritableRoots);
+                    ciWritableRoots,
+                    allowGitHubCommands);
             // Attached before the process is started, so nothing App Server emits can arrive
             // before there is a session to receive it.
             client.listen(this);
@@ -810,6 +819,7 @@ public final class CodexCliDriver
             String sandbox = context.textOnly() ? "read-only" : "workspace-write";
             // Explicitly replace saved guidance on resume, including an empty value after a skill is removed.
             String developerInstructions = Stream.of(
+                            allowGitHubCommands ? AgentCommandPolicy.instructions() : "",
                             context.managedInstructions(),
                             codeGraph.map(ClaudePermissionBroker.CodeGraphRegistration::instruction).orElse(""))
                     .filter(instruction -> !instruction.isBlank())
@@ -818,7 +828,8 @@ public final class CodexCliDriver
                     childProfile,
                     codeGraph.isPresent(),
                     context.textOnly(),
-                    ciWritableRoots);
+                    ciWritableRoots,
+                    allowGitHubCommands);
             String method;
             Object params;
             if (existing.isPresent()) {
@@ -1757,7 +1768,6 @@ public final class CodexCliDriver
             String detail;
             String itemId;
             List<ProviderApprovalRequest.Decision> availableDecisions;
-            Optional<String> taskScope;
             long startedAtMs;
             if (serverRequest instanceof CodexProtocol.CommandApprovalRequest approval) {
                 if (approval.params().additionalPermissions().isPresent()
@@ -1790,20 +1800,7 @@ public final class CodexCliDriver
                 }
                 detail = redactor.redact(rawCommand);
                 itemId = approval.params().itemId();
-                taskScope = Optional.of(TaskAllowScope.of(detail));
                 availableDecisions = supportedCommandDecisions(approval.params().availableDecisions());
-                // Redaction can erase shell syntax, so classify the command Codex will execute.
-                if (availableDecisions.contains(ALLOW_ONCE) && ReadOnlyGitHubCommand.isReadOnly(rawCommand)) {
-                    // Reading GitHub changes nothing, so the command needs no card: it is answered as the
-                    // sandbox would have, and appears in the log as any other command.
-                    try {
-                        return CompletableFuture.completedFuture(
-                                approvalResponse(serverRequest, ProviderApprovalDecision.allow(Optional.empty()), expectedTurn));
-                    }
-                    catch (AgentUnavailableException failure) {
-                        return CompletableFuture.failedFuture(failure);
-                    }
-                }
                 startedAtMs = approval.params().startedAtMs();
             }
             else if (serverRequest instanceof CodexProtocol.FileChangeApprovalRequest approval) {
@@ -1821,7 +1818,6 @@ public final class CodexCliDriver
                 availableDecisions = ImmutableList.of(
                         ALLOW_ONCE,
                         DENY);
-                taskScope = Optional.empty();
                 startedAtMs = approval.params().startedAtMs();
             }
             else {
@@ -1836,7 +1832,7 @@ public final class CodexCliDriver
                     detail,
                     ImmutableList.of(detail),
                     availableDecisions,
-                    taskScope,
+                    Optional.empty(),
                     new ProviderAgentEventSource(
                             Optional.of(serverRequest.threadId()),
                             lineage.parentOf(serverRequest.threadId()),
@@ -1852,9 +1848,8 @@ public final class CodexCliDriver
          * The product-permitted decisions for a command approval.
          *
          * <p>Allowing needs the provider to have offered a plain one-time {@code accept}. The
-         * task-wide allow is ByteQuay's own: it is answered with that same {@code accept} and
-         * remembered by agent-core for the task's later commands, while the provider's amendment
-         * and session-scoped variants are never product-permitted. Denying is always
+         * action is never remembered as permission for later commands; provider amendments and
+         * session-scoped variants are not product-permitted. Denying is always
          * available: it can widen nothing, {@code decline} is part of the protocol's decision
          * union, and codex-cli 0.152.1 was measured to honour it while omitting it from
          * {@code availableDecisions} for an escalated command, offering only {@code accept},
@@ -1867,7 +1862,7 @@ public final class CodexCliDriver
             boolean allowOnce = offeredDecisions
                     .map(decisions -> decisions.stream().anyMatch(CodexSession::isPlainAccept))
                     .orElse(true);
-            return allowOnce ? ImmutableList.of(ALLOW_ONCE, ALLOW_FOR_TASK, DENY) : ImmutableList.of(DENY);
+            return allowOnce ? ImmutableList.of(ALLOW_ONCE, DENY) : ImmutableList.of(DENY);
         }
 
         private static boolean isPlainAccept(JsonNode decision)

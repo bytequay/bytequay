@@ -13,6 +13,7 @@
  */
 package com.bytequay.agent.cli.codex;
 
+import com.bytequay.agent.cli.process.GitCliEnvironment;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 
@@ -20,6 +21,10 @@ import java.net.URI;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+
+import static com.google.common.base.Preconditions.checkArgument;
+import static java.util.Objects.requireNonNull;
+import static java.util.stream.Collectors.joining;
 
 /**
  * Builds the App Server launch arguments proven by the compatibility gate.
@@ -32,9 +37,6 @@ import java.util.Optional;
  * <p>The model catalog runs without subagents. A task process enables exactly the V1 or V2 feature
  * advertised by its selected model; V1 is bounded to the proven root/child/grandchild depth.
  */
-import static java.util.Objects.requireNonNull;
-import static java.util.stream.Collectors.joining;
-
 final class CodexLaunchProfile
 {
     /** Capabilities that must never be inherited by a task; each is disabled explicitly. */
@@ -74,6 +76,11 @@ final class CodexLaunchProfile
             "TERM",
             "TMPDIR",
             "USER");
+    private static final List<String> GIT_SHELL_ENVIRONMENT_INCLUDE_ONLY = ImmutableList.<String>builder()
+            .addAll(SHELL_ENVIRONMENT_INCLUDE_ONLY)
+            .add("XDG_CONFIG_HOME")
+            .addAll(GitCliEnvironment.variables())
+            .build();
 
     /** Root, child, and grandchild: the bounded recursive tree proven by the compatibility gate. */
     private static final int MULTI_AGENT_MAX_DEPTH = 2;
@@ -108,7 +115,7 @@ final class CodexLaunchProfile
             Optional<CodeGraphLaunch> codeGraph,
             boolean textOnly)
     {
-        return arguments(executable, childProfile, codeGraph, textOnly, ImmutableList.of());
+        return arguments(executable, childProfile, codeGraph, textOnly, ImmutableList.of(), false);
     }
 
     static List<String> arguments(
@@ -116,10 +123,12 @@ final class CodexLaunchProfile
             ChildProfile childProfile,
             Optional<CodeGraphLaunch> codeGraph,
             boolean textOnly,
-            List<String> ciWritableRoots)
+            List<String> ciWritableRoots,
+            boolean allowGitHubCommands)
     {
         requireNonNull(codeGraph, "codeGraph is null");
         boolean ci = !ciWritableRoots.isEmpty();
+        checkArgument(!allowGitHubCommands || (!textOnly && !ci), "Restricted Codex profiles cannot inherit Git authentication");
         ImmutableList.Builder<String> arguments = ImmutableList.<String>builder().add(
                 executable,
                 "app-server",
@@ -135,11 +144,11 @@ final class CodexLaunchProfile
                 "-c",
                 "web_search=" + tomlString(textOnly || ci ? "disabled" : "live"),
                 "-c",
-                "shell_environment_policy.inherit=\"core\"",
+                "shell_environment_policy.inherit=" + tomlString(allowGitHubCommands ? "all" : "core"),
                 "-c",
-                "shell_environment_policy.ignore_default_excludes=false",
+                "shell_environment_policy.ignore_default_excludes=" + allowGitHubCommands,
                 "-c",
-                "shell_environment_policy.include_only=" + quotedList(SHELL_ENVIRONMENT_INCLUDE_ONLY),
+                "shell_environment_policy.include_only=" + quotedList(expectedShellEnvironmentIncludeOnly(allowGitHubCommands)),
                 "-c",
                 "shell_environment_policy.experimental_use_profile=false");
         DISABLED_FEATURES.forEach(feature -> arguments.add("--disable", feature));
@@ -191,17 +200,18 @@ final class CodexLaunchProfile
 
     static Map<String, Object> threadConfig(ChildProfile childProfile, boolean codeGraph, boolean textOnly)
     {
-        return threadConfig(childProfile, codeGraph, textOnly, ImmutableList.of());
+        return threadConfig(childProfile, codeGraph, textOnly, ImmutableList.of(), false);
     }
 
-    static Map<String, Object> threadConfig(ChildProfile childProfile, boolean codeGraph, boolean textOnly, List<String> ciWritableRoots)
+    static Map<String, Object> threadConfig(ChildProfile childProfile, boolean codeGraph, boolean textOnly, List<String> ciWritableRoots, boolean allowGitHubCommands)
     {
         requireNonNull(childProfile, "childProfile is null");
         boolean ci = !ciWritableRoots.isEmpty();
+        checkArgument(!allowGitHubCommands || (!textOnly && !ci), "Restricted Codex profiles cannot inherit Git authentication");
         ImmutableMap.Builder<String, Object> config = ImmutableMap.<String, Object>builder()
                 .put("web_search", textOnly || ci ? "disabled" : "live")
                 .put("features", expectedFeatures(childProfile, textOnly, ci))
-                .put("shell_environment_policy", expectedShellEnvironmentPolicy());
+                .put("shell_environment_policy", expectedShellEnvironmentPolicy(allowGitHubCommands));
         if (!textOnly && !ci) {
             config.put("auto_review", ImmutableMap.of("policy", CodexApprovalPolicy.policy()));
         }
@@ -271,18 +281,18 @@ final class CodexLaunchProfile
         }
     }
 
-    static Map<String, Object> expectedShellEnvironmentPolicy()
+    static Map<String, Object> expectedShellEnvironmentPolicy(boolean allowGitHubCommands)
     {
         return ImmutableMap.of(
-                "inherit", "core",
-                "ignore_default_excludes", false,
-                "include_only", SHELL_ENVIRONMENT_INCLUDE_ONLY,
+                "inherit", allowGitHubCommands ? "all" : "core",
+                "ignore_default_excludes", allowGitHubCommands,
+                "include_only", expectedShellEnvironmentIncludeOnly(allowGitHubCommands),
                 "experimental_use_profile", false);
     }
 
-    static List<String> expectedShellEnvironmentIncludeOnly()
+    static List<String> expectedShellEnvironmentIncludeOnly(boolean allowGitHubCommands)
     {
-        return SHELL_ENVIRONMENT_INCLUDE_ONLY;
+        return allowGitHubCommands ? GIT_SHELL_ENVIRONMENT_INCLUDE_ONLY : SHELL_ENVIRONMENT_INCLUDE_ONLY;
     }
 
     static Optional<Integer> expectedAgentMaxDepth(ChildProfile childProfile)

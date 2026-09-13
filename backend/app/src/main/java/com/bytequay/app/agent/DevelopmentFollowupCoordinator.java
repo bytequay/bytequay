@@ -186,14 +186,16 @@ public final class DevelopmentFollowupCoordinator
                 checkState(currentPr.map(GitHubPullRequestIdentity::pullRequest).equals(originalPr.map(GitHubPullRequestIdentity::pullRequest)),
                         "The task's pull request changed during development");
             }
-            boolean alreadyPublished = publication.remoteHeadSha().filter(local.headSha()::equals).isPresent()
+            boolean alreadyPushed = publication.remoteHeadSha().filter(local.headSha()::equals).isPresent();
+            boolean alreadyPublished = alreadyPushed
                     && currentPr.map(GitHubPullRequestIdentity::headSha).filter(local.headSha()::equals).isPresent();
             if (!alreadyPublished) {
                 if (!automation.autoDraftPr()) {
                     finish(completion);
                     return;
                 }
-                checkState(publication.remoteHeadSha().equals(original.remoteHeadSha()), "The remote branch changed during development");
+                // An explicitly requested CLI push can finish before the generated draft-creation step.
+                checkState(alreadyPushed || publication.remoteHeadSha().equals(original.remoteHeadSha()), "The remote branch changed during development");
                 checkState(currentPr.map(GitHubPullRequestIdentity::pullRequest).equals(originalPr.map(GitHubPullRequestIdentity::pullRequest)),
                         "The pull request changed during development");
                 if (publication.remoteHeadSha().isPresent()) {

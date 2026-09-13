@@ -37,7 +37,6 @@ import type {
   ModelOptionDto,
   ModelSettingsDto,
   PullRequestDto,
-  WorkspaceDto,
 } from '../types';
 
 const events = parseAgentEventSequence(fixture.events);
@@ -410,30 +409,6 @@ describe('agent task list', () => {
       .toContain('backend refused');
   });
 });
-
-function workspace(overrides: Partial<WorkspaceDto> = {}): WorkspaceDto {
-  return {
-    id: 'workspace-1',
-    name: 'bytequay',
-    selectedRepositoryId: 1,
-    selectedOwner: 'bytequay',
-    selectedRepo: 'bytequay',
-    upstreamRepositoryId: null,
-    upstreamOwner: null,
-    upstreamRepo: null,
-    monitoredRepositoryId: 1,
-    monitoredOwner: 'bytequay',
-    monitoredRepo: 'bytequay',
-    topology: 'DIRECT',
-    defaultBranch: 'main',
-    upstreamDefaultBranch: null,
-    localRepositoryPath: '/w',
-    lastCodeSyncAt: null,
-    lastMetadataSyncAt: null,
-    displayOrder: 0,
-    ...overrides,
-  };
-}
 
 /** A pull request whose diff already carries one review thread, for the panel's Changes tab. */
 function reviewedDetail(): PullRequestDetailDto {

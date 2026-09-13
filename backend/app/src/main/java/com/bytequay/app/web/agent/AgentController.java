@@ -342,9 +342,10 @@ public class AgentController
                 request.defaults().model().orElseThrow(() -> new IllegalArgumentException("model must not be blank")),
                 request.defaults().effort(),
                 request.defaults().serviceTier());
-        Optional<DevelopmentAutomation> automation = request.defaults().developmentAutomation().map(DevelopmentAutomationDto::toDomain)
-                .or(task.defaults()::developmentAutomation);
-        automation.ifPresent(appSettings::validateDevelopmentAutomation);
+        // A started task keeps the automation it was created with; this update only retunes its model.
+        Optional<DevelopmentAutomation> automation = task.defaults().developmentAutomation();
+        checkArgument(request.defaults().developmentAutomation().map(DevelopmentAutomationDto::toDomain).or(() -> automation).equals(automation),
+                "Automation settings cannot change after a task starts");
         return taskResponse(taskService.updateDefaults(new UpdateAgentTaskDefaultsCommand(
                 id,
                 request.expectedVersion(),

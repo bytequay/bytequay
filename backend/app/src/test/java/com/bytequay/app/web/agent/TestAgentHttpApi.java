@@ -543,13 +543,15 @@ class TestAgentHttpApi
     {
         JsonNode created = post("/agent/tasks", createTaskBody("codex"), null).getBody();
         String taskId = created.required("id").asText();
-        List<Map<String, String>> unsupported = ImmutableList.of(
+        List<Map<String, Object>> unsupported = ImmutableList.of(
                 ImmutableMap.of("model", "unknown-model", "effort", "high", "permissionPolicy", "AUTO"),
                 ImmutableMap.of("model", "test-model", "effort", "low", "permissionPolicy", "AUTO"),
-                ImmutableMap.of("model", "test-model", "effort", "high", "permissionPolicy", "AUTO", "serviceTier", "fast"));
+                ImmutableMap.of("model", "test-model", "effort", "high", "permissionPolicy", "AUTO", "serviceTier", "fast"),
+                ImmutableMap.of("model", "test-model", "effort", "high", "permissionPolicy", "AUTO",
+                        "developmentAutomation", ImmutableMap.of("autoCommit", true, "autoDraftPr", false, "autoCiFix", false)));
         HttpHeaders updateHeaders = headers();
         updateHeaders.setContentType(MediaType.APPLICATION_JSON);
-        for (Map<String, String> defaults : unsupported) {
+        for (Map<String, Object> defaults : unsupported) {
             ResponseEntity<JsonNode> refused = rest.exchange(
                     url("/agent/tasks/" + taskId + "/defaults?workspaceId=" + workspaceId),
                     HttpMethod.PUT,

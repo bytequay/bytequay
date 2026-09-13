@@ -6,6 +6,7 @@
 .agt-home__composer .agt-automation-options { top: calc(100% + 8px); bottom: auto; }
 .agt-automation-options strong { display: block; margin-bottom: 8px; }
 .agt-automation-option { display: flex; gap: 9px; padding: 8px 0; align-items: center; cursor: pointer; }
+.agt-automation-option:has(input:disabled) { cursor: default; }
 .agt-automation-option input { margin: 0; accent-color: #2467e8; }
 .agt-automation-option.is-local { border-top: 1px solid #eceef1; margin-top: 8px; }
 .agt-automation-ci { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 12px; font-size: 12px; }

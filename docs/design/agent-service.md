@@ -139,7 +139,8 @@ or child result cannot release a user gate. The durable turn projection retains
 questions outside the loaded transcript window. The report carries only
 `readyForDelivery` and `message`; the accepted Automation controls determine
 commit, publication, and CI actions. A conflicting text restriction requires
-false readiness and an explanation of which control the user must adjust.
+false readiness and an explanation of the conflicting control, which a started
+task cannot change.
 
 The live stopped-turn hook now reserves one in-memory continuation owner before
 normal FIFO dispatch. Its existing task row carries only an unfinished marker;

@@ -35,7 +35,7 @@ export default function WorkflowPage({ value, providers, busy, error, onChange }
           <CiProviderSelect value={value.ciLaneId} providers={providers} disabled={busy} onChange={ciLaneId => onChange({ ...value, ciLaneId })} />
         </SettingsRow>
       </SettingsCard>
-      <p className="setw-footnote">Defaults apply to new tasks. Each submission can override them. CI allows up to 3 repairs, 3 reruns per revision, and 8 hours.</p>
+      <p className="setw-footnote">Defaults apply to new tasks, which can override them until they start. CI allows up to 3 repairs, 3 reruns per revision, and 8 hours.</p>
     </>}
   </div>;
 }

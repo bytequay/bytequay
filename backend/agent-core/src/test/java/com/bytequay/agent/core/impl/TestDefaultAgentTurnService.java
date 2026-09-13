@@ -586,7 +586,7 @@ class TestDefaultAgentTurnService
     }
 
     @Test
-    void automationInstructionsWaitForChangedControlsWhenUserTextConflicts()
+    void automationInstructionsExplainFixedSettingsWhenUserTextConflicts()
     {
         AgentTask development = interactiveTask("Development");
         service.start(new StartAgentTurnCommand(development.id(), "Make the change but skip CI", ImmutableList.of(), "development")
@@ -595,9 +595,10 @@ class TestDefaultAgentTurnService
         assertThat(driver.openedContexts().getFirst().managedInstructions())
                 .contains("Auto commit: true", "Auto draft PR: true", "Auto CI fix: true",
                         "accepted settings alone control subsequent delivery", "readyForDelivery=false",
-                        "Automation controls must change before resubmitting", "Do not execute the conflicting step",
-                        "not a user instruction to skip later enabled steps");
-        driver.complete("Change the Automation controls before continuing");
+                        "which enabled setting conflicts", "withdraw the restriction or start a new task", "Do not execute the conflicting step",
+                        "not a user instruction to skip later enabled steps")
+                .doesNotContain("must change before resubmitting");
+        driver.complete("Auto CI fix conflicts with skipping CI");
     }
 
     @Test

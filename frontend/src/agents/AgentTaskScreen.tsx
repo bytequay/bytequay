@@ -69,7 +69,7 @@ import LocalReviewThreadCard from '../pulls/local-review/LocalReviewThreadCard';
 import { pullRequestDiffRevision, usePullRequestChanges } from '../pulls/usePullRequestChanges';
 import { usePullRequestDetail } from '../pulls/usePullRequestDetail';
 import { AutomationControl } from './AutomationControl';
-import { automationForSubmission, developmentQuestion, stoppingEndsDevelopment } from './developmentAutomation';
+import { developmentQuestion, stoppingEndsDevelopment } from './developmentAutomation';
 import { ciActivity, ciMessage, ciMessageUnavailable } from './ciAutofix';
 import { AgentMark } from './AgentMark';
 import { taskArchived } from './AgentTasksView';
@@ -1437,8 +1437,6 @@ export default function AgentTaskScreen({
   const [providerStatusTurnId, setProviderStatusTurnId] = useState<string | null>(null);
   const [automationDefaults, setAutomationDefaults] = useState<DevelopmentAutomationDto | null>(null);
   const [automationProviders, setAutomationProviders] = useState<ModelProviderDto[]>([]);
-  const [localOnly, setLocalOnly] = useState(false);
-  const [automationSaving, setAutomationSaving] = useState(false);
   const [providerChecking, setProviderChecking] = useState(false);
   const [confirmation, setConfirmation] = useState<TaskConfirmation | null>(null);
   const [confirming, setConfirming] = useState(false);
@@ -1547,9 +1545,8 @@ export default function AgentTaskScreen({
     return () => { active = false; };
   }, [automationEligible, live]);
   const automationSelection = state.task?.defaults.developmentAutomation ?? automationDefaults;
-  const automationBlocked = automationEligible && (automationSelection === null || automationSaving);
-  const submissionAutomation = automationEligible && automationSelection !== null
-    ? automationForSubmission(automationSelection, localOnly) : undefined;
+  const automationBlocked = automationEligible && automationSelection === null;
+  const submissionAutomation = automationEligible && automationSelection !== null ? automationSelection : undefined;
 
   const taskLaneId = state.task?.laneId ?? null;
   useEffect(() => {
@@ -1828,14 +1825,6 @@ export default function AgentTaskScreen({
     });
   }), [applyTask, live, run, state.task, submissions, taskId, workspaceId]);
 
-  const selectAutomation = useCallback((developmentAutomation: DevelopmentAutomationDto) => run(async () => {
-    const task = stateRef.current.task;
-    if (task === null) return;
-    setAutomationSaving(true);
-    try { applyTask(await live().updateAgentTaskDefaults(taskId, workspaceId, task.version, { ...task.defaults, developmentAutomation })); }
-    finally { setAutomationSaving(false); }
-  }), [applyTask, live, run, taskId, workspaceId]);
-
   const rename = useCallback((title: string) => run(async () => {
     const task = state.task;
     if (task === null) return;
@@ -1929,7 +1918,6 @@ export default function AgentTaskScreen({
       dispatch({ type: 'attachments/added', attachments: state.attachments });
       throw failure;
     }
-    setLocalOnly(false);
   }), [automationBlocked, ciPollingError, confirmation, confirming, live, refreshProjection, run, startTurn, state.attachments, state.composer, state.task, submissionAutomation, submissions, taskId, workspaceId]);
 
   const taskCommentDisabled = state.task?.state !== 'OPEN' ? 'This task is closed.'
@@ -2040,7 +2028,6 @@ export default function AgentTaskScreen({
       });
       submissions.settled(idempotencyKey);
       applyQueuedInput(queued);
-      setLocalOnly(false);
       dispatch({ type: 'composer/changed', text: '' });
       dispatch({ type: 'attachments/cleared' });
       // The write moved the task version; one ordered refresh adopts it and reconciles auto-start.
@@ -2273,7 +2260,7 @@ export default function AgentTaskScreen({
       || !providerAvailable(providerStatus.readiness)) return;
     if (!window.confirm(`Retry the last message? This creates a new turn and may run commands again.\n\n${input.text}`)) return;
     const attachmentIds = input.attachments.map((attachment) => attachment.id);
-    // Retrying the accepted input must retain Local only, even if task defaults changed later.
+    // Retrying the accepted input must retain its own automation: a Local only first turn differs from the task defaults.
     const developmentAutomation = task.interactive
       ? current.turn.settings?.developmentAutomation ?? { autoCommit: false, autoDraftPr: false, autoCiFix: false, ciLaneId: null }
       : undefined;
@@ -2302,9 +2289,8 @@ export default function AgentTaskScreen({
         refreshKey={state.lifecycleEpoch} refining={state.task.developmentContinuationUnfinished && state.turn?.developmentOrigin?.kind === 'REFINE_SUMMARY'}
         disabledReason={taskCommentDisabled}
         localReview={localReview} bridge={live()} />}
-      automation={automationEligible && automationSelection !== null ? <AutomationControl value={automationSelection} providers={automationProviders}
-        disabled={state.sending || automationSaving} futureTurns={running || state.task?.developmentContinuationUnfinished} localOnly={localOnly}
-        onChange={value => { void selectAutomation(value); }} onLocalOnlyChange={setLocalOnly} /> : automationEligible ? <span className="agt-meta">Loading automation settings…</span> : undefined}
+      automation={automationEligible && automationSelection !== null ? <AutomationControl value={automationSelection} providers={automationProviders} disabled />
+        : automationEligible ? <span className="agt-meta">Loading automation settings…</span> : undefined}
       historyLoading={historyLoading}
       onLoadHistory={(direction) => { void loadHistory(direction); }}
       onFollowHistory={(following) => {

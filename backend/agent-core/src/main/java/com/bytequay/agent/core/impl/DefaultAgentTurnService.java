@@ -1812,7 +1812,8 @@ public final class DefaultAgentTurnService
                 later bounded CI service; it does not authorize an agent to start its own unattended loop.
                 The accepted settings alone control subsequent delivery, including ready promotion after Auto CI fix.
                 If an explicit user request conflicts with an enabled setting, report readyForDelivery=false and explain
-                which Automation controls must change before resubmitting. Do not execute the conflicting step.
+                which enabled setting conflicts. A started task's automation settings cannot change, so suggest that the
+                user withdraw the restriction or start a new task with different settings. Do not execute the conflicting step.
                 A generated request to create a draft is one step, not a user instruction to skip later enabled steps.
                 """.formatted(automation.autoCommit(), automation.autoDraftPr(), automation.autoCiFix())).orElse("");
     }

@@ -179,9 +179,6 @@ async function scenario(mode: 'idle' | 'queued' | 'unsent'): Promise<void> {
     const attach = host.querySelector<HTMLButtonElement>('[aria-label="Attach an image"]');
     assert(attach !== null && !attach.disabled, 'Fixture must exercise a retained image attachment');
     attach.click(); await settle();
-    const localOnly = host.querySelector<HTMLInputElement>('.is-local input');
-    assert(localOnly !== null, 'Live task must retain its per-submission Local only setting');
-    localOnly.click(); await settle();
     const changes = [...host.querySelectorAll<HTMLButtonElement>('button')].find(candidate => candidate.textContent?.includes('Changes'));
     assert(changes !== undefined, 'The associated draft PR must open the task panel');
     changes.click(); await settle();
@@ -209,7 +206,7 @@ async function scenario(mode: 'idle' | 'queued' | 'unsent'): Promise<void> {
     'Durable create must carry the exact selected anchor and human comment');
     assert(!('message' in request) && !('attachments' in request), 'The renderer must send structured local review data without a synthetic user prompt');
     assert(composer.value === 'Keep my unrelated draft' && host.querySelector('[aria-label="Remove image draft.png"]') !== null
-      && host.querySelector<HTMLInputElement>('.is-local input')?.checked === true && task.defaults.developmentAutomation === savedAutomation,
+      && task.defaults.developmentAutomation === savedAutomation,
     'Saving a local comment must preserve the main draft, attachments, and automation settings');
     assert(host.querySelector('.pull-diff-review') === null, 'Saved comments must leave the transient composer');
     const localCard = host.querySelector<HTMLElement>('.pull-diff-code [data-local-review-thread]');

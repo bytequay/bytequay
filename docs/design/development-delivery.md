@@ -49,7 +49,8 @@ do not duplicate them in a new delivery lifecycle.
 | Auto CI fix | Attach existing CI Autofix and mark this task's draft ready after verified green. |
 
 Store defaults in the existing `AppSettingsStore`. Copy them into a new task,
-allow per-task overrides, and snapshot them when a user turn is accepted.
+which may override them until it starts; a started task's choices cannot
+change. Snapshot them when a user turn is accepted.
 Generated follow-ups inherit that snapshot. **CI repair agent** defaults to
 **Same agent as development**, stored as an absent `ciLaneId`. It uses the
 provider already chosen for the development task. Task creation resolves an
@@ -58,9 +59,10 @@ the global Development setting. CI does not reread those mutable defaults for
 an existing task. An explicit CI provider overrides that inheritance; Codex and
 Claude Code are eligible when they advertise `CI_AUTOFIX`. This selects the
 agent that repairs code; GitHub Actions remains the CI host.
-While a continuation is active, the task's **Automation** control labels
-settings edits **For future turns**; **Stop automation** stops the current
-continuation. Local only supplies all three false for one user turn.
+The new-task composer's **Automation** control
+sets these choices and Local only, which supplies all three false for the first
+turn. A started task shows its choices read-only; **Stop automation** stops the
+current continuation.
 
 Submitting the request with its visible settings records authority for that
 request's generated branch, repository/base, initial push/draft, bounded CI
@@ -72,8 +74,8 @@ startup or page load; their next explicit submission carries the selection.
 **Send to agent** on a task's linked PR diff is another explicit submission.
 Its visible action commits and pushes requested edits while keeping draft PRs
 draft: the input snapshots `autoCommit=true`, `autoDraftPr=true`, and
-`autoCiFix=false`, without changing task defaults or the main composer's Local
-only choice. A busy task queues that input with the same settings. This action
+`autoCiFix=false`, without changing task defaults. A busy task queues that
+input with the same settings. This action
 requires an existing open PR and keeps feedback private in the task transcript;
 it does not post GitHub comments or replace the PR description. Questions ask
 for an explanation without edits or release of prior held work. Existing
@@ -152,12 +154,13 @@ turn's report, not a child agent's claim. The report conveys the agent's
 understanding; Git/GitHub still prove results.
 
 When an explicit text restriction conflicts with the selected controls, the
-agent reports false and explains which Automation control the user needs to
-adjust before submitting again. For example, "do not push" with Auto draft PR
-on waits for that choice to be turned off; "leave it draft" with Auto CI fix on
-waits for Auto CI fix to be turned off. The agent cannot silently stop delivery
-at an intermediate step. Auto CI fix includes ready promotion after verified
-green; this design has no separate control for repairs without promotion.
+agent reports false and explains which enabled control conflicts. A started
+task's controls cannot change, so the agent suggests withdrawing the
+restriction or starting a new task with different choices, for example when
+"do not push" meets Auto draft PR or "leave it draft" meets Auto CI fix. The
+agent cannot silently stop delivery at an intermediate step. Auto CI fix
+includes ready promotion after verified green; this design has no separate
+control for repairs without promotion.
 
 Reporting now uses the existing task-local tool transport. The broker validates
 and acknowledges a candidate; only the provider's successful current-root

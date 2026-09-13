@@ -160,13 +160,15 @@ it('shows all switches and inherited CI repair agent selection in settings and t
   expect(page).toContain('Use the development agent or choose another agent to repair failing CI checks.');
   expect(page).toContain('mark the draft ready');
   const composer = renderToStaticMarkup(<AutomationControl value={defaults} providers={[]} localOnly={false}
-    futureTurns onChange={() => {}} onLocalOnlyChange={() => {}} />);
-  expect(composer).toContain('For future turns');
+    onChange={() => {}} onLocalOnlyChange={() => {}} />);
   expect(composer).toContain('Local only for this turn');
   expect(composer).toContain('Same agent as development');
   // The popover names each choice; only Settings describes them.
   expect(composer).not.toContain('mark the draft ready');
   expect(composer).not.toContain('<small>');
+  expect(composer).not.toMatch(/<(input|select)[^>]*disabled/);
+  const started = renderToStaticMarkup(<AutomationControl value={defaults} providers={[]} disabled />);
+  expect(started.match(/<(input|select)[^>]*disabled=""/g)).toHaveLength(5);
 });
 
 it('offers inherited CI repair by default and supported Codex or Claude overrides', () => {

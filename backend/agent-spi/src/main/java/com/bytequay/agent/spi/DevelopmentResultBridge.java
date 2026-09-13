@@ -30,7 +30,8 @@ public record DevelopmentResultBridge(String turnId, String instruction, boolean
             An optional message explains the outcome in at most 4000 characters. The user's accepted
             automation settings control delivery; this report cannot change them or select a stopping stage.
             If an explicit user restriction conflicts with enabled automation, report readyForDelivery=false
-            and explain which automation controls need changing before continuing. Never disregard requests
+            and explain which enabled setting conflicts. A started task's automation cannot change, so suggest
+            withdrawing the restriction or starting a new task with different settings. Never disregard requests
             such as "do not push" or "keep the PR draft" to satisfy an enabled automation setting.
             Completing a generated commit or draft-publication step does not end the remaining automation.
             Reporting readiness does not itself commit, push, create a PR, or authorize additional work.

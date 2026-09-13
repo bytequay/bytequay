@@ -39,14 +39,14 @@ export function CiProviderSelect({ value, providers, disabled, onChange }: {
   </div>;
 }
 
-export function AutomationControl({ value, providers, disabled, futureTurns, localOnly, onChange, onLocalOnlyChange }: {
+/** A started task renders this disabled and without handlers: its automation cannot change. */
+export function AutomationControl({ value, providers, disabled, localOnly = false, onChange, onLocalOnlyChange }: {
   value: DevelopmentAutomationDto;
   providers: ModelProviderDto[];
   disabled?: boolean;
-  futureTurns?: boolean;
-  localOnly: boolean;
-  onChange: (value: DevelopmentAutomationDto) => void;
-  onLocalOnlyChange: (value: boolean) => void;
+  localOnly?: boolean;
+  onChange?: (value: DevelopmentAutomationDto) => void;
+  onLocalOnlyChange?: (value: boolean) => void;
 }) {
   const ref = useRef<HTMLDetailsElement>(null);
   useEffect(() => {
@@ -62,16 +62,16 @@ export function AutomationControl({ value, providers, disabled, futureTurns, loc
       Automation <span className="agt-picker__effort">{automationSummary(automationForSubmission(value, localOnly))}</span>
     </summary>
     <div className="agt-automation-options">
-      <strong>Automation{futureTurns ? ' · For future turns' : ''}</strong>
+      <strong>Automation</strong>
       {AUTOMATION_OPTIONS.map(option => <label key={option.key} className="agt-automation-option">
         <input type="checkbox" checked={value[option.key]} disabled={disabled || localOnly}
-          onChange={event => onChange({ ...value, [option.key]: event.target.checked })} />
+          onChange={event => onChange?.({ ...value, [option.key]: event.target.checked })} />
         {option.title}
       </label>)}
       <CiProviderSelect value={value.ciLaneId} providers={providers} disabled={disabled || localOnly || !value.autoCiFix}
-        onChange={ciLaneId => onChange({ ...value, ciLaneId })} />
+        onChange={ciLaneId => onChange?.({ ...value, ciLaneId })} />
       <label className="agt-automation-option is-local">
-        <input type="checkbox" checked={localOnly} disabled={disabled} onChange={event => onLocalOnlyChange(event.target.checked)} />
+        <input type="checkbox" checked={localOnly} disabled={disabled} onChange={event => onLocalOnlyChange?.(event.target.checked)} />
         Local only for this turn
       </label>
     </div>

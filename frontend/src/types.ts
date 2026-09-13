@@ -643,7 +643,6 @@ export type AgentTurnSettingsDto = {
 export type DevelopmentResultDto = {
   readyForDelivery: boolean;
   message: string | null;
-  stopAfter: 'LOCAL_CHANGES' | 'COMMITS' | 'DRAFT' | 'CI' | null;
 };
 
 export type AgentTurnDto = {

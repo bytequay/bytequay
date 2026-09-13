@@ -385,7 +385,7 @@ public final class ClaudePermissionBroker
         try {
             DevelopmentResultReport report = DevelopmentResultTool.parse(arguments);
             String receipt = DevelopmentResultTool.receipt(bridge.orElseThrow(), new DevelopmentResultReport(
-                    report.readyForDelivery(), report.message().map(context.redactor()::redact), report.stopAfter()));
+                    report.readyForDelivery(), report.message().map(context.redactor()::redact)));
             // This is a candidate only: the native provider stream must prove current root ownership.
             return response(id, new ToolResult(ImmutableList.of(new TextContent("text", receipt)), false));
         }
@@ -605,13 +605,12 @@ public final class ClaudePermissionBroker
         });
         context.development().ifPresent(ignored -> tools.add(new ToolDefinition(
                 DevelopmentResultBridge.TOOL_NAME,
-                "Report the current root development result; optional stopAfter only narrows accepted delivery settings",
+                "Report current root development readiness; the user's accepted automation settings control delivery",
                 ImmutableMap.of(
                         "type", "object",
                         "properties", ImmutableMap.of(
                                 "readyForDelivery", ImmutableMap.of("type", "boolean"),
-                                "message", ImmutableMap.of("type", "string", "minLength", 1, "maxLength", DevelopmentResultReport.MAXIMUM_MESSAGE_LENGTH),
-                                "stopAfter", ImmutableMap.of("type", "string", "enum", ImmutableList.of("local_changes", "commits", "draft", "ci"))),
+                                "message", ImmutableMap.of("type", "string", "minLength", 1, "maxLength", DevelopmentResultReport.MAXIMUM_MESSAGE_LENGTH)),
                         "required", ImmutableList.of("readyForDelivery"),
                         "additionalProperties", false))));
         if (context.permissionPolicy() == AgentPermissionPolicy.CI_AUTOFIX) {

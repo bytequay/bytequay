@@ -244,7 +244,7 @@ async function continuationAdmission(): Promise<{ name: string; error?: string }
     cancel.click();
     await settle();
     task = { ...task, version: task.version + 1, developmentContinuationUnfinished: false };
-    turn = { ...turn, version: turn.version + 1, developmentResult: { readyForDelivery: false, message: 'Which change should I use?', stopAfter: null } };
+    turn = { ...turn, version: turn.version + 1, developmentResult: { readyForDelivery: false, message: 'Which change should I use?' } };
     notify({ subscriptionId: 'continuation', taskId: task.id, kind: 'events', events: [{ ...event,
       eventId: 'automation-settled', sequence: event.sequence + 1, turnId: null, type: 'lifecycle',
       payload: { phase: 'DEVELOPMENT_AUTOMATION_UPDATED', message: 'Waiting for your answer' } }] });

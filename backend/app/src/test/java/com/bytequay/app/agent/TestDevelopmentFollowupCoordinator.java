@@ -32,7 +32,6 @@ import com.bytequay.agent.core.store.AgentTurnStore;
 import com.bytequay.agent.spi.AgentLaneId;
 import com.bytequay.agent.spi.AgentPermissionPolicy;
 import com.bytequay.agent.spi.DevelopmentResultReport;
-import com.bytequay.agent.spi.DevelopmentStopAfter;
 import com.bytequay.agent.spi.ProviderTurnRef;
 import com.bytequay.app.ci.CiAutofixService;
 import com.bytequay.app.ci.CiHeadSnapshot;
@@ -85,6 +84,7 @@ import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
 class TestDevelopmentFollowupCoordinator
@@ -166,18 +166,19 @@ class TestDevelopmentFollowupCoordinator
     @ValueSource(booleans = {true, false})
     void questionSettlesBeforeInspectingDirtyOrCommittedWork(boolean dirty)
     {
-        prepare(local(BASE, false), local(HEAD, dirty), FULL, false, Optional.empty());
+        prepare(local(BASE, false), local(HEAD, dirty), FULL, false);
         advance();
         verify(turns).finishDevelopmentContinuation(taskId, source.id());
         verify(git, never()).inspectLocal(any(), any());
         verify(git, never()).inspectPublication(any(), any());
+        verifyNoInteractions(ci, writes);
         noFollowup();
     }
 
     @Test
     void unchangedReadOnlyTurnDoesNotDeliverExistingWork()
     {
-        prepare(local(HEAD, true), local(HEAD, true), FULL, true, Optional.empty());
+        prepare(local(HEAD, true), local(HEAD, true), FULL, true);
         advance();
         noFollowup();
         verify(git, never()).inspectPublication(any(), any());
@@ -187,11 +188,11 @@ class TestDevelopmentFollowupCoordinator
     @Test
     void answerCanCommitEarlierDirtyWorkWithoutNewEdits()
     {
-        history.add(running(FULL).withDevelopmentResult(report(false, Optional.empty()))
+        history.add(running(FULL).withDevelopmentResult(report(false))
                 .finish(TurnState.COMPLETED, AgentMetrics.empty(), Optional.empty(), NOW));
-        prepare(local(HEAD, true), local(HEAD, true), new DevelopmentAutomation(true, false, false, Optional.empty()), true, Optional.empty());
+        prepare(local(HEAD, true), local(HEAD, true), new DevelopmentAutomation(true, false, false, Optional.empty()), true);
         when(git.inspectLocal(worktree, route)).thenReturn(local(HEAD, true), local(NEXT, false));
-        generated(AUTO_COMMIT, true, Optional.empty());
+        generated(AUTO_COMMIT, true);
         advance();
         verify(turns).startGeneratedTurn(eq(taskId), eq(origin(AUTO_COMMIT)), contains("Auto commit"));
         verify(turns).finishDevelopmentContinuation(taskId, source.id());
@@ -200,7 +201,7 @@ class TestDevelopmentFollowupCoordinator
     @Test
     void acceptedQueuePrecedesDeliveryAndKeepsOwnershipHandoff()
     {
-        prepare(local(BASE, false), local(HEAD, true), FULL, true, Optional.empty());
+        prepare(local(BASE, false), local(HEAD, true), FULL, true);
         when(turns.handoffDevelopmentContinuationToQueue(taskId, source.id())).thenReturn(true);
         advance();
         noFollowup();
@@ -212,15 +213,15 @@ class TestDevelopmentFollowupCoordinator
     void queuedTurnInheritsPendingWorkFromThePreviousAcceptedBaseline()
     {
         var commitOnly = new DevelopmentAutomation(true, false, false, Optional.empty());
-        prepare(local(BASE, false), local(HEAD, true), commitOnly, true, Optional.empty());
+        prepare(local(BASE, false), local(HEAD, true), commitOnly, true);
         TurnId previous = source.id();
         when(turns.handoffDevelopmentContinuationToQueue(taskId, previous)).thenAnswer(ignored -> {
-            prepare(local(HEAD, true), local(HEAD, true), commitOnly, true, Optional.empty());
+            prepare(local(HEAD, true), local(HEAD, true), commitOnly, true);
             return true;
         });
         advance();
         when(git.inspectLocal(worktree, route)).thenReturn(local(HEAD, true), local(NEXT, false));
-        generated(AUTO_COMMIT, true, Optional.empty());
+        generated(AUTO_COMMIT, true);
         advance();
         verify(turns).startGeneratedTurn(eq(taskId), eq(origin(AUTO_COMMIT)), anyString());
         verify(turns).finishDevelopmentContinuation(taskId, source.id());
@@ -230,14 +231,16 @@ class TestDevelopmentFollowupCoordinator
     @Test
     void commitsThenPublishesExactlyOnceAndVerifiesBothResults()
     {
-        prepare(local(BASE, false), local(BASE, true), FULL, true, Optional.empty());
+        prepare(local(BASE, false), local(BASE, true), FULL, true);
         when(git.inspectLocal(worktree, route)).thenReturn(local(BASE, true), local(HEAD, false), local(HEAD, false));
         when(git.inspectPublication(worktree, route)).thenReturn(publication(Optional.empty(), Optional.empty()), publication(Optional.of(HEAD), Optional.of(pr(HEAD, true))));
-        generated(AUTO_COMMIT, true, Optional.empty());
-        generated(CREATE_DRAFT_PR, true, Optional.empty());
+        generated(AUTO_COMMIT, true);
+        generated(CREATE_DRAFT_PR, true);
         advance();
         verify(turns).startGeneratedTurn(eq(taskId), eq(origin(AUTO_COMMIT)), contains("Do not push"));
         verify(turns).startGeneratedTurn(eq(taskId), eq(origin(CREATE_DRAFT_PR)), contains("--force-with-lease="));
+        verify(ci).startDevelopment(any(), eq(taskId), eq(source.id()), eq(pr(HEAD, true)), eq(NOW));
+        verify(writes).markReadyForReview("token", "node-7");
         verify(turns).finishDevelopmentContinuation(taskId, source.id());
         verify(turns, never()).failDevelopmentContinuation(any(), any(), anyString());
     }
@@ -245,7 +248,7 @@ class TestDevelopmentFollowupCoordinator
     @Test
     void dirtyWorkWithAutoCommitDisabledDoesNotPublishCommittedSubset()
     {
-        prepare(local(BASE, false), local(HEAD, true), new DevelopmentAutomation(false, true, true, Optional.empty()), true, Optional.empty());
+        prepare(local(BASE, false), local(HEAD, true), new DevelopmentAutomation(false, true, true, Optional.empty()), true);
         advance();
         noFollowup();
         verify(git, never()).inspectPublication(any(), any());
@@ -255,38 +258,42 @@ class TestDevelopmentFollowupCoordinator
     void noCommittedDiffDoesNotCreatePullRequest()
     {
         DevelopmentLocalFacts emptyDiff = new DevelopmentLocalFacts(route.headBranch(), HEAD, HEAD, "different", 0, 0, 0, 0, 1, false, false);
-        prepare(local(BASE, false), emptyDiff, FULL, true, Optional.empty());
-        advance();
-        noFollowup();
-    }
-
-    @ParameterizedTest
-    @EnumSource(value = DevelopmentStopAfter.class, names = {"LOCAL_CHANGES", "COMMITS"})
-    void sourceStopLimitLeavesWorkLocal(DevelopmentStopAfter limit)
-    {
-        prepare(local(BASE, false), local(HEAD, false), FULL, true, Optional.of(limit));
+        prepare(local(BASE, false), emptyDiff, FULL, true);
         advance();
         noFollowup();
     }
 
     @Test
-    void commitTurnCanNarrowLaterPublication()
+    void disabledPublicationAndCiLeaveCommitsLocal()
     {
-        prepare(local(BASE, false), local(BASE, true), FULL, true, Optional.empty());
-        when(git.inspectLocal(worktree, route)).thenReturn(local(BASE, true), local(HEAD, false));
-        generated(AUTO_COMMIT, true, Optional.of(DevelopmentStopAfter.COMMITS));
+        prepare(local(BASE, false), local(HEAD, false), new DevelopmentAutomation(true, false, false, Optional.empty()), true);
         advance();
+        noFollowup();
+        verifyNoInteractions(ci, writes);
+        verify(turns).finishDevelopmentContinuation(taskId, source.id());
+    }
+
+    @Test
+    void autoCommitFinishesLocallyWhenPublicationAndCiAreDisabled()
+    {
+        prepare(local(BASE, false), local(BASE, true), new DevelopmentAutomation(true, false, false, Optional.empty()), true);
+        when(git.inspectLocal(worktree, route)).thenReturn(local(BASE, true), local(HEAD, false));
+        generated(AUTO_COMMIT, true);
+        advance();
+        verify(turns).startGeneratedTurn(eq(taskId), eq(origin(AUTO_COMMIT)), anyString());
         verify(turns, never()).startGeneratedTurn(eq(taskId), eq(origin(CREATE_DRAFT_PR)), anyString());
+        verifyNoInteractions(ci, writes);
         verify(turns).finishDevelopmentContinuation(taskId, source.id());
     }
 
     @Test
     void commitQuestionStopsBeforePublicationAndDoesNotFail()
     {
-        prepare(local(BASE, false), local(BASE, true), FULL, true, Optional.empty());
-        generated(AUTO_COMMIT, false, Optional.empty());
+        prepare(local(BASE, false), local(BASE, true), FULL, true);
+        generated(AUTO_COMMIT, false);
         advance();
         verify(turns, never()).startGeneratedTurn(eq(taskId), eq(origin(CREATE_DRAFT_PR)), anyString());
+        verifyNoInteractions(ci, writes);
         verify(turns).finishDevelopmentContinuation(taskId, source.id());
         verify(turns, never()).failDevelopmentContinuation(any(), any(), anyString());
     }
@@ -294,8 +301,8 @@ class TestDevelopmentFollowupCoordinator
     @Test
     void dirtyCommitResultFailsWithoutAnotherAttempt()
     {
-        prepare(local(BASE, false), local(BASE, true), FULL, true, Optional.empty());
-        generated(AUTO_COMMIT, true, Optional.empty());
+        prepare(local(BASE, false), local(BASE, true), FULL, true);
+        generated(AUTO_COMMIT, true);
         advance();
         verify(turns).startGeneratedTurn(eq(taskId), eq(origin(AUTO_COMMIT)), anyString());
         verify(turns).failDevelopmentContinuation(eq(taskId), eq(source.id()), contains("left uncommitted"));
@@ -304,10 +311,12 @@ class TestDevelopmentFollowupCoordinator
     @Test
     void existingExactPublishedRevisionDoesNotCreateAnotherPr()
     {
-        prepare(local(BASE, false), local(HEAD, false), FULL, true, Optional.empty());
+        prepare(local(BASE, false), local(HEAD, false), FULL, true);
         when(git.inspectPublication(worktree, route)).thenReturn(publication(Optional.of(HEAD), Optional.of(pr(HEAD, true))));
         advance();
         noFollowup();
+        verify(ci).startDevelopment(any(), eq(taskId), eq(source.id()), eq(pr(HEAD, true)), eq(NOW));
+        verify(writes).markReadyForReview("token", "node-7");
         verify(turns).finishDevelopmentContinuation(taskId, source.id());
     }
 
@@ -316,10 +325,10 @@ class TestDevelopmentFollowupCoordinator
     {
         GitHubPullRequestIdentity existing = pr(HEAD, false);
         when(git.inspectPublication(worktree, route)).thenReturn(publication(Optional.of(HEAD), Optional.of(existing)));
-        prepare(local(HEAD, false), local(NEXT, false), FULL, true, Optional.empty());
+        prepare(local(HEAD, false), local(NEXT, false), FULL, true);
         when(git.inspectPublication(worktree, route)).thenReturn(
                 publication(Optional.of(HEAD), Optional.of(existing)), publication(Optional.of(NEXT), Optional.of(pr(NEXT, false))));
-        generated(CREATE_DRAFT_PR, true, Optional.empty());
+        generated(CREATE_DRAFT_PR, true);
         advance();
         verify(turns).startGeneratedTurn(eq(taskId), eq(origin(CREATE_DRAFT_PR)), contains("Reuse existing PR"));
         verify(turns).finishDevelopmentContinuation(taskId, source.id());
@@ -334,10 +343,10 @@ class TestDevelopmentFollowupCoordinator
         when(git.inspectPublication(worktree, route)).thenReturn(publication(Optional.of(NEXT), Optional.of(existing)));
         when(git.isAncestor(worktree, NEXT, startingHead)).thenReturn(true);
         DevelopmentLocalFacts rewritten = new DevelopmentLocalFacts(route.headBranch(), HEAD, startingHead, HEAD + ":false", 0, 0, 0, 0, 1, true, false);
-        prepare(local(startingHead, false), rewritten, FULL, true, Optional.empty());
+        prepare(local(startingHead, false), rewritten, FULL, true);
         when(git.inspectPublication(worktree, route)).thenReturn(
                 publication(Optional.of(NEXT), Optional.of(existing)), publication(Optional.of(HEAD), Optional.of(pr(HEAD, true))));
-        generated(CREATE_DRAFT_PR, true, Optional.empty());
+        generated(CREATE_DRAFT_PR, true);
 
         advance();
 
@@ -355,7 +364,7 @@ class TestDevelopmentFollowupCoordinator
     void remoteHistoryAlreadyDivergentBeforeTheTurnCannotBeReplaced()
     {
         when(git.inspectPublication(worktree, route)).thenReturn(publication(Optional.of(NEXT), Optional.of(pr(NEXT, true))));
-        prepare(local(BASE, false), local(HEAD, false), FULL, true, Optional.empty());
+        prepare(local(BASE, false), local(HEAD, false), FULL, true);
 
         advance();
 
@@ -368,7 +377,7 @@ class TestDevelopmentFollowupCoordinator
     void rewrittenHistoryCannotReplaceARemoteChangeDuringDevelopment()
     {
         when(git.inspectPublication(worktree, route)).thenReturn(publication(Optional.of(NEXT), Optional.of(pr(NEXT, true))));
-        prepare(local(NEXT, false), local(HEAD, false), FULL, true, Optional.empty());
+        prepare(local(NEXT, false), local(HEAD, false), FULL, true);
         when(git.inspectPublication(worktree, route)).thenReturn(publication(Optional.of(BASE), Optional.of(pr(BASE, true))));
 
         advance();
@@ -382,7 +391,7 @@ class TestDevelopmentFollowupCoordinator
     @Test
     void externallyChangedRemoteIsRefusedBeforePublication()
     {
-        prepare(local(BASE, false), local(HEAD, false), FULL, true, Optional.empty());
+        prepare(local(BASE, false), local(HEAD, false), FULL, true);
         when(git.inspectPublication(worktree, route)).thenReturn(publication(Optional.of(NEXT), Optional.empty()));
         advance();
         noFollowup();
@@ -393,7 +402,7 @@ class TestDevelopmentFollowupCoordinator
     @EnumSource(value = GitHubPullRequestIdentity.State.class, names = {"CLOSED", "MERGED"})
     void closedOrMergedPrCannotBeReplaced(GitHubPullRequestIdentity.State state)
     {
-        prepare(local(BASE, false), local(HEAD, false), FULL, true, Optional.empty());
+        prepare(local(BASE, false), local(HEAD, false), FULL, true);
         GitHubPullRequestIdentity open = pr(HEAD, true);
         GitHubPullRequestIdentity closed = new GitHubPullRequestIdentity(open.pullRequest(), open.url(), open.headRepository(), open.headBranch(), open.headSha(),
                 open.baseRepository(), open.baseBranch(), open.baseSha(), state, open.draft(), open.author());
@@ -406,9 +415,9 @@ class TestDevelopmentFollowupCoordinator
     @Test
     void publicationCannotChangeTheLocalRevision()
     {
-        prepare(local(BASE, false), local(HEAD, false), FULL, true, Optional.empty());
+        prepare(local(BASE, false), local(HEAD, false), FULL, true);
         when(git.inspectLocal(worktree, route)).thenReturn(local(HEAD, false), local(NEXT, false));
-        generated(CREATE_DRAFT_PR, true, Optional.empty());
+        generated(CREATE_DRAFT_PR, true);
         advance();
         verify(turns).failDevelopmentContinuation(eq(taskId), eq(source.id()), contains("changed the verified local revision"));
     }
@@ -416,9 +425,10 @@ class TestDevelopmentFollowupCoordinator
     @Test
     void publicationQuestionReturnsControlWithoutAssumingItsRemoteResult()
     {
-        prepare(local(BASE, false), local(HEAD, false), FULL, true, Optional.empty());
-        generated(CREATE_DRAFT_PR, false, Optional.empty());
+        prepare(local(BASE, false), local(HEAD, false), FULL, true);
+        generated(CREATE_DRAFT_PR, false);
         advance();
+        verifyNoInteractions(ci, writes);
         verify(turns).finishDevelopmentContinuation(taskId, source.id());
         verify(turns, never()).failDevelopmentContinuation(any(), any(), anyString());
     }
@@ -426,7 +436,7 @@ class TestDevelopmentFollowupCoordinator
     @Test
     void uncertainPublicationFailsWithoutRetrying()
     {
-        prepare(local(BASE, false), local(HEAD, false), FULL, true, Optional.empty());
+        prepare(local(BASE, false), local(HEAD, false), FULL, true);
         when(turns.startGeneratedTurn(eq(taskId), eq(origin(CREATE_DRAFT_PR)), anyString())).thenReturn(CompletableFuture.failedFuture(new IllegalStateException("Response lost")));
         advance();
         verify(turns).startGeneratedTurn(eq(taskId), eq(origin(CREATE_DRAFT_PR)), anyString());
@@ -436,7 +446,7 @@ class TestDevelopmentFollowupCoordinator
     @Test
     void missingReportFailsInsteadOfAssumingReadiness()
     {
-        prepare(local(BASE, false), local(HEAD, false), FULL, true, Optional.empty());
+        prepare(local(BASE, false), local(HEAD, false), FULL, true);
         AgentTurn noReport = running(FULL).finish(TurnState.COMPLETED, AgentMetrics.empty(), Optional.empty(), NOW);
         outcome = new DevelopmentTurnCompletion(task, noReport, true, Optional.empty());
         when(turns.ownsDevelopmentContinuation(taskId, noReport.id())).thenReturn(true);
@@ -449,7 +459,7 @@ class TestDevelopmentFollowupCoordinator
     @Test
     void interruptedApprovalEndsAutomationWithItsReason()
     {
-        prepare(local(BASE, false), local(HEAD, true), FULL, true, Optional.empty());
+        prepare(local(BASE, false), local(HEAD, true), FULL, true);
         AgentTurn interrupted = running(FULL).finish(TurnState.INTERRUPTED, AgentMetrics.empty(), Optional.of("Approval request timed out"), NOW);
         outcome = new DevelopmentTurnCompletion(task, interrupted, true, Optional.empty());
         when(turns.ownsDevelopmentContinuation(taskId, interrupted.id())).thenReturn(true);
@@ -466,7 +476,7 @@ class TestDevelopmentFollowupCoordinator
     @ValueSource(booleans = {true, false})
     void cleanupAndQuiescenceAreBothRequired(boolean quiescent)
     {
-        prepare(local(BASE, false), local(HEAD, false), FULL, true, Optional.empty());
+        prepare(local(BASE, false), local(HEAD, false), FULL, true);
         outcome = new DevelopmentTurnCompletion(task, source, quiescent, quiescent ? Optional.of("Cleanup failed") : Optional.empty());
         advance();
         verify(turns).failDevelopmentContinuation(eq(taskId), eq(source.id()), contains("Automation stopped"));
@@ -477,7 +487,7 @@ class TestDevelopmentFollowupCoordinator
     void lostRemoteBaselineAllowsDevelopmentButBlocksPublication()
     {
         when(git.inspectPublication(worktree, route)).thenThrow(new IllegalStateException("Authentication unavailable"));
-        prepare(local(BASE, false), local(HEAD, false), FULL, true, Optional.empty());
+        prepare(local(BASE, false), local(HEAD, false), FULL, true);
         advance();
         noFollowup();
         verify(turns).failDevelopmentContinuation(eq(taskId), eq(source.id()), contains("Remote baseline unavailable: Authentication unavailable"));
@@ -486,8 +496,8 @@ class TestDevelopmentFollowupCoordinator
     @Test
     void generatedReadyReportCannotMakeAnUnverifiedPublicationSuccessful()
     {
-        prepare(local(BASE, false), local(HEAD, false), FULL, true, Optional.empty());
-        generated(CREATE_DRAFT_PR, true, Optional.empty());
+        prepare(local(BASE, false), local(HEAD, false), FULL, true);
+        generated(CREATE_DRAFT_PR, true);
         advance();
         verify(turns).startGeneratedTurn(eq(taskId), eq(origin(CREATE_DRAFT_PR)), anyString());
         verify(turns).failDevelopmentContinuation(eq(taskId), eq(source.id()), contains("pushed revision was not verified"));
@@ -497,10 +507,10 @@ class TestDevelopmentFollowupCoordinator
     @Test
     void newlyCreatedPrMustBeDraft()
     {
-        prepare(local(BASE, false), local(HEAD, false), FULL, true, Optional.empty());
+        prepare(local(BASE, false), local(HEAD, false), FULL, true);
         when(git.inspectPublication(worktree, route)).thenReturn(
                 publication(Optional.empty(), Optional.empty()), publication(Optional.of(HEAD), Optional.of(pr(HEAD, false))));
-        generated(CREATE_DRAFT_PR, true, Optional.empty());
+        generated(CREATE_DRAFT_PR, true);
         advance();
         verify(turns).failDevelopmentContinuation(eq(taskId), eq(source.id()), contains("not a draft"));
     }
@@ -508,7 +518,7 @@ class TestDevelopmentFollowupCoordinator
     @Test
     void wrongBasePrIsNotReused()
     {
-        prepare(local(BASE, false), local(HEAD, false), FULL, true, Optional.empty());
+        prepare(local(BASE, false), local(HEAD, false), FULL, true);
         GitHubPullRequestIdentity wrongBase = new GitHubPullRequestIdentity(new PullRequestRef("owner", "repo", 7),
                 "https://github.com/owner/repo/pull/7", route.headRepository(), route.headBranch(), HEAD,
                 route.baseRepository(), "other", BASE, GitHubPullRequestIdentity.State.OPEN, true, "owner");
@@ -521,20 +531,11 @@ class TestDevelopmentFollowupCoordinator
     @Test
     void ambiguousPrIdentityDoesNotDispatchPublication()
     {
-        prepare(local(BASE, false), local(HEAD, false), FULL, true, Optional.empty());
+        prepare(local(BASE, false), local(HEAD, false), FULL, true);
         when(git.inspectPublication(worktree, route)).thenReturn(new DevelopmentPublicationFacts(Optional.of(HEAD), ImmutableList.of(pr(HEAD, true), pr(HEAD, false))));
         advance();
         noFollowup();
         verify(turns).failDevelopmentContinuation(eq(taskId), eq(source.id()), contains("Several pull requests"));
-    }
-
-    @Test
-    void localChangesLimitPreventsCommittingDirtyWork()
-    {
-        prepare(local(BASE, false), local(BASE, true), FULL, true, Optional.of(DevelopmentStopAfter.LOCAL_CHANGES));
-        advance();
-        noFollowup();
-        verify(turns).finishDevelopmentContinuation(taskId, source.id());
     }
 
     @Test
@@ -544,7 +545,7 @@ class TestDevelopmentFollowupCoordinator
             history.replaceAll(turn -> turn.finish(TurnState.FAILED, AgentMetrics.empty(), Optional.of("Stopped"), NOW));
             return publication(Optional.empty(), Optional.empty());
         });
-        prepare(local(BASE, false), local(HEAD, false), FULL, true, Optional.empty());
+        prepare(local(BASE, false), local(HEAD, false), FULL, true);
         advance();
         noFollowup();
         verify(turns).failDevelopmentContinuation(eq(taskId), eq(source.id()), contains("baseline is unavailable"));
@@ -553,7 +554,7 @@ class TestDevelopmentFollowupCoordinator
     @Test
     void revokedOwnershipStopsScheduledCallback()
     {
-        prepare(local(BASE, false), local(HEAD, false), FULL, true, Optional.empty());
+        prepare(local(BASE, false), local(HEAD, false), FULL, true);
         when(turns.ownsDevelopmentContinuation(taskId, source.id())).thenReturn(false);
         advance();
         noFollowup();
@@ -563,7 +564,7 @@ class TestDevelopmentFollowupCoordinator
     @Test
     void stoppingDuringInspectionCannotDispatchOrSettleAnotherOwner()
     {
-        prepare(local(BASE, false), local(HEAD, false), FULL, true, Optional.empty());
+        prepare(local(BASE, false), local(HEAD, false), FULL, true);
         when(git.inspectLocal(worktree, route)).thenAnswer(ignored -> {
             when(turns.ownsDevelopmentContinuation(taskId, source.id())).thenReturn(false);
             return local(HEAD, false);
@@ -576,7 +577,7 @@ class TestDevelopmentFollowupCoordinator
     @Test
     void rejectedExecutorFailsTheContinuation()
     {
-        prepare(local(BASE, false), local(HEAD, false), FULL, true, Optional.empty());
+        prepare(local(BASE, false), local(HEAD, false), FULL, true);
         var rejected = new DevelopmentFollowupCoordinator(turns, turnStore, git, gh, ignored -> { throw new RejectedExecutionException("stopped"); },
                 ci, actions, credentials, pullRequests, writes, clock, waitForCi);
         rejected.completed(outcome);
@@ -673,16 +674,6 @@ class TestDevelopmentFollowupCoordinator
         verify(turns).failDevelopmentContinuation(eq(taskId), eq(source.id()), contains("authorization expired"));
     }
 
-    @Test
-    void leaveDraftLimitStillAllowsCiRepairs()
-    {
-        prepare(local(BASE, false), local(HEAD, false), FULL, true, Optional.of(DevelopmentStopAfter.CI));
-        when(git.inspectPublication(worktree, route)).thenReturn(publication(Optional.of(HEAD), Optional.of(pr(HEAD, true))));
-        advance();
-        verify(writes, never()).markReadyForReview(anyString(), anyString());
-        verify(ci).startDevelopment(any(), eq(taskId), eq(source.id()), eq(pr(HEAD, true)), eq(NOW));
-    }
-
     @ParameterizedTest
     @ValueSource(booleans = {false, true})
     void ciUsesTheDevelopmentAgentUnlessExplicitlyOverridden(boolean explicitCiAgent)
@@ -703,6 +694,7 @@ class TestDevelopmentFollowupCoordinator
         preparePublished(new DevelopmentAutomation(true, true, false, Optional.empty()));
         advance();
         verify(ci, never()).startDevelopment(any(), any(), any(), any(), any());
+        verifyNoInteractions(writes);
         verify(turns).finishDevelopmentContinuation(taskId, source.id());
     }
 
@@ -718,7 +710,7 @@ class TestDevelopmentFollowupCoordinator
     @Test
     void ciOnlyDoesNotPublishUnpublishedWork()
     {
-        prepare(local(BASE, false), local(HEAD, false), new DevelopmentAutomation(true, false, true, Optional.of(AgentLaneId.CLAUDE_CLI)), true, Optional.empty());
+        prepare(local(BASE, false), local(HEAD, false), new DevelopmentAutomation(true, false, true, Optional.of(AgentLaneId.CLAUDE_CLI)), true);
         advance();
         verify(ci, never()).startDevelopment(any(), any(), any(), any(), any());
         noFollowup();
@@ -909,32 +901,27 @@ class TestDevelopmentFollowupCoordinator
         verify(writes, never()).markReadyForReview(anyString(), anyString());
     }
 
-    @Test
-    void narrowedGeneratedCiLimitStillSynchronizesButNeverPromotes()
-    {
-        prepare(local(BASE, false), local(HEAD, false), FULL, true, Optional.empty());
-        when(git.inspectPublication(worktree, route)).thenReturn(
-                publication(Optional.empty(), Optional.empty()), publication(Optional.of(HEAD), Optional.of(pr(HEAD, true))));
-        generated(CREATE_DRAFT_PR, true, Optional.of(DevelopmentStopAfter.CI));
-        advance();
-        verify(ci).startDevelopment(any(), any(), any(), any(), any());
-        verify(git).synchronizeSource(any(), eq(HEAD), eq(HEAD), any());
-        verify(writes, never()).markReadyForReview(anyString(), anyString());
-        verify(turns).finishDevelopmentContinuation(taskId, source.id());
-    }
-
     @ParameterizedTest
     @ValueSource(booleans = {true, false})
-    void sourceOrGeneratedDraftLimitStopsBeforeCi(boolean sourceLimit)
+    void acceptedCiSettingControlsGeneratedDraftContinuation(boolean autoCiFix)
     {
-        prepare(local(BASE, false), local(HEAD, false), FULL, true, sourceLimit ? Optional.of(DevelopmentStopAfter.DRAFT) : Optional.empty());
+        prepare(local(BASE, false), local(HEAD, false), new DevelopmentAutomation(true, true, autoCiFix, Optional.empty()), true);
         when(git.inspectPublication(worktree, route)).thenReturn(
                 publication(Optional.empty(), Optional.empty()), publication(Optional.of(HEAD), Optional.of(pr(HEAD, true))));
-        generated(CREATE_DRAFT_PR, true, sourceLimit ? Optional.empty() : Optional.of(DevelopmentStopAfter.DRAFT));
+        generated(CREATE_DRAFT_PR, true);
         advance();
-        verify(ci, never()).startDevelopment(any(), any(), any(), any(), any());
-        verify(writes, never()).markReadyForReview(anyString(), anyString());
+        verify(turns).startGeneratedTurn(eq(taskId), eq(origin(CREATE_DRAFT_PR)), anyString());
+        if (autoCiFix) {
+            verify(ci).startDevelopment(any(), eq(taskId), eq(source.id()), eq(pr(HEAD, true)), eq(NOW));
+            verify(git).synchronizeSource(any(), eq(HEAD), eq(HEAD), any());
+            verify(writes).markReadyForReview("token", "node-7");
+        }
+        else {
+            verifyNoInteractions(ci, writes);
+            verify(git, never()).synchronizeSource(any(), anyString(), anyString(), any());
+        }
         verify(turns).finishDevelopmentContinuation(taskId, source.id());
+        verify(turns, never()).failDevelopmentContinuation(any(), any(), anyString());
     }
 
     @Test
@@ -989,7 +976,7 @@ class TestDevelopmentFollowupCoordinator
 
     private void preparePublished(DevelopmentAutomation automation)
     {
-        prepare(local(BASE, false), local(HEAD, false), automation, true, Optional.empty());
+        prepare(local(BASE, false), local(HEAD, false), automation, true);
         when(git.inspectPublication(worktree, route)).thenReturn(publication(Optional.of(HEAD), Optional.of(pr(HEAD, true))));
     }
 
@@ -1016,13 +1003,13 @@ class TestDevelopmentFollowupCoordinator
                 deliveredHead, deliveredHead, BASE, new CiAutofixRun.Authorization(true, true, true, 3, NOW, NOW.plus(Duration.ofHours(8))), NOW);
     }
 
-    private void prepare(DevelopmentLocalFacts before, DevelopmentLocalFacts after, DevelopmentAutomation automation, boolean ready, Optional<DevelopmentStopAfter> limit)
+    private void prepare(DevelopmentLocalFacts before, DevelopmentLocalFacts after, DevelopmentAutomation automation, boolean ready)
     {
         source = running(automation);
         history.add(source);
         when(git.capture(task)).thenReturn(new DevelopmentBaseline(worktree, route, before));
         coordinator.accepted(task, source);
-        source = source.withDevelopmentResult(report(ready, limit)).finish(TurnState.COMPLETED, AgentMetrics.empty(), Optional.empty(), NOW);
+        source = source.withDevelopmentResult(report(ready)).finish(TurnState.COMPLETED, AgentMetrics.empty(), Optional.empty(), NOW);
         history.set(history.size() - 1, source);
         outcome = new DevelopmentTurnCompletion(task, source, true, Optional.empty());
         when(turns.ownsDevelopmentContinuation(taskId, source.id())).thenReturn(true);
@@ -1030,13 +1017,13 @@ class TestDevelopmentFollowupCoordinator
         clearInvocations(git);
     }
 
-    private void generated(DevelopmentTurnOrigin.Kind kind, boolean ready, Optional<DevelopmentStopAfter> limit)
+    private void generated(DevelopmentTurnOrigin.Kind kind, boolean ready)
     {
         when(turns.startGeneratedTurn(eq(taskId), eq(origin(kind)), anyString())).thenAnswer(ignored -> {
             AgentTurn acceptedTurn = AgentTurn.accepted(TurnId.random(), taskId, "generated-" + kind, source.settings().orElseThrow(), NOW)
                     .withDevelopmentOrigin(origin(kind));
             AgentTurn generated = acceptedTurn.markDeliveryStarted(NOW).running(new ProviderTurnRef("generated-" + kind), Optional.empty())
-                    .withDevelopmentResult(report(ready, limit)).finish(TurnState.COMPLETED, AgentMetrics.empty(), Optional.empty(), NOW);
+                    .withDevelopmentResult(report(ready)).finish(TurnState.COMPLETED, AgentMetrics.empty(), Optional.empty(), NOW);
             history.add(generated);
             return CompletableFuture.completedFuture(new DevelopmentTurnCompletion(task, generated, true, Optional.empty()));
         });
@@ -1072,9 +1059,9 @@ class TestDevelopmentFollowupCoordinator
                 !head.equals(BASE), false);
     }
 
-    private static DevelopmentResultReport report(boolean ready, Optional<DevelopmentStopAfter> limit)
+    private static DevelopmentResultReport report(boolean ready)
     {
-        return new DevelopmentResultReport(ready, ready ? Optional.empty() : Optional.of("Which implementation?"), limit);
+        return new DevelopmentResultReport(ready, ready ? Optional.empty() : Optional.of("Which implementation?"));
     }
 
     private GitHubPullRequestIdentity pr(String head, boolean draft)

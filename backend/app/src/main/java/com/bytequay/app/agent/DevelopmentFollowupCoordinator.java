@@ -24,7 +24,6 @@ import com.bytequay.agent.core.TurnId;
 import com.bytequay.agent.core.TurnState;
 import com.bytequay.agent.core.store.AgentTurnStore;
 import com.bytequay.agent.spi.DevelopmentResultReport;
-import com.bytequay.agent.spi.DevelopmentStopAfter;
 import com.bytequay.app.ci.CiAutofixService;
 import com.bytequay.app.ci.CiHeadSnapshot;
 import com.bytequay.app.ci.GitHubActionsClient;
@@ -157,7 +156,7 @@ public final class DevelopmentFollowupCoordinator
             }
             DevelopmentAutomation automation = completion.turn().settings().orElseThrow().developmentAutomation().orElseThrow();
             if (local.uncommittedFileCount() > 0) {
-                if (!automation.autoCommit() || !allowed(completion, DevelopmentTurnOrigin.Kind.AUTO_COMMIT)) {
+                if (!automation.autoCommit()) {
                     finish(completion);
                     return;
                 }
@@ -173,9 +172,7 @@ public final class DevelopmentFollowupCoordinator
                 checkState(!local.headSha().equals(beforeCommit.headSha()), "Auto commit did not create a commit");
                 checkState(git.isAncestor(baseline.worktree(), beforeCommit.headSha(), local.headSha()), "Auto commit rewrote existing task history");
             }
-            boolean publicationAllowed = automation.autoDraftPr() && allowed(completion, DevelopmentTurnOrigin.Kind.CREATE_DRAFT_PR);
-            boolean ciAllowed = automation.autoCiFix() && ciAllowed(completion);
-            if (local.commitCount() == 0 || !local.diffFromBase() || (!publicationAllowed && !ciAllowed)) {
+            if (local.commitCount() == 0 || !local.diffFromBase() || (!automation.autoDraftPr() && !automation.autoCiFix())) {
                 finish(completion);
                 return;
             }
@@ -192,7 +189,7 @@ public final class DevelopmentFollowupCoordinator
             boolean alreadyPublished = publication.remoteHeadSha().filter(local.headSha()::equals).isPresent()
                     && currentPr.map(GitHubPullRequestIdentity::headSha).filter(local.headSha()::equals).isPresent();
             if (!alreadyPublished) {
-                if (!publicationAllowed) {
+                if (!automation.autoDraftPr()) {
                     finish(completion);
                     return;
                 }
@@ -229,7 +226,7 @@ public final class DevelopmentFollowupCoordinator
                 }
                 currentPr = verifiedPr;
             }
-            if (ciAllowed && ciAllowed(completion)) {
+            if (automation.autoCiFix()) {
                 action = "CI Autofix";
                 GitHubPullRequestIdentity publishedPr = currentPr.orElseThrow();
                 Optional<CiAutofixRun> green = runCi(completion, publishedPr, automation, activatedAt);
@@ -301,7 +298,7 @@ public final class DevelopmentFollowupCoordinator
         progress(source, "Rechecking pull request before finishing delivery");
         GitHubDeliveryChecks verified = awaitDeliveryChecks(source, baseline, publishedPr, green, token, requireAuthority);
         requireSynchronizedSource(baseline, green.expectedRemoteHead());
-        if (!readyAllowed(source) || !verified.pullRequest().draft()) {
+        if (!verified.pullRequest().draft()) {
             return;
         }
         progress(source, "Marking PR ready for review");
@@ -396,24 +393,6 @@ public final class DevelopmentFollowupCoordinator
         checkState(local.headSha().equals(publishedHead) && local.uncommittedFileCount() == 0, "Source worktree changed after synchronization");
     }
 
-    private boolean ciAllowed(DevelopmentTurnCompletion source)
-    {
-        return deliveryLimits(source).stream().allMatch(limit -> limit == DevelopmentStopAfter.CI);
-    }
-
-    private boolean readyAllowed(DevelopmentTurnCompletion source)
-    {
-        return deliveryLimits(source).isEmpty();
-    }
-
-    private List<DevelopmentStopAfter> deliveryLimits(DevelopmentTurnCompletion source)
-    {
-        return turnStore.list(source.task().id()).stream()
-                .filter(turn -> turn.id().equals(source.turn().id()) || turn.developmentOrigin()
-                        .filter(origin -> origin.parentUserTurnId().equals(source.turn().id())).isPresent())
-                .flatMap(turn -> turn.developmentResult().flatMap(DevelopmentResultReport::stopAfter).stream()).toList();
-    }
-
     private DevelopmentLocalFacts inspectLocal(DevelopmentBaseline baseline)
     {
         DevelopmentLocalFacts local = git.inspectLocal(baseline.worktree(), baseline.route());
@@ -425,13 +404,6 @@ public final class DevelopmentFollowupCoordinator
     {
         checkState(owns(source), "Development automation was stopped");
         return turns.startGeneratedTurn(source.task().id(), new DevelopmentTurnOrigin(kind, source.turn().id()), prompt).toCompletableFuture().join();
-    }
-
-    private boolean allowed(DevelopmentTurnCompletion source, DevelopmentTurnOrigin.Kind kind)
-    {
-        return deliveryLimits(source).stream()
-                .allMatch(limit -> kind == DevelopmentTurnOrigin.Kind.AUTO_COMMIT ? limit != DevelopmentStopAfter.LOCAL_CHANGES
-                        : limit == DevelopmentStopAfter.DRAFT || limit == DevelopmentStopAfter.CI);
     }
 
     static Optional<GitHubPullRequestIdentity> matchingPr(DevelopmentPublicationRoute route, DevelopmentPublicationFacts facts)
@@ -507,7 +479,7 @@ public final class DevelopmentFollowupCoordinator
                 Do not discard changes merely to make the checkout clean. Exclude ignored build output and credentials.
                 Do not push or create a pull request in this turn. Preserve the previously reported local validation limitations.
                 If a user decision remains, report_development_result with readyForDelivery=false and ask in the final response.
-                Otherwise report readiness before ending. Earlier stopAfter limits remain in force.
+                Otherwise report readiness before ending. ByteQuay controls later stages using the user's accepted automation settings.
                 """.formatted(quote(baseline.worktree().canonicalWorktree().toString()), quote(baseline.route().headBranch()), local.headSha());
     }
 

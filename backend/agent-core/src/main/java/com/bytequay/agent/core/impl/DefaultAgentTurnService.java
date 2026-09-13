@@ -83,7 +83,6 @@ import com.bytequay.agent.spi.AgentTurnResult;
 import com.bytequay.agent.spi.AgentUnavailableException;
 import com.bytequay.agent.spi.CodeGraphBridge;
 import com.bytequay.agent.spi.DevelopmentResultReport;
-import com.bytequay.agent.spi.DevelopmentStopAfter;
 import com.bytequay.agent.spi.ProviderAgentEvent;
 import com.bytequay.agent.spi.ProviderApprovalDecision;
 import com.bytequay.agent.spi.ProviderApprovalRequest;
@@ -344,14 +343,6 @@ public final class DefaultAgentTurnService
             DevelopmentAutomation automation = settings.developmentAutomation().orElseThrow();
             boolean enabled = origin.kind() == DevelopmentTurnOrigin.Kind.AUTO_COMMIT ? automation.autoCommit() : automation.autoDraftPr();
             checkArgument(enabled, "The accepted automation settings do not allow this follow-up");
-            for (AgentTurn prior : continuationTurns(taskId, origin.parentUserTurnId())) {
-                prior.developmentResult().flatMap(DevelopmentResultReport::stopAfter).ifPresent(limit -> {
-                    boolean allowed = origin.kind() == DevelopmentTurnOrigin.Kind.AUTO_COMMIT
-                            ? limit != DevelopmentStopAfter.LOCAL_CHANGES
-                            : limit == DevelopmentStopAfter.DRAFT || limit == DevelopmentStopAfter.CI;
-                    checkArgument(allowed, "The development result does not allow this follow-up");
-                });
-            }
             List<AgentAttachment> attachments = settings.attachments().stream()
                     .map(reference -> resourceService.readAttachment(taskId, reference.id()).input())
                     .collect(toImmutableList());
@@ -1761,7 +1752,10 @@ public final class DefaultAgentTurnService
                 ByteQuay requests push and draft creation in a separate scoped follow-up. Do not publish during
                 this development turn unless the user's request explicitly asks you to. Auto CI fix selects the
                 later bounded CI service; it does not authorize an agent to start its own unattended loop.
-                These defaults never override narrower instructions in the user's request.
+                The accepted settings alone control subsequent delivery, including ready promotion after Auto CI fix.
+                If an explicit user request conflicts with an enabled setting, report readyForDelivery=false and explain
+                which Automation controls must change before resubmitting. Do not execute the conflicting step.
+                A generated request to create a draft is one step, not a user instruction to skip later enabled steps.
                 """.formatted(automation.autoCommit(), automation.autoDraftPr(), automation.autoCiFix())).orElse("");
     }
 

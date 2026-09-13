@@ -17,6 +17,7 @@ import com.bytequay.agent.core.AgentEventOutboxPayload;
 import com.bytequay.agent.core.AgentEventPayload;
 import com.bytequay.agent.core.AgentEventSource;
 import com.bytequay.agent.core.AgentStorageException;
+import com.fasterxml.jackson.databind.DeserializationFeature;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 
@@ -63,7 +64,8 @@ final class AgentEventOutboxJson
             AgentEventPayload decoded = switch (kind) {
                 case USER_MESSAGE -> MAPPER.treeToValue(payload, AgentEventPayload.UserMessage.class);
                 case ASSISTANT_MESSAGE -> MAPPER.treeToValue(payload, AgentEventPayload.AssistantMessage.class);
-                case DEVELOPMENT_RESULT -> MAPPER.treeToValue(payload, AgentEventPayload.DevelopmentResult.class);
+                case DEVELOPMENT_RESULT -> MAPPER.readerFor(AgentEventPayload.DevelopmentResult.class)
+                        .without(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES).readValue(json);
                 case PLAN_UPDATED -> MAPPER.treeToValue(payload, AgentEventPayload.PlanUpdated.class);
                 case COMMAND -> MAPPER.treeToValue(payload, AgentEventPayload.CommandActivity.class);
                 case FILE_CHANGE -> MAPPER.treeToValue(payload, AgentEventPayload.FileActivity.class);

@@ -366,7 +366,7 @@ final class ScriptedAgentDriver
                 if (context.permissionPolicy() == AgentPermissionPolicy.AUTO && action.result().state() == AgentTurnResult.State.COMPLETED) {
                     events.emit(new ProviderAgentEvent.DevelopmentResult(
                             Optional.of("report-" + command.turnId()), Optional.empty(),
-                            new DevelopmentResultReport(true, Optional.empty(), Optional.empty()),
+                            new DevelopmentResultReport(true, Optional.empty()),
                             new ProviderAgentEventSource(Optional.empty(), Optional.empty(), Optional.empty(),
                                     Optional.of("ci-e2e-" + command.turnId()), Optional.of("report-" + command.turnId()))));
                 }

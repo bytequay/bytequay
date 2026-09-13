@@ -39,7 +39,7 @@ function taskHtml(turn: AgentTurnDto, approvals = false): string {
 
 it('keeps the durable question ahead of the composer', () => {
   const question = 'Which implementation should I use?';
-  const html = taskHtml({ ...baseTurn, state: 'COMPLETED', developmentResult: { readyForDelivery: false, message: question, stopAfter: null } });
+  const html = taskHtml({ ...baseTurn, state: 'COMPLETED', developmentResult: { readyForDelivery: false, message: question } });
   expect(html.indexOf(question)).toBeLessThan(html.indexOf('agt-compose__input'));
   expect(html).toContain('Waiting for your answer');
 });

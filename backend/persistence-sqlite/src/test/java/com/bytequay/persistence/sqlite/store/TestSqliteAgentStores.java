@@ -70,7 +70,6 @@ import com.bytequay.agent.spi.AgentTurnCommand;
 import com.bytequay.agent.spi.AgentTurnFailureKind;
 import com.bytequay.agent.spi.AgentTurnResult;
 import com.bytequay.agent.spi.DevelopmentResultReport;
-import com.bytequay.agent.spi.DevelopmentStopAfter;
 import com.bytequay.agent.spi.ProviderTurnRef;
 import com.bytequay.agent.spi.RunningTurn;
 import com.google.common.collect.ImmutableList;
@@ -517,7 +516,7 @@ class TestSqliteAgentStores
                 .withDevelopmentOrigin(origin)
                 .markDeliveryStarted(now.plusSeconds(1))
                 .running(new ProviderTurnRef("generated-native-turn"), Optional.of("model"))
-                .withDevelopmentResult(new DevelopmentResultReport(true, Optional.empty(), Optional.empty()))
+                .withDevelopmentResult(new DevelopmentResultReport(true, Optional.empty()))
                 .finish(TurnState.COMPLETED, AgentMetrics.empty(), Optional.empty(), now.plusSeconds(2));
         turnStore.insert(turn);
         entityManager.clear();
@@ -541,7 +540,7 @@ class TestSqliteAgentStores
         taskStore.insert(task);
         AgentTurnSettings settings = new AgentTurnSettings(
                 Optional.of("model"), Optional.of("high"), AgentPermissionPolicy.AUTO, Duration.ofMinutes(5), ImmutableList.of(), Optional.empty(), Optional.of(selected));
-        DevelopmentResultReport question = new DevelopmentResultReport(false, Optional.of("Which implementation should I use?"), Optional.of(DevelopmentStopAfter.COMMITS));
+        DevelopmentResultReport question = new DevelopmentResultReport(false, Optional.of("Which implementation should I use?"));
         AgentTurn turn = AgentTurn.accepted(TurnId.random(), task.id(), "automation-1", settings, now)
                 .markDeliveryStarted(now.plusSeconds(1))
                 .running(new ProviderTurnRef("provider-automation"), Optional.of("model"))
@@ -552,6 +551,8 @@ class TestSqliteAgentStores
                 QueuedInputId.random(), task.id(), 1, "automation-queue", new BlobRef("queue/input", "text/plain", 5), "later", settings, now);
         queueStore.insert(queued);
         taskStore.update(task.withDefaults(task.defaults().withDevelopmentAutomation(DevelopmentAutomation.LOCAL_ONLY), now.plusSeconds(3)));
+        jdbc.update("UPDATE agent_turn SET development_result = ? WHERE id = ?",
+                "{\"readyForDelivery\":false,\"message\":\"Which implementation should I use?\",\"stopAfter\":\"COMMITS\"}", turn.id().toString());
         entityManager.clear();
 
         assertThat(taskStore.find(task.id()).orElseThrow().defaults().developmentAutomation()).contains(DevelopmentAutomation.LOCAL_ONLY);
@@ -573,7 +574,7 @@ class TestSqliteAgentStores
                 EventId.random(), task.id(), Optional.empty(), AgentEventPayload.LifecyclePhase.TURN_STARTED, "started", now);
         AgentEventOutboxEntry development = AgentEventOutboxEntry.pendingInline(
                 EventId.random(), task.id(), Optional.empty(), root(),
-                new AgentEventPayload.DevelopmentResult(false, Optional.of("Which implementation should I use?"), Optional.of(DevelopmentStopAfter.COMMITS)), now);
+                new AgentEventPayload.DevelopmentResult(false, Optional.of("Which implementation should I use?")), now);
 
         outboxStore.insert(lifecycle);
         outboxStore.insert(development);

@@ -184,19 +184,25 @@ class TestClaudePermissionBroker
                         {"jsonrpc":"2.0","id":1,"method":"tools/list","params":{}}
                         """)).body().orElseThrow();
                 assertThat(listed.at("/result/tools").findValuesAsText("name")).contains(DevelopmentResultBridge.TOOL_NAME);
+                for (JsonNode tool : listed.at("/result/tools")) {
+                    if (tool.path("name").asText().equals(DevelopmentResultBridge.TOOL_NAME)) {
+                        assertThat(tool.at("/inputSchema/properties").size()).isEqualTo(2);
+                        assertThat(tool.at("/inputSchema/properties").has("stopAfter")).isFalse();
+                    }
+                }
                 JsonNode accepted = developmentCall(broker, token, """
-                        {"readyForDelivery":true,"message":"done known-secret","stopAfter":"ci"}
+                        {"readyForDelivery":true,"message":"done known-secret"}
                         """);
                 assertThat(accepted.at("/result/isError").booleanValue()).isFalse();
-                assertThat(accepted.at("/result/content/0/text").textValue()).contains("turn-1", "[REDACTED]", "ci").doesNotContain("known-secret");
+                assertThat(accepted.at("/result/content/0/text").textValue()).contains("turn-1", "[REDACTED]").doesNotContain("known-secret", "stopAfter");
                 for (String input : ImmutableList.of(
                         "{}", "{\"readyForDelivery\":\"true\"}", "{\"readyForDelivery\":true,\"threadId\":\"root\"}",
-                        "{\"readyForDelivery\":true,\"stopAfter\":\"merge\"}", "{\"readyForDelivery\":true,\"message\":null}",
+                        "{\"readyForDelivery\":true,\"stopAfter\":\"draft\"}", "{\"readyForDelivery\":true,\"message\":null}",
                         "{\"readyForDelivery\":true,\"message\":\"" + "a".repeat(4001) + "\"}")) {
                     assertThat(developmentCall(broker, token, input).at("/error/code").intValue()).isEqualTo(-32602);
                 }
             }
-            assertThat(codex.instruction()).contains("readyForDelivery=false", "stopAfter", "keeps the PR");
+            assertThat(codex.instruction()).contains("readyForDelivery=false", "automation settings control delivery", "explicit user restriction").doesNotContain("stopAfter");
             active.set(Optional.of(new DevelopmentResultBridge("turn-2", DevelopmentResultBridge.INSTRUCTION)));
             assertThat(developmentCall(broker, codex.token(), "{\"readyForDelivery\":true}").at("/error/code").intValue()).isEqualTo(-32602);
         }

@@ -53,11 +53,11 @@ function publishedPullRequest(draft: boolean): PullRequestDto {
 
 /** Server projections exercise display/admission; they never launch providers or write to GitHub. */
 async function deliveryResult(outcome: 'ready' | 'draft' | 'sync failure', publish: (detail: PullRequestDetailDto) => void): Promise<{ name: string; error?: string }> {
-  const name = `Delivery ${outcome}: question, generated turns, CI repair, final observations and reconnect`;
+  const name = `Delivery ${outcome}: accepted automation, question, generated turns and final observations`;
   const bridge = createPreviewBridge('workspace-1');
   const event = bridge.events[0];
   assert(event.turnId !== null && event.type === 'user_message', 'Fixture must identify a source user turn');
-  const automation = { ...DEFAULT_DEVELOPMENT_AUTOMATION, ciLaneId: 'claude' };
+  const automation = { ...DEFAULT_DEVELOPMENT_AUTOMATION, autoCiFix: outcome !== 'draft', ciLaneId: 'claude' };
   let task: AgentTaskDto = { ...await bridge.getAgentTask(event.taskId, 'workspace-1'), interactive: true,
     mutationClaim: null, developmentContinuationUnfinished: false };
   task = { ...task, defaults: { ...task.defaults, developmentAutomation: automation } };
@@ -66,7 +66,7 @@ async function deliveryResult(outcome: 'ready' | 'draft' | 'sync failure', publi
   assert(original.settings !== null, 'Fixture needs accepted settings');
   let turn: AgentTurnDto = { ...original, id: event.turnId, taskId: task.id, state: 'COMPLETED', endedAt: '2026-01-01T12:00:00Z',
     settings: { ...original.settings, developmentAutomation: automation },
-    developmentResult: { readyForDelivery: false, message: question, stopAfter: outcome === 'draft' ? 'CI' : null } };
+    developmentResult: { readyForDelivery: false, message: question } };
   const turns = new Map([[turn.id, turn]]);
   const history: AgentEventEnvelope[] = [{ ...event, taskId: task.id }];
   let sequence = event.sequence;
@@ -94,7 +94,7 @@ async function deliveryResult(outcome: 'ready' | 'draft' | 'sync failure', publi
   };
   const finishTurn = async () => {
     turn = { ...turn, state: 'COMPLETED', endedAt: `2026-01-01T12:0${sequence % 10}:00Z`,
-      developmentResult: { readyForDelivery: true, message: null, stopAfter: outcome === 'draft' ? 'CI' : null } };
+      developmentResult: { readyForDelivery: true, message: null } };
     recordTurn();
     task = { ...task, mutationClaim: null, developmentContinuationUnfinished: true };
     emit('TURN_COMPLETED');
@@ -146,6 +146,21 @@ async function deliveryResult(outcome: 'ready' | 'draft' | 'sync failure', publi
     pullRequests = [publishedPullRequest(true)];
     publish(publishedDetail(true));
     await finishTurn();
+    if (!automation.autoCiFix) {
+      task = { ...task, version: task.version + 1, developmentContinuationUnfinished: false };
+      emit('DEVELOPMENT_AUTOMATION_UPDATED', 'Development automation settled');
+      await settle();
+      assert(host.querySelector('.agt-pr-chip')?.textContent?.includes('#17') === true, 'The published pull request must reach the composer chip');
+      assert(host.querySelector('.agt-pr-chip .agt-pr-icon.is-draft') !== null, 'Disabling Auto CI fix must leave the published PR draft');
+      assert(!host.textContent?.includes('Fixing CI') && !host.textContent?.includes('CI passed'), 'Draft-only delivery must not claim CI work');
+      assert(host.querySelector<HTMLButtonElement>('button[aria-label="Send message"]')?.disabled === false, 'Publication must release the source when CI is disabled');
+      flushSync(() => root.unmount());
+      root = createRoot(host);
+      render();
+      await settle();
+      assert(host.querySelector('.agt-pr-chip .agt-pr-icon.is-draft') !== null && Number(submitted) === 1, 'Reopening draft-only delivery must retain the result without starting work');
+      return { name };
+    }
     task = { ...task, version: task.version + 1, developmentCi: { ...CI_PROJECTION, status: 'ACTIVE', activity: 'FIXING', canMessage: false } };
     emit('DEVELOPMENT_AUTOMATION_UPDATED');
     await settle();
@@ -209,7 +224,7 @@ async function deliveryResult(outcome: 'ready' | 'draft' | 'sync failure', publi
     assert(host.textContent?.includes('ByteQuay · Auto commit') === true && host.textContent?.includes(`Open draft pull request ${task.generatedBranch}`) === true
       && !host.textContent?.includes('Push the revision and create its draft'), 'Replay must retain the commit label and show publication as its action');
     if (outcome === 'ready') {
-      turn = { ...turn, id: 'later-question', developmentOrigin: null, developmentResult: { readyForDelivery: false, message: question, stopAfter: null } };
+      turn = { ...turn, id: 'later-question', developmentOrigin: null, developmentResult: { readyForDelivery: false, message: question } };
       recordTurn();
       emit('TURN_COMPLETED');
       await settle();

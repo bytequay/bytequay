@@ -56,14 +56,15 @@ Starting points: `AppSettingsStore`, `AppSettingsService`, task/turn settings,
   Distinguish Automation from permission mode Auto. Support Local only for
   one submission; label active-run setting edits For future turns.
 - [x] Add the fixed `report_development_result` local tool for the current
-  root turn in both Codex and Claude. Store typed readiness, question text,
-  and optional `stopAfter` on existing turn/event data.
+  root turn in both Codex and Claude. Store typed readiness and question text
+  on existing turn/event data.
 - [x] Reject child, wrong-task, stale-turn, and invalid reports. A report
   cannot enable a setting, choose a destination, or perform a remote write.
   Reuse existing provider tool transports without building a general framework.
 - [x] Add managed instructions to report readiness before ending, report false
-  when a user decision remains, honor narrower user limits, and leave unfinished
-  work alone. Completed work may be committed according to accepted settings.
+  when a user decision remains or a text restriction conflicts with the accepted
+  controls, and explain which control to adjust. Completed work follows the
+  accepted settings; the agent cannot choose a different delivery endpoint.
 - [x] Show the blocking question in the existing transcript/composer flow.
   Do not infer readiness from final-message wording or add native questionnaire
   cards for this MVP. Existing approvals/native input remain execution gates.
@@ -81,10 +82,9 @@ Acceptance checks:
   unloaded history, and clears for an active answer or fresh ready result.
   Blocking publication with dirty files, commits, or an existing PR is checked
   in CP2/CP3, where follow-ups begin.
-- [x] Verify typed `stopAfter` validation, persistence, and managed narrowing
-  instructions. Preserve existing tool-approval and authentication behavior,
-  including Local only on authentication retry. Runtime narrowing and
-  leave-draft enforcement remain acceptance checks in CP2/CP3/CP5.
+- [x] Verify typed readiness validation, persistence, and managed instructions
+  that preserve the user's accepted controls. Preserve existing tool-approval
+  and authentication behavior, including Local only on authentication retry.
 
 Exit: both providers can distinguish finished work from a question, and the
 accepted automation selection is visible and immutable for that submission.
@@ -156,8 +156,8 @@ Acceptance checks:
   files or commits, and an explicit answered turn can deliver unchanged pending work.
 - [x] Verify pending approvals, missing reports, provider failure, and cleanup
   failure cannot start follow-ups. Waiting for an answer is not task failure.
-- [x] Verify `stopAfter` only narrows the accepted next action; no report can
-  enable a disabled setting or expand the original authorization.
+- [x] Verify generated actions follow the accepted settings; no report can
+  change a setting or expand the original authorization.
 - [x] Verify simultaneous Send, queue, and Complete; atomic FIFO handoff;
   duplicate terminal notifications; and generated-turn non-recursion.
 - [x] Verify a renderer reload leaves the backend continuation running, while
@@ -175,7 +175,7 @@ Evidence:
   test` passed all 93 turn-service tests. No production code changed after
   the full verification run.
 - Core and app regressions cover completion/read ordering, trusted generated
-  settings, narrowing, FIFO launch failure, question/answer gating, cleanup
+  settings, disabled-action admission, FIFO launch failure, question/answer gating, cleanup
   failure, cancellation races, shutdown, and failure after backend loss.
   Relevant tests: `TestDefaultAgentTurnService`, `TestAgentRuntimeRegistry`,
   `TestDefaultAgentCompletionService`, `TestDevelopmentFollowupCoordinator`,
@@ -231,7 +231,7 @@ Acceptance checks:
 - [x] Verify one commit/publication request maximum, question/answer inside
   either follow-up, disabled-setting behavior, and actual post-turn inspection.
 - [x] Verify false readiness prevents publication with dirty files, local
-  commits, and an existing PR. Check `stopAfter` at both commit and publication
+  commits, and an existing PR. Check readiness at both commit and publication
   boundaries, including when a follow-up itself asks a question.
 - [x] Verify existing-PR reuse, fork publication routing, wrong base/head,
   remote changes between inspection and push, and uncertain PR-create outcomes.
@@ -248,7 +248,7 @@ Evidence:
   or skips. Core acceptance/shutdown coverage includes all 97 turn-service tests.
 - `TestDevelopmentFollowupCoordinator` covers 37 cases: bounded generated
   requests, prior-question and FIFO pending-work inheritance, source/generated
-  stop limits, exact existing-PR reuse, wrong-base/closed/ambiguous refusal,
+  accepted settings, exact existing-PR reuse, wrong-base/closed/ambiguous refusal,
   changed remote/local revisions, missing evidence, cancellation, and uncertain
   publication without retries.
 - `TestDevelopmentGitInspector` covers 12 disposable real-Git scenarios,
@@ -332,7 +332,7 @@ Evidence:
   the accepted CI provider and original activation time, then drives existing
   `CiAutofixService.advance` directly. Its 50 tests cover commit/publication
   gates, CI-only attachment, disabled/missing providers, the original deadline,
-  leave-draft intent, scoped pauses, a reply racing a paused poll, failure,
+  disabled CI selection, scoped pauses, a reply racing a paused poll, failure,
   and Stop without dispatching or settling another owner.
 - `DefaultCiAutofixService` has 56 passing tests, including parent persistence
   before provisioning, idempotent budget retention, expired/changed scope,
@@ -377,8 +377,8 @@ integration, coordinator, managed Git operations, and task result rendering.
   and accepted scope. Missing or unknown evidence waits. Report unsupported
   external-check failures and workflows that cannot run while draft.
 - [x] Keep ready promotion owned by the development coordinator, never a
-  generic CI-green callback. Honor Auto CI fix and narrowed `stopAfter` intent;
-  leave-draft requests retain draft status even after CI repairs succeed.
+  generic CI-green callback. Honor Auto CI fix; disabling it leaves the
+  published draft without CI repairs or promotion.
 - [x] Add ready-for-review mutation with fresh before/after observations.
   External-head races and uncertain responses fail visibly without promotion
   retry or automatic draft-status reversal.
@@ -397,7 +397,7 @@ Acceptance checks:
 - [x] Regression: a passing workflow plus a queued workflow with no jobs
   remains waiting. Cover stale head, pending/failed/missing required checks,
   and unknown or third-party status results.
-- [x] Verify promotion authorization, leave-draft behavior, head/base races,
+- [x] Verify promotion authorization, disabled CI behavior, head/base races,
   uncertain mutation outcomes, and no promotion from standalone CI success.
 - [x] Use real Git to verify source synchronization after rewritten CI history,
   dirty/moved-source refusal, and synchronization failure with remote work retained.
@@ -429,10 +429,9 @@ Evidence:
   Log: `/private/tmp/bytequay-cp5-backend-verify.log`.
 - `TestDevelopmentFollowupCoordinator` now has 66 checks covering ordered
   verification/synchronization/promotion, full-check waiting and expiry,
-  source/generated delivery limits, failures and unknown remote outcomes,
-  user gates, toggle combinations, original authority, and Stop. The reporting
-  tool's exact contract is enforced: `draft` skips CI; `ci` permits repairs and
-  synchronization but never ready promotion.
+  failures and unknown remote outcomes, user gates, toggle combinations,
+  original authority, and Stop. The reporting tool only assesses readiness;
+  accepted settings determine commit, publication, CI, and ready promotion.
 - `TestCiHeadSnapshot`, `TestGitHubActionsClient`, and `TestGitHubDeliveryChecks`
   cover queued/empty workflows, complete and duplicate-page evidence,
   required contexts/app identity, unknown/third-party results, and conservative
@@ -472,8 +471,8 @@ Evidence:
   responses and provider behavior above are fixtures, and all Git writes use
   disposable local repositories. This is not evidence of a live account run.
 - Canonical delivery, agent, CI, architecture, task UI, and design index now
-  describe the implementation. Review corrected narrowed `stopAfter` handling,
-  stale UI progress, and duplicate CI-page evidence. `git diff --check` passes.
+  describe the implementation. Review corrected stale UI progress and
+  duplicate CI-page evidence. `git diff --check` passes.
   No overall state service, new migration, delivery journal, checkpoint refs,
   or restart/resume recovery was added.
 
@@ -484,8 +483,9 @@ CP1–CP5 are implemented and verified by backend, frontend, and packaging check
 No required implementation checkpoint remains. The live coordinator now
 owns commit/publication follow-ups, existing CI watch/repair, complete check
 verification, checked source synchronization, and one permitted ready mutation.
-It releases the OPEN source only after final verification. Questions and narrowed
-intent retain their gates; lost backend authority fails instead of restarting.
+It releases the OPEN source only after final verification. Questions retain
+their gates and accepted controls own delivery choices; lost backend authority
+fails instead of restarting.
 
 Known MVP limits are explicit: authored PR, verified workspace head remote, and provider admission
 still follow CI Autofix. Separate test-merge checks, app-bound legacy statuses,

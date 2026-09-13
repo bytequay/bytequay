@@ -73,7 +73,7 @@ class TestCodexDevelopmentResult
             throws Exception
     {
         String receipt = json.writeValueAsString(DevelopmentResultTool.receipt(receiptBridge,
-                new DevelopmentResultReport(true, Optional.of("done known-secret"), Optional.empty())));
+                new DevelopmentResultReport(true, Optional.of("done known-secret"))));
         return codec.decodeNotification("""
                 {"method":"%s","params":{"threadId":"root-thread","turnId":"%s","item":{
                 "type":"mcpToolCall","id":"tool-1","server":"bytequay","tool":"report_development_result",

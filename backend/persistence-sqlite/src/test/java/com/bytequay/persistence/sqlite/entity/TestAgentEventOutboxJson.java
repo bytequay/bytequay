@@ -15,7 +15,6 @@ package com.bytequay.persistence.sqlite.entity;
 
 import com.bytequay.agent.core.AgentEventOutboxPayload;
 import com.bytequay.agent.core.AgentEventPayload;
-import com.bytequay.agent.spi.DevelopmentStopAfter;
 import org.junit.jupiter.api.Test;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -30,7 +29,7 @@ class TestAgentEventOutboxJson
                 "{\"readyForDelivery\":false,\"message\":\"Which approach?\",\"stopAfter\":\"COMMITS\"}");
         assertThat(report.readyForDelivery()).isFalse();
         assertThat(report.message()).contains("Which approach?");
-        assertThat(report.stopAfter()).contains(DevelopmentStopAfter.COMMITS);
+        assertThat(AgentEventOutboxJson.encodePayload(new AgentEventOutboxPayload.Inline(report))).doesNotContain("stopAfter");
     }
 
     @Test

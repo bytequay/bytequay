@@ -340,8 +340,6 @@ export function parseDevelopmentResult(value: unknown, path = 'developmentResult
   return {
     readyForDelivery: flag(source.readyForDelivery, `${path}.readyForDelivery`),
     message: optionalText(source.message, `${path}.message`),
-    stopAfter: source.stopAfter === null || source.stopAfter === undefined ? null
-      : enumText(source.stopAfter, ['LOCAL_CHANGES', 'COMMITS', 'DRAFT', 'CI'] as const, `${path}.stopAfter`),
   };
 }
 

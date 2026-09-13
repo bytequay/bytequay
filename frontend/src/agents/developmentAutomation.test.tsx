@@ -29,7 +29,7 @@ import { NO_AGENT_CAPABILITIES } from './capabilities';
 import { AgentTaskBody } from './AgentTaskScreen';
 
 const defaults = DEFAULT_DEVELOPMENT_AUTOMATION;
-const report = { readyForDelivery: false, message: 'Which implementation should I use?', stopAfter: 'COMMITS' as const };
+const report = { readyForDelivery: false, message: 'Which implementation should I use?' };
 const task: AgentTaskDto = { ...parseAgentTask(contracts.task), interactive: true, mutationClaim: null, state: 'OPEN' };
 const turn = { ...parseAgentTurn(contracts.turn), state: 'COMPLETED', developmentResult: report };
 const state = { ...initialAgentTaskState(), task, turn, latestTurnId: turn.id, connection: 'open' as const };
@@ -64,7 +64,7 @@ it('validates and narrows automation and durable readiness at the bridge', () =>
   expect(() => parseDevelopmentAutomation({ ...defaults, autoCommit: 'true' })).toThrow();
   expect(parseDevelopmentResult(report)).toEqual(report);
   expect(() => parseDevelopmentResult({ ...report, readyForDelivery: 'false' })).toThrow();
-  expect(() => parseDevelopmentResult({ ...report, stopAfter: 'READY' })).toThrow();
+  expect(() => parseDevelopmentResult({ ...report, message: false })).toThrow();
   expect(parseAgentTurn({ ...contracts.turn, developmentResult: report }).developmentResult).toEqual(report);
   expect(parseAgentTask({ ...contracts.task, interactive: false }).interactive).toBe(false);
   expect(parseAgentTask({ ...contracts.task, developmentContinuationUnfinished: true }).developmentContinuationUnfinished).toBe(true);

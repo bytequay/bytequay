@@ -14,7 +14,6 @@
 package com.bytequay.agent.core;
 
 import com.bytequay.agent.spi.DevelopmentResultReport;
-import com.bytequay.agent.spi.DevelopmentStopAfter;
 import com.bytequay.agent.spi.ProviderAgentEvent.ActivityState;
 import com.bytequay.agent.spi.ProviderAgentEvent.ChangeKind;
 import com.bytequay.agent.spi.ProviderAgentEvent.CommandAction;
@@ -94,17 +93,17 @@ public sealed interface AgentEventPayload
     }
 
     /** The root agent's readiness report; execution completion and Git facts remain separate. */
-    record DevelopmentResult(boolean readyForDelivery, Optional<String> message, Optional<DevelopmentStopAfter> stopAfter)
+    record DevelopmentResult(boolean readyForDelivery, Optional<String> message)
             implements AgentEventPayload
     {
         public DevelopmentResult(DevelopmentResultReport report)
         {
-            this(report.readyForDelivery(), report.message(), report.stopAfter());
+            this(report.readyForDelivery(), report.message());
         }
 
         public DevelopmentResult
         {
-            new DevelopmentResultReport(readyForDelivery, message, stopAfter);
+            new DevelopmentResultReport(readyForDelivery, message);
         }
 
         @Override

@@ -65,12 +65,15 @@ Only a successful current-root native tool result is persisted as the turn's
 optional `developmentResult`, atomically with its `development_result` event.
 This is an assessment, separate from provider execution completion. A duplicate
 or child result cannot release a user gate. The durable turn projection retains
-questions outside the loaded transcript window.
+questions outside the loaded transcript window. The report carries only
+`readyForDelivery` and `message`; the accepted Automation controls determine
+commit, publication, and CI actions. A conflicting text restriction requires
+false readiness and an explanation of which control the user must adjust.
 
 The live stopped-turn hook now reserves one in-memory continuation owner before
 normal FIFO dispatch. Its existing task row carries only an unfinished marker;
 generated turns carry a bounded operation and parent user-turn ID. Trusted starts
-retain that user's entire accepted settings and enforce readiness and narrowing.
+retain that user's entire accepted settings and enforce readiness.
 The application coordinator gates questions, hands off preaccepted FIFO work,
 and verifies local changes and exact publication routing. Its accepted hook
 captures the Git/remote baseline outside the task lock before provider startup;
@@ -84,8 +87,8 @@ do not drive delivery-owned work. Source Send, queue start, and Complete remain
 excluded while its CI child can write. After CI proves child shutdown, the
 coordinator verifies fresh Actions and required-check evidence, synchronizes the
 clean source to the exact published revision, and rechecks before one permitted
-ready mutation. Missing evidence waits within the original CI deadline. A `ci`
-stop limit permits repairs but retains draft status; `draft` prevents CI.
+ready mutation. Missing evidence waits within the original CI deadline.
+Disabling Auto CI fix leaves the published draft without repair or promotion.
 Successful delivery releases ownership while retaining the OPEN source task.
 
 `executeDevelopmentAction` uses the existing owner monitor for final program

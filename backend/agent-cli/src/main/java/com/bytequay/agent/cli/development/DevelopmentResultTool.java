@@ -16,13 +16,11 @@ package com.bytequay.agent.cli.development;
 import com.bytequay.agent.cli.process.SecretRedactor;
 import com.bytequay.agent.spi.DevelopmentResultBridge;
 import com.bytequay.agent.spi.DevelopmentResultReport;
-import com.bytequay.agent.spi.DevelopmentStopAfter;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.google.common.collect.ImmutableSet;
 
-import java.util.Locale;
 import java.util.Optional;
 import java.util.Set;
 
@@ -32,7 +30,7 @@ import static com.google.common.base.Preconditions.checkArgument;
 public final class DevelopmentResultTool
 {
     private static final ObjectMapper MAPPER = new ObjectMapper();
-    private static final Set<String> ARGUMENTS = ImmutableSet.of("readyForDelivery", "message", "stopAfter");
+    private static final Set<String> ARGUMENTS = ImmutableSet.of("readyForDelivery", "message");
 
     private DevelopmentResultTool() {}
 
@@ -42,14 +40,7 @@ public final class DevelopmentResultTool
         arguments.fieldNames().forEachRemaining(name -> checkArgument(ARGUMENTS.contains(name), "unknown argument: %s", name));
         checkArgument(arguments.path("readyForDelivery").isBoolean(), "readyForDelivery must be a boolean");
         Optional<String> message = text(arguments, "message");
-        Optional<DevelopmentStopAfter> stopAfter = text(arguments, "stopAfter").map(value -> switch (value) {
-            case "local_changes" -> DevelopmentStopAfter.LOCAL_CHANGES;
-            case "commits" -> DevelopmentStopAfter.COMMITS;
-            case "draft" -> DevelopmentStopAfter.DRAFT;
-            case "ci" -> DevelopmentStopAfter.CI;
-            default -> throw new IllegalArgumentException("invalid stopAfter");
-        });
-        return new DevelopmentResultReport(arguments.get("readyForDelivery").booleanValue(), message, stopAfter);
+        return new DevelopmentResultReport(arguments.get("readyForDelivery").booleanValue(), message);
     }
 
     public static String receipt(DevelopmentResultBridge bridge, DevelopmentResultReport report)
@@ -57,7 +48,6 @@ public final class DevelopmentResultTool
         var result = MAPPER.createObjectNode().put("turnId", bridge.turnId());
         var body = result.putObject("report").put("readyForDelivery", report.readyForDelivery());
         report.message().ifPresent(value -> body.put("message", value));
-        report.stopAfter().ifPresent(value -> body.put("stopAfter", value.name().toLowerCase(Locale.ROOT)));
         return result.toString();
     }
 
@@ -80,7 +70,7 @@ public final class DevelopmentResultTool
                 return Optional.empty();
             }
             DevelopmentResultReport report = parse(receipt.get("report"));
-            return Optional.of(new DevelopmentResultReport(report.readyForDelivery(), report.message().map(redactor::redact), report.stopAfter()));
+            return Optional.of(new DevelopmentResultReport(report.readyForDelivery(), report.message().map(redactor::redact)));
         }
         catch (JsonProcessingException | IllegalArgumentException failure) {
             return Optional.empty();

@@ -25,6 +25,7 @@ public class DevelopmentResultReportConverter
         implements AttributeConverter<DevelopmentResultReport, String>
 {
     private static final ObjectMapper MAPPER = new ObjectMapper().findAndRegisterModules()
+            .disable(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES)
             .enable(DeserializationFeature.FAIL_ON_MISSING_CREATOR_PROPERTIES)
             .enable(DeserializationFeature.FAIL_ON_NULL_FOR_PRIMITIVES);
 

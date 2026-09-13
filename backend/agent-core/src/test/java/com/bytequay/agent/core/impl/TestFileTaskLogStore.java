@@ -24,7 +24,6 @@ import com.bytequay.agent.core.EventId;
 import com.bytequay.agent.core.InvalidAgentRequestException;
 import com.bytequay.agent.core.TaskId;
 import com.bytequay.agent.core.TaskResources;
-import com.bytequay.agent.spi.DevelopmentStopAfter;
 import com.bytequay.agent.spi.ProviderAgentEvent.ActivityState;
 import com.bytequay.agent.spi.ProviderAgentEvent.ChangeKind;
 import com.bytequay.agent.spi.ProviderAgentEvent.CommandAction;
@@ -135,7 +134,7 @@ class TestFileTaskLogStore
                 new AgentEventPayload.Lifecycle(
                         AgentEventPayload.LifecyclePhase.TURN_COMPLETED,
                         "complete"),
-                new AgentEventPayload.DevelopmentResult(false, Optional.of("Which implementation should I use?"), Optional.of(DevelopmentStopAfter.COMMITS)),
+                new AgentEventPayload.DevelopmentResult(false, Optional.of("Which implementation should I use?")),
                 new AgentEventPayload.Error(
                         "failed",
                         "failure",

@@ -129,15 +129,20 @@ a task/workflow state. Store it on the existing turn/event, so the UI can show
 why the agent stopped. A missing/invalid report never implies true: stop the
 MVP continuation with a clear failure instead of guessing from final prose.
 
-The same report may narrow delivery with `stopAfter` (`local_changes`,
-`commits`, `draft`, or `ci`). `draft` stops after publication, before CI.
-`ci` allows CI repairs and source synchronization but stops before ready; a
-"leave it draft" request uses `ci` unless it also asks to skip CI. Promotion
-requires no `stopAfter` limit on the source or any generated turn. It cannot enable a disabled setting, add authority, choose
-a destination, or perform a remote write. This single report replaces the
-previous proposal's separate `restrict_delivery` tool. The provider binding
-must accept only the current root turn's report, not a child agent's claim.
-The report conveys the agent's understanding; Git/GitHub still prove results.
+The report contains only `readyForDelivery` and `message`. The user's accepted
+Auto commit, Auto draft PR, and Auto CI fix controls determine which actions
+run. A report cannot change those choices, add authority, choose a destination,
+or perform a remote write. The provider binding accepts only the current root
+turn's report, not a child agent's claim. The report conveys the agent's
+understanding; Git/GitHub still prove results.
+
+When an explicit text restriction conflicts with the selected controls, the
+agent reports false and explains which Automation control the user needs to
+adjust before submitting again. For example, "do not push" with Auto draft PR
+on waits for that choice to be turned off; "leave it draft" with Auto CI fix on
+waits for Auto CI fix to be turned off. The agent cannot silently stop delivery
+at an intermediate step. Auto CI fix includes ready promotion after verified
+green; this design has no separate control for repairs without promotion.
 
 Reporting now uses the existing task-local tool transport. The broker validates
 and acknowledges a candidate; only the provider's successful current-root
@@ -208,8 +213,8 @@ An optional `DevelopmentTurnOrigin` on a generated turn names its bounded
 operation and original user turn. That user-turn ID is the in-memory owner;
 there is no delivery ID or step journal. The internal start path carries the
 source turn's complete accepted settings, including model, effort, permission,
-service tier, attachments, and automation choices. Earlier readiness reports
-in the same continuation can only narrow later actions.
+service tier, attachments, and automation choices. Every generated turn must
+report readiness before the coordinator continues under that same selection.
 
 Before an ordinary development provider starts, its accepted hook captures the
 starting HEAD, file fingerprint, commit count, frozen base SHA, and exact PR
@@ -254,7 +259,7 @@ after a stopped user development turn:
         verify actual remote SHA and PR identity; if wrong/unknown: fail
 
     if no matching published PR: show local result; finish
-    if auto CI fix off or stopAfter is draft: show PR; finish
+    if auto CI fix off: show PR; finish
     if selected CI provider unavailable/unsupported: fail with PR and reason
 
     start/reuse the existing CI run for this verified revision
@@ -262,7 +267,7 @@ after a stopped user development turn:
     on green: wait for complete current PR/head/base/check evidence
     synchronize published CI repairs back into the clean source worktree
     recheck current PR/head/base/checks and clean synchronized source
-    if no stopAfter limit and PR is draft: mark ready once; verify afterward
+    if PR is draft: mark ready once; verify afterward
     show the result; release ownership; keep the source task open
 ```
 
@@ -431,8 +436,8 @@ from completing. Waiting uses the original CI run's deadline and fails when
 it expires; it does not renew authority or restart a finished CI run.
 
 Ready promotion belongs to the development coordinator, never a generic CI
-`GREEN` callback or a standalone CI run. It honors Auto CI fix and narrowed
-`stopAfter` intent, synchronizes the source, then rereads current PR identity,
+`GREEN` callback or a standalone CI run. It honors the accepted Auto CI fix
+selection, synchronizes the source, then rereads current PR identity,
 head/base, remote publication, and checks before issuing exactly one
 `markPullRequestReadyForReview` mutation. The write client verifies its returned
 PR node and draft flag; the coordinator separately verifies fresh PR/check/

@@ -15,14 +15,11 @@ package com.bytequay.agent.cli.development;
 
 import com.bytequay.agent.cli.process.SecretRedactor;
 import com.bytequay.agent.spi.DevelopmentResultBridge;
-import com.bytequay.agent.spi.DevelopmentStopAfter;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.TextNode;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import org.junit.jupiter.api.Test;
-
-import java.util.Optional;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -34,20 +31,34 @@ class TestDevelopmentResultTool
     private final SecretRedactor redactor = SecretRedactor.fromEnvironment(ImmutableMap.of());
 
     @Test
-    void falseAndEveryNarrowingLimitRoundTripWithoutBecomingReady()
+    void reportsRoundTripWithoutChangingReadiness()
             throws Exception
     {
-        for (String value : ImmutableList.of("local_changes", "commits", "draft", "ci")) {
+        for (boolean ready : ImmutableList.of(false, true)) {
             var report = DevelopmentResultTool.parse(json.readTree("""
-                    {"readyForDelivery":false,"stopAfter":"%s"}
-                    """.formatted(value)));
-            assertThat(report.readyForDelivery()).isFalse();
-            assertThat(report.message()).isEmpty();
-            assertThat(report.stopAfter()).contains(DevelopmentStopAfter.valueOf(value.toUpperCase(java.util.Locale.ROOT)));
+                    {"readyForDelivery":%s,"message":"Development result"}
+                    """.formatted(ready)));
+            assertThat(report.readyForDelivery()).isEqualTo(ready);
+            assertThat(report.message()).contains("Development result");
             assertThat(DevelopmentResultTool.readReceipt(TextNode.valueOf(DevelopmentResultTool.receipt(bridge, report)), bridge, redactor))
                     .contains(report);
         }
-        assertThat(DevelopmentResultTool.parse(json.readTree("{\"readyForDelivery\":false}")).stopAfter()).isEqualTo(Optional.empty());
+        assertThat(DevelopmentResultTool.parse(json.readTree("{\"readyForDelivery\":false}")).message()).isEmpty();
+    }
+
+    @Test
+    void reportsCannotSetDeliveryPolicy()
+            throws Exception
+    {
+        for (String value : ImmutableList.of("local_changes", "commits", "draft", "ci")) {
+            String report = """
+                    {"readyForDelivery":true,"stopAfter":"%s"}
+                    """.formatted(value);
+            assertThatThrownBy(() -> DevelopmentResultTool.parse(json.readTree(report)))
+                    .isInstanceOf(IllegalArgumentException.class)
+                    .hasMessage("unknown argument: stopAfter");
+            assertThat(DevelopmentResultTool.readReceipt(TextNode.valueOf("{\"turnId\":\"turn-1\",\"report\":" + report + "}"), bridge, redactor)).isEmpty();
+        }
     }
 
     @Test

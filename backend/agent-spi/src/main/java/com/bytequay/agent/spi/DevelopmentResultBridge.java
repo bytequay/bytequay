@@ -26,10 +26,12 @@ public record DevelopmentResultBridge(String turnId, String instruction)
             Report readyForDelivery=false before asking for an unresolved decision; do not commit or publish
             while that decision is open. Missing or invalid reports never authorize delivery. Subagents may
             contribute work but cannot report the root result. Do not supply task, turn, or agent identities.
-            An optional message explains the outcome in at most 4000 characters. Optional stopAfter can only
-            narrow the user's accepted automation: local_changes stops before committing; commits stops
-            before publishing; draft stops after creating the draft PR; ci allows CI work but keeps the PR
-            draft. A request to leave the PR as a draft uses ci unless the user also asks to skip CI.
+            An optional message explains the outcome in at most 4000 characters. The user's accepted
+            automation settings control delivery; this report cannot change them or select a stopping stage.
+            If an explicit user restriction conflicts with enabled automation, report readyForDelivery=false
+            and explain which automation controls need changing before continuing. Never disregard requests
+            such as "do not push" or "keep the PR draft" to satisfy an enabled automation setting.
+            Completing a generated commit or draft-publication step does not end the remaining automation.
             Reporting readiness does not itself commit, push, create a PR, or authorize additional work.
             """;
 

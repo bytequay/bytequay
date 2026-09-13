@@ -83,7 +83,6 @@ import com.bytequay.agent.spi.AgentTurnResult;
 import com.bytequay.agent.spi.AgentUnavailableException;
 import com.bytequay.agent.spi.CodeGraphBridge;
 import com.bytequay.agent.spi.DevelopmentResultReport;
-import com.bytequay.agent.spi.DevelopmentStopAfter;
 import com.bytequay.agent.spi.ProviderAgentEvent;
 import com.bytequay.agent.spi.ProviderAgentEventSource;
 import com.bytequay.agent.spi.ProviderApprovalDecision;
@@ -521,7 +520,7 @@ class TestDefaultAgentTurnService
         AgentTask development = interactiveTask("Development");
         AgentTurn running = service.start(new StartAgentTurnCommand(development.id(), "Make the change", ImmutableList.of(), "development")
                 .withDevelopmentAutomation(Optional.of(DevelopmentAutomation.DEFAULT)));
-        DevelopmentResultReport question = new DevelopmentResultReport(false, Optional.of("Which implementation?"), Optional.of(DevelopmentStopAfter.COMMITS));
+        DevelopmentResultReport question = new DevelopmentResultReport(false, Optional.of("Which implementation?"));
         ProviderAgentEvent.DevelopmentResult first = developmentReport(running, "report-1", question, Optional.empty());
         stores.failOutboxInsert(AgentEventPayload.Kind.DEVELOPMENT_RESULT, new AgentStorageException("blocked report outbox"));
 
@@ -534,7 +533,7 @@ class TestDefaultAgentTurnService
         assertThat(stores.find(running.id()).orElseThrow().developmentResult()).contains(question);
         assertThat(events.readAfter(development.id(), 0, 100)).filteredOn(event -> event.type() == AgentEventPayload.Kind.DEVELOPMENT_RESULT).hasSize(1);
 
-        DevelopmentResultReport ready = new DevelopmentResultReport(true, Optional.empty(), Optional.of(DevelopmentStopAfter.COMMITS));
+        DevelopmentResultReport ready = new DevelopmentResultReport(true, Optional.empty());
         driver.emit(developmentReport(running, "report-2", ready, Optional.empty()));
         driver.emit(first);
         driver.complete("Finished");
@@ -549,7 +548,7 @@ class TestDefaultAgentTurnService
         AgentTask development = interactiveTask("Development");
         AgentTurn running = service.start(new StartAgentTurnCommand(development.id(), "Make the change", ImmutableList.of(), "development")
                 .withDevelopmentAutomation(Optional.of(DevelopmentAutomation.DEFAULT)));
-        DevelopmentResultReport ready = new DevelopmentResultReport(true, Optional.empty(), Optional.empty());
+        DevelopmentResultReport ready = new DevelopmentResultReport(true, Optional.empty());
         ProviderAgentEvent.DevelopmentResult child = developmentReport(running, "child-report", ready, Optional.of("root-thread"));
         assertThatThrownBy(() -> driver.emit(child)).isInstanceOf(IllegalArgumentException.class).hasMessageContaining("root agent");
 
@@ -566,7 +565,7 @@ class TestDefaultAgentTurnService
     {
         AgentTurn running = service.start(command("Discuss the code", "ordinary"));
         ProviderAgentEvent.DevelopmentResult report = developmentReport(
-                running, "report-1", new DevelopmentResultReport(true, Optional.empty(), Optional.empty()), Optional.empty());
+                running, "report-1", new DevelopmentResultReport(true, Optional.empty()), Optional.empty());
         assertThatThrownBy(() -> driver.emit(report)).isInstanceOf(IllegalArgumentException.class).hasMessageContaining("not enabled");
         assertThat(stores.find(running.id()).orElseThrow().developmentResult()).isEmpty();
         driver.complete("Finished");
@@ -586,12 +585,27 @@ class TestDefaultAgentTurnService
     }
 
     @Test
+    void automationInstructionsWaitForChangedControlsWhenUserTextConflicts()
+    {
+        AgentTask development = interactiveTask("Development");
+        service.start(new StartAgentTurnCommand(development.id(), "Make the change but skip CI", ImmutableList.of(), "development")
+                .withDevelopmentAutomation(Optional.of(DevelopmentAutomation.DEFAULT)));
+
+        assertThat(driver.openedContexts().getFirst().managedInstructions())
+                .contains("Auto commit: true", "Auto draft PR: true", "Auto CI fix: true",
+                        "accepted settings alone control subsequent delivery", "readyForDelivery=false",
+                        "Automation controls must change before resubmitting", "Do not execute the conflicting step",
+                        "not a user instruction to skip later enabled steps");
+        driver.complete("Change the Automation controls before continuing");
+    }
+
+    @Test
     void ownsDevelopmentAdmissionUntilSettledAndNeverDispatchesFromReplay()
     {
         List<DevelopmentTurnCompletion> completed = new ArrayList<>();
         enableDevelopment(completed::add);
         AgentTurn source = service.start(command("Change the code", "delivery-source"));
-        reportReady(source, Optional.empty());
+        reportReady(source);
         driver.complete("Done");
 
         assertThat(completed).hasSize(1);
@@ -634,16 +648,16 @@ class TestDefaultAgentTurnService
         assertThat(taskService.get(task.id()).developmentContinuationUnfinished()).isFalse();
         service.enqueue(new QueueAgentInputCommand(task.id(), taskService.get(task.id()).version(), "Second", ImmutableList.of(), "capture-queue"));
         assertThat(captured).containsExactly(source.id());
-        reportReady(source, Optional.empty());
+        reportReady(source);
         driver.complete("First done");
 
         assertThat(service.handoffDevelopmentContinuationToQueue(task.id(), source.id())).isTrue();
         AgentTurn queued = stores.findActive(task.id()).orElseThrow();
         assertThat(captured).containsExactly(source.id(), queued.id());
-        reportReady(queued, Optional.empty());
+        reportReady(queued);
         driver.complete("Second done");
         service.startGeneratedTurn(task.id(), new DevelopmentTurnOrigin(DevelopmentTurnOrigin.Kind.AUTO_COMMIT, queued.id()), "Commit");
-        reportReady(stores.findActive(task.id()).orElseThrow(), Optional.empty());
+        reportReady(stores.findActive(task.id()).orElseThrow());
         driver.complete("Committed");
 
         assertThat(captured).containsExactly(source.id(), queued.id());
@@ -684,7 +698,7 @@ class TestDefaultAgentTurnService
                 service.failDevelopmentContinuation(task.id(), source.id(), "Late failure from the old request"))
                 .isInstanceOf(AgentConflictException.class).hasMessageContaining("owner changed");
         AgentTurn next = service.start(command("Continue with these files", "fresh-development"));
-        reportReady(next, Optional.empty());
+        reportReady(next);
         driver.complete("Ready");
 
         assertThat(service.ownsDevelopmentContinuation(task.id(), next.id())).isTrue();
@@ -704,7 +718,7 @@ class TestDefaultAgentTurnService
         AgentTurn source = service.start(command("Change the code", "publication-failure"));
         QueuedAgentInput queued = service.enqueue(new QueueAgentInputCommand(
                 task.id(), taskService.get(task.id()).version(), "Queued follow-up", ImmutableList.of(), "paused-followup"));
-        reportReady(source, Optional.empty());
+        reportReady(source);
 
         driver.complete("Development done");
 
@@ -715,7 +729,7 @@ class TestDefaultAgentTurnService
         assertThat(worktrees.cleanupCalls).isZero();
         AgentTurn resumed = service.resumeQueued(task.id());
         developmentListener = Optional.of(ignored -> {});
-        reportReady(resumed, Optional.empty());
+        reportReady(resumed);
         driver.complete("Queued request finished");
         assertThat(service.ownsDevelopmentContinuation(task.id(), resumed.id())).isTrue();
         service.finishDevelopmentContinuation(task.id(), resumed.id());
@@ -748,7 +762,7 @@ class TestDefaultAgentTurnService
         assertThat(service.get(first.id()).state()).isEqualTo(TurnState.INTERRUPTED);
         assertThat(service.get(next.id()).state()).isEqualTo(TurnState.RUNNING);
         assertThat(runtimeRegistry.session(task.id())).isPresent();
-        reportReady(next, Optional.empty());
+        reportReady(next);
         driver.complete("Done");
         assertThat(service.ownsDevelopmentContinuation(task.id(), next.id())).isTrue();
         service.finishDevelopmentContinuation(task.id(), next.id());
@@ -812,7 +826,7 @@ class TestDefaultAgentTurnService
         List<DevelopmentTurnCompletion> completed = new ArrayList<>();
         enableDevelopment(completed::add);
         AgentTurn source = service.start(command("Change", "reader-race"));
-        reportReady(source, Optional.empty());
+        reportReady(source);
         CompletionStage<?> reader = runtimeRegistry.running(source.id()).orElseThrow().completion().whenComplete((result, failure) -> {
             assertThat(service.get(source.id()).state()).isEqualTo(TurnState.COMPLETED);
             assertThat(completed).isEmpty();
@@ -834,7 +848,7 @@ class TestDefaultAgentTurnService
         List<DevelopmentTurnCompletion> completed = new ArrayList<>();
         enableDevelopment(completed::add);
         AgentTurn source = service.start(command("Change", "generated-source"));
-        reportReady(source, Optional.of(DevelopmentStopAfter.DRAFT));
+        reportReady(source);
         driver.complete("Done");
         AgentTask current = taskService.get(task.id());
         taskService.updateDefaults(new UpdateAgentTaskDefaultsCommand(task.id(), current.version(),
@@ -850,7 +864,7 @@ class TestDefaultAgentTurnService
         assertThat(driver.commands().getLast().effort()).isEqualTo(source.settings().orElseThrow().effort());
         assertThat(driver.openedContexts().getLast().permissionPolicy()).isEqualTo(source.settings().orElseThrow().permissionPolicy());
         driver.emit(developmentReport(followup, "commit-question",
-                new DevelopmentResultReport(false, Optional.of("Which change should be committed?"), Optional.empty()), Optional.empty()));
+                new DevelopmentResultReport(false, Optional.of("Which change should be committed?")), Optional.empty()));
         driver.complete("Choose a change");
 
         assertThat(generated.toCompletableFuture().join().turn().developmentResult().orElseThrow().readyForDelivery()).isFalse();
@@ -861,20 +875,22 @@ class TestDefaultAgentTurnService
     }
 
     @Test
-    void generatedReadinessCannotBroadenTheOriginalStopLimit()
+    void generatedReadinessCannotEnableDraftPublicationDisabledAtAcceptance()
     {
         enableDevelopment(ignored -> {});
+        task = taskService.updateDefaults(new UpdateAgentTaskDefaultsCommand(task.id(), task.version(),
+                task.defaults().withDevelopmentAutomation(new DevelopmentAutomation(true, false, false, Optional.empty()))));
         AgentTurn source = service.start(command("Commit only", "limited-source"));
-        reportReady(source, Optional.of(DevelopmentStopAfter.COMMITS));
+        reportReady(source);
         driver.complete("Done");
         CompletionStage<DevelopmentTurnCompletion> generated = service.startGeneratedTurn(
                 task.id(), new DevelopmentTurnOrigin(DevelopmentTurnOrigin.Kind.AUTO_COMMIT, source.id()), "Commit");
-        reportReady(stores.findActive(task.id()).orElseThrow(), Optional.of(DevelopmentStopAfter.CI));
+        reportReady(stores.findActive(task.id()).orElseThrow());
         driver.complete("Committed");
         generated.toCompletableFuture().join();
 
         assertThatThrownBy(() -> service.startGeneratedTurn(task.id(), new DevelopmentTurnOrigin(DevelopmentTurnOrigin.Kind.CREATE_DRAFT_PR, source.id()), "Publish"))
-                .isInstanceOf(IllegalArgumentException.class).hasMessageContaining("does not allow");
+                .isInstanceOf(IllegalArgumentException.class).hasMessageContaining("accepted automation settings");
         service.finishDevelopmentContinuation(task.id(), source.id());
     }
 
@@ -886,7 +902,7 @@ class TestDefaultAgentTurnService
         task = taskService.updateDefaults(new UpdateAgentTaskDefaultsCommand(task.id(), task.version(),
                 task.defaults().withDevelopmentAutomation(draftOnly)));
         AgentTurn source = service.start(command("Publish my existing commits", "disabled-commit-source"));
-        reportReady(source, Optional.of(DevelopmentStopAfter.CI));
+        reportReady(source);
         driver.complete("Ready to publish");
         AgentTask current = taskService.get(task.id());
         taskService.updateDefaults(new UpdateAgentTaskDefaultsCommand(task.id(), current.version(),
@@ -908,7 +924,7 @@ class TestDefaultAgentTurnService
         enableDevelopment(completed::add);
         AgentTurn source = service.start(command("First", "handoff-source"));
         service.enqueue(new QueueAgentInputCommand(task.id(), taskService.get(task.id()).version(), "Queued", ImmutableList.of(), "handoff-queue"));
-        reportReady(source, Optional.empty());
+        reportReady(source);
         driver.complete("Done");
         driver.failNextStart();
 
@@ -929,7 +945,7 @@ class TestDefaultAgentTurnService
         List<DevelopmentTurnCompletion> completed = new ArrayList<>();
         enableDevelopment(completed::add);
         AgentTurn source = service.start(command("Change", "storage-source"));
-        reportReady(source, Optional.empty());
+        reportReady(source);
         stores.failOutboxInsert(AgentEventPayload.Kind.LIFECYCLE, new AgentStorageException("blocked terminal outbox"));
 
         driver.complete("Done");
@@ -961,7 +977,7 @@ class TestDefaultAgentTurnService
     {
         enableDevelopment(ignored -> {});
         AgentTurn source = service.start(command("Change", "child-stop-source"));
-        reportReady(source, Optional.empty());
+        reportReady(source);
         driver.complete("Done");
         CompletionStage<DevelopmentTurnCompletion> generated = service.startGeneratedTurn(
                 task.id(), new DevelopmentTurnOrigin(DevelopmentTurnOrigin.Kind.AUTO_COMMIT, source.id()), "Commit");
@@ -985,7 +1001,7 @@ class TestDefaultAgentTurnService
         assertThat(worktrees.cleanupCalls).isZero();
         stopChildren = ignored -> {};
         AgentTurn next = service.start(command("Continue after Stop", "after-stop"));
-        reportReady(next, Optional.empty());
+        reportReady(next);
         driver.complete("Done");
         assertThat(service.ownsDevelopmentContinuation(task.id(), next.id())).isTrue();
         service.finishDevelopmentContinuation(task.id(), next.id());
@@ -996,7 +1012,7 @@ class TestDefaultAgentTurnService
     {
         enableDevelopment(ignored -> {});
         AgentTurn source = service.start(command("Change", "child-stop-failure"));
-        reportReady(source, Optional.empty());
+        reportReady(source);
         driver.complete("Done");
         service.startGeneratedTurn(task.id(), new DevelopmentTurnOrigin(DevelopmentTurnOrigin.Kind.AUTO_COMMIT, source.id()), "Commit");
         AgentStorageException childFailure = new AgentStorageException("Child writer could not be verified stopped");
@@ -1056,7 +1072,7 @@ class TestDefaultAgentTurnService
         assertThat(stoppedChildren).containsExactly(task.id(), task.id());
         assertThat(worktrees.cleanupCalls).isZero();
         AgentTurn next = service.start(command("Continue after restart", "after-lost-continuation"));
-        reportReady(next, Optional.empty());
+        reportReady(next);
         driver.complete("Done");
         service.finishDevelopmentContinuation(task.id(), next.id());
     }
@@ -1105,7 +1121,7 @@ class TestDefaultAgentTurnService
     {
         enableDevelopment(ignored -> {});
         AgentTurn source = service.start(command("Change", "shutdown-source"));
-        reportReady(source, Optional.empty());
+        reportReady(source);
         driver.complete("Done");
 
         runtimeRegistry.close();
@@ -1122,7 +1138,7 @@ class TestDefaultAgentTurnService
         enableDevelopment(ignored -> {});
         driver.beforeCancel(() -> driver.complete("Completed while cancellation was arriving"));
         AgentTurn source = service.start(command("Change", "cancel-success"));
-        reportReady(source, Optional.empty());
+        reportReady(source);
 
         assertThat(service.cancel(source.id()).state()).isEqualTo(TurnState.COMPLETED);
 
@@ -1137,11 +1153,11 @@ class TestDefaultAgentTurnService
     {
         enableDevelopment(ignored -> {});
         AgentTurn source = service.start(command("Change", "cancel-generated"));
-        reportReady(source, Optional.empty());
+        reportReady(source);
         driver.complete("Done");
         service.startGeneratedTurn(task.id(), new DevelopmentTurnOrigin(DevelopmentTurnOrigin.Kind.AUTO_COMMIT, source.id()), "Commit");
         AgentTurn generated = stores.findActive(task.id()).orElseThrow();
-        reportReady(generated, Optional.empty());
+        reportReady(generated);
         driver.complete("Committed");
 
         assertThat(service.cancel(generated.id()).state()).isEqualTo(TurnState.COMPLETED);
@@ -1157,7 +1173,7 @@ class TestDefaultAgentTurnService
         List<DevelopmentTurnCompletion> completed = new ArrayList<>();
         enableDevelopment(completed::add);
         AgentTurn source = service.start(command("Change", "cancel-before-native-callback"));
-        reportReady(source, Optional.empty());
+        reportReady(source);
         CompletionStage<?> cancellation = runtimeRegistry.running(source.id()).orElseThrow().completion().whenComplete((result, failure) ->
                 service.cancel(source.id()));
 
@@ -1174,11 +1190,11 @@ class TestDefaultAgentTurnService
     {
         enableDevelopment(ignored -> {});
         AgentTurn old = service.start(command("First", "cancel-old"));
-        reportReady(old, Optional.empty());
+        reportReady(old);
         driver.complete("Done");
         service.finishDevelopmentContinuation(task.id(), old.id());
         AgentTurn current = service.start(command("Second", "cancel-current"));
-        reportReady(current, Optional.empty());
+        reportReady(current);
         driver.complete("Done again");
 
         service.cancel(old.id());
@@ -1197,9 +1213,9 @@ class TestDefaultAgentTurnService
                 interactive.defaults().withDevelopmentAutomation(DevelopmentAutomation.DEFAULT)));
     }
 
-    private void reportReady(AgentTurn turn, Optional<DevelopmentStopAfter> stopAfter)
+    private void reportReady(AgentTurn turn)
     {
-        driver.emit(developmentReport(turn, "ready-" + turn.id(), new DevelopmentResultReport(true, Optional.empty(), stopAfter), Optional.empty()));
+        driver.emit(developmentReport(turn, "ready-" + turn.id(), new DevelopmentResultReport(true, Optional.empty()), Optional.empty()));
     }
 
     private static ProviderAgentEvent.DevelopmentResult developmentReport(

@@ -28,7 +28,6 @@ import com.bytequay.agent.spi.AgentLaneId;
 import com.bytequay.agent.spi.AgentPermissionPolicy;
 import com.bytequay.agent.spi.AgentTurnFailureKind;
 import com.bytequay.agent.spi.DevelopmentResultReport;
-import com.bytequay.agent.spi.DevelopmentStopAfter;
 import com.bytequay.agent.spi.ProviderTurnRef;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -321,13 +320,13 @@ class TestInteractiveAgentHttpContract
                                 Duration.ofMinutes(5), ImmutableList.of(), Optional.empty(), Optional.of(DevelopmentAutomation.LOCAL_ONLY)),
                         Instant.parse("2026-09-01T00:00:00Z"))
                 .withDevelopmentOrigin(new DevelopmentTurnOrigin(DevelopmentTurnOrigin.Kind.AUTO_COMMIT, TurnId.random()))
-                .withDevelopmentResult(new DevelopmentResultReport(false, Optional.of("Choose the expected behavior."), Optional.of(DevelopmentStopAfter.COMMITS)));
+                .withDevelopmentResult(new DevelopmentResultReport(false, Optional.of("Choose the expected behavior.")));
         JsonNode json = objectMapper.valueToTree(InteractiveAgentHttpContract.turn(turn));
 
         assertThat(json.path("settings").path("developmentAutomation").path("autoCommit").asBoolean()).isFalse();
         assertThat(json.path("developmentResult").path("readyForDelivery").asBoolean()).isFalse();
         assertThat(json.path("developmentResult").path("message").asText()).isEqualTo("Choose the expected behavior.");
-        assertThat(json.path("developmentResult").path("stopAfter").asText()).isEqualTo("COMMITS");
+        assertThat(json.path("developmentResult").size()).isEqualTo(2);
         assertThat(json.path("developmentOrigin").path("kind").asText()).isEqualTo("AUTO_COMMIT");
         assertThat(json.path("developmentOrigin").path("parentUserTurnId").asText()).isEqualTo(turn.developmentOrigin().orElseThrow().parentUserTurnId().toString());
     }

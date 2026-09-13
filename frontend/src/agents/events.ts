@@ -148,7 +148,6 @@ export type AgentEventEnvelope =
   | AgentEvent<'development_result', {
     readyForDelivery: boolean;
     message: string | null;
-    stopAfter: 'LOCAL_CHANGES' | 'COMMITS' | 'DRAFT' | 'CI' | null;
   }>
   | AgentEvent<'lifecycle', {
     phase: typeof LIFECYCLE_PHASES[number];
@@ -348,7 +347,6 @@ function validatePayload(type: typeof EVENT_TYPES[number], value: unknown, index
     case 'development_result':
       booleanValue(payload.readyForDelivery, 'developmentResult.readyForDelivery');
       nullableString(payload.message, 'developmentResult.message');
-      if (payload.stopAfter !== null) enumValue(payload.stopAfter, ['LOCAL_CHANGES', 'COMMITS', 'DRAFT', 'CI'] as const, 'developmentResult.stopAfter');
       break;
     case 'lifecycle':
       enumValue(payload.phase, LIFECYCLE_PHASES, 'lifecycle.phase');

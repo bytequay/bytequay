@@ -884,7 +884,7 @@ class TestAgentHttpApi
         assertThat(tasks.get(TaskId.valueOf(taskId)).taskWorktree()).contains(worktree);
         assertThat(worktree.canonicalWorktree()).isDirectory();
 
-        driver.reportNextTurn(new DevelopmentResultReport(true, Optional.empty(), Optional.empty()));
+        driver.reportNextTurn(new DevelopmentResultReport(true, Optional.empty()));
         ResponseEntity<JsonNode> followup = post("/agent/tasks/" + taskId + "/turns", ImmutableMap.of(
                 "message", "Continue this task",
                 "expectedVersion", taskVersion(taskId),
@@ -903,7 +903,7 @@ class TestAgentHttpApi
     void enabledQuestionKeepsTaskOpenAndPausesPreviouslyQueuedWork()
             throws Exception
     {
-        driver.reportNextTurn(new DevelopmentResultReport(false, Optional.of("Which implementation?"), Optional.empty()));
+        driver.reportNextTurn(new DevelopmentResultReport(false, Optional.of("Which implementation?")));
         driver.holdNextTurn();
         Map<String, Object> request = new HashMap<>(createTaskBody("codex"));
         request.put("defaults", ImmutableMap.of("model", "test-model", "effort", "high", "permissionPolicy", "AUTO",
@@ -930,7 +930,7 @@ class TestAgentHttpApi
 
         Path worktree = tasks.get(TaskId.valueOf(taskId)).worktree();
         String unchangedHead = run("git", "-C", worktree.toString(), "rev-parse", "HEAD");
-        driver.reportNextTurn(new DevelopmentResultReport(true, Optional.empty(), Optional.empty()));
+        driver.reportNextTurn(new DevelopmentResultReport(true, Optional.empty()));
         startTurn(taskId, "Use the first implementation", "answer-question");
         awaitCondition(() -> {
             JsonNode current = get(taskPath).getBody();
@@ -940,7 +940,7 @@ class TestAgentHttpApi
         assertThat(get(taskPath).getBody().required("state").asText()).isEqualTo("OPEN");
         assertThat(get(queuePath).getBody()).singleElement().satisfies(input -> assertThat(input.path("state").asText()).isEqualTo("PAUSED"));
 
-        driver.reportNextTurn(new DevelopmentResultReport(true, Optional.empty(), Optional.empty()));
+        driver.reportNextTurn(new DevelopmentResultReport(true, Optional.empty()));
         assertThat(post("/agent/tasks/" + taskId + "/queue/resume?workspaceId=" + workspaceId, ImmutableMap.of(), null).getStatusCode())
                 .isEqualTo(HttpStatus.ACCEPTED);
         awaitCondition(() -> {

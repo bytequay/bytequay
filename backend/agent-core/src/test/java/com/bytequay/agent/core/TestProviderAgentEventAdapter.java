@@ -14,7 +14,6 @@
 package com.bytequay.agent.core;
 
 import com.bytequay.agent.spi.DevelopmentResultReport;
-import com.bytequay.agent.spi.DevelopmentStopAfter;
 import com.bytequay.agent.spi.ProviderAgentEvent;
 import com.bytequay.agent.spi.ProviderAgentEventSource;
 import com.google.common.collect.ImmutableList;
@@ -34,7 +33,7 @@ class TestProviderAgentEventAdapter
                 Optional.of("root-thread"), Optional.empty(), Optional.of("/"), Optional.of("turn-1"), Optional.of("report-1"));
         ProviderAgentEvent.DevelopmentResult result = new ProviderAgentEvent.DevelopmentResult(
                 Optional.of("event-1"), Optional.empty(),
-                new DevelopmentResultReport(false, Optional.of("Which approach?"), Optional.of(DevelopmentStopAfter.DRAFT)), source);
+                new DevelopmentResultReport(false, Optional.of("Which approach?")), source);
 
         ProviderAgentEventAdapter.CanonicalEvent canonical = ProviderAgentEventAdapter.adapt(result);
 

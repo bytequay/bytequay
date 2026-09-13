@@ -1439,13 +1439,16 @@
   cursor: pointer;
 }
 
-/* Under the composer: what the task has done and used so far. */
+/*
+ * Under the composer: what the task has done and used so far. Wrapped rows take no gap of their own
+ * because the body's 20px line height already spaces them.
+ */
 .agt-compose__stats {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
   justify-content: center;
-  gap: 10px;
+  gap: 0 10px;
   width: 100%;
   max-width: 760px;
   margin: 0 auto;

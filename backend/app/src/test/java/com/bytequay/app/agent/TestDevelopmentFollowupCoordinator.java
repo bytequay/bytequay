@@ -56,6 +56,7 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.EnumSource;
 import org.junit.jupiter.params.provider.ValueSource;
+import org.mockito.ArgumentCaptor;
 
 import java.nio.file.Path;
 import java.time.Clock;
@@ -128,7 +129,11 @@ class TestDevelopmentFollowupCoordinator
         when(turnStore.findActive(taskId)).thenAnswer(ignored -> history.stream()
                 .filter(turn -> turn.state() == TurnState.ACCEPTED || turn.state() == TurnState.RUNNING).findFirst());
         when(git.inspectPublication(worktree, route)).thenReturn(publication(Optional.empty(), Optional.empty()));
-        when(git.isAncestor(eq(worktree), anyString(), anyString())).thenReturn(true);
+        when(git.isAncestor(eq(worktree), anyString(), anyString())).thenAnswer(call -> {
+            String ancestor = call.getArgument(1);
+            String descendant = call.getArgument(2);
+            return ancestor.equals(descendant) || ancestor.equals(BASE) || (ancestor.equals(HEAD) && descendant.equals(NEXT));
+        });
         when(gh.findBinary()).thenReturn(Optional.of("/usr/local/bin/gh"));
         when(ci.startDevelopment(any(), any(), any(), any(), any())).thenAnswer(call -> {
             GitHubPullRequestIdentity published = call.getArgument(3);
@@ -318,6 +323,60 @@ class TestDevelopmentFollowupCoordinator
         advance();
         verify(turns).startGeneratedTurn(eq(taskId), eq(origin(CREATE_DRAFT_PR)), contains("Reuse existing PR"));
         verify(turns).finishDevelopmentContinuation(taskId, source.id());
+    }
+
+    @ParameterizedTest
+    @ValueSource(booleans = {true, false})
+    void rewrittenPublishedHistoryIsPublishedAndMonitoredAtTheNewHead(boolean unpublishedCommit)
+    {
+        String startingHead = unpublishedCommit ? "d".repeat(40) : NEXT;
+        GitHubPullRequestIdentity existing = pr(NEXT, true);
+        when(git.inspectPublication(worktree, route)).thenReturn(publication(Optional.of(NEXT), Optional.of(existing)));
+        when(git.isAncestor(worktree, NEXT, startingHead)).thenReturn(true);
+        DevelopmentLocalFacts rewritten = new DevelopmentLocalFacts(route.headBranch(), HEAD, startingHead, HEAD + ":false", 0, 0, 0, 0, 1, true, false);
+        prepare(local(startingHead, false), rewritten, FULL, true, Optional.empty());
+        when(git.inspectPublication(worktree, route)).thenReturn(
+                publication(Optional.of(NEXT), Optional.of(existing)), publication(Optional.of(HEAD), Optional.of(pr(HEAD, true))));
+        generated(CREATE_DRAFT_PR, true, Optional.empty());
+
+        advance();
+
+        ArgumentCaptor<String> prompt = ArgumentCaptor.forClass(String.class);
+        var order = inOrder(turns, ci);
+        order.verify(turns).startGeneratedTurn(eq(taskId), eq(origin(CREATE_DRAFT_PR)), prompt.capture());
+        order.verify(ci).startDevelopment(any(), eq(taskId), eq(source.id()), eq(pr(HEAD, true)), eq(NOW));
+        order.verify(turns).finishDevelopmentContinuation(taskId, source.id());
+        assertThat(prompt.getValue()).contains("--force-with-lease=refs/heads/" + route.headBranch() + ":" + NEXT,
+                HEAD + ":refs/heads/" + route.headBranch(), "Reuse existing PR " + existing.url());
+        verify(turns, never()).failDevelopmentContinuation(any(), any(), anyString());
+    }
+
+    @Test
+    void remoteHistoryAlreadyDivergentBeforeTheTurnCannotBeReplaced()
+    {
+        when(git.inspectPublication(worktree, route)).thenReturn(publication(Optional.of(NEXT), Optional.of(pr(NEXT, true))));
+        prepare(local(BASE, false), local(HEAD, false), FULL, true, Optional.empty());
+
+        advance();
+
+        noFollowup();
+        verify(ci, never()).startDevelopment(any(), any(), any(), any(), any());
+        verify(turns).failDevelopmentContinuation(eq(taskId), eq(source.id()), contains("neither the current nor the starting task revision"));
+    }
+
+    @Test
+    void rewrittenHistoryCannotReplaceARemoteChangeDuringDevelopment()
+    {
+        when(git.inspectPublication(worktree, route)).thenReturn(publication(Optional.of(NEXT), Optional.of(pr(NEXT, true))));
+        prepare(local(NEXT, false), local(HEAD, false), FULL, true, Optional.empty());
+        when(git.inspectPublication(worktree, route)).thenReturn(publication(Optional.of(BASE), Optional.of(pr(BASE, true))));
+
+        advance();
+
+        noFollowup();
+        verify(ci, never()).startDevelopment(any(), any(), any(), any(), any());
+        verify(turns).failDevelopmentContinuation(eq(taskId), eq(source.id()), contains("remote branch changed"));
+        verify(turns, never()).finishDevelopmentContinuation(any(), any());
     }
 
     @Test

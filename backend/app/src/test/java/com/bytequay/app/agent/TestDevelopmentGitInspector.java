@@ -328,6 +328,36 @@ class TestDevelopmentGitInspector
         assertThat(inspector.inspectPublication(worktree, route).remoteHeadSha()).contains(later);
     }
 
+    @Test
+    void publishesRewrittenCommitMessagesAndRejectsAStaleLease()
+            throws IOException
+    {
+        DevelopmentPublicationRoute route = inspector.capture(task).route();
+        String original = commit("development change");
+        String ref = "refs/heads/" + worktree.generatedBranch();
+        run(worktree.canonicalWorktree(), "push", "--", bareRemote.toString(), original + ":" + ref);
+        run(worktree.canonicalWorktree(), "commit", "--amend", "-m", "Rewrite commit message");
+        String rewritten = run(worktree.canonicalWorktree(), "rev-parse", "HEAD");
+
+        assertThat(run(worktree.canonicalWorktree(), "rev-parse", rewritten + "^{tree}"))
+                .isEqualTo(run(worktree.canonicalWorktree(), "rev-parse", original + "^{tree}"));
+        assertThat(inspector.isAncestor(worktree, original, rewritten)).isFalse();
+
+        run(worktree.canonicalWorktree(), "push", "--force-with-lease=" + ref + ":" + original, "--", bareRemote.toString(), rewritten + ":" + ref);
+
+        assertThat(inspector.inspectPublication(worktree, route).remoteHeadSha()).contains(rewritten);
+        run(worktree.canonicalWorktree(), "commit", "--amend", "-m", "Revise commit message again");
+        String nextRewrite = run(worktree.canonicalWorktree(), "rev-parse", "HEAD");
+        Path other = ciRepository();
+        run(other, "reset", "--hard", rewritten);
+        String advanced = publishCi(other, "later remote change");
+
+        Result stale = git.run(worktree.canonicalWorktree(), "push", "--force-with-lease=" + ref + ":" + rewritten, "--", bareRemote.toString(), nextRewrite + ":" + ref);
+        assertThat(stale.successful()).isFalse();
+        assertThat(inspector.inspectPublication(worktree, route).remoteHeadSha()).contains(advanced);
+        assertThat(run(worktree.canonicalWorktree(), "rev-parse", "HEAD")).isEqualTo(nextRewrite);
+    }
+
     @ParameterizedTest
     @ValueSource(booleans = {false, true})
     void synchronizesTheExactRewrittenCiCommitAndPreservesIgnoredBuildOutput(boolean fork)

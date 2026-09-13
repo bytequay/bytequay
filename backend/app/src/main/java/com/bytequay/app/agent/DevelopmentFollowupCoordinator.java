@@ -200,8 +200,11 @@ public final class DevelopmentFollowupCoordinator
                 checkState(currentPr.map(GitHubPullRequestIdentity::pullRequest).equals(originalPr.map(GitHubPullRequestIdentity::pullRequest)),
                         "The pull request changed during development");
                 if (publication.remoteHeadSha().isPresent()) {
-                    checkState(git.isAncestor(baseline.worktree(), publication.remoteHeadSha().orElseThrow(), local.headSha()),
-                            "Publication would replace unrelated remote history");
+                    String remoteHead = publication.remoteHeadSha().orElseThrow();
+                    // A user turn may rewrite published commits that belonged to its starting history.
+                    checkState(git.isAncestor(baseline.worktree(), remoteHead, local.headSha())
+                            || git.isAncestor(baseline.worktree(), remoteHead, baseline.local().headSha()),
+                            "Remote history belongs to neither the current nor the starting task revision");
                 }
                 action = "Create draft PR";
                 String binary = gh.findBinary().orElseThrow(() -> new IllegalStateException("GitHub CLI is unavailable; install and authenticate gh"));

@@ -285,6 +285,15 @@ Compare with the user turn's starting Git snapshot and the last observed
 published revision, not merely the task's original start commit. An existing
 PR alone must not cause every question to start another CI run.
 
+Automatic publication accepts a fast-forward update or a rewrite of history
+that belonged to the accepted user turn's starting HEAD. In either case the
+remote SHA must still match the pre-turn observation, and the exact push lease
+protects against a later remote change. This permits requests to amend, reword,
+or reorder the task's published commits without a separate push request. After
+verifying the rewritten revision on the same PR, continue into the enabled CI
+flow for that revision. History already divergent from the task when the turn
+started remains blocked unless the completed work incorporates it.
+
 The commit request only commits finished task work with repository-convention
 messages. The publication request never commits: it checks the supplied exact
 HEAD/remote, pushes that object to the authorized ref, and uses

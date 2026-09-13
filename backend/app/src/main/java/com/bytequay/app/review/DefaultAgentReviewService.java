@@ -242,7 +242,7 @@ public class DefaultAgentReviewService
             review = store.updateReview(review.withFollowUpPaused(false, Instant.now(clock)));
             Optional<ReviewRun> latest = latestRun(reviewId);
             boolean retry = latest.map(run -> run.state() != ReviewRun.State.ACCEPTED && !run.active()).orElse(true);
-            followHead(review, retry);
+            followHead(review, retry, true);
             return projection(reviewId);
         });
     }
@@ -427,7 +427,7 @@ public class DefaultAgentReviewService
                 return null;
             }
             if (!review.followUpPaused()) {
-                followHead(store.findReview(reviewId).orElseThrow(), false);
+                followHead(store.findReview(reviewId).orElseThrow(), false, false);
             }
             return null;
         });
@@ -504,10 +504,11 @@ public class DefaultAgentReviewService
 
     /**
      * Starts a run for the newest observed head when nothing is running and the task is idle: a new
-     * head, or a retry the user asked for. A worktree that cannot move safely blocks the run, pauses
-     * follow-up, and says why instead of touching the agent's work.
+     * head, or a retry the user asked for. Only a user action may realign the worktree to rewritten
+     * history. A worktree that cannot move safely blocks the run, pauses follow-up, and says why
+     * instead of touching the agent's work.
      */
-    private void followHead(AgentReview review, boolean retry)
+    private void followHead(AgentReview review, boolean retry, boolean userAction)
     {
         List<ReviewRun> runs = store.listRuns(review.id());
         Optional<ReviewRun> latest = runs.isEmpty() ? Optional.empty() : Optional.of(runs.getLast());
@@ -530,9 +531,10 @@ public class DefaultAgentReviewService
             store.updateReview(review.withObservedHead(snapshot.headSha(), Instant.now(clock)));
         }
         Optional<ReviewRun> previous = runs.stream().filter(run -> run.state() == ReviewRun.State.ACCEPTED).reduce((first, second) -> second);
-        if (newHead) {
+        // Compared with the fetched head: a retry can find a newer head than the observed one, and every run must sit where the worktree does.
+        if (latest.map(run -> !run.headSha().equals(snapshot.headSha())).orElse(true)) {
             try {
-                moveWorktree(task, snapshot.headSha(), workspace);
+                moveWorktree(task, latest.map(ReviewRun::headSha), snapshot.headSha(), workspace, userAction);
             }
             catch (ReviewConflictException refusal) {
                 // Only the user can clear a refused move; unpaused, every PR refresh would fetch and refuse again.
@@ -544,8 +546,12 @@ public class DefaultAgentReviewService
         startRun(store.findReview(review.id()).orElseThrow(), snapshot, workspace, runs.size() + 1, previous, findings);
     }
 
-    /** Fast-forwards the generated branch to a descendant head; anything else is preserved and refused. */
-    private void moveWorktree(AgentTask task, String headSha, WorkspaceRepositoryContext workspace)
+    /**
+     * Fast-forwards the generated branch to a descendant head. When the pull request history was
+     * rewritten, a user action resets a clean worktree that still sits on the last reviewed head;
+     * local commits or changes are preserved and refused.
+     */
+    private void moveWorktree(AgentTask task, Optional<String> reviewedHead, String headSha, WorkspaceRepositoryContext workspace, boolean userAction)
     {
         TaskWorktree worktree = task.taskWorktree().orElseThrow(() -> new ReviewConflictException("The review task has no managed worktree"));
         WorktreeSnapshot snapshot = worktrees.inspect(worktree);
@@ -555,11 +561,21 @@ public class DefaultAgentReviewService
         if (snapshot.head().equals(headSha)) {
             return;
         }
-        GitCommandRunner.Result ancestry = git.run(workspace.repository(), "merge-base", "--is-ancestor", snapshot.head(), headSha);
-        if (!ancestry.successful()) {
-            throw new ReviewConflictException("The pull request history was rewritten; end this review and start a new one for the rewritten branch");
+        List<String> move;
+        if (git.run(workspace.repository(), "merge-base", "--is-ancestor", snapshot.head(), headSha).successful()) {
+            move = ImmutableList.of("merge", "--ff-only", headSha);
         }
-        GitCommandRunner.Result moved = git.run(worktree.canonicalWorktree(), "merge", "--ff-only", headSha);
+        else if (!snapshot.head().equals(reviewedHead.orElse(worktree.startCommit()))) {
+            throw new ReviewConflictException("The review worktree has local commits on top of the reviewed head; remove them before updating the review");
+        }
+        else if (!userAction) {
+            throw new ReviewConflictException("The pull request history was rewritten; Update review realigns the review to the new head");
+        }
+        else {
+            // --keep still refuses to overwrite a file that became dirty or untracked after the inspection.
+            move = ImmutableList.of("reset", "--keep", headSha);
+        }
+        GitCommandRunner.Result moved = git.run(worktree.canonicalWorktree(), move);
         if (!moved.successful() || !worktrees.inspect(worktree).head().equals(headSha)) {
             throw new ReviewConflictException("The review worktree could not be moved to " + ReviewPrompts.shortSha(headSha) + ": " + moved.output().strip());
         }

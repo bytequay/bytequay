@@ -724,21 +724,11 @@ class TestDefaultAgentReviewService
     }
 
     @Test
-    void rewrittenHistoryPausesFollowUpInsteadOfRefusingOnEveryRefresh()
+    void rewrittenHistoryPausesFollowUpUntilUpdateRealignsTheWorktree()
     {
-        Fixture fixture = new Fixture();
-        String reviewId = fixture.service.start(WORKSPACE, REPO, NUMBER).review().id();
-        ReviewRun run = fixture.store.listRuns(reviewId).getLast();
-        fixture.store.updateRun(run.withSummary(summary(), NOW).withCoverage(coverage(), NOW));
-        when(fixture.turns.get(TURN_ONE)).thenReturn(settledTurn(TURN_ONE, TurnState.COMPLETED, Optional.empty()));
-        fixture.service.reconcile(reviewId);
-        when(fixture.pullRequests.findHeadSha(REPO, NUMBER)).thenReturn(Optional.of(NEW_HEAD));
-        when(fixture.git.run(REPOSITORY, "rev-parse", "--verify", "refs/bytequay/review/" + NUMBER + "^{commit}")).thenReturn(ok(NEW_HEAD));
-        when(fixture.git.run(REPOSITORY, "merge-base", NEW_HEAD, BASE_SHA)).thenReturn(ok(MERGE_BASE));
-        when(fixture.git.run(REPOSITORY, "log", "--reverse", "--format=%H%x1f%an%x1f%s", MERGE_BASE + ".." + NEW_HEAD))
-                .thenReturn(ok(NEW_HEAD + FIELD + "Alice" + FIELD + "Fix the parser\n"));
+        Fixture fixture = rewrittenHistory();
+        String reviewId = fixture.store.listOpenReviews().getFirst().id();
         when(fixture.worktrees.inspect(taskWorktree())).thenReturn(new WorktreeSnapshot(taskWorktree(), HEAD, false, false));
-        when(fixture.git.run(REPOSITORY, "merge-base", "--is-ancestor", HEAD, NEW_HEAD)).thenReturn(new GitCommandRunner.Result(1, "", false));
 
         assertThatThrownBy(() -> fixture.service.observeHead(REPO, NUMBER, NEW_HEAD))
                 .isInstanceOf(ReviewConflictException.class)
@@ -748,12 +738,99 @@ class TestDefaultAgentReviewService
         // A later refresh leaves the paused review alone instead of fetching and refusing again.
         fixture.service.observeHead(REPO, NUMBER, NEW_HEAD);
         verify(fixture.worktrees, times(1)).inspect(taskWorktree());
+        verify(fixture.git, never()).run(eq(taskWorktree().canonicalWorktree()), anyList());
 
-        // An explicit retry is refused the same way and stays paused.
-        assertThatThrownBy(() -> fixture.service.resume(reviewId)).hasMessageContaining("history was rewritten");
+        // Update is the user's realignment decision: the clean worktree moves and a full review runs.
+        when(fixture.worktrees.inspect(taskWorktree()))
+                .thenReturn(new WorktreeSnapshot(taskWorktree(), HEAD, false, false), new WorktreeSnapshot(taskWorktree(), NEW_HEAD, false, false));
+        when(fixture.git.run(taskWorktree().canonicalWorktree(), ImmutableList.of("reset", "--keep", NEW_HEAD))).thenReturn(ok(""));
+
+        fixture.service.update(reviewId);
+
+        assertThat(fixture.store.findReview(reviewId).orElseThrow().followUpPaused()).isFalse();
+        ReviewRun rerun = fixture.store.listRuns(reviewId).getLast();
+        assertThat(rerun.headSha()).isEqualTo(NEW_HEAD);
+        assertThat(rerun.scope()).isEqualTo(ReviewRun.Scope.FULL);
+        verify(fixture.turns, times(2)).start(any(StartAgentTurnCommand.class));
+    }
+
+    @Test
+    void retryAtANewerHeadMovesTheWorktreeSoALaterRewriteCanRealignFromThere()
+    {
+        Fixture fixture = new Fixture();
+        String reviewId = fixture.service.start(WORKSPACE, REPO, NUMBER).review().id();
+        when(fixture.turns.get(TURN_ONE)).thenReturn(settledTurn(TURN_ONE, TurnState.FAILED, Optional.of("Provider failed")));
+        fixture.service.reconcile(reviewId);
+        Path worktree = taskWorktree().canonicalWorktree();
+
+        // GitHub moved to MID before the refresh reached the review, so the observed head is still HEAD.
+        String mid = "d4e5f6a7b80123456789abcdef0123456789abcd";
+        pushHead(fixture, mid);
+        when(fixture.git.run(REPOSITORY, "merge-base", "--is-ancestor", HEAD, mid)).thenReturn(ok(""));
+        when(fixture.worktrees.inspect(taskWorktree()))
+                .thenReturn(new WorktreeSnapshot(taskWorktree(), HEAD, false, false), new WorktreeSnapshot(taskWorktree(), mid, false, false));
+        when(fixture.git.run(worktree, ImmutableList.of("merge", "--ff-only", mid))).thenReturn(ok(""));
+
+        fixture.service.resume(reviewId);
+
+        assertThat(fixture.store.listRuns(reviewId).getLast().headSha()).isEqualTo(mid);
+        verify(fixture.git).run(worktree, ImmutableList.of("merge", "--ff-only", mid));
+
+        // The worktree now sits on MID, not the start commit; the rewrite is realigned from there.
+        when(fixture.turns.get(TURN_TWO)).thenReturn(settledTurn(TURN_TWO, TurnState.FAILED, Optional.of("Provider failed")));
+        fixture.service.reconcile(reviewId);
+        pushHead(fixture, NEW_HEAD);
+        when(fixture.git.run(REPOSITORY, "merge-base", "--is-ancestor", mid, NEW_HEAD)).thenReturn(new GitCommandRunner.Result(1, "", false));
+        when(fixture.worktrees.inspect(taskWorktree()))
+                .thenReturn(new WorktreeSnapshot(taskWorktree(), mid, false, false), new WorktreeSnapshot(taskWorktree(), NEW_HEAD, false, false));
+        when(fixture.git.run(worktree, ImmutableList.of("reset", "--keep", NEW_HEAD))).thenReturn(ok(""));
+
+        fixture.service.update(reviewId);
+
+        assertThat(fixture.store.listRuns(reviewId).getLast().headSha()).isEqualTo(NEW_HEAD);
+        verify(fixture.git).run(worktree, ImmutableList.of("reset", "--keep", NEW_HEAD));
+    }
+
+    @Test
+    void updateRefusesToRealignADirtyWorktreeOrOneWithLocalCommits()
+    {
+        Fixture fixture = rewrittenHistory();
+        String reviewId = fixture.store.listOpenReviews().getFirst().id();
+        String localCommit = "c3d4e5f6a70123456789abcdef0123456789abcd";
+        when(fixture.worktrees.inspect(taskWorktree()))
+                .thenReturn(new WorktreeSnapshot(taskWorktree(), HEAD, true, false), new WorktreeSnapshot(taskWorktree(), localCommit, false, false));
+        when(fixture.git.run(REPOSITORY, "merge-base", "--is-ancestor", localCommit, NEW_HEAD)).thenReturn(new GitCommandRunner.Result(1, "", false));
+
+        assertThatThrownBy(() -> fixture.service.update(reviewId)).hasMessageContaining("uncommitted experiments");
+        assertThatThrownBy(() -> fixture.service.update(reviewId)).hasMessageContaining("local commits");
+
         assertThat(fixture.store.findReview(reviewId).orElseThrow().followUpPaused()).isTrue();
         assertThat(fixture.store.listRuns(reviewId)).hasSize(1);
-        verify(fixture.turns, times(1)).start(any(StartAgentTurnCommand.class));
+        verify(fixture.git, never()).run(eq(taskWorktree().canonicalWorktree()), anyList());
+    }
+
+    /** An accepted review of HEAD whose pull request was force-pushed to NEW_HEAD. */
+    private static Fixture rewrittenHistory()
+    {
+        Fixture fixture = new Fixture();
+        String reviewId = fixture.service.start(WORKSPACE, REPO, NUMBER).review().id();
+        ReviewRun run = fixture.store.listRuns(reviewId).getLast();
+        fixture.store.updateRun(run.withSummary(summary(), NOW).withCoverage(coverage(), NOW));
+        when(fixture.turns.get(TURN_ONE)).thenReturn(settledTurn(TURN_ONE, TurnState.COMPLETED, Optional.empty()));
+        fixture.service.reconcile(reviewId);
+        pushHead(fixture, NEW_HEAD);
+        when(fixture.git.run(REPOSITORY, "merge-base", "--is-ancestor", HEAD, NEW_HEAD)).thenReturn(new GitCommandRunner.Result(1, "", false));
+        return fixture;
+    }
+
+    /** GitHub and the fetched pull request ref both report the given head. */
+    private static void pushHead(Fixture fixture, String head)
+    {
+        when(fixture.pullRequests.findHeadSha(REPO, NUMBER)).thenReturn(Optional.of(head));
+        when(fixture.git.run(REPOSITORY, "rev-parse", "--verify", "refs/bytequay/review/" + NUMBER + "^{commit}")).thenReturn(ok(head));
+        when(fixture.git.run(REPOSITORY, "merge-base", head, BASE_SHA)).thenReturn(ok(MERGE_BASE));
+        when(fixture.git.run(REPOSITORY, "log", "--reverse", "--format=%H%x1f%an%x1f%s", MERGE_BASE + ".." + head))
+                .thenReturn(ok(head + FIELD + "Alice" + FIELD + "Fix the parser\n"));
     }
 
     private static AgentTask idleTask()

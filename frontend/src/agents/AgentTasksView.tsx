@@ -24,13 +24,13 @@ import { automationForSubmission } from './developmentAutomation';
 import { ModelPicker } from './ModelPicker';
 import { ProviderPicker } from './ProviderPicker';
 import '../css/agents.css';
-import type { AgentTaskDto, DevelopmentAutomationDto, ModelOptionDto, ModelProviderDto, ModelSettingsDto, PullRequestDto } from '../types';
+import type { AgentTaskDto, AgentTaskPullRequestDto, DevelopmentAutomationDto, ModelOptionDto, ModelProviderDto, ModelSettingsDto } from '../types';
 import { acceptsImages, createTaskCreationTracker, type AgentBridgePort, type TaskCreationTracker } from './model';
 import { agentProviderUnavailableFrom } from './contracts';
 import { pasteImage } from './clipboard';
 import { ImageAttachment } from './ImageAttachment';
 import { ReviewTasksView } from './ReviewTasksView';
-import { PullRequestStateIcon, taskPullRequest } from './TaskPullRequestPanel';
+import { PullRequestStateIcon } from './TaskPullRequestPanel';
 import type { AgentReviewDto } from '../pulls/agent-review/contracts';
 
 export type DraftImage = { id: string; name: string; url: string };
@@ -506,27 +506,10 @@ export default function AgentTasksView({
       setTasks((list) => list.filter((task) => task.id !== id));
     }
   }, [live, setTasks, workspaceId]);
-  const [pullRequests, setPullRequests] = useState<Record<string, PullRequestDto>>({});
-  // Keyed by the ids alone, so archiving a row does not read every pull request again.
-  const taskIds = creation.tasks.map((task) => task.id).join(' ');
-  useEffect(() => {
-    if (taskIds === '') return;
-    let active = true;
-    // ponytail: one stored-row read per listed task, each resolving its checkout's branch with git;
-    // put the pull request on the task list response if lists grow long enough for that to show.
-    void Promise.all(taskIds.split(' ').map((id) => live().listAgentTaskPullRequests(id, workspaceId)
-      .catch((): PullRequestDto[] => [])
-      .then((rows) => [id, taskPullRequest(rows)] as const)))
-      .then((found) => {
-        if (active) setPullRequests(Object.fromEntries(found.filter((entry): entry is readonly [string, PullRequestDto] => entry[1] !== null)));
-      });
-    return () => { active = false; };
-  }, [live, taskIds, workspaceId]);
   return (
     <AgentTaskList
       automation={creation.automationControl}
       tasks={creation.tasks}
-      pullRequests={pullRequests}
       loading={creation.loading}
       error={creation.error}
       laneId={creation.laneId}
@@ -664,7 +647,7 @@ export function TaskComposer({
 /** One task as a row of a day group: the selection slot, the name, its facts, and what can be done to it. */
 function TaskRow({ task, pullRequest, providers, now, checked, selecting, onOpen, onToggle, onArchive, onDelete }: {
   task: AgentTaskDto;
-  pullRequest: PullRequestDto | null;
+  pullRequest: AgentTaskPullRequestDto | null;
   providers: ModelProviderDto[];
   now: number;
   checked: boolean;
@@ -756,7 +739,7 @@ export function AgentTaskList({
   tasks, loading, error, laneId, providers, models, selection, draft, blocker, children, reviewTasks,
   onDraftChange, onSelectProvider, onSelectModel, onCreate, onOpenTask, onOpenSettings, onArchive, onDelete,
   images = [], busy = false, attaching = false, onAttach, onPasteImages, onRemoveImage, automation,
-  now = Date.now(), initialTab = 'active', pullRequests = {},
+  now = Date.now(), initialTab = 'active',
 }: {
   tasks: AgentTaskDto[];
   loading: boolean;
@@ -791,8 +774,6 @@ export function AgentTaskList({
   /** The clock the day groups are drawn against. */
   now?: number;
   initialTab?: TaskTab;
-  /** Each task's pull request by task id, as `taskPullRequest` picks it from the branch's stored rows. */
-  pullRequests?: Record<string, PullRequestDto>;
 }): React.JSX.Element {
   const [tab, setTab] = useState<TaskTab>(initialTab);
   const [selected, setSelected] = useState<string[]>([]);
@@ -943,7 +924,7 @@ export function AgentTaskList({
                   <TaskRow
                     key={task.id}
                     task={task}
-                    pullRequest={pullRequests[task.id] ?? null}
+                    pullRequest={task.pullRequest ?? null}
                     providers={providers}
                     now={now}
                     checked={selected.includes(task.id)}

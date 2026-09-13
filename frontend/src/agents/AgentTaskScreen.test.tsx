@@ -1883,11 +1883,12 @@ describe('task list tabs, day groups and row actions', () => {
   });
 
   it('names the pull request a task opened or delivered right after its title', () => {
-    const pullRequests = {
+    const pullRequests: Record<string, PullRequestDto> = {
       't-yesterday': pullRequest(31101, 'Refactor a minor issue', 'merged'),
       't-today-2': pullRequest(482, 'Fix preview output limit', 'open', true),
     };
-    const markup = renderToStaticMarkup(<AgentTaskList {...listProps} tasks={rows} loading={false} error={null} now={noon} pullRequests={pullRequests} />);
+    const tasks = rows.map((row) => ({ ...row, pullRequest: pullRequests[row.id] ?? null }));
+    const markup = renderToStaticMarkup(<AgentTaskList {...listProps} tasks={tasks} loading={false} error={null} now={noon} />);
 
     expect(markup).toContain('class="agt-trow__title">trino issue reading</span><span class="agt-trow__pr" title="#31101 Refactor a minor issue">');
     expect(markup).toMatch(/title="#31101 Refactor a minor issue"><svg[^>]*class="[^"]*lucide-git-merge[^"]*agt-pr-icon is-merged"[^>]*>.*?<\/svg>#31101 Refactor a minor issue<\/span><\/span>/);

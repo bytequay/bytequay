@@ -34,6 +34,7 @@ import type {
   AgentSkillInput,
   AgentTaskDefaultsDto,
   AgentTaskDto,
+  AgentTaskPullRequestDto,
   AgentTaskSummaryDto,
   AgentTurnDto,
   AgentTurnSettingsDto,
@@ -243,6 +244,7 @@ export function parseAgentTask(value: unknown, path = 'task'): AgentTaskDto {
     ...(source.interactive === undefined ? {} : { interactive: flag(source.interactive, `${path}.interactive`) }),
     developmentContinuationUnfinished: flag(source.developmentContinuationUnfinished, `${path}.developmentContinuationUnfinished`),
     developmentCi: source.developmentCi === null || source.developmentCi === undefined ? null : parseAgentDevelopmentCi(source.developmentCi, `${path}.developmentCi`),
+    pullRequest: source.pullRequest === null || source.pullRequest === undefined ? null : taskPullRequest(source.pullRequest, `${path}.pullRequest`),
     title: text(source.title, `${path}.title`),
     titleSource: text(source.titleSource, `${path}.titleSource`),
     laneId: text(source.laneId, `${path}.laneId`),
@@ -266,6 +268,16 @@ export function parseAgentTask(value: unknown, path = 'task'): AgentTaskDto {
     checkoutRemovedAt: optionalText(source.checkoutRemovedAt, `${path}.checkoutRemovedAt`),
     codegraph: flag(source.codegraph, `${path}.codegraph`),
     archivedAt: optionalText(source.archivedAt, `${path}.archivedAt`),
+  };
+}
+
+function taskPullRequest(value: unknown, path: string): AgentTaskPullRequestDto {
+  const source = object(value, path);
+  return {
+    number: count(source.number, `${path}.number`),
+    title: text(source.title, `${path}.title`),
+    state: text(source.state, `${path}.state`),
+    draft: flag(source.draft, `${path}.draft`),
   };
 }
 

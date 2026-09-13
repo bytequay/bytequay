@@ -592,10 +592,15 @@ export type AgentMutationClaimDto = {
   acquiredAt: string;
 };
 
+/** What a task list row names about its pull request. */
+export type AgentTaskPullRequestDto = Pick<PullRequestDto, 'number' | 'title' | 'state' | 'draft'>;
+
 export type AgentTaskDto = {
   interactive?: boolean;
   developmentContinuationUnfinished: boolean;
   developmentCi?: AgentDevelopmentCiDto | null;
+  /** The pull request the backend picked from the generated branch's stored rows; absent without one. */
+  pullRequest?: AgentTaskPullRequestDto | null;
   id: string;
   workspaceId: string;
   generatedBranch: string | null;

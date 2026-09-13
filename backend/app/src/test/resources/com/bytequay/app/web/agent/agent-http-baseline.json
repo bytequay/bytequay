@@ -65,7 +65,8 @@
     "archivedAt": null,
     "interactive": true,
     "developmentContinuationUnfinished": false,
-    "developmentCi": null
+    "developmentCi": null,
+    "pullRequest": null
   },
   "turns": [
     {
@@ -790,6 +791,7 @@
     "archivedAt": null,
     "interactive": true,
     "developmentContinuationUnfinished": false,
-    "developmentCi": null
+    "developmentCi": null,
+    "pullRequest": null
   }
 }

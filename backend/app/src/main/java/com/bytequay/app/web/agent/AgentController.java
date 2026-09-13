@@ -194,7 +194,11 @@ public class AgentController
         Optional<CiAutofixHttpModels.DevelopmentResponse> developmentCi = ciRuns.listByParentTaskId(task.id().toString()).stream()
                 .max(comparing(CiAutofixRun::createdAt))
                 .map(run -> CiAutofixHttpModels.development(run, ci.canMessage(run)));
-        return InteractiveAgentHttpContract.task(task, metrics, developmentCi);
+        Optional<InteractiveAgentHttpContract.TaskPullRequestResponse> pullRequest = task.taskWorktree()
+                .flatMap(worktree -> workspaces.findById(worktree.workspaceId())
+                        .map(workspace -> pullRequests.findByHeadRef(workspace.monitoredRepository().fullName(), worktree.generatedBranch()))
+                        .flatMap(InteractiveAgentHttpContract::taskPullRequest));
+        return InteractiveAgentHttpContract.task(task, metrics, developmentCi, pullRequest);
     }
 
     @PostMapping(value = "/tasks", consumes = MediaType.APPLICATION_JSON_VALUE)

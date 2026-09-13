@@ -30,9 +30,11 @@ import com.bytequay.agent.spi.AgentTurnFailureKind;
 import com.bytequay.agent.spi.DevelopmentResultReport;
 import com.bytequay.app.web.DevelopmentAutomationDto;
 import com.bytequay.app.web.ci.CiAutofixHttpModels;
+import com.bytequay.core.domain.PullRequest;
 import com.google.common.collect.ImmutableList;
 
 import java.time.Instant;
+import java.util.Comparator;
 import java.util.List;
 import java.util.Optional;
 
@@ -40,6 +42,7 @@ import static com.bytequay.agent.spi.AgentChecks.checkNotBlank;
 import static com.bytequay.agent.spi.AgentChecks.checkOptionalText;
 import static com.google.common.base.Preconditions.checkArgument;
 import static com.google.common.collect.ImmutableList.toImmutableList;
+import static java.util.Comparator.comparingInt;
 import static java.util.Objects.requireNonNull;
 
 /**
@@ -55,7 +58,11 @@ final class InteractiveAgentHttpContract
     private InteractiveAgentHttpContract() {}
 
     /** {@code metrics} are the totals to show: a live task's row lags its turns, so the caller folds them. */
-    static TaskResponse task(AgentTask task, AgentMetrics metrics, Optional<CiAutofixHttpModels.DevelopmentResponse> developmentCi)
+    static TaskResponse task(
+            AgentTask task,
+            AgentMetrics metrics,
+            Optional<CiAutofixHttpModels.DevelopmentResponse> developmentCi,
+            Optional<TaskPullRequestResponse> pullRequest)
     {
         requireNonNull(task, "task is null");
         requireNonNull(metrics, "metrics is null");
@@ -85,7 +92,20 @@ final class InteractiveAgentHttpContract
                 task.archivedAt(),
                 task.interactive(),
                 task.developmentContinuationUnfinished(),
-                developmentCi);
+                developmentCi,
+                pullRequest);
+    }
+
+    /**
+     * The pull request a task's list row names, from its generated branch's stored rows: the newest
+     * open one, else the newest merged one, the same rule the task's own panel reads by.
+     */
+    static Optional<TaskPullRequestResponse> taskPullRequest(List<PullRequest> pullRequests)
+    {
+        Comparator<PullRequest> newest = comparingInt(PullRequest::number);
+        return pullRequests.stream().filter(pr -> !"merged".equals(pr.state()) && !"closed".equals(pr.state())).max(newest)
+                .or(() -> pullRequests.stream().filter(pr -> "merged".equals(pr.state())).max(newest))
+                .map(pr -> new TaskPullRequestResponse(pr.number(), pr.title(), pr.state(), pr.draft()));
     }
 
     /**
@@ -324,7 +344,14 @@ final class InteractiveAgentHttpContract
             Optional<Instant> archivedAt,
             boolean interactive,
             boolean developmentContinuationUnfinished,
-            Optional<CiAutofixHttpModels.DevelopmentResponse> developmentCi) {}
+            Optional<CiAutofixHttpModels.DevelopmentResponse> developmentCi,
+            Optional<TaskPullRequestResponse> pullRequest) {}
+
+    record TaskPullRequestResponse(
+            int number,
+            String title,
+            String state,
+            boolean draft) {}
 
     record MutationClaim(
             String kind,

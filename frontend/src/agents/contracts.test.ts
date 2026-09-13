@@ -85,6 +85,10 @@ describe('agent contract parsing', () => {
     expect(task.summary).toBeNull();
     expect(parseAgentTask({ ...fixture.task, generatedBranch: null }).generatedBranch).toBeNull();
     expect(() => parseAgentTask({ ...fixture.task, generatedBranch: 42 })).toThrow(/generatedBranch/);
+    expect(task.pullRequest).toBeNull();
+    const pullRequest = { number: 31105, title: 'Clean up nits', state: 'open', draft: true, htmlUrl: 'https://example.test/31105' };
+    expect(parseAgentTask({ ...fixture.task, pullRequest }).pullRequest).toEqual({ number: 31105, title: 'Clean up nits', state: 'open', draft: true });
+    expect(() => parseAgentTask({ ...fixture.task, pullRequest: { ...pullRequest, draft: 'yes' } })).toThrow(/pullRequest\.draft/);
   });
 
   it('reads a completed task with its summary', () => {

@@ -17,6 +17,7 @@ import { setCached } from '../dataCache';
 import { ATTENTION_SEED, type AttentionItem } from '../home/attention';
 import type { PullRequestDto } from '../types';
 import AgentHome from './AgentHome';
+import AgentTasksView from './AgentTasksView';
 import { parseAgentEventSequence } from './events';
 import fixture from './fixtures/agent-events-v2.json';
 import { createPreviewBridge, previewTask } from './fixtures/previewBridge';
@@ -60,6 +61,16 @@ describe('agent home on a return visit', () => {
     expect(seeded).toContain('Open tasks · 1');
     expect(seeded).toContain('aria-label="Open task: Audit storage"');
     expect(seeded).not.toContain('Finished work');
+  });
+
+  it('paints task rows with the pull request their list read carried', () => {
+    setCached('agent-tasks:workspace-rows', [
+      { ...previewTask('workspace-rows', 'row-1'), title: 'Refactor nits', pullRequest: { number: 31105, title: 'Clean up nits', state: 'open', draft: true } },
+    ]);
+    const markup = renderToStaticMarkup(
+      <AgentTasksView workspaceId="workspace-rows" bridge={createPreviewBridge('workspace-rows')} onOpenTask={() => {}} onOpenReview={() => {}} />);
+
+    expect(markup).toContain('#31105 Clean up nits');
   });
 
   it('paints a window from its last state instead of an empty card', () => {

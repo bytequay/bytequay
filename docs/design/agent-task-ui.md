@@ -739,8 +739,9 @@ into Commits-style day cards by the local calendar day of `updatedAt`
 selection slot, the title, the task's pull request, mono `lane · model · age`,
 the state pill, always visible icon actions and a chevron. The pull request is
 the one the side panel reads — open, else merged — shown as its state icon,
-number and title. It comes from the stored branch rows, so the list never asks
-GitHub, and a task without one shows the title alone. Archive is a
+number and title. The task list response carries it, picked on the backend from
+the generated branch's stored rows, so it paints with the row and the list never
+asks GitHub or Git for it. A task without one shows the title alone. Archive is a
 backend-persisted `archivedAt`
 flag on the task, toggled through `PATCH /agent/tasks/{taskId}` with
 `{ archived, expectedVersion }`; it never changes task state, checkout, branch or

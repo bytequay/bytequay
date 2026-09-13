@@ -69,7 +69,7 @@ Starting points: `AppSettingsStore`, `AppSettingsService`, task/turn settings,
   Do not infer readiness from final-message wording or add native questionnaire
   cards for this MVP. Existing approvals/native input remain execution gates.
 - [x] When all three settings are off, retain ordinary task behavior: no
-  mandatory report, automatic continuation, or delivery fail-and-delete policy.
+  mandatory report or automatic continuation.
 
 Acceptance checks:
 

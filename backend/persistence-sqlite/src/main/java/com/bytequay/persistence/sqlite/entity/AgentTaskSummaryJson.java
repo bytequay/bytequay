@@ -83,12 +83,14 @@ final class AgentTaskSummaryJson
                     Duration.ofMillis(value.elapsedMillis()),
                     // A summary stored before tool counters existed has no field for them.
                     value.counters() == null ? ToolCounters.ZERO : value.counters());
+            // Completion refuses uncommitted work, so a stored summary never records any.
             Optional<WorktreeSnapshot> worktree = Optional.ofNullable(value.head())
                     .flatMap(head -> taskWorktree.map(task -> new WorktreeSnapshot(
                             task,
                             head,
                             value.dirty(),
-                            Boolean.TRUE.equals(value.gitOperationInProgress()))));
+                            Boolean.TRUE.equals(value.gitOperationInProgress()),
+                            false)));
             return new TaskSummary(
                     value.finalResponse(),
                     worktree,

@@ -729,6 +729,33 @@ class TestAgentHttpApi
     }
 
     @Test
+    void completesATaskWhoseAgentLeftIgnoredBuildOutput()
+            throws Exception
+    {
+        JsonNode created = post("/agent/tasks", createTaskBody("codex"), null).getBody();
+        String taskId = created.required("id").asText();
+        Path worktree = tasks.get(TaskId.valueOf(taskId)).taskWorktree().orElseThrow().canonicalWorktree();
+        Path exclude = repository.resolve(".git/info/exclude");
+        Files.writeString(exclude, Files.readString(exclude) + "target/\n");
+        Path buildOutput = worktree.resolve("target/classes/Main.class");
+        Files.createDirectories(buildOutput.getParent());
+        Files.writeString(buildOutput, "compiled\n");
+        assertThat(run("git", "-C", worktree.toString(), "status", "--porcelain=v1", "--untracked-files=all")).isEmpty();
+
+        ResponseEntity<JsonNode> completion = post("/agent/tasks/" + taskId + "/complete?workspaceId=" + workspaceId, ImmutableMap.of(), null);
+
+        assertThat(completion.getStatusCode()).as("completion: %s", completion.getBody()).isEqualTo(HttpStatus.OK);
+        JsonNode completed = get("/agent/tasks/" + taskId + "?workspaceId=" + workspaceId).getBody();
+        assertThat(completed.get("state").asText()).isEqualTo("COMPLETED");
+        // Removing the checkout would delete the build output, so the checkout stays and says why.
+        assertThat(completed.get("checkoutRemovedAt").isNull()).isTrue();
+        assertThat(buildOutput).hasContent("compiled\n");
+        ResponseEntity<JsonNode> cleanup = post("/agent/tasks/" + taskId + "/cleanup?workspaceId=" + workspaceId, ImmutableMap.of(), null);
+        assertThat(cleanup.getStatusCode()).isEqualTo(HttpStatus.CONFLICT);
+        assertThat(cleanup.getBody().get("message").asText()).contains("ignored files");
+    }
+
+    @Test
     void stopsATasksRuntimeOnlyWithTheConfirmedGeneration()
             throws Exception
     {

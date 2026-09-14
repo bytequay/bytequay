@@ -144,9 +144,11 @@ public record TaskWorktree(
 ```
 
 `WorktreeSnapshot` contains the persisted `TaskWorktree`, exact current HEAD,
-dirty flag, and open-Git-operation flag. `inspect(...)` either returns those
-facts for an existing verified worktree or throws; it does not represent
-absence with another state or optional HEAD.
+dirty flag, open-Git-operation flag, and uncommitted flag. The dirty flag also
+counts ignored files, which removing the worktree deletes; the uncommitted flag
+does not, so build output alone is no uncommitted work. `inspect(...)` either
+returns those facts for an existing verified worktree or throws; it does not
+represent absence with another state or optional HEAD.
 
 The contract accepts only lowercase 40- or 64-character Git object IDs for the
 exact start commit and observed HEAD. Generated branches must match the strict
@@ -222,8 +224,9 @@ mid-read is left out rather than reported as clean.
 `cleanup(...)`:
 
 1. Repeats the same exact ownership checks as `inspect(...)`.
-2. Refuses a dirty worktree, staged or untracked files, an open cherry-pick,
-   rebase, merge, or other Git operation.
+2. Refuses a dirty worktree, staged or untracked files, ignored files that
+   removal would delete, an open cherry-pick, rebase, merge, or other Git
+   operation.
 3. Runs non-force `git worktree remove` for that exact path.
 4. Verifies that Git no longer registers the worktree.
 5. Leaves the recorded generated branch in the managed repository as the local
@@ -267,9 +270,9 @@ the `NONE`, V1, or V2 launch profile; no execution environment or loopback
 executor is registered, and `experimentalApi` is true only for the
 background-terminal methods. Complete is allowed only after recursive item
 history and background-terminal reconciliation finishes, the provider process
-tree is `VERIFIED_STOPPED`, and `inspect(...)` reports a clean worktree with no
-open Git operation. Cleanup removes the worktree and retains the generated
-branch.
+tree is `VERIFIED_STOPPED`, and `inspect(...)` reports no uncommitted work and
+no open Git operation. Cleanup removes the worktree and retains the generated
+branch; a worktree holding ignored build output is kept for inspection instead.
 
 ### Cherry-pick range
 

@@ -1196,7 +1196,7 @@ public class DefaultCiAutofixService
     private CiAutofixRun refreshPreparedAttempt(CiAutofixRun run, AgentTask task, Instant now)
     {
         WorktreeSnapshot workspace = inspectWorktree(task, run);
-        checkArgument(!workspace.dirty() && !workspace.gitOperationInProgress(),
+        checkArgument(!workspace.uncommitted() && !workspace.gitOperationInProgress(),
                 "CI Autofix worktree is dirty or another Git operation is open after the target rebase");
         CiAutofixAttempt attempt = run.attempts().getLast();
         return store.update(run.updateAttempt(attempt.withPreparedInput(workspace.head(), now), now));
@@ -1277,7 +1277,7 @@ public class DefaultCiAutofixService
                         failureSummary("The task worktree could not be verified and was preserved", failure),
                         now);
             }
-            if (worktree.dirty() || worktree.gitOperationInProgress()) {
+            if (worktree.uncommitted() || worktree.gitOperationInProgress()) {
                 return preserveUnfinishedRun(
                         run,
                         "The task worktree has local changes or an open Git operation and was preserved",
@@ -1373,7 +1373,7 @@ public class DefaultCiAutofixService
         List<FailureEvidence> failures = logReader.readFailures(task.id(), snapshot);
         checkArgument(!failures.isEmpty(), "CI snapshot has no readable actionable failure");
         WorktreeSnapshot workspace = inspectWorktree(task, run);
-        checkArgument(!workspace.dirty() && !workspace.gitOperationInProgress(),
+        checkArgument(!workspace.uncommitted() && !workspace.gitOperationInProgress(),
                 "CI Autofix worktree is dirty or another Git operation is open before the fix attempt");
         Instant now = Instant.now(clock);
         CiAutofixAttempt attempt = CiAutofixAttempt.create(

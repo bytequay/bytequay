@@ -175,7 +175,8 @@ public final class DefaultAgentCompletionService
         AgentFinalResponseReader.FinalResponse finalResponse = finalResponseReader.read(task.id());
         WorktreeSnapshot worktree = worktreeService.inspect(task.taskWorktree()
                 .orElseThrow(() -> new AgentConflictException("Task has no managed worktree: " + task.id())));
-        if (worktree.dirty() || worktree.gitOperationInProgress()) {
+        // Ignored build output is no unfinished work; cleanup, which would delete it, still refuses it.
+        if (worktree.uncommitted() || worktree.gitOperationInProgress()) {
             throw new AgentConflictException("Task worktree is not clean: " + task.id());
         }
         return new TaskSummary(

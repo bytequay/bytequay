@@ -235,6 +235,7 @@ class TestManagedWorktreeService
         Path untracked = worktree.canonicalWorktree().resolve("local.txt");
         Files.writeString(untracked, "keep me\n");
 
+        assertThat(service.inspect(worktree).uncommitted()).isTrue();
         assertThatThrownBy(() -> service.cleanup(worktree))
                 .isInstanceOf(AgentConflictException.class)
                 .hasMessageContaining("changes");
@@ -255,10 +256,12 @@ class TestManagedWorktreeService
         Files.writeString(ignored, "keep me\n");
 
         assertThat(run(worktree.canonicalWorktree(), "status", "--porcelain=v1").output()).isBlank();
+        // Not uncommitted work, but removing the worktree would still delete it.
         assertThat(service.inspect(worktree).dirty()).isTrue();
+        assertThat(service.inspect(worktree).uncommitted()).isFalse();
         assertThatThrownBy(() -> service.cleanup(worktree))
                 .isInstanceOf(AgentConflictException.class)
-                .hasMessageContaining("changes");
+                .hasMessageContaining("ignored files");
 
         assertThat(ignored).hasContent("keep me\n");
         assertThat(worktree.canonicalWorktree()).isDirectory();

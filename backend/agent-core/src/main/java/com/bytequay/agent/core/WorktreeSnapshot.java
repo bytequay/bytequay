@@ -15,16 +15,28 @@ package com.bytequay.agent.core;
 
 import static java.util.Objects.requireNonNull;
 
-/** Verified current Git facts for a recorded task worktree. */
+/**
+ * Verified current Git facts for a recorded task worktree.
+ *
+ * <p>{@code dirty} also counts ignored files, which removing the worktree deletes. {@code uncommitted}
+ * counts only changes that are not ignored, so build output alone leaves it false.
+ */
 public record WorktreeSnapshot(
         TaskWorktree worktree,
         String head,
         boolean dirty,
-        boolean gitOperationInProgress)
+        boolean gitOperationInProgress,
+        boolean uncommitted)
 {
     public WorktreeSnapshot
     {
         requireNonNull(worktree, "worktree is null");
         ProvisionWorktreeCommand.checkObjectId(head, "head");
+    }
+
+    /** A snapshot that treats every dirty file as uncommitted work. */
+    public WorktreeSnapshot(TaskWorktree worktree, String head, boolean dirty, boolean gitOperationInProgress)
+    {
+        this(worktree, head, dirty, gitOperationInProgress, dirty);
     }
 }

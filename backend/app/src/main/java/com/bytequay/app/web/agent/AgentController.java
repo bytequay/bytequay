@@ -846,7 +846,13 @@ public class AgentController
         var completion = completionService.complete(new CompleteAgentTaskCommand(
                 id,
                 request == null ? Optional.empty() : Optional.ofNullable(request.notes())));
-        completionService.cleanupWorktree(id);
+        try {
+            completionService.cleanupWorktree(id);
+        }
+        catch (RuntimeException failure) {
+            // The task is complete either way; a worktree holding ignored build output is shown as retained.
+            log.warn("Task {} completed but its worktree was retained: {}", taskId, failure.toString());
+        }
         return AgentHttpModels.completion(completion);
     }
 

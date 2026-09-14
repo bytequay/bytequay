@@ -213,6 +213,24 @@ class TestDefaultAgentCompletionService
     }
 
     @Test
+    void completesWithIgnoredBuildOutputButNotWithUncommittedWork()
+    {
+        worktrees.ignoredFiles = true;
+        worktrees.uncommitted = true;
+        DefaultAgentCompletionService service = service(Clock.fixed(NOW, ZoneOffset.UTC));
+
+        assertThatThrownBy(() -> service.complete(new CompleteAgentTaskCommand(taskId, Optional.empty())))
+                .isInstanceOf(AgentConflictException.class)
+                .hasMessageContaining("not clean");
+        assertThat(stores.find(taskId).orElseThrow().state()).isEqualTo(TaskState.OPEN);
+
+        worktrees.uncommitted = false;
+        service.complete(new CompleteAgentTaskCommand(taskId, Optional.empty()));
+
+        assertThat(stores.find(taskId).orElseThrow().state()).isEqualTo(TaskState.COMPLETED);
+    }
+
+    @Test
     void completesAnOpenTaskThatNeverStartedATurn()
     {
         TaskId openTaskId = TaskId.random();
@@ -687,6 +705,8 @@ class TestDefaultAgentCompletionService
         private final List<TaskWorktree> deleted = new ArrayList<>();
         private boolean failCleanup;
         private boolean failDelete;
+        private boolean ignoredFiles;
+        private boolean uncommitted;
 
         @Override
         public TaskWorktree provision(ProvisionWorktreeCommand command)
@@ -700,8 +720,9 @@ class TestDefaultAgentCompletionService
             WorktreeSnapshot snapshot = new WorktreeSnapshot(
                     worktree,
                     "1123456789012345678901234567890123456789",
+                    ignoredFiles || uncommitted,
                     false,
-                    false);
+                    uncommitted);
             inspected.add(snapshot);
             return snapshot;
         }

@@ -269,8 +269,11 @@ public final class ManagedWorktreeService
             }
 
             WorktreeSnapshot snapshot = inspectVerified(workspace, repository, worktree);
-            if (snapshot.dirty()) {
+            if (snapshot.uncommitted()) {
                 throw conflict("Task worktree has tracked, staged, or untracked changes");
+            }
+            if (snapshot.dirty()) {
+                throw conflict("Task worktree has ignored files, such as build output, that removing it would delete");
             }
             if (snapshot.gitOperationInProgress()) {
                 throw conflict("Task worktree has an open Git operation");
@@ -385,16 +388,17 @@ public final class ManagedWorktreeService
         String head = requireOutput(
                 git.run(canonical, "rev-parse", "--verify", "HEAD^{commit}"),
                 "read task worktree HEAD");
-        boolean dirty = !requireOutput(
-                git.run(canonical, "status", "--porcelain=v1", "--untracked-files=all", "--ignored=matching"),
-                "read task worktree status").isEmpty();
+        String status = requireOutput(
+                git.run(canonical, "status", "--porcelain=v1", "--untracked-files=all", "--ignored=matching", "--ignore-submodules=none"),
+                "read task worktree status");
         List<Path> operationPaths = git.gitPaths(canonical, GIT_OPERATION_PATHS);
         if (operationPaths.size() != GIT_OPERATION_PATHS.size()) {
             throw invalid("Cannot read task worktree operation state");
         }
         boolean operationInProgress = operationPaths.stream()
                 .anyMatch(path -> Files.exists(path, LinkOption.NOFOLLOW_LINKS));
-        return new WorktreeSnapshot(worktree, head, dirty, operationInProgress);
+        boolean uncommitted = status.lines().anyMatch(line -> !line.startsWith("!!"));
+        return new WorktreeSnapshot(worktree, head, !status.isEmpty(), operationInProgress, uncommitted);
     }
 
     private Path verifyManagedRepository(Workspace workspace)

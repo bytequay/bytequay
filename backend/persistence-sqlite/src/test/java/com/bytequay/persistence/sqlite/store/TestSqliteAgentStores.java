@@ -165,10 +165,12 @@ class TestSqliteAgentStores
                 Path.of("/tmp/bytequay-worktrees").resolve(taskId.toString()),
                 "bytequay/task/" + taskId,
                 "0123456789012345678901234567890123456789");
+        // Ignored build output leaves a completed worktree dirty without uncommitted work.
         WorktreeSnapshot snapshot = new WorktreeSnapshot(
                 worktree,
                 "1123456789012345678901234567890123456789",
                 true,
+                false,
                 false);
         TaskSummary summary = new TaskSummary(
                 "finished",

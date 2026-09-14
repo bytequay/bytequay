@@ -492,7 +492,7 @@ export default function PullsScreen({
   // Capture phase: on this screen Command-F belongs to the list search, and
   // the window-level find bar would otherwise open on top of it.
   useEffect(() => {
-    if (singlePullRequest) return;
+    if (singlePullRequest || browserOpen) return;
     const handleKeyDown = (event: KeyboardEvent) => {
       if (isFindShortcut(event)) {
         event.preventDefault();
@@ -507,7 +507,7 @@ export default function PullsScreen({
     };
     window.addEventListener('keydown', handleKeyDown, true);
     return () => window.removeEventListener('keydown', handleKeyDown, true);
-  }, [singlePullRequest, selectTab]);
+  }, [singlePullRequest, selectTab, browserOpen]);
 
   const loadMore = useCallback(async () => {
     if (!hasMore || loadingMoreRequest.current) return;

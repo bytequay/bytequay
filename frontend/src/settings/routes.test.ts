@@ -29,6 +29,12 @@ describe('settings routes', () => {
     }
   });
 
+  it('exposes browser behavior under Personal and finds it by its setting name', () => {
+    expect(settingsRoute('browser')).toBe('#/settings/personal/browser');
+    expect(entryFor('browser').group).toBe('Personal');
+    expect(matchesSearch(entryFor('browser'), 'full screen behavior')).toBe(true);
+  });
+
   it('carries the workspace a link names, so a link can edit one the app is not showing', () => {
     expect(settingsLocationFromRoute('#/settings/workspace/ws-9/agents'))
       .toEqual({ section: 'ws-agents', workspaceId: 'ws-9' });

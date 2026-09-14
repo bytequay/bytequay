@@ -11,8 +11,9 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState, type CSSProperties } from 'react';
 import AppSidebar, { type AppPage } from './AppSidebar';
+import BrowserRail from './BrowserRail';
 import FindBar from './FindBar';
 import HomePage from './home/HomePage';
 import { loadHandled } from './home/attention';
@@ -44,7 +45,7 @@ import {
   settingsRoute,
   type SettingsSection,
 } from './settings/routes';
-import type { RecentRowDto, RecentWordHitDto, WorkspaceDto } from './types';
+import type { InAppBrowserState, RecentRowDto, RecentWordHitDto, WorkspaceDto } from './types';
 import WorkspacesPage from './workspaces/WorkspacesPage';
 import WorkspaceShell from './workspaces/WorkspaceShell';
 import {
@@ -77,7 +78,27 @@ export default function App() {
   const [initialIssueNumber, setInitialIssueNumber] = useState<number | null>(null);
   const [initialAgentTaskId, setInitialAgentTaskId] = useState<string | null>(null);
   const [initialAgentReviewId, setInitialAgentReviewId] = useState<string | null>(null);
-  const [browserUrl, setBrowserUrl] = useState<string | null>(null);
+  const [browser, setBrowser] = useState<InAppBrowserState>({ tabs: [], activeTabId: null });
+  const [browserError, setBrowserError] = useState<string | null>(null);
+  const [newPageOpen, setNewPageOpen] = useState(false);
+  const [railVisible, setRailVisible] = useState(() => {
+    try { return localStorage.getItem('bytequay.browser-rail-visible') !== 'false'; }
+    catch { return true; }
+  });
+  const [railExpanded, setRailExpanded] = useState(() => {
+    try { return localStorage.getItem('bytequay.browser-rail-expanded') === 'true'; }
+    catch { return false; }
+  });
+  const browserTab = browser.tabs.find(tab => tab.id === browser.activeTabId) ?? null;
+  const browserOpen = browserTab !== null || newPageOpen;
+  const browserAction = useCallback((action: Promise<void>) => {
+    setBrowserError(null);
+    void action.catch(cause => setBrowserError(cause instanceof Error ? cause.message : 'Unable to update web pages.'));
+  }, []);
+  const backToApp = useCallback(() => {
+    setNewPageOpen(false);
+    browserAction(window.bridge.hideInAppBrowser());
+  }, [browserAction]);
   const [previewPr, setPreviewPr] = useState<{ repo: string; number: number; workspaceId?: string } | null>(null);
   const [paletteOpen, setPaletteOpen] = useState(false);
   const [fullScreen, setFullScreen] = useState(false);
@@ -116,10 +137,22 @@ export default function App() {
 
   useEffect(() => {
     void window.bridge.hasPat().then(hasPat => setStatus(hasPat ? 'ready' : 'needs-pat'));
-    const stopBrowser = window.bridge.onInAppOpenRequest(({ url }) => setBrowserUrl(url));
+    let receivedState = false;
+    const stopBrowser = window.bridge.onInAppBrowserState(next => {
+      receivedState = true;
+      setBrowser(next);
+      if (next.activeTabId !== null) {
+        setNewPageOpen(false);
+        setPaletteOpen(false);
+      }
+    });
+    void window.bridge.getInAppBrowserState().then(next => {
+      if (!receivedState) setBrowser(next);
+    }).catch(cause => setBrowserError(cause instanceof Error ? cause.message : 'Unable to load web pages.'));
     const stopFullScreen = window.bridge.onFullScreenChange(setFullScreen);
     void window.bridge.getFullScreen().then(setFullScreen);
     return () => {
+      receivedState = true;
       stopBrowser();
       stopFullScreen();
     };
@@ -133,14 +166,14 @@ export default function App() {
     const stopNotification = window.bridge.onPrNotificationOpen(reference => {
       const slash = reference.repo.indexOf('/');
       if (slash < 1) return;
-      setBrowserUrl(null);
+      backToApp();
       setPaletteOpen(false);
       window.location.hash = pullRequestRoute({
         owner: reference.repo.slice(0, slash), repo: reference.repo.slice(slash + 1), number: reference.number,
       });
     });
     return () => { stopAttention(); stopNotification(); };
-  }, []);
+  }, [backToApp]);
 
   useEffect(() => {
     if (status !== 'ready') return;
@@ -215,7 +248,7 @@ export default function App() {
   }, [replaceCurrentRoute, status, updateWorkspace]);
 
   useEffect(() => {
-    if (status !== 'ready') return;
+    if (status !== 'ready' || browserOpen) return;
     const handleKeyDown = (event: KeyboardEvent) => {
       if (event.metaKey && !event.ctrlKey && !event.altKey && event.key.toLowerCase() === 'k') {
         event.preventDefault();
@@ -224,10 +257,10 @@ export default function App() {
     };
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [status]);
+  }, [status, browserOpen]);
 
   useEffect(() => {
-    if (status !== 'ready' || browserUrl !== null) return;
+    if (status !== 'ready' || browserOpen) return;
     const handleKeyDown = (event: KeyboardEvent) => {
       const direction = navigationShortcutDirection(event);
       if (direction === 0) return;
@@ -237,7 +270,7 @@ export default function App() {
     };
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [browserUrl, status]);
+  }, [browserOpen, status]);
 
   const selectGlobalPullRequest = useCallback((reference: { repo: string; number: number }, mode: NavigationMode) => {
     const slash = reference.repo.indexOf('/');
@@ -356,10 +389,25 @@ export default function App() {
   };
 
   return (
-    <>
+    <div className={`browser-workspace${railVisible ? '' : ' is-web-rail-hidden'}`} style={{ '--browser-rail-width': railVisible ? (railExpanded ? '220px' : '40px') : '0px' } as CSSProperties}>
+      <BrowserRail state={browser} expanded={railExpanded} newPageOpen={newPageOpen} error={browserError}
+        onToggle={() => setRailExpanded(value => {
+          try { localStorage.setItem('bytequay.browser-rail-expanded', String(!value)); } catch { /* preference is optional */ }
+          return !value;
+        })}
+        onApp={backToApp}
+        onNewPage={() => browserAction(window.bridge.hideInAppBrowser().then(() => setNewPageOpen(true)))}
+        onSelect={id => { setNewPageOpen(false); browserAction(window.bridge.selectInAppBrowserTab(id)); }}
+        onClose={id => browserAction(window.bridge.closeInAppBrowserTab(id))} />
+      <div className="app-surfaces" inert={browserOpen}>
     <div className="app-shell" inert={previewPr !== null}>
         <AppSidebar
           page={page}
+          browserRailVisible={railVisible}
+          onToggleBrowserRail={() => setRailVisible(value => {
+            try { localStorage.setItem('bytequay.browser-rail-visible', String(!value)); } catch { /* preference is optional */ }
+            return !value;
+          })}
           canGoBack={canGoBack(navigation)}
           canGoForward={canGoForward(navigation)}
           onBack={() => window.history.back()}
@@ -406,7 +454,7 @@ export default function App() {
           {page === 'pulls' && (
             <PullsScreen
               initialPr={initialPr}
-              browserOpen={browserUrl !== null}
+              browserOpen={browserOpen}
               onSelectPullRequest={selectGlobalPullRequest}
             />
           )}
@@ -426,7 +474,7 @@ export default function App() {
               initialIssueNumber={initialIssueNumber}
               initialAgentTaskId={initialAgentTaskId}
               initialAgentReviewId={initialAgentReviewId}
-              browserOpen={browserUrl !== null}
+              browserOpen={browserOpen}
               onSelectPullRequest={selectWorkspacePullRequest}
               onPreviewPullRequest={previewWorkspacePullRequest}
               onSelectAgentTask={selectAgentTask}
@@ -449,7 +497,7 @@ export default function App() {
           repositoryScope={previewPr.workspaceId === undefined
             ? undefined
             : { workspaceId: previewPr.workspaceId, repository: previewPr.repo }}
-          browserOpen={browserUrl !== null}
+          browserOpen={browserOpen}
           onClose={closePreview}
         />
       )}
@@ -460,10 +508,11 @@ export default function App() {
           onOpenWordHit={openRecentWordHit}
         />
       )}
-      {browserUrl !== null && (
-        <InAppBrowser url={browserUrl} fullScreen={fullScreen} onClose={() => setBrowserUrl(null)} />
-      )}
-      {browserUrl === null && <FindBar />}
-    </>
+      {!browserOpen && <FindBar />}
+      </div>
+      {browserOpen && <InAppBrowser tab={browserTab} fullScreen={fullScreen} railExpanded={railExpanded}
+        error={browserError} onError={setBrowserError} onBack={backToApp}
+        onOpenPage={async url => { await window.bridge.openInAppBrowser(url); setNewPageOpen(false); }} />}
+    </div>
   );
 }

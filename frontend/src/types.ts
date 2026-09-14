@@ -435,6 +435,18 @@ export type InAppNavState = {
   loading: boolean;
 };
 
+export type InAppBrowserTab = InAppNavState & {
+  id: string;
+  pinned: boolean;
+  favicon: string | null;
+  error: string | null;
+};
+
+export type InAppBrowserState = {
+  tabs: InAppBrowserTab[];
+  activeTabId: string | null;
+};
+
 /** Match counts reported by the window's find-in-page search. */
 export type FindResult = {
   activeMatchOrdinal: number;
@@ -1404,20 +1416,20 @@ export type Bridge = {
 
   openInAppBrowser: (url: string) => Promise<void>;
   openExternal: (url: string) => Promise<void>;
-  mountInAppBrowser: (
-    url: string,
-    bounds: { x: number; y: number; width: number; height: number },
-  ) => Promise<void>;
-  setInAppBrowserBounds: (
-    bounds: { x: number; y: number; width: number; height: number },
-  ) => Promise<void>;
-  unmountInAppBrowser: () => Promise<void>;
-  inAppGoBack: () => Promise<void>;
-  inAppGoForward: () => Promise<void>;
-  inAppReload: () => Promise<void>;
+  getInAppBrowserState: () => Promise<InAppBrowserState>;
+  onInAppBrowserState: (callback: (state: InAppBrowserState) => void) => () => void;
+  selectInAppBrowserTab: (id: string) => Promise<void>;
+  pinInAppBrowserTab: (id: string, pinned: boolean) => Promise<void>;
+  closeInAppBrowserTab: (id: string) => Promise<void>;
+  hideInAppBrowser: () => Promise<void>;
+  mountInAppBrowser: (id: string, bounds: { x: number; y: number; width: number; height: number }) => Promise<void>;
+  setInAppBrowserBounds: (id: string, bounds: { x: number; y: number; width: number; height: number }) => Promise<void>;
+  unmountInAppBrowser: (id: string) => Promise<void>;
+  inAppGoBack: (id: string) => Promise<void>;
+  inAppGoForward: (id: string) => Promise<void>;
+  inAppReload: (id: string) => Promise<void>;
+  inAppNavigate: (id: string, url: string) => Promise<void>;
   inAppPopOut: (url: string) => Promise<void>;
-  onInAppNavState: (callback: (state: InAppNavState) => void) => () => void;
-  onInAppOpenRequest: (callback: (payload: { url: string }) => void) => () => void;
 
   controlWindow: (action: 'close' | 'minimize' | 'zoom') => Promise<void>;
   getFullScreen: () => Promise<boolean>;

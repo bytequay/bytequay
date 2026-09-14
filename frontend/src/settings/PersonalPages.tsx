@@ -12,6 +12,7 @@
  * limitations under the License.
  */
 import { useState } from 'react';
+import { readBrowserDisplayMode, saveBrowserDisplayMode, type BrowserDisplayMode } from '../browserPreferences';
 import type { AppPreferencesDto, AppThemeDto } from '../types';
 import { Segmented, SelectPill, SettingsCard, SettingsRow } from './primitives';
 
@@ -118,6 +119,31 @@ export function AppearancePage({ preferences, error, onChange }: {
         </SettingsRow>
       </SettingsCard>
       <div className="setw-footnote">A dark palette is still being built; System follows the light one for now.</div>
+    </div>
+  );
+}
+
+export function BrowserPage() {
+  const [mode, setMode] = useState(readBrowserDisplayMode);
+
+  return (
+    <div className="setw-page">
+      <h1>Browser</h1>
+      <SettingsCard>
+        <SettingsRow title="Full screen behavior"
+          subtitle="Zoom opens a centered view at about 80% of the window size. Full screen fills the window.">
+          <Segmented<BrowserDisplayMode>
+            label="Full screen behavior"
+            value={mode}
+            options={[
+              { value: 'zoom', label: 'Zoom' },
+              { value: 'fullscreen', label: 'Full screen' },
+            ]}
+            onChange={next => { saveBrowserDisplayMode(next); setMode(next); }}
+          />
+        </SettingsRow>
+      </SettingsCard>
+      <div className="setw-footnote">Saved on this Mac. Applies when you open the browser.</div>
     </div>
   );
 }

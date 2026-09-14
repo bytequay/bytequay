@@ -72,6 +72,8 @@ function Harness({ exits }: { exits: () => void }) {
     <>
       <AppSidebar
         page="settings"
+        browserRailVisible={true}
+        onToggleBrowserRail={() => {}}
         onNavigate={() => {}}
         canGoBack={false}
         canGoForward={false}

@@ -11,9 +11,9 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-import { useState, type ReactNode } from 'react';
+import { useLayoutEffect, useRef, useState, type ReactNode } from 'react';
 import {
-  Bot, ChevronDown, ChevronLeft, CircleDot, CircleUser, GitBranch, History, House, KeyRound,
+  Bot, ChevronDown, ChevronLeft, CircleDot, CircleUser, GitBranch, Globe, History, House, KeyRound,
   LayoutGrid, ListChecks, Network, PanelLeft, Search, Settings, SquareCheck, SquareLibrary,
   Sparkles, Sun, Tags, TriangleAlert,
 } from 'lucide-react';
@@ -42,6 +42,7 @@ export type SettingsNav = {
 const SETTINGS_ICONS: Record<SettingsSection, ReactNode> = {
   general: <Settings size={16} strokeWidth={1.7} aria-hidden="true" />,
   appearance: <Sun size={16} strokeWidth={1.7} aria-hidden="true" />,
+  browser: <Globe size={16} strokeWidth={1.7} aria-hidden="true" />,
   models: <Sparkles size={16} strokeWidth={1.7} aria-hidden="true" />,
   workflow: <ListChecks size={16} strokeWidth={1.7} aria-hidden="true" />,
   skills: <SquareLibrary size={16} strokeWidth={1.7} aria-hidden="true" />,
@@ -96,6 +97,8 @@ export default function AppSidebar({
   workspace,
   workspaceTab,
   onWorkspaceTab,
+  browserRailVisible,
+  onToggleBrowserRail,
   settings,
 }: {
   page: AppPage;
@@ -107,12 +110,18 @@ export default function AppSidebar({
   workspace: WorkspaceDto | null;
   workspaceTab: WorkspaceTab;
   onWorkspaceTab: (tab: WorkspaceTab) => void;
+  browserRailVisible: boolean;
+  onToggleBrowserRail: () => void;
   /** Present only while settings is open, when the sidebar becomes its category nav. */
   settings?: SettingsNav;
 }) {
   const [collapsed, setCollapsed] = useState(false);
   const [query, setQuery] = useState('');
   const [pickerOpen, setPickerOpen] = useState(false);
+  const pickerMenu = useRef<HTMLDivElement>(null);
+  useLayoutEffect(() => {
+    if (pickerOpen) pickerMenu.current?.scrollIntoView({ block: 'nearest', inline: 'nearest' });
+  }, [pickerOpen]);
   const sidebar = useResizablePane(222, 200, 420);
 
   const historyControls = (
@@ -222,7 +231,7 @@ export default function AppSidebar({
                       <ChevronDown size={12} strokeWidth={2.4} aria-hidden="true" />
                     </button>
                     {pickerOpen && (
-                      <div className="setw-menu is-left is-full" role="listbox">
+                      <div className="setw-menu is-left is-full" role="listbox" ref={pickerMenu}>
                         {settings.workspaces.map(candidate => (
                           <button
                             type="button"
@@ -326,11 +335,17 @@ export default function AppSidebar({
           </nav>
         </>
       )}
-      <div className="app-sidebar__spacer" />
-      <nav className="app-sidebar__nav app-sidebar__nav--bottom" aria-label="Application settings">
-        {navItem({ page: 'settings', label: 'Settings', icon: <SettingsIcon /> })}
-      </nav>
       </>}
+      {settingsBody === null && <div className="app-sidebar__spacer" />}
+      <nav className="app-sidebar__nav app-sidebar__nav--bottom" aria-label="Application settings">
+        <button type="button" className={`app-sidebar__item${browserRailVisible ? ' is-active' : ''}`}
+          aria-label="Web pages" aria-pressed={browserRailVisible} aria-controls="browser-rail"
+          title={browserRailVisible ? 'Hide web pages column' : 'Show web pages column'} onClick={onToggleBrowserRail}>
+          <span aria-hidden="true"><Globe size={16} strokeWidth={1.7} /></span>
+          <span className="app-sidebar__label">Web pages</span>
+        </button>
+        {settingsBody === null && navItem({ page: 'settings', label: 'Settings', icon: <SettingsIcon /> })}
+      </nav>
       {!collapsed && (
         <div
           className="app-sidebar__resize"

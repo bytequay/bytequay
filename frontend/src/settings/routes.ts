@@ -16,6 +16,7 @@
 export type SettingsSection =
   | 'general'
   | 'appearance'
+  | 'browser'
   | 'models'
   | 'skills'
   | 'workflow'
@@ -55,6 +56,7 @@ export const SETTINGS_ENTRIES: SettingsEntry[] = [
     rows: ['Keep detailed task runtime', 'Keep what you touched', 'Clear history', 'Recent'],
   },
   { section: 'appearance', group: 'Personal', label: 'Appearance', slug: 'appearance', rows: ['Theme'] },
+  { section: 'browser', group: 'Personal', label: 'Browser', slug: 'browser', rows: ['Full screen behavior', 'Zoom'] },
   {
     section: 'models',
     group: 'Agents',

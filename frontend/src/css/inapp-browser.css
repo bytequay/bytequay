@@ -1,35 +1,46 @@
-/* ── In-app browser overlay ─────────────────────────────────────────
-   Full-screen overlay that wraps a WebContentsView for any URL the
-   user clicks in the React UI. Toolbar at the top: ‹ › ↻ · title ·
-   ↗ Browser · ×. The slot below the toolbar reserves screen real
-   estate for the WebContentsView (which is a *native* child window
-   layered over the renderer DOM, sized via setBounds from main.ts). */
-.inapp-browser {
+.inapp-browser-overlay {
   position: fixed;
-  inset: 0;
+  inset: 0 0 0 var(--browser-rail-width, 0px);
   z-index: 1100;
+}
+.inapp-browser-overlay.is-zoomed {
+  /* 90% width × 90% height leaves about 80% of the window for the page. */
+  padding: 5vh 5%;
+}
+.inapp-browser__backdrop {
+  position: absolute;
+  inset: 0;
+  border: 0;
+  background: rgb(31 35 40 / 30%);
+  cursor: default;
+}
+.inapp-browser {
+  position: relative;
+  width: 100%;
+  height: 100%;
+  min-width: 0;
   display: flex;
   flex-direction: column;
   background: var(--bg-base);
 }
+.inapp-browser-overlay.is-zoomed .inapp-browser {
+  border: 1px solid var(--border);
+  border-radius: 12px 12px 0 0;
+  box-shadow: 0 16px 64px rgb(31 35 40 / 24%);
+}
+.inapp-browser-overlay.is-zoomed .inapp-browser__toolbar { border-radius: 12px 12px 0 0; }
 .inapp-browser__toolbar {
   display: flex;
   align-items: center;
-  gap: var(--space-2);
-  padding: var(--space-2) var(--space-3);
+  gap: 6px;
+  padding: var(--space-2);
+  min-height: 44px;
+  flex-wrap: wrap;
   background: var(--bg-elevated);
   border-bottom: 1px solid var(--border);
   flex: 0 0 auto;
 }
-/* Out of fullscreen, the inset macOS traffic lights sit at the very
-   top-left of the renderer (titleBarStyle: hiddenInset, position
-   {x:14, y:14} in main.ts). Reserve the same 78px the global topbar
-   does so "Back to app" doesn't slide under the lights. In native
-   fullscreen the lights vanish — App.tsx clears the modifier and the
-   toolbar reclaims the space. */
-.inapp-browser__toolbar--with-tl-reserve {
-  padding-left: 78px;
-}
+.inapp-browser__size { margin-left: auto; }
 .inapp-browser__nav {
   display: inline-flex;
   align-items: center;
@@ -61,37 +72,31 @@
   cursor: not-allowed;
   opacity: 0.6;
 }
-.inapp-browser__title {
+.web-address {
   flex: 1;
   min-width: 0;
+}
+.web-address__form {
   display: flex;
   align-items: center;
-  gap: var(--space-1);
-  padding: var(--space-1) var(--space-2);
-  border: 1px solid var(--border);
-  border-radius: 14px;
-  background: var(--bg-card);
-  font-size: var(--font-size-sm);
-  color: var(--text-2);
-  height: 28px;
-  box-sizing: border-box;
+  gap: var(--space-2);
 }
-.inapp-browser__title-text {
+.web-address__input {
   flex: 1;
   min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  color: var(--text-1);
+}
+.web-address__error {
+  margin-top: var(--space-1);
+  color: var(--red);
+  font-size: var(--font-size-sm);
+  overflow-wrap: anywhere;
 }
 .inapp-browser__loading {
   color: var(--text-3);
   font-size: var(--font-size-lg);
 }
-/* Prominent "Back to app" button — leftmost in the toolbar, accent-
-   colored so the user can see at a glance how to leave the in-app
-   browser. Esc also closes the overlay. */
 .inapp-browser__back-to-app {
+  gap: 6px;
   appearance: none;
   background: var(--accent-a7);
   border: 1px solid var(--accent-a40);
@@ -135,5 +140,73 @@
 .inapp-browser__slot {
   flex: 1;
   min-height: 0;
+  position: relative;
   background: #fff;
 }
+
+.inapp-browser__toolbar > .web-address { flex-basis: 180px; }
+.inapp-browser__toolbar > button,
+.inapp-browser__toolbar > .app-sidebar__lights,
+.inapp-browser__nav { flex-shrink: 0; }
+.inapp-browser__toolbar > .app-sidebar__lights { margin: 0 6px; }
+.inapp-browser__open-external { gap: 5px; white-space: nowrap; }
+.inapp-browser__open-external.is-pinned { color: var(--accent); background: var(--accent-a7); border-color: var(--accent-a40); }
+.inapp-browser__error { color: var(--red); background: var(--bg-elevated); padding: 6px 12px; font-size: var(--font-size-sm); }
+.inapp-browser__start { margin: auto; padding: 48px 24px; max-width: 620px; width: 100%; text-align: center; color: var(--text-3); }
+.inapp-browser__start h1 { font-size: 24px; color: var(--text-1); margin: 16px 0 24px; }
+.inapp-browser__start p { font-size: var(--font-size-sm); line-height: 1.7; margin-top: 20px; overflow-wrap: anywhere; }
+.inapp-browser__start .web-address__error { text-align: left; }
+.inapp-browser__slot .inapp-browser__start { margin: 10vh auto; }
+@media (max-width: 1120px) { .inapp-browser__popout .inapp-browser__action-label { display: none; } }
+
+.app-surfaces { margin-left: var(--browser-rail-width); }
+.browser-workspace.is-web-rail-hidden > .browser-rail { display: none; }
+.app-surfaces .modal-overlay { left: var(--browser-rail-width); }
+/* PR zoom covers the window. A web page opened from that PR still needs its rail. */
+.browser-workspace:has(.pulls-page--overlay, .pull-detail.is-zoomed):not(:has(.inapp-browser)) > .browser-rail {
+  visibility: hidden;
+}
+.browser-rail {
+  position: fixed;
+  inset: 0 auto 0 0;
+  z-index: 1101;
+  width: var(--browser-rail-width);
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 4px;
+  color: var(--text-2);
+  background: var(--bg-sidebar);
+  border-right: 1px solid var(--border);
+}
+.browser-rail button { font: inherit; color: inherit; border: 0; cursor: pointer; background: transparent; }
+.browser-rail button:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
+.browser-rail__action { display: flex; align-items: center; justify-content: center; gap: 12px; min-height: 32px; border-radius: 6px; flex-shrink: 0; }
+.browser-rail__toggle { -webkit-app-region: no-drag; }
+.browser-rail.is-expanded .browser-rail__action { justify-content: flex-start; padding: 0 12px; font-size: var(--font-size-sm); }
+.browser-rail__action:hover, .browser-rail__row:hover { background: var(--left-nav-hover-bg); }
+.browser-rail__action.is-active, .browser-rail__row.is-active { background: var(--accent-a7); color: var(--accent); }
+.browser-rail__pages { overflow-y: auto; overflow-x: hidden; flex: 1; min-height: 0; scrollbar-width: thin; }
+.browser-rail__pages hr { border: 0; border-top: 1px solid var(--border); margin: 6px 4px; }
+.browser-rail__group { display: flex; flex-direction: column; gap: 4px; }
+.browser-rail__row { display: flex; align-items: center; border-radius: 6px; position: relative; min-height: 32px; }
+.browser-rail__row.is-active::before { content: ''; position: absolute; left: 0; width: 2px; height: 18px; border-radius: 2px; background: var(--accent); }
+.browser-rail__page { min-width: 0; flex: 1; min-height: 32px; display: flex; align-items: center; justify-content: center; gap: 10px; padding: 6px; border-radius: 6px; }
+.browser-rail.is-expanded .browser-rail__page { justify-content: flex-start; padding-left: 12px; }
+.browser-rail__icon { position: relative; display: inline-flex; flex: 0 0 16px; width: 16px; height: 16px; align-items: center; justify-content: center; }
+.browser-rail__icon img { width: 16px; height: 16px; object-fit: contain; border-radius: 3px; }
+.browser-rail__pin { position: absolute; right: -3px; bottom: -3px; background: var(--bg-sidebar); color: var(--accent); border-radius: 2px; }
+.browser-rail__loading { position: absolute; inset: -3px; border: 2px solid var(--accent-a40); border-top-color: var(--accent); border-radius: 50%; animation: browser-loading 1s linear infinite; }
+@keyframes browser-loading { to { transform: rotate(360deg); } }
+@media (prefers-reduced-motion: reduce) { .browser-rail__loading { animation: none; } }
+.browser-rail__label { text-overflow: ellipsis; overflow: hidden; white-space: nowrap; text-align: left; font-size: var(--font-size-sm); }
+.browser-rail__close { display: flex; align-items: center; justify-content: center; width: 24px; height: 28px; flex: 0 0 24px; margin-right: 3px; border-radius: 4px; opacity: 0; }
+.browser-rail__row:hover .browser-rail__close, .browser-rail__row:focus-within .browser-rail__close, .browser-rail__row.is-active .browser-rail__close { opacity: 1; }
+.browser-rail__close:hover { background: var(--accent-a7); }
+.browser-rail__new { border-top: 1px solid var(--border) !important; }
+.browser-rail__empty { padding: 8px 12px; color: var(--text-3); font-size: var(--font-size-sm); line-height: 1.6; }
+.browser-rail__error { display: flex; align-items: center; gap: 6px; color: var(--red); padding: 6px; font-size: var(--font-size-sm); overflow-wrap: anywhere; }
+.browser-rail__error svg { flex-shrink: 0; }
+
+/* These popovers portal outside the inert app surface. */
+body:has(.inapp-browser) :is(.atn-menu-catcher, .atn-preview, .md-reference-preview) { visibility: hidden; }

@@ -31,6 +31,8 @@ function render(page: AppPage, workspace: WorkspaceDto | null, settings = false)
   return renderToStaticMarkup(
     <AppSidebar
       page={page}
+      browserRailVisible={true}
+      onToggleBrowserRail={vi.fn()}
       onNavigate={vi.fn()}
       canGoBack={false}
       canGoForward={false}

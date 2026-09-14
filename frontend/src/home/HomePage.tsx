@@ -15,6 +15,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { ArrowRight } from 'lucide-react';
 import type { PullRequestDto, RecentEventDto, UserProfileDto, WorkspaceDto } from '../types';
 import AddRepoModal from '../AddRepoModal';
+import WebAddressForm from '../WebAddressForm';
 import ActivityRow from '../ActivityRow';
 import { groupRecentEvents } from '../activityNarrative';
 import AttentionList from './AttentionList';
@@ -318,6 +319,10 @@ function HomePage({
   return (
     <div className="home-page">
       <main className="home-main">
+      <div className="home-open-web">
+        <span>Open web page</span>
+        <WebAddressForm onNavigate={window.bridge.openInAppBrowser} />
+      </div>
 
       {/* ── Contribution card: graph + bio ── */}
       <ContributionCard profile={profile} />

@@ -481,6 +481,34 @@ The detailed backend contract is in
 [Agent Service Design](agent-service.md); the frontend behavior is in
 [Agent Task UI Design](agent-task-ui.md).
 
+### 6.4 Embedded browser pages
+
+Electron main owns one `WebContentsView` per visited browser tab. The React
+browser rail and toolbar present that state through the typed preload bridge.
+Returning to ByteQuay or selecting another tab detaches the native surface
+without destroying the page, preserving navigation history, drafts, and scroll
+position while the app remains open. Only an explicit tab close or window/app
+shutdown releases its web contents.
+
+Pinning stores the page URL and display metadata in a local file under Electron
+user data. Pinned entries return after restart; their pages load only when
+selected. Unpinned tabs are retained for the current window. All embedded tabs
+reuse `persist:inapp-browser`, so existing cookies and site storage remain
+available subject to each website's expiry and sign-in policies. No external
+browser cookies or backend API credentials are copied into this session.
+
+The far-left rail collapses to icons or expands to titles, and the Web pages
+control above Settings hides or restores the column without closing tabs.
+Browser pages open in a centered zoom overlay using roughly 80% of the window
+area. A toolbar control switches between zoom and filling the available window;
+Settings → Browser → Full screen behavior chooses the default for each opening,
+with Zoom as the initial preference. The toolbar address field navigates on
+Enter. The browser surface starts to the right of the visible rail, and the
+underlying ByteQuay surface remains mounted but inert while a page is shown. Browser IPC validates the app renderer and main
+frame, and native bounds are converted from CSS pixels using the app renderer's
+zoom factor, rounded inward, and clamped to the window. Page-load failures and
+renderer crashes detach the native surface and expose a reload action.
+
 ## 7. Operational boundaries
 
 - The backend listens only on `127.0.0.1`, first trying port `9527` and

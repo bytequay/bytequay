@@ -33,7 +33,7 @@ import SkillsPage from './SkillsPage';
 import WorkflowPage from './WorkflowPage';
 import CodeGraphPage from './CodeGraphPage';
 import GitHubPage from './GitHubPage';
-import { AppearancePage, GeneralPage } from './PersonalPages';
+import { AppearancePage, BrowserPage, GeneralPage } from './PersonalPages';
 import {
   WorkspaceAdvancedPage,
   WorkspaceAgentsPage,
@@ -215,6 +215,7 @@ export default function SettingsWindow({ section, workspace, onWorkspacesChanged
           {section === 'appearance' && preferences !== null && (
             <AppearancePage preferences={preferences} error={error} onChange={savePreferences} />
           )}
+          {section === 'browser' && <BrowserPage />}
           {section === 'models' && models !== null && (
             <ModelsPage
               settings={models}

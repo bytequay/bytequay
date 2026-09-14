@@ -24,6 +24,8 @@ import WorkspaceShell from './WorkspaceShell';
 describe('watched repository workspace UI', () => {
   it('keeps global navigation above app and workspace navigation', () => {
     const props = {
+      browserRailVisible: true,
+      onToggleBrowserRail: () => {},
       canGoBack: false,
       canGoForward: false,
       onBack: () => {},

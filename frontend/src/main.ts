@@ -11,8 +11,9 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-import { app, BrowserWindow, clipboard, dialog, ipcMain, Menu, nativeImage, Notification, shell, WebContentsView } from 'electron';
+import { app, BrowserWindow, clipboard, dialog, ipcMain, Menu, nativeImage, Notification, shell } from 'electron';
 import fs from 'node:fs';
+import { BrowserTabs, registerBrowserTabIpc } from './browserTabs';
 import { randomUUID } from 'node:crypto';
 import path from 'node:path';
 import { notificationVersion, parsePrNotificationState, pendingPrNotifications, type PrNotificationState } from './prNotifications';
@@ -217,7 +218,7 @@ function imageMediaType(filePath: string): string {
   if (extension === '.gif') return 'image/gif';
   return 'image/jpeg';
 }
-let browserView: WebContentsView | null = null;
+const browserTabs = new BrowserTabs(() => mainWindow, () => path.join(app.getPath('userData'), 'browser-tabs.json'));
 let pendingWindow: Promise<void> | null = null;
 
 if (!app.requestSingleInstanceLock()) {
@@ -286,16 +287,8 @@ function normalizeDevServerUrl(value: string): string {
 
 function requestBrowser(url: string): void {
   if (!/^https?:/i.test(url) || !mainWindow || mainWindow.isDestroyed()) return;
-  mainWindow.webContents.send('inapp:open-request', { url });
-}
-
-function destroyBrowserView(): void {
-  if (!browserView) return;
-  if (mainWindow && !mainWindow.isDestroyed()) {
-    mainWindow.contentView.removeChildView(browserView);
-  }
-  if (!browserView.webContents.isDestroyed()) browserView.webContents.close();
-  browserView = null;
+  try { browserTabs.open(url); }
+  catch (error) { console.warn('Unable to open browser page', error); }
 }
 
 function openPopup(url: string): void {
@@ -342,7 +335,7 @@ async function createWindow(): Promise<void> {
   mainWindow.webContents.on('dom-ready', () => draftAttachments.clear());
   mainWindow.on('closed', () => {
     draftAttachments.clear();
-    destroyBrowserView();
+    browserTabs.releaseWindow();
     mainWindow = null;
   });
   const sendFullScreen = (isFullScreen: boolean) => {
@@ -363,7 +356,7 @@ async function createWindow(): Promise<void> {
     event.preventDefault();
     requestBrowser(url);
   });
-  mainWindow.webContents.on('did-start-loading', destroyBrowserView);
+  mainWindow.webContents.on('did-start-loading', () => browserTabs.rendererReload());
   mainWindow.webContents.on('found-in-page', (_event, result) => {
     mainWindow?.webContents.send('find:result', {
       activeMatchOrdinal: result.activeMatchOrdinal,
@@ -1598,63 +1591,7 @@ function registerIpc(): void {
   ipcMain.handle('external:open', async (_event, url: string) => {
     if (/^https?:/i.test(url)) await shell.openExternal(url);
   });
-  ipcMain.handle('inapp:open', (_event, url: string) => requestBrowser(url));
-  type Bounds = { x: number; y: number; width: number; height: number };
-  const bounds = (value: Bounds): Bounds => ({
-    x: Math.round(value.x),
-    y: Math.round(value.y),
-    width: Math.max(0, Math.round(value.width)),
-    height: Math.max(0, Math.round(value.height)),
-  });
-  ipcMain.handle('inapp:mount', async (_event, url: string, target: Bounds) => {
-    if (!/^https?:/i.test(url) || !mainWindow) return;
-    destroyBrowserView();
-    const view = new WebContentsView({
-      webPreferences: {
-        contextIsolation: true,
-        nodeIntegration: false,
-        partition: 'persist:inapp-browser',
-      },
-    });
-    view.setBounds(bounds(target));
-    view.setBackgroundColor('#ffffff');
-    mainWindow.contentView.addChildView(view);
-    browserView = view;
-    const pushState = () => {
-      if (!browserView || !mainWindow) return;
-      const contents = browserView.webContents;
-      mainWindow.webContents.send('inapp:nav-state', {
-        url: contents.getURL(),
-        title: contents.getTitle(),
-        canGoBack: contents.navigationHistory.canGoBack(),
-        canGoForward: contents.navigationHistory.canGoForward(),
-        loading: contents.isLoadingMainFrame(),
-      });
-    };
-    view.webContents.on('did-navigate', pushState);
-    view.webContents.on('did-navigate-in-page', pushState);
-    view.webContents.on('did-start-loading', pushState);
-    view.webContents.on('did-stop-loading', pushState);
-    view.webContents.on('page-title-updated', pushState);
-    view.webContents.setWindowOpenHandler(({ url: next }) => {
-      if (/^https?:/i.test(next)) void view.webContents.loadURL(next);
-      return { action: 'deny' };
-    });
-    await view.webContents.loadURL(url);
-  });
-  ipcMain.handle('inapp:bounds', (_event, value: Bounds) => browserView?.setBounds(bounds(value)));
-  ipcMain.handle('inapp:unmount', destroyBrowserView);
-  ipcMain.handle('inapp:back', () => {
-    if (browserView?.webContents.navigationHistory.canGoBack()) {
-      browserView.webContents.navigationHistory.goBack();
-    }
-  });
-  ipcMain.handle('inapp:forward', () => {
-    if (browserView?.webContents.navigationHistory.canGoForward()) {
-      browserView.webContents.navigationHistory.goForward();
-    }
-  });
-  ipcMain.handle('inapp:reload', () => browserView?.webContents.reload());
+  registerBrowserTabIpc(browserTabs, () => mainWindow);
   ipcMain.handle('inapp:popout', (_event, url: string) => openPopup(url));
 }
 

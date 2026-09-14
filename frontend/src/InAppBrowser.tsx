@@ -11,158 +11,115 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-import { useEffect, useRef, useState } from 'react';
-import type { InAppNavState } from './types';
+import { useCallback, useEffect, useRef, useState } from 'react';
+import { ArrowLeft, ArrowRight, ExternalLink, Globe, Maximize2, Minimize2, PanelsTopLeft, Pin, RotateCw, X } from 'lucide-react';
+import { WindowControls } from './AppSidebar';
+import { readBrowserDisplayMode } from './browserPreferences';
+import type { InAppBrowserTab } from './types';
+import WebAddressForm from './WebAddressForm';
 
 type Props = {
-  /** URL to load into the embedded WebContentsView. */
-  url: string;
-  /** Closes the overlay; the renderer should setState back to null so the
-   *  React UI shows again. Also drives the × button in the toolbar. */
-  onClose: () => void;
-  /** True while the main window is in macOS native fullscreen — the
-   *  inset traffic lights vanish in that state, so the toolbar can
-   *  drop its 78px left reserve and let "Back to app" sit at the edge. */
+  tab: InAppBrowserTab | null;
   fullScreen: boolean;
+  railExpanded: boolean;
+  error: string | null;
+  onError: (message: string | null) => void;
+  onBack: () => void;
+  onOpenPage: (url: string) => Promise<void>;
 };
 
-/**
- * Full-screen overlay that wraps a WebContentsView for any URL. Used
- * when the user clicks an external link in the React UI — the link
- * opens here instead of in the OS browser, so the user has a clear
- * path back via the × close button.
- *
- * Toolbar parallels Chrome's top bar: ‹ back · › forward · ↻ reload ·
- * URL/title field · ↗ open in OS browser (escape hatch) · × close.
- *
- * Lifecycle:
- * - Mount: bridge.mountInAppBrowser(url, bounds), wire up nav-state
- *   listener.
- * - Resize: ResizeObserver pushes new bounds so the WebContentsView
- *   tracks the slot div.
- * - Unmount: bridge.unmountInAppBrowser() releases the WebContents.
- */
-export default function InAppBrowser({ url, onClose, fullScreen }: Props) {
+export default function InAppBrowser({ tab, fullScreen, railExpanded, error, onError, onBack, onOpenPage }: Props) {
+  const [displayMode, setDisplayMode] = useState(readBrowserDisplayMode);
+  const zoomed = displayMode === 'zoom';
   const slotRef = useRef<HTMLDivElement>(null);
-  const [nav, setNav] = useState<InAppNavState>({
-    url,
-    title: '',
-    canGoBack: false,
-    canGoForward: false,
-    loading: true,
-  });
+  const tabId = tab?.id;
+  const pageError = tab?.error;
+  const run = useCallback((action: Promise<void>) => {
+    onError(null);
+    void action.catch(cause => onError(cause instanceof Error ? cause.message : 'Unable to update this page.'));
+  }, [onError]);
 
   useEffect(() => {
-    const unsub = window.bridge.onInAppNavState((s) => setNav(s));
-    return unsub;
-  }, []);
-
-  // Escape always closes — same affordance Chrome / Safari use to dismiss
-  // a transient overlay. Listening on window so the keystroke is captured
-  // even when the user's focus is on a toolbar control rather than the
-  // (out-of-DOM) WebContentsView.
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') {
-        e.preventDefault();
-        onClose();
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') {
+        event.preventDefault();
+        onBack();
       }
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [onClose]);
+  }, [onBack]);
 
   useEffect(() => {
-    const el = slotRef.current;
-    if (!el) return;
-    const readBounds = () => {
-      const r = el.getBoundingClientRect();
-      return { x: r.x, y: r.y, width: r.width, height: r.height };
+    const slot = slotRef.current;
+    if (!slot || !tabId) return;
+    const bounds = () => {
+      const rect = slot.getBoundingClientRect();
+      return { x: rect.x, y: rect.y, width: rect.width, height: rect.height };
     };
-    void window.bridge.mountInAppBrowser(url, readBounds()).catch(() => {
-      /* non-fatal — overlay simply stays empty */
-    });
-    const push = () => {
-      void window.bridge.setInAppBrowserBounds(readBounds()).catch(() => { /* best-effort */ });
-    };
-    const ro = new ResizeObserver(push);
-    ro.observe(el);
+    const report = (cause: unknown) => onError(cause instanceof Error ? cause.message : 'Unable to display this page.');
+    void window.bridge.mountInAppBrowser(tabId, bounds()).catch(report);
+    const push = () => { void window.bridge.setInAppBrowserBounds(tabId, bounds()).catch(report); };
+    const observer = new ResizeObserver(push);
+    observer.observe(slot);
     window.addEventListener('resize', push);
     return () => {
-      ro.disconnect();
+      observer.disconnect();
       window.removeEventListener('resize', push);
-      void window.bridge.unmountInAppBrowser().catch(() => { /* best-effort */ });
+      // Detach the native surface; its live page belongs to the tab, not this component.
+      void window.bridge.unmountInAppBrowser(tabId).catch(() => {});
     };
-    // Re-mount when url prop changes — main process replaces the
-    // WebContentsView entirely, easiest to mirror that on the renderer.
-  }, [url]);
+  }, [tabId, pageError, railExpanded, displayMode, onError]);
 
-  const displayUrl = nav.url || url;
-  const displayTitle = nav.title || displayUrl;
   return (
-    <div className="inapp-browser">
-      <div className={`inapp-browser__toolbar${fullScreen ? '' : ' inapp-browser__toolbar--with-tl-reserve'}`}>
-        <button
-          type="button"
-          className="inapp-browser__back-to-app"
-          onClick={onClose}
-          title="Close this page and return to the app (Esc)"
-        >
-          ← Back to app
+    <div className={`inapp-browser-overlay${zoomed ? ' is-zoomed' : ''}`}>
+      {zoomed && <button type="button" className="inapp-browser__backdrop" aria-label="Back to ByteQuay" onClick={onBack} />}
+    <section className="inapp-browser" role="dialog" aria-label={tab?.title || 'Web browser'}>
+      <div className="inapp-browser__toolbar">
+        {!zoomed && !fullScreen && <WindowControls />}
+        <button type="button" className="inapp-browser__back-to-app" onClick={onBack} title="Return to ByteQuay and keep your pages open">
+          <ArrowLeft size={16} aria-hidden="true" /> Back to app
         </button>
-        <div className="inapp-browser__nav" role="group" aria-label="In-app browser navigation">
-          <button
-            type="button"
-            className="inapp-browser__nav-btn"
-            onClick={() => void window.bridge.inAppGoBack()}
-            disabled={!nav.canGoBack}
-            title="Back"
-            aria-label="Back"
-          >
-            ‹
+        {tab && <>
+          <div className="inapp-browser__nav" role="group" aria-label="In-app browser navigation">
+            <button type="button" className="inapp-browser__nav-btn" onClick={() => run(window.bridge.inAppGoBack(tab.id))}
+              disabled={!tab.canGoBack} title="Back" aria-label="Back"><ArrowLeft size={16} /></button>
+            <button type="button" className="inapp-browser__nav-btn" onClick={() => run(window.bridge.inAppGoForward(tab.id))}
+              disabled={!tab.canGoForward} title="Forward" aria-label="Forward"><ArrowRight size={16} /></button>
+            <button type="button" className="inapp-browser__nav-btn" onClick={() => run(window.bridge.inAppReload(tab.id))}
+              title="Reload" aria-label="Reload"><RotateCw size={16} /></button>
+          </div>
+          <WebAddressForm key={tab.id} showOpenButton={false} url={tab.url} onNavigate={url => window.bridge.inAppNavigate(tab.id, url)} />
+          <button type="button" className={`inapp-browser__open-external${tab.pinned ? ' is-pinned' : ''}`}
+            onClick={() => run(window.bridge.pinInAppBrowserTab(tab.id, !tab.pinned))}
+            title={tab.pinned ? 'Unpin this page; keep it open until you close it' : 'Pin this page to the left bar and keep it after restarting'}
+            aria-pressed={tab.pinned} aria-label={tab.pinned ? 'Unpin page' : 'Pin page'}>
+            <Pin size={15} />{tab.pinned ? 'Pinned' : 'Pin'}
           </button>
-          <button
-            type="button"
-            className="inapp-browser__nav-btn"
-            onClick={() => void window.bridge.inAppGoForward()}
-            disabled={!nav.canGoForward}
-            title="Forward"
-            aria-label="Forward"
-          >
-            ›
-          </button>
-          <button
-            type="button"
-            className="inapp-browser__nav-btn"
-            onClick={() => void window.bridge.inAppReload()}
-            title="Reload"
-            aria-label="Reload"
-          >
-            ↻
-          </button>
-        </div>
-        <div className="inapp-browser__title" title={displayUrl}>
-          {nav.loading ? <span className="inapp-browser__loading" aria-hidden="true">…</span> : null}
-          <span className="inapp-browser__title-text">{displayTitle}</span>
-        </div>
-        <button
-          type="button"
-          className="inapp-browser__open-external"
-          onClick={() => void window.bridge.inAppPopOut(displayUrl)}
-          title="Open this page in its own window so you can keep the app and the page side-by-side"
-        >
-          ⧉ Pop out
+          <button type="button" className="inapp-browser__open-external inapp-browser__popout" onClick={() => run(window.bridge.inAppPopOut(tab.url))}
+            title="Open this page in its own window" aria-label="Pop out page"><PanelsTopLeft size={16} aria-hidden="true" /><span className="inapp-browser__action-label">Pop out</span></button>
+          <button type="button" className="inapp-browser__nav-btn" onClick={() => run(window.bridge.openExternal(tab.url))}
+            title="Open in your default browser" aria-label="Open in default browser"><ExternalLink size={16} /></button>
+        </>}
+        <button type="button" className="inapp-browser__nav-btn inapp-browser__size" onClick={() => setDisplayMode(zoomed ? 'fullscreen' : 'zoom')}
+          title={zoomed ? 'Full screen' : 'Restore zoom view'} aria-label={zoomed ? 'Full screen' : 'Restore zoom view'}>
+          {zoomed ? <Maximize2 size={16} /> : <Minimize2 size={16} />}
         </button>
-        <button
-          type="button"
-          className="inapp-browser__open-external"
-          onClick={() => void window.bridge.openExternal(displayUrl)}
-          title="Open in your default browser"
-        >
-          ↗ Browser
-        </button>
+        {tab && <button type="button" className="inapp-browser__nav-btn" onClick={() => run(window.bridge.closeInAppBrowserTab(tab.id))}
+          title={tab.pinned ? 'Close page and remove pin' : 'Close page'} aria-label="Close page"><X size={16} /></button>}
       </div>
-      <div className="inapp-browser__slot" ref={slotRef} />
+      {error && <div className="inapp-browser__error" role="alert">{error}</div>}
+      {tab ? <div className="inapp-browser__slot" ref={slotRef}>
+        {tab.error && <div className="inapp-browser__start" role="alert">
+          <Globe size={30} /><h1>Unable to display this page</h1><p>{tab.error}</p>
+          <button type="button" className="bq-button" onClick={() => run(window.bridge.inAppReload(tab.id))}>Try again</button>
+        </div>}
+      </div> : <div className="inapp-browser__start">
+        <Globe size={32} /><h1>Open a web page</h1>
+        <WebAddressForm autoFocus onNavigate={onOpenPage} />
+        <p>Pages stay open when you return to ByteQuay.<br />Pin a page to keep it in the left bar after restarting.</p>
+      </div>}
+    </section>
     </div>
   );
 }

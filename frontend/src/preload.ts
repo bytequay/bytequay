@@ -13,7 +13,7 @@
  */
 import { contextBridge, ipcRenderer } from 'electron';
 import { createAgentStreamReceiver } from './agents/sse';
-import type { AgentStreamMessage, Bridge, FindResult, InAppNavState, PullRequestDto } from './types';
+import type { AgentStreamMessage, Bridge, FindResult, InAppBrowserState, PullRequestDto } from './types';
 
 const bridge: Bridge = {
   savePat: pat => ipcRenderer.invoke('pat:save', pat),
@@ -135,22 +135,23 @@ const bridge: Bridge = {
 
   openInAppBrowser: url => ipcRenderer.invoke('inapp:open', url),
   openExternal: url => ipcRenderer.invoke('external:open', url),
-  mountInAppBrowser: (url, bounds) => ipcRenderer.invoke('inapp:mount', url, bounds),
-  setInAppBrowserBounds: bounds => ipcRenderer.invoke('inapp:bounds', bounds),
-  unmountInAppBrowser: () => ipcRenderer.invoke('inapp:unmount'),
-  inAppGoBack: () => ipcRenderer.invoke('inapp:back'),
-  inAppGoForward: () => ipcRenderer.invoke('inapp:forward'),
-  inAppReload: () => ipcRenderer.invoke('inapp:reload'),
+  getInAppBrowserState: () => ipcRenderer.invoke('inapp:state'),
+  selectInAppBrowserTab: id => ipcRenderer.invoke('inapp:select', id),
+  pinInAppBrowserTab: (id, pinned) => ipcRenderer.invoke('inapp:pin', id, pinned),
+  closeInAppBrowserTab: id => ipcRenderer.invoke('inapp:close', id),
+  hideInAppBrowser: () => ipcRenderer.invoke('inapp:hide'),
+  mountInAppBrowser: (id, bounds) => ipcRenderer.invoke('inapp:mount', id, bounds),
+  setInAppBrowserBounds: (id, bounds) => ipcRenderer.invoke('inapp:bounds', id, bounds),
+  unmountInAppBrowser: id => ipcRenderer.invoke('inapp:unmount', id),
+  inAppGoBack: id => ipcRenderer.invoke('inapp:back', id),
+  inAppGoForward: id => ipcRenderer.invoke('inapp:forward', id),
+  inAppReload: id => ipcRenderer.invoke('inapp:reload', id),
+  inAppNavigate: (id, url) => ipcRenderer.invoke('inapp:navigate', id, url),
   inAppPopOut: url => ipcRenderer.invoke('inapp:popout', url),
-  onInAppNavState: callback => {
-    const listener = (_event: Electron.IpcRendererEvent, state: InAppNavState) => callback(state);
-    ipcRenderer.on('inapp:nav-state', listener);
-    return () => ipcRenderer.removeListener('inapp:nav-state', listener);
-  },
-  onInAppOpenRequest: callback => {
-    const listener = (_event: Electron.IpcRendererEvent, payload: { url: string }) => callback(payload);
-    ipcRenderer.on('inapp:open-request', listener);
-    return () => ipcRenderer.removeListener('inapp:open-request', listener);
+  onInAppBrowserState: callback => {
+    const listener = (_event: Electron.IpcRendererEvent, state: InAppBrowserState) => callback(state);
+    ipcRenderer.on('inapp:state', listener);
+    return () => ipcRenderer.removeListener('inapp:state', listener);
   },
 
   controlWindow: action => ipcRenderer.invoke('window:control', action),

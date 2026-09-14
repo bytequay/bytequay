@@ -62,7 +62,7 @@ export default function WorkspaceShell({ workspace, tab, onSelectTab, onWorkspac
     window.location.hash = workspaceReviewTaskRoute(review.workspaceId, review.id);
   };
   useEffect(() => {
-    if (!agentScreens) return;
+    if (!agentScreens || browserOpen) return;
     const onKey = (event: KeyboardEvent): void => {
       if (event.code === 'Backslash' && event.shiftKey && (event.metaKey || event.ctrlKey)) {
         event.preventDefault();
@@ -71,7 +71,7 @@ export default function WorkspaceShell({ workspace, tab, onSelectTab, onWorkspac
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [agentScreens]);
+  }, [agentScreens, browserOpen]);
   useEffect(() => { if (!agentScreens) setOverviewOpen(false); }, [agentScreens]);
   const overviewToggle = (
     <button

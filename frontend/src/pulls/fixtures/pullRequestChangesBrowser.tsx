@@ -12,9 +12,11 @@
  * limitations under the License.
  */
 
+import { useState } from 'react';
 import { flushSync } from 'react-dom';
 import { createRoot } from 'react-dom/client';
 import type { Bridge, DiffCommitDto, DiffFileDto } from '../../types';
+import { DiffViewer, type CommitRange } from '../PullChanges';
 import { usePullRequestChanges, type PullRequestChangesSource } from '../usePullRequestChanges';
 import { runMainScreen, runReviewSheet, runReviewWorkspace, runSelectionStability } from './pullsScreenBrowser';
 
@@ -143,8 +145,65 @@ async function runHook(): Promise<string[]> {
   }
 }
 
+/** Commit rows sit inside a label, so a real click must prove the message toggle never selects the commit. */
+async function runCommitMessages(): Promise<string> {
+  const body = 'Three pipelines shared a custom collector.\n\n    stream.collect(toFragments())\n\nReplace it with toList().';
+  const history: DiffCommitDto[] = [
+    { ...commits[0], message: `Simplify collectors\n\n${body}\n` },
+    { ...commits[1], message: 'Reuse the partition helper\n\nOne place builds the map.' },
+    { sha: 'three', parentSha: 'two', message: 'Deduplicate fragments', author: null, authoredAt: null },
+  ];
+  function Picker() {
+    const [range, setRange] = useState<CommitRange>(null);
+    return <DiffViewer files={[file('all')]} commits={history} commitRange={range} onCommitRangeChange={setRange} />;
+  }
+  const host = document.createElement('div');
+  document.body.append(host);
+  const root = createRoot(host);
+  const element = <T extends Element>(selector: string): T => {
+    const found = host.querySelector<T>(selector);
+    assert(found !== null, `Missing ${selector}`);
+    return found;
+  };
+  const bodies = () => [...host.querySelectorAll('.pull-commit-picker__body')].map(entry => entry.textContent);
+  try {
+    flushSync(() => root.render(<Picker />));
+    const picker = element<HTMLDetailsElement>('.pull-commit-picker');
+    picker.open = true;
+    await settle();
+    assert(host.querySelectorAll('.pull-commit-picker__disclosure').length === 2, 'Only commits with a body may offer their message');
+    element<HTMLButtonElement>('[aria-label="Show message"]').click();
+    await settle();
+    element<HTMLButtonElement>('[aria-label="Show message"]').click();
+    await settle();
+    const pre = element('.pull-commit-picker__body');
+    assert(bodies().join('|') === `${body}|One place builds the map.` && getComputedStyle(pre).whiteSpace === 'pre-wrap',
+      'Each row must expand independently to its whole body with blank lines and indentation intact');
+    assert(host.querySelector('[aria-label="Choose commits, 3 selected"]') !== null && !element<HTMLInputElement>('[aria-label="Select one: Simplify collectors"]').checked,
+      'Showing a message must not change the commit selection');
+    element<HTMLInputElement>('[aria-label="Select one: Simplify collectors"]').click();
+    await settle();
+    element<HTMLButtonElement>('[aria-label="Hide message"]').click();
+    await settle();
+    assert(element<HTMLInputElement>('[aria-label="Deselect one: Simplify collectors"]').checked && bodies().join('|') === 'One place builds the map.',
+      'An expanded row must stay selectable, and hiding its message must keep the selection');
+    picker.open = false;
+    await settle();
+    picker.open = true;
+    await settle();
+    assert(bodies().length === 0 && host.querySelector('.pull-commit-picker__disclosure[aria-expanded="true"]') === null,
+      'Closing the commit list must collapse every message');
+    return 'Show commit messages without changing the selection';
+  }
+  finally {
+    flushSync(() => root.unmount());
+    host.remove();
+  }
+}
+
 export async function run(): Promise<string[]> {
   const completed = await runHook();
+  completed.push(await runCommitMessages());
   completed.push(await runMainScreen());
   completed.push(await runReviewWorkspace());
   completed.push(await runReviewSheet());

@@ -339,6 +339,19 @@ describe('DiffViewer', () => {
     expect(html).not.toContain('<select');
   });
 
+  it('offers a collapsed message disclosure only for commits with a body', () => {
+    const html = renderToStaticMarkup(<DiffViewer
+      files={[file]}
+      commits={[{ ...commits[0], message: 'First\n\nWhy the first commit exists.' }, commits[1]]}
+      onCommitRangeChange={() => {}}
+    />);
+
+    expect(html).toContain('<button type="button" class="pull-commit-picker__disclosure" aria-expanded="false" aria-label="Show message">');
+    expect(html.match(/pull-commit-picker__disclosure/g)).toHaveLength(1);
+    expect(html).toContain('<span aria-hidden="true"></span><code>2222222</code>');
+    expect(html).not.toContain('Why the first commit exists.');
+  });
+
   it('selects a consecutive range on one side of the diff', () => {
     const first = nextLineSelection(null, 'LEFT', 48, false, 2);
 

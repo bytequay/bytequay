@@ -494,6 +494,7 @@ function CommitPicker({ commits, range, onChange }: {
   onChange: (range: CommitRange) => void;
 }) {
   const pickerRef = useRef<HTMLDetailsElement>(null);
+  const [expanded, setExpanded] = useState<ReadonlySet<string>>(() => new Set());
 
   useEffect(() => {
     const closeOnOutsidePointer = (event: PointerEvent) => {
@@ -519,7 +520,8 @@ function CommitPicker({ commits, range, onChange }: {
   const selectedCount = range === null ? commits.length : range.end - range.start + 1;
 
   return (
-    <details className="pull-commit-picker" ref={pickerRef}>
+    <details className="pull-commit-picker" ref={pickerRef}
+      onToggle={event => { if (!event.currentTarget.open) setExpanded(new Set()); }}>
       <summary aria-label={`Choose commits, ${selectedCount} selected`}>
         <GitCommitHorizontal size={16} strokeWidth={1.5} aria-hidden="true" />
         <span>Commits</span>
@@ -549,24 +551,47 @@ function CommitPicker({ commits, range, onChange }: {
           aria-label="Select a consecutive commit range; commits between selected endpoints are included">
           {commits.map((commit, index) => {
             const selected = range !== null && index >= range.start && index <= range.end;
-            const subject = commit.message?.split(/\r?\n/, 1)[0].trim() || 'Untitled commit';
+            const [firstLine = '', ...rest] = (commit.message ?? '').split(/\r?\n/);
+            const subject = firstLine.trim() || 'Untitled commit';
+            // Drop the blank line Git puts after the subject, but keep the body's own indentation and blank lines.
+            const body = rest.join('\n').replace(/^\s*\n/, '').trimEnd();
+            const open = body !== '' && expanded.has(commit.sha);
             const age = relativeTime(commit.authoredAt);
             return (
-              <label className={`pull-commit-picker__row${selected ? ' is-selected' : ''}`} key={commit.sha}
-                title={subject}>
-                <input
-                  type="checkbox"
-                  checked={selected}
-                  aria-label={`${selected ? 'Deselect' : 'Select'} ${commit.sha.slice(0, 7)}: ${subject}`}
-                  onChange={() => {
-                    const next = nextCommitRange(range, index, commits.length);
-                    if (next !== range) onChange(next);
-                  }}
-                />
-                <code>{commit.sha.slice(0, 7)}</code>
-                <span>{subject}</span>
-                {commit.authoredAt && <time dateTime={commit.authoredAt}>{age}</time>}
-              </label>
+              <Fragment key={commit.sha}>
+                <label className={`pull-commit-picker__row${selected ? ' is-selected' : ''}${open ? ' is-expanded' : ''}`}
+                  title={subject}>
+                  <input
+                    type="checkbox"
+                    checked={selected}
+                    aria-label={`${selected ? 'Deselect' : 'Select'} ${commit.sha.slice(0, 7)}: ${subject}`}
+                    onChange={() => {
+                      const next = nextCommitRange(range, index, commits.length);
+                      if (next !== range) onChange(next);
+                    }}
+                  />
+                  {/* A nested button is the click target, so the label never forwards its click to the checkbox. */}
+                  {body === '' ? <span aria-hidden="true" /> : (
+                    <button
+                      type="button"
+                      className="pull-commit-picker__disclosure"
+                      aria-expanded={open}
+                      aria-label={open ? 'Hide message' : 'Show message'}
+                      onClick={() => setExpanded(current => {
+                        const next = new Set(current);
+                        if (!next.delete(commit.sha)) next.add(commit.sha);
+                        return next;
+                      })}
+                    >
+                      <ChevronRight size={14} strokeWidth={1.75} aria-hidden="true" />
+                    </button>
+                  )}
+                  <code>{commit.sha.slice(0, 7)}</code>
+                  <span>{subject}</span>
+                  {commit.authoredAt && <time dateTime={commit.authoredAt}>{age}</time>}
+                </label>
+                {open && <pre className="pull-commit-picker__body">{body}</pre>}
+              </Fragment>
             );
           })}
         </div>

@@ -1202,13 +1202,26 @@
 .pull-commit-picker__check { display: grid; width: 16px; height: 16px; place-items: center; color: #59636e; }
 .pull-commit-picker__divider { height: 1px; margin: 0 14px; background: #d8dee4; }
 .pull-commit-picker__list { max-height: min(360px, calc(100vh - 220px)); overflow-y: auto; padding: 6px 0; }
-.pull-commit-picker__row { display: grid; min-height: 44px; grid-template-columns: 24px 62px minmax(0, 1fr) auto; align-items: center; gap: 8px; cursor: pointer; color: #1f2328; padding: 8px 16px; font-size: var(--ui-font-size); }
+.pull-commit-picker__row { display: grid; min-height: 44px; grid-template-columns: 24px 14px 62px minmax(0, 1fr) auto; align-items: center; gap: 8px; cursor: pointer; color: #1f2328; padding: 8px 16px; font-size: var(--ui-font-size); }
 .pull-commit-picker__row:hover { background: #f6f8fa; }
 .pull-commit-picker__row input { width: 16px; height: 16px; margin: 0; accent-color: #0969da; cursor: pointer; }
 .pull-commit-picker__row input:focus-visible { outline: 2px solid #0969da; outline-offset: 2px; }
 .pull-commit-picker__row code { color: #59636e; font-family: var(--font-mono); font-size: 12px; }
 .pull-commit-picker__row > span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .pull-commit-picker__row time { color: #59636e; white-space: nowrap; }
+.pull-changes__toolbar .pull-commit-picker__disclosure,
+.pull-changes__toolbar .pull-commit-picker__disclosure:hover { width: 14px; height: 28px; border-radius: 0; background: transparent; color: #59636e; padding: 0; }
+.pull-commit-picker__disclosure:focus-visible { outline: 2px solid #0969da; outline-offset: 2px; }
+.pull-commit-picker__disclosure svg { transition: transform 120ms ease; }
+.pull-commit-picker__disclosure[aria-expanded="true"] svg { transform: rotate(90deg); }
+/* Expanded rows pin every cell to the first 28px line, where the collapsed row centers them, so a wrapped title does not move them. */
+.pull-commit-picker__row.is-expanded { align-items: start; }
+.pull-commit-picker__row.is-expanded,
+.pull-commit-picker__body { background: #f6f8fa; }
+.pull-commit-picker__row.is-expanded input { margin-top: 6px; }
+.pull-commit-picker__row.is-expanded :is(code, time) { line-height: 28px; }
+.pull-commit-picker__row.is-expanded > span { padding-block: 4px; font-weight: 600; white-space: normal; overflow-wrap: anywhere; }
+.pull-commit-picker__body { margin: 0; padding: 0 16px 12px 70px; color: #1f2328; font-family: var(--font-mono); font-size: 12.5px; line-height: 1.5; white-space: pre-wrap; overflow-wrap: anywhere; }
 .pr-review-sheet__pending { display: grid; flex: 0 0 auto; grid-template-columns: minmax(0, 1fr); gap: 10px; }
 .pr-review-sheet__pending .pr-inline-thread { margin: 0; }
 .pr-review-sheet__pending .pr-thread-comment { border-bottom: 0; }

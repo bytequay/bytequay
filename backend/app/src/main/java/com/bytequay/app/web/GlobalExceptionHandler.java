@@ -246,8 +246,6 @@ public class GlobalExceptionHandler
                 .body(new ErrorResponse(Instant.now(), status, message, path));
     }
 
-    public record ErrorResponse(Instant timestamp, int status, String message, String path) {}
-
     public record AgentProviderUnavailableResponse(
             Instant timestamp,
             int status,

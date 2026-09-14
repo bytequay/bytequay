@@ -15,7 +15,7 @@ package com.bytequay.app.web.agent;
 
 import com.bytequay.app.agent.AgentProperties;
 import com.bytequay.app.agent.AgentServingGate;
-import com.bytequay.app.web.GlobalExceptionHandler;
+import com.bytequay.app.web.ErrorResponse;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import jakarta.servlet.FilterChain;
 import jakarta.servlet.ServletException;
@@ -104,7 +104,7 @@ public final class AgentRequestFilter
     {
         response.setStatus(status.value());
         response.setContentType(MediaType.APPLICATION_JSON_VALUE);
-        objectMapper.writeValue(response.getWriter(), new GlobalExceptionHandler.ErrorResponse(
+        objectMapper.writeValue(response.getWriter(), new ErrorResponse(
                 Instant.now(),
                 status.value(),
                 message,

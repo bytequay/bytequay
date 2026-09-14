@@ -933,7 +933,7 @@ samp {
   font-size: 13px;
 }
 
-.app-sidebar__picker { position: relative; padding: 0 8px 2px; }
+.app-sidebar__picker { position: relative; padding: 0 0 2px; }
 
 .app-sidebar__empty { padding: 10px 12px; color: var(--text-4); font-size: 12.5px; }
 

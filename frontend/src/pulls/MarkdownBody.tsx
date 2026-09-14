@@ -449,8 +449,11 @@ export function markdownBlocks(markdown: string, repository?: string): Block[] {
       blocks.push({ kind: 'quote', text: content.join('\n') });
       continue;
     }
-    flushList();
-    paragraph.push(line.trim());
+    // Like GitHub, a line that starts no block of its own continues the list item or task above it.
+    const previous = blocks.at(-1);
+    if (list) list.items[list.items.length - 1] += ` ${line.trim()}`;
+    else if (previous?.kind === 'task' && paragraph.length === 0 && lines[index - 1].trim()) previous.text += ` ${line.trim()}`;
+    else paragraph.push(line.trim());
   }
   if (code) blocks.push({ kind: 'code', language: code.fence.language, text: code.lines.join('\n') });
   flushParagraph();

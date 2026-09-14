@@ -135,6 +135,23 @@ describe('MarkdownBody', () => {
     expect(html).toContain('<ul><li>Dash item</li><li>Asterisk item</li></ul>');
   });
 
+  it('continues list items and tasks across wrapped lines until a blank line', () => {
+    const body = '* Add `$spec_id` hidden column with the partition specification id of each\r\n'
+      + "  row's file, and allow `optimize`\r\n"
+      + 'with a lazy line.\r\n'
+      + '- [ ] Wrapped\r\n'
+      + '  task\r\n'
+      + '\r\n'
+      + 'After the list\r\n'
+      + 'stays a paragraph';
+
+    expect(markdownBlocks(body)).toEqual([
+      { kind: 'list', ordered: false, items: ["Add `$spec_id` hidden column with the partition specification id of each row's file, and allow `optimize` with a lazy line."] },
+      { kind: 'task', checked: false, text: 'Wrapped task' },
+      { kind: 'paragraph', text: 'After the list stays a paragraph' },
+    ]);
+  });
+
   it('renders an encoded checkmark as a checked task', () => {
     const html = renderToStaticMarkup(<MarkdownBody body="(&#x2713;) Release notes are required." />);
 

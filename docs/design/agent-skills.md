@@ -22,8 +22,8 @@ cards explain the rationale, implementation, and resulting behavior using the
 code or author context; inferred rationale is identified. Simple mechanical
 commits can use shorter explanations. These ranges are neither minimums nor
 hard caps. Combined result remains up to 30 words, and finding bodies or
-private replies usually up to 60 words. Evidence uses a few short result bullets; limitations state
-each distinct gap once. Required coverage, essential qualifications, and
+private replies usually up to 60 words. Evidence uses a few short result bullets; development
+limitations state each distinct gap once, and PR reviews record no limitations. Required coverage, essential qualifications, and
 explicit requests for detail take precedence over these targets. User writing
 preferences apply inside structured fields, including generated refinement
 and private replies in the selected task scope. These are generation rules;
@@ -78,15 +78,14 @@ an existing test that exercises the trigger or write and actually run a focused
 reproduction whenever feasible, before reporting the claim. Findings keep a
 short standalone body; their evidence references and explanations carry the
 command, expected/actual result, decisive output, test path or reproduction
-setup. A concrete execution blocker is
-reported as a limitation; only independently established code defects may be
-reported without a reproduced result. Speculation is omitted.
+setup. Only independently established code defects may be reported without a
+reproduced result, citing that code evidence. Speculation is omitted.
 
 Review findings require an explicit Critical, High, or Medium severity by
 default; Low requires a direct user request. Each full or incremental round
 selects at most ten distinct findings, ranked by severity and impact before
 saving. Discussions, retries, and report repair share that limit. Complete
-commit coverage and testing limitations remain required. Report repair reuses
+commit coverage remains required. Report repair reuses
 the investigation and collected evidence, with focused reproduction when
 feasible proof is still missing before reporting a claim.
 

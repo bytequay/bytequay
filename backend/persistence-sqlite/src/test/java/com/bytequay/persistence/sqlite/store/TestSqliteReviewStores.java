@@ -77,12 +77,10 @@ class TestSqliteReviewStores
             ImmutableList.of(new ReviewSummary.CommitExplanation(HEAD_SHA, "Adds the review tool surface and its prompts")),
             "Two findings, one of them critical",
             Optional.of("The focused parser tests passed"),
-            ImmutableList.of("finding-1"),
-            ImmutableList.of("did not read the generated bindings"));
+            ImmutableList.of("finding-1"));
     private static final ReviewCoverage COVERAGE = new ReviewCoverage(
             false,
             ImmutableList.of("generated sources", "vendored fixtures"),
-            ImmutableList.of("no network access"),
             NOW.plusSeconds(3));
 
     @Autowired

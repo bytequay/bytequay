@@ -159,7 +159,7 @@ public class ReviewTools
                         arguments -> call(reviewId, arguments, this::getContext)),
                 new ReviewTool("review_save_summary",
                         "Save the structured review summary for the current run: what the pull request does, one explanation per commit in scope, "
-                                + "the combined result, supporting evidence and actual test results, critical findings, and limitations. Saving again creates the next revision.",
+                                + "the combined result, supporting evidence and actual test results, and critical findings. Saving again creates the next revision.",
                         schema(ImmutableMap.<String, Object>builder()
                                 .put("operationKey", ImmutableMap.of("type", "string", "minLength", 1, "maxLength", MAX_KEY))
                                 .put("purpose", ImmutableMap.of("type", "string", "minLength", 1, "maxLength", 2000))
@@ -185,8 +185,7 @@ public class ReviewTools
                                 .put("combinedResult", ImmutableMap.of("type", "string", "minLength", 1, "maxLength", 3000))
                                 .put("evidence", ImmutableMap.of("type", "string", "maxLength", 8000))
                                 .put("criticalFindingIds", ImmutableMap.of("type", "array", "maxItems", 50, "items", ImmutableMap.of("type", "string")))
-                                .put("limitations", ImmutableMap.of("type", "array", "maxItems", 20, "items", ImmutableMap.of("type", "string", "maxLength", 500)))
-                                .buildOrThrow(), ImmutableList.of("operationKey", "purpose", "commits", "combinedResult", "criticalFindingIds", "limitations")),
+                                .buildOrThrow(), ImmutableList.of("operationKey", "purpose", "commits", "combinedResult", "criticalFindingIds")),
                         arguments -> call(reviewId, arguments, this::saveSummary)),
                 new ReviewTool("review_save_finding",
                         "Create an inline finding at diff anchors from review_get_context, or revise one by findingId with its expectedRevision. "
@@ -245,19 +244,12 @@ public class ReviewTools
                                         2000)), ImmutableList.of("operationKey", "findingId", "expectedRevision", "explanation")),
                         arguments -> call(reviewId, arguments, this::withdraw)),
                 new ReviewTool("review_finish",
-                        "Record the run's coverage: complete when every commit and file in scope was reviewed, otherwise list the omissions; "
-                                + "always state limitations such as tests not run.",
+                        "Record the run's coverage: complete when every commit and file in scope was reviewed, otherwise list the omissions.",
                         schema(ImmutableMap.of(
                                 "operationKey", ImmutableMap.of("type", "string", "minLength", 1, "maxLength", MAX_KEY),
                                 "complete", ImmutableMap.of("type", "boolean"),
-                                "omissions", ImmutableMap.of("type", "array", "maxItems", 50, "items", ImmutableMap.of("type", "string", "maxLength", 500)),
-                                "limitations", ImmutableMap.of(
-                                        "type",
-                                        "array",
-                                        "maxItems",
-                                        20,
-                                        "items",
-                                        ImmutableMap.of("type", "string", "maxLength", 500))), ImmutableList.of("operationKey", "complete", "omissions", "limitations")),
+                                "omissions", ImmutableMap.of("type", "array", "maxItems", 50, "items", ImmutableMap.of("type", "string", "maxLength", 500))),
+                                ImmutableList.of("operationKey", "complete", "omissions")),
                         arguments -> call(reviewId, arguments, this::finish)));
     }
 
@@ -341,8 +333,7 @@ public class ReviewTools
                 commits,
                 text(arguments, "combinedResult", 3000, true),
                 Optional.of(text(arguments, "evidence", 8000, false)).filter(value -> !value.isBlank()),
-                critical,
-                strings(arguments, "limitations", 20, 500));
+                critical);
         ObjectNode result = objectMapper.createObjectNode().put("revision", revision).put("status", "accepted");
         store.updateRun(call.run().withSummary(summary, now()).withOperation(replay.key(), new ReviewOperation(replay.digest(), result.toString()), now()));
         return result;
@@ -524,7 +515,7 @@ public class ReviewTools
         if (complete.asBoolean() && !omissions.isEmpty()) {
             throw new ReviewInvalidRequestException("complete: a complete review cannot list omissions");
         }
-        ReviewCoverage coverage = new ReviewCoverage(complete.asBoolean(), omissions, strings(arguments, "limitations", 20, 500), now());
+        ReviewCoverage coverage = new ReviewCoverage(complete.asBoolean(), omissions, now());
         boolean summaryMissing = call.run().summary().isEmpty();
         ObjectNode result = objectMapper.createObjectNode().put("status", summaryMissing ? "accepted; the summary is still missing, call review_save_summary" : "accepted");
         store.updateRun(call.run().withCoverage(coverage, now()).withOperation(replay.key(), new ReviewOperation(replay.digest(), result.toString()), now()));

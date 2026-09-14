@@ -19,7 +19,6 @@ import com.bytequay.core.review.ReviewRun;
 import com.bytequay.core.review.ReviewSummary;
 
 import java.util.Optional;
-import java.util.stream.Stream;
 
 /** Stable card identities retain the reviewed run while a newer review is being produced. */
 final class ReviewCards
@@ -49,10 +48,8 @@ final class ReviewCards
             case "evidence" -> summary.flatMap(ReviewSummary::evidence).orElse("No separate supporting evidence was recorded. Consult findings for their cited evidence.");
             case "critical-issues" -> summary.filter(value -> !value.criticalFindingIds().isEmpty())
                     .map(value -> String.join("\n", value.criticalFindingIds())).orElse("No critical findings were recorded.");
-            case "coverage" -> run.coverage().map(coverage -> "Complete: " + coverage.complete() + "\nOmissions: " + coverage.omissions()
-                    + "\nLimitations: " + coverage.limitations()).orElse("Coverage has not been recorded.");
-            case "limitations" -> String.join("\n", Stream.concat(summary.stream().flatMap(value -> value.limitations().stream()),
-                    run.coverage().stream().flatMap(value -> value.limitations().stream())).distinct().toList());
+            case "coverage" -> run.coverage().map(coverage -> "Complete: " + coverage.complete() + "\nOmissions: " + coverage.omissions())
+                    .orElse("Coverage has not been recorded.");
             default -> {
                 if (!section.startsWith("commit:")) {
                     throw new ReviewInvalidRequestException("cardId: unknown summary card");

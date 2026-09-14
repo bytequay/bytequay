@@ -34,7 +34,7 @@ or restoration of deleted task/development-flow systems.
 The PR list and development task PR pane both expose **Review & Learning**
 beside **PR #number** and **Changes**. The tab shows independent private cards
 for what the PR does, each commit's implementation, the combined result,
-evidence and tests, critical issues, coverage and limitations, and findings.
+evidence and tests, critical issues, coverage, and findings.
 Each card has its own discussion and uses the same review-card presentation
 as [Local review comments](agent-service.md#local-review-comments).
 The tab also collects local comments for this PR across development and review
@@ -155,8 +155,8 @@ this is not a second task engine:
 | Record | Required facts |
 | --- | --- |
 | Review | Workspace and logical PR identity, physical repository/head-branch identity, agent task ID, latest completed run, latest observed remote head, follow-up execution enabled/paused, optimistic version, explicit closure |
-| Run | Review ID, full/incremental scope, frozen base tip and merge base, head SHA, prior successful reviewed head if any, prompt version, turn IDs, accepted result/coverage, terminal outcome and limitations |
-| Summary | Run ID, revision, purpose, actual commit explanations, combined result, evidence/tests, critical finding references, limitations |
+| Run | Review ID, full/incremental scope, frozen base tip and merge base, head SHA, prior successful reviewed head if any, prompt version, turn IDs, accepted result/coverage, terminal outcome |
+| Summary | Run ID, revision, purpose, actual commit explanations, combined result, evidence/tests, critical finding references |
 | Finding | Stable ID, source run, immutable anchor mapping, title/body, evidence references, current revision, local resolution/withdrawal and reason, revalidation result for later runs |
 | Discussion message | Stable ID, review and summary-card/finding target, author, body, target revision/run, correlated task input/turn or reply, delivery outcome |
 | Outgoing draft/publication | PR/account-owned draft usable without Agent Review; stable item ID, MANUAL or AGENT_FINDING source, optional finding ID/revision, frozen location, user-editable body/version, inclusion, review body/event, exact publication attempt/payload and returned remote identities |
@@ -329,15 +329,14 @@ proof the top review priority. Before reporting an issue, opinion, or finding,
 run an existing test that exercises the trigger or write and actually run a
 focused reproduction whenever feasible. Include the command, expected/actual
 result, decisive output, and test setup with the finding; capture source and
-command-output evidence references. If execution is blocked, identify why and
-report only claims established by direct code evidence, explicitly unverified
-by execution. Test failures caused by the experiment or environment do not
+command-output evidence references. If execution is blocked, report only
+claims established by direct code evidence, citing that evidence. Test failures caused by the experiment or environment do not
 establish a PR defect.
 
 Select at most ten distinct findings per full or incremental round, ranked by
 severity and impact. Require Critical, High, or Medium by default; Low is
 included only at the user's explicit request. Discussions, retries, and report
-repair share the round's limit. Complete commit coverage and limitations remain
+repair share the round's limit. Complete commit coverage remains
 required. This is managed review guidance, delivered only through the existing
 review bridge; it introduces no UI setting or report-filtering state.
 
@@ -360,7 +359,7 @@ for that lane; failure does not disable ordinary agent tasks.
 | `review_save_finding` | Create a finding, or update a returned finding ID with its expected revision |
 | `review_reply` | Append a private answer to a summary/finding discussion using its returned target/message identity |
 | `review_withdraw_finding` | Withdraw an agent finding with expected revision and an explanation |
-| `review_finish` | Record explicit coverage, unresolved reporting omissions, and limitations for the bound run |
+| `review_finish` | Record explicit coverage and unresolved reporting omissions for the bound run |
 
 These are fixed application operations, not a model-controlled registry.
 Tool declarations carry strict JSON schemas and bounded fields; the backend
@@ -419,9 +418,14 @@ The summary contains:
 - a short explanation of each actual commit, using IDs from the frozen scope;
 - what the combined change achieves;
 - supporting evidence and tests, distinguishing executed checks from source
-  inspection or reported CI evidence and naming any execution limits;
-- critical issues linked to accepted finding IDs, or an explicit none found;
-- relevant limitations, omitted scope, and test/evidence qualifications.
+  inspection or reported CI evidence;
+- critical issues linked to accepted finding IDs, or an explicit none found.
+
+Every saved card and finding describes the pull request. A review records no
+limitations: the agent does not write about itself, its tools, sandbox, or what
+it could not do. Review commands have no network access, so the agent builds
+and runs the tests that exercise the change offline against the local
+dependency caches; only a failed offline build shows a dependency is missing.
 
 Validate commit/finding references against the run. Incremental review
 updates the overall explanation and identifies what the new commits changed;
@@ -447,8 +451,8 @@ accepted as complete only when its required summary/coverage is valid,
 reporting omissions are settled, and its contributing turns are successfully
 settled and quiescent. Partial/failed/cancelled runs retain valid provisional
 results but do not advance the successful incremental cursor. A complete
-zero-finding result must be explicit. Tests not run may be a stated
-limitation; a skipped essential diff is incomplete coverage.
+zero-finding result must be explicit. A skipped essential diff is incomplete
+coverage.
 
 ## 7. Discussion and progress
 
@@ -460,8 +464,8 @@ Route answers back to the selected discussion through `review_reply`; do not
 guess a target from prose or scatter one final response across all cards.
 
 Summary card identities include the run ID and a fixed target: `purpose`,
-`commit:<full-sha>`, `combined-result`, `critical-issues`, `coverage`,
-`limitations`, or `evidence`. Validate both the run's review ownership and the
+`commit:<full-sha>`, `combined-result`, `critical-issues`, `coverage`, or
+`evidence`. Validate both the run's review ownership and the
 selected commit before accepting input. Persist this target with the message
 and carry it through the existing reply tool, so one commit's discussion never
 appears in another card or run. Existing unscoped summary discussion belongs
@@ -628,8 +632,8 @@ explicit; do not weaken isolation merely to enable review.
 
 ## 10. Failure and retention rules
 
-- Optional graph and ancillary context failures are recoverable; report
-  limitations and continue where evidence permits.
+- Optional graph and ancillary context failures are recoverable; continue
+  where evidence permits.
 - Invalid local reports do not become findings. An exhausted repair leaves
   partial results visible and the successful cursor unchanged.
 - Provider/backend failure uses the existing interruption, replay, and
@@ -684,8 +688,8 @@ details screenshot and access to the current frontend when available.
 > screenshot and explicitly list assumptions instead of claiming code reuse.
 >
 > Review & Learning uses independent private cards for the PR's purpose, each
-> actual commit, combined result, evidence and tests, critical issues, coverage
-> and limitations. Put each card's own Ask agent discussion directly with it.
+> actual commit, combined result, evidence and tests, critical issues, and
+> coverage. Put each card's own Ask agent discussion directly with it.
 > Collect local user comments from both development and review tasks. Reuse review
 > comment cards with file/line or range, evidence, private replies, Ask agent,
 > Resolve locally, Add to my review and Post comment now. View in Changes

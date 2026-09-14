@@ -27,13 +27,11 @@ type ReviewSummaryDto = {
   combinedResult: string;
   evidence?: string | null;
   criticalFindingIds: string[];
-  limitations: string[];
 };
 
 type ReviewCoverageDto = {
   complete: boolean;
   omissions: string[];
-  limitations: string[];
   recordedAt: string;
 };
 
@@ -243,7 +241,6 @@ function parseSummary(value: unknown): ReviewSummaryDto | null {
     combinedResult: text(summary.combinedResult, 'combined result'),
     evidence: optionalText(summary.evidence),
     criticalFindingIds: strings(summary.criticalFindingIds),
-    limitations: strings(summary.limitations),
   };
 }
 
@@ -253,7 +250,6 @@ function parseCoverage(value: unknown): ReviewCoverageDto | null {
   return {
     complete: flag(coverage.complete),
     omissions: strings(coverage.omissions),
-    limitations: strings(coverage.limitations),
     recordedAt: text(coverage.recordedAt, 'coverage time'),
   };
 }

@@ -64,7 +64,7 @@ targets:
   checks. When reporting a finding, put detailed commands, logs, and reproduction
   setup in its evidence references. Otherwise keep necessary verification detail
   in the summary's evidence field. Avoid repeating it across cards.
-- Limitations: one short sentence per distinct gap. State a shared blocker
+- Limitations (development tasks only; PR reviews have none): one short sentence per distinct gap. State a shared blocker
   once; avoid repeating it in purpose, commits, evidence, and every finding.
 - Finding body: one short paragraph, usually 2–3 sentences and at most 60 words.
   State the trigger, defect, and consequence, then a concrete fix when useful.
@@ -76,7 +76,7 @@ targets:
 These are flexible guides, not minimums, hard caps, or permission to cut
 essential meaning. Use fewer words when possible. Exceed a target for a material condition,
 necessary evidence, or requested detail. Keep every required commit, finding
-reference, and distinct limitation; coverage does not require long prose.
+reference, and, in development tasks, distinct limitation; coverage does not require long prose.
 Follow applicable user writing preferences inside each field. Omit repeated
 headings, task status, next steps, and completion recaps from saved cards.
 After saving them, the conversation needs only a brief completion message.

@@ -270,8 +270,7 @@ class TestReviewTools
                 "purpose", "Explains the change",
                 "commits", ImmutableList.of(ImmutableMap.of("sha", "deadbeef", "explanation", "not a commit of this run")),
                 "combinedResult", "The change is small and self-contained.",
-                "criticalFindingIds", ImmutableList.of(),
-                "limitations", ImmutableList.of());
+                "criticalFindingIds", ImmutableList.of());
         JsonNode rejectedCommit = call("review_save_summary", foreignCommit);
         assertThat(rejectedCommit.path("error").path("field").asText()).isEqualTo("commits");
         assertThat(store.findRun(RUN_ID).orElseThrow().summary()).isEmpty();
@@ -299,8 +298,7 @@ class TestReviewTools
         Map<String, Object> contradictory = ImmutableMap.<String, Object>of(
                 "operationKey", "finish-contradictory",
                 "complete", true,
-                "omissions", ImmutableList.of("the generated sources were skipped"),
-                "limitations", ImmutableList.of());
+                "omissions", ImmutableList.of("the generated sources were skipped"));
         JsonNode rejected = call("review_finish", contradictory);
         assertThat(rejected.path("error").path("field").asText()).isEqualTo("complete");
         assertThat(store.findRun(RUN_ID).orElseThrow().coverage()).isEmpty();
@@ -308,15 +306,13 @@ class TestReviewTools
         Map<String, Object> honest = ImmutableMap.<String, Object>of(
                 "operationKey", "finish-1",
                 "complete", false,
-                "omissions", ImmutableList.of("the generated sources were skipped"),
-                "limitations", ImmutableList.of("tests were not run"));
+                "omissions", ImmutableList.of("the generated sources were skipped"));
         JsonNode accepted = call("review_finish", honest);
 
         assertThat(accepted.path("status").asText()).contains("the summary is still missing");
         ReviewCoverage coverage = store.findRun(RUN_ID).orElseThrow().coverage().orElseThrow();
         assertThat(coverage.complete()).isFalse();
         assertThat(coverage.omissions()).containsExactly("the generated sources were skipped");
-        assertThat(coverage.limitations()).containsExactly("tests were not run");
     }
 
     @Test
@@ -345,7 +341,7 @@ class TestReviewTools
                 .put("operationKey", "report").put("purpose", "Avoid losing parser state")
                 .put("commits", ImmutableList.of(ImmutableMap.of("sha", COMMIT_SHA, "explanation", "Keep the parser snapshot")))
                 .put("combinedResult", "State survives rollback").put("evidence", "Ran parser tests: 3 passed; CI was not inspected")
-                .put("criticalFindingIds", ImmutableList.of()).put("limitations", ImmutableList.of()).buildOrThrow();
+                .put("criticalFindingIds", ImmutableList.of()).buildOrThrow();
         assertThat(call("review_save_summary", report).path("status").asText()).isEqualTo("accepted");
         assertThat(store.findRun(RUN_ID).orElseThrow().summary().orElseThrow().evidence()).contains("Ran parser tests: 3 passed; CI was not inspected");
         assertThat(call("review_reply", ImmutableMap.of("operationKey", "old-summary", "target", "summary", "body", "Earlier summary answer"))
@@ -458,8 +454,7 @@ class TestReviewTools
                 "purpose", purpose,
                 "commits", ImmutableList.of(ImmutableMap.of("sha", COMMIT_SHA.substring(0, 7), "explanation", "adds the beta line")),
                 "combinedResult", "The change is small and self-contained.",
-                "criticalFindingIds", criticalFindingIds,
-                "limitations", ImmutableList.of("tests were not run"));
+                "criticalFindingIds", criticalFindingIds);
     }
 
     private static Map<String, Object> withdrawal(String operationKey, String findingId, int expectedRevision)

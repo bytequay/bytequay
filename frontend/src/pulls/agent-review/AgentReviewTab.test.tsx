@@ -190,18 +190,18 @@ describe('banners', () => {
 describe('the summary card', () => {
   const review = reviewFixture();
 
-  it('explains the purpose, each commit, the combined result and the limitations', () => {
+  it('explains the purpose, each commit and the combined result without a limitations card', () => {
     const html = summary(review);
     expect(html).toContain('What this PR does');
     expect(html).toContain('Commits');
     expect(html).toContain('5 in scope');
     expect(html).toContain('Combined result');
     expect(html).toContain('Critical issues');
-    expect(html).toContain('Limitations');
+    expect(html).not.toContain('Limitations');
     expect(html).toContain('Splits “address.zip” into a path');
     // Rendered as Markdown, not shown as literal backticks.
-    expect(html).toContain('<code>TestIcebergSortField</code>');
-    expect(html).not.toContain('`TestIcebergSortField`');
+    expect(html).toContain('<code>sorted_by</code>');
+    expect(html).not.toContain('`sorted_by`');
   });
 
   it('marks an unexplained commit as not yet read rather than silently omitting it', () => {
@@ -215,9 +215,17 @@ describe('the summary card', () => {
     expect(html).toContain('Private — never published');
     expect(html).toContain('pr-inline-thread is-local-review');
     expect(html).toContain('Why does the second commit change IcebergUtil');
-    expect(html.match(/data-review-card=/g)).toHaveLength(11);
+    expect(html.match(/data-review-card=/g)).toHaveLength(10);
     expect(html).toContain('Ask agent');
     expect(html).not.toContain('Post comment now');
+  });
+
+  it('keeps a discussion saved on the removed limitations card under coverage', () => {
+    const run = review.runs[0];
+    const legacy = { ...review.messages[0], findingId: null as string | null, runId: run.id, cardId: `${run.id}:limitations`, body: 'Why was the build skipped?' };
+    const html = summary({ ...review, messages: [...review.messages, legacy] });
+    expect(html).toContain('Why was the build skipped?');
+    expect(html).not.toContain('Limitations');
   });
 });
 

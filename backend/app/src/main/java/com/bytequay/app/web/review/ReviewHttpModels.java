@@ -97,13 +97,12 @@ final class ReviewHttpModels
                 summary.commits().stream().map(commit -> new CommitExplanationResponse(commit.sha(), commit.explanation())).collect(toImmutableList()),
                 summary.combinedResult(),
                 summary.evidence(),
-                summary.criticalFindingIds(),
-                summary.limitations());
+                summary.criticalFindingIds());
     }
 
     private static CoverageResponse coverage(ReviewCoverage coverage)
     {
-        return new CoverageResponse(coverage.complete(), coverage.omissions(), coverage.limitations(), coverage.recordedAt());
+        return new CoverageResponse(coverage.complete(), coverage.omissions(), coverage.recordedAt());
     }
 
     private static FindingResponse finding(ReviewFinding finding)
@@ -253,12 +252,11 @@ final class ReviewHttpModels
             List<CommitExplanationResponse> commits,
             String combinedResult,
             Optional<String> evidence,
-            List<String> criticalFindingIds,
-            List<String> limitations) {}
+            List<String> criticalFindingIds) {}
 
     record CommitExplanationResponse(String sha, String explanation) {}
 
-    record CoverageResponse(boolean complete, List<String> omissions, List<String> limitations, Instant recordedAt) {}
+    record CoverageResponse(boolean complete, List<String> omissions, Instant recordedAt) {}
 
     record FindingResponse(
             String id,

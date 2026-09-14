@@ -894,12 +894,12 @@ class TestDefaultAgentReviewService
 
     private static ReviewSummary summary()
     {
-        return new ReviewSummary(1, "Fix the parser reset", ImmutableList.of(), "The change is sound", Optional.empty(), ImmutableList.of(), ImmutableList.of());
+        return new ReviewSummary(1, "Fix the parser reset", ImmutableList.of(), "The change is sound", Optional.empty(), ImmutableList.of());
     }
 
     private static ReviewCoverage coverage()
     {
-        return new ReviewCoverage(true, ImmutableList.of(), ImmutableList.of(), NOW);
+        return new ReviewCoverage(true, ImmutableList.of(), NOW);
     }
 
     private static ReviewFinding finding(String findingId, String reviewId, String runId, int ordinal, ReviewFinding.State state)

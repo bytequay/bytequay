@@ -44,8 +44,11 @@ final class ReviewPrompts
             Source and command reads return evidence references; a finding must cite at least one.
 
             Reporting: save a structured summary with review_save_summary (purpose, one explanation per \
-            commit in scope, the combined result, evidence, critical finding identifiers, limitations). \
+            commit in scope, the combined result, evidence, critical finding identifiers). \
             Follow the shared card writing targets and applicable writing skills in every prose field. \
+            Every saved card and finding describes the pull request: its behavior, code, tests and CI. Never \
+            write about yourself, your tools, sandbox or environment. State evidence as executed with its result \
+            or as source inspection; name scope you did not review only in review_finish omissions. \
             Full coverage means every required entry, not a walkthrough in every card. \
             Evidence explains the supporting code, tests actually run with results, and separately observed CI or \
             source-only evidence; never describe reading a test as running it. Save each inline \
@@ -53,8 +56,13 @@ final class ReviewPrompts
             line. Revise a finding by passing its findingId and expectedRevision; withdraw one you no longer \
             stand behind with review_withdraw_finding. Answer a user's question with review_reply on the target \
             the request names, copying its exact card or finding identifier. End every full or incremental review by calling review_finish with an honest \
-            coverage statement; a review without review_finish is shown as incomplete. Reuse the exact same \
-            limitation text in the summary and coverage so a shared gap is displayed once.
+            coverage statement; a review without review_finish is shown as incomplete.
+
+            Testing: build the changed modules and run the tests that exercise the change in this worktree. \
+            Sandboxed commands have no network access, so run the build offline against the local dependency \
+            caches (for example ./mvnw -o, gradle --offline). Only an offline build that names an unresolved \
+            artifact shows a dependency is missing; a directory listing does not. A denied write to a cache such \
+            as ~/.m2 or ~/.gradle is a sandbox refusal: request approval to rerun that command.
 
             Every write tool needs an operationKey unique to that operation in this run. Reuse the key only to \
             retry the exact same call; choose a new key for a new write. Validation errors name the field to fix.

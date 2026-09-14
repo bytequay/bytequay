@@ -43,6 +43,8 @@ function SummarySectionCard({ card, review, run, viewerLogin, viewerAvatarUrl, b
   const messages = review.messages.filter(message => message.findingId === null && (
     message.cardId === card.id || (message.cardId == null && card.id === `${run.id}:purpose`
       && (message.runId == null || message.runId === run.id))
+    // Reviews no longer have a Limitations card; its saved discussion stays readable under coverage.
+    || (message.cardId === `${run.id}:limitations` && card.id === `${run.id}:coverage`)
   ));
   const close = () => { setComposing(false); setText(''); setError(null); };
   const submit = async () => {
@@ -96,7 +98,6 @@ export default function ReviewSummaryCard({ review, run, findings, viewerLogin, 
     .filter((finding): finding is ReviewFindingDto => finding !== undefined);
   const evidence = [...new Map(findings.filter(finding => finding.runId === run.id)
     .flatMap(finding => finding.evidence).map(item => [item.ref, item])).values()];
-  const limitations = [...summary.limitations, ...(run.coverage?.limitations ?? [])];
   const cards: SummaryCard[] = [
     { id: `${run.id}:purpose`, title: 'What this PR does', body: markdown(summary.purpose) },
     ...run.commits.map(commit => {
@@ -129,7 +130,6 @@ export default function ReviewSummaryCard({ review, run, findings, viewerLogin, 
         <button type="button" className="agr-link" onClick={() => onSelectFinding(finding)}>{finding.title}</button>
         <span className="agr-critical__where">{finding.path.split('/').pop()} {finding.range}</span>
       </li>)}</ul> },
-    { id: `${run.id}:limitations`, title: 'Limitations', body: markdown(limitations.length ? bullets(limitations) : 'None recorded.') },
   ];
   return <div className="agr-learning-cards">
     <div className="agr-learning-cards__scope">Commits · {run.commits.length} in scope · base {run.baseRef}@{shortSha(run.baseSha)}</div>

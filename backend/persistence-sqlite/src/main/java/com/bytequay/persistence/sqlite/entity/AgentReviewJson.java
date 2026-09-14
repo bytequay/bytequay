@@ -14,6 +14,7 @@
 package com.bytequay.persistence.sqlite.entity;
 
 import com.fasterxml.jackson.core.type.TypeReference;
+import com.fasterxml.jackson.databind.DeserializationFeature;
 import com.fasterxml.jackson.databind.ObjectMapper;
 
 import static com.bytequay.persistence.sqlite.entity.JsonGuard.REVIEW;
@@ -21,7 +22,9 @@ import static com.bytequay.persistence.sqlite.entity.JsonGuard.REVIEW;
 /** JSON columns of the review tables; the domain records are the wire shape, read back through their own validation. */
 final class AgentReviewJson
 {
-    private static final ObjectMapper OBJECT_MAPPER = new ObjectMapper().findAndRegisterModules();
+    // Stored runs keep fields the review record has since dropped, such as summary and coverage limitations.
+    private static final ObjectMapper OBJECT_MAPPER = new ObjectMapper().findAndRegisterModules()
+            .disable(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES);
 
     private AgentReviewJson() {}
 

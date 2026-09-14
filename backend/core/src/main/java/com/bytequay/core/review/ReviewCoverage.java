@@ -21,12 +21,11 @@ import java.util.List;
 import static java.util.Objects.requireNonNull;
 
 /** What the agent recorded with {@code review_finish}: whether the frozen scope was reviewed, and what it left out. */
-public record ReviewCoverage(boolean complete, List<String> omissions, List<String> limitations, Instant recordedAt)
+public record ReviewCoverage(boolean complete, List<String> omissions, Instant recordedAt)
 {
     public ReviewCoverage
     {
         omissions = ImmutableList.copyOf(omissions);
-        limitations = ImmutableList.copyOf(limitations);
         requireNonNull(recordedAt, "recordedAt is null");
     }
 }

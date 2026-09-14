@@ -28,8 +28,7 @@ public record ReviewSummary(
         List<CommitExplanation> commits,
         String combinedResult,
         Optional<String> evidence,
-        List<String> criticalFindingIds,
-        List<String> limitations)
+        List<String> criticalFindingIds)
 {
     public ReviewSummary
     {
@@ -39,7 +38,6 @@ public record ReviewSummary(
         requireNonNull(combinedResult, "combinedResult is null");
         requireNonNull(evidence, "evidence is null");
         criticalFindingIds = ImmutableList.copyOf(criticalFindingIds);
-        limitations = ImmutableList.copyOf(limitations);
     }
 
     public record CommitExplanation(String sha, String explanation)

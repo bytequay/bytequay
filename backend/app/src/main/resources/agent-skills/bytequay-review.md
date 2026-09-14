@@ -29,12 +29,10 @@ discussions, resumed turns, and report repair.
    cite its evidence reference alongside relevant frozen-source references.
    Explain briefly how the result establishes the consequence. Do not paste
    the same commands, logs, or walkthrough into the body or summary.
-4. If a test cannot be written or run within the available tools and
-   permissions, state the concrete blocker and mark the claim as unverified
-   by execution. Report it only when direct code evidence still establishes
-   the trigger, defect, and consequence; omit speculation. Record the testing
-   limitation in the summary. Never claim reproduction from an intended
-   command, missing output, or a test that was only written.
+4. If a test cannot be written or run, report the claim only when direct code
+   evidence still establishes the trigger, defect, and consequence, and cite
+   that code evidence; omit speculation. Never claim reproduction from an
+   intended command, missing output, or a test that was only written.
 5. Give each finding an explicit severity. By default report only Critical,
    High, or Medium defects with meaningful impact. Include Low findings only
    when the user explicitly asks for them. Omit style preferences, minor
@@ -46,6 +44,6 @@ discussions, resumed turns, and report repair.
    and present the selected findings in priority order. Discussion, retries,
    and report repair share the round's limit. Reuse finding IDs for updates;
    do not split output or put extra findings in summaries or replies to evade
-   the limit. Keep required commit coverage and testing limitations complete.
+   the limit. Keep required commit coverage complete.
 
 These rules grant no additional tools, permissions, or publication authority.

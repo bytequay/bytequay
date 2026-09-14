@@ -43,10 +43,6 @@ const SUMMARY = {
     + 'Iceberg sort order. Top-level behaviour is unchanged. The result depends on `resolveNestedFieldId` returning the '
     + 'right ID, which the first finding questions.',
   criticalFindingIds: ['finding-1'],
-  limitations: [
-    'Only `TestIcebergSortField` and `TestIcebergNestedSortOrder` were run; the full connector suite was not.',
-    'Behaviour with REST catalogs was not exercised; the evidence is unit-level.',
-  ],
 };
 
 const RUN: ReviewRunDto = {
@@ -62,7 +58,7 @@ const RUN: ReviewRunDto = {
   turnIds: ['turn-1'],
   state: 'ACCEPTED',
   summary: SUMMARY,
-  coverage: { complete: true, omissions: [], limitations: [], recordedAt: '2026-09-06T16:15:00Z' },
+  coverage: { complete: true, omissions: [], recordedAt: '2026-09-06T16:15:00Z' },
   outcome: null,
   createdAt: '2026-09-06T16:03:00Z',
   endedAt: '2026-09-06T16:15:00Z',

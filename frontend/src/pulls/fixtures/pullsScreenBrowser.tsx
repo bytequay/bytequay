@@ -14,10 +14,11 @@
 
 import { flushSync } from 'react-dom';
 import { createRoot } from 'react-dom/client';
-import type { Bridge, DiffCommitDto, DiffFileDto, PullRequestDetailDto, PullTimelinePayloadDto } from '../../types';
-import PullsScreen, { remotePullRequest } from '../PullsScreen';
+import type { Bridge, DiffCommitDto, DiffFileDto, InlineReviewCommentDto, PullRequestDetailDto, PullTimelinePayloadDto } from '../../types';
+import PullsScreen, { remotePullRequest, ReviewDialog } from '../PullsScreen';
 import ReviewTaskScreen from '../../agents/ReviewTaskScreen';
 import { createPreviewBridge } from '../../agents/fixtures/previewBridge';
+import type { ReviewDraftDto } from '../agent-review/contracts';
 import { reviewFixture } from '../agent-review/fixtures/review';
 import '../../css/base.css';
 
@@ -246,6 +247,75 @@ export async function runReviewWorkspace(): Promise<string> {
     conversation.querySelector<HTMLButtonElement>('[aria-label="Back to tasks"]')?.click();
     assert(back === 1, 'The review workspace back action must return to its task list');
     return 'Retained review workspace replays its conversation beside learning cards and returns to tasks';
+  }
+  finally {
+    flushSync(() => root.unmount());
+    host.remove();
+    Object.assign(window, { bridge: originalBridge });
+  }
+}
+
+export async function runReviewSheet(): Promise<string> {
+  const draft: ReviewDraftDto = { repo: 'trinodb/trino', number: 30304, body: '', event: 'COMMENT', version: 4, updatedAt: '2026-09-06T16:20:00Z',
+    items: [{ id: 'item-1', source: 'AGENT_FINDING', findingId: 'finding-1', findingRevision: 1, path: 'src/Finding.java', side: 'RIGHT',
+      line: 12, startLine: null, body: 'Promoted finding text', included: true, published: false, publication: null }] };
+  const review = reviewFixture({ draft });
+  const detail: PullRequestDetailDto = {
+    id: 9, repo: review.repo, number: review.number, title: 'Sheet', htmlUrl: null, state: 'open', draft: false,
+    mergeable: null, mergeableState: null, author: 'alice', authorAvatarUrl: null, createdAt: null, updatedAt: null,
+    mergedAt: null, baseRef: 'main', headRef: 'feature', body: null, labels: [], assignees: [], milestone: null,
+    reviewers: [], additions: 1, deletions: 1, changedFiles: 1, approvalCount: 0, ciStatus: null, recentActivity: [],
+    checkRuns: [], unavailableSections: [], viewerCanWrite: true,
+  };
+  const written: InlineReviewCommentDto = { path: 'src/Written.java', body: 'Written comment text', line: 3, side: 'RIGHT',
+    startLine: null, startSide: null, commitId: review.observedHeadSha };
+  const calls: string[] = [];
+  const events: string[] = [];
+  let closed = false;
+  const bridge = {
+    addReviewDraftComment: async (_repo, _number, version, comment) => {
+      calls.push(`add v${version} ${comment.path}:${comment.line} ${comment.body}`);
+      return { ...draft, version: version + 1 };
+    },
+    submitReviewDraft: async (_repo, _number, version, body, event) => {
+      calls.push(`draft v${version} ${event} "${body}"`);
+      return { draft, publishedItemIds: ['item-1'], uncertainReason: null };
+    },
+    submitReview: async () => { calls.push('plain'); return detail; },
+    getAgentReview: async () => { calls.push('reload'); return review; },
+    fetchPullRequestDetailByRef: async () => { calls.push('detail'); return detail; },
+  } satisfies Pick<Bridge, 'addReviewDraftComment' | 'submitReviewDraft' | 'submitReview' | 'getAgentReview' | 'fetchPullRequestDetailByRef'>;
+  const originalBridge = window.bridge;
+  Object.assign(window, { bridge });
+  const host = document.createElement('div');
+  document.body.append(host);
+  const root = createRoot(host);
+  const mount = (comments: InlineReviewCommentDto[]) => flushSync(() => root.render(<ReviewDialog pr={remotePullRequest(detail, 'bob')}
+    detail={detail} review={review} onReviewChange={() => events.push('review')} pendingComments={comments}
+    onPendingCommentsChange={next => events.push(`pending ${next.length}`)}
+    onReviewSubmitted={(_value, event) => events.push(`submitted ${event}`)} onClose={() => { closed = true; }} />));
+  const submit = async () => {
+    host.querySelector<HTMLButtonElement>('.pr-review-sheet__footer .is-primary')?.click();
+    for (let attempt = 0; attempt < 10; attempt++) await settle();
+  };
+  try {
+    mount([{ ...written, commitId: 'older-commit' }]);
+    assert(host.textContent?.includes('src/Finding.java · line 12') === true && host.textContent.includes('Promoted finding text')
+      && host.textContent.includes('Written comment text'), 'The sheet must list added findings beside written comments');
+    host.querySelector<HTMLInputElement>('input[type="radio"]')?.click();
+    await settle();
+    await submit();
+    assert(calls.every(call => call === 'reload') && host.querySelector('[role="alert"]')?.textContent?.includes('selected commits') === true,
+      `A comment written on selected commits must not be moved onto the current head: ${calls.join(' | ')}`);
+
+    calls.length = 0;
+    mount([written]);
+    await submit();
+    assert(closed && calls.join(' | ') === 'add v4 src/Written.java:3 Written comment text | draft v5 COMMENT "" | reload | detail',
+      `Added findings must go out through the draft with the written comments, not the plain review: ${calls.join(' | ')}`);
+    assert(events.includes('pending 0') && events.includes('submitted COMMENT') && events.includes('review'),
+      `Submitting must clear written comments and refresh the review and pull request: ${events.join(' | ')}`);
+    return 'Submit review lists added findings and sends them with written comments through the draft';
   }
   finally {
     flushSync(() => root.unmount());

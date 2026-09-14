@@ -968,6 +968,7 @@ export default function PullsScreen({
             detail={detail}
             tab={detailTab}
             review={review}
+            onReviewChange={updateReview}
             onTab={next => {
               if (next === 'changes' && detailTab !== 'changes') recordDiffOpened();
               setDetailTab(next);
@@ -1099,6 +1100,7 @@ export function PullDetailHeader({
   detail,
   tab,
   review = null,
+  onReviewChange,
   agentTab,
   onTab,
   onRefresh,
@@ -1117,6 +1119,7 @@ export function PullDetailHeader({
   tab: DetailTab | null;
   /** The open Agent review, when the pull request has one; its status rides on the tab. */
   review?: AgentReviewDto | null;
+  onReviewChange?: (review: AgentReviewDto) => void;
   agentTab?: ReactNode;
   onTab: (tab: DetailTab) => void;
   onRefresh: () => Promise<void>;
@@ -1256,7 +1259,7 @@ export function PullDetailHeader({
         </div>
       </div>
       {reviewOpen && detail && (
-        <ReviewDialog pr={pr} detail={detail}
+        <ReviewDialog pr={pr} detail={detail} review={review} onReviewChange={onReviewChange}
           pendingComments={pendingComments}
           onPendingCommentsChange={onPendingCommentsChange}
           onClose={() => setReviewOpen(false)} onReviewSubmitted={onReviewSubmitted} />
@@ -1319,6 +1322,8 @@ type ReviewEvent = 'COMMENT' | 'APPROVE' | 'REQUEST_CHANGES';
 export function ReviewDialog({
   pr,
   detail,
+  review = null,
+  onReviewChange = () => undefined,
   pendingComments = [],
   onPendingCommentsChange = () => undefined,
   onReviewSubmitted,
@@ -1326,6 +1331,9 @@ export function ReviewDialog({
 }: {
   pr: PullRequestDto;
   detail: PullRequestDetailDto;
+  /** Findings the user added to their review wait in its draft and go out with this review. */
+  review?: AgentReviewDto | null;
+  onReviewChange?: (review: AgentReviewDto) => void;
   pendingComments?: InlineReviewCommentDto[];
   onPendingCommentsChange?: (comments: InlineReviewCommentDto[]) => void;
   onReviewSubmitted: (
@@ -1340,7 +1348,35 @@ export function ReviewDialog({
   const event = authored ? 'COMMENT' : selectedEvent;
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const bodyRequired = event !== 'APPROVE' && pendingComments.length === 0;
+  const promoted = review?.draft?.items.filter(item => item.included && !item.published) ?? [];
+  const bodyRequired = event !== 'APPROVE' && pendingComments.length === 0 && promoted.length === 0;
+  const failed = (value: unknown) => setError(value instanceof Error ? value.message : String(value));
+
+  // A draft write can leave the draft changed even when it fails, so the sheet re-reads it.
+  const reloadReview = () => {
+    if (review !== null) void window.bridge.getAgentReview(review.id).then(onReviewChange, () => {});
+  };
+
+  const removePromoted = async (itemId: string) => {
+    if (!review?.draft) return;
+    setError(null);
+    try {
+      await window.bridge.removeReviewDraftComment(detail.repo, detail.number, review.draft.version, itemId);
+    }
+    catch (value) {
+      failed(value);
+    }
+    reloadReview();
+  };
+
+  const outgoing = [
+    ...pendingComments.map((comment, index) => ({
+      key: `${comment.path}:${comment.side}:${comment.startLine ?? comment.line}:${comment.line}:${index}`,
+      comment,
+      remove: () => onPendingCommentsChange(pendingComments.filter((_, commentIndex) => commentIndex !== index)),
+    })),
+    ...promoted.map(item => ({ key: item.id, comment: item, remove: () => { void removePromoted(item.id); } })),
+  ];
 
   useEffect(() => {
     const close = (keyboardEvent: KeyboardEvent) => {
@@ -1357,23 +1393,47 @@ export function ReviewDialog({
     setSubmitting(true);
     setError(null);
     try {
-      const reviewed = await window.bridge.submitReview(
-        pr.id,
-        detail.repo,
-        detail.number,
-        event,
-        body.trim(),
-        pendingComments,
-      );
-      onPendingCommentsChange([]);
-      // A review cannot move the diff, so the patched detail is enough and the
-      // Changes tab keeps what it already loaded.
-      onReviewSubmitted(reviewed, event);
+      if (review?.draft && promoted.length > 0) {
+        // Added findings can only leave through the draft, which reserves each one so Post comment
+        // now cannot send it again. Written comments join the draft to share the review, but the
+        // draft sends everything against the current head, where a comment written on selected
+        // commits would land on the wrong lines.
+        if (pendingComments.some(comment => comment.commitId !== null && comment.commitId !== review.observedHeadSha)) {
+          throw new Error('Comments written on selected commits cannot be sent with agent findings. Remove them or write them on all changes.');
+        }
+        let version = review.draft.version;
+        for (const [index, comment] of pendingComments.entries()) {
+          version = (await window.bridge.addReviewDraftComment(detail.repo, detail.number, version, {
+            path: comment.path, side: comment.side, line: comment.line, startLine: comment.startLine, body: comment.body,
+          })).version;
+          onPendingCommentsChange(pendingComments.slice(index + 1));
+        }
+        await window.bridge.submitReviewDraft(detail.repo, detail.number, version, body.trim(), event);
+        reloadReview();
+        // The draft answers with itself alone; the stored detail already carries the new review.
+        void window.bridge.fetchPullRequestDetailByRef(detail.repo, detail.number)
+          .then(reviewed => onReviewSubmitted(reviewed, event), () => {});
+      }
+      else {
+        const reviewed = await window.bridge.submitReview(
+          pr.id,
+          detail.repo,
+          detail.number,
+          event,
+          body.trim(),
+          pendingComments,
+        );
+        onPendingCommentsChange([]);
+        // A review cannot move the diff, so the patched detail is enough and the
+        // Changes tab keeps what it already loaded.
+        onReviewSubmitted(reviewed, event);
+      }
       onClose();
     }
     catch (value) {
-      setError(value instanceof Error ? value.message : String(value));
+      failed(value);
       setSubmitting(false);
+      if (promoted.length > 0) reloadReview();
     }
   };
 
@@ -1393,17 +1453,15 @@ export function ReviewDialog({
           placeholder="Leave a comment on this pull request…"
           aria-label="Review comment"
           onChange={change => setBody(change.target.value)} />
-        {pendingComments.length > 0 && (
+        {outgoing.length > 0 && (
           <div className="pr-review-sheet__pending">
-            {pendingComments.map((comment, index) => (
-              <div key={`${comment.path}:${comment.side}:${comment.startLine ?? comment.line}:${comment.line}:${index}`}>
+            {outgoing.map(({ key, comment, remove }) => (
+              <div key={key}>
                 <span><code title={comment.path}>{shortPath(comment.path)}</code> · {comment.startLine && comment.startLine !== comment.line
                   ? `lines ${comment.startLine}–${comment.line}`
                   : `line ${comment.line}`}</span>
                 <p>{comment.body}</p>
-                <button type="button" onClick={() => onPendingCommentsChange(
-                  pendingComments.filter((_, commentIndex) => commentIndex !== index),
-                )}>Remove</button>
+                <button type="button" disabled={submitting} onClick={remove}>Remove</button>
               </div>
             ))}
           </div>

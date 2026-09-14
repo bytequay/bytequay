@@ -656,6 +656,7 @@ function SidePanel({
       detail={pullRequestDetail.detail}
       tab={tab === 'pr' ? 'overview' : tab === 'agents' ? null : tab}
       review={review}
+      onReviewChange={setReview}
       agentTab={agentTab}
       onTab={tab => onSelectTab(tab === 'overview' ? 'pr' : tab)}
       onRefresh={pullRequestDetail.refresh}

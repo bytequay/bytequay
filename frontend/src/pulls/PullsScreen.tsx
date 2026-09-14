@@ -20,7 +20,7 @@ import Toast from '../Toast';
 import type { Bridge, DiffCommitDto, DiffFileDto, InlineReviewCommentDto, PullRequestDetailDto, PullRequestDto, PullRequestPageDto, UserProfileDto } from '../types';
 import AgentReviewTab, { type ReviewNavigationTarget } from './agent-review/AgentReviewTab';
 import type { AgentReviewDto } from './agent-review/contracts';
-import { pendingDraftCount, reviewStatus } from './agent-review/model';
+import { pendingDraftCount, reviewStatus, shortPath } from './agent-review/model';
 import { useLocalReviewThreads } from './local-review/useLocalReviewThreads';
 import type { LocalReviewThreads } from './local-review/types';
 import PullChanges, { type CommitRange, type DiffAgentComment } from './PullChanges';
@@ -1397,7 +1397,7 @@ export function ReviewDialog({
           <div className="pr-review-sheet__pending">
             {pendingComments.map((comment, index) => (
               <div key={`${comment.path}:${comment.side}:${comment.startLine ?? comment.line}:${comment.line}:${index}`}>
-                <span><code>{comment.path}</code> · {comment.startLine && comment.startLine !== comment.line
+                <span><code title={comment.path}>{shortPath(comment.path)}</code> · {comment.startLine && comment.startLine !== comment.line
                   ? `lines ${comment.startLine}–${comment.line}`
                   : `line ${comment.line}`}</span>
                 <p>{comment.body}</p>

@@ -1209,11 +1209,14 @@
 .pull-commit-picker__row code { color: #59636e; font-family: var(--font-mono); font-size: 12px; }
 .pull-commit-picker__row > span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .pull-commit-picker__row time { color: #59636e; white-space: nowrap; }
-.pr-review-sheet__pending { display: grid; gap: 6px; border: 1px solid #d0d7de; border-radius: 8px; background: #f6f8fa; padding: 10px; }
+.pr-review-sheet__pending { display: grid; grid-template-columns: minmax(0, 1fr); gap: 6px; border: 1px solid #d0d7de; border-radius: 8px; background: #f6f8fa; padding: 10px; }
 .pr-review-sheet__pending > strong { font-size: 12px; font-weight: 500; }
-.pr-review-sheet__pending > div { display: flex; align-items: center; gap: 8px; border-top: 1px solid #d8dee4; padding-top: 6px; }
-.pr-review-sheet__pending code { min-width: 0; overflow: hidden; flex: 1; color: #59636e; font-size: 10.5px; text-overflow: ellipsis; white-space: nowrap; }
-.pr-review-sheet__pending button { border: 0; background: transparent; color: #cf222e; padding: 3px; }
+.pr-review-sheet__pending > div { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; column-gap: 8px; border-top: 1px solid #d8dee4; padding-top: 6px; }
+.pr-review-sheet__pending span { display: flex; min-width: 0; align-items: baseline; gap: 0.35em; white-space: nowrap; }
+.pr-review-sheet__pending code { min-width: 0; overflow: hidden; flex: 0 1 auto; color: #59636e; font-size: 10.5px; text-overflow: ellipsis; white-space: nowrap; }
+/* A comment body can run to several paragraphs; the sheet only needs enough to recognise it. */
+.pr-review-sheet__pending p { display: -webkit-box; overflow: hidden; margin: 0; grid-column: 1 / -1; -webkit-box-orient: vertical; -webkit-line-clamp: 3; overflow-wrap: anywhere; white-space: pre-wrap; }
+.pr-review-sheet__pending button { grid-row: 1; grid-column: 2; border: 0; background: transparent; color: #cf222e; padding: 3px; }
 
 @media (max-width: 1080px) {
   .pull-detail__header:not(.pull-detail__header--tabs) { padding-right: 24px; padding-left: 24px; }

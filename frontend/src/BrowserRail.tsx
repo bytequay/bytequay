@@ -53,7 +53,7 @@ export default function BrowserRail({ state, expanded, newPageOpen, error, onTog
         {expanded && <span className="browser-rail__label">{tab.title || tab.url}</span>}
       </button>
       {expanded && <button type="button" className="browser-rail__close" onClick={() => onClose(tab.id)}
-        title={tab.pinned ? 'Close page and remove pin' : 'Close page'} aria-label={`Close ${tab.title || tab.url}`}><X size={14} /></button>}
+        title={tab.pinned ? 'Minimize page and keep pin' : 'Close page'} aria-label={`${tab.pinned ? 'Minimize' : 'Close'} ${tab.title || tab.url}`}><X size={14} /></button>}
     </div>
   );
   return (

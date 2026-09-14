@@ -92,7 +92,7 @@ export default function InAppBrowser({ tab, fullScreen, railExpanded, error, onE
           <WebAddressForm key={tab.id} showOpenButton={false} url={tab.url} onNavigate={url => window.bridge.inAppNavigate(tab.id, url)} />
           <button type="button" className={`inapp-browser__open-external${tab.pinned ? ' is-pinned' : ''}`}
             onClick={() => run(window.bridge.pinInAppBrowserTab(tab.id, !tab.pinned))}
-            title={tab.pinned ? 'Unpin this page; keep it open until you close it' : 'Pin this page to the left bar and keep it after restarting'}
+            title={tab.pinned ? 'Unpin this page so you can close it permanently' : 'Pin this page to the left bar and keep it after restarting'}
             aria-pressed={tab.pinned} aria-label={tab.pinned ? 'Unpin page' : 'Pin page'}>
             <Pin size={15} />{tab.pinned ? 'Pinned' : 'Pin'}
           </button>
@@ -106,7 +106,7 @@ export default function InAppBrowser({ tab, fullScreen, railExpanded, error, onE
           {zoomed ? <Maximize2 size={16} /> : <Minimize2 size={16} />}
         </button>
         {tab && <button type="button" className="inapp-browser__nav-btn" onClick={() => run(window.bridge.closeInAppBrowserTab(tab.id))}
-          title={tab.pinned ? 'Close page and remove pin' : 'Close page'} aria-label="Close page"><X size={16} /></button>}
+          title={tab.pinned ? 'Minimize page and keep pin' : 'Close page'} aria-label={tab.pinned ? 'Minimize page' : 'Close page'}><X size={16} /></button>}
       </div>
       {error && <div className="inapp-browser__error" role="alert">{error}</div>}
       {tab ? <div className="inapp-browser__slot" ref={slotRef}>

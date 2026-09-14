@@ -110,7 +110,10 @@ export class BrowserTabs {
   close(id: string): void {
     const tab = this.tabs.get(id);
     if (!tab) return;
-    if (tab.state.pinned) this.pin(id, false);
+    if (tab.state.pinned) {
+      if (this.activeTabId === id) this.hide();
+      return;
+    }
     const ids = [...this.tabs.keys()];
     const wasActive = this.activeTabId === id;
     if (this.surface?.id === id) this.unmountSurface();

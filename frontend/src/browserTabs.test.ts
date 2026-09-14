@@ -111,7 +111,7 @@ it('preserves each live page/history across switch, hide and renderer reload; ig
   expect(sender.focus).toHaveBeenCalled();
 });
 
-it('retains pinned pages when opening links and closes only the requested view', () => {
+it('minimizes pinned pages and fully closes them only after unpinning', () => {
   const first = open('https://example.com/one');
   tabs.pin(first, true);
   const second = open('https://example.com/two');
@@ -120,6 +120,25 @@ it('retains pinned pages when opening links and closes only the requested view',
   tabs.open('https://example.com/one');
   expect(tabs.getState().activeTabId).toBe(first);
   expect(electron.views).toHaveLength(2);
+  tabs.mount(first, bounds);
+  view(0).webContents.formValue = 'unsent work';
+  tabs.close(first);
+  expect(tabs.getState().activeTabId).toBeNull();
+  expect(tabs.getState().tabs[0]).toMatchObject({ id: first, pinned: true });
+  expect(JSON.parse(fs.readFileSync(file, 'utf8'))[0].id).toBe(first);
+  expect(view(0).setVisible).toHaveBeenLastCalledWith(false);
+  expect(view(0).webContents.close).not.toHaveBeenCalled();
+  tabs.select(second);
+  tabs.mount(second, bounds);
+  tabs.close(first);
+  expect(tabs.getState().activeTabId).toBe(second);
+  expect(view(1).setVisible).toHaveBeenLastCalledWith(true);
+  tabs.select(first);
+  tabs.mount(first, bounds);
+  expect(view(0).webContents.loadURL).toHaveBeenCalledOnce();
+  expect(view(0).webContents.formValue).toBe('unsent work');
+  tabs.pin(first, false);
+  expect(view(0).webContents.close).not.toHaveBeenCalled();
   tabs.close(first);
   expect(view(0).webContents.close).toHaveBeenCalledOnce();
   expect(view(1).webContents.close).not.toHaveBeenCalled();
@@ -127,6 +146,24 @@ it('retains pinned pages when opening links and closes only the requested view',
   expect(JSON.parse(fs.readFileSync(file, 'utf8'))).toEqual([]);
   tabs.close(second);
   expect(tabs.getState()).toEqual({ tabs: [], activeTabId: null });
+});
+
+it('restores a minimized pin in a new app instance until explicitly unpinned', () => {
+  const id = open('https://example.com/pinned');
+  tabs.pin(id, true);
+  tabs.close(id);
+  tabs.releaseWindow();
+  tabs = new BrowserTabs(() => window, () => file);
+  expect(tabs.getState()).toEqual({ activeTabId: null, tabs: [expect.objectContaining({ id, url: 'https://example.com/pinned', pinned: true })] });
+  expect(electron.views).toHaveLength(1);
+  tabs.select(id);
+  expect(view(1).webContents.loadURL).toHaveBeenCalledWith('https://example.com/pinned');
+  tabs.pin(id, false);
+  tabs.close(id);
+  expect(view(1).webContents.close).toHaveBeenCalledOnce();
+  tabs.releaseWindow();
+  tabs = new BrowserTabs(() => window, () => file);
+  expect(tabs.getState()).toEqual({ activeTabId: null, tabs: [] });
 });
 
 it('opens Cmd/middle-click links in distinct background tabs without replacing or blurring the current page', () => {

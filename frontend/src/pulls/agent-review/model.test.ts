@@ -27,6 +27,7 @@ import {
   queued,
   reviewElapsed,
   reviewRecoveryRequired,
+  reviewRequests,
   reviewRunning,
   reviewStatus,
   shortPath,
@@ -262,7 +263,7 @@ describe('discussion', () => {
     const review = reviewFixture({ queuedInputIds: ['q1'] });
     const waiting: ReviewMessageDto = { ...review.messages[0], turnId: null, queuedInputId: 'q1' };
     expect(queued(review, waiting)).toBe(true);
-    expect(queued(review, { ...waiting, turnId: 'turn-3' })).toBe(false);
+    expect(queued(review, { ...waiting, turnId: 'turn-3' })).toBe(true);
     expect(queued(reviewFixture(), waiting)).toBe(false);
   });
 
@@ -287,5 +288,30 @@ describe('text helpers', () => {
     expect(short.endsWith('IcebergSortField.java')).toBe(true);
     expect(short.length).toBeLessThanOrEqual(45);
     expect(shortPath('a/b.java')).toBe('a/b.java');
+  });
+});
+
+
+describe('review request topics', () => {
+  it('uses saved card/run identities and retains the requested revision when the report changes', () => {
+    const review = reviewFixture();
+    const run = review.runs[0];
+    const message = { ...review.messages[0], runId: run.id, cardId: `${run.id}:limitations` };
+    const requests = reviewRequests({ ...review, runs: [run, { ...run, id: 'new-run', headSha: 'f'.repeat(40) }], messages: [message,
+      { ...message, id: 'reply', body: 'Follow up' },
+      { ...message, id: 'finding', findingId: review.findings[0].id, cardId: null },
+      { ...message, id: 'commit', cardId: `${run.id}:commit:${run.commits[0].sha}` },
+      { ...message, id: 'missing', cardId: 'unavailable-card', runId: 'unavailable-run' },
+      { ...message, id: 'answer', author: 'AGENT' },
+    ] });
+    expect(requests).toHaveLength(5);
+    expect(requests[0]).toMatchObject({ action: 'Ask about review', topic: 'Limitations', detail: 'Private · Revision 1 · Reviewed head d9a0c41' });
+    expect(requests[1]).toMatchObject({ action: 'Reply to review', body: 'Follow up' });
+    expect(requests[2].topic).toBe(`${review.findings[0].label} · ${review.findings[0].title}`);
+    expect(requests[3].topic).toBe(`${shortSha(run.commits[0].sha)} · ${run.commits[0].message}`);
+    expect(requests[4].topic).toBe('Review summary');
+    const olderQuestion: ReviewMessageDto = { ...message, findingId: review.findings[0].id, cardId: null };
+    expect(reviewRequests({ ...review, findings: [{ ...review.findings[0], revision: 2, title: 'Revised finding' }],
+      messages: [olderQuestion] })[0].topic).toBe(`${review.findings[0].label} · Review finding`);
   });
 });

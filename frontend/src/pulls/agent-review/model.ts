@@ -11,6 +11,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
+import type { ReviewRequest } from '../../agents/ReviewRequestCard';
 import type {
   AgentReviewDto,
   ReviewDraftDto,
@@ -186,11 +187,9 @@ export function messagesFor(review: AgentReviewDto, findingId: string | null): R
   return review.messages.filter(message => (message.findingId ?? null) === findingId);
 }
 
-/** A question that reached the queue but not yet a turn is still waiting; the thread says so. */
+/** Live queue membership includes paused attempts that already received a turn identity. */
 export function queued(review: AgentReviewDto, message: ReviewMessageDto): boolean {
-  return message.queuedInputId !== null
-    && message.turnId === null
-    && review.queuedInputIds.includes(message.queuedInputId);
+  return message.queuedInputId !== null && review.queuedInputIds.includes(message.queuedInputId);
 }
 
 export function draftItemFor(draft: ReviewDraftDto | null, findingId: string): ReviewDraftItemDto | null {
@@ -245,4 +244,29 @@ export function shortPath(path: string, maximum = 44): string {
   const tail = path.slice(-(maximum - 1));
   const cut = tail.indexOf('/');
   return `…${cut === -1 ? tail : tail.slice(cut)}`;
+}
+
+/** Saved discussion and delivery identities select cards, never words in the generated prompt. */
+export function reviewRequests(review: AgentReviewDto): ReviewRequest[] {
+  const seen = new Set<string>();
+  return review.messages.filter(message => message.author === 'USER').map(message => {
+    const finding = review.findings.find(item => item.id === message.findingId);
+    const run = review.runs.find(item => item.id === message.runId);
+    const section = run && message.cardId?.startsWith(`${run.id}:`) ? message.cardId.slice(run.id.length + 1) : null;
+    const titles: Record<string, string> = {
+      purpose: 'What this PR does', 'combined-result': 'Combined result', evidence: 'Supporting evidence & tests',
+      coverage: 'Review coverage', 'critical-issues': 'Critical issues', limitations: 'Limitations',
+    };
+    const commit = section?.startsWith('commit:') ? run?.commits.find(item => item.sha === section.slice(7)) : undefined;
+    const topic = finding ? `${finding.label} · ${finding.revision === message.targetRevision ? finding.title : 'Review finding'}`
+      : commit ? `${shortSha(commit.sha)} · ${commit.message.split('\n')[0]}`
+        : titles[section ?? ''] ?? (message.findingId !== null ? 'Review finding' : 'Review summary');
+    const target = JSON.stringify([message.runId, message.findingId, message.cardId]);
+    const action = seen.has(target) ? 'Reply to review' : 'Ask about review';
+    seen.add(target);
+    return {
+      action, topic, body: message.body, turnId: message.turnId, messageEventId: message.messageEventId,
+      detail: `Private · Revision ${message.targetRevision}${run ? ` · Reviewed head ${shortSha(run.headSha)}` : ''}`,
+    };
+  });
 }

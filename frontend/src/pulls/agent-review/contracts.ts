@@ -95,6 +95,7 @@ export type ReviewMessageDto = {
   targetRevision: number;
   turnId: string | null;
   queuedInputId: string | null;
+  messageEventId?: string | null;
   createdAt: string;
 };
 
@@ -326,6 +327,7 @@ function parseMessage(value: unknown): ReviewMessageDto {
     targetRevision: count(message.targetRevision, 'message revision'),
     turnId: optionalText(message.turnId),
     queuedInputId: optionalText(message.queuedInputId),
+    messageEventId: optionalText(message.messageEventId),
     createdAt: text(message.createdAt, 'message time'),
   };
 }

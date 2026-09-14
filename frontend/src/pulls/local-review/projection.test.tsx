@@ -89,3 +89,17 @@ describe('Local review conversation projection', () => {
     expect(parseLocalReviewThread({ ...thread, operations: { secret: 'opaque' }, localPath: '/private/worktree' })).toEqual(thread);
   });
 });
+
+
+it('folds local review replies around the specific saved user message', () => {
+  const reply = { ...thread.messages[0], id: 'reply', turnId: 'turn-2', body: 'Why does it need instance state?' };
+  const html = render({ ...turn, turnId: reply.turnId }, { ...actions, threads: [{ ...thread, messages: [...thread.messages, reply] }] });
+  const summary = html.match(/<summary>[^]*?<\/summary>/)?.[0];
+  expect(summary).toContain('Reply to review');
+  expect(summary).toContain(reply.body);
+  expect(summary).not.toContain(thread.messages[0].body);
+  expect(html).toContain('<details class="agt-user__request agt-review-request">');
+  expect(html).toContain('>Reply</button>');
+  expect(html).toContain('>Resolve</button>');
+  expect(html).not.toContain('PRIVATE INTERNAL CONTEXT PROMPT');
+});

@@ -45,6 +45,7 @@ import com.bytequay.app.review.AgentReviewProjection;
 import com.bytequay.app.review.AgentReviewService;
 import com.bytequay.app.review.ReviewPublicationService;
 import com.bytequay.core.review.AgentReview;
+import com.bytequay.core.review.ReviewMessage;
 import com.bytequay.core.review.ReviewNotFoundException;
 import com.google.common.collect.ImmutableList;
 import org.junit.jupiter.api.Test;
@@ -101,7 +102,12 @@ class TestReviewRuntimeRecovery
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.length()").value(1))
                 .andExpect(jsonPath("$[0].id").value(REVIEW_ID))
-                .andExpect(jsonPath("$[0].task.laneLabel").value("Claude Code"));
+                .andExpect(jsonPath("$[0].task.laneLabel").value("Claude Code"))
+                .andExpect(jsonPath("$[0].messages[0].body").value("Explain this limitation"))
+                .andExpect(jsonPath("$[0].messages[0].cardId").value("run-1:limitations"))
+                .andExpect(jsonPath("$[0].messages[0].turnId").value("turn-2"))
+                .andExpect(jsonPath("$[0].messages[0].queuedInputId").value("queue-1"))
+                .andExpect(jsonPath("$[0].messages[0].messageEventId").value("event-1"));
         mvc.perform(get("/api/agent-review").param("workspaceId", "workspace-1").param("repo", "owner/repo").param("number", "7"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.id").value(REVIEW_ID));
@@ -238,7 +244,10 @@ class TestReviewRuntimeRecovery
                 REVIEW_ID, "workspace-1", "owner/repo", 7, OptionalLong.empty(), TASK_ID.toString(), AgentReview.State.OPEN, true,
                 Optional.empty(), Optional.of("head"), 0, NOW, NOW, Optional.empty());
         return new AgentReviewProjection(
-                review, ImmutableList.of(), ImmutableList.of(), ImmutableList.of(),
+                review, ImmutableList.of(), ImmutableList.of(), ImmutableList.of(new AgentReviewProjection.MessageView(
+                        new ReviewMessage("message-1", REVIEW_ID, Optional.empty(), Optional.of("run-1:limitations"), ReviewMessage.Author.USER,
+                                "Explain this limitation", 1, "run-1", Optional.empty(), Optional.of("queue-1"), 0, NOW),
+                        Optional.of("turn-2"), Optional.of("event-1"))),
                 new AgentReviewProjection.TaskView(TASK_ID.toString(), "workspace-1", "OPEN", 8, "claude", "Claude Code", Optional.empty(), Optional.empty(), false, false),
                 Optional.empty(), ImmutableList.of(), 0, ImmutableList.of(), Optional.empty(), Optional.empty());
     }

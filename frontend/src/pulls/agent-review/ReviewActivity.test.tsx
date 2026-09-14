@@ -17,6 +17,7 @@ import { describe, expect, it } from 'vitest';
 import { parseAgentEventSequence, type AgentEventEnvelope } from '../../agents/events';
 import fixture from '../../agents/fixtures/agent-events-v2.json';
 import ReviewActivity from './ReviewActivity';
+import { parseAgentReview } from './contracts';
 import { reviewFixture, runningReviewFixture } from './fixtures/review';
 
 const events = parseAgentEventSequence(fixture.events).map(event => ({ ...event, turnId: 'turn-1' }));
@@ -105,5 +106,59 @@ describe('the unified review conversation', () => {
     expect(html.match(/ByteQuay · Review request/g)).toHaveLength(1);
     expect(html).toContain('Also check cancellation');
     expect(html).toContain('Steered into the running turn');
+  });
+});
+
+
+describe('compact review requests', () => {
+  const first = events[0];
+  if (first.type !== 'user_message') throw new Error('Missing user fixture');
+  const prompt = 'Question about internal-card-id: USER TEXT. Reply privately with review_reply. Selected card: duplicate context';
+  const questionEvent: AgentEventEnvelope = { ...first, payload: { ...first.payload, text: prompt } };
+  const base = reviewFixture();
+  const question = { ...base.messages[0], runId: base.runs[0].id, cardId: `${base.runs[0].id}:limitations`,
+    body: 'Which Maven commands did you run?\nPlease include the flags.', turnId: first.turnId };
+
+  it('renders the saved question and topic after reload without exposing the generated prompt', () => {
+    const review = parseAgentReview(JSON.parse(JSON.stringify({ ...base, messages: [question] })));
+    const html = render({ review, events: [questionEvent] });
+    expect(html).toContain('<details class="agt-user__request agt-review-request">');
+    expect(html).toContain('Ask about review');
+    expect(html).toContain('Limitations');
+    expect(html).toContain(question.body);
+    expect(html).toContain('Private · Revision 1 · Reviewed head d9a0c41');
+    expect(html).not.toContain('review_reply');
+    expect(html).not.toContain('Selected card:');
+    expect(html).not.toContain('internal-card-id');
+  });
+
+  it('keeps subsequent replies distinct and does not replace unrelated steering or agent replies', () => {
+    const reply = { ...question, id: 'follow-up', turnId: 'turn-follow-up', body: 'Why did you choose those flags?' };
+    const replyEvent: AgentEventEnvelope = { ...questionEvent, eventId: 'reply-event', turnId: reply.turnId, sequence: 2 };
+    const steer: AgentEventEnvelope = { ...questionEvent, eventId: 'steer', turnId: reply.turnId, sequence: 3,
+      payload: { ...first.payload, text: 'Also check cancellation', deliveryKind: 'STEER' } };
+    const html = render({ review: { ...base, messages: [question, reply] }, events: [questionEvent, replyEvent, steer] });
+    expect(html.match(/agt-user__request agt-review-request/g)).toHaveLength(2);
+    expect(html).toContain('Reply to review');
+    expect(html).toContain(reply.body);
+    expect(html).toContain('Also check cancellation');
+    expect(html).toContain('Steered into the running turn');
+    const ordinary = render({ review: { ...base, messages: [{ ...question, author: 'AGENT' }] }, events: [questionEvent] });
+    expect(ordinary).toContain(prompt);
+    expect(ordinary).not.toContain('agt-review-request');
+    const steerOnly = render({ review: { ...base, messages: [reply] }, events: [steer] });
+    expect(steerOnly).not.toContain('agt-review-request');
+  });
+
+  it('matches a claimed queue message by its durable event even after a retry changes its turn', () => {
+    const queued = { ...question, queuedInputId: 'queued-question', messageEventId: first.eventId, turnId: 'retry-turn' };
+    const event: AgentEventEnvelope = { ...questionEvent, payload: { ...first.payload, text: prompt, deliveryKind: 'QUEUED' } };
+    const html = render({ review: parseAgentReview({ ...base, messages: [queued] }), events: [event] });
+    expect(html).toContain('Ask about review');
+    expect(html).toContain(question.body);
+    expect(html).not.toContain(prompt);
+    const waiting = render({ review: { ...base, messages: [{ ...queued, turnId: null, messageEventId: null }], queuedInputIds: ['queued-question'] }, events: [] });
+    expect(waiting).toContain(question.body);
+    expect(waiting).not.toContain('agt-review-request');
   });
 });

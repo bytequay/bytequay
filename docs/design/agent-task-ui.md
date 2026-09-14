@@ -368,6 +368,12 @@ The transcript displays:
   the prompt, or **Update pull request #N** when a pull request already tracks
   the branch. The panel action and Auto draft PR start the same turn, so the row
   is chosen by that turn's publication origin and never by matching its words;
+- review questions and replies use the same outlined request-card style, with
+  an action, review topic, and one-line preview of the saved user's message.
+  Expanding shows the full message and reviewed revision, or the existing
+  private local discussion and its actions. Generated tool instructions and
+  repeated selected-card context are omitted. Durable turn/message-event
+  identities select the card, including queued questions after replay;
 - partial and completed assistant messages;
 - provider-supported readable reasoning summaries, never hidden
   chain-of-thought;

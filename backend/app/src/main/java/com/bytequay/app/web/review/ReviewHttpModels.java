@@ -136,8 +136,9 @@ final class ReviewHttpModels
         return new EvidenceResponse(evidence.ref(), evidence.source(), evidence.provenance(), evidence.excerpt(), evidence.explanation());
     }
 
-    private static MessageResponse message(ReviewMessage message)
+    private static MessageResponse message(AgentReviewProjection.MessageView view)
     {
+        ReviewMessage message = view.message();
         return new MessageResponse(
                 message.id(),
                 message.findingId(),
@@ -146,8 +147,9 @@ final class ReviewHttpModels
                 message.author().name(),
                 message.body(),
                 message.targetRevision(),
-                message.turnId(),
+                view.turnId(),
                 message.queuedInputId(),
+                view.messageEventId(),
                 message.createdAt());
     }
 
@@ -292,6 +294,7 @@ final class ReviewHttpModels
             int targetRevision,
             Optional<String> turnId,
             Optional<String> queuedInputId,
+            Optional<String> messageEventId,
             Instant createdAt) {}
 
     record TaskResponse(

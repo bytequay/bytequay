@@ -24,6 +24,7 @@ import com.bytequay.agent.core.CompleteAgentTaskCommand;
 import com.bytequay.agent.core.CreateAgentTaskCommand;
 import com.bytequay.agent.core.QueueAgentInputCommand;
 import com.bytequay.agent.core.QueuedAgentInput;
+import com.bytequay.agent.core.QueuedInputId;
 import com.bytequay.agent.core.StartAgentTurnCommand;
 import com.bytequay.agent.core.TaskBranches;
 import com.bytequay.agent.core.TaskId;
@@ -33,6 +34,7 @@ import com.bytequay.agent.core.TurnId;
 import com.bytequay.agent.core.WorktreeMutationClaim;
 import com.bytequay.agent.core.WorktreeService;
 import com.bytequay.agent.core.WorktreeSnapshot;
+import com.bytequay.agent.core.store.QueuedInputStore;
 import com.bytequay.agent.spi.AgentCapabilities;
 import com.bytequay.agent.spi.AgentDriverRegistry;
 import com.bytequay.agent.spi.AgentLaneId;
@@ -91,6 +93,7 @@ public class DefaultAgentReviewService
     private final ReviewDraftStore drafts;
     private final AgentTaskService tasks;
     private final AgentTurnService turns;
+    private final QueuedInputStore queueStore;
     private final AgentCompletionService completions;
     private final AgentApprovalService approvals;
     private final AgentDriverRegistry drivers;
@@ -111,6 +114,7 @@ public class DefaultAgentReviewService
             ReviewDraftStore drafts,
             AgentTaskService tasks,
             AgentTurnService turns,
+            QueuedInputStore queueStore,
             AgentCompletionService completions,
             AgentApprovalService approvals,
             AgentDriverRegistry drivers,
@@ -128,6 +132,7 @@ public class DefaultAgentReviewService
         this.drafts = requireNonNull(drafts, "drafts is null");
         this.tasks = requireNonNull(tasks, "tasks is null");
         this.turns = requireNonNull(turns, "turns is null");
+        this.queueStore = requireNonNull(queueStore, "queueStore is null");
         this.completions = requireNonNull(completions, "completions is null");
         this.approvals = requireNonNull(approvals, "approvals is null");
         this.drivers = requireNonNull(drivers, "drivers is null");
@@ -764,7 +769,7 @@ public class DefaultAgentReviewService
                 review,
                 runs.stream().map(AgentReviewProjection.RunView::of).collect(toImmutableList()),
                 store.listFindings(reviewId),
-                store.listMessages(reviewId),
+                store.listMessages(reviewId).stream().map(this::messageView).collect(toImmutableList()),
                 new AgentReviewProjection.TaskView(
                         task.id().toString(),
                         review.workspaceId(),
@@ -782,6 +787,15 @@ public class DefaultAgentReviewService
                 runs.stream().flatMap(run -> run.turnIds().stream()).collect(toImmutableList()),
                 drafts.find(review.repo(), review.number()),
                 pullRequests.findStored(review.repo(), review.number()));
+    }
+
+    private AgentReviewProjection.MessageView messageView(ReviewMessage message)
+    {
+        // Delivery identity must stay readable after the generated prompt blob expires.
+        Optional<QueuedAgentInput> queued = message.queuedInputId().map(QueuedInputId::valueOf).flatMap(queueStore::find);
+        return new AgentReviewProjection.MessageView(message,
+                queued.flatMap(QueuedAgentInput::turnId).map(Object::toString).or(message::turnId),
+                queued.flatMap(QueuedAgentInput::messageEventId).map(Object::toString));
     }
 
     /** The turn holding the task's worktree claim, if one is accepted or running. */

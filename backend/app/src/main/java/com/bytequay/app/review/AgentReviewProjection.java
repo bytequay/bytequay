@@ -42,7 +42,7 @@ public record AgentReviewProjection(
         AgentReview review,
         List<RunView> runs,
         List<ReviewFinding> findings,
-        List<ReviewMessage> messages,
+        List<MessageView> messages,
         TaskView task,
         Optional<TurnView> activeTurn,
         List<String> queuedInputIds,
@@ -63,6 +63,17 @@ public record AgentReviewProjection(
         byteQuayTurnIds = ImmutableList.copyOf(byteQuayTurnIds);
         requireNonNull(draft, "draft is null");
         requireNonNull(pullRequest, "pullRequest is null");
+    }
+
+    /** Saved discussion content with the current delivery identities from its accepted input. */
+    public record MessageView(ReviewMessage message, Optional<String> turnId, Optional<String> messageEventId)
+    {
+        public MessageView
+        {
+            requireNonNull(message, "message is null");
+            requireNonNull(turnId, "turnId is null");
+            requireNonNull(messageEventId, "messageEventId is null");
+        }
     }
 
     public record RunView(

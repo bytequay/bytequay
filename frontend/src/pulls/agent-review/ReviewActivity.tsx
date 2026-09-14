@@ -18,7 +18,7 @@ import type { AgentEventEnvelope } from '../../agents/events';
 import type { AgentApprovalDecision, AgentPendingApprovalDto, AgentStreamConnectionState, AgentTurnDto, ModelOptionDto } from '../../types';
 import type { AgentReviewDto } from './contracts';
 import type { LocalReviewThreads } from '../local-review/types';
-import { reviewRecoveryRequired, reviewRunning } from './model';
+import { reviewRecoveryRequired, reviewRequests, reviewRunning } from './model';
 
 const EMPTY_HISTORY: ConversationHistory = { before: null, after: null, loading: false, onLoad: () => {}, onFollow: () => {} };
 
@@ -65,7 +65,7 @@ export default function ReviewActivity({
   return (
     <AgentConversation
       turns={projected} durableTurns={turns} models={models} now={now} scroll={scroll}
-      localReview={localReview}
+      localReview={localReview} reviewRequests={reviewRequests(review)}
       connection={connection} running={running} activeTurn={review.activeTurn} waiting={waiting}
       activityChoice={activityChoice} turnChoice={turnChoice} pendingApprovals={pendingApprovals}
       generatedTurnIds={new Set(review.byteQuayTurnIds)} label="Review agent conversation"

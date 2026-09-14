@@ -25,6 +25,7 @@ import com.bytequay.agent.core.AgentTurnSettings;
 import com.bytequay.agent.core.BlobRef;
 import com.bytequay.agent.core.CompleteAgentTaskCommand;
 import com.bytequay.agent.core.CreateAgentTaskCommand;
+import com.bytequay.agent.core.EventId;
 import com.bytequay.agent.core.QueueAgentInputCommand;
 import com.bytequay.agent.core.QueuedAgentInput;
 import com.bytequay.agent.core.QueuedInputId;
@@ -38,6 +39,7 @@ import com.bytequay.agent.core.TurnState;
 import com.bytequay.agent.core.WorktreeMutationClaim;
 import com.bytequay.agent.core.WorktreeService;
 import com.bytequay.agent.core.WorktreeSnapshot;
+import com.bytequay.agent.core.store.QueuedInputStore;
 import com.bytequay.agent.spi.AgentCapabilities;
 import com.bytequay.agent.spi.AgentDriver;
 import com.bytequay.agent.spi.AgentDriverRegistry;
@@ -389,6 +391,10 @@ class TestDefaultAgentReviewService
         assertThat(message.turnId()).contains(TURN_TWO.toString());
         assertThat(message.queuedInputId()).isEmpty();
         assertThat(fixture.store.listMessages(reviewId)).containsExactly(message);
+        AgentReviewProjection.MessageView view = fixture.service.get(reviewId).messages().getFirst();
+        assertThat(view.message()).isEqualTo(message);
+        assertThat(view.turnId()).contains(TURN_TWO.toString());
+        assertThat(view.messageEventId()).isEmpty();
 
         ArgumentCaptor<StartAgentTurnCommand> started = ArgumentCaptor.forClass(StartAgentTurnCommand.class);
         verify(fixture.turns, times(2)).start(started.capture());
@@ -436,6 +442,44 @@ class TestDefaultAgentReviewService
         assertThat(queued.getValue().idempotencyKey()).isEqualTo("review-ask:" + message.id());
         // Only the review request itself started a turn.
         verify(fixture.turns, times(1)).start(any(StartAgentTurnCommand.class));
+    }
+
+    @Test
+    void queuedQuestionProjectionKeepsItsMessageEventAcrossRetry()
+    {
+        Fixture fixture = new Fixture();
+        String reviewId = fixture.service.start(WORKSPACE, REPO, NUMBER).review().id();
+        when(fixture.tasks.get(TASK_ID)).thenReturn(busyTask());
+        when(fixture.turns.enqueue(any(QueueAgentInputCommand.class))).thenReturn(queuedInput());
+        ReviewMessage message = fixture.service.ask(reviewId, Optional.empty(), Optional.empty(), 1, "Explain this limitation");
+        QueuedAgentInput queued = queuedInput();
+        when(fixture.queueStore.find(QUEUED_INPUT)).thenReturn(Optional.of(queued));
+        AgentReviewProjection.MessageView waiting = fixture.service.get(reviewId).messages().getFirst();
+        assertThat(waiting.turnId()).isEmpty();
+        assertThat(waiting.messageEventId()).isEmpty();
+
+        EventId eventId = EventId.valueOf("55555555-5555-4555-8555-555555555555");
+        QueuedAgentInput starting = queued.starting(TURN_ONE, eventId, NOW);
+        when(fixture.queueStore.find(QUEUED_INPUT)).thenReturn(Optional.of(starting));
+        AgentReviewProjection.MessageView claimed = fixture.service.get(reviewId).messages().getFirst();
+        assertThat(claimed.turnId()).contains(TURN_ONE.toString());
+        assertThat(claimed.messageEventId()).contains(eventId.toString());
+
+        QueuedAgentInput retried = starting.paused("Provider was not started", NOW).starting(TURN_TWO, eventId, NOW).started(NOW);
+        when(fixture.queueStore.find(QUEUED_INPUT)).thenReturn(Optional.of(retried));
+        AgentReviewProjection.MessageView delivered = fixture.service.get(reviewId).messages().getFirst();
+        assertThat(delivered.turnId()).contains(TURN_TWO.toString());
+        assertThat(delivered.messageEventId()).contains(eventId.toString());
+        assertThat(delivered.message()).isEqualTo(message);
+        assertThat(fixture.store.listMessages(reviewId)).containsExactly(message);
+        when(fixture.queueStore.find(QUEUED_INPUT)).thenReturn(Optional.empty());
+        AgentReviewProjection.MessageView retained = fixture.service.get(reviewId).messages().getFirst();
+        assertThat(retained.message()).isEqualTo(message);
+        assertThat(retained.turnId()).isEmpty();
+        assertThat(retained.messageEventId()).isEmpty();
+        verify(fixture.turns, never()).findQueuedByIdempotencyKey(any(), anyString());
+        verify(fixture.turns, times(1)).start(any(StartAgentTurnCommand.class));
+        verify(fixture.turns, times(1)).enqueue(any(QueueAgentInputCommand.class));
     }
 
     @Test
@@ -970,6 +1014,7 @@ class TestDefaultAgentReviewService
         private final ReviewDraftStore drafts = mock(ReviewDraftStore.class);
         private final AgentTaskService tasks = mock(AgentTaskService.class);
         private final AgentTurnService turns = mock(AgentTurnService.class);
+        private final QueuedInputStore queueStore = mock(QueuedInputStore.class);
         private final AgentCompletionService completions = mock(AgentCompletionService.class);
         private final AgentApprovalService approvals = mock(AgentApprovalService.class);
         private final AgentDriverRegistry drivers = mock(AgentDriverRegistry.class);
@@ -991,6 +1036,7 @@ class TestDefaultAgentReviewService
                     drafts,
                     tasks,
                     turns,
+                    queueStore,
                     completions,
                     approvals,
                     drivers,

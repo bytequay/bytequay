@@ -108,6 +108,14 @@ export function visibleSelectedId(rows: PullRow[], selected: number | null) {
   return selected ?? rows[0]?.id ?? null;
 }
 
+/**
+ * A refresh reloads only the first page, and the open pull request may have
+ * come from a later one. Dropping it would move the reviewer to another pull request.
+ */
+export function keepSelectedPullRequest(page: PullRequestDto[], selected: PullRequestDto | null) {
+  return selected === null || page.some(pr => pr.id === selected.id) ? page : [...page, selected];
+}
+
 export function tabForInitialPullRequest(pr: PullRequestDto, preferred: PullTab, viewerLogin?: string | null): PullTab {
   if (rowsForTab([pr], preferred, viewerLogin).length > 0) return preferred;
   return pullRequestKind(pr.state) === 'open' ? 'all' : 'done';

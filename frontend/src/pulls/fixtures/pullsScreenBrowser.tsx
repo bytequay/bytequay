@@ -323,3 +323,87 @@ export async function runReviewSheet(): Promise<string> {
     Object.assign(window, { bridge: originalBridge });
   }
 }
+
+/** Refreshes reload only the first list page; the open pull request may come from a later page or a link. */
+export async function runSelectionStability(): Promise<string> {
+  const detailFor = (number: number, title: string, updatedAt: string): PullRequestDetailDto => ({
+    id: number, repo: 'owner/repo', number, title, htmlUrl: null, state: 'open', draft: false,
+    mergeable: null, mergeableState: null, author: 'alice', authorAvatarUrl: null, createdAt: null, updatedAt,
+    mergedAt: null, baseRef: 'main', headRef: 'feature', body: '', labels: [], assignees: [], milestone: null,
+    reviewers: [], additions: 1, deletions: 1, changedFiles: 1, approvalCount: 0, ciStatus: null, recentActivity: [],
+    checkRuns: [], unavailableSections: [], viewerCanWrite: false,
+  });
+  const newest = detailFor(3, 'Newest after sync', '2026-09-14T06:00:00Z');
+  const first = detailFor(1, 'First on page zero', '2026-09-14T01:00:00Z');
+  const older = detailFor(2, 'Older from page one', '2026-09-10T00:00:00Z');
+  const details = [newest, first, older];
+  const originalBridge = window.bridge;
+  const host = document.createElement('div');
+  host.style.cssText = 'width: 1400px; height: 900px; display: flex';
+  document.body.append(host);
+  const root = createRoot(host);
+  const open = () => details.find(detail => host.querySelector('.pull-detail')?.textContent?.includes(detail.title))?.title;
+  const until = async (condition: () => boolean) => {
+    for (let attempt = 0; attempt < 60 && !condition(); attempt++) await settle();
+  };
+
+  const scenario = async (link: boolean) => {
+    let pageZero = [first];
+    const synced: (() => void)[] = [];
+    const navigations: number[] = [];
+    const bridge = {
+      getUserProfile: async () => ({ login: 'bob', name: null, avatarUrl: '', htmlUrl: '', publicRepos: 0, followers: 0,
+        following: 0, bio: null, location: null, company: null, email: null }),
+      fetchPrs: async (_workspaceId, page) => ({
+        pullRequests: (page === 0 ? pageZero : [older]).map(detail => remotePullRequest(detail, 'bob')),
+        page, pageSize: 50, totalPullRequests: 3, openPullRequests: 3, hasMore: page === 0 && !link,
+      }),
+      onPullRequestsSynced: listener => { synced.push(listener); return () => {}; },
+      listWorkspaces: async () => [],
+      fetchAttentionPrs: async () => [],
+      // The linked pull request resolves after the first row's detail, whose row update used to abandon it.
+      fetchPullRequestDetailByRef: async (_repo, number) => {
+        if (number === older.number) await new Promise(resolve => window.setTimeout(resolve, 100));
+        return details.find(detail => detail.number === number) ?? first;
+      },
+      refreshPullRequestDetailByRef: async (_repo, number) =>
+        ({ full: true as const, detail: details.find(detail => detail.number === number) ?? first, status: null }),
+      refreshAllPullRequestDetailByRef: async (_repo, number) => details.find(detail => detail.number === number) ?? first,
+      recordRecentTouch: async () => {},
+    } satisfies Pick<Bridge, 'getUserProfile' | 'fetchPrs' | 'onPullRequestsSynced' | 'listWorkspaces' | 'fetchAttentionPrs'
+      | 'fetchPullRequestDetailByRef' | 'refreshPullRequestDetailByRef' | 'refreshAllPullRequestDetailByRef' | 'recordRecentTouch'>;
+    Object.assign(window, { bridge });
+    flushSync(() => root.render(<PullsScreen key={String(link)} initialPr={link ? { repo: older.repo, number: older.number } : undefined}
+      onSelectPullRequest={reference => navigations.push(reference.number)} />));
+    if (link) {
+      await until(() => open() === older.title);
+    } else {
+      await until(() => host.querySelector('.pulls-list')?.textContent?.includes(older.title) === true);
+      const row = [...host.querySelectorAll<HTMLElement>('.pulls-list button, .pulls-list [role="option"]')]
+        .find(element => element.textContent?.includes(older.title));
+      assert(row !== undefined, 'The next list page must load the older pull request');
+      row.click();
+      await until(() => open() === older.title);
+    }
+    assert(open() === older.title, `${link ? 'A linked' : 'A scrolled-to'} pull request must open, not ${open()}`);
+    navigations.length = 0;
+    host.querySelector<HTMLButtonElement>('[aria-label="Refresh pull request"]')?.click();
+    pageZero = [newest, first];
+    synced.forEach(listener => listener());
+    await until(() => host.querySelector('.pulls-list')?.textContent?.includes(newest.title) === true);
+    await settle();
+    assert(open() === older.title && navigations.length === 0,
+      `Refresh and sync must keep ${older.title} open, not ${open()} (navigated to ${navigations.join(', ')})`);
+  };
+
+  try {
+    await scenario(false);
+    await scenario(true);
+    return 'Refresh and sync keep a pull request opened from a later page or a link';
+  }
+  finally {
+    flushSync(() => root.unmount());
+    host.remove();
+    Object.assign(window, { bridge: originalBridge });
+  }
+}

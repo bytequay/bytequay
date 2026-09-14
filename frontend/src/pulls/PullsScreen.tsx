@@ -33,6 +33,7 @@ import { workspaceReviewTaskRoute } from '../workspaces/model';
 import TaskPaneDivider, { useTaskPane } from '../agents/TaskPaneDivider';
 import '../css/review-tasks.css';
 import {
+  keepSelectedPullRequest,
   PULL_TABS,
   reconcilePostedComment,
   reconcilePullRequestDetail,
@@ -332,7 +333,7 @@ export default function PullsScreen({
   const routingInitialPr = useRef<string | null>(null);
   const detailState = useRef<PullRequestDetailDto | null>(null);
   const detailMutationVersion = useRef(0);
-  const selectedPullRequest = useRef<{ id: number; key: string } | null>(null);
+  const selectedPullRequest = useRef<{ id: number; key: string; pr: PullRequestDto } | null>(null);
   const listRequest = useRef(0);
   const manualDetailRefreshRequest = useRef(0);
   const toastId = useRef(0);
@@ -378,10 +379,11 @@ export default function PullsScreen({
             }, viewerLoginRef.current)
           : pr)
       : result.pullRequests;
-    setPrs(pullRequests);
+    const listed = keepSelectedPullRequest(pullRequests, selected?.pr ?? null);
+    setPrs(listed);
     setPage(result.page);
     setHasMore(result.hasMore);
-    setSelected(current => pullRequests.some(pr => pr.id === current)
+    setSelected(current => listed.some(pr => pr.id === current)
       ? current
       : null);
   }, []);
@@ -456,6 +458,8 @@ export default function PullsScreen({
     setError(null);
     setSyncError(null);
     setPrs([]);
+    // A new search or workspace lists different pull requests; don't let applyPage keep the old one before the next render.
+    selectedPullRequest.current = null;
     setHasMore(false);
     setPage(0);
     window.bridge.fetchPrs(repositoryScope?.workspaceId, 0, PAGE_SIZE, query)
@@ -560,20 +564,21 @@ export default function PullsScreen({
       setSelected(match.id);
       return;
     }
-    let cancelled = false;
+    // Not an effect cleanup: this effect re-runs on every prs change (the first row's
+    // own detail load is one), which would abandon the lookup and leave that row showing.
+    const stillRouting = () => routingInitialPr.current === initialPrKey;
     Promise.all([
       window.bridge.fetchPullRequestDetailByRef(initialPr.repo, initialPr.number),
       window.bridge.fetchAttentionPrs().catch((): PullRequestDto[] => []),
     ]).then(([value, tracked]) => {
-      if (cancelled) return;
+      if (!stillRouting()) return;
       const remote = tracked.find(pr => pr.id === value.id) ?? remotePullRequest(value, viewerLogin ?? undefined);
       setPrs(current => current.some(pr => pr.id === remote.id) ? current : [remote, ...current]);
       setTab(current => tabForInitialPullRequest(remote, current, viewerLogin));
       setSelected(remote.id);
     }).catch(e => {
-      if (!cancelled) setError(e instanceof Error ? e.message : String(e));
+      if (stillRouting()) setError(e instanceof Error ? e.message : String(e));
     });
-    return () => { cancelled = true; };
   }, [initialPr, loading, prs, viewerLogin]);
 
   const rows = useMemo(() => query ? rowsForSearch(prs) : rowsForTab(prs, tab, viewerLogin), [prs, query, tab, viewerLogin]);
@@ -591,7 +596,7 @@ export default function PullsScreen({
   const selectedPrRepo = selectedPr?.repo;
   selectedPullRequest.current = selectedPr === null
     ? null
-    : { id: selectedPr.id, key: `${selectedPr.repo.toLowerCase()}#${selectedPr.number}` };
+    : { id: selectedPr.id, key: `${selectedPr.repo.toLowerCase()}#${selectedPr.number}`, pr: selectedPr };
 
   useEffect(() => {
     if (singlePullRequest) return;

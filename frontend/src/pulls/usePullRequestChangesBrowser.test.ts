@@ -56,7 +56,7 @@ it('loads selected PR commits and rejects stale comparison responses in Chromium
     const args = [join(directory, 'main.cjs')];
     const command = process.platform === 'linux' && !process.env.DISPLAY ? 'xvfb-run' : executable;
     const result = await promisify(execFile)(command, command === executable ? args : ['-a', executable, ...args], { env: environment, timeout: 20_000 });
-    expect(JSON.parse(result.stdout.trim())).toHaveLength(8);
+    expect(JSON.parse(result.stdout.trim())).toHaveLength(9);
   }
   finally { await rm(directory, { recursive: true, force: true }); }
 }, 30_000);

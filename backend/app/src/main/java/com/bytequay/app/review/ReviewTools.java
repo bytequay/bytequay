@@ -29,11 +29,13 @@ import com.bytequay.core.domain.PullRequestDetail;
 import com.bytequay.core.review.AgentReview;
 import com.bytequay.core.review.AgentReviewStore;
 import com.bytequay.core.review.ReviewAnchor;
+import com.bytequay.core.review.ReviewCandidateValidation;
 import com.bytequay.core.review.ReviewConflictException;
 import com.bytequay.core.review.ReviewCoverage;
 import com.bytequay.core.review.ReviewEvidence;
 import com.bytequay.core.review.ReviewFinding;
 import com.bytequay.core.review.ReviewInvalidRequestException;
+import com.bytequay.core.review.ReviewInvestigation;
 import com.bytequay.core.review.ReviewMessage;
 import com.bytequay.core.review.ReviewNotFoundException;
 import com.bytequay.core.review.ReviewOperation;
@@ -53,11 +55,14 @@ import java.nio.charset.StandardCharsets;
 import java.time.Clock;
 import java.time.Instant;
 import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
 import java.util.OptionalLong;
+import java.util.Set;
 import java.util.TreeMap;
 import java.util.UUID;
 import java.util.concurrent.locks.Lock;
@@ -67,7 +72,7 @@ import static com.google.common.collect.ImmutableList.toImmutableList;
 import static java.util.Objects.requireNonNull;
 
 /**
- * The six fixed review tools, bound to one review by the task token that calls them. Every write
+ * The fixed review tools, bound to one review by the task token that calls them. Every write
  * is validated here against the bound run, replays by operation key, and commits its replay
  * record with the row it writes. The model never names a review, run, path root, or token.
  */
@@ -78,6 +83,7 @@ public class ReviewTools
     private static final int MAX_TITLE = 200;
     private static final int MAX_KEY = 100;
     private static final int MAX_EVIDENCE = 8;
+    private static final int MAX_CANDIDATES = 30;
     private static final int MAX_EXCERPT = 4000;
     private static final int SOURCE_WINDOW = 200;
     private static final int DIFF_PAGE_LINES = 300;
@@ -127,7 +133,8 @@ public class ReviewTools
         return ImmutableList.of(
                 new ReviewTool("review_get_context",
                         "Read bounded pull request context for this review: kind pr, timeline, checks, issue (number), diff (optional path, page), "
-                                + "source (path, startLine, endLine), command_output, findings, summary, discussion (target), or evidence (ref). "
+                                + "source (path, startLine, endLine, revision: head/base/previous), command_output, investigation, findings, "
+                                + "summary, discussion (target), or evidence (ref). "
                                 + "Diff lines carry anchor ids; source, issue and command reads return evidence refs to cite in findings.",
                         schema(ImmutableMap.<String, Object>builder()
                                 .put(
@@ -144,11 +151,13 @@ public class ReviewTools
                                                         "diff",
                                                         "source",
                                                         "command_output",
+                                                        "investigation",
                                                         "findings",
                                                         "summary",
                                                         "discussion",
                                                         "evidence")))
                                 .put("path", ImmutableMap.of("type", "string", "maxLength", 1000))
+                                .put("revision", ImmutableMap.of("type", "string", "enum", ImmutableList.of("head", "base", "previous")))
                                 .put("number", ImmutableMap.of("type", "integer", "minimum", 1))
                                 .put("page", ImmutableMap.of("type", "integer", "minimum", 1))
                                 .put("startLine", ImmutableMap.of("type", "integer", "minimum", 1))
@@ -184,8 +193,20 @@ public class ReviewTools
                                                         ImmutableList.of("sha", "explanation"))))
                                 .buildOrThrow(), ImmutableList.of("operationKey", "purpose", "commits")),
                         arguments -> call(reviewId, arguments, this::saveSummary)),
+                new ReviewTool("review_save_investigation",
+                        "Save the change map, assessed changed-file paths, supporting evidence refs, and candidate claims before ending investigation. "
+                                + "Candidates are private hypotheses numbered from 1, not findings. "
+                                + "During validation, preserve existing candidates and append newly discovered ones.",
+                        schema(ImmutableMap.of(
+                                "operationKey", ImmutableMap.of("type", "string", "minLength", 1, "maxLength", MAX_KEY),
+                                "changeMap", ImmutableMap.of("type", "string", "minLength", 1, "maxLength", MAX_TEXT),
+                                "reviewedFiles", stringArray(1000, 1000),
+                                "contextEvidenceRefs", stringArray(80, 20),
+                                "candidates", stringArray(MAX_CANDIDATES, 2000)),
+                                ImmutableList.of("operationKey", "changeMap", "reviewedFiles", "contextEvidenceRefs", "candidates")),
+                        arguments -> call(reviewId, arguments, this::saveInvestigation)),
                 new ReviewTool("review_save_finding",
-                        "Create or revise an inline bug report or concrete code improvement, with evidence refs and diff anchors from review_get_context. "
+                        "During validation, create or revise an inline bug report or concrete code improvement, with evidence refs and diff anchors from review_get_context. "
                                 + "Use severity for defects; mark optional improvements as suggestions and omit severity. For an exact replacement, "
                                 + "include one GitHub ```suggestion block replacing the complete RIGHT-side startAnchor/endAnchor range. "
                                 + "Revisions require findingId and expectedRevision; nothing is published.",
@@ -195,6 +216,7 @@ public class ReviewTools
                                 .put("expectedRevision", ImmutableMap.of("type", "integer", "minimum", 1))
                                 .put("title", ImmutableMap.of("type", "string", "minLength", 1, "maxLength", MAX_TITLE))
                                 .put("body", ImmutableMap.of("type", "string", "minLength", 1, "maxLength", MAX_TEXT))
+                                .put("validation", ImmutableMap.of("type", "string", "minLength", 1, "maxLength", 2000))
                                 .put("severity", ImmutableMap.of("type", "string", "enum", ImmutableList.of("critical", "high", "medium", "low")))
                                 .put("startAnchor", ImmutableMap.of("type", "string"))
                                 .put("endAnchor", ImmutableMap.of("type", "string"))
@@ -219,7 +241,7 @@ public class ReviewTools
                                                                 ImmutableMap.of("type", "string", "maxLength", 800)),
                                                         "required",
                                                         ImmutableList.of("ref", "explanation"))))
-                                .buildOrThrow(), ImmutableList.of("operationKey", "title", "body", "startAnchor", "evidence")),
+                                .buildOrThrow(), ImmutableList.of("operationKey", "title", "body", "startAnchor", "evidence", "validation")),
                         arguments -> call(reviewId, arguments, this::saveFinding)),
                 new ReviewTool("review_reply",
                         "Append your private answer to a discussion: target is \"summary\", a run-scoped cardId, or a findingId.",
@@ -243,18 +265,28 @@ public class ReviewTools
                                         2000)), ImmutableList.of("operationKey", "findingId", "expectedRevision", "explanation")),
                         arguments -> call(reviewId, arguments, this::withdraw)),
                 new ReviewTool("review_finish",
-                        "Record the run's coverage: complete when every commit and file in scope was reviewed, otherwise list the omissions.",
+                        "Finish validation with honest coverage and one conclusion per numbered candidate. A retained candidate names its findingId; "
+                                + "a rejected candidate omits findingId and explains the counterevidence. complete=false preserves partial work without advancing review coverage.",
                         schema(ImmutableMap.of(
                                 "operationKey", ImmutableMap.of("type", "string", "minLength", 1, "maxLength", MAX_KEY),
                                 "complete", ImmutableMap.of("type", "boolean"),
-                                "omissions", ImmutableMap.of("type", "array", "maxItems", 50, "items", ImmutableMap.of("type", "string", "maxLength", 500))),
-                                ImmutableList.of("operationKey", "complete", "omissions")),
+                                "omissions", stringArray(50, 500),
+                                "validations", ImmutableMap.of("type", "array", "maxItems", MAX_CANDIDATES, "items", schema(ImmutableMap.of(
+                                        "candidate", ImmutableMap.of("type", "integer", "minimum", 1),
+                                        "conclusion", ImmutableMap.of("type", "string", "minLength", 1, "maxLength", 2000),
+                                        "findingId", ImmutableMap.of("type", "string", "minLength", 1)), ImmutableList.of("candidate", "conclusion")))),
+                                ImmutableList.of("operationKey", "complete", "omissions", "validations")),
                         arguments -> call(reviewId, arguments, this::finish)));
     }
 
     private static Map<String, Object> schema(Map<String, Object> properties, List<String> required)
     {
         return ImmutableMap.of("type", "object", "properties", properties, "required", required, "additionalProperties", false);
+    }
+
+    private static Map<String, Object> stringArray(int maximum, int length)
+    {
+        return ImmutableMap.of("type", "array", "maxItems", maximum, "items", ImmutableMap.of("type", "string", "minLength", 1, "maxLength", length));
     }
 
     private String call(String reviewId, String arguments, Function<Call, JsonNode> handler)
@@ -312,11 +344,14 @@ public class ReviewTools
         List<ReviewSummary.CommitExplanation> commits = new ArrayList<>();
         for (JsonNode commit : array(arguments, "commits", 200)) {
             String sha = text(commit, "sha", 64, true);
-            Optional<String> full = commitShas.stream().filter(candidate -> candidate.equals(sha) || candidate.startsWith(sha)).findFirst();
-            if (sha.length() < 7 || full.isEmpty()) {
+            List<String> matches = commitShas.stream().filter(candidate -> candidate.startsWith(sha)).collect(toImmutableList());
+            if (sha.length() < 7 || matches.size() != 1) {
                 throw new ReviewInvalidRequestException("commits: " + sha + " is not a commit in this run's scope");
             }
-            commits.add(new ReviewSummary.CommitExplanation(full.orElseThrow(), text(commit, "explanation", 1000, true)));
+            commits.add(new ReviewSummary.CommitExplanation(matches.getFirst(), text(commit, "explanation", 1000, true)));
+        }
+        if (commits.size() != commitShas.size() || commits.stream().map(ReviewSummary.CommitExplanation::sha).distinct().count() != commitShas.size()) {
+            throw new ReviewInvalidRequestException("commits: include each actual commit exactly once");
         }
         Optional<ReviewSummary> previous = call.run().summary();
         int revision = previous.map(ReviewSummary::revision).orElse(0) + 1;
@@ -332,6 +367,38 @@ public class ReviewTools
         return result;
     }
 
+    private JsonNode saveInvestigation(Call call)
+    {
+        Replay replay = replay(call, "review_save_investigation");
+        if (replay.result().isPresent()) {
+            return replay.result().orElseThrow();
+        }
+        if (!call.run().active() || call.run().coverage().isPresent()) {
+            throw new ReviewInvalidRequestException("investigation: the run has already reported its result");
+        }
+        List<String> files = strings(call.arguments(), "reviewedFiles", 1000, 1000);
+        Set<String> allowedFiles = new HashSet<>(requiredFiles(call));
+        call.run().diff().forEach(file -> allowedFiles.add(file.filename()));
+        if (files.stream().distinct().count() != files.size() || !allowedFiles.containsAll(files)) {
+            throw new ReviewInvalidRequestException("reviewedFiles: use distinct paths from this run's frozen diff or requiredReviewFiles");
+        }
+        List<String> refs = strings(call.arguments(), "contextEvidenceRefs", 80, 20);
+        if (refs.stream().anyMatch(ref -> !call.run().evidence().containsKey(ref))) {
+            throw new ReviewInvalidRequestException("contextEvidenceRefs: use evidence refs returned in this run");
+        }
+        List<String> candidates = strings(call.arguments(), "candidates", MAX_CANDIDATES, 2000);
+        List<String> previous = call.run().investigation().map(ReviewInvestigation::candidates).orElseGet(ImmutableList::of);
+        if (call.run().validationStarted() && (candidates.size() < previous.size() || !candidates.subList(0, previous.size()).equals(previous))) {
+            throw new ReviewInvalidRequestException("candidates: preserve candidate numbering during validation; append new hypotheses and reject disproven ones in review_finish");
+        }
+        ReviewInvestigation investigation = new ReviewInvestigation(text(call.arguments(), "changeMap", MAX_TEXT, true), files, refs, candidates, ImmutableList.of());
+        ObjectNode result = objectMapper.createObjectNode().put("status", "accepted").put("candidates", candidates.size())
+                .put("next", call.run().validationStarted() ? "Continue validation, then call review_finish"
+                        : "End this investigation turn; ByteQuay will start a separate validation turn");
+        store.updateRun(call.run().withInvestigation(investigation, now()).withOperation(replay.key(), new ReviewOperation(replay.digest(), result.toString()), now()));
+        return result;
+    }
+
     private JsonNode saveFinding(Call call)
     {
         Replay replay = replay(call, "review_save_finding");
@@ -339,6 +406,10 @@ public class ReviewTools
             return replay.result().orElseThrow();
         }
         ObjectNode arguments = call.arguments();
+        if (call.run().active() && !call.run().validationStarted()) {
+            throw new ReviewInvalidRequestException("validation: save investigation and end the first turn; findings require the separate validation pass");
+        }
+        String validation = text(arguments, "validation", 2000, true);
         String title = text(arguments, "title", MAX_TITLE, true);
         String body = text(arguments, "body", MAX_TEXT, true);
         Optional<String> severity = Optional.ofNullable(arguments.get("severity")).filter(JsonNode::isTextual).map(JsonNode::asText)
@@ -351,7 +422,8 @@ public class ReviewTools
             if (stored == null) {
                 throw new ReviewInvalidRequestException("evidence: " + ref + " is not an evidence reference returned in this run; read the source or command output first");
             }
-            evidence.add(new ReviewEvidence(ref, stored.source(), stored.provenance(), stored.excerpt(), text(item, "explanation", 800, true)));
+            String explanation = text(item, "explanation", 800, true) + (evidence.isEmpty() ? "\n\nValidation: " + validation : "");
+            evidence.add(new ReviewEvidence(ref, stored.source(), stored.provenance(), stored.excerpt(), explanation));
         }
         if (evidence.isEmpty()) {
             throw new ReviewInvalidRequestException("evidence: at least one evidence reference is required");
@@ -374,6 +446,12 @@ public class ReviewTools
             insert = false;
         }
         else {
+            if (!call.run().active() || call.run().coverage().isPresent()) {
+                throw new ReviewInvalidRequestException("finding: new findings require an active validation pass");
+            }
+            if (findings.stream().filter(finding -> finding.runId().equals(call.run().id())).count() >= 10) {
+                throw new ReviewInvalidRequestException("finding: select at most ten distinct findings per round");
+            }
             ReviewDiffAnchors anchors = ReviewDiffAnchors.of(call.run().diff());
             ReviewAnchor anchor = anchors.range(
                     text(arguments, "startAnchor", 20, true),
@@ -516,10 +594,59 @@ public class ReviewTools
         if (complete.asBoolean() && !omissions.isEmpty()) {
             throw new ReviewInvalidRequestException("complete: a complete review cannot list omissions");
         }
+        if (!call.run().active()) {
+            throw new ReviewInvalidRequestException("review: this run has ended; discussion does not change its completion");
+        }
+        if (complete.asBoolean() && !call.run().validationStarted()) {
+            throw new ReviewInvalidRequestException("validation: finish the investigation turn before submitting the validated report");
+        }
+        if (!complete.asBoolean() && omissions.isEmpty()) {
+            throw new ReviewInvalidRequestException("omissions: explain the unreviewed scope or unresolved validation");
+        }
+        List<ReviewCandidateValidation> validations = new ArrayList<>();
+        Set<Integer> candidates = new HashSet<>();
+        Set<String> retained = new HashSet<>();
+        int candidateCount = call.run().investigation().map(value -> value.candidates().size()).orElse(0);
+        for (JsonNode item : array(arguments, "validations", MAX_CANDIDATES)) {
+            int candidate = integer(item, "candidate").orElseThrow(() -> new ReviewInvalidRequestException("candidate: required positive number"));
+            if (candidate > candidateCount || !candidates.add(candidate)) {
+                throw new ReviewInvalidRequestException("validations: include each investigation candidate once, using its one-based number");
+            }
+            Optional<String> findingId = Optional.of(text(item, "findingId", 100, false)).filter(value -> !value.isEmpty());
+            findingId.ifPresent(id -> {
+                ReviewFinding finding = store.findFinding(id).filter(value -> value.reviewId().equals(call.review().id()))
+                        .orElseThrow(() -> new ReviewInvalidRequestException("findingId: must belong to this review"));
+                if (finding.state() == ReviewFinding.State.WITHDRAWN || finding.outdated() || !finding.validatedHeadSha().equals(call.run().headSha())) {
+                    throw new ReviewInvalidRequestException("findingId: retained findings must be current and not withdrawn");
+                }
+                retained.add(id);
+            });
+            validations.add(new ReviewCandidateValidation(candidate, text(item, "conclusion", 2000, true), findingId));
+        }
+        if (complete.asBoolean()) {
+            if (!call.run().hasCompleteSummary()) {
+                throw new ReviewInvalidRequestException("summary: save the intention and each actual commit exactly once");
+            }
+            ReviewInvestigation investigation = call.run().investigation()
+                    .orElseThrow(() -> new ReviewInvalidRequestException("investigation: required before completion"));
+            if (!investigation.reviewedFiles().containsAll(requiredFiles(call))) {
+                throw new ReviewInvalidRequestException("reviewedFiles: account for every required changed file or finish with complete=false and omissions");
+            }
+            if (validations.size() != candidateCount) {
+                throw new ReviewInvalidRequestException("validations: resolve every candidate, including rejected hypotheses");
+            }
+            if (store.listFindings(call.review().id()).stream().anyMatch(finding -> finding.runId().equals(call.run().id())
+                    && finding.state() != ReviewFinding.State.WITHDRAWN && !retained.contains(finding.id()))) {
+                throw new ReviewInvalidRequestException("validations: map every new finding to a candidate or withdraw it");
+            }
+        }
         ReviewCoverage coverage = new ReviewCoverage(complete.asBoolean(), omissions, now());
-        boolean summaryMissing = call.run().summary().isEmpty();
-        ObjectNode result = objectMapper.createObjectNode().put("status", summaryMissing ? "accepted; the summary is still missing, call review_save_summary" : "accepted");
-        store.updateRun(call.run().withCoverage(coverage, now()).withOperation(replay.key(), new ReviewOperation(replay.digest(), result.toString()), now()));
+        ReviewRun run = call.run();
+        if (run.investigation().isPresent()) {
+            run = run.withInvestigation(run.investigation().orElseThrow().withValidations(validations), now());
+        }
+        ObjectNode result = objectMapper.createObjectNode().put("status", "accepted");
+        store.updateRun(run.withCoverage(coverage, now()).withOperation(replay.key(), new ReviewOperation(replay.digest(), result.toString()), now()));
         return result;
     }
 
@@ -537,6 +664,7 @@ public class ReviewTools
             case "diff" -> diff(call, Optional.ofNullable(arguments.get("path")).filter(JsonNode::isTextual).map(JsonNode::asText), page(arguments));
             case "source" -> source(call, text(arguments, "path", 1000, true), integer(arguments, "startLine").orElse(1), integer(arguments, "endLine"));
             case "command_output" -> commandOutput(call);
+            case "investigation" -> objectMapper.valueToTree(call.run().investigation().orElse(null));
             case "findings" -> findings(call);
             case "summary" -> summary(call);
             case "discussion" -> discussion(call, text(arguments, "target", 200, true));
@@ -565,6 +693,8 @@ public class ReviewTools
         run.priorHeadSha().ifPresent(sha -> node.put("previousReviewedHead", sha));
         node.putPOJO("labels", detail.labels().stream().map(PullRequestDetail.Label::name).collect(toImmutableList()));
         node.putPOJO("commits", run.commits());
+        node.putPOJO("requiredReviewFiles", requiredFiles(call));
+        node.put("pass", run.validationStarted() ? "validation" : "investigation");
         node.putPOJO(
                 "changedFiles",
                 run
@@ -573,6 +703,24 @@ public class ReviewTools
                         .map(file -> ImmutableMap.of("path", file.filename(), "status", file.status(), "additions", file.additions(), "deletions", file.deletions()))
                         .collect(toImmutableList()));
         return node;
+    }
+
+    private List<String> requiredFiles(Call call)
+    {
+        Optional<ReviewRun> previous = call.run().priorHeadSha().flatMap(head -> store.listRuns(call.review().id()).stream()
+                .filter(run -> run.state() == ReviewRun.State.ACCEPTED && run.headSha().equals(head)
+                        && run.hasCompleteSummary() && run.coverage().filter(coverage -> coverage.complete() && coverage.omissions().isEmpty()).isPresent())
+                .reduce((first, last) -> last));
+        if (call.run().scope() == ReviewRun.Scope.FULL || previous.isEmpty()) {
+            return call.run().diff().stream().map(DiffFile::filename).collect(toImmutableList());
+        }
+        // Reverted-to-base paths disappear from the publication diff; binary patches cannot establish content equality either.
+        GitCommandRunner.Result changed = git.run(workspaces.requireReadableRepository(call.review().workspaceId()).repository(),
+                "diff", "--name-only", "--no-renames", "-z", previous.orElseThrow().headSha(), call.run().headSha(), "--");
+        if (!changed.successful() || changed.truncated()) {
+            throw new ReviewInvalidRequestException("coverage: the frozen incremental file list is unavailable; report incomplete coverage");
+        }
+        return Arrays.stream(changed.output().split("\\x00")).filter(path -> !path.isEmpty()).collect(toImmutableList());
     }
 
     private JsonNode timeline(Call call, int page)
@@ -683,9 +831,16 @@ public class ReviewTools
             throw new ReviewInvalidRequestException("endLine: must not precede startLine");
         }
         end = Math.min(end, startLine + SOURCE_WINDOW - 1);
-        GitCommandRunner.Result shown = git.run(workspaces.requireReadableRepository(call.review().workspaceId()).repository(), "show", call.run().headSha() + ":" + path);
+        String revision = text(call.arguments(), "revision", 20, false);
+        String sha = switch (revision) {
+            case "", "head" -> call.run().headSha();
+            case "base" -> call.run().mergeBaseSha();
+            case "previous" -> call.run().priorHeadSha().orElseThrow(() -> new ReviewInvalidRequestException("revision: no previously reviewed head"));
+            default -> throw new ReviewInvalidRequestException("revision: use head, base (merge base), or previous");
+        };
+        GitCommandRunner.Result shown = git.run(workspaces.requireReadableRepository(call.review().workspaceId()).repository(), "show", sha + ":" + path);
         if (!shown.successful()) {
-            throw new ReviewInvalidRequestException("path: " + path + " does not exist at the reviewed head");
+            throw new ReviewInvalidRequestException("path: " + path + " does not exist at the selected frozen revision");
         }
         List<String> all = shown.output().lines().toList();
         if (startLine > all.size()) {
@@ -698,11 +853,12 @@ public class ReviewTools
         String excerpt = bounded(window.toString(), MAX_EXCERPT);
         String ref = registerEvidence(
                 call,
-                path + " L" + startLine + "–L" + Math.min(end, all.size()) + " (frozen head " + ReviewPrompts.shortSha(call.run().headSha()) + ")",
-                "source read from the frozen head, not the working files",
+                path + " L" + startLine + "–L" + Math.min(end, all.size()) + " (frozen " + (revision.isEmpty() ? "head" : revision) + " " + ReviewPrompts.shortSha(sha) + ")",
+                "source read from frozen commit " + sha + ", not the working files",
                 excerpt);
         return objectMapper.createObjectNode()
                 .put("path", path)
+                .put("commit", sha)
                 .put("startLine", startLine)
                 .put("endLine", Math.min(end, all.size()))
                 .put("totalLines", all.size())

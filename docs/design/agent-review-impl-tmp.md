@@ -24,6 +24,108 @@ Unchecked means not yet verified, even if similar infrastructure exists.
 - [x] Any change to the locked boundary requires user approval and a design
   update before implementation continues in that area.
 
+## Review quality process
+
+The user approved the simple investigation/validation process in the canonical
+design. This section records its current verification; the original delivery
+checkpoint evidence below is not a claim that unrelated gaps were rechecked.
+
+- [x] Reuse one task, worktree and provider conversation for investigation and
+  mandatory validation, with one shared reporting-repair opportunity.
+- [x] Persist the change map, assessed changed files, context references,
+  numbered candidate hypotheses and final supported/rejected conclusions.
+- [x] Require validation before new findings; require every commit, required
+  changed path, candidate and new finding to be accounted for before accepting
+  complete coverage. Explicit partial reports remain incomplete and cannot
+  advance the successful cursor.
+- [x] Recover accepted validation/repair turns by deterministic request keys
+  without duplicating them. Respect pause and runtime quiescence.
+- [x] Compare frozen previous/head Git snapshots for incremental file scope,
+  including reverted-to-base paths and patchless changes. Expose frozen head,
+  merge-base and previous-head source evidence.
+- [x] Guide behavioral controls for fixes/features, failure reproduction for
+  remaining defects, and source/contract/runtime counterevidence. A compiler or
+  setup failure does not prove a behavioral regression. Preserve command exit
+  status and restore only the reviewer's own experiment edits.
+- [x] Show Investigating/Validating from actual run facts and collapsed Review
+  details from retained evidence; keep draft hypotheses out of Findings.
+- [x] Backend `mvn verify`: 2,093 tests, zero failures/errors/skips, all modules
+  and Checkstyle passed. Evidence: `/tmp/bytequay-review-verify.log` and module
+  Surefire XML. The process-supervision tests require normal process visibility;
+  the successful full run used sandbox escalation rather than skipped tests.
+  The later evidence-display correction passed 59 focused tests and rebuilt the
+  application with `mvn verify -pl app -am
+  -Dtest=TestDefaultAgentReviewService,TestReviewTools
+  -Dsurefire.failIfNoSpecifiedTests=false`; evidence:
+  `/tmp/bytequay-review-evidence-verify.log`.
+- [x] Frontend full suite: 895 tests across 80 files, recorded in
+  `/private/tmp/bytequay-review-ui-tests.log`. The final status/scope
+  refinements passed 75 focused tests plus lint and TypeScript. Final
+  `npm run package` passed with the newly built backend JAR; evidence:
+  `/tmp/bytequay-review-package.log`.
+  The evidence-display regression also passed those 75 tests, lint and
+  TypeScript; logs are `/private/tmp/bytequay-review-evidence-ui-{tests,lint,tsc}.log`.
+- [x] Normal/narrow component visual checks: 900px and 420px snapshots under
+  `/private/tmp/bytequay-review-details-P69xQk/`.
+- [x] Complete a fresh live review after the update and compare its evidence
+  with the same PR's original review.
+
+`TestReviewTools` (22 tests) covers the seven fixed tools, pass ordering,
+candidate accounting, exact summary/file coverage, frozen comparison evidence
+and reverted/patchless incremental paths. `TestDefaultAgentReviewService`
+(37 tests) covers orchestration, one repair budget, partial results,
+recovery and validation evidence omitted from the initial context selection.
+It does not require the model to repeat that selection to expose later proof.
+`TestSqliteReviewStores` round-trips investigation, validations and
+the validation-start fact. The incremental file-list regression mocks Git;
+it verifies command/result handling rather than a real-repository experiment.
+
+The live baseline reviewed `trinodb/trino#31125` at head
+`2d9a8e7e28ac220fee0dc05bf5c3792274518a1c` using the configured Claude lane.
+It returned zero findings and ran all six `TestBitArrayBlock` tests successfully,
+including `testCopyRegion`. Its report explicitly said it did not run that test
+against the pre-fix behavior. Sanitized report and event evidence is retained at
+`/private/tmp/bytequay-review-quality-baseline.json` and
+`/private/tmp/bytequay-review-quality-baseline-events.json`. The baseline review
+was ended through its normal lifecycle after only its verified generated test
+artifacts were parked under `/private/tmp/bytequay-review-quality-baseline-artifacts`.
+No source edits or GitHub writes were made by that baseline.
+
+The updated review used the identical base/head, automatically completed two
+turns, and was accepted with complete coverage, no omissions and zero findings.
+Without additional steering it ran 35 passing tests (`TestBitmap`,
+`TestBitArrayBlockBuilder`, `TestBitArrayBlock`), restored only the old condition,
+and confirmed `testCopyRegion` fails with an assertion and Maven exit 1 while
+the bitmap tests still pass. Its separate eight-case reproduction passed at
+HEAD and failed six cases under the compiling old-condition control. It
+restored the PR source and recompiled successfully. Both candidate conclusions
+were recorded; the shared-array hypothesis was rejected against source contracts.
+
+Review `5e959b9d-c70d-44c0-ab4c-a2a9c4f244f5` remains open for inspection and
+discussion, with no active turn, claim or approval. Its worktree matches the
+frozen head with clean tracked/untracked source; ignored build and provider
+scratch outputs remain in that review's worktree. The two-turn run took 328.3
+seconds versus 115.7 seconds for the baseline. This one PR verifies workflow
+and evidence behavior, not general review precision or recall. The new process
+has been exercised live on Claude; no new live Codex run is claimed here.
+
+Evidence is retained under `/private/tmp/bytequay-review-quality-updated.json`,
+`/private/tmp/bytequay-review-quality-updated-events.json` and
+`/private/tmp/bytequay-review-quality-updated-stored-evidence.json`.
+The live check found that the initial context selection hid later validation
+references in the HTTP/UI projection even though all 34 were stored durably.
+The projection and disclosure now expose all retained evidence with reference
+IDs. E25 contains the Maven old-condition failure, E26 the 35-test HEAD success,
+and E31 the focused reproduction/control comparison.
+An idle-checked normal app restart confirmed that the existing accepted/open
+review exposes all 34 references, including those exact outputs, while retaining
+the same two turn IDs without launching another provider turn. Readback evidence:
+`/private/tmp/bytequay-review-quality-updated-after-restart.json`.
+
+These checks establish ordering, provenance and honest reporting structure;
+they do not establish that the model's semantic conclusions are correct.
+Validation is another turn in the same conversation, not an independent reviewer.
+
 ## CP0 — Reuse inventory and UI reference
 
 Entry: canonical design is available; no production work is claimed.

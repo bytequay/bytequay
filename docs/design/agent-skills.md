@@ -78,34 +78,42 @@ user skills and grants no additional tools or permissions.
 
 ## Review guidance
 
-`agent-skills/bytequay-review.md` makes executable proof the highest review
-priority. For every suspected issue, opinion, or finding, the agent must run
-an existing test that exercises the trigger or write and actually run a focused
-reproduction whenever feasible, before reporting the claim. Findings keep a
-short standalone body; their evidence references and explanations carry the
-command, expected/actual result, decisive output, test path or reproduction
-setup. Only independently established code defects may be reported without a
-reproduced result, citing that code evidence. Speculation is omitted.
+`agent-skills/bytequay-review.md` guides understanding, inspection, validation,
+and reporting through two turns in the existing review task. The first saves a
+change map, assessed changed files, relevant context references, and candidate
+hypotheses. The second challenges candidates against tests, source contracts,
+callers, configuration, and counterevidence before saving findings.
 
-Defect findings require an explicit Critical, High, or Medium severity by
-default; Low requires a direct user request. Concrete optional code improvements
-are labeled as suggestions and omit defect severity. They must explain the
-benefit and supply an exact replacement on a validated inline anchor. Each full or incremental round
-selects at most ten distinct findings, ranked by severity and impact before
-saving. Discussions, retries, and report repair share that limit. Complete
-commit coverage remains required. Report repair reuses
-the investigation and collected evidence, with focused reproduction when
-feasible proof is still missing before reporting a claim.
+Focused reproductions are required whenever feasible and useful. For a fix or
+feature, passing the intended behavioral assertions at the head and failing
+against the relevant old or narrowly removed behavior can establish that the
+test detects the change. Compile/setup failures, unrelated mutations, and
+formatter exit codes are not valid behavioral controls. Remaining defects must
+be established in the frozen PR code. Direct source arguments, lifecycle and
+concurrency analysis, compatibility checks, static analysis, measured behavior,
+and version-matched documentation complement tests. An unrelated passing suite
+or a test merely written is not proof. Restore only the agent's experiment edits
+after capturing reproducible evidence.
 
-`ReviewPrompts` loads this private resource into the existing `ReviewBridge`
-instruction. The bridge is available only to open review-owned tasks, so
-review, discussion, and resumed/report-repair turns receive it through both
-providers' system/developer channels. Development tasks, unrelated tasks, and
-title/wording helpers do not receive this resource. It has no settings row or
-user-management API. Tests and experiments use existing review worktree tools
-and permissions. The severity and selection rules guide the model; the existing
-reporting tools validate anchors and evidence identity, not semantic truth or
-a deterministic severity/count filter.
+Findings keep a short standalone body. Evidence retains the triggering input,
+command, actual exit/result, decisive output, test/setup, control changes, and
+validation explanation. Unsupported candidates are rejected with reasons;
+zero findings remains valid. The same conversation's second pass is explicit
+self-review, not independent judgment.
+
+Defects require Critical, High, or Medium severity by default; Low requires a
+user request. Optional concrete improvements are suggestions without severity.
+At most ten distinct findings may be created per round, including retries and
+discussions. The tool enforces the count and recording boundary, while semantic
+truth and severity remain model judgments. Complete commit explanations and
+truthful coverage remain required. The shared bounded reporting-repair budget
+never turns known scope omissions into successful coverage.
+
+`ReviewPrompts` loads this private resource through the existing `ReviewBridge`
+for both providers, including discussion and resumed/report-repair turns.
+Development tasks, unrelated tasks, and title/wording helpers do not receive
+it. It has no settings row or user-management API. Experiments use the existing
+review worktree permissions; publication remains a direct user action.
 
 ## User skill scopes
 

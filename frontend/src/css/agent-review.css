@@ -211,6 +211,16 @@
 .agr-learning-card--commit .pr-local-review__label { border-color: #c6d3e4; background: transparent; color: #526987; }
 .agr-learning-history { border-top: 1px solid #d8dee4; }
 .agr-learning-card--history { margin-bottom: 12px; }
+.agr-review-details { margin-bottom: 16px; border: 1px solid #d8dee4; border-radius: 6px; color: #57606a; font-size: 13px; }
+.agr-review-details > summary { padding: 10px 12px; cursor: pointer; }
+.agr-review-details__body { padding: 0 12px 12px; overflow-wrap: anywhere; }
+.agr-review-details__body h3 { margin: 12px 0 6px; color: #1f2328; font-size: 13px; }
+.agr-review-details__body > details { margin-top: 12px; }
+.agr-review-details__body summary { cursor: pointer; }
+.agr-review-details__body .markdown-body { padding: 0; }
+.agr-review-details__files { max-height: 240px; overflow: auto; padding-left: 22px; }
+.agr-review-details__conclusions { padding-left: 22px; }
+.agr-review-details__conclusions > li + li { margin-top: 12px; }
 
 .agr-learning-card__reply, .agr-finding__controls { display: block !important; }
 :is(.agr-learning-card__reply, .agr-finding__controls) > .agr-composer { margin-top: 0; }

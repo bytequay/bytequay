@@ -50,6 +50,8 @@ public record ReviewRun(
         State state,
         Optional<ReviewSummary> summary,
         Optional<ReviewCoverage> coverage,
+        Optional<ReviewInvestigation> investigation,
+        boolean validationStarted,
         boolean completionRepairUsed,
         Map<String, ReviewOperation> operations,
         Map<String, ReviewEvidence> evidence,
@@ -76,6 +78,7 @@ public record ReviewRun(
         requireNonNull(state, "state is null");
         requireNonNull(summary, "summary is null");
         requireNonNull(coverage, "coverage is null");
+        requireNonNull(investigation, "investigation is null");
         operations = ImmutableMap.copyOf(operations);
         evidence = ImmutableMap.copyOf(evidence);
         requireNonNull(outcome, "outcome is null");
@@ -93,46 +96,71 @@ public record ReviewRun(
 
     public ReviewRun withVersion(long updatedVersion)
     {
-        return copy(turnIds, state, summary, coverage, completionRepairUsed, operations, evidence, outcome, updatedVersion, updatedAt, endedAt);
+        return copy(turnIds, state, summary, coverage, investigation, validationStarted, completionRepairUsed, operations, evidence, outcome, updatedVersion, updatedAt, endedAt);
     }
 
     public ReviewRun withTurn(String turnId, Instant now)
     {
         List<String> nextTurnIds = ImmutableList.<String>builder().addAll(turnIds).add(turnId).build();
-        return copy(nextTurnIds, state, summary, coverage, completionRepairUsed, operations, evidence, outcome, version, now, endedAt);
+        return copy(nextTurnIds, state, summary, coverage, investigation, validationStarted, completionRepairUsed, operations, evidence, outcome, version, now, endedAt);
     }
 
     public ReviewRun withSummary(ReviewSummary updatedSummary, Instant now)
     {
-        return copy(turnIds, state, Optional.of(updatedSummary), coverage, completionRepairUsed, operations, evidence, outcome, version, now, endedAt);
+        return copy(
+                turnIds, state, Optional.of(updatedSummary), coverage, investigation, validationStarted, completionRepairUsed,
+                operations, evidence, outcome, version, now, endedAt);
     }
 
     public ReviewRun withCoverage(ReviewCoverage updatedCoverage, Instant now)
     {
-        return copy(turnIds, state, summary, Optional.of(updatedCoverage), completionRepairUsed, operations, evidence, outcome, version, now, endedAt);
+        return copy(
+                turnIds, state, summary, Optional.of(updatedCoverage), investigation, validationStarted, completionRepairUsed,
+                operations, evidence, outcome, version, now, endedAt);
+    }
+
+    public ReviewRun withInvestigation(ReviewInvestigation updatedInvestigation, Instant now)
+    {
+        return copy(
+                turnIds, state, summary, coverage, Optional.of(updatedInvestigation), validationStarted, completionRepairUsed,
+                operations, evidence, outcome, version, now, endedAt);
+    }
+
+    public ReviewRun withValidationStarted(Instant now)
+    {
+        return copy(turnIds, state, summary, coverage, investigation, true, completionRepairUsed, operations, evidence, outcome, version, now, endedAt);
+    }
+
+    public boolean hasCompleteSummary()
+    {
+        return summary.filter(value -> value.commits().size() == commits.size()
+                && value.commits().stream().map(ReviewSummary.CommitExplanation::sha).distinct().count() == commits.size()
+                && value.commits().stream().allMatch(explanation -> commits.stream().anyMatch(commit -> commit.sha().equals(explanation.sha())))).isPresent();
     }
 
     public ReviewRun withOperation(String key, ReviewOperation operation, Instant now)
     {
         Map<String, ReviewOperation> nextOperations = ImmutableMap.<String, ReviewOperation>builder().putAll(operations).put(key, operation).buildOrThrow();
-        return copy(turnIds, state, summary, coverage, completionRepairUsed, nextOperations, evidence, outcome, version, now, endedAt);
+        return copy(turnIds, state, summary, coverage, investigation, validationStarted, completionRepairUsed, nextOperations, evidence, outcome, version, now, endedAt);
     }
 
     public ReviewRun withEvidence(String ref, ReviewEvidence item, Instant now)
     {
         Map<String, ReviewEvidence> nextEvidence = ImmutableMap.<String, ReviewEvidence>builder().putAll(evidence).put(ref, item).buildOrThrow();
-        return copy(turnIds, state, summary, coverage, completionRepairUsed, operations, nextEvidence, outcome, version, now, endedAt);
+        return copy(turnIds, state, summary, coverage, investigation, validationStarted, completionRepairUsed, operations, nextEvidence, outcome, version, now, endedAt);
     }
 
     public ReviewRun withCompletionRepairUsed(Instant now)
     {
-        return copy(turnIds, state, summary, coverage, true, operations, evidence, outcome, version, now, endedAt);
+        return copy(turnIds, state, summary, coverage, investigation, validationStarted, true, operations, evidence, outcome, version, now, endedAt);
     }
 
     public ReviewRun ended(State terminalState, Optional<String> terminalOutcome, Instant now)
     {
         checkArgument(terminalState.terminal(), "state is not terminal");
-        return copy(turnIds, terminalState, summary, coverage, completionRepairUsed, operations, evidence, terminalOutcome, version, now, Optional.of(now));
+        return copy(
+                turnIds, terminalState, summary, coverage, investigation, validationStarted, completionRepairUsed,
+                operations, evidence, terminalOutcome, version, now, Optional.of(now));
     }
 
     /** Carries everything frozen with the head over unchanged; only the progress of the run varies. */
@@ -141,6 +169,8 @@ public record ReviewRun(
             State nextState,
             Optional<ReviewSummary> nextSummary,
             Optional<ReviewCoverage> nextCoverage,
+            Optional<ReviewInvestigation> nextInvestigation,
+            boolean nextValidationStarted,
             boolean nextCompletionRepairUsed,
             Map<String, ReviewOperation> nextOperations,
             Map<String, ReviewEvidence> nextEvidence,
@@ -151,7 +181,7 @@ public record ReviewRun(
     {
         return new ReviewRun(
                 id, reviewId, ordinal, scope, baseRef, baseSha, mergeBaseSha, headSha, priorHeadSha, commits, diff,
-                nextTurnIds, nextState, nextSummary, nextCoverage, nextCompletionRepairUsed, nextOperations, nextEvidence,
+                nextTurnIds, nextState, nextSummary, nextCoverage, nextInvestigation, nextValidationStarted, nextCompletionRepairUsed, nextOperations, nextEvidence,
                 nextOutcome, nextVersion, createdAt, now, nextEndedAt);
     }
 

@@ -21,6 +21,7 @@ import ReviewSummaryCard from './ReviewSummaryCard';
 import { reviewFixture, runningReviewFixture } from './fixtures/review';
 import { shownRun } from './model';
 import type { AgentReviewDto, ReviewDraftDto, ReviewFindingDto } from './contracts';
+import { parseAgentReview } from './contracts';
 import type { PullRequestDetailDto, UserProfileDto } from '../../types';
 
 const detail = {
@@ -185,6 +186,62 @@ describe('banners', () => {
     expect(html).toContain('Follow-up on new commits is paused');
     expect(html).toContain('The discussion stays open');
   });
+
+  it('offers Resume instead of an ongoing startup when the review is stopped between passes', () => {
+    const running = runningReviewFixture();
+    const html = tab({ ...running, activeTurn: null, followUpPaused: true, task: { ...running.task, mutationClaim: null } });
+    expect(html).toContain('Stopped');
+    expect(html).toContain('>Resume</button>');
+    expect(html).not.toMatch(/disabled=""[^>]*>Resume<\/button>/);
+    expect(html).not.toContain('preparing the review');
+    expect(html).not.toContain('>Stop</button>');
+  });
+});
+
+describe('review details', () => {
+  it('shows assessed scope and final validation evidence without promoting draft candidates', () => {
+    const original = reviewFixture({ findings: [] });
+    const run = original.runs[0];
+    const review = parseAgentReview({ ...original, runs: [{ ...run, scope: 'INCREMENTAL', changedFiles: 0, validationStarted: true,
+      investigation: { changeMap: 'Provider ownership spans the **factory and scan**.',
+        reviewedFiles: ['src/Factory.java'], contextEvidenceRefs: ['context-1'],
+        candidates: ['Draft leak hypothesis', 'Draft delegation hypothesis'],
+        validations: [{ candidate: 1, conclusion: 'The caller releases its reference in `finally`; E25 verifies cleanup.', findingId: null },
+          { candidate: 2, conclusion: 'The delegated context drops the reservation.', findingId: 'finding-1' }] },
+      evidence: [{ ref: 'context-1', source: 'src/UnchangedCaller.java:14–28', provenance: 'Frozen source',
+        excerpt: 'finally { provider.release(); }', explanation: 'The caller owns cleanup.' },
+      { ref: 'E25', source: 'command output: ./mvnw test -Dtest=TestProviderCleanup', provenance: 'Command executed during validation',
+        excerpt: 'Frozen head: PASS; release removed: FAIL (reference remains)', explanation: '' }] }] });
+    const html = tab(review);
+    expect(html).toContain('<details class="agr-review-details"><summary>Review details');
+    expect(html).toContain('1 changed file assessed');
+    expect(html).not.toContain('of 0 changed files');
+    expect(html).toContain('src/Factory.java');
+    expect(html).toContain('src/UnchangedCaller.java:14–28');
+    expect(html).toContain('finally { provider.release(); }');
+    expect(html).toContain('Context &amp; validation evidence · 2 references');
+    expect(html).toContain('<span class="agr-card__refs">E25</span>');
+    expect(html).toContain('command output: ./mvnw test -Dtest=TestProviderCleanup');
+    expect(html).toContain('Frozen head: PASS; release removed: FAIL (reference remains)');
+    expect(html).toContain('2 of 2 candidates checked');
+    expect(html).toContain('1 retained · 1 rejected');
+    expect(html).toContain('The caller releases its reference');
+    expect(html).not.toContain('Draft leak hypothesis');
+    expect(html).not.toContain('data-finding-id=');
+    const partial = tab({ ...review, runs: [{ ...review.runs[0], investigation: null }] });
+    expect(partial).toContain('Frozen head: PASS; release removed: FAIL (reference remains)');
+  });
+
+  it('keeps omitted scope visible without claiming no findings for an incomplete accepted run', () => {
+    const original = reviewFixture({ findings: [] });
+    const html = tab({ ...original, runs: [{ ...original.runs[0], coverage: {
+      complete: false, omissions: ['Resource cleanup has not been reviewed'], recordedAt: '2026-09-06T16:15:00Z',
+    } }] });
+    expect(html).toContain('Incomplete');
+    expect(html).toContain('Resource cleanup has not been reviewed');
+    expect(html).toContain('Complete coverage has not been recorded.');
+    expect(html).not.toContain('No inline findings');
+  });
 });
 
 describe('the summary card', () => {
@@ -338,7 +395,7 @@ describe('the finding card', () => {
     const running = runningReviewFixture();
     const html = card(running, running.findings[0]);
     expect(html).toContain('Provisional');
-    expect(html).toContain('Publishing unlocks when the run records coverage');
+    expect(html).toContain('Publishing unlocks when validation and complete coverage are accepted');
     expect(html).not.toContain('Post comment now');
   });
 });

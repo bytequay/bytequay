@@ -245,6 +245,10 @@ public class DefaultAgentReviewService
                 review = settle(review, active.orElseThrow(), tasks.get(TaskId.valueOf(review.taskId())));
             }
             review = store.updateReview(review.withFollowUpPaused(false, Instant.now(clock)));
+            Optional<ReviewRun> resumed = latestRun(reviewId).filter(ReviewRun::active);
+            if (resumed.isPresent()) {
+                review = settle(review, resumed.orElseThrow(), tasks.get(TaskId.valueOf(review.taskId())));
+            }
             Optional<ReviewRun> latest = latestRun(reviewId);
             boolean retry = latest.map(run -> run.state() != ReviewRun.State.ACCEPTED && !run.active()).orElse(true);
             followHead(review, retry, true);
@@ -468,6 +472,15 @@ public class DefaultAgentReviewService
             }
             run = store.updateRun(run.withTurn(accepted.orElseThrow().id().toString(), Instant.now(clock)));
         }
+        Optional<AgentTurn> repair = run.completionRepairUsed() ? turns.findTurnByIdempotencyKey(task.id(), "review-repair:" + run.id()) : Optional.empty();
+        Optional<AgentTurn> validation = run.validationStarted() ? turns.findTurnByIdempotencyKey(task.id(), "review-validate:" + run.id()) : Optional.empty();
+        // A provider can accept a follow-up before saving its association succeeds.
+        // Reattach it before interpreting the earlier turn as the latest result.
+        for (AgentTurn accepted : ImmutableList.<AgentTurn>builder().addAll(repair.stream().toList()).addAll(validation.stream().toList()).build()) {
+            if (!run.turnIds().contains(accepted.id().toString())) {
+                run = store.updateRun(run.withTurn(accepted.id().toString(), Instant.now(clock)));
+            }
+        }
         AgentTurn turn = turns.get(TurnId.valueOf(run.turnIds().getLast()));
         if (!turn.state().terminal() || task.worktreeMutationClaim().map(claim -> claim.kind() == WorktreeMutationClaim.Kind.TURN).orElse(false)) {
             return review;
@@ -479,21 +492,50 @@ public class DefaultAgentReviewService
                 if (!idle(task)) {
                     return review;
                 }
-                if (run.summary().isPresent() && run.coverage().isPresent()) {
+                if (run.coverage().filter(coverage -> !coverage.complete() || !coverage.omissions().isEmpty()).isPresent()) {
+                    store.updateRun(run.ended(ReviewRun.State.INCOMPLETE, Optional.of("The review recorded incomplete coverage"), now));
+                    return store.updateReview(review.withFollowUpPaused(true, now));
+                }
+                if (run.validationStarted() && validation.isEmpty()) {
+                    if (review.followUpPaused()) {
+                        return review;
+                    }
+                    startFollowup(run, task, "review-validate:", ReviewPrompts.validationRequest(run));
+                    return review;
+                }
+                if (run.completionRepairUsed() && repair.isEmpty()) {
+                    if (review.followUpPaused()) {
+                        return review;
+                    }
+                    startFollowup(run, task, "review-repair:", run.validationStarted() ? ReviewPrompts.completionRepair(run) : ReviewPrompts.investigationRepair(run));
+                    return review;
+                }
+                if (!run.validationStarted() && run.investigation().isPresent() && run.hasCompleteSummary()) {
+                    if (review.followUpPaused()) {
+                        return review;
+                    }
+                    ReviewRun validating = store.updateRun(run.withValidationStarted(now));
+                    startFollowup(validating, task, "review-validate:", ReviewPrompts.validationRequest(validating));
+                    return review;
+                }
+                if (run.validationStarted() && run.investigation().isPresent() && run.hasCompleteSummary() && run.coverage().isPresent()) {
                     AgentReview advanced = review.withLatestCompletedRun(run.id(), now);
                     store.acceptRun(advanced, run.ended(ReviewRun.State.ACCEPTED, Optional.empty(), now));
                     return store.findReview(review.id()).orElseThrow();
                 }
-                if (!run.completionRepairUsed() && idle(task)) {
+                if (!run.completionRepairUsed() && !review.followUpPaused()) {
                     ReviewRun repairing = store.updateRun(run.withCompletionRepairUsed(now));
-                    AgentTurn repair = turns.start(new StartAgentTurnCommand(task.id(), ReviewPrompts.completionRepair(run), ImmutableList.of(), "review-repair:" + run.id()));
-                    store.updateRun(repairing.withTurn(repair.id().toString(), Instant.now(clock)));
+                    startFollowup(repairing, task, "review-repair:", run.validationStarted() ? ReviewPrompts.completionRepair(run) : ReviewPrompts.investigationRepair(run));
                     return review;
                 }
-                store.updateRun(run.ended(ReviewRun.State.INCOMPLETE, Optional.of(run.summary().isEmpty()
-                        ? "The run ended without a saved summary or a coverage record"
-                        : "The run ended without a coverage record"), now));
-                return review;
+                if (review.followUpPaused()) {
+                    return review;
+                }
+                String missing = run.investigation().isEmpty() ? "an investigation record"
+                        : !run.hasCompleteSummary() ? "an explanation for every commit"
+                                : "a coverage record";
+                store.updateRun(run.ended(ReviewRun.State.INCOMPLETE, Optional.of("The run ended without " + missing), now));
+                return store.updateReview(review.withFollowUpPaused(true, now));
             }
             case CANCELLED -> {
                 store.updateRun(run.ended(ReviewRun.State.STOPPED, Optional.of("Stopped by the user"), now));
@@ -504,6 +546,28 @@ public class DefaultAgentReviewService
                         run.ended(ReviewRun.State.FAILED, turn.terminalReason().or(() -> Optional.of("The provider turn " + turn.state().name().toLowerCase(Locale.ROOT))), now));
                 return store.updateReview(review.withFollowUpPaused(true, now));
             }
+        }
+    }
+
+    private void startFollowup(ReviewRun run, AgentTask task, String keyPrefix, String prompt)
+    {
+        String key = keyPrefix + run.id();
+        AgentTurn accepted;
+        try {
+            accepted = turns.findTurnByIdempotencyKey(task.id(), key)
+                    .orElseGet(() -> turns.start(new StartAgentTurnCommand(task.id(), prompt, ImmutableList.of(), key)));
+        }
+        catch (RuntimeException failure) {
+            if (turns.findTurnByIdempotencyKey(task.id(), key).isEmpty()) {
+                Instant now = Instant.now(clock);
+                store.updateRun(store.findRun(run.id()).orElseThrow().ended(ReviewRun.State.FAILED, Optional.of("Cannot continue the review: " + failure.getMessage()), now));
+                store.updateReview(requireReview(run.reviewId()).withFollowUpPaused(true, now));
+            }
+            throw failure;
+        }
+        ReviewRun current = store.findRun(run.id()).orElseThrow();
+        if (!current.turnIds().contains(accepted.id().toString())) {
+            store.updateRun(current.withTurn(accepted.id().toString(), Instant.now(clock)));
         }
     }
 
@@ -535,7 +599,10 @@ public class DefaultAgentReviewService
         if (!snapshot.headSha().equals(head)) {
             store.updateReview(review.withObservedHead(snapshot.headSha(), Instant.now(clock)));
         }
-        Optional<ReviewRun> previous = runs.stream().filter(run -> run.state() == ReviewRun.State.ACCEPTED).reduce((first, second) -> second);
+        Optional<ReviewRun> previous = runs.stream()
+                .filter(run -> run.state() == ReviewRun.State.ACCEPTED && run.hasCompleteSummary()
+                        && run.coverage().filter(coverage -> coverage.complete() && coverage.omissions().isEmpty()).isPresent())
+                .reduce((first, second) -> second);
         // Compared with the fetched head: a retry can find a newer head than the observed one, and every run must sit where the worktree does.
         if (latest.map(run -> !run.headSha().equals(snapshot.headSha())).orElse(true)) {
             try {
@@ -620,6 +687,8 @@ public class DefaultAgentReviewService
                 ReviewRun.State.RUNNING,
                 Optional.empty(),
                 Optional.empty(),
+                Optional.empty(),
+                false,
                 false,
                 ImmutableMap.of(),
                 ImmutableMap.of(),

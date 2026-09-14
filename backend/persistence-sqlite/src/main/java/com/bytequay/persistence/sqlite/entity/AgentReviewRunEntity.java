@@ -17,6 +17,7 @@ import com.bytequay.core.domain.DiffFile;
 import com.bytequay.core.review.ReviewCommit;
 import com.bytequay.core.review.ReviewCoverage;
 import com.bytequay.core.review.ReviewEvidence;
+import com.bytequay.core.review.ReviewInvestigation;
 import com.bytequay.core.review.ReviewOperation;
 import com.bytequay.core.review.ReviewRun;
 import com.bytequay.core.review.ReviewSummary;
@@ -97,6 +98,12 @@ public class AgentReviewRunEntity
     @Column(name = "coverage_json", columnDefinition = "TEXT")
     private String coverageJson;
 
+    @Column(name = "investigation_json", columnDefinition = "TEXT")
+    private String investigationJson;
+
+    @Column(name = "validation_started", nullable = false, columnDefinition = "boolean default false")
+    private boolean validationStarted;
+
     @Column(name = "completion_repair_used", nullable = false)
     private boolean completionRepairUsed;
 
@@ -151,6 +158,8 @@ public class AgentReviewRunEntity
         state = run.state();
         summaryJson = run.summary().map(AgentReviewJson::encode).orElse(null);
         coverageJson = run.coverage().map(AgentReviewJson::encode).orElse(null);
+        investigationJson = run.investigation().map(AgentReviewJson::encode).orElse(null);
+        validationStarted = run.validationStarted();
         completionRepairUsed = run.completionRepairUsed();
         operationsJson = AgentReviewJson.encode(run.operations());
         evidenceJson = AgentReviewJson.encode(run.evidence());
@@ -178,6 +187,8 @@ public class AgentReviewRunEntity
                 state,
                 Optional.ofNullable(summaryJson).map(json -> AgentReviewJson.decode(json, ReviewSummary.class)),
                 Optional.ofNullable(coverageJson).map(json -> AgentReviewJson.decode(json, ReviewCoverage.class)),
+                Optional.ofNullable(investigationJson).map(json -> AgentReviewJson.decode(json, ReviewInvestigation.class)),
+                validationStarted,
                 completionRepairUsed,
                 AgentReviewJson.decode(operationsJson, OPERATIONS),
                 AgentReviewJson.decode(evidenceJson, EVIDENCE),

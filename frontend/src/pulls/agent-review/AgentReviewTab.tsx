@@ -39,6 +39,7 @@ import LocalReviewThreadCard from '../local-review/LocalReviewThreadCard';
 import type { LocalReviewThreads } from '../local-review/types';
 import ReviewActivity from './ReviewActivity';
 import ReviewFindingCard from './ReviewFindingCard';
+import ReviewDetails from './ReviewDetails';
 import { useFindingActions } from './useFindingActions';
 import ReviewSummaryCard from './ReviewSummaryCard';
 import type { AgentReviewDto, ReviewFindingDto } from './contracts';
@@ -492,7 +493,7 @@ export default function AgentReviewTab({
             <div className="agr-banner is-danger">
               <span className="agr-banner__chip">Incomplete</span>
               <div className="agr-banner__text">
-                {run?.outcome ?? 'The run ended without recording coverage.'} What was saved is shown below; it is not a
+                {currentRun?.outcome ?? 'The run ended without recording complete coverage.'} What was saved is shown below; it is not a
                 clean result.
               </div>
               <button type="button" className="agr-action" disabled={busy || recovery}
@@ -523,6 +524,7 @@ export default function AgentReviewTab({
             </div>
           )}
 
+          {run !== null && <ReviewDetails run={run} repository={review.repo} />}
           <ReviewSummaryCard
             review={review}
             run={run}
@@ -550,8 +552,7 @@ export default function AgentReviewTab({
             <div className="agr-none">
               <div className="agr-none__title">No inline findings</div>
               <p>
-                Coverage was recorded for {run?.commits.length ?? 0} {(run?.commits.length ?? 0) === 1 ? 'commit' : 'commits'} and
-                {' '}{run?.changedFiles ?? 0} {(run?.changedFiles ?? 0) === 1 ? 'file' : 'files'}. Complete means the scope was
+                The agent recorded complete coverage of the review scope. Complete means the scope was
                 reviewed, not that the pull request is guaranteed correct.
               </p>
             </div>
@@ -559,7 +560,7 @@ export default function AgentReviewTab({
           {findings.length === 0 && status?.status !== 'nofindings' && provisional(review) && running && (
             <div className="agr-pending">
               <span className="agr-spinner" aria-hidden="true" />
-              Findings appear here as the agent saves them. Nothing is final until the run records coverage.
+              Findings appear after the agent checks its candidates. The report stays provisional until validation and complete coverage are accepted.
             </div>
           )}
 

@@ -16,6 +16,7 @@ package com.bytequay.persistence.sqlite.store;
 import com.bytequay.core.domain.DiffFile;
 import com.bytequay.core.review.AgentReview;
 import com.bytequay.core.review.ReviewAnchor;
+import com.bytequay.core.review.ReviewCandidateValidation;
 import com.bytequay.core.review.ReviewCommit;
 import com.bytequay.core.review.ReviewConflictException;
 import com.bytequay.core.review.ReviewCoverage;
@@ -23,6 +24,7 @@ import com.bytequay.core.review.ReviewDraft;
 import com.bytequay.core.review.ReviewDraftItem;
 import com.bytequay.core.review.ReviewEvidence;
 import com.bytequay.core.review.ReviewFinding;
+import com.bytequay.core.review.ReviewInvestigation;
 import com.bytequay.core.review.ReviewMessage;
 import com.bytequay.core.review.ReviewOperation;
 import com.bytequay.core.review.ReviewPublication;
@@ -106,6 +108,10 @@ class TestSqliteReviewStores
                 .withTurn("turn-2", NOW.plusSeconds(1))
                 .withSummary(SUMMARY, NOW.plusSeconds(2))
                 .withCoverage(COVERAGE, NOW.plusSeconds(3))
+                .withInvestigation(new ReviewInvestigation("Follow the new publication count", ImmutableList.of(REVIEW_TOOLS), ImmutableList.of("ev-1"),
+                        ImmutableList.of("The count might never reach callers"),
+                        ImmutableList.of(new ReviewCandidateValidation(1, "The caller receives the unchanged value", Optional.of("finding-1")))), NOW.plusSeconds(3))
+                .withValidationStarted(NOW.plusSeconds(3))
                 .withOperation("review_finding:finding-1", new ReviewOperation("sha256:9f1c", "created"), NOW.plusSeconds(4))
                 .withEvidence("ev-2", COMMAND_EVIDENCE, NOW.plusSeconds(5))
                 .withCompletionRepairUsed(NOW.plusSeconds(6))
@@ -347,6 +353,8 @@ class TestSqliteReviewStores
                 ReviewRun.State.RUNNING,
                 Optional.empty(),
                 Optional.empty(),
+                Optional.empty(),
+                false,
                 false,
                 ImmutableMap.of("review_context:ev-1", new ReviewOperation("sha256:11ab", "read")),
                 ImmutableMap.of("ev-1", CONTEXT_EVIDENCE),

@@ -53,7 +53,11 @@ export function latestRun(review: AgentReviewDto): ReviewRunDto | null {
 }
 
 function acceptedRun(review: AgentReviewDto): ReviewRunDto | null {
-  return review.runs.filter(run => run.state === 'ACCEPTED').at(-1) ?? null;
+  return review.runs.filter(run => run.state === 'ACCEPTED' && completeCoverage(run)).at(-1) ?? null;
+}
+
+function completeCoverage(run: ReviewRunDto): boolean {
+  return run.coverage?.complete === true && run.coverage.omissions.length === 0;
 }
 
 /** The run whose summary and findings the pane shows: the newest one that has anything to show. */
@@ -86,7 +90,7 @@ export function openFindings(review: AgentReviewDto): ReviewFindingDto[] {
  */
 export function provisional(review: AgentReviewDto): boolean {
   const run = shownRun(review);
-  return run !== null && run.state !== 'ACCEPTED';
+  return run !== null && (run.state !== 'ACCEPTED' || !completeCoverage(run));
 }
 
 export function newCommits(review: AgentReviewDto): boolean {
@@ -97,7 +101,7 @@ export function newCommits(review: AgentReviewDto): boolean {
 }
 
 export function reviewStatus(review: AgentReviewDto): ReviewStatusView {
-  const run = shownRun(review);
+  const run = latestRun(review);
   const findings = openFindings(review);
   const open = findings.filter(finding => finding.state === 'OPEN').length;
   const findingChip = findings.length === 0
@@ -116,18 +120,20 @@ export function reviewStatus(review: AgentReviewDto): ReviewStatusView {
       return { status: 'approval', label: 'Waiting for approval', tone: 'warn', detail: 'the run waits until you answer', chip: 'Needs approval', busy: false };
     }
     const queued = review.queuedInputIds.length;
+    const label = run?.state === 'RUNNING' && run.turnIds.includes(review.activeTurn?.id ?? '')
+      ? run.validationStarted ? 'Validating' : 'Investigating' : 'Running';
     const detail = run === null
       ? 'starting the review'
       : `reviewing ${run.commits.length} ${run.commits.length === 1 ? 'commit' : 'commits'} at ${shortSha(run.headSha)}`;
     return queued > 0
-      ? { status: 'queued', label: 'Running', tone: 'running', detail: `${queued} ${queued === 1 ? 'question' : 'questions'} queued`, chip: `Running · ${queued} queued`, busy: true }
-      : { status: 'running', label: 'Running', tone: 'running', detail, chip: 'Running', busy: true };
+      ? { status: 'queued', label, tone: 'running', detail: `${queued} ${queued === 1 ? 'question' : 'questions'} queued`, chip: `${label} · ${queued} queued`, busy: true }
+      : { status: 'running', label, tone: 'running', detail, chip: label, busy: true };
   }
-  if (review.followUpPaused && run !== null && run.state === 'STOPPED') {
+  if (review.followUpPaused && run !== null && (run.state === 'STOPPED' || run.state === 'RUNNING')) {
     return { status: 'stopped', label: 'Stopped', tone: 'neutral', detail: 'follow-up paused · discussion open', chip: 'Stopped', busy: false };
   }
-  if (run !== null && (run.state === 'INCOMPLETE' || run.state === 'FAILED')) {
-    return { status: 'incomplete', label: 'Incomplete', tone: 'danger', detail: run.outcome ?? 'coverage was not recorded', chip: 'Incomplete', busy: false };
+  if (run !== null && (run.state === 'INCOMPLETE' || run.state === 'FAILED' || (run.state === 'ACCEPTED' && !completeCoverage(run)))) {
+    return { status: 'incomplete', label: 'Incomplete', tone: 'danger', detail: run.outcome ?? 'complete coverage was not recorded', chip: 'Incomplete', busy: false };
   }
   if (newCommits(review)) {
     return {
@@ -140,12 +146,10 @@ export function reviewStatus(review: AgentReviewDto): ReviewStatusView {
     };
   }
   if (run !== null && run.state === 'ACCEPTED') {
-    const coverage = run.coverage;
     const scope = `${run.commits.length} ${run.commits.length === 1 ? 'commit' : 'commits'} · ${run.changedFiles} ${run.changedFiles === 1 ? 'file' : 'files'}`;
-    const complete = coverage?.complete === true ? 'complete coverage' : 'partial coverage';
     return findings.length === 0
-      ? { status: 'nofindings', label: 'Ready', tone: 'ready', detail: `${complete} · no inline findings`, chip: 'No findings', busy: false }
-      : { status: 'ready', label: 'Ready', tone: 'ready', detail: `${complete} · ${scope}`, chip: findingChip, busy: false };
+      ? { status: 'nofindings', label: 'Ready', tone: 'ready', detail: 'complete coverage · no inline findings', chip: 'No findings', busy: false }
+      : { status: 'ready', label: 'Ready', tone: 'ready', detail: `complete coverage · ${scope}`, chip: findingChip, busy: false };
   }
   return { status: 'running', label: 'Starting', tone: 'running', detail: 'preparing the review', chip: 'Running', busy: true };
 }
@@ -214,7 +218,7 @@ export function findingPublication(review: AgentReviewDto, finding: ReviewFindin
   if (finding.state === 'WITHDRAWN') return { kind: 'blocked', reason: 'The agent withdrew this finding' };
   if (finding.state === 'RESOLVED') return { kind: 'blocked', reason: 'Excluded from publication' };
   if (finding.outdated) return { kind: 'blocked', reason: 'Not publishable until re-anchored' };
-  if (provisional(review)) return { kind: 'blocked', reason: 'Publishing unlocks when the run records coverage' };
+  if (provisional(review)) return { kind: 'blocked', reason: 'Publishing unlocks when validation and complete coverage are accepted' };
   if (item !== null) return { kind: 'draft', item };
   return { kind: 'publishable' };
 }
@@ -275,14 +279,14 @@ export function reviewRequests(review: AgentReviewDto): ReviewRequest[] {
   const generatedTurnIds = new Set([...review.byteQuayTurnIds, ...review.runs.flatMap(run => run.turnIds)]);
   const generated = [...generatedTurnIds].map((turnId): ReviewRequest => {
     const run = review.runs.find(item => item.turnIds.includes(turnId));
-    const repair = run !== undefined && run.turnIds.indexOf(turnId) > 0;
+    const followUp = run !== undefined && run.turnIds.indexOf(turnId) > 0;
     const incremental = run?.scope === 'INCREMENTAL';
     const scope = run ? `${run.commits.length} ${incremental ? 'new ' : ''}${run.commits.length === 1 ? 'commit' : 'commits'} across `
       + `${run.changedFiles} ${run.changedFiles === 1 ? 'file' : 'files'}` : 'the pull request';
     return {
-      action: repair ? 'Complete review report' : incremental ? 'Review new commits' : 'Review pull request',
+      action: followUp ? 'Follow-up review' : incremental ? 'Review new commits' : 'Review pull request',
       topic: `${review.repo}#${review.number}`,
-      body: repair ? 'Complete the review summary and coverage report.' : `Review ${scope}.`,
+      body: followUp ? 'Continue the investigation, validate suspected issues, and complete the review report.' : `Review ${scope}.`,
       detail: run ? `Private · Review ${run.ordinal} · Head ${shortSha(run.headSha)}` : 'Private review',
       turnId,
       target: run ? { kind: 'card', runId: run.id, cardId: `${run.id}:purpose` } : undefined,

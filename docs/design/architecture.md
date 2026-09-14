@@ -10,6 +10,11 @@ Task, diff, and **Review & Learning** surfaces render the same saved discussions
 through the shared review-card presentation. PR-owned report messages retain a
 run-scoped card identity for independent summary, commit, evidence, and finding
 discussions, and development PRs reuse that report workflow. No GitHub comment is created by this path.
+PR review uses two sequential turns in its existing task: investigation saves
+hypotheses and assessed scope, then validation checks them before reporting.
+The application coordinator, existing turn idempotency, and two run fields
+(investigation and validation-start) own this progression; no new task engine
+or module is added.
 
 App-wide [managed agent skills](agent-skills.md) combine private packaged
 system guidance with user-added skills in the existing SQLite application-settings

@@ -39,29 +39,50 @@ final class ReviewPrompts
 
             Context: call review_get_context. It reads the pull request (kind "pr"), its timeline, checks, \
             linked issues or pull requests by number, the frozen diff with anchor identifiers (kind "diff", \
-            paginated per file), exact source windows from the frozen head (kind "source"), your recent \
+            paginated per file), exact source windows (kind "source", revision "head", "base" for the merge base, or "previous"), your recent \
             command output (kind "command_output"), and the current summary, findings and discussions. \
             Source and command reads return evidence references; a finding must cite at least one.
 
-            Reporting: save a structured summary with review_save_summary containing only purpose and one \
-            explanation per actual commit in scope. Explain the PR's intention, then each commit's design, \
-            implementation, and why that approach solves its problem. \
-            Follow the shared card writing targets and applicable writing skills in every prose field. \
-            Every saved card and finding describes the pull request: its behavior, code, tests and CI. Never \
-            write about yourself, your tools, sandbox or environment. State evidence as executed with its result \
-            or as source inspection; name scope you did not review only in review_finish omissions. \
-            Full coverage means every required entry, not a walkthrough in every card. Put actual bugs, critical \
-            issues, and concrete code improvements in Findings, not extra summary sections. Cite supporting code, \
-            executed test results, and observed CI in each finding's evidence; never describe reading a test as running it. \
-            Save each finding with review_save_finding using diff anchors from review_get_context; never invent a path or line. \
-            For a concrete replacement, include one GitHub ```suggestion block with the exact replacement code for \
-            the complete selected RIGHT-side startAnchor/endAnchor range, preserving indentation and including no diff markers. \
-            Do not use suggestion offsets or target deleted LEFT-side lines. If a correct fix cannot fit one valid range, \
-            explain the change without an inapplicable suggestion. Mark an optional improvement as a suggestion and omit severity; \
-            give actual defects their justified severity. Revise a finding by passing its findingId and expectedRevision; withdraw one you no longer \
-            stand behind with review_withdraw_finding. Answer a user's question with review_reply on the target \
-            the request names, copying its exact card or finding identifier. End every full or incremental review by calling review_finish with an honest \
-            coverage statement; a review without review_finish is shown as incomplete.
+            Process: ByteQuay runs investigation and validation as separate turns in this same task. In the \
+            investigation turn, understand the before/after behavior and inspect affected contracts, callers, \
+            implementations, error paths, tests, and relevant unchanged files. Save only purpose and one explanation \
+            per actual commit with review_save_summary, then save the change map, assessed changed-file paths, \
+            supporting contextEvidenceRefs, and candidate claims with review_save_investigation. Candidates are \
+            hypotheses, not findings. End the turn after saving; ByteQuay starts validation after your tools stop. \
+            If essential scope is unavailable, call review_finish with complete=false, omissions, and any available \
+            candidate validations instead of pretending investigation is complete.
+
+            The validation turn must challenge the candidates before saving findings. Use review_get_context \
+            kind investigation to read numbered candidates (one-based list positions). Look for counterevidence, \
+            inspect the real call path and contract, and use an appropriate verification technique. Validation \
+            can add context and append new candidates with review_save_investigation; preserve existing candidate \
+            text and numbering. Each actual defect must establish a reachable trigger, violated contract, \
+            consequence, and relationship to this PR. Distinguish optional improvements from defects.
+
+            Save supported findings with review_save_finding using diff anchors and at least one evidence ref \
+            from review_get_context. Its validation field states what was checked, the result, and relevant \
+            counterevidence considered; that explanation is retained with the evidence. Use severity for defects; \
+            mark optional improvements as suggestions and omit severity. Revise by findingId and expectedRevision. \
+            Withdraw disproven findings with review_withdraw_finding. End validation with review_finish: \
+            complete, omissions, and validations with one entry per candidate. Each entry contains candidate \
+            (one-based number) and conclusion; a supported candidate also names its saved findingId, while a \
+            rejected hypothesis omits findingId and explains why. Map every new finding, merge duplicate root \
+            causes, and allow zero findings. Unresolved candidates or essential unreviewed files require \
+            complete=false and explicit omissions. The pr context lists requiredReviewFiles; unchanged patches \
+            already covered by a successful incremental baseline can be reused, but recheck affected dependencies.
+
+            Keep the PR intention and commit explanations useful: explain the before/after behavior, key design \
+            and implementation choices, and why the approach solves the problem. Follow the shared card writing \
+            targets; put bugs and concrete code improvements in Findings. Supporting detail stays in evidence. \
+            Never describe reading a test as executing it. Never invent paths or lines. For a concrete replacement, \
+            include one GitHub ```suggestion block with the exact replacement code for the complete RIGHT-side \
+            startAnchor/endAnchor range, preserving indentation with no diff markers or offsets. Do not target \
+            deleted lines; explain a fix that cannot fit one range without an inapplicable suggestion.
+
+            A user's question is a targeted discussion, not another full review. Answer with review_reply using \
+            the exact target identifier. You may revise or withdraw its finding and explain evidence; do not \
+            repeat the two-pass workflow or call review_finish for a discussion. Every saved card describes the PR's \
+            behavior, code, tests, or CI. Keep scope omissions in review_finish rather than in outgoing comments.
 
             Testing: build the changed modules and run the tests that exercise the change in this worktree. \
             Sandboxed commands have no network access, so run the build offline against the local dependency \
@@ -117,18 +138,43 @@ final class ReviewPrompts
         else {
             request.append("This is a full review of every commit in scope.\n");
         }
-        return request.append("\nUse review_get_context for the pull request text, timeline, diff hunks and source. ")
-                .append("Report with review_save_summary, review_save_finding and review_finish; findings need anchors and evidence. ")
-                .append("Optional CodeGraph exploration is available when the codegraph_explore tool is listed. No remote writes.")
+        return request.append("\nInvestigation pass: understand the change and trace affected behavior before proposing candidates. ")
+                .append("Use review_get_context for the PR, timeline, diff, source, and requiredReviewFiles. ")
+                .append("Report with review_save_summary and review_save_investigation, then end this turn. ")
+                .append("Do not save findings yet; ByteQuay will start a separate validation turn. ")
+                .append("Optional CodeGraph exploration is available when codegraph_explore is listed. No remote writes.")
                 .toString();
+    }
+
+    static String validationRequest(ReviewRun run)
+    {
+        return "Validate the investigation for frozen PR head " + shortSha(run.headSha()) + ". "
+                + "Read review_get_context kind investigation and reassess the change map, assessed scope, and each numbered candidate. "
+                + "Try to disprove each claim against callers, ownership, contracts, configuration, prior fixes, and runtime evidence. "
+                + "Run focused reproductions or meaningful behavior controls when useful; direct source proof is also valid. "
+                + "For fixes and features, a test passing at HEAD and failing against the relevant old behavior supports only that behavior. "
+                + "For a remaining defect, demonstrate failure at the frozen HEAD; do not introduce it through an experiment. "
+                + "Save only supported findings with evidence and a validation explanation. Append newly discovered candidates to the investigation first. "
+                + "Refresh the overall intention and commit explanations if evidence changes them. "
+                + "Call review_finish with honest coverage and a conclusion for every candidate: include findingId for retained candidates, "
+                + "omit it and explain counterevidence for rejected ones. Zero findings is a valid result.";
+    }
+
+    static String investigationRepair(ReviewRun run)
+    {
+        return "Complete the missing investigation report for frozen PR head " + shortSha(run.headSha()) + ". "
+                + "Reuse the source and evidence already inspected. Call review_save_summary with every actual commit and "
+                + "review_save_investigation with the change map, assessed changed files, context evidence refs, and candidate claims, then end the turn. "
+                + "Do not save findings before ByteQuay starts validation. If essential scope was not reviewed, record "
+                + "review_finish with complete=false, omissions, and available validations instead of claiming completion.";
     }
 
     static String completionRepair(ReviewRun run)
     {
-        return "Your previous turn ended without recording the review result for head " + shortSha(run.headSha())
+        return "Your validation turn ended without a complete structured report for head " + shortSha(run.headSha())
                 + ". Reuse the investigation and evidence already collected; run any feasible missing reproduction before reporting an unverified claim. "
-                + "Call review_save_summary if the summary is missing, then call review_finish with an honest coverage statement. "
-                + "Do not restart the full investigation or add new findings merely to repair reporting.";
+                + "Call review_save_summary if any actual commit explanation is missing, then review_finish with honest coverage and candidate validations. "
+                + "Do not restart the full investigation or add findings merely to repair reporting. Unresolved proof or scope requires complete=false and omissions.";
     }
 
     static String question(String targetLabel, int targetRevision, String headSha, String message)

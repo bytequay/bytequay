@@ -35,6 +35,14 @@ type ReviewCoverageDto = {
   recordedAt: string;
 };
 
+type ReviewInvestigationDto = {
+  changeMap: string;
+  reviewedFiles: string[];
+  contextEvidenceRefs: string[];
+  candidates: string[];
+  validations: Array<{ candidate: number; conclusion: string; findingId: string | null }>;
+};
+
 export type ReviewRunDto = {
   id: string;
   ordinal: number;
@@ -49,6 +57,9 @@ export type ReviewRunDto = {
   state: ReviewRunState;
   summary: ReviewSummaryDto | null;
   coverage: ReviewCoverageDto | null;
+  investigation: ReviewInvestigationDto | null;
+  validationStarted: boolean;
+  evidence: ReviewEvidenceDto[];
   outcome: string | null;
   createdAt: string;
   endedAt: string | null;
@@ -255,6 +266,33 @@ function parseCoverage(value: unknown): ReviewCoverageDto | null {
   };
 }
 
+function parseInvestigation(value: unknown): ReviewInvestigationDto | null {
+  if (value === null || value === undefined) return null;
+  const investigation = object(value, 'review investigation');
+  return {
+    changeMap: text(investigation.changeMap, 'change map'),
+    reviewedFiles: strings(investigation.reviewedFiles),
+    contextEvidenceRefs: strings(investigation.contextEvidenceRefs),
+    candidates: strings(investigation.candidates),
+    validations: list(investigation.validations).map(item => {
+      const validation = object(item, 'candidate validation');
+      return { candidate: count(validation.candidate, 'candidate number'), conclusion: text(validation.conclusion, 'validation conclusion'),
+        findingId: optionalText(validation.findingId) };
+    }),
+  };
+}
+
+function parseEvidence(value: unknown): ReviewEvidenceDto {
+  const evidence = object(value, 'evidence');
+  return {
+    ref: text(evidence.ref, 'evidence reference'),
+    source: text(evidence.source, 'evidence source'),
+    provenance: text(evidence.provenance, 'evidence provenance'),
+    excerpt: text(evidence.excerpt, 'evidence excerpt'),
+    explanation: text(evidence.explanation, 'evidence explanation'),
+  };
+}
+
 function parseRun(value: unknown): ReviewRunDto {
   const run = object(value, 'review run');
   return {
@@ -274,6 +312,9 @@ function parseRun(value: unknown): ReviewRunDto {
     state: oneOf(run.state, ['RUNNING', 'ACCEPTED', 'INCOMPLETE', 'STOPPED', 'FAILED'] as const, 'run state'),
     summary: parseSummary(run.summary),
     coverage: parseCoverage(run.coverage),
+    investigation: parseInvestigation(run.investigation),
+    validationStarted: flag(run.validationStarted),
+    evidence: list(run.evidence).map(parseEvidence),
     outcome: optionalText(run.outcome),
     createdAt: text(run.createdAt, 'run time'),
     endedAt: optionalText(run.endedAt),
@@ -295,16 +336,7 @@ function parseFinding(value: unknown): ReviewFindingDto {
     endLine: count(finding.endLine, 'finding end line'),
     range: text(finding.range, 'finding range'),
     excerpt: strings(finding.excerpt),
-    evidence: list(finding.evidence).map(item => {
-      const evidence = object(item, 'evidence');
-      return {
-        ref: text(evidence.ref, 'evidence reference'),
-        source: text(evidence.source, 'evidence source'),
-        provenance: text(evidence.provenance, 'evidence provenance'),
-        excerpt: text(evidence.excerpt, 'evidence excerpt'),
-        explanation: text(evidence.explanation, 'evidence explanation'),
-      };
-    }),
+    evidence: list(finding.evidence).map(parseEvidence),
     revision: count(finding.revision, 'finding revision'),
     state: oneOf(finding.state, ['OPEN', 'RESOLVED', 'WITHDRAWN'] as const, 'finding state'),
     stateReason: optionalText(finding.stateReason),

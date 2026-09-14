@@ -18,7 +18,9 @@ import com.bytequay.core.review.AgentReview;
 import com.bytequay.core.review.ReviewCommit;
 import com.bytequay.core.review.ReviewCoverage;
 import com.bytequay.core.review.ReviewDraft;
+import com.bytequay.core.review.ReviewEvidence;
 import com.bytequay.core.review.ReviewFinding;
+import com.bytequay.core.review.ReviewInvestigation;
 import com.bytequay.core.review.ReviewMessage;
 import com.bytequay.core.review.ReviewRun;
 import com.bytequay.core.review.ReviewSummary;
@@ -91,6 +93,9 @@ public record AgentReviewProjection(
             ReviewRun.State state,
             Optional<ReviewSummary> summary,
             Optional<ReviewCoverage> coverage,
+            Optional<ReviewInvestigation> investigation,
+            boolean validationStarted,
+            List<ReviewEvidence> evidence,
             boolean completionRepairUsed,
             Optional<String> outcome,
             Instant createdAt,
@@ -114,6 +119,9 @@ public record AgentReviewProjection(
                     run.state(),
                     run.summary(),
                     run.coverage(),
+                    run.investigation(),
+                    run.validationStarted(),
+                    ImmutableList.copyOf(run.evidence().values()),
                     run.completionRepairUsed(),
                     run.outcome(),
                     run.createdAt(),

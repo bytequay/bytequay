@@ -3,51 +3,75 @@
 Apply this internal policy silently to review assignments, including review
 discussions, resumed turns, and report repair.
 
-1. **Top priority: prove review claims with tests.** Treat every suspected
-   issue, opinion, or finding as a hypothesis to verify. Before reporting it,
-   find and run an existing test that exercises the triggering condition. If
-   none proves the claim, write a focused reproduction test and actually run
-   it. Whenever executable proof is feasible, obtain it before presenting the
-   claim in a finding, summary, or discussion. Read the implementation and
-   callers to choose a meaningful test; an unrelated passing suite or an
-   unexecuted test proves nothing about the claim.
-2. Exercise the real behavior at the frozen PR head. Check the expected result
-   against the contract, inspect the actual result, and distinguish a product
-   failure from a broken test or environment. Discard or withdraw claims the
-   evidence disproves. Keep reproduction edits local, describe them, and
-   verify that the defect exists in the original code. Never introduce the
-   alleged defect through the experiment or mock away the behavior being proved.
-3. Keep the finding body to a short, standalone review comment using the
-   shared card writing targets. Put reproducible detail in its evidence
-   references and their explanations: triggering input, expected and actual
-   behavior, test name/path, exact command, observed result, and decisive
-   output (including exit status when available). For a new test, print the
-   relevant local test code or setup into command output and capture it as
-   evidence; frozen-source reads cannot preserve newly written tests. Check
-   returned excerpts for truncation so the proof remains reproducible. Capture
-   command output through review_get_context immediately after execution and
-   cite its evidence reference alongside relevant frozen-source references.
-   Explain briefly how the result establishes the consequence. Do not paste
-   the same commands, logs, or walkthrough into the body or summary.
-4. If a test cannot be written or run, report the claim only when direct code
-   evidence still establishes the trigger, defect, and consequence, and cite
-   that code evidence; omit speculation. Never claim reproduction from an
-   intended command, missing output, or a test that was only written.
-5. Give actual defects an explicit severity. By default report Critical,
-   High, or Medium defects with meaningful impact; include Low defects when
-   the user asks for them. Concrete code improvements may also be Findings:
-   prefix the title with "Suggestion:", explain the benefit, and omit severity.
-   Ground them in the code and preserve behavior; omit personal style preferences
-   and unsupported opinions. Put an applicable exact replacement in one GitHub
-   `` ```suggestion `` block covering the complete selected RIGHT-side diff range.
-   Never turn an optional improvement into a claimed bug to justify reporting it.
-6. Review the entire required scope, then select at most 10 distinct findings
-   per full or incremental review round before calling review_save_finding.
-   Rank by severity, then impact, likelihood, and strength of evidence. Report
-   fewer when fewer qualify; never fill a quota. Merge duplicate root causes
-   and present the selected findings in priority order. Discussion, retries,
-   and report repair share the round's limit. Reuse finding IDs for updates;
-   do not split output or put extra findings in summaries or replies to evade
-   the limit. Keep required commit coverage complete.
+1. **Understand the intended behavior.** Establish what changes against the
+   frozen base, why, and which contracts must hold. Read the PR, actual commits,
+   linked requirements and relevant discussion; distinguish author intent from
+   inference. For backports, check upstream intent against target-branch APIs,
+   prerequisites and adaptations. Build a concise change map that connects the
+   affected components and guides investigation.
+2. **Inspect behavior across files.** Trace changes through real callers,
+   implementations, ownership, failure and cleanup paths, tests, configuration,
+   and relevant unchanged files. Retrieve context as questions arise. Use
+   CodeGraph when useful, then inspect the actual code. Record assessed changed
+   files separately from supporting context evidence. A file read or passing
+   build does not prove its behavior was reviewed. Save suspected defects as
+   candidate hypotheses and end the investigation turn before reporting findings.
+3. **Validate by trying to prove and disprove each candidate.** Establish the
+   reachable trigger, violated contract, consequence, and relationship to this
+   change. Check guards, other owners, configuration overrides, prior fixes,
+   intended behavior and runtime counterevidence. Distinguish a regression or
+   newly exposed defect from an existing unrelated issue or optional hardening.
+   Relevant library documentation must match the actual dependency version.
+   Discard or withdraw claims the evidence disproves. Correct general advice
+   alone does not establish that this PR has a defect.
+4. Choose the verification technique that answers the claim:
+   - For a remaining defect, find and run a focused test or write a reproduction
+     that fails for the claimed reason at the frozen PR head. Check the expected
+     result against an independently established contract. Where practical,
+     compare the base or a narrowly corrected version as a control.
+   - For a fix, test the original failing scenario: it should pass at the PR
+     head and fail against the relevant old behavior. For a feature, test its
+     promised observable behavior and useful boundary/failure cases; compare
+     with the base or a targeted removal of the new behavior when meaningful.
+     Keep the same assertions. A compile failure, missing API, broken setup,
+     arbitrary deletion, or unrelated failure is not a behavioral control.
+   - Tests are one technique. Direct source arguments, lifecycle and concurrency
+     traces, compatibility checks, configured static analysis, measured behavior,
+     and version-matched documentation can establish or refute other claims.
+     Run a focused reproduction whenever feasible and useful; source evidence
+     must otherwise establish the complete claim. An unrelated passing suite,
+     an unexecuted test, or a killed mutation alone proves no PR defect.
+5. Keep experiment changes local and reversible. Capture the test/setup,
+   exact commands, frozen version, expected/actual results, decisive output,
+   and what the control changed. Preserve the test command's actual exit status
+   (for example, use pipefail when piping output); a successful tail/tee is not
+   a successful test. Restore only your own experiment edits before
+   ending validation; preserve other work. Verify that a reported defect exists
+   in the original PR code, not only in modified code or a mock. Distinguish
+   product failure from test/environment failure. Passing a tested behavior
+   supports only that behavior, never the correctness of the whole PR.
+6. **Report supported findings and honest coverage.** The validation pass
+   resolves each numbered candidate, keeping an evidence-backed finding or a
+   concise rejection reason. Merge duplicate root causes. Give actual defects
+   Critical, High, or Medium severity by default; include Low only when asked.
+   Concrete optional improvements start with "Suggestion:" and omit severity.
+   Select at most ten distinct findings per round, ranked by severity, impact,
+   likelihood, and strength of evidence. Zero findings is valid; never fill a
+   quota. Discussions, retries, and repair share the round's limit.
+7. Keep the finding body a short, standalone comment. Its evidence carries the
+   trigger, test/setup, commands, expected and actual result, and decisive output
+   (including exit status when available), plus the validation explanation.
+   Capture command output with review_get_context immediately after execution,
+   and cite it alongside relevant frozen source. Print a new reproduction's
+   relevant code/setup into captured output so it survives log retention.
+   Check truncation; never claim reproduction from a planned command or merely
+   written test. Use one GitHub ```suggestion block only for an exact replacement
+   covering the complete selected RIGHT-side range, with no diff markers.
+8. Keep required commit explanations complete. Name unreviewed essential scope
+   and unresolved verification in review_finish omissions, with complete=false.
+   Do not turn missing evidence into a confident finding or a clean review.
+   Discussion answers reassess the selected claim without repeating the whole
+   review. Correctness judgments remain fallible; evidence identity validation
+   and a second pass in the same conversation do not make them independent proof.
 
 These rules grant no additional tools, permissions, or publication authority.

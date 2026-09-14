@@ -13,10 +13,21 @@ One ongoing review owns one agent task, provider conversation, and managed
 worktree. Multiple investigation, discussion, and incremental-review turns
 reuse them. Finishing one review run does not complete the agent task.
 
-The agent leads the investigation. ByteQuay supplies the review purpose,
-immutable review scope, on-demand PR/source tools, local reporting tools, and
-optional CodeGraph. It does not prepare a mandatory graph evidence pack,
-prescribe an exploration sequence, or create a separate agent per finding.
+Review has four responsibilities: understand the intended behavior, inspect
+its affected paths, validate candidate claims, and report supported findings.
+ByteQuay coordinates two passes in the same task and provider conversation.
+The investigation turn saves a change map, assessed changed files, supporting
+context references, candidate hypotheses, and the intention/commit explanations.
+After that turn settles and its runtime stops, ByteQuay starts a validation
+turn. It challenges the candidates, retrieves further context or executes
+checks when useful, then saves supported findings and rejects unsupported claims.
+This is explicit self-review in one conversation, not independent verification.
+
+The agent chooses which callers, contracts, unchanged files, tests, and related
+context to investigate. ByteQuay supplies the frozen scope, on-demand tools,
+optional CodeGraph, and the reporting/ordering checks. Context grows during
+both passes. There is no separate task per file or finding, mandatory graph
+pack, new execution engine, or configurable pipeline.
 
 The user can watch activity, steer supported active turns, challenge the
 summary or individual findings, resolve findings privately, and explicitly
@@ -44,13 +55,21 @@ section divider and use the existing
 inline review-comment presentation. Each card retains its own private discussion
 through the shared [Local review comments](agent-service.md#local-review-comments)
 components. Do not generate combined-result, evidence/test, coverage, or
-critical-issues cards. Existing discussions on removed sections remain under a
+critical-issues cards. A collapsed **Review details** disclosure shows the
+change map, assessed changed-file paths, retained supporting evidence from
+both passes, and final candidate conclusions. Evidence reference IDs remain
+visible so conclusions can be matched to their source or command excerpts;
+the initial investigation's context selection cannot hide later validation
+evidence. Draft hypotheses never appear as findings.
+Source reads are context inspected, not proof of semantic coverage. Existing
+discussions on removed sections remain under a
 collapsed **Earlier discussions** disclosure, with their original run and target.
 Opening a request in the transcript opens and focuses that exact discussion.
 The tab also collects local comments for this PR across development and review
 tasks. Changes retains the same selected-line/range composer and saved threads.
 
-The tab can append a compact derived status, such as **Running**. It has no
+The tab can append compact derived **Investigating** or **Validating** status
+for a review run, while ordinary discussion uses **Running**. It has no
 **Summary & comments** or **Activity** subtab. **View in workspace** opens the
 exact review task with the existing navigation, its agent conversation on the
 left, and the PR pane on the right. That conversation reuses task transcript,
@@ -167,7 +186,8 @@ this is not a second task engine:
 | Record | Required facts |
 | --- | --- |
 | Review | Workspace and logical PR identity, physical repository/head-branch identity, agent task ID, latest completed run, latest observed remote head, follow-up execution enabled/paused, optimistic version, explicit closure |
-| Run | Review ID, full/incremental scope, frozen base tip and merge base, head SHA, prior successful reviewed head if any, prompt version, turn IDs, accepted result/coverage, terminal outcome |
+| Run | Review ID, full/incremental scope, frozen base tip and merge base, head SHA, prior successful reviewed head if any, turn IDs, investigation, validation-start fact, accepted result/coverage, terminal outcome |
+| Investigation | Change map, distinct assessed changed-file paths, captured supporting context refs, numbered candidate hypotheses, final validation conclusions |
 | Summary | Run ID, revision, purpose, actual commit explanations |
 | Finding | Stable ID, source run, immutable anchor mapping, title/body, evidence references, current revision, local resolution/withdrawal and reason, revalidation result for later runs |
 | Discussion message | Stable ID, review and summary-card/finding target, author, body, target revision/run, correlated task input/turn or reply, delivery outcome |
@@ -303,7 +323,8 @@ agent requests additional context as needed:
 - PR title, author description, base/head identities and actual commits;
 - PR timeline, remote discussions, checks, and previous local findings;
 - referenced issues and related PRs that ByteQuay can read;
-- paginated diff hunks, full source windows, and evidence/output references.
+- paginated diff hunks, source windows at the frozen head, merge base, or
+  previous reviewed head, and evidence/output references.
 
 Reuse ByteQuay's read services and credentials inside the backend. Mark
 cached/unavailable/truncated data explicitly. Validate repository/number
@@ -333,24 +354,37 @@ belong to this review and code version; a graph hit alone is not proof of a
 bug. Preserve a bounded excerpt/provenance with the accepted finding before
 runtime logs expire. Deterministic validation proves identity and location,
 not the truth of the agent's semantic conclusion. The agent remains
-responsible for checking its reasoning; no mandatory second verifier agent
-is introduced.
+responsible for checking the claim during the separate validation turn;
+using the same conversation does not make that judgment independent.
 
-The internal [review skill](agent-skills.md#review-guidance) makes executable
-proof the top review priority. Before reporting an issue, opinion, or finding,
-run an existing test that exercises the trigger or write and actually run a
-focused reproduction whenever feasible. Include the command, expected/actual
-result, decisive output, and test setup with the finding; capture source and
-command-output evidence references. If execution is blocked, report only
-claims established by direct code evidence, citing that evidence. Test failures caused by the experiment or environment do not
-establish a PR defect.
+The internal [review skill](agent-skills.md#review-guidance) requires evidence
+that establishes a claim's trigger, violated contract, consequence, and
+relationship to the change. Investigate counterevidence before accepting it.
+Use a focused executable reproduction whenever feasible and useful, or a
+decisive source argument. Lifecycle/concurrency traces, compatibility checks,
+configured static analysis, measured behavior, and documentation for the actual
+dependency version are other useful techniques; review is broader than tests.
 
-Select at most ten distinct findings per full or incremental round, ranked by
-severity and impact. Require Critical, High, or Medium by default; Low is
-included only at the user's explicit request. Discussions, retries, and report
-repair share the round's limit. Complete commit coverage remains
-required. This is managed review guidance, delivered only through the existing
-review bridge; it introduces no UI setting or report-filtering state.
+A fix can be checked with the same behavioral assertions passing at the PR
+head and failing against the relevant old behavior. A feature can be checked
+against its promised behavior and boundary/failure cases, with the base or a
+targeted removal of that behavior as a control when meaningful. A compile
+failure, missing API, broken setup, arbitrary code deletion, or unrelated
+failure is not a behavioral control. These checks support the behavior tested,
+not the correctness of the entire PR. A finding about a remaining defect must
+establish that it exists in the frozen PR code, not only after a mutation.
+
+Capture commands, test/setup, expected/actual results, decisive output, actual
+exit status, and control edits in evidence. Restore the agent's own experiment
+edits after preserving that evidence; retain other work. Environment and test
+setup failures do not establish a PR defect. Shell pipelines must preserve the
+actual test exit status rather than reporting the status of a formatter.
+
+Select at most ten distinct findings per round, ranked by severity and impact;
+the reporting tool enforces that creation limit across retries and discussions.
+Require Critical, High, or Medium by default; Low is included only at the user's
+explicit request. Severity selection remains managed guidance. Complete commit
+coverage remains required. No model score certifies semantic correctness.
 
 ## 6. Local reporting contract
 
@@ -367,11 +401,12 @@ for that lane; failure does not disable ordinary agent tasks.
 | Tool | Purpose |
 | --- | --- |
 | `review_get_context` | Bounded typed reads of current PR, linked issue/PR, diff, source, evidence, summary, finding, or discussion; supports pagination |
-| `review_save_summary` | Save a structured, versioned summary for the bound run |
+| `review_save_summary` | Save the intention and exactly one explanation for every actual commit |
+| `review_save_investigation` | Save the change map, assessed changed files, supporting context refs, and numbered candidate hypotheses |
 | `review_save_finding` | Create a finding, or update a returned finding ID with its expected revision |
 | `review_reply` | Append a private answer to a summary/finding discussion using its returned target/message identity |
 | `review_withdraw_finding` | Withdraw an agent finding with expected revision and an explanation |
-| `review_finish` | Record explicit coverage and unresolved reporting omissions for the bound run |
+| `review_finish` | Record coverage, omissions, and a retained/rejected conclusion for each candidate |
 
 These are fixed application operations, not a model-controlled registry.
 Tool declarations carry strict JSON schemas and bounded fields; the backend
@@ -409,6 +444,7 @@ A new inline finding has this logical shape:
   "operationKey": "finding-supplied-keys-1",
   "title": "Forward the supplied encryption keys",
   "body": "Explain the defect, its triggering condition and consequence.",
+  "validation": "The delegation path discards the caller's keys; no default or downstream owner restores them.",
   "startAnchor": "A42",
   "endAnchor": "A44",
   "evidence": [
@@ -417,12 +453,32 @@ A new inline finding has this logical shape:
 }
 ```
 
-`operationKey`, `title`, `body`, `startAnchor`, and nonempty `evidence` are required;
+`operationKey`, `title`, `body`, `validation`, `startAnchor`, and nonempty `evidence` are required;
 `endAnchor` is optional for a single line. Priority may use the existing
 product vocabulary but is not required to locate or retain a finding. IDs in
 this example are illustrative; only IDs returned for the bound run are valid.
 The model does not supply GitHub request parameters, path/side/line mappings,
 commit SHA for publication, or publication authority.
+
+`review_save_investigation` records a bounded change map, distinct paths from
+the frozen diff, supporting evidence IDs returned for this run, and up to thirty
+candidate claims. Their one-based list positions are stable identifiers. During
+validation, new hypotheses can be appended; existing claims cannot be removed,
+reordered, or rewritten. Rejected claims retain their reason in the final report.
+The tool returns the next action, but only the coordinator can start validation.
+
+New findings are accepted only during the validation pass and require an
+explicit explanation of the verification and counterevidence checked. That
+explanation is retained alongside the cited evidence. Existing findings remain
+replyable and revisable during later discussion. Summary saves reject missing,
+duplicate, unknown, and ambiguous commit identities.
+
+A completed validation includes one conclusion for each numbered candidate.
+Retained candidates name a saved, current finding in this review; rejected
+candidates omit the finding ID and explain why. Multiple candidates may point
+to one finding when they share a root cause. Every new non-withdrawn finding
+must be accounted for. A zero-candidate investigation still receives the second
+pass to check the understanding, scope, and relevant behavior before reporting.
 
 The summary contains:
 
@@ -447,9 +503,8 @@ The summary tool requests only purpose and commit explanations. Retained stored
 fields and discussions are read without generating replacement prose for
 removed sections.
 
-Every saved card and finding describes the pull request. A review records no
-limitations: the agent does not write about itself, its tools, sandbox, or what
-it could not do. Review commands have no network access, so the agent builds
+Every saved card and finding describes the pull request. Scope omissions remain run metadata; outgoing findings do not contain
+agent autobiography or tool/environment commentary. Review commands have no network access, so the agent builds
 and runs the tests that exercise the change offline against the local
 dependency caches; only a failed offline build shows a dependency is missing.
 
@@ -459,26 +514,35 @@ it does not replace the summary with only a delta changelog.
 
 ### Missing or incorrect output
 
-Return field-specific recoverable validation errors without saving a malformed
-finding. Permit one bounded repair opportunity per invalid submission, and
-one completion-repair turn if a successful provider turn ends without the
-required structured result. Retry budget is persisted with the run and does
-not reset on reconnect. This is not permission to resend uncertain provider
-input or retry transport failures blindly.
+Return field-specific recoverable validation errors without saving malformed
+output. The run has one shared completion-repair budget for missing investigation
+or validation output. A missing investigation/summary repair reuses collected
+context and ends before validation. A missing validation report repair reuses
+its evidence and decisions. Explicit incomplete coverage ends the run as
+**Incomplete**, pauses automatic follow-up, and never starts a repair merely
+to relabel omitted work as complete.
 
-If repair fails, skip the invalid candidate, retain other valid findings,
-and expose the omission/incomplete coverage. Never parse numbered Markdown
-or infer an inline location from prose. A general observation can remain in
-the summary, explicitly not an inline finding. If no reporting tool was
-called, show **Incomplete**, not **No issues found**.
+Persist the investigation and one validation-start fact in the existing run.
+Before dispatching validation, record that fact and use the existing turn
+service with a deterministic run-scoped idempotency key. On reconciliation,
+reattach accepted validation or repair turns by their existing keys before
+interpreting the last recorded turn. Never resend uncertain provider input.
+All contributing turns must settle successfully and release their runtime
+claims before the next pass or acceptance. Existing Stop, interruption,
+recovery, and explicit Resume behavior preserve partial results.
 
-`review_finish` does not complete a task or authorize publication. A run is
-accepted as complete only when its required summary/coverage is valid,
-reporting omissions are settled, and its contributing turns are successfully
-settled and quiescent. Partial/failed/cancelled runs retain valid provisional
-results but do not advance the successful incremental cursor. A complete
-zero-finding result must be explicit. A skipped essential diff is incomplete
-coverage.
+`review_finish` neither completes a task nor authorizes publication. Successful
+coverage requires a complete distinct commit summary, every required changed
+file accounted for, and every candidate resolved. The backend validates these
+identities and accounting requirements, not whether the agent's inspection was
+semantically sufficient. Missing required files or unresolved hypotheses require
+complete=false and omissions. A complete zero-finding result is explicit.
+
+A run advances the successful reviewed-head cursor only after the validation
+turn settles and complete=true with no omissions. Partial, failed, stopped,
+and incomplete runs never advance it. Ignore previously accepted runs with
+incomplete coverage or missing commit explanations when choosing a baseline.
+Findings from unfinished/failed runs remain provisional.
 
 ## 7. Discussion and progress
 
@@ -559,7 +623,13 @@ not the last attempted head or the agent's experimental worktree tip.
 If the base identity/tip and merge base are unchanged and `H1` is an ancestor
 of `H2`, investigate `H1..H2` plus whatever surrounding code the agent needs.
 Recheck prior affected findings, preserve stable finding IDs, and retain
-resolved/withdrawn history. The overall PR diff remains the publication
+resolved/withdrawn history. The PR context identifies requiredReviewFiles:
+paths changed between the successful predecessor's frozen head and this head,
+including binary changes and paths reverted out of the overall publication diff.
+Unchanged files already assessed in that predecessor can be reused, while
+changed dependencies can still require their reinspection.
+Assessed files in the new investigation describe work actually performed in
+that run, not inherited reads. The overall PR diff remains the publication
 anchor space; the incremental delta alone is not that space.
 
 Use a full review when there is no successful predecessor, ancestry cannot
@@ -683,7 +753,7 @@ publication. Reuse existing PR refresh cadence for observed head changes.
 
 Defer a fourth column, new global review inbox, cross-PR agent memory,
 review subagents without a proved root-only tool boundary,
-mandatory reviewer/verifier multi-agent pipeline, arbitrary application tool
+independent reviewer/verifier multi-agent execution, arbitrary application tool
 registry, automatic force-push worktree repair, automatic commit/push,
 provider-history editing, and a new scheduler or graph framework. Do not
 describe CodeRabbit's private implementation as an established specification;

@@ -97,7 +97,7 @@ describe('review status', () => {
 
   it('prefers Waiting for approval over Running while an approval is pending', () => {
     const running = runningReviewFixture();
-    expect(reviewStatus(running).chip).toBe('Running');
+    expect(reviewStatus(running).chip).toBe('Investigating');
     expect(reviewStatus({ ...running, pendingApprovals: 1 }).status).toBe('approval');
     expect(reviewStatus({ ...running, pendingApprovals: 1 }).chip).toBe('Needs approval');
   });
@@ -117,8 +117,36 @@ describe('review status', () => {
   it('counts queued questions in the running chip', () => {
     const running = { ...runningReviewFixture(), queuedInputIds: ['q1', 'q2'] };
     expect(reviewStatus(running).status).toBe('queued');
-    expect(reviewStatus(running).chip).toBe('Running · 2 queued');
+    expect(reviewStatus(running).chip).toBe('Investigating · 2 queued');
     expect(reviewStatus(running).detail).toBe('2 questions queued');
+  });
+
+  it('derives each review pass from run facts and keeps discussion turns distinct', () => {
+    const running = runningReviewFixture();
+    expect(reviewStatus(running).label).toBe('Investigating');
+    const validating = { ...running, runs: [{ ...running.runs[0], validationStarted: true, turnIds: ['turn-0', 'turn-1'] }] };
+    expect(reviewStatus(validating)).toMatchObject({ label: 'Validating', chip: 'Validating' });
+    expect(reviewStatus({ ...validating, activeTurn: { id: 'discussion-turn', state: 'RUNNING', startedAt: null, cancellationRequestedAt: null } }).label).toBe('Running');
+    expect(reviewRequests(validating).find(request => request.turnId === 'turn-1')?.action).toBe('Follow-up review');
+  });
+
+  it('keeps incomplete accepted coverage provisional and never reports a clean result', () => {
+    const original = reviewFixture();
+    for (const coverage of [null, { complete: false, omissions: [], recordedAt: '2026-09-06T16:15:00Z' },
+      { complete: true, omissions: ['Skipped the cleanup paths'], recordedAt: '2026-09-06T16:15:00Z' }]) {
+      const review: AgentReviewDto = { ...original, findings: [], runs: [{ ...original.runs[0], coverage }] };
+      expect(reviewStatus(review)).toMatchObject({ status: 'incomplete', chip: 'Incomplete' });
+      expect(provisional(review)).toBe(true);
+      expect(findingPublication(review, original.findings[0]).kind).toBe('blocked');
+    }
+  });
+
+  it('reports the latest failed attempt while retaining an earlier readable report', () => {
+    const review = reviewFixture();
+    const failed = { ...review, runs: [...review.runs, { ...review.runs[0], id: 'failed-run', state: 'FAILED' as const,
+      summary: null, coverage: null, outcome: 'The current scope could not be reviewed' }] };
+    expect(shownRun(failed)?.id).toBe('run-1');
+    expect(reviewStatus(failed)).toMatchObject({ status: 'incomplete', detail: 'The current scope could not be reviewed' });
   });
 
   it('reports New commits when the observed head moved past the reviewed one', () => {
@@ -129,13 +157,22 @@ describe('review status', () => {
     expect(newCommits(reviewFixture())).toBe(false);
   });
 
-  it('reports Stopped only for a stopped run whose follow-up is paused', () => {
+  it('reports Stopped for a stopped run whose follow-up is paused', () => {
     const stopped = reviewFixture({
       followUpPaused: true,
       runs: [{ ...reviewFixture().runs[0], state: 'STOPPED', coverage: null }],
     });
     expect(reviewStatus(stopped).status).toBe('stopped');
     expect(reviewStatus(stopped).chip).toBe('Stopped');
+  });
+
+  it('shows a stopped review while continuation is paused between its two passes', () => {
+    const running = runningReviewFixture();
+    const stopped: AgentReviewDto = { ...running, activeTurn: null, followUpPaused: true, task: { ...running.task, mutationClaim: null } };
+    expect(reviewStatus(stopped)).toMatchObject({ status: 'stopped', label: 'Stopped', chip: 'Stopped', busy: false });
+    expect(reviewStatus({ ...stopped, followUpPaused: false }).status).toBe('running');
+    expect(reviewStatus({ ...stopped, activeTurn: running.activeTurn }).status).toBe('running');
+    expect(reviewStatus({ ...stopped, task: { ...stopped.task, mutationClaim: 'RECOVERY' } }).status).toBe('recovery');
   });
 
   it('counts only open findings in the chip once some are resolved', () => {
@@ -191,7 +228,7 @@ describe('publication eligibility', () => {
     const running = runningReviewFixture();
     const publication = findingPublication(running, running.findings[0]);
     expect(publication.kind).toBe('blocked');
-    expect(publication).toMatchObject({ reason: 'Publishing unlocks when the run records coverage' });
+    expect(publication).toMatchObject({ reason: 'Publishing unlocks when validation and complete coverage are accepted' });
   });
 
   it('excludes a locally resolved finding and offers it back through Reopen', () => {
@@ -332,7 +369,7 @@ describe('review request navigation and generated turns', () => {
     expect(requests[1]).toMatchObject({ action: 'Review new commits', body: 'Review 1 new commit across 1 file.',
       turnId: 'update-turn', detail: 'Private · Review 2 · Head eeeeeee',
       target: { kind: 'card', runId: updated.id, cardId: `${updated.id}:purpose` } });
-    expect(requests[2]).toMatchObject({ action: 'Complete review report', body: 'Complete the review summary and coverage report.',
+    expect(requests[2]).toMatchObject({ action: 'Follow-up review', body: 'Continue the investigation, validate suspected issues, and complete the review report.',
       turnId: 'repair-turn', target: { kind: 'card', runId: updated.id, cardId: `${updated.id}:purpose` } });
     expect(requests[3]).toMatchObject({ action: 'Review pull request', body: 'Review the pull request.', turnId: 'missing-run-turn' });
     expect(requests[3].target).toBeUndefined();

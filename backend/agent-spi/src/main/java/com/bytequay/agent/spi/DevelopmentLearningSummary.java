@@ -21,6 +21,7 @@ import java.util.Optional;
 import static com.bytequay.agent.spi.AgentChecks.checkNotBlank;
 import static com.bytequay.agent.spi.AgentChecks.checkOptionalText;
 import static com.google.common.base.Preconditions.checkArgument;
+import static java.util.Objects.requireNonNull;
 
 /** The bounded explanation retained with a generated summary-refinement turn. */
 public record DevelopmentLearningSummary(
@@ -47,7 +48,7 @@ public record DevelopmentLearningSummary(
         checkArgument(commits.stream().map(DevelopmentLearningCommit::sha).distinct().count() == commits.size(), "duplicate commit identifier");
         checkOptionalText(combinedResult, "combinedResult");
         combinedResult.ifPresent(value -> checkArgument(value.length() <= MAXIMUM_RESULT_LENGTH, "combinedResult is too long"));
-        checkNotBlank(evidence, "evidence");
+        requireNonNull(evidence, "evidence is null");
         checkArgument(evidence.length() <= MAXIMUM_EVIDENCE_LENGTH, "evidence is too long");
         limitations = ImmutableList.copyOf(limitations);
         checkArgument(limitations.size() <= MAXIMUM_LIMITATIONS, "too many limitations");

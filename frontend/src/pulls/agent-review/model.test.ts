@@ -259,7 +259,7 @@ describe('discussion', () => {
     expect(messagesFor(review, 'finding-1')).toHaveLength(0);
   });
 
-  it('marks a question queued only while it has a queue row and no turn', () => {
+  it('marks a question queued while its queue row is still waiting, including a retry', () => {
     const review = reviewFixture({ queuedInputIds: ['q1'] });
     const waiting: ReviewMessageDto = { ...review.messages[0], turnId: null, queuedInputId: 'q1' };
     expect(queued(review, waiting)).toBe(true);
@@ -304,7 +304,7 @@ describe('review request topics', () => {
       { ...message, id: 'missing', cardId: 'unavailable-card', runId: 'unavailable-run' },
       { ...message, id: 'answer', author: 'AGENT' },
     ] });
-    expect(requests).toHaveLength(5);
+    expect(requests).toHaveLength(6);
     expect(requests[0]).toMatchObject({ action: 'Ask about review', topic: 'Limitations', detail: 'Private · Revision 1 · Reviewed head d9a0c41' });
     expect(requests[1]).toMatchObject({ action: 'Reply to review', body: 'Follow up' });
     expect(requests[2].topic).toBe(`${review.findings[0].label} · ${review.findings[0].title}`);
@@ -313,5 +313,55 @@ describe('review request topics', () => {
     const olderQuestion: ReviewMessageDto = { ...message, findingId: review.findings[0].id, cardId: null };
     expect(reviewRequests({ ...review, findings: [{ ...review.findings[0], revision: 2, title: 'Revised finding' }],
       messages: [olderQuestion] })[0].topic).toBe(`${review.findings[0].label} · Review finding`);
+  });
+});
+
+
+describe('review request navigation and generated turns', () => {
+  it('renders initial, incremental and completion-repair requests from durable turn identities', () => {
+    const review = reviewFixture();
+    const original = review.runs[0];
+    const updated = { ...original, id: 'run-2', ordinal: 2, scope: 'INCREMENTAL' as const,
+      headSha: 'e'.repeat(40), commits: [original.commits[0]], changedFiles: 1, turnIds: ['update-turn', 'repair-turn'] };
+    const requests = reviewRequests({ ...review, messages: [], runs: [original, updated],
+      byteQuayTurnIds: [...original.turnIds, 'update-turn', 'repair-turn', 'missing-run-turn'] });
+    expect(requests).toHaveLength(4);
+    expect(requests[0]).toMatchObject({ action: 'Review pull request', topic: `${review.repo}#${review.number}`,
+      body: `Review ${original.commits.length} commits across ${original.changedFiles} files.`, turnId: original.turnIds[0],
+      target: { kind: 'card', runId: original.id, cardId: `${original.id}:purpose` } });
+    expect(requests[1]).toMatchObject({ action: 'Review new commits', body: 'Review 1 new commit across 1 file.',
+      turnId: 'update-turn', detail: 'Private · Review 2 · Head eeeeeee',
+      target: { kind: 'card', runId: updated.id, cardId: `${updated.id}:purpose` } });
+    expect(requests[2]).toMatchObject({ action: 'Complete review report', body: 'Complete the review summary and coverage report.',
+      turnId: 'repair-turn', target: { kind: 'card', runId: updated.id, cardId: `${updated.id}:purpose` } });
+    expect(requests[3]).toMatchObject({ action: 'Review pull request', body: 'Review the pull request.', turnId: 'missing-run-turn' });
+    expect(requests[3].target).toBeUndefined();
+    expect(reviewRequests({ ...review, messages: [], byteQuayTurnIds: [] })).toHaveLength(1);
+  });
+
+  it('keeps original discussion targets after a later report and groups unscoped summary replies with purpose', () => {
+    const review = reviewFixture();
+    const run = review.runs[0];
+    const user: ReviewMessageDto = { ...review.messages[0], runId: run.id, cardId: null };
+    const requests = reviewRequests({ ...review, runs: [run, { ...run, id: 'later-run', turnIds: ['later-turn'] }], messages: [
+      user,
+      { ...user, id: 'purpose-reply', cardId: `${run.id}:purpose` },
+      { ...user, id: 'commit-question', cardId: `${run.id}:commit:${run.commits[0].sha}` },
+      { ...user, id: 'finding-question', findingId: review.findings[0].id },
+      { ...user, id: 'agent-answer', author: 'AGENT' },
+    ] });
+    expect(requests[0].target).toEqual({ kind: 'card', runId: run.id, cardId: `${run.id}:purpose` });
+    expect(requests[1]).toMatchObject({ action: 'Reply to review', target: requests[0].target });
+    expect(requests[2].target).toEqual({ kind: 'card', runId: run.id, cardId: `${run.id}:commit:${run.commits[0].sha}` });
+    expect(requests[3].target).toEqual({ kind: 'finding', runId: run.id, findingId: review.findings[0].id });
+    expect(requests.filter(request => request.body === user.body)).toHaveLength(4);
+  });
+
+  it('does not classify ordinary user turns from text or agent reply associations', () => {
+    const review = reviewFixture();
+    const requests = reviewRequests({ ...review, byteQuayTurnIds: [], runs: [], messages: [
+      { ...review.messages[0], author: 'AGENT', turnId: 'ordinary-turn', body: 'Review pull request' },
+    ] });
+    expect(requests).toEqual([]);
   });
 });

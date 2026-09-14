@@ -11,6 +11,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
+import { useState } from 'react';
 import { flushSync } from 'react-dom';
 import { createRoot } from 'react-dom/client';
 import DevelopmentLearningPanel from '../../../agents/DevelopmentLearningPanel';
@@ -20,6 +21,10 @@ import { previewTask } from '../../../agents/fixtures/previewBridge';
 import type { AgentTurnDto, Bridge, DevelopmentLearningSummaryDto } from '../../../types';
 import { DiffViewer } from '../../PullChanges';
 import ReviewSummaryCard from '../../agent-review/ReviewSummaryCard';
+import ReviewComposer from '../../agent-review/ReviewComposer';
+import '../../../css/base.css';
+import '../../../css/pulls.css';
+import '../../../css/agent-review.css';
 import { reviewFixture } from '../../agent-review/fixtures/review';
 import type { ReviewMessageDto } from '../../agent-review/contracts';
 import LocalReviewThreadCard from '../LocalReviewThreadCard';
@@ -356,11 +361,11 @@ async function developmentLearningRefresh(): Promise<void> {
     await settle();
     assert(card('purpose').textContent?.includes(summary.purpose) === true
       && card(commitId).textContent?.includes(summary.commits[0].summary) === true
-      && card(`commit:${summary.commits[1].sha}`).textContent?.includes(summary.commits[1].summary) === true
-      && card('evidence').textContent?.includes(summary.evidence) === true,
-    'The saved report must refresh into independent overview, commit and evidence cards');
-    assert(host.querySelectorAll('[data-learning-card]').length === 6 && !host.textContent?.includes('Start review'),
-      'Every report section must be an independent private card with no separate review launcher');
+      && card(`commit:${summary.commits[1].sha}`).textContent?.includes(summary.commits[1].summary) === true,
+    'The saved report must refresh into an intention card and separate commit implementation cards');
+    assert(host.querySelectorAll('[data-learning-card]').length === 3 && !host.textContent?.includes('Start review')
+      && host.querySelector('[data-learning-card="evidence"], [data-learning-card="combined-result"], [data-learning-card="limitations"]') === null,
+      'The report must contain only its intention and two implementation cards, without a separate review launcher');
     button(card(commitId), 'Ask agent').click();
     await settle();
     const input = card(commitId).querySelector<HTMLTextAreaElement>('textarea');
@@ -375,8 +380,8 @@ async function developmentLearningRefresh(): Promise<void> {
       && discussion.textContent?.includes('rollback restores the original values') === true,
     'The accepted question must display its saved summary, user message and agent reply in the shared private card');
     assert(card('purpose').textContent?.includes('Why capture the snapshot') === false
-      && card('evidence').textContent?.includes('rollback restores the original values') === false,
-    'Commit questions and answers must remain separate from overview and evidence cards');
+      && card(`commit:${summary.commits[1].sha}`).textContent?.includes('rollback restores the original values') === false,
+    'Commit questions and answers must remain separate from the intention and other commit cards');
     savedTurn = { ...firstTurn, id: 'refinement-2', developmentResult: { readyForDelivery: true, message: null,
       learningSummary: { ...summary, purpose: 'Preserve statistics and reject conflicting updates.',
         commits: [{ ...summary.commits[0], summary: 'Capture the snapshot and check the update version.' }, summary.commits[1]] } } };
@@ -402,6 +407,80 @@ async function developmentLearningRefresh(): Promise<void> {
   finally { flushSync(() => root.unmount()); host.remove(); }
 }
 
+async function sharedReviewEditor(): Promise<void> {
+  for (const width of [760, 320]) {
+    const host = document.createElement('div');
+    host.style.width = `${width}px`;
+    document.body.append(host);
+    const root = createRoot(host);
+    const submissions: { outgoing: boolean; body: string }[] = [];
+    let cancellations = 0;
+    const Harness = ({ busy = false, outgoing = false }: { busy?: boolean; outgoing?: boolean }) => {
+      const [value, setValue] = useState('');
+      return <>
+        <div className="reference-editor"><DiffViewer
+          files={[{ filename: 'Example.java', status: 'modified', additions: 1, deletions: 1, patch: '@@ -1 +1 @@\n-old value\n+new value' }]}
+          onAskAgent={async () => { throw new Error('Reference editor must not submit'); }} /></div>
+        <div className="agr-finding"><ReviewComposer repository="owner/repo" value={value} onChange={setValue} busy={busy}
+          placeholder="Ask about this implementation…" ariaLabel="Review question" primaryLabel={outgoing ? 'Post now' : 'Ask agent'}
+          outgoing={outgoing ? 'Posts to GitHub on Example.java R12–R13' : null}
+          suggestion={{ startLine: 12, lines: ['old first', 'old second'] }}
+          onSubmit={() => { submissions.push({ outgoing, body: value }); }} onCancel={() => { cancellations++; }} /></div>
+      </>;
+    };
+    const render = (busy = false, outgoing = false) => flushSync(() => root.render(<Harness busy={busy} outgoing={outgoing} />));
+    render();
+    try {
+      host.querySelector<HTMLButtonElement>('.reference-editor [aria-label="Add a comment on new line 1"]')?.click();
+      await settle();
+      const editor = host.querySelector<HTMLElement>('.agr-composer');
+      const input = editor?.querySelector('textarea');
+      const referenceInput = host.querySelector<HTMLTextAreaElement>('.reference-editor .pull-diff-review textarea');
+      assert(editor !== null && input !== null && input !== undefined && referenceInput !== null, 'Both review surfaces must mount their editor');
+      const properties = ['borderTopColor', 'borderTopWidth', 'borderRadius', 'padding', 'fontSize', 'backgroundColor', 'boxShadow', 'outlineStyle'] as const;
+      referenceInput.focus();
+      const referenceStyle = getComputedStyle(referenceInput);
+      const expectedStyle = properties.map(property => referenceStyle[property]);
+      input.focus();
+      const reviewStyle = getComputedStyle(input);
+      assert(properties.every((property, index) => reviewStyle[property] === expectedStyle[index]),
+        'The review textarea must use the code-diff editor’s actual focused appearance');
+      assert(editor.scrollWidth <= editor.clientWidth + 1, 'The editor and wrapped toolbar must fit a narrow card');
+      assert(editor.textContent?.includes('Private — only you and the agent') === true, 'Private questions must retain their destination caption');
+      changeInput(input, 'Review this snapshot');
+      input.setSelectionRange(12, 20);
+      await settle();
+      editor.querySelector<HTMLButtonElement>('[aria-label="Bold"]')?.click();
+      await settle();
+      assert(input.value === 'Review this **snapshot**', 'The shared toolbar must format the selected text');
+      button(editor, 'Preview').click(); await settle();
+      assert(input.hidden && editor.querySelector('.markdown-body strong')?.textContent === 'snapshot', 'Preview must render Markdown while retaining the editor');
+      button(editor, 'Write').click(); await settle();
+      assert(!input.hidden && document.activeElement === input && input.value === 'Review this **snapshot**', 'Write must restore the same focused text input');
+      input.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', metaKey: true, bubbles: true }));
+      input.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+      assert(submissions.length === 1 && !submissions[0].outgoing && cancellations === 1, 'Keyboard submit and cancel must retain their private callbacks');
+      render(true); await settle();
+      assert(input.disabled && button(editor, 'Cancel').disabled && button(editor, 'Ask agent').disabled
+        && editor.querySelector<HTMLButtonElement>('[aria-label="Bold"]')?.disabled === true,
+      'A busy request must disable editing and duplicate actions like the diff editor');
+      render(false, true); await settle();
+      const suggestion = '```suggestion\nnew value\n```';
+      changeInput(input, suggestion); await settle();
+      button(editor, 'Preview').click(); await settle();
+      const preview = editor.querySelector('.pull-diff-review__preview');
+      assert(preview?.querySelectorAll('.md-suggestion__row.is-del').length === 2
+        && preview.querySelector('.md-suggestion__number')?.textContent === '12', 'Outgoing preview must preserve the exact two-line suggestion base');
+      assert(editor.textContent?.includes('Posts to GitHub on Example.java R12–R13') === true && submissions.length === 1,
+        'Opening an outgoing preview must retain its target without publishing');
+      button(editor, 'Post now').click();
+      assert(Number(submissions.length) === 2 && submissions[1].outgoing && submissions[1].body === suggestion,
+        'Only an explicit outgoing action may pass the original suggestion fence to its callback');
+    }
+    finally { flushSync(() => root.unmount()); host.remove(); }
+  }
+}
+
 export async function run(): Promise<{ name: string; error?: string }[]> {
   const cases: Array<[string, () => Promise<void>]> = [
     ['Local discussion reply, resolution and remount', replyAndResolve],
@@ -410,6 +489,7 @@ export async function run(): Promise<{ name: string; error?: string }[]> {
     ['Independent overview and commit discussions survive reload', independentLearningCards],
     ['Review-owned private replies use the fresh task version', reviewOwnedLocalDiscussion],
     ['Development learning refreshes and retains source-bound discussions', developmentLearningRefresh],
+    ['Review editor reuses diff presentation and preserves private and outgoing behavior', sharedReviewEditor],
   ];
   const results: { name: string; error?: string }[] = [];
   for (const [name, scenario] of cases) {

@@ -158,8 +158,8 @@ public class ReviewTools
                                 .buildOrThrow(), ImmutableList.of("kind")),
                         arguments -> call(reviewId, arguments, this::getContext)),
                 new ReviewTool("review_save_summary",
-                        "Save the structured review summary for the current run: what the pull request does, one explanation per commit in scope, "
-                                + "the combined result, supporting evidence and actual test results, and critical findings. Saving again creates the next revision.",
+                        "Save only the pull request's intention and one design/implementation explanation per commit in scope. "
+                                + "Put bugs and concrete code improvements in inline findings. Saving again creates the next revision.",
                         schema(ImmutableMap.<String, Object>builder()
                                 .put("operationKey", ImmutableMap.of("type", "string", "minLength", 1, "maxLength", MAX_KEY))
                                 .put("purpose", ImmutableMap.of("type", "string", "minLength", 1, "maxLength", 2000))
@@ -182,14 +182,13 @@ public class ReviewTools
                                                                 ImmutableMap.of("type", "string", "maxLength", 1000)),
                                                         "required",
                                                         ImmutableList.of("sha", "explanation"))))
-                                .put("combinedResult", ImmutableMap.of("type", "string", "minLength", 1, "maxLength", 3000))
-                                .put("evidence", ImmutableMap.of("type", "string", "maxLength", 8000))
-                                .put("criticalFindingIds", ImmutableMap.of("type", "array", "maxItems", 50, "items", ImmutableMap.of("type", "string")))
-                                .buildOrThrow(), ImmutableList.of("operationKey", "purpose", "commits", "combinedResult", "criticalFindingIds")),
+                                .buildOrThrow(), ImmutableList.of("operationKey", "purpose", "commits")),
                         arguments -> call(reviewId, arguments, this::saveSummary)),
                 new ReviewTool("review_save_finding",
-                        "Create an inline finding at diff anchors from review_get_context, or revise one by findingId with its expectedRevision. "
-                                + "Requires nonempty evidence refs with explanations.",
+                        "Create or revise an inline bug report or concrete code improvement, with evidence refs and diff anchors from review_get_context. "
+                                + "Use severity for defects; mark optional improvements as suggestions and omit severity. For an exact replacement, "
+                                + "include one GitHub ```suggestion block replacing the complete RIGHT-side startAnchor/endAnchor range. "
+                                + "Revisions require findingId and expectedRevision; nothing is published.",
                         schema(ImmutableMap.<String, Object>builder()
                                 .put("operationKey", ImmutableMap.of("type", "string", "minLength", 1, "maxLength", MAX_KEY))
                                 .put("findingId", ImmutableMap.of("type", "string"))
@@ -319,21 +318,15 @@ public class ReviewTools
             }
             commits.add(new ReviewSummary.CommitExplanation(full.orElseThrow(), text(commit, "explanation", 1000, true)));
         }
-        List<String> critical = strings(arguments, "criticalFindingIds", 50, 100);
-        List<ReviewFinding> findings = store.listFindings(call.review().id());
-        for (String id : critical) {
-            if (findings.stream().noneMatch(finding -> finding.id().equals(id) && finding.state() != ReviewFinding.State.WITHDRAWN)) {
-                throw new ReviewInvalidRequestException("criticalFindingIds: " + id + " is not a finding of this review");
-            }
-        }
-        int revision = call.run().summary().map(ReviewSummary::revision).orElse(0) + 1;
+        Optional<ReviewSummary> previous = call.run().summary();
+        int revision = previous.map(ReviewSummary::revision).orElse(0) + 1;
         ReviewSummary summary = new ReviewSummary(
                 revision,
                 text(arguments, "purpose", 2000, true),
                 commits,
-                text(arguments, "combinedResult", 3000, true),
-                Optional.of(text(arguments, "evidence", 8000, false)).filter(value -> !value.isBlank()),
-                critical);
+                previous.map(ReviewSummary::combinedResult).orElse(""),
+                previous.flatMap(ReviewSummary::evidence),
+                previous.map(ReviewSummary::criticalFindingIds).orElseGet(ImmutableList::of));
         ObjectNode result = objectMapper.createObjectNode().put("revision", revision).put("status", "accepted");
         store.updateRun(call.run().withSummary(summary, now()).withOperation(replay.key(), new ReviewOperation(replay.digest(), result.toString()), now()));
         return result;
@@ -415,6 +408,14 @@ public class ReviewTools
                     now,
                     now);
             insert = true;
+        }
+        if (body.lines().anyMatch(line -> line.stripLeading().startsWith("```suggestion"))) {
+            if (!saved.anchor().side().equals("RIGHT")) {
+                throw new ReviewInvalidRequestException("startAnchor: a suggestion must replace current RIGHT-side lines, not deleted lines");
+            }
+            if (body.lines().anyMatch(line -> line.stripLeading().startsWith("```suggestion") && !line.strip().equals("```suggestion"))) {
+                throw new ReviewInvalidRequestException("body: use a plain suggestion fence and startAnchor/endAnchor for the exact replacement range");
+            }
         }
         ObjectNode result = objectMapper.createObjectNode()
                 .put("findingId", saved.id())

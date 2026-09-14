@@ -459,22 +459,25 @@ class TestLocalReviewService
         mvc.perform(get(route).param("workspaceId", "workspace")).andExpect(status().isOk())
                 .andExpect(jsonPath("$.id").value(summary.id().toString()))
                 .andExpect(jsonPath("$.developmentResult.learningSummary.purpose").value("Make partition values reusable"))
+                .andExpect(jsonPath("$.developmentResult.learningSummary.evidence").value("Unit tests passed"))
                 .andExpect(jsonPath("$.developmentOrigin.kind").value("REFINE_SUMMARY"));
         doThrow(new IllegalStateException("Provider unavailable")).when(turns).start(any());
         ObjectMapper mapper = new ObjectMapper().findAndRegisterModules();
-        String request = mapper.writeValueAsString(new LocalReviewService.LearningCreate(summary.id().toString(), "evidence", "learning", "question", "Which test?", 0));
+        String request = mapper.writeValueAsString(new LocalReviewService.LearningCreate(summary.id().toString(), "purpose", "learning", "question", "Why this design?", 0));
         mvc.perform(post(route + "/comments").param("workspaceId", "workspace").header("Idempotency-Key", "create")
                         .contentType(MediaType.APPLICATION_JSON).content(request))
                 .andExpect(status().isOk()).andExpect(jsonPath("$.learningAnchor.turnId").value(summary.id().toString()))
-                .andExpect(jsonPath("$.learningAnchor.cardId").value("evidence"))
-                .andExpect(jsonPath("$.learningAnchor.body").value("Unit tests passed"))
+                .andExpect(jsonPath("$.learningAnchor.cardId").value("purpose"))
+                .andExpect(jsonPath("$.learningAnchor.body").value("Make partition values reusable"))
                 .andExpect(jsonPath("$.number").value(0)).andExpect(jsonPath("$.messages[0].deliveryState").value("UNSENT"));
         mvc.perform(post(route + "/comments").param("workspaceId", "workspace").contentType(MediaType.APPLICATION_JSON).content(request))
                 .andExpect(status().isBadRequest());
-        String limitations = mapper.writeValueAsString(new LocalReviewService.LearningCreate(summary.id().toString(), "limitations", "limits", "question", "Any limits?", 0));
-        mvc.perform(post(route + "/comments").param("workspaceId", "workspace").header("Idempotency-Key", "limits")
-                        .contentType(MediaType.APPLICATION_JSON).content(limitations))
-                .andExpect(status().isOk()).andExpect(jsonPath("$.learningAnchor.body").value("None recorded."));
+        for (String cardId : ImmutableList.of("combined-result", "evidence", "limitations")) {
+            String removed = mapper.writeValueAsString(new LocalReviewService.LearningCreate(summary.id().toString(), cardId, "removed", "question", "Explain", 0));
+            mvc.perform(post(route + "/comments").param("workspaceId", "workspace").header("Idempotency-Key", "removed")
+                            .contentType(MediaType.APPLICATION_JSON).content(removed))
+                    .andExpect(status().isBadRequest());
+        }
     }
 
     private AgentTurn learningTurn(long second)

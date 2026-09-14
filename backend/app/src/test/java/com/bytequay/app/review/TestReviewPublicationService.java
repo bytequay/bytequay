@@ -242,6 +242,37 @@ class TestReviewPublicationService
     }
 
     @Test
+    void submitPreservesSuggestionFenceAndTargetRange()
+    {
+        String body = """
+                Guard the empty value.
+
+                ```suggestion
+                    return input.orElseThrow();
+                ```""";
+        reviews.put(finding(FINDING_ID, 1, "src/Service.java", 118, 119, body));
+        ReviewDraft draft = service.addFinding(REPO, NUMBER, 0, REVIEW_ID, FINDING_ID);
+        assertThat(draft.items().getFirst().body()).isEqualTo(body);
+        verifyNoInteractions(pullRequests);
+        when(pullRequests.findHeadSha(REPO, NUMBER)).thenReturn(Optional.of(CURRENT_HEAD));
+        when(pullRequests.getPullRequestDetail(REPO, NUMBER)).thenReturn(detail());
+        when(pullRequests.submitReview(eq(REPO), eq(NUMBER), eq(PR_ID), eq("COMMENT"), eq("Suggested fix"), any())).thenReturn(detail());
+
+        service.submit(REPO, NUMBER, draft.version(), "Suggested fix", "COMMENT");
+
+        ArgumentCaptor<List<InlineReviewComment>> sent = ArgumentCaptor.captor();
+        verify(pullRequests).submitReview(eq(REPO), eq(NUMBER), eq(PR_ID), eq("COMMENT"), eq("Suggested fix"), sent.capture());
+        assertThat(sent.getValue()).singleElement().satisfies(comment -> {
+            assertThat(comment.body()).isEqualTo(body);
+            assertThat(comment.path()).isEqualTo("src/Service.java");
+            assertThat(comment.startLine()).isEqualTo(118);
+            assertThat(comment.line()).isEqualTo(119);
+            assertThat(comment.side()).isEqualTo("RIGHT");
+            assertThat(comment.startSide()).isEqualTo("RIGHT");
+        });
+    }
+
+    @Test
     void submitSendsOnlyTheIncludedUnpublishedItems()
     {
         ReviewDraft draft = service.addManual(REPO, NUMBER, 0, manual("src/A.java", 10, "Rename this"));

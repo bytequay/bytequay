@@ -12,17 +12,8 @@
  * limitations under the License.
  */
 import { useRef, useState } from 'react';
-import MarkdownBody from '../MarkdownBody';
+import MarkdownBody, { type SuggestionBase } from '../MarkdownBody';
 import { applyMarkdownCommand, MarkdownToolbar, type MarkdownCommand } from '../PullChanges';
-
-function LockIcon() {
-  return (
-    <svg width="12" height="12" viewBox="0 0 16 16" fill="none" aria-hidden="true">
-      <rect x="3.5" y="7" width="9" height="6.5" rx="1.3" stroke="currentColor" strokeWidth="1.4" />
-      <path d="M5.5 7V5a2.5 2.5 0 0 1 5 0v2" stroke="currentColor" strokeWidth="1.4" />
-    </svg>
-  );
-}
 
 /**
  * The Write/Preview composer, in the PR page's own shape.
@@ -37,6 +28,7 @@ export default function ReviewComposer({
   ariaLabel,
   primaryLabel,
   outgoing = null,
+  suggestion,
   busy = false,
   autoFocus = false,
   onChange,
@@ -50,6 +42,7 @@ export default function ReviewComposer({
   primaryLabel: string;
   /** Where the text will be posted, when it leaves ByteQuay; private when absent. */
   outgoing?: string | null;
+  suggestion?: SuggestionBase;
   busy?: boolean;
   autoFocus?: boolean;
   onChange: (value: string) => void;
@@ -72,9 +65,9 @@ export default function ReviewComposer({
   };
 
   return (
-    <div className={`agr-composer${outgoing === null ? '' : ' is-outgoing'}`}>
-      <div className="agr-composer__bar">
-        <div className="agr-composer__tabs" role="tablist">
+    <div className="pull-diff-review agr-composer">
+      <div className="pull-diff-review__bar">
+        <div className="pull-diff-review__tabs" role="tablist">
           <button type="button" role="tab" aria-selected={!preview} className={preview ? '' : 'is-active'}
             onClick={() => {
               setPreview(false);
@@ -83,39 +76,39 @@ export default function ReviewComposer({
           <button type="button" role="tab" aria-selected={preview} className={preview ? 'is-active' : ''}
             onClick={() => setPreview(true)}>Preview</button>
         </div>
-        {!preview && <MarkdownToolbar onCommand={runCommand} />}
+        {!preview && <MarkdownToolbar onCommand={runCommand} disabled={busy} />}
       </div>
-      {preview
-        ? <div className="agr-composer__preview">
-          {value.trim()
-            ? <MarkdownBody body={value} repository={repository} />
-            : <p className="agr-composer__nothing">Nothing to preview</p>}
-        </div>
-        : <textarea
-          ref={bodyRef}
-          className="agr-composer__input"
-          value={value}
-          rows={4}
-          autoFocus={autoFocus}
-          aria-label={ariaLabel}
-          placeholder={placeholder}
-          onChange={event => onChange(event.target.value)}
-          onKeyDown={event => {
-            if (event.key === 'Escape') {
-              event.preventDefault();
-              onCancel();
-            }
-            if ((event.metaKey || event.ctrlKey) && event.key === 'Enter') {
-              event.preventDefault();
-              if (ready) onSubmit();
-            }
-          }} />}
-      <footer className="agr-composer__footer">
-        {outgoing === null
-          ? <span className="agr-composer__note"><LockIcon />Private — only you and the agent</span>
-          : <span className="agr-composer__note is-outgoing">{outgoing}</span>}
-        <button type="button" onClick={onCancel}>Cancel</button>
-        <button type="button" className={outgoing === null ? '' : 'is-primary'} disabled={!ready} onClick={onSubmit}>
+      {preview && <div className="pull-diff-review__preview">
+        {value.trim()
+          ? <MarkdownBody body={value} repository={repository} suggestion={suggestion} />
+          : <p className="pull-diff-review__nothing">Nothing to preview</p>}
+      </div>}
+      <textarea
+        ref={bodyRef}
+        value={value}
+        rows={4}
+        hidden={preview}
+        disabled={busy}
+        autoFocus={autoFocus}
+        aria-label={ariaLabel}
+        placeholder={placeholder}
+        onChange={event => onChange(event.target.value)}
+        onKeyDown={event => {
+          if (event.key === 'Escape') {
+            event.preventDefault();
+            onCancel();
+          }
+          if ((event.metaKey || event.ctrlKey) && event.key === 'Enter') {
+            event.preventDefault();
+            if (ready) onSubmit();
+          }
+        }} />
+      <p className={`pull-diff-review__nothing${outgoing === null ? '' : ' agr-composer__outgoing'}`}>
+        {outgoing ?? 'Private — only you and the agent'}
+      </p>
+      <footer>
+        <button type="button" disabled={busy} onClick={onCancel}>Cancel</button>
+        <button type="button" className="is-primary" disabled={!ready} onClick={onSubmit}>
           {primaryLabel}
         </button>
       </footer>

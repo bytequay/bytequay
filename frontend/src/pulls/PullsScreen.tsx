@@ -19,6 +19,7 @@ import type { NavigationMode } from '../navigationHistory';
 import Toast from '../Toast';
 import type { Bridge, DiffCommitDto, DiffFileDto, InlineReviewCommentDto, PullRequestDetailDto, PullRequestDto, PullRequestPageDto, UserProfileDto } from '../types';
 import AgentReviewTab, { type ReviewNavigationTarget } from './agent-review/AgentReviewTab';
+import type { ReviewCardFocus } from '../agents/ReviewRequestCard';
 import type { AgentReviewDto, ReviewDraftItemDto } from './agent-review/contracts';
 import { pendingDraftCount, reviewStatus } from './agent-review/model';
 import { useLocalReviewThreads } from './local-review/useLocalReviewThreads';
@@ -305,6 +306,7 @@ export default function PullsScreen({
   const [reviewNavigation, setReviewNavigation] = useState<ReviewNavigationTarget | null>(null);
   /** A finding the Changes tab sent back to Agent review, so its card opens and scrolls. */
   const [focusFindingId, setFocusFindingId] = useState<string | null>(null);
+  const [reviewCardFocus, setReviewCardFocus] = useState<ReviewCardFocus | null>(null);
   const [tab, setTab] = useState<PullTab>(initialTab ?? 'all');
   const [selected, setSelected] = useState<number | null>(null);
   const [detailTab, setDetailTab] = useState<DetailTab>(initialReviewId === undefined ? 'overview' : 'review');
@@ -690,6 +692,7 @@ export default function PullsScreen({
     setReviewContext(null);
     setReviewNavigation(null);
     setFocusFindingId(null);
+    setReviewCardFocus(null);
     if (reviewKey === null || selectedPrRepo === undefined || selectedPrNumber === undefined) return;
     let cancelled = false;
     void loadAgentReviewContext(window.bridge, selectedPrRepo, selectedPrNumber, scopedWorkspaceId, requestedReviewId)
@@ -717,6 +720,7 @@ export default function PullsScreen({
     setPendingReviewComments([]);
     setReviewNavigation(null);
     setFocusFindingId(null);
+    setReviewCardFocus(null);
   };
 
   const toggleMonitor = async (row: PullRow) => {
@@ -938,6 +942,12 @@ export default function PullsScreen({
         </header>
         {detail !== null && review !== null ? <AgentReviewTab detail={detail} workspaceId={workspaceId} viewer={viewer}
           review={review} onReviewChange={updateReview} mode="conversation" localReview={localReview}
+          onOpenReview={target => {
+            setReviewCardFocus(previous => ({ target, token: (previous?.token ?? 0) + 1 }));
+            setFocusFindingId(null);
+            setDetailTab('review');
+            setPaneOpen(true);
+          }}
           focusFindingId={null} onNavigateToChanges={target => { setReviewNavigation(target); setDetailTab('changes'); }} />
           : <div className="agt-panel__empty" role={reviewError === null ? 'status' : 'alert'}>
             {reviewError ?? 'Loading review conversation…'}
@@ -1018,6 +1028,7 @@ export default function PullsScreen({
               review={review}
               reviewNavigation={reviewNavigation}
               focusFindingId={focusFindingId}
+              reviewCardFocus={reviewCardFocus}
               onReviewChange={updateReview}
               onOpenWorkspace={review === null || reviewWorkspace !== undefined ? undefined : () => {
                 onClose?.();
@@ -1032,6 +1043,7 @@ export default function PullsScreen({
               onNavigateToChanges={target => {
                 setReviewNavigation(target);
                 setFocusFindingId(null);
+                setReviewCardFocus(null);
                 if (detailTab !== 'changes') {
                   recordDiffOpened();
                   setDetailTab('changes');
@@ -1039,6 +1051,7 @@ export default function PullsScreen({
               }}
               onOpenInReview={findingId => {
                 setFocusFindingId(findingId);
+                setReviewCardFocus(null);
                 setDetailTab('review');
               }}
               diffs={diffs}
@@ -1696,7 +1709,7 @@ function DetailBody({
   viewer,
   review,
   reviewNavigation,
-  focusFindingId,
+  focusFindingId, reviewCardFocus,
   onReviewChange,
   onOpenWorkspace,
   onAskAgent,
@@ -1724,6 +1737,7 @@ function DetailBody({
   review: AgentReviewDto | null;
   reviewNavigation: ReviewNavigationTarget | null;
   focusFindingId: string | null;
+  reviewCardFocus?: ReviewCardFocus | null;
   onReviewChange: (review: AgentReviewDto) => void;
   onOpenWorkspace?: () => void;
   onAskAgent?: (comment: DiffAgentComment) => Promise<void>;
@@ -1754,6 +1768,7 @@ function DetailBody({
       onOpenWorkspace={onOpenWorkspace}
       onNavigateToChanges={onNavigateToChanges}
       focusFindingId={focusFindingId}
+      focusReviewCard={reviewCardFocus}
     /></div>;
   }
   if (tab === 'changes') {

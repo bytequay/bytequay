@@ -30,7 +30,7 @@ it('renders persistent private review cards and safe diff anchors in Chromium', 
         entry: resolve('src/pulls/local-review/fixtures/localReviewBrowser.tsx'), name: 'LocalReviewTests', formats: ['iife'], fileName: () => 'renderer.js',
       } },
     });
-    await writeFile(join(directory, 'index.html'), '<!doctype html><meta charset="UTF-8"><body><script src="renderer.js"></script>');
+    await writeFile(join(directory, 'index.html'), '<!doctype html><meta charset="UTF-8"><link rel="stylesheet" href="style.css"><body><script src="renderer.js"></script>');
     await writeFile(join(directory, 'main.cjs'), `
       const { app, BrowserWindow } = require('electron');
       app.setPath('userData', ${JSON.stringify(join(directory, 'profile'))});
@@ -52,7 +52,7 @@ it('renders persistent private review cards and safe diff anchors in Chromium', 
     const command = process.platform === 'linux' && !process.env.DISPLAY ? 'xvfb-run' : executable;
     const result = await promisify(execFile)(command, command === executable ? args : ['-a', executable, ...args], { env: environment, timeout: 20_000 });
     const results = JSON.parse(result.stdout.trim()) as { name: string; error?: string }[];
-    expect(results).toHaveLength(6);
+    expect(results).toHaveLength(7);
     expect(results.filter(result => result.error !== undefined)).toEqual([]);
   }
   finally { await rm(directory, { recursive: true, force: true }); }

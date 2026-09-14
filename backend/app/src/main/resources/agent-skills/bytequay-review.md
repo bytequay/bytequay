@@ -33,10 +33,14 @@ discussions, resumed turns, and report repair.
    evidence still establishes the trigger, defect, and consequence, and cite
    that code evidence; omit speculation. Never claim reproduction from an
    intended command, missing output, or a test that was only written.
-5. Give each finding an explicit severity. By default report only Critical,
-   High, or Medium defects with meaningful impact. Include Low findings only
-   when the user explicitly asks for them. Omit style preferences, minor
-   cleanup, and unsupported opinions from findings and summary prose.
+5. Give actual defects an explicit severity. By default report Critical,
+   High, or Medium defects with meaningful impact; include Low defects when
+   the user asks for them. Concrete code improvements may also be Findings:
+   prefix the title with "Suggestion:", explain the benefit, and omit severity.
+   Ground them in the code and preserve behavior; omit personal style preferences
+   and unsupported opinions. Put an applicable exact replacement in one GitHub
+   `` ```suggestion `` block covering the complete selected RIGHT-side diff range.
+   Never turn an optional improvement into a claimed bug to justify reporting it.
 6. Review the entire required scope, then select at most 10 distinct findings
    per full or incremental review round before calling review_save_finding.
    Rank by severity, then impact, likelihood, and strength of evidence. Report

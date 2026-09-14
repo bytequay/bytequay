@@ -22,6 +22,7 @@ import com.fasterxml.jackson.annotation.JsonInclude;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.databind.node.ObjectNode;
 import com.fasterxml.jackson.datatype.jdk8.Jdk8Module;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
@@ -39,7 +40,7 @@ public final class DevelopmentResultTool
 {
     private static final ObjectMapper MAPPER = new ObjectMapper().registerModule(new Jdk8Module()).setSerializationInclusion(JsonInclude.Include.NON_ABSENT);
     private static final Set<String> ARGUMENTS = ImmutableSet.of("readyForDelivery", "message", "learningSummary");
-    private static final Set<String> SUMMARY_FIELDS = ImmutableSet.of("purpose", "commits", "combinedResult", "evidence", "limitations");
+    private static final Set<String> SUMMARY_FIELDS = ImmutableSet.of("purpose", "commits");
     private static final Set<String> COMMIT_FIELDS = ImmutableSet.of("sha", "title", "summary");
     private static final int MAXIMUM_RECEIPT_LENGTH = 512_000;
 
@@ -75,13 +76,9 @@ public final class DevelopmentResultTool
                                             "sha", ImmutableMap.of("type", "string", "pattern", "^(?:[0-9a-fA-F]{40}|[0-9a-fA-F]{64})$"),
                                             "title", string(DevelopmentLearningCommit.MAXIMUM_TITLE_LENGTH),
                                             "summary", string(DevelopmentLearningCommit.MAXIMUM_SUMMARY_LENGTH)),
-                                            "required", ImmutableList.of("sha", "title", "summary"), "additionalProperties", false)),
-                            "combinedResult", string(DevelopmentLearningSummary.MAXIMUM_RESULT_LENGTH),
-                            "evidence", string(DevelopmentLearningSummary.MAXIMUM_EVIDENCE_LENGTH),
-                            "limitations", ImmutableMap.of("type", "array", "maxItems", DevelopmentLearningSummary.MAXIMUM_LIMITATIONS,
-                                    "items", string(DevelopmentLearningSummary.MAXIMUM_LIMITATION_LENGTH))),
-                    "required", ImmutableList.of("purpose", "commits", "evidence", "limitations"), "additionalProperties", false,
-                    "description", "Explain the actual changes and commits with honest test results, observed CI, and limitations; at most 64000 total text characters."));
+                                            "required", ImmutableList.of("sha", "title", "summary"), "additionalProperties", false))),
+                    "required", ImmutableList.of("purpose", "commits"), "additionalProperties", false,
+                    "description", "Explain the task's intention and each actual commit's design and implementation; at most 64000 total text characters."));
         }
         return ImmutableMap.of("type", "object", "properties", properties.buildOrThrow(), "required", ImmutableList.of("readyForDelivery"), "additionalProperties", false);
     }
@@ -90,7 +87,11 @@ public final class DevelopmentResultTool
     {
         checkArgument(bridge.learningSummaryAllowed() || report.learningSummary().isEmpty(), "learningSummary is only accepted during summary refinement");
         var result = MAPPER.createObjectNode().put("turnId", bridge.turnId());
-        result.set("report", MAPPER.valueToTree(report));
+        ObjectNode reported = MAPPER.valueToTree(report);
+        if (reported.get("learningSummary") instanceof ObjectNode summary) {
+            summary.retain(SUMMARY_FIELDS);
+        }
+        result.set("report", reported);
         return result.toString();
     }
 
@@ -138,14 +139,7 @@ public final class DevelopmentResultTool
             object(commit, COMMIT_FIELDS);
             explanations.add(new DevelopmentLearningCommit(requiredText(commit, "sha"), requiredText(commit, "title"), requiredText(commit, "summary")));
         });
-        JsonNode limitations = value.path("limitations");
-        checkArgument(limitations.isArray() && limitations.size() <= DevelopmentLearningSummary.MAXIMUM_LIMITATIONS, "limitations must be a bounded array");
-        ImmutableList.Builder<String> notes = ImmutableList.builder();
-        limitations.forEach(note -> {
-            checkArgument(note.isTextual(), "limitation must be a string");
-            notes.add(note.textValue());
-        });
-        return new DevelopmentLearningSummary(requiredText(value, "purpose"), explanations.build(), text(value, "combinedResult"), requiredText(value, "evidence"), notes.build());
+        return new DevelopmentLearningSummary(requiredText(value, "purpose"), explanations.build(), Optional.empty(), "", ImmutableList.of());
     }
 
     private static void object(JsonNode value, Set<String> fields)

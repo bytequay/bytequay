@@ -145,7 +145,9 @@ MVP continuation with a clear failure instead of guessing from final prose.
 
 Ordinary reports contain `readyForDelivery` and `message`. A trusted generated
 `REFINE_SUMMARY` turn additionally reports optional `learningSummary`: purpose,
-per-commit full SHA/title/explanation, combined result, evidence, and limitations.
+and per-commit full SHA/title/explanation. The report explains the change’s
+intention and how each commit supports it; separate result, evidence, and
+limitations cards are not generated.
 Only that turn's bridge exposes and accepts the structured summary field.
 The user's accepted Auto commit, Auto draft PR, and Auto CI fix controls determine which actions
 run. A report cannot change those choices, add authority, choose a destination,

@@ -368,12 +368,17 @@ The transcript displays:
   the prompt, or **Update pull request #N** when a pull request already tracks
   the branch. The panel action and Auto draft PR start the same turn, so the row
   is chosen by that turn's publication origin and never by matching its words;
+- initial, incremental, and completion-repair review requests use compact
+  cards built from the saved review scope instead of generated prompts;
 - review questions and replies use the same outlined request-card style, with
-  an action, review topic, and one-line preview of the saved user's message.
-  Expanding shows the full message and reviewed revision, or the existing
-  private local discussion and its actions. Generated tool instructions and
-  repeated selected-card context are omitted. Durable turn/message-event
-  identities select the card, including queued questions after replay;
+  a green title bar, review topic, and one-line preview of the saved user's
+  message. Clicking the title selects **Review & Learning**, opens the matching
+  summary, commit, finding, or local discussion card, and scrolls it into view.
+  Earlier requests retain their original report run. A separate chevron
+  expands the full message and reviewed revision, or the existing private
+  local discussion and its actions. Generated tool instructions and repeated
+  selected-card context are omitted. Durable turn/message-event identities
+  select the card, including queued questions after replay;
 - partial and completed assistant messages;
 - provider-supported readable reasoning summaries, never hidden
   chain-of-thought;
@@ -540,8 +545,13 @@ content spacing, and actions. **Review & Learning** sits beside
 **PR #&lt;number&gt;** and **Changes** for both development and review tasks.
 Development tasks also expose the learning tab before a PR exists. After a
 successful turn changes code or commits, a dedicated **Refine summary** turn
-updates the overview, each commit explanation, combined result, evidence/tests,
-and limitations. This uses the existing completion coordinator and runs after
+updates the change intention and each commit’s design and implementation.
+The intention has a larger green card, followed by a native numbered commit
+list. Each commit title sits above its separate review explanation and
+private discussion card. The PR-owned report also includes the original Git
+commit message above the review card. Comment inputs reuse the code-diff
+review editor's presentation and keep their private handlers.
+Findings remain a separate section. This uses the existing completion coordinator and runs after
 accepted delivery work, including source synchronization from CI. It also runs
 with commit/publication automation off. The conversation labels the generated
 request **ByteQuay · Refine summary** and the active step **Refining summary…**.

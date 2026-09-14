@@ -203,7 +203,11 @@ class TestDevelopmentFollowupCoordinator
         outcome = new DevelopmentTurnCompletion(task, noReport, true, Optional.empty());
         advance();
         verify(turns).reportDevelopmentProgress(taskId, source.id(), "Refining summary…");
-        verify(turns).startGeneratedTurn(eq(taskId), eq(origin(REFINE_SUMMARY)), contains("including any uncommitted changes"));
+        ArgumentCaptor<String> prompt = ArgumentCaptor.forClass(String.class);
+        verify(turns).startGeneratedTurn(eq(taskId), eq(origin(REFINE_SUMMARY)), prompt.capture());
+        assertThat(prompt.getValue()).contains("including any uncommitted changes", "purpose", "commits", "only these two fields", "design and implementation");
+        assertThat(prompt.getValue()).contains("short, complete sentences", "applicable writing skills");
+        assertThat(prompt.getValue()).doesNotContain("combinedResult", "and limitations", "brief evidence", "Problem / Approach / Result");
         verify(turns).finishDevelopmentContinuation(taskId, source.id());
         verify(turns, never()).failDevelopmentContinuation(any(), any(), anyString());
         verifyNoInteractions(ci, writes);

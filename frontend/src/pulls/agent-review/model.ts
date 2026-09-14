@@ -11,7 +11,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-import type { ReviewRequest } from '../../agents/ReviewRequestCard';
+import type { ReviewRequest, ReviewRequestTarget } from '../../agents/ReviewRequestCard';
 import type {
   AgentReviewDto,
   ReviewDraftDto,
@@ -249,24 +249,44 @@ export function shortPath(path: string, maximum = 44): string {
 /** Saved discussion and delivery identities select cards, never words in the generated prompt. */
 export function reviewRequests(review: AgentReviewDto): ReviewRequest[] {
   const seen = new Set<string>();
-  return review.messages.filter(message => message.author === 'USER').map(message => {
+  const questions = review.messages.filter(message => message.author === 'USER').map((message): ReviewRequest => {
     const finding = review.findings.find(item => item.id === message.findingId);
-    const run = review.runs.find(item => item.id === message.runId);
+    const run = review.runs.find(item => item.id === (message.runId ?? finding?.runId));
     const section = run && message.cardId?.startsWith(`${run.id}:`) ? message.cardId.slice(run.id.length + 1) : null;
     const titles: Record<string, string> = {
-      purpose: 'What this PR does', 'combined-result': 'Combined result', evidence: 'Supporting evidence & tests',
+      purpose: 'PR intention', 'combined-result': 'Combined result', evidence: 'Supporting evidence & tests',
       coverage: 'Review coverage', 'critical-issues': 'Critical issues', limitations: 'Limitations',
     };
     const commit = section?.startsWith('commit:') ? run?.commits.find(item => item.sha === section.slice(7)) : undefined;
     const topic = finding ? `${finding.label} · ${finding.revision === message.targetRevision ? finding.title : 'Review finding'}`
       : commit ? `${shortSha(commit.sha)} · ${commit.message.split('\n')[0]}`
         : titles[section ?? ''] ?? (message.findingId !== null ? 'Review finding' : 'Review summary');
-    const target = JSON.stringify([message.runId, message.findingId, message.cardId]);
-    const action = seen.has(target) ? 'Reply to review' : 'Ask about review';
-    seen.add(target);
+    const target: ReviewRequestTarget | undefined = run ? message.findingId !== null
+      ? { kind: 'finding', runId: run.id, findingId: message.findingId }
+      : { kind: 'card', runId: run.id, cardId: message.cardId ?? `${run.id}:purpose` } : undefined;
+    const targetKey = JSON.stringify(target ?? [message.runId, message.findingId, message.cardId]);
+    const action = seen.has(targetKey) ? 'Reply to review' : 'Ask about review';
+    seen.add(targetKey);
     return {
-      action, topic, body: message.body, turnId: message.turnId, messageEventId: message.messageEventId,
+      action, topic, body: message.body, turnId: message.turnId, messageEventId: message.messageEventId, target,
       detail: `Private · Revision ${message.targetRevision}${run ? ` · Reviewed head ${shortSha(run.headSha)}` : ''}`,
     };
   });
+  const generatedTurnIds = new Set([...review.byteQuayTurnIds, ...review.runs.flatMap(run => run.turnIds)]);
+  const generated = [...generatedTurnIds].map((turnId): ReviewRequest => {
+    const run = review.runs.find(item => item.turnIds.includes(turnId));
+    const repair = run !== undefined && run.turnIds.indexOf(turnId) > 0;
+    const incremental = run?.scope === 'INCREMENTAL';
+    const scope = run ? `${run.commits.length} ${incremental ? 'new ' : ''}${run.commits.length === 1 ? 'commit' : 'commits'} across `
+      + `${run.changedFiles} ${run.changedFiles === 1 ? 'file' : 'files'}` : 'the pull request';
+    return {
+      action: repair ? 'Complete review report' : incremental ? 'Review new commits' : 'Review pull request',
+      topic: `${review.repo}#${review.number}`,
+      body: repair ? 'Complete the review summary and coverage report.' : `Review ${scope}.`,
+      detail: run ? `Private · Review ${run.ordinal} · Head ${shortSha(run.headSha)}` : 'Private review',
+      turnId,
+      target: run ? { kind: 'card', runId: run.id, cardId: `${run.id}:purpose` } : undefined,
+    };
+  });
+  return [...questions, ...generated];
 }

@@ -13,7 +13,7 @@
  */
 import { useState } from 'react';
 import { Chevron } from '../../Chevron';
-import MarkdownBody from '../MarkdownBody';
+import MarkdownBody, { type SuggestionBase } from '../MarkdownBody';
 import Avatar from '../../Avatar';
 import { ReviewThreadCard, ReviewThreadMessage } from '../ReviewThreadCard';
 import ReviewComposer from './ReviewComposer';
@@ -75,6 +75,11 @@ export default function ReviewFindingCard({
   const publication = findingPublication(review, finding);
   const messages = messagesFor(review, finding.id);
   const item = publication.kind === 'draft' || publication.kind === 'published' ? publication.item : null;
+  const suggestion: SuggestionBase | undefined = finding.side === 'RIGHT'
+    ? { startLine: finding.startLine, lines: finding.excerpt }
+    : undefined;
+  const draftSuggestion = item !== null && item.findingRevision === finding.revision && item.path === finding.path
+    && item.side === finding.side && (item.startLine ?? item.line) === finding.startLine && item.line === finding.endLine ? suggestion : undefined;
   const withdrawn = finding.state === 'WITHDRAWN';
   const evidenceLabel = finding.evidence.length === 1
     ? '1 reference'
@@ -118,6 +123,7 @@ export default function ReviewFindingCard({
             <ReviewComposer
               repository={review.repo}
               value={text}
+              suggestion={composer === 'post' ? suggestion : composer === 'draft' ? draftSuggestion : undefined}
               autoFocus
               busy={busy}
               placeholder={composer === 'ask' ? 'Ask the agent about this finding…' : 'Comment text (edits here never change the finding)'}
@@ -166,7 +172,7 @@ export default function ReviewFindingCard({
             {publication.kind === 'blocked' && publication.reason.startsWith('Publishing unlocks') && <span className="agr-pill is-provisional">Provisional</span>}
             <span className="agr-finding__id">{finding.label} · rev {finding.revision}</span></>}>
           <h3 className="agr-finding__title">{finding.title}</h3>
-          <MarkdownBody body={finding.body} repository={review.repo} />
+          <MarkdownBody body={finding.body} repository={review.repo} suggestion={suggestion} />
           <div className="agr-finding__details">
           {finding.evidence.length > 0 && (
             <div className="agr-evidence">
@@ -223,7 +229,7 @@ export default function ReviewFindingCard({
                 <span className="agr-draft__note">Editing this never changes the finding</span>
                 <button type="button" disabled={busy} onClick={() => openComposer('draft', item.body)}>Edit</button>
               </div>
-              <div className="agr-draft__body"><MarkdownBody body={item.body} repository={review.repo} /></div>
+              <div className="agr-draft__body"><MarkdownBody body={item.body} repository={review.repo} suggestion={draftSuggestion} /></div>
             </div>
           )}
           {item !== null && item.published && (

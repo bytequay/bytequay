@@ -65,7 +65,6 @@ import static com.google.common.base.Preconditions.checkArgument;
 import static com.google.common.collect.ImmutableList.toImmutableList;
 import static java.nio.charset.StandardCharsets.UTF_8;
 import static java.util.Objects.requireNonNull;
-import static java.util.stream.Collectors.joining;
 
 /** Private task discussions; persistence commits before ordinary turn/queue admission. */
 @Service
@@ -175,18 +174,6 @@ public class LocalReviewService
             case "purpose" -> {
                 title = "What this change does";
                 body = summary.purpose();
-            }
-            case "combined-result" -> {
-                title = "Combined result";
-                body = summary.combinedResult().orElseThrow(() -> new IllegalArgumentException("Learning card does not exist"));
-            }
-            case "evidence" -> {
-                title = "Evidence & tests";
-                body = summary.evidence();
-            }
-            case "limitations" -> {
-                title = "Limitations";
-                body = summary.limitations().isEmpty() ? "None recorded." : summary.limitations().stream().map(value -> "- " + value).collect(joining("\n"));
             }
             default -> {
                 var commit = summary.commits().stream().filter(value -> ("commit:" + value.sha()).equals(cardId)).findFirst()

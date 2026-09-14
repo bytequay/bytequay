@@ -57,10 +57,12 @@ it('discloses complete review requests with keyboard and pointer without overflo
             await run('ReviewRequestTests.verify(true)');
             key('Space');
             await run('ReviewRequestTests.verify(false)');
-            await run('ReviewRequestTests.clickSummary()');
+            await run('ReviewRequestTests.clickToggle()');
             await run('ReviewRequestTests.verify(true)');
             await run('ReviewRequestTests.retry()');
-            results.push(await run('ReviewRequestTests.verify(true, 1)'));
+            await run('ReviewRequestTests.verify(true, 1)');
+            await run('ReviewRequestTests.openReview()');
+            results.push(await run('ReviewRequestTests.verify(true, 1, 1)'));
           }
           if (navigations !== 0) throw new Error('Disclosure must not navigate or open a window');
           process.stdout.write(JSON.stringify(results) + '\\n');

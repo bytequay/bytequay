@@ -35,7 +35,7 @@ class TestClaudeDevelopmentResult
     private final ClaudeProtocolCodec codec = new ClaudeProtocolCodec(json);
     private final DevelopmentResultBridge bridge = new DevelopmentResultBridge("turn-1", DevelopmentResultBridge.INSTRUCTION, true);
     private final DevelopmentResultReport report = new DevelopmentResultReport(true, Optional.of("done known-secret"),
-                        Optional.of(new DevelopmentLearningSummary("Purpose known-secret", ImmutableList.of(), Optional.empty(), "Tests known-secret", ImmutableList.of())));
+                        Optional.of(new DevelopmentLearningSummary("Purpose known-secret", ImmutableList.of(), Optional.empty(), "", ImmutableList.of())));
 
     @Test
     void acceptsOnlySuccessfulCurrentRootToolCompletion()
@@ -50,7 +50,7 @@ class TestClaudeDevelopmentResult
                     assertThat(result.report().message()).contains("done [REDACTED]");
                     assertThat(result.report().learningSummary()).hasValueSatisfying(summary -> {
                         assertThat(summary.purpose()).isEqualTo("Purpose [REDACTED]");
-                        assertThat(summary.evidence()).isEqualTo("Tests [REDACTED]");
+                        assertThat(summary.evidence()).isEmpty();
                     });
                     assertThat(result.source().providerThreadId()).contains("session-1");
                     assertThat(result.source().providerTurnId()).contains("turn-1");

@@ -28,7 +28,7 @@ import { ImageAttachment } from './ImageAttachment';
 import { renderMarkdown } from './markdown';
 import { approvalDecisions } from './model';
 import { ModelPicker } from './ModelPicker';
-import { ReviewRequestCard, type ReviewRequest } from './ReviewRequestCard';
+import { ReviewRequestCard, type ReviewRequest, type ReviewRequestTarget } from './ReviewRequestCard';
 import { activityExpanded,activityPhrase,activityRunning,activitySummary,formatDuration,planChip,turnElapsedMs,turnLabel,type ActivityBlock,type ActivityMember,type ApprovalBlock,type CommandAction,type CommandMember,type PlanStep,type TranscriptTurn,type TurnBlock } from './transcript';
 
 /** What the screen knows about one attachment's image: still loading, an object URL, or gone. */
@@ -488,9 +488,10 @@ function TurnFooter({ turn, durable, models }: {
   );
 }
 
-export function TurnView({ turn, first, open, now, models, durableTurns, activityChoice, previews, agentLabels, onToggle, onToggleActivity, onDecide, onOpenAgent, generatedRequest = false, generatedBranch = null, localReview, reviewRequests, latest = false, children }: {
+export function TurnView({ turn, first, open, now, models, durableTurns, activityChoice, previews, agentLabels, onToggle, onToggleActivity, onDecide, onOpenAgent, generatedRequest = false, generatedBranch = null, localReview, reviewRequests, onOpenReview, latest = false, children }: {
   localReview?: LocalReviewThreads;
   reviewRequests?: readonly ReviewRequest[];
+  onOpenReview?: (target: ReviewRequestTarget) => void;
   latest?: boolean;
   children?: React.ReactNode;
   generatedRequest?: boolean;
@@ -525,6 +526,7 @@ export function TurnView({ turn, first, open, now, models, durableTurns, activit
           && (message.messageEventId === user.id || (index === 0 && user.delivery !== 'STEER' && turn.turnId !== null && message.turnId === turn.turnId)));
         const reviewRequest = reviewRequests?.find(message => message.messageEventId === user.id
           || (index === 0 && user.delivery !== 'STEER' && turn.turnId !== null && message.turnId === turn.turnId));
+        const reviewTarget = reviewRequest?.target;
         return (
         <React.Fragment key={user.id}>
           {first && index === 0 && <div className="agt-stamp">{stamp(user.at, now)}</div>}
@@ -532,12 +534,13 @@ export function TurnView({ turn, first, open, now, models, durableTurns, activit
             <div className="agt-user agt-local-review" data-history-anchor={user.id}>
               <ReviewRequestCard action={localThread.messages.find(message => message.author === 'USER')?.id === localMessage.id ? 'Ask about review' : 'Reply to review'}
                 topic={localThread.learningAnchor?.title ?? `${localThread.path}:${localThread.side === 'LEFT' ? 'L' : 'R'}${localThread.line}`}
-                body={localMessage.body}>
+                body={localMessage.body} onOpen={onOpenReview === undefined ? undefined : () => onOpenReview({ kind: 'local', threadId: localThread.id })}>
                 <LocalReviewThreadCard {...localReview} thread={localThread} />
               </ReviewRequestCard>
             </div>
           ) : <div className="agt-user" data-history-anchor={user.id}>
-            {reviewRequest !== undefined ? <ReviewRequestCard {...reviewRequest} /> : index === 0 && request !== null ? (
+            {reviewRequest !== undefined ? <ReviewRequestCard {...reviewRequest}
+              onOpen={onOpenReview !== undefined && reviewTarget !== undefined ? () => onOpenReview(reviewTarget) : undefined} /> : index === 0 && request !== null ? (
               <div className="agt-user__request">
                 <GitPullRequest aria-hidden="true" />
                 <span className="agt-user__request-action">{request.action}</span>
@@ -779,7 +782,7 @@ export function AgentConversation({
   turns, durableTurns, models, now, scroll, connection, running, activeTurn, activeTurnId = activeTurn?.id, waiting, gap = false,
   activityChoice, turnChoice, onToggleTurn, onToggleActivity, onDecide,
   previews = {}, agentLabels = {}, pendingApprovals = [], generatedTurnIds, generatedBranch,
-  onOpenAgent, children, transcriptFooter, localReview, reviewRequests, label = 'Task transcript',
+  onOpenAgent, children, transcriptFooter, localReview, reviewRequests, onOpenReview, label = 'Task transcript',
 }: {
   turns: TranscriptTurn[];
   durableTurns: Record<string, AgentTurnDto>;
@@ -807,6 +810,7 @@ export function AgentConversation({
   transcriptFooter?: React.ReactNode;
   localReview?: LocalReviewThreads;
   reviewRequests?: readonly ReviewRequest[];
+  onOpenReview?: (target: ReviewRequestTarget) => void;
   label?: string;
 }): React.JSX.Element {
   const liveTurn = turns.find(turn => turn.turnId === activeTurnId);
@@ -854,7 +858,7 @@ export function AgentConversation({
               models={models} durableTurns={durableTurns} activityChoice={activityChoice}
               previews={previews} agentLabels={agentLabels} onToggle={() => onToggleTurn(id, !open)}
               onToggleActivity={onToggleActivity} onDecide={onDecide} onOpenAgent={onOpenAgent}
-              localReview={localReview} reviewRequests={reviewRequests} latest={latest}
+              localReview={localReview} reviewRequests={reviewRequests} onOpenReview={onOpenReview} latest={latest}
               generatedRequest={turn.turnId !== null && generatedTurnIds?.has(turn.turnId)} generatedBranch={generatedBranch}>
               {latest && liveActivity}
             </TurnView>;

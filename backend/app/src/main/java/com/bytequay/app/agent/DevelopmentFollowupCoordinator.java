@@ -552,18 +552,19 @@ public class DevelopmentFollowupCoordinator
                 ByteQuay · Refining summary
                 Refresh this development task's private Review & Learning cards from the final code and actual commits.
                 Worktree: %s. Branch: %s. Expected HEAD: %s. Frozen comparison base: %s.
-                Read the current diff and commit history, including any uncommitted changes; use the preceding work and
-                observed test/CI results to explain what was achieved and the evidence supporting it. Distinguish tests
-                actually executed from tests only inspected and externally reported CI. Do not invent verification.
+                Read the current diff and commit history, including any uncommitted changes. Explain the task's intention
+                and each commit's design and implementation. Ground explanations in the final code; do not invent rationale
+                or verification. Distinguish inferred rationale from the stated intent.
                 This is a reporting-only follow-up. Do not edit files, create or rewrite commits, push, publish, run
                 repairs, release held work, or resolve a pending user decision. Preserve the task's existing question.
                 Call report_development_result with readyForDelivery=true and learningSummary containing purpose,
-                commits (one object per actual commit with full sha, title, and summary), combinedResult, evidence,
-                and limitations. Summarize the whole current task result, including how uncommitted work differs from
-                the commits. Do not write the summary into a worktree file. All text stays private to this task.
-                Follow the shared card writing targets and applicable writing skills: a focused overview, each commit's
-                Problem / Approach / Result, brief evidence and distinct limitations. Explain why the approach solves
-                the problem. Replace stale prose; do not append another recap.
+                commits (one object per actual commit with full sha, title, and summary). Include only these two fields.
+                Explain how uncommitted work differs from the commits in the intention. Do not write the summary into a
+                worktree file. All text stays private to this task.
+                Follow the shared card writing targets and applicable writing skills. Use short, complete sentences for
+                the intention and each commit; explain why the design and implementation solve the problem. Keep bugs and
+                concrete code improvements in anchored Findings when the review tools are available. This reporting-only
+                follow-up does not start a new review. Replace stale prose; do not append another recap.
                 readyForDelivery here only confirms this summary was recorded; it does not authorize delivery of held work.
                 """.formatted(quote(baseline.worktree().canonicalWorktree().toString()), quote(baseline.route().headBranch()), local.headSha(), baseline.route().baseSha());
     }

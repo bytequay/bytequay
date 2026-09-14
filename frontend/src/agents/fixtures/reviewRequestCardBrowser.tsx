@@ -29,58 +29,59 @@ host.style.padding = '24px';
 document.body.append(host);
 const root = createRoot(host);
 let actions = 0;
-let links = 0;
+let openedReviews = 0;
 let closedHeight = 0;
 
 function card() {
-  const result = host.querySelector<HTMLDetailsElement>('details');
-  assert(result !== null, 'Review request must use native details');
+  const result = host.querySelector<HTMLElement>('.agt-review-request');
+  assert(result !== null, 'Review request must render a compact card');
   return result;
 }
-function summary() {
-  const result = card().querySelector('summary');
-  assert(result !== null, 'Review request must have a native summary');
+function toggle() {
+  const result = card().querySelector<HTMLButtonElement>('.agt-review-request__toggle');
+  assert(result !== null, 'Review request must have an independent disclosure button');
   return result;
 }
 
 export async function mount() {
   actions = 0;
-  links = 0;
+  openedReviews = 0;
   flushSync(() => root.render(<div className="agt-user">
-    <ReviewRequestCard action="Ask about review" topic="Limitations · 79e7210" body={body} detail={detail}>
+    <ReviewRequestCard key={innerWidth} onOpen={() => { openedReviews++; }} action="Ask about review" topic="Limitations · 79e7210" body={body} detail={detail}>
       <div className="agt-review-request__body">{body}</div>
       <div style={{ display: 'flex', gap: 12 }}>
         <button type="button" onClick={() => { actions++; }}>Retry</button>
-        <a href="https://github.com/example/repository/pull/1" onClick={event => { event.preventDefault(); links++; }}>Open discussion</a>
       </div>
     </ReviewRequestCard>
   </div>));
-  card().open = false;
   await settle();
   closedHeight = card().getBoundingClientRect().height;
   assert(closedHeight <= 100, 'Collapsed request must stay compact even with a long question');
-  assert(summary().querySelector('button, a') === null, 'Disclosure must not nest another action');
-  summary().focus();
-  assert(document.activeElement === summary(), 'Disclosure must be keyboard focusable');
+  assert(toggle().querySelector('button, a') === null, 'Disclosure must not nest another action');
+  const bar = card().querySelector<HTMLElement>('.agt-review-request__bar');
+  assert(bar !== null && getComputedStyle(bar).backgroundColor === 'rgb(232, 244, 241)', 'The request title bar must use the private-review green background');
+  toggle().focus();
+  assert(document.activeElement === toggle(), 'Disclosure must be keyboard focusable');
 }
 
-export async function verify(open: boolean, expectedActions = 0) {
+export async function verify(open: boolean, expectedActions = 0, expectedOpens = 0) {
   await settle();
   const request = card();
-  assert(request.open === open, `Expected card to be ${open ? 'expanded' : 'collapsed'}`);
+  assert((toggle().getAttribute('aria-expanded') === 'true') === open, `Expected card to be ${open ? 'expanded' : 'collapsed'}`);
   assert(request.textContent?.includes(body) === true && request.textContent.includes(detail), 'Complete question and context must survive disclosure');
-  assert(actions === expectedActions && links === 0, 'Disclosure must not retry a message or open a discussion');
+  assert(actions === expectedActions && openedReviews === expectedOpens, 'Disclosure and review navigation must remain separate actions');
   assert(document.documentElement.scrollWidth <= innerWidth, 'Request must not overflow the viewport');
   assert(request.scrollWidth <= request.clientWidth + 1, 'Request content must not overflow horizontally');
   assert(request.getBoundingClientRect().right <= innerWidth, 'Request must fit the narrow transcript');
   if (open) {
     assert(request.querySelector('.agt-review-request__body')?.textContent === body, 'Expanded request must expose the complete original body');
     assert(request.getBoundingClientRect().height > closedHeight, 'Opening the request must reveal the complete question');
-    const button = request.querySelector('button');
+    const button = request.querySelector('.agt-review-request__content button');
     assert(button !== null && button.getBoundingClientRect().height > 0, 'Local discussion actions must remain visible on expansion');
   }
   return { width: innerWidth, open, height: request.getBoundingClientRect().height };
 }
 
-export function clickSummary() { summary().click(); }
-export function retry() { card().querySelector('button')?.click(); }
+export function clickToggle() { toggle().click(); }
+export function openReview() { card().querySelector<HTMLButtonElement>('.agt-review-request__open')?.click(); }
+export function retry() { card().querySelector<HTMLButtonElement>('.agt-review-request__content button')?.click(); }

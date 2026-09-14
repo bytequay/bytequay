@@ -144,6 +144,12 @@ class TestReviewTools
             assertThat(bridge.instruction()).startsWith(policy + "\n\n");
         }
         assertThat(bridge.tools()).allSatisfy(tool -> assertThat(bridge.instruction()).contains(tool.name()));
+        ReviewTool summary = bridge.tools().stream().filter(tool -> tool.name().equals("review_save_summary")).findFirst().orElseThrow();
+        JsonNode schema = objectMapper.valueToTree(summary.inputSchema());
+        assertThat(schema.path("properties").size()).isEqualTo(3);
+        assertThat(schema.path("required")).isEqualTo(objectMapper.valueToTree(ImmutableList.of("operationKey", "purpose", "commits")));
+        assertThat(summary.description()).doesNotContain("combined result", "critical findings", "supporting evidence");
+        assertThat(bridge.instruction()).contains("only purpose", "design", "implementation", "exact replacement code", "RIGHT-side", "omit severity");
     }
 
     @Test
@@ -197,6 +203,59 @@ class TestReviewTools
         assertThat(stored.anchor().excerpt()).containsExactly("beta");
         assertThat(stored.evidence()).extracting(ReviewEvidence::ref).containsExactly("E1");
         assertThat(store.findRun(RUN_ID).orElseThrow().version()).isPositive();
+    }
+
+    @Test
+    void suggestionPreservesExactReplacementAndValidatesItsDiffRange()
+    {
+        readSource();
+        String body = "Optional improvement: combine these two steps.\n\n```suggestion\n    combined();\n```";
+        Map<String, Object> suggestion = ImmutableMap.of("operationKey", "suggest", "title", "Suggestion: combine the steps", "body", body,
+                "startAnchor", "A2", "endAnchor", "A3", "evidence", ImmutableList.of(evidence("E1")));
+        assertThat(call("review_save_finding", suggestion).path("status").asText()).isEqualTo("accepted");
+        ReviewFinding finding = store.listFindings(REVIEW_ID).getFirst();
+        assertThat(finding.body()).isEqualTo(body);
+        assertThat(finding.severity()).isEmpty();
+        assertThat(finding.anchor()).isEqualTo(new ReviewAnchor(DIFF_PATH, "RIGHT", 2, 3, ImmutableList.of("beta", "gamma")));
+
+        Map<String, Object> offset = ImmutableMap.of("operationKey", "offset", "title", "Suggestion: another replacement",
+                "body", body.replace("```suggestion", "```suggestion:-1+2"), "startAnchor", "A2", "evidence", ImmutableList.of(evidence("E1")));
+        assertThat(call("review_save_finding", offset).path("error").path("field").asText()).isEqualTo("body");
+        assertThat(store.listFindings(REVIEW_ID)).hasSize(1);
+    }
+
+    @Test
+    void suggestionCannotTargetDeletedLines()
+    {
+        store.updateRun(run(RUN_ID, 1, "@@ -1,3 +1,2 @@\n alpha\n-beta\n gamma\n"));
+        readSource();
+        Map<String, Object> suggestion = ImmutableMap.of("operationKey", "deleted", "title", "Suggestion: replace the old line",
+                "body", "Use this replacement.\n\n```suggestion\nreplacement\n```", "startAnchor", "A2", "evidence", ImmutableList.of(evidence("E1")));
+        assertThat(call("review_save_finding", suggestion).path("error").path("field").asText()).isEqualTo("startAnchor");
+        assertThat(store.listFindings(REVIEW_ID)).isEmpty();
+    }
+
+    @Test
+    void retainedSummarySectionsRemainAvailableToTheirSavedDiscussions()
+    {
+        ReviewSummary saved = new ReviewSummary(1, "Keep state", ImmutableList.of(), "Old combined result", Optional.of("Recorded evidence"), ImmutableList.of("old-finding"));
+        store.updateRun(run().withSummary(saved, NOW));
+        assertThat(call("review_save_summary", summary("revise-intention", "Explain the new intention")).path("revision").asInt()).isEqualTo(2);
+        ReviewSummary revised = store.findRun(RUN_ID).orElseThrow().summary().orElseThrow();
+        assertThat(revised.purpose()).isEqualTo("Explain the new intention");
+        assertThat(revised.commits()).extracting(ReviewSummary.CommitExplanation::sha).containsExactly(COMMIT_SHA);
+        assertThat(revised.criticalFindingIds()).containsExactly("old-finding");
+        assertThat(call("review_get_context", ImmutableMap.of("kind", "summary", "target", RUN_ID + ":combined-result")).path("body").asText())
+                .isEqualTo("Old combined result");
+        assertThat(call("review_get_context", ImmutableMap.of("kind", "summary", "target", RUN_ID + ":evidence")).path("body").asText())
+                .isEqualTo("Recorded evidence");
+        String limitations = RUN_ID + ":limitations";
+        assertThat(call("review_reply", ImmutableMap.of("operationKey", "retained-reply", "target", limitations, "body", "Earlier discussion answer"))
+                .path("status").asText()).isEqualTo("accepted");
+        assertThat(call("review_get_context", ImmutableMap.of("kind", "discussion", "target", limitations)).at("/messages/0/body").asText())
+                .isEqualTo("Earlier discussion answer");
+        assertThat(call("review_get_context", ImmutableMap.of("kind", "summary", "target", limitations)).path("body").asText())
+                .contains("original card body is not retained", "saved discussion messages");
     }
 
     @Test
@@ -268,28 +327,25 @@ class TestReviewTools
         Map<String, Object> foreignCommit = ImmutableMap.<String, Object>of(
                 "operationKey", "out-of-scope",
                 "purpose", "Explains the change",
-                "commits", ImmutableList.of(ImmutableMap.of("sha", "deadbeef", "explanation", "not a commit of this run")),
-                "combinedResult", "The change is small and self-contained.",
-                "criticalFindingIds", ImmutableList.of());
+                "commits", ImmutableList.of(ImmutableMap.of("sha", "deadbeef", "explanation", "not a commit of this run")));
         JsonNode rejectedCommit = call("review_save_summary", foreignCommit);
         assertThat(rejectedCommit.path("error").path("field").asText()).isEqualTo("commits");
         assertThat(store.findRun(RUN_ID).orElseThrow().summary()).isEmpty();
 
-        JsonNode rejectedCritical = call("review_save_summary", summary("unknown-critical", "Explains the change", ImmutableList.of("finding-that-never-existed")));
-        assertThat(rejectedCritical.path("error").path("field").asText()).isEqualTo("criticalFindingIds");
-        assertThat(store.findRun(RUN_ID).orElseThrow().summary()).isEmpty();
-
-        JsonNode accepted = call("review_save_summary", summary("summary-1", "Explains the change", ImmutableList.of()));
+        JsonNode accepted = call("review_save_summary", summary("summary-1", "Explains the change"));
         assertThat(accepted.path("status").asText()).isEqualTo("accepted");
         assertThat(accepted.path("revision").asInt()).isEqualTo(1);
 
-        JsonNode revised = call("review_save_summary", summary("summary-2", "Explains the change more carefully", ImmutableList.of()));
+        JsonNode revised = call("review_save_summary", summary("summary-2", "Explains the change more carefully"));
         assertThat(revised.path("revision").asInt()).isEqualTo(2);
 
         ReviewSummary stored = store.findRun(RUN_ID).orElseThrow().summary().orElseThrow();
         assertThat(stored.revision()).isEqualTo(2);
         assertThat(stored.purpose()).isEqualTo("Explains the change more carefully");
         assertThat(stored.commits()).extracting(ReviewSummary.CommitExplanation::sha).containsExactly(COMMIT_SHA);
+        assertThat(stored.combinedResult()).isEmpty();
+        assertThat(stored.evidence()).isEmpty();
+        assertThat(stored.criticalFindingIds()).isEmpty();
     }
 
     @Test
@@ -335,15 +391,13 @@ class TestReviewTools
     }
 
     @Test
-    void summaryCardsKeepIndependentDiscussionAndEvidence()
+    void intentionAndCommitCardsKeepIndependentDiscussions()
     {
         Map<String, Object> report = ImmutableMap.<String, Object>builder()
                 .put("operationKey", "report").put("purpose", "Avoid losing parser state")
-                .put("commits", ImmutableList.of(ImmutableMap.of("sha", COMMIT_SHA, "explanation", "Keep the parser snapshot")))
-                .put("combinedResult", "State survives rollback").put("evidence", "Ran parser tests: 3 passed; CI was not inspected")
-                .put("criticalFindingIds", ImmutableList.of()).buildOrThrow();
+                .put("commits", ImmutableList.of(ImmutableMap.of("sha", COMMIT_SHA, "explanation", "Keep the parser snapshot"))).buildOrThrow();
         assertThat(call("review_save_summary", report).path("status").asText()).isEqualTo("accepted");
-        assertThat(store.findRun(RUN_ID).orElseThrow().summary().orElseThrow().evidence()).contains("Ran parser tests: 3 passed; CI was not inspected");
+        assertThat(store.findRun(RUN_ID).orElseThrow().summary().orElseThrow().evidence()).isEmpty();
         assertThat(call("review_reply", ImmutableMap.of("operationKey", "old-summary", "target", "summary", "body", "Earlier summary answer"))
                 .path("status").asText()).isEqualTo("accepted");
         store.insertRun(run("newer-run", 2));
@@ -447,14 +501,12 @@ class TestReviewTools
         return ImmutableMap.of("ref", ref, "explanation", "the frozen source window shows the missing check");
     }
 
-    private static Map<String, Object> summary(String operationKey, String purpose, List<String> criticalFindingIds)
+    private static Map<String, Object> summary(String operationKey, String purpose)
     {
         return ImmutableMap.<String, Object>of(
                 "operationKey", operationKey,
                 "purpose", purpose,
-                "commits", ImmutableList.of(ImmutableMap.of("sha", COMMIT_SHA.substring(0, 7), "explanation", "adds the beta line")),
-                "combinedResult", "The change is small and self-contained.",
-                "criticalFindingIds", criticalFindingIds);
+                "commits", ImmutableList.of(ImmutableMap.of("sha", COMMIT_SHA.substring(0, 7), "explanation", "adds the beta line")));
     }
 
     private static Map<String, Object> withdrawal(String operationKey, String findingId, int expectedRevision)
@@ -492,6 +544,11 @@ class TestReviewTools
 
     private static ReviewRun run(String id, int ordinal)
     {
+        return run(id, ordinal, PATCH);
+    }
+
+    private static ReviewRun run(String id, int ordinal, String patch)
+    {
         return new ReviewRun(
                 id,
                 REVIEW_ID,
@@ -503,7 +560,7 @@ class TestReviewTools
                 HEAD_SHA,
                 Optional.empty(),
                 ImmutableList.of(new ReviewCommit(COMMIT_SHA, "Add the beta line", "dev")),
-                ImmutableList.of(new DiffFile(DIFF_PATH, "modified", 1, 0, PATCH)),
+                ImmutableList.of(new DiffFile(DIFF_PATH, "modified", 1, 0, patch)),
                 ImmutableList.of(),
                 ReviewRun.State.RUNNING,
                 Optional.empty(),

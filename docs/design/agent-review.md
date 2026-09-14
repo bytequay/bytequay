@@ -33,10 +33,20 @@ or restoration of deleted task/development-flow systems.
 
 The PR list and development task PR pane both expose **Review & Learning**
 beside **PR #number** and **Changes**. The tab shows independent private cards
-for what the PR does, each commit's implementation, the combined result,
-evidence and tests, critical issues, coverage, and findings.
-Each card has its own discussion and uses the same review-card presentation
-as [Local review comments](agent-service.md#local-review-comments).
+in three visually distinct areas: **PR intention**, **Commit implementation**,
+and **Findings**. PR intention has a larger green card and stronger top border.
+Commit implementation is a native ordered list with visible `1.`, `2.`, `3.`
+markers in source order. Each entry shows the commit's title, short SHA, and
+original message body first. Its separate blue-header, white-body review card
+below contains the agent's explanation and private discussion. Folding that
+review card leaves the commit title and message visible. Findings follow a
+section divider and use the existing
+inline review-comment presentation. Each card retains its own private discussion
+through the shared [Local review comments](agent-service.md#local-review-comments)
+components. Do not generate combined-result, evidence/test, coverage, or
+critical-issues cards. Existing discussions on removed sections remain under a
+collapsed **Earlier discussions** disclosure, with their original run and target.
+Opening a request in the transcript opens and focuses that exact discussion.
 The tab also collects local comments for this PR across development and review
 tasks. Changes retains the same selected-line/range composer and saved threads.
 
@@ -52,8 +62,8 @@ In PR browsing, keep **Start review** and its existing scope/provider checks.
 Development tasks maintain their own learning report through a dedicated
 **Refine summary** turn after successful work changes code or commits, using
 the existing [development follow-up](development-delivery.md) coordinator.
-Their tab is available before a PR exists and shows the overview, individual
-commit explanations, combined result, evidence/tests, and limitations without
+Their tab is available before a PR exists and shows the change intention and
+individual commit explanations with the same visual separation, without
 requiring a separate review task. **Refining summary…** appears in task activity.
 The report is stored with the generated turn and read independently of the
 conversation retention window. Unchanged turns do not regenerate it.
@@ -114,7 +124,9 @@ components or small extracted presentational pieces, not a parallel imitation:
 - existing icon set and sizes; no new AI icon language;
 - current button variants, dimensions, disabled/loading/focus states;
 - typography, text colors, Markdown rendering, inline code, and links;
-- Write/Preview composer and existing Markdown controls where applicable;
+- the same diff-review editor markup and CSS for private review questions and
+  outgoing comments: Write/Preview tabs, Markdown toolbar, bordered textarea,
+  and action buttons; private labels and handlers retain their own authority;
 - activity/transcript components and capability-driven controls from Tasks.
 
 Start with `frontend/src/pulls/PullsScreen.tsx`, `PullOverview.tsx`,
@@ -156,7 +168,7 @@ this is not a second task engine:
 | --- | --- |
 | Review | Workspace and logical PR identity, physical repository/head-branch identity, agent task ID, latest completed run, latest observed remote head, follow-up execution enabled/paused, optimistic version, explicit closure |
 | Run | Review ID, full/incremental scope, frozen base tip and merge base, head SHA, prior successful reviewed head if any, prompt version, turn IDs, accepted result/coverage, terminal outcome |
-| Summary | Run ID, revision, purpose, actual commit explanations, combined result, evidence/tests, critical finding references |
+| Summary | Run ID, revision, purpose, actual commit explanations |
 | Finding | Stable ID, source run, immutable anchor mapping, title/body, evidence references, current revision, local resolution/withdrawal and reason, revalidation result for later runs |
 | Discussion message | Stable ID, review and summary-card/finding target, author, body, target revision/run, correlated task input/turn or reply, delivery outcome |
 | Outgoing draft/publication | PR/account-owned draft usable without Agent Review; stable item ID, MANUAL or AGENT_FINDING source, optional finding ID/revision, frozen location, user-editable body/version, inclusion, review body/event, exact publication attempt/payload and returned remote identities |
@@ -415,11 +427,25 @@ commit SHA for publication, or publication authority.
 The summary contains:
 
 - what the PR is trying to achieve, in simple words;
-- a short explanation of each actual commit, using IDs from the frozen scope;
-- what the combined change achieves;
-- supporting evidence and tests, distinguishing executed checks from source
-  inspection or reported CI evidence;
-- critical issues linked to accepted finding IDs, or an explicit none found.
+- how each actual commit supports that intention: its design, implementation,
+  and resulting behavior, using IDs from the frozen scope.
+
+Critical issues, bugs, and implementation defects belong only in **Findings**.
+Concrete optional code improvements also belong there, labeled as suggestions
+without a defect severity. When an exact replacement is supported by evidence,
+include a GitHub fenced `suggestion` block in the finding body, anchored to the
+current-side lines it replaces. Use the existing line/range mapping and
+suggestion-diff renderer; the fence contains replacement code only. Do not put
+suggestions in intention or commit explanations. The editable outgoing draft
+preserves the block and selected range. Publication still requires a direct
+user action.
+
+Evidence stays with the finding it supports, distinguishing executed checks
+from source inspection and reported CI results. `review_finish` still records
+machine coverage and omissions for the run status; it does not create a card.
+The summary tool requests only purpose and commit explanations. Retained stored
+fields and discussions are read without generating replacement prose for
+removed sections.
 
 Every saved card and finding describes the pull request. A review records no
 limitations: the agent does not write about itself, its tools, sandbox, or what
@@ -463,9 +489,10 @@ input goes into the existing durable queue with a visible queued status.
 Route answers back to the selected discussion through `review_reply`; do not
 guess a target from prose or scatter one final response across all cards.
 
-Summary card identities include the run ID and a fixed target: `purpose`,
-`commit:<full-sha>`, `combined-result`, `critical-issues`, `coverage`, or
-`evidence`. Validate both the run's review ownership and the
+Current summary card identities include the run ID and `purpose` or
+`commit:<full-sha>`. Retained discussions on `combined-result`,
+`critical-issues`, `coverage`, `evidence`, or `limitations` keep their original
+target and remain replyable under Earlier discussions. Validate both the run's review ownership and the
 selected commit before accepting input. Persist this target with the message
 and carry it through the existing reply tool, so one commit's discussion never
 appears in another card or run. Existing unscoped summary discussion belongs
@@ -687,9 +714,12 @@ details screenshot and access to the current frontend when available.
 > do not introduce a review-only dark theme. If source is unavailable, use the
 > screenshot and explicitly list assumptions instead of claiming code reuse.
 >
-> Review & Learning uses independent private cards for the PR's purpose, each
-> actual commit, combined result, evidence and tests, critical issues, and
-> coverage. Put each card's own Ask agent discussion directly with it.
+> Review & Learning separates a larger green PR intention card, a numbered
+> commit list, and Findings below a clear divider. Each numbered item has the
+> Git commit title/message above its separate review explanation and discussion
+> card; use the existing code-diff comment editor for that card's input. Bugs, critical issues, and concrete inline code suggestions belong
+> in Findings. Put each card’s Ask agent discussion directly with it; saved
+> discussions on removed report sections are collapsed under Earlier discussions.
 > Collect local user comments from both development and review tasks. Reuse review
 > comment cards with file/line or range, evidence, private replies, Ask agent,
 > Resolve locally, Add to my review and Post comment now. View in Changes

@@ -57,6 +57,11 @@ class TestAgentSkillService
         assertThat(store.get("agent.skills")).isEmpty();
         String system = service.instructions();
         assertThat(system).contains("# ByteQuay agent behavior", "## Pull-request review", "internal\nimplementation details");
+        assertThat(system).contains("only purpose and commit explanations", "design", "implementation", "```suggestion", "RIGHT-side line range");
+        assertThat(system).contains("short, complete sentences", "usually 1–2 short sentences", "usually 1–3 short sentences",
+                "Never pad text", "preserves the reasoning", "including full explanations when asked");
+        assertThat(system).doesNotContain("60–100", "50–90", "**Problem**", "**Approach**", "**Result**",
+                "- Combined result:", "- Evidence and tests:", "- Limitations");
         assertThat(service.list()).isEmpty();
         assertThat(store.get("agent.skills")).isEmpty();
 

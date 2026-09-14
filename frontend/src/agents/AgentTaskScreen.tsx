@@ -66,6 +66,8 @@ import type { AgentReviewDto } from '../pulls/agent-review/contracts';
 import { workspaceReviewTaskRoute } from '../workspaces/model';
 import DevelopmentLearningPanel from './DevelopmentLearningPanel';
 import LocalReviewThreadCard from '../pulls/local-review/LocalReviewThreadCard';
+import type { ReviewCardFocus, ReviewRequestTarget } from './ReviewRequestCard';
+import { useReviewCardFocus } from './reviewCardNavigation';
 import { pullRequestDiffRevision, usePullRequestChanges } from '../pulls/usePullRequestChanges';
 import { usePullRequestDetail } from '../pulls/usePullRequestDetail';
 import { AutomationControl } from './AutomationControl';
@@ -547,7 +549,7 @@ function SidePanel({
   pullRequestDetail, pullRequestChanges, pullRequestCommitRange, pullRequestPendingComments,
   onPullRequestCommitRangeChange, onPullRequestPendingCommentsChange, workspaceId, branch, repository,
   activityChoice, onOpenAgent, onCloseAgent, onToggleActivity, onDecide, onSelectTab, onOpenPullRequest,
-  onCreatePullRequest, createPullRequestBlocked = null, onAskAgent, onAskAgentDisabled, localReview, learning,
+  onCreatePullRequest, createPullRequestBlocked = null, onAskAgent, onAskAgentDisabled, localReview, learning, reviewFocus,
   width, showAgents, logChoice = null, onToggleLog = () => {}, historyUnloaded = false, onLoadEarlier = () => {}, historyLoading = false,
 }: {
   agents: AgentNode[];
@@ -588,12 +590,15 @@ function SidePanel({
   onAskAgentDisabled?: string | null;
   localReview?: LocalReviewThreads;
   learning?: React.ReactNode;
+  reviewFocus?: ReviewCardFocus | null;
   width: number;
   showAgents: boolean;
   /** The agent whose log the user opened, or "!thread" for one they folded; live agents open by default. */
   logChoice?: string | null;
   onToggleLog?: (choice: string) => void;
 }): React.JSX.Element {
+  const reviewContainer = useRef<HTMLDivElement>(null);
+  useReviewCardFocus(reviewContainer, reviewFocus, tab === 'review');
   const [review, setReview] = useState<AgentReviewDto | null>(null);
   const [reviewLoading, setReviewLoading] = useState(true);
   const [reviewError, setReviewError] = useState<string | null>(null);
@@ -704,7 +709,7 @@ function SidePanel({
     );
   }
   if (tab === 'review') return <PanelFrame label="Review & Learning" tabs={tabs} width={width} flush>
-    <div className="agr-development-learning">
+    <div className="agr-development-learning" ref={reviewContainer}>
     {learning ?? <p className="agr-card__empty">After a turn changes code or commits, the agent will refine the summary here automatically.</p>}
     {localThreads.threads.length > 0 && <section className="agr-local-comments" aria-label="Local review comments">
       <div className="agr-findings__head"><h2>Local review comments</h2><span className="agr-findings__count">{localThreads.threads.length} private discussions</span></div>
@@ -933,7 +938,7 @@ export function AgentTaskBody({
   automation,
   headerAction,
   submissionBlocked = false,
-  onAskAgent, onAskAgentDisabled, localReview, learning,
+  onAskAgent, onAskAgentDisabled, localReview, learning, reviewFocus, onOpenReview,
 }: {
   state: AgentTaskState;
   automation?: React.ReactNode;
@@ -943,6 +948,8 @@ export function AgentTaskBody({
   onAskAgentDisabled?: string | null;
   localReview?: LocalReviewThreads;
   learning?: React.ReactNode;
+  reviewFocus?: ReviewCardFocus | null;
+  onOpenReview?: (target: ReviewRequestTarget) => void;
   models: ModelOptionDto[];
   historyLoading?: boolean;
   onLoadHistory?: (direction: 'older' | 'newer' | 'latest') => void;
@@ -1197,7 +1204,7 @@ export function AgentTaskBody({
 
       <AgentConversation
         turns={turns} durableTurns={state.turns} models={models} now={now} scroll={scroll}
-        localReview={localReview}
+        localReview={localReview} onOpenReview={onOpenReview}
         generatedBranch={state.task?.generatedBranch}
         connection={state.connection} running={status === 'running'} activeTurn={state.turn} activeTurnId={state.turn?.id ?? state.latestTurnId}
         waiting={waiting} gap={state.gap} activityChoice={activityChoice} turnChoice={turnChoice}
@@ -1329,6 +1336,7 @@ export function AgentTaskBody({
             pullRequestPendingComments={pullRequestPendingComments}
             localReview={localReview}
             learning={learning}
+            reviewFocus={reviewFocus}
             onAskAgent={state.task?.state === 'OPEN' ? onAskAgent : undefined}
             onAskAgentDisabled={onAskAgentDisabled}
             onPullRequestCommitRangeChange={onPullRequestCommitRangeChange}
@@ -1454,6 +1462,7 @@ export default function AgentTaskScreen({
   const [ciPollingError, setCiPollingError] = useState<string | null>(null);
   const [openAgent, setOpenAgent] = useState<string | null>(null);
   const [panelTab, setPanelTab] = useState<PanelTab>('pr');
+  const [reviewFocus, setReviewFocus] = useState<ReviewCardFocus | null>(null);
   const [logChoice, setLogChoice] = useState<string | null>(null);
   const [pullRequests, setPullRequests] = useState<PullRequestDto[]>([]);
   const [pullRequestError, setPullRequestError] = useState<string | null>(null);
@@ -2340,6 +2349,13 @@ export default function AgentTaskScreen({
       panelOpen={panelOpen}
       openAgent={openAgent}
       panelTab={panelTab}
+      reviewFocus={reviewFocus}
+      onOpenReview={target => {
+        setReviewFocus(current => ({ target, token: (current?.token ?? 0) + 1 }));
+        setPanelChoice(true);
+        setPanelTab('review');
+        setOpenAgent(null);
+      }}
       pullRequests={pullRequests}
       pullRequestError={pullRequestError}
       pullRequestLoading={pullRequestLoading}

@@ -55,28 +55,39 @@ class TestDevelopmentResultTool
         DevelopmentResultBridge refinement = new DevelopmentResultBridge("turn-1", bridge.instruction(), true);
         var input = json.readTree("""
                 {"readyForDelivery":true,"message":"done known-secret","learningSummary":{
-                  "purpose":"purpose known-secret","commits":[{"sha":"%s","title":"title known-secret","summary":"commit known-secret"}],
-                  "combinedResult":"result known-secret","evidence":"test known-secret","limitations":["limitation known-secret"]}}
+                  "purpose":"purpose known-secret","commits":[{"sha":"%s","title":"title known-secret","summary":"commit known-secret"}]}}
                 """.formatted("a".repeat(40)));
         var report = DevelopmentResultTool.parse(input, refinement);
+        assertThat(report.learningSummary()).hasValueSatisfying(summary -> {
+            assertThat(summary.combinedResult()).isEmpty();
+            assertThat(summary.evidence()).isEmpty();
+            assertThat(summary.limitations()).isEmpty();
+        });
         var secret = redactor.withSecret("known-secret");
         String receipt = DevelopmentResultTool.receipt(refinement, DevelopmentResultTool.redact(report, secret));
-        assertThat(receipt).doesNotContain("known-secret").contains("purpose [REDACTED]", "title [REDACTED]", "commit [REDACTED]",
-                "result [REDACTED]", "test [REDACTED]", "limitation [REDACTED]");
+        assertThat(receipt).doesNotContain("known-secret", "combinedResult", "evidence", "limitations")
+                .contains("purpose [REDACTED]", "title [REDACTED]", "commit [REDACTED]");
         assertThat(DevelopmentResultTool.readReceipt(TextNode.valueOf(DevelopmentResultTool.receipt(refinement, report)), refinement, secret))
                 .contains(DevelopmentResultTool.redact(report, secret));
         assertThat(DevelopmentResultTool.readReceipt(TextNode.valueOf(receipt), bridge, redactor)).isEmpty();
         assertThatThrownBy(() -> DevelopmentResultTool.parse(input, bridge)).hasMessageContaining("only accepted during summary refinement");
         assertThat(DevelopmentResultTool.schema(bridge).toString()).doesNotContain("learningSummary");
-        assertThat(DevelopmentResultTool.schema(refinement).toString()).contains("learningSummary");
+        var summarySchema = json.valueToTree(DevelopmentResultTool.schema(refinement)).at("/properties/learningSummary");
+        assertThat(summarySchema.path("properties").size()).isEqualTo(2);
+        assertThat(summarySchema.path("required")).isEqualTo(json.readTree("[\"purpose\",\"commits\"]"));
+        assertThat(summarySchema.path("additionalProperties").booleanValue()).isFalse();
 
         var summary = (ObjectNode) input.path("learningSummary");
-        summary.put("unexpected", "value");
-        assertThatThrownBy(() -> DevelopmentResultTool.parse(input, refinement)).hasMessageContaining("unknown argument");
-        summary.remove("unexpected");
-        summary.put("evidence", "x".repeat(DevelopmentLearningSummary.MAXIMUM_EVIDENCE_LENGTH + 1));
-        assertThatThrownBy(() -> DevelopmentResultTool.parse(input, refinement)).hasMessageContaining("evidence is too long");
-        summary.put("evidence", "No tests were run");
+        for (String field : ImmutableList.of("unexpected", "combinedResult", "evidence", "limitations")) {
+            summary.put(field, "value");
+            assertThatThrownBy(() -> DevelopmentResultTool.parse(input, refinement)).hasMessage("unknown argument: " + field);
+            summary.remove(field);
+        }
+        summary.put("purpose", "x".repeat(DevelopmentLearningSummary.MAXIMUM_PURPOSE_LENGTH + 1));
+        assertThatThrownBy(() -> DevelopmentResultTool.parse(input, refinement)).hasMessageContaining("purpose is too long");
+        summary.remove("purpose");
+        assertThatThrownBy(() -> DevelopmentResultTool.parse(input, refinement)).hasMessage("purpose is required");
+        summary.put("purpose", "Explain the task's intention");
         var commits = summary.withArray("commits");
         commits.add(commits.get(0).deepCopy());
         assertThatThrownBy(() -> DevelopmentResultTool.parse(input, refinement)).hasMessageContaining("duplicate commit");

@@ -65,6 +65,21 @@ async function scenario(mode: 'idle' | 'queued' | 'unsent'): Promise<void> {
   const queue: AgentQueuedInputDto[] = [];
   const requests: CreateLocalReviewRequest[] = [];
   const saved = new Map<string, LocalReviewThreadDto>();
+  if (mode === 'idle') {
+    for (const source of [{ id: 'earlier', summary: 'earlier-summary', card: 'limitations', title: 'Earlier limitations' },
+      { id: 'removed', summary: 'current-summary', card: 'evidence', title: 'Supporting evidence & tests' }]) {
+      const message: LocalReviewMessageDto = { id: `${source.id}-learning-message`, author: 'USER', body: 'Why was the offline build unavailable?',
+        createdAt: turn.createdAt, turnId: `${source.id}-learning-turn`, queuedInputId: null, messageEventId: `${source.id}-learning-event`,
+        deliveryState: 'COMPLETED', deliveryError: null };
+      saved.set(`${source.id}-learning-thread`, { id: `${source.id}-learning-thread`, taskId: task.id, taskVersion: task.version,
+        workspaceId: task.workspaceId, repo: '', number: 0, path: '', side: 'RIGHT', startLine: null, line: 0,
+        baseSha: null, headSha: null, code: '', resolved: true, version: 1, createdAt: turn.createdAt, updatedAt: turn.createdAt,
+        learningAnchor: { turnId: source.summary, cardId: source.card, title: source.title, body: 'The offline build was unavailable.' },
+        messages: [message] });
+      history.push({ ...event, eventId: message.messageEventId, turnId: message.turnId, sequence: (history.at(-1)?.sequence ?? 0) + 1,
+        payload: { text: INTERNAL_PROMPT, attachments: [], deliveryKind: 'TURN' } });
+    }
+  }
   let retries = 0;
   let finishCreate: () => void = () => {};
   const getCatalog = bridge.getModelSettings;
@@ -74,7 +89,12 @@ async function scenario(mode: 'idle' | 'queued' | 'unsent'): Promise<void> {
       models: provider.models.map(model => ({ ...model, inputModalities: ['text', 'image'] })) })) };
   };
   bridge.getAgentTask = async () => task;
-  bridge.getAgentTurn = async () => turn;
+  bridge.getAgentTurn = async id => ({ ...turn, id });
+  bridge.getDevelopmentLearning = async () => mode === 'idle' ? { ...turn, id: 'current-summary', developmentResult: {
+    readyForDelivery: true, message: null, learningSummary: { purpose: 'Simplify optional value handling.',
+      commits: [{ sha: '2222222', title: 'Simplify the implementation', summary: 'Validate the optional before returning its value.' }],
+      combinedResult: 'Simpler validation.', evidence: 'The offline build was unavailable.', limitations: [] },
+  } } : null;
   bridge.readAgentHistory = async () => ({ events: [...history], beforeCursor: null, afterCursor: null, latestSequence: history.at(-1)?.sequence ?? 0 });
   bridge.readAgentEvents = async () => [...history];
   bridge.readAgentPendingApprovals = async () => [];
@@ -211,8 +231,8 @@ async function scenario(mode: 'idle' | 'queued' | 'unsent'): Promise<void> {
     assert(host.querySelector('.pull-diff-review') === null, 'Saved comments must leave the transient composer');
     const localCard = host.querySelector<HTMLElement>('.pull-diff-code [data-local-review-thread]');
     assert(localCard !== null && localCard.textContent?.includes(request.body) === true, 'The saved comment must stay at its diff line');
-    for (let attempt = 0; attempt < 20 && host.querySelector('.agt-local-review [data-local-review-thread]') === null; attempt++) await settle();
-    const transcriptCard = host.querySelector<HTMLElement>('.agt-local-review [data-local-review-thread]');
+    for (let attempt = 0; attempt < 20 && host.querySelector(`.agt-local-review [data-local-review-thread="${request.id}"]`) === null; attempt++) await settle();
+    const transcriptCard = host.querySelector<HTMLElement>(`.agt-local-review [data-local-review-thread="${request.id}"]`);
     assert(transcriptCard !== null, 'Task transcript must load the saved private card after the bounded history refresh');
     assert(transcriptCard.textContent?.includes(request.body) === true
       && transcriptCard.querySelector('.pr-local-review__snapshot')?.textContent?.includes(request.code) === true,
@@ -243,18 +263,51 @@ async function scenario(mode: 'idle' | 'queued' | 'unsent'): Promise<void> {
       const timelineCard = host.querySelector<HTMLElement>('.pr-timeline [data-local-review-thread]');
       assert(timelineCard?.textContent?.includes('Resolved') === true && timelineCard.textContent?.includes('The implementation is simpler now.') === true,
         'The PR timeline must show the same resolved user/agent discussion');
-      button(host, 'Review & Learning').click(); await settle();
-      const learningCard = host.querySelector<HTMLElement>('.agr-local-comments [data-local-review-thread]');
+      for (let attempt = 0; attempt < 20 && ![...host.querySelectorAll('.agt-review-request__open')].some(candidate => candidate.textContent?.includes('Reply to review')); attempt++) await settle();
+      const replyRequest = [...host.querySelectorAll<HTMLButtonElement>('.agt-review-request__open')]
+        .find(candidate => candidate.textContent?.includes('Reply to review'));
+      assert(replyRequest !== undefined, 'A transcript reply must offer navigation to its private discussion');
+      replyRequest.click(); await settle();
+      const learningCard = host.querySelector<HTMLDetailsElement>(`.agt-panel [data-local-review-thread="${request.id}"]`);
+      assert(host.querySelector('.agt-panel[aria-label="Review & Learning"]') !== null && learningCard?.open === true,
+        'Clicking a reply must select Review & Learning and expand its exact resolved discussion');
+      assert(learningCard.contains(document.activeElement), 'The matching panel discussion must receive focus instead of its transcript copy');
+      learningCard.open = false;
+      replyRequest.click(); await settle();
+      assert(learningCard.open, 'Clicking the same reply again must reopen the matching discussion');
       assert(learningCard?.textContent?.includes('The implementation is simpler now.') === true && learningCard.textContent?.includes('Resolved') === true,
         'Review & Learning must show the same private discussion before the first agent review');
       assert(![...host.querySelectorAll('button')].some(element => element.textContent === 'Start review')
-        && host.textContent?.includes('After a turn changes code or commits') === true && !host.querySelector('.agr-strip__tabs'),
-        'The development PR must use automatic learning summaries without manual startup or Activity subtabs');
+        && host.querySelector('[data-learning-card="purpose"]')?.textContent?.includes('Simplify optional value handling.') === true && !host.querySelector('.agr-strip__tabs'),
+        'The development PR must show the current intention without manual startup or Activity subtabs');
+      const earlierRequest = [...host.querySelectorAll<HTMLButtonElement>('.agt-review-request__open')]
+        .find(candidate => candidate.textContent?.includes('Earlier limitations'));
+      assert(earlierRequest !== undefined, 'Earlier learning discussions must retain their transcript navigation');
+      host.querySelector<HTMLButtonElement>('[aria-label="Show or hide the side panel"]')?.click(); await settle();
+      assert(host.querySelector('.agt-panel') === null, 'Fixture must exercise navigation from a hidden panel');
+      earlierRequest.click(); await settle();
+      const earlierCard = host.querySelector<HTMLDetailsElement>('.agt-panel .agr-learning-history [data-local-review-thread="earlier-learning-thread"]');
+      assert(earlierCard?.open === true && earlierCard.closest<HTMLDetailsElement>('.agr-learning-history')?.open === true,
+        'A question about an earlier summary must open its old report section and resolved discussion');
+      assert(earlierCard.contains(document.activeElement), 'Earlier-summary navigation must focus the exact discussion inside the side panel');
+      const removedRequest = [...host.querySelectorAll<HTMLButtonElement>('.agt-review-request__open')]
+        .find(candidate => candidate.textContent?.includes('Supporting evidence & tests'));
+      const removedCard = host.querySelector<HTMLDetailsElement>('.agt-panel .agr-learning-history [data-local-review-thread="removed-learning-thread"]');
+      assert(removedRequest !== undefined && removedCard !== null && removedCard.textContent?.includes('Why was the offline build unavailable?') === true,
+        'A saved discussion on a removed card from the current summary must remain under Earlier summary discussions');
+      assert(host.querySelector('.agt-panel [data-learning-card="evidence"]') === null,
+        'Preserving its discussion must not restore the removed evidence report card');
+      removedCard.closest<HTMLDetailsElement>('.agr-learning-history').open = false;
+      removedRequest.click(); await settle();
+      assert(removedCard.open && removedCard.closest<HTMLDetailsElement>('.agr-learning-history').open && removedCard.contains(document.activeElement),
+        'The green request header must open and focus the exact saved discussion on the removed current-summary card');
+      assert(composer.value === 'Keep my unrelated draft' && host.querySelector('[aria-label="Remove image draft.png"]') !== null,
+        'Review navigation must preserve the user’s draft and image attachment');
     }
     assert(githubWrites === 0 && !bridge.commands.some(command => ['startAgentTurn', 'queueAgentInput', 'steerAgentTurn'].includes(command.name)),
       'Private UI must dispatch through the durable local-review endpoint without direct task or GitHub writes');
     flushSync(() => root.unmount()); root = createRoot(host); render(); await settle();
-    assert(host.querySelector('[data-local-review-thread]')?.textContent?.includes(request.body) === true
+    assert(host.querySelector(`[data-local-review-thread="${request.id}"]`)?.textContent?.includes(request.body) === true
       && !host.textContent?.includes(INTERNAL_PROMPT), 'Reopening a task must recover local discussion data without exposing internal prompts');
   }
   finally { flushSync(() => root.unmount()); host.remove(); Object.defineProperty(window, 'bridge', { configurable: true, value: originalBridge }); }

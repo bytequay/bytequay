@@ -125,7 +125,7 @@ describe('the status strip', () => {
     });
     const html = tab(failed);
     expect(html).toContain('Cannot start the review turn');
-    expect(html).toContain('What this PR does');
+    expect(html).toContain('PR intention');
     expect(html).toContain('>Resume</button>');
     expect(html).not.toMatch(/disabled=""[^>]*>Resume<\/button>/);
     expect(html).not.toMatch(/disabled=""[^>]*>Run review again<\/button>/);
@@ -190,13 +190,20 @@ describe('banners', () => {
 describe('the summary card', () => {
   const review = reviewFixture();
 
-  it('explains the purpose, each commit and the combined result without a limitations card', () => {
+  it('separates PR intention and commit implementation without redundant report cards', () => {
     const html = summary(review);
-    expect(html).toContain('What this PR does');
-    expect(html).toContain('Commits');
+    expect(html).toContain('PR intention');
+    expect(html).toContain('Commit implementation');
+    expect(html).toContain('agr-learning-card--purpose');
+    expect(html.match(/agr-learning-card--commit/g)).toHaveLength(5);
+    expect(html.match(/agr-commit-list__title/g)).toHaveLength(5);
+    expect(html).toContain('Review &amp; discussion');
     expect(html).toContain('5 in scope');
-    expect(html).toContain('Combined result');
-    expect(html).toContain('Critical issues');
+    expect(html).not.toContain('Combined result');
+    expect(html).not.toContain('Critical issues');
+    expect(html).not.toContain('Supporting evidence &amp; tests');
+    expect(html).not.toContain('Review coverage');
+    expect(html).not.toContain('Earlier discussions');
     expect(html).not.toContain('Limitations');
     expect(html).toContain('Splits “address.zip” into a path');
     // Rendered as Markdown, not shown as literal backticks.
@@ -215,17 +222,18 @@ describe('the summary card', () => {
     expect(html).toContain('Private — never published');
     expect(html).toContain('pr-inline-thread is-local-review');
     expect(html).toContain('Why does the second commit change IcebergUtil');
-    expect(html.match(/data-review-card=/g)).toHaveLength(10);
+    expect(html.match(/data-review-card=/g)).toHaveLength(6);
     expect(html).toContain('Ask agent');
     expect(html).not.toContain('Post comment now');
   });
 
-  it('keeps a discussion saved on the removed limitations card under coverage', () => {
+  it('keeps a removed card’s original target and discussion in collapsed history', () => {
     const run = review.runs[0];
     const legacy = { ...review.messages[0], findingId: null as string | null, runId: run.id, cardId: `${run.id}:limitations`, body: 'Why was the build skipped?' };
     const html = summary({ ...review, messages: [...review.messages, legacy] });
     expect(html).toContain('Why was the build skipped?');
-    expect(html).not.toContain('Limitations');
+    expect(html).toContain('data-review-card="run-1:limitations"');
+    expect(html).toContain('<details class="agr-learning-history"><summary>Earlier discussions');
   });
 });
 

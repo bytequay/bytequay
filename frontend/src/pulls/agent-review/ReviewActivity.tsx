@@ -12,6 +12,7 @@
  * limitations under the License.
  */
 import { useState } from 'react';
+import type { ReviewRequestTarget } from '../../agents/ReviewRequestCard';
 import { AgentConversation, ConversationComposer, ConversationQueue, useConversationHistory, type ConversationHistory, type ConversationQueuedInput } from '../../agents/AgentConversation';
 import { projectTranscript, withApprovalAuthority } from '../../agents/transcript';
 import type { AgentEventEnvelope } from '../../agents/events';
@@ -25,12 +26,13 @@ const EMPTY_HISTORY: ConversationHistory = { before: null, after: null, loading:
 /** Review owns its scoped actions; Tasks owns the shared conversation presentation. */
 export default function ReviewActivity({
   review, events, turns, models, pendingApprovals, now, composer, busy,
-  localReview,
+  localReview, onOpenReview,
   connection = 'open', history = EMPTY_HISTORY, lastSequence = events.at(-1)?.sequence ?? 0,
   onCompose, onSend, onSteer, onQueue, onStop, onDecide, onRemoveQueued,
 }: {
   review: AgentReviewDto;
   localReview?: LocalReviewThreads;
+  onOpenReview?: (target: ReviewRequestTarget) => void;
   events: AgentEventEnvelope[];
   turns: Record<string, AgentTurnDto>;
   models: ModelOptionDto[];
@@ -65,7 +67,7 @@ export default function ReviewActivity({
   return (
     <AgentConversation
       turns={projected} durableTurns={turns} models={models} now={now} scroll={scroll}
-      localReview={localReview} reviewRequests={reviewRequests(review)}
+      localReview={localReview} reviewRequests={reviewRequests(review)} onOpenReview={onOpenReview}
       connection={connection} running={running} activeTurn={review.activeTurn} waiting={waiting}
       activityChoice={activityChoice} turnChoice={turnChoice} pendingApprovals={pendingApprovals}
       generatedTurnIds={new Set(review.byteQuayTurnIds)} label="Review agent conversation"

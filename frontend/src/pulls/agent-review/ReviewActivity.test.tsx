@@ -74,14 +74,15 @@ describe('the unified review conversation', () => {
     expect(html).toContain('aria-label="Stop this turn"');
     expect(html).not.toContain('agr-compose');
     expect(html).not.toContain('no subagents');
-    expect(html).not.toContain('Private');
+    expect(html).not.toContain('Private — never published');
     expect(render()).not.toContain('>Run next</button>');
   });
 
   it('keeps history but removes execution input during recovery or after closure', () => {
     const html = render({ review: { ...props.review, activeTurn: null }, composer: 'Continue' });
     expect(html).toContain('Recovery required');
-    expect(html).toContain('Review the authentication change');
+    expect(html).toContain('Review pull request');
+    expect(html).not.toContain('Review the authentication change');
     expect(html).not.toContain('<textarea');
     expect(html).not.toContain('class="agt-live"');
     expect(render({ review: { ...reviewFixture(), state: 'CLOSED' } })).not.toContain('<textarea');
@@ -103,7 +104,9 @@ describe('the unified review conversation', () => {
     const steered: AgentEventEnvelope = { ...first, eventId: 'steered-input', sequence: 3,
       payload: { ...first.payload, text: 'Also check cancellation', deliveryKind: 'STEER' } };
     const html = render({ events: [...props.events, steered] });
-    expect(html.match(/ByteQuay · Review request/g)).toHaveLength(1);
+    expect(html.match(/agt-user__request-action">Review pull request/g)).toHaveLength(1);
+    expect(html).not.toContain('ByteQuay · Review request');
+    expect(html).not.toContain('Review the authentication change');
     expect(html).toContain('Also check cancellation');
     expect(html).toContain('Steered into the running turn');
   });
@@ -122,7 +125,7 @@ describe('compact review requests', () => {
   it('renders the saved question and topic after reload without exposing the generated prompt', () => {
     const review = parseAgentReview(JSON.parse(JSON.stringify({ ...base, messages: [question] })));
     const html = render({ review, events: [questionEvent] });
-    expect(html).toContain('<details class="agt-user__request agt-review-request">');
+    expect(html).toContain('<article class="agt-user__request agt-review-request">');
     expect(html).toContain('Ask about review');
     expect(html).toContain('Limitations');
     expect(html).toContain(question.body);
@@ -143,7 +146,7 @@ describe('compact review requests', () => {
     expect(html).toContain(reply.body);
     expect(html).toContain('Also check cancellation');
     expect(html).toContain('Steered into the running turn');
-    const ordinary = render({ review: { ...base, messages: [{ ...question, author: 'AGENT' }] }, events: [questionEvent] });
+    const ordinary = render({ review: { ...base, messages: [{ ...question, author: 'AGENT' }] }, events: [{ ...questionEvent, turnId: 'ordinary-turn' }] });
     expect(ordinary).toContain(prompt);
     expect(ordinary).not.toContain('agt-review-request');
     const steerOnly = render({ review: { ...base, messages: [reply] }, events: [steer] });

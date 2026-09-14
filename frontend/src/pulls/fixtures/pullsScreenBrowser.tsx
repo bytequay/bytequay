@@ -199,7 +199,7 @@ export async function runReviewWorkspace(): Promise<string> {
     const pane = host.querySelector<HTMLElement>('.pull-detail');
     assert(conversation?.textContent?.includes('I found one authentication regression.') === true,
       'The left workspace conversation must replay the review agent response');
-    assert(pane?.textContent?.includes('What this PR does') === true && pane.querySelector('[data-finding-id="finding-1"]') !== null,
+    assert(pane?.textContent?.includes('PR intention') === true && pane.querySelector('[data-finding-id="finding-1"]') !== null,
       'The right PR pane must show independent learning and finding cards');
     assert(conversation.parentElement === pane.parentElement
       && Boolean(conversation.compareDocumentPosition(pane) & Node.DOCUMENT_POSITION_FOLLOWING),

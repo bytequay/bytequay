@@ -13,6 +13,8 @@
  */
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { PanelsTopLeft } from 'lucide-react';
+import type { ReviewCardFocus, ReviewRequestTarget } from '../../agents/ReviewRequestCard';
+import { useReviewCardFocus } from '../../agents/reviewCardNavigation';
 import { ConfirmDialog } from '../../ConfirmDialog';
 import {
   agentTaskReducer,
@@ -69,7 +71,7 @@ export default function AgentReviewTab({
   review,
   onReviewChange,
   onNavigateToChanges,
-  focusFindingId,
+  focusFindingId, focusReviewCard, onOpenReview,
   mode = 'cards',
   onOpenWorkspace,
   localReview,
@@ -83,6 +85,8 @@ export default function AgentReviewTab({
   onNavigateToChanges: (target: ReviewNavigationTarget) => void;
   /** A finding the Changes tab asked to show; the card is opened and scrolled to. */
   focusFindingId: string | null;
+  focusReviewCard?: ReviewCardFocus | null;
+  onOpenReview?: (target: ReviewRequestTarget) => void;
   mode?: 'cards' | 'conversation';
   onOpenWorkspace?: () => void;
   localReview?: LocalReviewThreads;
@@ -112,6 +116,12 @@ export default function AgentReviewTab({
   const [models, setModels] = useState<ModelOptionDto[]>([]);
   const [now, setNow] = useState(() => Date.now());
   const navigationToken = useRef(0);
+  const cardsRef = useRef<HTMLDivElement>(null);
+  const [reportRunId, setReportRunId] = useState<string | null>(null);
+  useEffect(() => {
+    if (mode === 'cards' && focusReviewCard?.target.kind === 'card') setReportRunId(focusReviewCard.target.runId);
+  }, [focusReviewCard, mode]);
+  useReviewCardFocus(cardsRef, focusReviewCard, mode === 'cards' && review !== null);
   const running = review !== null && reviewRunning(review);
   const recovery = review !== null && reviewRecoveryRequired(review);
   // The wait is a durable task fact; the fetched list only fills in the card, and a slow read
@@ -122,7 +132,8 @@ export default function AgentReviewTab({
     : resuming && !running
       ? { status: 'running', label: 'Starting', tone: 'running', detail: 'resuming the review', chip: null, busy: true }
       : reviewStatus(review);
-  const run = review === null ? null : shownRun(review);
+  const currentRun = review === null ? null : shownRun(review);
+  const run = review?.runs.find(item => item.id === reportRunId) ?? currentRun;
   const findings = review === null ? [] : openFindings(review);
   const withdrawn = review === null ? [] : review.findings.filter(finding => finding.state === 'WITHDRAWN');
 
@@ -463,7 +474,11 @@ export default function AgentReviewTab({
       )}
 
       {mode === 'cards' ? (
-        <div className="agr-summary">
+        <div className="agr-summary" ref={cardsRef}>
+          {run !== null && run.id !== currentRun?.id && <div className="agr-banner is-neutral">
+            <span>Earlier review · head {shortSha(run.headSha)}</span>
+            <button type="button" className="agr-action" onClick={() => setReportRunId(null)}>Show latest review</button>
+          </div>}
           {waiting && (
             <div className="agr-banner is-warn">
               <span className="agr-banner__chip">Approval needed</span>
@@ -578,6 +593,7 @@ export default function AgentReviewTab({
         <ReviewActivity
           key={review.id}
           review={review}
+          onOpenReview={onOpenReview}
           localReview={localReview === undefined ? undefined : { ...localReview, threads: localReview.threads.filter(thread => thread.taskId === review.task.id) }}
           events={events}
           turns={turns}

@@ -15,15 +15,19 @@ apply on every turn, including progress updates, within the requested format.
 Required review coverage is preserved when grouping long lists.
 Wording rules favor readable sentences and preserve exact technical details,
 conditions, and normal prose in shared artifacts.
-PR and development Review & Learning cards use flexible default writing
-targets: purpose usually 60–100 words, and commit explanations usually 50–90
-words in short **Problem**, **Approach**, and **Result** paragraphs. Commit
-cards explain the rationale, implementation, and resulting behavior using the
-code or author context; inferred rationale is identified. Simple mechanical
-commits can use shorter explanations. These ranges are neither minimums nor
-hard caps. Combined result remains up to 30 words, and finding bodies or
-private replies usually up to 60 words. Evidence uses a few short result bullets; development
-limitations state each distinct gap once, and PR reviews record no limitations. Required coverage, essential qualifications, and
+PR and development Review & Learning cards default to short, complete sentences:
+purpose usually takes 1–2 sentences, and each commit usually takes 1–3. Commit
+cards explain the change, its key design or implementation choice, and why it
+solves the problem using the code or author context; inferred rationale is
+identified. A simple mechanical change can use one sentence. There is no minimum
+word count or required Problem/Approach/Result template. Findings and private
+replies usually use up to 60 words, with
+replacement code excluded from that target. The report contains only intention
+and commit explanations; it generates no combined-result, evidence/test,
+coverage, limitations, or critical-issues cards. Evidence accompanies findings,
+and machine coverage remains required. Concrete optional improvements use
+inline findings with GitHub fenced `suggestion` replacements on the exact
+current-side lines. Required coverage, essential qualifications, and
 explicit requests for detail take precedence over these targets. User writing
 preferences apply inside structured fields, including generated refinement
 and private replies in the selected task scope. These are generation rules;
@@ -34,6 +38,8 @@ instruction snapshot. It is not an `AgentSkill` row, is not stored in user
 settings, and has no list/edit/toggle/remove API. The model is instructed to
 apply the defaults silently, without announcing a mode or quoting policy.
 The policies are packaged resources with no external content dependency.
+This concise default is ByteQuay-owned guidance, not an installed provider skill
+or plugin; it remains active when the user skill collection is empty.
 
 ## Development guidance
 
@@ -81,8 +87,10 @@ command, expected/actual result, decisive output, test path or reproduction
 setup. Only independently established code defects may be reported without a
 reproduced result, citing that code evidence. Speculation is omitted.
 
-Review findings require an explicit Critical, High, or Medium severity by
-default; Low requires a direct user request. Each full or incremental round
+Defect findings require an explicit Critical, High, or Medium severity by
+default; Low requires a direct user request. Concrete optional code improvements
+are labeled as suggestions and omit defect severity. They must explain the
+benefit and supply an exact replacement on a validated inline anchor. Each full or incremental round
 selects at most ten distinct findings, ranked by severity and impact before
 saving. Discussions, retries, and report repair share that limit. Complete
 commit coverage remains required. Report repair reuses

@@ -241,15 +241,18 @@ class TestClaudePermissionBroker
                     for (JsonNode tool : listed.at("/result/tools")) {
                         if (tool.path("name").asText().equals(DevelopmentResultBridge.TOOL_NAME)) {
                             assertThat(tool.at("/inputSchema/properties").has("learningSummary")).isEqualTo(allowed);
+                            if (allowed) {
+                                assertThat(tool.at("/inputSchema/properties/learningSummary/properties").toString())
+                                        .contains("purpose", "commits").doesNotContain("combinedResult", "evidence", "limitations");
+                            }
                         }
                     }
                     JsonNode result = developmentCall(broker, token, """
-                            {"readyForDelivery":true,"learningSummary":{"purpose":"Purpose known-secret","commits":[],
-                              "evidence":"Tests known-secret","limitations":["Limit known-secret"]}}
+                            {"readyForDelivery":true,"learningSummary":{"purpose":"Purpose known-secret","commits":[]}}
                             """);
                     if (allowed) {
-                        assertThat(result.at("/result/content/0/text").textValue()).contains("Purpose [REDACTED]", "Tests [REDACTED]", "Limit [REDACTED]")
-                                .doesNotContain("known-secret");
+                        assertThat(result.at("/result/content/0/text").textValue()).contains("Purpose [REDACTED]")
+                                .doesNotContain("known-secret", "combinedResult", "evidence", "limitations");
                     }
                     else {
                         assertThat(result.at("/error/code").intValue()).isEqualTo(-32602);

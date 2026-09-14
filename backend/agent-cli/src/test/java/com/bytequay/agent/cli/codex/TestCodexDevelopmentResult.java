@@ -50,7 +50,7 @@ class TestCodexDevelopmentResult
                     assertThat(result.report().message()).contains("done [REDACTED]");
                     assertThat(result.report().learningSummary()).hasValueSatisfying(summary -> {
                         assertThat(summary.purpose()).isEqualTo("Purpose [REDACTED]");
-                        assertThat(summary.evidence()).isEqualTo("Tests [REDACTED]");
+                        assertThat(summary.evidence()).isEmpty();
                     });
                     assertThat(result.source().providerThreadId()).contains("root-thread");
                     assertThat(result.source().providerTurnId()).contains("native-turn");
@@ -79,7 +79,7 @@ class TestCodexDevelopmentResult
     {
         String receipt = json.writeValueAsString(DevelopmentResultTool.receipt(receiptBridge,
                 new DevelopmentResultReport(true, Optional.of("done known-secret"),
-                        Optional.of(new DevelopmentLearningSummary("Purpose known-secret", ImmutableList.of(), Optional.empty(), "Tests known-secret", ImmutableList.of())))));
+                        Optional.of(new DevelopmentLearningSummary("Purpose known-secret", ImmutableList.of(), Optional.empty(), "", ImmutableList.of())))));
         return codec.decodeNotification("""
                 {"method":"%s","params":{"threadId":"root-thread","turnId":"%s","item":{
                 "type":"mcpToolCall","id":"tool-1","server":"bytequay","tool":"report_development_result",

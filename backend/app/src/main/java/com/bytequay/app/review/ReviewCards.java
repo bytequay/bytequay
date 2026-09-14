@@ -48,6 +48,7 @@ final class ReviewCards
             case "evidence" -> summary.flatMap(ReviewSummary::evidence).orElse("No separate supporting evidence was recorded. Consult findings for their cited evidence.");
             case "critical-issues" -> summary.filter(value -> !value.criticalFindingIds().isEmpty())
                     .map(value -> String.join("\n", value.criticalFindingIds())).orElse("No critical findings were recorded.");
+            case "limitations" -> "The original card body is not retained. Consult this card's saved discussion messages.";
             case "coverage" -> run.coverage().map(coverage -> "Complete: " + coverage.complete() + "\nOmissions: " + coverage.omissions())
                     .orElse("Coverage has not been recorded.");
             default -> {

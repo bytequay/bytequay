@@ -40,8 +40,8 @@ historical checkpoint evidence and explicitly deferred future work.
   instruction delivery, including always-applied internal ByteQuay guidance
   that is excluded from user-facing skill management.
 - [Agent Review](agent-review.md) defines **Review & Learning** for both PR
-  browsing and development tasks: independent private summary, commit,
-  evidence and finding cards, shared local discussions, and workspace review
+  browsing and development tasks: a private intention card, distinct commit
+  implementation cards, and inline findings, shared local discussions, and workspace review
   conversations beside the PR. It reuses agent tasks, incremental review and
   explicit user publication. Its [implementation checklist](agent-review-impl-tmp.md)
   records delivery gates; the design is not a claim of implementation.

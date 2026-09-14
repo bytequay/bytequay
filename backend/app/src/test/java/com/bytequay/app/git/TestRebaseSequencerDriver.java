@@ -65,6 +65,37 @@ class TestRebaseSequencerDriver
     }
 
     @Test
+    void refusesToOverwriteAnIgnoredFileAndKeepsUnrelatedBuildOutput()
+            throws IOException
+    {
+        write(".gitignore", "target/\ngen/\n");
+        commit("Base");
+        git(repository, "checkout", "--quiet", "-b", "feature");
+        String original = change("feature.txt", "feature\n", "Feature change");
+        git(repository, "checkout", "--quiet", "main");
+        write("gen/out.txt", "generated upstream\n");
+        git(repository, "add", "--force", "gen/out.txt");
+        commit("Track generated output");
+        String base = head();
+        git(repository, "checkout", "--quiet", "feature");
+        write("target/classes/Main.class", "compiled\n");
+        write("gen/out.txt", "generated locally\n");
+
+        SequenceState refused = driver.begin(repository, original, base);
+
+        assertThat(refused.kind()).isEqualTo(Kind.UNSAFE);
+        assertThat(refused.diagnostics()).contains("gen/out.txt");
+        assertThat(head()).isEqualTo(original);
+        assertThat(repository.resolve("gen/out.txt")).hasContent("generated locally\n");
+
+        Files.delete(repository.resolve("gen/out.txt"));
+        SequenceState rebased = driver.begin(repository, original, base);
+
+        assertThat(rebased.kind()).isEqualTo(Kind.COMPLETED);
+        assertThat(repository.resolve("target/classes/Main.class")).hasContent("compiled\n");
+    }
+
+    @Test
     void observesExactRebaseHeadAndContinuesAStagedResolutionWithoutAnEditor()
     {
         Conflict conflict = conflict("file.txt");

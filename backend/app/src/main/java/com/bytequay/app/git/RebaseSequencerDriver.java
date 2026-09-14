@@ -21,11 +21,13 @@ import com.google.common.collect.ImmutableSet;
 import org.springframework.stereotype.Component;
 
 import java.nio.file.Path;
+import java.util.Arrays;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Optional;
 import java.util.Set;
 
+import static com.google.common.collect.ImmutableList.toImmutableList;
 import static java.util.Objects.requireNonNull;
 
 /** Runs guarded rebase commands and reports only observable Git state. */
@@ -51,9 +53,50 @@ public final class RebaseSequencerDriver
         if (before.kind() != Kind.COMPLETED || !before.head().equals(expectedHead)) {
             return unsafe(before.head(), "Worktree is not clean at the recorded work tip");
         }
+        // Rebase has no --no-overwrite-ignore: it would silently replace an ignored file that the base or a replayed commit tracks.
+        Optional<String> ignoredFileConflict = ignoredFileConflict(worktree, expectedHead, baseSha);
+        if (ignoredFileConflict.isPresent()) {
+            return unsafe(expectedHead, ignoredFileConflict.orElseThrow());
+        }
         git.run(worktree, ImmutableList.of(
                 "-c", "commit.gpgSign=false", "rebase", "--no-autosquash", baseSha));
         return observe(worktree);
+    }
+
+    private Optional<String> ignoredFileConflict(Path worktree, String head, String baseSha)
+    {
+        // ponytail: checked once before the rebase starts; ignored files a conflict turn creates are not rechecked before --continue.
+        Result ignored = git.run(worktree, "ls-files", "-z", "--others", "--ignored", "--exclude-standard", "--directory", "--no-empty-directory");
+        if (!ignored.successful() || ignored.truncated()) {
+            return Optional.of("Cannot list the ignored files before the rebase");
+        }
+        List<String> pathspecs = Arrays.stream(ignored.output().split("\0"))
+                .filter(path -> !path.isEmpty())
+                // Without its slash, an ignored directory also matches a file the rebase would write at that name.
+                .map(path -> path.endsWith("/") ? path.substring(0, path.length() - 1) : path)
+                .collect(toImmutableList());
+        if (pathspecs.isEmpty()) {
+            return Optional.empty();
+        }
+        // The checkout of the base writes what differs from the tip; each replayed commit writes what it changes.
+        for (List<String> written : ImmutableList.of(
+                ImmutableList.of("diff", "--name-only", head, baseSha),
+                ImmutableList.of("log", "--format=", "--name-only", baseSha + ".." + head))) {
+            Result touched = git.run(worktree, ImmutableList.<String>builder()
+                    .add("--literal-pathspecs")
+                    .addAll(written)
+                    .add("--")
+                    .addAll(pathspecs)
+                    .build());
+            if (!touched.successful() || touched.truncated()) {
+                return Optional.of("Cannot compare the ignored files with the rebase");
+            }
+            Optional<String> path = touched.output().lines().filter(line -> !line.isBlank()).findFirst();
+            if (path.isPresent()) {
+                return Optional.of("Rebase would overwrite the ignored file " + path.orElseThrow());
+            }
+        }
+        return Optional.empty();
     }
 
     /** Continues only the same fully staged rebase stop the caller inspected. */

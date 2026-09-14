@@ -1063,7 +1063,7 @@ public class DefaultCiAutofixService
                     now)));
         }
         WorktreeSnapshot workspace = inspectWorktree(task, run);
-        if (workspace.dirty() || workspace.gitOperationInProgress()) {
+        if (workspace.uncommitted() || workspace.gitOperationInProgress()) {
             return RebaseGate.waiting(store.update(run.pause(
                     PauseReason.REBASE_PAUSED,
                     "The worktree is dirty or another Git operation is open before the target rebase",

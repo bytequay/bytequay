@@ -183,6 +183,11 @@ same service without nested worktrees.
    git rebase --no-autosquash <baseSha>
    ```
 
+   Ignored files, such as build output, may stay in the worktree. Rebase has
+   no `--no-overwrite-ignore`, so the driver first refuses, as an unsafe Git
+   state, when the base or a replayed commit tracks a path the worktree holds
+   as an ignored file.
+
    The driver also disables commit signing for the program-owned operation.
    `--no-autosquash` is not redundant: autosquash is off by default but a
    repository may enable `rebase.autoSquash`, and a work branch carrying

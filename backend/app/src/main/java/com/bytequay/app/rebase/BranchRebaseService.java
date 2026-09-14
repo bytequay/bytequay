@@ -507,7 +507,8 @@ public class BranchRebaseService
             throw new BranchRebaseException("Agent task does not own this repository worktree");
         }
         WorktreeSnapshot snapshot = worktrees.inspect(taskWorktree);
-        if (snapshot.dirty() || snapshot.gitOperationInProgress()) {
+        // Ignored build output may stay; the driver refuses a rebase that would overwrite it.
+        if (snapshot.uncommitted() || snapshot.gitOperationInProgress()) {
             throw new BranchRebaseException("Worktree is dirty or another Git operation is open");
         }
         return snapshot;

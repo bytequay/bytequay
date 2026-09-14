@@ -24,11 +24,74 @@ Unchecked means not yet verified, even if similar infrastructure exists.
 - [x] Any change to the locked boundary requires user approval and a design
   update before implementation continues in that area.
 
-## Review quality process
+## Bounded evidence loop
 
-The user approved the simple investigation/validation process in the canonical
-design. This section records its current verification; the original delivery
-checkpoint evidence below is not a claim that unrelated gaps were rechecked.
+The user approved ByteQuay controlling the complete investigation, validation,
+evidence-collection and revalidation loop. The current canonical contract
+uses numbered assignments in the existing review run, with no additional task
+lifecycle states.
+
+- [x] Persist assignments before launch and bind reporting tools to the trusted
+  accepted turn, exact run, step and repair attempt.
+- [x] Require structured supported/rejected/needs-evidence/unresolved assessments;
+  evidence requests name a question, check and resolving criterion. Collection
+  accounts for every request with captured references or an explicit limitation.
+- [x] Validate the new investigation again, including newly discovered candidates;
+  check the investigation identity and supported finding revisions at acceptance.
+- [x] Bound collection to two assignments and reporting repair to one per run.
+  Exhaustion and unavailable proof preserve incomplete results without advancing
+  the successful baseline. Exact writes replay across repair of the same step.
+- [x] Show collection progress, request details, answers and typed outcomes in
+  collapsed Review details. An unresolved candidate is never displayed as rejected.
+- [x] Full backend `mvn verify`: 2,127 tests, no failures/errors/skips; all
+  modules and Checkstyle passed. Evidence:
+  `/tmp/bytequay-review-loop-backend-verify-retry.log`. The first full run hit
+  the existing process-supervisor temporary-directory cleanup race; the full
+  retry passed without changing or skipping tests.
+- [x] Frontend lint, TypeScript, all 899 tests and packaging passed. Logs:
+  `/tmp/bytequay-review-loop-{lint,tsc,frontend-tests,package}.log`.
+- [x] Exercise a directed private PR review through all four assignments using
+  the actual provider tools; remove the test-only conditional review skill.
+
+Focused verification covers the full loop, incomplete and exhausted outcomes,
+new candidates, stale report/finding identities, sealed reports, exact replay,
+pause/resume and interrupted launch associations. `TestReviewToolAssignment`
+checks old/cancelled/replaced turn admission and direct/queued discussions.
+The live exercise deliberately requests one evidence round; it is a workflow
+smoke test, not a measurement of naturally discovered review findings.
+
+The directed Claude review of `trinodb/trino#31125` ran at frozen head
+`cd3ea1f7459867aada395708f24df5b895043826`; the PR head had moved since the
+baseline below. Review `27644ab6-5048-4281-be41-10bbd13cae24` completed exactly
+four actual turns with no repair or manual advancement: investigation,
+validation requesting evidence, evidence collection, and validation of the
+new investigation. Nine source/command references were retained and all resolve.
+
+Collection examined the unchanged Block/Bitmap/builder contracts and found an
+undocumented reset-and-write ownership path. The final validator reported
+UNRESOLVED, explicitly acknowledging that sharing predates this PR and that no
+PR regression was established. Its conservative conclusion was influenced by
+the directed test's resolving criterion. ByteQuay consequently recorded
+INCOMPLETE, paused follow-up, saved zero findings and left the successful-head
+cursor unset. This verifies routing and honest retention of the submitted
+uncertainty, not the semantic correctness of that verdict. No PR tests were
+executed in this source-based smoke; the report explicitly records that omission.
+
+The review remains available for inspection. Its worktree matches the frozen
+head, with clean tracked/untracked source and no ignored artifacts. The temporary
+conditional skill was deleted and its absence verified; the two preexisting
+user recovery claims remained unchanged. The verified backend serves the existing
+Electron session. Final evidence:
+
+- `/private/tmp/bytequay-review-loop-smoke-final.json`
+- `/private/tmp/bytequay-review-loop-smoke-manifest.json`
+- `/private/tmp/bytequay-review-loop-smoke-stored-evidence.json`
+
+## Investigation and validation baseline
+
+The following records the earlier two-turn implementation and its comparison
+with the original single-turn review. Its checkpoint evidence is retained;
+the bounded loop above supersedes its orchestration contract.
 
 - [x] Reuse one task, worktree and provider conversation for investigation and
   mandatory validation, with one shared reporting-repair opportunity.
@@ -101,10 +164,11 @@ HEAD and failed six cases under the compiling old-condition control. It
 restored the PR source and recompiled successfully. Both candidate conclusions
 were recorded; the shared-array hypothesis was rejected against source contracts.
 
-Review `5e959b9d-c70d-44c0-ab4c-a2a9c4f244f5` remains open for inspection and
-discussion, with no active turn, claim or approval. Its worktree matches the
-frozen head with clean tracked/untracked source; ignored build and provider
-scratch outputs remain in that review's worktree. The two-turn run took 328.3
+Review `5e959b9d-c70d-44c0-ab4c-a2a9c4f244f5` was subsequently closed through
+its normal lifecycle before the bounded-loop smoke. Its report remains retained.
+Only its verified generated build/provider artifacts were parked under
+`/private/tmp/bytequay-review-loop-prior-artifacts-xukslx80`; tracked/untracked
+source was clean. The two-turn run took 328.3
 seconds versus 115.7 seconds for the baseline. This one PR verifies workflow
 and evidence behavior, not general review precision or recall. The new process
 has been exercised live on Claude; no new live Codex run is claimed here.

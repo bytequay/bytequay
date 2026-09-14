@@ -20,9 +20,11 @@ import com.bytequay.core.review.ReviewEvidence;
 import com.bytequay.core.review.ReviewInvestigation;
 import com.bytequay.core.review.ReviewOperation;
 import com.bytequay.core.review.ReviewRun;
+import com.bytequay.core.review.ReviewStep;
 import com.bytequay.core.review.ReviewSummary;
 import com.bytequay.persistence.sqlite.converter.InstantToTextConverter;
 import com.fasterxml.jackson.core.type.TypeReference;
+import com.google.common.collect.ImmutableList;
 import jakarta.persistence.Column;
 import jakarta.persistence.Convert;
 import jakarta.persistence.Entity;
@@ -46,6 +48,7 @@ public class AgentReviewRunEntity
 {
     private static final TypeReference<List<ReviewCommit>> COMMITS = new TypeReference<>() {};
     private static final TypeReference<List<DiffFile>> DIFF = new TypeReference<>() {};
+    private static final TypeReference<List<ReviewStep>> STEPS = new TypeReference<>() {};
     private static final TypeReference<List<String>> STRINGS = new TypeReference<>() {};
     private static final TypeReference<Map<String, ReviewOperation>> OPERATIONS = new TypeReference<>() {};
     private static final TypeReference<Map<String, ReviewEvidence>> EVIDENCE = new TypeReference<>() {};
@@ -101,8 +104,8 @@ public class AgentReviewRunEntity
     @Column(name = "investigation_json", columnDefinition = "TEXT")
     private String investigationJson;
 
-    @Column(name = "validation_started", nullable = false, columnDefinition = "boolean default false")
-    private boolean validationStarted;
+    @Column(name = "steps_json", columnDefinition = "TEXT")
+    private String stepsJson;
 
     @Column(name = "completion_repair_used", nullable = false)
     private boolean completionRepairUsed;
@@ -159,7 +162,7 @@ public class AgentReviewRunEntity
         summaryJson = run.summary().map(AgentReviewJson::encode).orElse(null);
         coverageJson = run.coverage().map(AgentReviewJson::encode).orElse(null);
         investigationJson = run.investigation().map(AgentReviewJson::encode).orElse(null);
-        validationStarted = run.validationStarted();
+        stepsJson = AgentReviewJson.encode(run.steps());
         completionRepairUsed = run.completionRepairUsed();
         operationsJson = AgentReviewJson.encode(run.operations());
         evidenceJson = AgentReviewJson.encode(run.evidence());
@@ -188,7 +191,7 @@ public class AgentReviewRunEntity
                 Optional.ofNullable(summaryJson).map(json -> AgentReviewJson.decode(json, ReviewSummary.class)),
                 Optional.ofNullable(coverageJson).map(json -> AgentReviewJson.decode(json, ReviewCoverage.class)),
                 Optional.ofNullable(investigationJson).map(json -> AgentReviewJson.decode(json, ReviewInvestigation.class)),
-                validationStarted,
+                Optional.ofNullable(stepsJson).map(json -> AgentReviewJson.decode(json, STEPS)).orElseGet(ImmutableList::of),
                 completionRepairUsed,
                 AgentReviewJson.decode(operationsJson, OPERATIONS),
                 AgentReviewJson.decode(evidenceJson, EVIDENCE),

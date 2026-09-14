@@ -178,7 +178,7 @@ public class DevelopmentGitInspector
         verify(worktree, route);
     }
 
-    /** Synchronizes a stopped, clean source to the coordinator's verified published CI revision. */
+    /** Synchronizes a stopped, clean source to a freshly verified published revision. */
     public DevelopmentLocalFacts synchronizeSource(DevelopmentBaseline baseline, String expectedSourceHead, String publishedHead, Runnable requireAuthority)
     {
         requireNonNull(baseline, "baseline is null");

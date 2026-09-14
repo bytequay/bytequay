@@ -93,7 +93,8 @@ final class InteractiveAgentHttpContract
                 task.interactive(),
                 task.developmentContinuationUnfinished(),
                 developmentCi,
-                pullRequest);
+                pullRequest,
+                task.localReviewHead());
     }
 
     /**
@@ -345,7 +346,8 @@ final class InteractiveAgentHttpContract
             boolean interactive,
             boolean developmentContinuationUnfinished,
             Optional<CiAutofixHttpModels.DevelopmentResponse> developmentCi,
-            Optional<TaskPullRequestResponse> pullRequest) {}
+            Optional<TaskPullRequestResponse> pullRequest,
+            Optional<String> localReviewHead) {}
 
     record TaskPullRequestResponse(
             int number,

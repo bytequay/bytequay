@@ -961,6 +961,31 @@ class TestClaudeCliDriver
     }
 
     @Test
+    void privateReviewPolicyNeedsNoReportingToolsOnInitialOrResumedSessions()
+            throws Exception
+    {
+        ScriptedProcessSupervisor supervisor = new ScriptedProcessSupervisor();
+        ReviewBridge review = new ReviewBridge(ImmutableList.of(), "Keep private experiments uncommitted");
+        try (ClaudeCliDriver driver = driver(supervisor, taskId -> Optional.of(review))) {
+            Optional<AgentSessionRef> reference = Optional.empty();
+            for (int index = 0; index < 2; index++) {
+                try (AgentSession session = driver.open(context(reference), event -> {})) {
+                    await(session.start(command("private review")));
+                    reference = Optional.of(session.reference());
+                }
+                List<String> argv = supervisor.turns().getLast().spec().argv();
+                assertThat(argv).contains("--disable-slash-commands");
+                assertThat(argv).containsSequence("--append-system-prompt", review.instruction());
+                assertThat(argv).doesNotContain("--allowedTools");
+                assertThat(argv.get(argv.indexOf("--tools") + 1).split(","))
+                        .contains("Bash", "Read", "Edit", "Write")
+                        .doesNotContain("Agent", "Task", "Skill", "Workflow");
+                assertThat(supervisor.turns().getLast().spec().environment()).doesNotContainKeys("GH_TOKEN", "GITHUB_TOKEN");
+            }
+        }
+    }
+
+    @Test
     void restrictsNativeReviewToolsOnInitialAndResumedSessions()
             throws Exception
     {

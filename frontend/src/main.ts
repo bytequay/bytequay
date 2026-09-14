@@ -23,6 +23,7 @@ import {
   parseAgentCompletion,
   parseCiAutofixRun,
   parseAgentInputDelivery,
+  parseAgentLocalReviewSync,
   parseAgentProviderStatuses,
   parseAgentProviderUnavailable,
   parseAgentQueue,
@@ -676,6 +677,14 @@ function registerIpc(): void {
         attachments: request.attachments ?? [],
       }),
     }).then((turn) => parseAgentTurn(turn)));
+  for (const action of ['start', 'finish']) {
+    ipcMain.handle(`agent:task:local-review:${action}`, async (_event, taskId: string, workspaceId: string, expectedVersion: number) =>
+      parseAgentTask(await backendJson(`${backendBase()}/agent/tasks/${encodeURIComponent(taskId)}/local-review/${action}`
+        + `?${new URLSearchParams({ workspaceId })}`, jsonInit('POST', { expectedVersion }, agentHeaders(true)))));
+  }
+  ipcMain.handle('agent:task:local-review:sync', async (_event, taskId: string, workspaceId: string, expectedVersion: number) =>
+    parseAgentLocalReviewSync(await backendJson(`${backendBase()}/agent/tasks/${encodeURIComponent(taskId)}/local-review/sync`
+      + `?${new URLSearchParams({ workspaceId })}`, jsonInit('POST', { expectedVersion }, agentHeaders(true)))));
   ipcMain.handle('agent:turns:steer', (_event, request: SteerAgentTurnRequest) =>
     backendJson(`${backendBase()}/agent/turns/${encodeURIComponent(request.turnId)}/steer`, {
       method: 'POST',

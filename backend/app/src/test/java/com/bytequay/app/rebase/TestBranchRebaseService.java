@@ -83,6 +83,8 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.concurrent.CompletionStage;
+import java.util.function.Consumer;
+import java.util.function.Function;
 
 import static com.bytequay.app.git.GitTestSupport.git;
 import static com.google.common.collect.ImmutableList.toImmutableList;
@@ -697,6 +699,18 @@ class TestBranchRebaseService
         private TurnId current;
         private String lastPrompt;
         private boolean failAfterStarting;
+
+        @Override
+        public AgentTask updateLocalReview(TaskId taskId, long expectedVersion, Function<AgentTask, Optional<String>> action)
+        {
+            throw new UnsupportedOperationException();
+        }
+
+        @Override
+        public void synchronizeWorktree(TaskId taskId, long expectedVersion, Consumer<AgentTask> action)
+        {
+            throw new UnsupportedOperationException();
+        }
 
         @Override
         public CompletionStage<DevelopmentTurnCompletion> startGeneratedTurn(TaskId taskId, DevelopmentTurnOrigin origin, String message)

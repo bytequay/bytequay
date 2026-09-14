@@ -27,6 +27,7 @@ export default function WorkflowPage({ value, providers, busy, error, onChange }
     <h1>Workflow</h1>
     {error !== null && <div className="setw-error" role="alert">{error}</div>}
     {value === null ? <div className="setw-row-empty">Loading automation settings…</div> : <>
+      <p className="setw-footnote">Finished development work is committed automatically. Review experiments stay uncommitted.</p>
       <SettingsCard>
         {AUTOMATION_OPTIONS.map(option => <SettingsRow key={option.key} title={option.title} subtitle={option.description}>
           <Toggle label={option.title} on={value[option.key]} disabled={busy} onChange={enabled => onChange({ ...value, [option.key]: enabled })} />

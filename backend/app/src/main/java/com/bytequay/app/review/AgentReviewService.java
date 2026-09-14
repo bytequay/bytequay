@@ -63,9 +63,9 @@ public interface AgentReviewService
     /** The task a review owns, for the review-scoped activity routes. */
     AgentTask task(String reviewId);
 
-    /** Idempotent progression from durable task facts: acceptance, completion repair, pause, and pending heads. */
+    /** Idempotent progression of the current run from durable task facts: acceptance, completion repair, and pause. */
     void reconcile(String reviewId);
 
-    /** Records a newly observed remote head for every open review of the pull request and reconciles them. */
+    /** Records a newer remote head for every open review without moving its checkout or starting a run. */
     void observeHead(String repo, int number, String headSha);
 }

@@ -15,21 +15,20 @@ import type { AgentTaskState } from './model';
 import type { DevelopmentAutomationDto } from '../types';
 
 export const DEFAULT_DEVELOPMENT_AUTOMATION: DevelopmentAutomationDto = {
-  autoCommit: true, autoDraftPr: true, autoCiFix: true, ciLaneId: null,
+  autoDraftPr: true, autoCiFix: true, ciLaneId: null,
 };
 
 export const AUTOMATION_OPTIONS = [
-  { key: 'autoCommit', title: 'Auto commit', description: 'Commit finished development work.' },
   { key: 'autoDraftPr', title: 'Auto draft PR', description: 'Push commits and create or update this task’s PR.' },
   { key: 'autoCiFix', title: 'Auto CI fix', description: 'Repair failing CI and mark the draft ready when checks pass.' },
 ] as const;
 
 export function automationForSubmission(settings: DevelopmentAutomationDto, localOnly: boolean): DevelopmentAutomationDto {
-  return localOnly ? { ...settings, autoCommit: false, autoDraftPr: false, autoCiFix: false } : settings;
+  return localOnly ? { ...settings, autoDraftPr: false, autoCiFix: false } : settings;
 }
 
 export function automationSummary(settings: DevelopmentAutomationDto): string {
-  return AUTOMATION_OPTIONS.filter(option => settings[option.key]).map(option => option.title.replace('Auto ', '')).join(' · ') || 'Local only';
+  return AUTOMATION_OPTIONS.filter(option => settings[option.key]).map(option => option.title.replace('Auto ', '')).join(' · ') || 'Local commits';
 }
 
 export function developmentQuestion(state: AgentTaskState): string | null {
@@ -45,7 +44,6 @@ export function developmentQuestion(state: AgentTaskState): string | null {
 /** Stop follows the active turn's accepted policy even before its continuation marker is set. */
 export function stoppingEndsDevelopment(state: AgentTaskState, activeTurnId: string | null): boolean {
   if (state.task?.developmentContinuationUnfinished) return true;
-  if (state.task?.interactive !== true || activeTurnId === null || state.turn?.id !== activeTurnId) return false;
-  const accepted = state.turn.settings?.developmentAutomation;
-  return accepted != null && (accepted.autoCommit || accepted.autoDraftPr || accepted.autoCiFix);
+  if (state.task?.interactive !== true || state.task.localReviewHead != null || activeTurnId === null || state.turn?.id !== activeTurnId) return false;
+  return state.turn.settings?.developmentAutomation != null;
 }

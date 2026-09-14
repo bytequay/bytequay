@@ -557,7 +557,6 @@ export type AgentMetricsDto = {
 };
 
 export type DevelopmentAutomationDto = {
-  autoCommit: boolean;
   autoDraftPr: boolean;
   autoCiFix: boolean;
   ciLaneId: string | null;
@@ -613,6 +612,7 @@ export type AgentTaskChangesDto = { uncommitted: boolean; commits: number };
 
 export type AgentTaskDto = {
   interactive?: boolean;
+  localReviewHead?: string | null;
   developmentContinuationUnfinished: boolean;
   developmentCi?: AgentDevelopmentCiDto | null;
   /** The pull request the backend picked from the generated branch's stored rows; absent without one. */
@@ -643,6 +643,8 @@ export type AgentTaskDto = {
   /** When the task was shelved. An archived task keeps everything but stays off Home and the overview. */
   archivedAt: string | null;
 };
+
+export type AgentLocalReviewSyncDto = { task: AgentTaskDto; warning: string | null };
 
 /** An image the turn ran with, as the backend names it: an opaque id, its name and type, never bytes or a path. */
 export type AgentAttachmentReferenceDto = {
@@ -1608,6 +1610,9 @@ export type Bridge = {
     scopedPermission?: string,
   ) => Promise<AgentApprovalDto>;
   completeAgentTask: (taskId: string, workspaceId: string, notes?: string) => Promise<AgentCompletionDto>;
+  startAgentLocalReview: (taskId: string, workspaceId: string, expectedVersion: number) => Promise<AgentTaskDto>;
+  syncAgentLocalReview: (taskId: string, workspaceId: string, expectedVersion: number) => Promise<AgentLocalReviewSyncDto>;
+  finishAgentLocalReview: (taskId: string, workspaceId: string, expectedVersion: number) => Promise<AgentTaskDto>;
   /** Retries immediate removal of a terminal task's verified clean checkout. */
   cleanupAgentTaskWorktree: (taskId: string, workspaceId: string) => Promise<AgentTaskDto>;
   /** Fails a task whose provider could not be shown quiet; its checkout is kept unless clean. */

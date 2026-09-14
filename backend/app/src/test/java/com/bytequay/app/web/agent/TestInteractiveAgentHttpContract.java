@@ -111,7 +111,8 @@ class TestInteractiveAgentHttpContract
                         "interactive",
                         "developmentContinuationUnfinished",
                         "developmentCi",
-                        "pullRequest");
+                        "pullRequest",
+                        "localReviewHead");
         assertThat(InteractiveAgentHttpContract.MutationClaim.class.getRecordComponents())
                 .extracting(component -> component.getName())
                 .containsExactly("kind", "ownerId", "acquiredAt");
@@ -310,13 +311,13 @@ class TestInteractiveAgentHttpContract
                 {"taskId":"11111111-1111-1111-1111-111111111111","workspaceId":"workspace-1",
                 "message":"Task","laneId":"codex","idempotencyKey":"create-key",
                 "defaults":{"model":"model-a","permissionPolicy":"AUTO","developmentAutomation":
-                {"autoCommit":true,"autoDraftPr":true,"autoCiFix":true,"ciLaneId":"claude"}},
-                "developmentAutomation":{"autoCommit":false,"autoDraftPr":false,"autoCiFix":false,"ciLaneId":null}}
+                {"autoDraftPr":true,"autoCiFix":true,"ciLaneId":"claude"}},
+                "developmentAutomation":{"autoDraftPr":false,"autoCiFix":false,"ciLaneId":null}}
                 """, InteractiveAgentHttpContract.CreateTaskRequest.class);
 
         assertThat(request.defaults().developmentAutomation().orElseThrow().toDomain())
                 .isEqualTo(new DevelopmentAutomation(true, true, true, Optional.of(new AgentLaneId("claude"))));
-        assertThat(request.developmentAutomation().orElseThrow().toDomain()).isEqualTo(DevelopmentAutomation.LOCAL_ONLY);
+        assertThat(request.developmentAutomation().orElseThrow().toDomain()).isEqualTo(DevelopmentAutomation.LOCAL_ONLY.forDevelopment());
 
         AgentTurn turn = AgentTurn.accepted(TurnId.random(), TaskId.random(), "private-key",
                         new AgentTurnSettings(Optional.of("model-a"), Optional.empty(), AgentPermissionPolicy.AUTO,
@@ -326,7 +327,7 @@ class TestInteractiveAgentHttpContract
                 .withDevelopmentResult(new DevelopmentResultReport(false, Optional.of("Choose the expected behavior.")));
         JsonNode json = objectMapper.valueToTree(InteractiveAgentHttpContract.turn(turn));
 
-        assertThat(json.path("settings").path("developmentAutomation").path("autoCommit").asBoolean()).isFalse();
+        assertThat(json.path("settings").path("developmentAutomation").has("autoCommit")).isFalse();
         assertThat(json.path("developmentResult").path("readyForDelivery").asBoolean()).isFalse();
         assertThat(json.path("developmentResult").path("message").asText()).isEqualTo("Choose the expected behavior.");
         assertThat(json.path("developmentResult").size()).isEqualTo(3);

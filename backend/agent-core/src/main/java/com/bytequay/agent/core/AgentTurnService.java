@@ -16,6 +16,8 @@ package com.bytequay.agent.core;
 import java.util.List;
 import java.util.Optional;
 import java.util.concurrent.CompletionStage;
+import java.util.function.Consumer;
+import java.util.function.Function;
 
 /**
  * Serializes turns and coordinates execution in a task's provider session.
@@ -58,6 +60,15 @@ public interface AgentTurnService
      * @throws AgentConflictException when another turn is active or automation owns the task
      */
     AgentTurn startPublicationTurn(StartAgentTurnCommand command, TurnId sourceTurnId);
+
+    /**
+     * Changes private review ownership only while the task is idle and has no queued input.
+     * The synchronous callback verifies or restores the worktree before the returned head is stored.
+     */
+    AgentTask updateLocalReview(TaskId taskId, long expectedVersion, Function<AgentTask, Optional<String>> action);
+
+    /** Holds the task's mutation ownership throughout a synchronous worktree update, excluding turns and queued input. */
+    void synchronizeWorktree(TaskId taskId, long expectedVersion, Consumer<AgentTask> action);
 
     /** Gives previously accepted FIFO user input the task atomically and ends this continuation. */
     boolean handoffDevelopmentContinuationToQueue(TaskId taskId, TurnId sourceTurnId);

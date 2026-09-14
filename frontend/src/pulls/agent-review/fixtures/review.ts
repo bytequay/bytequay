@@ -60,7 +60,7 @@ const RUN: ReviewRunDto = {
   summary: SUMMARY,
   coverage: { complete: true, omissions: [], recordedAt: '2026-09-06T16:15:00Z' },
   investigation: null,
-  validationStarted: false,
+  steps: [],
   evidence: [],
   outcome: null,
   createdAt: '2026-09-06T16:03:00Z',

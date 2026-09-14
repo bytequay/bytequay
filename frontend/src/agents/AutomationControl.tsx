@@ -63,6 +63,7 @@ export function AutomationControl({ value, providers, disabled, localOnly = fals
     </summary>
     <div className="agt-automation-options">
       <strong>Automation</strong>
+      <p>Finished development work is committed automatically. Review experiments stay uncommitted.</p>
       {AUTOMATION_OPTIONS.map(option => <label key={option.key} className="agt-automation-option">
         <input type="checkbox" checked={value[option.key]} disabled={disabled || localOnly}
           onChange={event => onChange?.({ ...value, [option.key]: event.target.checked })} />
@@ -72,7 +73,7 @@ export function AutomationControl({ value, providers, disabled, localOnly = fals
         onChange={ciLaneId => onChange?.({ ...value, ciLaneId })} />
       <label className="agt-automation-option is-local">
         <input type="checkbox" checked={localOnly} disabled={disabled} onChange={event => onLocalOnlyChange?.(event.target.checked)} />
-        Local only for this turn
+        Keep commits local for this turn
       </label>
     </div>
   </details>;

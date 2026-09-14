@@ -23,6 +23,7 @@ import com.bytequay.core.review.ReviewFinding;
 import com.bytequay.core.review.ReviewInvestigation;
 import com.bytequay.core.review.ReviewMessage;
 import com.bytequay.core.review.ReviewRun;
+import com.bytequay.core.review.ReviewStep;
 import com.bytequay.core.review.ReviewSummary;
 import com.google.common.collect.ImmutableList;
 
@@ -94,7 +95,7 @@ public record AgentReviewProjection(
             Optional<ReviewSummary> summary,
             Optional<ReviewCoverage> coverage,
             Optional<ReviewInvestigation> investigation,
-            boolean validationStarted,
+            List<ReviewStep> steps,
             List<ReviewEvidence> evidence,
             boolean completionRepairUsed,
             Optional<String> outcome,
@@ -120,7 +121,7 @@ public record AgentReviewProjection(
                     run.summary(),
                     run.coverage(),
                     run.investigation(),
-                    run.validationStarted(),
+                    run.steps(),
                     ImmutableList.copyOf(run.evidence().values()),
                     run.completionRepairUsed(),
                     run.outcome(),

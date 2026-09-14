@@ -17,6 +17,7 @@ import com.bytequay.agent.core.AgentEventEnvelope;
 import com.bytequay.agent.core.AgentEventPayload;
 import com.bytequay.agent.core.AgentEventService;
 import com.bytequay.agent.core.TaskId;
+import com.bytequay.agent.core.TurnId;
 import com.bytequay.agent.spi.ReviewBridge;
 import com.bytequay.agent.spi.ReviewTool;
 import com.bytequay.app.git.GitCommandRunner;
@@ -33,6 +34,8 @@ import com.bytequay.core.review.ReviewCandidateValidation;
 import com.bytequay.core.review.ReviewConflictException;
 import com.bytequay.core.review.ReviewCoverage;
 import com.bytequay.core.review.ReviewEvidence;
+import com.bytequay.core.review.ReviewEvidenceAnswer;
+import com.bytequay.core.review.ReviewEvidenceRequest;
 import com.bytequay.core.review.ReviewFinding;
 import com.bytequay.core.review.ReviewInvalidRequestException;
 import com.bytequay.core.review.ReviewInvestigation;
@@ -40,7 +43,9 @@ import com.bytequay.core.review.ReviewMessage;
 import com.bytequay.core.review.ReviewNotFoundException;
 import com.bytequay.core.review.ReviewOperation;
 import com.bytequay.core.review.ReviewRun;
+import com.bytequay.core.review.ReviewStep;
 import com.bytequay.core.review.ReviewSummary;
+import com.bytequay.core.review.ReviewValidation;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -48,7 +53,6 @@ import com.fasterxml.jackson.databind.node.ObjectNode;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.hash.Hashing;
-import com.google.common.util.concurrent.Striped;
 import org.springframework.stereotype.Component;
 
 import java.nio.charset.StandardCharsets;
@@ -68,6 +72,12 @@ import java.util.UUID;
 import java.util.concurrent.locks.Lock;
 import java.util.function.Function;
 
+import static com.bytequay.core.review.ReviewCandidateValidation.Outcome.NEEDS_EVIDENCE;
+import static com.bytequay.core.review.ReviewCandidateValidation.Outcome.SUPPORTED;
+import static com.bytequay.core.review.ReviewCandidateValidation.Outcome.UNRESOLVED;
+import static com.bytequay.core.review.ReviewStep.Kind.COLLECT_EVIDENCE;
+import static com.bytequay.core.review.ReviewStep.Kind.INVESTIGATE;
+import static com.bytequay.core.review.ReviewStep.Kind.VALIDATE;
 import static com.google.common.collect.ImmutableList.toImmutableList;
 import static java.util.Objects.requireNonNull;
 
@@ -98,7 +108,8 @@ public class ReviewTools
     private final GitCommandRunner git;
     private final ObjectMapper objectMapper;
     private final Clock clock;
-    private final Striped<Lock> locks = Striped.lock(32);
+    private final ReviewLocks locks;
+    private final ReviewToolAssignment assignments;
 
     public ReviewTools(
             AgentReviewStore store,
@@ -108,6 +119,8 @@ public class ReviewTools
             WorkspaceRepositoryService workspaces,
             GitCommandRunner git,
             ObjectMapper objectMapper,
+            ReviewLocks locks,
+            ReviewToolAssignment assignments,
             Clock clock)
     {
         this.store = requireNonNull(store, "store is null");
@@ -118,6 +131,8 @@ public class ReviewTools
         this.git = requireNonNull(git, "git is null");
         this.objectMapper = requireNonNull(objectMapper, "objectMapper is null");
         this.clock = requireNonNull(clock, "clock is null");
+        this.locks = requireNonNull(locks, "locks is null");
+        this.assignments = requireNonNull(assignments, "assignments is null");
     }
 
     /** The bridge for one review-owned task, or empty for any other task. */
@@ -125,10 +140,10 @@ public class ReviewTools
     {
         return store.findReviewByTask(taskId)
                 .filter(review -> review.state() == AgentReview.State.OPEN)
-                .map(review -> new ReviewBridge(tools(review.id()), ReviewPrompts.INSTRUCTION));
+                .map(review -> new ReviewBridge(tools(review.id(), assignments.capture(taskId)), ReviewPrompts.INSTRUCTION));
     }
 
-    private List<ReviewTool> tools(String reviewId)
+    private List<ReviewTool> tools(String reviewId, Optional<TurnId> turnId)
     {
         return ImmutableList.of(
                 new ReviewTool("review_get_context",
@@ -152,6 +167,7 @@ public class ReviewTools
                                                         "source",
                                                         "command_output",
                                                         "investigation",
+                                                        "assignment",
                                                         "findings",
                                                         "summary",
                                                         "discussion",
@@ -165,7 +181,7 @@ public class ReviewTools
                                 .put("target", ImmutableMap.of("type", "string", "maxLength", 200))
                                 .put("ref", ImmutableMap.of("type", "string", "maxLength", 20))
                                 .buildOrThrow(), ImmutableList.of("kind")),
-                        arguments -> call(reviewId, arguments, this::getContext)),
+                        arguments -> call(reviewId, turnId, arguments, this::getContext)),
                 new ReviewTool("review_save_summary",
                         "Save only the pull request's intention and one design/implementation explanation per commit in scope. "
                                 + "Put bugs and concrete code improvements in inline findings. Saving again creates the next revision.",
@@ -192,19 +208,24 @@ public class ReviewTools
                                                         "required",
                                                         ImmutableList.of("sha", "explanation"))))
                                 .buildOrThrow(), ImmutableList.of("operationKey", "purpose", "commits")),
-                        arguments -> call(reviewId, arguments, this::saveSummary)),
+                        arguments -> call(reviewId, turnId, arguments, this::saveSummary)),
                 new ReviewTool("review_save_investigation",
                         "Save the change map, assessed changed-file paths, supporting evidence refs, and candidate claims before ending investigation. "
                                 + "Candidates are private hypotheses numbered from 1, not findings. "
-                                + "During validation, preserve existing candidates and append newly discovered ones.",
+                                + "Only the assigned investigation or evidence-collection turn may seal this report. Evidence collection must answer every requested check.",
                         schema(ImmutableMap.of(
                                 "operationKey", ImmutableMap.of("type", "string", "minLength", 1, "maxLength", MAX_KEY),
                                 "changeMap", ImmutableMap.of("type", "string", "minLength", 1, "maxLength", MAX_TEXT),
                                 "reviewedFiles", stringArray(1000, 1000),
                                 "contextEvidenceRefs", stringArray(80, 20),
-                                "candidates", stringArray(MAX_CANDIDATES, 2000)),
-                                ImmutableList.of("operationKey", "changeMap", "reviewedFiles", "contextEvidenceRefs", "candidates")),
-                        arguments -> call(reviewId, arguments, this::saveInvestigation)),
+                                "candidates", stringArray(MAX_CANDIDATES, 2000),
+                                "answers", ImmutableMap.of("type", "array", "maxItems", MAX_CANDIDATES, "items", schema(ImmutableMap.of(
+                                        "candidate", ImmutableMap.of("type", "integer", "minimum", 1),
+                                        "attempted", ImmutableMap.of("type", "string", "minLength", 1, "maxLength", 2000),
+                                        "evidenceRefs", stringArray(MAX_EVIDENCE, 20),
+                                        "limitation", ImmutableMap.of("type", "string", "maxLength", 2000)), ImmutableList.of("candidate", "attempted", "evidenceRefs")))),
+                                ImmutableList.of("operationKey", "changeMap", "reviewedFiles", "contextEvidenceRefs", "candidates", "answers")),
+                        arguments -> call(reviewId, turnId, arguments, this::saveInvestigation)),
                 new ReviewTool("review_save_finding",
                         "During validation, create or revise an inline bug report or concrete code improvement, with evidence refs and diff anchors from review_get_context. "
                                 + "Use severity for defects; mark optional improvements as suggestions and omit severity. For an exact replacement, "
@@ -242,14 +263,14 @@ public class ReviewTools
                                                         "required",
                                                         ImmutableList.of("ref", "explanation"))))
                                 .buildOrThrow(), ImmutableList.of("operationKey", "title", "body", "startAnchor", "evidence", "validation")),
-                        arguments -> call(reviewId, arguments, this::saveFinding)),
+                        arguments -> call(reviewId, turnId, arguments, this::saveFinding)),
                 new ReviewTool("review_reply",
                         "Append your private answer to a discussion: target is \"summary\", a run-scoped cardId, or a findingId.",
                         schema(ImmutableMap.of(
                                 "operationKey", ImmutableMap.of("type", "string", "minLength", 1, "maxLength", MAX_KEY),
                                 "target", ImmutableMap.of("type", "string", "minLength", 1),
                                 "body", ImmutableMap.of("type", "string", "minLength", 1, "maxLength", MAX_TEXT)), ImmutableList.of("operationKey", "target", "body")),
-                        arguments -> call(reviewId, arguments, this::reply)),
+                        arguments -> call(reviewId, turnId, arguments, this::reply)),
                 new ReviewTool("review_withdraw_finding",
                         "Withdraw a finding you no longer stand behind, with its expectedRevision and an explanation.",
                         schema(ImmutableMap.of(
@@ -263,20 +284,38 @@ public class ReviewTools
                                         1,
                                         "maxLength",
                                         2000)), ImmutableList.of("operationKey", "findingId", "expectedRevision", "explanation")),
-                        arguments -> call(reviewId, arguments, this::withdraw)),
+                        arguments -> call(reviewId, turnId, arguments, this::withdraw)),
                 new ReviewTool("review_finish",
-                        "Finish validation with honest coverage and one conclusion per numbered candidate. A retained candidate names its findingId; "
-                                + "a rejected candidate omits findingId and explains the counterevidence. complete=false preserves partial work without advancing review coverage.",
+                        "Seal this validation assignment. Assess every candidate as SUPPORTED, REJECTED, NEEDS_EVIDENCE, or UNRESOLVED. "
+                                + "NEEDS_EVIDENCE requires a specific question, check, and resolving criterion; ByteQuay schedules the evidence turn. "
+                                + "SUPPORTED binds a saved findingId and findingRevision. Report the investigationStep from the assignment context. "
+                                + "complete=false and omissions are required for unsettled candidates or unreviewed scope.",
                         schema(ImmutableMap.of(
                                 "operationKey", ImmutableMap.of("type", "string", "minLength", 1, "maxLength", MAX_KEY),
+                                "investigationStep", ImmutableMap.of("type", "integer", "minimum", 1),
+                                "newCandidates", stringArray(MAX_CANDIDATES, 2000),
                                 "complete", ImmutableMap.of("type", "boolean"),
                                 "omissions", stringArray(50, 500),
-                                "validations", ImmutableMap.of("type", "array", "maxItems", MAX_CANDIDATES, "items", schema(ImmutableMap.of(
-                                        "candidate", ImmutableMap.of("type", "integer", "minimum", 1),
-                                        "conclusion", ImmutableMap.of("type", "string", "minLength", 1, "maxLength", 2000),
-                                        "findingId", ImmutableMap.of("type", "string", "minLength", 1)), ImmutableList.of("candidate", "conclusion")))),
+                                "validations", ImmutableMap.of("type", "array", "maxItems", MAX_CANDIDATES, "items", validationSchema())),
                                 ImmutableList.of("operationKey", "complete", "omissions", "validations")),
-                        arguments -> call(reviewId, arguments, this::finish)));
+                        arguments -> call(reviewId, turnId, arguments, this::finish)));
+    }
+
+    private static Map<String, Object> validationSchema()
+    {
+        return schema(ImmutableMap.<String, Object>builder()
+                .put("candidate", ImmutableMap.of("type", "integer", "minimum", 1))
+                .put("outcome", ImmutableMap.of("type", "string", "enum", ImmutableList.of("SUPPORTED", "REJECTED", "NEEDS_EVIDENCE", "UNRESOLVED")))
+                .put("conclusion", ImmutableMap.of("type", "string", "minLength", 1, "maxLength", 2000))
+                .put("evidenceRefs", stringArray(MAX_EVIDENCE, 20))
+                .put("counterevidence", ImmutableMap.of("type", "string", "minLength", 1, "maxLength", 2000))
+                .put("findingId", ImmutableMap.of("type", "string", "minLength", 1))
+                .put("findingRevision", ImmutableMap.of("type", "integer", "minimum", 1))
+                .put("request", schema(ImmutableMap.of(
+                        "question", ImmutableMap.of("type", "string", "minLength", 1, "maxLength", 2000),
+                        "check", ImmutableMap.of("type", "string", "minLength", 1, "maxLength", 2000),
+                        "resolvesWhen", ImmutableMap.of("type", "string", "minLength", 1, "maxLength", 2000)), ImmutableList.of("question", "check", "resolvesWhen")))
+                .buildOrThrow(), ImmutableList.of("candidate", "outcome", "conclusion", "evidenceRefs", "counterevidence"));
     }
 
     private static Map<String, Object> schema(Map<String, Object> properties, List<String> required)
@@ -289,7 +328,7 @@ public class ReviewTools
         return ImmutableMap.of("type", "array", "maxItems", maximum, "items", ImmutableMap.of("type", "string", "minLength", 1, "maxLength", length));
     }
 
-    private String call(String reviewId, String arguments, Function<Call, JsonNode> handler)
+    private String call(String reviewId, Optional<TurnId> turnId, String arguments, Function<Call, JsonNode> handler)
     {
         JsonNode parsed;
         try {
@@ -301,18 +340,15 @@ public class ReviewTools
         if (parsed == null || !parsed.isObject()) {
             return error("arguments", "arguments must be a JSON object");
         }
-        Lock lock = locks.get(reviewId);
+        Lock lock = locks.lock(reviewId);
         lock.lock();
         try {
             AgentReview review = store.findReview(reviewId).orElseThrow(() -> new ReviewNotFoundException("Review not found: " + reviewId));
             if (review.state() != AgentReview.State.OPEN) {
                 return error("review", "this review has ended; nothing can be recorded");
             }
-            List<ReviewRun> runs = store.listRuns(reviewId);
-            if (runs.isEmpty()) {
-                return error("review", "this review has no run yet");
-            }
-            return handler.apply(new Call(review, runs.getLast(), (ObjectNode) parsed)).toString();
+            ReviewToolAssignment.Binding bound = assignments.resolve(reviewId, turnId);
+            return handler.apply(new Call(review, bound.run(), bound.step(), bound.discussion(), (ObjectNode) parsed)).toString();
         }
         catch (ReviewInvalidRequestException | ReviewConflictException e) {
             String message = Optional.ofNullable(e.getMessage()).orElse("invalid request");
@@ -339,6 +375,7 @@ public class ReviewTools
         if (replay.result().isPresent()) {
             return replay.result().orElseThrow();
         }
+        writable(call);
         ObjectNode arguments = call.arguments();
         List<String> commitShas = call.run().commits().stream().map(commit -> commit.sha()).collect(toImmutableList());
         List<ReviewSummary.CommitExplanation> commits = new ArrayList<>();
@@ -352,6 +389,9 @@ public class ReviewTools
         }
         if (commits.size() != commitShas.size() || commits.stream().map(ReviewSummary.CommitExplanation::sha).distinct().count() != commitShas.size()) {
             throw new ReviewInvalidRequestException("commits: include each actual commit exactly once");
+        }
+        if (call.discussion().flatMap(ReviewMessage::findingId).isPresent()) {
+            throw new ReviewInvalidRequestException("target: a finding discussion cannot replace the review summary");
         }
         Optional<ReviewSummary> previous = call.run().summary();
         int revision = previous.map(ReviewSummary::revision).orElse(0) + 1;
@@ -373,8 +413,9 @@ public class ReviewTools
         if (replay.result().isPresent()) {
             return replay.result().orElseThrow();
         }
-        if (!call.run().active() || call.run().coverage().isPresent()) {
-            throw new ReviewInvalidRequestException("investigation: the run has already reported its result");
+        ReviewStep step = assigned(call, INVESTIGATE, COLLECT_EVIDENCE);
+        if (!call.run().hasCompleteSummary()) {
+            throw new ReviewInvalidRequestException("summary: save the intention and every actual commit before sealing the investigation");
         }
         List<String> files = strings(call.arguments(), "reviewedFiles", 1000, 1000);
         Set<String> allowedFiles = new HashSet<>(requiredFiles(call));
@@ -382,20 +423,42 @@ public class ReviewTools
         if (files.stream().distinct().count() != files.size() || !allowedFiles.containsAll(files)) {
             throw new ReviewInvalidRequestException("reviewedFiles: use distinct paths from this run's frozen diff or requiredReviewFiles");
         }
-        List<String> refs = strings(call.arguments(), "contextEvidenceRefs", 80, 20);
-        if (refs.stream().anyMatch(ref -> !call.run().evidence().containsKey(ref))) {
-            throw new ReviewInvalidRequestException("contextEvidenceRefs: use evidence refs returned in this run");
-        }
+        List<String> refs = evidenceRefs(call, call.arguments(), "contextEvidenceRefs", 80);
         List<String> candidates = strings(call.arguments(), "candidates", MAX_CANDIDATES, 2000);
         List<String> previous = call.run().investigation().map(ReviewInvestigation::candidates).orElseGet(ImmutableList::of);
-        if (call.run().validationStarted() && (candidates.size() < previous.size() || !candidates.subList(0, previous.size()).equals(previous))) {
-            throw new ReviewInvalidRequestException("candidates: preserve candidate numbering during validation; append new hypotheses and reject disproven ones in review_finish");
+        if (step.kind() == COLLECT_EVIDENCE) {
+            previous = ImmutableList.<String>builder().addAll(previous).addAll(lastValidation(call.run()).orElseThrow().newCandidates()).build();
         }
-        ReviewInvestigation investigation = new ReviewInvestigation(text(call.arguments(), "changeMap", MAX_TEXT, true), files, refs, candidates, ImmutableList.of());
-        ObjectNode result = objectMapper.createObjectNode().put("status", "accepted").put("candidates", candidates.size())
-                .put("next", call.run().validationStarted() ? "Continue validation, then call review_finish"
-                        : "End this investigation turn; ByteQuay will start a separate validation turn");
-        store.updateRun(call.run().withInvestigation(investigation, now()).withOperation(replay.key(), new ReviewOperation(replay.digest(), result.toString()), now()));
+        if (step.kind() == COLLECT_EVIDENCE && (candidates.size() < previous.size() || !candidates.subList(0, previous.size()).equals(previous))) {
+            throw new ReviewInvalidRequestException("candidates: preserve existing candidate text and numbering; append new hypotheses if needed");
+        }
+        Set<Integer> requested = new HashSet<>();
+        if (step.kind() == COLLECT_EVIDENCE) {
+            lastValidation(call.run()).orElseThrow().candidates().stream().filter(value -> value.outcome() == NEEDS_EVIDENCE)
+                    .forEach(value -> requested.add(value.candidate()));
+        }
+        List<ReviewEvidenceAnswer> answers = new ArrayList<>();
+        Set<Integer> answered = new HashSet<>();
+        for (JsonNode item : array(call.arguments(), "answers", MAX_CANDIDATES)) {
+            int candidate = integer(item, "candidate").orElseThrow(() -> new ReviewInvalidRequestException("candidate: required positive number"));
+            if (!requested.contains(candidate) || !answered.add(candidate)) {
+                throw new ReviewInvalidRequestException("answers: answer each requested candidate once; use the numbers from assignment context");
+            }
+            List<String> answerRefs = evidenceRefs(call, item, "evidenceRefs", MAX_EVIDENCE);
+            Optional<String> limitation = Optional.of(text(item, "limitation", 2000, false)).filter(value -> !value.isEmpty());
+            if (answerRefs.isEmpty() && limitation.isEmpty()) {
+                throw new ReviewInvalidRequestException("answers: cite the result of the check or explain why evidence is unavailable in limitation");
+            }
+            answers.add(new ReviewEvidenceAnswer(candidate, text(item, "attempted", 2000, true), answerRefs, limitation));
+        }
+        if (!answered.equals(requested)) {
+            throw new ReviewInvalidRequestException("answers: account for every requested check, including unavailable evidence");
+        }
+        ReviewInvestigation investigation = new ReviewInvestigation(text(call.arguments(), "changeMap", MAX_TEXT, true), files, refs, candidates, ImmutableList.of(), answers);
+        ObjectNode result = objectMapper.createObjectNode().put("status", "accepted").put("candidates", candidates.size()).put("investigationStep", step.number())
+                .put("next", "End this investigation turn; ByteQuay will start a separate validation turn");
+        store.updateRun(call.run().withInvestigation(investigation, now()).replaceCurrentStep(step.withInvestigation(investigation), now())
+                .withOperation(replay.key(), new ReviewOperation(replay.digest(), result.toString()), now()));
         return result;
     }
 
@@ -405,9 +468,10 @@ public class ReviewTools
         if (replay.result().isPresent()) {
             return replay.result().orElseThrow();
         }
+        writable(call);
         ObjectNode arguments = call.arguments();
-        if (call.run().active() && !call.run().validationStarted()) {
-            throw new ReviewInvalidRequestException("validation: save investigation and end the first turn; findings require the separate validation pass");
+        if (call.run().active()) {
+            assigned(call, VALIDATE);
         }
         String validation = text(arguments, "validation", 2000, true);
         String title = text(arguments, "title", MAX_TITLE, true);
@@ -433,11 +497,15 @@ public class ReviewTools
         boolean insert;
         Optional<String> findingId = Optional.ofNullable(arguments.get("findingId")).filter(JsonNode::isTextual).map(JsonNode::asText);
         if (findingId.isPresent()) {
+            discussionTarget(call, findingId.orElseThrow());
             ReviewFinding existing = findings.stream().filter(finding -> finding.id().equals(findingId.orElseThrow())).findFirst()
                     .orElseThrow(() -> new ReviewInvalidRequestException("findingId: unknown finding " + findingId.orElseThrow()));
             int expected = integer(arguments, "expectedRevision").orElseThrow(() -> new ReviewInvalidRequestException("expectedRevision: required when revising a finding"));
             if (expected != existing.revision()) {
                 throw new ReviewConflictException("expectedRevision: the finding is at revision " + existing.revision());
+            }
+            if (!existing.validatedHeadSha().equals(call.run().headSha())) {
+                throw new ReviewConflictException("findingId: reassess this finding in a review of its current head before revising it");
             }
             if (existing.state() == ReviewFinding.State.WITHDRAWN) {
                 throw new ReviewConflictException("findingId: the finding was withdrawn");
@@ -446,9 +514,7 @@ public class ReviewTools
             insert = false;
         }
         else {
-            if (!call.run().active() || call.run().coverage().isPresent()) {
-                throw new ReviewInvalidRequestException("finding: new findings require an active validation pass");
-            }
+            assigned(call, VALIDATE);
             if (findings.stream().filter(finding -> finding.runId().equals(call.run().id())).count() >= 10) {
                 throw new ReviewInvalidRequestException("finding: select at most ten distinct findings per round");
             }
@@ -513,6 +579,7 @@ public class ReviewTools
         }
         ObjectNode arguments = call.arguments();
         String target = text(arguments, "target", 200, true);
+        discussionTarget(call, target);
         String body = text(arguments, "body", MAX_TEXT, true);
         Optional<String> findingId = Optional.empty();
         Optional<String> cardId = Optional.empty();
@@ -557,8 +624,13 @@ public class ReviewTools
         if (replay.result().isPresent()) {
             return replay.result().orElseThrow();
         }
+        writable(call);
         ObjectNode arguments = call.arguments();
         String findingId = text(arguments, "findingId", 100, true);
+        discussionTarget(call, findingId);
+        if (call.run().active()) {
+            assigned(call, VALIDATE);
+        }
         ReviewFinding finding = store.listFindings(call.review().id()).stream().filter(candidate -> candidate.id().equals(findingId)).findFirst()
                 .orElseThrow(() -> new ReviewInvalidRequestException("findingId: unknown finding " + findingId));
         int expected = integer(arguments, "expectedRevision").orElseThrow(() -> new ReviewInvalidRequestException("expectedRevision: required"));
@@ -585,6 +657,7 @@ public class ReviewTools
         if (replay.result().isPresent()) {
             return replay.result().orElseThrow();
         }
+        writable(call);
         ObjectNode arguments = call.arguments();
         JsonNode complete = arguments.get("complete");
         if (complete == null || !complete.isBoolean()) {
@@ -594,60 +667,155 @@ public class ReviewTools
         if (complete.asBoolean() && !omissions.isEmpty()) {
             throw new ReviewInvalidRequestException("complete: a complete review cannot list omissions");
         }
-        if (!call.run().active()) {
-            throw new ReviewInvalidRequestException("review: this run has ended; discussion does not change its completion");
-        }
-        if (complete.asBoolean() && !call.run().validationStarted()) {
-            throw new ReviewInvalidRequestException("validation: finish the investigation turn before submitting the validated report");
-        }
         if (!complete.asBoolean() && omissions.isEmpty()) {
             throw new ReviewInvalidRequestException("omissions: explain the unreviewed scope or unresolved validation");
+        }
+        ReviewStep step = call.step().filter(value -> call.run().active())
+                .orElseThrow(() -> new ReviewInvalidRequestException("validation: only the assigned review turn can report completion"));
+        ReviewCoverage coverage = new ReviewCoverage(complete.asBoolean(), omissions, now());
+        ObjectNode result = objectMapper.createObjectNode().put("status", "accepted").put("next", "End this turn; ByteQuay decides the next assignment");
+        // An inaccessible initial scope can stop without inventing an investigation or a validation result.
+        if (step.kind() != VALIDATE) {
+            if (complete.asBoolean() || !array(arguments, "validations", MAX_CANDIDATES).isEmpty()) {
+                throw new ReviewInvalidRequestException("validation: finish investigation before submitting a validated report");
+            }
+            store.updateRun(call.run().withCoverage(coverage, now()).withOperation(replay.key(), new ReviewOperation(replay.digest(), result.toString()), now()));
+            return result;
+        }
+        int investigationStep = integer(arguments, "investigationStep")
+                .orElseThrow(() -> new ReviewInvalidRequestException("investigationStep: required from assignment context"));
+        if (investigationStep != investigationStep(call.run())) {
+            throw new ReviewConflictException("investigationStep: the report must validate investigation " + investigationStep(call.run()));
+        }
+        ReviewInvestigation investigation = call.run().investigation().orElseThrow();
+        List<String> newCandidates = arguments.has("newCandidates") ? strings(arguments, "newCandidates", MAX_CANDIDATES, 2000) : ImmutableList.of();
+        int candidateCount = investigation.candidates().size() + newCandidates.size();
+        if (candidateCount > MAX_CANDIDATES) {
+            throw new ReviewInvalidRequestException("newCandidates: at most thirty total candidates per run");
         }
         List<ReviewCandidateValidation> validations = new ArrayList<>();
         Set<Integer> candidates = new HashSet<>();
         Set<String> retained = new HashSet<>();
-        int candidateCount = call.run().investigation().map(value -> value.candidates().size()).orElse(0);
         for (JsonNode item : array(arguments, "validations", MAX_CANDIDATES)) {
             int candidate = integer(item, "candidate").orElseThrow(() -> new ReviewInvalidRequestException("candidate: required positive number"));
             if (candidate > candidateCount || !candidates.add(candidate)) {
                 throw new ReviewInvalidRequestException("validations: include each investigation candidate once, using its one-based number");
             }
+            ReviewCandidateValidation.Outcome outcome;
+            try {
+                outcome = ReviewCandidateValidation.Outcome.valueOf(text(item, "outcome", 30, true));
+            }
+            catch (IllegalArgumentException e) {
+                throw new ReviewInvalidRequestException("outcome: use SUPPORTED, REJECTED, NEEDS_EVIDENCE, or UNRESOLVED");
+            }
+            if (candidate > investigation.candidates().size() && outcome != NEEDS_EVIDENCE) {
+                throw new ReviewInvalidRequestException("newCandidates: new hypotheses require NEEDS_EVIDENCE so ByteQuay can assign investigation");
+            }
+            List<String> refs = evidenceRefs(call, item, "evidenceRefs", MAX_EVIDENCE);
+            if (outcome != UNRESOLVED && refs.isEmpty()) {
+                throw new ReviewInvalidRequestException("evidenceRefs: cite the evidence supporting the verdict or identifying the remaining gap");
+            }
             Optional<String> findingId = Optional.of(text(item, "findingId", 100, false)).filter(value -> !value.isEmpty());
+            Optional<Integer> findingRevision = integer(item, "findingRevision");
+            if ((outcome == SUPPORTED) != findingId.isPresent() || (outcome == SUPPORTED) != findingRevision.isPresent()) {
+                throw new ReviewInvalidRequestException("findingId: only SUPPORTED requires both findingId and findingRevision");
+            }
             findingId.ifPresent(id -> {
                 ReviewFinding finding = store.findFinding(id).filter(value -> value.reviewId().equals(call.review().id()))
                         .orElseThrow(() -> new ReviewInvalidRequestException("findingId: must belong to this review"));
                 if (finding.state() == ReviewFinding.State.WITHDRAWN || finding.outdated() || !finding.validatedHeadSha().equals(call.run().headSha())) {
-                    throw new ReviewInvalidRequestException("findingId: retained findings must be current and not withdrawn");
+                    throw new ReviewInvalidRequestException("findingId: supported findings must be current and not withdrawn");
+                }
+                if (findingRevision.orElseThrow() != finding.revision()) {
+                    throw new ReviewConflictException("findingRevision: reassess the current finding revision " + finding.revision());
+                }
+                if (!refs.containsAll(finding.evidence().stream().map(ReviewEvidence::ref).collect(toImmutableList()))) {
+                    throw new ReviewInvalidRequestException("evidenceRefs: assess all evidence cited by the supported finding");
                 }
                 retained.add(id);
             });
-            validations.add(new ReviewCandidateValidation(candidate, text(item, "conclusion", 2000, true), findingId));
+            Optional<ReviewEvidenceRequest> request = Optional.empty();
+            if (outcome == NEEDS_EVIDENCE) {
+                JsonNode value = item.path("request");
+                request = Optional.of(new ReviewEvidenceRequest(text(value, "question", 2000, true), text(value, "check", 2000, true), text(value, "resolvesWhen", 2000, true)));
+            }
+            else if (item.hasNonNull("request")) {
+                throw new ReviewInvalidRequestException("request: only NEEDS_EVIDENCE may request another check");
+            }
+            if (complete.asBoolean() && (outcome == NEEDS_EVIDENCE || outcome == UNRESOLVED)) {
+                throw new ReviewInvalidRequestException("complete: unsettled candidates require complete=false and explicit omissions");
+            }
+            validations.add(new ReviewCandidateValidation(candidate, outcome, text(item, "conclusion", 2000, true), refs,
+                    text(item, "counterevidence", 2000, true), findingId, findingRevision, request));
+        }
+        if (validations.size() != candidateCount) {
+            throw new ReviewInvalidRequestException("validations: assess every candidate, including rejected and unresolved hypotheses");
         }
         if (complete.asBoolean()) {
             if (!call.run().hasCompleteSummary()) {
                 throw new ReviewInvalidRequestException("summary: save the intention and each actual commit exactly once");
             }
-            ReviewInvestigation investigation = call.run().investigation()
-                    .orElseThrow(() -> new ReviewInvalidRequestException("investigation: required before completion"));
             if (!investigation.reviewedFiles().containsAll(requiredFiles(call))) {
                 throw new ReviewInvalidRequestException("reviewedFiles: account for every required changed file or finish with complete=false and omissions");
             }
-            if (validations.size() != candidateCount) {
-                throw new ReviewInvalidRequestException("validations: resolve every candidate, including rejected hypotheses");
-            }
             if (store.listFindings(call.review().id()).stream().anyMatch(finding -> finding.runId().equals(call.run().id())
                     && finding.state() != ReviewFinding.State.WITHDRAWN && !retained.contains(finding.id()))) {
-                throw new ReviewInvalidRequestException("validations: map every new finding to a candidate or withdraw it");
+                throw new ReviewInvalidRequestException("validations: map every new finding to a supported candidate or withdraw it");
             }
         }
-        ReviewCoverage coverage = new ReviewCoverage(complete.asBoolean(), omissions, now());
-        ReviewRun run = call.run();
-        if (run.investigation().isPresent()) {
-            run = run.withInvestigation(run.investigation().orElseThrow().withValidations(validations), now());
+        ReviewValidation validation = new ReviewValidation(investigationStep, validations, coverage, newCandidates);
+        ReviewRun run = call.run().withInvestigation(investigation.withValidations(validations), now()).replaceCurrentStep(step.withValidation(validation), now());
+        if (validations.stream().noneMatch(value -> value.outcome() == NEEDS_EVIDENCE)) {
+            run = run.withCoverage(coverage, now());
         }
-        ObjectNode result = objectMapper.createObjectNode().put("status", "accepted");
-        store.updateRun(run.withCoverage(coverage, now()).withOperation(replay.key(), new ReviewOperation(replay.digest(), result.toString()), now()));
+        store.updateRun(run.withOperation(replay.key(), new ReviewOperation(replay.digest(), result.toString()), now()));
         return result;
+    }
+
+    private static int investigationStep(ReviewRun run)
+    {
+        return run.steps().stream().filter(step -> step.investigation().isPresent()).reduce((first, last) -> last).orElseThrow().number();
+    }
+
+    private static Optional<ReviewValidation> lastValidation(ReviewRun run)
+    {
+        return run.steps().stream().flatMap(step -> step.validation().stream()).reduce((first, last) -> last);
+    }
+
+    private static void writable(Call call)
+    {
+        if (call.step().filter(ReviewStep::sealed).isPresent() || (call.run().active() && call.run().coverage().isPresent())) {
+            throw new ReviewConflictException("assignment: the result is sealed; end this turn and wait for ByteQuay");
+        }
+        if (call.run().active() && call.step().isEmpty()) {
+            throw new ReviewConflictException("assignment: this discussion cannot change the running review report");
+        }
+    }
+
+    private static ReviewStep assigned(Call call, ReviewStep.Kind... kinds)
+    {
+        writable(call);
+        return call.step().filter(step -> call.run().active() && Arrays.asList(kinds).contains(step.kind()))
+                .orElseThrow(() -> new ReviewInvalidRequestException("validation: this tool is unavailable for the current assignment"));
+    }
+
+    private static void discussionTarget(Call call, String target)
+    {
+        call.discussion().ifPresent(message -> {
+            String expected = message.findingId().or(() -> message.cardId()).orElse("summary");
+            if (!expected.equals(target)) {
+                throw new ReviewInvalidRequestException("target: this discussion is assigned to " + expected);
+            }
+        });
+    }
+
+    private static List<String> evidenceRefs(Call call, JsonNode arguments, String field, int maximum)
+    {
+        List<String> refs = strings(arguments, field, maximum, 20);
+        if (refs.stream().distinct().count() != refs.size() || refs.stream().anyMatch(ref -> !call.run().evidence().containsKey(ref))) {
+            throw new ReviewInvalidRequestException(field + ": use distinct evidence refs returned in this run");
+        }
+        return refs;
     }
 
     // ---- reads ----
@@ -665,6 +833,7 @@ public class ReviewTools
             case "source" -> source(call, text(arguments, "path", 1000, true), integer(arguments, "startLine").orElse(1), integer(arguments, "endLine"));
             case "command_output" -> commandOutput(call);
             case "investigation" -> objectMapper.valueToTree(call.run().investigation().orElse(null));
+            case "assignment" -> assignment(call);
             case "findings" -> findings(call);
             case "summary" -> summary(call);
             case "discussion" -> discussion(call, text(arguments, "target", 200, true));
@@ -694,7 +863,7 @@ public class ReviewTools
         node.putPOJO("labels", detail.labels().stream().map(PullRequestDetail.Label::name).collect(toImmutableList()));
         node.putPOJO("commits", run.commits());
         node.putPOJO("requiredReviewFiles", requiredFiles(call));
-        node.put("pass", run.validationStarted() ? "validation" : "investigation");
+        node.set("assignment", assignment(call));
         node.putPOJO(
                 "changedFiles",
                 run
@@ -702,6 +871,19 @@ public class ReviewTools
                         .stream()
                         .map(file -> ImmutableMap.of("path", file.filename(), "status", file.status(), "additions", file.additions(), "deletions", file.deletions()))
                         .collect(toImmutableList()));
+        return node;
+    }
+
+    private JsonNode assignment(Call call)
+    {
+        ObjectNode node = objectMapper.createObjectNode();
+        call.step().ifPresentOrElse(step -> {
+            node.put("step", step.number()).put("kind", step.kind().name()).put("sealed", step.sealed());
+            call.run().steps().stream().filter(value -> value.investigation().isPresent()).reduce((first, last) -> last)
+                    .ifPresent(value -> node.put("investigationStep", value.number()));
+            node.put("evidenceRoundsRemaining", 2 - call.run().steps().stream().filter(value -> value.kind() == COLLECT_EVIDENCE).count());
+            lastValidation(call.run()).ifPresent(validation -> node.putPOJO("previousValidation", validation));
+        }, () -> node.put("kind", "DISCUSSION"));
         return node;
     }
 
@@ -952,7 +1134,7 @@ public class ReviewTools
     private Replay replay(Call call, String tool)
     {
         String operationKey = text(call.arguments(), "operationKey", MAX_KEY, true);
-        String key = tool + ":" + operationKey;
+        String key = call.step().map(step -> "review-step:" + call.run().id() + ":" + step.number() + ":").orElse("") + tool + ":" + operationKey;
         String digest = Hashing.sha256().hashString(canonical(call.arguments()), StandardCharsets.UTF_8).toString();
         ReviewOperation stored = call.run().operations().get(key);
         if (stored == null) {
@@ -1056,7 +1238,7 @@ public class ReviewTools
         return Instant.now(clock);
     }
 
-    private record Call(AgentReview review, ReviewRun run, ObjectNode arguments) {}
+    private record Call(AgentReview review, ReviewRun run, Optional<ReviewStep> step, Optional<ReviewMessage> discussion, ObjectNode arguments) {}
 
     private record Replay(String key, String digest, Optional<JsonNode> result) {}
 }

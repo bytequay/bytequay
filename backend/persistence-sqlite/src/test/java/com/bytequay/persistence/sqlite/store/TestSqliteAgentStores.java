@@ -533,6 +533,31 @@ class TestSqliteAgentStores
     }
 
     @Test
+    void retainsPrivateReviewHeadAndInputSettingsAcrossReload()
+    {
+        Instant now = Instant.parse("2026-08-16T00:00:00Z");
+        AgentTask task = newTask(now, Optional.of("workspace-a"), true).withLocalReviewHead(Optional.of("a".repeat(40)), now);
+        taskStore.insert(task);
+        AgentTurnSettings settings = new AgentTurnSettings(Optional.of("model"), Optional.empty(), AgentPermissionPolicy.AUTO,
+                Duration.ofMinutes(5), ImmutableList.of(), Optional.empty(), Optional.of(DevelopmentAutomation.LOCAL_ONLY));
+        AgentTurn turn = AgentTurn.accepted(TurnId.random(), task.id(), "private-review", settings, now);
+        turnStore.insert(turn);
+        QueuedAgentInput queued = QueuedAgentInput.queued(QueuedInputId.random(), task.id(), 1, "private-review-next",
+                new BlobRef("queue/input", "text/plain", 5), "later", settings, now);
+        queueStore.insert(queued);
+        entityManager.clear();
+
+        AgentTask restored = taskStore.find(task.id()).orElseThrow();
+        assertThat(restored.localReviewHead()).contains("a".repeat(40));
+        assertThat(restored.withDefaults(restored.defaults(), now.plusSeconds(1)).localReviewHead()).isEqualTo(restored.localReviewHead());
+        assertThat(turnStore.find(turn.id()).orElseThrow().settings()).contains(settings);
+        assertThat(queueStore.find(queued.id()).orElseThrow().settings()).isEqualTo(settings);
+        taskStore.update(restored.withLocalReviewHead(Optional.empty(), now.plusSeconds(2)));
+        entityManager.clear();
+        assertThat(taskStore.find(task.id()).orElseThrow().localReviewHead()).isEmpty();
+    }
+
+    @Test
     void retainsAutomationSnapshotsAndReadinessIndependentlyOfFutureDefaults()
     {
         Instant now = Instant.parse("2026-08-16T00:00:00Z");

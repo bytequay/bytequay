@@ -34,12 +34,12 @@ const task: AgentTaskDto = { ...parseAgentTask(contracts.task), interactive: tru
 const turn = { ...parseAgentTurn(contracts.turn), state: 'COMPLETED', developmentResult: report };
 const state = { ...initialAgentTaskState(), task, turn, latestTurnId: turn.id, connection: 'open' as const };
 
-it('keeps Local only confined to a submission without changing saved defaults', () => {
+it('keeps commits local for one submission without changing saved defaults', () => {
   const local = automationForSubmission(defaults, true);
-  expect(local).toEqual({ autoCommit: false, autoDraftPr: false, autoCiFix: false, ciLaneId: null });
-  expect(defaults.autoCommit).toBe(true);
+  expect(local).toEqual({ autoDraftPr: false, autoCiFix: false, ciLaneId: null });
+  expect(defaults.autoDraftPr).toBe(true);
   expect(automationForSubmission(defaults, false)).toBe(defaults);
-  expect(automationSummary(local)).toBe('Local only');
+  expect(automationSummary(local)).toBe('Local commits');
 });
 
 it('changes request identity when automation or its first-turn override changes', () => {
@@ -50,7 +50,7 @@ it('changes request identity when automation or its first-turn override changes'
   const local = tracker.requestFor('workspace', 'Change code', 'codex', taskDefaults, [], automationForSubmission(defaults, true));
   expect(local.taskId).not.toBe(first.taskId);
   expect(local.defaults.developmentAutomation).toEqual(defaults);
-  expect(local.developmentAutomation?.autoCommit).toBe(false);
+  expect(local.developmentAutomation?.autoDraftPr).toBe(false);
   expect(tracker.requestFor('workspace', 'Change code', 'codex', taskDefaults, [], local.developmentAutomation)).toBe(local);
   const submissions = createDraftSubmissionTracker(() => String(++id));
   const key = submissions.keyFor('send', 'task', 'task', 'Change code', [], taskDefaults);
@@ -61,12 +61,15 @@ it('validates and narrows automation and durable readiness at the bridge', () =>
   expect(parseDevelopmentAutomation({ ...defaults, backendSecret: 'never forward' })).toEqual(defaults);
   expect(parseDevelopmentAutomation(defaults).ciLaneId).toBeNull();
   expect(parseDevelopmentAutomation({ ...defaults, ciLaneId: 'claude' }).ciLaneId).toBe('claude');
-  expect(() => parseDevelopmentAutomation({ ...defaults, autoCommit: 'true' })).toThrow();
+  expect(() => parseDevelopmentAutomation({ ...defaults, autoDraftPr: 'true' })).toThrow();
   expect(parseDevelopmentResult(report)).toEqual(report);
   expect(() => parseDevelopmentResult({ ...report, readyForDelivery: 'false' })).toThrow();
   expect(() => parseDevelopmentResult({ ...report, message: false })).toThrow();
   expect(parseAgentTurn({ ...contracts.turn, developmentResult: report }).developmentResult).toEqual(report);
   expect(parseAgentTask({ ...contracts.task, interactive: false }).interactive).toBe(false);
+  expect(parseAgentTask({ ...contracts.task, localReviewHead: 'a'.repeat(40) }).localReviewHead).toBe('a'.repeat(40));
+  expect(parseAgentTask(contracts.task).localReviewHead).toBeNull();
+  expect(() => parseAgentTask({ ...contracts.task, localReviewHead: false })).toThrow();
   expect(parseAgentTask({ ...contracts.task, developmentContinuationUnfinished: true }).developmentContinuationUnfinished).toBe(true);
   expect(() => parseAgentTask({ ...contracts.task, developmentContinuationUnfinished: 'false' })).toThrow();
 });
@@ -149,26 +152,32 @@ it('explains stop using the matching active turn policy instead of mutable task 
   expect(stoppingEndsDevelopment(active, 'another-turn')).toBe(false);
   expect(stoppingEndsDevelopment(active, null)).toBe(false);
   expect(stoppingEndsDevelopment({ ...active, task: { ...task, defaults: { ...task.defaults, developmentAutomation: defaults } },
-    turn: { ...accepted, settings: { ...accepted.settings, developmentAutomation: local } } }, turn.id)).toBe(false);
+    turn: { ...accepted, settings: { ...accepted.settings, developmentAutomation: local } } }, turn.id)).toBe(true);
+  expect(stoppingEndsDevelopment({ ...active, task: { ...active.task, localReviewHead: 'a'.repeat(40) } }, turn.id)).toBe(false);
+  expect(stoppingEndsDevelopment({ ...active, task: { ...active.task, interactive: false } }, turn.id)).toBe(false);
   expect(stoppingEndsDevelopment({ ...state, task: { ...task, developmentContinuationUnfinished: true } }, null)).toBe(true);
 });
 
-it('shows all switches and inherited CI repair agent selection in settings and the composer', () => {
+it('shows publication switches and explains mandatory development commits', () => {
   const page = renderToStaticMarkup(<WorkflowPage value={defaults} providers={[]} busy={false} error={null} onChange={() => {}} />);
-  expect(page.match(/aria-checked="true"/g)).toHaveLength(3);
+  expect(page.match(/aria-checked="true"/g)).toHaveLength(2);
+  expect(page).not.toContain('Auto commit');
+  expect(page).toContain('Finished development work is committed automatically. Review experiments stay uncommitted.');
   expect(page).toContain('Same agent as development');
   expect(page).toContain('Use the development agent or choose another agent to repair failing CI checks.');
   expect(page).toContain('mark the draft ready');
   const composer = renderToStaticMarkup(<AutomationControl value={defaults} providers={[]} localOnly={false}
     onChange={() => {}} onLocalOnlyChange={() => {}} />);
-  expect(composer).toContain('Local only for this turn');
+  expect(composer).toContain('Keep commits local for this turn');
+  expect(composer).not.toContain('Auto commit');
+  expect(composer).toContain('Finished development work is committed automatically. Review experiments stay uncommitted.');
   expect(composer).toContain('Same agent as development');
   // The popover names each choice; only Settings describes them.
   expect(composer).not.toContain('mark the draft ready');
   expect(composer).not.toContain('<small>');
   expect(composer).not.toMatch(/<(input|select)[^>]*disabled/);
   const started = renderToStaticMarkup(<AutomationControl value={defaults} providers={[]} disabled />);
-  expect(started.match(/<(input|select)[^>]*disabled=""/g)).toHaveLength(5);
+  expect(started.match(/<(input|select)[^>]*disabled=""/g)).toHaveLength(4);
 });
 
 it('offers inherited CI repair by default and supported Codex or Claude overrides', () => {

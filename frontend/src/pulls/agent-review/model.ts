@@ -19,7 +19,12 @@ import type {
   ReviewFindingDto,
   ReviewMessageDto,
   ReviewRunDto,
+  ReviewStepDto,
 } from './contracts';
+
+function reviewStepLabel(kind: ReviewStepDto['kind']): string {
+  return { INVESTIGATE: 'Investigating', COLLECT_EVIDENCE: 'Collecting evidence', VALIDATE: 'Validating' }[kind];
+}
 
 /**
  * What the review is doing, derived from task, turn and result facts. There is no stored review
@@ -120,8 +125,9 @@ export function reviewStatus(review: AgentReviewDto): ReviewStatusView {
       return { status: 'approval', label: 'Waiting for approval', tone: 'warn', detail: 'the run waits until you answer', chip: 'Needs approval', busy: false };
     }
     const queued = review.queuedInputIds.length;
+    const step = run?.steps.at(-1)?.kind ?? 'INVESTIGATE';
     const label = run?.state === 'RUNNING' && run.turnIds.includes(review.activeTurn?.id ?? '')
-      ? run.validationStarted ? 'Validating' : 'Investigating' : 'Running';
+      ? reviewStepLabel(step) : 'Running';
     const detail = run === null
       ? 'starting the review'
       : `reviewing ${run.commits.length} ${run.commits.length === 1 ? 'commit' : 'commits'} at ${shortSha(run.headSha)}`;

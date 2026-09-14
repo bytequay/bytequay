@@ -15,6 +15,7 @@ package com.bytequay.app.review;
 
 import com.bytequay.agent.core.AgentApprovalService;
 import com.bytequay.agent.core.AgentCompletionService;
+import com.bytequay.agent.core.AgentConflictException;
 import com.bytequay.agent.core.AgentTask;
 import com.bytequay.agent.core.AgentTaskDefaults;
 import com.bytequay.agent.core.AgentTaskService;
@@ -41,6 +42,7 @@ import com.bytequay.agent.spi.AgentLaneId;
 import com.bytequay.agent.spi.AgentPermissionPolicy;
 import com.bytequay.app.agent.WorkflowAgentTasks;
 import com.bytequay.app.git.GitCommandRunner;
+import com.bytequay.app.git.ReviewExperiments;
 import com.bytequay.app.service.credentials.CredentialService;
 import com.bytequay.app.service.pr.PullRequestRefreshService;
 import com.bytequay.app.service.pr.PullRequestService;
@@ -54,14 +56,18 @@ import com.bytequay.core.domain.PullRequestDetail;
 import com.bytequay.core.review.AgentReview;
 import com.bytequay.core.review.AgentReviewStore;
 import com.bytequay.core.review.ReviewAnchor;
+import com.bytequay.core.review.ReviewCandidateValidation;
 import com.bytequay.core.review.ReviewCommit;
 import com.bytequay.core.review.ReviewConflictException;
 import com.bytequay.core.review.ReviewDraftStore;
+import com.bytequay.core.review.ReviewEvidence;
 import com.bytequay.core.review.ReviewFinding;
 import com.bytequay.core.review.ReviewInvalidRequestException;
 import com.bytequay.core.review.ReviewMessage;
 import com.bytequay.core.review.ReviewNotFoundException;
 import com.bytequay.core.review.ReviewRun;
+import com.bytequay.core.review.ReviewStep;
+import com.bytequay.core.review.ReviewValidation;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.util.concurrent.Striped;
@@ -81,6 +87,7 @@ import java.util.concurrent.locks.Lock;
 import java.util.function.Supplier;
 
 import static com.bytequay.app.review.DefaultAgentReviewService.CompletionAction.ACCEPT;
+import static com.bytequay.app.review.DefaultAgentReviewService.CompletionAction.COLLECT_EVIDENCE;
 import static com.bytequay.app.review.DefaultAgentReviewService.CompletionAction.INCOMPLETE_COVERAGE;
 import static com.bytequay.app.review.DefaultAgentReviewService.CompletionAction.INCOMPLETE_REPORT;
 import static com.bytequay.app.review.DefaultAgentReviewService.CompletionAction.REPAIR;
@@ -106,13 +113,14 @@ public class DefaultAgentReviewService
     private final WorkspaceRepositoryService workspaces;
     private final WorktreeService worktrees;
     private final GitCommandRunner git;
+    private final ReviewExperiments experiments;
     private final PullRequestService pullRequests;
     private final PullRequestRefreshService refresh;
     private final CredentialService credentials;
     private final ReviewTaskObserver observer;
     private final Clock clock;
     private final Striped<Lock> startLocks = Striped.lock(32);
-    private final Striped<Lock> locks = Striped.lock(32);
+    private final ReviewLocks locks;
 
     public DefaultAgentReviewService(
             AgentReviewStore store,
@@ -127,10 +135,12 @@ public class DefaultAgentReviewService
             WorkspaceRepositoryService workspaces,
             WorktreeService worktrees,
             GitCommandRunner git,
+            ReviewExperiments experiments,
             PullRequestService pullRequests,
             PullRequestRefreshService refresh,
             CredentialService credentials,
             ReviewTaskObserver observer,
+            ReviewLocks locks,
             Clock clock)
     {
         this.store = requireNonNull(store, "store is null");
@@ -145,11 +155,13 @@ public class DefaultAgentReviewService
         this.workspaces = requireNonNull(workspaces, "workspaces is null");
         this.worktrees = requireNonNull(worktrees, "worktrees is null");
         this.git = requireNonNull(git, "git is null");
+        this.experiments = requireNonNull(experiments, "experiments is null");
         this.pullRequests = requireNonNull(pullRequests, "pullRequests is null");
         this.refresh = requireNonNull(refresh, "refresh is null");
         this.credentials = requireNonNull(credentials, "credentials is null");
         this.observer = requireNonNull(observer, "observer is null");
         this.clock = requireNonNull(clock, "clock is null");
+        this.locks = requireNonNull(locks, "locks is null");
     }
 
     @Override
@@ -256,7 +268,7 @@ public class DefaultAgentReviewService
             }
             Optional<ReviewRun> latest = latestRun(reviewId);
             boolean retry = latest.map(run -> run.state() != ReviewRun.State.ACCEPTED && !run.active()).orElse(true);
-            followHead(review, retry, true);
+            followHead(review, retry);
             return projection(reviewId);
         });
     }
@@ -440,9 +452,6 @@ public class DefaultAgentReviewService
                 }
                 return null;
             }
-            if (!review.followUpPaused()) {
-                followHead(store.findReview(reviewId).orElseThrow(), false, false);
-            }
             return null;
         });
     }
@@ -461,74 +470,61 @@ public class DefaultAgentReviewService
                             return null;
                         });
                     }
-                    reconcile(review.id());
                 });
     }
 
-    /** Applies the durable outcome of a run's last turn once that turn has settled. */
+    /** Applies only the current assignment's accepted turn after its runtime has stopped. */
     private AgentReview settle(AgentReview review, ReviewRun run, AgentTask task)
     {
-        if (run.turnIds().isEmpty()) {
-            Optional<AgentTurn> accepted = turns.findTurnByIdempotencyKey(task.id(), "review-run:" + run.id());
-            if (accepted.isEmpty()) {
-                Instant now = Instant.now(clock);
-                store.updateRun(run.ended(ReviewRun.State.FAILED, Optional.of("The review stopped before its turn was accepted"), now));
-                return store.updateReview(review.withFollowUpPaused(true, now));
-            }
-            run = store.updateRun(run.withTurn(accepted.orElseThrow().id().toString(), Instant.now(clock)));
+        if (run.currentStep().isEmpty()) {
+            return incomplete(review, run, "The review has no current assignment; start a new review run");
         }
-        Optional<AgentTurn> repair = run.completionRepairUsed() ? turns.findTurnByIdempotencyKey(task.id(), "review-repair:" + run.id()) : Optional.empty();
-        Optional<AgentTurn> validation = run.validationStarted() ? turns.findTurnByIdempotencyKey(task.id(), "review-validate:" + run.id()) : Optional.empty();
-        // A provider can accept a follow-up before saving its association succeeds.
-        // Reattach it before interpreting the earlier turn as the latest result.
-        for (AgentTurn accepted : ImmutableList.<AgentTurn>builder().addAll(repair.stream().toList()).addAll(validation.stream().toList()).build()) {
-            if (!run.turnIds().contains(accepted.id().toString())) {
-                run = store.updateRun(run.withTurn(accepted.id().toString(), Instant.now(clock)));
+        ReviewStep step = run.currentStep().orElseThrow();
+        Optional<AgentTurn> accepted = turns.findTurnByIdempotencyKey(task.id(), step.key(run.id()));
+        if (accepted.isEmpty()) {
+            if (idle(task) && !review.followUpPaused()) {
+                startFollowup(run, task);
             }
+            return review;
         }
-        AgentTurn turn = turns.get(TurnId.valueOf(run.turnIds().getLast()));
-        if (!turn.state().terminal() || task.worktreeMutationClaim().map(claim -> claim.kind() == WorktreeMutationClaim.Kind.TURN).orElse(false)) {
+        AgentTurn turn = turns.get(accepted.orElseThrow().id());
+        // A provider can accept a turn before its association is saved. The assignment key remains authoritative.
+        if (!run.turnIds().contains(turn.id().toString())) {
+            run = store.updateRun(run.withTurn(turn.id().toString(), Instant.now(clock)));
+        }
+        if (!turn.state().terminal() || !idle(task)) {
             return review;
         }
         Instant now = Instant.now(clock);
         switch (turn.state()) {
             case COMPLETED -> {
-                // A finished provider result can still retain ownership while process cleanup is unresolved.
-                if (!idle(task)) {
-                    return review;
-                }
-                CompletionAction action = completionAction(run, repair, validation);
+                CompletionAction action = completionAction(run);
                 // Pausing prevents continuation, but still records an already reported result.
                 if (review.followUpPaused() && action != ACCEPT && action != INCOMPLETE_COVERAGE) {
                     return review;
                 }
                 return switch (action) {
-                    case VALIDATE -> {
-                        ReviewRun validating = run.validationStarted() ? run : store.updateRun(run.withValidationStarted(now));
-                        startFollowup(validating, task, "review-validate:", ReviewPrompts.validationRequest(validating));
+                    case VALIDATE, COLLECT_EVIDENCE -> {
+                        ReviewStep.Kind kind = action == VALIDATE ? ReviewStep.Kind.VALIDATE : ReviewStep.Kind.COLLECT_EVIDENCE;
+                        ReviewRun next = store.updateRun(run.withStep(step.next(kind), now));
+                        startFollowup(next, task);
                         yield review;
                     }
                     case REPAIR -> {
-                        ReviewRun repairing = run.completionRepairUsed() ? run : store.updateRun(run.withCompletionRepairUsed(now));
-                        startFollowup(repairing, task, "review-repair:", run.validationStarted() ? ReviewPrompts.completionRepair(run) : ReviewPrompts.investigationRepair(run));
+                        ReviewRun repairing = store.updateRun(run.replaceCurrentStep(step.forRepair(), now).withCompletionRepairUsed(now));
+                        startFollowup(repairing, task);
                         yield review;
                     }
                     case ACCEPT -> {
                         AgentReview advanced = review.withLatestCompletedRun(run.id(), now);
-                        store.acceptRun(advanced, run.ended(ReviewRun.State.ACCEPTED, Optional.empty(), now));
+                        ReviewRun completed = run.withCoverage(step.validation().orElseThrow().coverage(), now);
+                        store.acceptRun(advanced, completed.ended(ReviewRun.State.ACCEPTED, Optional.empty(), now));
                         yield store.findReview(review.id()).orElseThrow();
                     }
-                    case INCOMPLETE_COVERAGE -> {
-                        store.updateRun(run.ended(ReviewRun.State.INCOMPLETE, Optional.of("The review recorded incomplete coverage"), now));
-                        yield store.updateReview(review.withFollowUpPaused(true, now));
-                    }
-                    case INCOMPLETE_REPORT -> {
-                        String missing = run.investigation().isEmpty() ? "an investigation record"
-                                : !run.hasCompleteSummary() ? "an explanation for every commit"
-                                        : "a coverage record";
-                        store.updateRun(run.ended(ReviewRun.State.INCOMPLETE, Optional.of("The run ended without " + missing), now));
-                        yield store.updateReview(review.withFollowUpPaused(true, now));
-                    }
+                    case INCOMPLETE_COVERAGE -> incomplete(review, run, step.validation().filter(ReviewValidation::needsEvidence).isPresent()
+                            ? "The evidence follow-up limit was exhausted; candidates remain unresolved"
+                            : "The review has unresolved candidates or incomplete coverage");
+                    case INCOMPLETE_REPORT -> incomplete(review, run, "The assignment ended without a complete current report");
                 };
             }
             case CANCELLED -> {
@@ -543,35 +539,75 @@ public class DefaultAgentReviewService
         }
     }
 
-    private static CompletionAction completionAction(ReviewRun run, Optional<AgentTurn> repair, Optional<AgentTurn> validation)
+    private CompletionAction completionAction(ReviewRun run)
     {
+        ReviewStep step = run.currentStep().orElseThrow();
+        if (step.validation().isPresent()) {
+            ReviewValidation validation = step.validation().orElseThrow();
+            if (!currentValidation(run, validation)) {
+                return INCOMPLETE_REPORT;
+            }
+            if (validation.needsEvidence() && run.steps().stream().filter(value -> value.kind() == ReviewStep.Kind.COLLECT_EVIDENCE).count() < 2) {
+                return COLLECT_EVIDENCE;
+            }
+            return validation.coverage().complete() && validation.coverage().omissions().isEmpty() ? ACCEPT : INCOMPLETE_COVERAGE;
+        }
         if (run.coverage().filter(coverage -> !coverage.complete() || !coverage.omissions().isEmpty()).isPresent()) {
             return INCOMPLETE_COVERAGE;
         }
-        // A persisted launch must have an accepted turn before its report can settle the run.
-        if (run.validationStarted() && validation.isEmpty()) {
+        if (step.investigation().isPresent() && run.hasCompleteSummary()) {
             return VALIDATE;
-        }
-        if (run.completionRepairUsed() && repair.isEmpty()) {
-            return REPAIR;
-        }
-        boolean investigationComplete = run.investigation().isPresent() && run.hasCompleteSummary();
-        if (!run.validationStarted() && investigationComplete) {
-            return VALIDATE;
-        }
-        if (run.validationStarted() && investigationComplete && run.coverage().isPresent()) {
-            return ACCEPT;
         }
         return run.completionRepairUsed() ? INCOMPLETE_REPORT : REPAIR;
     }
 
-    private void startFollowup(ReviewRun run, AgentTask task, String keyPrefix, String prompt)
+    /** Tool admission checks again at acceptance, since a retained finding can be edited between writes. */
+    private boolean currentValidation(ReviewRun run, ReviewValidation validation)
     {
-        String key = keyPrefix + run.id();
+        Optional<ReviewStep> investigation = run.steps().stream().filter(step -> step.investigation().isPresent()).reduce((first, second) -> second);
+        if (!run.hasCompleteSummary() || investigation.isEmpty() || investigation.orElseThrow().number() != validation.investigationStep()) {
+            return false;
+        }
+        int existingCandidates = investigation.orElseThrow().investigation().orElseThrow().candidates().size();
+        int candidates = existingCandidates + validation.newCandidates().size();
+        if (validation.candidates().size() != candidates || validation.candidates().stream().anyMatch(candidate -> candidate.candidate() > candidates)) {
+            return false;
+        }
+        for (ReviewCandidateValidation candidate : validation.candidates()) {
+            if (candidate.candidate() > existingCandidates && candidate.outcome() != ReviewCandidateValidation.Outcome.NEEDS_EVIDENCE) {
+                return false;
+            }
+            if (!run.evidence().keySet().containsAll(candidate.evidenceRefs())) {
+                return false;
+            }
+            if (candidate.outcome() == ReviewCandidateValidation.Outcome.SUPPORTED) {
+                Optional<ReviewFinding> finding = candidate.findingId().flatMap(store::findFinding);
+                if (finding.isEmpty() || !finding.orElseThrow().reviewId().equals(run.reviewId()) || finding.orElseThrow().state() == ReviewFinding.State.WITHDRAWN
+                        || finding.orElseThrow().outdated() || !finding.orElseThrow().validatedHeadSha().equals(run.headSha())
+                        || !candidate.findingRevision().equals(Optional.of(finding.orElseThrow().revision()))
+                        || !candidate.evidenceRefs().containsAll(finding.orElseThrow().evidence().stream().map(ReviewEvidence::ref).toList())) {
+                    return false;
+                }
+            }
+        }
+        return true;
+    }
+
+    private AgentReview incomplete(AgentReview review, ReviewRun run, String reason)
+    {
+        Instant now = Instant.now(clock);
+        ReviewRun recorded = run.currentStep().flatMap(ReviewStep::validation).map(report -> run.withCoverage(report.coverage(), now)).orElse(run);
+        store.updateRun(recorded.ended(ReviewRun.State.INCOMPLETE, Optional.of(reason), now));
+        return store.updateReview(review.withFollowUpPaused(true, now));
+    }
+
+    private void startFollowup(ReviewRun run, AgentTask task)
+    {
+        String key = run.currentStep().orElseThrow().key(run.id());
         AgentTurn accepted;
         try {
             accepted = turns.findTurnByIdempotencyKey(task.id(), key)
-                    .orElseGet(() -> turns.start(new StartAgentTurnCommand(task.id(), prompt, ImmutableList.of(), key)));
+                    .orElseGet(() -> turns.start(new StartAgentTurnCommand(task.id(), ReviewPrompts.stepRequest(run), ImmutableList.of(), key)));
         }
         catch (RuntimeException failure) {
             if (turns.findTurnByIdempotencyKey(task.id(), key).isEmpty()) {
@@ -588,12 +624,10 @@ public class DefaultAgentReviewService
     }
 
     /**
-     * Starts a run for the newest observed head when nothing is running and the task is idle: a new
-     * head, or a retry the user asked for. Only a user action may realign the worktree to rewritten
-     * history. A worktree that cannot move safely blocks the run, pauses follow-up, and says why
-     * instead of touching the agent's work.
+     * Starts a new-head review or retries a failed run only when the user chooses Update or Resume.
+     * Synchronization and experiment cleanup hold the same mutation claim as ordinary task writers.
      */
-    private void followHead(AgentReview review, boolean retry, boolean userAction)
+    private void followHead(AgentReview review, boolean retry)
     {
         List<ReviewRun> runs = store.listRuns(review.id());
         Optional<ReviewRun> latest = runs.isEmpty() ? Optional.empty() : Optional.of(runs.getLast());
@@ -620,15 +654,13 @@ public class DefaultAgentReviewService
                         && run.coverage().filter(coverage -> coverage.complete() && coverage.omissions().isEmpty()).isPresent())
                 .reduce((first, second) -> second);
         // Compared with the fetched head: a retry can find a newer head than the observed one, and every run must sit where the worktree does.
-        if (latest.map(run -> !run.headSha().equals(snapshot.headSha())).orElse(true)) {
-            try {
-                moveWorktree(task, latest.map(ReviewRun::headSha), snapshot.headSha(), workspace, userAction);
-            }
-            catch (ReviewConflictException refusal) {
-                // Only the user can clear a refused move; unpaused, every PR refresh would fetch and refuse again.
-                store.updateReview(store.findReview(review.id()).orElseThrow().withFollowUpPaused(true, Instant.now(clock)));
-                throw refusal;
-            }
+        try {
+            turns.synchronizeWorktree(taskId, task.version(),
+                    claimed -> moveWorktree(claimed, latest.map(ReviewRun::headSha), snapshot.headSha(), workspace));
+        }
+        catch (ReviewConflictException | AgentConflictException refusal) {
+            store.updateReview(store.findReview(review.id()).orElseThrow().withFollowUpPaused(true, Instant.now(clock)));
+            throw new ReviewConflictException(refusal.getMessage(), refusal);
         }
         List<ReviewFinding> findings = store.listFindings(review.id());
         startRun(store.findReview(review.id()).orElseThrow(), snapshot, workspace, runs.size() + 1, previous, findings);
@@ -636,40 +668,43 @@ public class DefaultAgentReviewService
 
     /**
      * Fast-forwards the generated branch to a descendant head. When the pull request history was
-     * rewritten, a user action realigns a clean worktree that still sits on the last reviewed head.
-     * Local commits or changes are preserved and refused. Ignored build output survives both moves,
-     * and a head that tracks one of its paths is refused.
+     * rewritten, a user action realigns the worktree from the last reviewed head. Experiments are
+     * temporarily stashed and restored at the new head; unrelated local commits are refused.
+     * Ignored build output survives both moves, and a head that tracks one of its paths is refused.
      */
-    private void moveWorktree(AgentTask task, Optional<String> reviewedHead, String headSha, WorkspaceRepositoryContext workspace, boolean userAction)
+    private void moveWorktree(AgentTask task, Optional<String> reviewedHead, String headSha, WorkspaceRepositoryContext workspace)
     {
         TaskWorktree worktree = task.taskWorktree().orElseThrow(() -> new ReviewConflictException("The review task has no managed worktree"));
         WorktreeSnapshot snapshot = worktrees.inspect(worktree);
-        // The snapshot counts ignored build output as dirty; a review agent that ran tests has not left experiments behind.
-        GitCommandRunner.Result status = git.run(worktree.canonicalWorktree(), "status", "--porcelain=v1", "-z", "--untracked-files=all", "--ignore-submodules=none");
-        if (snapshot.gitOperationInProgress() || !status.successful() || !status.output().isEmpty()) {
-            throw new ReviewConflictException("The review worktree has uncommitted experiments or an open Git operation; clean it up before updating the review");
+        if (snapshot.gitOperationInProgress()) {
+            throw new ReviewConflictException("The review worktree has an open Git operation; finish it before updating the review");
         }
-        if (snapshot.head().equals(headSha)) {
-            return;
+        String expectedHead = reviewedHead.orElse(worktree.startCommit());
+        if (!snapshot.head().equals(expectedHead) && !snapshot.head().equals(headSha)) {
+            throw new ReviewConflictException("The review worktree has local commits on top of the reviewed head; remove them before updating the review");
         }
         // Hooks stay off so a hooks path inside the tree cannot run the pull request's own scripts.
         List<String> move;
-        if (git.run(workspace.repository(), "merge-base", "--is-ancestor", snapshot.head(), headSha).successful()) {
+        if (snapshot.head().equals(headSha) || git.run(workspace.repository(), "merge-base", "--is-ancestor", snapshot.head(), headSha).successful()) {
             move = ImmutableList.of("-c", "core.hooksPath=/dev/null", "merge", "--ff-only", "--no-overwrite-ignore", headSha);
-        }
-        else if (!snapshot.head().equals(reviewedHead.orElse(worktree.startCommit()))) {
-            throw new ReviewConflictException("The review worktree has local commits on top of the reviewed head; remove them before updating the review");
-        }
-        else if (!userAction) {
-            throw new ReviewConflictException("The pull request history was rewritten; Update review realigns the review to the new head");
         }
         else {
             // Unlike reset --keep, checkout refuses to overwrite ignored files, not only files that became dirty or untracked after the inspection.
             move = ImmutableList.of("-c", "core.hooksPath=/dev/null", "checkout", "--no-overwrite-ignore", "--no-recurse-submodules", "-B", worktree.generatedBranch(), headSha);
         }
-        GitCommandRunner.Result moved = git.run(worktree.canonicalWorktree(), move);
-        if (!moved.successful() || !worktrees.inspect(worktree).head().equals(headSha)) {
-            throw new ReviewConflictException("The review worktree could not be moved to " + ReviewPrompts.shortSha(headSha) + ": " + moved.output().strip());
+        try {
+            experiments.synchronize(worktree, expectedHead, headSha, () -> {
+                if (snapshot.head().equals(headSha)) {
+                    return;
+                }
+                GitCommandRunner.Result moved = git.run(worktree.canonicalWorktree(), move);
+                if (!moved.successful() || !worktrees.inspect(worktree).head().equals(headSha)) {
+                    throw new ReviewConflictException("The review worktree could not be moved to " + ReviewPrompts.shortSha(headSha) + ": " + moved.output().strip());
+                }
+            }).ifPresent(message -> log.info("Review task {} synchronized: {}", task.id(), message));
+        }
+        catch (RuntimeException failure) {
+            throw new ReviewConflictException(failure.getMessage(), failure);
         }
     }
 
@@ -704,7 +739,7 @@ public class DefaultAgentReviewService
                 Optional.empty(),
                 Optional.empty(),
                 Optional.empty(),
-                false,
+                ImmutableList.of(ReviewStep.initial()),
                 false,
                 ImmutableMap.of(),
                 ImmutableMap.of(),
@@ -729,10 +764,10 @@ public class DefaultAgentReviewService
                     TaskId.valueOf(review.taskId()),
                     ReviewPrompts.reviewRequest(review, run, previous, findings, login),
                     ImmutableList.of(),
-                    "review-run:" + run.id()));
+                    run.currentStep().orElseThrow().key(run.id())));
         }
         catch (RuntimeException failure) {
-            if (turns.findTurnByIdempotencyKey(TaskId.valueOf(review.taskId()), "review-run:" + run.id()).isEmpty()) {
+            if (turns.findTurnByIdempotencyKey(TaskId.valueOf(review.taskId()), run.currentStep().orElseThrow().key(run.id())).isEmpty()) {
                 store.updateRun(run.ended(ReviewRun.State.FAILED, Optional.of("Cannot start the review turn: " + failure.getMessage()), Instant.now(clock)));
                 store.updateReview(store.findReview(review.id()).orElseThrow().withFollowUpPaused(true, Instant.now(clock)));
             }
@@ -926,7 +961,7 @@ public class DefaultAgentReviewService
 
     private <T> T locked(String reviewId, Supplier<T> action)
     {
-        Lock lock = locks.get(reviewId);
+        Lock lock = locks.lock(reviewId);
         lock.lock();
         try {
             return action.get();
@@ -944,6 +979,7 @@ public class DefaultAgentReviewService
     enum CompletionAction
     {
         VALIDATE,
+        COLLECT_EVIDENCE,
         REPAIR,
         ACCEPT,
         INCOMPLETE_COVERAGE,

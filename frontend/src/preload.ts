@@ -300,6 +300,12 @@ const bridge: Bridge = {
     ipcRenderer.invoke('agent:approvals:resolve', approvalId, decision, scopedPermission),
   completeAgentTask: (taskId, workspaceId, notes) =>
     ipcRenderer.invoke('agent:tasks:complete', taskId, workspaceId, notes),
+  startAgentLocalReview: (taskId, workspaceId, expectedVersion) =>
+    ipcRenderer.invoke('agent:task:local-review:start', taskId, workspaceId, expectedVersion),
+  syncAgentLocalReview: (taskId, workspaceId, expectedVersion) =>
+    ipcRenderer.invoke('agent:task:local-review:sync', taskId, workspaceId, expectedVersion),
+  finishAgentLocalReview: (taskId, workspaceId, expectedVersion) =>
+    ipcRenderer.invoke('agent:task:local-review:finish', taskId, workspaceId, expectedVersion),
   cleanupAgentTaskWorktree: (taskId, workspaceId) =>
     ipcRenderer.invoke('agent:task:cleanup', taskId, workspaceId),
   pickAgentDraftAttachments: () => ipcRenderer.invoke('agent:attachments:pick-drafts'),

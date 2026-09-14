@@ -110,6 +110,21 @@ class TestDefaultAgentCompletionService
     }
 
     @Test
+    void privateReviewMustFinishBeforeTaskCompletion()
+    {
+        AgentTask original = stores.find(taskId).orElseThrow();
+        AgentTask reviewing = AgentTask.created(taskId, true, original.title(), original.titleSource(), original.laneId(),
+                original.taskWorktree().orElseThrow(), original.defaults(), NOW).withLocalReviewHead(Optional.of("a".repeat(40)), NOW);
+        stores.update(reviewing);
+
+        assertThatThrownBy(() -> service(Clock.fixed(NOW, ZoneOffset.UTC)).complete(new CompleteAgentTaskCommand(taskId, Optional.empty())))
+                .isInstanceOf(AgentConflictException.class).hasMessageContaining("Finish local review");
+        assertThat(stores.find(taskId).orElseThrow().state()).isEqualTo(TaskState.OPEN);
+        assertThat(stores.find(taskId).orElseThrow().localReviewHead()).contains("a".repeat(40));
+        assertThat(worktrees.inspected).isEmpty();
+    }
+
+    @Test
     void unfinishedContinuationBlocksCompletionAndDeletionBetweenTurns()
     {
         stores.update(stores.find(taskId).orElseThrow().withDevelopmentContinuation(true, NOW));

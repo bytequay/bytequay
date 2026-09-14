@@ -124,8 +124,16 @@ describe('review status', () => {
   it('derives each review pass from run facts and keeps discussion turns distinct', () => {
     const running = runningReviewFixture();
     expect(reviewStatus(running).label).toBe('Investigating');
-    const validating = { ...running, runs: [{ ...running.runs[0], validationStarted: true, turnIds: ['turn-0', 'turn-1'] }] };
+    const validating: AgentReviewDto = { ...running, runs: [{ ...running.runs[0], turnIds: ['turn-0', 'turn-1'], steps: [
+      { number: 1, kind: 'VALIDATE', repair: false, investigation: null, validation: null },
+    ] }] };
     expect(reviewStatus(validating)).toMatchObject({ label: 'Validating', chip: 'Validating' });
+    const collecting: AgentReviewDto = { ...validating, runs: [{ ...validating.runs[0], steps: [
+      { number: 1, kind: 'VALIDATE', repair: false, investigation: null, validation: null },
+      { number: 2, kind: 'COLLECT_EVIDENCE', repair: false, investigation: null, validation: null },
+    ] }] };
+    expect(reviewStatus(collecting)).toMatchObject({ label: 'Collecting evidence', chip: 'Collecting evidence' });
+    expect(reviewStatus({ ...collecting, queuedInputIds: ['q1'] }).chip).toBe('Collecting evidence · 1 queued');
     expect(reviewStatus({ ...validating, activeTurn: { id: 'discussion-turn', state: 'RUNNING', startedAt: null, cancellationRequestedAt: null } }).label).toBe('Running');
     expect(reviewRequests(validating).find(request => request.turnId === 'turn-1')?.action).toBe('Follow-up review');
   });

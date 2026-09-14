@@ -64,11 +64,12 @@ public class AppSettingsService
             catch (JsonProcessingException failure) {
                 throw new IllegalStateException("Saved development automation could not be read", failure);
             }
-        }).orElse(DevelopmentAutomation.DEFAULT);
+        }).orElse(DevelopmentAutomation.DEFAULT).forDevelopment();
     }
 
     public DevelopmentAutomation saveDevelopmentAutomation(DevelopmentAutomation automation)
     {
+        automation = automation.forDevelopment();
         validateDevelopmentAutomation(automation);
         try {
             store.put(DEVELOPMENT_AUTOMATION_KEY, mapper.writeValueAsString(automation));

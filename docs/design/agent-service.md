@@ -38,9 +38,11 @@ review comments by parsing user text. Failed delivery retains the comment and
 offers explicit Retry. Reads never dispatch work.
 
 Posting or replying sends directly to the associated task agent. For development
-tasks, the accepted input authorizes committing and updating the existing PR for requested
-changes, with Auto CI fix off so a draft stays draft. A question asks for an
-answer without edits or release of earlier held work. User text and captured
+tasks, the first input enters private local review of a clean published PR
+revision. Requested edits and verification tests remain uncommitted. All later
+inputs, including the main composer, stay private until the user finishes local
+review and confirms discarding experiments. A running development turn must stop
+before entering review. User text and captured
 code remain private and must not be published as GitHub discussion, PR text, or
 quoted in commit messages. Resolve and reopen are local mutations and do not
 start an agent turn. Review-owned inputs retain the review execution profile and
@@ -55,8 +57,8 @@ native children may use this local capability. Tool arguments cannot select
 another task, workspace, PR, or GitHub write. Mutation keys prevent duplicate
 replies after tool retries. Registration is revoked with the existing provider
 session. This bridge is available alongside ReviewBridge for review tasks. For
-development tasks it does not activate the review execution profile or disable
-development tools and subagents. No general tool registry,
+local review of development tasks, a policy-only `ReviewBridge` also activates
+the review execution profile and suppresses development delivery tools. No general tool registry,
 new runner, or remote publication capability is added.
 
 The authenticated desktop API lists a task's discussions at
@@ -80,6 +82,25 @@ completed, verified refinement turn or null, without starting work. POST on
 dispatches through the same local discussion path. Replies, retries, and
 resolution use the existing local-review endpoints. The previous report stays
 available while a new refinement is unfinished or fails validation.
+
+`POST /agent/tasks/{taskId}/local-review/start?workspaceId=...` and `/finish`
+accept `{ expectedVersion }` and return the updated task, whose optional
+`localReviewHead` is the durable review baseline. Entry verifies a clean HEAD
+matching the open PR; finish explicitly discards uncommitted experiments and
+only then clears the baseline. Both operations use the existing task lock and
+quiescent mutation claim. A private review task cannot complete or start a
+publication turn until finish succeeds.
+
+`POST /agent/tasks/{taskId}/local-review/sync?workspaceId=...` accepts the same
+versioned request and returns `{ task, warning }`. Under the same quiescent
+mutation claim, it stashes experiments, updates to the freshly verified remote
+PR head, restores experiments, and advances `localReviewHead`. The UI discloses
+before the action that any restoration conflict discards all private experiments.
+A conflict returns the updated task with an informational warning after cleaning
+the checkout and dropping the temporary stash. There is no conflict-recovery
+state. A failed or unsafe head move fails the request. The task stays in private
+review. Finishing explicitly discards experiments without creating a stash.
+See [development delivery](development-delivery.md#2-settings-and-scope).
 
 ## Development-agent CI evidence
 

@@ -72,21 +72,21 @@ class TestSettingsController
             throws Exception
     {
         when(settings.developmentAutomation()).thenReturn(DevelopmentAutomation.DEFAULT);
-        DevelopmentAutomation selected = new DevelopmentAutomation(false, true, true, Optional.of(AgentLaneId.CLAUDE_CLI));
+        DevelopmentAutomation selected = new DevelopmentAutomation(true, true, true, Optional.of(AgentLaneId.CLAUDE_CLI));
         when(settings.saveDevelopmentAutomation(selected)).thenReturn(selected);
         mvc().perform(get("/api/settings/development-automation"))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.autoCommit").value(true))
+                .andExpect(jsonPath("$.autoCommit").doesNotExist())
                 .andExpect(jsonPath("$.autoDraftPr").value(true))
                 .andExpect(jsonPath("$.autoCiFix").value(true))
                 .andExpect(jsonPath("$.ciLaneId").isEmpty());
         mvc().perform(put("/api/settings/development-automation").contentType(MediaType.APPLICATION_JSON)
-                        .content("{\"autoCommit\":false,\"autoDraftPr\":true,\"autoCiFix\":true,\"ciLaneId\":\"claude\"}"))
+                        .content("{\"autoDraftPr\":true,\"autoCiFix\":true,\"ciLaneId\":\"claude\"}"))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.autoCommit").value(false))
+                .andExpect(jsonPath("$.autoCommit").doesNotExist())
                 .andExpect(jsonPath("$.ciLaneId").value("claude"));
         mvc().perform(put("/api/settings/development-automation").contentType(MediaType.APPLICATION_JSON)
-                        .content("{\"autoCommit\":true}"))
+                        .content("{\"autoDraftPr\":true}"))
                 .andExpect(status().isBadRequest());
         verify(settings).saveDevelopmentAutomation(selected);
     }

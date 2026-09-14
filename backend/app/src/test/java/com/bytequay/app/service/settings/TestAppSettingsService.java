@@ -86,10 +86,17 @@ class TestAppSettingsService
 
         settings.saveDevelopmentAutomation(chosen);
 
-        assertThat(settings.developmentAutomation()).isEqualTo(chosen);
+        assertThat(settings.developmentAutomation()).isEqualTo(chosen.forDevelopment());
         assertThat(rows).containsKey("agent.developmentAutomation");
         settings.saveDevelopmentAutomation(DevelopmentAutomation.LOCAL_ONLY);
-        assertThat(settings.developmentAutomation()).isEqualTo(DevelopmentAutomation.LOCAL_ONLY);
+        assertThat(settings.developmentAutomation()).isEqualTo(DevelopmentAutomation.LOCAL_ONLY.forDevelopment());
+    }
+
+    @Test
+    void savedAutoCommitOptOutCannotDisableDevelopmentCommits()
+    {
+        rows.put("agent.developmentAutomation", "{\"autoCommit\":false,\"autoDraftPr\":false,\"autoCiFix\":false,\"ciLaneId\":null}");
+        assertThat(settings.developmentAutomation()).isEqualTo(DevelopmentAutomation.LOCAL_ONLY.forDevelopment());
     }
 
     @Test

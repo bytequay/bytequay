@@ -813,7 +813,19 @@ class TestClaudePermissionBroker
                                 else {
                                     assertThat(settings.at("/sandbox/network").isMissingNode()).isTrue();
                                 }
-                                assertThat(settings.path("autoMode").isMissingNode()).isTrue();
+                                if (reviewSession) {
+                                    assertThat(settings.at("/sandbox/autoAllowBashIfSandboxed").asBoolean()).isFalse();
+                                    assertThat(settings.at("/permissions/deny").toString()).contains("Bash(git commit:*)", "Bash(git update-ref:*)")
+                                            .doesNotContain("Bash(git add", "Bash(git write-tree", "Bash(git update-index", "Bash(git symbolic-ref", "Bash(git reset");
+                                    assertThat(settings.at("/autoMode/classifyAllShell").asBoolean()).isTrue();
+                                    assertThat(settings.at("/autoMode/hard_deny").toString()).contains("Earlier development authorization does not apply",
+                                            "staging, unstaging, applying patches, and read-only Git metadata");
+                                }
+                                else {
+                                    assertThat(settings.path("autoMode").isMissingNode()).isTrue();
+                                    assertThat(settings.at("/permissions/deny").toString())
+                                            .doesNotContain("Bash(git commit", "Bash(git update-ref", "Bash(git cherry-pick", "Bash(git reset");
+                                }
                                 assertThat(settings.at("/sandbox/network/allowUnixSockets").isMissingNode()).isTrue();
                                 assertThat(settings.at("/permissions/deny").toString()).contains("Bash(gh:*)", "Bash(git push:*)");
                                 assertThat(settings.at("/sandbox/filesystem/denyRead").toString()).contains(ghConfig, xdgConfig + "/gh");

@@ -69,6 +69,57 @@ class TestReviewToolBroker
     }
 
     @Test
+    void privateReviewPolicyRetainsDiscussionsAndExcludesDeliveryToolsForBothProviders()
+            throws Exception
+    {
+        ReviewBridge review = new ReviewBridge(ImmutableList.of(), "Keep private experiments uncommitted");
+        LocalReviewBridge local = new LocalReviewBridge(id -> "[]", reply -> "saved", resolution -> "resolved", LocalReviewBridge.INSTRUCTION);
+        ClaudePermissionBroker broker = new ClaudePermissionBroker(
+                () -> URI.create("http://127.0.0.1:9000/internal/agent/claude/mcp"), objectMapper,
+                (taskId, query) -> {
+                    throw new AssertionError("Private reviews cannot read CI memory");
+                },
+                taskId -> Optional.of(review),
+                taskId -> {
+                    throw new AssertionError("Private reviews cannot expose development delivery");
+                },
+                DraftPullRequestPublisher.NONE, taskId -> Optional.of(local),
+                taskId -> {
+                    throw new AssertionError("Private reviews cannot expose development CI tools");
+                });
+        SecretRedactor redactor = SecretRedactor.fromEnvironment(ImmutableMap.of());
+        try (ClaudePermissionBroker.CodeGraphRegistration codex = broker.registerTools("development-task", temporaryDirectory, AgentPermissionPolicy.AUTO,
+                (request, timeout) -> CompletableFuture.completedFuture(ProviderApprovalDecision.deny()), redactor, Optional.empty()).orElseThrow();
+                ClaudePermissionBroker.Registration claude = broker.register("development-task", temporaryDirectory, temporaryDirectory, temporaryDirectory,
+                        AgentPermissionPolicy.AUTO, false,
+                        (request, timeout) -> CompletableFuture.completedFuture(ProviderApprovalDecision.allow(Optional.empty())), redactor, Optional.empty())) {
+            assertThat(codex.review()).contains(review);
+            assertThat(claude.review()).contains(review);
+            assertThat(codex.instruction()).contains(review.instruction(), local.instruction());
+            assertThat(claude.instruction()).hasValueSatisfying(instruction -> assertThat(instruction).contains(review.instruction(), local.instruction()));
+            for (String token : ImmutableList.of(codex.token(), claude.token())) {
+                JsonNode listed = broker.handle(token, objectMapper.readTree("""
+                        {"jsonrpc":"2.0","id":1,"method":"tools/list","params":{}}
+                        """)).body().orElseThrow();
+                assertThat(listed.at("/result/tools").findValuesAsText("name"))
+                        .containsAll(LocalReviewBridge.TOOL_NAMES)
+                        .allMatch(name -> LocalReviewBridge.TOOL_NAMES.contains(name) || name.equals("permission_prompt"));
+                JsonNode unavailable = broker.handle(token, objectMapper.readTree("""
+                        {"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"review_finish","arguments":{}}}
+                        """)).body().orElseThrow();
+                assertThat(unavailable.at("/error/code").asInt()).isEqualTo(-32602);
+            }
+            JsonNode denied = broker.handle(claude.token(), objectMapper.readTree("""
+                    {"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"permission_prompt",
+                    "arguments":{"tool_name":"Bash","input":{"command":"git commit -am experiment"}}}}
+                    """)).body().orElseThrow();
+            JsonNode decision = objectMapper.readTree(denied.at("/result/content/0/text").asText());
+            assertThat(decision.path("behavior").asText()).isEqualTo("deny");
+            assertThat(decision.path("message").asText()).contains("uncommitted");
+        }
+    }
+
+    @Test
     void reviewSessionsRetainTheirLocalDiscussionToolsForBothProviders()
             throws Exception
     {
@@ -185,11 +236,17 @@ class TestReviewToolBroker
         assertThat(refusedResult.get("message").asText()).contains("cannot push");
         assertThat(approvals).hasValue(0);
 
-        JsonNode allowed = broker.handle(registration.token(), objectMapper.readTree("""
-                {"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"permission_prompt","arguments":{"tool_name":"Bash","input":{"command":"./mvnw test"}}}}
-                """)).body().orElseThrow();
-        assertThat(objectMapper.readTree(allowed.at("/result/content/0/text").asText()).get("behavior").asText()).isEqualTo("allow");
-        assertThat(approvals).hasValue(1);
+        ImmutableList<String> experimentCommands = ImmutableList.of("./mvnw test", "git add TestExperiment.java", "git reset HEAD -- TestExperiment.java",
+                "git restore --staged TestExperiment.java", "git apply --cached experiment.patch", "git symbolic-ref --short HEAD", "git write-tree", "git update-index --refresh");
+        for (String command : experimentCommands) {
+            JsonNode request = objectMapper.valueToTree(ImmutableMap.of(
+                    "jsonrpc", "2.0", "id", 3, "method", "tools/call",
+                    "params", ImmutableMap.of("name", "permission_prompt",
+                            "arguments", ImmutableMap.of("tool_name", "Bash", "input", ImmutableMap.of("command", command)))));
+            JsonNode allowed = broker.handle(registration.token(), request).body().orElseThrow();
+            assertThat(objectMapper.readTree(allowed.at("/result/content/0/text").asText()).get("behavior").asText()).as(command).isEqualTo("allow");
+        }
+        assertThat(approvals).hasValue(experimentCommands.size());
         registration.close();
     }
 

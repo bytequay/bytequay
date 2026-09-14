@@ -46,6 +46,7 @@ import com.bytequay.agent.spi.ProviderAgentEvent;
 import com.bytequay.agent.spi.ProviderApprovalDecision;
 import com.bytequay.agent.spi.ProviderApprovalRequest;
 import com.bytequay.agent.spi.PullRequestCiBridge;
+import com.bytequay.agent.spi.ReviewBridge;
 import com.bytequay.agent.spi.ReviewBridgeResolver;
 import com.bytequay.agent.spi.RunningTurn;
 import com.fasterxml.jackson.databind.JsonNode;
@@ -2614,6 +2615,72 @@ class TestCodexCliDriver
         supervisor.emitScriptedActivity("thread-1");
         supervisor.server().completeTurn();
         return turn.completion().toCompletableFuture().get(10, TimeUnit.SECONDS);
+    }
+
+    @Test
+    void privateReviewPolicyRestrictsInitialAndResumedSessionsWithoutReportingTools()
+            throws Exception
+    {
+        ScriptedProcessSupervisor supervisor = new ScriptedProcessSupervisor(objectMapper);
+        supervisor.reportModelVersion(Optional.of("v2"));
+        supervisor.configBody = "{\"mcp_servers\":{\"bytequay\":{\"url\":\"" + MCP_ENDPOINT + "\"}}}";
+        supervisor.mcpStatuses = "{\"data\":[{\"name\":\"bytequay\",\"pluginId\":null}],\"nextCursor\":null}";
+        ReviewBridge review = new ReviewBridge(ImmutableList.of(), "Keep private experiments uncommitted");
+        ClaudePermissionBroker broker = new ClaudePermissionBroker(
+                () -> URI.create(MCP_ENDPOINT), objectMapper, (taskId, query) -> "", taskId -> Optional.of(review));
+        CodexHome.prepare(codexHome());
+        CodexCliDriver driver = new CodexCliDriver("/fake/codex", "0.153.4", objectMapper, supervisor,
+                ImmutableMap.of("HOME", worktree.toString(), "GH_TOKEN", "github-sentinel"), codexHome(), broker, Duration.ofSeconds(30));
+        Optional<AgentSessionRef> reference = Optional.empty();
+        for (int index = 0; index < 2; index++) {
+            AtomicReference<ProviderApprovalRequest> approval = new AtomicReference<>();
+            try (AgentSession session = driver.open(context(reference, approval), event -> {})) {
+                AppServerProcess server = supervisor.servers().getLast();
+                JsonNode thread = server.threadRequests().getFirst();
+                assertThat(thread.path("developerInstructions").asText()).isEqualTo(review.instruction());
+                assertThat(thread.path("approvalsReviewer").asText()).isEqualTo("user");
+                assertThat(thread.path("config").path("features").path("multi_agent_v2").asBoolean()).isFalse();
+                assertThat(supervisor.environments().getLast()).doesNotContainKeys("GH_TOKEN", "GITHUB_TOKEN");
+                String token = supervisor.environments().getLast().get("BYTEQUAY_CODEGRAPH_TOKEN");
+                assertThat(token).isNotBlank();
+                JsonNode listed = broker.handle(token, objectMapper.readTree("""
+                        {"jsonrpc":"2.0","id":1,"method":"tools/list","params":{}}
+                        """)).body().orElseThrow();
+                assertThat(listed.at("/result/tools")).isEmpty();
+
+                session.start(command("private review"));
+                assertThat(server.turnRequests().getFirst().path("approvalsReviewer").asText()).isEqualTo("user");
+                assertThat(server.turnRequests().getFirst().path("sandboxPolicy").path("type").asText()).isEqualTo("workspaceWrite");
+                List<String> deniedCommands = ImmutableList.of("git commit -am experiment", "git update-ref refs/heads/topic HEAD", "git push origin HEAD");
+                for (String shellCommand : deniedCommands) {
+                    approval.set(null);
+                    ObjectNode params = objectMapper.createObjectNode()
+                            .put("threadId", "thread-1")
+                            .put("turnId", server.activeTurn())
+                            .put("itemId", "private-review-command")
+                            .put("command", shellCommand)
+                            .put("startedAtMs", 1786884871461L);
+                    params.set("availableDecisions", objectMapper.valueToTree(ImmutableList.of("accept", "decline")));
+                    int requestId = 95 + deniedCommands.indexOf(shellCommand);
+                    ObjectNode request = objectMapper.createObjectNode().put("id", requestId).put("method", "item/commandExecution/requestApproval");
+                    request.set("params", params);
+                    server.emit(request.toString());
+                    awaitCondition(() -> server.result(requestId) != null);
+                    assertThat(server.result(requestId).path("decision").asText()).isEqualTo("decline");
+                    assertThat(approval).hasValue(null);
+                }
+                server.emit("""
+                        {"id":98,"method":"item/commandExecution/requestApproval","params":{
+                        "threadId":"thread-1","turnId":"%s","itemId":"stage-experiment",
+                        "command":"git add TestExperiment.java","availableDecisions":["accept","decline"],
+                        "startedAtMs":1786884871461}}
+                        """.formatted(server.activeTurn()));
+                awaitCondition(() -> server.result(98) != null);
+                assertThat(server.result(98).path("decision").asText()).isEqualTo("accept");
+                assertThat(approval.get().detail()).contains("git add TestExperiment.java");
+                reference = Optional.of(session.reference());
+            }
+        }
     }
 
     @Test

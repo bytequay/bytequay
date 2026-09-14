@@ -25,7 +25,8 @@ public record ReviewInvestigation(
         List<String> reviewedFiles,
         List<String> contextEvidenceRefs,
         List<String> candidates,
-        List<ReviewCandidateValidation> validations)
+        List<ReviewCandidateValidation> validations,
+        List<ReviewEvidenceAnswer> answers)
 {
     public ReviewInvestigation
     {
@@ -34,10 +35,11 @@ public record ReviewInvestigation(
         contextEvidenceRefs = ImmutableList.copyOf(contextEvidenceRefs);
         candidates = ImmutableList.copyOf(candidates);
         validations = ImmutableList.copyOf(validations);
+        answers = answers == null ? ImmutableList.of() : ImmutableList.copyOf(answers);
     }
 
     public ReviewInvestigation withValidations(List<ReviewCandidateValidation> conclusions)
     {
-        return new ReviewInvestigation(changeMap, reviewedFiles, contextEvidenceRefs, candidates, conclusions);
+        return new ReviewInvestigation(changeMap, reviewedFiles, contextEvidenceRefs, candidates, conclusions, answers);
     }
 }

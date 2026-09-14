@@ -164,7 +164,7 @@ export function createPreviewBridge(
       return [];
     },
     discardAgentDraftAttachments: async () => {},
-    getDevelopmentAutomation: async () => ({ autoCommit: true, autoDraftPr: true, autoCiFix: true, ciLaneId: null }),
+    getDevelopmentAutomation: async () => ({ autoDraftPr: true, autoCiFix: true, ciLaneId: null }),
     createAgentTask: async (request) => {
       record('createAgentTask', request);
       return previewTask(request.workspaceId, request.taskId);
@@ -364,6 +364,18 @@ export function createPreviewBridge(
         completedAt: '2026-08-20T10:05:00Z',
         deleteAfter: '2026-08-27T10:05:00Z',
       };
+    },
+    startAgentLocalReview: async (taskId, id, expectedVersion) => {
+      record('startAgentLocalReview', taskId, id, expectedVersion);
+      return { ...previewTask(id, taskId), version: expectedVersion + 1, localReviewHead: 'a'.repeat(40) };
+    },
+    syncAgentLocalReview: async (taskId, id, expectedVersion) => {
+      record('syncAgentLocalReview', taskId, id, expectedVersion);
+      return { task: { ...previewTask(id, taskId), version: expectedVersion + 1, localReviewHead: 'b'.repeat(40) }, warning: null };
+    },
+    finishAgentLocalReview: async (taskId, id, expectedVersion) => {
+      record('finishAgentLocalReview', taskId, id, expectedVersion);
+      return { ...previewTask(id, taskId), version: expectedVersion + 1, localReviewHead: null };
     },
     cleanupAgentTaskWorktree: async (taskId, id) => {
       record('cleanupAgentTaskWorktree', taskId, id);

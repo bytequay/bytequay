@@ -57,6 +57,7 @@ import com.bytequay.app.agent.AgentStartupRecovery;
 import com.bytequay.app.agent.AgentTaskStartupProgress;
 import com.bytequay.app.agent.DevelopmentFollowupCoordinator;
 import com.bytequay.app.agent.InteractiveAgentTaskCreator;
+import com.bytequay.app.agent.LocalReviewSessionService;
 import com.bytequay.app.ci.CiAutofixService;
 import com.bytequay.app.service.pr.PullRequestService;
 import com.bytequay.app.service.recent.RecentTouchRecorder;
@@ -146,6 +147,7 @@ public class AgentController
     private final CiAutofixService ci;
     private final AgentTaskStartupProgress startupProgress;
     private final DevelopmentFollowupCoordinator developmentFollowups;
+    private final LocalReviewSessionService localReviewSessions;
 
     public AgentController(
             AgentTaskService taskService,
@@ -169,7 +171,8 @@ public class AgentController
             CiAutofixStore ciRuns,
             CiAutofixService ci,
             AgentTaskStartupProgress startupProgress,
-            DevelopmentFollowupCoordinator developmentFollowups)
+            DevelopmentFollowupCoordinator developmentFollowups,
+            LocalReviewSessionService localReviewSessions)
     {
         this.taskService = requireNonNull(taskService, "taskService is null");
         this.taskTitles = requireNonNull(taskTitles, "taskTitles is null");
@@ -193,6 +196,7 @@ public class AgentController
         this.ci = requireNonNull(ci, "ci is null");
         this.startupProgress = requireNonNull(startupProgress, "startupProgress is null");
         this.developmentFollowups = requireNonNull(developmentFollowups, "developmentFollowups is null");
+        this.localReviewSessions = requireNonNull(localReviewSessions, "localReviewSessions is null");
     }
 
     /**
@@ -600,6 +604,9 @@ public class AgentController
             checkArgument(requested.isEmpty(), "Development automation requires an interactive task");
             return Optional.empty();
         }
+        if (task.localReviewHead().isPresent()) {
+            return Optional.of(DevelopmentAutomation.LOCAL_ONLY);
+        }
         DevelopmentAutomation automation = requested.map(DevelopmentAutomationDto::toDomain)
                 .or(task.defaults()::developmentAutomation)
                 .orElseGet(appSettings::developmentAutomation);
@@ -724,6 +731,50 @@ public class AgentController
         TaskId id = TaskId.valueOf(taskId);
         taskService.getInteractive(workspaceId, id);
         return ResponseEntity.accepted().body(InteractiveAgentHttpContract.turn(turnService.resumeQueued(id)));
+    }
+
+    @PostMapping("/tasks/{taskId}/local-review/start")
+    public InteractiveAgentHttpContract.TaskResponse startLocalReview(
+            @PathVariable String taskId,
+            @RequestParam String workspaceId,
+            @RequestBody LocalReviewRequest request)
+    {
+        TaskId id = TaskId.valueOf(taskId);
+        taskService.getInteractive(workspaceId, id);
+        return taskResponse(localReviewSessions.start(id, request.expectedVersion()));
+    }
+
+    @PostMapping("/tasks/{taskId}/local-review/sync")
+    public LocalReviewSyncResponse synchronizeLocalReview(
+            @PathVariable String taskId,
+            @RequestParam String workspaceId,
+            @RequestBody LocalReviewRequest request)
+    {
+        TaskId id = TaskId.valueOf(taskId);
+        taskService.getInteractive(workspaceId, id);
+        LocalReviewSessionService.SyncResult result = localReviewSessions.synchronize(id, request.expectedVersion());
+        return new LocalReviewSyncResponse(taskResponse(result.task()), result.warning());
+    }
+
+    public record LocalReviewSyncResponse(InteractiveAgentHttpContract.TaskResponse task, Optional<String> warning) {}
+
+    @PostMapping("/tasks/{taskId}/local-review/finish")
+    public InteractiveAgentHttpContract.TaskResponse finishLocalReview(
+            @PathVariable String taskId,
+            @RequestParam String workspaceId,
+            @RequestBody LocalReviewRequest request)
+    {
+        TaskId id = TaskId.valueOf(taskId);
+        taskService.getInteractive(workspaceId, id);
+        return taskResponse(localReviewSessions.finish(id, request.expectedVersion()));
+    }
+
+    public record LocalReviewRequest(long expectedVersion)
+    {
+        public LocalReviewRequest
+        {
+            checkArgument(expectedVersion >= 0, "expectedVersion is negative");
+        }
     }
 
     /**

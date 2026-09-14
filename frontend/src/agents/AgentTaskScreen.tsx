@@ -147,7 +147,9 @@ interface AgentTaskScreenProps {
   headerAction?: React.ReactNode;
 }
 
-type TaskConfirmation = { kind: 'stop'; impact: AgentRuntimeStopImpactDto; automation: boolean } | { kind: 'fail' };
+type TaskConfirmation = { kind: 'stop'; impact: AgentRuntimeStopImpactDto; automation: boolean }
+  | { kind: 'fail' }
+  | { kind: 'finish-local-review'; expectedVersion: number };
 
 const CONNECTION_TEXT: Record<string, string> = {
   connecting: 'Connecting — loading task history…',
@@ -883,6 +885,7 @@ function SidePanel({
 export function AgentTaskBody({
   state, models, onBack, onSend: send, onCancel, onComplete, onDecide, onCompose, onSelectModel,
   onStopServer, onMarkFailed, onRename, onArchive, composerRef,
+  onStartLocalReview, onSyncLocalReview, onFinishLocalReview,
   provider = '',
   providerStatus = null,
   providerStatusFresh = false,
@@ -974,6 +977,9 @@ export function AgentTaskBody({
   onSelectModel: (model: string, effort: string | null, serviceTier: string | null) => void;
   onStopServer: () => void;
   onMarkFailed: () => void;
+  onStartLocalReview?: () => void;
+  onSyncLocalReview?: () => void;
+  onFinishLocalReview?: () => void;
   /** A person's name for the task; absent while the task is still loading or in a static render. */
   onRename?: (title: string) => void;
   /** Shelves the task or brings it back; absent while the task is still loading or in a static render. */
@@ -1063,6 +1069,11 @@ export function AgentTaskBody({
   const hasAgents = agents.length > 0 || expiredChildren.length > 0;
   const visiblePanelTab: PanelTab = supportsNestedAgents || panelTab !== 'agents' ? panelTab : 'pr';
   const taskPr = taskPullRequest(pullRequests);
+  const localReviewActive = state.task?.localReviewHead != null;
+  const localReviewAvailable = state.task?.interactive === true && state.task.state === 'OPEN'
+    && taskPr !== null && taskPr.state !== 'closed' && taskPr.state !== 'merged';
+  const localReviewActionBlocked = state.sending || state.connection !== 'open' || submissionBlocked || !canComplete(state)
+    || state.queue.some(input => input.state === 'UNCERTAIN');
   const resultBranch = state.task?.summary?.resultBranch ?? null;
   /** The chip and a transcript link both open the panel on the pull request, never another tab. */
   const showPullRequest = (): void => {
@@ -1083,7 +1094,7 @@ export function AgentTaskBody({
     showPullRequest();
   };
   const status = runtimeStatus(state);
-  const routedToCi = ciMessage(state.composer) !== null;
+  const routedToCi = !localReviewActive && ciMessage(state.composer) !== null;
   const ciUnavailable = ciMessageUnavailable(state);
   const automationActive = state.task?.developmentContinuationUnfinished === true;
   const currentCi = state.task?.developmentCi?.status === 'FINISHED' ? null : state.task?.developmentCi;
@@ -1160,9 +1171,9 @@ export function AgentTaskBody({
             type="button"
             className="agt-headbtn"
             aria-label="Mark it complete"
-            title={completeTitle(status, state)}
+            title={localReviewActive ? 'Finish local review before completing the task' : completeTitle(status, state)}
             onClick={onComplete}
-            disabled={state.sending || !canComplete(state)}
+            disabled={state.sending || localReviewActive || !canComplete(state)}
           >
             <CircleCheck aria-hidden="true" />
           </button>
@@ -1201,6 +1212,17 @@ export function AgentTaskBody({
         </div>
       )}
       {state.notice !== null && <div className="agt-notice" role="alert">{state.notice}</div>}
+      {localReviewActive ? <div className="agt-local-review" role="status">
+        <span>Local review · changes stay uncommitted</span>
+        {onSyncLocalReview !== undefined && <button type="button" className="agt-action"
+          disabled={localReviewActionBlocked} onClick={onSyncLocalReview}>Sync PR head</button>}
+        {onFinishLocalReview !== undefined && <button type="button" className="agt-action"
+          disabled={localReviewActionBlocked} onClick={onFinishLocalReview}>Finish local review</button>}
+        <span className="agt-local-review__sync-note">Local experiments are restored when possible. If they conflict, all local experiments are discarded.</span>
+      </div> : localReviewAvailable && onStartLocalReview !== undefined && <div className="agt-local-review">
+        <button type="button" className="agt-action" disabled={localReviewActionBlocked} onClick={onStartLocalReview}>Review locally</button>
+        <span>Try tests and code changes without committing or publishing them.</span>
+      </div>}
 
       <AgentConversation
         turns={turns} durableTurns={state.turns} models={models} now={now} scroll={scroll}
@@ -1289,7 +1311,7 @@ export function AgentTaskBody({
       {!terminal && status !== 'recovery' && !providerRecoveryRequired && (
         <ConversationComposer
           automation={automation}
-          ciMention={state.task?.interactive === true} routedToCi={routedToCi}
+          ciMention={state.task?.interactive === true && !localReviewActive} routedToCi={routedToCi}
           ciMessageHint={routedToCi ? ciUnavailable ?? 'Send to CI Autofix' : undefined}
           value={state.composer} onChange={onCompose} onSend={onSend} onStop={automationActive ? onStopServer : onCancel} onSteer={onSteer} onQueue={onQueue}
           running={status === 'running' || automationActive} sending={state.sending}
@@ -1352,7 +1374,8 @@ export function AgentTaskBody({
             onSelectTab={onSelectPanelTab}
             onOpenPullRequest={onOpenPullRequest}
             onCreatePullRequest={onCreatePullRequest}
-            createPullRequestBlocked={automationActive ? 'Available when automation finishes' : status !== 'idle' || state.sending || state.connection === 'failed'
+            createPullRequestBlocked={localReviewActive ? 'Finish local review before publishing development work'
+              : automationActive ? 'Available when automation finishes' : status !== 'idle' || state.sending || state.connection === 'failed'
               ? 'Available once the agent is idle'
               : null}
             width={sidePanel.width}
@@ -1546,7 +1569,7 @@ export default function AgentTaskScreen({
     dispatch({ type: 'turn/changed', turn });
   }, []);
 
-  const automationEligible = state.task?.interactive === true;
+  const automationEligible = state.task?.interactive === true && state.task.localReviewHead == null;
   useEffect(() => {
     if (!automationEligible) return;
     let active = true;
@@ -1743,6 +1766,8 @@ export default function AgentTaskScreen({
     active: panelOpen && panelTab === 'changes',
     revision: diffRevision,
   });
+  const refreshLocalReviewDetails = detailSource.refresh;
+  const refreshLocalReviewChanges = pullRequestChanges.refresh;
   const pullRequestDetail = {
     ...detailSource,
     refresh: async () => {
@@ -1880,7 +1905,7 @@ export default function AgentTaskScreen({
 
   const send = useCallback(() => run(async () => {
     const draft = stateRef.current;
-    const ciText = ciMessage(draft.composer);
+    const ciText = draft.task?.localReviewHead == null ? ciMessage(draft.composer) : null;
     if (ciText !== null) {
       if (ciSending.current || attachmentPendingRef.current || confirmation !== null || confirming || ciPollingError !== null || ciMessageUnavailable(draft) !== null) return;
       const ci = draft.task?.developmentCi;
@@ -1909,7 +1934,7 @@ export default function AgentTaskScreen({
     }
     if (attachmentPendingRef.current || automationBlocked || !canSend(stateRef.current)) return;
     const message = state.composer.trim();
-    if (ciMessage(message) !== null) return;
+    if (state.task?.localReviewHead == null && ciMessage(message) !== null) return;
     const task = state.task;
     if (message.length === 0 || task === null) return;
     const attachmentIds = state.attachments.map((attachment) => attachment.id);
@@ -1932,6 +1957,8 @@ export default function AgentTaskScreen({
 
   const taskCommentDisabled = state.task?.state !== 'OPEN' ? 'This task is closed.'
     : state.task?.developmentContinuationUnfinished ? 'Wait for the current follow-up to finish.'
+    : state.task?.localReviewHead == null && (taskPr === null || taskPr.state === 'closed' || taskPr.state === 'merged')
+      ? 'Private local review is available after publishing an open pull request.'
     : state.connection !== 'open' ? 'Reconnect to the task before replying.'
     : state.sending || attaching ? 'Wait for the current submission to finish.'
     : !['idle', 'running'].includes(runtimeStatus(state)) ? 'Wait until this task can accept another message.' : null;
@@ -1971,7 +1998,7 @@ export default function AgentTaskScreen({
   const createPullRequest = useCallback(() => run(async () => {
     const current = stateRef.current;
     const task = current.task;
-    if (task === null || runtimeStatus(current) !== 'idle' || task.developmentContinuationUnfinished || current.sending) return;
+    if (task === null || task.localReviewHead != null || runtimeStatus(current) !== 'idle' || task.developmentContinuationUnfinished || current.sending) return;
     const idempotencyKey = submissions.keyFor('send', taskId, taskId, `draft-pull-request:${task.version}`, [], task.defaults);
     try {
       const turn = await live().requestAgentDraftPullRequest(taskId, workspaceId, task.version, idempotencyKey);
@@ -1987,7 +2014,7 @@ export default function AgentTaskScreen({
   const steer = useCallback(() => run(async () => {
     if (attachmentPendingRef.current || !canSteer(stateRef.current)) return;
     const message = state.composer.trim();
-    if (ciMessage(message) !== null) return;
+    if (state.task?.localReviewHead == null && ciMessage(message) !== null) return;
     const turn = state.turn;
     if (message.length === 0 || turn === null) return;
     const attachmentIds = state.attachments.map((attachment) => attachment.id);
@@ -2015,12 +2042,12 @@ export default function AgentTaskScreen({
     finally {
       dispatch({ type: 'composer/sending', sending: false });
     }
-  }), [live, run, state.attachments, state.composer, state.turn, submissions, taskId]);
+  }), [live, run, state.attachments, state.composer, state.task, state.turn, submissions, taskId]);
 
   const queueNext = useCallback(() => run(async () => {
     if (attachmentPendingRef.current || automationBlocked || !canQueue(stateRef.current)) return;
     const message = state.composer.trim();
-    if (ciMessage(message) !== null) return;
+    if (state.task?.localReviewHead == null && ciMessage(message) !== null) return;
     const task = state.task;
     if (message.length === 0 || task === null) return;
     const attachmentIds = state.attachments.map((attachment) => attachment.id);
@@ -2200,10 +2227,49 @@ export default function AgentTaskScreen({
   }), [applyTurn, live, refreshProjection, run, state.turn]);
 
   const complete = useCallback(() => run(async () => {
-    if (attachmentPendingRef.current || !canComplete(state) || !confirmCompletion(state.queue, (message) => window.confirm(message))) return;
+    if (attachmentPendingRef.current || state.task?.localReviewHead != null || !canComplete(state) || !confirmCompletion(state.queue, (message) => window.confirm(message))) return;
     await live().completeAgentTask(taskId, workspaceId);
     await refreshProjection(state.latestTurnId);
   }), [live, refreshProjection, run, state, taskId, workspaceId]);
+
+  const startLocalReview = useCallback(() => run(async () => {
+    const current = stateRef.current;
+    if (current.task === null || current.task.localReviewHead != null || current.sending || attachmentPendingRef.current || !canComplete(current)) return;
+    dispatch({ type: 'composer/sending', sending: true });
+    try {
+      applyTask(await live().startAgentLocalReview(taskId, workspaceId, current.task.version));
+      await refreshProjection(stateRef.current.latestTurnId);
+    }
+    finally {
+      dispatch({ type: 'composer/sending', sending: false });
+    }
+  }), [applyTask, live, refreshProjection, run, taskId, workspaceId]);
+
+  const finishLocalReview = useCallback(() => {
+    const current = stateRef.current;
+    if (current.task?.localReviewHead == null || current.sending || attachmentPendingRef.current || !canComplete(current)) return;
+    confirmationRequestRef.current++;
+    dispatch({ type: 'notice/changed', notice: null });
+    setConfirmation({ kind: 'finish-local-review', expectedVersion: current.task.version });
+  }, []);
+
+  const syncLocalReview = useCallback(() => run(async () => {
+    const current = stateRef.current;
+    if (current.task?.localReviewHead == null || current.sending || attachmentPendingRef.current || !canComplete(current)
+      || current.queue.some(input => input.state === 'UNCERTAIN')) return;
+    dispatch({ type: 'composer/sending', sending: true });
+    try {
+      const result = await live().syncAgentLocalReview(taskId, workspaceId, current.task.version);
+      applyTask(result.task);
+      dispatch({ type: 'notice/changed', notice: result.warning });
+      setPullRequestRefresh(revision => revision + 1);
+      refreshLocalReviewChanges();
+      await refreshLocalReviewDetails();
+    }
+    finally {
+      dispatch({ type: 'composer/sending', sending: false });
+    }
+  }), [applyTask, live, refreshLocalReviewChanges, refreshLocalReviewDetails, run, taskId, workspaceId]);
 
   const cleanupWorktree = useCallback(() => run(async () => {
     applyTask(await live().cleanupAgentTaskWorktree(taskId, workspaceId));
@@ -2234,6 +2300,8 @@ export default function AgentTaskScreen({
       await run(async () => {
         const task = confirmation.kind === 'stop'
           ? await live().stopAgentRuntime(taskId, workspaceId, confirmation.impact.generation)
+          : confirmation.kind === 'finish-local-review'
+          ? await live().finishAgentLocalReview(taskId, workspaceId, confirmation.expectedVersion)
           : await live().markAgentTaskFailed(taskId, workspaceId, 'Marked failed by the user during recovery');
         applyTask(task);
         await refreshProjection(stateRef.current.latestTurnId);
@@ -2270,9 +2338,9 @@ export default function AgentTaskScreen({
       || !providerAvailable(providerStatus.readiness)) return;
     if (!window.confirm(`Retry the last message? This creates a new turn and may run commands again.\n\n${input.text}`)) return;
     const attachmentIds = input.attachments.map((attachment) => attachment.id);
-    // Retrying the accepted input must retain its own automation: a Local only first turn differs from the task defaults.
-    const developmentAutomation = task.interactive
-      ? current.turn.settings?.developmentAutomation ?? { autoCommit: false, autoDraftPr: false, autoCiFix: false, ciLaneId: null }
+    // Retrying the accepted input retains its publication choices, which may differ from the task defaults.
+    const developmentAutomation = task.interactive && task.localReviewHead == null
+      ? current.turn.settings?.developmentAutomation ?? { autoDraftPr: false, autoCiFix: false, ciLaneId: null }
       : undefined;
     // The failed turn's key is never reused. The tracker retains this new key only if this reply is
     // ambiguous, so a second confirmed click cannot create a duplicate retry turn.
@@ -2319,6 +2387,9 @@ export default function AgentTaskScreen({
       onSend={() => { void send(); }}
       onCancel={() => { void cancel(); }}
       onComplete={() => { void complete(); }}
+      onStartLocalReview={() => { void startLocalReview(); }}
+      onSyncLocalReview={() => { void syncLocalReview(); }}
+      onFinishLocalReview={finishLocalReview}
       onCleanup={() => { void cleanupWorktree(); }}
       onDecide={(approvalId, decision) => { void decide(approvalId, decision); }}
       onCompose={(text) => {
@@ -2389,12 +2460,14 @@ export default function AgentTaskScreen({
     />
     {confirmation !== null && (
       <ConfirmDialog
-        title={confirmation.kind === 'stop' ? confirmation.automation ? 'Stop automation?' : 'Stop this task’s agent?' : 'Mark task as failed?'}
+        title={confirmation.kind === 'stop' ? confirmation.automation ? 'Stop automation?' : 'Stop this task’s agent?'
+          : confirmation.kind === 'finish-local-review' ? 'Finish local review?' : 'Mark task as failed?'}
         confirmLabel={confirmation.kind === 'stop'
           ? confirming ? 'Stopping…' : confirmation.automation ? 'Stop automation' : 'Stop agent'
+          : confirmation.kind === 'finish-local-review' ? confirming ? 'Finishing…' : 'Discard experiments and finish'
           : confirming ? 'Marking failed…' : 'Mark as failed'}
         busy={confirming}
-        destructive={confirmation.kind === 'fail'}
+        destructive={confirmation.kind !== 'stop'}
         onConfirm={() => { void confirmTaskAction(); }}
         onCancel={() => setConfirmation(null)}
       >
@@ -2410,6 +2483,9 @@ export default function AgentTaskScreen({
             This also stops the linked CI agents. Remote branch <code>{state.task.developmentCi.headRef}</code> and{' '}
             <a href={state.task.developmentCi.pullRequestUrl}>PR #{state.task.developmentCi.pullRequestNumber}</a> remain on GitHub.
           </p>}
+        </> : confirmation.kind === 'finish-local-review' ? <>
+          <p>This discards all uncommitted changes in this task’s checkout, including tests and edits made by you or the agent.</p>
+          <p>Your committed development work and review conversation are kept. Later development work will be committed automatically again.</p>
         </> : <>
           <p>This ends the task. You won’t be able to send more messages here.</p>
           <p>Your conversation and any uncommitted changes are kept. ByteQuay may remove a clean checkout, but keeps its branch.</p>

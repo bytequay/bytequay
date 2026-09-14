@@ -144,6 +144,9 @@ public final class DefaultAgentCompletionService
             if (task.state() != TaskState.OPEN) {
                 throw new AgentConflictException("Task cannot complete in state " + task.state());
             }
+            if (task.localReviewHead().isPresent()) {
+                throw new AgentConflictException("Finish local review before completing this task");
+            }
             requireNoDevelopmentContinuation(task);
             runtimeRegistry.checkBranchAdmission(task);
             turnStore.findActive(task.id()).ifPresent(turn -> {

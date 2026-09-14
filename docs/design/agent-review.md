@@ -15,19 +15,22 @@ reuse them. Finishing one review run does not complete the agent task.
 
 Review has four responsibilities: understand the intended behavior, inspect
 its affected paths, validate candidate claims, and report supported findings.
-ByteQuay coordinates two passes in the same task and provider conversation.
-The investigation turn saves a change map, assessed changed files, supporting
-context references, candidate hypotheses, and the intention/commit explanations.
-After that turn settles and its runtime stops, ByteQuay starts a validation
-turn. It challenges the candidates, retrieves further context or executes
-checks when useful, then saves supported findings and rejects unsupported claims.
+ByteQuay coordinates a bounded sequence of assignments in the same task and
+provider conversation. Investigation saves the change map, assessed changed
+files, supporting context, numbered hypotheses, and intention/commit explanations.
+Once its turn settles and releases the runtime, ByteQuay starts validation.
+Validation either supports a finding, rejects a hypothesis, requests a specific
+piece of evidence, or records an unresolved claim. A valid evidence request
+starts an evidence-collection turn; its answers return to a new validation
+turn. At most two evidence-collection assignments run per frozen head attempt.
 This is explicit self-review in one conversation, not independent verification.
 
-The agent chooses which callers, contracts, unchanged files, tests, and related
-context to investigate. ByteQuay supplies the frozen scope, on-demand tools,
-optional CodeGraph, and the reporting/ordering checks. Context grows during
-both passes. There is no separate task per file or finding, mandatory graph
-pack, new execution engine, or configurable pipeline.
+The agent judges whether evidence establishes the claim. ByteQuay checks report
+structure, frozen identities, assignment ownership, candidate accounting, and
+the follow-up budget. It never extracts workflow decisions from assistant prose
+or treats a confidence score as proof. The agent chooses context and verification
+techniques; ByteQuay supplies frozen scope, on-demand tools and optional CodeGraph.
+There is no task per finding, new execution engine, or configurable pipeline.
 
 The user can watch activity, steer supported active turns, challenge the
 summary or individual findings, resolve findings privately, and explicitly
@@ -186,8 +189,10 @@ this is not a second task engine:
 | Record | Required facts |
 | --- | --- |
 | Review | Workspace and logical PR identity, physical repository/head-branch identity, agent task ID, latest completed run, latest observed remote head, follow-up execution enabled/paused, optimistic version, explicit closure |
-| Run | Review ID, full/incremental scope, frozen base tip and merge base, head SHA, prior successful reviewed head if any, turn IDs, investigation, validation-start fact, accepted result/coverage, terminal outcome |
-| Investigation | Change map, distinct assessed changed-file paths, captured supporting context refs, numbered candidate hypotheses, final validation conclusions |
+| Run | Review ID, full/incremental scope, frozen base tip and merge base, head SHA, prior successful reviewed head if any, turn IDs, ordered assignments, latest investigation, accepted result/coverage, terminal outcome |
+| Assignment | Consecutive number, investigation/validation/evidence-collection kind, reporting-repair attempt, immutable report when sealed |
+| Investigation | Change map, distinct assessed changed-file paths, captured supporting context refs, numbered hypotheses, evidence-request answers, latest validation conclusions |
+| Validation | Sealed investigation step number, assessment of every candidate, newly discovered hypotheses, coverage and omissions |
 | Summary | Run ID, revision, purpose, actual commit explanations |
 | Finding | Stable ID, source run, immutable anchor mapping, title/body, evidence references, current revision, local resolution/withdrawal and reason, revalidation result for later runs |
 | Discussion message | Stable ID, review and summary-card/finding target, author, body, target revision/run, correlated task input/turn or reply, delivery outcome |
@@ -247,43 +252,56 @@ must say what was changed and be checked against the original snapshot.
 
 ### Updating the mapped branch
 
-An active review follows newly observed remote heads through the existing
-backend PR-refresh path. Do not depend on the open page's polling or add a
-second independent GitHub polling engine. A user **Update review** action
-can request the existing refresh immediately. Coalesce multiple pending
-heads to the newest observed head; never interrupt an active investigation
-or move its worktree beneath it.
+An active review observes remote heads through the existing backend PR-refresh
+path and shows when new commits are available. Refresh does not move the checkout
+or start another review. Only an explicit user **Update review** or **Resume**
+action may synchronize it. Fetch the newest head for that action; never interrupt
+an active investigation or move its worktree beneath it.
 
 Before syncing, require the existing task execution boundary to exclude turn
 start, queued start, tools, and cleanup. Verify provider quiescence, generated
-branch/repository ownership, expected HEAD, no open Git operation, and a clean
-index/worktree including untracked files. An unrelated review-only mutex that
+branch/repository ownership, expected HEAD, and no open Git operation. Save
+uncommitted experiments before moving; require a clean index/worktree including
+untracked files at the move itself. An unrelated review-only mutex that
 the agent queue can bypass is insufficient.
 
-The current core API has no workflow sync exclusion entry point. Add one
-narrow `WORKTREE_SYNC` mutation-claim purpose with guarded core acquire/settle
-operations, using the same durable task version and task lock as turn/queue
-start. Its owner is an opaque sync operation ID, not a PR type in agent-core.
-Then hold the existing workspace-operation lock across Git inspection and
-fast-forward. Retain an unresolved claim on uncertain mutation; reconcile
-the recorded old/target facts before releasing it. Test this core seam before
-enabling automatic updates. `WorktreeService` itself stays provision/inspect/
-cleanup and gains no review lifecycle or generic lock registry.
+The core `synchronizeWorktree` callback uses the same durable task version,
+task lock, and existing mutation claim as private local-review transitions.
+It excludes direct and queued starts throughout stash, move, and restoration,
+and releases ownership before launching the next review turn. A review mutex
+alone is insufficient because the core queue can start without it. Native
+stash operations also hold a repository lock across linked worktrees.
+`WorktreeService` itself stays provision/inspect/cleanup and gains no review
+lifecycle or generic lock registry.
 
 For an ordinary descendant head, update the verified generated branch with a
-guarded fast-forward and verify the resulting HEAD. Persist the expected old
-and intended new heads before mutation so restart can distinguish unchanged,
-successfully moved, and unexpected state. Never silently replay an uncertain
-mutation. Keep `TaskWorktree.startCommit` as the original provisioning fact;
-the current review head is a separate run fact.
+guarded fast-forward and verify the resulting HEAD. Unknown local commits are
+refused. Keep `TaskWorktree.startCommit` as the original provisioning fact; the
+current and completed review heads remain run facts.
 
-If the agent left dirty experiments, local-only commits, a different branch,
-or open Git state, preserve the work and require cleanup/inspection before
-syncing. Do not auto-stash, commit, reset, rebase, or delete it. For a force
-push/non-descendant update, compute a full-review scope, but require an
-explicit worktree realignment decision before any destructive replacement.
-Until that is safely completed, keep the old review readable and show why
-the update cannot run. The first version has no automatic force-reset path.
+Dirty experiments, including new tests and manual edits, are saved with native
+`git stash push --include-untracked` before sync. Apply that exact stash at the
+new head with its staging preserved, then drop only that entry after successful
+restoration. Serialize ByteQuay stash operations across linked worktrees, which
+share a stash stack. Ignored output and unrelated stashes are preserved.
+
+Before the user initiates an update, disclose that experiments are restored when
+possible and all private experiments are discarded if restoration conflicts.
+On a conflict, restore the clean remote revision, remove untracked experiments
+and this task's temporary stash, and continue the requested review. Preserve
+ignored output and unrelated stashes. Do not leave conflict markers, ask the
+user to resolve them, or introduce a recovery state. Keep at most one temporary
+stash per task and normally none; conflict cleanup must not create another
+backup. No agent conflict-resolution turn, merge commit, or push is involved.
+A failed head move restores experiments at the old head when safe; filesystem
+or Git failures remain ordinary errors.
+
+Local-only commits, a different branch, or an open Git operation still require
+inspection before syncing. For a force push/non-descendant update, compute a
+full-review scope; the explicit **Update review** action authorizes realignment
+to the verified remote revision. Experiments use
+the same stash-and-restore path. Keep the old review readable until a new run
+has completed.
 
 **Stop** cancels the current run, pauses queued/new-head execution, and keeps
 the review open for discussion or explicit resume. **End review** closes the
@@ -406,7 +424,7 @@ for that lane; failure does not disable ordinary agent tasks.
 | `review_save_finding` | Create a finding, or update a returned finding ID with its expected revision |
 | `review_reply` | Append a private answer to a summary/finding discussion using its returned target/message identity |
 | `review_withdraw_finding` | Withdraw an agent finding with expected revision and an explanation |
-| `review_finish` | Record coverage, omissions, and a retained/rejected conclusion for each candidate |
+| `review_finish` | Seal candidate assessments, concrete evidence requests, frozen investigation identity, coverage and omissions |
 
 These are fixed application operations, not a model-controlled registry.
 Tool declarations carry strict JSON schemas and bounded fields; the backend
@@ -460,25 +478,40 @@ this example are illustrative; only IDs returned for the bound run are valid.
 The model does not supply GitHub request parameters, path/side/line mappings,
 commit SHA for publication, or publication authority.
 
-`review_save_investigation` records a bounded change map, distinct paths from
-the frozen diff, supporting evidence IDs returned for this run, and up to thirty
-candidate claims. Their one-based list positions are stable identifiers. During
-validation, new hypotheses can be appended; existing claims cannot be removed,
-reordered, or rewritten. Rejected claims retain their reason in the final report.
-The tool returns the next action, but only the coordinator can start validation.
+`review_save_investigation` seals a bounded change map, distinct paths from the
+frozen scope, captured evidence IDs, and up to thirty candidate hypotheses.
+Only an investigation or evidence-collection assignment can call it. The
+summary must account for every actual commit first. Subsequent collection
+preserves candidate text and one-based numbering, appends hypotheses requested
+by validation, and may append new discoveries. Its `answers` account for each
+requested candidate: the check attempted, returned evidence references, and any
+limitation. An answer without evidence must explain why it is unavailable.
 
-New findings are accepted only during the validation pass and require an
-explicit explanation of the verification and counterevidence checked. That
-explanation is retained alongside the cited evidence. Existing findings remain
-replyable and revisable during later discussion. Summary saves reject missing,
-duplicate, unknown, and ambiguous commit identities.
+A validation assignment cannot rewrite its sealed input. `review_finish` names
+that investigation's step number and assesses every candidate with an outcome,
+conclusion, evidence references, and counterevidence considered:
 
-A completed validation includes one conclusion for each numbered candidate.
-Retained candidates name a saved, current finding in this review; rejected
-candidates omit the finding ID and explain why. Multiple candidates may point
-to one finding when they share a root cause. Every new non-withdrawn finding
-must be accounted for. A zero-candidate investigation still receives the second
-pass to check the understanding, scope, and relevant behavior before reporting.
+- `SUPPORTED` names the exact saved finding ID and revision. Its references
+  include every artifact cited by that finding.
+- `REJECTED` explains concrete disproof and cites its evidence.
+- `NEEDS_EVIDENCE` identifies the missing proposition, the specific next check,
+  and how its possible results would settle the claim.
+- `UNRESOLVED` explains why it cannot presently be settled.
+
+All outcomes except `UNRESOLVED` require captured references. These requirements
+make a verdict inspectable; they cannot determine whether its reasoning is true.
+Missing fields produce recoverable tool errors without advancing the assignment.
+Newly discovered hypotheses are submitted in `newCandidates`, numbered after
+existing hypotheses, with `NEEDS_EVIDENCE` assessments. ByteQuay sends them to
+collection before another validation. Zero-candidate investigations still get
+validation to check the understanding, scope and relevant behavior.
+
+New findings are provisional and can be saved only by the assigned validator,
+with an explicit verification explanation and diff-bound evidence. Final
+validation accounts for every new non-withdrawn finding. Multiple candidates
+may map to the same finding for a shared root cause. Existing findings remain
+replyable and revisable in user discussions; those turns cannot advance a
+review assignment or declare a run complete.
 
 The summary contains:
 
@@ -514,29 +547,42 @@ it does not replace the summary with only a delta changelog.
 
 ### Missing or incorrect output
 
-Return field-specific recoverable validation errors without saving malformed
-output. The run has one shared completion-repair budget for missing investigation
-or validation output. A missing investigation/summary repair reuses collected
-context and ends before validation. A missing validation report repair reuses
-its evidence and decisions. Explicit incomplete coverage ends the run as
-**Incomplete**, pauses automatic follow-up, and never starts a repair merely
-to relabel omitted work as complete.
+Return field-specific recoverable errors without saving malformed output.
+The run has one shared reporting-repair allowance for a turn that ends without
+its required report. Repair retries the same numbered assignment and consumes
+no evidence round. Sealed reports are immutable; only an exact operation replay
+is accepted after sealing. Operation replay keys are scoped to the numbered assignment; a repair replays
+its earlier successful writes instead of repeating them.
 
-Persist the investigation and one validation-start fact in the existing run.
-Before dispatching validation, record that fact and use the existing turn
-service with a deterministic run-scoped idempotency key. On reconciliation,
-reattach accepted validation or repair turns by their existing keys before
-interpreting the last recorded turn. Never resend uncertain provider input.
-All contributing turns must settle successfully and release their runtime
-claims before the next pass or acceptance. Existing Stop, interruption,
-recovery, and explicit Resume behavior preserve partial results.
+Each assignment is persisted before launch and has a deterministic key
+`review-step:<runId>:<number>`, with a repair suffix for that attempt. The
+coordinator reattaches an already accepted turn by that key after an interrupted
+association write. It advances only after the matching turn has completed and
+the existing task runtime is idle. Stop, recovery and explicit Resume reuse
+existing task semantics. No additional task lifecycle states are introduced.
 
-`review_finish` neither completes a task nor authorizes publication. Successful
+Every tool closure captures the trusted accepted turn at registration. Calls
+must still belong to that active, uncancelled turn and its exact current
+assignment. An earlier turn cannot gain the next step's permissions. User
+question turns bind to their source run and selected discussion; generic user
+turns have discussion privileges only. Tools and orchestration share one review
+lock. The review permission profile remains enabled even when no active turn
+can receive a reporting assignment.
+
+A valid `NEEDS_EVIDENCE` assessment schedules collection if fewer than two
+collection assignments have run. Collection answers produce a new sealed
+investigation; all candidates must be validated against it again. Unavailable
+evidence may lead to `UNRESOLVED`; requests that exhaust the budget leave the
+run **Incomplete** with an explicit explanation. Neither advances the baseline
+or turns an uncertain claim into a supported finding. Explicit unreviewed scope
+without another actionable request also ends incomplete and pauses follow-up.
+
+`review_finish` neither completes the task nor authorizes publication. Complete
 coverage requires a complete distinct commit summary, every required changed
-file accounted for, and every candidate resolved. The backend validates these
-identities and accounting requirements, not whether the agent's inspection was
-semantically sufficient. Missing required files or unresolved hypotheses require
-complete=false and omissions. A complete zero-finding result is explicit.
+file, and supported or rejected assessments for all candidates. The backend
+rechecks the investigation identity and supported finding revisions at run
+acceptance. Missing scope and unsettled hypotheses require complete=false and
+omissions. A complete zero-finding result is explicit.
 
 A run advances the successful reviewed-head cursor only after the validation
 turn settles and complete=true with no omissions. Partial, failed, stopped,
@@ -603,7 +649,7 @@ on a raw provider completion message. Startup reconciles open reviews against
 persisted run/turn/sync facts and restores their subscriptions; PR-refresh
 notifications also invoke the same idempotent reconcile operation. Normal
 review reads may reconcile opportunistically but are not the only trigger.
-This drives completion repair, Ready, and pending-head follow-up with no
+This drives current-run completion repair and Ready with no
 renderer present, no new agent completion loop, and no separate polling
 scheduler. Duplicate events and restart between terminal commit and callback
 must be harmless.
@@ -645,10 +691,9 @@ of silently merging different findings.
 
 Store completion and advancement of the successful-head cursor atomically.
 A new head observed during a run leaves that run and its comments bound to
-their original head, marks the view as having newer commits, and schedules
-only the newest pending scope after the current run and queued discussions
-settle safely. Stop/failure/recovery pauses automatic follow-up until explicit
-resume. Advancing a review never overwrites the previous version's discussion.
+their original head and marks the view as having newer commits. It waits for
+an explicit update after the current run and queued discussions settle safely.
+Advancing a review never overwrites the previous version's discussion.
 
 ## 9. User-owned publication
 
@@ -822,3 +867,22 @@ details screenshot and access to the current frontend when available.
 > overflow, folding and state changes. Keep the original PR and Changes
 > views recognizable and unchanged. Present the design for visual approval
 > before implementing production UI.
+
+### Private experiments and development commits
+
+PR-owned review tasks remain outside development auto-commit and publication.
+Local review of a self-authored development PR uses the same provider review
+profile through a policy-only bridge and a durable `localReviewHead` baseline;
+see [development delivery](development-delivery.md#2-settings-and-scope).
+Review experiments, including new tests, stay uncommitted. Provider native
+permission checks reject commits, branch-history changes and remote writes
+only inside review sessions. Staging, unstaging, patch application, and Git
+reads remain available for experiments; development and other workflow tasks
+retain their existing command policies. These are provider permission guards, not arbitrary
+shell or operating-system isolation. Claude disables sandbox auto-allow and
+adds native commit/history denials; Codex escalations reach the ByteQuay guard before
+approval, so legitimate non-Git escalations may still ask the user. Review anchors continue to use committed
+PR revisions, independent of edited experiment files.
+ByteQuay's own controlled remote-head synchronization remains available in
+review mode; it uses verified Git operations outside the agent CLI permission
+path and never publishes experiment changes.

@@ -23,6 +23,7 @@ import type {
   AgentDevelopmentCiDto,
   CiAutofixRunDto,
   AgentInputDeliveryDto,
+  AgentLocalReviewSyncDto,
   AgentMetricsDto,
   AgentMutationClaimDto,
   AgentProviderReadiness,
@@ -181,7 +182,6 @@ function metrics(value: unknown, path: string): AgentMetricsDto {
 export function parseDevelopmentAutomation(value: unknown, path = 'developmentAutomation'): DevelopmentAutomationDto {
   const source = object(value, path);
   return {
-    autoCommit: flag(source.autoCommit, `${path}.autoCommit`),
     autoDraftPr: flag(source.autoDraftPr, `${path}.autoDraftPr`),
     autoCiFix: flag(source.autoCiFix, `${path}.autoCiFix`),
     ciLaneId: optionalText(source.ciLaneId, `${path}.ciLaneId`),
@@ -245,6 +245,7 @@ export function parseAgentTask(value: unknown, path = 'task'): AgentTaskDto {
     workspaceId: text(source.workspaceId, `${path}.workspaceId`),
     generatedBranch: optionalText(source.generatedBranch, `${path}.generatedBranch`),
     ...(source.interactive === undefined ? {} : { interactive: flag(source.interactive, `${path}.interactive`) }),
+    localReviewHead: optionalText(source.localReviewHead, `${path}.localReviewHead`),
     developmentContinuationUnfinished: flag(source.developmentContinuationUnfinished, `${path}.developmentContinuationUnfinished`),
     developmentCi: source.developmentCi === null || source.developmentCi === undefined ? null : parseAgentDevelopmentCi(source.developmentCi, `${path}.developmentCi`),
     pullRequest: source.pullRequest === null || source.pullRequest === undefined ? null : taskPullRequest(source.pullRequest, `${path}.pullRequest`),
@@ -272,6 +273,11 @@ export function parseAgentTask(value: unknown, path = 'task'): AgentTaskDto {
     codegraph: flag(source.codegraph, `${path}.codegraph`),
     archivedAt: optionalText(source.archivedAt, `${path}.archivedAt`),
   };
+}
+
+export function parseAgentLocalReviewSync(value: unknown): AgentLocalReviewSyncDto {
+  const source = object(value, 'localReviewSync');
+  return { task: parseAgentTask(source.task, 'localReviewSync.task'), warning: optionalText(source.warning, 'localReviewSync.warning') };
 }
 
 function taskPullRequest(value: unknown, path: string): AgentTaskPullRequestDto {

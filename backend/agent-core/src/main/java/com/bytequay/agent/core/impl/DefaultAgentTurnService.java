@@ -324,6 +324,59 @@ public final class DefaultAgentTurnService
     }
 
     @Override
+    public AgentTask updateLocalReview(TaskId taskId, long expectedVersion, Function<AgentTask, Optional<String>> action)
+    {
+        return updateIdleWorktree(taskId, expectedVersion, true, action);
+    }
+
+    @Override
+    public void synchronizeWorktree(TaskId taskId, long expectedVersion, Consumer<AgentTask> action)
+    {
+        requireNonNull(action, "action is null");
+        updateIdleWorktree(taskId, expectedVersion, false, claimed -> {
+            action.accept(claimed);
+            return requireTask(taskId).localReviewHead();
+        });
+    }
+
+    private AgentTask updateIdleWorktree(TaskId taskId, long expectedVersion, boolean requireInteractive, Function<AgentTask, Optional<String>> action)
+    {
+        requireNonNull(taskId, "taskId is null");
+        requireNonNull(action, "action is null");
+        synchronized (runtimeRegistry.taskLock(taskId)) {
+            AgentTask task = requireStartableTaskWithoutReadiness(taskId);
+            if (requireInteractive && !task.interactive()) {
+                throw new AgentConflictException("Local review mode requires an interactive task");
+            }
+            if (task.version() != expectedVersion) {
+                throw new AgentConflictException("Task version changed: " + taskId);
+            }
+            if (queueStore.listQueued(taskId).stream().anyMatch(input -> !input.state().historical())) {
+                throw new AgentConflictException("Remove queued input before updating the review worktree");
+            }
+            Instant now = Instant.now(clock);
+            // The existing completion claim is recovered only after quiescence if the backend stops here.
+            WorktreeMutationClaim claim = new WorktreeMutationClaim(WorktreeMutationClaim.Kind.COMPLETION, "review-worktree:" + taskId, now);
+            AgentTask claimed = taskStore.update(task.claimWorktreeMutation(claim, now));
+            try {
+                Optional<String> head = requireNonNull(action.apply(claimed), "local review action result is null");
+                AgentTask current = requireTask(taskId);
+                Instant finishedAt = Instant.now(clock);
+                return taskStore.update(current.withLocalReviewHead(head, finishedAt).releaseWorktreeMutation(claim, finishedAt));
+            }
+            catch (RuntimeException failure) {
+                suppressFailure(failure, () -> {
+                    AgentTask current = requireTask(taskId);
+                    if (current.worktreeMutationClaim().equals(Optional.of(claim))) {
+                        taskStore.update(current.releaseWorktreeMutation(claim, Instant.now(clock)));
+                    }
+                });
+                throw failure;
+            }
+        }
+    }
+
+    @Override
     public AgentTurn startPublicationTurn(StartAgentTurnCommand command, TurnId sourceTurnId)
     {
         requireNonNull(command, "command is null");
@@ -345,6 +398,9 @@ public final class DefaultAgentTurnService
             // No continuation owner is taken: automation reserves one for the chain it drives, and a
             // publication the user asked for drives nothing after itself.
             AgentTask task = requireReady(requireStartableTaskWithoutReadiness(command.taskId(), Optional.empty()));
+            if (task.localReviewHead().isPresent()) {
+                throw new AgentConflictException("Return to development before publishing this task");
+            }
             command.expectedTaskVersion().ifPresent(expectedVersion -> {
                 if (task.version() != expectedVersion) {
                     throw new AgentConflictException("Task version changed: " + task.id());
@@ -352,8 +408,9 @@ public final class DefaultAgentTurnService
             });
             // Draft-only automation is what exposes the publish tool to this turn. It widens nothing
             // else: the user's own accepted settings are untouched, and no later follow-up reads it.
-            AgentTurnSettings settings = turnSettings(task, ImmutableList.of(),
-                    Optional.of(new DevelopmentAutomation(false, true, false, Optional.empty())));
+            AgentTurnSettings effective = turnSettings(task, ImmutableList.of());
+            AgentTurnSettings settings = new AgentTurnSettings(effective.model(), effective.effort(), effective.permissionPolicy(), effective.maximumRuntime(),
+                    effective.attachments(), effective.serviceTier(), Optional.of(new DevelopmentAutomation(false, true, false, Optional.empty())));
             acceptance = acceptTurnLocked(task, command.idempotencyKey(), command.message(),
                     ImmutableList.of(), settings, Optional.of(origin));
         }
@@ -369,6 +426,9 @@ public final class DefaultAgentTurnService
         Launch launch;
         CompletableFuture<DevelopmentTurnCompletion> completion;
         synchronized (runtimeRegistry.taskLock(taskId)) {
+            if (requireTask(taskId).localReviewHead().isPresent()) {
+                throw new AgentConflictException("Private review cannot start development follow-ups");
+            }
             requireDevelopmentOwner(taskId, origin.parentUserTurnId());
             Optional<CompletableFuture<DevelopmentTurnCompletion>> repeated = runtimeRegistry.developmentTurn(taskId, origin);
             if (repeated.isPresent()) {
@@ -1799,23 +1859,31 @@ public final class DefaultAgentTurnService
 
     private static String developmentInstructions(AgentTurnSettings settings)
     {
-        return settings.developmentAutomation().map(automation -> """
+        return settings.developmentAutomation().map(automation -> {
+            if (!automation.enabled()) {
+                return """
 
-                Accepted development automation for this turn:
-                Auto commit: %s. Auto draft PR: %s. Auto CI fix: %s.
-                When Auto commit is enabled, commit completed task work in focused commits using the repository's
-                commit conventions, after resolving user decisions. When it is disabled, leave changes uncommitted
-                unless the user's request explicitly asks you to commit. No commit message carries an attribution,
-                co-authorship, or generated-with trailer.
-                ByteQuay requests push and draft creation in a separate scoped follow-up. Do not publish during
-                this development turn unless the user's request explicitly asks you to. Auto CI fix selects the
-                later bounded CI service; it does not authorize an agent to start its own unattended loop.
-                The accepted settings alone control subsequent delivery, including ready promotion after Auto CI fix.
-                If an explicit user request conflicts with an enabled setting, report readyForDelivery=false and explain
-                which enabled setting conflicts. A started task's automation settings cannot change, so suggest that the
-                user withdraw the restriction or start a new task with different settings. Do not execute the conflicting step.
-                A generated request to create a draft is one step, not a user instruction to skip later enabled steps.
-                """.formatted(automation.autoCommit(), automation.autoDraftPr(), automation.autoCiFix())).orElse("");
+                        Private local review: investigate, edit local experiments, and run tests as requested.
+                        NEVER commit, push, publish, or change Git history. Keep tests and experimental edits local.
+                        ByteQuay requires an explicit return to development before any delivery can resume.
+                        """;
+            }
+            return """
+
+                    Accepted development delivery for this turn:
+                    Commit finished development work: %s. Auto draft PR: %s. Auto CI fix: %s.
+                    Normal development commits finished task work in focused commits using the repository's commit
+                    conventions, after resolving user decisions. No commit message carries an attribution,
+                    co-authorship, or generated-with trailer. A publication-only assignment must not create commits.
+                    ByteQuay requests push and draft creation in a separate scoped follow-up. Do not publish during
+                    this development turn unless the user's request explicitly asks you to. Auto CI fix selects the
+                    later bounded CI service; it does not authorize an agent to start its own unattended loop.
+                    The accepted settings alone control subsequent delivery, including ready promotion after Auto CI fix.
+                    If an explicit user request conflicts with delivery, report readyForDelivery=false and explain
+                    the conflict. Preserve unfinished work and wait for the user's decision; do not execute the conflicting step.
+                    A generated request to create a draft is one step, not a user instruction to skip later enabled steps.
+                    """.formatted(automation.autoCommit(), automation.autoDraftPr(), automation.autoCiFix());
+        }).orElse("");
     }
 
     private void recordDevelopmentResult(TaskId taskId, AgentTurn turn, ProviderAgentEvent.DevelopmentResult result)
@@ -1984,7 +2052,9 @@ public final class DefaultAgentTurnService
 
     private boolean developmentTurnEligible(AgentTask task, AgentTurn turn)
     {
-        return developmentCompletion.isPresent() && task.interactive() && developmentEligibility.test(task);
+        return developmentCompletion.isPresent() && task.interactive() && task.localReviewHead().isEmpty()
+                && turn.settings().flatMap(AgentTurnSettings::developmentAutomation).filter(DevelopmentAutomation::enabled).isPresent()
+                && developmentEligibility.test(task);
     }
 
     private void notifyDevelopmentCompletion(TurnId turnId, Optional<String> failure)
@@ -2242,6 +2312,11 @@ public final class DefaultAgentTurnService
         if (automation.isPresent() && !task.interactive()) {
             throw new InvalidAgentRequestException("Development automation requires an interactive task");
         }
+        Optional<DevelopmentAutomation> effective = automation.or(task.defaults()::developmentAutomation);
+        if (task.interactive()) {
+            effective = Optional.of(task.localReviewHead().isPresent() ? DevelopmentAutomation.LOCAL_ONLY
+                    : effective.orElse(DevelopmentAutomation.DEFAULT).forDevelopment());
+        }
         return new AgentTurnSettings(
                 task.defaults().model(),
                 task.defaults().effort(),
@@ -2249,7 +2324,7 @@ public final class DefaultAgentTurnService
                 maximumTurnRuntime,
                 attachments,
                 task.defaults().serviceTier(),
-                automation.or(task.defaults()::developmentAutomation));
+                effective);
     }
 
     private AgentTask requireTask(TaskId taskId)

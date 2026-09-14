@@ -21,11 +21,10 @@ import java.util.Optional;
 import static java.util.Objects.requireNonNull;
 
 /** The shared settings and task-submission representation; missing toggles are invalid. */
-public record DevelopmentAutomationDto(Boolean autoCommit, Boolean autoDraftPr, Boolean autoCiFix, Optional<String> ciLaneId)
+public record DevelopmentAutomationDto(Boolean autoDraftPr, Boolean autoCiFix, Optional<String> ciLaneId)
 {
     public DevelopmentAutomationDto
     {
-        requireNonNull(autoCommit, "autoCommit is null");
         requireNonNull(autoDraftPr, "autoDraftPr is null");
         requireNonNull(autoCiFix, "autoCiFix is null");
         requireNonNull(ciLaneId, "ciLaneId is null");
@@ -34,11 +33,11 @@ public record DevelopmentAutomationDto(Boolean autoCommit, Boolean autoDraftPr, 
 
     public static DevelopmentAutomationDto from(DevelopmentAutomation automation)
     {
-        return new DevelopmentAutomationDto(automation.autoCommit(), automation.autoDraftPr(), automation.autoCiFix(), automation.ciLaneId().map(AgentLaneId::value));
+        return new DevelopmentAutomationDto(automation.autoDraftPr(), automation.autoCiFix(), automation.ciLaneId().map(AgentLaneId::value));
     }
 
     public DevelopmentAutomation toDomain()
     {
-        return new DevelopmentAutomation(autoCommit, autoDraftPr, autoCiFix, ciLaneId.map(AgentLaneId::new));
+        return new DevelopmentAutomation(true, autoDraftPr, autoCiFix, ciLaneId.map(AgentLaneId::new));
     }
 }

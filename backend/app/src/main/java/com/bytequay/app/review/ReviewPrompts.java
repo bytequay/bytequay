@@ -16,6 +16,7 @@ package com.bytequay.app.review;
 import com.bytequay.core.review.AgentReview;
 import com.bytequay.core.review.ReviewFinding;
 import com.bytequay.core.review.ReviewRun;
+import com.bytequay.core.review.ReviewStep;
 
 import java.io.IOException;
 import java.io.InputStream;
@@ -43,33 +44,43 @@ final class ReviewPrompts
             command output (kind "command_output"), and the current summary, findings and discussions. \
             Source and command reads return evidence references; a finding must cite at least one.
 
-            Process: ByteQuay runs investigation and validation as separate turns in this same task. In the \
-            investigation turn, understand the before/after behavior and inspect affected contracts, callers, \
-            implementations, error paths, tests, and relevant unchanged files. Save only purpose and one explanation \
-            per actual commit with review_save_summary, then save the change map, assessed changed-file paths, \
-            supporting contextEvidenceRefs, and candidate claims with review_save_investigation. Candidates are \
-            hypotheses, not findings. End the turn after saving; ByteQuay starts validation after your tools stop. \
-            If essential scope is unavailable, call review_finish with complete=false, omissions, and any available \
-            candidate validations instead of pretending investigation is complete.
+            ByteQuay assigns investigation, validation, or evidence collection to each turn. Read \
+            review_get_context kind assignment for the current assignment and investigationStep. Tools enforce \
+            that assignment; after sealing its report, end this turn. ByteQuay alone schedules the next turn.
 
-            The validation turn must challenge the candidates before saving findings. Use review_get_context \
-            kind investigation to read numbered candidates (one-based list positions). Look for counterevidence, \
-            inspect the real call path and contract, and use an appropriate verification technique. Validation \
-            can add context and append new candidates with review_save_investigation; preserve existing candidate \
-            text and numbering. Each actual defect must establish a reachable trigger, violated contract, \
-            consequence, and relationship to this PR. Distinguish optional improvements from defects.
+            Investigation: understand before/after behavior and inspect affected contracts, callers, ownership, \
+            error paths, tests, and relevant unchanged files. Save only purpose and one explanation per actual \
+            commit with review_save_summary, then seal the change map, reviewedFiles, contextEvidenceRefs, \
+            candidate hypotheses and empty answers with review_save_investigation. Candidates are not findings. \
+            If essential scope is inaccessible, review_finish complete=false with omissions and empty validations \
+            stops the run; do not invent a completed investigation.
 
-            Save supported findings with review_save_finding using diff anchors and at least one evidence ref \
-            from review_get_context. Its validation field states what was checked, the result, and relevant \
-            counterevidence considered; that explanation is retained with the evidence. Use severity for defects; \
-            mark optional improvements as suggestions and omit severity. Revise by findingId and expectedRevision. \
-            Withdraw disproven findings with review_withdraw_finding. End validation with review_finish: \
-            complete, omissions, and validations with one entry per candidate. Each entry contains candidate \
-            (one-based number) and conclusion; a supported candidate also names its saved findingId, while a \
-            rejected hypothesis omits findingId and explains why. Map every new finding, merge duplicate root \
-            causes, and allow zero findings. Unresolved candidates or essential unreviewed files require \
-            complete=false and explicit omissions. The pr context lists requiredReviewFiles; unchanged patches \
-            already covered by a successful incremental baseline can be reused, but recheck affected dependencies.
+            Validation: read kind investigation and challenge every numbered candidate against its reachable \
+            trigger, violated contract, consequence, and relationship to this PR. Consider guards, other owners, \
+            intended behavior, configuration and runtime counterevidence. Direct source proof, tests, lifecycle \
+            traces and version-matched documentation are all useful. Save supported findings with \
+            review_save_finding, diff anchors, evidence refs and a validation explanation. For defects use severity; \
+            mark optional improvements as suggestions and omit severity. Revisions need findingId and expectedRevision. \
+            Withdraw disproven findings with review_withdraw_finding.
+
+            Seal validation with review_finish for the assigned investigationStep. Assess every candidate using \
+            outcome, conclusion, evidenceRefs and counterevidence. SUPPORTED names the saved findingId and exact \
+            findingRevision; REJECTED explains the disproof. NEEDS_EVIDENCE includes request.question (the missing \
+            proposition), request.check (the specific next inspection or experiment), and request.resolvesWhen \
+            (how the results would settle the claim). UNRESOLVED explains why it cannot presently be settled. \
+            Do not convert uncertain claims into findings. NEEDS_EVIDENCE or UNRESOLVED requires complete=false \
+            and explicit omissions. ByteQuay schedules requested evidence collection up to twice per run. \
+            A complete report accounts for every requiredReviewFiles path and every new non-withdrawn finding. \
+            Zero findings is valid. Do not edit the sealed investigation from validation. Newly discovered \
+            hypotheses go in review_finish newCandidates; number them after the existing candidates and assess \
+            each as NEEDS_EVIDENCE so ByteQuay can send it to investigation.
+
+            Evidence collection: read assignment.previousValidation for the exact requests. Follow each check, \
+            preserve source and command results through review_get_context, and report each candidate's attempted \
+            check, evidenceRefs, and any limitation in review_save_investigation answers. Unavailable evidence \
+            needs an honest limitation, not invented output. Preserve existing candidate text and numbers; you \
+            must append assignment.previousValidation.newCandidates and may add other newly discovered hypotheses. Refresh the change map and summary where needed, seal the \
+            investigation, then end the turn. ByteQuay sends this new evidence back to validation.
 
             Keep the PR intention and commit explanations useful: explain the before/after behavior, key design \
             and implementation choices, and why the approach solves the problem. Follow the shared card writing \
@@ -81,7 +92,7 @@ final class ReviewPrompts
 
             A user's question is a targeted discussion, not another full review. Answer with review_reply using \
             the exact target identifier. You may revise or withdraw its finding and explain evidence; do not \
-            repeat the two-pass workflow or call review_finish for a discussion. Every saved card describes the PR's \
+            repeat the review workflow or call review_finish for a discussion. Every saved card describes the PR's \
             behavior, code, tests, or CI. Keep scope omissions in review_finish rather than in outgoing comments.
 
             Testing: build the changed modules and run the tests that exercise the change in this worktree. \
@@ -146,35 +157,23 @@ final class ReviewPrompts
                 .toString();
     }
 
-    static String validationRequest(ReviewRun run)
+    static String stepRequest(ReviewRun run)
     {
-        return "Validate the investigation for frozen PR head " + shortSha(run.headSha()) + ". "
-                + "Read review_get_context kind investigation and reassess the change map, assessed scope, and each numbered candidate. "
-                + "Try to disprove each claim against callers, ownership, contracts, configuration, prior fixes, and runtime evidence. "
-                + "Run focused reproductions or meaningful behavior controls when useful; direct source proof is also valid. "
-                + "For fixes and features, a test passing at HEAD and failing against the relevant old behavior supports only that behavior. "
-                + "For a remaining defect, demonstrate failure at the frozen HEAD; do not introduce it through an experiment. "
-                + "Save only supported findings with evidence and a validation explanation. Append newly discovered candidates to the investigation first. "
-                + "Refresh the overall intention and commit explanations if evidence changes them. "
-                + "Call review_finish with honest coverage and a conclusion for every candidate: include findingId for retained candidates, "
-                + "omit it and explain counterevidence for rejected ones. Zero findings is a valid result.";
-    }
-
-    static String investigationRepair(ReviewRun run)
-    {
-        return "Complete the missing investigation report for frozen PR head " + shortSha(run.headSha()) + ". "
-                + "Reuse the source and evidence already inspected. Call review_save_summary with every actual commit and "
-                + "review_save_investigation with the change map, assessed changed files, context evidence refs, and candidate claims, then end the turn. "
-                + "Do not save findings before ByteQuay starts validation. If essential scope was not reviewed, record "
-                + "review_finish with complete=false, omissions, and available validations instead of claiming completion.";
-    }
-
-    static String completionRepair(ReviewRun run)
-    {
-        return "Your validation turn ended without a complete structured report for head " + shortSha(run.headSha())
-                + ". Reuse the investigation and evidence already collected; run any feasible missing reproduction before reporting an unverified claim. "
-                + "Call review_save_summary if any actual commit explanation is missing, then review_finish with honest coverage and candidate validations. "
-                + "Do not restart the full investigation or add findings merely to repair reporting. Unresolved proof or scope requires complete=false and omissions.";
+        ReviewStep step = run.currentStep().orElseThrow();
+        String assignment = switch (step.kind()) {
+            case INVESTIGATE -> "Finish the investigation: save the intention and every commit explanation, then seal review_save_investigation. Do not save findings.";
+            case COLLECT_EVIDENCE -> "Collect evidence for the questions in assignment.previousValidation. Execute or inspect each requested check; "
+                    + "capture its result with review_get_context and answer it in review_save_investigation. Explain unavailable evidence as a limitation. "
+                    + "Preserve candidate numbering. End this turn after sealing; ByteQuay will schedule validation.";
+            case VALIDATE -> "Validate the investigation and every candidate against the current evidence. Read assignment and investigation context. "
+                    + "Try to disprove each claim. Save supported findings, then seal review_finish for the assigned investigationStep. "
+                    + "Use NEEDS_EVIDENCE with a specific missing proposition, next check, and resolving criterion if another inspection is necessary. "
+                    + "Use UNRESOLVED for evidence that cannot presently be obtained; zero findings is valid. "
+                    + "For fixes/features, HEAD-pass and old-behavior-fail support only the behavior tested. A remaining defect must exist at frozen HEAD.";
+        };
+        return "Review assignment " + step.number() + " for frozen PR head " + shortSha(run.headSha()) + ". "
+                + (step.repair() ? "The previous turn ended without its required report. Reuse the evidence and repair only the missing report. " : "")
+                + assignment;
     }
 
     static String question(String targetLabel, int targetRevision, String headSha, String message)

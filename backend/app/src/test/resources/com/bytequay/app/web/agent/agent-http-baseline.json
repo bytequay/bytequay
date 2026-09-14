@@ -7,7 +7,6 @@
       "effort": "high",
       "permissionPolicy": "AUTO",
       "developmentAutomation": {
-        "autoCommit": false,
         "autoDraftPr": false,
         "autoCiFix": false
       }
@@ -29,7 +28,6 @@
       "permissionPolicy": "AUTO",
       "serviceTier": null,
       "developmentAutomation": {
-        "autoCommit": false,
         "autoDraftPr": false,
         "autoCiFix": false,
         "ciLaneId": null
@@ -66,7 +64,8 @@
     "interactive": true,
     "developmentContinuationUnfinished": true,
     "developmentCi": null,
-    "pullRequest": null
+    "pullRequest": null,
+    "localReviewHead": null
   },
   "turns": [
     {
@@ -78,7 +77,7 @@
         "id": "<turn-1>",
         "taskId": "<task-id>",
         "state": "COMPLETED",
-        "version": 4,
+        "version": 5,
         "createdAt": "<timestamp>",
         "startedAt": "<timestamp>",
         "endedAt": "<timestamp>",
@@ -93,7 +92,6 @@
           "attachments": [],
           "serviceTier": null,
           "developmentAutomation": {
-            "autoCommit": false,
             "autoDraftPr": false,
             "autoCiFix": false,
             "ciLaneId": null
@@ -115,14 +113,18 @@
             "codegraphFailures": 0
           }
         },
-        "developmentResult": null,
+        "developmentResult": {
+          "readyForDelivery": true,
+          "message": null,
+          "learningSummary": null
+        },
         "developmentOrigin": null
       },
       "terminalResponse": {
         "id": "<turn-1>",
         "taskId": "<task-id>",
         "state": "COMPLETED",
-        "version": 4,
+        "version": 5,
         "createdAt": "<timestamp>",
         "startedAt": "<timestamp>",
         "endedAt": "<timestamp>",
@@ -137,7 +139,6 @@
           "attachments": [],
           "serviceTier": null,
           "developmentAutomation": {
-            "autoCommit": false,
             "autoDraftPr": false,
             "autoCiFix": false,
             "ciLaneId": null
@@ -159,7 +160,11 @@
             "codegraphFailures": 0
           }
         },
-        "developmentResult": null,
+        "developmentResult": {
+          "readyForDelivery": true,
+          "message": null,
+          "learningSummary": null
+        },
         "developmentOrigin": null
       }
     },
@@ -172,7 +177,7 @@
         "id": "<turn-1>",
         "taskId": "<task-id>",
         "state": "COMPLETED",
-        "version": 4,
+        "version": 5,
         "createdAt": "<timestamp>",
         "startedAt": "<timestamp>",
         "endedAt": "<timestamp>",
@@ -187,7 +192,6 @@
           "attachments": [],
           "serviceTier": null,
           "developmentAutomation": {
-            "autoCommit": false,
             "autoDraftPr": false,
             "autoCiFix": false,
             "ciLaneId": null
@@ -209,14 +213,18 @@
             "codegraphFailures": 0
           }
         },
-        "developmentResult": null,
+        "developmentResult": {
+          "readyForDelivery": true,
+          "message": null,
+          "learningSummary": null
+        },
         "developmentOrigin": null
       },
       "terminalResponse": {
         "id": "<turn-1>",
         "taskId": "<task-id>",
         "state": "COMPLETED",
-        "version": 4,
+        "version": 5,
         "createdAt": "<timestamp>",
         "startedAt": "<timestamp>",
         "endedAt": "<timestamp>",
@@ -231,7 +239,6 @@
           "attachments": [],
           "serviceTier": null,
           "developmentAutomation": {
-            "autoCommit": false,
             "autoDraftPr": false,
             "autoCiFix": false,
             "ciLaneId": null
@@ -253,7 +260,11 @@
             "codegraphFailures": 0
           }
         },
-        "developmentResult": null,
+        "developmentResult": {
+          "readyForDelivery": true,
+          "message": null,
+          "learningSummary": null
+        },
         "developmentOrigin": null
       }
     },
@@ -266,7 +277,7 @@
         "id": "<turn-2>",
         "taskId": "<task-id>",
         "state": "COMPLETED",
-        "version": 4,
+        "version": 5,
         "createdAt": "<timestamp>",
         "startedAt": "<timestamp>",
         "endedAt": "<timestamp>",
@@ -281,7 +292,6 @@
           "attachments": [],
           "serviceTier": null,
           "developmentAutomation": {
-            "autoCommit": false,
             "autoDraftPr": false,
             "autoCiFix": false,
             "ciLaneId": null
@@ -303,14 +313,18 @@
             "codegraphFailures": 0
           }
         },
-        "developmentResult": null,
+        "developmentResult": {
+          "readyForDelivery": true,
+          "message": null,
+          "learningSummary": null
+        },
         "developmentOrigin": null
       },
       "terminalResponse": {
         "id": "<turn-2>",
         "taskId": "<task-id>",
         "state": "COMPLETED",
-        "version": 4,
+        "version": 5,
         "createdAt": "<timestamp>",
         "startedAt": "<timestamp>",
         "endedAt": "<timestamp>",
@@ -325,7 +339,6 @@
           "attachments": [],
           "serviceTier": null,
           "developmentAutomation": {
-            "autoCommit": false,
             "autoDraftPr": false,
             "autoCiFix": false,
             "ciLaneId": null
@@ -347,7 +360,11 @@
             "codegraphFailures": 0
           }
         },
-        "developmentResult": null,
+        "developmentResult": {
+          "readyForDelivery": true,
+          "message": null,
+          "learningSummary": null
+        },
         "developmentOrigin": null
       }
     }
@@ -453,6 +470,29 @@
         "providerThreadId": null,
         "parentProviderThreadId": null,
         "logicalAgentPath": null,
+        "providerTurnId": "deterministic-<turn-1>",
+        "providerItemId": "report-<turn-1>",
+        "providerEventId": "report-<turn-1>",
+        "providerOccurredAt": null
+      },
+      "occurredAt": "<timestamp>",
+      "type": "development_result",
+      "payload": {
+        "readyForDelivery": true,
+        "message": null,
+        "learningSummary": null
+      }
+    },
+    {
+      "schemaVersion": 2,
+      "eventId": "<event-id>",
+      "sequence": 6,
+      "taskId": "<task-id>",
+      "turnId": "<turn-1>",
+      "source": {
+        "providerThreadId": null,
+        "parentProviderThreadId": null,
+        "logicalAgentPath": null,
         "providerTurnId": null,
         "providerItemId": null,
         "providerEventId": null,
@@ -468,7 +508,7 @@
     {
       "schemaVersion": 2,
       "eventId": "<event-id>",
-      "sequence": 6,
+      "sequence": 7,
       "taskId": "<task-id>",
       "turnId": null,
       "source": {
@@ -490,7 +530,7 @@
     {
       "schemaVersion": 2,
       "eventId": "<event-id>",
-      "sequence": 7,
+      "sequence": 8,
       "taskId": "<task-id>",
       "turnId": null,
       "source": {
@@ -512,7 +552,7 @@
     {
       "schemaVersion": 2,
       "eventId": "<event-id>",
-      "sequence": 8,
+      "sequence": 9,
       "taskId": "<task-id>",
       "turnId": "<turn-2>",
       "source": {
@@ -535,7 +575,7 @@
     {
       "schemaVersion": 2,
       "eventId": "<event-id>",
-      "sequence": 9,
+      "sequence": 10,
       "taskId": "<task-id>",
       "turnId": "<turn-2>",
       "source": {
@@ -557,7 +597,7 @@
     {
       "schemaVersion": 2,
       "eventId": "<event-id>",
-      "sequence": 10,
+      "sequence": 11,
       "taskId": "<task-id>",
       "turnId": "<turn-2>",
       "source": {
@@ -580,7 +620,30 @@
     {
       "schemaVersion": 2,
       "eventId": "<event-id>",
-      "sequence": 11,
+      "sequence": 12,
+      "taskId": "<task-id>",
+      "turnId": "<turn-2>",
+      "source": {
+        "providerThreadId": null,
+        "parentProviderThreadId": null,
+        "logicalAgentPath": null,
+        "providerTurnId": "deterministic-<turn-2>",
+        "providerItemId": "report-<turn-2>",
+        "providerEventId": "report-<turn-2>",
+        "providerOccurredAt": null
+      },
+      "occurredAt": "<timestamp>",
+      "type": "development_result",
+      "payload": {
+        "readyForDelivery": true,
+        "message": null,
+        "learningSummary": null
+      }
+    },
+    {
+      "schemaVersion": 2,
+      "eventId": "<event-id>",
+      "sequence": 13,
       "taskId": "<task-id>",
       "turnId": "<turn-2>",
       "source": {
@@ -602,7 +665,7 @@
     {
       "schemaVersion": 2,
       "eventId": "<event-id>",
-      "sequence": 12,
+      "sequence": 14,
       "taskId": "<task-id>",
       "turnId": null,
       "source": {
@@ -626,7 +689,7 @@
     {
       "schemaVersion": 2,
       "eventId": "<event-id>",
-      "sequence": 8,
+      "sequence": 9,
       "taskId": "<task-id>",
       "turnId": "<turn-2>",
       "source": {
@@ -649,7 +712,7 @@
     {
       "schemaVersion": 2,
       "eventId": "<event-id>",
-      "sequence": 9,
+      "sequence": 10,
       "taskId": "<task-id>",
       "turnId": "<turn-2>",
       "source": {
@@ -671,7 +734,7 @@
     {
       "schemaVersion": 2,
       "eventId": "<event-id>",
-      "sequence": 10,
+      "sequence": 11,
       "taskId": "<task-id>",
       "turnId": "<turn-2>",
       "source": {
@@ -694,7 +757,30 @@
     {
       "schemaVersion": 2,
       "eventId": "<event-id>",
-      "sequence": 11,
+      "sequence": 12,
+      "taskId": "<task-id>",
+      "turnId": "<turn-2>",
+      "source": {
+        "providerThreadId": null,
+        "parentProviderThreadId": null,
+        "logicalAgentPath": null,
+        "providerTurnId": "deterministic-<turn-2>",
+        "providerItemId": "report-<turn-2>",
+        "providerEventId": "report-<turn-2>",
+        "providerOccurredAt": null
+      },
+      "occurredAt": "<timestamp>",
+      "type": "development_result",
+      "payload": {
+        "readyForDelivery": true,
+        "message": null,
+        "learningSummary": null
+      }
+    },
+    {
+      "schemaVersion": 2,
+      "eventId": "<event-id>",
+      "sequence": 13,
       "taskId": "<task-id>",
       "turnId": "<turn-2>",
       "source": {
@@ -716,7 +802,7 @@
     {
       "schemaVersion": 2,
       "eventId": "<event-id>",
-      "sequence": 12,
+      "sequence": 14,
       "taskId": "<task-id>",
       "turnId": null,
       "source": {
@@ -739,7 +825,7 @@
   "sse": {
     "schemaVersion": 2,
     "eventId": "<event-id>",
-    "sequence": 8,
+    "sequence": 9,
     "taskId": "<task-id>",
     "turnId": "<turn-2>",
     "source": {
@@ -801,7 +887,6 @@
       "permissionPolicy": "AUTO",
       "serviceTier": null,
       "developmentAutomation": {
-        "autoCommit": false,
         "autoDraftPr": false,
         "autoCiFix": false,
         "ciLaneId": null
@@ -858,6 +943,7 @@
     "interactive": true,
     "developmentContinuationUnfinished": false,
     "developmentCi": null,
-    "pullRequest": null
+    "pullRequest": null,
+    "localReviewHead": null
   }
 }

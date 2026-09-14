@@ -19,7 +19,7 @@ import java.util.Optional;
 
 import static java.util.Objects.requireNonNull;
 
-/** The user's accepted delivery choices; an absent CI lane inherits the development task's lane. */
+/** Accepted delivery settings. Only trusted private/publication turns can disable commits; CI inherits the task lane. */
 public record DevelopmentAutomation(
         boolean autoCommit,
         boolean autoDraftPr,
@@ -32,6 +32,11 @@ public record DevelopmentAutomation(
     public DevelopmentAutomation
     {
         requireNonNull(ciLaneId, "ciLaneId is null");
+    }
+
+    public DevelopmentAutomation forDevelopment()
+    {
+        return new DevelopmentAutomation(true, autoDraftPr, autoCiFix, ciLaneId);
     }
 
     public boolean enabled()

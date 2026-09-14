@@ -13,18 +13,44 @@
  */
 package com.bytequay.core.review;
 
+import com.google.common.collect.ImmutableList;
+
+import java.util.List;
 import java.util.Optional;
 
+import static com.bytequay.core.review.ReviewCandidateValidation.Outcome.UNRESOLVED;
 import static com.google.common.base.Preconditions.checkArgument;
 import static java.util.Objects.requireNonNull;
 
-/** A supported candidate names its saved finding; a rejected candidate retains only the reason. */
-public record ReviewCandidateValidation(int candidate, String conclusion, Optional<String> findingId)
+/** One assessment of an immutable investigation, including a concrete next check when evidence is missing. */
+public record ReviewCandidateValidation(
+        int candidate,
+        Outcome outcome,
+        String conclusion,
+        List<String> evidenceRefs,
+        String counterevidence,
+        Optional<String> findingId,
+        Optional<Integer> findingRevision,
+        Optional<ReviewEvidenceRequest> request)
 {
     public ReviewCandidateValidation
     {
         checkArgument(candidate > 0, "candidate is not positive");
+        outcome = outcome == null ? UNRESOLVED : outcome;
         requireNonNull(conclusion, "conclusion is null");
+        evidenceRefs = evidenceRefs == null ? ImmutableList.of() : ImmutableList.copyOf(evidenceRefs);
+        counterevidence = counterevidence == null ? "" : counterevidence;
         requireNonNull(findingId, "findingId is null");
+        requireNonNull(findingRevision, "findingRevision is null");
+        checkArgument(findingRevision.map(value -> value > 0).orElse(true), "findingRevision is not positive");
+        requireNonNull(request, "request is null");
+    }
+
+    public enum Outcome
+    {
+        SUPPORTED,
+        REJECTED,
+        NEEDS_EVIDENCE,
+        UNRESOLVED
     }
 }

@@ -463,6 +463,9 @@ export default function AgentReviewTab({
         )}
       </div>
 
+      {!running && review.state === 'OPEN' && <div className="agr-banner is-neutral">
+        Local experiments are restored when possible. If they conflict, all local experiments are discarded.
+      </div>}
       {error !== null && <div className="agr-error" role="alert">{error}</div>}
       {findingActions.error !== null && <div className="agr-error" role="alert">{findingActions.error}</div>}
       {recovery && (
@@ -518,8 +521,7 @@ export default function AgentReviewTab({
             <div className="agr-banner is-neutral">
               <span className="agr-banner__chip">Stopped</span>
               <div className="agr-banner__text">
-                You stopped the run. Follow-up on new commits is paused. The discussion stays open; Resume continues from
-                the saved state.
+                You stopped the review. The discussion stays open; Resume continues from the saved state.
               </div>
             </div>
           )}

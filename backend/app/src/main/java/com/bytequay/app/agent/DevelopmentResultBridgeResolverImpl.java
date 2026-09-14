@@ -50,7 +50,7 @@ public class DevelopmentResultBridgeResolverImpl
     {
         TaskId id = TaskId.valueOf(taskId);
         return tasks.find(id)
-                .filter(task -> task.interactive() && task.state() == TaskState.OPEN)
+                .filter(task -> task.interactive() && task.state() == TaskState.OPEN && task.localReviewHead().isEmpty())
                 .filter(task -> reviews.findReviewByTask(taskId).isEmpty())
                 .flatMap(task -> turns.findActive(id))
                 .filter(turn -> turn.settings().flatMap(AgentTurnSettings::developmentAutomation).filter(DevelopmentAutomation::enabled).isPresent()

@@ -40,11 +40,11 @@ do not duplicate them in a new delivery lifecycle.
 
 ## 2. Settings and scope
 
-**Settings → Agents → Workflow** has three settings, all on by default:
+**Settings → Agents → Workflow** has two settings, both on by default.
+Finished development work is always committed locally; there is no Auto commit toggle.
 
 | Setting | Meaning |
 | --- | --- |
-| Auto commit | Commit finished development work; ask the agent if Git still reports uncommitted changes. |
 | Auto draft PR | Ask the agent to push committed work and create a draft if the task has no matching PR. Update the same open PR on later revisions. |
 | Auto CI fix | Attach existing CI Autofix and mark this task's draft ready after verified green. |
 
@@ -60,8 +60,8 @@ an existing task. An explicit CI provider overrides that inheritance; Codex and
 Claude Code are eligible when they advertise `CI_AUTOFIX`. This selects the
 agent that repairs code; GitHub Actions remains the CI host.
 The new-task composer's **Automation** control
-sets these choices and Local only, which supplies all three false for the first
-turn. A started task shows its choices read-only; **Stop automation** stops the
+sets these choices and **Keep commits local for this turn**, which disables
+draft publication and CI for the first turn while retaining development commits. A started task shows its choices read-only; **Stop automation** stops the
 current continuation.
 
 Submitting the request with its visible settings records authority for that
@@ -71,30 +71,63 @@ Provider approval and authentication checks still apply. Generated text is
 not itself a user authorization. Existing tasks do not auto-publish on app
 startup or page load; their next explicit submission carries the selection.
 
-**Send to agent** on a task's linked PR diff is another explicit submission.
-Its visible action commits and pushes requested edits while keeping draft PRs
-draft: the input snapshots `autoCommit=true`, `autoDraftPr=true`, and
-`autoCiFix=false`, without changing task defaults. A busy task queues that
-input with the same settings. This action
-requires an existing open PR and keeps feedback private in the task transcript;
-it does not post GitHub comments or replace the PR description. Questions ask
-for an explanation without edits or release of prior held work. Existing
-readiness, unchanged-work, and publication checks still decide whether any
-commit or push is necessary.
+**Review locally** begins private review of the task's existing open PR. The
+checkout must be clean and its exact HEAD must match both the remote branch and
+PR. A private line or learning discussion enters the same mode before sending
+its first message; a busy development task must finish before entry.
+
+One durable optional `AgentTask.localReviewHead` records that baseline. While it
+is present, every message, including the main composer and queued inputs,
+receives private review permissions and internal `LOCAL_ONLY` settings. Agents
+may edit code or write and run tests, but must keep experiments uncommitted.
+There are no generated development, publication, or CI follow-ups, and the
+composer does not route `@ci` messages to the repair agent. A policy-only
+`ReviewBridge` activates the existing provider review restrictions without
+inventing reporting tools. The local discussion tools remain available.
+
+**Sync PR head** is an explicit user action available while the task is idle.
+Before the click, explain that local experiments are restored when possible and
+all private experiments are discarded if they conflict with the updated code.
+ByteQuay rereads the open
+PR and remote branch, saves tracked and untracked experiments in a task-tagged
+Git stash, and updates the same checkout to that verified commit. It then applies
+the exact stash with staging preserved and drops that entry after restoration
+or the disclosed conflict discard. There is at most one temporary stash per task,
+and normally none; cleanup does not create an additional stash.
+The saved review baseline advances with the checkout. Nothing is committed or
+pushed, and no second checkout or CodeGraph index is created.
+
+Restoring experiments can conflict with remote changes. In that case ByteQuay
+discards all private experiment changes and the temporary stash, verifies the
+clean remote revision, and finishes the sync with an informational warning.
+There are no conflict markers or user recovery steps. A failed head move restores
+experiments at the old head when safe; native failures surface as ordinary
+errors. No agent conflict-resolution turn or reconciliation commit is needed.
+
+**Finish local review** explicitly confirms discarding all uncommitted review
+experiments, including manually edited files. ByteQuay verifies that HEAD has
+not changed, that no Git operation or writer is active, and discards tracked and
+untracked experiments directly without creating a stash. Ignored build
+outputs and unrelated stashes are preserved. A failed cleanup retains review
+mode until a later explicit retry finishes it. Only a
+successful clean finish clears the marker and permits development commits again.
+Completing or publishing the development task is unavailable during local review.
+Entry, sync, and finish use existing task locking and mutation ownership; this adds no
+new workflow lifecycle or separate checkout/index.
 
 Only interactive development tasks enter this continuation. CI, cherry-pick,
 review-owned tasks, helpers, and child agents cannot recursively start it.
 An unchanged read-only turn produces no new commit, PR, or CI run.
-With all three settings off, successful changed work still receives a private
-summary refinement through the same completion hook. The source turn needs no
-readiness report, and no delivery action runs. Unchanged work skips refinement.
-A failed turn preserves the task with either selection.
+With publication and CI off, successful development is committed locally and
+receives its normal summary refinement. Private review turns do not trigger
+development summary refinement. A failed turn preserves the task.
 
 Ordinary attended development also permits explicitly requested `git` and
 `gh` publishing through the provider's native tools and risk review, under
 the [shared command policy](agent-service.md#shared-development-command-policy).
-Turning automation off disables generated delivery follow-ups, while private
-summary refinement and explicitly requested actions remain available. Existing task authorization need not
+Disabling publication and CI keeps development commits local; summary
+refinement and explicitly requested development actions remain available.
+Private local review has no publication authority. Existing task authorization need not
 be repeated, but the agent still verifies the actual destination, outgoing
 changes, and any exact rewrite lease. A general development request supplies
 no remote-write authority. Narrower user instructions remain binding.
@@ -103,8 +136,9 @@ its tool window does not limit otherwise authorized ordinary CLI operations.
 
 Respect independent settings:
 
-- Auto commit off plus dirty files stops before publication, even if Auto
-  draft PR is on. Never silently commit or publish only a committed subset.
+- Development commits are mandatory for finished work. An explicit hold or
+  unresolved question prevents delivery; private review experiments never enter
+  this continuation.
 - Auto draft PR off leaves commits local. Auto CI fix can operate only on an
   already-existing PR that exactly matches the clean local revision.
 - Auto CI fix off leaves the published draft as a draft.
@@ -149,8 +183,8 @@ and per-commit full SHA/title/explanation. The report explains the change’s
 intention and how each commit supports it; separate result, evidence, and
 limitations cards are not generated.
 Only that turn's bridge exposes and accepts the structured summary field.
-The user's accepted Auto commit, Auto draft PR, and Auto CI fix controls determine which actions
-run. A report cannot change those choices, add authority, choose a destination,
+Development always commits finished work. The user's accepted Auto draft PR
+and Auto CI fix controls determine the remaining actions. A report cannot change those choices, add authority, choose a destination,
 or perform a remote write. The provider binding accepts only the current root
 turn's report, not a child agent's claim. The report conveys the agent's
 understanding; Git/GitHub still prove results.
@@ -261,7 +295,7 @@ The coordinator applies these decisions in order:
 ```text
 after a stopped user development turn:
     if failed or execution uncertain: fail the continuation
-    if all automation settings off: finish locally with summary refinement
+    if task is in private local review: do not enter development delivery
     if readiness report missing/invalid: fail the continuation
     if not readyForDelivery: finish locally with summary refinement; wait for user
     if accepted user work already queued: run it first; check after it ends
@@ -270,7 +304,6 @@ after a stopped user development turn:
     if local work is unchanged, dirty, and has no pending delivery: finish locally
 
     if dirty:
-        if auto commit off: show uncommitted work; finish locally
         run one ordinary "commit finished changes" agent turn
         wait for its completion, gate report, and verified shutdown
         if it needs user input: release ownership; wait for user

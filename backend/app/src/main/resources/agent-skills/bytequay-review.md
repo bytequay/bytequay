@@ -51,8 +51,12 @@ discussions, resumed turns, and report repair.
    product failure from test/environment failure. Passing a tested behavior
    supports only that behavior, never the correctness of the whole PR.
 6. **Report supported findings and honest coverage.** The validation pass
-   resolves each numbered candidate, keeping an evidence-backed finding or a
-   concise rejection reason. Merge duplicate root causes. Give actual defects
+   assesses each numbered candidate as supported, rejected, needing evidence,
+   or unresolved. A request for evidence names the missing proposition, the
+   next check, and the result that would settle it. ByteQuay schedules that
+   check in a separate turn and sends the answer back to validation, with at
+   most two evidence follow-ups. Report unavailable checks honestly; neither
+   missing proof nor an exhausted budget establishes a finding. Merge duplicate root causes. Give actual defects
    Critical, High, or Medium severity by default; include Low only when asked.
    Concrete optional improvements start with "Suggestion:" and omit severity.
    Select at most ten distinct findings per round, ranked by severity, impact,

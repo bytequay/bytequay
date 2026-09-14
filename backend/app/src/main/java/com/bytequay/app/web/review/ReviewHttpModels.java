@@ -25,6 +25,7 @@ import com.bytequay.core.review.ReviewEvidence;
 import com.bytequay.core.review.ReviewFinding;
 import com.bytequay.core.review.ReviewInvestigation;
 import com.bytequay.core.review.ReviewMessage;
+import com.bytequay.core.review.ReviewStep;
 import com.bytequay.core.review.ReviewSummary;
 
 import java.time.Instant;
@@ -86,7 +87,7 @@ final class ReviewHttpModels
                 run.summary().map(ReviewHttpModels::summary),
                 run.coverage().map(ReviewHttpModels::coverage),
                 run.investigation(),
-                run.validationStarted(),
+                run.steps(),
                 run.evidence().stream().map(ReviewHttpModels::evidence).collect(toImmutableList()),
                 run.outcome(),
                 run.createdAt(),
@@ -249,7 +250,7 @@ final class ReviewHttpModels
             Optional<SummaryResponse> summary,
             Optional<CoverageResponse> coverage,
             Optional<ReviewInvestigation> investigation,
-            boolean validationStarted,
+            List<ReviewStep> steps,
             List<EvidenceResponse> evidence,
             Optional<String> outcome,
             Instant createdAt,

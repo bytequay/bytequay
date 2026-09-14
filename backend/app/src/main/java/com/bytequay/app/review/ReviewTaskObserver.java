@@ -45,7 +45,7 @@ import static java.util.Objects.requireNonNull;
  * <p>One in-process subscription per open review reacts to settled lifecycle events by asking the
  * review service to reconcile; the service reads the durable turn and claim facts, so a duplicate
  * or early event is harmless. Startup restores every open review's subscription, and pull-request
- * refreshes feed observed heads through the same reconcile path.
+ * refreshes record newer heads for the user's next Update review action.
  */
 @Component
 public class ReviewTaskObserver

@@ -14,7 +14,7 @@
 import { useCallback } from 'react';
 import { flushSync } from 'react-dom';
 import { createRoot } from 'react-dom/client';
-import type { AgentStreamMessage, AgentTaskDto, AgentTurnDto, CreateAgentTaskRequest, StartAgentTurnRequest } from '../../types';
+import type { AgentStreamMessage, AgentTaskDto, AgentTurnDto, CreateAgentTaskRequest, PullRequestDto, StartAgentTurnRequest } from '../../types';
 import type { AgentEventEnvelope } from '../events';
 import { TaskComposer, useAgentTaskCreation } from '../AgentTasksView';
 import { createPreviewBridge } from './previewBridge';
@@ -48,7 +48,8 @@ async function createLocalTask(): Promise<{ name: string; error?: string }[]> {
     menu.click();
     await settle();
     const localOnly = host.querySelector<HTMLInputElement>('.is-local input');
-    assert(localOnly !== null, 'Local only must be a separate submission control');
+    assert(localOnly !== null, 'Keeping commits local must be a separate submission control');
+    assert(host.textContent?.includes('Keep commits local for this turn') === true, 'Local publication must explain that commits are still created');
     localOnly.click();
     await settle();
     const input = host.querySelector<HTMLInputElement>('input[aria-label="Describe a task"]');
@@ -57,21 +58,21 @@ async function createLocalTask(): Promise<{ name: string; error?: string }[]> {
     input.dispatchEvent(new Event('input', { bubbles: true }));
     await settle();
     const send = host.querySelector<HTMLButtonElement>('.agt-send');
-    assert(send !== null && !send.disabled, 'Ready task with visible Local only must be sendable');
+    assert(send !== null && !send.disabled, 'Ready task with local publication selected must be sendable');
     send.click();
     await settle();
     const command = bridge.commands.find(command => command.name === 'createAgentTask');
     assert(command !== undefined, 'One composite task request must be submitted');
     const request = command.args[0] as CreateAgentTaskRequest;
-    assert(request.defaults.developmentAutomation?.autoCommit === true, 'Local only must preserve saved task defaults');
-    assert(request.developmentAutomation?.autoCommit === false && request.developmentAutomation.autoDraftPr === false
-      && request.developmentAutomation.autoCiFix === false, 'Only the first turn must disable all automatic steps');
+    assert(request.defaults.developmentAutomation?.autoDraftPr === true, 'Keeping commits local must preserve saved task defaults');
+    assert(request.developmentAutomation?.autoDraftPr === false && request.developmentAutomation.autoCiFix === false,
+      'Only the first turn must disable automatic publication and CI');
     assert(bridge.commands.filter(command => command.name === 'createAgentTask').length === 1, 'A successful submit must not duplicate creation');
-    assert(host.querySelector<HTMLInputElement>('.is-local input')?.checked === false, 'Local only must clear after acceptance');
+    assert(host.querySelector<HTMLInputElement>('.is-local input')?.checked === false, 'Local publication override must clear after acceptance');
     assert(host.querySelector<HTMLInputElement>('.agt-automation-option input')?.checked === true, 'Default-on selection must remain for the next task');
-    return [{ name: 'Local only preserves task defaults and submits one explicit first-turn override' }];
+    return [{ name: 'Keeping commits local preserves task defaults and submits one explicit first-turn override' }];
   }
-  catch (error) { return [{ name: 'Local only submission', error: error instanceof Error ? error.message : String(error) }]; }
+  catch (error) { return [{ name: 'Local publication submission', error: error instanceof Error ? error.message : String(error) }]; }
   finally { flushSync(() => root.unmount()); host.remove(); }
 }
 
@@ -112,8 +113,8 @@ async function retryLocalTurn(): Promise<{ name: string; error?: string }[]> {
     const command = bridge.commands.find(command => command.name === 'startAgentTurn');
     assert(command !== undefined, 'Explicit retry must submit the durable input');
     const request = command.args[0] as StartAgentTurnRequest;
-    assert(request.developmentAutomation?.autoCommit === false && request.developmentAutomation.autoDraftPr === false
-      && request.developmentAutomation.autoCiFix === false, 'Retry must retain the accepted Local only policy despite current default-on settings');
+    assert(request.developmentAutomation?.autoDraftPr === false && request.developmentAutomation.autoCiFix === false,
+      'Retry must retain the accepted local publication policy despite current default-on settings');
     return [{ name: 'Authentication retry retains accepted automation instead of current task defaults' }];
   }
   catch (error) { return [{ name: 'Authentication retry policy', error: error instanceof Error ? error.message : String(error) }]; }
@@ -121,7 +122,135 @@ async function retryLocalTurn(): Promise<{ name: string; error?: string }[]> {
 }
 
 export async function run(): Promise<{ name: string; error?: string }[]> {
-  return [...await createLocalTask(), ...await retryLocalTurn(), ...await continuationAdmission(), ...await stopPreservesTask(), ...await pullRequestLookupPolicy(), ...await runCiAutofixScenarios(), ...await runDevelopmentDeliveryScenarios()];
+  return [...await createLocalTask(), ...await retryLocalTurn(), ...await localReviewExperiments(), ...await localReviewExperiments(true), ...await continuationAdmission(), ...await stopPreservesTask(), ...await pullRequestLookupPolicy(), ...await runCiAutofixScenarios(), ...await runDevelopmentDeliveryScenarios()];
+}
+
+async function localReviewExperiments(reloadPrivate = false): Promise<{ name: string; error?: string }[]> {
+  const bridge = createPreviewBridge('workspace-1');
+  let automationReads = 0;
+  if (reloadPrivate) bridge.getDevelopmentAutomation = async () => { automationReads++; throw new Error('Automation settings unavailable'); };
+  const originalBridge = Object.getOwnPropertyDescriptor(window, 'bridge');
+  Object.defineProperty(window, 'bridge', { configurable: true, value: {
+    ...bridge,
+    fetchPullRequestDetailByRef: async () => { throw new Error('PR detail unavailable in this fixture'); },
+    refreshPullRequestDetailByRef: async () => { throw new Error('PR detail unavailable in this fixture'); },
+    refreshAllPullRequestDetailByRef: async () => { throw new Error('PR detail unavailable in this fixture'); },
+    getUserProfile: async (): Promise<null> => null,
+    findAgentReview: async (): Promise<null> => null,
+  } });
+  const event = bridge.events[0];
+  assert(event.turnId !== null, 'Fixture must identify a turn');
+  let task: AgentTaskDto = { ...await bridge.getAgentTask(event.taskId, 'workspace-1'), interactive: true, mutationClaim: null,
+    developmentContinuationUnfinished: false, localReviewHead: reloadPrivate ? 'a'.repeat(40) : null };
+  const turn: AgentTurnDto = { ...await bridge.getAgentTurn(event.turnId), id: event.turnId, state: 'COMPLETED', endedAt: '2026-01-01T12:00:00Z' };
+  const pr: PullRequestDto = {
+    id: 1, repo: 'acme/demo', number: 1, title: 'Development result', author: 'alice', htmlUrl: 'https://github.com/acme/demo/pull/1',
+    createdAt: '', updatedAt: '', origin: 'AUTHORED', labels: [], labelColors: null, draft: true, viewedAt: null, reviewedAt: null,
+    handledAction: null, requestedReviewers: [], ciStatus: null, additions: 1, deletions: 0, commentCount: 0, attentionReason: null,
+    state: 'open', mergeable: null, mergeableState: null, headPushedAt: null, headRef: task.generatedBranch,
+  };
+  bridge.getAgentTask = async () => task;
+  bridge.getAgentTurn = async () => turn;
+  bridge.listAgentTaskPullRequests = async () => [pr];
+  bridge.readAgentHistory = async () => ({ events: [event], beforeCursor: null, afterCursor: null, latestSequence: event.sequence });
+  bridge.readAgentEvents = async () => [event];
+  bridge.subscribeAgentTask = async (taskId, _after, listener) => {
+    listener({ subscriptionId: 'local-review', taskId, kind: 'state', state: 'open' });
+    return () => {};
+  };
+  const start = bridge.startAgentLocalReview;
+  bridge.startAgentLocalReview = async (...args) => {
+    await start(...args);
+    task = { ...task, version: task.version + 1, localReviewHead: 'a'.repeat(40) };
+    return task;
+  };
+  const finish = bridge.finishAgentLocalReview;
+  bridge.finishAgentLocalReview = async (...args) => {
+    await finish(...args);
+    task = { ...task, version: task.version + 1, localReviewHead: null };
+    return task;
+  };
+  const sync = bridge.syncAgentLocalReview;
+  const syncWarning = 'Updated to the latest PR head. All local experiments were discarded because they conflicted with the update.';
+  bridge.syncAgentLocalReview = async (...args) => {
+    await sync(...args);
+    task = { ...task, version: task.version + 1, localReviewHead: 'b'.repeat(40) };
+    return { task, warning: reloadPrivate ? syncWarning : null };
+  };
+  const host = document.createElement('div');
+  document.body.append(host);
+  const root = createRoot(host);
+  flushSync(() => root.render(<AgentTaskScreen workspaceId="workspace-1" taskId={task.id} bridge={bridge} onBack={() => {}} />));
+  const button = (text: string): HTMLButtonElement => {
+    const found = Array.from(document.querySelectorAll('button')).find(candidate => candidate.textContent === text);
+    assert(found !== undefined, `Missing ${text} button; screen: ${host.textContent}`);
+    return found;
+  };
+  try {
+    await settle();
+    if (!reloadPrivate) {
+      button('Review locally').click();
+      await settle();
+    }
+    assert(host.textContent?.includes('Local review · changes stay uncommitted') === true, 'Review mode must remain visible');
+    assert(host.querySelector('.agt-automation') === null, 'Private review must hide development publication controls');
+    assert(host.querySelector<HTMLButtonElement>('button[aria-label="Mark it complete"]')?.disabled === true,
+      'Completion must wait until private experiments are finalized');
+    const input = host.querySelector<HTMLTextAreaElement>('textarea');
+    assert(input !== null && !input.disabled, 'Review mode keeps the normal composer available for experiments');
+    const experimentRequest = reloadPrivate ? '@ci Add another private test' : 'Add another private test';
+    Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value')?.set?.call(input, experimentRequest);
+    input.dispatchEvent(new Event('input', { bubbles: true }));
+    await settle();
+    assert(!bridge.commands.some(command => command.name === 'syncAgentLocalReview'), 'Reading private review must not sync the checkout');
+    assert(host.textContent?.includes('Local experiments are restored when possible. If they conflict, all local experiments are discarded.') === true,
+      'Sync must disclose conflict-driven experiment discard before the user clicks');
+    const syncVersion = task.version;
+    button('Sync PR head').click();
+    await settle();
+    assert(task.localReviewHead === 'b'.repeat(40) && host.textContent?.includes('Local review · changes stay uncommitted') === true,
+      'Sync must advance the reviewed head without leaving private mode');
+    const synced = bridge.commands.filter(command => command.name === 'syncAgentLocalReview');
+    assert(synced.length === 1 && synced[0].args[2] === syncVersion, 'Sync must use the visible task version exactly once');
+    assert(input.value === experimentRequest && !bridge.commands.some(command => command.name === 'startAgentTurn' || command.name === 'sendCiAutofixMessage'),
+      'Sync must preserve the unsent draft without publishing or starting development');
+    if (reloadPrivate) assert(host.querySelector('[role="alert"]')?.textContent?.includes(syncWarning) === true,
+      'Discarded conflicting experiments must be reported while private review remains usable');
+    assert(!host.textContent?.includes('Ask the agent to restore'), 'Conflicting experiments must not require a recovery step');
+    assert(host.querySelector<HTMLButtonElement>('button[aria-label="Send message"]')?.disabled === false, 'An experiment request can use the normal composer');
+    if (reloadPrivate) {
+      assert(automationReads === 0, 'Private review must not depend on unavailable development automation settings');
+      host.querySelector<HTMLButtonElement>('button[aria-label="Send message"]')?.click();
+      await settle();
+      const sent = bridge.commands.find(command => command.name === 'startAgentTurn');
+      assert(sent !== undefined && (sent.args[0] as StartAgentTurnRequest).developmentAutomation === undefined,
+        'Private experiment submissions must not carry development publication selections');
+      assert((sent.args[0] as StartAgentTurnRequest).message === experimentRequest
+        && !bridge.commands.some(command => command.name === 'sendCiAutofixMessage'), 'Private review must send @ci text to its reviewer without routing a remote-writing CI task');
+      return [{ name: 'Reloaded private review submits experiments without reading development automation settings' }];
+    }
+    button('Finish local review').click();
+    await settle();
+    assert(document.body.textContent?.includes('including tests and edits made by you or the agent') === true, 'Finishing must explain exactly which work is discarded');
+    button('Cancel').click();
+    await settle();
+    assert(!bridge.commands.some(command => command.name === 'finishAgentLocalReview'), 'Cancel must preserve the experiment');
+    button('Finish local review').click();
+    await settle();
+    button('Discard experiments and finish').click();
+    await settle();
+    assert(!host.textContent?.includes('Local review · changes stay uncommitted'), 'Successful finish must restore development mode');
+    assert(bridge.commands.filter(command => command.name === 'finishAgentLocalReview').length === 1, 'Confirmed finish must run once');
+    assert(input.value === 'Add another private test', 'Changing mode must preserve unsent composer text');
+    return [{ name: 'Local review preserves the composer and requires explicit confirmation before discarding experiments' }];
+  }
+  catch (error) { return [{ name: 'Local review experiments', error: error instanceof Error ? error.message : String(error) }]; }
+  finally {
+    flushSync(() => root.unmount());
+    host.remove();
+    if (originalBridge === undefined) delete (window as { bridge?: unknown }).bridge;
+    else Object.defineProperty(window, 'bridge', originalBridge);
+  }
 }
 
 async function stopPreservesTask(): Promise<{ name: string; error?: string }[]> {
@@ -195,7 +324,7 @@ async function stopPreservesTask(): Promise<{ name: string; error?: string }[]> 
     const send = host.querySelector<HTMLButtonElement>('button[aria-label="Send message"]');
     assert(send !== null && !send.disabled, 'The user must be able to continue in the same task');
     const automation = Array.from(host.querySelectorAll<HTMLInputElement | HTMLSelectElement>('.agt-automation input, .agt-automation select'));
-    assert(automation.length === 5 && automation.every(control => control.disabled), 'A started task must show its automation read-only');
+    assert(automation.length === 4 && automation.every(control => control.disabled), 'A started task must show its publication automation read-only');
     send.click();
     await settle();
     const requests = bridge.commands.filter(command => command.name === 'startAgentTurn');

@@ -31,7 +31,7 @@ import static java.util.Objects.requireNonNull;
  *
  * @param turnIds the review-request turns ByteQuay started for this run, in order; the transcript
  *        labels their input as ByteQuay's, not the user's
- * @param operations replay results by {@code tool:operationKey}, committed with the write they name
+ * @param operations replay results by assignment, tool and operation key, committed with the write they name
  * @param evidence the excerpts context reads handed the agent, by returned reference, so a finding can cite them
  */
 public record ReviewRun(
@@ -51,7 +51,7 @@ public record ReviewRun(
         Optional<ReviewSummary> summary,
         Optional<ReviewCoverage> coverage,
         Optional<ReviewInvestigation> investigation,
-        boolean validationStarted,
+        List<ReviewStep> steps,
         boolean completionRepairUsed,
         Map<String, ReviewOperation> operations,
         Map<String, ReviewEvidence> evidence,
@@ -79,6 +79,10 @@ public record ReviewRun(
         requireNonNull(summary, "summary is null");
         requireNonNull(coverage, "coverage is null");
         requireNonNull(investigation, "investigation is null");
+        steps = ImmutableList.copyOf(steps);
+        for (int index = 0; index < steps.size(); index++) {
+            checkArgument(steps.get(index).number() == index + 1, "step numbers must be consecutive");
+        }
         operations = ImmutableMap.copyOf(operations);
         evidence = ImmutableMap.copyOf(evidence);
         requireNonNull(outcome, "outcome is null");
@@ -96,39 +100,58 @@ public record ReviewRun(
 
     public ReviewRun withVersion(long updatedVersion)
     {
-        return copy(turnIds, state, summary, coverage, investigation, validationStarted, completionRepairUsed, operations, evidence, outcome, updatedVersion, updatedAt, endedAt);
+        return copy(turnIds, state, summary, coverage, investigation, steps, completionRepairUsed, operations, evidence, outcome, updatedVersion, updatedAt, endedAt);
     }
 
     public ReviewRun withTurn(String turnId, Instant now)
     {
         List<String> nextTurnIds = ImmutableList.<String>builder().addAll(turnIds).add(turnId).build();
-        return copy(nextTurnIds, state, summary, coverage, investigation, validationStarted, completionRepairUsed, operations, evidence, outcome, version, now, endedAt);
+        return copy(nextTurnIds, state, summary, coverage, investigation, steps, completionRepairUsed, operations, evidence, outcome, version, now, endedAt);
     }
 
     public ReviewRun withSummary(ReviewSummary updatedSummary, Instant now)
     {
         return copy(
-                turnIds, state, Optional.of(updatedSummary), coverage, investigation, validationStarted, completionRepairUsed,
+                turnIds, state, Optional.of(updatedSummary), coverage, investigation, steps, completionRepairUsed,
                 operations, evidence, outcome, version, now, endedAt);
     }
 
     public ReviewRun withCoverage(ReviewCoverage updatedCoverage, Instant now)
     {
         return copy(
-                turnIds, state, summary, Optional.of(updatedCoverage), investigation, validationStarted, completionRepairUsed,
+                turnIds, state, summary, Optional.of(updatedCoverage), investigation, steps, completionRepairUsed,
                 operations, evidence, outcome, version, now, endedAt);
     }
 
     public ReviewRun withInvestigation(ReviewInvestigation updatedInvestigation, Instant now)
     {
         return copy(
-                turnIds, state, summary, coverage, Optional.of(updatedInvestigation), validationStarted, completionRepairUsed,
+                turnIds, state, summary, coverage, Optional.of(updatedInvestigation), steps, completionRepairUsed,
                 operations, evidence, outcome, version, now, endedAt);
     }
 
-    public ReviewRun withValidationStarted(Instant now)
+    public Optional<ReviewStep> currentStep()
     {
-        return copy(turnIds, state, summary, coverage, investigation, true, completionRepairUsed, operations, evidence, outcome, version, now, endedAt);
+        return steps.isEmpty() ? Optional.empty() : Optional.of(steps.getLast());
+    }
+
+    public boolean validationStarted()
+    {
+        return currentStep().map(step -> step.kind() == ReviewStep.Kind.VALIDATE).orElse(false);
+    }
+
+    public ReviewRun withStep(ReviewStep step, Instant now)
+    {
+        checkArgument(step.number() == steps.size() + 1, "next step number must be consecutive");
+        List<ReviewStep> next = ImmutableList.<ReviewStep>builder().addAll(steps).add(step).build();
+        return copy(turnIds, state, summary, Optional.empty(), investigation, next, completionRepairUsed, operations, evidence, outcome, version, now, endedAt);
+    }
+
+    public ReviewRun replaceCurrentStep(ReviewStep step, Instant now)
+    {
+        checkArgument(!steps.isEmpty() && step.number() == steps.size(), "only the current step can be replaced");
+        List<ReviewStep> next = ImmutableList.<ReviewStep>builder().addAll(steps.subList(0, steps.size() - 1)).add(step).build();
+        return copy(turnIds, state, summary, coverage, investigation, next, completionRepairUsed, operations, evidence, outcome, version, now, endedAt);
     }
 
     public boolean hasCompleteSummary()
@@ -141,25 +164,25 @@ public record ReviewRun(
     public ReviewRun withOperation(String key, ReviewOperation operation, Instant now)
     {
         Map<String, ReviewOperation> nextOperations = ImmutableMap.<String, ReviewOperation>builder().putAll(operations).put(key, operation).buildOrThrow();
-        return copy(turnIds, state, summary, coverage, investigation, validationStarted, completionRepairUsed, nextOperations, evidence, outcome, version, now, endedAt);
+        return copy(turnIds, state, summary, coverage, investigation, steps, completionRepairUsed, nextOperations, evidence, outcome, version, now, endedAt);
     }
 
     public ReviewRun withEvidence(String ref, ReviewEvidence item, Instant now)
     {
         Map<String, ReviewEvidence> nextEvidence = ImmutableMap.<String, ReviewEvidence>builder().putAll(evidence).put(ref, item).buildOrThrow();
-        return copy(turnIds, state, summary, coverage, investigation, validationStarted, completionRepairUsed, operations, nextEvidence, outcome, version, now, endedAt);
+        return copy(turnIds, state, summary, coverage, investigation, steps, completionRepairUsed, operations, nextEvidence, outcome, version, now, endedAt);
     }
 
     public ReviewRun withCompletionRepairUsed(Instant now)
     {
-        return copy(turnIds, state, summary, coverage, investigation, validationStarted, true, operations, evidence, outcome, version, now, endedAt);
+        return copy(turnIds, state, summary, coverage, investigation, steps, true, operations, evidence, outcome, version, now, endedAt);
     }
 
     public ReviewRun ended(State terminalState, Optional<String> terminalOutcome, Instant now)
     {
         checkArgument(terminalState.terminal(), "state is not terminal");
         return copy(
-                turnIds, terminalState, summary, coverage, investigation, validationStarted, completionRepairUsed,
+                turnIds, terminalState, summary, coverage, investigation, steps, completionRepairUsed,
                 operations, evidence, terminalOutcome, version, now, Optional.of(now));
     }
 
@@ -170,7 +193,7 @@ public record ReviewRun(
             Optional<ReviewSummary> nextSummary,
             Optional<ReviewCoverage> nextCoverage,
             Optional<ReviewInvestigation> nextInvestigation,
-            boolean nextValidationStarted,
+            List<ReviewStep> nextSteps,
             boolean nextCompletionRepairUsed,
             Map<String, ReviewOperation> nextOperations,
             Map<String, ReviewEvidence> nextEvidence,
@@ -181,7 +204,7 @@ public record ReviewRun(
     {
         return new ReviewRun(
                 id, reviewId, ordinal, scope, baseRef, baseSha, mergeBaseSha, headSha, priorHeadSha, commits, diff,
-                nextTurnIds, nextState, nextSummary, nextCoverage, nextInvestigation, nextValidationStarted, nextCompletionRepairUsed, nextOperations, nextEvidence,
+                nextTurnIds, nextState, nextSummary, nextCoverage, nextInvestigation, nextSteps, nextCompletionRepairUsed, nextOperations, nextEvidence,
                 nextOutcome, nextVersion, createdAt, now, nextEndedAt);
     }
 

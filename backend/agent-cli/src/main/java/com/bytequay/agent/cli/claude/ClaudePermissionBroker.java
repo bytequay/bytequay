@@ -869,11 +869,15 @@ public final class ClaudePermissionBroker
             // This task's MCP token does not distinguish a root agent from a child caller.
             // Skills and workflows can start children; SendMessage can resume earlier children.
             deny.add("Agent", "Task", "Skill", "Workflow", "SendMessage");
+            // Native approval must preserve the review boundary while allowing local experiment edits.
+            for (String command : ImmutableList.of("commit", "commit-tree", "update-ref", "merge", "rebase", "cherry-pick", "revert", "am", "switch", "pull")) {
+                deny.add("Bash(git " + command + ")", "Bash(git " + command + ":*)");
+            }
         }
         ImmutableMap.Builder<String, Object> sandbox = ImmutableMap.builder();
         sandbox.put("enabled", true)
                 .put("failIfUnavailable", true)
-                .put("autoAllowBashIfSandboxed", !gitHubCommands && permissionPolicy != AgentPermissionPolicy.CHERRY_PICK)
+                .put("autoAllowBashIfSandboxed", !gitHubCommands && !reviewSession && permissionPolicy != AgentPermissionPolicy.CHERRY_PICK)
                 // Auto mode grants an unsandboxed command without asking, so the agent could
                 // waive its own confinement for any path. The sandbox is the containment boundary
                 // and nothing may opt out of it.
@@ -911,6 +915,18 @@ public final class ClaudePermissionBroker
             settings.put("autoMode", ImmutableMap.of(
                     "classifyAllShell", true,
                     "hard_deny", ImmutableList.<String>builder().add("$defaults").addAll(AgentCommandPolicy.restrictions()).build()));
+        }
+        else if (reviewSession) {
+            settings.put("autoMode", ImmutableMap.of(
+                    "classifyAllShell", true,
+                    "hard_deny", ImmutableList.of("$defaults", """
+                            Block creating commits, publishing changes, and moving HEAD or branch references to other commits.
+                            Private review experiments must remain uncommitted. Block pushes, GitHub writes, and credential access.
+                            Allow local experiment edits, staging, unstaging, applying patches, and read-only Git metadata commands.
+                            Resetting files to the current HEAD is allowed; moving HEAD or a branch to another commit is not.
+                            Evaluate complete commands, including Git options, aliases, shell chains, and invoked scripts.
+                            Earlier development authorization does not apply to this private review session.
+                            """.strip())));
         }
         return objectMapper.writeValueAsString(settings.buildOrThrow());
     }

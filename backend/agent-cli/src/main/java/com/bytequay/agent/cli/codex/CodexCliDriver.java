@@ -946,7 +946,9 @@ public final class CodexCliDriver
 
         private String approvalsReviewer()
         {
-            return context.textOnly() || !ciWritableRoots.isEmpty() ? "user" : "auto_review";
+            // Private review escalations must reach ByteQuay's command guard before any native auto-approval.
+            return context.textOnly() || !ciWritableRoots.isEmpty() || codeGraph.flatMap(ClaudePermissionBroker.CodeGraphRegistration::review).isPresent()
+                    ? "user" : "auto_review";
         }
 
         private Map<String, Object> sandboxPolicy(Path worktree)

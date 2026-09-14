@@ -23,6 +23,7 @@ import com.bytequay.agent.core.AgentTurn;
 import com.bytequay.agent.core.AgentTurnService;
 import com.bytequay.agent.core.AgentTurnSettings;
 import com.bytequay.agent.core.BlobRef;
+import com.bytequay.agent.core.DevelopmentAutomation;
 import com.bytequay.agent.core.DevelopmentTurnOrigin;
 import com.bytequay.agent.core.EventId;
 import com.bytequay.agent.core.QueuedAgentInput;
@@ -42,6 +43,7 @@ import com.bytequay.agent.spi.DevelopmentLearningCommit;
 import com.bytequay.agent.spi.DevelopmentLearningSummary;
 import com.bytequay.agent.spi.DevelopmentResultReport;
 import com.bytequay.agent.spi.ProviderTurnRef;
+import com.bytequay.app.agent.LocalReviewSessionService;
 import com.bytequay.app.git.GitCommandRunner;
 import com.bytequay.app.review.AgentReviewService;
 import com.bytequay.app.web.GlobalExceptionHandler;
@@ -103,6 +105,7 @@ import static org.springframework.test.web.servlet.setup.MockMvcBuilders.standal
 
 class TestLocalReviewService
 {
+    private final LocalReviewSessionService sessions = mock(LocalReviewSessionService.class);
     private final LocalReviewStore store = mock(LocalReviewStore.class);
     private final AgentReviewService reviewTasks = mock(AgentReviewService.class);
     private final AgentReviewStore reviews = mock(AgentReviewStore.class);
@@ -135,6 +138,7 @@ class TestLocalReviewService
                 AgentTaskDefaults.forPermission(AgentPermissionPolicy.AUTO), Instant.EPOCH);
         when(tasks.getInteractive("workspace", taskId)).thenReturn(task);
         when(tasks.get(taskId)).thenReturn(task);
+        when(sessions.start(eq(taskId), org.mockito.ArgumentMatchers.anyLong())).thenAnswer(call -> task);
         Workspace workspace = new Workspace("workspace", "Repository", 1, new RepoRef("owner", "repo"), Optional.empty(), Optional.empty(),
                 1, new RepoRef("owner", "repo"), Workspace.Topology.DIRECT, "main", "https://github.com/owner/repo.git", Optional.empty(), Optional.empty(),
                 paths.repository("workspace").toString(), Optional.empty(), Optional.empty(), 0, Instant.EPOCH, Instant.EPOCH);
@@ -147,7 +151,7 @@ class TestLocalReviewService
         turn = AgentTurn.accepted(TurnId.random(), taskId, "turn", settings, Instant.EPOCH)
                 .markDeliveryStarted(Instant.EPOCH).running(new ProviderTurnRef("provider"), Optional.empty());
         ManagedWorktreeService worktrees = new ManagedWorktreeService(paths, workspaces, new GitCommandRunner());
-        service = new LocalReviewService(store, tasks, turns, turnStore, queueStore, workspaces, pullRequests, worktrees, reviews, reviewTasks, clock);
+        service = new LocalReviewService(store, tasks, turns, turnStore, queueStore, workspaces, pullRequests, worktrees, reviews, reviewTasks, sessions, clock);
         when(store.find(anyString())).thenAnswer(call -> Optional.ofNullable(stored.get(call.getArgument(0))));
         when(store.listByTask(anyString())).thenAnswer(call -> stored.values().stream()
                 .filter(value -> value.taskId().equals(call.getArgument(0))).collect(toImmutableList()));
@@ -167,8 +171,8 @@ class TestLocalReviewService
         when(turns.start(any())).thenAnswer(call -> {
             StartAgentTurnCommand command = call.getArgument(0);
             assertThat(stored).containsKey("thread");
-            assertThat(command.developmentAutomation().orElseThrow().autoCommit()).isTrue();
-            assertThat(command.developmentAutomation().orElseThrow().autoDraftPr()).isTrue();
+            assertThat(command.developmentAutomation().orElseThrow().autoCommit()).isFalse();
+            assertThat(command.developmentAutomation().orElseThrow().autoDraftPr()).isFalse();
             assertThat(command.developmentAutomation().orElseThrow().autoCiFix()).isFalse();
             assertThat(command.message()).contains("reply_local_review_comment", "never quote private feedback in commit messages", "newValue", "User comment:\nPlease fix this");
             accepted.put(command.idempotencyKey(), turn);
@@ -186,6 +190,36 @@ class TestLocalReviewService
         assertThat(first.messages().getFirst().turnId()).contains(turn.id().toString());
         verify(turns, times(1)).start(any());
         assertThat(service.list(taskId.toString(), "workspace").getFirst().messages()).hasSize(1);
+    }
+
+    @Test
+    void entersPrivateReviewBeforeSendingAndUsesTheUpdatedVersion()
+    {
+        AgentTask reviewing = task.withLocalReviewHead(Optional.of("a".repeat(40)), Instant.EPOCH).withVersion(2);
+        when(sessions.start(taskId, 0)).thenReturn(reviewing);
+        doAnswer(call -> {
+            StartAgentTurnCommand command = call.getArgument(0);
+            assertThat(command.expectedTaskVersion()).hasValue(2);
+            assertThat(command.developmentAutomation()).contains(DevelopmentAutomation.LOCAL_ONLY);
+            accepted.put(command.idempotencyKey(), turn);
+            return turn;
+        }).when(turns).start(any());
+
+        create(0);
+
+        verify(sessions).start(taskId, 0);
+        verify(turns).start(any());
+    }
+
+    @Test
+    void preservesFeedbackWithoutStartingDevelopmentWhenReviewEntryFails()
+    {
+        when(sessions.start(taskId, 0)).thenThrow(new AgentConflictException("Finish development before entering local review"));
+
+        LocalReviewView result = create(0);
+
+        assertThat(result.messages().getFirst().deliveryError()).contains("Finish development before entering local review");
+        verify(turns, never()).start(any());
     }
 
     @Test
@@ -302,7 +336,7 @@ class TestLocalReviewService
         when(reviews.findReviewByTask(taskId.toString())).thenReturn(Optional.of(review));
         doAnswer(call -> {
             String prompt = call.getArgument(2);
-            assertThat(prompt).contains("reply_local_review_comment", "never commit, push, or publish changes").doesNotContain("finish and commit the change");
+            assertThat(prompt).contains("reply_local_review_comment", "never commit, push, or publish experiments").doesNotContain("finish and commit the change");
             accepted.put(call.getArgument(3), turn);
             return null;
         }).when(reviewTasks).sendMessage(eq("review"), eq(0L), anyString(), anyString(), eq(false));
@@ -389,7 +423,7 @@ class TestLocalReviewService
     }
 
     @Test
-    void learningDiscussionDerivesItsSnapshotWithoutAPullRequestAndReusesReplies()
+    void learningDiscussionDerivesItsSnapshotAndReusesPrivateReplies()
     {
         AgentTurn summary = learningTurn(0);
         when(turnStore.list(taskId)).thenReturn(ImmutableList.of(summary));
@@ -400,8 +434,8 @@ class TestLocalReviewService
             assertThat(command.developmentAutomation().orElseThrow().autoCommit()).isFalse();
             assertThat(command.developmentAutomation().orElseThrow().autoDraftPr()).isFalse();
             assertThat(command.developmentAutomation().orElseThrow().autoCiFix()).isFalse();
-            assertThat(command.message()).contains("Saved card body:\nKeep null values", "reply_local_review_comment", "without editing files",
-                    "releasing prior held work", "reference evidence", "User comment:");
+            assertThat(command.message()).contains("Saved card body:\nKeep null values", "reply_local_review_comment", "private verification",
+                    "Never commit or publish experiments", "reference evidence", "User comment:");
             accepted.put(command.idempotencyKey(), turn);
             return turn;
         }).when(turns).start(any());

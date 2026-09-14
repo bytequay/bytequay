@@ -35,12 +35,32 @@ type ReviewCoverageDto = {
   recordedAt: string;
 };
 
-type ReviewInvestigationDto = {
+export type ReviewCandidateValidationDto = {
+  candidate: number;
+  outcome: 'SUPPORTED' | 'REJECTED' | 'NEEDS_EVIDENCE' | 'UNRESOLVED';
+  conclusion: string;
+  evidenceRefs: string[];
+  counterevidence: string;
+  findingId: string | null;
+  findingRevision: number | null;
+  request: { question: string; check: string; resolvesWhen: string } | null;
+};
+
+export type ReviewInvestigationDto = {
   changeMap: string;
   reviewedFiles: string[];
   contextEvidenceRefs: string[];
   candidates: string[];
-  validations: Array<{ candidate: number; conclusion: string; findingId: string | null }>;
+  validations: ReviewCandidateValidationDto[];
+  answers: Array<{ candidate: number; attempted: string; evidenceRefs: string[]; limitation: string | null }>;
+};
+
+export type ReviewStepDto = {
+  number: number;
+  kind: 'INVESTIGATE' | 'COLLECT_EVIDENCE' | 'VALIDATE';
+  repair: boolean;
+  investigation: ReviewInvestigationDto | null;
+  validation: { investigationStep: number; candidates: ReviewCandidateValidationDto[]; coverage: ReviewCoverageDto; newCandidates: string[] } | null;
 };
 
 export type ReviewRunDto = {
@@ -58,7 +78,7 @@ export type ReviewRunDto = {
   summary: ReviewSummaryDto | null;
   coverage: ReviewCoverageDto | null;
   investigation: ReviewInvestigationDto | null;
-  validationStarted: boolean;
+  steps: ReviewStepDto[];
   evidence: ReviewEvidenceDto[];
   outcome: string | null;
   createdAt: string;
@@ -266,6 +286,27 @@ function parseCoverage(value: unknown): ReviewCoverageDto | null {
   };
 }
 
+function parseCandidateValidation(value: unknown, retained = false): ReviewCandidateValidationDto {
+  const validation = object(value, 'candidate validation');
+  const findingId = optionalText(validation.findingId);
+  const request = validation.request === null || validation.request === undefined ? null : object(validation.request, 'evidence request');
+  return {
+    candidate: count(validation.candidate, 'candidate number'),
+    outcome: retained && (validation.outcome === null || validation.outcome === undefined) ? 'UNRESOLVED'
+      : oneOf(validation.outcome, ['SUPPORTED', 'REJECTED', 'NEEDS_EVIDENCE', 'UNRESOLVED'] as const, 'validation outcome'),
+    conclusion: text(validation.conclusion, 'validation conclusion'),
+    evidenceRefs: strings(validation.evidenceRefs),
+    counterevidence: optionalText(validation.counterevidence) ?? '',
+    findingId,
+    findingRevision: optionalCount(validation.findingRevision),
+    request: request === null ? null : {
+      question: text(request.question, 'evidence question'),
+      check: text(request.check, 'requested check'),
+      resolvesWhen: text(request.resolvesWhen, 'evidence resolution criteria'),
+    },
+  };
+}
+
 function parseInvestigation(value: unknown): ReviewInvestigationDto | null {
   if (value === null || value === undefined) return null;
   const investigation = object(value, 'review investigation');
@@ -274,11 +315,31 @@ function parseInvestigation(value: unknown): ReviewInvestigationDto | null {
     reviewedFiles: strings(investigation.reviewedFiles),
     contextEvidenceRefs: strings(investigation.contextEvidenceRefs),
     candidates: strings(investigation.candidates),
-    validations: list(investigation.validations).map(item => {
-      const validation = object(item, 'candidate validation');
-      return { candidate: count(validation.candidate, 'candidate number'), conclusion: text(validation.conclusion, 'validation conclusion'),
-        findingId: optionalText(validation.findingId) };
+    validations: list(investigation.validations).map(item => parseCandidateValidation(item, true)),
+    answers: list(investigation.answers).map(item => {
+      const answer = object(item, 'evidence answer');
+      return { candidate: count(answer.candidate, 'candidate number'), attempted: text(answer.attempted, 'evidence check attempted'),
+        evidenceRefs: strings(answer.evidenceRefs), limitation: optionalText(answer.limitation) };
     }),
+  };
+}
+
+function parseStep(value: unknown): ReviewStepDto {
+  const step = object(value, 'review step');
+  const validation = step.validation === null || step.validation === undefined ? null : object(step.validation, 'review validation');
+  const coverage = validation === null ? null : parseCoverage(validation.coverage);
+  if (validation !== null && coverage === null) throw new Error('Malformed validation coverage from the review service');
+  return {
+    number: count(step.number, 'review step number'),
+    kind: oneOf(step.kind, ['INVESTIGATE', 'COLLECT_EVIDENCE', 'VALIDATE'] as const, 'review step kind'),
+    repair: flag(step.repair),
+    investigation: parseInvestigation(step.investigation),
+    validation: validation === null || coverage === null ? null : {
+      investigationStep: count(validation.investigationStep, 'validated investigation step'),
+      candidates: list(validation.candidates).map(item => parseCandidateValidation(item)),
+      coverage,
+      newCandidates: strings(validation.newCandidates),
+    },
   };
 }
 
@@ -313,7 +374,7 @@ function parseRun(value: unknown): ReviewRunDto {
     summary: parseSummary(run.summary),
     coverage: parseCoverage(run.coverage),
     investigation: parseInvestigation(run.investigation),
-    validationStarted: flag(run.validationStarted),
+    steps: list(run.steps).map(parseStep),
     evidence: list(run.evidence).map(parseEvidence),
     outcome: optionalText(run.outcome),
     createdAt: text(run.createdAt, 'run time'),

@@ -1177,7 +1177,7 @@ export function CommentEditor({ pr, target, commentId, body, draft, suggestion, 
   );
 }
 
-type ReviewCommentLine = {
+export type ReviewCommentLine = {
   lineNumber: number;
   prefix: ' ' | '+' | '-';
   text: string;
@@ -1219,7 +1219,14 @@ export function reviewThreadSuggestion(payload: PullTimelinePayloadDto): Suggest
   };
 }
 
-function CommentedCodeLine({ line }: { line: ReviewCommentLine }) {
+/** The commented line in a whole-file patch, which, unlike a thread's diff_hunk, can hold several hunks. */
+export function patchCommentLine(patch: string | null, targetLine: number, side: string): ReviewCommentLine | null {
+  const left = side.toUpperCase() === 'LEFT';
+  const row = parseUnifiedDiff(patch).flatMap(hunk => hunk.rows).find(value => (left ? value.oldLine : value.newLine) === targetLine);
+  return row ? { lineNumber: targetLine, prefix: row.kind === 'add' ? '+' : row.kind === 'del' ? '-' : ' ', text: row.content } : null;
+}
+
+export function CommentedCodeLine({ line }: { line: ReviewCommentLine }) {
   const className = line.prefix === '+' ? 'is-add' : line.prefix === '-' ? 'is-del' : '';
   return (
     <pre className={`pr-commented-code-line${className ? ` ${className}` : ''}`}>

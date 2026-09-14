@@ -19,12 +19,15 @@ import type { NavigationMode } from '../navigationHistory';
 import Toast from '../Toast';
 import type { Bridge, DiffCommitDto, DiffFileDto, InlineReviewCommentDto, PullRequestDetailDto, PullRequestDto, PullRequestPageDto, UserProfileDto } from '../types';
 import AgentReviewTab, { type ReviewNavigationTarget } from './agent-review/AgentReviewTab';
-import type { AgentReviewDto } from './agent-review/contracts';
-import { pendingDraftCount, reviewStatus, shortPath } from './agent-review/model';
+import type { AgentReviewDto, ReviewDraftItemDto } from './agent-review/contracts';
+import { pendingDraftCount, reviewStatus } from './agent-review/model';
 import { useLocalReviewThreads } from './local-review/useLocalReviewThreads';
 import type { LocalReviewThreads } from './local-review/types';
 import PullChanges, { type CommitRange, type DiffAgentComment } from './PullChanges';
-import PullOverview, { isQueued, mergePullRequestWriteDetail, remoteErrorMessage, type PullDetailUpdater } from './PullOverview';
+import MarkdownBody from './MarkdownBody';
+import PullOverview, { CommentedCodeLine, isQueued, mergePullRequestWriteDetail, patchCommentLine, remoteErrorMessage, useViewer, type PullDetailUpdater } from './PullOverview';
+import { ReviewThreadCard, ReviewThreadMessage } from './ReviewThreadCard';
+import UserAvatar from '../UserAvatar';
 import PullRowItem, { PullRequestIcon } from './PullRowItem';
 import { mergePullRequestDetailStatus, usePullRequestDetail } from './usePullRequestDetail';
 import { pullRequestDiffRevision, usePullRequestChanges } from './usePullRequestChanges';
@@ -1382,6 +1385,25 @@ export function ReviewDialog({
     })),
     ...promoted.map(item => ({ key: item.id, comment: item, remove: () => { void removePromoted(item.id); } })),
   ];
+  const viewer = useViewer(outgoing.length > 0);
+  const [snapshot, setSnapshot] = useState<{ files: DiffFileDto[]; headSha: string | null } | null>(null);
+  const hasOutgoing = outgoing.length > 0;
+
+  useEffect(() => {
+    if (!hasOutgoing) return;
+    let live = true;
+    Promise.all([window.bridge.fetchPrDiffFiles(detail.repo, detail.number), window.bridge.fetchPrDiffCommits(detail.repo, detail.number)])
+      .then(([files, commits]) => { if (live) setSnapshot({ files, headSha: commits.at(-1)?.sha ?? null }); })
+      .catch(() => { /* the cards just omit the commented line */ });
+    return () => { live = false; };
+  }, [detail.repo, detail.number, hasOutgoing]);
+
+  // Line numbers of a comment written on selected commits belong to that range, not to the stored diff.
+  const codeLine = (comment: InlineReviewCommentDto | ReviewDraftItemDto) => {
+    if (snapshot === null || ('commitId' in comment && comment.commitId !== null && comment.commitId !== snapshot.headSha)) return null;
+    const file = snapshot.files.find(value => value.filename === comment.path);
+    return file ? patchCommentLine(file.patch, comment.line, comment.side) : null;
+  };
 
   useEffect(() => {
     const close = (keyboardEvent: KeyboardEvent) => {
@@ -1460,15 +1482,19 @@ export function ReviewDialog({
           onChange={change => setBody(change.target.value)} />
         {outgoing.length > 0 && (
           <div className="pr-review-sheet__pending">
-            {outgoing.map(({ key, comment, remove }) => (
-              <div key={key}>
-                <span><code title={comment.path}>{shortPath(comment.path)}</code> · {comment.startLine && comment.startLine !== comment.line
-                  ? `lines ${comment.startLine}–${comment.line}`
-                  : `line ${comment.line}`}</span>
-                <p>{comment.body}</p>
-                <button type="button" disabled={submitting} onClick={remove}>Remove</button>
-              </div>
-            ))}
+            {outgoing.map(({ key, comment, remove }) => {
+              const line = codeLine(comment);
+              return <ReviewThreadCard key={key} resolved={false} controls={null}
+                location={<code title={comment.path}>{comment.path}</code>}
+                code={line && <CommentedCodeLine line={line} />}>
+                <ReviewThreadMessage timestamp={null}
+                  author={<>{viewer && <UserAvatar login={viewer.login} avatarUrl={viewer.avatarUrl} size={22} showLogin />}
+                    <span className="pull-diff-pending__badge">Pending</span></>}
+                  menu={<button className="pr-review-sheet__remove" type="button" disabled={submitting} onClick={remove}>Remove</button>}>
+                  <MarkdownBody body={comment.body} repository={detail.repo} />
+                </ReviewThreadMessage>
+              </ReviewThreadCard>;
+            })}
           </div>
         )}
         <ReviewChoice

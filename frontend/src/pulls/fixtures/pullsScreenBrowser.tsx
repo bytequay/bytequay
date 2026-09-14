@@ -284,7 +284,15 @@ export async function runReviewSheet(): Promise<string> {
     submitReview: async () => { calls.push('plain'); return detail; },
     getAgentReview: async () => { calls.push('reload'); return review; },
     fetchPullRequestDetailByRef: async () => { calls.push('detail'); return detail; },
-  } satisfies Pick<Bridge, 'addReviewDraftComment' | 'submitReviewDraft' | 'submitReview' | 'getAgentReview' | 'fetchPullRequestDetailByRef'>;
+    fetchPrDiffFiles: async () => [
+      { filename: 'src/Finding.java', status: 'modified', additions: 1, deletions: 0, patch: '@@ -1,2 +10,3 @@\n a\n b\n+int findingLine = 12;' },
+      { filename: 'src/Written.java', status: 'modified', additions: 1, deletions: 0, patch: '@@ -1,2 +1,3 @@\n a\n b\n+int writtenLine = 3;' },
+    ],
+    fetchPrDiffCommits: async () => [{ sha: review.observedHeadSha ?? 'head', parentSha: null, message: null, author: null, authoredAt: null }],
+    getUserProfile: async () => ({ login: 'bob', name: null, avatarUrl: '', htmlUrl: '', publicRepos: 0, followers: 0, following: 0,
+      bio: null, location: null, company: null, email: null }),
+  } satisfies Pick<Bridge, 'addReviewDraftComment' | 'submitReviewDraft' | 'submitReview' | 'getAgentReview' | 'fetchPullRequestDetailByRef'
+    | 'fetchPrDiffFiles' | 'fetchPrDiffCommits' | 'getUserProfile'>;
   const originalBridge = window.bridge;
   Object.assign(window, { bridge });
   const host = document.createElement('div');
@@ -300,8 +308,14 @@ export async function runReviewSheet(): Promise<string> {
   };
   try {
     mount([{ ...written, commitId: 'older-commit' }]);
-    assert(host.textContent?.includes('src/Finding.java · line 12') === true && host.textContent.includes('Promoted finding text')
-      && host.textContent.includes('Written comment text'), 'The sheet must list added findings beside written comments');
+    await settle();
+    const cards = [...host.querySelectorAll('.pr-review-sheet__pending > .pr-inline-thread')];
+    assert(cards.length === 2 && cards[0].textContent?.includes('Written comment text') === true
+      && cards[1].textContent?.includes('src/Finding.java') === true && cards[1].textContent.includes('Promoted finding text'),
+    'The sheet must list added findings beside written comments as review cards');
+    assert(cards[1].querySelector('.pr-commented-code-line')?.textContent === '12+int findingLine = 12;'
+      && cards[0].querySelector('.pr-commented-code-line') === null,
+    `A card shows its commented line only when the stored diff has the comment's revision: ${cards.map(card => card.textContent).join(' | ')}`);
     host.querySelector<HTMLInputElement>('input[type="radio"]')?.click();
     await settle();
     await submit();

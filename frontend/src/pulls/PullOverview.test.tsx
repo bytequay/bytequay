@@ -17,7 +17,7 @@ import type { ReactElement } from 'react';
 import { describe, expect, it, vi } from 'vitest';
 import type { InlineReviewCommentDto, PullRequestDetailDto, PullRequestDto, PullTimelinePayloadDto } from '../types';
 import MarkdownBody, { markdownBlocks } from './MarkdownBody';
-import PullOverview, { activeMention, appendQuotedReply, applyViewerReaction, canUpdateComment, CommentEditor, displayedMetadataPickerOptions, groupTimelineActivities, isViewerComment, MAX_UNSELECTED_PEOPLE_PICKER_OPTIONS, mentionCandidates, mergePullRequestWriteDetail, MetadataPicker, nextViewerReaction, peoplePickerCandidates, remoteErrorMessage, replaceMention, reviewCommentLine, ReviewThread, reviewThreadSuggestion, submitPullReaction, submitPullRequestComment, updatePullReactionDetail, updateReviewThreadResolution } from './PullOverview';
+import PullOverview, { activeMention, appendQuotedReply, applyViewerReaction, canUpdateComment, CommentEditor, displayedMetadataPickerOptions, groupTimelineActivities, isViewerComment, MAX_UNSELECTED_PEOPLE_PICKER_OPTIONS, mentionCandidates, mergePullRequestWriteDetail, MetadataPicker, nextViewerReaction, patchCommentLine, peoplePickerCandidates, remoteErrorMessage, replaceMention, reviewCommentLine, ReviewThread, reviewThreadSuggestion, submitPullReaction, submitPullRequestComment, updatePullReactionDetail, updateReviewThreadResolution } from './PullOverview';
 import { relativeTime } from '../relativeTime';
 import PullsScreen, { canSubmitReview, hasMergeConflicts, isReviewRequestedForViewer, MergeDialog, mergeActionLabel, mergeStatus, PullDetailHeader, remotePullRequest, ReviewDialog, unresolvedReviewCount } from './PullsScreen';
 
@@ -742,6 +742,10 @@ describe('PullOverview', () => {
     const html = renderToStaticMarkup(<PullOverview pr={pullRequest()} detail={value} onRefresh={async () => {}} />);
 
     expect(reviewCommentLine('@@ -7,2 +7 @@\n keep\n-old', 8, 'LEFT')).toEqual({ lineNumber: 8, prefix: '-', text: 'old' });
+    const patch = '@@ -1,2 +1,2 @@\n one\n-two\n+2\n@@ -40,2 +40,3 @@\n forty\n+added\n-gone';
+    expect(patchCommentLine(patch, 41, 'RIGHT')).toEqual({ lineNumber: 41, prefix: '+', text: 'added' });
+    expect(patchCommentLine(patch, 41, 'LEFT')).toEqual({ lineNumber: 41, prefix: '-', text: 'gone' });
+    expect(patchCommentLine(patch, 3, 'RIGHT')).toBeNull();
     expect(html).toContain('<code>src/PageSourceProvider.java</code><span class="pr-thread-outdated">Outdated</span>');
     expect(html).toContain('class="pr-commented-code-line is-add"');
     expect(html).toContain('pr-commented-code-line__number">44</span>');

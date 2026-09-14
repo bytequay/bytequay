@@ -80,6 +80,11 @@ import java.util.UUID;
 import java.util.concurrent.locks.Lock;
 import java.util.function.Supplier;
 
+import static com.bytequay.app.review.DefaultAgentReviewService.CompletionAction.ACCEPT;
+import static com.bytequay.app.review.DefaultAgentReviewService.CompletionAction.INCOMPLETE_COVERAGE;
+import static com.bytequay.app.review.DefaultAgentReviewService.CompletionAction.INCOMPLETE_REPORT;
+import static com.bytequay.app.review.DefaultAgentReviewService.CompletionAction.REPAIR;
+import static com.bytequay.app.review.DefaultAgentReviewService.CompletionAction.VALIDATE;
 import static com.google.common.collect.ImmutableList.toImmutableList;
 import static java.util.Objects.requireNonNull;
 
@@ -492,50 +497,39 @@ public class DefaultAgentReviewService
                 if (!idle(task)) {
                     return review;
                 }
-                if (run.coverage().filter(coverage -> !coverage.complete() || !coverage.omissions().isEmpty()).isPresent()) {
-                    store.updateRun(run.ended(ReviewRun.State.INCOMPLETE, Optional.of("The review recorded incomplete coverage"), now));
-                    return store.updateReview(review.withFollowUpPaused(true, now));
+                CompletionAction action = completionAction(run, repair, validation);
+                // Pausing prevents continuation, but still records an already reported result.
+                if (review.followUpPaused() && action != ACCEPT && action != INCOMPLETE_COVERAGE) {
+                    return review;
                 }
-                if (run.validationStarted() && validation.isEmpty()) {
-                    if (review.followUpPaused()) {
-                        return review;
+                return switch (action) {
+                    case VALIDATE -> {
+                        ReviewRun validating = run.validationStarted() ? run : store.updateRun(run.withValidationStarted(now));
+                        startFollowup(validating, task, "review-validate:", ReviewPrompts.validationRequest(validating));
+                        yield review;
                     }
-                    startFollowup(run, task, "review-validate:", ReviewPrompts.validationRequest(run));
-                    return review;
-                }
-                if (run.completionRepairUsed() && repair.isEmpty()) {
-                    if (review.followUpPaused()) {
-                        return review;
+                    case REPAIR -> {
+                        ReviewRun repairing = run.completionRepairUsed() ? run : store.updateRun(run.withCompletionRepairUsed(now));
+                        startFollowup(repairing, task, "review-repair:", run.validationStarted() ? ReviewPrompts.completionRepair(run) : ReviewPrompts.investigationRepair(run));
+                        yield review;
                     }
-                    startFollowup(run, task, "review-repair:", run.validationStarted() ? ReviewPrompts.completionRepair(run) : ReviewPrompts.investigationRepair(run));
-                    return review;
-                }
-                if (!run.validationStarted() && run.investigation().isPresent() && run.hasCompleteSummary()) {
-                    if (review.followUpPaused()) {
-                        return review;
+                    case ACCEPT -> {
+                        AgentReview advanced = review.withLatestCompletedRun(run.id(), now);
+                        store.acceptRun(advanced, run.ended(ReviewRun.State.ACCEPTED, Optional.empty(), now));
+                        yield store.findReview(review.id()).orElseThrow();
                     }
-                    ReviewRun validating = store.updateRun(run.withValidationStarted(now));
-                    startFollowup(validating, task, "review-validate:", ReviewPrompts.validationRequest(validating));
-                    return review;
-                }
-                if (run.validationStarted() && run.investigation().isPresent() && run.hasCompleteSummary() && run.coverage().isPresent()) {
-                    AgentReview advanced = review.withLatestCompletedRun(run.id(), now);
-                    store.acceptRun(advanced, run.ended(ReviewRun.State.ACCEPTED, Optional.empty(), now));
-                    return store.findReview(review.id()).orElseThrow();
-                }
-                if (!run.completionRepairUsed() && !review.followUpPaused()) {
-                    ReviewRun repairing = store.updateRun(run.withCompletionRepairUsed(now));
-                    startFollowup(repairing, task, "review-repair:", run.validationStarted() ? ReviewPrompts.completionRepair(run) : ReviewPrompts.investigationRepair(run));
-                    return review;
-                }
-                if (review.followUpPaused()) {
-                    return review;
-                }
-                String missing = run.investigation().isEmpty() ? "an investigation record"
-                        : !run.hasCompleteSummary() ? "an explanation for every commit"
-                                : "a coverage record";
-                store.updateRun(run.ended(ReviewRun.State.INCOMPLETE, Optional.of("The run ended without " + missing), now));
-                return store.updateReview(review.withFollowUpPaused(true, now));
+                    case INCOMPLETE_COVERAGE -> {
+                        store.updateRun(run.ended(ReviewRun.State.INCOMPLETE, Optional.of("The review recorded incomplete coverage"), now));
+                        yield store.updateReview(review.withFollowUpPaused(true, now));
+                    }
+                    case INCOMPLETE_REPORT -> {
+                        String missing = run.investigation().isEmpty() ? "an investigation record"
+                                : !run.hasCompleteSummary() ? "an explanation for every commit"
+                                        : "a coverage record";
+                        store.updateRun(run.ended(ReviewRun.State.INCOMPLETE, Optional.of("The run ended without " + missing), now));
+                        yield store.updateReview(review.withFollowUpPaused(true, now));
+                    }
+                };
             }
             case CANCELLED -> {
                 store.updateRun(run.ended(ReviewRun.State.STOPPED, Optional.of("Stopped by the user"), now));
@@ -547,6 +541,28 @@ public class DefaultAgentReviewService
                 return store.updateReview(review.withFollowUpPaused(true, now));
             }
         }
+    }
+
+    private static CompletionAction completionAction(ReviewRun run, Optional<AgentTurn> repair, Optional<AgentTurn> validation)
+    {
+        if (run.coverage().filter(coverage -> !coverage.complete() || !coverage.omissions().isEmpty()).isPresent()) {
+            return INCOMPLETE_COVERAGE;
+        }
+        // A persisted launch must have an accepted turn before its report can settle the run.
+        if (run.validationStarted() && validation.isEmpty()) {
+            return VALIDATE;
+        }
+        if (run.completionRepairUsed() && repair.isEmpty()) {
+            return REPAIR;
+        }
+        boolean investigationComplete = run.investigation().isPresent() && run.hasCompleteSummary();
+        if (!run.validationStarted() && investigationComplete) {
+            return VALIDATE;
+        }
+        if (run.validationStarted() && investigationComplete && run.coverage().isPresent()) {
+            return ACCEPT;
+        }
+        return run.completionRepairUsed() ? INCOMPLETE_REPORT : REPAIR;
     }
 
     private void startFollowup(ReviewRun run, AgentTask task, String keyPrefix, String prompt)
@@ -923,6 +939,15 @@ public class DefaultAgentReviewService
     static String normalize(String repo)
     {
         return requireNonNull(repo, "repo is null").toLowerCase(Locale.ROOT);
+    }
+
+    enum CompletionAction
+    {
+        VALIDATE,
+        REPAIR,
+        ACCEPT,
+        INCOMPLETE_COVERAGE,
+        INCOMPLETE_REPORT
     }
 
     private record ModelSelection(AgentLaneId laneId, AgentTaskDefaults defaults) {}

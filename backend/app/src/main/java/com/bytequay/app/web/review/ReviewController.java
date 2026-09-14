@@ -30,6 +30,7 @@ import com.bytequay.app.review.ReviewPublicationService;
 import com.bytequay.app.utils.PullRequestRefUtil;
 import com.bytequay.app.web.agent.AgentHttpModels;
 import com.bytequay.app.web.agent.AgentSseSubscriber;
+import com.bytequay.app.web.agent.ResolveApprovalRequest;
 import com.bytequay.core.review.ReviewDraftItem;
 import com.bytequay.core.review.ReviewInvalidRequestException;
 import com.bytequay.core.review.ReviewNotFoundException;
@@ -296,7 +297,7 @@ public class ReviewController
     public AgentHttpModels.ApprovalResponse resolveApproval(
             @PathVariable String reviewId,
             @PathVariable String approvalId,
-            @RequestBody com.bytequay.app.web.agent.AgentController.ResolveApprovalRequest request)
+            @RequestBody ResolveApprovalRequest request)
     {
         AgentTask task = reviews.task(reviewId);
         TurnId turnId = task.worktreeMutationClaim()

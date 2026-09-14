@@ -28,7 +28,6 @@ import com.bytequay.agent.core.AgentTaskService;
 import com.bytequay.agent.core.AgentTaskTitleService;
 import com.bytequay.agent.core.AgentTurn;
 import com.bytequay.agent.core.AgentTurnService;
-import com.bytequay.agent.core.ApprovalDecision;
 import com.bytequay.agent.core.ApprovalId;
 import com.bytequay.agent.core.ArchiveAgentTaskCommand;
 import com.bytequay.agent.core.CompleteAgentTaskCommand;
@@ -1010,11 +1009,6 @@ public class AgentController
                 .map(AgentHttpModels::providerStatus)
                 .collect(toImmutableList());
     }
-
-    public record ResolveApprovalRequest(
-            ApprovalDecision.Decision decision,
-            String scopedPermission,
-            Boolean forTask) {}
 
     public record CompleteTaskRequest(String notes) {}
 

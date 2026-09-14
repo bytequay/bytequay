@@ -13,7 +13,8 @@
  */
 package com.bytequay.app.web.agent;
 
-import com.bytequay.agent.cli.claude.ClaudePermissionBroker;
+import com.bytequay.agent.cli.mcp.McpHttpResponse;
+import com.bytequay.agent.cli.mcp.PermissionBroker;
 import com.fasterxml.jackson.databind.JsonNode;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
@@ -30,9 +31,9 @@ public final class ClaudePermissionController
 {
     private static final String BEARER_PREFIX = "Bearer ";
 
-    private final ClaudePermissionBroker permissions;
+    private final PermissionBroker permissions;
 
-    public ClaudePermissionController(ClaudePermissionBroker permissions)
+    public ClaudePermissionController(PermissionBroker permissions)
     {
         this.permissions = requireNonNull(permissions, "permissions is null");
     }
@@ -52,7 +53,7 @@ public final class ClaudePermissionController
         if (authorization == null || !authorization.startsWith(BEARER_PREFIX)) {
             return ResponseEntity.status(401).build();
         }
-        ClaudePermissionBroker.McpHttpResponse response = permissions.handle(
+        McpHttpResponse response = permissions.handle(
                 authorization.substring(BEARER_PREFIX.length()), body);
         return response.body()
                 .map(value -> ResponseEntity.status(response.status()).body(value))

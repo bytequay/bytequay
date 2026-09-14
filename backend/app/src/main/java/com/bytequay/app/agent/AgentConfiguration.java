@@ -14,9 +14,9 @@
 package com.bytequay.app.agent;
 
 import com.bytequay.agent.cli.claude.ClaudeCliDriver;
-import com.bytequay.agent.cli.claude.ClaudePermissionBroker;
 import com.bytequay.agent.cli.codex.CodexCliDriver;
 import com.bytequay.agent.cli.codex.CodexHome;
+import com.bytequay.agent.cli.mcp.PermissionBroker;
 import com.bytequay.agent.cli.process.LaunchIntentRecorder;
 import com.bytequay.agent.cli.process.ProcessSupervisor;
 import com.bytequay.agent.cli.process.impl.DefaultProcessSupervisor;
@@ -112,7 +112,7 @@ public class AgentConfiguration
             AgentProperties properties,
             ObjectMapper objectMapper,
             ProcessSupervisor supervisor,
-            ClaudePermissionBroker permissions)
+            PermissionBroker permissions)
             throws IOException
     {
         return new CodexCliDriver(
@@ -126,7 +126,7 @@ public class AgentConfiguration
 
     // Unconditional: the endpoint also serves the CodeGraph tool to Codex tasks, so it must exist without the Claude lane.
     @Bean
-    public ClaudePermissionBroker claudePermissionBroker(
+    public PermissionBroker permissionBroker(
             ObjectMapper objectMapper,
             ApplicationContext context,
             CiMemoryService ciMemoryService,
@@ -136,7 +136,7 @@ public class AgentConfiguration
             PullRequestCiBridgeResolver pullRequestChecks,
             ObjectProvider<DevelopmentFollowupCoordinator> developmentFollowups)
     {
-        return new ClaudePermissionBroker(
+        return new PermissionBroker(
                 () -> URI.create("http://127.0.0.1:" + ((WebServerApplicationContext) context).getWebServer().getPort()
                         + "/internal/agent/claude/mcp"),
                 objectMapper,
@@ -154,7 +154,7 @@ public class AgentConfiguration
     public ClaudeCliDriver claudeCliDriver(
             AgentProperties properties,
             ObjectMapper objectMapper,
-            ClaudePermissionBroker permissions,
+            PermissionBroker permissions,
             ProcessSupervisor supervisor)
     {
         return new ClaudeCliDriver(properties.claudeExecutable(), objectMapper, permissions, supervisor);

@@ -11,7 +11,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-package com.bytequay.agent.cli.claude;
+package com.bytequay.agent.cli.mcp;
 
 import com.bytequay.agent.cli.process.SecretRedactor;
 import com.bytequay.agent.spi.AgentPermissionPolicy;
@@ -74,7 +74,7 @@ class TestReviewToolBroker
     {
         ReviewBridge review = new ReviewBridge(ImmutableList.of(), "Keep private experiments uncommitted");
         LocalReviewBridge local = new LocalReviewBridge(id -> "[]", reply -> "saved", resolution -> "resolved", LocalReviewBridge.INSTRUCTION);
-        ClaudePermissionBroker broker = new ClaudePermissionBroker(
+        PermissionBroker broker = new PermissionBroker(
                 () -> URI.create("http://127.0.0.1:9000/internal/agent/claude/mcp"), objectMapper,
                 (taskId, query) -> {
                     throw new AssertionError("Private reviews cannot read CI memory");
@@ -88,9 +88,9 @@ class TestReviewToolBroker
                     throw new AssertionError("Private reviews cannot expose development CI tools");
                 });
         SecretRedactor redactor = SecretRedactor.fromEnvironment(ImmutableMap.of());
-        try (ClaudePermissionBroker.CodeGraphRegistration codex = broker.registerTools("development-task", temporaryDirectory, AgentPermissionPolicy.AUTO,
+        try (CodeGraphRegistration codex = broker.registerTools("development-task", temporaryDirectory, AgentPermissionPolicy.AUTO,
                 (request, timeout) -> CompletableFuture.completedFuture(ProviderApprovalDecision.deny()), redactor, Optional.empty()).orElseThrow();
-                ClaudePermissionBroker.Registration claude = broker.register("development-task", temporaryDirectory, temporaryDirectory, temporaryDirectory,
+                McpConfigRegistration claude = broker.register("development-task", temporaryDirectory, temporaryDirectory, temporaryDirectory,
                         AgentPermissionPolicy.AUTO, false,
                         (request, timeout) -> CompletableFuture.completedFuture(ProviderApprovalDecision.allow(Optional.empty())), redactor, Optional.empty())) {
             assertThat(codex.review()).contains(review);
@@ -124,12 +124,12 @@ class TestReviewToolBroker
             throws Exception
     {
         LocalReviewBridge local = new LocalReviewBridge(id -> "[]", reply -> "saved", resolution -> "resolved", LocalReviewBridge.INSTRUCTION);
-        ClaudePermissionBroker broker = new ClaudePermissionBroker(
+        PermissionBroker broker = new PermissionBroker(
                 () -> URI.create("http://127.0.0.1:9000/internal/agent/claude/mcp"), objectMapper, (taskId, query) -> "memory",
                 taskId -> Optional.of(bridge(new AtomicReference<>())), DevelopmentResultBridgeResolver.NONE, DraftPullRequestPublisher.NONE,
                 taskId -> Optional.of(local));
         SecretRedactor redactor = SecretRedactor.fromEnvironment(ImmutableMap.of());
-        try (ClaudePermissionBroker.CodeGraphRegistration registration = broker.registerTools("review-task", temporaryDirectory, AgentPermissionPolicy.AUTO,
+        try (CodeGraphRegistration registration = broker.registerTools("review-task", temporaryDirectory, AgentPermissionPolicy.AUTO,
                 (request, timeout) -> CompletableFuture.completedFuture(ProviderApprovalDecision.deny()), redactor, Optional.empty()).orElseThrow()) {
             assertThat(registration.review()).isPresent();
             assertThat(registration.instruction()).contains(LocalReviewBridge.INSTRUCTION);
@@ -140,7 +140,7 @@ class TestReviewToolBroker
             assertThat(reply.at("/result/isError").asBoolean()).isFalse();
             assertThat(reply.at("/result/content/0/text").asText()).isEqualTo("saved");
         }
-        try (ClaudePermissionBroker.Registration registration = broker.register("review-task", temporaryDirectory, temporaryDirectory,
+        try (McpConfigRegistration registration = broker.register("review-task", temporaryDirectory, temporaryDirectory,
                 temporaryDirectory, AgentPermissionPolicy.AUTO, false,
                 (request, timeout) -> CompletableFuture.completedFuture(ProviderApprovalDecision.deny()), redactor, Optional.empty())) {
             assertThat(registration.review()).isPresent();
@@ -153,7 +153,7 @@ class TestReviewToolBroker
             throws Exception
     {
         AtomicReference<String> received = new AtomicReference<>();
-        ClaudePermissionBroker broker = new ClaudePermissionBroker(
+        PermissionBroker broker = new PermissionBroker(
                 () -> URI.create("http://127.0.0.1:9000/internal/agent/claude/mcp"),
                 objectMapper,
                 (taskId, query) -> "memory",
@@ -161,7 +161,7 @@ class TestReviewToolBroker
         SecretRedactor redactor = SecretRedactor.fromEnvironment(ImmutableMap.of("ANTHROPIC_API_KEY", "known-secret"));
         assertThat(broker.registerTools("plain-task", temporaryDirectory, AgentPermissionPolicy.AUTO,
                 (request, timeout) -> CompletableFuture.completedFuture(ProviderApprovalDecision.deny()), redactor, Optional.empty())).isEmpty();
-        ClaudePermissionBroker.CodeGraphRegistration registration = broker.registerTools("review-task", temporaryDirectory, AgentPermissionPolicy.AUTO,
+        CodeGraphRegistration registration = broker.registerTools("review-task", temporaryDirectory, AgentPermissionPolicy.AUTO,
                 (request, timeout) -> CompletableFuture.completedFuture(ProviderApprovalDecision.deny()), redactor, Optional.empty()).orElseThrow();
         assertThat(registration.review()).isPresent();
         assertThat(registration.instruction()).isEqualTo("Review policy: report through the review tools.");
@@ -202,12 +202,12 @@ class TestReviewToolBroker
             throws Exception
     {
         AtomicInteger approvals = new AtomicInteger();
-        ClaudePermissionBroker broker = new ClaudePermissionBroker(
+        PermissionBroker broker = new PermissionBroker(
                 () -> URI.create("http://127.0.0.1:9000/internal/agent/claude/mcp"),
                 objectMapper,
                 (taskId, query) -> "memory",
                 taskId -> Optional.of(bridge(new AtomicReference<>())));
-        ClaudePermissionBroker.Registration registration = broker.register(
+        McpConfigRegistration registration = broker.register(
                 "review-task",
                 temporaryDirectory,
                 temporaryDirectory,
@@ -255,13 +255,13 @@ class TestReviewToolBroker
             throws Exception
     {
         AtomicInteger approvals = new AtomicInteger();
-        ClaudePermissionBroker broker = new ClaudePermissionBroker(
+        PermissionBroker broker = new PermissionBroker(
                 () -> URI.create("http://127.0.0.1:9000/internal/agent/claude/mcp"),
                 objectMapper,
                 (taskId, query) -> "memory",
                 taskId -> taskId.equals("review-task") ? Optional.of(bridge(new AtomicReference<>())) : Optional.empty());
         for (String taskId : ImmutableList.of("review-task", "plain-task")) {
-            try (ClaudePermissionBroker.Registration registration = broker.register(
+            try (McpConfigRegistration registration = broker.register(
                     taskId,
                     temporaryDirectory,
                     temporaryDirectory,

@@ -11,7 +11,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-package com.bytequay.agent.cli.claude;
+package com.bytequay.agent.cli.mcp;
 
 import com.bytequay.agent.cli.process.SecretRedactor;
 import com.bytequay.agent.spi.AgentPermissionPolicy;
@@ -58,12 +58,12 @@ class TestPullRequestCiTool
             reads.add(jobId);
             return jobId.isPresent() ? "failed log known-secret" : "No pull request associated yet";
         }, PullRequestCiBridge.INSTRUCTION)));
-        ClaudePermissionBroker broker = broker(taskId -> taskId.equals("task-1") ? current.get() : Optional.empty(), ReviewBridgeResolver.NONE);
+        PermissionBroker broker = broker(taskId -> taskId.equals("task-1") ? current.get() : Optional.empty(), ReviewBridgeResolver.NONE);
         String expiredToken;
-        try (ClaudePermissionBroker.CodeGraphRegistration codex = broker.registerTools(
+        try (CodeGraphRegistration codex = broker.registerTools(
                 "task-1", temporaryDirectory, AgentPermissionPolicy.AUTO,
                 (request, timeout) -> CompletableFuture.completedFuture(ProviderApprovalDecision.deny()), redactor, Optional.empty()).orElseThrow();
-                ClaudePermissionBroker.Registration claude = broker.register(
+                McpConfigRegistration claude = broker.register(
                         "task-1", temporaryDirectory, temporaryDirectory, temporaryDirectory, AgentPermissionPolicy.AUTO,
                         false, (request, timeout) -> CompletableFuture.completedFuture(ProviderApprovalDecision.deny()), redactor, Optional.empty())) {
             expiredToken = codex.token();
@@ -93,10 +93,10 @@ class TestPullRequestCiTool
     void rejectsScopeOverridesAndInvalidJobIdsBeforeReading()
             throws Exception
     {
-        ClaudePermissionBroker broker = broker(taskId -> Optional.of(new PullRequestCiBridge(jobId -> {
+        PermissionBroker broker = broker(taskId -> Optional.of(new PullRequestCiBridge(jobId -> {
             throw new AssertionError("Invalid tool arguments reached the CI reader");
         }, PullRequestCiBridge.INSTRUCTION)), ReviewBridgeResolver.NONE);
-        try (ClaudePermissionBroker.CodeGraphRegistration registration = broker.registerTools(
+        try (CodeGraphRegistration registration = broker.registerTools(
                 "task-1", temporaryDirectory, AgentPermissionPolicy.AUTO,
                 (request, timeout) -> CompletableFuture.completedFuture(ProviderApprovalDecision.deny()), redactor, Optional.empty()).orElseThrow()) {
             for (String arguments : ImmutableList.of(
@@ -115,35 +115,35 @@ class TestPullRequestCiTool
         PullRequestCiBridgeResolver reader = taskId -> {
             throw new AssertionError("Restricted profile must not resolve pull-request CI");
         };
-        ClaudePermissionBroker broker = broker(reader, ReviewBridgeResolver.NONE);
+        PermissionBroker broker = broker(reader, ReviewBridgeResolver.NONE);
         for (AgentPermissionPolicy policy : ImmutableList.of(AgentPermissionPolicy.CI_AUTOFIX, AgentPermissionPolicy.CHERRY_PICK)) {
-            try (ClaudePermissionBroker.Registration claude = broker.register(
+            try (McpConfigRegistration claude = broker.register(
                     "task-1", temporaryDirectory, temporaryDirectory, temporaryDirectory, policy, false,
                     (request, timeout) -> CompletableFuture.completedFuture(ProviderApprovalDecision.deny()), redactor, Optional.empty())) {
                 assertThat(list(broker, claude.token()).at("/result/tools").findValuesAsText("name")).doesNotContain(PullRequestCiBridge.TOOL_NAME);
                 assertThat(call(broker, claude.token(), "{}").at("/error/code").intValue()).isEqualTo(-32602);
             }
-            Optional<ClaudePermissionBroker.CodeGraphRegistration> codex = broker.registerTools(
+            Optional<CodeGraphRegistration> codex = broker.registerTools(
                     "task-1", temporaryDirectory, policy,
                     (request, timeout) -> CompletableFuture.completedFuture(ProviderApprovalDecision.deny()), redactor, Optional.empty());
             if (codex.isPresent()) {
-                try (ClaudePermissionBroker.CodeGraphRegistration registration = codex.orElseThrow()) {
+                try (CodeGraphRegistration registration = codex.orElseThrow()) {
                     assertThat(list(broker, registration.token()).at("/result/tools").findValuesAsText("name")).doesNotContain(PullRequestCiBridge.TOOL_NAME);
                 }
             }
         }
-        try (ClaudePermissionBroker.Registration helper = broker.register(
+        try (McpConfigRegistration helper = broker.register(
                 "task-1", temporaryDirectory, temporaryDirectory, temporaryDirectory, AgentPermissionPolicy.AUTO, true,
                 (request, timeout) -> CompletableFuture.completedFuture(ProviderApprovalDecision.deny()), redactor, Optional.empty())) {
             assertThat(helper.pullRequestCi()).isEmpty();
         }
         ReviewBridge review = new ReviewBridge(ImmutableList.of(new ReviewTool(
                 "review_context", "Read review context", ImmutableMap.of("type", "object"), arguments -> "review")), "Review only");
-        ClaudePermissionBroker reviewBroker = broker(reader, taskId -> Optional.of(review));
-        try (ClaudePermissionBroker.CodeGraphRegistration registration = reviewBroker.registerTools(
+        PermissionBroker reviewBroker = broker(reader, taskId -> Optional.of(review));
+        try (CodeGraphRegistration registration = reviewBroker.registerTools(
                 "task-1", temporaryDirectory, AgentPermissionPolicy.AUTO,
                 (request, timeout) -> CompletableFuture.completedFuture(ProviderApprovalDecision.deny()), redactor, Optional.empty()).orElseThrow();
-                ClaudePermissionBroker.Registration claude = reviewBroker.register(
+                McpConfigRegistration claude = reviewBroker.register(
                         "task-1", temporaryDirectory, temporaryDirectory, temporaryDirectory, AgentPermissionPolicy.AUTO, false,
                         (request, timeout) -> CompletableFuture.completedFuture(ProviderApprovalDecision.deny()), redactor, Optional.empty())) {
             assertThat(list(reviewBroker, registration.token()).at("/result/tools").findValuesAsText("name")).containsExactly("review_context");
@@ -155,10 +155,10 @@ class TestPullRequestCiTool
     void boundsAndRedactsCiReadFailures()
             throws Exception
     {
-        ClaudePermissionBroker broker = broker(taskId -> Optional.of(new PullRequestCiBridge(jobId -> {
+        PermissionBroker broker = broker(taskId -> Optional.of(new PullRequestCiBridge(jobId -> {
             throw new IllegalStateException("known-secret " + "x".repeat(PullRequestCiBridge.MAXIMUM_OUTPUT_LENGTH));
         }, PullRequestCiBridge.INSTRUCTION)), ReviewBridgeResolver.NONE);
-        try (ClaudePermissionBroker.CodeGraphRegistration registration = broker.registerTools(
+        try (CodeGraphRegistration registration = broker.registerTools(
                 "task-1", temporaryDirectory, AgentPermissionPolicy.AUTO,
                 (request, timeout) -> CompletableFuture.completedFuture(ProviderApprovalDecision.deny()), redactor, Optional.empty()).orElseThrow()) {
             JsonNode response = call(broker, registration.token(), "{}");
@@ -168,13 +168,13 @@ class TestPullRequestCiTool
         }
     }
 
-    private ClaudePermissionBroker broker(PullRequestCiBridgeResolver ci, ReviewBridgeResolver review)
+    private PermissionBroker broker(PullRequestCiBridgeResolver ci, ReviewBridgeResolver review)
     {
-        return new ClaudePermissionBroker(() -> URI.create("http://127.0.0.1:9000/internal/agent/claude/mcp"), objectMapper,
+        return new PermissionBroker(() -> URI.create("http://127.0.0.1:9000/internal/agent/claude/mcp"), objectMapper,
                 (taskId, query) -> "memory", review, DevelopmentResultBridgeResolver.NONE, DraftPullRequestPublisher.NONE, LocalReviewBridgeResolver.NONE, ci);
     }
 
-    private JsonNode list(ClaudePermissionBroker broker, String token)
+    private JsonNode list(PermissionBroker broker, String token)
             throws Exception
     {
         return broker.handle(token, objectMapper.readTree("""
@@ -182,7 +182,7 @@ class TestPullRequestCiTool
                 """)).body().orElseThrow();
     }
 
-    private JsonNode call(ClaudePermissionBroker broker, String token, String arguments)
+    private JsonNode call(PermissionBroker broker, String token, String arguments)
             throws Exception
     {
         return broker.handle(token, objectMapper.readTree("""

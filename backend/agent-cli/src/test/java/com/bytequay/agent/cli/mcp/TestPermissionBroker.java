@@ -11,7 +11,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-package com.bytequay.agent.cli.claude;
+package com.bytequay.agent.cli.mcp;
 
 import com.bytequay.agent.cli.process.SecretRedactor;
 import com.bytequay.agent.spi.AgentApprovalHandler;
@@ -49,7 +49,7 @@ import java.util.concurrent.atomic.AtomicReference;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
-class TestClaudePermissionBroker
+class TestPermissionBroker
 {
     private final ObjectMapper objectMapper = new ObjectMapper();
 
@@ -76,7 +76,7 @@ class TestClaudePermissionBroker
                     return "resolution accepted";
                 },
                 LocalReviewBridge.INSTRUCTION);
-        ClaudePermissionBroker broker = new ClaudePermissionBroker(
+        PermissionBroker broker = new PermissionBroker(
                 () -> URI.create("http://127.0.0.1:9000/internal/agent/claude/mcp"), objectMapper,
                 (taskId, query) -> "memory", ReviewBridgeResolver.NONE,
                 taskId -> taskId.equals("task-1") ? Optional.of(new DevelopmentResultBridge("turn-1", DevelopmentResultBridge.INSTRUCTION)) : Optional.empty(),
@@ -84,10 +84,10 @@ class TestClaudePermissionBroker
                 taskId -> taskId.equals("task-1") && available.get() ? Optional.of(local) : Optional.empty());
         SecretRedactor redactor = SecretRedactor.fromEnvironment(ImmutableMap.of("OPENAI_API_KEY", "known-secret"));
         String closedToken;
-        try (ClaudePermissionBroker.CodeGraphRegistration codex = broker.registerTools(
+        try (CodeGraphRegistration codex = broker.registerTools(
                 "task-1", temporaryDirectory, AgentPermissionPolicy.AUTO,
                 (request, timeout) -> CompletableFuture.completedFuture(ProviderApprovalDecision.deny()), redactor, Optional.empty()).orElseThrow();
-                ClaudePermissionBroker.Registration claude = broker.register(
+                McpConfigRegistration claude = broker.register(
                         "task-1", temporaryDirectory, temporaryDirectory, temporaryDirectory, AgentPermissionPolicy.AUTO,
                         false, (request, timeout) -> CompletableFuture.completedFuture(ProviderApprovalDecision.deny()), redactor, Optional.empty())) {
             closedToken = codex.token();
@@ -141,23 +141,23 @@ class TestClaudePermissionBroker
         assertThat(broker.registerTools("task-2", temporaryDirectory, AgentPermissionPolicy.AUTO,
                 (request, timeout) -> CompletableFuture.completedFuture(ProviderApprovalDecision.deny()), redactor, Optional.empty())).isEmpty();
         available.set(true);
-        try (ClaudePermissionBroker.Registration helper = broker.register(
+        try (McpConfigRegistration helper = broker.register(
                 "task-1", temporaryDirectory, temporaryDirectory, temporaryDirectory, AgentPermissionPolicy.AUTO,
                 true, (request, timeout) -> CompletableFuture.completedFuture(ProviderApprovalDecision.deny()), redactor, Optional.empty())) {
             assertThat(helper.localReview()).isEmpty();
         }
-        ClaudePermissionBroker localOnly = new ClaudePermissionBroker(
+        PermissionBroker localOnly = new PermissionBroker(
                 () -> URI.create("http://127.0.0.1:9000/internal/agent/claude/mcp"), objectMapper,
                 (taskId, query) -> "memory", ReviewBridgeResolver.NONE, DevelopmentResultBridgeResolver.NONE, DraftPullRequestPublisher.NONE,
                 taskId -> Optional.of(local));
-        try (ClaudePermissionBroker.CodeGraphRegistration registration = localOnly.registerTools(
+        try (CodeGraphRegistration registration = localOnly.registerTools(
                 "task-1", temporaryDirectory, AgentPermissionPolicy.AUTO,
                 (request, timeout) -> CompletableFuture.completedFuture(ProviderApprovalDecision.deny()), redactor, Optional.empty()).orElseThrow()) {
             assertThat(registration.instruction()).isEqualTo(LocalReviewBridge.INSTRUCTION);
         }
     }
 
-    private JsonNode localReviewCall(ClaudePermissionBroker broker, String token, String tool, String arguments)
+    private JsonNode localReviewCall(PermissionBroker broker, String token, String tool, String arguments)
             throws Exception
     {
         return broker.handle(token, objectMapper.readTree("""
@@ -171,15 +171,15 @@ class TestClaudePermissionBroker
     {
         AtomicReference<Optional<DevelopmentResultBridge>> active = new AtomicReference<>(Optional.of(
                 new DevelopmentResultBridge("turn-1", DevelopmentResultBridge.INSTRUCTION)));
-        ClaudePermissionBroker broker = new ClaudePermissionBroker(
+        PermissionBroker broker = new PermissionBroker(
                 () -> URI.create("http://127.0.0.1:9000/internal/agent/claude/mcp"), objectMapper,
                 (taskId, query) -> "memory", ReviewBridgeResolver.NONE,
                 taskId -> taskId.equals("task-1") ? active.get() : Optional.empty());
         SecretRedactor redactor = SecretRedactor.fromEnvironment(ImmutableMap.of("OPENAI_API_KEY", "known-secret"));
-        try (ClaudePermissionBroker.CodeGraphRegistration codex = broker.registerTools(
+        try (CodeGraphRegistration codex = broker.registerTools(
                 "task-1", temporaryDirectory, AgentPermissionPolicy.AUTO,
                 (request, timeout) -> CompletableFuture.completedFuture(ProviderApprovalDecision.deny()), redactor, Optional.empty()).orElseThrow();
-                ClaudePermissionBroker.Registration claude = broker.register(
+                McpConfigRegistration claude = broker.register(
                         "task-1", temporaryDirectory, temporaryDirectory, temporaryDirectory, AgentPermissionPolicy.AUTO,
                         false, (request, timeout) -> CompletableFuture.completedFuture(ProviderApprovalDecision.deny()), redactor, Optional.empty())) {
             for (String token : ImmutableList.of(codex.token(), claude.token())) {
@@ -209,7 +209,7 @@ class TestClaudePermissionBroker
             active.set(Optional.of(new DevelopmentResultBridge("turn-2", DevelopmentResultBridge.INSTRUCTION)));
             assertThat(developmentCall(broker, codex.token(), "{\"readyForDelivery\":true}").at("/error/code").intValue()).isEqualTo(-32602);
         }
-        try (ClaudePermissionBroker.Registration helper = broker.register(
+        try (McpConfigRegistration helper = broker.register(
                 "task-1", temporaryDirectory, temporaryDirectory, temporaryDirectory, AgentPermissionPolicy.AUTO,
                 true, (request, timeout) -> CompletableFuture.completedFuture(ProviderApprovalDecision.deny()), redactor, Optional.empty())) {
             assertThat(helper.development()).isEmpty();
@@ -224,14 +224,14 @@ class TestClaudePermissionBroker
     {
         for (boolean allowed : ImmutableList.of(false, true)) {
             DevelopmentResultBridge bridge = new DevelopmentResultBridge("turn-1", DevelopmentResultBridge.INSTRUCTION, allowed);
-            ClaudePermissionBroker broker = new ClaudePermissionBroker(
+            PermissionBroker broker = new PermissionBroker(
                     () -> URI.create("http://127.0.0.1:9000/internal/agent/claude/mcp"), objectMapper,
                     (taskId, query) -> "memory", ReviewBridgeResolver.NONE, taskId -> Optional.of(bridge));
             SecretRedactor redactor = SecretRedactor.fromEnvironment(ImmutableMap.of("OPENAI_API_KEY", "known-secret"));
-            try (ClaudePermissionBroker.CodeGraphRegistration codex = broker.registerTools(
+            try (CodeGraphRegistration codex = broker.registerTools(
                     "task-1", temporaryDirectory, AgentPermissionPolicy.AUTO,
                     (request, timeout) -> CompletableFuture.completedFuture(ProviderApprovalDecision.deny()), redactor, Optional.empty()).orElseThrow();
-                    ClaudePermissionBroker.Registration claude = broker.register(
+                    McpConfigRegistration claude = broker.register(
                             "task-1", temporaryDirectory, temporaryDirectory, temporaryDirectory, AgentPermissionPolicy.AUTO,
                             false, (request, timeout) -> CompletableFuture.completedFuture(ProviderApprovalDecision.deny()), redactor, Optional.empty())) {
                 for (String token : ImmutableList.of(codex.token(), claude.token())) {
@@ -267,7 +267,7 @@ class TestClaudePermissionBroker
             throws Exception
     {
         List<String> published = new ArrayList<>();
-        ClaudePermissionBroker broker = new ClaudePermissionBroker(
+        PermissionBroker broker = new PermissionBroker(
                 () -> URI.create("http://127.0.0.1:9000/internal/agent/claude/mcp"), objectMapper,
                 (taskId, query) -> "memory", ReviewBridgeResolver.NONE,
                 taskId -> Optional.of(new DevelopmentResultBridge("turn-1", DevelopmentResultBridge.INSTRUCTION)),
@@ -279,7 +279,7 @@ class TestClaudePermissionBroker
                     return "Pushed abc; created draft pull request https://github.com/owner/repo/pull/7 known-secret";
                 });
         SecretRedactor redactor = SecretRedactor.fromEnvironment(ImmutableMap.of("OPENAI_API_KEY", "known-secret"));
-        try (ClaudePermissionBroker.Registration claude = broker.register(
+        try (McpConfigRegistration claude = broker.register(
                 "task-1", temporaryDirectory, temporaryDirectory, temporaryDirectory, AgentPermissionPolicy.AUTO,
                 false, (request, timeout) -> CompletableFuture.completedFuture(ProviderApprovalDecision.deny()), redactor, Optional.empty())) {
             String token = claude.token();
@@ -315,7 +315,7 @@ class TestClaudePermissionBroker
         }
     }
 
-    private JsonNode publishCall(ClaudePermissionBroker broker, String token, String arguments)
+    private JsonNode publishCall(PermissionBroker broker, String token, String arguments)
             throws Exception
     {
         return broker.handle(token, objectMapper.readTree("""
@@ -323,7 +323,7 @@ class TestClaudePermissionBroker
                 """.formatted(arguments))).body().orElseThrow();
     }
 
-    private JsonNode developmentCall(ClaudePermissionBroker broker, String token, String arguments)
+    private JsonNode developmentCall(PermissionBroker broker, String token, String arguments)
             throws Exception
     {
         return broker.handle(token, objectMapper.readTree("""
@@ -335,12 +335,12 @@ class TestClaudePermissionBroker
     void servesTheCodeGraphToolOnlyWhenBridged()
             throws Exception
     {
-        ClaudePermissionBroker broker = new ClaudePermissionBroker(
+        PermissionBroker broker = new PermissionBroker(
                 () -> URI.create("http://127.0.0.1:9000/internal/agent/claude/mcp"),
                 objectMapper,
                 (taskId, query) -> "memory");
         SecretRedactor redactor = SecretRedactor.fromEnvironment(ImmutableMap.of("ANTHROPIC_API_KEY", "known-secret"));
-        ClaudePermissionBroker.Registration bridged = broker.register(
+        McpConfigRegistration bridged = broker.register(
                 "task-1",
                 temporaryDirectory,
                 temporaryDirectory,
@@ -350,7 +350,7 @@ class TestClaudePermissionBroker
                 (request, timeout) -> CompletableFuture.completedFuture(ProviderApprovalDecision.deny()),
                 redactor,
                 Optional.of(new CodeGraphBridge(query -> "graph for " + query + " known-secret", "use the graph")));
-        ClaudePermissionBroker.Registration plain = broker.register(
+        McpConfigRegistration plain = broker.register(
                 "task-2",
                 temporaryDirectory,
                 temporaryDirectory,
@@ -393,11 +393,11 @@ class TestClaudePermissionBroker
     void codeGraphOnlyRegistrationsHideThePermissionTools()
             throws Exception
     {
-        ClaudePermissionBroker broker = new ClaudePermissionBroker(
+        PermissionBroker broker = new PermissionBroker(
                 () -> URI.create("http://127.0.0.1:9000/internal/agent/claude/mcp"),
                 objectMapper,
                 (taskId, query) -> "memory");
-        ClaudePermissionBroker.CodeGraphRegistration registration = broker.registerTools(
+        CodeGraphRegistration registration = broker.registerTools(
                 "task-3",
                 temporaryDirectory,
                 AgentPermissionPolicy.AUTO,
@@ -433,7 +433,7 @@ class TestClaudePermissionBroker
             throws Exception
     {
         AtomicInteger memoryReads = new AtomicInteger();
-        ClaudePermissionBroker broker = new ClaudePermissionBroker(
+        PermissionBroker broker = new PermissionBroker(
                 () -> URI.create("http://127.0.0.1:9000/internal/agent/claude/mcp"),
                 objectMapper,
                 (taskId, query) -> {
@@ -444,10 +444,10 @@ class TestClaudePermissionBroker
         AgentApprovalHandler approvals = (request, timeout) -> {
             throw new AssertionError("Codex must not invoke Claude permission callbacks");
         };
-        try (ClaudePermissionBroker.CodeGraphRegistration first = broker.registerTools(
+        try (CodeGraphRegistration first = broker.registerTools(
                 "task-ci-first", temporaryDirectory, AgentPermissionPolicy.CI_AUTOFIX,
                 approvals, redactor, Optional.empty()).orElseThrow();
-                ClaudePermissionBroker.CodeGraphRegistration second = broker.registerTools(
+                CodeGraphRegistration second = broker.registerTools(
                         "task-ci-second", temporaryDirectory, AgentPermissionPolicy.CI_AUTOFIX,
                         approvals, redactor, Optional.empty()).orElseThrow()) {
             JsonNode listRequest = objectMapper.readTree("""
@@ -484,13 +484,13 @@ class TestClaudePermissionBroker
     {
         ReviewBridge review = new ReviewBridge(ImmutableList.of(new ReviewTool(
                 "review_context", "Read review context", ImmutableMap.of("type", "object"), arguments -> "review context")), "Review this pull request");
-        ClaudePermissionBroker broker = new ClaudePermissionBroker(
+        PermissionBroker broker = new PermissionBroker(
                 () -> URI.create("http://127.0.0.1:9000/internal/agent/claude/mcp"), objectMapper,
                 (taskId, query) -> {
                     throw new AssertionError("Review tasks must not read CI memory");
                 },
                 taskId -> Optional.of(review));
-        try (ClaudePermissionBroker.CodeGraphRegistration registration = broker.registerTools(
+        try (CodeGraphRegistration registration = broker.registerTools(
                 "task-review", temporaryDirectory, AgentPermissionPolicy.AUTO,
                 (request, timeout) -> CompletableFuture.completedFuture(ProviderApprovalDecision.deny()),
                 SecretRedactor.fromEnvironment(ImmutableMap.of()), Optional.empty()).orElseThrow()) {
@@ -509,13 +509,13 @@ class TestClaudePermissionBroker
     void writesOwnerOnlyConfigAndBridgesTypedApprovalRequests()
             throws Exception
     {
-        ClaudePermissionBroker broker = new ClaudePermissionBroker(
+        PermissionBroker broker = new PermissionBroker(
                 () -> URI.create("http://127.0.0.1:9000/internal/agent/claude/mcp"),
                 objectMapper,
                 (taskId, query) -> "memory");
         AtomicReference<ProviderApprovalRequest> approval = new AtomicReference<>();
         AtomicReference<Duration> approvalTimeout = new AtomicReference<>();
-        ClaudePermissionBroker.Registration registration = broker.register(
+        McpConfigRegistration registration = broker.register(
                 "task-1",
                 temporaryDirectory,
                 temporaryDirectory,
@@ -534,7 +534,7 @@ class TestClaudePermissionBroker
         assertThat(PosixFilePermissions.toString(Files.getPosixFilePermissions(registration.configFile())))
                 .isEqualTo("rw-------");
 
-        ClaudePermissionBroker.McpHttpResponse initialized = broker.handle(token, objectMapper.readTree("""
+        McpHttpResponse initialized = broker.handle(token, objectMapper.readTree("""
                 {"jsonrpc":"2.0","id":1,"method":"initialize",
                 "params":{"protocolVersion":"2025-03-26","capabilities":{},
                 "clientInfo":{"name":"claude-code","version":"2.1.233"}}}
@@ -543,14 +543,14 @@ class TestClaudePermissionBroker
         assertThat(initialized.body().orElseThrow().at("/result/protocolVersion").asText())
                 .isEqualTo("2025-03-26");
 
-        ClaudePermissionBroker.McpHttpResponse listed = broker.handle(token, objectMapper.readTree("""
+        McpHttpResponse listed = broker.handle(token, objectMapper.readTree("""
                 {"jsonrpc":"2.0","id":2,"method":"tools/list","params":{}}
                 """));
         assertThat(listed.body().orElseThrow().at("/result/tools/0/name").asText())
                 .isEqualTo("permission_prompt");
         assertThat(listed.body().orElseThrow().at("/result/tools")).hasSize(1);
 
-        ClaudePermissionBroker.McpHttpResponse called = broker.handle(token, objectMapper.readTree("""
+        McpHttpResponse called = broker.handle(token, objectMapper.readTree("""
                 {"jsonrpc":"2.0","id":3,"method":"tools/call","params":{
                 "name":"permission_prompt","arguments":{"tool_name":"Bash",
                 "input":{"command":"echo known-secret"}}}}
@@ -577,7 +577,7 @@ class TestClaudePermissionBroker
     {
         AtomicReference<String> readTask = new AtomicReference<>();
         AtomicReference<Optional<String>> readQuery = new AtomicReference<>();
-        ClaudePermissionBroker broker = new ClaudePermissionBroker(
+        PermissionBroker broker = new PermissionBroker(
                 () -> URI.create("http://127.0.0.1:9000/internal/agent/claude/mcp"),
                 objectMapper,
                 (taskId, query) -> {
@@ -589,7 +589,7 @@ class TestClaudePermissionBroker
                 });
         Path worktree = Files.createDirectories(temporaryDirectory.resolve("worktree"));
         Path provider = temporaryDirectory.resolve("provider");
-        ClaudePermissionBroker.Registration registration = broker.register(
+        McpConfigRegistration registration = broker.register(
                 "task-ci",
                 worktree,
                 temporaryDirectory,
@@ -609,7 +609,7 @@ class TestClaudePermissionBroker
         assertThat(settings.at("/permissions/deny").toString())
                 .contains("WebFetch", "Bash(git credential:*)", "Bash(git push:*)", "Read(~/.config/gh/**)");
 
-        ClaudePermissionBroker.McpHttpResponse listed = broker.handle(token, objectMapper.readTree("""
+        McpHttpResponse listed = broker.handle(token, objectMapper.readTree("""
                 {"jsonrpc":"2.0","id":1,"method":"tools/list","params":{}}
                 """));
         assertThat(listed.body().orElseThrow().at("/result/tools")).hasSize(2);
@@ -617,7 +617,7 @@ class TestClaudePermissionBroker
                 .isEqualTo("read_ci_memory");
 
         String longQuery = "compile failure ".repeat(20);
-        ClaudePermissionBroker.McpHttpResponse read = broker.handle(token, objectMapper.readTree("""
+        McpHttpResponse read = broker.handle(token, objectMapper.readTree("""
                 {"jsonrpc":"2.0","id":2,"method":"tools/call","params":{
                 "name":"read_ci_memory","arguments":{"query":"%s"}}}
                 """.formatted(longQuery)));
@@ -625,14 +625,14 @@ class TestClaudePermissionBroker
         assertThat(readTask.get()).isEqualTo("task-ci");
         assertThat(readQuery.get().orElseThrow()).hasSize(200);
 
-        ClaudePermissionBroker.McpHttpResponse unavailable = broker.handle(token, objectMapper.readTree("""
+        McpHttpResponse unavailable = broker.handle(token, objectMapper.readTree("""
                 {"jsonrpc":"2.0","id":20,"method":"tools/call","params":{
                 "name":"read_ci_memory","arguments":{"query":"missing"}}}
                 """));
         assertThat(unavailable.body().orElseThrow().at("/result/content/0/text").asText())
                 .isEqualTo("CI memory is unavailable");
 
-        ClaudePermissionBroker.McpHttpResponse crossTask = broker.handle(token, objectMapper.readTree("""
+        McpHttpResponse crossTask = broker.handle(token, objectMapper.readTree("""
                 {"jsonrpc":"2.0","id":3,"method":"tools/call","params":{
                 "name":"read_ci_memory","arguments":{"taskId":"another-task"}}}
                 """));
@@ -656,12 +656,12 @@ class TestClaudePermissionBroker
     void sandboxesCherryPickWithoutExposingCiMemory()
             throws Exception
     {
-        ClaudePermissionBroker broker = new ClaudePermissionBroker(
+        PermissionBroker broker = new PermissionBroker(
                 () -> URI.create("http://127.0.0.1:9000/internal/agent/claude/mcp"),
                 objectMapper,
                 (taskId, query) -> "memory must not reach cherry-pick");
         Path worktree = Files.createDirectories(temporaryDirectory.resolve("cherry-pick-worktree"));
-        ClaudePermissionBroker.Registration registration = broker.register(
+        McpConfigRegistration registration = broker.register(
                 "task-cherry-pick",
                 worktree,
                 temporaryDirectory,
@@ -679,13 +679,13 @@ class TestClaudePermissionBroker
         assertThat(settings.at("/permissions/deny").toString())
                 .contains("WebFetch", "Bash(git push:*)", "Bash(gh:*)", "Read(~/.ssh/**)");
 
-        ClaudePermissionBroker.McpHttpResponse listed = broker.handle(token, objectMapper.readTree("""
+        McpHttpResponse listed = broker.handle(token, objectMapper.readTree("""
                 {"jsonrpc":"2.0","id":1,"method":"tools/list","params":{}}
                 """));
         assertThat(listed.body().orElseThrow().at("/result/tools")).hasSize(1);
         assertThat(listed.body().orElseThrow().at("/result/tools/0/name").asText()).isEqualTo("permission_prompt");
 
-        ClaudePermissionBroker.McpHttpResponse memory = broker.handle(token, objectMapper.readTree("""
+        McpHttpResponse memory = broker.handle(token, objectMapper.readTree("""
                 {"jsonrpc":"2.0","id":2,"method":"tools/call","params":{
                 "name":"read_ci_memory","arguments":{}}}
                 """));
@@ -716,13 +716,13 @@ class TestClaudePermissionBroker
     void reviewsInteractiveGitHubCommandsWhileKeepingTheSandbox()
             throws Exception
     {
-        ClaudePermissionBroker broker = new ClaudePermissionBroker(
+        PermissionBroker broker = new PermissionBroker(
                 () -> URI.create("http://127.0.0.1:9000/internal/agent/claude/mcp"),
                 objectMapper,
                 (taskId, query) -> "memory must not reach auto");
         Path worktree = Files.createDirectories(temporaryDirectory.resolve("auto-worktree"));
         AtomicReference<ProviderApprovalRequest> approval = new AtomicReference<>();
-        ClaudePermissionBroker.Registration registration = broker.register(
+        McpConfigRegistration registration = broker.register(
                 "task-auto",
                 worktree,
                 temporaryDirectory,
@@ -752,7 +752,7 @@ class TestClaudePermissionBroker
         assertThat(settings.at("/sandbox/filesystem/denyWrite").toString())
                 .contains(temporaryDirectory.toRealPath().toString());
 
-        ClaudePermissionBroker.McpHttpResponse listed = broker.handle(token, objectMapper.readTree("""
+        McpHttpResponse listed = broker.handle(token, objectMapper.readTree("""
                 {"jsonrpc":"2.0","id":1,"method":"tools/list","params":{}}
                 """));
         assertThat(listed.body().orElseThrow().at("/result/tools")).hasSize(1);
@@ -781,7 +781,7 @@ class TestClaudePermissionBroker
         for (AgentPermissionPolicy policy : AgentPermissionPolicy.values()) {
             for (boolean textOnly : ImmutableList.of(false, true)) {
                 for (boolean reviewSession : ImmutableList.of(false, true)) {
-                    ClaudePermissionBroker broker = new ClaudePermissionBroker(
+                    PermissionBroker broker = new PermissionBroker(
                             () -> URI.create("http://127.0.0.1:9000/internal/agent/claude/mcp"), objectMapper,
                             (taskId, query) -> "", taskId -> reviewSession ? Optional.of(review) : Optional.empty());
                     boolean interactive = policy == AgentPermissionPolicy.AUTO && !textOnly && !reviewSession;
@@ -840,7 +840,7 @@ class TestClaudePermissionBroker
     }
 
     private String permission(
-            ClaudePermissionBroker broker,
+            PermissionBroker broker,
             String token,
             String toolName,
             String field,
@@ -860,7 +860,7 @@ class TestClaudePermissionBroker
         return objectMapper.readTree(result).get("behavior").asText();
     }
 
-    private String token(ClaudePermissionBroker.Registration registration)
+    private String token(McpConfigRegistration registration)
             throws Exception
     {
         JsonNode config = objectMapper.readTree(Files.readString(registration.configFile()));

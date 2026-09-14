@@ -13,6 +13,8 @@
  */
 package com.bytequay.agent.cli.claude;
 
+import com.bytequay.agent.cli.mcp.McpConfigRegistration;
+import com.bytequay.agent.cli.mcp.PermissionBroker;
 import com.bytequay.agent.cli.process.GitCliEnvironment;
 import com.bytequay.agent.cli.process.ManagedProcess;
 import com.bytequay.agent.cli.process.ProcessExit;
@@ -153,7 +155,7 @@ public final class ClaudeCliDriver
     private final SecretRedactor redactor;
     private final ObjectMapper objectMapper;
     private final ClaudeProtocolCodec codec;
-    private final ClaudePermissionBroker permissions;
+    private final PermissionBroker permissions;
     private final Set<ClaudeSession> sessions = ConcurrentHashMap.newKeySet();
     private volatile boolean forwardSubagentText = true;
     private volatile boolean closed;
@@ -161,7 +163,7 @@ public final class ClaudeCliDriver
     public ClaudeCliDriver(
             String executable,
             ObjectMapper objectMapper,
-            ClaudePermissionBroker permissions,
+            PermissionBroker permissions,
             ProcessSupervisor supervisor)
     {
         this(executable, objectMapper, permissions, supervisor, inheritedEnvironment());
@@ -170,7 +172,7 @@ public final class ClaudeCliDriver
     ClaudeCliDriver(
             String executable,
             ObjectMapper objectMapper,
-            ClaudePermissionBroker permissions,
+            PermissionBroker permissions,
             ProcessSupervisor supervisor,
             Map<String, String> environment)
     {
@@ -381,7 +383,7 @@ public final class ClaudeCliDriver
     }
 
     private List<String> argv(
-            ClaudePermissionBroker.Registration registration,
+            McpConfigRegistration registration,
             Optional<CodeGraphBridge> codeGraph,
             AgentPermissionPolicy permissionPolicy,
             Optional<String> model,
@@ -753,7 +755,7 @@ public final class ClaudeCliDriver
         private final AgentSessionRef reference;
         private final AgentSessionContext context;
         private final AgentEventSink events;
-        private final ClaudePermissionBroker.Registration registration;
+        private final McpConfigRegistration registration;
         private final SecretRedactor redactor;
         private ClaudeRunningTurn running;
         private ClaudeRunningTurn lastTurn;

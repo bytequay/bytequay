@@ -11,7 +11,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-package com.bytequay.agent.cli.claude;
+package com.bytequay.agent.cli.mcp;
 
 import com.bytequay.agent.cli.development.DevelopmentResultTool;
 import com.bytequay.agent.cli.process.SecretRedactor;
@@ -73,8 +73,8 @@ import static com.bytequay.agent.spi.ProviderApprovalRequest.Decision.DENY;
 import static com.google.common.base.Preconditions.checkArgument;
 import static java.util.Objects.requireNonNull;
 
-/** Serves ByteQuay's task-scoped Claude MCP tools. */
-public final class ClaudePermissionBroker
+/** Serves ByteQuay's task-scoped MCP tools. */
+public final class PermissionBroker
 {
     private static final Duration APPROVAL_TIMEOUT = Duration.ofMinutes(5);
     private static final int MAX_DETAIL_CHARACTERS = 16 * 1024;
@@ -99,7 +99,7 @@ public final class ClaudePermissionBroker
     private final PullRequestCiBridgeResolver pullRequestChecks;
     private final Map<String, PermissionContext> contexts = new ConcurrentHashMap<>();
 
-    public ClaudePermissionBroker(
+    public PermissionBroker(
             Supplier<URI> endpoint,
             ObjectMapper objectMapper,
             CiMemoryReader ciMemoryReader)
@@ -107,7 +107,7 @@ public final class ClaudePermissionBroker
         this(endpoint, objectMapper, ciMemoryReader, ReviewBridgeResolver.NONE);
     }
 
-    public ClaudePermissionBroker(
+    public PermissionBroker(
             Supplier<URI> endpoint,
             ObjectMapper objectMapper,
             CiMemoryReader ciMemoryReader,
@@ -116,7 +116,7 @@ public final class ClaudePermissionBroker
         this(endpoint, objectMapper, ciMemoryReader, reviews, DevelopmentResultBridgeResolver.NONE);
     }
 
-    public ClaudePermissionBroker(
+    public PermissionBroker(
             Supplier<URI> endpoint,
             ObjectMapper objectMapper,
             CiMemoryReader ciMemoryReader,
@@ -126,7 +126,7 @@ public final class ClaudePermissionBroker
         this(endpoint, objectMapper, ciMemoryReader, reviews, developments, DraftPullRequestPublisher.NONE);
     }
 
-    public ClaudePermissionBroker(
+    public PermissionBroker(
             Supplier<URI> endpoint,
             ObjectMapper objectMapper,
             CiMemoryReader ciMemoryReader,
@@ -137,7 +137,7 @@ public final class ClaudePermissionBroker
         this(endpoint, objectMapper, ciMemoryReader, reviews, developments, draftPullRequests, LocalReviewBridgeResolver.NONE);
     }
 
-    public ClaudePermissionBroker(
+    public PermissionBroker(
             Supplier<URI> endpoint,
             ObjectMapper objectMapper,
             CiMemoryReader ciMemoryReader,
@@ -149,7 +149,7 @@ public final class ClaudePermissionBroker
         this(endpoint, objectMapper, ciMemoryReader, reviews, developments, draftPullRequests, localReviews, PullRequestCiBridgeResolver.NONE);
     }
 
-    public ClaudePermissionBroker(
+    public PermissionBroker(
             Supplier<URI> endpoint,
             ObjectMapper objectMapper,
             CiMemoryReader ciMemoryReader,
@@ -172,7 +172,7 @@ public final class ClaudePermissionBroker
         this.pullRequestChecks = requireNonNull(pullRequestChecks, "pullRequestChecks is null");
     }
 
-    Registration register(
+    McpConfigRegistration register(
             String taskId,
             Path worktree,
             Path runtimeDirectory,
@@ -193,7 +193,7 @@ public final class ClaudePermissionBroker
                 Optional.empty());
     }
 
-    Registration register(
+    McpConfigRegistration register(
             String taskId,
             Path worktree,
             Path runtimeDirectory,
@@ -207,7 +207,7 @@ public final class ClaudePermissionBroker
         return register(taskId, worktree, runtimeDirectory, providerDirectory, permissionPolicy, textOnly, approvals, redactor, codeGraph, ImmutableMap.of());
     }
 
-    Registration register(
+    public McpConfigRegistration register(
             String taskId,
             Path worktree,
             Path runtimeDirectory,
@@ -260,7 +260,11 @@ public final class ClaudePermissionBroker
                             APPROVAL_TIMEOUT.plusSeconds(30).toMillis()))));
             writeOwnerOnly(configFile, json);
             writeOwnerOnly(settingsFile, sandboxSettings(permissionPolicy, textOnly, review.isPresent(), runtimeDirectory.toRealPath(), environment));
-            return new Registration(configFile, settingsFile, token, codeGraph, review, development, localReview, pullRequestCi);
+            return new McpConfigRegistration(configFile, settingsFile, token, codeGraph, review, development, localReview, pullRequestCi, () -> {
+                contexts.remove(token);
+                delete(configFile);
+                delete(settingsFile);
+            });
         }
         catch (IOException e) {
             contexts.remove(token);
@@ -301,7 +305,8 @@ public final class ClaudePermissionBroker
         String token = token();
         contexts.put(token, new PermissionContext(
                 taskId, worktree, permissionPolicy, approvals, redactor.withSecret(token), false, codeGraph, review, development, localReview, pullRequestCi));
-        return Optional.of(new CodeGraphRegistration(token, requireNonNull(endpoint.get(), "endpoint URI is null"), codeGraph, review, development, localReview, pullRequestCi));
+        return Optional.of(new CodeGraphRegistration(
+                token, requireNonNull(endpoint.get(), "endpoint URI is null"), codeGraph, review, development, localReview, pullRequestCi, () -> contexts.remove(token)));
     }
 
     /** Combines the fixed capabilities' guidance for the session's instruction channel. */
@@ -971,157 +976,6 @@ public final class ClaudePermissionBroker
         return text.length() <= MAX_DETAIL_CHARACTERS
                 ? text
                 : text.substring(0, MAX_DETAIL_CHARACTERS);
-    }
-
-    final class Registration
-            implements AutoCloseable
-    {
-        private final Path configFile;
-        private final Path settingsFile;
-        private final String token;
-        private final Optional<CodeGraphBridge> codeGraph;
-        private final Optional<ReviewBridge> review;
-        private final Optional<DevelopmentResultBridge> development;
-        private final Optional<LocalReviewBridge> localReview;
-        private final Optional<PullRequestCiBridge> pullRequestCi;
-
-        private Registration(
-                Path configFile,
-                Path settingsFile,
-                String token,
-                Optional<CodeGraphBridge> codeGraph,
-                Optional<ReviewBridge> review,
-                Optional<DevelopmentResultBridge> development,
-                Optional<LocalReviewBridge> localReview,
-                Optional<PullRequestCiBridge> pullRequestCi)
-        {
-            this.configFile = requireNonNull(configFile, "configFile is null");
-            this.settingsFile = requireNonNull(settingsFile, "settingsFile is null");
-            this.token = requireNonNull(token, "token is null");
-            this.codeGraph = requireNonNull(codeGraph, "codeGraph is null");
-            this.review = requireNonNull(review, "review is null");
-            this.development = requireNonNull(development, "development is null");
-            this.localReview = requireNonNull(localReview, "localReview is null");
-            this.pullRequestCi = requireNonNull(pullRequestCi, "pullRequestCi is null");
-        }
-
-        public Optional<DevelopmentResultBridge> development()
-        {
-            return development;
-        }
-
-        Optional<PullRequestCiBridge> pullRequestCi()
-        {
-            return pullRequestCi;
-        }
-
-        Optional<LocalReviewBridge> localReview()
-        {
-            return localReview;
-        }
-
-        /** The review capability this token exposes, resolved from the task when it registered. */
-        Optional<ReviewBridge> review()
-        {
-            return review;
-        }
-
-        /** The managed guidance this session's instruction channel carries, if any tool needs one. */
-        Optional<String> instruction()
-        {
-            return managedInstruction(codeGraph, review, development, localReview, pullRequestCi);
-        }
-
-        Path configFile()
-        {
-            return configFile;
-        }
-
-        Path settingsFile()
-        {
-            return settingsFile;
-        }
-
-        String token()
-        {
-            return token;
-        }
-
-        @Override
-        public void close()
-        {
-            contexts.remove(token);
-            delete(configFile);
-            delete(settingsFile);
-        }
-    }
-
-    /** HTTP response returned to the thin application controller. */
-    /** A task-local tool token and the endpoint it authenticates against; closing forgets the token. */
-    public final class CodeGraphRegistration
-            implements AutoCloseable
-    {
-        private final String token;
-        private final URI endpoint;
-        private final Optional<CodeGraphBridge> codeGraph;
-        private final Optional<ReviewBridge> review;
-        private final Optional<DevelopmentResultBridge> development;
-        private final Optional<LocalReviewBridge> localReview;
-        private final Optional<PullRequestCiBridge> pullRequestCi;
-
-        private CodeGraphRegistration(
-                String token, URI endpoint, Optional<CodeGraphBridge> codeGraph, Optional<ReviewBridge> review,
-                Optional<DevelopmentResultBridge> development, Optional<LocalReviewBridge> localReview, Optional<PullRequestCiBridge> pullRequestCi)
-        {
-            this.token = requireNonNull(token, "token is null");
-            this.endpoint = requireNonNull(endpoint, "endpoint is null");
-            this.codeGraph = requireNonNull(codeGraph, "codeGraph is null");
-            this.review = requireNonNull(review, "review is null");
-            this.development = requireNonNull(development, "development is null");
-            this.localReview = requireNonNull(localReview, "localReview is null");
-            this.pullRequestCi = requireNonNull(pullRequestCi, "pullRequestCi is null");
-        }
-
-        public Optional<DevelopmentResultBridge> development()
-        {
-            return development;
-        }
-
-        /** The review capability this token exposes, resolved from the task when it registered. */
-        public Optional<ReviewBridge> review()
-        {
-            return review;
-        }
-
-        /** The managed guidance for the launch's instruction channel; empty only for a token without any guidance. */
-        public String instruction()
-        {
-            return managedInstruction(codeGraph, review, development, localReview, pullRequestCi).orElse("");
-        }
-
-        public String token()
-        {
-            return token;
-        }
-
-        public URI endpoint()
-        {
-            return endpoint;
-        }
-
-        @Override
-        public void close()
-        {
-            contexts.remove(token);
-        }
-    }
-
-    public record McpHttpResponse(int status, Optional<JsonNode> body)
-    {
-        public McpHttpResponse
-        {
-            requireNonNull(body, "body is null");
-        }
     }
 
     private record PermissionContext(

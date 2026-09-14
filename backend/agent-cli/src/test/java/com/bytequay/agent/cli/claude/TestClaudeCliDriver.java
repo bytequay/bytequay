@@ -13,6 +13,8 @@
  */
 package com.bytequay.agent.cli.claude;
 
+import com.bytequay.agent.cli.mcp.McpHttpResponse;
+import com.bytequay.agent.cli.mcp.PermissionBroker;
 import com.bytequay.agent.cli.process.LaunchIntentRecorder;
 import com.bytequay.agent.cli.process.ManagedProcess;
 import com.bytequay.agent.cli.process.OwnedProcessRecovery;
@@ -235,7 +237,7 @@ class TestClaudeCliDriver
         };
         ReviewBridge review = new ReviewBridge(ImmutableList.of(new ReviewTool(
                 "review_get_context", "Read local review context", ImmutableMap.of("type", "object"), input -> "review context")), "Review the pull request");
-        ClaudePermissionBroker permissions = new ClaudePermissionBroker(
+        PermissionBroker permissions = new PermissionBroker(
                 () -> URI.create("http://127.0.0.1:9000/internal/agent/claude/mcp"), objectMapper, (taskId, query) -> "memory", taskId -> Optional.of(review));
         List<ProviderAgentEvent> events = new CopyOnWriteArrayList<>();
         try (ClaudeCliDriver driver = new ClaudeCliDriver(
@@ -909,7 +911,7 @@ class TestClaudeCliDriver
     {
         ScriptedProcessSupervisor supervisor = new ScriptedProcessSupervisor();
         PullRequestCiBridge ci = new PullRequestCiBridge(jobId -> "No pull request associated yet", PullRequestCiBridge.INSTRUCTION);
-        ClaudePermissionBroker broker = new ClaudePermissionBroker(
+        PermissionBroker broker = new PermissionBroker(
                 () -> URI.create("http://127.0.0.1:9000/internal/agent/claude/mcp"), objectMapper, (taskId, query) -> "memory",
                 ReviewBridgeResolver.NONE, DevelopmentResultBridgeResolver.NONE, DraftPullRequestPublisher.NONE, LocalReviewBridgeResolver.NONE,
                 taskId -> Optional.of(ci));
@@ -933,7 +935,7 @@ class TestClaudeCliDriver
     {
         ScriptedProcessSupervisor supervisor = new ScriptedProcessSupervisor();
         LocalReviewBridge local = new LocalReviewBridge(commentId -> "[]", reply -> "{}", resolution -> "{}", LocalReviewBridge.INSTRUCTION);
-        ClaudePermissionBroker broker = new ClaudePermissionBroker(
+        PermissionBroker broker = new PermissionBroker(
                 () -> URI.create("http://127.0.0.1:9000/internal/agent/claude/mcp"), objectMapper,
                 (taskId, query) -> "memory", ReviewBridgeResolver.NONE,
                 taskId -> Optional.of(new DevelopmentResultBridge("turn-1", DevelopmentResultBridge.INSTRUCTION)),
@@ -1264,7 +1266,7 @@ class TestClaudeCliDriver
             throws Exception
     {
         ScriptedProcessSupervisor supervisor = new ScriptedProcessSupervisor();
-        ClaudePermissionBroker broker = new ClaudePermissionBroker(
+        PermissionBroker broker = new PermissionBroker(
                 () -> URI.create("http://127.0.0.1:9000/internal/agent/claude/mcp"), objectMapper, (taskId, query) -> "memory");
         ClaudeCliDriver driver = new ClaudeCliDriver("/fake/claude", objectMapper, broker, supervisor, ImmutableMap.of());
         AgentSessionContext plain = context(Optional.empty());
@@ -1308,7 +1310,7 @@ class TestClaudeCliDriver
             throws Exception
     {
         ScriptedProcessSupervisor supervisor = new ScriptedProcessSupervisor();
-        ClaudePermissionBroker broker = new ClaudePermissionBroker(
+        PermissionBroker broker = new PermissionBroker(
                 () -> URI.create("http://127.0.0.1:9000/internal/agent/claude/mcp"), objectMapper, (taskId, query) -> "memory");
         ClaudeCliDriver driver = new ClaudeCliDriver("/fake/claude", objectMapper, broker, supervisor, ImmutableMap.of());
         CompletableFuture<ProviderApprovalDecision> decision = new CompletableFuture<>();
@@ -1328,7 +1330,7 @@ class TestClaudeCliDriver
                     {"jsonrpc":"2.0","id":1,"method":"tools/call","params":{
                     "name":"permission_prompt","arguments":{"tool_name":"Bash","input":{"command":"echo stale"}}}}
                     """);
-            CompletableFuture<ClaudePermissionBroker.McpHttpResponse> response = CompletableFuture.supplyAsync(() -> broker.handle(token, request));
+            CompletableFuture<McpHttpResponse> response = CompletableFuture.supplyAsync(() -> broker.handle(token, request));
             assertThat(requested.await(5, TimeUnit.SECONDS)).isTrue();
             first.cancel();
             assertThat(await(first).state()).isEqualTo(AgentTurnResult.State.CANCELLED);
@@ -1364,7 +1366,7 @@ class TestClaudeCliDriver
 
     private ClaudeCliDriver driver(ProcessSupervisor supervisor, ReviewBridgeResolver reviews)
     {
-        ClaudePermissionBroker permissions = new ClaudePermissionBroker(
+        PermissionBroker permissions = new PermissionBroker(
                 () -> URI.create("http://127.0.0.1:9000/internal/agent/claude/mcp"),
                 objectMapper,
                 (taskId, query) -> "memory",

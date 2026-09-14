@@ -13,7 +13,8 @@
  */
 package com.bytequay.agent.cli.codex;
 
-import com.bytequay.agent.cli.claude.ClaudePermissionBroker;
+import com.bytequay.agent.cli.mcp.CodeGraphRegistration;
+import com.bytequay.agent.cli.mcp.PermissionBroker;
 import com.bytequay.agent.cli.process.GitCliEnvironment;
 import com.bytequay.agent.cli.process.ManagedProcess;
 import com.bytequay.agent.cli.process.ProcessExit;
@@ -188,7 +189,7 @@ public final class CodexCliDriver
     private final ProcessSupervisor supervisor;
     private final Path codexHome;
     private final Map<String, String> environment;
-    private final ClaudePermissionBroker permissions;
+    private final PermissionBroker permissions;
     private final SecretRedactor redactor;
     private final ObjectMapper objectMapper;
     private final Duration quiescenceTimeout;
@@ -200,7 +201,7 @@ public final class CodexCliDriver
      * @param codexHome ByteQuay's own Codex home; every Codex process this driver starts runs with
      * {@code CODEX_HOME} set to it, so the user's {@code ~/.codex} never reaches a task
      */
-    public CodexCliDriver(String executable, String minimumVersion, ObjectMapper objectMapper, ProcessSupervisor supervisor, Path codexHome, ClaudePermissionBroker permissions)
+    public CodexCliDriver(String executable, String minimumVersion, ObjectMapper objectMapper, ProcessSupervisor supervisor, Path codexHome, PermissionBroker permissions)
     {
         this(executable, minimumVersion, objectMapper, supervisor, inheritedEnvironment(), codexHome, permissions);
     }
@@ -212,7 +213,7 @@ public final class CodexCliDriver
             ProcessSupervisor supervisor,
             Map<String, String> environment,
             Path codexHome,
-            ClaudePermissionBroker permissions)
+            PermissionBroker permissions)
     {
         this(executable, minimumVersion, objectMapper, supervisor, environment, codexHome, permissions, DEFAULT_QUIESCENCE_TIMEOUT);
     }
@@ -224,7 +225,7 @@ public final class CodexCliDriver
             ProcessSupervisor supervisor,
             Map<String, String> environment,
             Path codexHome,
-            ClaudePermissionBroker permissions,
+            PermissionBroker permissions,
             Duration quiescenceTimeout)
     {
         this.executable = requireNonNull(executable, "executable is null");
@@ -490,9 +491,9 @@ public final class CodexCliDriver
                 : ImmutableList.of();
         // A task tool token lives exactly as long as this session; the App Server reaches the
         // ByteQuay task MCP endpoint with it and never learns the task's filesystem identity.
-        Optional<ClaudePermissionBroker.CodeGraphRegistration> codeGraph = context.textOnly() ? Optional.empty() : permissions.registerTools(
+        Optional<CodeGraphRegistration> codeGraph = context.textOnly() ? Optional.empty() : permissions.registerTools(
                 context.taskId(), context.worktree(), context.permissionPolicy(), context.approvals(), redactor, context.codeGraph());
-        boolean review = codeGraph.flatMap(ClaudePermissionBroker.CodeGraphRegistration::review).isPresent();
+        boolean review = codeGraph.flatMap(CodeGraphRegistration::review).isPresent();
         boolean allowGitHubCommands = context.permissionPolicy().allowsGitHubCommands(context.textOnly(), review);
         // CI runs the single-agent profile verified by the native sandbox probe.
         CodexLaunchProfile.ChildProfile childProfile = ciWritableRoots.isEmpty()
@@ -505,13 +506,13 @@ public final class CodexCliDriver
                     context.worktree(),
                     childProfile,
                     codeGraph.map(registration -> new CodexLaunchProfile.CodeGraphLaunch(registration.endpoint(), registration.instruction())),
-                    codeGraph.map(ClaudePermissionBroker.CodeGraphRegistration::token),
+                    codeGraph.map(CodeGraphRegistration::token),
                     context.textOnly(),
                     ciWritableRoots,
                     allowGitHubCommands);
         }
         catch (RuntimeException failure) {
-            codeGraph.ifPresent(ClaudePermissionBroker.CodeGraphRegistration::close);
+            codeGraph.ifPresent(CodeGraphRegistration::close);
             throw failure;
         }
         try {
@@ -521,7 +522,7 @@ public final class CodexCliDriver
             // The process is running by the time anything below it can fail, and nothing else
             // holds a reference that would ever close it.
             client.close();
-            codeGraph.ifPresent(ClaudePermissionBroker.CodeGraphRegistration::close);
+            codeGraph.ifPresent(CodeGraphRegistration::close);
             throw failure;
         }
     }
@@ -724,7 +725,7 @@ public final class CodexCliDriver
         private final AgentEventSink events;
         private final CodexEventMapper eventMapper;
         private final CodexIsolationGuard isolation;
-        private final Optional<ClaudePermissionBroker.CodeGraphRegistration> codeGraph;
+        private final Optional<CodeGraphRegistration> codeGraph;
         private final AgentSessionRef reference;
         private final ModelProfile modelProfile;
         private final CodexLaunchProfile.ChildProfile childProfile;
@@ -769,7 +770,7 @@ public final class CodexCliDriver
                 AgentEventSink events,
                 ModelProfile modelProfile,
                 CodexLaunchProfile.ChildProfile childProfile,
-                Optional<ClaudePermissionBroker.CodeGraphRegistration> codeGraph,
+                Optional<CodeGraphRegistration> codeGraph,
                 List<String> ciWritableRoots,
                 boolean allowGitHubCommands)
         {
@@ -786,7 +787,7 @@ public final class CodexCliDriver
                     client,
                     codexHome,
                     childProfile,
-                    codeGraph.map(ClaudePermissionBroker.CodeGraphRegistration::endpoint),
+                    codeGraph.map(CodeGraphRegistration::endpoint),
                     context.textOnly(),
                     ciWritableRoots,
                     allowGitHubCommands);
@@ -821,7 +822,7 @@ public final class CodexCliDriver
             String developerInstructions = Stream.of(
                             allowGitHubCommands ? AgentCommandPolicy.instructions() : "",
                             context.managedInstructions(),
-                            codeGraph.map(ClaudePermissionBroker.CodeGraphRegistration::instruction).orElse(""))
+                            codeGraph.map(CodeGraphRegistration::instruction).orElse(""))
                     .filter(instruction -> !instruction.isBlank())
                     .collect(joining("\n\n"));
             Map<String, Object> config = CodexLaunchProfile.threadConfig(
@@ -930,7 +931,7 @@ public final class CodexCliDriver
                 throw appServerFailure("turn/start", failure);
             }
             String turnId = response.turn().id();
-            development = codeGraph.flatMap(ClaudePermissionBroker.CodeGraphRegistration::development)
+            development = codeGraph.flatMap(CodeGraphRegistration::development)
                     .filter(bridge -> bridge.turnId().equals(command.turnId()));
             running = new CodexRunningTurn(client, reference.providerValue(), turnId, this::userInput);
             CodexRunningTurn started = running;
@@ -947,7 +948,7 @@ public final class CodexCliDriver
         private String approvalsReviewer()
         {
             // Private review escalations must reach ByteQuay's command guard before any native auto-approval.
-            return context.textOnly() || !ciWritableRoots.isEmpty() || codeGraph.flatMap(ClaudePermissionBroker.CodeGraphRegistration::review).isPresent()
+            return context.textOnly() || !ciWritableRoots.isEmpty() || codeGraph.flatMap(CodeGraphRegistration::review).isPresent()
                     ? "user" : "auto_review";
         }
 
@@ -1789,7 +1790,7 @@ public final class CodexCliDriver
                 kind = ProviderApprovalRequest.Kind.COMMAND;
                 title = "Allow Codex command";
                 String rawCommand = command.orElseThrow();
-                if (codeGraph.flatMap(ClaudePermissionBroker.CodeGraphRegistration::review).isPresent()
+                if (codeGraph.flatMap(CodeGraphRegistration::review).isPresent()
                         && ReviewBridge.deniedReason(rawCommand).isPresent()) {
                     // A review session's remote-write guard answers before any card exists.
                     try {
@@ -1928,7 +1929,7 @@ public final class CodexCliDriver
                 closed = true;
                 running = null;
             }
-            codeGraph.ifPresent(ClaudePermissionBroker.CodeGraphRegistration::close);
+            codeGraph.ifPresent(CodeGraphRegistration::close);
             try {
                 client.close();
             }

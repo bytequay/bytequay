@@ -13,7 +13,7 @@
  */
 package com.bytequay.agent.cli.codex;
 
-import com.bytequay.agent.cli.claude.ClaudePermissionBroker;
+import com.bytequay.agent.cli.mcp.PermissionBroker;
 import com.bytequay.agent.cli.process.ManagedProcess;
 import com.bytequay.agent.cli.process.OwnedProcessRecovery;
 import com.bytequay.agent.cli.process.PreparedProcess;
@@ -2488,7 +2488,7 @@ class TestCodexCliDriver
                         "GH_TOKEN", "github-sentinel",
                         "GH_CONFIG_DIR", worktree.resolve("gh-config").toString()),
                 codexHome(),
-                new ClaudePermissionBroker(() -> URI.create(MCP_ENDPOINT), objectMapper, (taskId, query) -> ""),
+                new PermissionBroker(() -> URI.create(MCP_ENDPOINT), objectMapper, (taskId, query) -> ""),
                 quiescenceTimeout);
     }
 
@@ -2626,7 +2626,7 @@ class TestCodexCliDriver
         supervisor.configBody = "{\"mcp_servers\":{\"bytequay\":{\"url\":\"" + MCP_ENDPOINT + "\"}}}";
         supervisor.mcpStatuses = "{\"data\":[{\"name\":\"bytequay\",\"pluginId\":null}],\"nextCursor\":null}";
         ReviewBridge review = new ReviewBridge(ImmutableList.of(), "Keep private experiments uncommitted");
-        ClaudePermissionBroker broker = new ClaudePermissionBroker(
+        PermissionBroker broker = new PermissionBroker(
                 () -> URI.create(MCP_ENDPOINT), objectMapper, (taskId, query) -> "", taskId -> Optional.of(review));
         CodexHome.prepare(codexHome());
         CodexCliDriver driver = new CodexCliDriver("/fake/codex", "0.153.4", objectMapper, supervisor,
@@ -2692,7 +2692,7 @@ class TestCodexCliDriver
         supervisor.configBody = "{\"mcp_servers\":{\"bytequay\":{\"url\":\"" + MCP_ENDPOINT + "\"}}}";
         supervisor.mcpStatuses = "{\"data\":[{\"name\":\"bytequay\",\"pluginId\":null}],\"nextCursor\":null}";
         PullRequestCiBridge ci = new PullRequestCiBridge(jobId -> "No pull request associated yet", PullRequestCiBridge.INSTRUCTION);
-        ClaudePermissionBroker broker = new ClaudePermissionBroker(
+        PermissionBroker broker = new PermissionBroker(
                 () -> URI.create(MCP_ENDPOINT), objectMapper, (taskId, query) -> "",
                 ReviewBridgeResolver.NONE, DevelopmentResultBridgeResolver.NONE, DraftPullRequestPublisher.NONE, LocalReviewBridgeResolver.NONE,
                 taskId -> Optional.of(ci));
@@ -2727,7 +2727,7 @@ class TestCodexCliDriver
         supervisor.configBody = "{\"mcp_servers\":{\"bytequay\":{\"url\":\"" + MCP_ENDPOINT + "\"}}}";
         supervisor.mcpStatuses = "{\"data\":[{\"name\":\"bytequay\",\"pluginId\":null}],\"nextCursor\":null}";
         LocalReviewBridge local = new LocalReviewBridge(commentId -> "[]", reply -> "{}", resolution -> "{}", LocalReviewBridge.INSTRUCTION);
-        ClaudePermissionBroker broker = new ClaudePermissionBroker(
+        PermissionBroker broker = new PermissionBroker(
                 () -> URI.create(MCP_ENDPOINT), objectMapper, (taskId, query) -> "",
                 ReviewBridgeResolver.NONE, DevelopmentResultBridgeResolver.NONE, DraftPullRequestPublisher.NONE, taskId -> Optional.of(local));
         CodexHome.prepare(codexHome());

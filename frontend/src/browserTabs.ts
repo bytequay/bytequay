@@ -82,9 +82,7 @@ export class BrowserTabs {
     this.restore();
     const existing = [...this.tabs.values()].find(tab => tab.state.url === url);
     if (existing) return this.select(existing.state.id);
-    const id = randomUUID();
-    this.tabs.set(id, this.tab({ id, url, title: '', favicon: null }, false));
-    this.select(id);
+    this.addTab(url, false);
   }
 
   select(id: string): void {
@@ -197,6 +195,17 @@ export class BrowserTabs {
     this.present();
     this.emit();
     tab.view.webContents.reload();
+  }
+
+  private addTab(url: string, background: boolean): void {
+    const id = randomUUID();
+    const tab = this.tab({ id, url, title: '', favicon: null }, false);
+    this.tabs.set(id, tab);
+    if (background) {
+      this.createView(tab);
+      void this.load(tab, url);
+    }
+    else this.select(id);
   }
 
   private tab(saved: PinnedTab, pinned: boolean): Tab {
@@ -323,8 +332,13 @@ export class BrowserTabs {
     });
     contents.on('destroyed', () => { if (current()) this.fail(tab, 'This page stopped unexpectedly. Reload to try again.'); });
     contents.on('render-process-gone', () => { if (current()) this.fail(tab, 'This page stopped unexpectedly. Reload to try again.'); });
-    contents.setWindowOpenHandler(({ url }) => {
-      if (/^https?:/i.test(url) && current()) void this.navigate(tab.state.id, url).catch(() => {});
+    contents.setWindowOpenHandler(({ url, disposition }) => {
+      if (!current()) return { action: 'deny' };
+      try { url = normalizeWebAddress(url); }
+      catch { return { action: 'deny' }; }
+      // Chromium supplies tab dispositions for modified clicks and target="_blank".
+      if (disposition === 'background-tab' || disposition === 'foreground-tab') this.addTab(url, disposition === 'background-tab');
+      else void this.navigate(tab.state.id, url).catch(() => {});
       return { action: 'deny' };
     });
   }

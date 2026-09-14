@@ -12,7 +12,7 @@
  * limitations under the License.
  */
 import { useState } from 'react';
-import { Globe, LayoutGrid, PanelLeftClose, PanelLeftOpen, Pin, Plus, TriangleAlert, X } from 'lucide-react';
+import { Globe, PanelLeftClose, PanelLeftOpen, Pin, Plus, Ship, TriangleAlert, X } from 'lucide-react';
 import type { InAppBrowserState, InAppBrowserTab } from './types';
 
 type Props = {
@@ -65,7 +65,7 @@ export default function BrowserRail({ state, expanded, newPageOpen, error, onTog
       </button>
       <button type="button" className={`browser-rail__action${state.activeTabId === null && !newPageOpen ? ' is-active' : ''}`}
         onClick={onApp} title="Back to ByteQuay" aria-label="Back to ByteQuay" aria-current={state.activeTabId === null && !newPageOpen ? 'page' : undefined}>
-        <LayoutGrid size={16} strokeWidth={1.7} />{expanded && <span>ByteQuay</span>}
+        <Ship size={16} strokeWidth={1.7} />{expanded && <span>ByteQuay</span>}
       </button>
       <div className="browser-rail__pages">
         {pinned.length > 0 && <div className="browser-rail__group" role="group" aria-label="Pinned pages">{pinned.map(row)}</div>}

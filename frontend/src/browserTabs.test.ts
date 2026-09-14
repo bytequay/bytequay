@@ -52,6 +52,7 @@ type MockView = {
     url: string; title: string; formValue: string; scrollY: number;
     loadURL: ReturnType<typeof vi.fn>; close: ReturnType<typeof vi.fn>; reload: ReturnType<typeof vi.fn>;
     navigationHistory: { goBack: ReturnType<typeof vi.fn> };
+    setWindowOpenHandler: ReturnType<typeof vi.fn>;
   };
   setVisible: ReturnType<typeof vi.fn>; setBounds: ReturnType<typeof vi.fn>;
 };
@@ -126,6 +127,60 @@ it('retains pinned pages when opening links and closes only the requested view',
   expect(JSON.parse(fs.readFileSync(file, 'utf8'))).toEqual([]);
   tabs.close(second);
   expect(tabs.getState()).toEqual({ tabs: [], activeTabId: null });
+});
+
+it('opens Cmd/middle-click links in distinct background tabs without replacing or blurring the current page', () => {
+  const first = open('https://example.com/source');
+  tabs.mount(first, bounds);
+  view(0).webContents.formValue = 'unsent draft';
+  view(0).webContents.scrollY = 240;
+  const request = view(0).webContents.setWindowOpenHandler.mock.calls[0][0];
+  for (let i = 0; i < 2; i++) {
+    expect(request({ url: 'https://example.com/linked', disposition: 'background-tab' })).toEqual({ action: 'deny' });
+  }
+  const state = tabs.getState();
+  expect(state.activeTabId).toBe(first);
+  expect(state.tabs.map(tab => tab.url)).toEqual(['https://example.com/source', 'https://example.com/linked', 'https://example.com/linked']);
+  expect(new Set(state.tabs.map(tab => tab.id)).size).toBe(3);
+  expect(view(0).webContents.loadURL).toHaveBeenCalledOnce();
+  expect(view(0).webContents.formValue).toBe('unsent draft');
+  expect(view(0).webContents.scrollY).toBe(240);
+  expect(contentView.removeChildView).not.toHaveBeenCalled();
+  expect(sender.focus).not.toHaveBeenCalled();
+  expect(view(1).webContents.loadURL).toHaveBeenCalledWith('https://example.com/linked');
+  expect(view(1).setVisible).toHaveBeenLastCalledWith(false);
+  tabs.select(state.tabs[1].id);
+  tabs.mount(state.tabs[1].id, bounds);
+  expect(contentView.addChildView).toHaveBeenLastCalledWith(view(1));
+  expect(view(1).webContents.loadURL).toHaveBeenCalledOnce();
+});
+
+it('selects a new foreground tab for Cmd-Shift-click without navigating the original', () => {
+  const first = open('https://example.com/source');
+  tabs.mount(first, bounds);
+  const request = view(0).webContents.setWindowOpenHandler.mock.calls[0][0];
+  expect(request({ url: 'https://example.com/linked', disposition: 'foreground-tab' })).toEqual({ action: 'deny' });
+  const state = tabs.getState();
+  expect(state.activeTabId).toBe(state.tabs[1].id);
+  expect(state.tabs[0]).toMatchObject({ id: first, url: 'https://example.com/source' });
+  expect(view(0).webContents.loadURL).toHaveBeenCalledOnce();
+  expect(view(0).webContents.close).not.toHaveBeenCalled();
+  tabs.mount(state.tabs[1].id, bounds);
+  expect(contentView.addChildView).toHaveBeenLastCalledWith(view(1));
+});
+
+it('keeps popup navigation in its existing tab and denies unsafe or closed-page tab requests', () => {
+  const first = open('https://example.com/source');
+  const request = view(0).webContents.setWindowOpenHandler.mock.calls[0][0];
+  request({ url: 'https://example.com/sign-in', disposition: 'new-window' });
+  expect(tabs.getState().tabs).toEqual([expect.objectContaining({ id: first, url: 'https://example.com/sign-in' })]);
+  for (const url of ['file:///etc/passwd', 'https://user:password@example.com/']) {
+    expect(request({ url, disposition: 'background-tab' })).toEqual({ action: 'deny' });
+  }
+  expect(tabs.getState().tabs).toHaveLength(1);
+  tabs.close(first);
+  expect(request({ url: 'https://example.com/linked', disposition: 'foreground-tab' })).toEqual({ action: 'deny' });
+  expect(tabs.getState().tabs).toHaveLength(0);
 });
 
 it('persists committed same-title URLs and restores only pins, lazily, with private file permissions', () => {

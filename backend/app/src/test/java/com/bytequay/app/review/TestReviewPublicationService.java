@@ -525,6 +525,9 @@ class TestReviewPublicationService
         public List<ReviewRun> listRuns(String reviewId) { throw new UnsupportedOperationException(); }
 
         @Override
+        public List<ReviewRun> listRecentRuns(String workspaceId, String repo, int limit) { throw new UnsupportedOperationException(); }
+
+        @Override
         public ReviewFinding insertFinding(ReviewFinding finding) { throw new UnsupportedOperationException(); }
 
         @Override

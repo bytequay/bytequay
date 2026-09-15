@@ -17,6 +17,7 @@ import com.bytequay.app.git.GitBrowseService.Commit;
 import com.bytequay.app.git.GitBrowseService.DiffFile;
 import com.bytequay.app.git.GitBrowseService.FileContent;
 import com.bytequay.app.git.GitBrowseService.WorktreeStatus;
+import com.google.common.collect.ImmutableList;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
@@ -27,9 +28,16 @@ import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.List;
+import java.util.stream.IntStream;
 
+import static com.google.common.collect.ImmutableList.toImmutableList;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.mockito.ArgumentMatchers.anyList;
+import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.verifyNoInteractions;
+import static org.mockito.Mockito.when;
 
 class TestGitBrowseService
 {
@@ -74,6 +82,91 @@ class TestGitBrowseService
         assertThat(commit.committedAt())
                 .isEqualTo(git(repository, "log", "-1", "--format=%cI").strip())
                 .isNotEqualTo(commit.authoredAt());
+        assertThat(service.log(repository, "main", ImmutableList.of("a.txt"), 10)).containsExactly(commit);
+    }
+
+    @Test
+    void pathFilteredLogFiltersBeforeLimitingAndKeepsTheCapturedRef()
+    {
+        write("component/A.java", "one\n");
+        commit("First exact change");
+        write("component/A.java", "two\n");
+        commit("Second exact change (#42)");
+        String capturedHead = head();
+        write("component/B.java", "neighbor\n");
+        commit("Same component");
+        write("component-other/C.java", "sibling\n");
+        commit("Prefix sibling");
+        write("elsewhere.txt", "unrelated\n");
+        commit("Newest unrelated change");
+
+        assertThat(service.log(repository, "main", ImmutableList.of("component/A.java"), 1))
+                .extracting(Commit::title).containsExactly("Second exact change (#42)");
+        assertThat(service.log(repository, "main", ImmutableList.of("component/"), 2))
+                .extracting(Commit::title).containsExactly("Same component", "Second exact change (#42)");
+        assertThat(service.log(repository, capturedHead, ImmutableList.of("component/"), 50))
+                .extracting(Commit::title).containsExactly("Second exact change (#42)", "First exact change");
+        assertThat(service.log(repository, "main", ImmutableList.of("component/", "component/A.java"), 50))
+                .extracting(Commit::title).containsExactly("Same component", "Second exact change (#42)", "First exact change");
+        assertThat(service.log(repository, "main", ImmutableList.of("missing/file.txt"), 50)).isEmpty();
+    }
+
+    @Test
+    void pathFilteredLogTreatsSpacesGlobsAndPathspecMagicLiterally()
+    {
+        write("docs/[draft]*/guide ?.md", "literal glob\n");
+        commit("Literal glob path");
+        write("docs/draft-copy/guide x.md", "wildcard neighbor\n");
+        commit("Wildcard neighbor");
+        write(":(exclude)docs/space name.md", "literal magic\n");
+        commit("Literal pathspec magic");
+        write("普通 目录/λ.java", "unicode\n");
+        commit("Unicode path");
+
+        assertThat(service.log(repository, "main", ImmutableList.of("docs/[draft]*/guide ?.md"), 50))
+                .extracting(Commit::title).containsExactly("Literal glob path");
+        assertThat(service.log(repository, "main", ImmutableList.of("docs/[draft]*/"), 50))
+                .extracting(Commit::title).containsExactly("Literal glob path");
+        assertThat(service.log(repository, "main", ImmutableList.of(":(exclude)docs/space name.md"), 50))
+                .extracting(Commit::title).containsExactly("Literal pathspec magic");
+        assertThat(service.log(repository, "main", ImmutableList.of("普通 目录/"), 50))
+                .extracting(Commit::title).containsExactly("Unicode path");
+    }
+
+    @Test
+    void pathFilteredLogRejectsInvalidOrUnboundedInputsBeforeRunningGit()
+    {
+        GitCommandRunner runner = mock(GitCommandRunner.class);
+        GitBrowseService bounded = new GitBrowseService(runner);
+        for (String path : ImmutableList.of("", "/absolute/file", ".", "..", "a/../file", "a//file", "a/./file", "-option", "a\\file", "a/\nfile", "x".repeat(1000))) {
+            assertThatThrownBy(() -> bounded.log(repository, "main", ImmutableList.of(path), 10)).isInstanceOf(IllegalArgumentException.class);
+        }
+        for (String ref : ImmutableList.of("", " ", "--all", "--format=other", "HEAD\n", "HEAD\0")) {
+            assertThatThrownBy(() -> bounded.log(repository, ref, ImmutableList.of("src/"), 10)).isInstanceOf(IllegalArgumentException.class);
+        }
+        for (int limit : ImmutableList.of(-1, 0, 51, Integer.MAX_VALUE)) {
+            assertThatThrownBy(() -> bounded.log(repository, "main", ImmutableList.of("src/"), limit)).isInstanceOf(IllegalArgumentException.class);
+        }
+        assertThatThrownBy(() -> bounded.log(repository, "main", ImmutableList.of(), 10)).isInstanceOf(IllegalArgumentException.class);
+        assertThatThrownBy(() -> bounded.log(repository, "main", ImmutableList.of("src/", "src/"), 10)).isInstanceOf(IllegalArgumentException.class);
+        List<String> excessive = IntStream.range(0, 21).mapToObj(index -> "dir-" + index + "/").collect(toImmutableList());
+        assertThatThrownBy(() -> bounded.log(repository, "main", excessive, 10)).isInstanceOf(IllegalArgumentException.class);
+        verifyNoInteractions(runner);
+    }
+
+    @Test
+    void pathFilteredLogRefusesTruncatedOrFailedReads()
+    {
+        GitCommandRunner runner = mock(GitCommandRunner.class);
+        GitBrowseService bounded = new GitBrowseService(runner);
+        when(runner.run(eq(repository), anyList())).thenReturn(
+                new GitCommandRunner.Result(0, "Incomplete commit body", true),
+                new GitCommandRunner.Result(128, "Unknown captured ref", false));
+
+        assertThatThrownBy(() -> bounded.log(repository, "main", ImmutableList.of("src/"), 10))
+                .isInstanceOf(IllegalArgumentException.class).hasMessageContaining("truncated");
+        assertThatThrownBy(() -> bounded.log(repository, "main", ImmutableList.of("src/"), 10))
+                .isInstanceOf(IllegalArgumentException.class).hasMessageContaining("Unknown captured ref");
     }
 
     @Test

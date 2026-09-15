@@ -24,9 +24,14 @@ import com.bytequay.app.git.GitCommandRunner;
 import com.bytequay.app.repository.github.GitHubIssuePreview;
 import com.bytequay.app.service.RepoService;
 import com.bytequay.app.service.pr.PullRequestService;
+import com.bytequay.app.workspace.WorkspaceIssueRefreshService;
+import com.bytequay.app.workspace.WorkspaceIssueService;
 import com.bytequay.app.workspace.WorkspaceRepositoryService;
 import com.bytequay.core.domain.DiffFile;
+import com.bytequay.core.domain.PrTimelineEvent;
 import com.bytequay.core.domain.PullRequestDetail;
+import com.bytequay.core.domain.RepositoryIssue;
+import com.bytequay.core.domain.RepositoryIssueDetail;
 import com.bytequay.core.review.AgentReview;
 import com.bytequay.core.review.AgentReviewStore;
 import com.bytequay.core.review.ReviewAnchor;
@@ -93,6 +98,7 @@ public class ReviewTools
     private static final int MAX_TITLE = 200;
     private static final int MAX_KEY = 100;
     private static final int MAX_EVIDENCE = 8;
+    private static final int MAX_EVIDENCE_REF = 200;
     private static final int MAX_CANDIDATES = 30;
     private static final int MAX_EXCERPT = 4000;
     private static final int SOURCE_WINDOW = 200;
@@ -103,6 +109,8 @@ public class ReviewTools
     private final AgentReviewStore store;
     private final PullRequestService pullRequests;
     private final RepoService repositories;
+    private final WorkspaceIssueService issues;
+    private final WorkspaceIssueRefreshService issueRefresh;
     private final AgentEventService events;
     private final WorkspaceRepositoryService workspaces;
     private final GitCommandRunner git;
@@ -115,6 +123,8 @@ public class ReviewTools
             AgentReviewStore store,
             PullRequestService pullRequests,
             RepoService repositories,
+            WorkspaceIssueService issues,
+            WorkspaceIssueRefreshService issueRefresh,
             AgentEventService events,
             WorkspaceRepositoryService workspaces,
             GitCommandRunner git,
@@ -126,6 +136,8 @@ public class ReviewTools
         this.store = requireNonNull(store, "store is null");
         this.pullRequests = requireNonNull(pullRequests, "pullRequests is null");
         this.repositories = requireNonNull(repositories, "repositories is null");
+        this.issues = requireNonNull(issues, "issues is null");
+        this.issueRefresh = requireNonNull(issueRefresh, "issueRefresh is null");
         this.events = requireNonNull(events, "events is null");
         this.workspaces = requireNonNull(workspaces, "workspaces is null");
         this.git = requireNonNull(git, "git is null");
@@ -179,7 +191,7 @@ public class ReviewTools
                                 .put("startLine", ImmutableMap.of("type", "integer", "minimum", 1))
                                 .put("endLine", ImmutableMap.of("type", "integer", "minimum", 1))
                                 .put("target", ImmutableMap.of("type", "string", "maxLength", 200))
-                                .put("ref", ImmutableMap.of("type", "string", "maxLength", 20))
+                                .put("ref", ImmutableMap.of("type", "string", "maxLength", MAX_EVIDENCE_REF))
                                 .buildOrThrow(), ImmutableList.of("kind")),
                         arguments -> call(reviewId, turnId, arguments, this::getContext)),
                 new ReviewTool("review_save_summary",
@@ -217,12 +229,12 @@ public class ReviewTools
                                 "operationKey", ImmutableMap.of("type", "string", "minLength", 1, "maxLength", MAX_KEY),
                                 "changeMap", ImmutableMap.of("type", "string", "minLength", 1, "maxLength", MAX_TEXT),
                                 "reviewedFiles", stringArray(1000, 1000),
-                                "contextEvidenceRefs", stringArray(80, 20),
+                                "contextEvidenceRefs", stringArray(80, MAX_EVIDENCE_REF),
                                 "candidates", stringArray(MAX_CANDIDATES, 2000),
                                 "answers", ImmutableMap.of("type", "array", "maxItems", MAX_CANDIDATES, "items", schema(ImmutableMap.of(
                                         "candidate", ImmutableMap.of("type", "integer", "minimum", 1),
                                         "attempted", ImmutableMap.of("type", "string", "minLength", 1, "maxLength", 2000),
-                                        "evidenceRefs", stringArray(MAX_EVIDENCE, 20),
+                                        "evidenceRefs", stringArray(MAX_EVIDENCE, MAX_EVIDENCE_REF),
                                         "limitation", ImmutableMap.of("type", "string", "maxLength", 2000)), ImmutableList.of("candidate", "attempted", "evidenceRefs")))),
                                 ImmutableList.of("operationKey", "changeMap", "reviewedFiles", "contextEvidenceRefs", "candidates", "answers")),
                         arguments -> call(reviewId, turnId, arguments, this::saveInvestigation)),
@@ -257,7 +269,7 @@ public class ReviewTools
                                                         "properties",
                                                         ImmutableMap.of(
                                                                 "ref",
-                                                                ImmutableMap.of("type", "string"),
+                                                                ImmutableMap.of("type", "string", "maxLength", MAX_EVIDENCE_REF),
                                                                 "explanation",
                                                                 ImmutableMap.of("type", "string", "maxLength", 800)),
                                                         "required",
@@ -307,7 +319,7 @@ public class ReviewTools
                 .put("candidate", ImmutableMap.of("type", "integer", "minimum", 1))
                 .put("outcome", ImmutableMap.of("type", "string", "enum", ImmutableList.of("SUPPORTED", "REJECTED", "NEEDS_EVIDENCE", "UNRESOLVED")))
                 .put("conclusion", ImmutableMap.of("type", "string", "minLength", 1, "maxLength", 2000))
-                .put("evidenceRefs", stringArray(MAX_EVIDENCE, 20))
+                .put("evidenceRefs", stringArray(MAX_EVIDENCE, MAX_EVIDENCE_REF))
                 .put("counterevidence", ImmutableMap.of("type", "string", "minLength", 1, "maxLength", 2000))
                 .put("findingId", ImmutableMap.of("type", "string", "minLength", 1))
                 .put("findingRevision", ImmutableMap.of("type", "integer", "minimum", 1))
@@ -481,7 +493,7 @@ public class ReviewTools
                         .orElseThrow(() -> new ReviewInvalidRequestException("severity: use critical, high, medium or low")));
         List<ReviewEvidence> evidence = new ArrayList<>();
         for (JsonNode item : array(arguments, "evidence", MAX_EVIDENCE)) {
-            String ref = text(item, "ref", 20, true);
+            String ref = text(item, "ref", MAX_EVIDENCE_REF, true);
             ReviewEvidence stored = call.run().evidence().get(ref);
             if (stored == null) {
                 throw new ReviewInvalidRequestException("evidence: " + ref + " is not an evidence reference returned in this run; read the source or command output first");
@@ -811,7 +823,7 @@ public class ReviewTools
 
     private static List<String> evidenceRefs(Call call, JsonNode arguments, String field, int maximum)
     {
-        List<String> refs = strings(arguments, field, maximum, 20);
+        List<String> refs = strings(arguments, field, maximum, MAX_EVIDENCE_REF);
         if (refs.stream().distinct().count() != refs.size() || refs.stream().anyMatch(ref -> !call.run().evidence().containsKey(ref))) {
             throw new ReviewInvalidRequestException(field + ": use distinct evidence refs returned in this run");
         }
@@ -828,7 +840,7 @@ public class ReviewTools
             case "pr" -> pullRequest(call);
             case "timeline" -> timeline(call, page(arguments));
             case "checks" -> checks(call);
-            case "issue" -> issue(call, integer(arguments, "number").orElseThrow(() -> new ReviewInvalidRequestException("number: required for kind issue")));
+            case "issue" -> issue(call, integer(arguments, "number").orElseThrow(() -> new ReviewInvalidRequestException("number: required for kind issue")), page(arguments));
             case "diff" -> diff(call, Optional.ofNullable(arguments.get("path")).filter(JsonNode::isTextual).map(JsonNode::asText), page(arguments));
             case "source" -> source(call, text(arguments, "path", 1000, true), integer(arguments, "startLine").orElse(1), integer(arguments, "endLine"));
             case "command_output" -> commandOutput(call);
@@ -837,7 +849,7 @@ public class ReviewTools
             case "findings" -> findings(call);
             case "summary" -> summary(call);
             case "discussion" -> discussion(call, text(arguments, "target", 200, true));
-            case "evidence" -> evidence(call, text(arguments, "ref", 20, true));
+            case "evidence" -> evidence(call, text(arguments, "ref", MAX_EVIDENCE_REF, true));
             default -> throw new ReviewInvalidRequestException("kind: unknown context kind " + kind);
         };
     }
@@ -896,13 +908,7 @@ public class ReviewTools
         if (call.run().scope() == ReviewRun.Scope.FULL || previous.isEmpty()) {
             return call.run().diff().stream().map(DiffFile::filename).collect(toImmutableList());
         }
-        // Reverted-to-base paths disappear from the publication diff; binary patches cannot establish content equality either.
-        GitCommandRunner.Result changed = git.run(workspaces.requireReadableRepository(call.review().workspaceId()).repository(),
-                "diff", "--name-only", "--no-renames", "-z", previous.orElseThrow().headSha(), call.run().headSha(), "--");
-        if (!changed.successful() || changed.truncated()) {
-            throw new ReviewInvalidRequestException("coverage: the frozen incremental file list is unavailable; report incomplete coverage");
-        }
-        return Arrays.stream(changed.output().split("\\x00")).filter(path -> !path.isEmpty()).collect(toImmutableList());
+        return ReviewScopeFiles.required(git, workspaces.requireReadableRepository(call.review().workspaceId()).repository(), call.run(), previous);
     }
 
     private JsonNode timeline(Call call, int page)
@@ -951,24 +957,105 @@ public class ReviewTools
         return node;
     }
 
-    private JsonNode issue(Call call, int number)
+    private JsonNode issue(Call call, int number, int page)
     {
+        if (workspaces.requireReadableRepository(call.review().workspaceId()).monitoredRepository().fullName().equalsIgnoreCase(call.review().repo())) {
+            Optional<RepositoryIssue> cached = issues.find(call.review().workspaceId(), number);
+            if (cached.isPresent()) {
+                return cachedIssue(call, cached.orElseThrow(), page);
+            }
+        }
         String[] parts = call.review().repo().split("/", 2);
         GitHubIssuePreview preview = repositories.getIssuePreview(parts[0], parts[1], number);
-        String excerpt = bounded(Optional.ofNullable(preview.body()).orElse(""), MAX_EXCERPT);
+        ObjectNode node = issueNode(call, number, preview, "github-selected-preview",
+                "GitHub " + (preview.pullRequest() ? "pull request" : "issue") + " selected preview read by ByteQuay at " + now());
+        node.set("activity", objectMapper.createObjectNode().put("missing", true).put("completeness", "unavailable")
+                .put("note", "The selected issue preview does not include activity"));
+        return node;
+    }
+
+    private JsonNode cachedIssue(Call call, RepositoryIssue issue, int page)
+    {
+        String workspace = call.review().workspaceId();
+        Optional<Instant> syncedAt = issues.list(workspace, 0, 1).syncedAt();
+        RepositoryIssueDetail detail = issues.detail(workspace, issue.number());
+        boolean refreshFailed = false;
+        if (detail.refreshedAt().isEmpty() || detail.refreshedAt().orElseThrow().isBefore(issue.updatedAt())) {
+            try {
+                detail = issueRefresh.refreshDetail(workspace, issue.number());
+            }
+            catch (RuntimeException ignored) {
+                refreshFailed = true;
+            }
+        }
+        String provenance = "Cached open issue projection; synced at " + syncedAt.map(Instant::toString).orElse("unknown")
+                + "; GitHub issue updated at " + issue.updatedAt();
+        GitHubIssuePreview preview = new GitHubIssuePreview(issue.title(), issue.body(), issue.author(), issue.labels(), issue.updatedAt(), "open", false);
+        ObjectNode node = issueNode(call, issue.number(), preview, "workspace-issue-cache", provenance);
+        syncedAt.ifPresentOrElse(at -> node.put("projectionSyncedAt", at.toString()), () -> node.putNull("projectionSyncedAt"));
+        node.put("commentCount", issue.commentCount());
+        ObjectNode activity = objectMapper.createObjectNode()
+                .put("page", page)
+                .put("pages", Math.max(1, (detail.timeline().size() + TIMELINE_PAGE - 1) / TIMELINE_PAGE))
+                .put("totalItems", detail.timeline().size())
+                .put("missing", detail.refreshedAt().isEmpty())
+                .put("stale", detail.refreshedAt().isEmpty() || detail.refreshedAt().orElseThrow().isBefore(issue.updatedAt()))
+                .put("refreshFailed", refreshFailed)
+                .put("completeness", "unknown")
+                .put("note", refreshFailed ? "Selected activity refresh failed; retained cached activity may be stale or incomplete"
+                        : "The issue activity cache does not record upstream pagination completeness");
+        detail.refreshedAt().ifPresentOrElse(at -> activity.put("refreshedAt", at.toString()), () -> activity.putNull("refreshedAt"));
+        int from = (int) Math.min(detail.timeline().size(), (long) (page - 1) * TIMELINE_PAGE);
+        int to = Math.min(detail.timeline().size(), from + TIMELINE_PAGE);
+        activity.put("omittedItems", detail.timeline().size() - (to - from));
+        activity.put("truncated", from > 0 || to < detail.timeline().size());
+        String activityProvenance = provenance + "; activity refreshed at " + detail.refreshedAt().map(Instant::toString).orElse("unknown");
+        activity.set("items", objectMapper.valueToTree(detail.timeline().subList(from, to).stream()
+                .map(item -> issueActivity(call, issue.number(), item, activityProvenance)).collect(toImmutableList())));
+        node.set("activity", activity);
+        return node;
+    }
+
+    private ObjectNode issueActivity(Call call, int number, PrTimelineEvent item, String provenance)
+    {
+        String body = Optional.ofNullable(item.body()).orElse("");
+        String excerpt = bounded(body, 2000);
+        ObjectNode node = objectMapper.createObjectNode()
+                .put("event", item.event())
+                .put("actor", item.actor())
+                .put("at", item.timestamp() == null ? "" : item.timestamp().toString())
+                .put("body", excerpt)
+                .put("bodyTruncated", body.length() > 2000);
+        if (item.githubId() != null) {
+            node.put("id", item.githubId());
+        }
+        node.put("evidenceRef", registerEvidence(call, call.review().repo() + "#" + number + " activity",
+                provenance, item.actor() + " " + item.event() + " at " + node.path("at").asText() + "\n" + excerpt));
+        return node;
+    }
+
+    private ObjectNode issueNode(Call call, int number, GitHubIssuePreview preview, String source, String provenance)
+    {
+        String excerpt = bounded(preview.body(), MAX_EXCERPT);
         String ref = registerEvidence(
                 call,
                 call.review().repo() + "#" + number + ": " + preview.title(),
-                "GitHub " + (preview.pullRequest() ? "pull request" : "issue") + " read by ByteQuay",
+                provenance + "; GitHub object updated at " + preview.updatedAt(),
                 excerpt);
-        return objectMapper.createObjectNode()
+        ObjectNode node = objectMapper.createObjectNode()
                 .put("number", number)
                 .put("title", preview.title())
                 .put("state", preview.state())
                 .put("author", preview.author())
                 .put("pullRequest", preview.pullRequest())
                 .put("body", excerpt)
+                .put("bodyTruncated", preview.body().length() > MAX_EXCERPT)
+                .put("updatedAt", preview.updatedAt().toString())
+                .put("source", source)
+                .put("readAt", now().toString())
                 .put("evidenceRef", ref);
+        node.putPOJO("labels", preview.labels());
+        return node;
     }
 
     private JsonNode diff(Call call, Optional<String> path, int page)

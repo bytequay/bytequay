@@ -585,13 +585,9 @@ changes cannot be detected without a fetch; do not imply otherwise.
   "enabled": true,
   "notebookRevision": 7,
   "repositoryId": 123,
-  "code": {
-    "baselineSha": "illustrative-monitored-default-sha",
-    "baseSha": "illustrative-pr-base-sha",
-    "headSha": "illustrative-pr-head-sha"
-  },
+  "baselineSha": "illustrative-monitored-default-sha",
   "bootstrap": {
-    "text": "Exact bounded reference packet initially provided to the agent.",
+    "text": "Exact bounded reference packet prepared for this review.",
     "utf8Bytes": 2048,
     "digest": "sha256:illustrative-packet"
   },
@@ -601,10 +597,10 @@ changes cannot be detected without a fetch; do not imply otherwise.
       "entryVersion": 2,
       "title": "Iceberg connector",
       "text": "The actual selected text; not just a live entry ID.",
-      "sourceIds": ["source-connector-doc"],
+      "sourceEvidenceRefs": {"source-connector-doc": "context-source:illustrative-digest"},
       "matchReasons": ["Changed file is under plugin/trino-iceberg/"],
       "applicability": "MATCHED",
-      "delivery": "INCLUDED"
+      "inclusion": "INCLUDED"
     }
   ],
   "relatedItems": [
@@ -626,6 +622,15 @@ changes cannot be detected without a fetch; do not imply otherwise.
 These identities/counts are illustrative. The backend computes real UTF-8 sizes,
 digests, and source/code identities; the model never asserts them.
 
+The owning ReviewRun supplies its frozen target baseSha, mergeBaseSha and headSha;
+the snapshot does not duplicate them. baselineSha is the independently captured
+local monitored default branch. Capture the snapshot and its referenced evidence
+in one optimistic run update before provider admission. Null on historical runs
+means no snapshot was captured, not that the feature was switched off.
+INCLUDED means retained in the prepared packet. Only a separate delivery record
+can establish that the provider received it. Deferred notes retain their entry
+identity and version with absent text; complete note bodies are never cut to fit.
+
 - enabled is captured from useInReviews at run creation. A disabled run retains
   that flag and code identity with bootstrap/brief absent and empty selections,
   preparation, delivery and supplement collections. Do not perform selection or
@@ -644,7 +649,7 @@ digests, and source/code identities; the model never asserts them.
   from this snapshot point to it; do not duplicate full PR/issue objects.
 - applicability is MATCHED, VERSION_MISMATCH, or UNVERIFIED. A mismatch can be a
   useful pointer but cannot silently supply an applicable contract.
-- delivery is INCLUDED or DEFERRED. Deferred entries retain a short title,
+- inclusion is INCLUDED or DEFERRED. Deferred entries retain a short title,
   reason, and entry/version reference, not their complete body. A later read
   can use that exact current version or an already captured evidence copy.
   If neither survives, return VERSION_UNAVAILABLE; never substitute today's
@@ -805,6 +810,10 @@ sources and the actual reviewed code.
 Every result carries why it matched and whether the change is present in the
 reviewed base, newer on the baseline, or unknown. Check actual Git ancestry when
 available. A newer merged solution is not evidence that the PR already has it.
+Here reviewed base means the frozen mergeBaseSha used for the publication diff,
+not a newer target-branch tip. An associated commit's ancestry establishes only
+that commit's inclusion; it does not establish inclusion of every PR change or
+that the reviewed head has preserved the change without reverting it.
 Preserve query bounds, missing mappings, unsupported/renamed-path limits, and
 unavailable/truncated discussions. Relevance is approximate, not exhaustive.
 
@@ -1484,16 +1493,20 @@ public interface ReviewContextService
     /**
      * Captures the bootstrap for a newly frozen review run.
      *
-     * @param request trusted persisted task/run scope; no accepted turn required
-     * @return persisted initial packet, or empty when this run captured Off;
-     *         replay returns the same saved choice and packet
+     * @param review trusted owning review resolved by startup or recovery
+     * @param run persisted run with frozen code identities
+     * @param workspace verified managed repository and monitored upstream routing
+     * @param previous accepted predecessor for incremental changed-path matching
+     * @return stored run with captured On/Off, packet and retained evidence;
+     *         replay of an existing snapshot returns the same run unchanged
      *
      * Reuse local selection. Persist packet body/digest before provider input
      * submission and leave acceptance to existing delivery receipts. Missing
      * generated notes are explicit; this method cannot synchronously invent them.
      * Off records the disabled snapshot and bypasses selection/preparation.
      */
-    Optional<ContextPacket> prepareRun(ContextSelectionRequest request);
+    ReviewRun prepareRun(AgentReview review, ReviewRun run,
+            WorkspaceRepositoryContext workspace, Optional<ReviewRun> previous);
 
     /**
      * Resolves the packet for an actual investigation/validation/discussion turn.
@@ -1541,8 +1554,8 @@ AppSettingsStore and AgentReviewStore remain the persistence ports.
  *
  * @param repository verified managed repository resolved by the application
  * @param ref trusted captured commit/ref, never an unchecked model option
- * @param paths validated relative paths; filtering precedes the result limit
- * @param limit positive bounded count, at most the context history limit
+ * @param paths one to twenty distinct literal relative files or directories
+ * @param limit positive bounded count, at most fifty commits
  * @return commit facts only; no GitHub lookup, fetch, or enrichment write
  *
  * Added overload on existing GitBrowseService. Use the shared Git runner
@@ -1559,6 +1572,20 @@ public List<Commit> log(Path repository, String ref, List<String> paths, int lim
  * repository. ReviewContextService must use this existing ownership boundary.
  */
 ReviewRun updateRun(ReviewRun run);
+
+/**
+ * Reads local prior runs from open and closed reviews of one workspace/repository.
+ *
+ * @param workspaceId owning workspace
+ * @param repo case-insensitive owner/repository identity
+ * @param limit one to ten runs
+ * @return descending update time, then ascending run ID; no source hydration
+ *
+ * AgentReviewStore applies ownership and limit in the storage query before
+ * loading run JSON. The result is a bounded discovery window, not complete
+ * history or proof that no matching review exists outside that window.
+ */
+List<ReviewRun> listRecentRuns(String workspaceId, String repo, int limit);
 ~~~
 
 Do not change existing methods to fetch merely because context needs data.

@@ -247,7 +247,7 @@ class TestRepositoryContextService
     {
         return new ReviewRun("run", "review", 1, ReviewRun.Scope.FULL, "main", "b".repeat(40), "b".repeat(40), HEAD, Optional.empty(),
                 ImmutableList.of(), ImmutableList.of(), ImmutableList.of(), ReviewRun.State.RUNNING, Optional.empty(), Optional.empty(), Optional.empty(),
-                ImmutableList.of(), false, ImmutableMap.of(), evidence, Optional.empty(), 0, Instant.EPOCH, Instant.EPOCH, Optional.empty());
+                ImmutableList.of(), false, ImmutableMap.of(), evidence, Optional.empty(), Optional.empty(), 0, Instant.EPOCH, Instant.EPOCH, Optional.empty());
     }
 
     private void seedGenerated()

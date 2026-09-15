@@ -13,16 +13,20 @@
  */
 package com.bytequay.core.review;
 
+import com.bytequay.core.context.ReviewContextSnapshot;
 import com.bytequay.core.domain.DiffFile;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 
 import java.time.Instant;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
 
 import static com.google.common.base.Preconditions.checkArgument;
+import static com.google.common.base.Preconditions.checkState;
 import static java.util.Objects.requireNonNull;
 
 /**
@@ -32,7 +36,8 @@ import static java.util.Objects.requireNonNull;
  * @param turnIds the review-request turns ByteQuay started for this run, in order; the transcript
  *        labels their input as ByteQuay's, not the user's
  * @param operations replay results by assignment, tool and operation key, committed with the write they name
- * @param evidence the excerpts context reads handed the agent, by returned reference, so a finding can cite them
+ * @param evidence retained source excerpts by reference; preparation alone does not establish provider delivery
+ * @param context prepared repository context; absence means no snapshot was captured, including historical runs
  */
 public record ReviewRun(
         String id,
@@ -55,6 +60,7 @@ public record ReviewRun(
         boolean completionRepairUsed,
         Map<String, ReviewOperation> operations,
         Map<String, ReviewEvidence> evidence,
+        Optional<ReviewContextSnapshot> context,
         Optional<String> outcome,
         long version,
         Instant createdAt,
@@ -85,6 +91,9 @@ public record ReviewRun(
         }
         operations = ImmutableMap.copyOf(operations);
         evidence = ImmutableMap.copyOf(evidence);
+        requireNonNull(context, "context is null");
+        Set<String> evidenceIds = evidence.keySet();
+        checkArgument(context.stream().allMatch(snapshot -> evidenceIds.containsAll(snapshot.evidenceRefs())), "Context references missing run evidence");
         requireNonNull(outcome, "outcome is null");
         checkArgument(version >= 0, "version is negative");
         requireNonNull(createdAt, "createdAt is null");
@@ -173,6 +182,36 @@ public record ReviewRun(
         return copy(turnIds, state, summary, coverage, investigation, steps, completionRepairUsed, operations, nextEvidence, outcome, version, now, endedAt);
     }
 
+    /**
+     * Captures prepared context once and merges its retained evidence atomically in the returned run.
+     *
+     * @param snapshot immutable selection and packet, without a provider-delivery claim
+     * @param capturedEvidence new or identical evidence records referenced by the snapshot
+     * @param now time of local capture
+     * @return updated run, or this run when an identical capture is replayed
+     * @throws IllegalStateException when context or existing evidence would be replaced
+     * @throws IllegalArgumentException when a snapshot source does not resolve in the resulting evidence
+     */
+    public ReviewRun withContext(ReviewContextSnapshot snapshot, Map<String, ReviewEvidence> capturedEvidence, Instant now)
+    {
+        requireNonNull(snapshot, "snapshot is null");
+        requireNonNull(now, "now is null");
+        checkState(context.isEmpty() || context.orElseThrow().equals(snapshot), "Review context is already captured");
+        Map<String, ReviewEvidence> merged = new HashMap<>(evidence);
+        ImmutableMap.copyOf(capturedEvidence).forEach((ref, item) -> {
+            checkState(!merged.containsKey(ref) || merged.get(ref).equals(item), "Run evidence cannot be replaced: %s", ref);
+            checkArgument(ref.equals(item.ref()), "Evidence key does not match its reference");
+            merged.putIfAbsent(ref, item);
+        });
+        if (context.isPresent() && merged.equals(evidence)) {
+            return this;
+        }
+        return new ReviewRun(
+                id, reviewId, ordinal, scope, baseRef, baseSha, mergeBaseSha, headSha, priorHeadSha, commits, diff,
+                turnIds, state, summary, coverage, investigation, steps, completionRepairUsed, operations, merged, Optional.of(snapshot),
+                outcome, version, createdAt, now, endedAt);
+    }
+
     public ReviewRun withCompletionRepairUsed(Instant now)
     {
         return copy(turnIds, state, summary, coverage, investigation, steps, true, operations, evidence, outcome, version, now, endedAt);
@@ -204,7 +243,7 @@ public record ReviewRun(
     {
         return new ReviewRun(
                 id, reviewId, ordinal, scope, baseRef, baseSha, mergeBaseSha, headSha, priorHeadSha, commits, diff,
-                nextTurnIds, nextState, nextSummary, nextCoverage, nextInvestigation, nextSteps, nextCompletionRepairUsed, nextOperations, nextEvidence,
+                nextTurnIds, nextState, nextSummary, nextCoverage, nextInvestigation, nextSteps, nextCompletionRepairUsed, nextOperations, nextEvidence, context,
                 nextOutcome, nextVersion, createdAt, now, nextEndedAt);
     }
 

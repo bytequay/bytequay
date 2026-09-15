@@ -13,6 +13,7 @@
  */
 package com.bytequay.app.review;
 
+import com.bytequay.core.context.ReviewContextSnapshot;
 import com.bytequay.core.domain.PullRequest;
 import com.bytequay.core.review.AgentReview;
 import com.bytequay.core.review.ReviewCommit;
@@ -97,6 +98,7 @@ public record AgentReviewProjection(
             Optional<ReviewInvestigation> investigation,
             List<ReviewStep> steps,
             List<ReviewEvidence> evidence,
+            Optional<ReviewContextSnapshot> context,
             boolean completionRepairUsed,
             Optional<String> outcome,
             Instant createdAt,
@@ -123,6 +125,7 @@ public record AgentReviewProjection(
                     run.investigation(),
                     run.steps(),
                     ImmutableList.copyOf(run.evidence().values()),
+                    run.context(),
                     run.completionRepairUsed(),
                     run.outcome(),
                     run.createdAt(),

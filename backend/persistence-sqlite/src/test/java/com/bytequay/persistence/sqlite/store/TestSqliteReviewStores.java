@@ -13,6 +13,10 @@
  */
 package com.bytequay.persistence.sqlite.store;
 
+import com.bytequay.core.context.ContextPacket;
+import com.bytequay.core.context.ContextRelatedItem;
+import com.bytequay.core.context.ContextSelectedEntry;
+import com.bytequay.core.context.ReviewContextSnapshot;
 import com.bytequay.core.domain.DiffFile;
 import com.bytequay.core.review.AgentReview;
 import com.bytequay.core.review.ReviewAnchor;
@@ -109,6 +113,7 @@ class TestSqliteReviewStores
     {
         AgentReview review = newReview("review-1", "workspace-a", "bytequay/sample", 7, "task-1", NOW);
         ReviewRun run = newRun("run-1", "review-1")
+                .withContext(contextSnapshot(), ImmutableMap.of(), NOW)
                 .withTurn("turn-2", NOW.plusSeconds(1))
                 .withSummary(SUMMARY, NOW.plusSeconds(2))
                 .withCoverage(COVERAGE, NOW.plusSeconds(3))
@@ -139,6 +144,50 @@ class TestSqliteReviewStores
         assertThat(store.findFinding("finding-1")).contains(finding);
         assertThat(store.listFindings("review-1")).containsExactly(finding);
         assertThat(store.listMessages("review-1")).containsExactly(question, answer);
+    }
+
+    @Test
+    void preservesAbsentAndDisabledContextSeparately()
+    {
+        store.insertReview(newReview("review-history", "workspace-a", "bytequay/sample", 7, "task-history", NOW));
+        store.insertReview(newReview("review-off", "workspace-a", "bytequay/sample", 8, "task-off", NOW));
+        ReviewContextSnapshot disabled = new ReviewContextSnapshot("context-off", false, 9, 42, Optional.empty(), Optional.empty(),
+                ImmutableList.of(), ImmutableList.of(), ImmutableList.of());
+        ReviewRun historical = store.insertRun(newRun("run-history", "review-history"));
+        ReviewRun off = store.insertRun(newRun("run-off", "review-off").withContext(disabled, ImmutableMap.of(), NOW));
+        entityManager.clear();
+
+        assertThat(store.findRun(historical.id()).orElseThrow().context()).isEmpty();
+        assertThat(store.findRun(off.id()).orElseThrow().context()).contains(disabled);
+        ReviewRun updated = store.updateRun(off.withTurn("turn-2", NOW.plusSeconds(1)));
+        entityManager.clear();
+        assertThat(store.findRun(updated.id()).orElseThrow().context()).contains(disabled);
+    }
+
+    @Test
+    void readsRecentRunsWithWorkspaceRepositoryAndDatabaseBounds()
+    {
+        for (int index = 0; index < 12; index++) {
+            AgentReview review = newReview("review-" + index, "workspace-a", "bytequay/sample", index + 1, "task-" + index, NOW);
+            if (index == 11) {
+                review = review.closed(NOW.plusSeconds(1));
+            }
+            store.insertReview(review);
+            store.insertRun(newRun("run-" + index, review.id()).withTurn("history", NOW.plusSeconds(index / 2)));
+        }
+        store.insertReview(newReview("review-other-workspace", "workspace-b", "bytequay/sample", 1, "task-other-workspace", NOW));
+        store.insertReview(newReview("review-other-repo", "workspace-a", "bytequay/other", 1, "task-other-repo", NOW));
+        store.insertRun(newRun("run-other-workspace", "review-other-workspace").withTurn("history", NOW.plusSeconds(100)));
+        store.insertRun(newRun("run-other-repo", "review-other-repo").withTurn("history", NOW.plusSeconds(100)));
+        // An excluded older payload cannot be decoded: applying the bound after loading domain runs would fail.
+        entityManager.createNativeQuery("UPDATE agent_review_run SET context_json = 'invalid' WHERE id = 'run-0'").executeUpdate();
+        entityManager.clear();
+
+        assertThat(store.listRecentRuns("workspace-a", "ByteQuay/Sample", 3)).extracting(ReviewRun::id).containsExactly("run-10", "run-11", "run-8");
+        assertThat(store.listRecentRuns("workspace-a", "bytequay/sample", 10)).hasSize(10);
+        assertThat(store.listRecentRuns("workspace-missing", "bytequay/sample", 10)).isEmpty();
+        assertThatThrownBy(() -> store.listRecentRuns("workspace-a", "bytequay/sample", 0)).isInstanceOf(IllegalArgumentException.class);
+        assertThatThrownBy(() -> store.listRecentRuns("workspace-a", "bytequay/sample", 11)).isInstanceOf(IllegalArgumentException.class);
     }
 
     @Test
@@ -373,6 +422,19 @@ class TestSqliteReviewStores
         assertThat(store.listRuns("review-1")).containsExactly(storedRun);
     }
 
+    private static ReviewContextSnapshot contextSnapshot()
+    {
+        ContextSelectedEntry included = new ContextSelectedEntry("knowledge:review", 3, "Review publication", Optional.of("Increment the counter [source-code]"),
+                ImmutableMap.of("source-code", "ev-1"), ImmutableList.of("path:backend/app"),
+                ContextSelectedEntry.Applicability.MATCHED, ContextSelectedEntry.Inclusion.INCLUDED);
+        ContextSelectedEntry deferred = new ContextSelectedEntry("lesson:old-version", 2, "Older release", Optional.empty(), ImmutableMap.of(),
+                ImmutableList.of("term:review"), ContextSelectedEntry.Applicability.VERSION_MISMATCH, ContextSelectedEntry.Inclusion.DEFERRED);
+        return new ReviewContextSnapshot("context-1", true, 3, 42, Optional.empty(), Optional.of(ContextPacket.create("Increment the counter [source-code]")),
+                ImmutableList.of(included, deferred),
+                ImmutableList.of(new ContextRelatedItem("ev-1", ImmutableList.of("path:backend/app"), Optional.of(false))),
+                ImmutableList.of("Repository baseline unavailable"));
+    }
+
     private static AgentReview newReview(String id, String workspaceId, String repo, int number, String taskId, Instant createdAt)
     {
         return new AgentReview(
@@ -419,6 +481,7 @@ class TestSqliteReviewStores
                 false,
                 ImmutableMap.of("review_context:ev-1", new ReviewOperation("sha256:11ab", "read")),
                 ImmutableMap.of("ev-1", CONTEXT_EVIDENCE),
+                Optional.empty(),
                 Optional.empty(),
                 0,
                 NOW,

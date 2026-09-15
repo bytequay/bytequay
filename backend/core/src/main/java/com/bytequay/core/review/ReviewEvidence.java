@@ -16,8 +16,8 @@ package com.bytequay.core.review;
 import static java.util.Objects.requireNonNull;
 
 /**
- * One bounded excerpt kept with a finding: where it came from, how it was obtained, and why the
- * agent says it supports the finding. Kept with the finding, so it outlives the runtime log.
+ * One bounded excerpt retained with a run or finding: where it came from, how it was obtained,
+ * and its relevance. These product records outlive runtime logs; retention alone does not establish provider delivery.
  */
 public record ReviewEvidence(String ref, String source, String provenance, String excerpt, String explanation)
 {

@@ -52,6 +52,18 @@ public interface AgentReviewStore
 
     List<ReviewRun> listRuns(String reviewId);
 
+    /**
+     * Reads bounded local history across open and closed reviews of one workspace and repository.
+     * The storage query applies the limit before loading run records; this is not a complete history search.
+     *
+     * @param workspaceId owning workspace
+     * @param repo case-insensitive owner/repository name
+     * @param limit maximum results, from 1 through 10
+     * @return runs ordered by descending update time, then ascending ID
+     * @throws IllegalArgumentException when the limit is outside the supported range
+     */
+    List<ReviewRun> listRecentRuns(String workspaceId, String repo, int limit);
+
     ReviewFinding insertFinding(ReviewFinding finding);
 
     ReviewFinding updateFinding(ReviewFinding finding);

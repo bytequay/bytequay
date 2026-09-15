@@ -32,6 +32,13 @@ or treats a confidence score as proof. The agent chooses context and verificatio
 techniques; ByteQuay supplies frozen scope, on-demand tools and optional CodeGraph.
 There is no task per finding, new execution engine, or configurable pipeline.
 
+[Repository Context](repository-context.md) owns shared notebook selection and
+preparation. Each run can retain its captured On/Off setting, exact prepared
+packet, matching reasons, limitations and source excerpts. These are saved before
+initial provider admission and survive notebook edits and source-cache eviction.
+The run projection exposes this snapshot; its presence alone does not establish
+agent delivery, retrieval, comprehension or evidence sufficient for a finding.
+
 The user can watch activity, steer supported active turns, challenge the
 summary or individual findings, resolve findings privately, and explicitly
 promote selected comments into their own outgoing review. Agent output never

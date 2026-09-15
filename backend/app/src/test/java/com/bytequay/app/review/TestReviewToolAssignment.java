@@ -240,7 +240,7 @@ class TestReviewToolAssignment
     {
         ReviewRun result = new ReviewRun(id, REVIEW_ID, 1, ReviewRun.Scope.FULL, "main", "base", "base", "head", Optional.empty(),
                 ImmutableList.of(), ImmutableList.of(), ImmutableList.of(), ReviewRun.State.RUNNING, Optional.empty(), Optional.empty(), Optional.empty(),
-                ImmutableList.of(step), false, ImmutableMap.of(), ImmutableMap.of(), Optional.empty(), 0, NOW, NOW, Optional.empty());
+                ImmutableList.of(step), false, ImmutableMap.of(), ImmutableMap.of(), Optional.empty(), Optional.empty(), 0, NOW, NOW, Optional.empty());
         when(reviews.findRun(id)).thenReturn(Optional.of(result));
         return result;
     }

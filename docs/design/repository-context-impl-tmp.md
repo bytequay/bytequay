@@ -4,11 +4,13 @@ Approved behavior is defined in [Repository Context](repository-context.md). Sta
 design review with its [Overall flow](repository-context.md#2-overall-flow).
 This temporary file tracks delivery; it does not define a second architecture.
 
-Implementation has started with the notebook values, local settings persistence,
-editing API, and discussion-source binding. Automatic preparation, review input,
-the settings/display UI, and provider acceptance remain pending. The stored
-default-on preference does not yet change review execution. Unchecked items are
-pending, even when related infrastructure already exists.
+Implementation includes the notebook, editing API, discussion-source binding,
+and immutable per-run snapshots selected from local notes and history. The
+default-on preference now controls local snapshot capture; Off bypasses selection.
+Snapshots are prepared before agent admission and exposed in the existing review
+projection. Generation, direct context delivery, the settings/display UI, and
+provider acceptance remain pending. Unchecked items remain pending even when
+related infrastructure already exists.
 
 ## Working rules
 
@@ -82,7 +84,7 @@ design. Approval here concerns the design, not evidence that a feature works.
   evidence; reject invalid and stale local edits without replacing saved content.
 - [ ] Preserve user content on failed or stale generated updates when generation
   is introduced in CP3.
-- [ ] Add the review context JSON mapping to the current run entity/store;
+- [x] Add the review context JSON mapping to the current run entity/store;
   reuse its existing evidence map and optimistic update behavior.
 - [x] Integrate explicit workspace deletion and retained-workspace behavior;
   ordinary runtime cleanup must not delete notebooks or review evidence.
@@ -93,14 +95,15 @@ runtime-retention and workspace-deletion behavior. Use current schema ownership.
 
 ## CP2 — Local selection and bounded source reads
 
-- [ ] Implement deterministic normalized path/term/scope matching and visible
+- [x] Implement deterministic normalized path/term/scope matching and visible
   reasons, with stable ordering and evidence of budget omissions.
-- [ ] Capture the local monitored baseline separately from frozen PR base/head.
-  Compute relevant blob/tree/source inventory and dependency fingerprints.
-- [ ] Add the narrow path-filtered Git history overload and reuse persisted
+- [x] Capture the local monitored baseline separately from frozen PR base/head.
+- [ ] Compute relevant blob/tree/source inventory and dependency fingerprints.
+- [x] Add the narrow path-filtered Git history overload and reuse persisted
   commit-to-PR associations. Treat parsed PR-number suffixes as unverified hints.
-- [ ] Reuse existing PR detail/diff, issue detail, review, and task services;
+- [x] Reuse existing PR detail/diff, issue detail, and review services;
   fix the current issue-tool cache bypass within the same source-read boundary.
+- [ ] Add scoped task-summary discovery through existing task services.
 - [ ] Hydrate only selected missing/stale details through existing refresh paths.
   Expose missing sections, cache age, lookup bounds, and unavailable history.
 - [ ] Register validated user/repository documentation roots with provenance;
@@ -155,7 +158,9 @@ GitHub publication, credential-read, and development-delivery authority.
 
 - [ ] Capture and directly deliver the bootstrap in the existing investigation
   turn. Do not add an acknowledgement turn or rewrite provider history.
-- [ ] Capture On/Off per run. Off bypasses only this feature's selection,
+- [x] Capture On/Off and exact prepared packet/evidence per run before startup
+  or recovery admits its initial turn; reuse the saved choice on replay.
+- [ ] Off bypasses only this feature's selection,
   automatic generation, extra input and tools; existing review behavior remains.
   Validation and old-run discussions use their source run's captured setting.
 - [ ] Implement the closed read/prepare tools with backend-resolved task, turn,
@@ -170,7 +175,7 @@ GitHub publication, credential-read, and development-delivery authority.
 - [x] Persist the Ask-agent message's source run/revision before start/enqueue,
   then attach delivery IDs. Exercise an idle question about an older card,
   rejected admission, accepted-but-error recovery, and queued execution.
-- [ ] Add explicit retry and restart reconciliation for a saved Ask-agent
+- [x] Add explicit retry and restart reconciliation for a saved Ask-agent
   message whose delivery remains uncertain, without resending accepted input.
 - [ ] Persist exact supplied text, sizes/digests, source versions, omissions,
   delivery outcome, actual retrievals and citations. Preserve delivery uncertainty.
@@ -243,8 +248,7 @@ small acceptance sample, not a guarantee that review judgments are correct.
 ## CP7 — Required checks and enablement
 
 - [x] In `backend/`: `mvn verify` with the checked-in Checkstyle gate for the
-  current increment; full-run failures and successful affected-suite rerun are
-  recorded below. Repeat for subsequent implementation changes.
+  current increment; record failures and any affected-suite reruns below.
 - [x] In `frontend/`: `npm run lint`, `npx tsc --noEmit`, `npm test`, and
   `npm run package` for the current increment. Repeat for material changes.
 - [x] Record exact results for the current increment and any existing/unresolved
@@ -324,6 +328,88 @@ Required checks below describe the current increment, not full feature acceptanc
   `/private/tmp/bytequay-repository-context-package-final.log`.
   Dependencies and the pinned CodeGraph bundle are reused through local
   ignored links; package manifests and lockfiles are unchanged.
-- Next: finish CP1's review-run context mapping, then local selection/source
-  reads in CP2. Preparation outcomes, generation fencing, automatic review
-  delivery, notebook UI, and the small-PR On/Off comparison remain pending.
+- The snapshot increment adds nullable `context_json` to the existing review-run
+  entity, captured together with its retained evidence in one optimistic update.
+  Historical null differs from Off. Startup/recovery capture precedes the first
+  accepted turn; replay, subsequent assignments and old discussions keep the run's
+  saved choice. Its packet is prepared only; provider input remains unchanged.
+- Local matching uses literal paths and normalized whole terms, with stable
+  reasons and order. Incremental paths include reverts and binary changes; rename
+  matching includes old and new paths. Unsupported or unavailable context paths
+  produce gaps without blocking repository/text matching or starting a fetch.
+- Discovery uses up to 20 literal paths and 50 path-filtered local commits,
+  repository-ID/SHA associations, five configured PR-title searches of 20 local
+  rows, 100 cached open issues, and ten prior review runs bounded in SQL before
+  loading their payloads. Direct links rank first; relevance precedes recency.
+  Selected PR, issue and prior-review previews are each limited to three.
+- Notebook text is deferred whole at 8 KiB; history is bounded to 16 KiB and
+  the packet to 32 KiB of UTF-8. Gaps retain bounded, explicit omission notices.
+  Logs report included/deferred counts, gaps, exact bytes and elapsed capture
+  time without logging note bodies. Snapshot inspection is available through the
+  existing review projection; the friendly product UI remains pending.
+- The existing issue read now uses a matching workspace's cached row/activity.
+  Only selected missing or outdated activity uses its existing refresh service;
+  an uncached issue uses the exact existing preview fallback. Failed refreshes
+  retain cached evidence and indicate missing/stale data. Local discovery itself
+  never hydrates sources. Evidence read/citation bounds accept context references.
+- Independent review identified and fixed initial-run recovery bypass, evidence
+  reference limits, Unicode metadata limits, relevance/recency ordering, and
+  optional path-failure handling. All notebook claims remain UNVERIFIED until
+  original sources and applicability are checked. Existing evidence-reference
+  validation proves identity only; CP4/CP6 must establish policy delivery and
+  judgment behavior before enablement, including finding explanations that cite
+  notebook evidence. Prepared evidence is readable through existing review tools.
+- Remaining: relevant input fingerprints, selected hydration and documentation
+  capture, shared READY/EMPTY/FAILED preparation and generation fencing, automatic
+  agent delivery, notebook UI, and the small-PR On/Off comparison.
+- Snapshot verification: `mvn -B verify` completed all modules and exposed one
+  nested Mockito setup error affecting all 66 review-service tests, plus three
+  existing HTTP continuation timeouts. The fixture now constructs a real shared
+  workspace context before independently stubbing its two accessors. Production
+  behavior, timeout limits and test selection were not weakened to pass the gate.
+- Affected-suite rerun: `mvn -B -pl app -am verify
+  -Dtest=TestDefaultAgentReviewService,TestAgentHttpApi
+  -Dsurefire.failIfNoSpecifiedTests=false` passed all 66 review-service and
+  39 HTTP tests, including the build gates and final backend packaging.
+  Combined full-run/rerun reports contain 212 suites and 2,275 tests with zero
+  remaining failures, errors or skips. This is combined evidence, not a claim
+  that the first full invocation passed. Logs:
+  `/private/tmp/bytequay-context-selection-backend-verify.log` and
+  `/private/tmp/bytequay-context-selection-backend-rerun.log`.
+- Relevant snapshot suites passed: matcher 15, local reader 14, capture service
+  8, frozen scope 4, context values 4, run capture 2, SQLite review storage 13,
+  Git browsing 13, and review tools 39. Fixtures cover literal paths, Unicode
+  byte bounds, repository identity, unknown ancestry, zero-remote selection,
+  cached issue reads, missing/stale activity, and immutable capture/recovery.
+- Frontend snapshot checks: lint and TypeScript passed; `npm test` passed 80
+  files and 901 tests. Only the existing ignored lucide-react `use client`
+  bundle directives were reported. Packaging passed after normal network access
+  resolved the sandbox's Electron-artifact DNS failure. Logs:
+  `/private/tmp/bytequay-context-selection-frontend-lint.log`,
+  `/private/tmp/bytequay-context-selection-frontend-types.log`,
+  `/private/tmp/bytequay-context-selection-frontend-test.log`, and
+  `/private/tmp/bytequay-context-selection-frontend-package.log`.
+- Final packaging was repeated after the verified backend rebuild and passed
+  without warnings. The packaged backend JAR matches the current verified JAR
+  by SHA-256. Artifact: `frontend/out/ByteQuay-darwin-arm64/ByteQuay.app`.
+  Log: `/private/tmp/bytequay-context-selection-frontend-package-final.log`.
+- Document verification: all seven JSON examples parse, local Markdown link
+  targets resolve, and changed/new source whitespace and conflict-marker checks
+  pass. No live provider, user-data database, or GitHub publication was used.
+- Collection review feedback uses immutable gap/result builders, bounded term
+  iteration without a temporary list, and an immutable PR map that keeps the
+  highest-ranked candidate. The added regression preserves distinct-PR counting
+  for component expansion and rank/recency deduplication. `mvn -B verify` passed
+  in one full invocation: 212 suites, 2,277 tests, zero failures/errors/skips.
+  Log: `/private/tmp/bytequay-context-collections-verify.log`. This backend-only
+  refactor did not repeat frontend checks or rebuild the desktop package.
+- Selection review feedback adds a shared `TopKSelector` for lazy first-K and
+  comparator-ranked picks. The reader uses named selectors, source-fetch caps
+  and byte budgets; displayed count limits derive from the same values. Existing
+  filtering, deduplication, ranking, distinct-PR expansion and fetch bounds are
+  preserved. Six focused tests cover limits, stable ties and lazy consumption.
+  `mvn -B verify` passed in one full invocation: 213 suites, 2,283 tests, zero
+  failures/errors/skips, including all 16 reader tests. Source whitespace and
+  conflict-marker checks passed. Log:
+  `/private/tmp/bytequay-context-topk-verify.log`. This backend-only refactor did
+  not repeat frontend checks or rebuild the desktop package.

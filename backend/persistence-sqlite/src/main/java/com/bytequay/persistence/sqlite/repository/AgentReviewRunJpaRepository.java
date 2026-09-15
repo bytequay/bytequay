@@ -14,7 +14,10 @@
 package com.bytequay.persistence.sqlite.repository;
 
 import com.bytequay.persistence.sqlite.entity.AgentReviewRunEntity;
+import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Query;
+import org.springframework.data.repository.query.Param;
 
 import java.util.List;
 
@@ -22,4 +25,12 @@ public interface AgentReviewRunJpaRepository
         extends JpaRepository<AgentReviewRunEntity, String>
 {
     List<AgentReviewRunEntity> findByReviewIdOrderByOrdinalAsc(String reviewId);
+
+    @Query("""
+            SELECT run FROM AgentReviewRunEntity run
+            JOIN AgentReviewEntity review ON run.reviewId = review.id
+            WHERE review.workspaceId = :workspaceId AND review.repo = :repo
+            ORDER BY run.updatedAt DESC, run.id ASC
+            """)
+    List<AgentReviewRunEntity> findRecentRuns(@Param("workspaceId") String workspaceId, @Param("repo") String repo, Pageable pageable);
 }

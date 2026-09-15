@@ -41,6 +41,7 @@ import com.bytequay.agent.spi.AgentDriverRegistry;
 import com.bytequay.agent.spi.AgentLaneId;
 import com.bytequay.agent.spi.AgentPermissionPolicy;
 import com.bytequay.app.agent.WorkflowAgentTasks;
+import com.bytequay.app.context.ReviewContextService;
 import com.bytequay.app.git.GitCommandRunner;
 import com.bytequay.app.git.ReviewExperiments;
 import com.bytequay.app.service.credentials.CredentialService;
@@ -118,6 +119,7 @@ public class DefaultAgentReviewService
     private final PullRequestRefreshService refresh;
     private final CredentialService credentials;
     private final ReviewTaskObserver observer;
+    private final ReviewContextService context;
     private final Clock clock;
     private final Striped<Lock> startLocks = Striped.lock(32);
     private final ReviewLocks locks;
@@ -141,6 +143,7 @@ public class DefaultAgentReviewService
             CredentialService credentials,
             ReviewTaskObserver observer,
             ReviewLocks locks,
+            ReviewContextService context,
             Clock clock)
     {
         this.store = requireNonNull(store, "store is null");
@@ -160,6 +163,7 @@ public class DefaultAgentReviewService
         this.refresh = requireNonNull(refresh, "refresh is null");
         this.credentials = requireNonNull(credentials, "credentials is null");
         this.observer = requireNonNull(observer, "observer is null");
+        this.context = requireNonNull(context, "context is null");
         this.clock = requireNonNull(clock, "clock is null");
         this.locks = requireNonNull(locks, "locks is null");
     }
@@ -644,8 +648,21 @@ public class DefaultAgentReviewService
         String key = run.currentStep().orElseThrow().key(run.id());
         AgentTurn accepted;
         try {
-            accepted = turns.findTurnByIdempotencyKey(task.id(), key)
-                    .orElseGet(() -> turns.start(new StartAgentTurnCommand(task.id(), ReviewPrompts.stepRequest(run), ImmutableList.of(), key)));
+            Optional<AgentTurn> existing = turns.findTurnByIdempotencyKey(task.id(), key);
+            if (existing.isPresent()) {
+                accepted = existing.orElseThrow();
+            }
+            else {
+                if (run.currentStep().orElseThrow().equals(ReviewStep.initial()) && run.turnIds().isEmpty() && run.context().isEmpty()) {
+                    AgentReview review = requireReview(run.reviewId());
+                    Optional<ReviewRun> previous = run.priorHeadSha().flatMap(head -> store.listRuns(review.id()).stream()
+                            .filter(prior -> prior.state() == ReviewRun.State.ACCEPTED && prior.headSha().equals(head)
+                                    && prior.hasCompleteSummary() && prior.coverage().filter(coverage -> coverage.complete() && coverage.omissions().isEmpty()).isPresent())
+                            .reduce((first, last) -> last));
+                    run = context.prepareRun(review, run, workspaces.requireReadableRepository(review.workspaceId()), previous);
+                }
+                accepted = turns.start(new StartAgentTurnCommand(task.id(), ReviewPrompts.stepRequest(run), ImmutableList.of(), key));
+            }
         }
         catch (RuntimeException failure) {
             if (turns.findTurnByIdempotencyKey(task.id(), key).isEmpty()) {
@@ -782,12 +799,14 @@ public class DefaultAgentReviewService
                 ImmutableMap.of(),
                 ImmutableMap.of(),
                 Optional.empty(),
+                Optional.empty(),
                 0,
                 now,
                 now,
                 Optional.empty()));
         AgentTurn turn;
         try {
+            run = context.prepareRun(review, run, workspace, previous);
             ReviewDiffAnchors anchors = ReviewDiffAnchors.of(snapshot.diff());
             for (ReviewFinding finding : findings) {
                 if (finding.state() == ReviewFinding.State.WITHDRAWN || finding.validatedHeadSha().equals(snapshot.headSha())) {
@@ -805,8 +824,9 @@ public class DefaultAgentReviewService
                     run.currentStep().orElseThrow().key(run.id())));
         }
         catch (RuntimeException failure) {
-            if (turns.findTurnByIdempotencyKey(TaskId.valueOf(review.taskId()), run.currentStep().orElseThrow().key(run.id())).isEmpty()) {
-                store.updateRun(run.ended(ReviewRun.State.FAILED, Optional.of("Cannot start the review turn: " + failure.getMessage()), Instant.now(clock)));
+            ReviewRun current = store.findRun(run.id()).orElse(run);
+            if (turns.findTurnByIdempotencyKey(TaskId.valueOf(review.taskId()), current.currentStep().orElseThrow().key(current.id())).isEmpty()) {
+                store.updateRun(current.ended(ReviewRun.State.FAILED, Optional.of("Cannot start the review turn: " + failure.getMessage()), Instant.now(clock)));
                 store.updateReview(store.findReview(review.id()).orElseThrow().withFollowUpPaused(true, Instant.now(clock)));
             }
             throw failure;

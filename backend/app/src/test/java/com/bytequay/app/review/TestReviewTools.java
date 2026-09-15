@@ -25,12 +25,19 @@ import com.bytequay.agent.spi.ProviderAgentEvent.ActivityState;
 import com.bytequay.agent.spi.ReviewBridge;
 import com.bytequay.agent.spi.ReviewTool;
 import com.bytequay.app.git.GitCommandRunner;
+import com.bytequay.app.repository.github.GitHubIssuePreview;
 import com.bytequay.app.service.RepoService;
 import com.bytequay.app.service.pr.PullRequestService;
+import com.bytequay.app.workspace.WorkspaceIssueRefreshService;
+import com.bytequay.app.workspace.WorkspaceIssueService;
 import com.bytequay.app.workspace.WorkspaceRepositoryContext;
 import com.bytequay.app.workspace.WorkspaceRepositoryService;
 import com.bytequay.core.domain.DiffFile;
+import com.bytequay.core.domain.PrTimelineEvent;
 import com.bytequay.core.domain.RepoRef;
+import com.bytequay.core.domain.RepositoryIssue;
+import com.bytequay.core.domain.RepositoryIssueDetail;
+import com.bytequay.core.domain.RepositoryIssuePage;
 import com.bytequay.core.review.AgentReview;
 import com.bytequay.core.review.AgentReviewStore;
 import com.bytequay.core.review.ReviewAnchor;
@@ -51,6 +58,8 @@ import com.google.common.collect.ImmutableMap;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 
 import java.io.IOException;
 import java.io.InputStream;
@@ -59,11 +68,13 @@ import java.nio.file.Path;
 import java.time.Clock;
 import java.time.Instant;
 import java.time.ZoneOffset;
+import java.util.Comparator;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.OptionalLong;
+import java.util.stream.IntStream;
 
 import static com.bytequay.core.review.ReviewStep.Kind.COLLECT_EVIDENCE;
 import static com.bytequay.core.review.ReviewStep.Kind.VALIDATE;
@@ -72,6 +83,9 @@ import static com.google.common.collect.ImmutableList.toImmutableList;
 import static java.nio.charset.StandardCharsets.UTF_8;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
 class TestReviewTools
@@ -98,6 +112,10 @@ class TestReviewTools
     private ReviewBridge bridge;
     private AgentEventService events;
     private GitCommandRunner git;
+    private RepoService repositories;
+    private WorkspaceIssueService issues;
+    private WorkspaceIssueRefreshService issueRefresh;
+    private WorkspaceRepositoryService workspaces;
 
     @BeforeEach
     void setUp()
@@ -107,9 +125,11 @@ class TestReviewTools
         store.insertRun(run());
 
         PullRequestService pullRequests = mock(PullRequestService.class);
-        RepoService repositories = mock(RepoService.class);
+        repositories = mock(RepoService.class);
+        issues = mock(WorkspaceIssueService.class);
+        issueRefresh = mock(WorkspaceIssueRefreshService.class);
         events = mock(AgentEventService.class);
-        WorkspaceRepositoryService workspaces = mock(WorkspaceRepositoryService.class);
+        workspaces = mock(WorkspaceRepositoryService.class);
         git = mock(GitCommandRunner.class);
         objectMapper = new ObjectMapper().findAndRegisterModules();
         ReviewToolAssignment assignments = mock(ReviewToolAssignment.class);
@@ -119,7 +139,7 @@ class TestReviewTools
             ReviewRun current = store.listRuns(REVIEW_ID).getLast();
             return new ReviewToolAssignment.Binding(current, current.currentStep(), Optional.empty());
         });
-        tools = new ReviewTools(store, pullRequests, repositories, events, workspaces, git, objectMapper,
+        tools = new ReviewTools(store, pullRequests, repositories, issues, issueRefresh, events, workspaces, git, objectMapper,
                 new ReviewLocks(), assignments, Clock.fixed(NOW, ZoneOffset.UTC));
 
         when(workspaces.requireReadableRepository(WORKSPACE_ID)).thenReturn(workspaceRepository());
@@ -137,6 +157,133 @@ class TestReviewTools
         store.updateReview(review(AgentReview.State.OPEN).closed(NOW));
 
         assertThat(tools.bridge(TASK_ID)).isEmpty();
+    }
+
+    @Test
+    void issueContextUsesTheCachedProjectionAndBoundedActivityWithoutRemoteReads()
+    {
+        List<PrTimelineEvent> timeline = IntStream.range(0, 21)
+                .mapToObj(index -> new PrTimelineEvent((long) index + 1, "commented", "alice", NOW.minusSeconds(30), "comment " + index + "x".repeat(2100), Optional.empty()))
+                .collect(toImmutableList());
+        cacheIssue("Cached limitation " + "x".repeat(4100), new RepositoryIssueDetail(1, 42, timeline, "Bug", ImmutableList.of(), Optional.of(NOW)));
+
+        JsonNode context = call("review_get_context", ImmutableMap.of("kind", "issue", "number", 42));
+
+        assertThat(context.path("source").asText()).isEqualTo("workspace-issue-cache");
+        assertThat(context.path("state").asText()).isEqualTo("open");
+        assertThat(context.path("updatedAt").asText()).isEqualTo(NOW.minusSeconds(60).toString());
+        assertThat(context.path("projectionSyncedAt").asText()).isEqualTo(NOW.minusSeconds(20).toString());
+        assertThat(context.path("bodyTruncated").asBoolean()).isTrue();
+        assertThat(context.at("/activity/refreshedAt").asText()).isEqualTo(NOW.toString());
+        assertThat(context.at("/activity/missing").asBoolean()).isFalse();
+        assertThat(context.at("/activity/stale").asBoolean()).isFalse();
+        assertThat(context.at("/activity/completeness").asText()).isEqualTo("unknown");
+        assertThat(context.at("/activity/items")).hasSize(20);
+        assertThat(context.at("/activity/truncated").asBoolean()).isTrue();
+        assertThat(context.at("/activity/omittedItems").asInt()).isEqualTo(1);
+        assertThat(context.at("/activity/items/0/bodyTruncated").asBoolean()).isTrue();
+        ReviewEvidence bodyEvidence = store.findRun(RUN_ID).orElseThrow().evidence().get(context.path("evidenceRef").asText());
+        assertThat(bodyEvidence.provenance()).contains("Cached open issue projection", NOW.minusSeconds(20).toString());
+        ReviewEvidence activityEvidence = store.findRun(RUN_ID).orElseThrow().evidence().get(context.at("/activity/items/0/evidenceRef").asText());
+        assertThat(activityEvidence.excerpt()).contains("alice commented", "comment 0");
+
+        JsonNode secondPage = call("review_get_context", ImmutableMap.of("kind", "issue", "number", 42, "page", 2));
+        assertThat(secondPage.at("/activity/items")).hasSize(1);
+        assertThat(secondPage.at("/activity/items/0/id").asLong()).isEqualTo(21);
+        verifyNoInteractions(repositories, issueRefresh);
+    }
+
+    @ParameterizedTest
+    @ValueSource(booleans = {false, true})
+    void issueContextRefreshesOnlyMissingOrKnownOutdatedSelectedActivity(boolean missing)
+    {
+        RepositoryIssueDetail cached = new RepositoryIssueDetail(1, 42, ImmutableList.of(), "Bug", ImmutableList.of(),
+                missing ? Optional.empty() : Optional.of(NOW.minusSeconds(120)));
+        cacheIssue("Cached issue body", cached);
+        RepositoryIssueDetail refreshed = new RepositoryIssueDetail(1, 42,
+                ImmutableList.of(new PrTimelineEvent(1L, "commented", "bob", NOW, "New activity", Optional.empty())), "Bug", ImmutableList.of(), Optional.of(NOW));
+        when(issueRefresh.refreshDetail(WORKSPACE_ID, 42)).thenReturn(refreshed);
+
+        JsonNode context = call("review_get_context", ImmutableMap.of("kind", "issue", "number", 42));
+
+        assertThat(context.path("body").asText()).isEqualTo("Cached issue body");
+        assertThat(context.at("/activity/items/0/body").asText()).isEqualTo("New activity");
+        assertThat(context.at("/activity/stale").asBoolean()).isFalse();
+        assertThat(context.at("/activity/refreshFailed").asBoolean()).isFalse();
+        verify(issueRefresh).refreshDetail(WORKSPACE_ID, 42);
+        verify(issueRefresh, never()).refreshIssues(WORKSPACE_ID);
+        verifyNoInteractions(repositories);
+    }
+
+    @ParameterizedTest
+    @ValueSource(booleans = {false, true})
+    void failedIssueActivityRefreshKeepsCachedEvidenceAndItsOriginalFreshness(boolean missing)
+    {
+        RepositoryIssueDetail cached = new RepositoryIssueDetail(1, 42,
+                ImmutableList.of(new PrTimelineEvent(1L, "commented", "bob", NOW.minusSeconds(180), "Old cached activity", Optional.empty())),
+                "Bug", ImmutableList.of(), missing ? Optional.empty() : Optional.of(NOW.minusSeconds(120)));
+        cacheIssue("Cached issue body", cached);
+        when(issueRefresh.refreshDetail(WORKSPACE_ID, 42)).thenThrow(new IllegalStateException("GitHub unavailable"));
+
+        JsonNode context = call("review_get_context", ImmutableMap.of("kind", "issue", "number", 42));
+
+        assertThat(context.path("body").asText()).isEqualTo("Cached issue body");
+        assertThat(context.at("/activity/items/0/body").asText()).isEqualTo("Old cached activity");
+        if (missing) {
+            assertThat(context.at("/activity/refreshedAt").isNull()).isTrue();
+        }
+        else {
+            assertThat(context.at("/activity/refreshedAt").asText()).isEqualTo(NOW.minusSeconds(120).toString());
+        }
+        assertThat(context.at("/activity/missing").asBoolean()).isEqualTo(missing);
+        assertThat(context.at("/activity/stale").asBoolean()).isTrue();
+        assertThat(context.at("/activity/refreshFailed").asBoolean()).isTrue();
+        assertThat(context.at("/activity/note").asText()).contains("refresh failed", "retained cached activity");
+        verifyNoInteractions(repositories);
+    }
+
+    @Test
+    void uncachedIssueUsesOnlyTheExactSelectedPreview()
+    {
+        when(repositories.getIssuePreview("acme", "widgets", 42))
+                .thenReturn(new GitHubIssuePreview("Closed issue", "Retained limitation", "alice", ImmutableList.of("bug"), NOW, "closed", false));
+
+        JsonNode context = call("review_get_context", ImmutableMap.of("kind", "issue", "number", 42));
+
+        assertThat(context.path("source").asText()).isEqualTo("github-selected-preview");
+        assertThat(context.path("state").asText()).isEqualTo("closed");
+        assertThat(context.path("updatedAt").asText()).isEqualTo(NOW.toString());
+        assertThat(context.at("/activity/missing").asBoolean()).isTrue();
+        assertThat(context.at("/activity/completeness").asText()).isEqualTo("unavailable");
+        verify(repositories).getIssuePreview("acme", "widgets", 42);
+        verify(issues).find(WORKSPACE_ID, 42);
+        verify(issues, never()).detail(WORKSPACE_ID, 42);
+        verifyNoInteractions(issueRefresh);
+    }
+
+    @Test
+    void issueContextCannotUseAnotherMonitoredRepositorysSameNumber()
+    {
+        when(workspaces.requireReadableRepository(WORKSPACE_ID)).thenReturn(new WorkspaceRepositoryContext(WORKSPACE_ID, repository, 1,
+                RepoRef.of("acme", "widgets"), OptionalLong.of(2), RepoRef.of("upstream", "widgets"), "upstream", "origin", "main", ImmutableList.of()));
+        when(repositories.getIssuePreview("acme", "widgets", 42))
+                .thenReturn(new GitHubIssuePreview("Selected issue", "Correct repository", "alice", ImmutableList.of(), NOW, "open", false));
+
+        JsonNode context = call("review_get_context", ImmutableMap.of("kind", "issue", "number", 42));
+
+        assertThat(context.path("body").asText()).isEqualTo("Correct repository");
+        verify(repositories).getIssuePreview("acme", "widgets", 42);
+        verifyNoInteractions(issues, issueRefresh);
+    }
+
+    private void cacheIssue(String body, RepositoryIssueDetail detail)
+    {
+        RepositoryIssue issue = new RepositoryIssue(42, 42, "Cached issue", body, "alice", "", "https://github.com/acme/widgets/issues/42",
+                ImmutableList.of("bug"), ImmutableList.of(), detail.timeline().size(), NOW.minusSeconds(600), NOW.minusSeconds(60));
+        when(issues.find(WORKSPACE_ID, 42)).thenReturn(Optional.of(issue));
+        when(issues.detail(WORKSPACE_ID, 42)).thenReturn(detail);
+        when(issues.list(WORKSPACE_ID, 0, 1)).thenReturn(new RepositoryIssuePage(1, RepoRef.of("acme", "widgets"), ImmutableList.of(issue),
+                0, 1, 1, false, Optional.of(NOW.minusSeconds(20))));
     }
 
     @Test
@@ -165,6 +312,40 @@ class TestReviewTools
         assertThat(schema.path("required")).isEqualTo(objectMapper.valueToTree(ImmutableList.of("operationKey", "purpose", "commits")));
         assertThat(summary.description()).doesNotContain("combined result", "critical findings", "supporting evidence");
         assertThat(bridge.instruction()).contains("only purpose", "design", "implementation", "exact replacement code", "RIGHT-side", "omit severity");
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {
+            "context-source:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+            "review:11111111-1111-4111-8111-111111111111"})
+    void capturedContextReferencesCanBeReadAndCitedThroughoutReview(String ref)
+    {
+        store.updateRun(run(RUN_ID, 1, PATCH, false));
+        readSource();
+        ReviewEvidence captured = new ReviewEvidence(ref, "Captured reference", "Frozen repository context", "Caller contract", "");
+        store.updateRun(store.findRun(RUN_ID).orElseThrow().withEvidence(ref, captured, NOW));
+        assertThat(call("review_get_context", ImmutableMap.of("kind", "evidence", "ref", ref)))
+                .isEqualTo(objectMapper.valueToTree(captured));
+        call("review_save_summary", summary("summary", "Guard input"));
+        List<String> refs = ImmutableList.of("E1", ref);
+
+        assertThat(call("review_save_investigation", investigation("investigate", ImmutableList.of(DIFF_PATH), refs, ImmutableList.of(CANDIDATE)))
+                .path("status").asText()).isEqualTo("accepted");
+        advance(VALIDATE);
+        JsonNode saved = call("review_save_finding", finding("finding", "Unchecked input", "A2", ImmutableList.of(evidence("E1"), evidence(ref))));
+        assertThat(saved.path("status").asText()).isEqualTo("accepted");
+        Map<String, Object> verdict = new LinkedHashMap<>(supported(1, saved.path("findingId").asText(), 1));
+        verdict.put("evidenceRefs", refs);
+        assertThat(call("review_finish", finish("finish", ImmutableList.of(verdict))).path("status").asText()).isEqualTo("accepted");
+
+        ReviewRun run = store.findRun(RUN_ID).orElseThrow();
+        assertThat(run.investigation().orElseThrow().contextEvidenceRefs()).containsExactlyElementsOf(refs);
+        assertThat(run.currentStep().orElseThrow().validation().orElseThrow().candidates().getFirst().evidenceRefs()).containsExactlyElementsOf(refs);
+        assertThat(store.listFindings(REVIEW_ID).getFirst().evidence()).extracting(ReviewEvidence::ref).containsExactlyElementsOf(refs);
+        JsonNode readSchema = objectMapper.valueToTree(bridge.tool("review_get_context").orElseThrow().inputSchema());
+        assertThat(readSchema.at("/properties/ref/maxLength").asInt()).isGreaterThanOrEqualTo(ref.length());
+        JsonNode findingSchema = objectMapper.valueToTree(bridge.tool("review_save_finding").orElseThrow().inputSchema());
+        assertThat(findingSchema.at("/properties/evidence/items/properties/ref/maxLength").asInt()).isGreaterThanOrEqualTo(ref.length());
     }
 
     @Test
@@ -526,6 +707,19 @@ class TestReviewTools
     }
 
     @Test
+    void fullCoverageUsesFrozenPathsWithoutOpeningTheWorkspace()
+    {
+        store.updateRun(run(RUN_ID, 1, PATCH, false));
+        call("review_save_summary", summary("summary", "Input change"));
+
+        JsonNode investigation = call("review_save_investigation", investigation("collect", ImmutableList.of(DIFF_PATH), ImmutableList.of(), ImmutableList.of()));
+
+        assertThat(investigation.path("status").asText()).isEqualTo("accepted");
+        verify(workspaces, never()).requireReadableRepository(WORKSPACE_ID);
+        verifyNoInteractions(git);
+    }
+
+    @Test
     void completeCoverageRequiresEveryCommitAndRequiredChangedFile()
     {
         store.updateRun(run(RUN_ID, 1, PATCH, false));
@@ -733,7 +927,7 @@ class TestReviewTools
         ReviewRun next = new ReviewRun("incremental", REVIEW_ID, 2, ReviewRun.Scope.INCREMENTAL, "main", BASE_SHA, BASE_SHA, nextHead,
                 Optional.of(HEAD_SHA), previous.commits(), ImmutableList.of(new DiffFile("image.png", "modified", 0, 0, null)), ImmutableList.of(),
                 ReviewRun.State.RUNNING, previous.summary(), Optional.empty(), Optional.empty(), ImmutableList.of(ReviewStep.initial()), false,
-                ImmutableMap.of(), ImmutableMap.of(), Optional.empty(), 0, NOW, NOW, Optional.empty());
+                ImmutableMap.of(), ImmutableMap.of(), Optional.empty(), Optional.empty(), 0, NOW, NOW, Optional.empty());
         store.insertRun(next);
         when(git.run(repository, "diff", "--name-only", "--no-renames", "-z", HEAD_SHA, nextHead, "--"))
                 .thenReturn(new GitCommandRunner.Result(0, DIFF_PATH + "\0image.png\0", false));
@@ -934,6 +1128,7 @@ class TestReviewTools
                 ImmutableMap.of(),
                 ImmutableMap.of(),
                 Optional.empty(),
+                Optional.empty(),
                 0,
                 NOW,
                 NOW,
@@ -1078,6 +1273,18 @@ class TestReviewTools
         public List<ReviewRun> listRuns(String reviewId)
         {
             return runs.values().stream().filter(run -> run.reviewId().equals(reviewId)).collect(toImmutableList());
+        }
+
+        @Override
+        public List<ReviewRun> listRecentRuns(String workspaceId, String repo, int limit)
+        {
+            checkArgument(limit >= 1 && limit <= 10, "Recent run limit must be between 1 and 10");
+            return runs.values().stream()
+                    .filter(run -> findReview(run.reviewId())
+                            .filter(review -> review.workspaceId().equals(workspaceId) && review.repo().equalsIgnoreCase(repo)).isPresent())
+                    .sorted(Comparator.comparing(ReviewRun::updatedAt).reversed().thenComparing(ReviewRun::id))
+                    .limit(limit)
+                    .collect(toImmutableList());
         }
 
         @Override

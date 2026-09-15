@@ -39,8 +39,12 @@ in [Agent Task UI Design](agent-task-ui.md).
 existing application-settings port. Bounded values live in core; local editing,
 source capture from retained review evidence, and HTTP live in app. Explicit
 workspace deletion clears the notebook after existing ownership checks.
-Automatic preparation, review input delivery and the settings UI have separate
-implementation gates; the notebook foundation does not enable those behaviors.
+Review startup captures bounded local selection and retained evidence on the
+existing review run, whose nullable context JSON is mapped by persistence-sqlite.
+Matching and history reuse existing Git, repository enrichment, PR, issue and
+review stores. Snapshot capture occurs before provider admission and records
+prepared text, not confirmed delivery. Generation, review input delivery and
+the settings UI have separate implementation gates.
 
 [Development delivery](development-delivery.md) extends the current agent core
 through one application coordinator. Core reserves its source owner after a

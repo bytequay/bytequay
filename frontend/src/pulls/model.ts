@@ -126,10 +126,39 @@ export function pullRequestNeedsReview(pr: PullRequestDto) {
     && (pr.origin === 'REVIEW_REQUESTED' || pr.origin === 'OTHER' && pr.reviewedAt !== null);
 }
 
-export function rowsForSearch(prs: PullRequestDto[]): PullRow[] {
-  return [...prs]
-    .sort((a, b) => Date.parse(b.updatedAt) - Date.parse(a.updatedAt))
-    .map(pr => toRow(pr));
+export type PullSearch = {
+  /** Login from an `@login` term, without the marker. */
+  author: string | null;
+  /** Every term left once the author term is taken out; matched against title and `#number`. */
+  text: string;
+};
+
+/**
+ * Splits a search box value into an author term and free text, so `@alice` asks
+ * for one author's pull requests and `@alice flaky` narrows those by title. The
+ * list filters what is already loaded, so the split happens here, not on the server.
+ */
+export function parsePullSearch(raw: string): PullSearch | null {
+  const tokens = raw.trim().split(/\s+/).filter(token => token !== '');
+  const author = tokens.find(token => token.startsWith('@') && token.length > 1);
+  const text = tokens.filter(token => token !== author).join(' ');
+  if (author === undefined && text === '') return null;
+  return { author: author === undefined ? null : author.slice(1), text };
+}
+
+/** The author term is a prefix, so `@ab` lists ab and abc as the typing settles. */
+export function pullRequestMatchesSearch(pr: PullRequestDto, search: PullSearch) {
+  if (search.author !== null && !(pr.author ?? '').toLowerCase().startsWith(search.author.toLowerCase())) return false;
+  if (search.text === '') return true;
+  // A `#number` term matches the number, not the title digits of another pull request.
+  const number = search.text.startsWith('#') ? search.text.slice(1) : search.text;
+  return /^\d+$/.test(number)
+    ? String(pr.number).startsWith(number)
+    : pr.title.toLowerCase().includes(search.text.toLowerCase());
+}
+
+export function filterPullRequests(prs: PullRequestDto[], search: PullSearch | null): PullRequestDto[] {
+  return search === null ? prs : prs.filter(pr => pullRequestMatchesSearch(pr, search));
 }
 
 export function reconcilePullRequestDetail(

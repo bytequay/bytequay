@@ -12,13 +12,14 @@
  * limitations under the License.
  */
 import { useCallback, useEffect, useId, useMemo, useRef, useState, type KeyboardEvent as ReactKeyboardEvent, type MouseEvent as ReactMouseEvent, type ReactNode } from 'react';
-import { Bell, Check, CircleSlash, Diff, Ellipsis, Eye, GitPullRequest, Maximize, MessageCircle, Minimize, PanelRight, RefreshCw, UserRound, X } from 'lucide-react';
+import { Bell, Check, CircleSlash, Code, Diff, Ellipsis, Eye, GitPullRequest, Maximize, MessageCircle, Minimize, PanelRight, RefreshCw, UserRound, X } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
 import { isFindShortcut } from '../FindBar';
 import type { NavigationMode } from '../navigationHistory';
 import Toast from '../Toast';
 import type { Bridge, DiffCommitDto, DiffFileDto, InlineReviewCommentDto, PullRequestDetailDto, PullRequestDto, PullRequestPageDto, UserProfileDto } from '../types';
 import AgentReviewTab, { type ReviewNavigationTarget } from './agent-review/AgentReviewTab';
+import CodeTestsTab from './code-tests/CodeTestsTab';
 import type { ReviewCardFocus } from '../agents/ReviewRequestCard';
 import type { AgentReviewDto, ReviewDraftItemDto } from './agent-review/contracts';
 import { pendingDraftCount, reviewStatus } from './agent-review/model';
@@ -37,12 +38,13 @@ import { workspaceReviewTaskRoute } from '../workspaces/model';
 import TaskPaneDivider, { useTaskPane } from '../agents/TaskPaneDivider';
 import '../css/review-tasks.css';
 import {
+  filterPullRequests,
   keepSelectedPullRequest,
+  parsePullSearch,
   PULL_TABS,
   reconcilePostedComment,
   reconcilePullRequestDetail,
   reconcileSubmittedReview,
-  rowsForSearch,
   rowsForTab,
   tabForInitialPullRequest,
   visibleSelectedId,
@@ -51,7 +53,9 @@ import {
 } from './model';
 import '../css/pulls.css';
 
-type DetailTab = 'overview' | 'changes' | 'review';
+/** The tabs PullDetailHeader draws itself; hosts add their own through its `agentTab` slot. */
+type HeaderTab = 'overview' | 'changes' | 'review';
+type DetailTab = HeaderTab | 'code';
 
 type AgentReviewContext = {
   workspaceId: string | undefined;
@@ -310,6 +314,8 @@ export default function PullsScreen({
   const [tab, setTab] = useState<PullTab>(initialTab ?? 'all');
   const [selected, setSelected] = useState<number | null>(null);
   const [detailTab, setDetailTab] = useState<DetailTab>(initialReviewId === undefined ? 'overview' : 'review');
+  // Code & Tests stays mounted after its first visit so drafts, open files and runs survive tab switches.
+  const [codeTabKey, setCodeTabKey] = useState<string | null>(null);
   const [pendingReviewComments, setPendingReviewComments] = useState<InlineReviewCommentDto[]>([]);
   const [paneOpen, setPaneOpen] = useState(true);
   const [detailZoomed, setDetailZoomed] = useState(false);
@@ -326,6 +332,8 @@ export default function PullsScreen({
   const [toast, setToast] = useState<{ id: number; text: string } | null>(null);
   const [search, setSearch] = useState('');
   const [query, setQuery] = useState('');
+  /** The debounced query split into its author and text terms; the list filters what it has. */
+  const searchTerms = useMemo(() => parsePullSearch(query), [query]);
   // The toolbar, not the window: it also renders inside the narrower split pane.
   const [toolbarWidth, setToolbarWidth] = useState(Number.POSITIVE_INFINITY);
   const toolbar = useRef<HTMLElement | null>(null);
@@ -448,6 +456,7 @@ export default function PullsScreen({
     if ((!detailZoomed && !overlay) || browserOpen) return;
     const exitFullScreen = (event: KeyboardEvent) => {
       if (event.defaultPrevented || event.key !== 'Escape') return;
+      if (event.target instanceof Element && event.target.closest('.cm-editor, .xterm') !== null) return;
       event.preventDefault();
       if (onClose) onClose();
       else setDetailZoomed(false);
@@ -586,10 +595,16 @@ export default function PullsScreen({
     });
   }, [initialPr, loading, prs, viewerLogin]);
 
-  const rows = useMemo(() => query ? rowsForSearch(prs) : rowsForTab(prs, tab, viewerLogin), [prs, query, tab, viewerLogin]);
+  // A search still respects the selected filter: `@alice` lists the pull
+  // requests alice authored within whichever tab is open, from the loaded page.
+  const rows = useMemo(
+    () => rowsForTab(filterPullRequests(prs, searchTerms), tab, viewerLogin),
+    [prs, searchTerms, tab, viewerLogin],
+  );
   const compact = compactToolbar(toolbarWidth);
   // ponytail: one pass per tab over the loaded page; revisit only if the list
-  // ever holds thousands of rows. Unloaded pages make each count a floor.
+  // ever holds thousands of rows. Unloaded pages make each count a floor. The
+  // counts stay unfiltered, because rows are filtered below by a page-scoped search.
   const tabCounts = useMemo(
     () => PULL_TABS.map(item => `${rowsForTab(prs, item.key, viewerLogin).length}${hasMore ? '+' : ''}`),
     [hasMore, prs, viewerLogin],
@@ -851,7 +866,7 @@ export default function PullsScreen({
         <header className="pulls-toolbar" ref={toolbar}>
           <PullFilterTabs
             tab={tab}
-            searching={query !== ''}
+            searching={searchTerms !== null}
             counts={tabCounts}
             width={toolbarWidth}
             panelId={rowsId}
@@ -887,8 +902,8 @@ export default function PullsScreen({
             ref={searchInput}
             type="search"
             value={search}
-            placeholder={compact ? '⌕  Search pull requests' : '⌕  Search pull requests by title or #number'}
-            aria-label="Search pull requests by title or number"
+            placeholder={compact ? '⌕  Search pull requests' : '⌕  Search by title, #number, or @author'}
+            aria-label="Search pull requests by title, number, or author"
             onChange={event => setSearch(event.target.value)}
           />
           {repositoryScope && (
@@ -984,9 +999,18 @@ export default function PullsScreen({
           <PullDetailHeader
             pr={selectedPr}
             detail={detail}
-            tab={detailTab}
+            tab={detailTab === 'code' ? null : detailTab}
             review={review}
             onReviewChange={updateReview}
+            agentTab={(
+              <button className={detailTab === 'code' ? 'is-active' : ''} type="button" aria-pressed={detailTab === 'code'}
+                onClick={() => {
+                  setCodeTabKey(reviewKey);
+                  setDetailTab('code');
+                }}>
+                <Code size={14} strokeWidth={1.8} aria-hidden="true" /> Code &amp; Tests
+              </button>
+            )}
             onTab={next => {
               if (next === 'changes' && detailTab !== 'changes') recordDiffOpened();
               setDetailTab(next);
@@ -1006,7 +1030,7 @@ export default function PullsScreen({
             <div className="pull-detail__loading">Loading details…</div>
           ) : detail === null ? (
             !displayedDetailError && <div className="pull-detail__loading">Select a pull request.</div>
-          ) : detailTab === 'review' && (reviewLoading || reviewError !== null) ? (
+          ) : (detailTab === 'review' || detailTab === 'code') && (reviewLoading || reviewError !== null) ? (
             <div className="pull-detail__body pull-detail__review">
               {reviewLoading ? <div className="hp-loading" role="status">Loading agent review…</div> : (
                 <div className="agr-empty">
@@ -1018,7 +1042,18 @@ export default function PullsScreen({
           ) : (
             <>
             {localReview.error !== null && <div className="agr-error" role="alert">Local review comments: {localReview.error}</div>}
-            <DetailBody
+            {codeTabKey !== null && codeTabKey === reviewKey && (
+              <div className="pull-detail__code" hidden={detailTab !== 'code'}>
+                <CodeTestsTab
+                  detail={detail}
+                  workspaceId={workspaceId}
+                  review={review}
+                  onReviewChange={updateReview}
+                  active={detailTab === 'code'}
+                  ownReviewStream={reviewWorkspace === undefined} />
+              </div>
+            )}
+            {detailTab !== 'code' && <DetailBody
               localReview={localReview}
               ownReviewStream={reviewWorkspace === undefined}
               tab={detailTab}
@@ -1067,7 +1102,7 @@ export default function PullsScreen({
               onDetailUpdate={updateSelectedDetail}
               onDiscussionPosted={value => applyPostedDetail(value, 'discussion')}
               onReviewPosted={value => applyPostedDetail(value, 'review')}
-            />
+            />}
             </>
           )}
         </section>
@@ -1138,12 +1173,12 @@ export function PullDetailHeader({
 }: {
   pr: PullRequestDto;
   detail: PullRequestDetailDto | null;
-  tab: DetailTab | null;
+  tab: HeaderTab | null;
   /** The open Agent review, when the pull request has one; its status rides on the tab. */
   review?: AgentReviewDto | null;
   onReviewChange?: (review: AgentReviewDto) => void;
   agentTab?: ReactNode;
-  onTab: (tab: DetailTab) => void;
+  onTab: (tab: HeaderTab) => void;
   onRefresh: () => Promise<void>;
   onDetailUpdate?: PullDetailUpdater;
   onReviewSubmitted: (

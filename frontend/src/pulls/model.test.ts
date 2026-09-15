@@ -13,7 +13,16 @@
  */
 import { describe, expect, it } from 'vitest';
 import type { PullRequestDto } from '../types';
-import { PULL_TABS, reconcilePostedComment, reconcilePullRequestDetail, rowsForTab, tabForInitialPullRequest, visibleSelectedId } from './model';
+import {
+  filterPullRequests,
+  parsePullSearch,
+  PULL_TABS,
+  reconcilePostedComment,
+  reconcilePullRequestDetail,
+  rowsForTab,
+  tabForInitialPullRequest,
+  visibleSelectedId,
+} from './model';
 
 function pr(overrides: Partial<PullRequestDto>): PullRequestDto {
   return {
@@ -193,5 +202,52 @@ describe('rowsForTab', () => {
     expect(updated.requestedReviewers).toEqual(['bob']);
     expect(updated.origin).toBe('REVIEW_REQUESTED');
     expect(removed.origin).toBe('OTHER');
+  });
+});
+
+describe('pull search', () => {
+  it('reads an at-marked term as an author and keeps the rest as text', () => {
+    expect(parsePullSearch('')).toBeNull();
+    expect(parsePullSearch('   ')).toBeNull();
+    expect(parsePullSearch('  @Alice  ')).toEqual({ author: 'Alice', text: '' });
+    expect(parsePullSearch('@alice flaky test')).toEqual({ author: 'alice', text: 'flaky test' });
+    expect(parsePullSearch('flaky test @alice')).toEqual({ author: 'alice', text: 'flaky test' });
+    expect(parsePullSearch('flaky')).toEqual({ author: null, text: 'flaky' });
+    expect(parsePullSearch('#42')).toEqual({ author: null, text: '#42' });
+  });
+
+  it('matches an author by prefix, case-insensitively', () => {
+    const alice = pr({ id: 1, author: 'alice', title: 'Fix flaky test' });
+    const albert = pr({ id: 2, author: 'albert', title: 'Fix flaky test' });
+    const bob = pr({ id: 3, author: 'bob', title: 'Fix flaky test' });
+    const noAuthor = pr({ id: 4, author: null, title: 'Fix flaky test' });
+
+    expect(filterPullRequests([alice, albert, bob, noAuthor], parsePullSearch('@AL')).map(row => row.id)).toEqual([1, 2]);
+    expect(filterPullRequests([alice, albert, bob], parsePullSearch('@ALICE')).map(row => row.id)).toEqual([1]);
+    expect(filterPullRequests([alice, albert, bob], parsePullSearch('@lice'))).toEqual([]);
+    expect(filterPullRequests([alice, albert], parsePullSearch('@carol'))).toEqual([]);
+    expect(filterPullRequests([alice, albert, bob], parsePullSearch('@al flaky')).map(row => row.id)).toEqual([1, 2]);
+    expect(filterPullRequests([alice, albert, bob], parsePullSearch('@al absent')).map(row => row.id)).toEqual([]);
+    expect(filterPullRequests([alice, bob], null).map(row => row.id)).toEqual([1, 3]);
+  });
+
+  it('matches a number term against the pull request number, not the title', () => {
+    const numbered = pr({ id: 1, number: 413, title: 'Fix flaky test' });
+    const titled = pr({ id: 2, number: 7, title: 'Backport 413' });
+
+    expect(filterPullRequests([numbered, titled], parsePullSearch('#41')).map(row => row.id)).toEqual([1]);
+    expect(filterPullRequests([numbered, titled], parsePullSearch('41')).map(row => row.id)).toEqual([1]);
+    expect(filterPullRequests([numbered, titled], parsePullSearch('#7')).map(row => row.id)).toEqual([2]);
+    expect(filterPullRequests([numbered, titled], parsePullSearch('#4137'))).toEqual([]);
+    expect(filterPullRequests([numbered, titled], parsePullSearch('flaky')).map(row => row.id)).toEqual([1]);
+  });
+
+  it('keeps an author search inside the selected filter', () => {
+    const mine = pr({ id: 1, author: 'alice', origin: 'AUTHORED' });
+    const theirs = pr({ id: 2, author: 'alice', origin: 'REVIEW_REQUESTED' });
+
+    const rows = rowsForTab(filterPullRequests([mine, theirs], parsePullSearch('@alice')), 'active');
+
+    expect(rows.map(row => row.id)).toEqual([1]);
   });
 });

@@ -74,6 +74,7 @@ export default function AgentReviewTab({
   onNavigateToChanges,
   focusFindingId, focusReviewCard, onOpenReview,
   mode = 'cards',
+  ownStream = true,
   onOpenWorkspace,
   localReview,
 }: {
@@ -89,6 +90,11 @@ export default function AgentReviewTab({
   focusReviewCard?: ReviewCardFocus | null;
   onOpenReview?: (target: ReviewRequestTarget) => void;
   mode?: 'cards' | 'conversation';
+  /**
+   * False for cards beside this review's conversation. Main keeps one stream per renderer and review,
+   * so a second subscription would silently stop the conversation's; its reloads keep the shared review current.
+   */
+  ownStream?: boolean;
   onOpenWorkspace?: () => void;
   localReview?: LocalReviewThreads;
 }) {
@@ -256,7 +262,7 @@ export default function AgentReviewTab({
       }
     };
     const session = mode === 'cards'
-      ? reviewOpen ? window.bridge.subscribeAgentReview(reviewId, 0, message => {
+      ? reviewOpen && ownStream ? window.bridge.subscribeAgentReview(reviewId, 0, message => {
         if (!live) return;
         if (message.kind === 'changed') void reload(message.turnId);
         else if (message.kind === 'events') void reload(message.events.at(-1)?.turnId ?? null);
@@ -277,7 +283,7 @@ export default function AgentReviewTab({
       if (settlingRefresh !== undefined) clearTimeout(settlingRefresh);
       void session.then(stop => stop(), () => {});
     };
-  }, [conversationBridge, dispatchConversation, mode, refresh, reviewId, reviewOpen, taskId]);
+  }, [conversationBridge, dispatchConversation, mode, ownStream, refresh, reviewId, reviewOpen, taskId]);
 
   const loadHistory = useCallback(async (direction: 'older' | 'newer' | 'latest') => {
     if (conversationBridge === null || taskId === null || historyRequestRef.current !== null) return;

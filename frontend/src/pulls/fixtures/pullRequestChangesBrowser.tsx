@@ -18,7 +18,7 @@ import { createRoot } from 'react-dom/client';
 import type { Bridge, DiffCommitDto, DiffFileDto } from '../../types';
 import { DiffViewer, type CommitRange } from '../PullChanges';
 import { usePullRequestChanges, type PullRequestChangesSource } from '../usePullRequestChanges';
-import { runMainScreen, runReviewSheet, runReviewWorkspace, runSelectionStability } from './pullsScreenBrowser';
+import { runMainScreen, runOpenReviewWorkspaceStream, runReviewSheet, runReviewWorkspace, runSelectionStability } from './pullsScreenBrowser';
 
 const settle = () => new Promise<void>(resolve => requestAnimationFrame(() => requestAnimationFrame(() => resolve())));
 function assert(condition: boolean, message: string): asserts condition { if (!condition) throw new Error(message); }
@@ -206,6 +206,7 @@ export async function run(): Promise<string[]> {
   completed.push(await runCommitMessages());
   completed.push(await runMainScreen());
   completed.push(await runReviewWorkspace());
+  completed.push(await runOpenReviewWorkspaceStream());
   completed.push(await runReviewSheet());
   completed.push(await runSelectionStability());
   return completed;

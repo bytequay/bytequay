@@ -14,11 +14,12 @@
 
 import { flushSync } from 'react-dom';
 import { createRoot } from 'react-dom/client';
-import type { Bridge, DiffCommitDto, DiffFileDto, InlineReviewCommentDto, PullRequestDetailDto, PullTimelinePayloadDto } from '../../types';
+import type { AgentStreamMessage, Bridge, DiffCommitDto, DiffFileDto, InlineReviewCommentDto, PullRequestDetailDto, PullTimelinePayloadDto } from '../../types';
 import PullsScreen, { remotePullRequest, ReviewDialog } from '../PullsScreen';
 import ReviewTaskScreen from '../../agents/ReviewTaskScreen';
+import type { AgentEventEnvelope } from '../../agents/events';
 import { createPreviewBridge } from '../../agents/fixtures/previewBridge';
-import type { ReviewDraftDto } from '../agent-review/contracts';
+import type { AgentReviewDto, ReviewDraftDto } from '../agent-review/contracts';
 import { reviewFixture } from '../agent-review/fixtures/review';
 import '../../css/base.css';
 
@@ -32,6 +33,13 @@ const payload: PullTimelinePayloadDto = {
 };
 const file = (filename: string): DiffFileDto => ({ filename, status: 'modified', additions: 1, deletions: 1, patch: '@@ -1 +1 @@\n-old\n+new' });
 const commits: DiffCommitDto[] = ['one', 'two'].map((sha, index): DiffCommitDto => ({ sha, parentSha: index === 0 ? 'base' : 'one', message: sha, author: null, authoredAt: null }));
+const reviewDetail = (review: AgentReviewDto): PullRequestDetailDto => ({
+  id: 42, repo: review.repo, number: review.number, title: 'Review this retained pull request', htmlUrl: null, state: 'open', draft: true,
+  mergeable: null, mergeableState: null, author: 'alice', authorAvatarUrl: null, createdAt: null, updatedAt: null,
+  mergedAt: null, baseRef: 'main', headRef: 'feature', body: 'Pull request implementation', labels: [], assignees: [], milestone: null,
+  reviewers: [], additions: 1, deletions: 1, changedFiles: 1, approvalCount: 0, ciStatus: null, recentActivity: [],
+  checkRuns: [], unavailableSections: [], viewerCanWrite: false,
+});
 
 export async function runMainScreen(): Promise<string> {
   let detail: PullRequestDetailDto = {
@@ -145,13 +153,7 @@ export async function runReviewWorkspace(): Promise<string> {
   const agent = createPreviewBridge('workspace-1', { replayThrough: Number.MAX_SAFE_INTEGER });
   const review = reviewFixture({ id: 'retained-review', state: 'CLOSED', closedAt: '2026-09-07T00:00:00Z' });
   review.task = { ...review.task, id: agent.events[0].taskId };
-  const detail: PullRequestDetailDto = {
-    id: 42, repo: review.repo, number: review.number, title: 'Review this retained pull request', htmlUrl: null, state: 'open', draft: true,
-    mergeable: null, mergeableState: null, author: 'alice', authorAvatarUrl: null, createdAt: null, updatedAt: null,
-    mergedAt: null, baseRef: 'main', headRef: 'feature', body: 'Pull request implementation', labels: [], assignees: [], milestone: null,
-    reviewers: [], additions: 1, deletions: 1, changedFiles: 1, approvalCount: 0, ciStatus: null, recentActivity: [],
-    checkRuns: [], unavailableSections: [], viewerCanWrite: false,
-  };
+  const detail = reviewDetail(review);
   const reviewReads: string[] = [];
   let historyReads = 0;
   let listReads = 0;
@@ -247,6 +249,76 @@ export async function runReviewWorkspace(): Promise<string> {
     conversation.querySelector<HTMLButtonElement>('[aria-label="Back to tasks"]')?.click();
     assert(back === 1, 'The review workspace back action must return to its task list');
     return 'Retained review workspace replays its conversation beside learning cards and returns to tasks';
+  }
+  finally {
+    flushSync(() => root.unmount());
+    host.remove();
+    Object.assign(window, { bridge: originalBridge });
+  }
+}
+
+export async function runOpenReviewWorkspaceStream(): Promise<string> {
+  const agent = createPreviewBridge('workspace-1', { replayThrough: Number.MAX_SAFE_INTEGER });
+  const review = reviewFixture({ id: 'open-review' });
+  review.task = { ...review.task, id: agent.events[0].taskId };
+  const detail = reviewDetail(review);
+  const sent = { ...agent.events[0], eventId: 'sent-after-remount', sequence: agent.events.length + 1, turnId: 'turn-after-remount',
+    payload: { text: 'Check the new head again', attachments: [], deliveryKind: 'TURN' } } as AgentEventEnvelope;
+  let delivered = false;
+  // Main keeps one reader per renderer and review: a later subscription silently replaces the earlier one.
+  const streams: { listener: (message: AgentStreamMessage) => void; live: boolean }[] = [];
+  const bridge = {
+    getUserProfile: async () => ({ login: 'bob', name: null, avatarUrl: '', htmlUrl: '', publicRepos: 0, followers: 0,
+      following: 0, bio: null, location: null, company: null, email: null }),
+    getModelSettings: agent.getModelSettings,
+    getAgentTurn: agent.getAgentTurn,
+    getAgentReview: async () => review,
+    readAgentReviewHistory: async (_id, taskId, before, after) => {
+      const page = await agent.readAgentHistory(taskId, before, after);
+      return delivered && before === undefined && after === undefined
+        ? { ...page, events: [...page.events, sent], latestSequence: sent.sequence } : page;
+    },
+    subscribeAgentReview: async (_id, _after, listener) => {
+      for (const stream of streams) stream.live = false;
+      const stream = { listener, live: true };
+      streams.push(stream);
+      return () => { stream.live = false; };
+    },
+    fetchAttentionPrs: async () => [],
+    fetchPullRequestDetailByRef: async () => detail,
+    refreshPullRequestDetailByRef: async () => ({ full: true as const, detail, status: null }),
+    listLocalReviewComments: async () => [],
+    recordRecentTouch: async () => {},
+  } satisfies Pick<Bridge, 'getUserProfile' | 'getModelSettings' | 'getAgentTurn' | 'getAgentReview' | 'readAgentReviewHistory'
+    | 'subscribeAgentReview' | 'fetchAttentionPrs' | 'fetchPullRequestDetailByRef' | 'refreshPullRequestDetailByRef' | 'listLocalReviewComments' | 'recordRecentTouch'>;
+  const originalBridge = window.bridge;
+  Object.assign(window, { bridge });
+  const host = document.createElement('div');
+  host.style.width = '1200px';
+  host.style.height = '800px';
+  document.body.append(host);
+  const root = createRoot(host);
+  const conversation = () => host.querySelector<HTMLElement>('[aria-label="Review agent conversation"]')?.textContent ?? '';
+  try {
+    flushSync(() => root.render(<ReviewTaskScreen workspaceId={review.workspaceId} reviewId={review.id} browserOpen={false} onBack={() => {}} />));
+    for (let attempt = 0; attempt < 20 && !(conversation().includes('I found one authentication regression.') && streams.length > 0); attempt++) await settle();
+    await settle();
+    const pane = host.querySelector<HTMLElement>('.pull-detail');
+    assert(pane?.textContent?.includes('PR intention') === true, 'The open review must show its learning cards beside the conversation');
+    // Leaving and returning to Review & Learning remounts its cards while the conversation stays mounted.
+    pane.querySelector<HTMLButtonElement>('.pull-detail__pr-tab')?.click();
+    await settle();
+    [...pane.querySelectorAll<HTMLButtonElement>('button')].find(button => button.textContent?.includes('Review & Learning'))?.click();
+    await settle();
+    assert(pane.textContent?.includes('PR intention') === true, 'Returning to Review & Learning must show the cards again');
+    delivered = true;
+    for (const stream of streams.filter(item => item.live)) {
+      stream.listener({ subscriptionId: 'review-stream', taskId: review.task.id, kind: 'changed', sequence: sent.sequence, turnId: sent.turnId });
+    }
+    for (let attempt = 0; attempt < 40 && !conversation().includes('Check the new head again'); attempt++) await new Promise(resolve => setTimeout(resolve, 25));
+    assert(conversation().includes('Check the new head again'), 'A message delivered after the cards remount must reach the conversation');
+    assert(streams.length === 1, `The review workspace must open one review stream for both panes, opened ${streams.length}`);
+    return 'Open review workspace keeps its conversation live after Review & Learning remounts';
   }
   finally {
     flushSync(() => root.unmount());

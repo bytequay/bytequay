@@ -1020,6 +1020,7 @@ export default function PullsScreen({
             {localReview.error !== null && <div className="agr-error" role="alert">Local review comments: {localReview.error}</div>}
             <DetailBody
               localReview={localReview}
+              ownReviewStream={reviewWorkspace === undefined}
               tab={detailTab}
               pr={selectedPr}
               detail={detail}
@@ -1702,7 +1703,7 @@ function ConflictIcon() {
 }
 
 function DetailBody({
-  tab, localReview,
+  tab, localReview, ownReviewStream,
   pr,
   detail,
   workspaceId,
@@ -1730,6 +1731,8 @@ function DetailBody({
 }: {
   tab: DetailTab;
   localReview?: LocalReviewThreads;
+  /** False in the review workspace, whose conversation pane already streams this review. */
+  ownReviewStream: boolean;
   pr: PullRequestDto;
   detail: PullRequestDetailDto;
   workspaceId: string | undefined;
@@ -1764,6 +1767,7 @@ function DetailBody({
       viewer={viewer}
       review={review}
       onReviewChange={onReviewChange}
+      ownStream={ownReviewStream}
       localReview={localReview}
       onOpenWorkspace={onOpenWorkspace}
       onNavigateToChanges={onNavigateToChanges}

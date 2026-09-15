@@ -76,7 +76,10 @@ for a review run, while ordinary discussion uses **Running**. It has no
 **Summary & comments** or **Activity** subtab. **View in workspace** opens the
 exact review task with the existing navigation, its agent conversation on the
 left, and the PR pane on the right. That conversation reuses task transcript,
-approval, queue, steering and composer controls. Review routes preserve their
+approval, queue, steering and composer controls. Its live review stream also
+keeps the PR pane's cards current, and the pane opens no stream of its own:
+Electron keeps one stream per renderer and review, so a second subscription
+would silently replace the conversation's. Review routes preserve their
 own ownership checks; they do not become interactive development task routes.
 Opening and closing these views never starts or cancels execution.
 

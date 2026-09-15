@@ -104,36 +104,57 @@ public final class FileTaskLogStore
     @Override
     public void append(AgentEventEnvelope envelope)
     {
-        requireNonNull(envelope, "envelope is null");
-        byte[] json = serialize(envelope);
-        if (json.length > maxEventBytes) {
-            throw new AgentStorageException("Event exceeds the configured size limit");
-        }
-        ByteBuffer line = ByteBuffer.allocate(json.length + 1)
-                .put(json)
-                .put((byte) '\n')
-                .flip();
+        appendAll(ImmutableList.of(requireNonNull(envelope, "envelope is null")));
+    }
 
-        synchronized (lock(envelope.taskId())) {
-            Long cachedSequence = lastSequences.get(envelope.taskId());
-            long lastSequence = cachedSequence == null ? recoverTail(envelope.taskId()) : cachedSequence;
-            lastSequences.putIfAbsent(envelope.taskId(), lastSequence);
-            if (envelope.sequence() != lastSequence + 1) {
-                throw new AgentStorageException(
-                        "Expected event sequence " + (lastSequence + 1) + " but received " + envelope.sequence());
+    /**
+     * Appends a contiguous batch of records for one task under a single durable
+     * sync. Tests that build long fixture logs use this instead of paying one
+     * fsync per record through {@link #append}.
+     */
+    void appendAll(List<AgentEventEnvelope> envelopes)
+    {
+        requireNonNull(envelopes, "envelopes is null");
+        if (envelopes.isEmpty()) {
+            return;
+        }
+        TaskId taskId = requireNonNull(envelopes.getFirst(), "envelope is null").taskId();
+        ByteArrayOutputStream batch = new ByteArrayOutputStream();
+        for (AgentEventEnvelope envelope : envelopes) {
+            requireNonNull(envelope, "envelope is null");
+            checkArgument(taskId.equals(envelope.taskId()), "Batch spans multiple tasks");
+            byte[] json = serialize(envelope);
+            if (json.length > maxEventBytes) {
+                throw new AgentStorageException("Event exceeds the configured size limit");
             }
-            Path eventsFile = resourceService.require(envelope.taskId()).eventsFile();
+            batch.write(json, 0, json.length);
+            batch.write('\n');
+        }
+
+        synchronized (lock(taskId)) {
+            Long cachedSequence = lastSequences.get(taskId);
+            long lastSequence = cachedSequence == null ? recoverTail(taskId) : cachedSequence;
+            lastSequences.putIfAbsent(taskId, lastSequence);
+            for (AgentEventEnvelope envelope : envelopes) {
+                if (envelope.sequence() != lastSequence + 1) {
+                    throw new AgentStorageException(
+                            "Expected event sequence " + (lastSequence + 1) + " but received " + envelope.sequence());
+                }
+                lastSequence = envelope.sequence();
+            }
+            Path eventsFile = resourceService.require(taskId).eventsFile();
             long originalSize = -1;
+            ByteBuffer lines = ByteBuffer.wrap(batch.toByteArray());
             try (FileChannel channel = FileChannel.open(eventsFile, StandardOpenOption.WRITE, StandardOpenOption.APPEND)) {
                 originalSize = channel.size();
-                while (line.hasRemaining()) {
-                    channel.write(line);
+                while (lines.hasRemaining()) {
+                    channel.write(lines);
                 }
                 channel.force(true);
-                lastSequences.put(envelope.taskId(), envelope.sequence());
+                lastSequences.put(taskId, lastSequence);
             }
             catch (IOException e) {
-                lastSequences.remove(envelope.taskId());
+                lastSequences.remove(taskId);
                 rollbackAppend(eventsFile, originalSize, e);
                 throw new AgentStorageException("Cannot append task event", e);
             }

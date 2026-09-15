@@ -310,9 +310,11 @@ class TestFileTaskLogStore
     @Test
     void pagesHistoryInBothDirectionsWithoutSplittingEvents()
     {
+        ImmutableList.Builder<AgentEventEnvelope> fixture = ImmutableList.builder();
         for (int sequence = 1; sequence <= 2250; sequence++) {
-            store.append(envelope(sequence, message("event " + sequence)));
+            fixture.add(envelope(sequence, message("event " + sequence)));
         }
+        store.appendAll(fixture.build());
 
         AgentHistoryPage latest = store.readHistory(taskId, OptionalLong.empty(), OptionalLong.empty());
         assertThat(latest.events()).hasSize(1000);
@@ -374,9 +376,11 @@ class TestFileTaskLogStore
     void readsTheTailOfAGigabyteSparseLogWithoutVisitingItsPrefix()
             throws IOException
     {
+        ImmutableList.Builder<AgentEventEnvelope> fixture = ImmutableList.builder();
         for (int sequence = 1; sequence <= 1001; sequence++) {
-            store.append(envelope(sequence, message("bounded tail")));
+            fixture.add(envelope(sequence, message("bounded tail")));
         }
+        store.appendAll(fixture.build());
         Path file = resources.require(taskId).eventsFile();
         byte[] tail = Files.readAllBytes(file);
         try (FileChannel channel = FileChannel.open(file, StandardOpenOption.WRITE, StandardOpenOption.TRUNCATE_EXISTING)) {
@@ -425,9 +429,11 @@ class TestFileTaskLogStore
     void rejectsCorruptHistoryRecordsAndStillValidatesTheWholeLogOnRecovery()
             throws IOException
     {
+        ImmutableList.Builder<AgentEventEnvelope> fixture = ImmutableList.builder();
         for (int sequence = 1; sequence <= 1001; sequence++) {
-            store.append(envelope(sequence, message("event")));
+            fixture.add(envelope(sequence, message("event")));
         }
+        store.appendAll(fixture.build());
         Path file = resources.require(taskId).eventsFile();
         String valid = Files.readString(file);
         Files.writeString(file, valid.replaceFirst("\"sequence\":1,", "\"sequence\":9,"), StandardOpenOption.TRUNCATE_EXISTING);

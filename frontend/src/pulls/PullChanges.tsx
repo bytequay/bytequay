@@ -868,7 +868,6 @@ function DiffFileCard({
     review: agentReview?.review ?? PLACEHOLDER_REVIEW,
     onReviewChange: agentReview?.onReviewChange ?? (() => {}),
     onNavigate: finding => agentReview?.onOpenInReview(finding.id),
-    onAskReason: () => window.prompt('Why are you resolving this finding locally? (optional)'),
   });
 
   useEffect(() => {

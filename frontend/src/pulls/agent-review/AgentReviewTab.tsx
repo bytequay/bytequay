@@ -367,7 +367,6 @@ export default function AgentReviewTab({
     review: review ?? EMPTY_REVIEW,
     onReviewChange,
     onNavigate: navigate,
-    onAskReason: () => window.prompt('Why are you resolving this finding locally? (optional)'),
   });
   const actions = findingActions.actions;
 

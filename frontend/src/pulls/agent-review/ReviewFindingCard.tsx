@@ -23,7 +23,7 @@ import { askLabel, findingPill, findingPublication, messagesFor, shortPath, shor
 
 export type FindingActions = {
   onAsk: (finding: ReviewFindingDto, message: string) => Promise<void>;
-  onResolve: (finding: ReviewFindingDto) => Promise<void>;
+  onResolve: (finding: ReviewFindingDto, reason: string) => Promise<void>;
   onReopen: (finding: ReviewFindingDto) => Promise<void>;
   onAddToReview: (finding: ReviewFindingDto) => Promise<void>;
   onPostNow: (finding: ReviewFindingDto, body: string) => Promise<void>;
@@ -68,7 +68,7 @@ export default function ReviewFindingCard({
   defaultOpen?: boolean;
 }) {
   const [evidenceOpen, setEvidenceOpen] = useState(false);
-  const [composer, setComposer] = useState<'ask' | 'post' | 'draft' | null>(null);
+  const [composer, setComposer] = useState<'ask' | 'resolve' | 'post' | 'draft' | null>(null);
   const [text, setText] = useState('');
   const [error, setError] = useState<string | null>(null);
   const pill = findingPill(review, finding);
@@ -85,21 +85,23 @@ export default function ReviewFindingCard({
     ? '1 reference'
     : `${finding.evidence.length} references`;
 
-  const openComposer = (kind: 'ask' | 'post' | 'draft', initial: string) => {
+  const openComposer = (kind: Exclude<typeof composer, null>, initial: string) => {
     setError(null);
     setComposer(kind);
     setText(initial);
   };
   const close = () => {
+    setError(null);
     setComposer(null);
     setText('');
   };
   const submit = async () => {
     const body = text.trim();
-    if (body === '') return;
+    if (busy || (body === '' && composer !== 'resolve')) return;
     setError(null);
     try {
       if (composer === 'ask') await actions.onAsk(finding, body);
+      if (composer === 'resolve') await actions.onResolve(finding, body);
       if (composer === 'post') await actions.onPostNow(finding, body);
       if (composer === 'draft') await actions.onEditDraft(finding, body);
       close();
@@ -126,10 +128,12 @@ export default function ReviewFindingCard({
               suggestion={composer === 'post' ? suggestion : composer === 'draft' ? draftSuggestion : undefined}
               autoFocus
               busy={busy}
-              placeholder={composer === 'ask' ? 'Ask the agent about this finding…' : 'Comment text (edits here never change the finding)'}
-              ariaLabel={composer === 'ask' ? 'Ask the agent about this finding' : 'Outgoing comment text'}
-              primaryLabel={composer === 'ask' ? askLabel(review) : composer === 'post' ? 'Post now' : 'Save'}
-              outgoing={composer === 'ask'
+              allowEmpty={composer === 'resolve'}
+              placeholder={composer === 'resolve' ? 'Why are you resolving this finding locally? (optional)'
+                : composer === 'ask' ? 'Ask the agent about this finding…' : 'Comment text (edits here never change the finding)'}
+              ariaLabel={composer === 'resolve' ? 'Resolution reason (optional)' : composer === 'ask' ? 'Ask the agent about this finding' : 'Outgoing comment text'}
+              primaryLabel={composer === 'resolve' ? 'Resolve locally' : composer === 'ask' ? askLabel(review) : composer === 'post' ? 'Post now' : 'Save'}
+              outgoing={composer === 'ask' || composer === 'resolve'
                 ? null
                 : composer === 'post'
                   ? `Posts to GitHub on ${shortPath(finding.path, 28)} ${finding.range} · the head is re-checked on send`
@@ -145,7 +149,7 @@ export default function ReviewFindingCard({
                 onClick={() => openComposer('ask', '')}>Ask agent</button>
               {finding.state === 'OPEN' && (
                 <button type="button" className="agr-action" disabled={busy}
-                  onClick={() => { void actions.onResolve(finding); }}>Resolve locally</button>
+                  onClick={() => openComposer('resolve', '')}>Resolve locally</button>
               )}
               <button type="button" className="agr-action" onClick={() => actions.onNavigate(finding)}>
                 {projection === 'review' ? 'View in Changes' : 'Open in Review & Learning'}

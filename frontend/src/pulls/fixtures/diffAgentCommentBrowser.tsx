@@ -16,6 +16,7 @@ import { createRoot } from 'react-dom/client';
 import type { DiffCommitDto, DiffFileDto, PullRequestDto } from '../../types';
 import { DiffViewer, type DiffAgentComment, type DiffViewerProps } from '../PullChanges';
 import { runTaskInlineCommentScenarios } from './taskInlineCommentBrowser';
+import { resolveFinding } from '../agent-review/fixtures/resolveFindingBrowser';
 
 const settle = () => new Promise<void>(resolve => requestAnimationFrame(() => requestAnimationFrame(() => resolve())));
 function assert(condition: boolean, message: string): asserts condition { if (!condition) throw new Error(message); }
@@ -198,6 +199,7 @@ export async function run(): Promise<{ name: string; error?: string }[]> {
     ...(['missing', 'own PR', 'reviewable PR'] as const).map(mode => [`Shared diff with ${mode} review`, () => privateComment(mode)] as [string, () => Promise<void>]),
     ['Unchanged context preserves full and selected revision pairs', unchangedContent],
     ['Private submission preserves failed and in-flight feedback', asynchronousSubmission],
+    ...(['review', 'changes'] as const).map(projection => [`Resolve finding in ${projection}`, () => resolveFinding(projection)] as [string, () => Promise<void>]),
   ];
   try {
     const results: { name: string; error?: string }[] = [];

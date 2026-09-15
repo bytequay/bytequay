@@ -31,6 +31,7 @@ export default function ReviewComposer({
   suggestion,
   busy = false,
   autoFocus = false,
+  allowEmpty = false,
   onChange,
   onSubmit,
   onCancel,
@@ -45,13 +46,14 @@ export default function ReviewComposer({
   suggestion?: SuggestionBase;
   busy?: boolean;
   autoFocus?: boolean;
+  allowEmpty?: boolean;
   onChange: (value: string) => void;
   onSubmit: () => void;
   onCancel: () => void;
 }) {
   const [preview, setPreview] = useState(false);
   const bodyRef = useRef<HTMLTextAreaElement>(null);
-  const ready = value.trim() !== '' && !busy;
+  const ready = (allowEmpty || value.trim() !== '') && !busy;
 
   const runCommand = (command: MarkdownCommand) => {
     const textarea = bodyRef.current;
@@ -94,6 +96,7 @@ export default function ReviewComposer({
         placeholder={placeholder}
         onChange={event => onChange(event.target.value)}
         onKeyDown={event => {
+          if (busy) return;
           if (event.key === 'Escape') {
             event.preventDefault();
             onCancel();

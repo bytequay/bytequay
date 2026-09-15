@@ -28,13 +28,10 @@ export function useFindingActions({
   review,
   onReviewChange,
   onNavigate,
-  onAskReason,
 }: {
   review: AgentReviewDto;
   onReviewChange: (review: AgentReviewDto) => void;
   onNavigate: (finding: ReviewFindingDto) => void;
-  /** Asks the user why they are resolving; returning null cancels. */
-  onAskReason: () => string | null;
 }): { actions: FindingActions; busy: boolean; error: string | null; clearError: () => void } {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -64,11 +61,9 @@ export function useFindingActions({
     onAsk: (finding, message) => guard(async () => {
       onReviewChange(await window.bridge.askAgentReview(review.id, finding.id, finding.revision, message));
     }, true),
-    onResolve: finding => guard(async () => {
-      const reason = onAskReason();
-      if (reason === null) return;
+    onResolve: (finding, reason) => guard(async () => {
       onReviewChange(await window.bridge.resolveAgentReviewFinding(review.id, finding.id, finding.version, reason));
-    }),
+    }, true),
     onReopen: finding => guard(async () => {
       onReviewChange(await window.bridge.reopenAgentReviewFinding(review.id, finding.id, finding.version));
     }),

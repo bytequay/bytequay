@@ -16,6 +16,8 @@ import { afterEach, expect, it, vi } from 'vitest';
 import { CI_RUN } from './agents/fixtures/ciAutofix';
 import contracts from './agents/fixtures/agent-contracts-v1.json';
 import { parseAgentTask } from './agents/contracts';
+import { parseAgentReview } from './pulls/agent-review/contracts';
+import { runningReviewFixture } from './pulls/agent-review/fixtures/review';
 
 const desktop = vi.hoisted(() => ({
   listeners: new Map<string, () => Promise<void>>(),
@@ -38,7 +40,12 @@ vi.mock('./backendProcess', () => ({
   waitForBackendReady: async () => { throw new Error('End test startup'); },
 }));
 
-afterEach(() => { vi.unstubAllGlobals(); });
+afterEach(() => {
+  vi.clearAllTimers();
+  vi.useRealTimers();
+  vi.restoreAllMocks();
+  vi.unstubAllGlobals();
+});
 
 it('routes CI detail reads and replies to the authenticated CI API', async () => {
   await import('./main');
@@ -80,4 +87,52 @@ it('sends versioned local review actions and preserves the returned private revi
       expect.objectContaining({ method: 'POST', body: JSON.stringify({ expectedVersion: 7 }),
         headers: { 'Content-Type': 'application/json', 'X-ByteQuay-Session': 'test-session' } }));
   }
+});
+
+it.each([
+  { channel: 'review:start', args: ['workspace-1', 'trinodb/trino', 31102] },
+  { channel: 'review:resume', args: ['review-1'] },
+  { channel: 'review:update', args: ['review-1'] },
+  { channel: 'agent:task:local-review:sync', args: ['task-1', 'workspace-1', 7] },
+])('allows a slow Git synchronization to finish through $channel without retrying it', async ({ channel, args }) => {
+  await import('./main');
+  await expect(desktop.listeners.get('ready')?.()).rejects.toThrow('End test startup');
+  vi.useFakeTimers();
+  // Native AbortSignal timers do not use the fake clock. Keep real abort behavior with test-controlled time.
+  vi.spyOn(AbortSignal, 'timeout').mockImplementation(milliseconds => {
+    const controller = new AbortController();
+    setTimeout(() => controller.abort(new DOMException('Request timed out', 'TimeoutError')), milliseconds);
+    return controller.signal;
+  });
+  const review = runningReviewFixture();
+  const local = { task: { ...contracts.task, localReviewHead: 'a'.repeat(40) }, warning: 'Local experiments were discarded because they conflicted with the update.' };
+  const isLocal = channel === 'agent:task:local-review:sync';
+  const fetch = vi.fn((_url: string, init?: RequestInit) => new Promise<Response>((resolve, reject) => {
+    init?.signal?.addEventListener('abort', () => reject(init.signal?.reason), { once: true });
+    setTimeout(() => resolve(new Response(JSON.stringify(isLocal ? local : review), {
+      headers: { 'Content-Type': 'application/json' },
+    })), 65_000);
+  }));
+  vi.stubGlobal('fetch', fetch);
+  const handler = desktop.handlers.get(channel);
+  expect(handler).toBeDefined();
+  const result = handler?.({}, ...args).then(value => ({ value }), error => ({ error }));
+
+  await vi.advanceTimersByTimeAsync(65_000);
+
+  expect(await result).toEqual({ value: isLocal ? { task: parseAgentTask(local.task), warning: local.warning } : parseAgentReview(review) });
+  expect(fetch).toHaveBeenCalledTimes(1);
+  expect(fetch).toHaveBeenCalledWith(expect.any(String), expect.objectContaining({ method: 'POST' }));
+});
+
+it('still reports a refused review update without retrying it', async () => {
+  await import('./main');
+  await expect(desktop.listeners.get('ready')?.()).rejects.toThrow('End test startup');
+  const fetch = vi.fn(async () => new Response(JSON.stringify({ message: 'The review task is busy' }), {
+    status: 409, headers: { 'Content-Type': 'application/json' },
+  }));
+  vi.stubGlobal('fetch', fetch);
+
+  await expect(desktop.handlers.get('review:update')?.({}, 'review-1')).rejects.toThrow('The review task is busy');
+  expect(fetch).toHaveBeenCalledTimes(1);
 });

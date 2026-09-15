@@ -684,7 +684,9 @@ function registerIpc(): void {
   }
   ipcMain.handle('agent:task:local-review:sync', async (_event, taskId: string, workspaceId: string, expectedVersion: number) =>
     parseAgentLocalReviewSync(await backendJson(`${backendBase()}/agent/tasks/${encodeURIComponent(taskId)}/local-review/sync`
-      + `?${new URLSearchParams({ workspaceId })}`, jsonInit('POST', { expectedVersion }, agentHeaders(true)))));
+      + `?${new URLSearchParams({ workspaceId })}`, {
+      ...jsonInit('POST', { expectedVersion }, agentHeaders(true)), signal: AbortSignal.timeout(15 * 60_000),
+    })));
   ipcMain.handle('agent:turns:steer', (_event, request: SteerAgentTurnRequest) =>
     backendJson(`${backendBase()}/agent/turns/${encodeURIComponent(request.turnId)}/steer`, {
       method: 'POST',
@@ -859,8 +861,9 @@ function registerIpc(): void {
     if (!response.ok) throw new Error(extractMessage(await response.text().catch(() => '')) || `Review lookup returned ${response.status}`);
     return parseAgentReview(await response.json());
   });
+  // Starting or updating a review fetches remote refs and waits for provider startup before responding.
   ipcMain.handle('review:start', (_event, workspaceId: string, repo: string, number: number) =>
-    review('', {}, { method: 'POST', body: JSON.stringify({ workspaceId, repo, number }) }));
+    review('', {}, { method: 'POST', body: JSON.stringify({ workspaceId, repo, number }), signal: AbortSignal.timeout(15 * 60_000) }));
   ipcMain.handle('review:get', (_event, reviewId: string) => review(`/${encodeURIComponent(reviewId)}`));
   ipcMain.handle('review:stop', (_event, reviewId: string) => review(`/${encodeURIComponent(reviewId)}/stop`, {}, { method: 'POST' }));
   ipcMain.handle('review:runtime:stop-impact', (_event, reviewId: string) =>
@@ -870,8 +873,10 @@ function registerIpc(): void {
     review(`/${encodeURIComponent(reviewId)}/runtime/stop`, {}, {
       method: 'POST', body: JSON.stringify({ generation }), signal: AbortSignal.timeout(90_000),
     }));
-  ipcMain.handle('review:resume', (_event, reviewId: string) => review(`/${encodeURIComponent(reviewId)}/resume`, {}, { method: 'POST' }));
-  ipcMain.handle('review:update', (_event, reviewId: string) => review(`/${encodeURIComponent(reviewId)}/update`, {}, { method: 'POST' }));
+  ipcMain.handle('review:resume', (_event, reviewId: string) =>
+    review(`/${encodeURIComponent(reviewId)}/resume`, {}, { method: 'POST', signal: AbortSignal.timeout(15 * 60_000) }));
+  ipcMain.handle('review:update', (_event, reviewId: string) =>
+    review(`/${encodeURIComponent(reviewId)}/update`, {}, { method: 'POST', signal: AbortSignal.timeout(15 * 60_000) }));
   ipcMain.handle('review:end', (_event, reviewId: string) => review(`/${encodeURIComponent(reviewId)}/end`, {}, { method: 'POST' }));
   ipcMain.handle('review:ask', (_event, reviewId: string, findingId: string | null, targetRevision: number, message: string, cardId?: string) =>
     review(`/${encodeURIComponent(reviewId)}/questions`, {}, {

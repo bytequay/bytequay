@@ -366,5 +366,5 @@
   outline-offset: 2px;
 }
 
-/* The shared diff editor owns the textarea’s blue focus border and halo. */
-.agr-composer textarea:focus-visible { outline: 0; }
+/* The shared diff editor and the embedded agent composer draw their own focus on the enclosing card. */
+:is(.agr-composer textarea, .agr-pane .agt-compose__input):focus-visible { outline: 0; }

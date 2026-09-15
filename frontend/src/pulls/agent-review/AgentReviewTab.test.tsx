@@ -487,6 +487,7 @@ describe('styles', () => {
       ':is(.agr-pane, .agr-empty, .agr-finding, .agr-composer) :is(a, button, summary, textarea):focus-visible');
     expect(ring).toContain('outline: 2px solid var(--control-strong)');
     expect(ring).toContain('outline-offset: 2px');
+    expect(declarations(':is(.agr-composer textarea, .agr-pane .agt-compose__input):focus-visible')).toEqual(['outline: 0']);
   });
 
   it('stops the spinner for a reader who asked for less motion', () => {

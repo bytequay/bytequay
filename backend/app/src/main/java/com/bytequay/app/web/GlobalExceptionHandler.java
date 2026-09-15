@@ -23,6 +23,9 @@ import com.bytequay.agent.core.InvalidAgentRequestException;
 import com.bytequay.agent.core.QueuedInputNotFoundException;
 import com.bytequay.agent.spi.AgentProviderUnavailableException;
 import com.bytequay.agent.spi.AgentUnavailableException;
+import com.bytequay.app.context.ContextConflictException;
+import com.bytequay.app.context.ContextNotFoundException;
+import com.bytequay.app.context.ContextStorageException;
 import com.bytequay.app.workspace.WorkspaceException;
 import com.bytequay.core.cherrypick.CherryPickConflictException;
 import com.bytequay.core.cherrypick.CherryPickInvalidRequestException;
@@ -144,6 +147,7 @@ public class GlobalExceptionHandler
             CherryPickNotFoundException.class,
             CiAutofixNotFoundException.class,
             ReviewNotFoundException.class,
+            ContextNotFoundException.class,
             NoResourceFoundException.class})
     public ResponseEntity<ErrorResponse> handleNotFound(Exception exception, HttpServletRequest request)
     {
@@ -155,6 +159,21 @@ public class GlobalExceptionHandler
             RuntimeException exception, HttpServletRequest request)
     {
         return errorResponse(HttpStatus.CONFLICT.value(), exception.getMessage(), request.getRequestURI());
+    }
+
+    @ExceptionHandler(ContextConflictException.class)
+    public ResponseEntity<ContextConflictResponse> handleContextConflict(ContextConflictException exception)
+    {
+        return ResponseEntity.status(HttpStatus.CONFLICT)
+                .body(new ContextConflictResponse(exception.getMessage(), exception.currentRevision()));
+    }
+
+    @ExceptionHandler(ContextStorageException.class)
+    public ResponseEntity<ErrorResponse> handleContextStorage(ContextStorageException exception, HttpServletRequest request)
+    {
+        log.error("Repository context storage failed: {}", request.getRequestURI(), exception);
+        return errorResponse(HttpStatus.INTERNAL_SERVER_ERROR.value(),
+                "Saved repository context could not be read or saved. Reload before retrying.", request.getRequestURI());
     }
 
     @ExceptionHandler(AgentProviderUnavailableException.class)
@@ -257,4 +276,6 @@ public class GlobalExceptionHandler
             String path) {}
 
     public record WorkspaceErrorResponse(String code, String message, boolean retryable) {}
+
+    public record ContextConflictResponse(String message, long currentRevision) {}
 }

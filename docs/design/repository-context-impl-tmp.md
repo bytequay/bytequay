@@ -4,9 +4,11 @@ Approved behavior is defined in [Repository Context](repository-context.md). Sta
 design review with its [Overall flow](repository-context.md#2-overall-flow).
 This temporary file tracks delivery; it does not define a second architecture.
 
-Only document preparation is complete. No Repository Context application code,
-provider acceptance, performance result, or quality improvement is claimed.
-Unchecked items are pending, even when related infrastructure already exists.
+Implementation has started with the notebook values, local settings persistence,
+editing API, and discussion-source binding. Automatic preparation, review input,
+the settings/display UI, and provider acceptance remain pending. The stored
+default-on preference does not yet change review execution. Unchecked items are
+pending, even when related infrastructure already exists.
 
 ## Working rules
 
@@ -60,26 +62,29 @@ design. Approval here concerns the design, not evidence that a feature works.
 
 ## CP1 — Notebook values and local persistence
 
-- [ ] Add bounded core values and the concrete application service without a
+- [x] Add bounded core values and the concrete application service without a
   new Maven module, generic tool framework, or context database.
-- [ ] Store the current notebook under the workspace settings key; distinguish
+- [x] Store the current notebook under the workspace settings key; distinguish
   absent, empty, and corrupt JSON without silently resetting corrupt content.
-- [ ] Persist useInReviews with default true and guarded settings edits.
+- [x] Persist useInReviews with default true and guarded settings edits.
   Switching off preserves content and does not launch or cancel work.
-- [ ] Implement explicit sources/scopes, stable entry IDs, source evidence,
+- [x] Implement explicit sources/scopes, stable entry IDs, source evidence,
   content and entry revisions, and generated/user ownership.
-- [ ] Implement edit, disable, removal suppression, explicit reset, and Save
+- [x] Implement edit, disable, removal suppression, explicit reset, and Save
   lesson; preserve the supporting excerpt before source/runtime retention.
-  Removing an edited knowledge note retains suppression; Reset clears the
-  missing note's preparation so an old READY result cannot block regeneration.
-- [ ] Make source/scope edits and all entry mutations use one workspace lock
+  Removing an edited knowledge note retains suppression.
+- [ ] Extend Reset when preparation records are introduced: clear the missing
+  note's preparation so an old READY result cannot block regeneration.
+- [x] Make source/scope edits and all entry mutations use one workspace lock
   and expected content revision. No model/network/Git work holds the lock or
   a database connection.
-- [ ] Apply all byte/count bounds, prune only unreferenced notebook evidence,
-  and preserve user content on failed or stale generated updates.
+- [x] Apply notebook byte/count bounds and prune only unreferenced notebook
+  evidence; reject invalid and stale local edits without replacing saved content.
+- [ ] Preserve user content on failed or stale generated updates when generation
+  is introduced in CP3.
 - [ ] Add the review context JSON mapping to the current run entity/store;
   reuse its existing evidence map and optimistic update behavior.
-- [ ] Integrate explicit workspace deletion and retained-workspace behavior;
+- [x] Integrate explicit workspace deletion and retained-workspace behavior;
   ordinary runtime cleanup must not delete notebooks or review evidence.
 
 Gate: persistence round-trips; missing/corrupt/empty distinction; stale editor
@@ -162,9 +167,11 @@ GitHub publication, credential-read, and development-delivery authority.
   existing report repair, replay, coverage, incomplete, and cursor behavior.
 - [ ] Bind old-card discussions to their source run and capture relevant new
   discussion evidence at actual queued/immediate turn execution.
-- [ ] Persist the Ask-agent message's source run/revision before start/enqueue,
-  then attach delivery IDs. Exercise an idle question about an older card and
-  admission failure/retry, as well as queued execution.
+- [x] Persist the Ask-agent message's source run/revision before start/enqueue,
+  then attach delivery IDs. Exercise an idle question about an older card,
+  rejected admission, accepted-but-error recovery, and queued execution.
+- [ ] Add explicit retry and restart reconciliation for a saved Ask-agent
+  message whose delivery remains uncertain, without resending accepted input.
 - [ ] Persist exact supplied text, sizes/digests, source versions, omissions,
   delivery outcome, actual retrievals and citations. Preserve delivery uncertainty.
 - [ ] Keep the small trusted instruction policy separate from untrusted notes;
@@ -235,18 +242,22 @@ small acceptance sample, not a guarantee that review judgments are correct.
 
 ## CP7 — Required checks and enablement
 
-- [ ] In `backend/`: `mvn verify` with the checked-in Checkstyle gate.
-- [ ] In `frontend/`: `npm run lint`, `npx tsc --noEmit`, `npm test`, and
-  `npm run package` for the material implementation.
-- [ ] Record exact results and any existing/unresolved failures; do not mask
-  unrelated tests or treat skipped authentication checks as acceptance.
+- [x] In `backend/`: `mvn verify` with the checked-in Checkstyle gate for the
+  current increment; full-run failures and successful affected-suite rerun are
+  recorded below. Repeat for subsequent implementation changes.
+- [x] In `frontend/`: `npm run lint`, `npx tsc --noEmit`, `npm test`, and
+  `npm run package` for the current increment. Repeat for material changes.
+- [x] Record exact results for the current increment and any existing/unresolved
+  failures; do not mask unrelated tests or treat skipped authentication checks
+  as acceptance.
 - [ ] Complete the provider-specific acceptance above before enabling that lane.
   Ship default on and keep the workspace Off switch for ordinary new reviews.
   Preserve saved notebook/run data; do not run comparisons for users automatically.
 - [ ] Reconcile Agent Review, Agent Service, Managed Agent Skills, task UI,
   persistence, and workspace-deletion descriptions with the shipped behavior.
-- [ ] Review final changes and remove speculative scaffolding, duplicate source
-  caches, redundant status models and unsupported completion claims.
+- [x] Review this increment and remove speculative scaffolding, duplicate source
+  caches, redundant status models and unsupported completion claims. Repeat
+  before final enablement.
 
 Exit: agreed behavior is implemented, required checks and intended live lanes
 pass, UI evidence is reviewable, and limitations are explicit. This temporary
@@ -255,11 +266,20 @@ it must not become a second source of product behavior.
 
 ## Evidence and open items
 
-Document-only verification belongs here until implementation begins. Add exact
-commands/results and evidence paths as checkpoints are completed.
+Record exact commands/results and evidence paths as checkpoints are completed.
+Required checks below describe the current increment, not full feature acceptance.
 
 - User authorized implementation of the agreed flow and default-on workspace switch.
-- Implementation and real-provider/performance/quality evidence: not started.
+- The design was committed as `42ea674d9` (`Define repository context for agent
+  reviews`). Implementation is isolated on `codex/repository-context` in
+  `.worktrees/repository-context`.
+- The first increment uses the existing `AppSettingsStore` and SQLite adapter;
+  there is no new database or schema entity. It adds local configuration, note
+  editing, enable/disable, removal/reset, explicit saved lessons, and workspace
+  deletion integration. GET does not build notes or create a settings row.
+- The current notebook intentionally omits preparation/build/execution fields
+  until CP3 provides their behavior. No placeholder builder endpoint is exposed.
+- Real-provider, performance, and review-quality comparisons have not started.
 - Independent integration/storage reviews resolved preparation replay ordering,
   suppression/reset, source page selection, atomic review save, builder identity
   and completion, prelaunch discussion binding, and frozen-context supplements.
@@ -267,5 +287,43 @@ commands/results and evidence paths as checkpoints are completed.
   targets/anchors, fence pairs, whitespace, and absence of conflict markers pass.
   External documentation entry links resolve. `git -c core.fsmonitor=false diff
   --check` passed; a separate whitespace check covered the new untracked files.
-- Full backend/frontend implementation gates were not run for this documentation
-  change. All application implementation and enablement boxes remain unchecked.
+- No user-data database or live provider was used during verification. Test
+  databases and repository fixtures are disposable.
+- Independent implementation review covered revision locking, serialization,
+  provenance, deletion, required HTTP fields, and discussion binding. Copied
+  review evidence retains its original source/provenance/explanation; reviewed
+  HEAD is explicitly labeled and is never substituted for a source version.
+- Backend: ran `mvn -B verify` with the checked-in gates. The sandboxed attempt
+  could not inspect process groups; the unrestricted full run reached all
+  modules. It exposed final-record mocks in the new notebook test fixture and
+  three existing `TestAgentHttpApi` continuation timeouts. The fixture now uses
+  real records. No production workaround, skipped test, timeout increase, or
+  mock-maker change was introduced.
+- Backend rerun: `mvn -B -pl app -am verify
+  -Dtest=TestRepositoryContextService,TestAgentHttpApi
+  -Dsurefire.failIfNoSpecifiedTests=false` passed both affected suites and the
+  build gates. Full-run plus rerun reports contain 2,205 passing tests with no
+  remaining errors, failures, or skips. This is combined evidence, not a claim
+  that the first full invocation passed. Evidence:
+  `/private/tmp/bytequay-repository-context-backend-verify-final.log` and
+  `/private/tmp/bytequay-repository-context-backend-verify-rerun.log`.
+- Relevant passing suites: notebook service 13, HTTP controller 9, real SQLite
+  persistence 4, workspace deletion 11, and review service 59. Persistence
+  coverage includes service recreation and unwatch; it is not a manual app
+  restart or provider acceptance exercise.
+- Frontend `npm run lint` and `npx --no-install tsc --noEmit` passed. `npm test`
+  passed all 80 files / 901 tests after rerunning Electron fixtures with normal
+  process access; sandboxed Electron launches had aborted. Evidence:
+  `/private/tmp/bytequay-repository-context-lint.log`,
+  `/private/tmp/bytequay-repository-context-types.log`, and
+  `/private/tmp/bytequay-repository-context-frontend-tests.log`.
+- Frontend `npm run package` passed and produced
+  `frontend/out/ByteQuay-darwin-arm64/ByteQuay.app`. The sandboxed attempt could
+  not resolve GitHub for Electron's packaging artifact; the normal-access
+  rerun succeeded. Evidence:
+  `/private/tmp/bytequay-repository-context-package-final.log`.
+  Dependencies and the pinned CodeGraph bundle are reused through local
+  ignored links; package manifests and lockfiles are unchanged.
+- Next: finish CP1's review-run context mapping, then local selection/source
+  reads in CP2. Preparation outcomes, generation fencing, automatic review
+  delivery, notebook UI, and the small-PR On/Off comparison remain pending.

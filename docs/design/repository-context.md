@@ -2,7 +2,8 @@
 
 Status: approved implementation design. The user authorized development from
 this design, including default-on review use and the workspace Off switch.
-No feature implementation or provider/performance acceptance is claimed.
+Implementation progress and provider/performance acceptance are recorded in
+the linked checklist; this contract alone does not establish those results.
 
 **Start with [Overall flow](#2-overall-flow).** Delivery checkpoints and evidence
 belong in [the temporary implementation plan](repository-context-impl-tmp.md).
@@ -481,20 +482,18 @@ Field rules:
 ~~~json
 {
   "id": "source-connector-doc",
-  "kind": "DOCUMENT",
   "reference": {
+    "kind": "DOCUMENT",
     "sourceId": "docs-trino",
     "url": "https://trino.io/docs/current/connector/iceberg.html"
   },
-  "observed": {
-    "version": "version verified for the target",
-    "contentHash": "sha256:illustrative-content",
-    "retrievedAt": null
-  },
+  "provenance": "Selected documentation page captured through the registered source reader.",
   "capture": "BYTEQUAY_READ",
   "excerpt": "Bounded relevant source text.",
-  "truncated": false,
-  "unavailableReason": null
+  "retrievedAt": null,
+  "contentHash": "sha256:illustrative-content",
+  "version": "version verified for the target",
+  "truncated": false
 }
 ~~~
 
@@ -512,8 +511,12 @@ JSON reference is a tagged union:
 Optional fields serialize as null or absent according to the existing DTO
 convention; domain Java uses Optional. retrievedAt is populated for an actual
 read; null in this illustrative example is not an actual successful capture.
-capture is BYTEQUAY_READ or AGENT_REPORTED. A failed read has an unavailable
-reason; it cannot manufacture a successful excerpt or empty-result proof.
+capture is BYTEQUAY_READ or AGENT_REPORTED. A failed read returns an unavailable
+reason in the source result's gaps; it creates no successful retained excerpt
+or empty-result proof. BYTEQUAY_READ for a REVIEW reference means the application
+captured the stored review record, not that it independently verified the
+record's original upstream source. Keep its source label, provenance and
+explanation with the copied excerpt.
 
 ### 4.3 Preparation facts: never built, empty, failed, or no match
 
@@ -1592,14 +1595,20 @@ Use the current authenticated Electron transport; proposed endpoints are:
 | Method/path | Purpose |
 | --- | --- |
 | GET /api/workspaces/{workspaceId}/repository-context | Local notebook and preparation view |
-| PUT /api/workspaces/{workspaceId}/repository-context/entries/{entryId} | Edit fields/enable flag with expectedRevision |
-| DELETE /api/workspaces/{workspaceId}/repository-context/entries/{entryId} | Remove/suppress with expectedRevision |
+| PUT /api/workspaces/{workspaceId}/repository-context/entries | Edit fields with id and expectedRevision in the body |
+| PUT /api/workspaces/{workspaceId}/repository-context/entries/enabled | Change enabled with entryId and expectedRevision in the body |
+| DELETE /api/workspaces/{workspaceId}/repository-context/entries | Remove/suppress with entryId and expectedRevision in the body |
 | POST /api/workspaces/{workspaceId}/repository-context/lessons | Explicit edited Save lesson |
 | PUT /api/workspaces/{workspaceId}/repository-context/configuration | Edit useInReviews and/or registered source roots/scopes with expectedRevision |
 | POST /api/workspaces/{workspaceId}/repository-context/reset | Explicit selected suppression reset with expectedRevision |
 | POST /api/workspaces/{workspaceId}/repository-context/build | Scoped Build/Refresh, requestKey, expectedRevision, expectedBuildSequence and provider choices |
 
 Source editing uses the same guarded mutation semantics as entry editing.
+Entry IDs travel in request bodies because canonical knowledge IDs contain
+repository paths and slashes; they are not URL path segments. Every mutation
+requires an explicit nonnegative expectedRevision rather than defaulting a
+missing field to zero. Source/excerpt provenance, generated origin and entry
+versions remain assigned by the backend.
 Reuse existing task/turn endpoints for transcript, Stop, approvals and runtime
 recovery through an ownership-checked context-build route/adapter if interactive
 routes exclude workflow tasks. Do not weaken those interactive ownership guards.

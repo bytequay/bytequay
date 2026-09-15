@@ -35,6 +35,13 @@ with GitHub, stores durable local state in SQLite, and hosts the implemented
 worktree-scoped agent service. Its implemented rich task surface is specified
 in [Agent Task UI Design](agent-task-ui.md).
 
+[Repository Context](repository-context.md) stores the workspace notebook in the
+existing application-settings port. Bounded values live in core; local editing,
+source capture from retained review evidence, and HTTP live in app. Explicit
+workspace deletion clears the notebook after existing ownership checks.
+Automatic preparation, review input delivery and the settings UI have separate
+implementation gates; the notebook foundation does not enable those behaviors.
+
 [Development delivery](development-delivery.md) extends the current agent core
 through one application coordinator. Core reserves its source owner after a
 verified stopped turn, and the coordinator drives generated commit/publication

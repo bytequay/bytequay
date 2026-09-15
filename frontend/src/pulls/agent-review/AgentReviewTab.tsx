@@ -426,8 +426,22 @@ export default function AgentReviewTab({
     const text = composer.trim();
     if (text === '') return;
     const key = `review-${delivery.toLowerCase()}:${review.id}:${text.length}:${Date.now()}`;
-    onReviewChange(await window.bridge.messageAgentReview(review.id, text, delivery, key));
+    if (delivery !== 'TURN') {
+      onReviewChange(await window.bridge.messageAgentReview(review.id, text, delivery, key));
+      setComposer('');
+      return;
+    }
+    // A new turn's message moves into the conversation at once; its durable event replaces it there.
+    dispatchConversation({ type: 'message/sent', text });
     setComposer('');
+    try {
+      onReviewChange(await window.bridge.messageAgentReview(review.id, text, delivery, key));
+    }
+    catch (failure) {
+      dispatchConversation({ type: 'message/cleared' });
+      setComposer(composer);
+      throw failure;
+    }
   });
 
   return (
@@ -604,6 +618,7 @@ export default function AgentReviewTab({
           onOpenReview={onOpenReview}
           localReview={localReview === undefined ? undefined : { ...localReview, threads: localReview.threads.filter(thread => thread.taskId === review.task.id) }}
           events={events}
+          pendingMessage={conversation.pendingMessage}
           turns={turns}
           models={models}
           pendingApprovals={approvals}

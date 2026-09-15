@@ -124,7 +124,12 @@ export interface AgentTaskState {
   queue: AgentQueuedInputDto[];
   /** The immutable task lane's normalized feature shape. Unknown capabilities grant nothing. */
   capabilities: AgentCapabilitiesDto | null;
+  /** A sent message shown as local request progress until its durable event arrives; never a transcript event. */
+  pendingMessage: PendingMessage | null;
 }
+
+/** What was sent, and the live sequence it was sent after: the next user message beyond it is its durable copy. */
+export type PendingMessage = { text: string; attachments: AgentAttachmentDto[]; after: number };
 
 export type AgentTaskAction =
   | { type: 'task/loaded'; task: AgentTaskDto }
@@ -140,6 +145,8 @@ export type AgentTaskAction =
   | { type: 'attachments/removed'; attachmentId: string }
   | { type: 'attachments/cleared' }
   | { type: 'composer/sending'; sending: boolean }
+  | { type: 'message/sent'; text: string; attachments?: AgentAttachmentDto[] }
+  | { type: 'message/cleared' }
   | { type: 'settings/loaded'; settings: AgentTurnSettingsDto }
   | { type: 'notice/changed'; notice: string | null }
   | { type: 'queue/loaded'; queue: AgentQueuedInputDto[] }
@@ -170,6 +177,7 @@ export function initialAgentTaskState(): AgentTaskState {
     notice: null,
     queue: [],
     capabilities: null,
+    pendingMessage: null,
   };
 }
 
@@ -209,6 +217,10 @@ export function agentTaskReducer(state: AgentTaskState, action: AgentTaskAction)
       return { ...state, attachments: [] };
     case 'composer/sending':
       return { ...state, sending: action.sending };
+    case 'message/sent':
+      return { ...state, pendingMessage: { text: action.text, attachments: action.attachments ?? [], after: state.lastSequence } };
+    case 'message/cleared':
+      return { ...state, pendingMessage: null };
     case 'notice/changed':
       return { ...state, notice: action.notice };
     case 'queue/loaded':
@@ -224,7 +236,7 @@ export function agentTaskReducer(state: AgentTaskState, action: AgentTaskAction)
     case 'capabilities/loaded':
       return { ...state, capabilities: action.capabilities };
     case 'events/applied':
-      return applyEvents(state, action.events);
+      return withoutDeliveredMessage(applyEvents(state, action.events));
     case 'events/observed':
       return observeEvents(state, action.events);
     case 'live/changed':
@@ -232,10 +244,18 @@ export function agentTaskReducer(state: AgentTaskState, action: AgentTaskAction)
         latestTurnSettled: action.turnId !== null && action.turnId !== state.latestTurnId ? false : state.latestTurnSettled, lifecycleEpoch: state.lifecycleEpoch + 1,
         developmentProgress: action.turnId !== null && action.turnId !== state.latestTurnId ? { sequence: action.sequence, message: '' } : state.developmentProgress };
     case 'history/loaded':
-      return applyHistoryPage(state, action.page, action.direction, action.earlier);
+      return withoutDeliveredMessage(applyHistoryPage(state, action.page, action.direction, action.earlier));
     default:
       return state;
   }
+}
+
+/** Sends wait for an idle task, so the first user message past the send point is the sent one. */
+function withoutDeliveredMessage(state: AgentTaskState): AgentTaskState {
+  const pending = state.pendingMessage;
+  return pending !== null && state.events.some((event) => event.type === 'user_message' && event.sequence > pending.after)
+    ? { ...state, pendingMessage: null }
+    : state;
 }
 
 /** The live cursor and current turn are independent of the part of history being inspected. */

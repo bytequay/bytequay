@@ -211,6 +211,29 @@ describe('applying events', () => {
   });
 });
 
+describe('sending a message', () => {
+  const page = (events: AgentEventEnvelope[]): AgentHistoryPageDto => ({ events, beforeCursor: null, afterCursor: null, latestSequence: events.at(-1)?.sequence ?? 0 });
+
+  it('shows the sent message until a user message after its send point arrives', () => {
+    let state = agentTaskReducer(apply(initialAgentTaskState(), stream(1, 2)), { type: 'message/sent', text: 'Next step' });
+    expect(state.pendingMessage).toEqual({ text: 'Next step', attachments: [], after: 2 });
+
+    // The earlier user message at sequence 1 is not the one just sent.
+    state = agentTaskReducer(state, { type: 'history/loaded', direction: 'latest', page: page(stream(1, 2)) });
+    expect(state.pendingMessage).not.toBeNull();
+
+    const durable: AgentEventEnvelope = { ...all[0], eventId: 'durable-message', sequence: 3, turnId: 'next-turn' };
+    state = agentTaskReducer(state, { type: 'history/loaded', direction: 'latest', page: page([...stream(1, 2), durable]) });
+    expect(state.pendingMessage).toBeNull();
+  });
+
+  it('drops the sent message when the send fails', () => {
+    const sent = agentTaskReducer(initialAgentTaskState(), { type: 'message/sent', text: 'Next step' });
+
+    expect(agentTaskReducer(sent, { type: 'message/cleared' }).pendingMessage).toBeNull();
+  });
+});
+
 describe('tracking the turn from events', () => {
   it('names the turn the events belong to and settles it on its terminal lifecycle', () => {
     const started = apply(initialAgentTaskState(), stream(1, 2, 3));

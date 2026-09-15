@@ -16,6 +16,7 @@ import type { ReviewRequestTarget } from '../../agents/ReviewRequestCard';
 import { AgentConversation, ConversationComposer, ConversationQueue, useConversationHistory, type ConversationHistory, type ConversationQueuedInput } from '../../agents/AgentConversation';
 import { projectTranscript, withApprovalAuthority } from '../../agents/transcript';
 import type { AgentEventEnvelope } from '../../agents/events';
+import type { PendingMessage } from '../../agents/model';
 import type { AgentApprovalDecision, AgentPendingApprovalDto, AgentStreamConnectionState, AgentTurnDto, ModelOptionDto } from '../../types';
 import type { AgentReviewDto } from './contracts';
 import type { LocalReviewThreads } from '../local-review/types';
@@ -26,7 +27,7 @@ const EMPTY_HISTORY: ConversationHistory = { before: null, after: null, loading:
 /** Review owns its scoped actions; Tasks owns the shared conversation presentation. */
 export default function ReviewActivity({
   review, events, turns, models, pendingApprovals, now, composer, busy,
-  localReview, onOpenReview,
+  localReview, onOpenReview, pendingMessage = null,
   connection = 'open', history = EMPTY_HISTORY, lastSequence = events.at(-1)?.sequence ?? 0,
   onCompose, onSend, onSteer, onQueue, onStop, onDecide, onRemoveQueued,
 }: {
@@ -34,6 +35,7 @@ export default function ReviewActivity({
   localReview?: LocalReviewThreads;
   onOpenReview?: (target: ReviewRequestTarget) => void;
   events: AgentEventEnvelope[];
+  pendingMessage?: PendingMessage | null;
   turns: Record<string, AgentTurnDto>;
   models: ModelOptionDto[];
   pendingApprovals: AgentPendingApprovalDto[];
@@ -61,14 +63,14 @@ export default function ReviewActivity({
   const recovery = reviewRecoveryRequired(review);
   const waiting = review.pendingApprovals > 0 || pendingApprovals.length > 0;
   const ready = composer.trim() !== '' && !busy && !recovery && review.state !== 'CLOSED' && connection === 'open';
-  const send = (): void => { scroll.changeFollowing(true); onSend(); };
+  const send = (): void => { scroll.followSend(); onSend(); };
   const steer = (): void => { scroll.changeFollowing(true); onSteer(); };
 
   return (
     <AgentConversation
       turns={projected} durableTurns={turns} models={models} now={now} scroll={scroll}
       localReview={localReview} reviewRequests={reviewRequests(review)} onOpenReview={onOpenReview}
-      connection={connection} running={running} activeTurn={review.activeTurn} waiting={waiting}
+      connection={connection} running={running} activeTurn={review.activeTurn} waiting={waiting} pendingMessage={pendingMessage}
       activityChoice={activityChoice} turnChoice={turnChoice} pendingApprovals={pendingApprovals}
       generatedTurnIds={new Set(review.byteQuayTurnIds)} label="Review agent conversation"
       onToggleTurn={(id, open) => setTurnChoice(choices => ({ ...choices, [id]: open }))}

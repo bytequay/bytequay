@@ -93,7 +93,12 @@ The conversation starts at the latest activity and follows new messages until
 the user scrolls up. Layout changes and automatic scroll anchoring never pause
 live updates. Scroll down to load newer pages and resume following at the bottom;
 there are no **Load newer activity** or **Jump to latest** buttons. Sending or
-steering a message also resumes following. Archive and Restore in the task
+steering a message also resumes following. A sent message appears at once as
+local request progress, marked **Sending…**, until its durable user-message
+event replaces it in place; a failed send removes it and restores the draft.
+From the live edge it glides from the bottom to the top of the transcript,
+leaving the latest turn's viewport for the reply; reduced motion skips the
+glide. Archive and Restore in the task
 header are icons with matching hover tooltips and accessible names.
 
 While an adjacent page loads, scrolling updates the saved visible passages.

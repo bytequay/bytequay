@@ -1043,7 +1043,7 @@ export function AgentTaskBody({
   const scroll = useConversationHistory(state.events, state.turn?.endedAt, {
     before, after, loading: historyLoading, onLoad: onLoadHistory, onFollow: onFollowHistory,
   });
-  const { following, changeFollowing, loadHistory } = scroll;
+  const { following, changeFollowing, followSend, loadHistory } = scroll;
   const pendingIds = new Set(pendingApprovals?.map((approval) => approval.approvalId) ?? []);
   const project = (threadId: string | null): TranscriptTurn[] => {
     const atLatest = after === null && (following || (state.events.at(-1)?.sequence ?? 0) >= state.lastSequence);
@@ -1057,7 +1057,7 @@ export function AgentTaskBody({
       ? settleFinalTurn(turn, state.task?.terminalAt ?? null, state.task?.state === 'COMPLETED')
       : turn
   ));
-  const onSend = (): void => { changeFollowing(true); send(); };
+  const onSend = (): void => { followSend(); send(); };
   const onSteer = (): void => { changeFollowing(true); steer(); };
   const supportsNestedAgents = state.capabilities?.nestedAgentActivity === true;
   const agents = supportsNestedAgents ? projectAgents(state.events, state.historyPages.length === 0 ? undefined : state.turn?.state === 'RUNNING' ? state.turn.id : null, after === null) : [];
@@ -1229,7 +1229,7 @@ export function AgentTaskBody({
         localReview={localReview} onOpenReview={onOpenReview}
         generatedBranch={state.task?.generatedBranch}
         connection={state.connection} running={status === 'running'} activeTurn={state.turn} activeTurnId={state.turn?.id ?? state.latestTurnId}
-        waiting={waiting} gap={state.gap} activityChoice={activityChoice} turnChoice={turnChoice}
+        waiting={waiting} gap={state.gap} pendingMessage={state.pendingMessage} activityChoice={activityChoice} turnChoice={turnChoice}
         previews={previews} agentLabels={agentLabels} pendingApprovals={pendingApprovals ?? []}
         onToggleTurn={onToggleTurn} onToggleActivity={onToggleActivity} onDecide={onDecide} onOpenAgent={onOpenAgent}
         transcriptFooter={working.length > 0 && (
@@ -1893,6 +1893,7 @@ export default function AgentTaskScreen({
       catch {
         // The accepted turn is still authoritative; lifecycle replay can repair this projection.
       }
+      return turn;
     }
     catch (failure) {
       recordProviderUnavailable(failure);
@@ -1939,21 +1940,25 @@ export default function AgentTaskScreen({
     if (message.length === 0 || task === null) return;
     const attachmentIds = state.attachments.map((attachment) => attachment.id);
     const idempotencyKey = submissions.keyFor('send', taskId, taskId, message, attachmentIds, { ...task.defaults, developmentAutomation: submissionAutomation });
-    // The backend publishes the user-message event on acceptance, seconds before a development turn's
-    // request returns, so the draft leaves the composer now instead of sitting there beside it. The
-    // transcript still waits for that durable event rather than inventing it. Restoring the draft
+    // The draft moves into the transcript at once, as local progress its durable user-message event
+    // replaces; a development turn's request can return seconds after that event. Restoring the draft
     // without draftChanged keeps its idempotency key for a retry.
+    const shownTurnId = state.latestTurnId;
     dispatch({ type: 'composer/changed', text: '' });
     dispatch({ type: 'attachments/cleared' });
+    dispatch({ type: 'message/sent', text: message, attachments: state.attachments });
     try {
-      await startTurn(message, attachmentIds, idempotencyKey, task.version, submissionAutomation);
+      const turn = await startTurn(message, attachmentIds, idempotencyKey, task.version, submissionAutomation);
+      // A retried key answers with the turn it already started, whose durable message is already shown.
+      if (turn.id === shownTurnId) dispatch({ type: 'message/cleared' });
     }
     catch (failure) {
+      dispatch({ type: 'message/cleared' });
       dispatch({ type: 'composer/changed', text: state.composer });
       dispatch({ type: 'attachments/added', attachments: state.attachments });
       throw failure;
     }
-  }), [automationBlocked, ciPollingError, confirmation, confirming, live, refreshProjection, run, startTurn, state.attachments, state.composer, state.task, submissionAutomation, submissions, taskId, workspaceId]);
+  }), [automationBlocked, ciPollingError, confirmation, confirming, live, refreshProjection, run, startTurn, state.attachments, state.composer, state.latestTurnId, state.task, submissionAutomation, submissions, taskId, workspaceId]);
 
   const taskCommentDisabled = state.task?.state !== 'OPEN' ? 'This task is closed.'
     : state.task?.developmentContinuationUnfinished ? 'Wait for the current follow-up to finish.'
@@ -2151,6 +2156,7 @@ export default function AgentTaskScreen({
   const retainedImageIds = [...new Set([
     ...state.events.flatMap((event) => event.type === 'user_message' ? event.payload.attachments.map((attachment) => attachment.id) : []),
     ...state.attachments.map((attachment) => attachment.id),
+    ...state.pendingMessage?.attachments.map((attachment) => attachment.id) ?? [],
   ])].slice(-16).join(',');
   useEffect(() => {
     let active = true;

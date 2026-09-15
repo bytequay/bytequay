@@ -229,16 +229,20 @@ const request = (sequence: number, turnId: string, text: string): AgentEventEnve
   type: 'user_message', payload: { text, attachments: [], deliveryKind: 'TURN' },
 });
 
+const durable = (id: string, state: AgentTurnDto['state']): AgentTurnDto => ({
+  id, taskId: 'scroll-fixture', state, version: 1, createdAt: '2026-09-08T00:00:00Z', startedAt: '2026-09-08T00:00:00Z',
+  endedAt: state === 'RUNNING' ? null : '2026-09-08T00:10:00Z', cancellationRequestedAt: null, delivered: true, knownUnsent: false,
+  settings: null, terminalReason: null, metrics: { inputTokens: 0, cachedInputTokens: 0, outputTokens: 0, cost: null, elapsed: 'PT10M' },
+});
+
+const latest = (events: AgentEventEnvelope[]): AgentHistoryPageDto => ({ events, beforeCursor: null, afterCursor: null, latestSequence: events.at(-1)?.sequence ?? 0 });
+
+const earlierTurn = (): AgentEventEnvelope[] => [request(1, 'earlier', 'Explain the build'),
+  ...Array.from({ length: 30 }, (_, index) => message(index + 2, 'earlier', `Earlier commentary ${index}. The build output is being read.`)),
+  message(32, 'earlier', 'The build is explained.', 'ANSWER')];
+
 async function latestRequestAtTop(): Promise<void> {
-  const earlier = [request(1, 'earlier', 'Explain the build'),
-    ...Array.from({ length: 30 }, (_, index) => message(index + 2, 'earlier', `Earlier commentary ${index}. The build output is being read.`)),
-    message(32, 'earlier', 'The build is explained.', 'ANSWER')];
-  const durable = (id: string, state: AgentTurnDto['state']): AgentTurnDto => ({
-    id, taskId: 'scroll-fixture', state, version: 1, createdAt: '2026-09-08T00:00:00Z', startedAt: '2026-09-08T00:00:00Z',
-    endedAt: state === 'RUNNING' ? null : '2026-09-08T00:10:00Z', cancellationRequestedAt: null, delivered: true, knownUnsent: false,
-    settings: null, terminalReason: null, metrics: { inputTokens: 0, cachedInputTokens: 0, outputTokens: 0, cost: null, elapsed: 'PT10M' },
-  });
-  const latest = (events: AgentEventEnvelope[]): AgentHistoryPageDto => ({ events, beforeCursor: null, afterCursor: null, latestSequence: events.at(-1)?.sequence ?? 0 });
+  const earlier = earlierTurn();
   const running = durable('latest', 'RUNNING');
   const initial = agentTaskReducer({
     ...initialAgentTaskState(), task: previewTask('workspace', 'scroll-fixture'), turn: running,
@@ -280,6 +284,59 @@ async function latestRequestAtTop(): Promise<void> {
     assert(turn.getBoundingClientRect().top < viewport.top, 'A long reply should scroll its request out of view like before');
     const streaming = turn.querySelector<HTMLElement>('.agt-live');
     assert(streaming !== null && streaming.getBoundingClientRect().bottom <= turn.getBoundingClientRect().bottom + 1, 'A long latest turn must grow with its reply instead of overflowing its box');
+  }
+  finally { flushSync(() => root.unmount()); host.remove(); }
+}
+
+async function sentMessageGlidesToTop(): Promise<void> {
+  const earlier = earlierTurn();
+  const completed = durable('earlier', 'COMPLETED');
+  const initial = agentTaskReducer({
+    ...initialAgentTaskState(), task: { ...previewTask('workspace', 'scroll-fixture'), mutationClaim: null, developmentContinuationUnfinished: false },
+    turn: completed, turns: { earlier: completed }, connection: 'open', composer: 'Check the next step',
+  }, { type: 'history/loaded', page: latest(earlier), direction: 'latest' });
+  const host = document.createElement('div');
+  host.style.cssText = 'height: 560px; width: 760px; font: 14px -apple-system, sans-serif';
+  document.body.append(host);
+  const root = createRoot(host);
+  let deliver = (_events: AgentEventEnvelope[]): void => { throw new Error('The conversation is not mounted'); };
+  function Conversation() {
+    const [state, dispatch] = useReducer(agentTaskReducer, initial);
+    deliver = events => dispatch({ type: 'history/loaded', page: latest(events), direction: 'latest' });
+    return <AgentTaskBody
+      state={state} models={[]} historyLoading={false} turnChoice={{ earlier: true }} onLoadHistory={() => {}}
+      onSend={() => { dispatch({ type: 'composer/changed', text: '' }); dispatch({ type: 'message/sent', text: state.composer }); }}
+      onSelectModel={() => {}} onBack={() => {}} onCancel={() => {}} onComplete={() => {}}
+      onDecide={() => {}} onCompose={() => {}} onStopServer={() => {}} onMarkFailed={() => {}}
+    />;
+  }
+  try {
+    flushSync(() => root.render(<Conversation />));
+    await settle();
+    const container = host.querySelector<HTMLElement>('.agt-transcript');
+    const send = host.querySelector<HTMLButtonElement>('[aria-label="Send message"]');
+    assert(container !== null && send !== null && !send.disabled, 'An idle task should offer Send');
+    const viewport = container.getBoundingClientRect();
+    const padding = Number.parseFloat(getComputedStyle(container).paddingTop);
+    const before = container.scrollTop;
+    flushSync(() => send.click());
+    const turn = host.querySelector<HTMLElement>('.agt-turn.is-latest');
+    assert(turn?.querySelector('.agt-user__bubble')?.textContent === 'Check the next step', 'Send should show the message before its durable event arrives');
+    assert(turn.querySelector('.agt-live')?.textContent === 'Sending…', 'The sent message should say it is still being sent');
+    assert(container.scrollTop === before && turn.getBoundingClientRect().top - viewport.top > viewport.height / 3,
+      `The sent message should start at the bottom, not jump to the top: it sits ${turn.getBoundingClientRect().top - viewport.top}px down`);
+    await settle();
+    for (let step = 0; container.scrollHeight - container.scrollTop - container.clientHeight > 1 && step < 60; step++) await settle();
+    const offset = (): number => turn.getBoundingClientRect().top - viewport.top;
+    assert(container.scrollHeight - container.scrollTop - container.clientHeight <= 1 && Math.abs(offset() - padding) <= 1,
+      `The sent message should glide to the top of the transcript, not stop ${offset()}px down`);
+
+    flushSync(() => deliver([...earlier, request(33, 'latest', 'Check the next step')]));
+    await settle();
+    const bubbles = [...host.querySelectorAll('.agt-user__bubble')].filter(bubble => bubble.textContent === 'Check the next step');
+    const delivered = host.querySelector<HTMLElement>('.agt-turn.is-latest');
+    assert(bubbles.length === 1 && delivered !== null && Math.abs(delivered.getBoundingClientRect().top - viewport.top - padding) <= 1,
+      'The durable message should replace the sent one in place, without a duplicate or a jump');
   }
   finally { flushSync(() => root.unmount()); host.remove(); }
 }
@@ -428,5 +485,6 @@ export async function run(): Promise<{ name: string; error?: string }[]> {
   await check('keeps production task messages when paging through thousands of command deltas', longCommandConversation);
   await check('puts a new request at the top with room for its reply', latestRequestAtTop);
   await check('keeps a new request at the top while a trailing notice comes and goes', trailingNoticeKeepsRequestAtTop);
+  await check('shows a sent message at once and glides it to the top', sentMessageGlidesToTop);
   return results;
 }

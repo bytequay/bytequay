@@ -26,7 +26,7 @@ import type { AgentEventEnvelope } from './events';
 import { captureHistoryAnchors,restoreHistoryAnchor,type HistoryScrollAnchor } from './historyScroll';
 import { ImageAttachment } from './ImageAttachment';
 import { renderMarkdown } from './markdown';
-import { approvalDecisions } from './model';
+import { approvalDecisions, type PendingMessage } from './model';
 import { ModelPicker } from './ModelPicker';
 import { ReviewRequestCard, type ReviewRequest, type ReviewRequestTarget } from './ReviewRequestCard';
 import { activityExpanded,activityPhrase,activityRunning,activitySummary,formatDuration,planChip,turnElapsedMs,turnLabel,type ActivityBlock,type ActivityMember,type ApprovalBlock,type CommandAction,type CommandMember,type PlanStep,type TranscriptTurn,type TurnBlock } from './transcript';
@@ -686,6 +686,16 @@ export type ConversationHistory = {
   onFollow: (following: boolean) => void;
 };
 
+/** Follows the bottom; a glide still under way is retargeted rather than cut short by a jump. */
+function pinBottom(container: HTMLElement, glide: React.RefObject<boolean>): void {
+  if (glide.current && container.scrollHeight - container.scrollTop - container.clientHeight > 1) {
+    container.scrollTo({ top: container.scrollHeight, behavior: 'smooth' });
+    return;
+  }
+  glide.current = false;
+  container.scrollTop = container.scrollHeight;
+}
+
 /** Shared user-intent scrolling; streamed output and folding must not move someone reading history. */
 export function useConversationHistory(events: AgentEventEnvelope[], endedAt: string | null | undefined, history: ConversationHistory) {
   const transcriptRef = useRef<HTMLDivElement>(null);
@@ -693,14 +703,25 @@ export function useConversationHistory(events: AgentEventEnvelope[], endedAt: st
   const [following, setFollowing] = useState(true);
   const scrollIntent = useRef(0);
   const previousScrollTop = useRef(0);
+  // A message sent from the live edge glides from the bottom to the top instead of appearing there.
+  const glide = useRef(false);
+  const [sends, setSends] = useState(0);
   useOutputWheel(transcriptRef, scrollIntent);
   const pendingHistory = useRef<{ events: AgentEventEnvelope[]; anchors: HistoryScrollAnchor[]; direction: 'older' | 'newer' } | null>(null);
   const followingChange = useRef<(next: boolean) => void>(() => {});
   const { before, after, loading, onLoad, onFollow } = history;
   const changeFollowing = (next: boolean): void => {
     follow.current = next;
+    if (!next) glide.current = false;
     setFollowing(next);
     onFollow(next);
+  };
+  /** Sending resumes following; the pin runs after the sent message renders, even if no event changed. */
+  const followSend = (): void => {
+    glide.current = follow.current && !window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+    scrollIntent.current = 0;
+    changeFollowing(true);
+    setSends(count => count + 1);
   };
   followingChange.current = changeFollowing;
   useEffect(() => {
@@ -725,16 +746,16 @@ export function useConversationHistory(events: AgentEventEnvelope[], endedAt: st
       pendingHistory.current = null;
       if (pending.direction === 'newer' && after === null && container.scrollHeight - container.scrollTop - container.clientHeight <= 1) followingChange.current(true);
     }
-    else if (follow.current) container.scrollTop = container.scrollHeight;
+    else if (follow.current) pinBottom(container, glide);
     else if (pending === null && after === null && container.scrollHeight <= container.clientHeight) followingChange.current(true);
-  }, [events, after, endedAt]);
+  }, [events, after, endedAt, sends]);
   useEffect(() => {
     // An immediate failure can batch loading=true/false into one render.
     if (!loading) pendingHistory.current = null;
   });
   useLayoutEffect(() => {
     const container = transcriptRef.current;
-    if (following && container !== null) container.scrollTop = container.scrollHeight;
+    if (following && container !== null) pinBottom(container, glide);
   }, [following]);
   const scrollHistory = (container: HTMLDivElement, direction: number): void => {
     if (direction === 0) return;
@@ -767,7 +788,8 @@ export function useConversationHistory(events: AgentEventEnvelope[], endedAt: st
       scrollHistory(event.currentTarget, direction);
     },
     onScroll: (event: React.UIEvent<HTMLDivElement>) => {
-      const { scrollTop } = event.currentTarget;
+      const { scrollTop, scrollHeight, clientHeight } = event.currentTarget;
+      if (scrollHeight - scrollTop - clientHeight <= 1) glide.current = false;
       const intent = scrollIntent.current === 2 ? Math.sign(scrollTop - previousScrollTop.current) : scrollIntent.current;
       previousScrollTop.current = scrollTop;
       if (scrollIntent.current !== 2) scrollIntent.current = 0;
@@ -775,11 +797,19 @@ export function useConversationHistory(events: AgentEventEnvelope[], endedAt: st
       if (pendingHistory.current !== null) pendingHistory.current.anchors = captureHistoryAnchors(event.currentTarget);
     },
   };
-  return { following, changeFollowing, loadHistory, transcriptProps, before, after, loading };
+  return { following, changeFollowing, followSend, loadHistory, transcriptProps, before, after, loading };
+}
+
+/** A sent message as the newest turn, until its durable event replaces it. */
+function pendingTurn(message: PendingMessage, now: number): TranscriptTurn {
+  return {
+    turnId: null, ordinal: 0, blocks: [], answer: null, startedAt: null, endedAt: null, outcome: null, usage: null,
+    users: [{ id: 'pending-message', text: message.text, attachments: message.attachments, delivery: 'TURN', at: new Date(now).toISOString() }],
+  };
 }
 
 export function AgentConversation({
-  turns, durableTurns, models, now, scroll, connection, running, activeTurn, activeTurnId = activeTurn?.id, waiting, gap = false,
+  turns, durableTurns, models, now, scroll, connection, running, activeTurn, activeTurnId = activeTurn?.id, waiting, gap = false, pendingMessage = null,
   activityChoice, turnChoice, onToggleTurn, onToggleActivity, onDecide,
   previews = {}, agentLabels = {}, pendingApprovals = [], generatedTurnIds, generatedBranch,
   onOpenAgent, children, transcriptFooter, localReview, reviewRequests, onOpenReview, label = 'Task transcript',
@@ -795,6 +825,8 @@ export function AgentConversation({
   activeTurnId?: string | null;
   waiting: boolean;
   gap?: boolean;
+  /** Shown at once as local progress; it is not a transcript event. */
+  pendingMessage?: PendingMessage | null;
   activityChoice: Record<string, boolean>;
   turnChoice: Record<string, boolean>;
   onToggleTurn: (id: string, open: boolean) => void;
@@ -813,13 +845,15 @@ export function AgentConversation({
   onOpenReview?: (target: ReviewRequestTarget) => void;
   label?: string;
 }): React.JSX.Element {
+  const pending = scroll.after === null ? pendingMessage : null;
   const liveTurn = turns.find(turn => turn.turnId === activeTurnId);
   const liveLabel = connection !== 'open' || gap ? 'Reconnecting…'
+    : pending !== null ? 'Sending…'
     : waiting ? 'Waiting for approval'
       : activeTurn?.cancellationRequestedAt != null ? 'Stopping…'
         : activeTurn?.state === 'ACCEPTED' ? 'Starting…'
           : liveTurn?.endedAt != null ? 'Finishing…' : currentActivityLabel(liveTurn);
-  const liveActivity = running && scroll.after === null && scroll.following
+  const liveActivity = (running || pending !== null) && scroll.after === null && scroll.following
     && <LiveActivity label={liveLabel} animated={!waiting && connection === 'open' && !gap} />;
   const tailRef = useRef<HTMLDivElement>(null);
   const transcriptRef = scroll.transcriptProps.ref;
@@ -846,14 +880,14 @@ export function AgentConversation({
             <div className="agt-skeleton__bar is-3" /><div className="agt-skeleton__block" />
           </div>
         )}
-        {turns.length === 0 && connection !== 'connecting'
+        {turns.length === 0 && pending === null && connection !== 'connecting'
           ? <div className="agt-empty">No activity yet.</div>
           : turns.map((turn, index) => {
             const id = turn.turnId ?? `turn-${turn.ordinal}`;
             const open = turnChoice[id] ?? (turn.endedAt === null || turn.answer === null);
             // At the live edge the latest turn reserves a viewport, so following the bottom puts a new
             // request at the top with room for its reply beneath, and nothing jumps when it settles.
-            const latest = scroll.after === null && index === turns.length - 1;
+            const latest = scroll.after === null && pending === null && index === turns.length - 1;
             return <TurnView key={id} turn={turn} first={index === 0} open={open} now={now}
               models={models} durableTurns={durableTurns} activityChoice={activityChoice}
               previews={previews} agentLabels={agentLabels} onToggle={() => onToggleTurn(id, !open)}
@@ -863,7 +897,12 @@ export function AgentConversation({
               {latest && liveActivity}
             </TurnView>;
           })}
-        {turns.length === 0 && liveActivity}
+        {pending !== null && <TurnView key="pending-message" turn={pendingTurn(pending, now)} first={turns.length === 0} open now={now}
+          models={models} durableTurns={durableTurns} activityChoice={activityChoice} previews={previews} agentLabels={agentLabels}
+          onToggle={() => {}} onToggleActivity={onToggleActivity} latest>
+          {liveActivity}
+        </TurnView>}
+        {turns.length === 0 && pending === null && liveActivity}
         {/* Kept outside the latest turn so a new turn cannot remount a card holding a reply draft. */}
         <div className="agt-transcript-tail" ref={tailRef}>
           {localReview?.threads.filter(thread => thread.messages.some(message => message.author === 'USER'

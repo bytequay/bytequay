@@ -135,6 +135,36 @@ async function unchangedContent(): Promise<void> {
   }
 }
 
+async function incrementalContext(): Promise<void> {
+  const host = document.createElement('div');
+  document.body.append(host);
+  const root = createRoot(host);
+  const content = Array.from({ length: 1500 }, (_, index) => `line ${index + 1}`).join('\n');
+  flushSync(() => root.render(<DiffViewer files={[{ ...file, patch: '@@ -451,1 +451,1 @@\n line 451\n@@ -842,1 +842,1 @@\n line 842' }]}
+    loadFileContent={async () => ({ oldContent: content, newContent: content })} />));
+  const row = (line: number) => host.querySelector(`[data-diff-row="${file.filename}:RIGHT:${line}"]`);
+  const gap = (remaining: number) => button(host, `↕ ${remaining} unmodified lines`).closest('tr');
+  const expand = async (remaining: number) => {
+    button(host, `↕ ${remaining} unmodified lines`).click();
+    await settle();
+  };
+  try {
+    await expand(450);
+    assert(gap(250)?.nextElementSibling === row(251) && row(250) === null, 'A leading gap must reveal only its last 200 lines below the expander');
+    await expand(390);
+    assert(gap(190)?.previousElementSibling === row(551) && gap(190)?.nextElementSibling === row(742),
+      'A gap between hunks must reveal 100 lines beside each hunk around the expander');
+    await expand(658);
+    assert(gap(458)?.previousElementSibling === row(1042) && row(1043) === null, 'A trailing gap must reveal only its first 200 lines above the expander');
+    for (const remaining of [250, 50, 190, 458, 258, 58]) await expand(remaining);
+    const rows = [...host.querySelectorAll('[data-diff-row]')].map(element => element.getAttribute('data-diff-row'));
+    assert(host.querySelector('tr.is-gap') === null
+      && rows.join() === Array.from({ length: 1500 }, (_, index) => `${file.filename}:RIGHT:${index + 1}`).join(),
+    'Repeated expansion must reveal every unchanged line once, in order');
+  }
+  finally { flushSync(() => root.unmount()); host.remove(); }
+}
+
 async function asynchronousSubmission(): Promise<void> {
   const host = document.createElement('div');
   document.body.append(host);
@@ -198,6 +228,7 @@ export async function run(): Promise<{ name: string; error?: string }[]> {
   const cases: Array<[string, () => Promise<void>]> = [
     ...(['missing', 'own PR', 'reviewable PR'] as const).map(mode => [`Shared diff with ${mode} review`, () => privateComment(mode)] as [string, () => Promise<void>]),
     ['Unchanged context preserves full and selected revision pairs', unchangedContent],
+    ['Unchanged context expands at most 200 lines per click', incrementalContext],
     ['Private submission preserves failed and in-flight feedback', asynchronousSubmission],
     ...(['review', 'changes'] as const).map(projection => [`Resolve finding in ${projection}`, () => resolveFinding(projection)] as [string, () => Promise<void>]),
   ];

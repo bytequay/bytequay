@@ -708,6 +708,18 @@ function diffSideLines(hunks: Array<{ rows: DiffRow[] }>, source: string[], side
   return lines.length > 0 ? lines : null;
 }
 
+const CONTEXT_LINES_PER_EXPAND = 200;
+
+/**
+ * Lines shown at the top and bottom of a hidden gap. Each expansion reveals at most 200 more beside the
+ * neighboring hunks, so the expander stays over the lines that are still hidden.
+ */
+function revealedGap(hidden: number, expansions: number, edge: 'leading' | 'between' | 'trailing'): { top: number; bottom: number } {
+  const shown = Math.min(hidden, expansions * CONTEXT_LINES_PER_EXPAND);
+  const top = edge === 'leading' ? 0 : edge === 'trailing' ? shown : Math.ceil(shown / 2);
+  return { top, bottom: shown - top };
+}
+
 const SUGGESTION_ICON = [
   'M9.5 2H4.2A1.2 1.2 0 0 0 3 3.2v9.6A1.2 1.2 0 0 0 4.2 14h7.6a1.2 1.2 0 0 0 1.2-1.2V5.5z',
   'M9.5 2v3.5H13',
@@ -832,8 +844,7 @@ function DiffFileCard({
   const [content, setContent] = useState<DiffFileContentDto | null>(null);
   const [contentLoading, setContentLoading] = useState(false);
   const [contentError, setContentError] = useState<string | null>(null);
-  const [expanded, setExpanded] = useState<ReadonlySet<string>>(new Set());
-  const [trailingChecked, setTrailingChecked] = useState(false);
+  const [expansions, setExpansions] = useState<ReadonlyMap<string, number>>(new Map());
   const [selection, setSelection] = useState<LineSelection | null>(null);
   const [selectingRange, setSelectingRange] = useState(false);
   const dragAnchor = useRef<DragAnchor | null>(null);
@@ -906,8 +917,7 @@ function DiffFileCard({
   const expand = async (key: string) => {
     const loaded = await loadContent();
     if (loaded === null) return;
-    setExpanded(previous => new Set(previous).add(key));
-    if (key === 'trailing') setTrailingChecked(true);
+    setExpansions(previous => new Map(previous).set(key, (previous.get(key) ?? 0) + 1));
   };
 
   const selectLine = (side: ReviewSide, line: number, extend: boolean, row: number) => {
@@ -1228,6 +1238,18 @@ function DiffFileCard({
     );
   };
 
+  const contextRows = (key: string, oldStart: number, newStart: number, start: number, end: number) =>
+    Array.from({ length: end - start }, (_, offset) => {
+      const index = start + offset;
+      return codeRow({
+        key: `${key}:${index}`,
+        kind: 'context',
+        oldLine: oldStart + index,
+        newLine: newStart + index,
+        content: newLines[newStart + index - 1] ?? oldLines[oldStart + index - 1] ?? '',
+      });
+    });
+
   let previousOld = 1;
   let previousNew = 1;
   const lastHunk = hunks[hunks.length - 1];
@@ -1237,6 +1259,7 @@ function DiffFileCard({
     oldLines.length - trailingOld + 1,
     newLines.length - trailingNew + 1,
   ));
+  const trailingShown = revealedGap(trailingCount ?? 0, expansions.get('trailing') ?? 0, 'trailing').top;
 
   return (
     <article className={`pull-diff-file${selectingRange ? ' is-selecting' : ''}`} data-file-card={file.filename}>
@@ -1283,44 +1306,34 @@ function DiffFileCard({
               previousOld = hunk.oldStart + hunk.oldCount;
               previousNew = hunk.newStart + hunk.newCount;
               const gapKey = `before-${hunkIndex}`;
+              const gap = revealedGap(hiddenLines, expansions.get(gapKey) ?? 0, hunkIndex === 0 ? 'leading' : 'between');
+              const remaining = hiddenLines - gap.top - gap.bottom;
               return (
                 <Fragment key={`${hunk.header}:${hunkIndex}`}>
-                  {hiddenLines > 0 && !expanded.has(gapKey) && (
+                  {contextRows(gapKey, oldStart, newStart, 0, gap.top)}
+                  {remaining > 0 && (
                     <tr className="is-gap"><td colSpan={3}>
                       {loadFileContent === undefined
-                        ? `↕ ${hiddenLines} unmodified lines`
+                        ? `↕ ${remaining} unmodified lines`
                         : <button type="button" disabled={contentLoading}
-                            onClick={() => { void expand(gapKey); }}>↕ {hiddenLines} unmodified lines</button>}
+                            onClick={() => { void expand(gapKey); }}>↕ {remaining} unmodified lines</button>}
                     </td></tr>
                   )}
-                  {hiddenLines > 0 && expanded.has(gapKey) && Array.from({ length: hiddenLines }, (_, index) => codeRow({
-                    key: `${gapKey}:${index}`,
-                    kind: 'context',
-                    oldLine: oldStart + index,
-                    newLine: newStart + index,
-                    content: newLines[newStart + index - 1] ?? oldLines[oldStart + index - 1] ?? '',
-                  }))}
+                  {contextRows(gapKey, oldStart, newStart, hiddenLines - gap.bottom, hiddenLines)}
                   <tr className="is-hunk"><td colSpan={3}>{hunk.header}</td></tr>
                   {hunk.rows.map((row, rowIndex) => codeRow({ ...row, key: `${hunkIndex}:${rowIndex}` }))}
                 </Fragment>
               );
             })}
-            {loadFileContent !== undefined && !expanded.has('trailing')
-              && (!trailingChecked || (trailingCount ?? 1) > 0) && (
+            {contextRows('trailing', trailingOld, trailingNew, 0, trailingShown)}
+            {loadFileContent !== undefined && (trailingCount === null || trailingShown < trailingCount) && (
               <tr className="is-gap is-trailing"><td colSpan={3}><button type="button" disabled={contentLoading}
                 onClick={() => { void expand('trailing'); }}>
                 {contentLoading ? 'Loading unchanged lines…' : trailingCount === null
                   ? '↕ Show unchanged lines below'
-                  : `↕ ${trailingCount} unmodified lines`}
+                  : `↕ ${trailingCount - trailingShown} unmodified lines`}
               </button></td></tr>
             )}
-            {expanded.has('trailing') && trailingCount !== null && Array.from({ length: trailingCount }, (_, index) => codeRow({
-              key: `trailing:${index}`,
-              kind: 'context',
-              oldLine: trailingOld + index,
-              newLine: trailingNew + index,
-              content: newLines[trailingNew + index - 1] ?? oldLines[trailingOld + index - 1] ?? '',
-            }))}
             </tbody>
           </table>
         </div>

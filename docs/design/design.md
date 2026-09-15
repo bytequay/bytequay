@@ -45,6 +45,10 @@ historical checkpoint evidence and explicitly deferred future work.
   conversations beside the PR. It reuses agent tasks, incremental review and
   explicit user publication. Its [implementation checklist](agent-review-impl-tmp.md)
   records delivery gates; the design is not a claim of implementation.
+- [Repository Context](repository-context.md) proposes shared workspace knowledge,
+  user-saved lessons, and source-linked input for the existing review flow.
+  Start with its overall flow; its [temporary checklist](repository-context-impl-tmp.md)
+  tracks design review and future implementation/enablement gates.
 - [CI Autofix Service](ci-autofix-service.md) specifies a user-started,
   bounded watch/fix/commit/push loop for pending or failing GitHub Actions checks. Review
   comment triage is intentionally outside that service and will be designed

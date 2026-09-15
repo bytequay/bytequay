@@ -15,6 +15,7 @@ package com.bytequay.app.review;
 
 import com.bytequay.agent.core.AgentApprovalService;
 import com.bytequay.agent.core.AgentCompletionService;
+import com.bytequay.agent.core.AgentConflictException;
 import com.bytequay.agent.core.AgentMetrics;
 import com.bytequay.agent.core.AgentTask;
 import com.bytequay.agent.core.AgentTaskDefaults;
@@ -39,6 +40,7 @@ import com.bytequay.agent.core.TurnState;
 import com.bytequay.agent.core.WorktreeMutationClaim;
 import com.bytequay.agent.core.WorktreeService;
 import com.bytequay.agent.core.WorktreeSnapshot;
+import com.bytequay.agent.core.store.AgentTurnStore;
 import com.bytequay.agent.core.store.QueuedInputStore;
 import com.bytequay.agent.spi.AgentCapabilities;
 import com.bytequay.agent.spi.AgentDriver;
@@ -449,7 +451,26 @@ class TestDefaultAgentReviewService
         String reviewId = fixture.service.start(WORKSPACE, REPO, NUMBER).review().id();
         ReviewRun original = fixture.store.listRuns(reviewId).getLast();
         fixture.store.updateRun(original.withSummary(summary(), NOW));
+        fixture.store.insertRun(new ReviewRun("newer-run", reviewId, 2, original.scope(), original.baseRef(), original.baseSha(), original.mergeBaseSha(), NEW_HEAD,
+                Optional.of(HEAD), original.commits(), original.diff(), ImmutableList.of(), original.state(), Optional.empty(), Optional.empty(), Optional.empty(),
+                original.steps(), false, original.operations(), original.evidence(), Optional.empty(), 0, NOW, NOW, Optional.empty()));
         String cardId = original.id() + ":purpose";
+        AgentTurnStore turnStore = mock(AgentTurnStore.class);
+        ReviewToolAssignment assignments = new ReviewToolAssignment(turnStore, fixture.queueStore, fixture.store);
+        doAnswer(invocation -> {
+            StartAgentTurnCommand command = invocation.getArgument(0);
+            ReviewMessage saved = fixture.store.listMessages(reviewId).getFirst();
+            assertThat(saved.turnId()).isEmpty();
+            assertThat(saved.queuedInputId()).isEmpty();
+            assertThat(command.idempotencyKey()).isEqualTo("review-ask:" + saved.id());
+            AgentTurn accepted = AgentTurn.accepted(TURN_TWO, TASK_ID, command.idempotencyKey(), SETTINGS, NOW);
+            when(turnStore.findActive(TASK_ID)).thenReturn(Optional.of(accepted));
+            ReviewToolAssignment.Binding binding = assignments.resolve(reviewId, Optional.of(TURN_TWO));
+            assertThat(binding.run().id()).isEqualTo(original.id());
+            assertThat(binding.discussion()).contains(saved);
+            fixture.acceptedTurns.put(command.idempotencyKey(), accepted);
+            return accepted;
+        }).when(fixture.turns).start(any(StartAgentTurnCommand.class));
         ReviewMessage message = fixture.service.ask(reviewId, Optional.empty(), Optional.of(cardId), 1, "Why this approach?");
         assertThat(message.cardId()).contains(cardId);
         assertThat(message.runId()).isEqualTo(original.id());
@@ -468,7 +489,14 @@ class TestDefaultAgentReviewService
         Fixture fixture = new Fixture();
         String reviewId = fixture.service.start(WORKSPACE, REPO, NUMBER).review().id();
         when(fixture.tasks.get(TASK_ID)).thenReturn(busyTask());
-        when(fixture.turns.enqueue(any(QueueAgentInputCommand.class))).thenReturn(queuedInput());
+        when(fixture.turns.enqueue(any(QueueAgentInputCommand.class))).thenAnswer(invocation -> {
+            QueueAgentInputCommand command = invocation.getArgument(0);
+            ReviewMessage saved = fixture.store.listMessages(reviewId).getFirst();
+            assertThat(saved.turnId()).isEmpty();
+            assertThat(saved.queuedInputId()).isEmpty();
+            assertThat(command.idempotencyKey()).isEqualTo("review-ask:" + saved.id());
+            return queuedInput();
+        });
 
         ReviewMessage message = fixture.service.ask(reviewId, Optional.empty(), Optional.empty(), 1, "Does this handle an empty patch?");
 
@@ -481,6 +509,77 @@ class TestDefaultAgentReviewService
         assertThat(queued.getValue().idempotencyKey()).isEqualTo("review-ask:" + message.id());
         // Only the review request itself started a turn.
         verify(fixture.turns, times(1)).start(any(StartAgentTurnCommand.class));
+    }
+
+    @ParameterizedTest
+    @ValueSource(booleans = {false, true})
+    void questionRemainsSavedWhenAdmissionFails(boolean queued)
+    {
+        Fixture fixture = new Fixture();
+        String reviewId = fixture.service.start(WORKSPACE, REPO, NUMBER).review().id();
+        ReviewRun run = fixture.store.listRuns(reviewId).getLast();
+        fixture.store.updateRun(run.withSummary(summary(), NOW));
+        String cardId = run.id() + ":purpose";
+        AgentConflictException failure = new AgentConflictException("Admission failed");
+        if (queued) {
+            when(fixture.tasks.get(TASK_ID)).thenReturn(busyTask());
+            doThrow(failure).when(fixture.turns).enqueue(any(QueueAgentInputCommand.class));
+        }
+        else {
+            doThrow(failure).when(fixture.turns).start(any(StartAgentTurnCommand.class));
+        }
+
+        assertThatThrownBy(() -> fixture.service.ask(reviewId, Optional.empty(), Optional.of(cardId), 1, "Explain the parser reset"))
+                .isSameAs(failure);
+
+        ReviewMessage saved = fixture.store.listMessages(reviewId).getFirst();
+        assertThat(saved.runId()).isEqualTo(run.id());
+        assertThat(saved.cardId()).contains(cardId);
+        assertThat(saved.targetRevision()).isEqualTo(1);
+        assertThat(saved.body()).isEqualTo("Explain the parser reset");
+        assertThat(saved.turnId()).isEmpty();
+        assertThat(saved.queuedInputId()).isEmpty();
+        assertThat(fixture.service.get(reviewId).messages()).extracting(AgentReviewProjection.MessageView::message).containsExactly(saved);
+        if (queued) {
+            verify(fixture.turns).findQueuedByIdempotencyKey(TASK_ID, "review-ask:" + saved.id());
+        }
+        else {
+            verify(fixture.turns).findTurnByIdempotencyKey(TASK_ID, "review-ask:" + saved.id());
+        }
+    }
+
+    @ParameterizedTest
+    @ValueSource(booleans = {false, true})
+    void questionRecoversAcceptedDeliveryWhenAdmissionThrows(boolean queued)
+    {
+        Fixture fixture = new Fixture();
+        String reviewId = fixture.service.start(WORKSPACE, REPO, NUMBER).review().id();
+        AgentConflictException failure = new AgentConflictException("Provider launch failed after acceptance");
+        if (queued) {
+            when(fixture.tasks.get(TASK_ID)).thenReturn(busyTask());
+            doAnswer(invocation -> {
+                QueueAgentInputCommand command = invocation.getArgument(0);
+                when(fixture.turns.findQueuedByIdempotencyKey(TASK_ID, command.idempotencyKey())).thenReturn(Optional.of(queuedInput()));
+                throw failure;
+            }).when(fixture.turns).enqueue(any(QueueAgentInputCommand.class));
+        }
+        else {
+            doAnswer(invocation -> {
+                StartAgentTurnCommand command = invocation.getArgument(0);
+                fixture.acceptedTurns.put(command.idempotencyKey(), AgentTurn.accepted(TURN_TWO, TASK_ID, command.idempotencyKey(), SETTINGS, NOW));
+                throw failure;
+            }).when(fixture.turns).start(any(StartAgentTurnCommand.class));
+        }
+
+        assertThatThrownBy(() -> fixture.service.ask(reviewId, Optional.empty(), Optional.empty(), 1, "Explain the parser reset"))
+                .isSameAs(failure);
+
+        ReviewMessage saved = fixture.store.listMessages(reviewId).getFirst();
+        assertThat(saved.turnId()).isEqualTo(queued ? Optional.empty() : Optional.of(TURN_TWO.toString()));
+        assertThat(saved.queuedInputId()).isEqualTo(queued ? Optional.of(QUEUED_INPUT.toString()) : Optional.empty());
+        assertThat(fixture.store.listMessages(reviewId)).hasSize(1);
+        verify(fixture.turns, times(queued ? 1 : 2)).start(any(StartAgentTurnCommand.class));
+        verify(fixture.turns, times(queued ? 1 : 0)).enqueue(any(QueueAgentInputCommand.class));
     }
 
     @Test

@@ -356,15 +356,8 @@ public class DefaultAgentReviewService
             String messageId = UUID.randomUUID().toString();
             TaskId taskId = TaskId.valueOf(review.taskId());
             AgentTask task = tasks.get(taskId);
-            Optional<String> turnId = Optional.empty();
-            Optional<String> queuedId = Optional.empty();
-            if (idle(task)) {
-                turnId = Optional.of(turns.start(new StartAgentTurnCommand(taskId, prompt, ImmutableList.of(), "review-ask:" + messageId)).id().toString());
-            }
-            else {
-                queuedId = Optional.of(turns.enqueue(new QueueAgentInputCommand(taskId, task.version(), prompt, ImmutableList.of(), "review-ask:" + messageId)).id().toString());
-            }
-            return store.insertMessage(new ReviewMessage(
+            // A synchronous launch can resolve this discussion before start returns its turn ID.
+            ReviewMessage question = store.insertMessage(new ReviewMessage(
                     messageId,
                     reviewId,
                     findingId,
@@ -373,11 +366,56 @@ public class DefaultAgentReviewService
                     text,
                     targetRevision,
                     runId,
-                    turnId,
-                    queuedId,
+                    Optional.empty(),
+                    Optional.empty(),
                     0,
                     Instant.now(clock)));
+            String requestKey = "review-ask:" + messageId;
+            boolean queued = !idle(task);
+            try {
+                if (queued) {
+                    QueuedAgentInput input = turns.enqueue(new QueueAgentInputCommand(taskId, task.version(), prompt, ImmutableList.of(), requestKey));
+                    return attachQuestionDelivery(question, Optional.empty(), Optional.of(input.id().toString()));
+                }
+                AgentTurn turn = turns.start(new StartAgentTurnCommand(taskId, prompt, ImmutableList.of(), requestKey));
+                return attachQuestionDelivery(question, Optional.of(turn.id().toString()), Optional.empty());
+            }
+            catch (RuntimeException failure) {
+                try {
+                    if (queued) {
+                        turns.findQueuedByIdempotencyKey(taskId, requestKey)
+                                .ifPresent(input -> attachQuestionDelivery(question, Optional.empty(), Optional.of(input.id().toString())));
+                    }
+                    else {
+                        turns.findTurnByIdempotencyKey(taskId, requestKey)
+                                .ifPresent(turn -> attachQuestionDelivery(question, Optional.of(turn.id().toString()), Optional.empty()));
+                    }
+                }
+                catch (RuntimeException recoveryFailure) {
+                    if (failure != recoveryFailure) {
+                        failure.addSuppressed(recoveryFailure);
+                    }
+                }
+                throw failure;
+            }
         });
+    }
+
+    private ReviewMessage attachQuestionDelivery(ReviewMessage question, Optional<String> turnId, Optional<String> queuedId)
+    {
+        return store.updateMessage(new ReviewMessage(
+                question.id(),
+                question.reviewId(),
+                question.findingId(),
+                question.cardId(),
+                question.author(),
+                question.body(),
+                question.targetRevision(),
+                question.runId(),
+                turnId,
+                queuedId,
+                question.version(),
+                question.createdAt()));
     }
 
     @Override

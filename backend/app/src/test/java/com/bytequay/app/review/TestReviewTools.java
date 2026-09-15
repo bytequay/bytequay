@@ -28,12 +28,16 @@ import com.bytequay.app.git.GitCommandRunner;
 import com.bytequay.app.repository.github.GitHubIssuePreview;
 import com.bytequay.app.service.RepoService;
 import com.bytequay.app.service.pr.PullRequestService;
+import com.bytequay.app.service.pr.SelectedPullRequestReader;
 import com.bytequay.app.workspace.WorkspaceIssueRefreshService;
 import com.bytequay.app.workspace.WorkspaceIssueService;
 import com.bytequay.app.workspace.WorkspaceRepositoryContext;
 import com.bytequay.app.workspace.WorkspaceRepositoryService;
 import com.bytequay.core.domain.DiffFile;
 import com.bytequay.core.domain.PrTimelineEvent;
+import com.bytequay.core.domain.PrTimelinePayload;
+import com.bytequay.core.domain.PullRequest;
+import com.bytequay.core.domain.PullRequestDetail;
 import com.bytequay.core.domain.RepoRef;
 import com.bytequay.core.domain.RepositoryIssue;
 import com.bytequay.core.domain.RepositoryIssueDetail;
@@ -113,6 +117,8 @@ class TestReviewTools
     private AgentEventService events;
     private GitCommandRunner git;
     private RepoService repositories;
+    private PullRequestService pullRequests;
+    private SelectedPullRequestReader selectedPullRequests;
     private WorkspaceIssueService issues;
     private WorkspaceIssueRefreshService issueRefresh;
     private WorkspaceRepositoryService workspaces;
@@ -124,7 +130,8 @@ class TestReviewTools
         store.insertReview(review(AgentReview.State.OPEN));
         store.insertRun(run());
 
-        PullRequestService pullRequests = mock(PullRequestService.class);
+        pullRequests = mock(PullRequestService.class);
+        selectedPullRequests = mock(SelectedPullRequestReader.class);
         repositories = mock(RepoService.class);
         issues = mock(WorkspaceIssueService.class);
         issueRefresh = mock(WorkspaceIssueRefreshService.class);
@@ -139,7 +146,7 @@ class TestReviewTools
             ReviewRun current = store.listRuns(REVIEW_ID).getLast();
             return new ReviewToolAssignment.Binding(current, current.currentStep(), Optional.empty());
         });
-        tools = new ReviewTools(store, pullRequests, repositories, issues, issueRefresh, events, workspaces, git, objectMapper,
+        tools = new ReviewTools(store, pullRequests, selectedPullRequests, repositories, issues, issueRefresh, events, workspaces, git, objectMapper,
                 new ReviewLocks(), assignments, Clock.fixed(NOW, ZoneOffset.UTC));
 
         when(workspaces.requireReadableRepository(WORKSPACE_ID)).thenReturn(workspaceRepository());
@@ -157,6 +164,152 @@ class TestReviewTools
         store.updateReview(review(AgentReview.State.OPEN).closed(NOW));
 
         assertThat(tools.bridge(TASK_ID)).isEmpty();
+    }
+
+    @Test
+    void refreshedCurrentPullRequestMetadataKeepsTheFrozenCodeSnapshot()
+    {
+        String observed = "d".repeat(40);
+        PullRequestDetail detail = pullRequestDetail(42, "body " + "x".repeat(9000), ImmutableList.of(), ImmutableList.of(), ImmutableList.of("checks"));
+        when(selectedPullRequests.read(REPO, 42, SelectedPullRequestReader.Section.PR)).thenReturn(new SelectedPullRequestReader.Read(detail,
+                Optional.of(NOW.minusSeconds(30)), Optional.of(NOW.minusSeconds(10)), Optional.of(observed), true, false, false, false));
+        ReviewRun frozen = store.findRun(RUN_ID).orElseThrow();
+
+        JsonNode result = call("review_get_context", ImmutableMap.of("kind", "pr"));
+
+        assertThat(result.path("title").asText()).isEqualTo(detail.title());
+        assertThat(result.path("headSha").asText()).isEqualTo(frozen.headSha());
+        assertThat(result.path("baseRef").asText()).isEqualTo(frozen.baseRef());
+        assertThat(result.path("baseSha").asText()).isEqualTo(frozen.baseSha());
+        assertThat(result.path("mergeBaseSha").asText()).isEqualTo(frozen.mergeBaseSha());
+        assertThat(result.path("commits")).isEqualTo(objectMapper.valueToTree(frozen.commits()));
+        assertThat(result.at("/changedFiles/0/path").asText()).isEqualTo(DIFF_PATH);
+        assertThat(result.path("body").asText()).hasSizeLessThanOrEqualTo(8014);
+        assertThat(result.path("bodyTruncated").asBoolean()).isTrue();
+        assertThat(result.at("/freshness/observedHeadSha").asText()).isEqualTo(observed);
+        assertThat(result.at("/freshness/matchesReviewedHead").asBoolean()).isFalse();
+        assertThat(result.at("/freshness/sourceUpdatedAt").asText()).isEqualTo(detail.updatedAt().toString());
+        assertThat(result.at("/freshness/rowUpdatedAt").asText()).isEqualTo(NOW.minusSeconds(30).toString());
+        assertThat(result.at("/freshness/cacheUpdatedAt").asText()).isEqualTo(NOW.minusSeconds(10).toString());
+        assertThat(result.at("/freshness/readAt").asText()).isEqualTo(NOW.toString());
+        assertThat(result.at("/freshness/incomplete").asBoolean()).isFalse();
+        assertThat(result.at("/freshness/unavailableSections/0").asText()).isEqualTo("checks");
+        assertThat(result.at("/freshness/note").asText()).contains("requested section", "status-only", "remote currentness");
+        ReviewEvidence evidence = store.findRun(RUN_ID).orElseThrow().evidence().get(result.path("evidenceRef").asText());
+        assertThat(evidence.source()).isEqualTo(REPO + "#42 metadata");
+        assertThat(evidence.excerpt()).hasSizeLessThanOrEqualTo(4014).contains(detail.title(), "body ");
+        assertThat(evidence.provenance()).contains("refreshAttempted=true", "observedHeadSha=" + observed, "frozenReviewedHead=" + HEAD_SHA, "unavailableSections=[checks]");
+        assertThat(store.findRun(RUN_ID).orElseThrow().headSha()).isEqualTo(HEAD_SHA);
+        verifyNoInteractions(pullRequests, repositories, issues, issueRefresh);
+    }
+
+    @Test
+    void relatedPullRequestMetadataUsesItsOwnIdentityAndNeverBorrowsFrozenCoordinates()
+    {
+        PullRequestDetail detail = pullRequestDetail(7, "Historical change", ImmutableList.of(), ImmutableList.of(), ImmutableList.of());
+        when(selectedPullRequests.read(REPO, 7, SelectedPullRequestReader.Section.PR)).thenReturn(selected(detail, Optional.of("d".repeat(40)), false));
+
+        JsonNode result = call("review_get_context", ImmutableMap.of("kind", "pr", "number", 7));
+
+        assertThat(result.path("repository").asText()).isEqualTo(REPO);
+        assertThat(result.path("number").asInt()).isEqualTo(7);
+        assertThat(result.path("pullRequest").asBoolean()).isTrue();
+        assertThat(result.path("baseRef").asText()).isEqualTo("selected-base");
+        assertThat(result.path("headRef").asText()).isEqualTo("selected-head");
+        for (String field : ImmutableList.of("headSha", "baseSha", "mergeBaseSha", "previousReviewedHead", "commits", "changedFiles",
+                "requiredReviewFiles", "assignment", "scope")) {
+            assertThat(result.has(field)).as(field).isFalse();
+        }
+        assertThat(result.path("freshness").has("matchesReviewedHead")).isFalse();
+        ReviewEvidence evidence = store.findRun(RUN_ID).orElseThrow().evidence().get(result.path("evidenceRef").asText());
+        assertThat(evidence.source()).isEqualTo(REPO + "#7 metadata");
+        assertThat(evidence.provenance()).contains("related historical source").doesNotContain("frozenReviewedHead");
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"timeline", "checks"})
+    void selectedActivityAndChecksArePagedAndRetainedWithOneWritePerPage(String kind)
+    {
+        List<PullRequestDetail.ActivityItem> activity = IntStream.range(0, 21).mapToObj(index -> new PullRequestDetail.ActivityItem("alice", "commented", NOW,
+                "comment " + index + "x".repeat(2500), (long) index + 1,
+                PrTimelinePayload.builder().path(DIFF_PATH).line(2).side("RIGHT").resolved(true).build())).collect(toImmutableList());
+        List<PullRequestDetail.CheckRun> checks = IntStream.range(0, 21).mapToObj(index -> new PullRequestDetail.CheckRun((long) index + 1,
+                "Check " + index + "x".repeat(400), "completed", "success", "https://example.com/check/" + index, "check-run", "test", NOW.minusSeconds(10), NOW))
+                .collect(toImmutableList());
+        PullRequestDetail detail = pullRequestDetail(42, "Metadata", activity, checks, ImmutableList.of("reviewThreads"));
+        SelectedPullRequestReader.Section section = kind.equals("timeline") ? SelectedPullRequestReader.Section.TIMELINE : SelectedPullRequestReader.Section.CHECKS;
+        when(selectedPullRequests.read(REPO, 42, section)).thenReturn(selected(detail, Optional.of("d".repeat(40)), true));
+        String field = kind.equals("timeline") ? "items" : "checks";
+        int writes = store.runUpdates;
+
+        JsonNode result = call("review_get_context", ImmutableMap.of("kind", kind));
+
+        assertThat(result.path(field)).hasSize(20);
+        assertThat(result.path("totalItems").asInt()).isEqualTo(21);
+        assertThat(result.path("omittedItems").asInt()).isEqualTo(1);
+        assertThat(result.path("truncated").asBoolean()).isTrue();
+        assertThat(result.at("/freshness/refreshFailed").asBoolean()).isTrue();
+        assertThat(result.at("/freshness/stale").asBoolean()).isTrue();
+        assertThat(result.at("/freshness/incomplete").asBoolean()).isTrue();
+        assertThat(result.at("/freshness/matchesReviewedHead").asBoolean()).isFalse();
+        assertThat(store.runUpdates).isEqualTo(writes + 1);
+        assertThat(store.findRun(RUN_ID).orElseThrow().evidence()).hasSize(20);
+        for (JsonNode item : result.path(field)) {
+            ReviewEvidence evidence = store.findRun(RUN_ID).orElseThrow().evidence().get(item.path("evidenceRef").asText());
+            assertThat(evidence).isNotNull();
+            assertThat(evidence.excerpt()).hasSizeLessThanOrEqualTo(4014).contains("\"id\":" + item.path("id").asInt());
+            assertThat(evidence.provenance()).contains("refreshFailed=true", "stale=true", "incomplete=true", "frozenReviewedHead=" + HEAD_SHA);
+        }
+        if (kind.equals("timeline")) {
+            assertThat(result.at("/items/0/bodyTruncated").asBoolean()).isTrue();
+            assertThat(result.at("/items/0/path").asText()).isEqualTo(DIFF_PATH);
+            assertThat(result.at("/items/0/resolved").asBoolean()).isTrue();
+        }
+
+        JsonNode second = call("review_get_context", ImmutableMap.of("kind", kind, "page", 2));
+        assertThat(second.path(field)).hasSize(1);
+        assertThat(second.path(field).get(0).path("id").asInt()).isEqualTo(21);
+        assertThat(store.runUpdates).isEqualTo(writes + 2);
+        JsonNode beyondEnd = call("review_get_context", ImmutableMap.of("kind", kind, "page", Integer.MAX_VALUE));
+        assertThat(beyondEnd.path(field)).isEmpty();
+        assertThat(beyondEnd.path("page").asInt()).isEqualTo(Integer.MAX_VALUE);
+        assertThat(store.runUpdates).isEqualTo(writes + 2);
+        verifyNoInteractions(pullRequests, repositories, issues, issueRefresh);
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"pr", "timeline", "checks", "issue"})
+    void selectedNumbersAndPagesMustBePositiveIntegralValues(String kind)
+    {
+        for (Object number : ImmutableList.of(0, -1, 1.5, (long) Integer.MAX_VALUE + 1, "42")) {
+            assertThat(call("review_get_context", ImmutableMap.of("kind", kind, "number", number)).at("/error/field").asText()).isEqualTo("number");
+        }
+        if (!kind.equals("pr")) {
+            for (Object page : ImmutableList.of(0, -1, 1.5, (long) Integer.MAX_VALUE + 1)) {
+                assertThat(call("review_get_context", ImmutableMap.of("kind", kind, "number", 42, "page", page)).at("/error/field").asText()).isEqualTo("page");
+            }
+        }
+        verifyNoInteractions(selectedPullRequests, pullRequests, repositories, issues, issueRefresh);
+    }
+
+    @Test
+    void knownPullRequestRequestedAsIssueUsesOneSelectedPrRead()
+    {
+        PullRequest row = new PullRequest(7, REPO, 7, "Known pull request", "alice", "https://example.com/7", NOW, NOW, PullRequest.Origin.OTHER,
+                ImmutableList.of(), ImmutableMap.of(), false, null, null, null, ImmutableList.of(), PullRequestDetail.CiStatus.NONE,
+                1, 0, 0, null, "merged", null, NOW, null, null, null, null, null, null, null, null);
+        when(pullRequests.findStored(REPO, 7)).thenReturn(Optional.of(row));
+        PullRequestDetail detail = pullRequestDetail(7, "Cached PR body", ImmutableList.of(), ImmutableList.of(), ImmutableList.of());
+        when(selectedPullRequests.read(REPO, 7, SelectedPullRequestReader.Section.PR)).thenReturn(selected(detail, Optional.empty(), false));
+
+        JsonNode result = call("review_get_context", ImmutableMap.of("kind", "issue", "number", 7));
+
+        assertThat(result.path("pullRequest").asBoolean()).isTrue();
+        assertThat(result.path("source").asText()).isEqualTo("selected-pull-request");
+        assertThat(result.path("body").asText()).isEqualTo("Cached PR body");
+        assertThat(result.path("number").asInt()).isEqualTo(7);
+        verify(selectedPullRequests).read(REPO, 7, SelectedPullRequestReader.Section.PR);
+        verifyNoInteractions(repositories, issues, issueRefresh, workspaces);
     }
 
     @Test
@@ -284,6 +437,20 @@ class TestReviewTools
         when(issues.detail(WORKSPACE_ID, 42)).thenReturn(detail);
         when(issues.list(WORKSPACE_ID, 0, 1)).thenReturn(new RepositoryIssuePage(1, RepoRef.of("acme", "widgets"), ImmutableList.of(issue),
                 0, 1, 1, false, Optional.of(NOW.minusSeconds(20))));
+    }
+
+    private static PullRequestDetail pullRequestDetail(
+            int number, String body, List<PullRequestDetail.ActivityItem> activity, List<PullRequestDetail.CheckRun> checks, List<String> unavailable)
+    {
+        return new PullRequestDetail(12, REPO, number, "Selected pull request " + number, "https://github.com/" + REPO + "/pull/" + number,
+                "merged", false, null, "unknown", "alice", "", NOW.minusSeconds(600), NOW.minusSeconds(30), NOW.minusSeconds(20),
+                "selected-base", "selected-head", body, ImmutableList.of(new PullRequestDetail.Label("bug", "ff0000")), ImmutableList.of(), null,
+                ImmutableList.of(), 3, 1, 2, 1, PullRequestDetail.CiStatus.PASSING, activity, checks, unavailable, false);
+    }
+
+    private static SelectedPullRequestReader.Read selected(PullRequestDetail detail, Optional<String> head, boolean failed)
+    {
+        return new SelectedPullRequestReader.Read(detail, Optional.of(NOW.minusSeconds(30)), Optional.of(NOW.minusSeconds(10)), head, failed, failed, failed, failed);
     }
 
     @Test
@@ -1176,6 +1343,7 @@ class TestReviewTools
     private static final class InMemoryAgentReviewStore
             implements AgentReviewStore
     {
+        private int runUpdates;
         private final Map<String, AgentReview> reviews = new LinkedHashMap<>();
         private final Map<String, ReviewRun> runs = new LinkedHashMap<>();
         private final Map<String, ReviewFinding> findings = new LinkedHashMap<>();
@@ -1236,6 +1404,7 @@ class TestReviewTools
         @Override
         public ReviewRun updateRun(ReviewRun run)
         {
+            runUpdates++;
             ReviewRun next = run.withVersion(run.version() + 1);
             runs.put(next.id(), next);
             return next;

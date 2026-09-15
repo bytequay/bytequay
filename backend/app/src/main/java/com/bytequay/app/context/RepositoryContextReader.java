@@ -177,7 +177,8 @@ public class RepositoryContextReader
         related.addAll(issuePreviews(workspace, terms, directIssues.buildOrThrow(), gaps));
         related.addAll(reviewPreviews(review, run, workspace, paths, terms, gaps));
         gaps.add("Selected notebook claims have not had their source versions checked against this PR; verify original sources before relying on them.");
-        gaps.add("Documentation capture, missing-source hydration, task-summary discovery and shared preparation are not part of this local selection yet.");
+        gaps.add("Local preparation does not refresh sources; selected PR and issue reads use the existing review tools.");
+        gaps.add("Documentation capture, task-summary discovery and shared preparation remain unavailable.");
         return new Selection(baseline, notes, related.build(), gaps.build());
     }
 

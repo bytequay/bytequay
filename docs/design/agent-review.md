@@ -433,6 +433,19 @@ for that lane; failure does not disable ordinary agent tasks.
 | `review_withdraw_finding` | Withdraw an agent finding with expected revision and an explanation |
 | `review_finish` | Seal candidate assessments, concrete evidence requests, frozen investigation identity, coverage and omissions |
 
+The pr, timeline and checks reads select the current PR by default; an optional
+number selects a related PR in the same repository. They reuse persisted data
+and hydrate selected missing or outdated detail through existing PR refresh
+services. Responses and retained excerpts expose cache/source times, missing
+sections, refresh failure and the observed head. An unchanged conditional PR
+response cannot repair an unavailable discussion section; that selected gap
+uses the existing full-detail refresh. Failed refreshes retain cached evidence.
+The current PR's code coordinates and diff remain frozen to its ReviewRun.
+Checks for a separately observed head do not establish checks for the reviewed
+head. The issue read prefers a known cached PR or issue before its existing
+exact remote preview fallback. None of these reads performs repository-wide
+discovery or regenerates notebook knowledge.
+
 These are fixed application operations, not a model-controlled registry.
 Tool declarations carry strict JSON schemas and bounded fields; the backend
 validates again. Managed prompts request tool use, but ByteQuay never assumes

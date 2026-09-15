@@ -275,10 +275,11 @@ Never join a fork's PR number to an upstream PR merely because the numbers match
 | Source files and tests | Existing Git/source readers; optional CodeGraph | Original frozen source remains evidence; graph hits are navigation |
 | External documentation | User/repository-selected source roots and native web discovery | Bounded source capture described below; no website crawling for GitHub data |
 
-The current ReviewTools.issue path bypasses the issue cache through
-RepoService.getIssuePreview. Change it to use the existing issue row/detail
-first and selected refresh when necessary. Reusing that tool unchanged does
-not satisfy the local-first contract.
+ReviewTools uses the existing issue row/detail first and refreshes selected
+missing or outdated activity. A known PR selected through the issue/PR read
+uses the PR cache instead. An uncached issue or closed issue absent from the
+open projection uses the existing exact RepoService.getIssuePreview fallback;
+it does not refresh the whole issue projection.
 
 PR discovery/retention and issue synchronization are bounded. Older closed PRs
 may expire; the open-issue projection drops closed rows; commit enrichment
@@ -296,6 +297,55 @@ Do not add a broad fetch to the display/read path.
 Immutable commit/file content does not expire because of age. Mutable PR/issue
 facts retain observed update and retrieval information. A cached limitation
 must not be presented as freshly confirmed when refresh failed.
+
+The existing review_get_context kinds pr, timeline and checks accept an optional
+PR number within the review's repository. Omitting it selects the reviewed PR.
+SelectedPullRequestReader joins the stored PR row and detail before choosing
+one existing refresh operation:
+
+1. Reuse the requested section when its required sources are available, its
+   detail update matches the row and its status does not need refresh under
+   the existing PR freshness rule. Unrelated missing sections remain visible
+   without forcing a refresh of this read.
+2. Missing detail, known update lag or a missing requested section uses the
+   existing full-detail refresh. A conditional PR response can report unchanged
+   while retaining stale detail or an unavailable discussion section, so it
+   cannot repair that gap by itself.
+3. Expired open/monitored PR status uses the existing conditional refresh.
+   Unchanged, unmonitored closed PRs have no invented age limit.
+4. Recheck the saved result. A successful request can still leave unavailable
+   sections or lagging data; expose those facts. On refresh failure, retain the
+   original cached result and timestamps. With no cached result, return the
+   existing source error. Each call attempts at most one refresh and never
+   starts a repository-wide scan.
+
+Each response exposes source and row update times, the last cache update,
+the read time, refresh attempt/failure, known staleness and missing sections.
+The cache update timestamp includes status-only saves; it does not establish
+when every discussion was fetched. Neither a recent timestamp nor an empty
+unavailable-sections list proves exhaustive upstream history. Returned PR,
+activity and check excerpts retain this provenance in the run's evidence.
+PR activity and checks return at most 20 items per page with explicit omission
+counts. Their individual evidence references are saved in one run update per
+nonempty page, avoiding a full retained-run rewrite for every item.
+
+Current PR code coordinates, commits and diff always come from the frozen
+ReviewRun. The response labels the separately observed source head and whether
+it matches the reviewed head; current checks can belong to a newer head.
+Related PR responses never borrow the current review's code coordinates.
+Hydration adds source evidence without replacing the initial context snapshot,
+changing notebook claims, or establishing preparation readiness. These existing
+review reads also remain available when automatic repository context is Off.
+
+One selected refresh may use the existing detail fetcher's concurrent GitHub
+calls and default-diff refresh. Bounded returned excerpts do not mean one HTTP
+request or bounded upstream latency. These reads retain the existing review
+serialization lock during source access; they hold no notebook lock or
+context-owned database transaction. Measure that wait before changing locking.
+The existing six-hour background full-detail failure backoff is not a selected
+read policy. No new retry cache is introduced: a later explicit source read can
+retry a failed or incomplete refresh, subject to the existing GitHub rate-limit
+handling. Repeated failing reads therefore remain a latency/rate-budget risk.
 
 External documents are the narrow new capture requirement. Native web can
 discover useful URLs, but current provider events do not reliably retain

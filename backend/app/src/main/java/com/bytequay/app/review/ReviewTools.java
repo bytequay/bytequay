@@ -24,6 +24,7 @@ import com.bytequay.app.git.GitCommandRunner;
 import com.bytequay.app.repository.github.GitHubIssuePreview;
 import com.bytequay.app.service.RepoService;
 import com.bytequay.app.service.pr.PullRequestService;
+import com.bytequay.app.service.pr.SelectedPullRequestReader;
 import com.bytequay.app.workspace.WorkspaceIssueRefreshService;
 import com.bytequay.app.workspace.WorkspaceIssueService;
 import com.bytequay.app.workspace.WorkspaceRepositoryService;
@@ -104,10 +105,12 @@ public class ReviewTools
     private static final int SOURCE_WINDOW = 200;
     private static final int DIFF_PAGE_LINES = 300;
     private static final int TIMELINE_PAGE = 20;
+    private static final int CHECK_PAGE = 20;
     private static final List<String> SEVERITIES = ImmutableList.of("Critical", "High", "Medium", "Low");
 
     private final AgentReviewStore store;
     private final PullRequestService pullRequests;
+    private final SelectedPullRequestReader selectedPullRequests;
     private final RepoService repositories;
     private final WorkspaceIssueService issues;
     private final WorkspaceIssueRefreshService issueRefresh;
@@ -122,6 +125,7 @@ public class ReviewTools
     public ReviewTools(
             AgentReviewStore store,
             PullRequestService pullRequests,
+            SelectedPullRequestReader selectedPullRequests,
             RepoService repositories,
             WorkspaceIssueService issues,
             WorkspaceIssueRefreshService issueRefresh,
@@ -135,6 +139,7 @@ public class ReviewTools
     {
         this.store = requireNonNull(store, "store is null");
         this.pullRequests = requireNonNull(pullRequests, "pullRequests is null");
+        this.selectedPullRequests = requireNonNull(selectedPullRequests, "selectedPullRequests is null");
         this.repositories = requireNonNull(repositories, "repositories is null");
         this.issues = requireNonNull(issues, "issues is null");
         this.issueRefresh = requireNonNull(issueRefresh, "issueRefresh is null");
@@ -159,10 +164,14 @@ public class ReviewTools
     {
         return ImmutableList.of(
                 new ReviewTool("review_get_context",
-                        "Read bounded pull request context for this review: kind pr, timeline, checks, issue (number), diff (optional path, page), "
+                        "Read bounded pull request context for this review: kind pr, timeline, checks "
+                                + "(optional same-repository PR number; defaults to this review; page for timeline/checks), "
+                                + "issue (required number), diff (optional path, page), "
                                 + "source (path, startLine, endLine, revision: head/base/previous), command_output, investigation, findings, "
                                 + "summary, discussion (target), or evidence (ref). "
-                                + "Diff lines carry anchor ids; source, issue and command reads return evidence refs to cite in findings.",
+                                + "Diff lines carry anchor ids; PR, timeline, checks, source, issue and command reads return evidence refs to cite in findings. "
+                                + "Known PRs requested through issue return PR metadata; use timeline(number, page) for their discussion. "
+                                + "Selected metadata can be newer than the frozen reviewed code; inspect freshness before relying on historical discussion or checks.",
                         schema(ImmutableMap.<String, Object>builder()
                                 .put(
                                         "kind",
@@ -837,9 +846,9 @@ public class ReviewTools
         ObjectNode arguments = call.arguments();
         String kind = text(arguments, "kind", 30, true).toLowerCase(Locale.ROOT);
         return switch (kind) {
-            case "pr" -> pullRequest(call);
-            case "timeline" -> timeline(call, page(arguments));
-            case "checks" -> checks(call);
+            case "pr" -> pullRequest(call, integer(arguments, "number").orElse(call.review().number()));
+            case "timeline" -> timeline(call, integer(arguments, "number").orElse(call.review().number()), page(arguments));
+            case "checks" -> checks(call, integer(arguments, "number").orElse(call.review().number()), page(arguments));
             case "issue" -> issue(call, integer(arguments, "number").orElseThrow(() -> new ReviewInvalidRequestException("number: required for kind issue")), page(arguments));
             case "diff" -> diff(call, Optional.ofNullable(arguments.get("path")).filter(JsonNode::isTextual).map(JsonNode::asText), page(arguments));
             case "source" -> source(call, text(arguments, "path", 1000, true), integer(arguments, "startLine").orElse(1), integer(arguments, "endLine"));
@@ -854,35 +863,36 @@ public class ReviewTools
         };
     }
 
-    private JsonNode pullRequest(Call call)
+    private JsonNode pullRequest(Call call, int number)
     {
-        PullRequestDetail detail = pullRequests.getPullRequestDetail(call.review().repo(), call.review().number());
+        SelectedPullRequestReader.Read read = selectedPullRequest(call, number, SelectedPullRequestReader.Section.PR);
+        PullRequestDetail detail = read.detail();
         ReviewRun run = call.run();
-        ObjectNode node = objectMapper.createObjectNode()
-                .put("repository", call.review().repo())
-                .put("number", call.review().number())
+        String body = Optional.ofNullable(detail.body()).orElse("");
+        ObjectNode node = pullRequestSource(call, number, read)
                 .put("title", detail.title())
                 .put("author", detail.author())
                 .put("state", detail.state())
                 .put("draft", detail.draft())
-                .put("baseRef", run.baseRef())
-                .put("baseSha", run.baseSha())
-                .put("mergeBaseSha", run.mergeBaseSha())
-                .put("headSha", run.headSha())
-                .put("scope", run.scope().name())
-                .put("body", bounded(Optional.ofNullable(detail.body()).orElse(""), 8000));
-        run.priorHeadSha().ifPresent(sha -> node.put("previousReviewedHead", sha));
+                .put("body", bounded(body, 8000))
+                .put("bodyTruncated", body.length() > 8000);
         node.putPOJO("labels", detail.labels().stream().map(PullRequestDetail.Label::name).collect(toImmutableList()));
-        node.putPOJO("commits", run.commits());
-        node.putPOJO("requiredReviewFiles", requiredFiles(call));
-        node.set("assignment", assignment(call));
-        node.putPOJO(
-                "changedFiles",
-                run
-                        .diff()
-                        .stream()
-                        .map(file -> ImmutableMap.of("path", file.filename(), "status", file.status(), "additions", file.additions(), "deletions", file.deletions()))
-                        .collect(toImmutableList()));
+        node.put("evidenceRef", registerEvidence(call, call.review().repo() + "#" + number + " metadata", pullRequestProvenance(call, number, read),
+                bounded(detail.title() + "\nAuthor: " + detail.author() + "; state: " + detail.state() + "; draft: " + detail.draft() + "\n" + body, MAX_EXCERPT)));
+        if (number == call.review().number()) {
+            node.put("baseRef", run.baseRef()).put("baseSha", run.baseSha()).put("mergeBaseSha", run.mergeBaseSha())
+                    .put("headSha", run.headSha()).put("scope", run.scope().name());
+            run.priorHeadSha().ifPresent(sha -> node.put("previousReviewedHead", sha));
+            node.putPOJO("commits", run.commits());
+            node.putPOJO("requiredReviewFiles", requiredFiles(call));
+            node.set("assignment", assignment(call));
+            node.putPOJO("changedFiles", run.diff().stream()
+                    .map(file -> ImmutableMap.of("path", file.filename(), "status", file.status(), "additions", file.additions(), "deletions", file.deletions()))
+                    .collect(toImmutableList()));
+        }
+        else {
+            node.put("baseRef", detail.baseRef()).put("headRef", detail.headRef());
+        }
         return node;
     }
 
@@ -911,54 +921,136 @@ public class ReviewTools
         return ReviewScopeFiles.required(git, workspaces.requireReadableRepository(call.review().workspaceId()).repository(), call.run(), previous);
     }
 
-    private JsonNode timeline(Call call, int page)
+    private JsonNode timeline(Call call, int number, int page)
     {
-        PullRequestDetail detail = pullRequests.getPullRequestDetail(call.review().repo(), call.review().number());
+        SelectedPullRequestReader.Read read = selectedPullRequest(call, number, SelectedPullRequestReader.Section.TIMELINE);
+        PullRequestDetail detail = read.detail();
         List<PullRequestDetail.ActivityItem> items = detail.recentActivity();
-        int from = Math.min(items.size(), (page - 1) * TIMELINE_PAGE);
+        int from = (int) Math.min(items.size(), (long) (page - 1) * TIMELINE_PAGE);
         int to = Math.min(items.size(), from + TIMELINE_PAGE);
-        ObjectNode node = objectMapper.createObjectNode().put("page", page).put("pages", Math.max(1, (items.size() + TIMELINE_PAGE - 1) / TIMELINE_PAGE));
+        ObjectNode node = pullRequestSource(call, number, read).put("page", page).put("pages", Math.max(1, (items.size() + TIMELINE_PAGE - 1) / TIMELINE_PAGE))
+                .put("totalItems", items.size()).put("omittedItems", items.size() - (to - from)).put("truncated", from > 0 || to < items.size());
         if (detail.unavailableSections().contains("reviewThreads")) {
             node.put("note", "review threads were unavailable when the pull request was last refreshed");
         }
-        node.putPOJO("items", items.subList(from, to).stream().map(item -> {
-            Map<String, Object> entry = new TreeMap<>();
-            entry.put("actor", Optional.ofNullable(item.actor()).orElse(""));
-            entry.put("event", item.eventType());
-            entry.put("at", item.timestamp() == null ? "" : item.timestamp().toString());
-            entry.put("body", bounded(Optional.ofNullable(item.body()).orElse(""), 2000));
+        String provenance = pullRequestProvenance(call, number, read);
+        List<ObjectNode> entries = items.subList(from, to).stream().map(item -> {
+            ObjectNode entry = objectMapper.createObjectNode()
+                    .put("actor", bounded(Optional.ofNullable(item.actor()).orElse(""), 200))
+                    .put("event", bounded(Optional.ofNullable(item.eventType()).orElse(""), 200))
+                    .put("at", item.timestamp() == null ? "" : item.timestamp().toString());
+            String body = Optional.ofNullable(item.body()).orElse("");
+            entry.put("body", bounded(body, 2000));
+            entry.put("bodyTruncated", body.length() > 2000);
+            if (item.githubId() != null) {
+                entry.put("id", item.githubId());
+            }
             if (item.payload() != null && item.payload().path() != null) {
-                entry.put("path", item.payload().path());
+                entry.put("path", bounded(item.payload().path(), 1000));
                 entry.put("line", item.payload().line() == null ? "" : item.payload().line().toString());
-                entry.put("side", Optional.ofNullable(item.payload().side()).orElse(""));
+                entry.put("side", bounded(Optional.ofNullable(item.payload().side()).orElse(""), 20));
                 entry.put("resolved", item.payload().resolved());
             }
             return entry;
-        }).collect(toImmutableList()));
+        }).collect(toImmutableList());
+        retainPageEvidence(call, call.review().repo() + "#" + number + " activity", provenance, entries);
+        node.putPOJO("items", entries);
         return node;
     }
 
-    private JsonNode checks(Call call)
+    private JsonNode checks(Call call, int number, int page)
     {
-        PullRequestDetail detail = pullRequests.getPullRequestDetail(call.review().repo(), call.review().number());
-        ObjectNode node = objectMapper.createObjectNode().put("ciStatus", detail.ciStatus().name());
-        node.putPOJO("checks", detail.checkRuns().stream()
-                .map(
-                        check -> ImmutableMap.of(
-                                "name",
-                                Optional.ofNullable(check.name()).orElse(""),
-                                "status",
-                                Optional.ofNullable(check.status()).orElse(""),
-                                "conclusion",
-                                Optional.ofNullable(check.conclusion()).orElse(""),
-                                "category",
-                                check.category()))
-                .collect(toImmutableList()));
+        SelectedPullRequestReader.Read read = selectedPullRequest(call, number, SelectedPullRequestReader.Section.CHECKS);
+        PullRequestDetail detail = read.detail();
+        List<PullRequestDetail.CheckRun> checks = detail.checkRuns();
+        int from = (int) Math.min(checks.size(), (long) (page - 1) * CHECK_PAGE);
+        int to = Math.min(checks.size(), from + CHECK_PAGE);
+        ObjectNode node = pullRequestSource(call, number, read).put("ciStatus", detail.ciStatus().name())
+                .put("page", page).put("pages", Math.max(1, (checks.size() + CHECK_PAGE - 1) / CHECK_PAGE))
+                .put("totalItems", checks.size()).put("omittedItems", checks.size() - (to - from)).put("truncated", from > 0 || to < checks.size());
+        String provenance = pullRequestProvenance(call, number, read);
+        List<ObjectNode> entries = checks.subList(from, to).stream().map(check -> {
+            ObjectNode entry = objectMapper.createObjectNode()
+                    .put("name", bounded(Optional.ofNullable(check.name()).orElse(""), 200))
+                    .put("status", bounded(Optional.ofNullable(check.status()).orElse(""), 100))
+                    .put("conclusion", bounded(Optional.ofNullable(check.conclusion()).orElse(""), 100))
+                    .put("category", bounded(Optional.ofNullable(check.category()).orElse(""), 100))
+                    .put("detailsUrl", bounded(Optional.ofNullable(check.detailsUrl()).orElse(""), 1000))
+                    .put("startedAt", check.startedAt() == null ? "" : check.startedAt().toString())
+                    .put("completedAt", check.completedAt() == null ? "" : check.completedAt().toString());
+            if (check.githubId() != null) {
+                entry.put("id", check.githubId());
+            }
+            return entry;
+        }).collect(toImmutableList());
+        retainPageEvidence(call, call.review().repo() + "#" + number + " check", provenance, entries);
+        node.putPOJO("checks", entries);
         return node;
+    }
+
+    private void retainPageEvidence(Call call, String source, String provenance, List<ObjectNode> entries)
+    {
+        if (entries.isEmpty()) {
+            return;
+        }
+        ReviewRun current = store.findRun(call.run().id()).orElse(call.run());
+        for (ObjectNode entry : entries) {
+            String ref = "E" + (current.evidence().size() + 1);
+            current = current.withEvidence(ref, new ReviewEvidence(ref, source, provenance, bounded(entry.toString(), MAX_EXCERPT), ""), now());
+            entry.put("evidenceRef", ref);
+        }
+        store.updateRun(current);
+    }
+
+    private SelectedPullRequestReader.Read selectedPullRequest(Call call, int number, SelectedPullRequestReader.Section section)
+    {
+        SelectedPullRequestReader.Read read = selectedPullRequests.read(call.review().repo(), number, section);
+        if (!read.detail().repo().equalsIgnoreCase(call.review().repo()) || read.detail().number() != number) {
+            throw new ReviewInvalidRequestException("number: the selected pull request response has a different repository or number");
+        }
+        return read;
+    }
+
+    private ObjectNode pullRequestSource(Call call, int number, SelectedPullRequestReader.Read read)
+    {
+        ObjectNode freshness = objectMapper.createObjectNode()
+                .put("sourceUpdatedAt", read.detail().updatedAt() == null ? null : read.detail().updatedAt().toString())
+                .put("rowUpdatedAt", read.rowUpdatedAt().map(Instant::toString).orElse(null))
+                .put("cacheUpdatedAt", read.cacheUpdatedAt().map(Instant::toString).orElse(null))
+                .put("readAt", now().toString())
+                .put("refreshAttempted", read.refreshAttempted()).put("refreshFailed", read.refreshFailed())
+                .put("stale", read.stale()).put("incomplete", read.incomplete())
+                .put("observedHeadSha", read.observedHeadSha().orElse(null))
+                .put("note", "incomplete describes the requested section; unavailableSections lists all known cache gaps. Cache freshness does not establish remote currentness "
+                        + "or complete historical discussion. cacheUpdatedAt may reflect a status-only update.");
+        freshness.putPOJO("unavailableSections", read.detail().unavailableSections());
+        if (number == call.review().number()) {
+            read.observedHeadSha().ifPresentOrElse(head -> freshness.put("matchesReviewedHead", head.equals(call.run().headSha())),
+                    () -> freshness.putNull("matchesReviewedHead"));
+        }
+        ObjectNode node = objectMapper.createObjectNode().put("repository", call.review().repo()).put("number", number)
+                .put("pullRequest", true).put("source", "selected-pull-request");
+        node.set("freshness", freshness);
+        return node;
+    }
+
+    private String pullRequestProvenance(Call call, int number, SelectedPullRequestReader.Read read)
+    {
+        String provenance = "Selected pull request " + call.review().repo() + "#" + number + " read by ByteQuay at " + now()
+                + "; sourceUpdatedAt=" + read.detail().updatedAt() + "; rowUpdatedAt=" + read.rowUpdatedAt().map(Instant::toString).orElse("unknown")
+                + "; cacheUpdatedAt=" + read.cacheUpdatedAt().map(Instant::toString).orElse("unknown")
+                + "; observedHeadSha=" + read.observedHeadSha().orElse("unknown")
+                + "; refreshAttempted=" + read.refreshAttempted() + "; refreshFailed=" + read.refreshFailed()
+                + "; stale=" + read.stale() + "; incomplete=" + read.incomplete() + "; unavailableSections=" + read.detail().unavailableSections()
+                + "; cache freshness is not remote currentness or complete discussion evidence; cacheUpdatedAt may reflect a status-only update";
+        return number == call.review().number() ? provenance + "; frozenReviewedHead=" + call.run().headSha() : provenance + "; related historical source";
     }
 
     private JsonNode issue(Call call, int number, int page)
     {
+        if (pullRequests.findStored(call.review().repo(), number).isPresent()) {
+            return pullRequest(call, number);
+        }
         if (workspaces.requireReadableRepository(call.review().workspaceId()).monitoredRepository().fullName().equalsIgnoreCase(call.review().repo())) {
             Optional<RepositoryIssue> cached = issues.find(call.review().workspaceId(), number);
             if (cached.isPresent()) {
@@ -1277,7 +1369,7 @@ public class ReviewTools
         if (value == null || value.isNull()) {
             return Optional.empty();
         }
-        if (!value.canConvertToInt() || value.asInt() < 1) {
+        if (!value.isIntegralNumber() || !value.canConvertToInt() || value.asInt() < 1) {
             throw new ReviewInvalidRequestException(field + ": must be a positive integer");
         }
         return Optional.of(value.asInt());

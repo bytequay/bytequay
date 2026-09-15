@@ -6,7 +6,8 @@ This temporary file tracks delivery; it does not define a second architecture.
 
 Implementation includes the notebook, editing API, discussion-source binding,
 and immutable per-run snapshots selected from local notes and history, including
-bounded baseline input inventories and fingerprints. The
+bounded baseline input inventories and fingerprints. Selected PR/issue reads
+reuse existing caches and refresh paths, retaining freshness and failure evidence. The
 default-on preference now controls local snapshot capture; Off bypasses selection.
 Snapshots are prepared before agent admission and exposed in the existing review
 projection. Generation, direct context delivery, the settings/display UI, and
@@ -111,6 +112,11 @@ runtime-retention and workspace-deletion behavior. Use current schema ownership.
 - [ ] Add scoped task-summary discovery through existing task services.
 - [ ] Hydrate only selected missing/stale details through existing refresh paths.
   Expose missing sections, cache age, lookup bounds, and unavailable history.
+- [x] Verify selected PR metadata/activity/check reads, issue cache reuse and
+  exact preview fallback. Keep related PR identity separate from frozen review
+  code; retain source freshness in returned evidence.
+- [ ] Add selected missing commit-association and exact related-diff hydration;
+  current review diffs already come from the retained run.
 - [ ] Register validated user/repository documentation roots with provenance;
   capture selected pages through the bounded reader and retain cited excerpts.
 - [ ] Check every redirect and resolved destination, document versions,
@@ -458,3 +464,47 @@ Required checks below describe the current increment, not full feature acceptanc
   `frontend/out/ByteQuay-darwin-arm64/ByteQuay.app`. Its packaged backend JAR
   matches the verified backend JAR by SHA-256. Log:
   `/private/tmp/bytequay-context-inputs-package.log`.
+- Committed the verified input-fingerprint increment as `ad3a772a4`
+  (`Capture repository context input fingerprints`).
+- Selected PR reads now share the existing row/detail stores, projection
+  mapper and PR freshness rules. Missing detail, known update lag or requested
+  missing sections use the existing full refresh; expired open/monitored status
+  uses its conditional refresh. Unrelated missing sections do not cause a
+  refresh. Failed refreshes or persisted rereads retain the original cached
+  data, timestamps and head with explicit failure/staleness. No new retry cache
+  or background full-detail backoff policy was introduced.
+- Existing PR, timeline and checks tools accept a selected number in the bound
+  repository. Current review code coordinates remain frozen; related metadata
+  does not borrow them. Known PRs read through the issue tool reuse the PR cache.
+  Responses and individual evidence excerpts include source/cache age, missing
+  sections, observed head and failure status. Initial notebook selection stays
+  local and its saved snapshot is not replaced by these later reads.
+- Independent review identified and fixed repeated retained-run writes from
+  per-item PR citations. Each nonempty activity/check page now saves its up to
+  20 individual references in one update; an empty page performs no evidence
+  write. Review serialization still covers the existing remote read, and the
+  existing detail refresh can make several HTTP calls. Live lock wait, upstream
+  latency and repeated-failure cost remain performance acceptance work.
+- Frontend source-read checks passed: `npm run lint`,
+  `npx --no-install tsc --noEmit`, and `npm test` (80 files, 901 tests).
+  Logs: `/private/tmp/bytequay-context-source-lint.log`,
+  `/private/tmp/bytequay-context-source-types.log`, and
+  `/private/tmp/bytequay-context-source-frontend-tests.log`.
+- Focused source-read coverage passes: 29 selected-reader cases and 48 review
+  tool cases, including existing issue-cache tests. Fixtures cover missing and
+  incomplete sources, shared status-age rules, unchanged historical PRs, failed
+  refresh/partial-save fallback, unknown check heads, moved heads with frozen
+  review coordinates, related-source identity, pagination and one evidence
+  write per page. No live GitHub or provider was used for these fixtures.
+- Full backend source-read gate: `mvn -B verify` passed in one invocation,
+  including license, Checkstyle, compilation, tests, Spring boot and packaging.
+  Reports contain 216 suites and 2,356 tests with zero failures, errors or skips.
+  Log: `/private/tmp/bytequay-context-source-verify.log`.
+- Desktop source-read packaging: `npm run package` passed and produced
+  `frontend/out/ByteQuay-darwin-arm64/ByteQuay.app`. Its packaged backend JAR
+  matches the verified backend JAR by SHA-256. Log:
+  `/private/tmp/bytequay-context-source-package.log`.
+  Changed source/document whitespace, Java line-length and conflict checks
+  pass, and all seven design JSON examples parse. The source-read increment
+  is verified; selected association/range-diff hydration,
+  documentation capture, shared preparation, delivery and UI remain pending.

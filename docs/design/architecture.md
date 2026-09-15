@@ -43,7 +43,10 @@ Review startup captures bounded local selection and retained evidence on the
 existing review run, whose nullable context JSON is mapped by persistence-sqlite.
 Matching and history reuse existing Git, repository enrichment, PR, issue and
 review stores. Snapshot capture occurs before provider admission and records
-prepared text, not confirmed delivery. Generation, review input delivery and
+prepared text and bounded baseline input fingerprints, not confirmed delivery.
+Input identities are read from frozen Git objects outside notebook mutations;
+failed or partial inventories retain gaps instead of reusable digests.
+Generation, review input delivery and
 the settings UI have separate implementation gates.
 
 [Development delivery](development-delivery.md) extends the current agent core

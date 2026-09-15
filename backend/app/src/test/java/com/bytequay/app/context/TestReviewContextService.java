@@ -16,6 +16,7 @@ package com.bytequay.app.context;
 import com.bytequay.app.workspace.WorkspaceRepositoryContext;
 import com.bytequay.core.context.ContextClaim;
 import com.bytequay.core.context.ContextEntry;
+import com.bytequay.core.context.ContextInputFingerprint;
 import com.bytequay.core.context.ContextLimits;
 import com.bytequay.core.context.ContextMatch;
 import com.bytequay.core.context.ContextPacket;
@@ -70,8 +71,9 @@ class TestReviewContextService
 
     private final RepositoryContextService notebooks = mock(RepositoryContextService.class);
     private final RepositoryContextReader reader = mock(RepositoryContextReader.class);
+    private final ContextInputReader inputs = mock(ContextInputReader.class);
     private final AgentReviewStore reviews = mock(AgentReviewStore.class);
-    private final ReviewContextService service = new ReviewContextService(notebooks, reader, reviews, Clock.fixed(NOW, ZoneOffset.UTC));
+    private final ReviewContextService service = new ReviewContextService(notebooks, reader, inputs, reviews, Clock.fixed(NOW, ZoneOffset.UTC));
 
     @Test
     void disabledContextPersistsExplicitSnapshotWithoutReadingSources()
@@ -90,9 +92,10 @@ class TestReviewContextService
         assertThat(context.bootstrap()).isEmpty();
         assertThat(context.selectedEntries()).isEmpty();
         assertThat(context.relatedItems()).isEmpty();
+        assertThat(context.inputFingerprints()).isEmpty();
         assertThat(captured.evidence()).isEqualTo(run.evidence());
         assertThat(captured.version()).isEqualTo(1);
-        verifyNoInteractions(reader);
+        verifyNoInteractions(reader, inputs);
         verify(reviews).updateRun(captured.withVersion(0));
     }
 
@@ -100,11 +103,11 @@ class TestReviewContextService
     void replayReturnsCapturedRunWithoutAnyReadsOrWrites()
     {
         ReviewContextSnapshot disabled = new ReviewContextSnapshot("context-off", false, 3, 42, Optional.empty(), Optional.empty(),
-                ImmutableList.of(), ImmutableList.of(), ImmutableList.of());
+                ImmutableList.of(), ImmutableList.of(), ImmutableList.of(), ImmutableList.of());
         ReviewRun captured = run().withContext(disabled, ImmutableMap.of(), NOW).withVersion(1);
 
         assertThat(service.prepareRun(REVIEW, captured, WORKSPACE, Optional.empty())).isSameAs(captured);
-        verifyNoInteractions(notebooks, reader, reviews);
+        verifyNoInteractions(notebooks, reader, inputs, reviews);
     }
 
     @Test
@@ -137,10 +140,10 @@ class TestReviewContextService
         assertThat(original.context()).isEmpty();
 
         when(notebooks.getNotebook("workspace")).thenReturn(RepositoryNotebook.empty());
-        clearInvocations(notebooks, reader, reviews);
+        clearInvocations(notebooks, reader, inputs, reviews);
         assertThat(service.prepareRun(REVIEW, captured, WORKSPACE, Optional.empty())).isSameAs(captured);
         assertThat(captured.evidence().get(evidenceRef)).isEqualTo(evidence);
-        verifyNoInteractions(notebooks, reader, reviews);
+        verifyNoInteractions(notebooks, reader, inputs, reviews);
     }
 
     @Test
@@ -167,6 +170,74 @@ class TestReviewContextService
         ContextPacket packet = context.bootstrap().orElseThrow();
         assertThat(packet.text()).doesNotContain(second.body());
         assertThat(packet.utf8Bytes()).isEqualTo(ContextLimits.bytes(packet.text())).isLessThanOrEqualTo(ContextPacket.MAXIMUM_BYTES);
+    }
+
+    @Test
+    void freezesBaselineInputIdentitiesWithoutPromotingClaimsOrRereadingOnReplay()
+    {
+        ContextEntry note = note("project", "A conditional project claim");
+        RepositoryNotebook notebook = notebook(true, ImmutableList.of(note), ImmutableList.of());
+        ReviewRun original = run();
+        select(notebook, original, ImmutableList.of());
+        ContextInputFingerprint fingerprint = ContextInputFingerprint.create("project", ImmutableMap.of("git:pom.xml", "100644 blob " + BASE), ImmutableList.of());
+        when(inputs.capture(WORKSPACE, Optional.of(BASE), notebook, ImmutableList.of(ContextScope.project()))).thenReturn(ImmutableList.of(fingerprint));
+        captureWrites();
+
+        ReviewRun captured = service.prepareRun(REVIEW, original, WORKSPACE, Optional.empty());
+        ReviewContextSnapshot context = captured.context().orElseThrow();
+
+        assertThat(context.inputFingerprints()).containsExactly(fingerprint);
+        assertThat(context.bootstrap().orElseThrow().text()).contains("Local input inventories: 1 complete of 1", "remote document freshness are unverified");
+        assertThat(context.selectedEntries().getFirst().applicability()).isEqualTo(ContextSelectedEntry.Applicability.UNVERIFIED);
+        verify(inputs).capture(WORKSPACE, Optional.of(BASE), notebook, ImmutableList.of(ContextScope.project()));
+        clearInvocations(notebooks, reader, inputs, reviews);
+
+        assertThat(service.prepareRun(REVIEW, captured, WORKSPACE, Optional.empty())).isSameAs(captured);
+        assertThat(captured.context().orElseThrow().inputFingerprints()).containsExactly(fingerprint);
+        verifyNoInteractions(notebooks, reader, inputs, reviews);
+    }
+
+    @Test
+    void retainsIncompleteInventoryAndItsReasonWithoutBlockingReview()
+    {
+        RepositoryNotebook notebook = notebook(true, ImmutableList.of(note("project", "Project")), ImmutableList.of());
+        ReviewRun original = run();
+        select(notebook, original, ImmutableList.of());
+        ContextInputFingerprint incomplete = ContextInputFingerprint.create("project", ImmutableMap.of(), ImmutableList.of("Git inventory was truncated."));
+        when(inputs.capture(WORKSPACE, Optional.of(BASE), notebook, ImmutableList.of(ContextScope.project()))).thenReturn(ImmutableList.of(incomplete));
+        captureWrites();
+
+        ReviewContextSnapshot context = service.prepareRun(REVIEW, original, WORKSPACE, Optional.empty()).context().orElseThrow();
+
+        assertThat(context.inputFingerprints()).containsExactly(incomplete);
+        assertThat(context.inputFingerprints().getFirst().digest()).isEmpty();
+        assertThat(context.gaps()).contains("Scope project: Git inventory was truncated.");
+        assertThat(context.bootstrap().orElseThrow().text()).contains("0 complete of 1", "Git inventory was truncated.");
+    }
+
+    @Test
+    void boundsTotalInventoryStorageWithoutCreatingAReusablePartialDigest()
+    {
+        RepositoryNotebook notebook = notebook(true, ImmutableList.of(), ImmutableList.of());
+        ReviewRun original = run();
+        select(notebook, original, ImmutableList.of());
+        ImmutableMap.Builder<String, String> identities = ImmutableMap.builder();
+        IntStream.range(0, 16).forEach(index -> identities.put("git:" + index, "界".repeat(660)));
+        List<ContextInputFingerprint> captured = IntStream.range(0, 10)
+                .mapToObj(index -> ContextInputFingerprint.create("scope-" + index, identities.buildOrThrow(), ImmutableList.of())).collect(toImmutableList());
+        when(inputs.capture(WORKSPACE, Optional.of(BASE), notebook, ImmutableList.of())).thenReturn(captured);
+        captureWrites();
+
+        ReviewContextSnapshot context = service.prepareRun(REVIEW, original, WORKSPACE, Optional.empty()).context().orElseThrow();
+
+        assertThat(context.inputFingerprints()).hasSize(10);
+        assertThat(context.inputFingerprints().stream().mapToLong(ContextInputFingerprint::inputBytes).sum()).isLessThanOrEqualTo(ReviewContextSnapshot.MAXIMUM_INPUT_BYTES);
+        assertThat(context.inputFingerprints().getFirst()).isEqualTo(captured.getFirst());
+        ContextInputFingerprint omitted = context.inputFingerprints().getLast();
+        assertThat(omitted.digest()).isEmpty();
+        assertThat(omitted.inputs()).isEmpty();
+        assertThat(omitted.gaps()).anyMatch(gap -> gap.contains("256 KiB inventory budget"));
+        assertThat(context.gaps()).anyMatch(gap -> gap.contains("scope-9") && gap.contains("256 KiB inventory budget"));
     }
 
     @Test
@@ -277,7 +348,10 @@ class TestReviewContextService
                 .map(entry -> new RepositoryContextMatcher.Match(entry, ImmutableList.of("Repository-wide scope"), RepositoryContextMatcher.Rank.REPOSITORY))
                 .collect(toImmutableList());
         RepositoryContextReader.Selection selection = new RepositoryContextReader.Selection(Optional.of(BASE),
-                new RepositoryContextMatcher.Selection(entries, ImmutableList.of()), related, gaps);
+                new RepositoryContextMatcher.Selection(entries, notebook.scopes().stream()
+                        .filter(scope -> entries.stream().anyMatch(entry -> entry.entry().scopeId().equals(scope.id())))
+                        .map(scope -> new RepositoryContextMatcher.ScopeMatch(scope, ImmutableList.of("Fixture scope"), RepositoryContextMatcher.Rank.REPOSITORY, false))
+                        .collect(toImmutableList())), related, gaps);
         when(reader.select(REVIEW, run, WORKSPACE, Optional.empty(), notebook)).thenReturn(selection);
     }
 

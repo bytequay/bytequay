@@ -5,7 +5,8 @@ design review with its [Overall flow](repository-context.md#2-overall-flow).
 This temporary file tracks delivery; it does not define a second architecture.
 
 Implementation includes the notebook, editing API, discussion-source binding,
-and immutable per-run snapshots selected from local notes and history. The
+and immutable per-run snapshots selected from local notes and history, including
+bounded baseline input inventories and fingerprints. The
 default-on preference now controls local snapshot capture; Off bypasses selection.
 Snapshots are prepared before agent admission and exposed in the existing review
 projection. Generation, direct context delivery, the settings/display UI, and
@@ -98,7 +99,11 @@ runtime-retention and workspace-deletion behavior. Use current schema ownership.
 - [x] Implement deterministic normalized path/term/scope matching and visible
   reasons, with stable ordering and evidence of budget omissions.
 - [x] Capture the local monitored baseline separately from frozen PR base/head.
-- [ ] Compute relevant blob/tree/source inventory and dependency fingerprints.
+- [x] Capture bounded baseline blob/tree, source-configuration and dependency
+  manifest fingerprints, with explicit absence and incomplete-read gaps.
+- [ ] Use those identities in shared preparation reuse and compare applicable
+  source/dependency versions with reviewed code. Manifest hashes do not resolve
+  effective versions or establish remote freshness.
 - [x] Add the narrow path-filtered Git history overload and reuse persisted
   commit-to-PR associations. Treat parsed PR-number suffixes as unverified hints.
 - [x] Reuse existing PR detail/diff, issue detail, and review services;
@@ -359,7 +364,7 @@ Required checks below describe the current increment, not full feature acceptanc
   validation proves identity only; CP4/CP6 must establish policy delivery and
   judgment behavior before enablement, including finding explanations that cite
   notebook evidence. Prepared evidence is readable through existing review tools.
-- Remaining: relevant input fingerprints, selected hydration and documentation
+- Remaining: input applicability/reuse, selected hydration and documentation
   capture, shared READY/EMPTY/FAILED preparation and generation fencing, automatic
   agent delivery, notebook UI, and the small-PR On/Off comparison.
 - Snapshot verification: `mvn -B verify` completed all modules and exposed one
@@ -413,3 +418,43 @@ Required checks below describe the current increment, not full feature acceptanc
   conflict-marker checks passed. Log:
   `/private/tmp/bytequay-context-topk-verify.log`. This backend-only refactor did
   not repeat frontend checks or rebuild the desktop package.
+- Committed the verified local snapshot/selection increment as `913416d07`
+  (`Capture local context for review runs`).
+- The input-identity increment saves per-scope baseline inventories in the
+  existing review snapshot. Root documentation/build entries, component trees,
+  knowledge-file references, ancestor manifests and the configured source
+  catalog participate. Evidence receipt IDs, citation commits, retrieval times,
+  unrelated baseline commits and MEMORY lessons do not force a new fingerprint.
+  Observed document content/version/capture changes do participate; no remote
+  document read or effective dependency resolution is claimed.
+- Git inspection uses one root read and at most four shared batches of 128
+  nested paths. Each command has a two-second timeout; no new read is scheduled
+  after the ten-second budget. Existing process termination/drain may add time.
+  Parsed output is limited to 256 KiB; the existing runner's hard capture bound
+  remains 5 MiB. Complete fingerprints require every selected essential input.
+  Truncated, failed, unsupported or excluded inputs retain a reason and no
+  digest. Inventory keys/values are bounded to 32 KiB per scope and 256 KiB per
+  run. No notebook write, provider call or new storage layer is introduced.
+- Independent review corrected overlapping Git path handling, deep-source
+  ancestor expansion, provenance-only hash changes, MEMORY interference,
+  unrelated unusual Git filenames, and absent document metadata colliding
+  with literal values. Notes remain UNVERIFIED for the PR. Reuse outcomes,
+  generation, source hydration, delivery and UI gates remain pending.
+- The first backend gate stopped at one overlong test line. After fixing it
+  and the optional-metadata regression, a full `mvn -B verify` passed all
+  modules: 215 suites, 2,318 tests, zero failures/errors/skips. This includes
+  25 input-reader tests, 5 fingerprint-value tests, 11 capture-service tests,
+  and the existing real SQLite roundtrip with complete/incomplete inventories.
+  Logs: `/private/tmp/bytequay-context-inputs-verify.log` and
+  `/private/tmp/bytequay-context-inputs-verify-final.log`.
+- Frontend lint and TypeScript passed; `npm test` passed 80 files and 901 tests.
+  Logs: `/private/tmp/bytequay-context-inputs-lint.log`,
+  `/private/tmp/bytequay-context-inputs-types.log`, and
+  `/private/tmp/bytequay-context-inputs-frontend-tests.log`.
+- All seven JSON examples parse, and changed source/document whitespace,
+  Java line-length and conflict-marker checks pass. No live provider, user-data
+  database or GitHub publication was used.
+- `npm run package` passed and produced
+  `frontend/out/ByteQuay-darwin-arm64/ByteQuay.app`. Its packaged backend JAR
+  matches the verified backend JAR by SHA-256. Log:
+  `/private/tmp/bytequay-context-inputs-package.log`.

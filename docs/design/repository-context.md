@@ -610,6 +610,18 @@ changes cannot be detected without a fetch; do not imply otherwise.
       "presentInReviewedBase": true
     }
   ],
+  "inputFingerprints": [
+    {
+      "scopeId": "path:plugin/trino-iceberg/",
+      "inputs": {
+        "scope-configuration": "illustrative-scope-configuration-hash",
+        "git:plugin/trino-iceberg": "040000 tree illustrative-component-tree",
+        "git:pom.xml": "100644 blob illustrative-dependency-manifest"
+      },
+      "digest": "sha256:illustrative-input",
+      "gaps": []
+    }
+  ],
   "preparationResultRefs": [],
   "brief": null,
   "collectionSupplements": [],
@@ -649,6 +661,21 @@ identity and version with absent text; complete note bodies are never cut to fit
   from this snapshot point to it; do not duplicate full PR/issue objects.
 - applicability is MATCHED, VERSION_MISMATCH, or UNVERIFIED. A mismatch can be a
   useful pointer but cannot silently supply an applicable contract.
+- inputFingerprints retain each selected scope's local baseline input inventory.
+  Each inventory maps stable input keys to observed Git mode/type/object IDs,
+  explicit ABSENT results, or configuration hashes. A canonical SHA-256 covers
+  the scope ID followed by sorted input keys and values; every UTF-8 string has
+  a 32-bit big-endian length prefix. Baseline SHA and notebook revision are
+  provenance, not implicit digest inputs. Any incomplete essential observation
+  produces gaps and an absent digest, never a reusable partial or empty result.
+  Inventories are bounded to 128 inputs and 32 KiB per scope, and 256 KiB of
+  input keys/values across at most 100 scopes. An inventory that exceeds the
+  run budget is replaced by an explicit incomplete record. These identity
+  records do not consume the model's note-text budget and do not establish
+  note applicability, successful preparation, or remote document freshness.
+  Evidence receipt IDs and repository-file citation commits do not change
+  baseline input equality; the current selected object identities do. Retained
+  document content hashes, versions and capture limitations remain input facts.
 - inclusion is INCLUDED or DEFERRED. Deferred entries retain a short title,
   reason, and entry/version reference, not their complete body. A later read
   can use that exact current version or an already captured evidence copy.
@@ -900,6 +927,21 @@ Compare only selected source inventories/blob identities/dependency versions.
 Unchanged inputs reuse READY when its note still exists, or EMPTY for the same
 successfully checked inventory. A relevant change permits preparation
 on the next requested run; sync and HEAD movement alone do nothing.
+
+Local inventory reads use the captured monitored commit, independently of
+working-tree edits or later HEAD movement. Project input discovery covers
+bounded root documentation/build entries rather than hashing the entire
+repository tree. Component inputs use their selected subtree identities and
+referenced repository files, with ancestor dependency manifests. Explicit
+absence and the documentation-source catalog participate in the fingerprint,
+so newly added relevant input invalidates an earlier negative preparation.
+Sources from saved MEMORY lessons do not participate in baseline knowledge
+preparation fingerprints; saving a lesson must not force knowledge regeneration.
+They retain their own source references and applicability limits in the review.
+Manifest blob equality establishes unchanged dependency declarations; it does
+not resolve effective versions, remote parents, profiles, lockless ranges or
+environment-dependent build inputs. Those remain explicit applicability limits.
+Comparing baseline inventories must never promote a claim to MATCHED for a PR.
 
 Refresh generated baseline knowledge from the captured monitored branch, not
 from an older task or an unmerged experiment. Version-specific differences
@@ -1429,6 +1471,33 @@ public interface RepositoryContextReader
      */
     ContextCandidates findRelated(ContextExecution execution, ContextRelatedQuery query);
 }
+~~~
+
+The application also captures baseline input identities before the initial
+review turn; this is a local collaborator, not an agent-callable tool:
+
+~~~java
+/**
+ * Captures bounded input identities for the selected notebook scopes.
+ *
+ * @param workspace application-resolved checkout and monitored repository routing
+ * @param baselineSha captured local monitored commit, absent when unavailable
+ * @param notebook immutable notebook read used for this selection
+ * @param scopes enabled scopes selected from that notebook
+ * @return one inventory per selected scope; incomplete reads have gaps and no digest
+ *
+ * Read immutable Git objects only. Reuse batched path reads, retain explicit
+ * absence, and bound commands, output, and inventory storage. Never follow
+ * working-tree symlinks, resolve remote dependencies, or fetch documentation.
+ * A valid digest proves equality of the recorded inventory, not correctness
+ * of a note or compatibility with the PR. No notebook lock or transaction is
+ * held while inspecting Git. Off and already-captured runs bypass this read.
+ */
+List<ContextInputFingerprint> capture(
+        WorkspaceRepositoryContext workspace,
+        Optional<String> baselineSha,
+        RepositoryNotebook notebook,
+        List<ContextScope> scopes);
 ~~~
 
 ### 10.4 Generated preparation and review integration

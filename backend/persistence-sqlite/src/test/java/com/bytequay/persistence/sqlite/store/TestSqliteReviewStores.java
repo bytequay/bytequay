@@ -13,6 +13,7 @@
  */
 package com.bytequay.persistence.sqlite.store;
 
+import com.bytequay.core.context.ContextInputFingerprint;
 import com.bytequay.core.context.ContextPacket;
 import com.bytequay.core.context.ContextRelatedItem;
 import com.bytequay.core.context.ContextSelectedEntry;
@@ -152,7 +153,7 @@ class TestSqliteReviewStores
         store.insertReview(newReview("review-history", "workspace-a", "bytequay/sample", 7, "task-history", NOW));
         store.insertReview(newReview("review-off", "workspace-a", "bytequay/sample", 8, "task-off", NOW));
         ReviewContextSnapshot disabled = new ReviewContextSnapshot("context-off", false, 9, 42, Optional.empty(), Optional.empty(),
-                ImmutableList.of(), ImmutableList.of(), ImmutableList.of());
+                ImmutableList.of(), ImmutableList.of(), ImmutableList.of(), ImmutableList.of());
         ReviewRun historical = store.insertRun(newRun("run-history", "review-history"));
         ReviewRun off = store.insertRun(newRun("run-off", "review-off").withContext(disabled, ImmutableMap.of(), NOW));
         entityManager.clear();
@@ -432,6 +433,9 @@ class TestSqliteReviewStores
         return new ReviewContextSnapshot("context-1", true, 3, 42, Optional.empty(), Optional.of(ContextPacket.create("Increment the counter [source-code]")),
                 ImmutableList.of(included, deferred),
                 ImmutableList.of(new ContextRelatedItem("ev-1", ImmutableList.of("path:backend/app"), Optional.of(false))),
+                ImmutableList.of(
+                        ContextInputFingerprint.create("project", ImmutableMap.of("git:pom.xml", "100644 blob " + BASE_SHA, "git:README.md", "ABSENT"), ImmutableList.of()),
+                        ContextInputFingerprint.create("path:backend/app/", ImmutableMap.of("scope:configuration", "sha256:scope"), ImmutableList.of("Tree read unavailable"))),
                 ImmutableList.of("Repository baseline unavailable"));
     }
 

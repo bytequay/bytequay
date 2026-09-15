@@ -1887,7 +1887,7 @@ class TestDefaultAgentReviewService
     private static ReviewContextSnapshot contextSnapshot()
     {
         return new ReviewContextSnapshot("context", true, 7, 1, Optional.of(BASE_SHA), Optional.of(ContextPacket.create("Prepared reference packet")),
-                ImmutableList.of(), ImmutableList.of(), ImmutableList.of());
+                ImmutableList.of(), ImmutableList.of(), ImmutableList.of(), ImmutableList.of());
     }
 
     private static final class Fixture

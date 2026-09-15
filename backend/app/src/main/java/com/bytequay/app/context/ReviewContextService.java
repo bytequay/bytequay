@@ -15,6 +15,7 @@ package com.bytequay.app.context;
 
 import com.bytequay.app.workspace.WorkspaceRepositoryContext;
 import com.bytequay.core.context.ContextEntry;
+import com.bytequay.core.context.ContextInputFingerprint;
 import com.bytequay.core.context.ContextPacket;
 import com.bytequay.core.context.ContextRelatedItem;
 import com.bytequay.core.context.ContextSelectedEntry;
@@ -45,6 +46,7 @@ import static com.bytequay.core.context.ContextLimits.bytes;
 import static com.bytequay.core.context.ContextSelectedEntry.Applicability.UNVERIFIED;
 import static com.bytequay.core.context.ContextSelectedEntry.Inclusion.DEFERRED;
 import static com.bytequay.core.context.ContextSelectedEntry.Inclusion.INCLUDED;
+import static com.bytequay.core.context.ReviewContextSnapshot.MAXIMUM_INPUT_BYTES;
 import static com.bytequay.core.context.ReviewContextSnapshot.MAXIMUM_SELECTED_TEXT_BYTES;
 import static com.google.common.base.Preconditions.checkArgument;
 import static java.nio.charset.StandardCharsets.UTF_8;
@@ -61,13 +63,15 @@ public class ReviewContextService
 
     private final RepositoryContextService notebooks;
     private final RepositoryContextReader reader;
+    private final ContextInputReader inputs;
     private final AgentReviewStore reviews;
     private final Clock clock;
 
-    public ReviewContextService(RepositoryContextService notebooks, RepositoryContextReader reader, AgentReviewStore reviews, Clock clock)
+    public ReviewContextService(RepositoryContextService notebooks, RepositoryContextReader reader, ContextInputReader inputs, AgentReviewStore reviews, Clock clock)
     {
         this.notebooks = requireNonNull(notebooks, "notebooks is null");
         this.reader = requireNonNull(reader, "reader is null");
+        this.inputs = requireNonNull(inputs, "inputs is null");
         this.reviews = requireNonNull(reviews, "reviews is null");
         this.clock = requireNonNull(clock, "clock is null");
     }
@@ -85,7 +89,8 @@ public class ReviewContextService
      * The On/Off setting and notebook revision are captured once. Off performs no Git or history
      * selection. On uses only local data, keeps complete notes within 8 KiB, history within 16 KiB,
      * and the complete packet within 32 KiB of UTF-8. Optional notes that do not fit are deferred
-     * whole. Source-version verification and provider submission are separate later steps.
+     * whole. Local baseline input identities are retained separately; a matching fingerprint
+     * does not verify a note's claims or its applicability to the reviewed code.
      */
     public ReviewRun prepareRun(AgentReview review, ReviewRun run, WorkspaceRepositoryContext workspace, Optional<ReviewRun> previous)
     {
@@ -100,13 +105,14 @@ public class ReviewContextService
         long repositoryId = RepositoryContextReader.repositoryId(workspace);
         if (!notebook.useInReviews()) {
             ReviewContextSnapshot snapshot = new ReviewContextSnapshot("context:" + run.id(), false, notebook.revision(), repositoryId,
-                    Optional.empty(), Optional.empty(), ImmutableList.of(), ImmutableList.of(), ImmutableList.of());
+                    Optional.empty(), Optional.empty(), ImmutableList.of(), ImmutableList.of(), ImmutableList.of(), ImmutableList.of());
             ReviewRun saved = reviews.updateRun(run.withContext(snapshot, ImmutableMap.of(), Instant.now(clock)));
             log.info("Repository context disabled for review run {}", run.id());
             return saved;
         }
         RepositoryContextReader.Selection selection = reader.select(review, run, workspace, previous, notebook);
         List<String> gaps = new ArrayList<>(selection.gaps());
+        List<ContextInputFingerprint> fingerprints = captureInputs(workspace, notebook, selection, gaps);
         long missing = selection.notes().scopes().stream().filter(RepositoryContextMatcher.ScopeMatch::missingKnowledge).count();
         if (missing > 0) {
             gaps.add(missing + " relevant scopes have no knowledge entry. No build has been attempted by this local preparation.");
@@ -160,6 +166,8 @@ public class ReviewContextService
                 + "Run: " + run.id() + "; scope: " + run.scope() + "\n"
                 + "Target base: " + run.baseSha() + "; diff base: " + run.mergeBaseSha() + "; reviewed head: " + run.headSha() + "\n"
                 + "Discovery baseline: " + selection.baselineSha().orElse("unavailable") + "\n"
+                + "Local input inventories: " + fingerprints.stream().filter(fingerprint -> fingerprint.digest().isPresent()).count()
+                + " complete of " + fingerprints.size() + "; dependency resolution and remote document freshness are unverified.\n"
                 + "Known gaps:\n" + String.join("\n", retainedGaps) + "\n";
         if (bytes(header) > METADATA_BYTES) {
             String notice = "\nAdditional gap details are retained in the snapshot; this packet's metadata preview is bounded.\n";
@@ -167,11 +175,34 @@ public class ReviewContextService
         }
         ContextPacket packet = ContextPacket.create(header + notes + history);
         ReviewContextSnapshot snapshot = new ReviewContextSnapshot("context:" + run.id(), true, notebook.revision(), repositoryId,
-                selection.baselineSha(), Optional.of(packet), entries, related, retainedGaps);
+                selection.baselineSha(), Optional.of(packet), entries, related, fingerprints, retainedGaps);
         ReviewRun saved = reviews.updateRun(run.withContext(snapshot, evidence, Instant.now(clock)));
         log.info("Prepared repository context for run {}: {} notes included, {} deferred, {} related sources, {} gaps, {} UTF-8 bytes in {} ms; delivery pending",
                 run.id(), entries.size() - deferred, deferred, related.size(), retainedGaps.size(), packet.utf8Bytes(), NANOSECONDS.toMillis(System.nanoTime() - started));
         return saved;
+    }
+
+    private List<ContextInputFingerprint> captureInputs(
+            WorkspaceRepositoryContext workspace, RepositoryNotebook notebook, RepositoryContextReader.Selection selection, List<String> gaps)
+    {
+        List<ContextInputFingerprint> captured = inputs.capture(workspace, selection.baselineSha(), notebook,
+                selection.notes().scopes().stream().map(RepositoryContextMatcher.ScopeMatch::scope).collect(ImmutableList.toImmutableList()));
+        ImmutableList.Builder<ContextInputFingerprint> retained = ImmutableList.builder();
+        long inputBytes = 0;
+        for (ContextInputFingerprint fingerprint : captured) {
+            ContextInputFingerprint bounded = fingerprint;
+            if (inputBytes + fingerprint.inputBytes() > MAXIMUM_INPUT_BYTES) {
+                bounded = ContextInputFingerprint.create(fingerprint.scopeId(), ImmutableMap.of(),
+                        ImmutableList.of("Input identities were omitted because this run's " + MAXIMUM_INPUT_BYTES / 1024 + " KiB inventory budget was exhausted."));
+            }
+            inputBytes += bounded.inputBytes();
+            retained.add(bounded);
+            bounded.gaps().forEach(gap -> gaps.add("Scope " + fingerprint.scopeId() + ": " + gap));
+        }
+        List<ContextInputFingerprint> result = retained.build();
+        long complete = result.stream().filter(fingerprint -> fingerprint.digest().isPresent()).count();
+        log.info("Captured repository input identities: {} scopes complete, {} incomplete, {} UTF-8 bytes", complete, result.size() - complete, inputBytes);
+        return result;
     }
 
     private static String renderEntry(ContextEntry entry, Map<String, String> refs)

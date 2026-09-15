@@ -72,6 +72,7 @@ class TestReviewRun
     {
         return new ReviewContextSnapshot(id, true, 1, 42, Optional.of(SHA), Optional.of(ContextPacket.create("Previous review reference")),
                 ImmutableList.of(), ImmutableList.of(new ContextRelatedItem(EVIDENCE.ref(), ImmutableList.of("path:backend/core"), Optional.empty())),
+                ImmutableList.of(),
                 ImmutableList.of());
     }
 

@@ -34,9 +34,11 @@ public record ReviewContextSnapshot(
         Optional<ContextPacket> bootstrap,
         List<ContextSelectedEntry> selectedEntries,
         List<ContextRelatedItem> relatedItems,
+        List<ContextInputFingerprint> inputFingerprints,
         List<String> gaps)
 {
     public static final int MAXIMUM_SELECTED_TEXT_BYTES = 8 * 1024;
+    public static final int MAXIMUM_INPUT_BYTES = 256 * 1024;
 
     public ReviewContextSnapshot
     {
@@ -47,9 +49,14 @@ public record ReviewContextSnapshot(
         requireNonNull(bootstrap, "bootstrap is null");
         selectedEntries = ImmutableList.copyOf(selectedEntries);
         relatedItems = ImmutableList.copyOf(relatedItems);
+        inputFingerprints = ImmutableList.copyOf(inputFingerprints);
         gaps = ImmutableList.copyOf(gaps);
         ContextLimits.unique(selectedEntries.stream().map(ContextSelectedEntry::entryId).toList(), "selected entries", ContextLimits.MAX_ENTRIES);
         ContextLimits.unique(relatedItems.stream().map(ContextRelatedItem::sourceId).toList(), "related sources", 100);
+        ContextLimits.unique(inputFingerprints.stream().map(ContextInputFingerprint::scopeId).toList(), "input fingerprint scopes", 100);
+        long inputBytes = inputFingerprints.stream().mapToLong(ContextInputFingerprint::inputBytes).sum();
+        checkArgument(inputBytes <= MAXIMUM_INPUT_BYTES, "Context fingerprint inputs exceed UTF-8 budget");
+        checkArgument(enabled || inputFingerprints.isEmpty(), "Disabled context cannot contain input fingerprints");
         checkArgument(gaps.size() <= 100, "Too many context gaps");
         gaps.forEach(gap -> ContextLimits.text(gap, "context gap", 2000));
         checkArgument(enabled == bootstrap.isPresent(), "Only enabled context has a bootstrap packet");

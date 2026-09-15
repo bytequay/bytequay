@@ -17,7 +17,9 @@ import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import org.junit.jupiter.api.Test;
 
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.stream.IntStream;
 
@@ -46,16 +48,16 @@ class TestReviewContextSnapshot
     void distinguishesDisabledAndEnabledWithUnknownBaseline()
     {
         ReviewContextSnapshot disabled = new ReviewContextSnapshot("off", false, 0, 42, Optional.empty(), Optional.empty(),
-                ImmutableList.of(), ImmutableList.of(), ImmutableList.of());
+                ImmutableList.of(), ImmutableList.of(), ImmutableList.of(), ImmutableList.of());
         ReviewContextSnapshot unknown = new ReviewContextSnapshot("unknown", true, 3, 42, Optional.empty(), Optional.of(ContextPacket.create("Local notes")),
-                ImmutableList.of(), ImmutableList.of(), ImmutableList.of("Base revision could not be resolved"));
+                ImmutableList.of(), ImmutableList.of(), ImmutableList.of(), ImmutableList.of("Base revision could not be resolved"));
 
         assertThat(disabled.bootstrap()).isEmpty();
         assertThat(unknown.baselineSha()).isEmpty();
         assertThatThrownBy(() -> new ReviewContextSnapshot("unknown", true, 3, 42, Optional.empty(), Optional.of(ContextPacket.create("Local notes")),
-                ImmutableList.of(), ImmutableList.of(), ImmutableList.of())).isInstanceOf(IllegalArgumentException.class);
+                ImmutableList.of(), ImmutableList.of(), ImmutableList.of(), ImmutableList.of())).isInstanceOf(IllegalArgumentException.class);
         assertThatThrownBy(() -> new ReviewContextSnapshot("off", false, 0, 42, Optional.empty(), Optional.of(ContextPacket.create("Local notes")),
-                ImmutableList.of(), ImmutableList.of(), ImmutableList.of())).isInstanceOf(IllegalArgumentException.class);
+                ImmutableList.of(), ImmutableList.of(), ImmutableList.of(), ImmutableList.of())).isInstanceOf(IllegalArgumentException.class);
     }
 
     @Test
@@ -93,6 +95,44 @@ class TestReviewContextSnapshot
                 ContextSelectedEntry.Applicability.UNVERIFIED, ContextSelectedEntry.Inclusion.INCLUDED)).isInstanceOf(IllegalArgumentException.class);
     }
 
+    @Test
+    void boundsFingerprintBytesAcrossAllScopes()
+    {
+        Map<String, String> inputs = new LinkedHashMap<>();
+        IntStream.range(0, 16).forEach(index -> inputs.put(String.valueOf(1000 + index), "é".repeat(1000)));
+        inputs.put("rest", "a".repeat(700));
+        List<ContextInputFingerprint> fingerprints = IntStream.range(0, 8)
+                .mapToObj(index -> ContextInputFingerprint.create("scope-" + index, inputs, ImmutableList.of())).collect(toImmutableList());
+        ReviewContextSnapshot snapshot = fingerprintsSnapshot(fingerprints);
+
+        assertThat(snapshot.inputFingerprints().stream().mapToInt(ContextInputFingerprint::inputBytes).sum()).isEqualTo(ReviewContextSnapshot.MAXIMUM_INPUT_BYTES);
+        List<ContextInputFingerprint> tooLarge = ImmutableList.<ContextInputFingerprint>builder().addAll(fingerprints)
+                .add(ContextInputFingerprint.create("scope-8", inputs, ImmutableList.of())).build();
+        assertThatThrownBy(() -> fingerprintsSnapshot(tooLarge)).isInstanceOf(IllegalArgumentException.class).hasMessageContaining("UTF-8 budget");
+    }
+
+    @Test
+    void requiresUniqueBoundedFingerprintScopesAndNoFingerprintsWhenDisabled()
+    {
+        List<ContextInputFingerprint> fingerprints = IntStream.range(0, 100)
+                .mapToObj(index -> ContextInputFingerprint.create("scope-" + index, ImmutableMap.of(), ImmutableList.of())).collect(toImmutableList());
+        assertThat(fingerprintsSnapshot(fingerprints).inputFingerprints()).hasSize(100);
+        assertThatThrownBy(() -> fingerprintsSnapshot(ImmutableList.of(fingerprints.getFirst(), fingerprints.getFirst())))
+                .isInstanceOf(IllegalArgumentException.class).hasMessageContaining("duplicates");
+        List<ContextInputFingerprint> tooMany = ImmutableList.<ContextInputFingerprint>builder().addAll(fingerprints)
+                .add(ContextInputFingerprint.create("scope-100", ImmutableMap.of(), ImmutableList.of())).build();
+        assertThatThrownBy(() -> fingerprintsSnapshot(tooMany)).isInstanceOf(IllegalArgumentException.class).hasMessageContaining("100 items");
+        assertThatThrownBy(() -> new ReviewContextSnapshot("off", false, 0, 42, Optional.empty(), Optional.empty(),
+                ImmutableList.of(), ImmutableList.of(), ImmutableList.of(fingerprints.getFirst()), ImmutableList.of()))
+                .isInstanceOf(IllegalArgumentException.class).hasMessageContaining("Disabled context");
+    }
+
+    private static ReviewContextSnapshot fingerprintsSnapshot(List<ContextInputFingerprint> fingerprints)
+    {
+        return new ReviewContextSnapshot("context-1", true, 3, 42, Optional.of(SHA), Optional.of(ContextPacket.create("Local notes")),
+                ImmutableList.of(), ImmutableList.of(), fingerprints, ImmutableList.of());
+    }
+
     private static ContextSelectedEntry entry(String id, String text)
     {
         return new ContextSelectedEntry(id, 1, "Ownership", Optional.of(text), ImmutableMap.of("source-doc", "ev-source"),
@@ -103,6 +143,7 @@ class TestReviewContextSnapshot
     {
         return new ReviewContextSnapshot("context-1", true, 3, 42, Optional.of(SHA), Optional.of(ContextPacket.create("Local notes")),
                 ImmutableList.copyOf(entries), ImmutableList.of(new ContextRelatedItem("ev-related", ImmutableList.of("path:backend/core"), Optional.empty())),
+                ImmutableList.of(),
                 ImmutableList.of());
     }
 }

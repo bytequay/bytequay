@@ -446,7 +446,13 @@ async function sharedReviewEditor(): Promise<void> {
       assert(properties.every((property, index) => reviewStyle[property] === expectedStyle[index]),
         'The review textarea must use the code-diff editor’s actual focused appearance');
       assert(editor.scrollWidth <= editor.clientWidth + 1, 'The editor and wrapped toolbar must fit a narrow card');
-      assert(editor.textContent?.includes('Private — only you and the agent') === true, 'Private questions must retain their destination caption');
+      assert(editor.querySelector<HTMLButtonElement>('.pull-diff-review__bar .agr-composer__private')?.disabled === true
+        && editor.textContent?.includes('Private — only you and the agent') === false, 'Private questions must show a disabled Private label in the editor bar');
+      const privateBounds = button(editor, 'Private').getBoundingClientRect();
+      const editorBounds = editor.getBoundingClientRect();
+      assert(Math.abs(privateBounds.left + privateBounds.width / 2 - editorBounds.left - editorBounds.width / 2) < 1
+        && button(editor, 'Preview').getBoundingClientRect().right <= privateBounds.left,
+      'The private label must stay centered without overlapping the tabs');
       changeInput(input, 'Review this snapshot');
       input.setSelectionRange(12, 20);
       await settle();

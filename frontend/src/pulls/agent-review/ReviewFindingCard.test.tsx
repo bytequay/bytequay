@@ -38,6 +38,10 @@ function render(value = finding, item?: ReviewDraftItemDto, projection: 'review'
 describe('finding suggestions', () => {
   it.each(['review', 'changes'] as const)('compares a suggestion with its exact reviewed range in %s', projection => {
     const html = render(finding, undefined, projection);
+    expect(html).toContain('<span class="pr-commented-code-line__number">118</span>');
+    expect(html).toContain('<span class="pr-commented-code-line__number">119</span>');
+    expect(html).toContain('<code>    Value result = input.get();</code>');
+    expect(html).toContain('<code>    return result;</code>');
     expect(html.match(/class="md-suggestion"/g)).toHaveLength(1);
     expect(html).toContain('<td class="md-suggestion__number">118</td><td class="md-suggestion__code"><span>−</span>    Value result = input.get();</td>');
     expect(html).toContain('<td class="md-suggestion__number">119</td><td class="md-suggestion__code"><span>−</span>    return result;</td>');
@@ -54,8 +58,16 @@ describe('finding suggestions', () => {
 
   it('keeps suggestions on deleted lines as ordinary code, like GitHub review comments', () => {
     const html = render({ ...finding, side: 'LEFT', range: 'L118–L119' });
+    expect(html.match(/class="pr-commented-code-line is-del"/g)).toHaveLength(2);
     expect(html).toContain('<span>suggestion</span>');
     expect(html).not.toContain('md-suggestion');
+  });
+
+  it('does not invent line numbers when a saved deletion excerpt has gaps', () => {
+    const html = render({ ...finding, side: 'LEFT', endLine: 123, range: 'L118–L123' });
+    expect(html).toContain('L118–L123');
+    expect(html.match(/class="pr-commented-code-line__number"><\/span>/g)).toHaveLength(2);
+    expect(html).toContain('<code>    return result;</code>');
   });
 
   it('previews outgoing suggestions only against the same finding revision and anchor', () => {

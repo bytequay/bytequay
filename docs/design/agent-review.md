@@ -162,7 +162,9 @@ components or small extracted presentational pieces, not a parallel imitation:
 - typography, text colors, Markdown rendering, inline code, and links;
 - the same diff-review editor markup and CSS for private review questions and
   outgoing comments: Write/Preview tabs, Markdown toolbar, bordered textarea,
-  and action buttons; private labels and handlers retain their own authority;
+  and action buttons; a disabled **Private** button sits in the middle of the
+  private editor's top bar, while outgoing editors retain their destination
+  caption; private labels and handlers retain their own authority;
 - activity/transcript components and capability-driven controls from Tasks.
 
 Start with `frontend/src/pulls/PullsScreen.tsx`, `PullOverview.tsx`,
@@ -174,6 +176,9 @@ Reuse appearance separately from action handlers. Existing GitHub Reply,
 Resolve, and Submit callbacks must not back private **Ask agent** or
 **Resolve locally** actions. Prefer a focused presentational extraction only
 where two real callers need it; do not introduce a generic comment framework.
+Finding code references use the review comment's numbered code rows and their
+saved excerpt, including for outdated findings. They never substitute the
+current working copy for the reviewed version or mark unchanged source as added.
 
 The current manual diff composer already supports line ranges. Extend that
 path instead of rebuilding selection. Its pending comments are currently

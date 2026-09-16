@@ -308,21 +308,6 @@
 .agr-notice.is-outdated > span:first-child { color: #9a6700; }
 .agr-notice.is-published { background: #dafbe1; color: #1a7f37; }
 
-.agr-snapshot {
-  max-height: 200px;
-  overflow: auto;
-  margin: 8px 0 0;
-  border: 1px solid #e3e3e6;
-  border-radius: 6px;
-  background: #f6f8fa;
-  color: #1f2328;
-  padding: 10px 12px;
-  font-family: var(--font-mono);
-  font-size: 12px;
-  line-height: 1.55;
-  white-space: pre-wrap;
-}
-
 .agr-draft { overflow: hidden; border: 1px solid #d4a72c; border-radius: 6px; margin-top: 12px; }
 .agr-draft__head {
   display: flex;
@@ -344,8 +329,26 @@
 .agr-actions__blocked { color: #8c959f; font-size: 12px; }
 
 /* Review questions use the existing code-diff editor presentation. */
-.agr-composer { min-width: 0; margin-top: 12px; }
+.agr-composer { min-width: 0; margin-top: 12px; container-type: inline-size; }
+.agr-composer__bar--private { display: grid; grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr); }
+.agr-composer__bar--private .pull-diff-review__toolbar { justify-self: end; }
+.agr-composer__private {
+  align-self: center;
+  justify-self: center;
+  border: 1px solid #d0d7de;
+  border-radius: 6px;
+  background: #f6f8fa;
+  color: #6e7781;
+  padding: 3px 8px;
+  font: inherit;
+  font-size: 12px;
+}
 .agr-composer__outgoing { color: #9a6700; font-weight: 600; }
+
+@container (max-width: 640px) {
+  .agr-composer__bar--private .pull-diff-review__tabs button { padding-inline: 2px; font-size: 12px; }
+  .agr-composer__bar--private .pull-diff-review__toolbar { grid-column: 1 / -1; }
+}
 
 /* activity */
 

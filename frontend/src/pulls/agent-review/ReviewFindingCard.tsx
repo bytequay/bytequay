@@ -14,6 +14,7 @@
 import { useState } from 'react';
 import { Chevron } from '../../Chevron';
 import MarkdownBody, { type SuggestionBase } from '../MarkdownBody';
+import { CommentedCodeLine } from '../PullOverview';
 import Avatar from '../../Avatar';
 import { ReviewThreadCard, ReviewThreadMessage } from '../ReviewThreadCard';
 import ReviewComposer from './ReviewComposer';
@@ -81,6 +82,8 @@ export default function ReviewFindingCard({
   const draftSuggestion = item !== null && item.findingRevision === finding.revision && item.path === finding.path
     && item.side === finding.side && (item.startLine ?? item.line) === finding.startLine && item.line === finding.endLine ? suggestion : undefined;
   const withdrawn = finding.state === 'WITHDRAWN';
+  // Deleted ranges can omit intervening context; do not invent their individual line numbers.
+  const completeExcerpt = finding.excerpt.length === finding.endLine - finding.startLine + 1;
   const evidenceLabel = finding.evidence.length === 1
     ? '1 reference'
     : `${finding.evidence.length} references`;
@@ -116,9 +119,12 @@ export default function ReviewFindingCard({
         privateLabel="Agent finding · Private"
         location={<><code className="pr-local-review__location" title={finding.path}>{shortPath(finding.path)} {finding.range}</code>
           {pill.text !== 'Private' && <span className={`agr-pill is-${pill.tone}`}>{pill.text}</span>}</>}
-        code={finding.excerpt.length > 0 && <div className="pr-local-review__snapshot">
-          <div>{finding.outdated ? 'Recorded code' : 'Reviewed code'} · head <code>{shortSha(finding.validatedHeadSha)}</code></div>
-          <pre className={finding.outdated ? 'agr-snapshot' : undefined}>{finding.excerpt.join('\n')}</pre>
+        code={finding.excerpt.length > 0 && <div>
+          <div className="pr-local-review__snapshot">
+            {finding.outdated ? 'Recorded code' : 'Reviewed code'} · review <code>{shortSha(finding.validatedHeadSha)}</code>
+          </div>
+          {finding.excerpt.map((text, index) => <CommentedCodeLine key={finding.startLine + index}
+            line={{ lineNumber: completeExcerpt ? finding.startLine + index : null, prefix: finding.side === 'LEFT' ? '-' : ' ', text }} />)}
         </div>}
         controls={<footer className="agr-finding__controls">
           {composer !== null && (

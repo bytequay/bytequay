@@ -1178,7 +1178,7 @@ export function CommentEditor({ pr, target, commentId, body, draft, suggestion, 
 }
 
 export type ReviewCommentLine = {
-  lineNumber: number;
+  lineNumber: number | null;
   prefix: ' ' | '+' | '-';
   text: string;
 };

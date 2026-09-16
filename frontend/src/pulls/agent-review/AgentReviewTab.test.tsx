@@ -452,7 +452,7 @@ describe('the finding card', () => {
     const outdated = { ...finding, outdated: true };
     const html = card(reviewFixture({ findings: [outdated] }), outdated);
     expect(html).toContain('no unambiguous mapping was found');
-    expect(html).toContain('agr-snapshot');
+    expect(html).toContain('pr-commented-code-line');
     expect(html).toContain('resolveNestedFieldId');
     expect(html).toContain('Not publishable until re-anchored');
     expect(html).not.toContain('Post comment now');

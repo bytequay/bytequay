@@ -15,12 +15,7 @@ import { useRef, useState } from 'react';
 import MarkdownBody, { type SuggestionBase } from '../MarkdownBody';
 import { applyMarkdownCommand, MarkdownToolbar, type MarkdownCommand } from '../PullChanges';
 
-/**
- * The Write/Preview composer, in the PR page's own shape.
- *
- * Its footer says where the text is going, because the same control writes a private question in
- * one place and an outgoing GitHub comment in another, and only the caption tells them apart.
- */
+/** The same editor writes private questions and outgoing comments, so its destination stays visible. */
 export default function ReviewComposer({
   repository,
   value,
@@ -68,7 +63,7 @@ export default function ReviewComposer({
 
   return (
     <div className="pull-diff-review agr-composer">
-      <div className="pull-diff-review__bar">
+      <div className={`pull-diff-review__bar${outgoing === null ? ' agr-composer__bar--private' : ''}`}>
         <div className="pull-diff-review__tabs" role="tablist">
           <button type="button" role="tab" aria-selected={!preview} className={preview ? '' : 'is-active'}
             onClick={() => {
@@ -78,6 +73,7 @@ export default function ReviewComposer({
           <button type="button" role="tab" aria-selected={preview} className={preview ? 'is-active' : ''}
             onClick={() => setPreview(true)}>Preview</button>
         </div>
+        {outgoing === null && <button type="button" className="agr-composer__private" disabled>Private</button>}
         {!preview && <MarkdownToolbar onCommand={runCommand} disabled={busy} />}
       </div>
       {preview && <div className="pull-diff-review__preview">
@@ -106,9 +102,7 @@ export default function ReviewComposer({
             if (ready) onSubmit();
           }
         }} />
-      <p className={`pull-diff-review__nothing${outgoing === null ? '' : ' agr-composer__outgoing'}`}>
-        {outgoing ?? 'Private — only you and the agent'}
-      </p>
+      {outgoing !== null && <p className="pull-diff-review__nothing agr-composer__outgoing">{outgoing}</p>}
       <footer>
         <button type="button" disabled={busy} onClick={onCancel}>Cancel</button>
         <button type="button" className="is-primary" disabled={!ready} onClick={onSubmit}>

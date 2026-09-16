@@ -289,13 +289,16 @@ public class ReviewTools
                         "Seal this validation assignment. Assess every candidate as SUPPORTED, REJECTED, NEEDS_EVIDENCE, or UNRESOLVED. "
                                 + "NEEDS_EVIDENCE requires a specific question, check, and resolving criterion; ByteQuay schedules the evidence turn. "
                                 + "SUPPORTED binds a saved findingId and findingRevision. Report the investigationStep from the assignment context. "
-                                + "complete=false and omissions are required for unsettled candidates or unreviewed scope.",
+                                + "complete=false and omissions are required for unsettled candidates or unreviewed scope. "
+                                + "Put unavailable tests caused by missing credentials, services, or dependencies in warnings. "
+                                + "Warnings do not prevent completion when all scope was reviewed and candidate conclusions have sufficient evidence.",
                         schema(ImmutableMap.of(
                                 "operationKey", ImmutableMap.of("type", "string", "minLength", 1, "maxLength", MAX_KEY),
                                 "investigationStep", ImmutableMap.of("type", "integer", "minimum", 1),
                                 "newCandidates", stringArray(MAX_CANDIDATES, 2000),
                                 "complete", ImmutableMap.of("type", "boolean"),
                                 "omissions", stringArray(50, 500),
+                                "warnings", stringArray(50, 500),
                                 "validations", ImmutableMap.of("type", "array", "maxItems", MAX_CANDIDATES, "items", validationSchema())),
                                 ImmutableList.of("operationKey", "complete", "omissions", "validations")),
                         arguments -> call(reviewId, turnId, arguments, this::finish)));
@@ -668,11 +671,12 @@ public class ReviewTools
             throw new ReviewInvalidRequestException("complete: a complete review cannot list omissions");
         }
         if (!complete.asBoolean() && omissions.isEmpty()) {
-            throw new ReviewInvalidRequestException("omissions: explain the unreviewed scope or unresolved validation");
+            throw new ReviewInvalidRequestException("omissions: explain unreviewed scope or unresolved candidates; unavailable checks alone belong in warnings");
         }
         ReviewStep step = call.step().filter(value -> call.run().active())
                 .orElseThrow(() -> new ReviewInvalidRequestException("validation: only the assigned review turn can report completion"));
-        ReviewCoverage coverage = new ReviewCoverage(complete.asBoolean(), omissions, now());
+        List<String> warnings = arguments.has("warnings") ? strings(arguments, "warnings", 50, 500) : ImmutableList.of();
+        ReviewCoverage coverage = new ReviewCoverage(complete.asBoolean(), omissions, warnings, now());
         ObjectNode result = objectMapper.createObjectNode().put("status", "accepted").put("next", "End this turn; ByteQuay decides the next assignment");
         // An inaccessible initial scope can stop without inventing an investigation or a validation result.
         if (step.kind() != VALIDATE) {

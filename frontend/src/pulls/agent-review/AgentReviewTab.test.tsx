@@ -310,7 +310,7 @@ describe('review details', () => {
   it('keeps omitted scope visible without claiming no findings for an incomplete accepted run', () => {
     const original = reviewFixture({ findings: [] });
     const html = tab({ ...original, runs: [{ ...original.runs[0], coverage: {
-      complete: false, omissions: ['Resource cleanup has not been reviewed'], recordedAt: '2026-09-06T16:15:00Z',
+      complete: false, omissions: ['Resource cleanup has not been reviewed'], warnings: [], recordedAt: '2026-09-06T16:15:00Z',
     } }] });
     expect(html).toContain('Could not finish');
     expect(html).toContain('Resource cleanup has not been reviewed');
@@ -321,6 +321,42 @@ describe('review details', () => {
 
 describe('the summary card', () => {
   const review = reviewFixture();
+
+  it('shows verification warnings inside the intention card without blocking a finished review', () => {
+    const warning = 'Live Snowflake authentication tests were not run because account credentials were unavailable.';
+    const accepted = parseAgentReview({ ...review, runs: [{ ...review.runs[0], coverage: {
+      ...review.runs[0].coverage, warnings: [warning],
+    } }] });
+    const html = tab(accepted);
+    expect(html).toContain('Finished');
+    expect(html).not.toContain('Could not finish');
+    expect(html).not.toContain('Provisional');
+    const purposeCard = summary(accepted).split('data-review-card="run-1:purpose"')[1].split('</article>')[0];
+    expect(purposeCard).toContain('aria-label="Verification warning"');
+    expect(purposeCard).toContain(warning);
+    expect(card(accepted, accepted.findings[0])).toContain('Post comment now');
+  });
+
+  it('shows only the displayed report’s warnings when another attempt has no summary', () => {
+    const completed: AgentReviewDto['runs'][number] = { ...review.runs[0], coverage: {
+      complete: true, omissions: [], warnings: ['Original environment limitation'], recordedAt: '2026-09-06T16:15:00Z',
+    } };
+    const failed: AgentReviewDto['runs'][number] = { ...completed, id: 'run-2', state: 'FAILED', summary: null,
+      coverage: { ...completed.coverage, warnings: ['Later environment limitation'] } };
+    const html = summary({ ...review, runs: [completed, failed] });
+    expect(html).toContain('Original environment limitation');
+    expect(html).not.toContain('Later environment limitation');
+    expect(summary({ ...review, runs: [completed, { ...review.runs[0], id: 'run-3' }] })).not.toContain('Verification warning');
+  });
+
+  it('omits the warning when coverage has no warnings, including older reports', () => {
+    const parsed = parseAgentReview({ ...review, runs: [{ ...review.runs[0], coverage: {
+      ...review.runs[0].coverage, warnings: undefined,
+    } }] });
+    expect(parsed.runs[0].coverage?.warnings).toEqual([]);
+    expect(summary(parsed)).not.toContain('Verification warning');
+    expect(summary(review)).not.toContain('Verification warning');
+  });
 
   it('separates PR intention and commit implementation without redundant report cards', () => {
     const html = summary(review);

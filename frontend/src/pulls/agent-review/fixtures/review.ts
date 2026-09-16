@@ -58,7 +58,7 @@ const RUN: ReviewRunDto = {
   turnIds: ['turn-1'],
   state: 'ACCEPTED',
   summary: SUMMARY,
-  coverage: { complete: true, omissions: [], recordedAt: '2026-09-06T16:15:00Z' },
+  coverage: { complete: true, omissions: [], warnings: [], recordedAt: '2026-09-06T16:15:00Z' },
   investigation: null,
   steps: [],
   evidence: [],

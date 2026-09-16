@@ -107,7 +107,7 @@ final class ReviewHttpModels
 
     private static CoverageResponse coverage(ReviewCoverage coverage)
     {
-        return new CoverageResponse(coverage.complete(), coverage.omissions(), coverage.recordedAt());
+        return new CoverageResponse(coverage.complete(), coverage.omissions(), coverage.warnings(), coverage.recordedAt());
     }
 
     private static FindingResponse finding(ReviewFinding finding)
@@ -266,7 +266,7 @@ final class ReviewHttpModels
 
     record CommitExplanationResponse(String sha, String explanation) {}
 
-    record CoverageResponse(boolean complete, List<String> omissions, Instant recordedAt) {}
+    record CoverageResponse(boolean complete, List<String> omissions, List<String> warnings, Instant recordedAt) {}
 
     record FindingResponse(
             String id,

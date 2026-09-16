@@ -20,12 +20,13 @@ import java.util.List;
 
 import static java.util.Objects.requireNonNull;
 
-/** What the agent recorded with {@code review_finish}: whether the frozen scope was reviewed, and what it left out. */
-public record ReviewCoverage(boolean complete, List<String> omissions, Instant recordedAt)
+/** Reviewed scope, blocking omissions, and nonblocking verification warnings recorded with {@code review_finish}. */
+public record ReviewCoverage(boolean complete, List<String> omissions, List<String> warnings, Instant recordedAt)
 {
     public ReviewCoverage
     {
         omissions = ImmutableList.copyOf(omissions);
+        warnings = warnings == null ? ImmutableList.of() : ImmutableList.copyOf(warnings);
         requireNonNull(recordedAt, "recordedAt is null");
     }
 }

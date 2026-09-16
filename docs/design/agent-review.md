@@ -58,7 +58,11 @@ section divider and use the existing
 inline review-comment presentation. Each card retains its own private discussion
 through the shared [Local review comments](agent-service.md#local-review-comments)
 components. Do not generate combined-result, evidence/test, coverage, or
-critical-issues cards. A collapsed **Review details** disclosure shows the
+critical-issues cards. Nonblocking verification warnings, such as cloud tests
+that could not run without external credentials, appear inside the PR intention
+card for the displayed run. An accepted review with warnings remains **Finished**
+and its supported findings can be selected for publication.
+A collapsed **Review details** disclosure shows the
 change map, assessed changed-file paths, retained supporting evidence from
 both passes, and final candidate conclusions. Evidence reference IDs remain
 visible so conclusions can be matched to their source or command excerpts;
@@ -202,7 +206,7 @@ this is not a second task engine:
 | Run | Review ID, full/incremental scope, frozen base tip and merge base, head SHA, prior successful reviewed head if any, turn IDs, ordered assignments, latest investigation, accepted result/coverage, terminal outcome |
 | Assignment | Consecutive number, investigation/validation/evidence-collection kind, reporting-repair attempt, immutable report when sealed |
 | Investigation | Change map, distinct assessed changed-file paths, captured supporting context refs, numbered hypotheses, evidence-request answers, latest validation conclusions |
-| Validation | Sealed investigation step number, assessment of every candidate, newly discovered hypotheses, coverage and omissions |
+| Validation | Sealed investigation step number, assessment of every candidate, newly discovered hypotheses, coverage, blocking omissions and verification warnings |
 | Summary | Run ID, revision, purpose, actual commit explanations |
 | Finding | Stable ID, source run, immutable anchor mapping, title/body, evidence references, current revision, local resolution/withdrawal and reason, revalidation result for later runs |
 | Discussion message | Stable ID, review and summary-card/finding target, author, body, target revision/run, correlated task input/turn or reply, delivery outcome |
@@ -541,7 +545,9 @@ user action.
 
 Evidence stays with the finding it supports, distinguishing executed checks
 from source inspection and reported CI results. `review_finish` still records
-machine coverage and omissions for the run status; it does not create a card.
+machine coverage and omissions for the run status, plus optional `warnings` for
+unavailable verification. Warnings are stored with coverage and shown in the
+existing PR intention card; they do not create a separate card.
 The summary tool requests only purpose and commit explanations. Retained stored
 fields and discussions are read without generating replacement prose for
 removed sections.
@@ -604,7 +610,10 @@ coverage requires a complete distinct commit summary, every required changed
 file, and supported or rejected assessments for all candidates. The backend
 rechecks the investigation identity and supported finding revisions at run
 acceptance. Missing scope and unsettled hypotheses require complete=false and
-omissions. A complete zero-finding result is explicit.
+omissions. Unavailable tests alone use `warnings`; warnings do not prevent
+complete=true with empty omissions when every required file and candidate has
+been assessed. A warning cannot replace evidence needed to support or reject a
+candidate. A complete zero-finding result is explicit.
 
 A run advances the successful reviewed-head cursor only after the validation
 turn settles and complete=true with no omissions. Partial, failed, stopped,

@@ -526,6 +526,33 @@ class TestReviewTools
     }
 
     @Test
+    void unavailableTestsAreWarningsWithoutBypassingCandidateValidation()
+    {
+        call("review_save_summary", summary("summary", "Clarify the key encoding"));
+        readSource();
+        String findingId = call("review_save_finding", finding("finding", "Clarify encoding", "A2", ImmutableList.of(evidence("E1")))).path("findingId").asText();
+        List<String> warnings = ImmutableList.of("Live Snowflake authentication tests could not run because account credentials were not supplied.");
+        Map<String, Object> unresolved = ImmutableMap.<String, Object>builder()
+                .putAll(finish("unresolved", ImmutableList.of(assessment(1, "UNRESOLVED"))))
+                .put("warnings", warnings)
+                .buildOrThrow();
+        assertThat(call("review_finish", unresolved).at("/error/field").asText()).isEqualTo("complete");
+        assertThat(store.findRun(RUN_ID).orElseThrow().coverage()).isEmpty();
+
+        Map<String, Object> supported = ImmutableMap.<String, Object>builder()
+                .putAll(finish("supported", ImmutableList.of(supported(1, findingId, 1))))
+                .put("warnings", warnings)
+                .buildOrThrow();
+        assertThat(call("review_finish", supported).path("status").asText()).isEqualTo("accepted");
+        ReviewRun run = store.findRun(RUN_ID).orElseThrow();
+        ReviewCoverage coverage = run.coverage().orElseThrow();
+        assertThat(coverage.complete()).isTrue();
+        assertThat(coverage.omissions()).isEmpty();
+        assertThat(coverage.warnings()).isEqualTo(warnings);
+        assertThat(run.currentStep().orElseThrow().validation().orElseThrow().coverage()).isEqualTo(coverage);
+    }
+
+    @Test
     void completeCoverageRequiresEveryCommitAndRequiredChangedFile()
     {
         store.updateRun(run(RUN_ID, 1, PATCH, false));
@@ -539,7 +566,11 @@ class TestReviewTools
                 .path("status").asText()).isEqualTo("accepted");
         advance(VALIDATE);
         readSource();
-        assertThat(call("review_finish", finish("missing-file", ImmutableList.of(assessment(1, "REJECTED"))))
+        Map<String, Object> withWarning = ImmutableMap.<String, Object>builder()
+                .putAll(finish("missing-file", ImmutableList.of(assessment(1, "REJECTED"))))
+                .put("warnings", ImmutableList.of("An external test service is unavailable"))
+                .buildOrThrow();
+        assertThat(call("review_finish", withWarning)
                 .at("/error/field").asText()).isEqualTo("reviewedFiles");
     }
 
@@ -727,7 +758,7 @@ class TestReviewTools
     {
         ReviewRun previous = run().withSummary(new ReviewSummary(1, "Original change",
                 ImmutableList.of(new ReviewSummary.CommitExplanation(COMMIT_SHA, "Changes input")), "", Optional.empty(), ImmutableList.of()), NOW)
-                .withCoverage(new ReviewCoverage(true, ImmutableList.of(), NOW), NOW).ended(ReviewRun.State.ACCEPTED, Optional.empty(), NOW);
+                .withCoverage(new ReviewCoverage(true, ImmutableList.of(), ImmutableList.of(), NOW), NOW).ended(ReviewRun.State.ACCEPTED, Optional.empty(), NOW);
         store.updateRun(previous);
         String nextHead = "4444444444444444444444444444444444444444";
         ReviewRun next = new ReviewRun("incremental", REVIEW_ID, 2, ReviewRun.Scope.INCREMENTAL, "main", BASE_SHA, BASE_SHA, nextHead,

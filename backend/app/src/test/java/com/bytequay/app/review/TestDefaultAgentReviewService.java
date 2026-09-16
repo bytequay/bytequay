@@ -879,7 +879,7 @@ class TestDefaultAgentReviewService
         ReviewRun validating = beginValidation(fixture, fixture.store.listRuns(reviewId).getLast());
         ReviewEvidence evidence = new ReviewEvidence("E1", "src/App.java", "frozen head", "new Parser()", "allocation");
         ReviewValidation report = new ReviewValidation(1, ImmutableList.of(candidate(ReviewCandidateValidation.Outcome.NEEDS_EVIDENCE)),
-                new ReviewCoverage(false, ImmutableList.of("New parser ownership concern"), NOW), ImmutableList.of("The parser may leak"));
+                new ReviewCoverage(false, ImmutableList.of("New parser ownership concern"), ImmutableList.of(), NOW), ImmutableList.of("The parser may leak"));
         fixture.store.updateRun(validating.withEvidence("E1", evidence, NOW)
                 .replaceCurrentStep(validating.currentStep().orElseThrow().withValidation(report), NOW));
         settleCurrentTurn(fixture, validating);
@@ -940,6 +940,33 @@ class TestDefaultAgentReviewService
     }
 
     @Test
+    void unavailableOptionalTestsDoNotPreventAcceptingAValidatedFinding()
+    {
+        Fixture fixture = new Fixture();
+        ReviewRun validating = beginCandidateValidation(fixture);
+        ReviewFinding finding = fixture.store.insertFinding(finding("finding-1", validating.reviewId(), validating.id(), 1, ReviewFinding.State.OPEN));
+        ReviewCandidateValidation candidate = new ReviewCandidateValidation(1, ReviewCandidateValidation.Outcome.SUPPORTED, "The owner never closes the parser",
+                ImmutableList.of("E1"), "No caller cleanup exists", Optional.of(finding.id()), Optional.of(finding.revision()), Optional.empty());
+        ReviewCoverage coverage = new ReviewCoverage(true, ImmutableList.of(), ImmutableList.of("Snowflake cloud tests unavailable without credentials"), NOW);
+        ReviewValidation report = new ReviewValidation(1, ImmutableList.of(candidate), coverage, ImmutableList.of());
+        fixture.store.updateRun(validating.replaceCurrentStep(validating.currentStep().orElseThrow().withValidation(report), NOW));
+        settleCurrentTurn(fixture, validating);
+
+        fixture.service.reconcile(validating.reviewId());
+        fixture.service.reconcile(validating.reviewId());
+
+        ReviewRun accepted = fixture.store.findRun(validating.id()).orElseThrow();
+        assertThat(accepted.state()).isEqualTo(ReviewRun.State.ACCEPTED);
+        assertThat(accepted.coverage()).contains(coverage);
+        assertThat(accepted.currentStep().orElseThrow().validation()).contains(report);
+        assertThat(fixture.store.findReview(validating.reviewId()).orElseThrow().latestCompletedRunId()).contains(validating.id());
+        assertThat(fixture.store.findReview(validating.reviewId()).orElseThrow().followUpPaused()).isFalse();
+        assertThat(fixture.store.findFinding(finding.id())).contains(finding);
+        assertThat(accepted.steps()).hasSize(2);
+        verify(fixture.turns, times(2)).start(any(StartAgentTurnCommand.class));
+    }
+
+    @Test
     void validationCannotAcceptAnEarlierInvestigationRevision()
     {
         Fixture fixture = new Fixture();
@@ -980,7 +1007,8 @@ class TestDefaultAgentReviewService
         when(fixture.worktrees.inspect(taskWorktree())).thenReturn(new WorktreeSnapshot(taskWorktree(), NEW_HEAD, false, false));
         fixture.service.update(reviewId);
         ReviewRun validating = beginValidation(fixture, fixture.store.listRuns(reviewId).getLast());
-        fixture.store.updateRun(validating.withCoverage(new ReviewCoverage(false, ImmutableList.of("The parser integration path was not reviewed"), NOW), NOW));
+        fixture.store.updateRun(validating.withCoverage(new ReviewCoverage(false, ImmutableList.of("The parser integration path was not reviewed"),
+                ImmutableList.of("Cloud tests unavailable without credentials"), NOW), NOW));
         TurnId validation = TurnId.valueOf(validating.turnIds().getLast());
         when(fixture.turns.get(validation)).thenReturn(settledTurn(validation, TurnState.COMPLETED, Optional.empty()));
 
@@ -1011,7 +1039,7 @@ class TestDefaultAgentReviewService
         String reviewId = fixture.service.start(WORKSPACE, REPO, NUMBER).review().id();
         ReviewRun run = fixture.store.listRuns(reviewId).getLast();
         fixture.store.updateRun(run.withSummary(summary(), NOW)
-                .withCoverage(new ReviewCoverage(false, ImmutableList.of("The required source is unavailable"), NOW), NOW));
+                .withCoverage(new ReviewCoverage(false, ImmutableList.of("The required source is unavailable"), ImmutableList.of(), NOW), NOW));
         when(fixture.turns.get(TURN_ONE)).thenReturn(settledTurn(TURN_ONE, TurnState.COMPLETED, Optional.empty()));
         if (paused) {
             fixture.service.stop(reviewId);
@@ -1725,7 +1753,7 @@ class TestDefaultAgentReviewService
     {
         int revision = run.steps().stream().filter(step -> step.investigation().isPresent()).reduce((first, second) -> second).orElseThrow().number();
         ReviewCoverage coverage = outcome == ReviewCandidateValidation.Outcome.REJECTED
-                ? coverage() : new ReviewCoverage(false, ImmutableList.of("Parser ownership unresolved"), NOW);
+                ? coverage() : new ReviewCoverage(false, ImmutableList.of("Parser ownership unresolved"), ImmutableList.of(), NOW);
         ReviewValidation report = new ReviewValidation(revision, ImmutableList.of(candidate(outcome)), coverage, ImmutableList.of());
         fixture.store.updateRun(run.replaceCurrentStep(run.currentStep().orElseThrow().withValidation(report), NOW));
         settleCurrentTurn(fixture, run);
@@ -1775,7 +1803,7 @@ class TestDefaultAgentReviewService
 
     private static ReviewCoverage coverage()
     {
-        return new ReviewCoverage(true, ImmutableList.of(), NOW);
+        return new ReviewCoverage(true, ImmutableList.of(), ImmutableList.of(), NOW);
     }
 
     private static ReviewFinding finding(String findingId, String reviewId, String runId, int ordinal, ReviewFinding.State state)

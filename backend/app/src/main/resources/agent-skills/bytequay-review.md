@@ -72,8 +72,14 @@ discussions, resumed turns, and report repair.
    written test. Use one GitHub ```suggestion block only for an exact replacement
    covering the complete selected RIGHT-side range, with no diff markers.
 8. Keep required commit explanations complete. Name unreviewed essential scope
-   and unresolved verification in review_finish omissions, with complete=false.
-   Do not turn missing evidence into a confident finding or a clean review.
+   and unresolved candidates in review_finish omissions, with complete=false.
+   Tests unavailable because of missing credentials, services, dependencies, or
+   other environment limits belong in review_finish warnings. State which checks
+   could not run and why. If all required scope was reviewed and every candidate
+   is supported or rejected with sufficient evidence, finish with complete=true,
+   omissions=[], and these warnings. Finishing a review does not claim every test
+   ran or passed. If an unavailable check leaves a candidate unsupported, keep
+   that candidate unresolved; a warning cannot substitute for its evidence.
    Discussion answers reassess the selected claim without repeating the whole
    review. Correctness judgments remain fallible; evidence identity validation
    and a second pass in the same conversation do not make them independent proof.

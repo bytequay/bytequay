@@ -87,6 +87,7 @@ class TestSqliteReviewStores
     private static final ReviewCoverage COVERAGE = new ReviewCoverage(
             false,
             ImmutableList.of("generated sources", "vendored fixtures"),
+            ImmutableList.of("Snowflake cloud tests unavailable without credentials"),
             NOW.plusSeconds(3));
 
     @Autowired

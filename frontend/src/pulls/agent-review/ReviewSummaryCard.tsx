@@ -105,7 +105,14 @@ export default function ReviewSummaryCard({ review, run, findings, viewerLogin, 
     .filter((finding): finding is ReviewFindingDto => finding !== undefined);
   const evidence = [...new Map(findings.filter(finding => finding.runId === run.id)
     .flatMap(finding => finding.evidence).map(item => [item.ref, item])).values()];
-  const purpose: SummaryCard = { id: `${run.id}:purpose`, title: 'PR intention', body: markdown(summary.purpose), kind: 'purpose' };
+  const warnings = run.coverage?.warnings ?? [];
+  const purpose: SummaryCard = { id: `${run.id}:purpose`, title: 'PR intention', kind: 'purpose', body: <>
+    {markdown(summary.purpose)}
+    {warnings.length > 0 && <aside className="agr-banner is-warn agr-learning-card__warnings" aria-label="Verification warning">
+      <strong className="agr-banner__chip">Verification warning</strong>
+      <div className="agr-banner__text">{markdown(bullets(warnings))}</div>
+    </aside>}
+  </> };
   const commits: SummaryCard[] = run.commits.map(commit => {
     const explanation = summary.commits.find(item => item.sha === commit.sha);
     return { id: `${run.id}:commit:${commit.sha}`, title: `${shortSha(commit.sha)} · ${commit.message.split('\n')[0]}`,

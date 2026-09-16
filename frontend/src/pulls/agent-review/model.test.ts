@@ -140,8 +140,10 @@ describe('review status', () => {
 
   it('keeps incomplete accepted coverage provisional and never reports a clean result', () => {
     const original = reviewFixture();
-    for (const coverage of [null, { complete: false, omissions: [], recordedAt: '2026-09-06T16:15:00Z' },
-      { complete: true, omissions: ['Skipped the cleanup paths'], recordedAt: '2026-09-06T16:15:00Z' }]) {
+    const coverages: Array<AgentReviewDto['runs'][number]['coverage']> = [null,
+      { complete: false, omissions: [], warnings: [], recordedAt: '2026-09-06T16:15:00Z' },
+      { complete: true, omissions: ['Skipped the cleanup paths'], warnings: [], recordedAt: '2026-09-06T16:15:00Z' }];
+    for (const coverage of coverages) {
       const review: AgentReviewDto = { ...original, findings: [], runs: [{ ...original.runs[0], coverage }] };
       expect(reviewStatus(review)).toMatchObject({ status: 'failed', chip: 'Could not finish' });
       expect(provisional(review)).toBe(true);

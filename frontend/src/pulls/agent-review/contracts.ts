@@ -32,6 +32,7 @@ type ReviewSummaryDto = {
 type ReviewCoverageDto = {
   complete: boolean;
   omissions: string[];
+  warnings: string[];
   recordedAt: string;
 };
 
@@ -282,6 +283,7 @@ function parseCoverage(value: unknown): ReviewCoverageDto | null {
   return {
     complete: flag(coverage.complete),
     omissions: strings(coverage.omissions),
+    warnings: strings(coverage.warnings),
     recordedAt: text(coverage.recordedAt, 'coverage time'),
   };
 }

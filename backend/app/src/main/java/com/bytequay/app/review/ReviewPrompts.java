@@ -70,6 +70,10 @@ final class ReviewPrompts
             (how the results would settle the claim). UNRESOLVED explains why it cannot presently be settled. \
             Do not convert uncertain claims into findings. NEEDS_EVIDENCE or UNRESOLVED requires complete=false \
             and explicit omissions. ByteQuay schedules requested evidence collection up to twice per run. \
+            Tests unavailable because of missing credentials, services, dependencies, or environment limits \
+            belong in review_finish warnings. They do not prevent complete=true with omissions=[] if all \
+            required scope was reviewed and every candidate is supported or rejected with sufficient evidence. \
+            An unavailable check that leaves a candidate unsupported still requires an unresolved outcome. \
             A complete report accounts for every requiredReviewFiles path and every new non-withdrawn finding. \
             Zero findings is valid. Do not edit the sealed investigation from validation. Newly discovered \
             hypotheses go in review_finish newCandidates; number them after the existing candidates and assess \
@@ -169,7 +173,8 @@ final class ReviewPrompts
             case VALIDATE -> "Validate the investigation and every candidate against the current evidence. Read assignment and investigation context. "
                     + "Try to disprove each claim. Save supported findings, then seal review_finish for the assigned investigationStep. "
                     + "Use NEEDS_EVIDENCE with a specific missing proposition, next check, and resolving criterion if another inspection is necessary. "
-                    + "Use UNRESOLVED for evidence that cannot presently be obtained; zero findings is valid. "
+                    + "Use UNRESOLVED when missing evidence prevents settling a candidate; zero findings is valid. "
+                    + "Unavailable tests alone are warnings, not omissions, and do not prevent a complete review. "
                     + "For fixes/features, HEAD-pass and old-behavior-fail support only the behavior tested. A remaining defect must exist at frozen HEAD.";
         };
         return "Review assignment " + step.number() + " for frozen PR head " + shortSha(run.headSha()) + ". "

@@ -531,10 +531,17 @@ export async function runCheckLogs(): Promise<string> {
     assert(opened[0] === detail.checkRuns[0].detailsUrl, 'The browser action must open the selected check URL');
     click('Show log');
     assert(button('Loading…').disabled && host.querySelector('[role="status"]')?.textContent === 'Loading log…', 'Loading must be visible and prevent duplicate requests');
-    requests[0].resolve({ text: '<script>untrusted log</script>\nAssertion failed' });
+    const log = '<script>untrusted log</script>\r\n[ERROR] Assertion failed\r\n'
+      + 'Caused by: java.io.IOException: connection closed\r\n    at Worker.call(Worker.java:42)\r\n'
+      + '    Suppressed: TimeoutException: timed out\r\n[error] cannot find symbol\r\n'
+      + 'FATAL FAILURE panic traceback mismatch segmentation fault\r\n[INFO] errorCount=0 failedChecks=0\r\n';
+    requests[0].resolve({ text: log });
     await settle();
-    assert(host.querySelector('.pr-check__log pre')?.textContent?.includes('<script>untrusted log</script>') === true
-      && host.querySelector('.pr-check__log script') === null, 'The inline log must render under its row as plain text');
+    assert(host.querySelector('.pr-check__log pre')?.textContent === log
+      && host.querySelector('.pr-check__log script') === null, 'Highlighting must preserve every log character and keep HTML-looking content as text');
+    const highlighted = [...host.querySelectorAll('.pr-check__log mark')].map(mark => mark.textContent);
+    assert(highlighted.join('|') === 'ERROR|Assertion|failed|Caused by:|IOException|Suppressed:|TimeoutException|timed out|error|cannot find symbol|FATAL|FAILURE|panic|traceback|mismatch|segmentation fault',
+      'Diagnostic keywords and exception names must be highlighted case-insensitively without highlighting unrelated words or stack frames');
     click('Hide log');
     assert(host.querySelector('.pr-check__log') === null, 'Hide must collapse the excerpt');
     click('Show log');

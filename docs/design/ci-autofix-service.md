@@ -343,6 +343,9 @@ that is removed after the response, without creating a task or storing another b
 retry, empty-log, and unavailable states. Changing the PR, head, or check attempt
 clears the inline result. Unsupported external checks retain their browser
 link. Neither action requires Autofix to be active or changes the run.
+The renderer highlights diagnostic keywords and exception names, including
+`ERROR`, `Caused by`, and `Suppressed`, case-insensitively. Highlighting preserves
+all source text and whitespace, with HTML-looking log content kept as plain text.
 
 ### 3.3 `CiGitService`
 

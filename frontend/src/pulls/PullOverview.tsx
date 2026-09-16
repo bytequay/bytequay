@@ -1476,6 +1476,12 @@ export function githubActionsJobId(check: PullRequestDetailDto['checkRuns'][numb
   }
 }
 
+const CI_LOG_KEYWORDS = /(\b(?:errors?|exceptions?|failed|failures?|fatal|panic|traceback|assertion|assert|mismatch|\w*(?:Exception|Error))\b|\b(?:Caused by|Suppressed|timed out|segmentation fault|cannot find symbol)\b:?)/gi;
+
+function CiLogText({ text }: { text: string }) {
+  return text.split(CI_LOG_KEYWORDS).map((part, index) => index % 2 === 0 ? part : <mark key={index}>{part}</mark>);
+}
+
 function CheckRow({ pr, check }: { pr: PullRequestDto; check: PullRequestDetailDto['checkRuns'][number] }) {
   const [expanded, setExpanded] = useState(false);
   const [loading, setLoading] = useState(false);
@@ -1545,7 +1551,7 @@ function CheckRow({ pr, check }: { pr: PullRequestDto; check: PullRequestDetailD
         {error && <div role="alert">{error}</div>}
         {log !== null && <>
           <p>Diagnostic excerpt. Open in GitHub for the complete log.</p>
-          <pre tabIndex={0} aria-label={`${check.name ?? 'Check'} log`}>{log || 'This job returned an empty log.'}</pre>
+          <pre tabIndex={0} aria-label={`${check.name ?? 'Check'} log`}><CiLogText text={log || 'This job returned an empty log.'} /></pre>
         </>}
       </div>}
     </div>

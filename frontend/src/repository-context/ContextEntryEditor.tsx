@@ -52,9 +52,12 @@ export default function ContextEntryEditor({ initialValue, scopes, scopeLocked =
       <div className="rc-dialog-body">
         <p className="rc-muted">Keep this note specific to the conditions where it applies. Saved notes guide future reviews; they are not verified facts.</p>
         {error !== null && <div className="rc-error" role="alert">{error}</div>}
-        <label>Applies to<select value={draft.scopeId} disabled={busy || scopeLocked} onChange={event => change({ ...draft, scopeId: event.target.value })}>
+        <label>Applies to<select value={draft.scopeId} disabled={busy || scopeLocked} required onChange={event => change({ ...draft, scopeId: event.target.value })}>
+          {draft.scopeId === '' && <option value="" disabled>Choose where this lesson applies</option>}
           {scopes.map(scope => <option key={scope.id} value={scope.id}>{scope.title}{scope.enabled ? '' : ' (disabled)'}</option>)}
         </select></label>
+        {scopes.find(scope => scope.id === draft.scopeId)?.match.kind === 'REPOSITORY'
+          && <p className="rc-muted">This scope applies across the repository. Choose a component scope for a more specific note.</p>}
         <label>Title<input value={draft.title} disabled={busy} onChange={event => change({ ...draft, title: event.target.value })} required /></label>
         <span className={'rc-count' + (bytes(draft.title) > 200 ? ' is-over' : '')}>{bytes(draft.title)} / 200 bytes</span>
         <label>Summary<textarea rows={2} value={draft.summary} disabled={busy} onChange={event => change({ ...draft, summary: event.target.value })} required /></label>

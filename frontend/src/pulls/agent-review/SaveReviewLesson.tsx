@@ -101,7 +101,7 @@ export default function SaveReviewLesson({ review, run, message }: { review: Age
       {!editing && error !== null && <span role="alert">{error}</span>}
     </span>
     {editing && notebook !== null && <ContextEntryEditor title="Save lesson" confirmLabel="Save lesson"
-      initialValue={{ scopeId: 'project', title: '', summary: '', body: message.body }} scopes={notebook.scopes}
+      initialValue={{ scopeId: '', title: '', summary: '', body: message.body }} scopes={notebook.scopes}
       busy={busy} error={error} submitDisabled={reloadNeeded} onChange={draft => { latestDraft.current = draft; }}
       onCancel={() => { setEditing(false); setError(null); }} onSave={draft => { void save(draft); }}>
       <p className="rc-muted">Source: this saved private discussion from run {run.ordinal}. The original message is retained with the lesson.</p>

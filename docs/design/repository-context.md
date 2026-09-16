@@ -1117,12 +1117,25 @@ Use the run's frozen diff/required-review paths, both sides of renames, user
 request, PR title/body, commit messages, and explicit references. An incremental
 run uses its actual required review scope while retaining the parent PR identity.
 
-1. Include explicitly selected entries/references, with their version limitations.
-2. Include enabled repository-wide notes.
-3. Include enabled scopes with exact path-prefix matches.
-4. Include enabled scopes whose configured terms match task text.
-5. Rank path matches before term-only matches; preserve saved order within a
-   rank and use stable ID as the final tie-breaker.
+First establish eligibility: an entry and its scope must be enabled, and a
+suppressed entry stays excluded. An explicit entry selection can bypass a missing
+scope match, but cannot override those exclusions. Otherwise, the entry's scope
+must match the repository-wide rule, a changed path prefix, or a configured term.
+Words in a lesson never admit it from an unrelated scope.
+
+Order eligible entries by these ranks:
+
+1. Explicitly selected entries, with their version limitations.
+2. Repository-wide knowledge, plus repository-wide lessons with topic overlap.
+3. Knowledge from path-matched scopes, plus their lessons with topic overlap.
+4. Knowledge from term-only scopes, plus their lessons with topic overlap.
+5. Lessons with a scope match but no additional topic overlap.
+
+Within each rank, knowledge comes before lessons. Lessons then sort by the
+number of distinct overlapping topic words, descending. Equal matches retain
+saved order. Explicit entries do not need additional topic overlap. Missing
+knowledge discovery continues to use matching scopes, independently of lesson
+ranking.
 
 Path prefixes use normalized repository-relative paths with component boundaries:
 plugin/trino-iceberg/ does not match plugin/trino-iceberg-extra/. Reject absolute
@@ -1133,6 +1146,31 @@ Terms are case-insensitive whole words/phrases after whitespace normalization.
 There is no stemming, fuzzy matching, learned score, or automatic synonym
 expansion in V1. Users or generated scope proposals can list explicit aliases.
 Scope terms and paths are OR conditions; no match is not a failed build.
+
+For each naturally matched lesson, compare its title and summary with the PR
+text and changed-file basenames, including both sides of renames. Normalize
+Unicode to NFC, split camel-case and acronym boundaries, lowercase independently
+of locale, and split punctuation and underscores into words. Ignore words shorter
+than three Unicode code points, words with no letters, and a fixed list of common
+language and development words. Also ignore vocabulary from that lesson's scope
+title and path prefixes, so the shared component name alone cannot boost every
+lesson. Configured alternative scope terms are not discarded merely because they
+are matching rules: a scope may list distinct topics such as `snapshot isolation`
+and `nested fields`, which must remain useful for distinguishing lessons.
+
+Each shared word counts once. Repetition, lesson body text, claim text and evidence
+excerpts do not increase the score. Basename overlap is a lexical hint, not proof
+that the lesson's original source touches the reviewed file. Selection performs no
+extra history lookup, model call, embedding search or source read. Match reasons
+show the overlapping words, or disclose that a lesson is a lower-priority
+scope-only candidate. Zero-overlap lessons remain eligible at the final rank;
+absence of shared words does not prove irrelevance.
+
+The existing packet budgets remain unchanged: selected knowledge and lessons
+share 8 KiB, with complete entries deferred when they do not fit. The snapshot
+retains selected versions, match reasons and inclusion state. Every selected note
+remains `UNVERIFIED`; a higher lexical score does not establish correctness or
+applicability.
 
 For a newly encountered component, use the closest actual module/build boundary
 or a component explicitly identified in the task. Do not treat every changed
@@ -1437,7 +1475,11 @@ cannot replace a newly opened workspace's notebook.
 
 **Save lesson** on a retained private review message opens the shared editor with
 the original message text. The user writes its title and summary, edits its
-conditions and scope, and can select additional retained evidence before saving.
+conditions, and can select additional retained evidence before saving. New
+lessons start with no scope selected and show **Choose where this lesson applies**.
+The user must choose a scope before saving. Project remains an explicit option;
+choosing a repository-wide scope explains that it applies across the repository
+and suggests a component scope for a more specific note.
 The backend binds the source to that message's original review/run, including
 older discussions. This is a local notebook action and creates no provider turn
 or GitHub comment. Failed saves keep the draft; after an uncertain response, a

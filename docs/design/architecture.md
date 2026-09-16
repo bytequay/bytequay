@@ -42,8 +42,13 @@ workspace deletion clears the notebook after existing ownership checks.
 Review startup captures bounded local selection and retained evidence on the
 existing review run, whose nullable context JSON is mapped by persistence-sqlite.
 Matching and history reuse existing Git, repository enrichment, PR, issue,
-review and task services/stores. Completed task-summary lookup scopes workspace
-and the selected physical repository before its row limit; task and review
+review and task services/stores. Enabled scope rules gate notes; within those
+matches, saved lessons rank by distinct title/summary words shared with PR text
+or changed basenames. Knowledge leads within each scope rank, and lessons with
+only a scope match remain lower-priority candidates. Match reasons disclose this
+lexical heuristic; applicability remains unverified and packet budgets are
+unchanged. Completed task-summary lookup scopes workspace and the selected
+physical repository before its row limit; task and review
 excerpts share one three-item cap. Snapshot capture occurs before provider admission and records
 prepared text and bounded baseline input fingerprints, not confirmed delivery.
 Input identities are read from frozen Git objects outside notebook mutations;
@@ -58,8 +63,9 @@ notebook or certify source applicability or completed knowledge preparation.
 The Electron bridge exposes typed notebook reads and revision-guarded edits.
 Workspace settings renders knowledge, lessons, scopes and documentation sources;
 private review messages can be saved as user-edited lessons bound to their original
-run. Review details renders the retained packet and receipts as prepared context,
-with gaps and provenance. Opening either surface performs no generation or remote
+run, with an explicit scope choice before saving. Review details renders the
+retained packet and receipts as prepared context, with gaps and provenance.
+Opening either surface performs no generation or remote
 fetch. Review-owned generation now uses `RepositoryContextPreparation` through
 one fixed BEGIN/SUBMIT tool on enabled initial investigation turns. Git/input
 inspection and report validation run outside locks; accepted ownership/results

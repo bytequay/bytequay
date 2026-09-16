@@ -20,7 +20,7 @@ import electron from 'electron';
 import { build } from 'vite';
 import { expect, it } from 'vitest';
 
-it('saves an edited private lesson with original run ownership and recoverable notebook conflicts', async () => {
+it('requires an explicit lesson scope and saves with original run ownership and recoverable notebook conflicts', async () => {
   const directory = await mkdtemp(join(tmpdir(), 'bytequay-review-context-'));
   try {
     await build({ configFile: false, logLevel: 'silent', define: { 'process.env.NODE_ENV': '"production"' }, esbuild: { jsx: 'automatic', jsxDev: false },
@@ -48,7 +48,7 @@ it('saves an edited private lesson with original run ownership and recoverable n
     const args = [join(directory, 'main.cjs')];
     const command = process.platform === 'linux' && !process.env.DISPLAY ? 'xvfb-run' : executable;
     const result = await promisify(execFile)(command, command === executable ? args : ['-a', executable, ...args], { env: environment, timeout: 30_000 });
-    expect(JSON.parse(result.stdout.trim())).toHaveLength(3);
+    expect(JSON.parse(result.stdout.trim())).toHaveLength(4);
   }
   finally { await rm(directory, { recursive: true, force: true }); }
 }, 40_000);

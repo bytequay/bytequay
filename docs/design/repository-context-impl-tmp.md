@@ -880,3 +880,45 @@ Required checks below describe the current increment, not full feature acceptanc
     regressions pass. `git diff --check` passes.
   - Live-provider use, end-to-end automatic delivery, judgment quality and cold/warm
     production performance remain unmeasured; their acceptance boxes stay open.
+
+
+### Lesson relevance and explicit scope polish
+
+- [x] Preserve enabled/suppressed scope gates and explicit selection. Keep
+  canonical knowledge ordering and missing-knowledge discovery independent of
+  lesson topic ranking.
+- [x] Rank eligible lessons using distinct title/summary words shared with the
+  bounded PR text or changed basenames. Exclude common words and scope title/path
+  vocabulary; preserve alternative configured topic terms. Repetition, bodies,
+  claims and retained evidence do not increase relevance.
+- [x] Retain scope-only lessons at lower priority with a visible explanation.
+  Matching words are shown for stronger candidates. Equal matches retain saved
+  order, and relevance never promotes applicability beyond UNVERIFIED.
+- [x] Keep the 8 KiB knowledge/lesson budget and whole-entry deferral. A capture
+  regression checks that the stronger lesson gets the available space before an
+  earlier saved scope-only lesson and that replay preserves the frozen result.
+- [x] Require an explicit scope choice when saving a private review lesson;
+  explain the broad applicability of Project before save. Conflict retries retain
+  the chosen scope and draft.
+- [x] Update the canonical matching rules and current architecture description.
+- [x] Frontend lint, TypeScript, all 84 test files / 917 tests, and desktop
+  packaging passed. Logs: `/private/tmp/bytequay-matching-frontend-{lint,types,tests,package}.log`.
+  The existing package hook needed network access; Electron tests needed normal
+  local process access. No source workaround was introduced.
+- [x] Inspected disposable offline Save lesson fixtures at 1100×900 and 420×780.
+  Placeholder and Project disclosure remain readable, the narrow body scrolls,
+  and footer actions remain visible. Images:
+  `/private/tmp/bytequay-matching-ui/{wide,narrow}-{placeholder,project}.png`;
+  bounds checks: `/private/tmp/bytequay-matching-ui/checks.json`.
+- [x] Full backend `mvn -B verify` passed: 226 suites / 2,658 tests, zero
+  failures/errors/skips. Log: `/private/tmp/bytequay-matching-backend-verify.log`.
+  The first focused run exposed an invalid disabled-scope test fixture; corrected
+  it to a selected component scope. All matcher, snapshot and reader tests pass.
+- [x] Final packaging passed with the newly verified backend; the packaged JAR
+  matches it by SHA-256. Log: `/private/tmp/bytequay-matching-final-package.log`.
+  `git diff --check` passed. Independent review caught configured OR topic terms
+  being treated as generic words; the regression now preserves their ability to
+  distinguish lessons. Live-provider judgment quality remains unmeasured.
+- Next: the existing automatic investigation input, completed brief/report and
+  downstream delivery work remains pending. This polish adds no model call,
+  source fetch, schema field or automatic provider delivery.

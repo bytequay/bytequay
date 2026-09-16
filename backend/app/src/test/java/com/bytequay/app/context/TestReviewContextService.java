@@ -45,6 +45,7 @@ import java.util.OptionalLong;
 import java.util.stream.IntStream;
 
 import static com.bytequay.core.context.ContextEntryKind.KNOWLEDGE;
+import static com.bytequay.core.context.ContextEntryKind.MEMORY;
 import static com.bytequay.core.context.ContextEntryOrigin.GENERATED;
 import static com.bytequay.core.context.ContextEntryOrigin.USER;
 import static com.google.common.collect.ImmutableList.toImmutableList;
@@ -170,6 +171,44 @@ class TestReviewContextService
         ContextPacket packet = context.bootstrap().orElseThrow();
         assertThat(packet.text()).doesNotContain(second.body());
         assertThat(packet.utf8Bytes()).isEqualTo(ContextLimits.bytes(packet.text())).isLessThanOrEqualTo(ContextPacket.MAXIMUM_BYTES);
+    }
+
+    @Test
+    void givesTopicMatchedLessonBudgetBeforeScopeOnlyLessonAndFreezesTheReasons()
+    {
+        ContextScope iceberg = new ContextScope("iceberg", "Iceberg",
+                new ContextMatch.Selected(ImmutableList.of("plugin/iceberg/"), ImmutableList.of()), true, Optional.empty());
+        ContextEntry configuration = new ContextEntry("lesson:configuration", MEMORY, iceberg.id(), "Configuration validation", "Catalog configuration",
+                "Configuration guidance. ".repeat(250), ImmutableList.of(), ImmutableList.of(SOURCE.id()), USER, true, 1);
+        ContextEntry snapshot = new ContextEntry("lesson:snapshot", MEMORY, iceberg.id(), "Snapshot isolation", "Validate the snapshot isolation contract",
+                "Snapshot guidance. ".repeat(300), ImmutableList.of(), ImmutableList.of(SOURCE.id()), USER, true, 1);
+        RepositoryNotebook notebook = new RepositoryNotebook(1, 4, true, ImmutableList.of(), ImmutableList.of(ContextScope.project(), iceberg),
+                ImmutableList.of(configuration, snapshot), ImmutableList.of(), ImmutableList.of(SOURCE), Optional.empty());
+        ReviewRun original = run();
+        when(notebooks.getNotebook("workspace")).thenReturn(notebook);
+        RepositoryContextMatcher.Selection matches = new RepositoryContextMatcher().select(notebook, ImmutableList.of("plugin/iceberg/Metadata.java"),
+                "Fix snapshot isolation", ImmutableList.of());
+        when(reader.select(REVIEW, original, WORKSPACE, Optional.empty(), notebook)).thenReturn(new RepositoryContextReader.Selection(Optional.of(BASE), matches,
+                ImmutableList.of(), ImmutableList.of()));
+        captureWrites();
+
+        ReviewRun captured = service.prepareRun(REVIEW, original, WORKSPACE, Optional.empty());
+        ReviewContextSnapshot context = captured.context().orElseThrow();
+
+        assertThat(context.selectedEntries()).extracting(ContextSelectedEntry::entryId).containsExactly(snapshot.id(), configuration.id());
+        ContextSelectedEntry included = context.selectedEntries().getFirst();
+        ContextSelectedEntry deferred = context.selectedEntries().getLast();
+        assertThat(included.inclusion()).isEqualTo(ContextSelectedEntry.Inclusion.INCLUDED);
+        assertThat(included.matchReasons()).contains("Lesson title/summary words also occur in PR text or changed filenames: snapshot, isolation");
+        assertThat(deferred.inclusion()).isEqualTo(ContextSelectedEntry.Inclusion.DEFERRED);
+        assertThat(deferred.text()).isEmpty();
+        assertThat(deferred.matchReasons()).anySatisfy(reason -> assertThat(reason).contains("no lesson-specific words"));
+        assertThat(context.selectedEntries()).allSatisfy(entry -> assertThat(entry.applicability()).isEqualTo(ContextSelectedEntry.Applicability.UNVERIFIED));
+        assertThat(context.bootstrap().orElseThrow().text()).contains(snapshot.body()).doesNotContain(configuration.body());
+
+        clearInvocations(notebooks, reader, inputs, reviews);
+        assertThat(service.prepareRun(REVIEW, captured, WORKSPACE, Optional.empty())).isSameAs(captured);
+        verifyNoInteractions(notebooks, reader, inputs, reviews);
     }
 
     @Test

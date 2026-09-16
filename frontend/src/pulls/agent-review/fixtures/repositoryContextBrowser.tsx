@@ -56,6 +56,13 @@ function fill(input: HTMLInputElement | HTMLTextAreaElement, value: string) {
   flushSync(() => input.dispatchEvent(new Event('input', { bubbles: true })));
 }
 
+function selectScope(dialog: Element, value: string) {
+  const select = dialog.querySelector('select');
+  assert(select !== null, 'Lesson scope must be selectable');
+  select.value = value;
+  flushSync(() => select.dispatchEvent(new Event('change', { bubbles: true })));
+}
+
 function stored(notebook: RepositoryNotebookDto, request: SaveRepositoryContextLessonRequest): RepositoryNotebookDto {
   const sourceIds = ['message-source', ...request.evidenceRefs.map(ref => `evidence-${ref}`)];
   const sources = sourceIds.map((id, index): ContextSourceEvidenceDto => ({ id, reference: { kind: 'REVIEW', reviewId: request.reviewId, runId: request.runId,
@@ -94,11 +101,21 @@ export async function runScenarios(): Promise<string[]> {
     fill(field(dialog, 'Title'), 'Parent-scoped field IDs');
     fill(field(dialog, 'Summary'), 'Use each parent struct when resolving a nested field.');
     fill(field(dialog, 'Details'), 'Apply this when nested structs reuse a leaf name.');
-    await waitFor(() => !button(dialog, 'Save lesson').disabled, 'Completed lesson fields must enable saving');
+    const scope = dialog.querySelector('select');
+    assert(scope !== null && scope.value === '' && scope.required, 'A new lesson must require an explicit scope choice');
+    assert(scope.selectedOptions[0]?.textContent === 'Choose where this lesson applies', 'The unset scope must explain what to choose');
+    assert(button(dialog, 'Save lesson').disabled, 'Completed prose without a scope must not enable saving');
+    const attempts = writes.length;
+    flushSync(() => dialog.querySelector('form')?.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true })));
+    assert(writes.length === attempts, 'Submitting without a scope must not save a lesson');
+    selectScope(dialog, 'project');
+    await waitFor(() => !button(dialog, 'Save lesson').disabled, 'An explicit Project choice must allow saving completed lesson fields');
+    assert(dialog.textContent?.includes('This scope applies across the repository.') === true, 'Project choice must disclose repository-wide selection');
     return dialog;
   };
   try {
     const dialog = await open('conflict');
+    results.push('Saving requires an explicit scope choice and permits a disclosed Project choice');
     const evidence = dialog.querySelector<HTMLInputElement>('.agr-lesson-evidence input');
     assert(evidence !== null, 'Original run evidence must be selectable');
     evidence.click();
@@ -118,6 +135,7 @@ export async function runScenarios(): Promise<string[]> {
     assert(Number(writes.length) === 2, 'A double click must make one save attempt');
     const accepted = writes[1];
     assert(accepted.expectedRevision === 5 && accepted.title === 'Revised conditional lesson', 'Retry must use latest revision and preserved draft');
+    assert(accepted.scopeId === 'project', 'The explicitly chosen Project scope must be retained on save');
     assert(accepted.reviewId === review.id && accepted.runId === run.id && accepted.messageId === message.id, 'Lesson must use message original run, never newest run');
     assert(accepted.evidenceRefs.length === 1 && accepted.evidenceRefs[0] === 'E1', 'Only selected original-run evidence belongs in the lesson');
     assert(host.textContent?.includes('Lesson saved') === true && host.querySelector('dialog') === null, 'Accepted save must close with confirmation');
@@ -197,6 +215,7 @@ export async function showFixture(mode: 'context' | 'lesson'): Promise<void> {
     fill(field(dialog, 'Title'), 'Resolve nested fields within their parent');
     fill(field(dialog, 'Summary'), 'When leaf names repeat, preserve the complete parent path.');
     fill(field(dialog, 'Details'), 'For nested struct fields, resolve each segment within the selected parent. A matching leaf name in a different struct is not the same field.');
+    selectScope(dialog, 'project');
   }
   await settle();
 }

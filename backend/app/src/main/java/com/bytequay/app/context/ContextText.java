@@ -28,17 +28,27 @@ final class ContextText
         if (ContextLimits.bytes(text) <= maximumBytes) {
             return text;
         }
+        return prefix(text, maximumBytes - 3) + "…";
+    }
+
+    /** Returns only source characters, without adding an excerpt marker to retained evidence. */
+    static String prefix(String text, int maximumBytes)
+    {
+        checkArgument(maximumBytes >= 0, "Prefix budget must not be negative");
+        if (ContextLimits.bytes(text) <= maximumBytes) {
+            return text;
+        }
         int end = 0;
         int bytes = 0;
         while (end < text.length()) {
             int codePoint = text.codePointAt(end);
             int width = codePoint <= 0x7F ? 1 : codePoint <= 0x7FF ? 2 : codePoint <= 0xFFFF ? 3 : 4;
-            if (bytes + width > maximumBytes - 3) {
+            if (bytes + width > maximumBytes) {
                 break;
             }
             bytes += width;
             end += Character.charCount(codePoint);
         }
-        return text.substring(0, end) + "…";
+        return text.substring(0, end);
     }
 }

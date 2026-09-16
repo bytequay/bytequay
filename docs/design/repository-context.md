@@ -469,7 +469,8 @@ sources authorize only that page. Native discovery outside configured roots
 remains available as agent-reported research, not automatically trusted capture.
 
 Use existing HTTP/text libraries where sufficient; no browser automation,
-whole-site mirror, login flow, or generic fetch service. Text/HTML only in V1:
+whole-site mirror, login flow, or generic fetch service. HTML, plain text and
+Markdown only in V1:
 stream at most 1 MiB of response data and at most 128 KiB of extracted text for
 one page; return pages of at most 16 KiB. Mark truncation and unsupported
 formats explicitly. Retain selected/cited excerpts, not full sites.
@@ -483,6 +484,91 @@ and admission are one short mutation. Do not edit source configuration inside
 an already admitted attempt: a newly discovered root waits for a later explicit
 preparation, or remains agent-reported evidence for this run. Repository-suggested
 roots still pass the same destination checks and grant no extra authority.
+
+The implemented selected reader is exposed through the existing
+`review_get_context` operation with `kind=document`. With no sourceId it lists
+the current notebook's configured sources, five per page, without a network read. With a
+sourceId it accepts an optional relativePage, a one-based page and an optional
+captureId returned by the first page. A captured enabled run is required before
+even listing sources; an absent historical snapshot or an Off snapshot cannot
+use this addition. The current workspace switch does not rewrite that run's
+choice. User source registration uses the existing notebook configuration API;
+automatic repository-derived registration remains part of preparation.
+
+For example, after listing sources with `{"kind":"document"}`, select one:
+
+~~~json
+{
+  "kind": "document",
+  "sourceId": "docs-trino",
+  "relativePage": "connector/iceberg.html",
+  "page": 1
+}
+~~~
+
+If the response has a nextPage, use its actual captureId for that continuation
+(the UUID below is illustrative):
+
+~~~json
+{
+  "kind": "document",
+  "sourceId": "docs-trino",
+  "relativePage": "connector/iceberg.html",
+  "captureId": "5f942031-095a-4c62-a05a-0e06872a6505",
+  "page": 2
+}
+~~~
+
+Initial reads reuse a temporary capture if present. Up to 16 selected document
+captures are retained in process memory, each expiring ten minutes after capture.
+They are keyed by workspace, complete registered source definition and resolved
+selected URL. Each contains at most 128 KiB of extracted UTF-8 text; the limits
+bound retained text, not the JVM's complete allocation footprint. This is a
+pagination cache, not shared generated knowledge or durable site storage.
+Later pages require the same captureId and make no network request. Restart,
+eviction, expiry, refresh or source replacement requires a new first read.
+The exact source definition is checked again after capture, outside notebook
+locks and transactions. A changed definition cannot silently redirect a
+continuation. Unrelated notebook edits do not invalidate an authorized capture.
+
+An explicit refresh is allowed only on page one without captureId. If it fails,
+an existing capture can be returned with its original time/content and an
+explicit refresh-failed gap. Without an earlier capture the failure remains
+unavailable. Empty successful text has no evidence reference and is distinct
+from a failed read. A nonempty returned page is saved exactly once in the
+existing run evidence map; the full temporary page body is not persisted.
+The existing evidence read and Save lesson action retain access to those
+excerpts after the temporary capture is gone. Repeated calls can still grow
+the existing append-only run evidence map; a page bound is not a run-size cap.
+
+The document HTTP client is separate from authenticated GitHub clients. The
+Boot-managed Apache HTTP client supplies a connection-time DNS resolver, so the
+validated public addresses are the ones actually used for the connection.
+Checking DNS before an ordinary JDK HTTP request would permit another lookup
+to change the destination. Redirects are followed manually, at most three,
+inside the exact registered page or root's host/path. Cookies, authentication,
+ambient proxies, automatic retries and compression are disabled. Unsupported
+media/charsets/encodings and unsuccessful or missing responses produce failures.
+The reader requests identity encoding and uses explicit response charsets or
+UTF-8, without executing HTML scripts or fetching linked resources.
+
+At most two document workers may remain active. Connect/read limits are three
+and five seconds, with a fifteen-second caller deadline covering the complete
+capture including DNS. A DNS lookup that ignores interruption retains its
+worker slot until it exits; later calls fail promptly when both slots are busy.
+Response data is capped at 1 MiB and extracted text at 128 KiB. Reaching the
+response cap is conservatively marked truncated, including exact-size bodies.
+HTML text is a limited parser extraction, not a rendered browser view. Pages
+are exact Unicode-safe fragments of that captured text, at most 16 KiB each.
+
+Evidence records the registered source, sourceSelectionNotebookRevision observed
+before the read, resolved URL, capture identity, extracted-content hash, retrieval time
+and truncation/refresh limitations. `BYTEQUAY_READ` means the application
+captured the text; it does not validate its truth or match a project release.
+Document version, remote freshness and applicability remain explicitly
+unverified. Native-web/model-pasted excerpts are not accepted as these captures.
+This increment does not populate generated notebook knowledge or automatically
+deliver the prepared bootstrap to the provider.
 
 ## 4. Notebook and JSON contracts
 

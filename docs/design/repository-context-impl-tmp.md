@@ -11,10 +11,30 @@ commit-association reads reuse existing caches and refresh paths, retaining
 freshness and failure evidence. The default-on preference now controls local
 snapshot capture; Off bypasses selection.
 Related patch pages pin cached contents by fingerprint and retain exact excerpts.
+Selected registered documentation reads capture bounded text, keep continuation
+pages consistent and retain exact excerpts through the existing review evidence.
 Snapshots are prepared before agent admission and exposed in the existing review
 projection. Generation, direct context delivery, the settings/display UI, and
 provider acceptance remain pending. Unchecked items remain pending even when
 related infrastructure already exists.
+
+## Delivery summary
+
+| Entry | Status |
+| --- | --- |
+| Agreed concepts, overall flow and contracts | Finished |
+| Notebook persistence and editing/lesson APIs | Finished; generation-specific Reset/protection work remains in CP3 |
+| Local selection, frozen snapshots and input fingerprints | Finished; applicability/reuse decisions remain in CP3 |
+| Selected PR, issue, commit association and related diff reads | Finished |
+| Selected documentation capture and retained excerpts | Finished in the current increment; verification recorded below |
+| Scoped task-summary discovery | Next local selection item |
+| Shared preparation, cold generation and explicit builder | Pending |
+| Automatic context delivery and complete report integration | Pending |
+| Notebook/settings UI and Context used display | Pending |
+| On/Off quality comparison, performance and provider acceptance | Pending; required before enablement |
+
+An implemented source reader is not completion of automatic reusable knowledge.
+CP1/CP2 are partly complete; CP3 through CP6 retain their unchecked gates.
 
 ## Working rules
 
@@ -112,7 +132,7 @@ runtime-retention and workspace-deletion behavior. Use current schema ownership.
 - [x] Reuse existing PR detail/diff, issue detail, and review services;
   fix the current issue-tool cache bypass within the same source-read boundary.
 - [ ] Add scoped task-summary discovery through existing task services.
-- [ ] Hydrate only selected missing/stale details through existing refresh paths.
+- [x] Hydrate selected missing/stale PR/issue details and related diff artifacts through existing refresh paths.
   Expose missing sections, cache age, lookup bounds, and unavailable history.
 - [x] Verify selected PR metadata/activity/check reads, issue cache reuse and
   exact preview fallback. Keep related PR identity separate from frozen review
@@ -122,10 +142,16 @@ runtime-retention and workspace-deletion behavior. Use current schema ownership.
 - [x] Add related default-diff hydration with content fingerprints, consistent
   pagination and exact retained patch excerpts; current review diffs already
   come from the retained run. Do not infer verified/final revision ranges.
-- [ ] Register validated user/repository documentation roots with provenance;
-  capture selected pages through the bounded reader and retain cited excerpts.
-- [ ] Check every redirect and resolved destination, document versions,
-  unsupported formats, truncation, response limits, and credential isolation.
+- [x] Register validated user documentation roots/pages with provenance through
+  the existing notebook configuration API.
+- [ ] Register repository-proposed roots from captured README/module evidence
+  together with preparation admission; do not accept model-selected URLs alone.
+- [x] Capture selected registered pages through the bounded reader and retain
+  exact returned excerpts in existing review evidence.
+- [x] Check every redirect and actual resolved destination, unsupported formats,
+  truncation, response limits, and credential/proxy isolation.
+- [ ] Verify documentation versions against reviewed code during preparation;
+  current captures explicitly report unknown version/freshness/applicability.
 - [ ] Label native-web/model-reported excerpts accurately when ByteQuay did
   not capture the original page itself.
 
@@ -595,3 +621,54 @@ Required checks below describe the current increment, not full feature acceptanc
   document links pass; all seven design JSON examples parse. Selected
   documentation capture, task-summary discovery, shared preparation/generation,
   direct delivery, UI and provider/judgment acceptance remain pending.
+- Committed the verified related-diff increment as `ba00420cf`
+  (`Read selected pull request diff context`).
+- Selected documentation reads use existing notebook configuration and retained
+  review evidence. Source listing is local and paginated; actual reads require
+  the run's captured enabled state. Configured roots/pages, relative selectors,
+  manual redirects and connection-time public DNS checks bound each read.
+  The dedicated Apache HTTP client uses direct sockets, no credentials/cookies,
+  and no automatic retries or content decompression. Existing production HTTP
+  clients retain their explicit JDK transport.
+- Two active workers, a fifteen-second caller deadline, 1 MiB response cap,
+  128 KiB extracted-text cap and sixteen temporary captures bound source work.
+  Captures expire after ten minutes; continuations never refetch and fail on a
+  lost/replaced/reconfigured receipt. Exact 16 KiB Unicode-safe text pages are
+  retained only when nonblank. Failed refresh preserves an available earlier
+  observation with its original time and a failure flag; failures cannot become
+  successful empty extraction. Remote freshness and applicability stay unknown.
+- Independent review corrected ambient SOCKS inheritance, overly broad public
+  IPv4 rejection, source-selection revision naming, blank evidence handling and
+  global proxy-test isolation. No notebook generation, extra database, full-site
+  mirror, new provider process or automatic agent-input delivery was added.
+- Frontend documentation checks passed: `npm run lint`,
+  `npx --no-install tsc --noEmit`, and `npm test` (80 files, 901 tests).
+  Logs: `/private/tmp/bytequay-context-document-lint.log`,
+  `/private/tmp/bytequay-context-document-types.log`, and
+  `/private/tmp/bytequay-context-document-frontend-tests.log`.
+- Backend verification first stopped at six style violations, which were fixed.
+  The subsequent full `mvn -B verify` completed all tests and exposed four new
+  mock-fixture errors and three agent HTTP assertions caused by automatic
+  transport detection selecting the added Apache dependency and retrying 503s.
+  Corrected the mock fixtures and explicitly preserved that HTTP test client's
+  prior non-retrying JDK transport. No assertion or product error was weakened.
+- Affected-suite `verify` reruns passed the 73 transport, 17 selected-document
+  and 39 agent HTTP cases and rebuilt the backend package. The full run's 70
+  review-tool cases also pass. Combined full-run/rerun reports contain 221
+  suites and 2,561 tests with zero remaining failures, errors or skips; this
+  is combined evidence, not a claim that the first full invocation passed.
+  Logs: `/private/tmp/bytequay-context-document-verify.log`,
+  `/private/tmp/bytequay-context-document-verify-final.log`,
+  `/private/tmp/bytequay-context-document-verify-rerun.log`, and
+  `/private/tmp/bytequay-context-document-http-verify-final.log`.
+- All document/source fixtures are offline and use mocked data or disposable
+  local resources. Live public-document/provider use, per-run evidence growth,
+  lock-wait/latency and peak resource measurements remain acceptance work.
+  Next: scoped existing-task summary discovery, followed by shared preparation,
+  source applicability/reuse, cold generation and the explicit builder.
+- Desktop packaging passed and produced
+  `frontend/out/ByteQuay-darwin-arm64/ByteQuay.app`. The packaged backend JAR
+  matches the final verified JAR by SHA-256. Log:
+  `/private/tmp/bytequay-context-document-package.log`.
+  All nine repository-context JSON examples parse, local document links resolve,
+  and changed/new source whitespace, Java line lengths and conflict checks pass.

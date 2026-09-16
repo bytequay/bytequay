@@ -87,6 +87,7 @@ import org.springframework.http.HttpMethod;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
+import org.springframework.http.client.JdkClientHttpRequestFactory;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.context.bean.override.mockito.MockitoSpyBean;
 import org.springframework.util.LinkedMultiValueMap;
@@ -260,6 +261,8 @@ class TestAgentHttpApi
     void setUp()
             throws IOException, InterruptedException
     {
+        // The documentation dependency must not make this client retry a rejected HTTP action.
+        rest.getRestTemplate().setRequestFactory(new JdkClientHttpRequestFactory());
         driver.reset();
         claudeDriver.reset();
         reset(provisioning);

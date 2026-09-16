@@ -425,7 +425,7 @@ for that lane; failure does not disable ordinary agent tasks.
 
 | Tool | Purpose |
 | --- | --- |
-| `review_get_context` | Bounded typed reads of current PR, linked issue/PR, selected commit-to-PR associations, diff, source, evidence, summary, finding, or discussion; supports pagination |
+| `review_get_context` | Bounded typed reads of current PR, linked issue/PR, selected commit-to-PR associations, diff, source, registered document, evidence, summary, finding, or discussion; supports pagination |
 | `review_save_summary` | Save the intention and exactly one explanation for every actual commit |
 | `review_save_investigation` | Save the change map, assessed changed files, supporting context refs, and numbered candidate hypotheses |
 | `review_save_finding` | Create a finding, or update a returned finding ID with its expected revision |
@@ -466,6 +466,20 @@ related file-list read. Related patch pages are bounded Unicode text fragments
 retained exactly as evidence, with no current-review anchor IDs. The observed
 PR head is separate metadata: cached patches have no verified revision pair,
 fetch time or completeness, and cannot certify the final merged change.
+
+The document read requires an enabled context snapshot on its bound run. Without
+sourceId it lists configured notebook sources locally; otherwise it captures
+one selected relative page under that registered source. The fixed reader checks
+every redirect and the actual connection's resolved public addresses, and uses
+no GitHub credentials, cookies or ambient proxy. A temporary bounded capture
+returns a captureId that subsequent pages must present; source changes or a
+missing/replaced capture require a new initial read. Explicit refresh is limited
+to an initial read. Failed refresh may return a visibly marked earlier capture.
+Each nonempty page retains its exact text as run evidence, without finding
+anchors. Captured text is untrusted reference data: content hash/read time do
+not establish the documentation's version, freshness, truth or applicability.
+The [Repository Context source contract](repository-context.md#33-selected-documentation-reads)
+defines limits, cache lifetime, error behavior and remaining preparation gates.
 
 These are fixed application operations, not a model-controlled registry.
 Tool declarations carry strict JSON schemas and bounded fields; the backend

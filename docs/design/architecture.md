@@ -41,8 +41,10 @@ source capture from retained review evidence, and HTTP live in app. Explicit
 workspace deletion clears the notebook after existing ownership checks.
 Review startup captures bounded local selection and retained evidence on the
 existing review run, whose nullable context JSON is mapped by persistence-sqlite.
-Matching and history reuse existing Git, repository enrichment, PR, issue and
-review stores. Snapshot capture occurs before provider admission and records
+Matching and history reuse existing Git, repository enrichment, PR, issue,
+review and task services/stores. Completed task-summary lookup scopes workspace
+and the selected physical repository before its row limit; task and review
+excerpts share one three-item cap. Snapshot capture occurs before provider admission and records
 prepared text and bounded baseline input fingerprints, not confirmed delivery.
 Input identities are read from frozen Git objects outside notebook mutations;
 failed or partial inventories retain gaps instead of reusable digests.

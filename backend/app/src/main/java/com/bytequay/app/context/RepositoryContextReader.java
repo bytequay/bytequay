@@ -13,6 +13,13 @@
  */
 package com.bytequay.app.context;
 
+import com.bytequay.agent.core.AgentTask;
+import com.bytequay.agent.core.AgentTaskNotFoundException;
+import com.bytequay.agent.core.AgentTaskService;
+import com.bytequay.agent.core.RepositoryIdentity;
+import com.bytequay.agent.core.TaskId;
+import com.bytequay.agent.core.TaskState;
+import com.bytequay.agent.core.TaskSummary;
 import com.bytequay.app.git.GitBrowseService;
 import com.bytequay.app.git.GitCommandRunner;
 import com.bytequay.app.repository.RepositoryEnrichmentService;
@@ -77,6 +84,7 @@ public class RepositoryContextReader
     private static final int PR_SEARCH_PAGE_SIZE = 20;
     private static final int ISSUE_SEARCH_PAGE_SIZE = 100;
     private static final int RECENT_REVIEW_RUNS = 10;
+    private static final int RECENT_TASKS = 10;
     private static final TopKSelector CURRENT_COMMIT_TEXT = new TopKSelector(100);
     private static final TopKSelector SCOPE_TERMS = new TopKSelector(20);
     private static final TopKSelector PR_SEARCH_TERMS = new TopKSelector(5);
@@ -84,8 +92,11 @@ public class RepositoryContextReader
     private static final TopKSelector HISTORY_PATHS = new TopKSelector(20);
     private static final TopKSelector ACTIVITY_PREVIEWS = new TopKSelector(2);
     private static final TopKSelector DIFF_PREVIEW_PATHS = new TopKSelector(5);
+    private static final TopKSelector DIRECT_TASK_REFERENCES = new TopKSelector(10);
     private static final Pattern REFERENCES = Pattern.compile(
             "https://github\\.com/([A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+)/(pull|issues)/([1-9][0-9]{0,9})\\b|(?<![\\p{L}\\p{N}_/])#([1-9][0-9]{0,9})\\b");
+    private static final Pattern TASK_REFERENCES = Pattern.compile(
+            "(?i)(?<![\\p{L}\\p{N}_])task:([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})(?![\\p{L}\\p{N}_-])");
 
     private final RepositoryContextMatcher matcher;
     private final GitBrowseService browse;
@@ -96,10 +107,11 @@ public class RepositoryContextReader
     private final PrDiffStore diffs;
     private final WorkspaceIssueService issues;
     private final AgentReviewStore reviews;
+    private final AgentTaskService tasks;
 
     public RepositoryContextReader(
             RepositoryContextMatcher matcher, GitBrowseService browse, GitCommandRunner git, RepositoryEnrichmentService enrichment,
-            PullRequestService pullRequests, PrDetailStore details, PrDiffStore diffs, WorkspaceIssueService issues, AgentReviewStore reviews)
+            PullRequestService pullRequests, PrDetailStore details, PrDiffStore diffs, WorkspaceIssueService issues, AgentReviewStore reviews, AgentTaskService tasks)
     {
         this.matcher = requireNonNull(matcher, "matcher is null");
         this.browse = requireNonNull(browse, "browse is null");
@@ -110,6 +122,7 @@ public class RepositoryContextReader
         this.diffs = requireNonNull(diffs, "diffs is null");
         this.issues = requireNonNull(issues, "issues is null");
         this.reviews = requireNonNull(reviews, "reviews is null");
+        this.tasks = requireNonNull(tasks, "tasks is null");
     }
 
     /**
@@ -120,7 +133,7 @@ public class RepositoryContextReader
      * @param workspace verified managed repository and monitored upstream routing
      * @param previous previous accepted run used by the existing incremental scope rules
      * @param notebook one immutable local notebook read; no notebook mutation occurs
-     * @return notes and up to three PR, issue and previous-review excerpts, with bounds and gaps
+     * @return notes, up to three PRs, three issues, and three combined task/review excerpts, with bounds and gaps
      * @throws IllegalArgumentException when ownership or source routing does not match
      *
      * A missing cache entry remains a gap. Selection never fetches a page, resolves a missing
@@ -175,10 +188,10 @@ public class RepositoryContextReader
             gaps.add("Only " + RELATED_ITEMS.limit() + " related PR previews are selected; additional candidates remain outside this packet.");
         }
         related.addAll(issuePreviews(workspace, terms, directIssues.buildOrThrow(), gaps));
-        related.addAll(reviewPreviews(review, run, workspace, paths, terms, gaps));
+        related.addAll(historyPreviews(review, run, workspace, paths, terms, taskText, gaps));
         gaps.add("Selected notebook claims have not had their source versions checked against this PR; verify original sources before relying on them.");
-        gaps.add("Local preparation does not refresh sources; selected PR and issue reads use the existing review tools.");
-        gaps.add("Documentation capture, task-summary discovery and shared preparation remain unavailable.");
+        gaps.add("Local preparation does not refresh sources; selected PR, issue and registered documentation reads use the existing review tools.");
+        gaps.add("Shared preparation, generated knowledge and automatic context delivery remain unavailable.");
         return new Selection(baseline, notes, related.build(), gaps.build());
     }
 
@@ -389,10 +402,11 @@ public class RepositoryContextReader
                 }).collect(toImmutableList());
     }
 
-    private List<Related> reviewPreviews(
-            AgentReview review, ReviewRun run, WorkspaceRepositoryContext workspace, List<String> paths, List<String> terms, ImmutableList.Builder<String> gaps)
+    private List<Related> historyPreviews(
+            AgentReview review, ReviewRun run, WorkspaceRepositoryContext workspace, List<String> paths, List<String> terms,
+            String taskText, ImmutableList.Builder<String> gaps)
     {
-        List<ReviewCandidate> candidates = new ArrayList<>();
+        ImmutableList.Builder<HistoryCandidate> candidates = ImmutableList.builder();
         for (ReviewRun previous : reviews.listRecentRuns(workspace.workspaceId(), review.repo(), RECENT_REVIEW_RUNS)) {
             if (previous.id().equals(run.id()) || previous.summary().isEmpty()) {
                 continue;
@@ -403,22 +417,80 @@ public class RepositoryContextReader
             if (!overlap && terms.stream().noneMatch(term -> matchesTerm(text, term))) {
                 continue;
             }
-            candidates.add(new ReviewCandidate(previous, overlap ? 1 : 3));
+            Related related = new Related("review:" + previous.id(), "Previous review " + previous.reviewId() + ", run " + previous.ordinal(),
+                    excerpt(summary.purpose() + "\n" + summary.combinedResult(), SOURCE_EXCERPT_BYTES),
+                    "Retained agent conclusion, not verified fact; state " + previous.state() + "; head " + previous.headSha() + "; updated " + previous.updatedAt(),
+                    ImmutableList.of(overlap ? "Previous review has an exact changed-path overlap" : "Configured term in a previous review conclusion"), Optional.empty());
+            candidates.add(new HistoryCandidate(related, overlap ? 1 : 3, previous.updatedAt()));
         }
-        List<Related> result = RELATED_ITEMS.select(candidates.stream(), Comparator.comparingInt(ReviewCandidate::rank)
-                .thenComparing(candidate -> candidate.run().updatedAt(), Comparator.reverseOrder()).thenComparing(candidate -> candidate.run().id()))
-                .map(candidate -> {
-                    ReviewRun previous = candidate.run();
-                    ReviewSummary summary = previous.summary().orElseThrow();
-                    return new Related("review:" + previous.id(), "Previous review " + previous.reviewId() + ", run " + previous.ordinal(),
-                            excerpt(summary.purpose() + "\n" + summary.combinedResult(), SOURCE_EXCERPT_BYTES),
-                            "Retained agent conclusion, not verified fact; state " + previous.state() + "; head " + previous.headSha() + "; updated " + previous.updatedAt(),
-                            ImmutableList.of(candidate.rank() == 1 ? "Previous review has an exact changed-path overlap" : "Configured term in a previous review conclusion"),
-                            Optional.empty());
-                }).collect(toImmutableList());
-        gaps.add("Previous-review discovery checks " + RECENT_REVIEW_RUNS + " recent runs in this workspace and repository, returning at most "
-                + RELATED_ITEMS.limit() + " matching excerpts.");
-        return result;
+        candidates.addAll(taskPreviews(review, workspace, terms, taskText, gaps));
+        gaps.add("Previous-review discovery checks " + RECENT_REVIEW_RUNS + " recent runs in this workspace and monitored repository.");
+        gaps.add("At most " + RELATED_ITEMS.limit() + " task/review excerpts are selected together; other candidates remain outside this packet.");
+        return RELATED_ITEMS.select(candidates.build().stream(), Comparator.comparingInt(HistoryCandidate::rank)
+                        .thenComparing(HistoryCandidate::recency, Comparator.reverseOrder()).thenComparing(candidate -> candidate.related().id()))
+                .map(HistoryCandidate::related).collect(toImmutableList());
+    }
+
+    private List<HistoryCandidate> taskPreviews(
+            AgentReview review, WorkspaceRepositoryContext workspace, List<String> terms, String taskText, ImmutableList.Builder<String> gaps)
+    {
+        RepositoryIdentity repository = RepositoryIdentity.valueOf(workspace.selectedRepository().fullName());
+        List<TaskId> references = DIRECT_TASK_REFERENCES.select(TASK_REFERENCES.matcher(taskText).results()
+                .map(match -> TaskId.valueOf(match.group(1))).distinct()).collect(toImmutableList());
+        if (references.size() == DIRECT_TASK_REFERENCES.limit()) {
+            gaps.add("Explicit task lookup is limited to " + DIRECT_TASK_REFERENCES.limit() + " distinct task identifiers.");
+        }
+        Map<TaskId, AgentTask> candidates = new LinkedHashMap<>();
+        for (TaskId id : references) {
+            if (id.toString().equals(review.taskId())) {
+                continue;
+            }
+            try {
+                candidates.put(id, tasks.getInteractive(workspace.workspaceId(), id));
+            }
+            catch (AgentTaskNotFoundException failure) {
+                gaps.add("Task reference " + id + " is unavailable in this workspace's interactive task history.");
+            }
+        }
+        if (!terms.isEmpty()) {
+            tasks.listCompleted(workspace.workspaceId(), repository, RECENT_TASKS).forEach(task -> candidates.putIfAbsent(task.id(), task));
+            gaps.add("Task discovery checks " + RECENT_TASKS + " recent completed interactive tasks in this workspace and selected repository " + repository
+                    + "; older unreferenced tasks and open-task learning reports are not searched.");
+        }
+        ImmutableList.Builder<HistoryCandidate> result = ImmutableList.builder();
+        for (AgentTask task : candidates.values()) {
+            if (task.id().toString().equals(review.taskId())) {
+                continue;
+            }
+            if (!task.workspaceId().equals(Optional.of(workspace.workspaceId())) || !task.repository().toString().equalsIgnoreCase(repository.toString())
+                    || !task.interactive() || task.state() != TaskState.COMPLETED || task.summary().isEmpty()) {
+                gaps.add("A task candidate was excluded because it is not a completed interactive task in this workspace and selected repository.");
+                continue;
+            }
+            TaskSummary summary = task.summary().orElseThrow();
+            String conclusion = summary.finalResponse() + summary.notes().map(notes -> "\n" + notes).orElse("");
+            if (conclusion.isBlank()) {
+                gaps.add("Task " + task.id() + " has no retained conclusion text.");
+                continue;
+            }
+            boolean direct = references.contains(task.id());
+            String text = matchingText(task.title() + "\n" + conclusion, "Task " + task.id() + " matching text", gaps);
+            if (!direct && terms.stream().noneMatch(term -> matchesTerm(text, term))) {
+                continue;
+            }
+            if (reviews.findReviewByTask(task.id().toString()).isPresent()) {
+                gaps.add("A review-owned task summary was omitted to avoid repeating review history; only the bounded review-run search applies to it.");
+                continue;
+            }
+            Related related = new Related("task:" + task.id(), "Previous task: " + excerpt(task.title(), 150), excerpt(conclusion, SOURCE_EXCERPT_BYTES),
+                    "Retained agent conclusion, not verified fact; task " + task.id() + "; task version " + task.version()
+                            + "; workspace " + workspace.workspaceId() + "; selected repository " + repository
+                            + "; state " + task.state() + "; updated " + task.updatedAt() + "; recorded head " + summary.worktree().map(value -> value.head()).orElse("unknown")
+                            + "; changed paths and applicability to the reviewed code are unverified; bounded summary only",
+                    ImmutableList.of(direct ? "Explicit task reference in the reviewed PR text" : "Configured term in a retained task title or conclusion"), Optional.empty());
+            result.add(new HistoryCandidate(related, direct ? 0 : 3, task.updatedAt()));
+        }
+        return result.build();
     }
 
     private Optional<Boolean> ancestry(WorkspaceRepositoryContext workspace, String commit, String base)
@@ -467,5 +539,5 @@ public class RepositoryContextReader
 
     private record PrCandidate(int number, String title, int rank, String reason, Optional<String> commit, Instant recency) {}
 
-    private record ReviewCandidate(ReviewRun run, int rank) {}
+    private record HistoryCandidate(Related related, int rank, Instant recency) {}
 }

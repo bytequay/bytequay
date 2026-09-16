@@ -33,6 +33,23 @@ public interface AgentTaskJpaRepository
 
     List<AgentTaskEntity> findByWorkspaceIdAndInteractiveTrueOrderByUpdatedAtDesc(String workspaceId, Pageable pageable);
 
+    @Query("""
+            FROM AgentTaskEntity task
+            WHERE task.workspaceId = :workspaceId
+              AND lower(task.repositoryOwner) = lower(:repositoryOwner)
+              AND lower(task.repositoryName) = lower(:repositoryName)
+              AND task.interactive = true
+              AND task.state = :completed
+              AND task.summaryJson IS NOT NULL
+            ORDER BY task.updatedAt DESC, task.id ASC
+            """)
+    List<AgentTaskEntity> findRecentCompletedInteractive(
+            @Param("workspaceId") String workspaceId,
+            @Param("repositoryOwner") String repositoryOwner,
+            @Param("repositoryName") String repositoryName,
+            @Param("completed") TaskState completed,
+            Pageable pageable);
+
     List<AgentTaskEntity> findByWorkspaceIdOrderByCreatedAtAsc(String workspaceId);
 
     boolean existsByWorkspaceIdAndGeneratedBranchIsNotNull(String workspaceId);

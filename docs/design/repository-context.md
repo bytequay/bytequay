@@ -269,7 +269,7 @@ Never join a fork's PR number to an upstream PR merely because the numbers match
 | PR final files/diff | PullRequestService.getPullRequestDiffFiles; PrDiffStore | Missing snapshots need existing refreshDiffFiles; no new path index |
 | Issues and comments | WorkspaceIssueService.list/find/detail | Open-issue projection; no claim of complete closed-issue history |
 | Issue refresh | WorkspaceIssueRefreshService.refreshIssues/refreshDetail | Reuse current services; selected closed/missing references may need existing backend client |
-| Past task conclusions | AgentTaskStore and AgentTurnStore | Summaries/learning reports are agent conclusions, not verified facts; no general task changed-path index |
+| Past task conclusions | AgentTaskService.listCompleted/getInteractive | Scoped completed interactive summaries; open-task learning reports remain deferred; no general task changed-path index |
 | Past review paths and discussion | AgentReviewStore.listReviews/listRuns/listFindings/listMessages | Reuse run diffs and retained evidence |
 | User activity/text | RecentService.search/words | Supplemental only: touched items, rolling retention, scoped before final limiting |
 | Source files and tests | Existing Git/source readers; optional CodeGraph | Original frozen source remains evidence; graph hits are navigation |
@@ -1063,9 +1063,11 @@ sources and the actual reviewed code.
    changed paths/diffs and relevant discussion; refresh only selected gaps.
 5. Broaden to the selected component directory or explicit terms if exact matches
    provide little material. Use local PR title search, bounded issue title/body/
-   label matching, existing review paths, and task summaries. Scope RecentService
-   results before the final limit; add a scoped query if current API limiting
-   would hide relevant local results.
+   label matching, existing review paths, and completed task summaries. The
+   task-service query scopes workspace, physical repository, interactive
+   ownership and completion before limiting rows. RecentService is not needed
+   for these durable summaries; any later supplemental activity search must
+   likewise scope before limiting.
 6. Rank direct link, verified exact file overlap, same component, then term-only.
    Use recency within comparable rank, not as a substitute for relevance.
 7. Initially include short excerpts from up to three discovered PRs, three
@@ -1087,6 +1089,50 @@ For “how it finally got merged,” retain the final merged diff and the actual
 review requests, follow-up changes, and recorded decisions available locally.
 Explain the observed sequence with references. Merge status or a resolved
 thread alone does not prove the reason, correctness, or a universal design rule.
+
+#### Completed task summaries in local selection
+
+Reuse `AgentTaskService.listCompleted(workspaceId, repository, 10)`. The physical
+repository is the workspace's selected repository, including a fork; PR/issue
+and review history continue to use the monitored upstream. SQLite applies the
+exact workspace, case-insensitive repository owner/name, interactive ownership,
+COMPLETED state and non-null summary predicates before the limit. It orders by
+updated time descending, then task ID ascending. Archived tasks and retained
+summaries after runtime cleanup remain eligible. No transcript, event stream,
+provider session, Git checkout or remote read is needed.
+
+When a selected scope has configured terms, inspect those ten summaries using
+whole-term matching against the title, final response and completion notes.
+Search at most 256 KiB of UTF-8 text per task, and report truncation. Tasks have
+no recorded changed-path list: a filename in prose does not prove overlap.
+The optional recorded worktree head is provenance only; applicability and
+ancestry remain unknown. An empty conclusion is disclosed and omitted.
+
+An explicit `task:<UUID>` token in the bounded PR/commit text uses
+`getInteractive(workspaceId, taskId)` and can reach an older completed task
+outside the recent window. Read at most ten distinct IDs. Bare UUIDs are not
+task references. Missing, internal, open or foreign-repository tasks produce a
+gap; they do not trigger hydration. The current review's task is excluded.
+Review-owned tasks use the bounded review-run history instead, preventing the
+same work from appearing again as a generic task summary.
+
+Combine matching task and review candidates before the existing TopKSelector:
+direct task reference first, exact review-path overlap next, then term-only
+matches. Break ties by update time descending and stable source ID ascending.
+Retain at most three combined task/review excerpts, each at most 1,536 UTF-8
+bytes, within the existing history and total-packet budgets. Each task excerpt
+records its ID and durable version, workspace, selected repository, state, update time, optional
+recorded head, match reason and unverified-agent-conclusion label. The frozen
+run retains the selected excerpt even if later task cleanup removes runtime
+files. This does not promote the conclusion into notebook knowledge or memory.
+
+Coverage gaps disclose the ten-task window, combined three-item cap, and omitted
+older unreferenced tasks. Open tasks' per-turn learning reports remain outside
+this increment. At most ten directly referenced and ten recent task rows are
+read, but each summary JSON is decoded in full before matching/excerpt limits.
+The query can scan more rows than it returns. Read-only selection and bounded
+row counts do not establish production latency or peak memory; those remain
+acceptance measurements.
 
 ## 6. Preparation, updates, concurrency, and recovery
 

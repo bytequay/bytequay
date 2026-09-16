@@ -29,6 +29,7 @@ import com.bytequay.agent.core.EventId;
 import com.bytequay.agent.core.InputDeliveryId;
 import com.bytequay.agent.core.QueuedAgentInput;
 import com.bytequay.agent.core.QueuedInputId;
+import com.bytequay.agent.core.RepositoryIdentity;
 import com.bytequay.agent.core.TaskId;
 import com.bytequay.agent.core.TaskState;
 import com.bytequay.agent.core.TurnId;
@@ -192,6 +193,19 @@ final class InMemoryAgentStores
                 .filter(AgentTask::interactive)
                 .filter(task -> task.workspaceId().stream().anyMatch(workspaceId::equals))
                 .sorted(Comparator.comparing(AgentTask::updatedAt).reversed())
+                .limit(limit)
+                .collect(toImmutableList());
+    }
+
+    @Override
+    public synchronized List<AgentTask> listRecentCompletedInteractive(String workspaceId, RepositoryIdentity repository, int limit)
+    {
+        return tasks.values().stream()
+                .filter(AgentTask::interactive)
+                .filter(task -> task.workspaceId().filter(workspaceId::equals).isPresent())
+                .filter(task -> task.repository().owner().equalsIgnoreCase(repository.owner()) && task.repository().name().equalsIgnoreCase(repository.name()))
+                .filter(task -> task.state() == TaskState.COMPLETED && task.summary().isPresent())
+                .sorted(Comparator.comparing(AgentTask::updatedAt).reversed().thenComparing(task -> task.id().toString()))
                 .limit(limit)
                 .collect(toImmutableList());
     }

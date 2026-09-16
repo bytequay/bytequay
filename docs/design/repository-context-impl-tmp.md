@@ -13,6 +13,8 @@ snapshot capture; Off bypasses selection.
 Related patch pages pin cached contents by fingerprint and retain exact excerpts.
 Selected registered documentation reads capture bounded text, keep continuation
 pages consistent and retain exact excerpts through the existing review evidence.
+Completed task summaries now join local history through a scoped task-service
+query and explicit references, sharing the three-excerpt cap with prior reviews.
 Snapshots are prepared before agent admission and exposed in the existing review
 projection. Generation, direct context delivery, the settings/display UI, and
 provider acceptance remain pending. Unchecked items remain pending even when
@@ -26,9 +28,9 @@ related infrastructure already exists.
 | Notebook persistence and editing/lesson APIs | Finished; generation-specific Reset/protection work remains in CP3 |
 | Local selection, frozen snapshots and input fingerprints | Finished; applicability/reuse decisions remain in CP3 |
 | Selected PR, issue, commit association and related diff reads | Finished |
-| Selected documentation capture and retained excerpts | Finished in the current increment; verification recorded below |
-| Scoped task-summary discovery | Next local selection item |
-| Shared preparation, cold generation and explicit builder | Pending |
+| Selected documentation capture and retained excerpts | Finished; committed as d42c105f0 |
+| Scoped task-summary discovery | Finished; verification recorded below |
+| Shared preparation, cold generation and explicit builder | Next; preparation and reuse first |
 | Automatic context delivery and complete report integration | Pending |
 | Notebook/settings UI and Context used display | Pending |
 | On/Off quality comparison, performance and provider acceptance | Pending; required before enablement |
@@ -131,7 +133,8 @@ runtime-retention and workspace-deletion behavior. Use current schema ownership.
   commit-to-PR associations. Treat parsed PR-number suffixes as unverified hints.
 - [x] Reuse existing PR detail/diff, issue detail, and review services;
   fix the current issue-tool cache bypass within the same source-read boundary.
-- [ ] Add scoped task-summary discovery through existing task services.
+- [x] Add scoped completed-task summary discovery through existing task services.
+  Open-task learning reports and general task changed-path discovery remain deferred.
 - [x] Hydrate selected missing/stale PR/issue details and related diff artifacts through existing refresh paths.
   Expose missing sections, cache age, lookup bounds, and unavailable history.
 - [x] Verify selected PR metadata/activity/check reads, issue cache reuse and
@@ -672,3 +675,44 @@ Required checks below describe the current increment, not full feature acceptanc
   `/private/tmp/bytequay-context-document-package.log`.
   All nine repository-context JSON examples parse, local document links resolve,
   and changed/new source whitespace, Java line lengths and conflict checks pass.
+- Committed selected documentation capture as `d42c105f0`
+  (`Capture selected documentation for reviews`).
+- Completed task-summary selection extends the existing task service/store with
+  a read-only query. SQLite applies workspace, selected physical repository,
+  interactive ownership, completed state and summary availability before the
+  ten-row limit; stable ties use task ID. Archived/cleaned task summaries remain
+  eligible. No schema, index, endpoint or provider change was needed.
+- Local selection matches configured whole terms in bounded title/conclusion/
+  notes text, or resolves at most ten explicit `task:<UUID>` references through
+  the existing workspace-owned getter. It excludes current/review-owned,
+  foreign, internal and incomplete tasks. Task and review excerpts share the
+  existing three-item selector, ordered by direct reference, review-path match,
+  then term match, with recency and stable-ID ties.
+- Each task excerpt records source identity/version, workspace/repository,
+  recorded head when available and unverified-conclusion provenance. Empty
+  conclusions and bounded discovery remain visible gaps. Open-task learning
+  reports and task changed-path discovery remain deferred. Full summary JSON
+  decoding and SQLite scan work are not bounded by excerpt bytes; production
+  resource/latency measurements remain acceptance work.
+- Independent review found no correctness blocker and requested the source task
+  version in provenance, which is included. Added service, SQLite and local
+  selector coverage for filtering before limit/decoding, ordering, retained
+  summaries, direct references, combined limits, ownership and UTF-8 bounds.
+- Task-history frontend checks passed: lint, TypeScript and 80 test files with
+  901 passing tests. Logs: `/private/tmp/bytequay-context-task-history-lint.log`,
+  `/private/tmp/bytequay-context-task-history-types.log`, and
+  `/private/tmp/bytequay-context-task-history-frontend-tests.log`.
+- Full backend `mvn -B verify` passed all seven modules: 221 suites, 2,577 tests,
+  zero failures, errors or skips. This includes 28 context-reader, 26 task-service
+  and 33 SQLite agent-store cases. Log:
+  `/private/tmp/bytequay-context-task-history-verify.log`.
+- Desktop packaging passed; the backend JAR inside
+  `frontend/out/ByteQuay-darwin-arm64/ByteQuay.app` matches the verified JAR by
+  SHA-256. Log: `/private/tmp/bytequay-context-task-history-package.log`.
+  Changed source whitespace/line-length checks and local document links pass;
+  all nine repository-context JSON examples parse. This increment remains
+  uncommitted for review.
+- Next implementation boundary: shared preparation admission and source/input
+  reuse decisions, followed by protected generated updates, cold generation and
+  the explicit builder. Automatic delivery, Context used/settings UI and
+  provider/judgment/performance acceptance remain separate unfinished gates.

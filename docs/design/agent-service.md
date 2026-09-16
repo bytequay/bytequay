@@ -765,6 +765,21 @@ public interface AgentTaskService
      * @throws InvalidAgentRequestException when {@code limit} is not positive
      */
     List<AgentTask> list(String workspaceId, int limit);
+
+    /**
+     * Reads completed interactive tasks with retained summaries for one workspace and physical repository.
+     *
+     * <p>All predicates apply before the row limit. Archived tasks and summaries surviving runtime
+     * cleanup remain eligible. Results use descending update time and ascending task ID for ties.
+     * This reads durable agent conclusions, never transcripts or provider state; it does not verify them.
+     *
+     * @param workspaceId exact owning workspace
+     * @param repository physical repository recorded at task creation, including a selected fork
+     * @param limit positive maximum matching row count
+     * @return at most {@code limit} tasks; repository owner and name match without case sensitivity
+     * @throws InvalidAgentRequestException when the workspace or limit is invalid
+     */
+    List<AgentTask> listCompleted(String workspaceId, RepositoryIdentity repository, int limit);
 }
 ```
 

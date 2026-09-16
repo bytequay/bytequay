@@ -13,6 +13,17 @@
  */
 package com.bytequay.app.context;
 
+import com.bytequay.agent.core.AgentMetrics;
+import com.bytequay.agent.core.AgentTask;
+import com.bytequay.agent.core.AgentTaskNotFoundException;
+import com.bytequay.agent.core.AgentTaskService;
+import com.bytequay.agent.core.RepositoryIdentity;
+import com.bytequay.agent.core.TaskId;
+import com.bytequay.agent.core.TaskSummary;
+import com.bytequay.agent.core.TaskWorktree;
+import com.bytequay.agent.core.WorktreeSnapshot;
+import com.bytequay.agent.spi.AgentLaneId;
+import com.bytequay.agent.spi.AgentPermissionPolicy;
 import com.bytequay.app.git.GitBrowseService;
 import com.bytequay.app.git.GitCommandRunner;
 import com.bytequay.app.repository.RepositoryEnrichmentService;
@@ -53,10 +64,12 @@ import java.time.Instant;
 import java.util.List;
 import java.util.Optional;
 import java.util.OptionalLong;
+import java.util.UUID;
 import java.util.stream.IntStream;
 
 import static java.util.stream.Collectors.joining;
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.anyString;
@@ -73,6 +86,7 @@ class TestRepositoryContextReader
 {
     private static final String WORKSPACE = "workspace";
     private static final RepoRef MONITORED = RepoRef.of("trino", "trino");
+    private static final RepositoryIdentity PHYSICAL = RepositoryIdentity.valueOf("fork/trino");
     private static final long REPOSITORY_ID = 7;
     private static final Path REPOSITORY = Path.of("/tmp/context-reader/repository");
     private static final String BASELINE = "a".repeat(40);
@@ -93,8 +107,9 @@ class TestRepositoryContextReader
     private final PrDiffStore diffs = mock(PrDiffStore.class);
     private final WorkspaceIssueService issues = mock(WorkspaceIssueService.class);
     private final AgentReviewStore reviews = mock(AgentReviewStore.class);
+    private final AgentTaskService tasks = mock(AgentTaskService.class);
     private final RepositoryContextReader reader = new RepositoryContextReader(
-            new RepositoryContextMatcher(), browse, git, enrichment, pullRequests, details, diffs, issues, reviews);
+            new RepositoryContextMatcher(), browse, git, enrichment, pullRequests, details, diffs, issues, reviews, tasks);
 
     @BeforeEach
     void localSources()
@@ -104,6 +119,7 @@ class TestRepositoryContextReader
         when(git.run(REPOSITORY, "diff", "--name-only", "--no-renames", "-z", DIFF_BASE, HEAD, "--"))
                 .thenReturn(new GitCommandRunner.Result(0, FILE + '\0', false));
         when(reviews.listRecentRuns(WORKSPACE, MONITORED.fullName(), 10)).thenReturn(ImmutableList.of());
+        when(tasks.listCompleted(WORKSPACE, PHYSICAL, 10)).thenReturn(ImmutableList.of());
         when(pullRequests.listPullRequests(MONITORED, 0, 20, "Iceberg"))
                 .thenReturn(new PullRequestPage(ImmutableList.of(), 0, 20, 0, 0, false));
         when(issues.list(WORKSPACE, 0, 100)).thenReturn(issuePage(ImmutableList.of()));
@@ -282,6 +298,210 @@ class TestRepositoryContextReader
     }
 
     @Test
+    void previousTasksAndReviewsShareOneCapWithReferenceAndPathPriority()
+    {
+        AgentTask direct = task(1, "Older investigation", "Unrelated conclusion", Optional.empty(), 1);
+        AgentTask newest = task(2, "Iceberg investigation", "Recent conclusion", Optional.empty(), 50);
+        AgentTask second = task(3, "Iceberg investigation", "Other conclusion", Optional.empty(), 40);
+        stored(pr(1, "Iceberg change; task:" + direct.id(), 0));
+        when(tasks.getInteractive(WORKSPACE, direct.id())).thenReturn(direct);
+        when(tasks.listCompleted(WORKSPACE, PHYSICAL, 10)).thenReturn(ImmutableList.of(newest, second));
+        when(reviews.listRecentRuns(WORKSPACE, MONITORED.fullName(), 10)).thenReturn(ImmutableList.of(
+                previous("term", "other.java", "Iceberg conclusion", 60), previous("path", FILE, "Earlier path review", 2)));
+
+        RepositoryContextReader.Selection selected = select(componentNotebook());
+
+        assertThat(selected.related()).extracting(RepositoryContextReader.Related::id)
+                .containsExactly("task:" + direct.id(), "review:path", "review:term");
+        assertThat(selected.related().getFirst().matchReasons()).anyMatch(reason -> reason.toLowerCase().contains("reference"));
+        assertThat(mockingDetails(tasks).getInvocations()).extracting(invocation -> invocation.getMethod().getName())
+                .containsOnly("listCompleted", "getInteractive");
+        verifyNoInteractions(browse, enrichment);
+    }
+
+    @Test
+    void equalRankAndRecencyUseStableIdsAcrossTasksAndReviews()
+    {
+        AgentTask first = task(1, "Iceberg task", "First", Optional.empty(), 30);
+        AgentTask second = task(2, "Iceberg task", "Second", Optional.empty(), 30);
+        AgentTask third = task(3, "Iceberg task", "Third", Optional.empty(), 30);
+        when(tasks.listCompleted(WORKSPACE, PHYSICAL, 10)).thenReturn(ImmutableList.of(third, second, first));
+        when(reviews.listRecentRuns(WORKSPACE, MONITORED.fullName(), 10)).thenReturn(ImmutableList.of(previous("term", "other.java", "Iceberg", 30)));
+
+        assertThat(select(componentNotebook()).related()).extracting(RepositoryContextReader.Related::id)
+                .containsExactly("review:term", "task:" + first.id(), "task:" + second.id());
+    }
+
+    @Test
+    void taskMatchingUsesWholeTermsInTitleResponseAndNotesWithoutInferringPathOverlap()
+    {
+        AgentTask title = task(1, "ICEBERG task", "A conclusion", Optional.empty(), 10);
+        AgentTask response = task(2, "Task", "Investigated Iceberg behavior", Optional.empty(), 20);
+        AgentTask notes = task(3, "Task", "A conclusion", Optional.of("Relevant Iceberg limitation"), 30);
+        AgentTask substring = task(4, "Icebergish", "An Icebergish claim", Optional.of("Icebergish notes"), 50);
+        when(tasks.listCompleted(WORKSPACE, PHYSICAL, 10)).thenReturn(ImmutableList.of(substring, notes, response, title));
+
+        RepositoryContextReader.Selection selected = select(componentNotebook());
+
+        assertThat(selected.related()).extracting(RepositoryContextReader.Related::id)
+                .containsExactly("task:" + notes.id(), "task:" + response.id(), "task:" + title.id());
+        assertThat(selected.related()).allSatisfy(related -> {
+            assertThat(related.matchReasons()).allMatch(reason -> !reason.contains("path overlap"));
+            assertThat(related.presentInReviewedBase()).isEmpty();
+        });
+        assertThat(selected.related().getFirst().excerpt()).contains("Relevant Iceberg limitation");
+    }
+
+    @Test
+    void unrelatedTaskPathCannotMatchWithoutConfiguredTerm()
+    {
+        AgentTask task = task(1, "Metadata task", "Changed other/Metadata.java", Optional.empty(), 10);
+        stored(pr(1, "Iceberg change", 0));
+        when(git.run(REPOSITORY, "diff", "--name-only", "--no-renames", "-z", DIFF_BASE, HEAD, "--"))
+                .thenReturn(new GitCommandRunner.Result(0, "other/Metadata.java\0", false));
+        when(tasks.listCompleted(WORKSPACE, PHYSICAL, 10)).thenReturn(ImmutableList.of(task));
+
+        assertThat(select(componentNotebook()).related()).isEmpty();
+        verify(tasks).listCompleted(WORKSPACE, PHYSICAL, 10);
+    }
+
+    @Test
+    void recentTasksAreDefensivelyScopedToWorkspaceAndPhysicalRepository()
+    {
+        AgentTask selected = complete(openTask(1, WORKSPACE, true, RepositoryIdentity.valueOf("FORK/TRINO"), "Iceberg"), "Allowed", Optional.empty(), 1);
+        AgentTask upstream = complete(openTask(2, WORKSPACE, true, RepositoryIdentity.valueOf("trino/trino"), "Iceberg"), "Wrong repository", Optional.empty(), 20);
+        AgentTask foreign = complete(openTask(3, "another-workspace", true, PHYSICAL, "Iceberg"), "Wrong workspace", Optional.empty(), 30);
+        AgentTask internal = complete(openTask(4, WORKSPACE, false, PHYSICAL, "Iceberg"), "Internal task", Optional.empty(), 40);
+        AgentTask open = openTask(5, WORKSPACE, true, PHYSICAL, "Iceberg");
+        when(tasks.listCompleted(WORKSPACE, PHYSICAL, 10)).thenReturn(ImmutableList.of(upstream, foreign, internal, open, selected));
+
+        RepositoryContextReader.Selection result = select(componentNotebook());
+
+        assertThat(result.related()).extracting(RepositoryContextReader.Related::id).containsExactly("task:" + selected.id());
+        assertThat(result.related().getFirst().provenance()).containsIgnoringCase("fork/trino").contains(WORKSPACE);
+        verify(tasks).listCompleted(WORKSPACE, PHYSICAL, 10);
+        verify(tasks, never()).getInteractive(anyString(), any());
+    }
+
+    @Test
+    void reviewOwnedTasksAreNotCountedAgainAsTaskSummaries()
+    {
+        AgentTask owner = task(1, "Iceberg review", "Review conclusion", Optional.empty(), 10);
+        AgentTask prior = task(2, "Iceberg review", "Prior review conclusion", Optional.empty(), 20);
+        AgentTask development = task(3, "Iceberg task", "Development conclusion", Optional.empty(), 30);
+        AgentReview owningReview = new AgentReview(REVIEW.id(), WORKSPACE, MONITORED.fullName(), 1, OptionalLong.of(1), owner.id().toString(),
+                AgentReview.State.OPEN, false, Optional.empty(), Optional.empty(), 0, Instant.EPOCH, Instant.EPOCH, Optional.empty());
+        stored(pr(1, "task:" + owner.id() + " task:" + prior.id(), 0));
+        when(tasks.getInteractive(WORKSPACE, owner.id())).thenReturn(owner);
+        when(tasks.getInteractive(WORKSPACE, prior.id())).thenReturn(prior);
+        when(tasks.listCompleted(WORKSPACE, PHYSICAL, 10)).thenReturn(ImmutableList.of(owner, prior, development));
+        when(reviews.findReviewByTask(prior.id().toString())).thenReturn(Optional.of(REVIEW));
+        when(reviews.listRecentRuns(WORKSPACE, MONITORED.fullName(), 10)).thenReturn(ImmutableList.of(previous("prior", FILE, "Prior review", 20)));
+
+        RepositoryContextReader.Selection result = reader.select(owningReview, run("run-current", REVIEW.id(), FILE, Instant.EPOCH),
+                WORKSPACE_CONTEXT, Optional.empty(), componentNotebook());
+
+        assertThat(result.related()).extracting(RepositoryContextReader.Related::id).containsExactly("review:prior", "task:" + development.id());
+    }
+
+    @Test
+    void explicitTaskReferencesAreDeduplicatedBoundedAndRequireTheTaskPrefix()
+    {
+        List<AgentTask> candidates = IntStream.rangeClosed(1, 11).mapToObj(number -> task(number, "Task", "Conclusion", Optional.empty(), number))
+                .collect(ImmutableList.toImmutableList());
+        stored(pr(1, "Bare identifier " + taskId(12) + " task:" + candidates.getFirst().id() + " "
+                + candidates.stream().map(task -> "task:" + task.id()).collect(joining(" ")), 0));
+        candidates.forEach(task -> when(tasks.getInteractive(WORKSPACE, task.id())).thenReturn(task));
+
+        RepositoryContextReader.Selection selected = select(RepositoryNotebook.empty());
+
+        assertThat(selected.related()).extracting(RepositoryContextReader.Related::id)
+                .containsExactly("task:" + taskId(10), "task:" + taskId(9), "task:" + taskId(8));
+        verify(tasks, times(1)).getInteractive(WORKSPACE, candidates.getFirst().id());
+        verify(tasks, times(10)).getInteractive(eq(WORKSPACE), any());
+        verify(tasks, never()).getInteractive(WORKSPACE, taskId(11));
+        verify(tasks, never()).getInteractive(WORKSPACE, taskId(12));
+        assertThat(selected.gaps()).anyMatch(gap -> gap.toLowerCase().contains("task") && gap.contains("10 distinct"));
+    }
+
+    @Test
+    void missingAndIneligibleExplicitTasksLeaveGapsWithoutLeakingTheirContent()
+    {
+        AgentTask foreign = complete(openTask(2, "another-workspace", true, PHYSICAL, "Secret workspace"), "Secret conclusion", Optional.empty(), 20);
+        AgentTask upstream = complete(openTask(3, WORKSPACE, true, RepositoryIdentity.valueOf("trino/trino"), "Secret repository"), "Secret conclusion", Optional.empty(), 30);
+        AgentTask internal = complete(openTask(4, WORKSPACE, false, PHYSICAL, "Secret internal task"), "Secret conclusion", Optional.empty(), 40);
+        AgentTask open = openTask(5, WORKSPACE, true, PHYSICAL, "Secret unfinished task");
+        stored(pr(1, IntStream.rangeClosed(1, 5).mapToObj(id -> "task:" + taskId(id)).collect(joining(" ")), 0));
+        when(tasks.getInteractive(WORKSPACE, taskId(1))).thenThrow(new AgentTaskNotFoundException(taskId(1)));
+        ImmutableList.of(foreign, upstream, internal, open).forEach(task -> when(tasks.getInteractive(WORKSPACE, task.id())).thenReturn(task));
+
+        RepositoryContextReader.Selection selected = select(RepositoryNotebook.empty());
+
+        assertThat(selected.related()).isEmpty();
+        assertThat(selected.gaps()).anyMatch(gap -> gap.contains(taskId(1).toString()));
+        assertThat(selected.gaps()).noneMatch(gap -> gap.contains("Secret"));
+    }
+
+    @Test
+    void failedTaskStorageReadIsNotMisreportedAsAMissingTask()
+    {
+        stored(pr(1, "task:" + taskId(1), 0));
+        when(tasks.getInteractive(WORKSPACE, taskId(1))).thenThrow(new IllegalStateException("Task storage unavailable"));
+
+        assertThatThrownBy(() -> select(RepositoryNotebook.empty())).isInstanceOf(IllegalStateException.class).hasMessage("Task storage unavailable");
+    }
+
+    @Test
+    void taskConclusionRemainsUnverifiedAndRetainsItsKnownHead()
+    {
+        AgentTask open = openTask(1, WORKSPACE, true, PHYSICAL, "Completed task");
+        TaskWorktree worktree = new TaskWorktree(open.id(), WORKSPACE, PHYSICAL, open.worktree(), "bytequay/task/" + open.id(), DIFF_BASE);
+        TaskSummary summary = new TaskSummary("Investigated behavior", Optional.of(new WorktreeSnapshot(worktree, HEAD, false, false)), AgentMetrics.empty(), Optional.empty());
+        AgentTask completed = open.complete(summary, Instant.EPOCH.plusSeconds(1), Instant.EPOCH.plusSeconds(100));
+        stored(pr(1, "task:" + completed.id(), 0));
+        when(tasks.getInteractive(WORKSPACE, completed.id())).thenReturn(completed);
+
+        RepositoryContextReader.Related selected = select(RepositoryNotebook.empty()).related().getFirst();
+
+        assertThat(selected.id()).isEqualTo("task:" + completed.id());
+        assertThat(selected.provenance()).contains("Retained agent conclusion, not verified fact", HEAD, "COMPLETED", WORKSPACE, "fork/trino");
+        assertThat(selected.presentInReviewedBase()).isEmpty();
+        verify(git, never()).run(eq(REPOSITORY), eq("merge-base"), anyString(), anyString(), anyString());
+    }
+
+    @Test
+    void emptyTaskConclusionLeavesAGapWithoutInventingAnExcerpt()
+    {
+        AgentTask empty = task(1, "Iceberg investigation", "", Optional.empty(), 10);
+        stored(pr(1, "task:" + empty.id(), 0));
+        when(tasks.getInteractive(WORKSPACE, empty.id())).thenReturn(empty);
+        when(tasks.listCompleted(WORKSPACE, PHYSICAL, 10)).thenReturn(ImmutableList.of(empty));
+
+        RepositoryContextReader.Selection selected = select(componentNotebook());
+
+        assertThat(selected.related()).isEmpty();
+        assertThat(selected.gaps()).anyMatch(gap -> gap.contains(empty.id().toString()) && gap.contains("no retained conclusion text"));
+    }
+
+    @Test
+    void oversizedTaskTextUsesUtf8BudgetsAndReportsLimitedMatching()
+    {
+        AgentTask matching = task(1, "Iceberg " + "你".repeat(100), "你".repeat(100_000), Optional.empty(), 10);
+        AgentTask trailingTerm = task(2, "Other task", "你".repeat(100_000) + " Iceberg", Optional.empty(), 20);
+        when(tasks.listCompleted(WORKSPACE, PHYSICAL, 10)).thenReturn(ImmutableList.of(trailingTerm, matching));
+
+        RepositoryContextReader.Selection selected = select(componentNotebook());
+
+        assertThat(selected.related()).extracting(RepositoryContextReader.Related::id).containsExactly("task:" + matching.id());
+        assertThat(ContextLimits.bytes(selected.related().getFirst().excerpt())).isLessThanOrEqualTo(1536);
+        assertThat(ContextLimits.bytes(selected.related().getFirst().title())).isLessThanOrEqualTo(165);
+        assertThat(selected.related().getFirst().excerpt()).doesNotContain("\uFFFD");
+        assertThat(selected.related().getFirst().title()).doesNotContain("\uFFFD");
+        assertThat(selected.gaps()).anyMatch(gap -> gap.contains(matching.id().toString()) && gap.contains("matching text budget"));
+        assertThat(selected.gaps()).anyMatch(gap -> gap.contains(trailingTerm.id().toString()) && gap.contains("matching text budget"));
+    }
+
+    @Test
     void oversizedIssueTextIsBoundedWithAVisibleGap()
     {
         stored(pr(1, "Iceberg change", 0));
@@ -336,6 +556,28 @@ class TestRepositoryContextReader
     {
         return run(id, "review-" + id, file, Instant.EPOCH.plusSeconds(seconds))
                 .withSummary(new ReviewSummary(1, purpose, ImmutableList.of(), "Retained conclusion", Optional.empty(), ImmutableList.of()), Instant.EPOCH.plusSeconds(seconds));
+    }
+
+    private static TaskId taskId(int id)
+    {
+        return new TaskId(new UUID(0, id));
+    }
+
+    private static AgentTask openTask(int id, String workspace, boolean interactive, RepositoryIdentity repository, String title)
+    {
+        return AgentTask.created(taskId(id), Optional.of(workspace), interactive, title, AgentLaneId.CODEX_CLI,
+                repository, REPOSITORY.resolve(taskId(id).toString()), AgentPermissionPolicy.AUTO, Instant.EPOCH);
+    }
+
+    private static AgentTask task(int id, String title, String response, Optional<String> notes, long seconds)
+    {
+        return complete(openTask(id, WORKSPACE, true, PHYSICAL, title), response, notes, seconds);
+    }
+
+    private static AgentTask complete(AgentTask task, String response, Optional<String> notes, long seconds)
+    {
+        return task.complete(new TaskSummary(response, Optional.empty(), AgentMetrics.empty(), notes),
+                Instant.EPOCH.plusSeconds(seconds), Instant.EPOCH.plusSeconds(seconds + 100));
     }
 
     private static ReviewRun run(String id, String reviewId, String file, Instant updated)

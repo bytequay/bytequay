@@ -349,7 +349,8 @@ agent requests additional context as needed:
 - PR timeline, remote discussions, checks, and previous local findings;
 - referenced issues and related PRs that ByteQuay can read;
 - paginated diff hunks, source windows at the frozen head, merge base, or
-  previous reviewed head, and evidence/output references.
+  previous reviewed head, and evidence/output references; context-enabled runs
+  can also read the captured monitored baseline.
 
 Reuse ByteQuay's read services and credentials inside the backend. Mark
 cached/unavailable/truncated data explicitly. Validate repository/number
@@ -475,11 +476,26 @@ no GitHub credentials, cookies or ambient proxy. A temporary bounded capture
 returns a captureId that subsequent pages must present; source changes or a
 missing/replaced capture require a new initial read. Explicit refresh is limited
 to an initial read. Failed refresh may return a visibly marked earlier capture.
-Each nonempty page retains its exact text as run evidence, without finding
-anchors. Captured text is untrusted reference data: content hash/read time do
+Each successful selected page retains a typed source receipt; a nonblank page
+also retains its exact text as run evidence in the same update, without finding
+anchors. A blank page has a receipt but no invented evidence. Captured text is
+untrusted reference data: content hash/read time do
 not establish the documentation's version, freshness, truth or applicability.
 The [Repository Context source contract](repository-context.md#33-selected-documentation-reads)
 defines limits, cache lifetime, error behavior and remaining preparation gates.
+
+The source read accepts revision=baseline on context-enabled bound runs. It
+reads only regular UTF-8 file blobs at the snapshot's captured monitored commit,
+independent of current worktree, index or PR edits, without lazy fetch or Git
+replacement objects. Complete blobs are limited to 128 KiB; numbered windows
+to 200 lines and 16 KiB. Each success retains commit/blob/range metadata and
+optional exact evidence together. A successful empty file has a receipt;
+missing, unsupported or incomplete reads do not. Baseline and document reads
+share a 128-receipt limit per run. The application rechecks the accepted turn
+after source work before appending; initial context text and code identities
+stay frozen. A receipt establishes what was read, not reusable knowledge,
+source applicability or completed preparation. See the
+[baseline source contract](repository-context.md#34-frozen-baseline-source-reads-and-receipts).
 
 These are fixed application operations, not a model-controlled registry.
 Tool declarations carry strict JSON schemas and bounded fields; the backend

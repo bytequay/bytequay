@@ -13,6 +13,8 @@
  */
 package com.bytequay.core.review;
 
+import com.bytequay.core.context.ContextLimits;
+import com.bytequay.core.context.ContextSourceRead;
 import com.bytequay.core.context.ReviewContextSnapshot;
 import com.bytequay.core.domain.DiffFile;
 import com.google.common.collect.ImmutableList;
@@ -94,6 +96,13 @@ public record ReviewRun(
         requireNonNull(context, "context is null");
         Set<String> evidenceIds = evidence.keySet();
         checkArgument(context.stream().allMatch(snapshot -> evidenceIds.containsAll(snapshot.evidenceRefs())), "Context references missing run evidence");
+        for (ContextSourceRead read : context.stream().flatMap(snapshot -> snapshot.sourceReads().stream()).toList()) {
+            if (read.evidenceRef().isPresent()) {
+                ReviewEvidence item = evidence.get(read.evidenceRef().orElseThrow());
+                checkArgument(read.evidenceRef().orElseThrow().equals(item.ref()), "Source read evidence reference differs");
+                checkArgument(!item.excerpt().isBlank() && ContextLimits.bytes(item.excerpt()) == read.utf8Bytes(), "Source read excerpt byte count or content differs");
+            }
+        }
         requireNonNull(outcome, "outcome is null");
         checkArgument(version >= 0, "version is negative");
         requireNonNull(createdAt, "createdAt is null");
@@ -215,6 +224,38 @@ public record ReviewRun(
     public ReviewRun withCompletionRepairUsed(Instant now)
     {
         return copy(turnIds, state, summary, coverage, investigation, steps, true, operations, evidence, outcome, version, now, endedAt);
+    }
+
+    /**
+     * Retains an application-observed source receipt and its optional exact returned excerpt in one run value.
+     *
+     * @param read bounded receipt; successful blank reads have no evidence reference
+     * @param capturedEvidence returned nonblank excerpt, with the exact reference and UTF-8 byte count recorded by the receipt
+     * @param now local retention time; the receipt retains the source's original read time
+     * @return updated run, or this run for an identical retry; frozen bootstrap and selection remain unchanged
+     * @throws IllegalStateException when context is absent/disabled or existing receipt/evidence would be replaced
+     * @throws IllegalArgumentException when evidence identity, byte count, or retention bounds differ
+     */
+    public ReviewRun withContextSourceRead(ContextSourceRead read, Optional<ReviewEvidence> capturedEvidence, Instant now)
+    {
+        requireNonNull(read, "read is null");
+        requireNonNull(capturedEvidence, "capturedEvidence is null");
+        requireNonNull(now, "now is null");
+        checkState(context.isPresent(), "Review context is absent");
+        checkArgument(read.evidenceRef().equals(capturedEvidence.map(ReviewEvidence::ref)), "Source read evidence reference differs");
+        capturedEvidence.ifPresent(item -> checkArgument(ContextLimits.bytes(item.excerpt()) == read.utf8Bytes(), "Source read excerpt byte count differs"));
+        ReviewContextSnapshot snapshot = context.orElseThrow().withSourceRead(read);
+        Map<String, ReviewEvidence> merged = new HashMap<>(evidence);
+        capturedEvidence.ifPresent(item -> {
+            checkState(!merged.containsKey(item.ref()) || merged.get(item.ref()).equals(item), "Run evidence cannot be replaced: %s", item.ref());
+            merged.putIfAbsent(item.ref(), item);
+        });
+        if (snapshot.equals(context.orElseThrow()) && merged.equals(evidence)) {
+            return this;
+        }
+        return new ReviewRun(id, reviewId, ordinal, scope, baseRef, baseSha, mergeBaseSha, headSha, priorHeadSha, commits, diff,
+                turnIds, state, summary, coverage, investigation, steps, completionRepairUsed, operations, merged, Optional.of(snapshot),
+                outcome, version, createdAt, now, endedAt);
     }
 
     public ReviewRun ended(State terminalState, Optional<String> terminalOutcome, Instant now)

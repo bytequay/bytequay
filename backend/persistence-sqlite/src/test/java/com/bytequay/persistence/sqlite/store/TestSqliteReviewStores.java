@@ -13,12 +13,18 @@
  */
 package com.bytequay.persistence.sqlite.store;
 
+import com.bytequay.core.context.ContextDocumentRead;
+import com.bytequay.core.context.ContextEntryOrigin;
 import com.bytequay.core.context.ContextInputFingerprint;
 import com.bytequay.core.context.ContextPacket;
+import com.bytequay.core.context.ContextReference;
 import com.bytequay.core.context.ContextRelatedItem;
+import com.bytequay.core.context.ContextRepositoryRead;
 import com.bytequay.core.context.ContextSelectedEntry;
+import com.bytequay.core.context.RegisteredContextSource;
 import com.bytequay.core.context.ReviewContextSnapshot;
 import com.bytequay.core.domain.DiffFile;
+import com.bytequay.core.domain.RepoRef;
 import com.bytequay.core.review.AgentReview;
 import com.bytequay.core.review.ReviewAnchor;
 import com.bytequay.core.review.ReviewCandidateValidation;
@@ -153,7 +159,7 @@ class TestSqliteReviewStores
         store.insertReview(newReview("review-history", "workspace-a", "bytequay/sample", 7, "task-history", NOW));
         store.insertReview(newReview("review-off", "workspace-a", "bytequay/sample", 8, "task-off", NOW));
         ReviewContextSnapshot disabled = new ReviewContextSnapshot("context-off", false, 9, 42, Optional.empty(), Optional.empty(),
-                ImmutableList.of(), ImmutableList.of(), ImmutableList.of(), ImmutableList.of());
+                ImmutableList.of(), ImmutableList.of(), ImmutableList.of(), ImmutableList.of(), ImmutableList.of());
         ReviewRun historical = store.insertRun(newRun("run-history", "review-history"));
         ReviewRun off = store.insertRun(newRun("run-off", "review-off").withContext(disabled, ImmutableMap.of(), NOW));
         entityManager.clear();
@@ -163,6 +169,41 @@ class TestSqliteReviewStores
         ReviewRun updated = store.updateRun(off.withTurn("turn-2", NOW.plusSeconds(1)));
         entityManager.clear();
         assertThat(store.findRun(updated.id()).orElseThrow().context()).contains(disabled);
+    }
+
+    @Test
+    void retainsTypedSourceReceiptsAndRejectsDanglingEvidenceAfterReload()
+    {
+        store.insertReview(newReview("review-reads", "workspace-a", "bytequay/sample", 7, "task-reads", NOW));
+        ReviewRun run = newRun("run-reads", "review-reads").withContext(contextSnapshot(), ImmutableMap.of(), NOW);
+        ContextReference.RepositoryFile file = new ContextReference.RepositoryFile(42, RepoRef.of("bytequay", "sample"), "README.md", BASE_SHA);
+        ContextRepositoryRead repositoryRead = new ContextRepositoryRead(
+                "context-read:repository", file, HEAD_SHA, NOW, 1, 1, 1, 6, false, Optional.of("repository-evidence"));
+        ContextRepositoryRead emptyFile = new ContextRepositoryRead("context-read:empty-file",
+                new ContextReference.RepositoryFile(42, file.repository(), "empty.md", BASE_SHA), BASE_SHA, NOW, 1, 0, 0, 0, false, Optional.empty());
+        RegisteredContextSource registration = new RegisteredContextSource(
+                "docs", RegisteredContextSource.Kind.DOCUMENTATION_ROOT, "https://example.com/docs/", ContextEntryOrigin.USER);
+        ContextDocumentRead documentRead = new ContextDocumentRead("context-read:document",
+                new ContextReference.Document("docs", "https://example.com/docs/page"), registration, 7, UUID.randomUUID().toString(), "a".repeat(64),
+                NOW.minusSeconds(60), 1, 2, 2, false, true, true, Optional.of("document-evidence"));
+        ContextDocumentRead blankDocument = new ContextDocumentRead("context-read:blank-document", documentRead.reference(), registration, 7,
+                documentRead.captureId(), documentRead.contentHash(), documentRead.readAt(), 2, 2, 1, true, false, false, Optional.empty());
+        ReviewRun saved = store.insertRun(run
+                .withContextSourceRead(repositoryRead, Optional.of(new ReviewEvidence("repository-evidence", "README.md", "Frozen blob", "1  é\n", "")), NOW)
+                .withContextSourceRead(emptyFile, Optional.empty(), NOW)
+                .withContextSourceRead(documentRead, Optional.of(new ReviewEvidence("document-evidence", "Documentation", "Original capture", "é", "")), NOW)
+                .withContextSourceRead(blankDocument, Optional.empty(), NOW));
+        entityManager.clear();
+
+        ReviewRun loaded = store.findRun(saved.id()).orElseThrow();
+        assertThat(loaded).isEqualTo(saved);
+        assertThat(loaded.context().orElseThrow().sourceReads()).containsExactly(repositoryRead, emptyFile, documentRead, blankDocument);
+        assertThat(loaded.context().orElseThrow().bootstrap()).isEqualTo(run.context().orElseThrow().bootstrap());
+        assertThat(loaded.context().orElseThrow().evidenceRefs()).contains("repository-evidence", "document-evidence");
+        entityManager.createNativeQuery("UPDATE agent_review_run SET evidence_json = json_remove(evidence_json, '$.repository-evidence') WHERE id = 'run-reads'")
+                .executeUpdate();
+        entityManager.clear();
+        assertThatThrownBy(() -> store.findRun(saved.id())).isInstanceOf(IllegalArgumentException.class).hasMessageContaining("missing run evidence");
     }
 
     @Test
@@ -436,6 +477,7 @@ class TestSqliteReviewStores
                 ImmutableList.of(
                         ContextInputFingerprint.create("project", ImmutableMap.of("git:pom.xml", "100644 blob " + BASE_SHA, "git:README.md", "ABSENT"), ImmutableList.of()),
                         ContextInputFingerprint.create("path:backend/app/", ImmutableMap.of("scope:configuration", "sha256:scope"), ImmutableList.of("Tree read unavailable"))),
+                ImmutableList.of(),
                 ImmutableList.of("Repository baseline unavailable"));
     }
 

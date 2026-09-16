@@ -22,6 +22,7 @@ import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.time.Duration;
 import java.util.List;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -74,6 +75,30 @@ class TestGitCommandRunner
         Path plain = Files.createDirectories(temporaryDirectory.resolve("plain"));
 
         assertThat(GIT.gitPaths(plain, ImmutableList.of("MERGE_HEAD"))).isEmpty();
+    }
+
+    @Test
+    void localBoundedReadsUseConfiguredExecutableSafetyEnvironmentAndOutputCap()
+            throws IOException
+    {
+        Path executable = temporaryDirectory.resolve("local-git");
+        Files.writeString(executable, """
+                #!/bin/sh
+                printf '%s %s %s %s\\n' "$GIT_NO_LAZY_FETCH" "$GIT_NO_REPLACE_OBJECTS" "$GIT_TERMINAL_PROMPT" "$LC_ALL"
+                printf '%s\\n' "$@"
+                """);
+        assertThat(executable.toFile().setExecutable(true)).isTrue();
+        GitCommandRunner runner = new GitCommandRunner(executable.toString());
+
+        GitCommandRunner.Result read = runner.runLocalBounded(repository, Duration.ofSeconds(2), 4096, ImmutableList.of("cat-file", "blob", "a".repeat(40)));
+        assertThat(read.successful()).isTrue();
+        assertThat(read.truncated()).isFalse();
+        assertThat(read.output()).isEqualTo("1 1 0 C\n-C\n" + repository + "\ncat-file\nblob\n" + "a".repeat(40) + "\n");
+
+        GitCommandRunner.Result bounded = runner.runLocalBounded(repository, Duration.ofSeconds(2), 8, ImmutableList.of("cat-file"));
+        assertThat(bounded.successful()).isTrue();
+        assertThat(bounded.truncated()).isTrue();
+        assertThat(bounded.output()).isEqualTo("1 1 0 C\n");
     }
 
     private static void git(Path directory, String... arguments)

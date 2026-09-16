@@ -48,6 +48,13 @@ excerpts share one three-item cap. Snapshot capture occurs before provider admis
 prepared text and bounded baseline input fingerprints, not confirmed delivery.
 Input identities are read from frozen Git objects outside notebook mutations;
 failed or partial inventories retain gaps instead of reusable digests.
+Selected baseline-file and document reads append bounded typed source receipts
+to that context, with exact excerpts stored once in existing run evidence.
+Core validates receipt identity, bounds and evidence references; persistence
+serializes the closed receipt types in the existing run JSON. App reads pinned
+local baseline blobs or registered documents, then rechecks turn ownership and
+retains receipt/evidence in one run update. These reads do not mutate the shared
+notebook or certify source applicability or completed knowledge preparation.
 Generation, review input delivery and
 the settings UI have separate implementation gates.
 

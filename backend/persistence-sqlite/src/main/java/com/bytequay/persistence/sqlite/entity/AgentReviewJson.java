@@ -13,6 +13,11 @@
  */
 package com.bytequay.persistence.sqlite.entity;
 
+import com.bytequay.core.context.ContextDocumentRead;
+import com.bytequay.core.context.ContextRepositoryRead;
+import com.bytequay.core.context.ContextSourceRead;
+import com.fasterxml.jackson.annotation.JsonSubTypes;
+import com.fasterxml.jackson.annotation.JsonTypeInfo;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.DeserializationFeature;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -24,6 +29,7 @@ final class AgentReviewJson
 {
     // Stored runs keep fields the review record has since dropped, such as summary and coverage limitations.
     private static final ObjectMapper OBJECT_MAPPER = new ObjectMapper().findAndRegisterModules()
+            .addMixIn(ContextSourceRead.class, SourceReadJson.class)
             .disable(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES);
 
     private AgentReviewJson() {}
@@ -42,4 +48,10 @@ final class AgentReviewJson
     {
         return REVIEW.guard("Cannot deserialize review data", () -> OBJECT_MAPPER.readValue(json, type));
     }
+
+    @JsonTypeInfo(use = JsonTypeInfo.Id.NAME, include = JsonTypeInfo.As.EXISTING_PROPERTY, property = "kind")
+    @JsonSubTypes({
+            @JsonSubTypes.Type(value = ContextRepositoryRead.class, name = "REPOSITORY_FILE"),
+            @JsonSubTypes.Type(value = ContextDocumentRead.class, name = "DOCUMENT")})
+    private interface SourceReadJson {}
 }

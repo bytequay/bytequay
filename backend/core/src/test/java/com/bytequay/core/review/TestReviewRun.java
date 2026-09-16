@@ -14,8 +14,11 @@
 package com.bytequay.core.review;
 
 import com.bytequay.core.context.ContextPacket;
+import com.bytequay.core.context.ContextReference;
 import com.bytequay.core.context.ContextRelatedItem;
+import com.bytequay.core.context.ContextRepositoryRead;
 import com.bytequay.core.context.ReviewContextSnapshot;
+import com.bytequay.core.domain.RepoRef;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import org.junit.jupiter.api.Test;
@@ -68,10 +71,65 @@ class TestReviewRun
         assertThat(updated.evidence()).isEqualTo(captured.evidence());
     }
 
+    @Test
+    void retainsSourceReceiptAndExactEvidenceTogetherWithoutChangingBootstrap()
+    {
+        ReviewContextSnapshot snapshot = snapshot("context-1");
+        ReviewRun original = run().withContext(snapshot, ImmutableMap.of(EVIDENCE.ref(), EVIDENCE), NOW);
+        ReviewEvidence source = new ReviewEvidence("source-read", "README.md", "Frozen repository blob", "1  é\n", "");
+        ContextRepositoryRead read = repositoryRead("context-read:first", 6, Optional.of(source.ref()));
+        ReviewRun captured = original.withContextSourceRead(read, Optional.of(source), NOW.plusSeconds(1));
+
+        assertThat(captured.context().orElseThrow().sourceReads()).containsExactly(read);
+        assertThat(captured.context().orElseThrow().bootstrap()).isEqualTo(snapshot.bootstrap());
+        assertThat(captured.context().orElseThrow().selectedEntries()).isEqualTo(snapshot.selectedEntries());
+        assertThat(captured.evidence()).containsEntry(source.ref(), source).containsEntry(EVIDENCE.ref(), EVIDENCE);
+        assertThat(captured.withContextSourceRead(read, Optional.of(source), NOW.plusSeconds(2))).isSameAs(captured);
+        assertThat(original.context()).contains(snapshot);
+        assertThatThrownBy(() -> original.withContextSourceRead(read, Optional.empty(), NOW)).isInstanceOf(IllegalArgumentException.class);
+        assertThatThrownBy(() -> original.withContextSourceRead(repositoryRead("context-read:bytes", 5, Optional.of(source.ref())), Optional.of(source), NOW))
+                .isInstanceOf(IllegalArgumentException.class).hasMessageContaining("byte count");
+        ReviewEvidence replaced = new ReviewEvidence(source.ref(), "Another source", source.provenance(), source.excerpt(), "");
+        assertThatThrownBy(() -> captured.withContextSourceRead(read, Optional.of(replaced), NOW)).isInstanceOf(IllegalStateException.class);
+        assertThatThrownBy(() -> captured.withContextSourceRead(repositoryRead(read.id(), 7, Optional.of(source.ref())),
+                Optional.of(new ReviewEvidence(source.ref(), source.source(), source.provenance(), "1  é!\n", "")), NOW))
+                .isInstanceOf(IllegalStateException.class).hasMessageContaining("Source read");
+        assertThatThrownBy(() -> original.withContext(snapshot.withSourceRead(read), ImmutableMap.of(), NOW)).isInstanceOf(IllegalStateException.class);
+        assertThatThrownBy(() -> run().withContext(snapshot.withSourceRead(read), ImmutableMap.of(EVIDENCE.ref(), EVIDENCE), NOW))
+                .isInstanceOf(IllegalArgumentException.class).hasMessageContaining("missing run evidence");
+    }
+
+    @Test
+    void retainsSuccessfulEmptyFileWithoutInventingAnEvidenceExcerpt()
+    {
+        ReviewRun original = run().withContext(snapshot("context-1"), ImmutableMap.of(EVIDENCE.ref(), EVIDENCE), NOW);
+        ContextRepositoryRead empty = new ContextRepositoryRead("context-read:empty", repositoryReference(), SHA, NOW, 1, 0, 0, 0, false, Optional.empty());
+        ReviewRun captured = original.withContextSourceRead(empty, Optional.empty(), NOW.plusSeconds(1));
+
+        assertThat(captured.context().orElseThrow().sourceReads()).containsExactly(empty);
+        assertThat(captured.evidence()).isEqualTo(original.evidence());
+        assertThatThrownBy(() -> run().withContextSourceRead(empty, Optional.empty(), NOW)).isInstanceOf(IllegalStateException.class);
+        ReviewContextSnapshot disabled = new ReviewContextSnapshot("off", false, 1, 42, Optional.empty(), Optional.empty(),
+                ImmutableList.of(), ImmutableList.of(), ImmutableList.of(), ImmutableList.of(), ImmutableList.of());
+        assertThatThrownBy(() -> run().withContext(disabled, ImmutableMap.of(), NOW).withContextSourceRead(empty, Optional.empty(), NOW))
+                .isInstanceOf(IllegalStateException.class).hasMessageContaining("disabled");
+    }
+
+    private static ContextRepositoryRead repositoryRead(String id, int bytes, Optional<String> ref)
+    {
+        return new ContextRepositoryRead(id, repositoryReference(), SHA, NOW, 1, 1, 1, bytes, false, ref);
+    }
+
+    private static ContextReference.RepositoryFile repositoryReference()
+    {
+        return new ContextReference.RepositoryFile(42, RepoRef.of("example", "repo"), "README.md", SHA);
+    }
+
     private static ReviewContextSnapshot snapshot(String id)
     {
         return new ReviewContextSnapshot(id, true, 1, 42, Optional.of(SHA), Optional.of(ContextPacket.create("Previous review reference")),
                 ImmutableList.of(), ImmutableList.of(new ContextRelatedItem(EVIDENCE.ref(), ImmutableList.of("path:backend/core"), Optional.empty())),
+                ImmutableList.of(),
                 ImmutableList.of(),
                 ImmutableList.of());
     }

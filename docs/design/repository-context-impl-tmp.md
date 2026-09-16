@@ -15,6 +15,8 @@ Selected registered documentation reads capture bounded text, keep continuation
 pages consistent and retain exact excerpts through the existing review evidence.
 Completed task summaries now join local history through a scoped task-service
 query and explicit references, sharing the three-excerpt cap with prior reviews.
+Baseline source reads and selected document pages retain typed read receipts,
+including successful empty observations, alongside exact optional evidence.
 Snapshots are prepared before agent admission and exposed in the existing review
 projection. Generation, direct context delivery, the settings/display UI, and
 provider acceptance remain pending. Unchecked items remain pending even when
@@ -29,7 +31,8 @@ related infrastructure already exists.
 | Local selection, frozen snapshots and input fingerprints | Finished; applicability/reuse decisions remain in CP3 |
 | Selected PR, issue, commit association and related diff reads | Finished |
 | Selected documentation capture and retained excerpts | Finished; committed as d42c105f0 |
-| Scoped task-summary discovery | Finished; verification recorded below |
+| Scoped task-summary discovery | Finished; committed as 333902583 |
+| Frozen-baseline file reads and typed source receipts | Finished; verification recorded below |
 | Shared preparation, cold generation and explicit builder | Next; preparation and reuse first |
 | Automatic context delivery and complete report integration | Pending |
 | Notebook/settings UI and Context used display | Pending |
@@ -126,6 +129,9 @@ runtime-retention and workspace-deletion behavior. Use current schema ownership.
 - [x] Capture the local monitored baseline separately from frozen PR base/head.
 - [x] Capture bounded baseline blob/tree, source-configuration and dependency
   manifest fingerprints, with explicit absence and incomplete-read gaps.
+- [x] Verify frozen-baseline regular-file reads and typed source receipts for
+  repository/document observations, including empty reads, failures, immutable
+  source identity and receipt/evidence retention in one run update.
 - [ ] Use those identities in shared preparation reuse and compare applicable
   source/dependency versions with reviewed code. Manifest hashes do not resolve
   effective versions or establish remote freshness.
@@ -710,9 +716,49 @@ Required checks below describe the current increment, not full feature acceptanc
   `frontend/out/ByteQuay-darwin-arm64/ByteQuay.app` matches the verified JAR by
   SHA-256. Log: `/private/tmp/bytequay-context-task-history-package.log`.
   Changed source whitespace/line-length checks and local document links pass;
-  all nine repository-context JSON examples parse. This increment remains
-  uncommitted for review.
-- Next implementation boundary: shared preparation admission and source/input
-  reuse decisions, followed by protected generated updates, cold generation and
-  the explicit builder. Automatic delivery, Context used/settings UI and
-  provider/judgment/performance acceptance remain separate unfinished gates.
+  all nine repository-context JSON examples parse.
+- Committed scoped task-summary selection as `333902583`
+  (`Select relevant completed task summaries`).
+- Shared preparation needs typed observations from the frozen monitored
+  baseline, not the PR's source or descriptive evidence labels. This increment
+  adds that source prerequisite before introducing preparation owners or states.
+  The fixed source tool accepts revision=baseline and resolves regular blobs
+  from the run's monitored commit, independently of HEAD/index/working files,
+  replacement objects and lazy fetching. Full files are capped at 128 KiB,
+  returned numbered windows at 200 lines/16 KiB, with two bounded local commands.
+- Typed repository/document receipts retain backend-observed source identities
+  and optional evidence references in the existing run JSON. Nonblank excerpts
+  are stored once in run evidence, in the same update; successful empty files
+  or blank document pages retain receipts without invented evidence. Failures
+  create neither a receipt nor an EMPTY knowledge result. Original bootstrap,
+  selected notes and code coordinates remain unchanged. Reads share a cap of
+  128 receipts, enforced before external work; other run evidence is unaffected.
+- Source work occurs before the accepted-turn recheck and optimistic run write.
+  A cancellation already observed by that recheck prevents retention. This
+  does not claim a transaction spanning task cancellation and shared notebook
+  mutation; atomic preparation ownership/save and its race tests remain CP3.
+- Independent review caught the missing baseline value in the provider tool
+  schema; the schema and its regression assertion now include it. Initial
+  verification also exposed record-mocking test fixtures and receipt JSON
+  serialization; fixtures now use real values and responses use the configured
+  application mapper. The focused review-tool rerun passed all 76 cases:
+  `/private/tmp/bytequay-context-baseline-tools-verify.log`.
+- Frontend lint, TypeScript and all 80 test files/901 tests passed. Logs:
+  `/private/tmp/bytequay-context-baseline-lint.log`,
+  `/private/tmp/bytequay-context-baseline-types.log`, and
+  `/private/tmp/bytequay-context-baseline-frontend-tests.log`.
+- Final full backend `mvn -B verify` passed all seven modules: 223 suites,
+  2,616 tests, zero failures, errors or skips. Coverage includes 25 baseline
+  reader, 76 review-tool and 14 SQLite review-store cases. Log:
+  `/private/tmp/bytequay-context-baseline-verify-final.log`.
+- Desktop packaging passed, and the packaged backend JAR matches the verified
+  JAR by SHA-256. Log: `/private/tmp/bytequay-context-baseline-package.log`.
+  All ten repository-context JSON examples parse; local document links,
+  changed/new source whitespace, Java line lengths and conflict checks pass.
+  Baseline reads/receipts are complete. The reviewed patch, including new
+  source files, is `/private/tmp/bytequay-context-baseline-review.patch`.
+- Next implementation boundary remains shared preparation admission and
+  source/input reuse decisions, followed by protected generated updates, cold
+  generation and the explicit builder. READY/EMPTY/FAILED lifecycle, automatic
+  delivery, Context used/settings UI and provider/judgment/performance
+  acceptance remain separate unfinished gates.

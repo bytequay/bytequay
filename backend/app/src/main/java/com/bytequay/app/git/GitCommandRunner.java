@@ -117,6 +117,30 @@ public class GitCommandRunner
         }
     }
 
+    /** Runs a bounded local object read without replacement objects or on-demand fetching from a promisor remote. */
+    public Result runLocalBounded(Path worktree, Duration timeout, int maximumOutputBytes, List<String> arguments)
+    {
+        requireNonNull(worktree, "worktree is null");
+        requireNonNull(timeout, "timeout is null");
+        checkArgument(!timeout.isZero() && !timeout.isNegative(), "timeout is not positive");
+        checkArgument(maximumOutputBytes > 0, "maximumOutputBytes is not positive");
+        requireNonNull(arguments, "arguments is null");
+        List<String> command = ImmutableList.<String>builderWithExpectedSize(arguments.size() + 3)
+                .add(executable, "-C", worktree.toString()).addAll(arguments).build();
+        ProcessBuilder builder = new ProcessBuilder(command);
+        builder.environment().put("GIT_TERMINAL_PROMPT", "0");
+        builder.environment().put("LC_ALL", "C");
+        builder.environment().put("GIT_NO_LAZY_FETCH", "1");
+        builder.environment().put("GIT_NO_REPLACE_OBJECTS", "1");
+        try {
+            return execute(builder, timeout, maximumOutputBytes, "Git");
+        }
+        catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            return Result.failed("Git was interrupted");
+        }
+    }
+
     /**
      * Resolves several {@code --git-path} locations with one {@code rev-parse}.
      *

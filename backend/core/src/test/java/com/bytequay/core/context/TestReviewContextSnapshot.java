@@ -13,10 +13,12 @@
  */
 package com.bytequay.core.context;
 
+import com.bytequay.core.domain.RepoRef;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import org.junit.jupiter.api.Test;
 
+import java.time.Instant;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -48,16 +50,16 @@ class TestReviewContextSnapshot
     void distinguishesDisabledAndEnabledWithUnknownBaseline()
     {
         ReviewContextSnapshot disabled = new ReviewContextSnapshot("off", false, 0, 42, Optional.empty(), Optional.empty(),
-                ImmutableList.of(), ImmutableList.of(), ImmutableList.of(), ImmutableList.of());
+                ImmutableList.of(), ImmutableList.of(), ImmutableList.of(), ImmutableList.of(), ImmutableList.of());
         ReviewContextSnapshot unknown = new ReviewContextSnapshot("unknown", true, 3, 42, Optional.empty(), Optional.of(ContextPacket.create("Local notes")),
-                ImmutableList.of(), ImmutableList.of(), ImmutableList.of(), ImmutableList.of("Base revision could not be resolved"));
+                ImmutableList.of(), ImmutableList.of(), ImmutableList.of(), ImmutableList.of(), ImmutableList.of("Base revision could not be resolved"));
 
         assertThat(disabled.bootstrap()).isEmpty();
         assertThat(unknown.baselineSha()).isEmpty();
         assertThatThrownBy(() -> new ReviewContextSnapshot("unknown", true, 3, 42, Optional.empty(), Optional.of(ContextPacket.create("Local notes")),
-                ImmutableList.of(), ImmutableList.of(), ImmutableList.of(), ImmutableList.of())).isInstanceOf(IllegalArgumentException.class);
+                ImmutableList.of(), ImmutableList.of(), ImmutableList.of(), ImmutableList.of(), ImmutableList.of())).isInstanceOf(IllegalArgumentException.class);
         assertThatThrownBy(() -> new ReviewContextSnapshot("off", false, 0, 42, Optional.empty(), Optional.of(ContextPacket.create("Local notes")),
-                ImmutableList.of(), ImmutableList.of(), ImmutableList.of(), ImmutableList.of())).isInstanceOf(IllegalArgumentException.class);
+                ImmutableList.of(), ImmutableList.of(), ImmutableList.of(), ImmutableList.of(), ImmutableList.of())).isInstanceOf(IllegalArgumentException.class);
     }
 
     @Test
@@ -123,14 +125,44 @@ class TestReviewContextSnapshot
                 .add(ContextInputFingerprint.create("scope-100", ImmutableMap.of(), ImmutableList.of())).build();
         assertThatThrownBy(() -> fingerprintsSnapshot(tooMany)).isInstanceOf(IllegalArgumentException.class).hasMessageContaining("100 items");
         assertThatThrownBy(() -> new ReviewContextSnapshot("off", false, 0, 42, Optional.empty(), Optional.empty(),
-                ImmutableList.of(), ImmutableList.of(), ImmutableList.of(fingerprints.getFirst()), ImmutableList.of()))
+                ImmutableList.of(), ImmutableList.of(), ImmutableList.of(fingerprints.getFirst()), ImmutableList.of(), ImmutableList.of()))
                 .isInstanceOf(IllegalArgumentException.class).hasMessageContaining("Disabled context");
+    }
+
+    @Test
+    void retainsAtMost128DistinctSourceReceiptsAndRejectsReplacement()
+    {
+        ReviewContextSnapshot original = fingerprintsSnapshot(ImmutableList.of());
+        ReviewContextSnapshot captured = original;
+        for (int index = 0; index < ReviewContextSnapshot.MAXIMUM_SOURCE_READS; index++) {
+            captured = captured.withSourceRead(repositoryRead("context-read:" + index, 42));
+        }
+        ReviewContextSnapshot full = captured;
+
+        assertThat(full.sourceReads()).hasSize(128);
+        assertThat(full.withSourceRead(full.sourceReads().getFirst())).isSameAs(full);
+        assertThat(full.bootstrap()).isEqualTo(original.bootstrap());
+        assertThat(full.evidenceRefs()).contains("source-receipt");
+        assertThat(original.sourceReads()).isEmpty();
+        assertThatThrownBy(() -> full.withSourceRead(repositoryRead("context-read:overflow", 42)))
+                .isInstanceOf(IllegalArgumentException.class).hasMessageContaining("128 items");
+        assertThatThrownBy(() -> original.withSourceRead(repositoryRead("context-read:other-repo", 43)))
+                .isInstanceOf(IllegalArgumentException.class).hasMessageContaining("another repository");
+        ContextRepositoryRead replaced = new ContextRepositoryRead(full.sourceReads().getFirst().id(),
+                new ContextReference.RepositoryFile(42, RepoRef.of("example", "repo"), "other.md", SHA), SHA, Instant.EPOCH, 1, 1, 1, 4, false, Optional.of("source-receipt"));
+        assertThatThrownBy(() -> full.withSourceRead(replaced)).isInstanceOf(IllegalStateException.class).hasMessageContaining("cannot be replaced");
+    }
+
+    private static ContextRepositoryRead repositoryRead(String id, long repositoryId)
+    {
+        return new ContextRepositoryRead(id, new ContextReference.RepositoryFile(repositoryId, RepoRef.of("example", "repo"), "README.md", SHA),
+                SHA, Instant.EPOCH, 1, 1, 1, 4, false, Optional.of("source-receipt"));
     }
 
     private static ReviewContextSnapshot fingerprintsSnapshot(List<ContextInputFingerprint> fingerprints)
     {
         return new ReviewContextSnapshot("context-1", true, 3, 42, Optional.of(SHA), Optional.of(ContextPacket.create("Local notes")),
-                ImmutableList.of(), ImmutableList.of(), fingerprints, ImmutableList.of());
+                ImmutableList.of(), ImmutableList.of(), fingerprints, ImmutableList.of(), ImmutableList.of());
     }
 
     private static ContextSelectedEntry entry(String id, String text)
@@ -143,6 +175,7 @@ class TestReviewContextSnapshot
     {
         return new ReviewContextSnapshot("context-1", true, 3, 42, Optional.of(SHA), Optional.of(ContextPacket.create("Local notes")),
                 ImmutableList.copyOf(entries), ImmutableList.of(new ContextRelatedItem("ev-related", ImmutableList.of("path:backend/core"), Optional.empty())),
+                ImmutableList.of(),
                 ImmutableList.of(),
                 ImmutableList.of());
     }

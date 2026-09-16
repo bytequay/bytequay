@@ -534,12 +534,17 @@ continuation. Unrelated notebook edits do not invalidate an authorized capture.
 An explicit refresh is allowed only on page one without captureId. If it fails,
 an existing capture can be returned with its original time/content and an
 explicit refresh-failed gap. Without an earlier capture the failure remains
-unavailable. Empty successful text has no evidence reference and is distinct
-from a failed read. A nonempty returned page is saved exactly once in the
-existing run evidence map; the full temporary page body is not persisted.
+unavailable. Blank successful text has no evidence reference and is distinct
+from a failed read. Every successful selected page now retains a typed
+ContextDocumentRead in the run's context sourceReads, including a blank page.
+A nonblank returned page and its receipt are saved in one run update; the exact
+excerpt lives once in the existing evidence map. The full temporary page body
+is not persisted.
 The existing evidence read and Save lesson action retain access to those
-excerpts after the temporary capture is gone. Repeated calls can still grow
-the existing append-only run evidence map; a page bound is not a run-size cap.
+excerpts after the temporary capture is gone. Baseline and selected document
+reads share a limit of 128 retained receipts per run. Repeated successful calls
+consume that limit, even if they select the same page; source listing does not.
+This bounds these additions, not the entire existing run evidence map.
 
 The document HTTP client is separate from authenticated GitHub clients. The
 Boot-managed Apache HTTP client supplies a connection-time DNS resolver, so the
@@ -569,6 +574,56 @@ Document version, remote freshness and applicability remain explicitly
 unverified. Native-web/model-pasted excerpts are not accepted as these captures.
 This increment does not populate generated notebook knowledge or automatically
 deliver the prepared bootstrap to the provider.
+
+### 3.4 Frozen baseline source reads and receipts
+
+Reusable repository knowledge needs source material from the captured monitored
+default branch. A PR's unmerged behavior must not become shared baseline
+knowledge accidentally. The existing fixed source reader now accepts:
+
+~~~json
+{
+  "kind": "source",
+  "revision": "baseline",
+  "path": "plugin/trino-iceberg/README.md",
+  "startLine": 1,
+  "endLine": 100
+}
+~~~
+
+An enabled snapshot and captured baselineSha are required. The application
+resolves the review's workspace and monitored repository; the caller cannot
+choose another repository, workspace, commit or capture identity. Existing
+head/base/previous reads keep their current behavior. Baseline reads work for
+any bound context-enabled review turn, including validation and discussion;
+read access grants no shared notebook write authority.
+
+ContextBaselineReader resolves the literal path in that exact commit, then
+reads its regular-file blob. It ignores worktree/index edits and disables Git
+replacement objects and lazy fetching. Missing local objects remain failures.
+Two local commands have separate two-second deadlines; inventory output is
+bounded to 8 KiB and the complete blob to 128 KiB. Trees, symlinks, gitlinks,
+binary/unsupported UTF-8 content and incomplete output are rejected. The
+current text check conservatively also rejects a literal replacement character.
+No claim is made about a file's total lines until its complete blob was read.
+
+The response contains at most 200 numbered source lines and 16 KiB of UTF-8
+excerpt, plus exact commit/blob identity, total lines, requested bounded range,
+read time and a truncation flag. Byte truncation can end within a source line;
+the recorded range is not a claim that every character in it was returned.
+Nonblank text is retained as ReviewEvidence. A complete empty file returns
+startLine=1, endLine=0, totalLines=0 and an evidence-free receipt. Failure returns
+no receipt; neither an empty file nor a blank document establishes EMPTY
+knowledge preparation or proves there was nothing useful in other sources.
+
+Successful baseline/document responses expose a backend-generated readId and
+typed receipt. Each receipt carries only bounded metadata and an optional
+evidenceRef; retained source text is not duplicated. The accepted turn is
+resolved again after source work before recording the result. A stopped or
+replaced turn observed at that check cannot append it. Receipt and evidence
+share one optimistic run update, preserving the initial bootstrap, selection
+and code identities. This is evidence retention, not the still-pending atomic
+shared preparation admission/save protocol.
 
 ## 4. Notebook and JSON contracts
 
@@ -862,6 +917,7 @@ changes cannot be detected without a fetch; do not imply otherwise.
     }
   ],
   "preparationResultRefs": [],
+  "sourceReads": [],
   "brief": null,
   "collectionSupplements": [],
   "gaps": [],
@@ -898,6 +954,22 @@ identity and version with absent text; complete note bodies are never cut to fit
   appeared in the bootstrap. The next validation input contains the finished brief.
 - The existing ReviewRun evidence map owns full retained excerpts. References
   from this snapshot point to it; do not duplicate full PR/issue objects.
+- sourceReads is implemented as a bounded append-only collection of typed
+  successful observations. ContextRepositoryRead has id, reference (repository
+  ID/name, path, commit), blobId, readAt, startLine, endLine, totalLines,
+  utf8Bytes, truncated and optional evidenceRef. ContextDocumentRead has id,
+  reference (registered source ID, resolved URL), the exact registration,
+  notebookRevision observed during source selection, captureId, contentHash,
+  readAt, page, totalPages, utf8Bytes, blank, truncated, refreshFailed and
+  optional evidenceRef. JSON kind is REPOSITORY_FILE or DOCUMENT. The original
+  document capture identity/time survives cache reuse or failed refresh.
+  These metadata receipts neither assert applicability nor change the original
+  packet. Equal receipt-ID retries are idempotent; altered receipts cannot
+  replace them. The owning run validates retained references and exact excerpt
+  byte counts on append and reload. A maximum of 128 receipts plus validated
+  field lengths bounds metadata; no separate aggregate JSON-size guarantee is
+  claimed. Preparation must later resolve these typed identities directly,
+  rather than parsing descriptive evidence labels or trusting model-pasted IDs.
 - applicability is MATCHED, VERSION_MISMATCH, or UNVERIFIED. A mismatch can be a
   useful pointer but cannot silently supply an applicable contract.
 - inputFingerprints retain each selected scope's local baseline input inventory.

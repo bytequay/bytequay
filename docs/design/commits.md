@@ -321,8 +321,12 @@ association is commit enrichment; the pull-request refresh service owns PR rows
 and details independently.
 
 `CherryPickPullRequestLookup` stops being a display dependency. Its in-memory
-cache may remain as a within-run optimization, but SQLite is the durable
-answer. `CherryPickPreviewService` also reads persisted associations; missing
+cache retains only positive associations and includes the source branch used
+to resolve a tie. Checked negatives live in SQLite under the shared
+RepositoryEnrichmentService retry rule; in-memory negatives must not prevent
+an otherwise due provider retry. Missing responses and responses reaching the
+100-candidate page bound remain failed checks rather than negative results.
+SQLite is the durable answer. `CherryPickPreviewService` also reads persisted associations; missing
 associations remain non-load-bearing and produce the existing warning instead
 of starting an unbounded remote lookup from the preview request.
 

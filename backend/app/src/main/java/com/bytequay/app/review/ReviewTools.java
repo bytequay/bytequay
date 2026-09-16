@@ -20,6 +20,7 @@ import com.bytequay.agent.core.TaskId;
 import com.bytequay.agent.core.TurnId;
 import com.bytequay.agent.spi.ReviewBridge;
 import com.bytequay.agent.spi.ReviewTool;
+import com.bytequay.app.context.SelectedCommitPullRequestReader;
 import com.bytequay.app.git.GitCommandRunner;
 import com.bytequay.app.repository.github.GitHubIssuePreview;
 import com.bytequay.app.service.RepoService;
@@ -27,6 +28,7 @@ import com.bytequay.app.service.pr.PullRequestService;
 import com.bytequay.app.service.pr.SelectedPullRequestReader;
 import com.bytequay.app.workspace.WorkspaceIssueRefreshService;
 import com.bytequay.app.workspace.WorkspaceIssueService;
+import com.bytequay.app.workspace.WorkspaceRepositoryContext;
 import com.bytequay.app.workspace.WorkspaceRepositoryService;
 import com.bytequay.core.domain.DiffFile;
 import com.bytequay.core.domain.PrTimelineEvent;
@@ -106,11 +108,13 @@ public class ReviewTools
     private static final int DIFF_PAGE_LINES = 300;
     private static final int TIMELINE_PAGE = 20;
     private static final int CHECK_PAGE = 20;
+    private static final int MAX_COMMIT_ASSOCIATION_GAPS = 10;
     private static final List<String> SEVERITIES = ImmutableList.of("Critical", "High", "Medium", "Low");
 
     private final AgentReviewStore store;
     private final PullRequestService pullRequests;
     private final SelectedPullRequestReader selectedPullRequests;
+    private final SelectedCommitPullRequestReader selectedCommitPullRequests;
     private final RepoService repositories;
     private final WorkspaceIssueService issues;
     private final WorkspaceIssueRefreshService issueRefresh;
@@ -126,6 +130,7 @@ public class ReviewTools
             AgentReviewStore store,
             PullRequestService pullRequests,
             SelectedPullRequestReader selectedPullRequests,
+            SelectedCommitPullRequestReader selectedCommitPullRequests,
             RepoService repositories,
             WorkspaceIssueService issues,
             WorkspaceIssueRefreshService issueRefresh,
@@ -140,6 +145,7 @@ public class ReviewTools
         this.store = requireNonNull(store, "store is null");
         this.pullRequests = requireNonNull(pullRequests, "pullRequests is null");
         this.selectedPullRequests = requireNonNull(selectedPullRequests, "selectedPullRequests is null");
+        this.selectedCommitPullRequests = requireNonNull(selectedCommitPullRequests, "selectedCommitPullRequests is null");
         this.repositories = requireNonNull(repositories, "repositories is null");
         this.issues = requireNonNull(issues, "issues is null");
         this.issueRefresh = requireNonNull(issueRefresh, "issueRefresh is null");
@@ -167,6 +173,8 @@ public class ReviewTools
                         "Read bounded pull request context for this review: kind pr, timeline, checks "
                                 + "(optional same-repository PR number; defaults to this review; page for timeline/checks), "
                                 + "issue (required number), diff (optional path, page), "
+                                + "commit_prs (required shas: 1 to " + SelectedCommitPullRequestReader.MAX_COMMITS
+                                + " unique full 40/64-hex commit IDs in this repository), "
                                 + "source (path, startLine, endLine, revision: head/base/previous), command_output, investigation, findings, "
                                 + "summary, discussion (target), or evidence (ref). "
                                 + "Diff lines carry anchor ids; PR, timeline, checks, source, issue and command reads return evidence refs to cite in findings. "
@@ -184,6 +192,7 @@ public class ReviewTools
                                                         "timeline",
                                                         "checks",
                                                         "issue",
+                                                        "commit_prs",
                                                         "diff",
                                                         "source",
                                                         "command_output",
@@ -196,6 +205,8 @@ public class ReviewTools
                                 .put("path", ImmutableMap.of("type", "string", "maxLength", 1000))
                                 .put("revision", ImmutableMap.of("type", "string", "enum", ImmutableList.of("head", "base", "previous")))
                                 .put("number", ImmutableMap.of("type", "integer", "minimum", 1))
+                                .put("shas", ImmutableMap.of("type", "array", "minItems", 1, "maxItems", SelectedCommitPullRequestReader.MAX_COMMITS,
+                                        "uniqueItems", true, "items", ImmutableMap.of("type", "string", "pattern", "^(?:[0-9a-fA-F]{40}|[0-9a-fA-F]{64})$")))
                                 .put("page", ImmutableMap.of("type", "integer", "minimum", 1))
                                 .put("startLine", ImmutableMap.of("type", "integer", "minimum", 1))
                                 .put("endLine", ImmutableMap.of("type", "integer", "minimum", 1))
@@ -850,6 +861,7 @@ public class ReviewTools
             case "timeline" -> timeline(call, integer(arguments, "number").orElse(call.review().number()), page(arguments));
             case "checks" -> checks(call, integer(arguments, "number").orElse(call.review().number()), page(arguments));
             case "issue" -> issue(call, integer(arguments, "number").orElseThrow(() -> new ReviewInvalidRequestException("number: required for kind issue")), page(arguments));
+            case "commit_prs" -> commitPullRequests(call);
             case "diff" -> diff(call, Optional.ofNullable(arguments.get("path")).filter(JsonNode::isTextual).map(JsonNode::asText), page(arguments));
             case "source" -> source(call, text(arguments, "path", 1000, true), integer(arguments, "startLine").orElse(1), integer(arguments, "endLine"));
             case "command_output" -> commandOutput(call);
@@ -953,7 +965,7 @@ public class ReviewTools
             }
             return entry;
         }).collect(toImmutableList());
-        retainPageEvidence(call, call.review().repo() + "#" + number + " activity", provenance, entries);
+        retainPageEvidence(call, call.review().repo() + "#" + number + " activity", ignored -> provenance, entries);
         node.putPOJO("items", entries);
         return node;
     }
@@ -983,12 +995,12 @@ public class ReviewTools
             }
             return entry;
         }).collect(toImmutableList());
-        retainPageEvidence(call, call.review().repo() + "#" + number + " check", provenance, entries);
+        retainPageEvidence(call, call.review().repo() + "#" + number + " check", ignored -> provenance, entries);
         node.putPOJO("checks", entries);
         return node;
     }
 
-    private void retainPageEvidence(Call call, String source, String provenance, List<ObjectNode> entries)
+    private void retainPageEvidence(Call call, String source, Function<ObjectNode, String> provenance, List<ObjectNode> entries)
     {
         if (entries.isEmpty()) {
             return;
@@ -996,10 +1008,62 @@ public class ReviewTools
         ReviewRun current = store.findRun(call.run().id()).orElse(call.run());
         for (ObjectNode entry : entries) {
             String ref = "E" + (current.evidence().size() + 1);
-            current = current.withEvidence(ref, new ReviewEvidence(ref, source, provenance, bounded(entry.toString(), MAX_EXCERPT), ""), now());
+            current = current.withEvidence(ref, new ReviewEvidence(ref, source, provenance.apply(entry), bounded(entry.toString(), MAX_EXCERPT), ""), now());
             entry.put("evidenceRef", ref);
         }
         store.updateRun(current);
+    }
+
+    private JsonNode commitPullRequests(Call call)
+    {
+        List<String> shas = array(call.arguments(), "shas", SelectedCommitPullRequestReader.MAX_COMMITS).stream().map(value -> {
+            if (!value.isTextual() || !value.asText().matches("[0-9a-fA-F]{40}|[0-9a-fA-F]{64}")) {
+                throw new ReviewInvalidRequestException("shas: use full 40- or 64-character hexadecimal commit IDs");
+            }
+            return value.asText().toLowerCase(Locale.ROOT);
+        }).collect(toImmutableList());
+        if (shas.isEmpty() || shas.stream().distinct().count() != shas.size()) {
+            throw new ReviewInvalidRequestException("shas: provide 1 to " + SelectedCommitPullRequestReader.MAX_COMMITS + " distinct full commit IDs");
+        }
+        WorkspaceRepositoryContext workspace = workspaces.requireReadableRepository(call.review().workspaceId());
+        if (!workspace.workspaceId().equals(call.review().workspaceId()) || !workspace.monitoredRepository().fullName().equalsIgnoreCase(call.review().repo())) {
+            throw new ReviewInvalidRequestException("shas: the workspace no longer identifies this review's monitored repository");
+        }
+        long repositoryId = workspace.selectedRepository().equals(workspace.monitoredRepository()) ? workspace.selectedRepositoryId()
+                : workspace.upstreamRepositoryId().orElseThrow(() -> new ReviewInvalidRequestException("shas: the monitored repository ID is unavailable"));
+        if (repositoryId <= 0) {
+            throw new ReviewInvalidRequestException("shas: the monitored repository ID is unavailable");
+        }
+        SelectedCommitPullRequestReader.Read read = selectedCommitPullRequests.read(workspace, shas);
+        if (read.items().size() != shas.size() || read.items().stream().anyMatch(item -> !shas.contains(item.sha()))
+                || read.items().stream().map(SelectedCommitPullRequestReader.Item::sha).distinct().count() != read.items().size()) {
+            throw new ReviewInvalidRequestException("shas: the selected association response does not match the requested commit IDs");
+        }
+        List<ObjectNode> items = read.items().stream().map(item -> objectMapper.createObjectNode()
+                .put("sha", item.sha())
+                .put("pullRequestNumber", item.pullRequestNumber().orElse(null))
+                .put("pullRequestTitle", item.pullRequestTitle().map(title -> bounded(title, MAX_TITLE)).orElse(null))
+                .put("pullRequestUrl", item.pullRequestUrl().map(url -> bounded(url, 2000)).orElse(null))
+                .put("checkedAt", item.checkedAt().map(Instant::toString).orElse(null))
+                .put("lookupAttempted", item.lookupAttempted()).put("lookupFailed", item.lookupFailed()).put("persisted", item.persisted())
+                .put("status", item.pullRequestNumber().isPresent() ? "MAPPED" : item.lookupFailed() ? "LOOKUP_FAILED"
+                        : item.checkedAt().isPresent() ? "CHECKED_NO_SINGLE_MERGED_PR" : "UNKNOWN"))
+                .collect(toImmutableList());
+        String limitation = "checkedAt can describe an earlier cached observation; status alone does not establish a fresh provider check. "
+                + "A checked negative means no single merged PR under the existing association policy and can be ambiguous; "
+                + "provider reads consider at most 100 candidates. Association is not proof of a whole PR final diff or why it merged.";
+        Instant readAt = now();
+        retainPageEvidence(call, call.review().repo() + " commit-to-PR association", item -> "Repository " + call.review().repo() + "; repositoryId=" + repositoryId
+                + "; exactSha=" + item.path("sha").asText() + "; observation=" + (item.path("lookupAttempted").asBoolean() ? "selected lookup" : "stored enrichment read")
+                + "; readAt=" + readAt + "; checkedAt=" + item.path("checkedAt").asText("unknown") + "; lookupAttempted=" + item.path("lookupAttempted").asBoolean()
+                + "; lookupFailed=" + item.path("lookupFailed").asBoolean() + "; persisted=" + item.path("persisted").asBoolean() + "; " + limitation, items);
+        List<String> gaps = read.gaps().stream().limit(MAX_COMMIT_ASSOCIATION_GAPS).map(gap -> bounded(gap, 1000)).collect(toImmutableList());
+        ObjectNode node = objectMapper.createObjectNode().put("repository", call.review().repo()).put("repositoryId", repositoryId)
+                .put("readAt", readAt.toString()).put("maxCommits", SelectedCommitPullRequestReader.MAX_COMMITS).put("maxProviderCandidates", 100)
+                .put("source", "selected-commit-pull-request").put("note", limitation).put("omittedGaps", read.gaps().size() - gaps.size());
+        node.putPOJO("items", items);
+        node.putPOJO("gaps", gaps);
+        return node;
     }
 
     private SelectedPullRequestReader.Read selectedPullRequest(Call call, int number, SelectedPullRequestReader.Section section)

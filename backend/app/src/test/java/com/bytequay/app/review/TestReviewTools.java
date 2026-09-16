@@ -24,6 +24,7 @@ import com.bytequay.agent.core.TurnId;
 import com.bytequay.agent.spi.ProviderAgentEvent.ActivityState;
 import com.bytequay.agent.spi.ReviewBridge;
 import com.bytequay.agent.spi.ReviewTool;
+import com.bytequay.app.context.SelectedCommitPullRequestReader;
 import com.bytequay.app.git.GitCommandRunner;
 import com.bytequay.app.repository.github.GitHubIssuePreview;
 import com.bytequay.app.service.RepoService;
@@ -33,6 +34,8 @@ import com.bytequay.app.workspace.WorkspaceIssueRefreshService;
 import com.bytequay.app.workspace.WorkspaceIssueService;
 import com.bytequay.app.workspace.WorkspaceRepositoryContext;
 import com.bytequay.app.workspace.WorkspaceRepositoryService;
+import com.bytequay.core.context.ContextPacket;
+import com.bytequay.core.context.ReviewContextSnapshot;
 import com.bytequay.core.domain.DiffFile;
 import com.bytequay.core.domain.PrTimelineEvent;
 import com.bytequay.core.domain.PrTimelinePayload;
@@ -75,6 +78,7 @@ import java.time.ZoneOffset;
 import java.util.Comparator;
 import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
 import java.util.OptionalLong;
@@ -119,6 +123,7 @@ class TestReviewTools
     private RepoService repositories;
     private PullRequestService pullRequests;
     private SelectedPullRequestReader selectedPullRequests;
+    private SelectedCommitPullRequestReader selectedCommitPullRequests;
     private WorkspaceIssueService issues;
     private WorkspaceIssueRefreshService issueRefresh;
     private WorkspaceRepositoryService workspaces;
@@ -132,6 +137,7 @@ class TestReviewTools
 
         pullRequests = mock(PullRequestService.class);
         selectedPullRequests = mock(SelectedPullRequestReader.class);
+        selectedCommitPullRequests = mock(SelectedCommitPullRequestReader.class);
         repositories = mock(RepoService.class);
         issues = mock(WorkspaceIssueService.class);
         issueRefresh = mock(WorkspaceIssueRefreshService.class);
@@ -146,7 +152,7 @@ class TestReviewTools
             ReviewRun current = store.listRuns(REVIEW_ID).getLast();
             return new ReviewToolAssignment.Binding(current, current.currentStep(), Optional.empty());
         });
-        tools = new ReviewTools(store, pullRequests, selectedPullRequests, repositories, issues, issueRefresh, events, workspaces, git, objectMapper,
+        tools = new ReviewTools(store, pullRequests, selectedPullRequests, selectedCommitPullRequests, repositories, issues, issueRefresh, events, workspaces, git, objectMapper,
                 new ReviewLocks(), assignments, Clock.fixed(NOW, ZoneOffset.UTC));
 
         when(workspaces.requireReadableRepository(WORKSPACE_ID)).thenReturn(workspaceRepository());
@@ -164,6 +170,133 @@ class TestReviewTools
         store.updateReview(review(AgentReview.State.OPEN).closed(NOW));
 
         assertThat(tools.bridge(TASK_ID)).isEmpty();
+    }
+
+    @Test
+    void selectedCommitAssociationsUseTheBoundUpstreamAndRetainOneEvidenceBatch()
+    {
+        WorkspaceRepositoryContext workspace = new WorkspaceRepositoryContext(WORKSPACE_ID, repository, 5, RepoRef.of("fork", "widgets"),
+                OptionalLong.of(7), RepoRef.of("acme", "widgets"), "upstream", "origin", "main", ImmutableList.of());
+        when(workspaces.requireReadableRepository(WORKSPACE_ID)).thenReturn(workspace);
+        String first = "a".repeat(40);
+        String second = "b".repeat(64);
+        List<String> shas = ImmutableList.of(first, second);
+        List<SelectedCommitPullRequestReader.Item> items = ImmutableList.of(
+                new SelectedCommitPullRequestReader.Item(first, Optional.of(19), Optional.of("Mapped title " + "x".repeat(1000)),
+                        Optional.of("https://github.com/acme/widgets/pull/19/" + "x".repeat(4000)), Optional.of(NOW), true, false, true),
+                new SelectedCommitPullRequestReader.Item(second, Optional.empty(), Optional.empty(), Optional.empty(), Optional.of(NOW.minusSeconds(60)), false, false, true));
+        List<String> gaps = IntStream.range(0, 12).mapToObj(index -> "Gap " + index + "x".repeat(2000)).collect(toImmutableList());
+        when(selectedCommitPullRequests.read(workspace, shas)).thenReturn(new SelectedCommitPullRequestReader.Read(items, gaps));
+        ReviewContextSnapshot snapshot = new ReviewContextSnapshot("frozen-context", true, 7, 7, Optional.of(BASE_SHA),
+                Optional.of(ContextPacket.create("Frozen context")), ImmutableList.of(), ImmutableList.of(), ImmutableList.of(), ImmutableList.of());
+        ReviewEvidence existing = new ReviewEvidence("E1", "Original source", "Frozen provenance", "Original evidence", "");
+        ReviewRun before = store.updateRun(store.findRun(RUN_ID).orElseThrow().withContext(snapshot, ImmutableMap.of("E1", existing), NOW));
+        int writes = store.runUpdates;
+
+        JsonNode result = call("review_get_context", ImmutableMap.of("kind", "commit_prs", "shas", ImmutableList.of(first.toUpperCase(Locale.ROOT), second)));
+
+        verify(selectedCommitPullRequests).read(workspace, shas);
+        assertThat(result.path("repository").asText()).isEqualTo(REPO);
+        assertThat(result.path("repositoryId").asLong()).isEqualTo(7);
+        assertThat(result.path("maxCommits").asInt()).isEqualTo(10);
+        assertThat(result.path("maxProviderCandidates").asInt()).isEqualTo(100);
+        assertThat(result.path("readAt").asText()).isEqualTo(NOW.toString());
+        assertThat(result.path("items")).hasSize(2);
+        assertThat(result.at("/items/0/status").asText()).isEqualTo("MAPPED");
+        assertThat(result.at("/items/0/pullRequestNumber").asInt()).isEqualTo(19);
+        assertThat(result.at("/items/0/pullRequestTitle").asText()).hasSizeLessThanOrEqualTo(214);
+        assertThat(result.at("/items/0/pullRequestUrl").asText()).hasSizeLessThanOrEqualTo(2014);
+        assertThat(result.at("/items/0/lookupAttempted").asBoolean()).isTrue();
+        assertThat(result.at("/items/0/persisted").asBoolean()).isTrue();
+        assertThat(result.at("/items/1/status").asText()).isEqualTo("CHECKED_NO_SINGLE_MERGED_PR");
+        assertThat(result.at("/items/1/pullRequestNumber").isNull()).isTrue();
+        assertThat(result.at("/items/1/checkedAt").asText()).isEqualTo(NOW.minusSeconds(60).toString());
+        assertThat(result.path("note").asText()).contains("no single merged PR", "ambiguous", "at most 100", "not proof");
+        assertThat(result.path("gaps")).hasSize(10).allSatisfy(gap -> assertThat(gap.asText()).hasSizeLessThanOrEqualTo(1014));
+        assertThat(result.path("omittedGaps").asInt()).isEqualTo(2);
+        assertThat(store.runUpdates).isEqualTo(writes + 1);
+        ReviewRun after = store.findRun(RUN_ID).orElseThrow();
+        assertThat(after.evidence()).hasSize(3).containsEntry("E1", existing);
+        assertThat(after.context()).contains(snapshot);
+        assertThat(after.headSha()).isEqualTo(before.headSha());
+        assertThat(after.baseSha()).isEqualTo(before.baseSha());
+        assertThat(after.mergeBaseSha()).isEqualTo(before.mergeBaseSha());
+        assertThat(after.commits()).isEqualTo(before.commits());
+        assertThat(after.diff()).isEqualTo(before.diff());
+        for (JsonNode item : result.path("items")) {
+            ReviewEvidence evidence = after.evidence().get(item.path("evidenceRef").asText());
+            assertThat(evidence.excerpt()).hasSizeLessThanOrEqualTo(4014).contains(item.path("sha").asText(), item.path("status").asText());
+            assertThat(evidence.provenance()).contains("repositoryId=7", "exactSha=" + item.path("sha").asText(), "checkedAt=" + item.path("checkedAt").asText(),
+                    "readAt=" + NOW, "lookupAttempted=" + item.path("lookupAttempted").asBoolean(), "lookupFailed=false", "persisted=true", "at most 100", "not proof");
+        }
+        assertThat(after.evidence().get(result.at("/items/0/evidenceRef").asText()).provenance()).contains("observation=selected lookup");
+        assertThat(after.evidence().get(result.at("/items/1/evidenceRef").asText()).provenance()).contains("observation=stored enrichment read");
+        verifyNoInteractions(git, pullRequests, selectedPullRequests, repositories, issues, issueRefresh);
+    }
+
+    @Test
+    void commitAssociationInputsRejectMalformedDuplicateOrExcessiveShasBeforeRepositoryReads()
+    {
+        String sha = "a".repeat(40);
+        List<Object> invalid = ImmutableList.of("not-an-array", ImmutableList.of(), ImmutableList.of(12), ImmutableList.of(objectMapper.nullNode()),
+                ImmutableList.of("HEAD"), ImmutableList.of("--all"), ImmutableList.of("1234567"), ImmutableList.of("g".repeat(40)),
+                ImmutableList.of(sha + "^{commit}"), ImmutableList.of(" " + sha), ImmutableList.of(sha + "\n"), ImmutableList.of(sha, sha),
+                ImmutableList.of(sha, sha.toUpperCase(Locale.ROOT)), IntStream.range(0, 11).mapToObj(index -> String.format("%040x", index)).collect(toImmutableList()));
+        assertThat(call("review_get_context", ImmutableMap.of("kind", "commit_prs")).at("/error/field").asText()).isEqualTo("shas");
+        for (Object value : invalid) {
+            assertThat(call("review_get_context", ImmutableMap.of("kind", "commit_prs", "shas", value)).at("/error/field").asText()).isEqualTo("shas");
+        }
+        assertThat(store.runUpdates).isZero();
+        verifyNoInteractions(workspaces, selectedCommitPullRequests, git, repositories);
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"workspace", "repository", "missing-id"})
+    void commitAssociationRoutingCannotLeaveTheBoundReviewWorkspace(String mismatch)
+    {
+        WorkspaceRepositoryContext workspace = new WorkspaceRepositoryContext(mismatch.equals("workspace") ? "another-workspace" : WORKSPACE_ID,
+                repository, 5, RepoRef.of("fork", "widgets"), mismatch.equals("missing-id") ? OptionalLong.empty() : OptionalLong.of(7),
+                RepoRef.of(mismatch.equals("repository") ? "another-owner" : "acme", "widgets"), "upstream", "origin", "main", ImmutableList.of());
+        when(workspaces.requireReadableRepository(WORKSPACE_ID)).thenReturn(workspace);
+
+        JsonNode result = call("review_get_context", ImmutableMap.of("kind", "commit_prs", "shas", ImmutableList.of(COMMIT_SHA)));
+
+        assertThat(result.at("/error/field").asText()).isEqualTo("shas");
+        assertThat(store.runUpdates).isZero();
+        verifyNoInteractions(selectedCommitPullRequests, git, repositories);
+    }
+
+    @Test
+    void missingOrFailedCommitAssociationsNeverBecomeCheckedNegatives()
+    {
+        WorkspaceRepositoryContext workspace = workspaceRepository();
+        List<String> shas = ImmutableList.of(HEAD_SHA, BASE_SHA);
+        List<SelectedCommitPullRequestReader.Item> items = ImmutableList.of(
+                new SelectedCommitPullRequestReader.Item(HEAD_SHA, Optional.empty(), Optional.empty(), Optional.empty(), Optional.empty(), false, false, false),
+                new SelectedCommitPullRequestReader.Item(BASE_SHA, Optional.empty(), Optional.empty(), Optional.empty(), Optional.of(NOW.minusSeconds(600)), true, true, false));
+        when(selectedCommitPullRequests.read(workspace, shas)).thenReturn(new SelectedCommitPullRequestReader.Read(items, ImmutableList.of("A commit was unavailable locally")));
+
+        JsonNode result = call("review_get_context", ImmutableMap.of("kind", "commit_prs", "shas", shas));
+
+        assertThat(result.path("repositoryId").asLong()).isEqualTo(1);
+        assertThat(result.at("/items/0/status").asText()).isEqualTo("UNKNOWN");
+        assertThat(result.at("/items/0/checkedAt").isNull()).isTrue();
+        assertThat(result.at("/items/1/status").asText()).isEqualTo("LOOKUP_FAILED");
+        assertThat(result.at("/items/1/lookupFailed").asBoolean()).isTrue();
+        assertThat(result.at("/items/1/persisted").asBoolean()).isFalse();
+        assertThat(store.runUpdates).isEqualTo(1);
+    }
+
+    @Test
+    void incompleteCommitAssociationBatchCannotSilentlyOmitRequestedShas()
+    {
+        when(selectedCommitPullRequests.read(workspaceRepository(), ImmutableList.of(COMMIT_SHA)))
+                .thenReturn(new SelectedCommitPullRequestReader.Read(ImmutableList.of(), ImmutableList.of("Selected commits were unavailable")));
+
+        JsonNode result = call("review_get_context", ImmutableMap.of("kind", "commit_prs", "shas", ImmutableList.of(COMMIT_SHA)));
+
+        assertThat(result.at("/error/field").asText()).isEqualTo("shas");
+        assertThat(store.runUpdates).isZero();
     }
 
     @Test
@@ -479,6 +612,13 @@ class TestReviewTools
         assertThat(schema.path("required")).isEqualTo(objectMapper.valueToTree(ImmutableList.of("operationKey", "purpose", "commits")));
         assertThat(summary.description()).doesNotContain("combined result", "critical findings", "supporting evidence");
         assertThat(bridge.instruction()).contains("only purpose", "design", "implementation", "exact replacement code", "RIGHT-side", "omit severity");
+        JsonNode contextSchema = objectMapper.valueToTree(bridge.tool("review_get_context").orElseThrow().inputSchema());
+        assertThat(contextSchema.at("/properties/shas/minItems").asInt()).isEqualTo(1);
+        assertThat(contextSchema.at("/properties/shas/maxItems").asInt()).isEqualTo(10);
+        assertThat(contextSchema.at("/properties/shas/uniqueItems").asBoolean()).isTrue();
+        assertThat(contextSchema.path("properties").has("repositoryId")).isFalse();
+        assertThat(contextSchema.path("properties").has("workspaceId")).isFalse();
+        assertThat(contextSchema.path("required")).isEqualTo(objectMapper.valueToTree(ImmutableList.of("kind")));
     }
 
     @ParameterizedTest

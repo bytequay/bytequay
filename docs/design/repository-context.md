@@ -347,6 +347,45 @@ read policy. No new retry cache is introduced: a later explicit source read can
 retry a failed or incomplete refresh, subject to the existing GitHub rate-limit
 handling. Repeated failing reads therefore remain a latency/rate-budget risk.
 
+The commit_prs kind of review_get_context accepts one to ten distinct full
+hexadecimal commit IDs, normalized to lowercase. The backend resolves the
+monitored repository and its stable ID from the review's workspace; callers
+cannot supply either identity.
+SelectedCommitPullRequestReader first batch-reads existing enrichment. Positive
+associations are reused. For unresolved IDs, local Git metadata reads with a
+two-second timeout and a 256-byte accepted output bound verify the exact commit
+and supply its commit time. Missing local objects and unavailable metadata
+remain gaps without fetching Git history. Existing process termination/drain
+can add time; the runner's hard capture bound remains 5 MiB.
+
+RepositoryEnrichmentService owns the same association retry rule used by
+ordinary commit refresh: unchecked commits are due, positive associations are
+reused, and checked negatives can retry once per day while the commit is at
+most seven days old. Only due selected IDs reach the existing
+CherryPickPullRequestLookup. Its bounded positive cache includes the source
+branch used to resolve ambiguous matches. Negative results are not memoized
+there, so that cache cannot defeat the durable retry rule. A missing response
+or a response reaching the 100-candidate page bound is unavailable, not a
+checked negative or a verified single match.
+Existing durable rows do not record the lookup branch; only the newly selected
+lookup can be attributed to the workspace's current default branch.
+
+One enrichment upsert saves successful selected results, preserving existing
+avatar fields. Failed IDs keep their previous evidence and check time. A
+failed save is exposed separately from the observed lookup result. A successful
+save is reread to include concurrent positive mappings; an older check time
+cannot confirm that the new observation was saved. Each
+returned item records its SHA, selected mapping or lack of a single merged
+mapping, check time, lookup attempt/failure and persistence outcome. Persisted
+means the returned positive or checked observation is known to be stored; a
+row containing only avatar data does not establish an association observation.
+Individual
+evidence references are retained with one run update for the returned batch.
+“No single merged PR” can mean no match or ambiguity; it does not prove that no
+related PR exists. A mapping also does not establish the final PR diff, why it
+was merged, or applicability to the reviewed code. The initial local context
+snapshot remains unchanged; this explicit source read does not build notes.
+
 External documents are the narrow new capture requirement. Native web can
 discover useful URLs, but current provider events do not reliably retain
 retrieved page bodies. A model-pasted URL/quote is **agent-reported**, not an

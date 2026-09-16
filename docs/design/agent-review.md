@@ -425,7 +425,7 @@ for that lane; failure does not disable ordinary agent tasks.
 
 | Tool | Purpose |
 | --- | --- |
-| `review_get_context` | Bounded typed reads of current PR, linked issue/PR, diff, source, evidence, summary, finding, or discussion; supports pagination |
+| `review_get_context` | Bounded typed reads of current PR, linked issue/PR, selected commit-to-PR associations, diff, source, evidence, summary, finding, or discussion; supports pagination |
 | `review_save_summary` | Save the intention and exactly one explanation for every actual commit |
 | `review_save_investigation` | Save the change map, assessed changed files, supporting context refs, and numbered candidate hypotheses |
 | `review_save_finding` | Create a finding, or update a returned finding ID with its expected revision |
@@ -445,6 +445,16 @@ Checks for a separately observed head do not establish checks for the reviewed
 head. The issue read prefers a known cached PR or issue before its existing
 exact remote preview fallback. None of these reads performs repository-wide
 discovery or regenerates notebook knowledge.
+
+The commit_prs read resolves up to ten selected full commit IDs within the
+backend-bound monitored repository. It reuses durable associations, checks
+local commit metadata for unresolved IDs and calls the existing GitHub lookup
+only when the shared negative-result retry policy permits it. Returned mapping
+evidence distinguishes a checked lack of a single merged PR from failed or
+unavailable lookup, and exposes cache persistence failures. Commit-title PR
+suffixes never establish this association. The read retains per-item evidence
+in one run update and cannot change frozen review coordinates or its saved
+context snapshot.
 
 These are fixed application operations, not a model-controlled registry.
 Tool declarations carry strict JSON schemas and bounded fields; the backend

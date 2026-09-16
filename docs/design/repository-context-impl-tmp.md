@@ -6,9 +6,10 @@ This temporary file tracks delivery; it does not define a second architecture.
 
 Implementation includes the notebook, editing API, discussion-source binding,
 and immutable per-run snapshots selected from local notes and history, including
-bounded baseline input inventories and fingerprints. Selected PR/issue reads
-reuse existing caches and refresh paths, retaining freshness and failure evidence. The
-default-on preference now controls local snapshot capture; Off bypasses selection.
+bounded baseline input inventories and fingerprints. Selected PR/issue and
+commit-association reads reuse existing caches and refresh paths, retaining
+freshness and failure evidence. The default-on preference now controls local
+snapshot capture; Off bypasses selection.
 Snapshots are prepared before agent admission and exposed in the existing review
 projection. Generation, direct context delivery, the settings/display UI, and
 provider acceptance remain pending. Unchecked items remain pending even when
@@ -115,8 +116,10 @@ runtime-retention and workspace-deletion behavior. Use current schema ownership.
 - [x] Verify selected PR metadata/activity/check reads, issue cache reuse and
   exact preview fallback. Keep related PR identity separate from frozen review
   code; retain source freshness in returned evidence.
-- [ ] Add selected missing commit-association and exact related-diff hydration;
-  current review diffs already come from the retained run.
+- [x] Add selected missing commit-association reads through existing enrichment
+  and lookup services, with shared negative retry rules and explicit failures.
+- [ ] Add exact related-diff hydration; current review diffs already come from
+  the retained run.
 - [ ] Register validated user/repository documentation roots with provenance;
   capture selected pages through the bounded reader and retain cited excerpts.
 - [ ] Check every redirect and resolved destination, document versions,
@@ -507,4 +510,46 @@ Required checks below describe the current increment, not full feature acceptanc
   Changed source/document whitespace, Java line-length and conflict checks
   pass, and all seven design JSON examples parse. The source-read increment
   is verified; selected association/range-diff hydration,
+  documentation capture, shared preparation, delivery and UI remain pending.
+- Committed the verified selected PR increment as `07d4a5c3c`
+  (`Refresh selected pull request context`).
+- Selected commit-to-PR reads now accept at most ten distinct full commit IDs
+  through the existing review context tool. They resolve the monitored stable
+  repository identity from the bound workspace, reuse stored positive mappings,
+  and apply the shared daily/seven-day negative retry rule. Exact local metadata
+  reads accept at most 256 bytes and use a two-second command timeout; annotated
+  tag IDs and incomplete reads cannot trigger a selected lookup.
+- The existing provider lookup now caches only positive associations, keyed by
+  repository, commit and source branch. A checked miss can be retried when due;
+  a missing response or a full 100-candidate page stays unavailable. Successful
+  observations use one association-only upsert, preserve avatar fields and are
+  reread for concurrent positives. Save/reread failures and older confirmation
+  times remain explicit unpersisted observations.
+- Each result retains exact identity, check/read time, lookup and persistence
+  facts in individual evidence references saved with one run update. Existing
+  context and review code stay frozen. Independent review corrected attribution
+  of cached results: durable rows do not retain the original lookup branch.
+- Frontend association checks passed: `npm run lint`,
+  `npx --no-install tsc --noEmit`, and `npm test` (80 files, 901 tests).
+  Logs: `/private/tmp/bytequay-context-association-lint.log`,
+  `/private/tmp/bytequay-context-association-types.log`, and
+  `/private/tmp/bytequay-context-association-frontend-tests.log`.
+- Full backend association gate: `mvn -B verify` passed in one invocation.
+  Reports contain 217 suites and 2,404 tests with zero failures, errors or skips.
+  This includes 34 selected-commit reader cases, 55 review-tool cases, 12 shared
+  lookup cases and the shared retry-policy boundary regression. Tests use
+  provider fixtures and disposable Git repositories; no live GitHub or provider
+  validation is claimed. Log:
+  `/private/tmp/bytequay-context-association-verify.log`.
+- The final cached-branch provenance wording correction passed
+  `mvn -B -pl app -am verify -Dtest=TestSelectedCommitPullRequestReader
+  -Dsurefire.failIfNoSpecifiedTests=false`, including all 34 reader cases and
+  rebuilding the backend package. Log:
+  `/private/tmp/bytequay-context-association-final-verify.log`.
+- Desktop association packaging passed and produced
+  `frontend/out/ByteQuay-darwin-arm64/ByteQuay.app`. The packaged backend JAR
+  matches the final verified JAR by SHA-256 and contains the corrected provenance
+  text. Log: `/private/tmp/bytequay-context-association-package.log`.
+  Source whitespace, Java line-length, conflict-marker and local Markdown-link
+  checks pass; all seven design JSON examples parse. Exact related-diff hydration,
   documentation capture, shared preparation, delivery and UI remain pending.

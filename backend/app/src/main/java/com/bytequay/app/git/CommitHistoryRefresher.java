@@ -42,7 +42,6 @@ import org.springframework.stereotype.Component;
 import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
-import java.time.format.DateTimeParseException;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.LinkedHashMap;
@@ -67,8 +66,6 @@ class CommitHistoryRefresher
     private static final Logger log = LoggerFactory.getLogger(CommitHistoryRefresher.class);
     private static final int MAX_COMMITS = 300;
     private static final Duration AVATAR_REFRESH_INTERVAL = Duration.ofDays(1);
-    private static final Duration NEGATIVE_RETRY_INTERVAL = Duration.ofDays(1);
-    private static final Duration NEGATIVE_RETRY_WINDOW = Duration.ofDays(7);
 
     private final WorkspaceRepositoryService workspaces;
     private final WorkspaceProvisioningService provisioning;
@@ -261,7 +258,7 @@ class CommitHistoryRefresher
         }
         Set<String> checkedAvatarShas = commits.subList(0, avatarLimit).stream().map(Commit::sha).collect(toImmutableSet());
         List<String> dueAssociations = commits.stream()
-                .filter(commit -> associationDue(commit, Optional.ofNullable(existing.get(commit.sha())), now))
+                .filter(commit -> RepositoryEnrichmentService.associationDue(commit.committedAt(), Optional.ofNullable(existing.get(commit.sha())), now))
                 .map(Commit::sha)
                 .toList();
         PullRequestLookupResult associationSnapshot = pullRequests.lookUpResult(
@@ -340,26 +337,6 @@ class CommitHistoryRefresher
                 avatarChecked ? Optional.of(now) : existing.flatMap(CommitEnrichment::avatarCheckedAt),
                 associationCheckedAt,
                 now);
-    }
-
-    private static boolean associationDue(Commit commit, Optional<CommitEnrichment> existing, Instant now)
-    {
-        if (existing.isEmpty() || existing.orElseThrow().associationCheckedAt().isEmpty()) {
-            return true;
-        }
-        CommitEnrichment enrichment = existing.orElseThrow();
-        if (enrichment.pullRequestNumber().isPresent()) {
-            return false;
-        }
-        Instant committedAt;
-        try {
-            committedAt = Instant.parse(commit.committedAt());
-        }
-        catch (DateTimeParseException ignored) {
-            committedAt = now;
-        }
-        return !committedAt.isBefore(now.minus(NEGATIVE_RETRY_WINDOW))
-                && !enrichment.associationCheckedAt().orElseThrow().isAfter(now.minus(NEGATIVE_RETRY_INTERVAL));
     }
 
     private static CommitEnrichment merge(CommitEnrichment first, CommitEnrichment second)

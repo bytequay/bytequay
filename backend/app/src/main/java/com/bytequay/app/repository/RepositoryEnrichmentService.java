@@ -25,6 +25,9 @@ import com.google.common.collect.ImmutableList;
 import org.springframework.stereotype.Service;
 
 import java.net.URI;
+import java.time.Duration;
+import java.time.Instant;
+import java.time.format.DateTimeParseException;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.List;
@@ -37,6 +40,9 @@ import static java.util.Objects.requireNonNull;
 @Service
 public class RepositoryEnrichmentService
 {
+    private static final Duration NEGATIVE_RETRY_INTERVAL = Duration.ofDays(1);
+    private static final Duration NEGATIVE_RETRY_WINDOW = Duration.ofDays(7);
+
     private final CommitHistoryStore commitHistory;
     private final RemoteSourceStore remoteSources;
     private final WorkspaceStore workspaces;
@@ -59,6 +65,33 @@ public class RepositoryEnrichmentService
     public void upsertCommits(Collection<CommitEnrichment> enrichment)
     {
         commitHistory.upsertEnrichment(enrichment);
+    }
+
+    /**
+     * Shared retry policy for commit-to-PR associations. Positive mappings remain reusable, unchecked
+     * commits are due, and checked negatives retry daily only during the commit's first seven days.
+     * A missing or malformed commit time retains the existing conservative recent-commit fallback.
+     */
+    public static boolean associationDue(String committedAt, Optional<CommitEnrichment> existing, Instant now)
+    {
+        requireNonNull(existing, "existing is null");
+        requireNonNull(now, "now is null");
+        if (existing.flatMap(CommitEnrichment::pullRequestNumber).isPresent()) {
+            return false;
+        }
+        Optional<Instant> checkedAt = existing.flatMap(CommitEnrichment::associationCheckedAt);
+        if (checkedAt.isEmpty()) {
+            return true;
+        }
+        Instant committed;
+        try {
+            committed = committedAt == null ? now : Instant.parse(committedAt);
+        }
+        catch (DateTimeParseException ignored) {
+            committed = now;
+        }
+        return !committed.isBefore(now.minus(NEGATIVE_RETRY_WINDOW))
+                && !checkedAt.orElseThrow().isAfter(now.minus(NEGATIVE_RETRY_INTERVAL));
     }
 
     /**

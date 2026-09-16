@@ -36,11 +36,15 @@ public record BoundedCiLog(
         boolean omittedBeginning,
         boolean compacted,
         List<String> terminalErrorLines,
-        Optional<String> unavailableReason)
+        Optional<String> unavailableReason,
+        Optional<String> rawLogId,
+        boolean diagnosticsMatched)
 {
     public BoundedCiLog
     {
         requireNonNull(blob, "blob is null");
+        requireNonNull(rawLogId, "rawLogId is null");
+        rawLogId.ifPresent(value -> checkArgument(value.matches("[0-9a-f]{64}"), "rawLogId is invalid"));
         checkArgument(byteCount >= 0 && byteCount <= ReadCiLogQuery.MAXIMUM_BYTES, "byteCount is outside the log limit");
         requireNonNull(terminalErrorLines, "terminalErrorLines is null");
         terminalErrorLines = ImmutableList.copyOf(terminalErrorLines);
@@ -56,6 +60,6 @@ public record BoundedCiLog(
 
     public static BoundedCiLog unavailable(String reason)
     {
-        return new BoundedCiLog(Optional.empty(), 0, false, false, false, ImmutableList.of(), Optional.of(reason));
+        return new BoundedCiLog(Optional.empty(), 0, false, false, false, ImmutableList.of(), Optional.of(reason), Optional.empty(), false);
     }
 }

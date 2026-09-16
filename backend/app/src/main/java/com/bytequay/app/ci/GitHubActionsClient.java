@@ -24,10 +24,10 @@ public interface GitHubActionsClient
     CiHeadSnapshot inspect(InspectCiHeadQuery query);
 
     /**
-     * Downloads one bounded raw job log without exposing credentials.
+     * Caches a complete credential-redacted job log and selects intact diagnostic blocks.
      *
-     * @param query exact workflow, job, attempt, task, and byte limit
-     * @return task-relative log blob, normalized terminal errors, and truncation facts
+     * @param query exact workflow, job, attempt, task, and excerpt byte limit
+     * @return bounded excerpt blob, cached raw-log identifier, terminal errors, and selection facts
      */
     BoundedCiLog readLog(ReadCiLogQuery query);
 

@@ -57,7 +57,7 @@ class TestPullRequestCiTool
         AtomicReference<Optional<PullRequestCiBridge>> current = new AtomicReference<>(Optional.of(new PullRequestCiBridge(jobId -> {
             reads.add(jobId);
             return jobId.isPresent() ? "failed log known-secret" : "No pull request associated yet";
-        }, PullRequestCiBridge.INSTRUCTION)));
+        }, (logId, offset) -> "raw", PullRequestCiBridge.INSTRUCTION)));
         PermissionBroker broker = broker(taskId -> taskId.equals("task-1") ? current.get() : Optional.empty(), ReviewBridgeResolver.NONE);
         String expiredToken;
         try (CodeGraphRegistration codex = broker.registerTools(
@@ -77,7 +77,7 @@ class TestPullRequestCiTool
                 assertThat(text(call(broker, token, "{\"jobId\":7}"))).contains("failed log [REDACTED]").doesNotContain("known-secret");
             }
             assertThat(reads).containsExactly(Optional.empty(), Optional.of(7L), Optional.empty(), Optional.of(7L));
-            current.set(Optional.of(new PullRequestCiBridge(jobId -> "Current head changed", PullRequestCiBridge.INSTRUCTION)));
+            current.set(Optional.of(new PullRequestCiBridge(jobId -> "Current head changed", (logId, offset) -> "raw", PullRequestCiBridge.INSTRUCTION)));
             assertThat(text(call(broker, codex.token(), "{}"))).isEqualTo("Current head changed");
             current.set(Optional.empty());
             JsonNode unavailable = call(broker, claude.token(), "{}");
@@ -90,12 +90,43 @@ class TestPullRequestCiTool
     }
 
     @Test
+    void bothProvidersExposeRawLogReadsForAutofixAndRejectInvalidOffsetsAndPaths()
+            throws Exception
+    {
+        List<String> reads = new ArrayList<>();
+        String logId = "a".repeat(64);
+        PermissionBroker broker = broker(taskId -> Optional.of(new PullRequestCiBridge(jobId -> "error excerpt", (id, offset) -> {
+            reads.add(id + ":" + offset);
+            return "complete raw page known-secret";
+        }, PullRequestCiBridge.INSTRUCTION)), ReviewBridgeResolver.NONE);
+        try (CodeGraphRegistration codex = broker.registerTools(
+                "ci-task", temporaryDirectory, AgentPermissionPolicy.CI_AUTOFIX,
+                (request, timeout) -> CompletableFuture.completedFuture(ProviderApprovalDecision.deny()), redactor, Optional.empty()).orElseThrow();
+                McpConfigRegistration claude = broker.register(
+                        "ci-task", temporaryDirectory, temporaryDirectory, temporaryDirectory, AgentPermissionPolicy.CI_AUTOFIX, false,
+                        (request, timeout) -> CompletableFuture.completedFuture(ProviderApprovalDecision.deny()), redactor, Optional.empty())) {
+            for (String token : ImmutableList.of(codex.token(), claude.token())) {
+                assertThat(list(broker, token).at("/result/tools").findValuesAsText("name"))
+                        .contains(PullRequestCiBridge.TOOL_NAME, PullRequestCiBridge.RAW_TOOL_NAME);
+                assertThat(text(callRaw(broker, token, "{\"logId\":\"" + logId + "\"}"))).isEqualTo("complete raw page [REDACTED]");
+                assertThat(text(callRaw(broker, token, "{\"logId\":\"" + logId + "\",\"offset\":32768}"))).contains("complete raw page");
+                for (String arguments : ImmutableList.of("{}", "{\"logId\":\"../outside\"}",
+                        "{\"logId\":\"" + logId + "\",\"offset\":-1}", "{\"logId\":\"" + logId + "\",\"offset\":1.5}",
+                        "{\"logId\":\"" + logId + "\",\"taskId\":\"other\"}")) {
+                    assertThat(callRaw(broker, token, arguments).at("/error/code").intValue()).isEqualTo(-32602);
+                }
+            }
+            assertThat(reads).containsExactly(logId + ":0", logId + ":32768", logId + ":0", logId + ":32768");
+        }
+    }
+
+    @Test
     void rejectsScopeOverridesAndInvalidJobIdsBeforeReading()
             throws Exception
     {
         PermissionBroker broker = broker(taskId -> Optional.of(new PullRequestCiBridge(jobId -> {
             throw new AssertionError("Invalid tool arguments reached the CI reader");
-        }, PullRequestCiBridge.INSTRUCTION)), ReviewBridgeResolver.NONE);
+        }, (logId, offset) -> "raw", PullRequestCiBridge.INSTRUCTION)), ReviewBridgeResolver.NONE);
         try (CodeGraphRegistration registration = broker.registerTools(
                 "task-1", temporaryDirectory, AgentPermissionPolicy.AUTO,
                 (request, timeout) -> CompletableFuture.completedFuture(ProviderApprovalDecision.deny()), redactor, Optional.empty()).orElseThrow()) {
@@ -116,7 +147,7 @@ class TestPullRequestCiTool
             throw new AssertionError("Restricted profile must not resolve pull-request CI");
         };
         PermissionBroker broker = broker(reader, ReviewBridgeResolver.NONE);
-        for (AgentPermissionPolicy policy : ImmutableList.of(AgentPermissionPolicy.CI_AUTOFIX, AgentPermissionPolicy.CHERRY_PICK)) {
+        for (AgentPermissionPolicy policy : ImmutableList.of(AgentPermissionPolicy.CHERRY_PICK)) {
             try (McpConfigRegistration claude = broker.register(
                     "task-1", temporaryDirectory, temporaryDirectory, temporaryDirectory, policy, false,
                     (request, timeout) -> CompletableFuture.completedFuture(ProviderApprovalDecision.deny()), redactor, Optional.empty())) {
@@ -157,14 +188,13 @@ class TestPullRequestCiTool
     {
         PermissionBroker broker = broker(taskId -> Optional.of(new PullRequestCiBridge(jobId -> {
             throw new IllegalStateException("known-secret " + "x".repeat(PullRequestCiBridge.MAXIMUM_OUTPUT_LENGTH));
-        }, PullRequestCiBridge.INSTRUCTION)), ReviewBridgeResolver.NONE);
+        }, (logId, offset) -> "raw", PullRequestCiBridge.INSTRUCTION)), ReviewBridgeResolver.NONE);
         try (CodeGraphRegistration registration = broker.registerTools(
                 "task-1", temporaryDirectory, AgentPermissionPolicy.AUTO,
                 (request, timeout) -> CompletableFuture.completedFuture(ProviderApprovalDecision.deny()), redactor, Optional.empty()).orElseThrow()) {
             JsonNode response = call(broker, registration.token(), "{}");
             assertThat(response.at("/result/isError").booleanValue()).isTrue();
-            assertThat(text(response)).hasSize(PullRequestCiBridge.MAXIMUM_OUTPUT_LENGTH)
-                    .contains("[REDACTED]").doesNotContain("known-secret").endsWith("[Output truncated by ByteQuay]");
+            assertThat(text(response)).contains("no partial log was returned").doesNotContain("known-secret");
         }
     }
 
@@ -187,6 +217,14 @@ class TestPullRequestCiTool
     {
         return broker.handle(token, objectMapper.readTree("""
                 {"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"read_pull_request_ci","arguments":%s}}
+                """.formatted(arguments))).body().orElseThrow();
+    }
+
+    private JsonNode callRaw(PermissionBroker broker, String token, String arguments)
+            throws Exception
+    {
+        return broker.handle(token, objectMapper.readTree("""
+                {"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"read_ci_raw_log","arguments":%s}}
                 """.formatted(arguments))).body().orElseThrow();
     }
 

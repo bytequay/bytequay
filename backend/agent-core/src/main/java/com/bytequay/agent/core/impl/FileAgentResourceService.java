@@ -297,9 +297,21 @@ public final class FileAgentResourceService
     @Override
     public void delete(TaskId taskId)
     {
+        deleteDirectory(taskId, pathsForDeletion(taskId).runtimeDirectory());
+    }
+
+    @Override
+    public void deleteWorktreeCache(TaskId taskId)
+    {
+        Path directory = pathsForDeletion(taskId).worktreeCacheDirectory();
+        rejectSymbolicLinks(runtimeRoot, directory);
+        deleteDirectory(taskId, directory);
+    }
+
+    private void deleteDirectory(TaskId taskId, Path taskDirectory)
+    {
         requireNonNull(taskId, "taskId is null");
         try {
-            Path taskDirectory = pathsForDeletion(taskId).runtimeDirectory();
             if (!Files.exists(taskDirectory, NOFOLLOW_LINKS)) {
                 return;
             }

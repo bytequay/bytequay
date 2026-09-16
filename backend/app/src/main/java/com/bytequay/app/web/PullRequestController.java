@@ -310,6 +310,15 @@ public class PullRequestController
         pullRequests.markReadyForReview(repo, number);
     }
 
+    @GetMapping("/prs/checks/log")
+    public Map<String, String> readCheckLog(
+            @RequestParam("repo") String repo,
+            @RequestParam("number") int number,
+            @RequestParam("jobId") long jobId)
+    {
+        return ImmutableMap.of("text", pullRequests.readCheckLog(repo, number, jobId));
+    }
+
     @PostMapping("/prs/checks/rerun-failed")
     @ResponseStatus(HttpStatus.NO_CONTENT)
     public void rerunFailedChecks(

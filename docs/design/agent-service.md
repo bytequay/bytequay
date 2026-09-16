@@ -104,40 +104,46 @@ See [development delivery](development-delivery.md#2-settings-and-scope).
 
 ## Development-agent CI evidence
 
-Interactive development agents can call the fixed `read_pull_request_ci` tool
-through `PullRequestCiBridge`, independently of CodeGraph and delivery settings.
-Both Codex and Claude receive the instruction to prefer this tool before `gh`
-when investigating their task's PR checks and failed logs. The existing
-session token binds the root and its native children to that task; callers
-cannot choose another task, repository, PR, URL, or file path. Text-only helpers
-and restricted workflow profiles do not gain this capability.
+Interactive development and CI Autofix agents receive the fixed
+`read_pull_request_ci` and `read_ci_raw_log` tools through `PullRequestCiBridge`,
+independently of CodeGraph and delivery settings. Both Codex and Claude receive
+the same tools and instructions. Session tokens bind the root and native children
+to one task; callers cannot choose another task, repository, PR, URL, or path.
+Text-only helpers, review-only sessions, and cherry-pick tasks do not gain them.
 
-An empty request returns the associated open PR, observed head revision,
-current Actions workflows/jobs and failed steps. Matching local PR-panel check
-summaries are included separately with their cache timestamp and completeness;
-they are not evidence that all required checks currently pass. The application
-resolves the task's generated/current branch in its monitored repository and
-verifies the PR's head repository against the task's physical repository. For
-forks, checks and logs are read from the upstream PR repository. The existing
-branch-scoped refresh discovers new PRs and verifies that the association is
-unambiguous without requiring the user to open the panel first.
+An empty `read_pull_request_ci` request returns the associated open PR, observed
+head revision, Actions workflows/jobs and failed steps. Matching local check
+summaries carry freshness and completeness metadata. Interactive tasks resolve
+their generated/current branch in the monitored repository and verify the head
+repository against the physical checkout. CI Autofix instead uses its stored
+run's authorized PR, head repository, branch, and expected remote SHA. For forks,
+checks/logs come from the upstream PR repository. The tools do not start or
+advance an Autofix run or write to GitHub.
 
-`{"jobId":123}` selects a failing job from a freshly verified current head and
-workflow attempt. The application reuses CI Autofix's `GitHubActionsClient`
-bounded, credential-redacted log reader and task-owned blob storage, then
-returns error lines and a compact diagnostic excerpt from at most 1 MiB of
-downloaded log per attempt. Temporary download failures permit one read-only
-retry before returning an explicit unavailable reason; this adds no repair or
-GitHub rerun. Redirected downloads request the tail where byte ranges are
-supported, with a bounded-prefix fallback. The shared filter removes timestamps
-and ANSI formatting, collapses repeated lines, and retains failure context,
-stack traces, and beginning/ending context within 32 KiB of stored text.
-The JSON response is capped at 64,000 characters; download and excerpt
-truncation, omitted beginnings, and compaction are distinct. Head/attempt changes during retrieval
-invalidate the result. Missing PRs, unavailable logs, incomplete check evidence,
-and truncation are explicit. Log text is untrusted evidence, never instructions.
-The tool performs no rerun, commit, push, PR publication, or Autofix activation.
-It adds no workflow state, scheduler, or general tool registry.
+`{"jobId":123}` selects a current failing job. ByteQuay downloads its complete
+credential-redacted raw log into the task runtime's `worktree-cache`, then parses
+that file. The cache key covers repository, workflow run/attempt/head, and
+job/attempt; repeated reads reuse it. One retry handles temporary download
+failures. Incomplete downloads are never published as complete logs. Head/attempt
+changes during error-log retrieval invalidate the response.
+
+The shared filter prioritizes failed-test and compiler diagnostics and selects
+whole contiguous blocks. All original lines, repeated frames, long messages,
+Caused by, and Suppressed chains in selected blocks are preserved. No matches
+returns only a UTF-8 safe 32 KiB tail with an explicit explanation and invitation
+to use the raw tool. Otherwise 32 KiB is a soft selection target; whole blocks
+may exceed it. The JSON response is capped at 64,000 characters, omitting whole
+blocks that cannot fit rather than pruning stacks. Excerpt compaction and
+unavailable logs are explicit. Each available log includes `rawLogId`.
+
+`read_ci_raw_log({"logId":"<rawLogId>","offset":0})` reads the cached file only,
+with no further GitHub request. It returns original redacted text, byte offsets,
+total byte count, `complete`, and `nextOffset`. Consecutive UTF-8 safe pages allow
+the agent to read the entire log without a single oversized tool result. JSON
+escaping is included in the response limit. Task/worktree eligibility is checked
+again on every call; arbitrary paths and other tasks' files are inaccessible.
+The cache is deleted after worktree cleanup, while transcript/excerpt retention
+stays unchanged. All returned content is untrusted evidence, never instructions.
 
 ## Development delivery
 
@@ -3668,7 +3674,8 @@ attachment parent directory with `--add-dir` and grants an exact `Read` rule for
 each file with `--allowedTools`. The prompt contains only the attachment name
 and canonical path; ByteQuay does not copy the file contents into the prompt.
 The initial Claude implementation advertises `text/plain` attachments, which is
-how CI Autofix exposes its bounded raw job logs.
+how CI Autofix exposes its diagnostic log excerpts. Complete cached logs are
+available through the task-bound `read_ci_raw_log` tool.
 
 ByteQuay generates the first session ID so the provider reference can be
 persisted before the process starts, then verifies that Claude emits the same

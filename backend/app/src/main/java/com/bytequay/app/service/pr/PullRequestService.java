@@ -348,6 +348,12 @@ public class PullRequestService
         return merges.hasMergeQueue(pat, RepoRef.of(ref.owner(), ref.repo()), baseRef);
     }
 
+    public String readCheckLog(String repo, int number, long jobId)
+    {
+        checkArgument(jobId > 0, "jobId must be positive");
+        return snapshots.readCheckLog(parseRef(repo, number), jobId);
+    }
+
     public void rerunFailedChecks(String repo, int number)
     {
         snapshots.rerunFailedChecks(parseRef(repo, number));

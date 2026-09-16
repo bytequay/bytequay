@@ -302,6 +302,11 @@ quiescent terminal result, cleanup removes the worktree and retains its local
 branch, including after a verified push. Dirty or uncertain work remains for
 inspection; this contract has no discard operation.
 
+After successful worktree cleanup, the owning agent completion service removes
+the task runtime's disposable `worktree-cache` (including complete CI logs) before
+recording `worktreeRemovedAt`. Cache deletion failure remains retryable; transcript
+and excerpt blobs retain their normal task-history lifetime.
+
 ### Branch Rebase
 
 Branch Rebase receives the owner's `TaskWorktree`, inspects it, and uses it. It

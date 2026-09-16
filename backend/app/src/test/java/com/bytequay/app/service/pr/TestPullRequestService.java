@@ -467,6 +467,33 @@ class TestPullRequestService
     }
 
     @Test
+    void readsOnlyAFailedJobOnTheRequestedPullRequest()
+    {
+        PullRequestRef ref = PullRequestRef.of("owner", "repo", 7);
+        String headSha = "1111111111111111111111111111111111111111";
+        CiJob failed = new CiJob(301, 101, "test", 3, "completed", Optional.of("failure"),
+                "https://github.com/owner/repo/actions/runs/101/job/301", ImmutableList.of());
+        CiJob passing = new CiJob(302, 101, "build", 3, "completed", Optional.of("success"),
+                "https://github.com/owner/repo/actions/runs/101/job/302", ImmutableList.of());
+        CiWorkflowRun run = new CiWorkflowRun(101, 201, "CI", 3, "completed", Optional.of("failure"), headSha,
+                "https://github.com/owner/repo/actions/runs/101", ImmutableList.of(failed, passing));
+        when(actions.inspect(new InspectCiHeadQuery(ref))).thenReturn(new CiHeadSnapshot(
+                ref, true, "alice", RepoRef.of("owner", "repo"), "feature", headSha, "main",
+                "2222222222222222222222222222222222222222", "https://github.com/owner/repo/pull/7", ImmutableList.of(run)));
+        when(actions.readJobLog(ref, 301)).thenReturn("test failed");
+
+        assertThat(service.readCheckLog("owner/repo", 7, 301)).isEqualTo("test failed");
+        for (long jobId : ImmutableList.of(302L, 999L)) {
+            assertThatThrownBy(() -> service.readCheckLog("owner/repo", 7, jobId))
+                    .isInstanceOf(ResponseStatusException.class)
+                    .hasMessageContaining("no longer part of the current PR checks");
+            verify(actions, never()).readJobLog(ref, jobId);
+        }
+        assertThatThrownBy(() -> service.readCheckLog("owner/repo", 7, 0)).isInstanceOf(IllegalArgumentException.class);
+        verify(actions, never()).rerunFailedJobs(any());
+    }
+
+    @Test
     void rerunsFailedGitHubActionsForTheCurrentHead()
     {
         PullRequestRef ref = PullRequestRef.of("owner", "repo", 7);

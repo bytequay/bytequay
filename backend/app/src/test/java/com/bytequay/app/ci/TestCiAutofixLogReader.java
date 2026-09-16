@@ -106,7 +106,8 @@ class TestCiAutofixLogReader
 
         CiAutofixAttempt attempt = CiAutofixAttempt.create(CiAutofixAttemptId.random(), CiAutofixRunId.random(), 1, HEAD_SHA, failures, Instant.EPOCH);
         assertThat(new CiAutofixPromptBuilder().build(snapshot, attempt))
-                .contains("log unavailable: GitHub returned HTTP 404", "2 additional failed jobs omitted", "CI log excerpts", "content may be omitted", "untrusted evidence");
+                .contains("log unavailable: GitHub returned HTTP 404", "2 additional failed jobs omitted", "CI log excerpts",
+                        "every original line and stack frame", "last 32 KiB", "read_pull_request_ci", "read_ci_raw_log", "untrusted evidence");
     }
 
     private static BoundedCiLog log(long jobId)
@@ -118,7 +119,7 @@ class TestCiAutofixLogReader
                 jobId == 5,
                 jobId == 3,
                 ImmutableList.of("error: compilation failed"),
-                Optional.empty());
+                Optional.empty(), Optional.empty(), true);
     }
 
     private static CiHeadSnapshot snapshot()

@@ -2699,7 +2699,7 @@ class TestCodexCliDriver
         supervisor.reportModelVersion(Optional.of("v2"));
         supervisor.configBody = "{\"mcp_servers\":{\"bytequay\":{\"url\":\"" + MCP_ENDPOINT + "\",\"default_tools_approval_mode\":\"approve\"}}}";
         supervisor.mcpStatuses = "{\"data\":[{\"name\":\"bytequay\",\"pluginId\":null}],\"nextCursor\":null}";
-        PullRequestCiBridge ci = new PullRequestCiBridge(jobId -> "No pull request associated yet", PullRequestCiBridge.INSTRUCTION);
+        PullRequestCiBridge ci = new PullRequestCiBridge(jobId -> "No pull request associated yet", (logId, offset) -> "raw", PullRequestCiBridge.INSTRUCTION);
         PermissionBroker broker = new PermissionBroker(
                 () -> URI.create(MCP_ENDPOINT), objectMapper, (taskId, query) -> "",
                 ReviewBridgeResolver.NONE, DevelopmentResultBridgeResolver.NONE, DraftPullRequestPublisher.NONE, LocalReviewBridgeResolver.NONE,
@@ -2719,7 +2719,7 @@ class TestCodexCliDriver
             JsonNode listed = broker.handle(token, objectMapper.readTree("""
                     {"jsonrpc":"2.0","id":1,"method":"tools/list","params":{}}
                     """)).body().orElseThrow();
-            assertThat(listed.at("/result/tools").findValuesAsText("name")).containsExactly(PullRequestCiBridge.TOOL_NAME);
+            assertThat(listed.at("/result/tools").findValuesAsText("name")).containsExactly(PullRequestCiBridge.TOOL_NAME, PullRequestCiBridge.RAW_TOOL_NAME);
             reference = Optional.of(session.reference());
             session.close();
             assertThat(broker.handle(token, objectMapper.readTree("{}")).status()).isEqualTo(401);

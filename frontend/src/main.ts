@@ -1446,6 +1446,11 @@ function registerIpc(): void {
     const url = prUrl(`/prs/review-comments/${commentId}/resolution`, repo, number);
     return backendVoid(url, jsonInit('POST', { resolved }));
   });
+  ipcMain.handle('prs:checks:log', (_event, repo: string, number: number, jobId: number) => {
+    const url = prUrl('/prs/checks/log', repo, number);
+    url.searchParams.set('jobId', String(jobId));
+    return backendJson(url);
+  });
   ipcMain.handle('prs:checks:rerun-failed', (_event, repo: string, number: number) =>
     backendVoid(prUrl('/prs/checks/rerun-failed', repo, number), { method: 'POST' }));
   ipcMain.handle('prs:review', (

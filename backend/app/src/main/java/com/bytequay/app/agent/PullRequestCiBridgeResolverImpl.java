@@ -19,18 +19,23 @@ import com.bytequay.agent.core.TaskState;
 import com.bytequay.agent.core.TaskWorktree;
 import com.bytequay.agent.core.store.AgentTaskStore;
 import com.bytequay.agent.core.store.TaskLogStore;
+import com.bytequay.agent.spi.AgentPermissionPolicy;
 import com.bytequay.agent.spi.PullRequestCiBridge;
 import com.bytequay.agent.spi.PullRequestCiBridgeResolver;
 import com.bytequay.app.ci.BoundedCiLog;
 import com.bytequay.app.ci.CiHeadSnapshot;
 import com.bytequay.app.ci.CiJob;
 import com.bytequay.app.ci.CiLogExcerpt;
+import com.bytequay.app.ci.CiRawLogPage;
+import com.bytequay.app.ci.CiRawLogStore;
 import com.bytequay.app.ci.CiWorkflowRun;
 import com.bytequay.app.ci.GitHubActionsClient;
 import com.bytequay.app.ci.InspectCiHeadQuery;
 import com.bytequay.app.ci.ReadCiLogQuery;
 import com.bytequay.app.service.pr.PullRequestService;
 import com.bytequay.app.workspace.ManagedWorktreeService;
+import com.bytequay.core.ci.CiAutofixRun;
+import com.bytequay.core.ci.CiAutofixStore;
 import com.bytequay.core.domain.PrCheckRunState;
 import com.bytequay.core.domain.PullRequest;
 import com.bytequay.core.domain.PullRequestRef;
@@ -74,11 +79,13 @@ public class PullRequestCiBridgeResolverImpl
     private final GitHubActionsClient actions;
     private final TaskLogStore logs;
     private final ObjectMapper objectMapper;
+    private final CiRawLogStore rawLogs;
+    private final CiAutofixStore ciRuns;
 
     public PullRequestCiBridgeResolverImpl(
             AgentTaskStore tasks, WorkspaceStore workspaces, ManagedWorktreeService worktrees,
             PullRequestStore pullRequests, PullRequestService pullRequestCatalog, PrDetailStore details,
-            GitHubActionsClient actions, TaskLogStore logs, ObjectMapper objectMapper)
+            GitHubActionsClient actions, TaskLogStore logs, ObjectMapper objectMapper, CiRawLogStore rawLogs, CiAutofixStore ciRuns)
     {
         this.tasks = requireNonNull(tasks, "tasks is null");
         this.workspaces = requireNonNull(workspaces, "workspaces is null");
@@ -89,20 +96,22 @@ public class PullRequestCiBridgeResolverImpl
         this.actions = requireNonNull(actions, "actions is null");
         this.logs = requireNonNull(logs, "logs is null");
         this.objectMapper = requireNonNull(objectMapper, "objectMapper is null");
+        this.rawLogs = requireNonNull(rawLogs, "rawLogs is null");
+        this.ciRuns = requireNonNull(ciRuns, "ciRuns is null");
     }
 
     @Override
     public Optional<PullRequestCiBridge> resolve(String taskId)
     {
         TaskId id = TaskId.valueOf(taskId);
-        return eligibleTask(id).map(task -> new PullRequestCiBridge(jobId -> read(id, jobId), PullRequestCiBridge.INSTRUCTION));
+        return eligibleTask(id).map(task -> new PullRequestCiBridge(jobId -> read(id, jobId), (logId, offset) -> readRaw(id, logId, offset), PullRequestCiBridge.INSTRUCTION));
     }
 
     private Optional<AgentTask> eligibleTask(TaskId taskId)
     {
         return tasks.find(taskId)
-                .filter(task -> task.interactive() && task.state() == TaskState.OPEN)
-                .filter(task -> !task.permissionPolicy().unattended())
+                .filter(task -> task.state() == TaskState.OPEN)
+                .filter(task -> (task.interactive() && !task.permissionPolicy().unattended()) || task.permissionPolicy() == AgentPermissionPolicy.CI_AUTOFIX)
                 .filter(task -> task.taskWorktree().isPresent() && task.worktreeRemovedAt().isEmpty());
     }
 
@@ -110,11 +119,18 @@ public class PullRequestCiBridgeResolverImpl
     {
         return eligibleTask(taskId).flatMap(task -> {
             TaskWorktree worktree = task.taskWorktree().orElseThrow();
+            if (task.permissionPolicy() == AgentPermissionPolicy.CI_AUTOFIX) {
+                return ciRuns.findByAgentTaskId(taskId.toString())
+                        .filter(run -> run.status() != CiAutofixRun.Status.FINISHED && run.scope().workspaceId().equals(worktree.workspaceId()))
+                        .filter(run -> run.scope().physicalRepository().orElse(run.scope().headRepository()).equals(physicalRepository(worktree)))
+                        .map(run -> new Scope(worktree, RepoRef.of(run.scope().pullRequest().owner(), run.scope().pullRequest().repo()), run.scope().headRepository(),
+                                ImmutableList.of(run.scope().headRef()), Optional.of(run.scope().pullRequest()), Optional.of(run.expectedRemoteHead())));
+            }
             return workspaces.findById(worktree.workspaceId())
                     .filter(workspace -> workspace.selectedRepository().fullName().equalsIgnoreCase(physicalRepository(worktree).fullName()))
-                    .map(workspace -> new Scope(worktree, workspace.monitoredRepository(),
+                    .map(workspace -> new Scope(worktree, workspace.monitoredRepository(), physicalRepository(worktree),
                             Stream.concat(Stream.of(worktree.generatedBranch()), worktrees.currentBranch(worktree).stream())
-                                    .distinct().collect(toImmutableList())));
+                                    .distinct().collect(toImmutableList()), Optional.empty(), Optional.empty()));
         });
     }
 
@@ -124,14 +140,24 @@ public class PullRequestCiBridgeResolverImpl
         try {
             Optional<Scope> resolved = scope(taskId);
             if (resolved.isEmpty()) {
-                return message("unavailable", "The development task is no longer open with an available worktree.");
+                return message("unavailable", "The task is no longer open with an available worktree.");
             }
             Scope scope = resolved.orElseThrow();
-            // A cached match does not prove that another matching PR was not created since the panel refreshed.
-            for (String branch : scope.branches()) {
-                pullRequestCatalog.syncRepositoryBranch(scope.repository(), scope.worktree().physicalRepository().owner(), branch);
+            List<Candidate> candidates;
+            if (scope.pullRequest().isPresent()) {
+                CiHeadSnapshot head = actions.inspect(new InspectCiHeadQuery(scope.pullRequest().orElseThrow()));
+                if (!head.pullRequest().equals(scope.pullRequest().orElseThrow()) || !matches(scope, head)) {
+                    return message("stale", "The CI Autofix pull request no longer matches this task's authorized head.");
+                }
+                candidates = ImmutableList.of(new Candidate(-1, head));
             }
-            List<Candidate> candidates = candidates(scope);
+            else {
+                // A cached match cannot rule out another matching PR created since the panel refreshed.
+                for (String branch : scope.branches()) {
+                    pullRequestCatalog.syncRepositoryBranch(scope.repository(), scope.worktree().physicalRepository().owner(), branch);
+                }
+                candidates = candidates(scope);
+            }
             if (!scope(taskId).filter(scope::equals).isPresent()) {
                 return message("unavailable", "The task or worktree changed while reading its pull request.");
             }
@@ -175,8 +201,9 @@ public class PullRequestCiBridgeResolverImpl
     {
         return head.open()
                 && head.pullRequest().repoFullName().equalsIgnoreCase(scope.repository().fullName())
-                && head.headRepository().fullName().equalsIgnoreCase(physicalRepository(scope.worktree()).fullName())
-                && scope.branches().contains(head.headRef());
+                && head.headRepository().fullName().equalsIgnoreCase(scope.headRepository().fullName())
+                && scope.branches().contains(head.headRef())
+                && scope.expectedHead().map(head.headSha()::equals).orElse(true);
     }
 
     private String overview(TaskId taskId, Scope scope, Candidate candidate)
@@ -219,6 +246,9 @@ public class PullRequestCiBridgeResolverImpl
     {
         CiHeadSnapshot head = candidate.head();
         ObjectNode cached = result.putObject("cachedChecks").put("available", false).put("cached", true).put("checksComplete", false);
+        if (candidate.rowId() < 0) {
+            return;
+        }
         Optional<StoredPrDetail> stored = details.find(candidate.rowId()).filter(value -> head.headSha().equals(value.raw().headSha()));
         if (stored.isEmpty()) {
             return;
@@ -257,7 +287,8 @@ public class PullRequestCiBridgeResolverImpl
         CiWorkflowRun run = workflow.orElseThrow();
         CiJob job = run.jobs().stream().filter(value -> value.id() == jobId).findFirst().orElseThrow();
         BoundedCiLog fetched = actions.readLog(new ReadCiLogQuery(taskId, head.pullRequest(), run, job, MAXIMUM_LOG_BYTES));
-        String contents = fetched.blob().map(blob -> StandardCharsets.UTF_8.decode(logs.readBlob(taskId, blob)).toString()).orElse("");
+        String contents = fetched.rawLogId().map(logId -> rawLogs.read(taskId, logId))
+                .orElseGet(() -> fetched.blob().map(blob -> StandardCharsets.UTF_8.decode(logs.readBlob(taskId, blob)).toString()).orElse(""));
         CiHeadSnapshot after = actions.inspect(new InspectCiHeadQuery(head.pullRequest()));
         if (!scope(taskId).filter(scope::equals).isPresent()) {
             return message("unavailable", "The task or worktree changed while reading the CI log.");
@@ -273,6 +304,11 @@ public class PullRequestCiBridgeResolverImpl
         ObjectNode result = anchor(head);
         ObjectNode log = result.putObject("log").put("jobId", job.id()).put("workflowRunId", run.id()).put("attempt", job.attempt())
                 .put("downloadTruncated", fetched.truncated() || fetched.omittedBeginning()).put("unavailableReason", fetched.unavailableReason().orElse(null));
+        log.put("rawLogId", fetched.rawLogId().orElse(null)).put("diagnosticsMatched", fetched.diagnosticsMatched());
+        log.put("message", fetched.unavailableReason().orElseGet(() -> fetched.diagnosticsMatched()
+                ? "Error blocks selected from the cached raw log. Use read_ci_raw_log with logId set to rawLogId for complete evidence."
+                : "No diagnostic keywords or stack trace matched. Only the log tail (at most 32 KiB) is shown. "
+                        + "Call read_ci_raw_log with logId set to rawLogId for the full cached log."));
         ArrayNode errors = log.putArray("terminalErrorLines");
         log.put("terminalErrorLinesOmitted", fetched.terminalErrorLines().size());
         for (String error : fetched.terminalErrorLines()) {
@@ -283,9 +319,9 @@ public class PullRequestCiBridgeResolverImpl
             }
         }
         log.put("terminalErrorLinesOmitted", fetched.terminalErrorLines().size() - errors.size());
-        int excerptBudget = 24_000;
+        int excerptBudget = PullRequestCiBridge.MAXIMUM_OUTPUT_LENGTH - json(result).length() - 1024;
         while (true) {
-            CiLogExcerpt excerpt = CiLogExcerpt.from(contents, excerptBudget);
+            CiLogExcerpt excerpt = CiLogExcerpt.from(contents, Math.min(32 * 1024, excerptBudget), excerptBudget);
             boolean compacted = fetched.compacted() || excerpt.compacted();
             log.put("excerpt", excerpt.text()).put("excerptOmittedBeginning", fetched.omittedBeginning())
                     .put("excerptOmittedEnd", fetched.truncated()).put("excerptCompacted", compacted)
@@ -294,6 +330,40 @@ public class PullRequestCiBridgeResolverImpl
                 return json(result);
             }
             excerptBudget = Math.max(1, excerptBudget / 2);
+        }
+    }
+
+    private String readRaw(TaskId taskId, String logId, long offset)
+    {
+        try {
+            Optional<Scope> before = scope(taskId);
+            if (before.isEmpty()) {
+                return message("unavailable", "The task worktree is no longer available.");
+            }
+            int budget = 32 * 1024;
+            while (true) {
+                CiRawLogPage page = rawLogs.page(taskId, logId, offset, budget);
+                if (!scope(taskId).equals(before)) {
+                    return message("unavailable", "The task worktree changed while reading its cached raw log.");
+                }
+                boolean complete = page.nextOffset() == page.totalBytes();
+                ObjectNode result = objectMapper.createObjectNode().put("status", "available").put("untrusted", true)
+                        .put("logId", logId).put("offset", offset).put("totalBytes", page.totalBytes()).put("complete", complete).put("text", page.text());
+                if (complete) {
+                    result.putNull("nextOffset");
+                }
+                else {
+                    result.put("nextOffset", page.nextOffset());
+                }
+                String json = json(result);
+                if (json.length() <= PullRequestCiBridge.MAXIMUM_OUTPUT_LENGTH) {
+                    return json;
+                }
+                budget = Math.max(4, budget / 2);
+            }
+        }
+        catch (RuntimeException failure) {
+            return message("unavailable", "No readable cached raw log at this offset. Request the error log first, then use its logId and returned nextOffset.");
         }
     }
 
@@ -363,7 +433,9 @@ public class PullRequestCiBridgeResolverImpl
         return RepoRef.of(worktree.physicalRepository().owner(), worktree.physicalRepository().name());
     }
 
-    private record Scope(TaskWorktree worktree, RepoRef repository, List<String> branches) {}
+    private record Scope(
+            TaskWorktree worktree, RepoRef repository, RepoRef headRepository, List<String> branches,
+            Optional<PullRequestRef> pullRequest, Optional<String> expectedHead) {}
 
     private record Candidate(long rowId, CiHeadSnapshot head) {}
 }

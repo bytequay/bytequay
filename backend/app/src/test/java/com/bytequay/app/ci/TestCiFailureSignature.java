@@ -84,6 +84,6 @@ class TestCiFailureSignature
                 false,
                 false,
                 errors,
-                Optional.empty());
+                Optional.empty(), Optional.empty(), true);
     }
 }

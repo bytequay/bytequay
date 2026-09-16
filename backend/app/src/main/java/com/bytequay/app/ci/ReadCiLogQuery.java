@@ -20,6 +20,7 @@ import static com.bytequay.app.ci.CiActionsChecks.checkPullRequest;
 import static com.google.common.base.Preconditions.checkArgument;
 import static java.util.Objects.requireNonNull;
 
+/** The byte limit bounds the returned excerpt, not the complete raw download. */
 public record ReadCiLogQuery(
         TaskId taskId,
         PullRequestRef pullRequest,

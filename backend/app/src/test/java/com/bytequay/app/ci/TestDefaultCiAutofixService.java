@@ -269,7 +269,7 @@ class TestDefaultCiAutofixService
                 false,
                 false,
                 ImmutableList.of("error: compilation failed"),
-                Optional.empty()));
+                Optional.empty(), Optional.empty(), true));
         when(worktreeService.inspect(any())).thenAnswer(invocation ->
                 new WorktreeSnapshot(invocation.getArgument(0), HEAD, false, false));
         when(taskService.create(any())).thenAnswer(invocation -> task(invocation.getArgument(0)));

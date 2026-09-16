@@ -309,7 +309,8 @@ public final class PermissionBroker
         Optional<ReviewBridge> review = reviews.resolve(taskId);
         Optional<DevelopmentResultBridge> development = textOnly || review.isPresent() ? Optional.empty() : developments.resolve(taskId);
         Optional<LocalReviewBridge> localReview = textOnly ? Optional.empty() : localReviews.resolve(taskId);
-        Optional<PullRequestCiBridge> pullRequestCi = permissionPolicy.allowsGitHubCommands(textOnly, review.isPresent())
+        Optional<PullRequestCiBridge> pullRequestCi = !textOnly && (permissionPolicy == AgentPermissionPolicy.CI_AUTOFIX
+                || permissionPolicy.allowsGitHubCommands(false, review.isPresent()))
                 ? pullRequestChecks.resolve(taskId) : Optional.empty();
         return new PermissionContext(taskId, worktree, permissionPolicy, approvals, redactor, permissionTools, codeGraph, review, development, localReview, pullRequestCi);
     }
@@ -374,23 +375,37 @@ public final class PermissionBroker
             case CodeGraphBridge.TOOL_NAME -> codeGraphExplore(request.id(), params.arguments(), context);
             case DevelopmentResultBridge.TOOL_NAME -> developmentResult(request.id(), params.arguments(), context);
             case DevelopmentResultBridge.PUBLISH_TOOL_NAME -> createDraftPullRequest(request.id(), params.arguments(), context);
-            case PullRequestCiBridge.TOOL_NAME -> pullRequestCi(request.id(), params.arguments(), context);
+            case PullRequestCiBridge.TOOL_NAME, PullRequestCiBridge.RAW_TOOL_NAME -> pullRequestCi(request.id(), params.name(), params.arguments(), context);
             case LocalReviewBridge.LIST_TOOL, LocalReviewBridge.REPLY_TOOL, LocalReviewBridge.RESOLVE_TOOL -> localReviewTool(request.id(), params, context);
             default -> reviewTool(request.id(), params, context);
         };
     }
 
-    private McpHttpResponse pullRequestCi(JsonNode id, JsonNode arguments, PermissionContext context)
+    private McpHttpResponse pullRequestCi(JsonNode id, String tool, JsonNode arguments, PermissionContext context)
     {
         if (context.pullRequestCi().isEmpty()) {
             return error(id, -32602, "Unknown tool");
         }
-        Optional<Long> jobId;
+        Optional<Long> jobId = Optional.empty();
+        String logId = "";
+        long offset = 0;
+        boolean raw = tool.equals(PullRequestCiBridge.RAW_TOOL_NAME);
         try {
             checkArgument(arguments != null && arguments.isObject(), "arguments must be an object");
-            checkArgument(arguments.isEmpty() || arguments.size() == 1 && arguments.has("jobId"), "Only jobId may be supplied");
-            jobId = Optional.empty();
-            if (arguments.has("jobId")) {
+            if (raw) {
+                checkArgument(arguments.has("logId") && arguments.size() == (arguments.has("offset") ? 2 : 1), "Only logId and offset may be supplied");
+                checkArgument(arguments.path("logId").isTextual() && arguments.path("logId").asText().matches("[0-9a-f]{64}"), "logId must be a returned raw-log identifier");
+                logId = arguments.path("logId").asText();
+                if (arguments.has("offset")) {
+                    JsonNode selected = arguments.get("offset");
+                    checkArgument(selected.isIntegralNumber() && selected.canConvertToLong() && selected.longValue() >= 0, "offset must be a nonnegative integer");
+                    offset = selected.longValue();
+                }
+            }
+            else {
+                checkArgument(arguments.isEmpty() || arguments.size() == 1 && arguments.has("jobId"), "Only jobId may be supplied");
+            }
+            if (!raw && arguments.has("jobId")) {
                 JsonNode selected = arguments.get("jobId");
                 checkArgument(selected.isIntegralNumber() && selected.canConvertToLong() && selected.longValue() > 0, "jobId must be a positive integer");
                 jobId = Optional.of(selected.longValue());
@@ -404,7 +419,7 @@ public final class PermissionBroker
         try {
             PullRequestCiBridge bridge = pullRequestChecks.resolve(context.taskId())
                     .orElseThrow(() -> new IllegalStateException("Pull-request CI is unavailable for this task"));
-            text = bridge.read().apply(jobId);
+            text = raw ? bridge.readRaw().apply(logId, offset) : bridge.read().apply(jobId);
         }
         catch (RuntimeException failure) {
             text = "Unable to read pull-request CI: " + Optional.ofNullable(failure.getMessage()).orElse(failure.getClass().getSimpleName());
@@ -412,8 +427,8 @@ public final class PermissionBroker
         }
         text = context.redactor().redact(text);
         if (text.length() > PullRequestCiBridge.MAXIMUM_OUTPUT_LENGTH) {
-            String suffix = "\n[Output truncated by ByteQuay]";
-            text = text.substring(0, PullRequestCiBridge.MAXIMUM_OUTPUT_LENGTH - suffix.length()) + suffix;
+            text = "CI evidence exceeded the tool-response limit; no partial log was returned.";
+            failed = true;
         }
         return response(id, new ToolResult(ImmutableList.of(new TextContent("text", text)), failed));
     }
@@ -733,13 +748,25 @@ public final class PermissionBroker
             tools.add(codeGraphTool());
         }
         context.review().ifPresent(review -> review.tools().forEach(tool -> tools.add(new ToolDefinition(tool.name(), tool.description(), tool.inputSchema()))));
-        context.pullRequestCi().ifPresent(ignored -> tools.add(new ToolDefinition(
-                PullRequestCiBridge.TOOL_NAME,
-                "Read this task's current pull-request CI overview, or supply a returned failed jobId for its bounded log; unavailable and truncated evidence is marked",
-                ImmutableMap.of(
-                        "type", "object",
-                        "properties", ImmutableMap.of("jobId", ImmutableMap.of("type", "integer", "minimum", 1, "maximum", Long.MAX_VALUE)),
-                        "additionalProperties", false))));
+        context.pullRequestCi().ifPresent(ignored -> {
+            tools.add(new ToolDefinition(
+                    PullRequestCiBridge.TOOL_NAME,
+                    "Read current CI checks, or supply a failed jobId to cache the full raw log and extract error blocks; no matches returns a 32 KiB tail and a raw logId",
+                    ImmutableMap.of(
+                            "type", "object",
+                            "properties", ImmutableMap.of("jobId", ImmutableMap.of("type", "integer", "minimum", 1, "maximum", Long.MAX_VALUE)),
+                            "additionalProperties", false)));
+            tools.add(new ToolDefinition(
+                    PullRequestCiBridge.RAW_TOOL_NAME,
+                    "Read the cached complete credential-redacted raw CI log. Use logId from the error log and follow nextOffset until complete; no download occurs",
+                    ImmutableMap.of(
+                            "type", "object",
+                            "properties", ImmutableMap.of(
+                                    "logId", ImmutableMap.of("type", "string", "pattern", "^[0-9a-f]{64}$"),
+                                    "offset", ImmutableMap.of("type", "integer", "minimum", 0, "maximum", Long.MAX_VALUE)),
+                            "required", ImmutableList.of("logId"),
+                            "additionalProperties", false)));
+        });
         context.localReview().ifPresent(ignored -> {
             Map<String, Object> identifier = ImmutableMap.of("type", "string", "minLength", 1, "maxLength", LocalReviewBridge.MAXIMUM_ID_LENGTH);
             tools.add(new ToolDefinition(

@@ -135,7 +135,7 @@ final class ScriptedGitHubActionsClient
                 false,
                 false,
                 scripted.terminalErrorLines(),
-                Optional.empty());
+                Optional.empty(), Optional.empty(), true);
     }
 
     @Override

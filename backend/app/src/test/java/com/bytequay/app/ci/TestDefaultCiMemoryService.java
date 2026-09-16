@@ -243,6 +243,11 @@ class TestDefaultCiMemoryService
             implements AgentResourceService
     {
         @Override
+        public void deleteWorktreeCache(TaskId taskId)
+        {
+        }
+
+        @Override
         public void validateAttachment(StoreAgentAttachmentCommand command)
         {
             throw new UnsupportedOperationException();

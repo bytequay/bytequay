@@ -15,6 +15,7 @@
 import { flushSync } from 'react-dom';
 import { createRoot } from 'react-dom/client';
 import type { AgentStreamMessage, Bridge, DiffCommitDto, DiffFileDto, InlineReviewCommentDto, PullRequestDetailDto, PullTimelinePayloadDto } from '../../types';
+import PullOverview from '../PullOverview';
 import PullsScreen, { remotePullRequest, ReviewDialog } from '../PullsScreen';
 import ReviewTaskScreen from '../../agents/ReviewTaskScreen';
 import type { AgentEventEnvelope } from '../../agents/events';
@@ -491,5 +492,76 @@ export async function runSelectionStability(): Promise<string> {
     flushSync(() => root.unmount());
     host.remove();
     Object.assign(window, { bridge: originalBridge });
+  }
+}
+
+export async function runCheckLogs(): Promise<string> {
+  const detail = reviewDetail(reviewFixture());
+  detail.ciStatus = 'FAILING';
+  detail.checkRuns = [{ githubId: 999, name: 'Unit tests', status: 'completed', conclusion: 'failure',
+    detailsUrl: 'https://github.com/owner/repo/actions/runs/101/job/301', source: 'check_run',
+    startedAt: null, completedAt: null, category: 'failing' }];
+  const requests: ReturnType<typeof Promise.withResolvers<{ text: string }>>[] = [];
+  const opened: string[] = [];
+  Object.assign(window, { bridge: {
+    getUserProfile: async () => ({ login: 'bob' }),
+    openExternal: async (url: string) => { opened.push(url); },
+    getPrCheckLog: (repo: string, number: number, jobId: number) => {
+      assert(repo === detail.repo && number === detail.number && jobId === 301, 'Log requests must use the PR and Actions job ID, not the check-run ID');
+      const request = Promise.withResolvers<{ text: string }>();
+      requests.push(request);
+      return request.promise;
+    },
+  } });
+  const host = document.createElement('div');
+  document.body.append(host);
+  const root = createRoot(host);
+  const render = () => flushSync(() => root.render(<PullOverview pr={remotePullRequest(detail, 'bob')} detail={{ ...detail }} onRefresh={async () => {}} />));
+  const button = (text: string) => {
+    const found = [...host.querySelectorAll<HTMLButtonElement>('.pr-check button')].find(entry => entry.textContent?.trim() === text);
+    assert(found !== undefined, `Missing ${text} button`);
+    return found;
+  };
+  const click = (text: string) => flushSync(() => button(text).click());
+  try {
+    render();
+    await settle();
+    assert(requests.length === 0, 'Displaying failed checks must not download logs');
+    click('Open in GitHub');
+    assert(opened[0] === detail.checkRuns[0].detailsUrl, 'The browser action must open the selected check URL');
+    click('Show log');
+    assert(button('Loading…').disabled && host.querySelector('[role="status"]')?.textContent === 'Loading log…', 'Loading must be visible and prevent duplicate requests');
+    requests[0].resolve({ text: '<script>untrusted log</script>\nAssertion failed' });
+    await settle();
+    assert(host.querySelector('.pr-check__log pre')?.textContent?.includes('<script>untrusted log</script>') === true
+      && host.querySelector('.pr-check__log script') === null, 'The inline log must render under its row as plain text');
+    click('Hide log');
+    assert(host.querySelector('.pr-check__log') === null, 'Hide must collapse the excerpt');
+    click('Show log');
+    assert(Number(requests.length) === 1 && host.querySelector('.pr-check__log pre') !== null, 'Reopening must reuse the loaded log');
+    detail.number++;
+    render();
+    assert(host.querySelector('.pr-check__log') === null, 'Switching PR must clear the previous excerpt');
+    click('Show log');
+    requests[1].reject(new Error('Log expired'));
+    await settle();
+    assert(host.querySelector('.pr-check__log [role="alert"]')?.textContent === 'Log expired', 'Failed retrieval must show its reason');
+    click('Retry log');
+    requests[2].resolve({ text: '' });
+    await settle();
+    assert(host.querySelector('.pr-check__log pre')?.textContent === 'This job returned an empty log.', 'Retry must handle an empty log');
+    detail.checkRuns = [{ ...detail.checkRuns[0], completedAt: '2026-01-01T00:00:00Z' }];
+    render();
+    click('Show log');
+    detail.checkRuns = [{ ...detail.checkRuns[0], githubId: 1000, detailsUrl: 'https://github.com/owner/repo/actions/runs/101/job/302' }];
+    render();
+    requests[3].resolve({ text: 'Late response for the previous attempt' });
+    await settle();
+    assert(host.querySelector('.pr-check__log') === null, 'A previous attempt must not populate the replacement row');
+    return 'Open failed CI in the browser, load and retry inline logs, and discard stale attempts';
+  }
+  finally {
+    flushSync(() => root.unmount());
+    host.remove();
   }
 }

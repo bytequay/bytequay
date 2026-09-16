@@ -1449,21 +1449,98 @@ function ChecksCard({ pr, detail, onRefresh }: {
           <details key={category} open={index === 0 && category === 'failing'}>
             <summary>{groupLabel(category)} ({checks.length}) <span>›</span></summary>
             {checks.map((check, checkIndex) => (
-              <div className="pr-check" key={check.githubId ?? `${check.name}-${checkIndex}`}>
-                <CheckStatusIcon check={check} />
-                <strong>{check.name ?? 'Check'}</strong>
-                {check.completedAt
-                  ? <time dateTime={check.completedAt}>Finished {relativeTime(check.completedAt)}</time>
-                  // GitHub stamps started_at when a run is created, so only in_progress has really started.
-                  : check.startedAt && <time dateTime={check.startedAt}>
-                    {check.status === 'in_progress' ? 'Started' : 'Queued'} {relativeTime(check.startedAt)}</time>}
-                {check.source === 'status' && <small>status</small>}
-              </div>
+              <CheckRow key={`${pr.repo}:${pr.number}:${pr.headPushedAt}:${check.source}:${check.githubId ?? checkIndex}:${check.detailsUrl}:${check.startedAt}:${check.completedAt}:${check.category}`}
+                pr={pr} check={check} />
             ))}
           </details>
         ))}
       </div>
     </article>
+  );
+}
+
+export function githubActionsJobId(check: PullRequestDetailDto['checkRuns'][number]): number | null {
+  if (check.source !== 'check_run' || !check.detailsUrl) return null;
+  try {
+    const url = new URL(check.detailsUrl);
+    const match = url.pathname.match(/^\/[^/]+\/[^/]+\/actions\/runs\/\d+\/job\/(\d+)\/?$/);
+    const id = Number(match?.[1]);
+    return url.origin === 'https://github.com' && Number.isSafeInteger(id) && id > 0 ? id : null;
+  }
+  catch {
+    return null;
+  }
+}
+
+function CheckRow({ pr, check }: { pr: PullRequestDto; check: PullRequestDetailDto['checkRuns'][number] }) {
+  const [expanded, setExpanded] = useState(false);
+  const [loading, setLoading] = useState(false);
+  const [log, setLog] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [browserError, setBrowserError] = useState<string | null>(null);
+  const logId = useId();
+  const jobId = githubActionsJobId(check);
+  const browserUrl = check.detailsUrl && /^https?:\/\//i.test(check.detailsUrl) ? check.detailsUrl : null;
+  const openBrowser = async () => {
+    if (browserUrl === null) return;
+    setBrowserError(null);
+    try {
+      await window.bridge.openExternal(browserUrl);
+    }
+    catch (failure) {
+      setBrowserError(remoteErrorMessage(failure));
+    }
+  };
+  const toggleLog = async () => {
+    if (expanded && error === null) {
+      setExpanded(false);
+      return;
+    }
+    setExpanded(true);
+    if (log !== null || jobId === null) return;
+    setLoading(true);
+    setError(null);
+    try {
+      setLog((await window.bridge.getPrCheckLog(pr.repo, pr.number, jobId)).text);
+    }
+    catch (failure) {
+      setError(remoteErrorMessage(failure));
+    }
+    finally {
+      setLoading(false);
+    }
+  };
+  return (
+    <div className="pr-check">
+      <CheckStatusIcon check={check} />
+      <strong>{check.name ?? 'Check'}</strong>
+      {check.completedAt
+        ? <time dateTime={check.completedAt}>Finished {relativeTime(check.completedAt)}</time>
+        // GitHub stamps started_at when a run is created, so only in_progress has really started.
+        : check.startedAt && <time dateTime={check.startedAt}>
+          {check.status === 'in_progress' ? 'Started' : 'Queued'} {relativeTime(check.startedAt)}</time>}
+      <span className="pr-check__actions">
+        {check.source === 'status' && <small>status</small>}
+        {check.category === 'failing' && <>
+          <button type="button" disabled={browserUrl === null} title="Open this check in your web browser"
+            onClick={() => { void openBrowser(); }}>
+            Open in GitHub
+          </button>
+          <button type="button" aria-expanded={expanded} aria-controls={logId} disabled={loading || jobId === null}
+            title={jobId === null ? 'Inline logs are available for GitHub Actions jobs' : undefined}
+            onClick={() => { void toggleLog(); }}>{loading ? 'Loading…' : error ? 'Retry log' : expanded ? 'Hide log' : 'Show log'}</button>
+        </>}
+      </span>
+      {browserError && <div className="pr-check__log"><div role="alert">{browserError}</div></div>}
+      {expanded && <div className="pr-check__log" id={logId}>
+        {loading && <div role="status">Loading log…</div>}
+        {error && <div role="alert">{error}</div>}
+        {log !== null && <>
+          <p>Diagnostic excerpt. Open in GitHub for the complete log.</p>
+          <pre tabIndex={0} aria-label={`${check.name ?? 'Check'} log`}>{log || 'This job returned an empty log.'}</pre>
+        </>}
+      </div>}
+    </div>
   );
 }
 

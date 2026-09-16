@@ -93,6 +93,18 @@ public class PullRequestSnapshotService
         return details.findLatestActivities(prIds);
     }
 
+    String readCheckLog(PullRequestRef pullRequest, long jobId)
+    {
+        CiHeadSnapshot head = actions.inspect(new InspectCiHeadQuery(pullRequest));
+        boolean failedJob = head.workflowRuns().stream()
+                .flatMap(run -> run.jobs().stream())
+                .anyMatch(job -> job.id() == jobId && job.actionableFailure());
+        if (!failedJob) {
+            throw new ResponseStatusException(HttpStatus.CONFLICT, "This failed job is no longer part of the current PR checks. Refresh the pull request.");
+        }
+        return actions.readJobLog(pullRequest, jobId);
+    }
+
     void rerunFailedChecks(PullRequestRef pullRequest)
     {
         CiHeadSnapshot head = actions.inspect(new InspectCiHeadQuery(pullRequest));

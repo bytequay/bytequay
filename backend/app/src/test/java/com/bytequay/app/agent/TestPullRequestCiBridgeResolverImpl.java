@@ -29,6 +29,8 @@ import com.bytequay.agent.spi.PullRequestCiBridge;
 import com.bytequay.app.ci.BoundedCiLog;
 import com.bytequay.app.ci.CiHeadSnapshot;
 import com.bytequay.app.ci.CiJob;
+import com.bytequay.app.ci.CiRawLogPage;
+import com.bytequay.app.ci.CiRawLogStore;
 import com.bytequay.app.ci.CiStep;
 import com.bytequay.app.ci.CiWorkflowRun;
 import com.bytequay.app.ci.GitHubActionsClient;
@@ -36,6 +38,8 @@ import com.bytequay.app.ci.InspectCiHeadQuery;
 import com.bytequay.app.ci.ReadCiLogQuery;
 import com.bytequay.app.service.pr.PullRequestService;
 import com.bytequay.app.workspace.ManagedWorktreeService;
+import com.bytequay.core.ci.CiAutofixRun;
+import com.bytequay.core.ci.CiAutofixStore;
 import com.bytequay.core.domain.PrCheckRunState;
 import com.bytequay.core.domain.PrRawDetail;
 import com.bytequay.core.domain.PullRequest;
@@ -69,6 +73,8 @@ import java.util.stream.IntStream;
 import static java.nio.charset.StandardCharsets.UTF_8;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyInt;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
@@ -107,9 +113,11 @@ class TestPullRequestCiBridgeResolverImpl
     private final PrDetailStore details = mock(PrDetailStore.class);
     private final GitHubActionsClient actions = mock(GitHubActionsClient.class);
     private final TaskLogStore logs = mock(TaskLogStore.class);
+    private final CiRawLogStore rawLogs = mock(CiRawLogStore.class);
+    private final CiAutofixStore ciRuns = mock(CiAutofixStore.class);
     private final ObjectMapper mapper = new ObjectMapper().findAndRegisterModules();
     private final PullRequestCiBridgeResolverImpl resolver = new PullRequestCiBridgeResolverImpl(
-            tasks, workspaces, worktrees, pullRequests, catalog, details, actions, logs, mapper);
+            tasks, workspaces, worktrees, pullRequests, catalog, details, actions, logs, mapper, rawLogs, ciRuns);
     private final TaskId taskId = TaskId.random();
     private final TaskWorktree worktree = new TaskWorktree(taskId, "workspace", RepositoryIdentity.valueOf(FORK.fullName()),
             Path.of("/tmp", taskId.toString()), "bytequay/task/" + taskId, BASE);
@@ -435,6 +443,84 @@ class TestPullRequestCiBridgeResolverImpl
         assertThat(result.at("/actions/jobsOmitted").asInt()).isGreaterThan(0);
     }
 
+    @Test
+    void keepsASelectedStackAbove32KiBIntactWithinTheToolResponse()
+            throws Exception
+    {
+        String failure = "[ERROR] ExampleTest.testQuery <<< ERROR!\n"
+                + "java.lang.IllegalStateException: worker unavailable\n"
+                + "    at Worker.repeat(Worker.java:42)\n".repeat(1000)
+                + "Caused by: java.net.ConnectException: refused\n    at Client.connect(Client.java:55)\n";
+        storeLog("[INFO] noise\n".repeat(4000) + failure + "[INFO] done\n", false);
+        String output = resolver.resolve(taskId.toString()).orElseThrow().read().apply(Optional.of(201L));
+        assertThat(output.length()).isLessThanOrEqualTo(PullRequestCiBridge.MAXIMUM_OUTPUT_LENGTH);
+        assertThat(mapper.readTree(output).at("/log/excerpt").asText()).contains(failure);
+    }
+
+    @Test
+    void rawToolReadsOnlyTaskCachedPagesAndRevokesAccessAfterCompletion()
+            throws Exception
+    {
+        String id = "a".repeat(64);
+        when(rawLogs.page(eq(taskId), eq(id), eq(0L), anyInt())).thenAnswer(invocation -> {
+            int bytes = invocation.getArgument(3);
+            return new CiRawLogPage("\u0001".repeat(bytes), bytes, 100000);
+        });
+        PullRequestCiBridge bridge = resolver.resolve(taskId.toString()).orElseThrow();
+        String output = bridge.readRaw().apply(id, 0L);
+        JsonNode first = mapper.readTree(output);
+        assertThat(output.length()).isLessThanOrEqualTo(PullRequestCiBridge.MAXIMUM_OUTPUT_LENGTH);
+        assertThat(first.path("text").asText()).isEqualTo("\u0001".repeat(first.path("nextOffset").asInt()));
+        assertThat(first.path("complete").asBoolean()).isFalse();
+        long next = first.path("nextOffset").asLong();
+        when(rawLogs.page(eq(taskId), eq(id), eq(next), anyInt())).thenReturn(new CiRawLogPage("remaining original text", 100000, 100000));
+        JsonNode last = mapper.readTree(bridge.readRaw().apply(id, next));
+        assertThat(last.path("complete").asBoolean()).isTrue();
+        assertThat(last.path("nextOffset").isNull()).isTrue();
+        assertThat(last.path("text").asText()).isEqualTo("remaining original text");
+        verifyNoInteractions(actions, catalog, logs, pullRequests);
+        when(tasks.find(taskId)).thenReturn(Optional.of(task.fail("Closed", NOW.plusSeconds(1), NOW.plus(Duration.ofDays(7)))));
+        assertThat(mapper.readTree(bridge.readRaw().apply(id, 0L)).path("status").asText()).isEqualTo("unavailable");
+    }
+
+    @Test
+    void autofixToolsUseTheAuthorizedPullRequestAndHeadWithoutBranchDiscovery()
+            throws Exception
+    {
+        AgentTask autofix = AgentTask.created(taskId, false, "Fix CI", TitleSource.USER, AgentLaneId.CODEX_CLI,
+                worktree, AgentTaskDefaults.forPermission(AgentPermissionPolicy.CI_AUTOFIX), NOW);
+        CiAutofixRun run = mock(CiAutofixRun.class, withSettings().mockMaker(MockMakers.INLINE));
+        when(run.scope()).thenReturn(new CiAutofixRun.Scope(PR, FORK, "workspace", Optional.of(FORK), "alice", BRANCH, "master", "codex-cli", Optional.empty()));
+        when(run.expectedRemoteHead()).thenReturn(HEAD);
+        when(run.status()).thenReturn(CiAutofixRun.Status.ACTIVE);
+        when(tasks.find(taskId)).thenReturn(Optional.of(autofix));
+        when(ciRuns.findByAgentTaskId(taskId.toString())).thenReturn(Optional.of(run));
+        PullRequestCiBridge bridge = resolver.resolve(taskId.toString()).orElseThrow();
+        assertThat(read(bridge, Optional.empty()).path("status").asText()).isEqualTo("available");
+        verifyNoInteractions(catalog, pullRequests, details);
+        when(actions.inspect(new InspectCiHeadQuery(PR))).thenReturn(snapshot(PR, NEXT, 1, "test", "failure"));
+        assertThat(read(bridge, Optional.of(201L)).path("status").asText()).isEqualTo("stale");
+        verify(actions, never()).readLog(any());
+    }
+
+    @Test
+    void returnsRawIdentifierAndExplicitTailGuidanceWhenNoDiagnosticsMatched()
+            throws Exception
+    {
+        String id = "a".repeat(64);
+        String source = "original beginning\n" + "downloaded artifact\n".repeat(4000) + "command exited\n";
+        BlobRef blob = new BlobRef("ci/excerpt.log", "text/plain", 0);
+        when(actions.readLog(any())).thenReturn(new BoundedCiLog(Optional.of(blob), 0, false, false, true,
+                ImmutableList.of(), Optional.empty(), Optional.of(id), false));
+        when(rawLogs.read(taskId, id)).thenReturn(source);
+        JsonNode result = read(resolver.resolve(taskId.toString()).orElseThrow(), Optional.of(201L));
+        assertThat(result.at("/log/diagnosticsMatched").asBoolean()).isFalse();
+        assertThat(result.at("/log/rawLogId").asText()).isEqualTo(id);
+        assertThat(result.at("/log/message").asText()).contains("No diagnostic", "tail", "32 KiB", "read_ci_raw_log");
+        assertThat(result.at("/log/excerpt").asText()).isEqualTo(source.substring(source.length() - 32768));
+        verifyNoInteractions(logs);
+    }
+
     private JsonNode read(PullRequestCiBridge bridge, Optional<Long> jobId)
             throws Exception
     {
@@ -446,7 +532,7 @@ class TestPullRequestCiBridgeResolverImpl
         byte[] bytes = text.getBytes(UTF_8);
         BlobRef blob = new BlobRef("ci/check-commit-messages.log", "text/plain", bytes.length);
         when(actions.readLog(any())).thenReturn(new BoundedCiLog(Optional.of(blob), bytes.length, truncated, false, false,
-                ImmutableList.of("##[error]Process completed with exit code 1."), Optional.empty()));
+                ImmutableList.of("##[error]Process completed with exit code 1."), Optional.empty(), Optional.empty(), true));
         when(logs.readBlob(taskId, blob)).thenAnswer(ignored -> ByteBuffer.wrap(bytes));
     }
 

@@ -111,6 +111,23 @@ class TestPullRequestRefreshControllers
     }
 
     @Test
+    void readsCheckLogWithoutRefreshingOrWritingThePullRequest()
+            throws Exception
+    {
+        PullRequestService pullRequests = mock(PullRequestService.class);
+        PullRequestRefreshService refresh = mock(PullRequestRefreshService.class);
+        when(pullRequests.readCheckLog("owner/repo", 7, 301)).thenReturn("test failed\n");
+
+        standaloneSetup(new PullRequestController(pullRequests, refresh)).build()
+                .perform(get("/prs/checks/log").queryParam("repo", "owner/repo").queryParam("number", "7").queryParam("jobId", "301"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.text").value("test failed\n"));
+        verify(pullRequests).readCheckLog("owner/repo", 7, 301);
+        verifyNoMoreInteractions(pullRequests);
+        verifyNoInteractions(refresh);
+    }
+
+    @Test
     void marksDraftReadyForReviewOnlyThroughTheWriteEndpoint()
             throws Exception
     {

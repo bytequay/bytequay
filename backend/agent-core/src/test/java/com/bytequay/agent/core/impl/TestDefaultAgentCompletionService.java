@@ -202,6 +202,7 @@ class TestDefaultAgentCompletionService
         service.cleanupWorktree(taskId);
         service.cleanupWorktree(taskId);
         assertThat(worktrees.cleaned).hasSize(1);
+        assertThat(resources.worktreeCacheDeletions).isOne();
         assertThat(stores.find(taskId).orElseThrow().worktreeRemovedAt()).contains(NOW);
     }
 
@@ -219,11 +220,27 @@ class TestDefaultAgentCompletionService
         assertThat(stores.find(taskId).orElseThrow().worktreeRemovedAt()).isEmpty();
         assertThat(stores.find(taskId).orElseThrow().updatedAt()).isEqualTo(NOW.plusSeconds(1));
         assertThat(codeGraph.deletedIndexes).isEmpty();
+        assertThat(resources.worktreeCacheDeletions).isZero();
 
         worktrees.failCleanup = false;
         service(Clock.fixed(NOW.plusSeconds(2), ZoneOffset.UTC)).cleanupWorktree(taskId);
         assertThat(worktrees.cleaned).hasSize(2);
         assertThat(codeGraph.deletedIndexes).hasSize(1);
+        assertThat(resources.worktreeCacheDeletions).isOne();
+        assertThat(stores.find(taskId).orElseThrow().worktreeRemovedAt()).contains(NOW.plusSeconds(2));
+    }
+
+    @Test
+    void retriesCacheDeletionBeforeMarkingTheWorktreeRemoved()
+    {
+        service(Clock.fixed(NOW, ZoneOffset.UTC)).complete(new CompleteAgentTaskCommand(taskId, Optional.empty()));
+        resources.failCacheDeletion = true;
+        assertThatThrownBy(() -> service(Clock.fixed(NOW.plusSeconds(1), ZoneOffset.UTC)).cleanupWorktree(taskId))
+                .hasMessage("cache busy");
+        assertThat(stores.find(taskId).orElseThrow().worktreeRemovedAt()).isEmpty();
+        resources.failCacheDeletion = false;
+        service(Clock.fixed(NOW.plusSeconds(2), ZoneOffset.UTC)).cleanupWorktree(taskId);
+        assertThat(resources.worktreeCacheDeletions).isEqualTo(2);
         assertThat(stores.find(taskId).orElseThrow().worktreeRemovedAt()).contains(NOW.plusSeconds(2));
     }
 
@@ -764,6 +781,18 @@ class TestDefaultAgentCompletionService
     private static final class RecordingResources
             implements AgentResourceService
     {
+        private int worktreeCacheDeletions;
+        private boolean failCacheDeletion;
+
+        @Override
+        public void deleteWorktreeCache(TaskId taskId)
+        {
+            worktreeCacheDeletions++;
+            if (failCacheDeletion) {
+                throw new IllegalStateException("cache busy");
+            }
+        }
+
         @Override
         public void validateAttachment(StoreAgentAttachmentCommand command)
         {

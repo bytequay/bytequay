@@ -13,12 +13,15 @@
  */
 package com.bytequay.app.repository.github;
 
+import com.bytequay.agent.core.AgentResourceService;
 import com.bytequay.agent.core.AgentStorageException;
 import com.bytequay.agent.core.BlobRef;
 import com.bytequay.agent.core.TaskId;
+import com.bytequay.agent.core.impl.FileAgentResourceService;
 import com.bytequay.app.ci.BoundedCiLog;
 import com.bytequay.app.ci.CiHeadSnapshot;
 import com.bytequay.app.ci.CiJob;
+import com.bytequay.app.ci.CiRawLogStore;
 import com.bytequay.app.ci.CiRerunResult;
 import com.bytequay.app.ci.CiStep;
 import com.bytequay.app.ci.CiWorkflowRun;
@@ -30,6 +33,7 @@ import com.bytequay.core.domain.PullRequestRef;
 import com.bytequay.core.domain.RepoRef;
 import com.google.common.collect.ImmutableList;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.io.TempDir;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpMethod;
 import org.springframework.http.HttpStatus;
@@ -43,9 +47,11 @@ import java.io.IOException;
 import java.net.SocketTimeoutException;
 import java.nio.ByteBuffer;
 import java.nio.charset.StandardCharsets;
+import java.nio.file.Path;
 import java.time.Instant;
 import java.util.List;
 import java.util.Optional;
+import java.util.UUID;
 import java.util.concurrent.CancellationException;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.stream.IntStream;
@@ -56,6 +62,9 @@ import static com.bytequay.app.ci.CiRerunResult.Outcome.REJECTED;
 import static java.util.stream.Collectors.joining;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.when;
 import static org.springframework.test.web.client.match.MockRestRequestMatchers.header;
 import static org.springframework.test.web.client.match.MockRestRequestMatchers.headerDoesNotExist;
 import static org.springframework.test.web.client.match.MockRestRequestMatchers.method;
@@ -66,6 +75,9 @@ import static org.springframework.test.web.client.response.MockRestResponseCreat
 
 class TestGitHubActionsClient
 {
+    @TempDir
+    private static Path temporaryDirectory;
+
     private static final PullRequestRef PULL_REQUEST = PullRequestRef.of("owner", "repo", 7);
     private static final String PAT = "github_pat_secret_123456789";
     private static final String HEAD_SHA = "1111111111111111111111111111111111111111";
@@ -258,6 +270,33 @@ class TestGitHubActionsClient
     }
 
     @Test
+    void readsInlineDiagnosticLogWithoutCreatingATaskBlob()
+    {
+        Fixture fixture = fixture();
+        fixture.apiServer.expect(requestTo("https://api.github.test/repos/owner/repo/actions/jobs/902/logs"))
+                .andExpect(header(HttpHeaders.AUTHORIZATION, "Bearer " + PAT))
+                .andRespond(withSuccess("2026-01-01T00:00:00Z error: failed with " + PAT + "\n", MediaType.TEXT_PLAIN));
+
+        assertThat(fixture.client.readJobLog(PULL_REQUEST, 902)).isEqualTo("2026-01-01T00:00:00Z error: failed with [REDACTED]\n");
+        assertThat(fixture.stored.get()).isNull();
+        fixture.verify();
+    }
+
+    @Test
+    void reportsMissingInlineLogs()
+    {
+        Fixture fixture = fixture();
+        fixture.apiServer.expect(requestTo("https://api.github.test/repos/owner/repo/actions/jobs/902/logs"))
+                .andRespond(withStatus(HttpStatus.NOT_FOUND));
+
+        assertThatThrownBy(() -> fixture.client.readJobLog(PULL_REQUEST, 902))
+                .isInstanceOf(ResponseStatusException.class)
+                .hasMessageContaining("missing or expired");
+        assertThat(fixture.stored.get()).isNull();
+        fixture.verify();
+    }
+
+    @Test
     void followsLogRedirectWithoutCredentialsAndStoresBoundedRedactedBlob()
     {
         Fixture fixture = fixture();
@@ -270,173 +309,25 @@ class TestGitHubActionsClient
                 2026-08-17T01:02:03Z \u001B[31merror: compilation failed with ghp_anotherSecret123\u001B[0m
                 %s
                 """.formatted(PAT, "x".repeat(400));
-        expectLogLength(fixture, 1024);
         fixture.logServer.expect(request -> {
             assertThat(request.getURI()).hasToString("https://logs.github.test/job-902");
             assertThat(request.getHeaders()).doesNotContainKey(HttpHeaders.AUTHORIZATION);
-            assertThat(request.getHeaders().getFirst(HttpHeaders.RANGE)).isEqualTo("bytes=768-1023");
+            assertThat(request.getHeaders()).doesNotContainKey(HttpHeaders.RANGE);
             assertThat(request.getHeaders().getFirst(HttpHeaders.ACCEPT_ENCODING)).isEqualTo("identity");
         }).andRespond(withSuccess(rawLog, MediaType.TEXT_PLAIN));
 
-        BoundedCiLog log = fixture.client.readLog(logQuery(256));
+        BoundedCiLog log = fixture.client.readLog(logQuery(1024));
         String stored = new String(fixture.stored.get(), StandardCharsets.UTF_8);
 
         assertThat(log.blob()).isPresent();
         assertThat(log.byteCount()).isEqualTo(fixture.stored.get().length);
-        assertThat(log.truncated()).isTrue();
+        assertThat(log.truncated()).isFalse();
         assertThat(log.omittedBeginning()).isFalse();
         assertThat(log.terminalErrorLines()).containsExactly("error: compilation failed with [REDACTED]");
         assertThat(stored).doesNotContain(PAT, "ghp_anotherSecret123");
         assertThat(stored).contains("error: compilation failed with [REDACTED]");
-        assertThat(stored).contains("[Log byte limit reached; end of log omitted.]");
+        assertThat(log.rawLogId()).isPresent();
         fixture.verify();
-    }
-
-    @Test
-    void discardsATruncatedLineBeforePersistingAPartialCredential()
-    {
-        String token = "unlabeled-private-credential-value-that-must-not-be-stored";
-        Fixture fixture = fixture(token);
-        String prefix = "Build context\n" + "x".repeat(390) + "\nerror: failed with ";
-        String partialCredential = token.substring(0, 16);
-        fixture.apiServer.expect(requestTo("https://api.github.test/repos/owner/repo/actions/jobs/902/logs"))
-                .andRespond(withSuccess(prefix + token + "\n", MediaType.TEXT_PLAIN));
-
-        BoundedCiLog log = fixture.client.readLog(logQuery(prefix.length() + partialCredential.length()));
-        String stored = new String(fixture.stored.get(), StandardCharsets.UTF_8);
-
-        assertThat(log.truncated()).isTrue();
-        assertThat(stored).contains("Build context", "[Log byte limit reached; end of log omitted.]");
-        assertThat(stored).doesNotContain(partialCredential, "error: failed with");
-        assertThat(log.terminalErrorLines()).isEmpty();
-        fixture.verify();
-    }
-
-    @Test
-    void readsValidatedLogTailWithoutPersistingAnIncompleteLeadingLine()
-    {
-        Fixture fixture = fixture();
-        String diagnostic = "\n[ERROR] Compilation failed with " + PAT + "\nsrc/main/java/Example.java:12: cannot find symbol\nBUILD FAILURE\n";
-        String partialSecret = "partial-secret-suffix";
-        String tail = partialSecret + "x".repeat(1024 - partialSecret.length() - diagnostic.length()) + diagnostic;
-        fixture.apiServer.expect(requestTo("https://api.github.test/repos/owner/repo/actions/jobs/902/logs"))
-                .andRespond(withStatus(HttpStatus.FOUND).header(HttpHeaders.LOCATION, "https://logs.github.test/job-902"));
-        expectLogLength(fixture, 5120);
-        fixture.logServer.expect(requestTo("https://logs.github.test/job-902"))
-                .andExpect(headerDoesNotExist(HttpHeaders.AUTHORIZATION))
-                .andExpect(header(HttpHeaders.RANGE, "bytes=4096-5119"))
-                .andExpect(header(HttpHeaders.ACCEPT_ENCODING, "identity"))
-                .andRespond(withStatus(HttpStatus.PARTIAL_CONTENT).header(HttpHeaders.CONTENT_RANGE, "bytes 4096-5119/5120")
-                        .contentType(MediaType.TEXT_PLAIN).body(tail));
-
-        BoundedCiLog log = fixture.client.readLog(logQuery(1024));
-        String stored = new String(fixture.stored.get(), StandardCharsets.UTF_8);
-
-        assertThat(log.truncated()).isFalse();
-        assertThat(log.omittedBeginning()).isTrue();
-        assertThat(log.byteCount()).isEqualTo(fixture.stored.get().length).isLessThanOrEqualTo(1024);
-        assertThat(stored).contains("[Beginning of log omitted; downloaded tail.]", "Compilation failed with [REDACTED]", "Example.java:12", "BUILD FAILURE");
-        assertThat(stored).doesNotContain(PAT, partialSecret);
-        fixture.verify();
-    }
-
-    @Test
-    void fallsBackToPlainGetWhenLogSizeIsUnavailable()
-    {
-        for (HttpStatus status : ImmutableList.of(HttpStatus.OK, HttpStatus.METHOD_NOT_ALLOWED, HttpStatus.NOT_FOUND, HttpStatus.INTERNAL_SERVER_ERROR)) {
-            Fixture fixture = fixture();
-            fixture.apiServer.expect(requestTo("https://api.github.test/repos/owner/repo/actions/jobs/902/logs"))
-                    .andRespond(withStatus(HttpStatus.FOUND).header(HttpHeaders.LOCATION, "https://logs.github.test/job-902"));
-            fixture.logServer.expect(requestTo("https://logs.github.test/job-902"))
-                    .andExpect(method(HttpMethod.HEAD)).andExpect(headerDoesNotExist(HttpHeaders.AUTHORIZATION))
-                    .andRespond(withStatus(status));
-            fixture.logServer.expect(requestTo("https://logs.github.test/job-902"))
-                    .andExpect(method(HttpMethod.GET)).andExpect(headerDoesNotExist(HttpHeaders.RANGE)).andExpect(headerDoesNotExist(HttpHeaders.AUTHORIZATION))
-                    .andRespond(withSuccess("error: failed\n", MediaType.TEXT_PLAIN));
-
-            BoundedCiLog log = fixture.client.readLog(logQuery(1024));
-
-            assertThat(log.terminalErrorLines()).containsExactly("error: failed");
-            assertThat(log.omittedBeginning()).isFalse();
-            fixture.verify();
-        }
-    }
-
-    @Test
-    void fallsBackToPlainGetWhenLogSizeProbeFails()
-    {
-        Fixture fixture = fixture();
-        fixture.apiServer.expect(requestTo("https://api.github.test/repos/owner/repo/actions/jobs/902/logs"))
-                .andRespond(withStatus(HttpStatus.FOUND).header(HttpHeaders.LOCATION, "https://logs.github.test/job-902"));
-        fixture.logServer.expect(requestTo("https://logs.github.test/job-902"))
-                .andExpect(method(HttpMethod.HEAD)).andRespond(request -> {
-                    throw new IOException("HEAD is unavailable");
-                });
-        fixture.logServer.expect(requestTo("https://logs.github.test/job-902"))
-                .andExpect(method(HttpMethod.GET)).andExpect(headerDoesNotExist(HttpHeaders.RANGE))
-                .andRespond(withSuccess("error: failed\n", MediaType.TEXT_PLAIN));
-
-        assertThat(fixture.client.readLog(logQuery(1024)).terminalErrorLines()).containsExactly("error: failed");
-        fixture.verify();
-    }
-
-    @Test
-    void readsSmallLogsWithoutAByteRange()
-    {
-        Fixture fixture = fixture();
-        fixture.apiServer.expect(requestTo("https://api.github.test/repos/owner/repo/actions/jobs/902/logs"))
-                .andRespond(withStatus(HttpStatus.FOUND).header(HttpHeaders.LOCATION, "https://logs.github.test/job-902"));
-        expectLogLength(fixture, 14);
-        fixture.logServer.expect(requestTo("https://logs.github.test/job-902"))
-                .andExpect(method(HttpMethod.GET)).andExpect(headerDoesNotExist(HttpHeaders.RANGE))
-                .andRespond(withSuccess("error: failed\n", MediaType.TEXT_PLAIN));
-
-        BoundedCiLog log = fixture.client.readLog(logQuery(1024));
-
-        assertThat(log.truncated()).isFalse();
-        assertThat(log.omittedBeginning()).isFalse();
-        assertThat(log.terminalErrorLines()).containsExactly("error: failed");
-        fixture.verify();
-    }
-
-    @Test
-    void refusesRangedResponsesThatCannotProveTheLogEnd()
-    {
-        for (String contentRange : ImmutableList.of("", "bytes 0-9/100", "bytes 4096-5119/6000", "bytes 0-9/*", "bytes 0-9/99999999999999999999999999999")) {
-            Fixture fixture = fixture();
-            fixture.apiServer.expect(requestTo("https://api.github.test/repos/owner/repo/actions/jobs/902/logs"))
-                    .andRespond(withStatus(HttpStatus.FOUND).header(HttpHeaders.LOCATION, "https://logs.github.test/job-902"));
-            expectLogLength(fixture, 5120);
-            fixture.logServer.expect(requestTo("https://logs.github.test/job-902"))
-                    .andRespond(withStatus(HttpStatus.PARTIAL_CONTENT).header(HttpHeaders.CONTENT_RANGE, contentRange).body("0123456789"));
-
-            BoundedCiLog log = fixture.client.readLog(logQuery(1024));
-
-            assertThat(log.blob()).isEmpty();
-            assertThat(log.unavailableReason()).contains("GitHub returned an invalid ranged log response");
-            assertThat(fixture.stored.get()).isNull();
-            fixture.verify();
-        }
-    }
-
-    @Test
-    void refusesRangedBodiesThatDoNotMatchTheDeclaredLength()
-    {
-        for (String body : ImmutableList.of("short", "x".repeat(1025))) {
-            Fixture fixture = fixture();
-            fixture.apiServer.expect(requestTo("https://api.github.test/repos/owner/repo/actions/jobs/902/logs"))
-                    .andRespond(withStatus(HttpStatus.FOUND).header(HttpHeaders.LOCATION, "https://logs.github.test/job-902"));
-            expectLogLength(fixture, 5120);
-            fixture.logServer.expect(requestTo("https://logs.github.test/job-902"))
-                    .andRespond(withStatus(HttpStatus.PARTIAL_CONTENT).header(HttpHeaders.CONTENT_RANGE, "bytes 4096-5119/5120").body(body));
-
-            BoundedCiLog log = fixture.client.readLog(logQuery(1024));
-
-            assertThat(log.blob()).isEmpty();
-            assertThat(log.unavailableReason()).contains("GitHub returned an incomplete ranged log response");
-            assertThat(fixture.stored.get()).isNull();
-            fixture.verify();
-        }
     }
 
     @Test
@@ -459,6 +350,58 @@ class TestGitHubActionsClient
         assertThat(stored).contains("Compilation failed with [REDACTED] and [REDACTED]", "Example.java:12", "BUILD FAILURE");
         assertThat(stored).doesNotContain(PAT, "ghp_anotherSecret123");
         assertThat(log.terminalErrorLines()).contains("[ERROR] Compilation failed with [REDACTED] and [REDACTED]");
+        fixture.verify();
+    }
+
+    @Test
+    void inlineAndAutofixLogsPreserveTheSameOversizedRedactedStack()
+    {
+        Fixture fixture = fixture();
+        String failure = "[ERROR] ExampleTest.testQuery <<< ERROR!\n"
+                + "java.lang.IllegalStateException: authentication failed with " + PAT + "\n"
+                + "    at Worker.repeat(Worker.java:42)\n".repeat(1400)
+                + "Caused by: java.net.ConnectException: refused\n"
+                + "    at Client.connect(Client.java:55)\n";
+        String rawLog = "[INFO] downloaded dependency\n".repeat(4000) + failure + "[INFO] finished\n";
+        fixture.apiServer.expect(requestTo("https://api.github.test/repos/owner/repo/actions/jobs/902/logs"))
+                .andRespond(withSuccess(rawLog, MediaType.TEXT_PLAIN));
+        fixture.apiServer.expect(requestTo("https://api.github.test/repos/owner/repo/actions/jobs/902/logs"))
+                .andRespond(withSuccess(rawLog, MediaType.TEXT_PLAIN));
+
+        BoundedCiLog log = fixture.client.readLog(logQuery(1024 * 1024));
+        String stored = new String(fixture.stored.get(), StandardCharsets.UTF_8);
+        String inline = fixture.client.readJobLog(PULL_REQUEST, 902);
+
+        assertThat(stored).endsWith(inline);
+        assertThat(inline).contains(failure.replace(PAT, "[REDACTED]")).doesNotContain(PAT, "line shortened", "previous line repeated");
+        assertThat(log.byteCount()).isGreaterThan(32 * 1024).isLessThanOrEqualTo(1024 * 1024);
+        assertThat(log.compacted()).isTrue();
+        assertThat(log.truncated()).isFalse();
+        fixture.verify();
+    }
+
+    @Test
+    void cachesTheCompleteLogBeyondTheExcerptLimitAndReturnsAnExplicitTailWhenNoDiagnosticsMatch()
+    {
+        Fixture fixture = fixture();
+        String source = "original beginning\r\n" + "x".repeat(8180) + PAT + "\r\n"
+                + "downloaded 日志🙂 dependency\r\n".repeat(50000) + "##[error]Process completed with exit code 1.\n";
+        fixture.apiServer.expect(requestTo("https://api.github.test/repos/owner/repo/actions/jobs/902/logs"))
+                .andRespond(withSuccess(source, MediaType.TEXT_PLAIN));
+        ReadCiLogQuery query = logQuery(1024 * 1024);
+
+        BoundedCiLog log = fixture.client.readLog(query);
+        String stored = new String(fixture.stored.get(), StandardCharsets.UTF_8);
+        assertThat(log.diagnosticsMatched()).isFalse();
+        assertThat(log.compacted()).isTrue();
+        assertThat(log.truncated()).isFalse();
+        assertThat(stored).contains("No diagnostic keywords", "only the log tail", "32 KiB", "read_ci_raw_log", "exit code 1");
+        assertThat(stored).doesNotContain("original beginning", PAT);
+        assertThat(stored.length()).isLessThan(33 * 1024);
+        String id = log.rawLogId().orElseThrow();
+        assertThat(fixture.rawLogs.read(query.taskId(), id)).isEqualTo(source.replace(PAT, "[REDACTED]"));
+        assertThat(fixture.rawLogs.page(query.taskId(), id, 0, 32768).text()).startsWith("original beginning\r\n");
+        assertThat(fixture.client.readLog(query).rawLogId()).contains(id);
         fixture.verify();
     }
 
@@ -487,7 +430,6 @@ class TestGitHubActionsClient
             Fixture fixture = fixture();
             fixture.apiServer.expect(requestTo("https://api.github.test/repos/owner/repo/actions/jobs/902/logs"))
                     .andRespond(withStatus(HttpStatus.FOUND).header(HttpHeaders.LOCATION, "https://logs.github.test/job-902"));
-            expectLogLength(fixture, 5120);
             fixture.logServer.expect(requestTo("https://logs.github.test/job-902"))
                     .andExpect(headerDoesNotExist(HttpHeaders.AUTHORIZATION))
                     .andRespond(withStatus(status));
@@ -507,14 +449,13 @@ class TestGitHubActionsClient
         Fixture fixture = fixture();
         fixture.apiServer.expect(requestTo("https://api.github.test/repos/owner/repo/actions/jobs/902/logs"))
                 .andRespond(withStatus(HttpStatus.FOUND).header(HttpHeaders.LOCATION, "https://logs.github.test/job-902"));
-        expectLogLength(fixture, 5120);
         fixture.logServer.expect(requestTo("https://logs.github.test/job-902"))
                 .andRespond(withStatus(HttpStatus.REQUESTED_RANGE_NOT_SATISFIABLE));
 
         BoundedCiLog log = fixture.client.readLog(logQuery(1024));
 
         assertThat(log.blob()).isEmpty();
-        assertThat(log.unavailableReason()).contains("GitHub Actions log is empty or the requested byte range is unavailable");
+        assertThat(log.unavailableReason()).contains("GitHub did not return a complete raw log");
         assertThat(fixture.stored.get()).isNull();
         fixture.verify();
     }
@@ -542,12 +483,8 @@ class TestGitHubActionsClient
                     .andRespond(withStatus(HttpStatus.FOUND).header(HttpHeaders.LOCATION, "https://logs.github.test/job-902"));
             fixture.apiServer.expect(requestTo("https://api.github.test/repos/owner/repo/actions/jobs/902/logs"))
                     .andRespond(withStatus(HttpStatus.FOUND).header(HttpHeaders.LOCATION, "https://logs.github.test/job-902?sig=fresh"));
-            expectLogLength(fixture, 5120);
             fixture.logServer.expect(requestTo("https://logs.github.test/job-902"))
                     .andRespond(transportFailure ? withException(new IOException("connection reset")) : withStatus(HttpStatus.BAD_GATEWAY));
-            fixture.logServer.expect(requestTo("https://logs.github.test/job-902?sig=fresh"))
-                    .andExpect(method(HttpMethod.HEAD)).andExpect(headerDoesNotExist(HttpHeaders.AUTHORIZATION))
-                    .andRespond(withStatus(HttpStatus.OK).header(HttpHeaders.CONTENT_LENGTH, "16"));
             fixture.logServer.expect(requestTo("https://logs.github.test/job-902?sig=fresh"))
                     .andExpect(method(HttpMethod.GET)).andExpect(headerDoesNotExist(HttpHeaders.AUTHORIZATION))
                     .andRespond(withSuccess("error: failed\n", MediaType.TEXT_PLAIN));
@@ -567,7 +504,6 @@ class TestGitHubActionsClient
                     if (redirected) {
                         fixture.apiServer.expect(requestTo("https://api.github.test/repos/owner/repo/actions/jobs/902/logs"))
                                 .andRespond(withStatus(HttpStatus.FOUND).header(HttpHeaders.LOCATION, "https://logs.github.test/job-902"));
-                        expectLogLength(fixture, 5120);
                         fixture.logServer.expect(requestTo("https://logs.github.test/job-902")).andRespond(withStatus(status).body(PAT));
                     }
                     else {
@@ -595,7 +531,6 @@ class TestGitHubActionsClient
                     if (redirected) {
                         fixture.apiServer.expect(requestTo("https://api.github.test/repos/owner/repo/actions/jobs/902/logs"))
                                 .andRespond(withStatus(HttpStatus.FOUND).header(HttpHeaders.LOCATION, "https://logs.github.test/job-902"));
-                        expectLogLength(fixture, 5120);
                         fixture.logServer.expect(requestTo("https://logs.github.test/job-902")).andRespond(withException(failure));
                     }
                     else {
@@ -622,7 +557,6 @@ class TestGitHubActionsClient
                 if (redirected) {
                     fixture.apiServer.expect(requestTo("https://api.github.test/repos/owner/repo/actions/jobs/902/logs"))
                             .andRespond(withStatus(HttpStatus.FOUND).header(HttpHeaders.LOCATION, "https://logs.github.test/job-902"));
-                    expectLogLength(fixture, 5120);
                     fixture.logServer.expect(requestTo("https://logs.github.test/job-902")).andRespond(withStatus(status).header(HttpHeaders.RETRY_AFTER, "120"));
                 }
                 else {
@@ -645,9 +579,9 @@ class TestGitHubActionsClient
     }
 
     @Test
-    void propagatesInterruptionDuringApiProbeOrDownloadWithoutRetrying()
+    void propagatesInterruptionDuringApiOrDownloadWithoutRetrying()
     {
-        for (String stage : ImmutableList.of("api", "probe", "download")) {
+        for (String stage : ImmutableList.of("api", "download")) {
             Fixture fixture = fixture();
             MockRestServiceServer server = fixture.apiServer;
             String url = "https://api.github.test/repos/owner/repo/actions/jobs/902/logs";
@@ -655,9 +589,6 @@ class TestGitHubActionsClient
                 fixture.apiServer.expect(requestTo(url)).andRespond(withStatus(HttpStatus.FOUND).header(HttpHeaders.LOCATION, "https://logs.github.test/job-902"));
                 server = fixture.logServer;
                 url = "https://logs.github.test/job-902";
-                if (stage.equals("download")) {
-                    expectLogLength(fixture, 5120);
-                }
             }
             server.expect(requestTo(url)).andRespond(request -> {
                 Thread.currentThread().interrupt();
@@ -674,22 +605,6 @@ class TestGitHubActionsClient
             assertThat(fixture.stored.get()).isNull();
             fixture.verify();
         }
-    }
-
-    @Test
-    void doesNotDownloadAfterRateLimitedSizeProbe()
-    {
-        Fixture fixture = fixture();
-        fixture.apiServer.expect(requestTo("https://api.github.test/repos/owner/repo/actions/jobs/902/logs"))
-                .andRespond(withStatus(HttpStatus.FOUND).header(HttpHeaders.LOCATION, "https://logs.github.test/job-902"));
-        fixture.logServer.expect(requestTo("https://logs.github.test/job-902"))
-                .andExpect(method(HttpMethod.HEAD))
-                .andRespond(withStatus(HttpStatus.TOO_MANY_REQUESTS).header(HttpHeaders.RETRY_AFTER, "120"));
-
-        assertThat(fixture.client.readLog(logQuery(1024)).unavailableReason())
-                .contains("GitHub Actions log retrieval is rate limited; no immediate retry was attempted");
-        assertThat(fixture.stored.get()).isNull();
-        fixture.verify();
     }
 
     @Test
@@ -1058,15 +973,6 @@ class TestGitHubActionsClient
         return value == null ? "null" : "\"" + value + "\"";
     }
 
-    private static void expectLogLength(Fixture fixture, long length)
-    {
-        fixture.logServer.expect(requestTo("https://logs.github.test/job-902"))
-                .andExpect(method(HttpMethod.HEAD))
-                .andExpect(headerDoesNotExist(HttpHeaders.AUTHORIZATION))
-                .andExpect(header(HttpHeaders.ACCEPT_ENCODING, "identity"))
-                .andRespond(withStatus(HttpStatus.OK).header(HttpHeaders.CONTENT_LENGTH, Long.toString(length)));
-    }
-
     private static Fixture fixture()
     {
         return fixture(PAT);
@@ -1084,6 +990,10 @@ class TestGitHubActionsClient
         RestClient.Builder logBuilder = RestClient.builder();
         MockRestServiceServer logServer = MockRestServiceServer.bindTo(logBuilder).build();
         AtomicReference<byte[]> stored = new AtomicReference<>();
+        FileAgentResourceService files = new FileAgentResourceService(temporaryDirectory.resolve(UUID.randomUUID().toString()));
+        AgentResourceService resources = mock(AgentResourceService.class);
+        when(resources.require(any())).thenAnswer(call -> files.allocate(call.getArgument(0)));
+        CiRawLogStore rawLogs = new CiRawLogStore(resources);
         GitHubActionsClient client = new GitHubActionsClient(
                 apiBuilder.build(),
                 logBuilder.build(),
@@ -1093,8 +1003,8 @@ class TestGitHubActionsClient
                         throw new AgentStorageException("disk unavailable");
                     }
                     return storeBlob(stored, content, mediaType);
-                });
-        return new Fixture(client, apiServer, logServer, stored);
+                }, rawLogs);
+        return new Fixture(client, apiServer, logServer, stored, rawLogs);
     }
 
     private static BlobRef storeBlob(AtomicReference<byte[]> stored, ByteBuffer content, String mediaType)
@@ -1109,7 +1019,8 @@ class TestGitHubActionsClient
             GitHubActionsClient client,
             MockRestServiceServer apiServer,
             MockRestServiceServer logServer,
-            AtomicReference<byte[]> stored)
+            AtomicReference<byte[]> stored,
+            CiRawLogStore rawLogs)
     {
         private void verify()
         {

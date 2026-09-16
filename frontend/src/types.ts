@@ -1363,6 +1363,7 @@ export type Bridge = {
   markPrReadyForReview: (repo: string, number: number) => Promise<void>;
   replyToReviewComment: (repo: string, number: number, commentId: number, body: string) => Promise<void>;
   setReviewThreadResolved: (repo: string, number: number, commentId: number, resolved: boolean) => Promise<void>;
+  getPrCheckLog: (repo: string, number: number, jobId: number) => Promise<{ text: string }>;
   rerunFailedPrChecks: (repo: string, number: number) => Promise<void>;
   submitReview: (
     prId: number,

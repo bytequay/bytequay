@@ -17,7 +17,7 @@ import type { ReactElement } from 'react';
 import { describe, expect, it, vi } from 'vitest';
 import type { InlineReviewCommentDto, PullRequestDetailDto, PullRequestDto, PullTimelinePayloadDto } from '../types';
 import MarkdownBody, { markdownBlocks } from './MarkdownBody';
-import PullOverview, { activeMention, appendQuotedReply, applyViewerReaction, canUpdateComment, CommentEditor, displayedMetadataPickerOptions, groupTimelineActivities, isViewerComment, MAX_UNSELECTED_PEOPLE_PICKER_OPTIONS, mentionCandidates, mergePullRequestWriteDetail, MetadataPicker, nextViewerReaction, patchCommentLine, peoplePickerCandidates, remoteErrorMessage, replaceMention, reviewCommentLine, ReviewThread, reviewThreadSuggestion, submitPullReaction, submitPullRequestComment, updatePullReactionDetail, updateReviewThreadResolution } from './PullOverview';
+import PullOverview, { activeMention, appendQuotedReply, applyViewerReaction, canUpdateComment, CommentEditor, displayedMetadataPickerOptions, groupTimelineActivities, githubActionsJobId, isViewerComment, MAX_UNSELECTED_PEOPLE_PICKER_OPTIONS, mentionCandidates, mergePullRequestWriteDetail, MetadataPicker, nextViewerReaction, patchCommentLine, peoplePickerCandidates, remoteErrorMessage, replaceMention, reviewCommentLine, ReviewThread, reviewThreadSuggestion, submitPullReaction, submitPullRequestComment, updatePullReactionDetail, updateReviewThreadResolution } from './PullOverview';
 import { relativeTime } from '../relativeTime';
 import PullsScreen, { canSubmitReview, hasMergeConflicts, isReviewRequestedForViewer, MergeDialog, mergeActionLabel, mergeStatus, PullDetailHeader, remotePullRequest, ReviewDialog, unresolvedReviewCount } from './PullsScreen';
 
@@ -638,6 +638,23 @@ describe('PullOverview', () => {
     expect(html).toContain('aria-label="Neutral"');
     expect(html).toContain('aria-label="Skipped"');
     expect(html).toContain('aria-label="Cancelled"');
+  });
+
+  it('offers browser and inline log actions only on failed checks, using the Actions job ID', () => {
+    const value = detail();
+    const check = { ...value.checkRuns[0], githubId: 999, detailsUrl: 'https://github.com/owner/repo/actions/runs/101/job/301' };
+    value.checkRuns = [check, { ...check, githubId: 2, category: 'successful' }, { ...check, githubId: 3, source: 'status', detailsUrl: 'https://ci.example/job/3' }];
+    const html = renderToStaticMarkup(<PullOverview pr={pullRequest()} detail={value} onRefresh={async () => {}} />);
+    expect(html.match(/>Open in GitHub<\/button>/g)).toHaveLength(2);
+    expect(html.match(/>Show log<\/button>/g)).toHaveLength(2);
+    expect(html).toContain('Inline logs are available for GitHub Actions jobs');
+    expect(html).not.toContain('pr-check__log');
+    expect(githubActionsJobId(check)).toBe(301);
+    for (const url of [null, 'invalid', 'https://ci.example/actions/runs/101/job/301', 'https://github.com/owner/repo/actions/runs/101',
+      'https://github.com/owner/repo/actions/runs/101/job/0', 'https://github.com/owner/repo/actions/runs/101/job/99999999999999999']) {
+      expect(githubActionsJobId({ ...check, detailsUrl: url })).toBeNull();
+    }
+    expect(githubActionsJobId({ ...check, source: 'status' })).toBeNull();
   });
 
   it('offers failed GitHub Actions reruns to viewers with write access', () => {

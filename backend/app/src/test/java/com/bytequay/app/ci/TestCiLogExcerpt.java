@@ -60,7 +60,7 @@ class TestCiLogExcerpt
     }
 
     @Test
-    void collapsesTimestampedDuplicatesWithoutLosingStackIndentation()
+    void keepsOriginalFormattingAndRepeatedLines()
     {
         String source = "2026-09-13T09:03:40.1Z \u001b[31merror: compilation failed\u001b[0m\n"
                 + "2026-09-13T09:03:40.2Z downloading dependency\n"
@@ -70,9 +70,8 @@ class TestCiLogExcerpt
 
         CiLogExcerpt excerpt = CiLogExcerpt.from(source, 4096);
 
-        assertThat(excerpt.text()).isEqualTo("error: compilation failed\ndownloading dependency\n"
-                + "[previous line repeated 2 more times]\n    at Example.main(Example.java:17)");
-        assertThat(excerpt.compacted()).isTrue();
+        assertThat(excerpt.text()).isEqualTo(source);
+        assertThat(excerpt.compacted()).isFalse();
     }
 
     @Test
@@ -85,9 +84,24 @@ class TestCiLogExcerpt
             assertThat(excerpt.text().getBytes(UTF_8).length).isLessThanOrEqualTo(budget);
             assertThat(excerpt.text()).doesNotContain("\ufffd");
             assertThat(excerpt.compacted()).isTrue();
+            assertThat(excerpt.diagnosticsMatched()).isFalse();
             if (budget >= 256) {
-                assertThat(excerpt.text()).contains("Run ./validate.sh", "Expected 42, got 41", "Done");
+                assertThat(excerpt.text()).contains("Expected 42, got 41", "Done").doesNotContain("Run ./validate.sh");
             }
+        }
+    }
+
+    @Test
+    void onlyExitStatusReturnsTheLast32KiBAndStackMarkersAreDiagnostics()
+    {
+        String source = "setup at beginning\n" + "downloaded artifact\n".repeat(4000) + "##[error]Process completed with exit code 1.\n";
+        CiLogExcerpt excerpt = CiLogExcerpt.from(source, 32 * 1024, 1024 * 1024);
+        assertThat(excerpt.diagnosticsMatched()).isFalse();
+        assertThat(excerpt.text()).isEqualTo(source.substring(source.length() - 32 * 1024));
+        for (String diagnostic : new String[] {"    at Worker.call(Worker.java:1)\n", "    Suppressed: worker unavailable\n", "Caused by: timeout\n"}) {
+            CiLogExcerpt matched = CiLogExcerpt.from(diagnostic + "    at Worker.end(Worker.java:2)\n", 32 * 1024);
+            assertThat(matched.diagnosticsMatched()).isTrue();
+            assertThat(matched.text()).startsWith(diagnostic);
         }
     }
 
@@ -97,6 +111,92 @@ class TestCiLogExcerpt
         CiLogExcerpt excerpt = CiLogExcerpt.from("error: invalid option\n  command: build --invalid", 4096);
 
         assertThat(excerpt.text()).isEqualTo("error: invalid option\n  command: build --invalid");
+        assertThat(excerpt.compacted()).isFalse();
+    }
+
+    @Test
+    void preservesTheEntireFailedTestBeforeLaterPassingSummariesAndCleanup()
+    {
+        String failure = "[ERROR] ExampleTest.testQuery -- Time elapsed: 1 s <<< FAILURE!\n"
+                + "java.lang.AssertionError:\n\nExpecting actual:\n  CONNECTION_FAILED\nto be in:\n  [EXPECTED_ERROR]\n"
+                + "    at ExampleTest.testQuery(ExampleTest.java:42)\n"
+                + "    Suppressed: QueryFailedException: worker unavailable\n"
+                + "        at Worker.call(Worker.java:18)\n"
+                + "        at Worker.call(Worker.java:18)\n"
+                + "Caused by: java.net.SocketTimeoutException: " + "long diagnostic ".repeat(200) + "\n"
+                + IntStream.range(0, 400).mapToObj(index -> "    at Worker.frame" + index + "(Worker.java:" + index + ")\n").collect(joining())
+                + "    Suppressed: java.io.IOException: connection closed\n"
+                + "        at Socket.close(Socket.java:99)\n"
+                + "Caused by: java.util.concurrent.TimeoutException: final cause\n"
+                + "    at Timer.expire(Timer.java:123)\n";
+        String noise = IntStream.range(0, 3000)
+                .mapToObj(index -> "[INFO] Tests run: 1, Failures: 0, Errors: 0, Skipped: 0 -- in PassingTest" + index + "\n")
+                .collect(joining());
+        String source = noise + failure + noise + "[WARN] Error closing test worker\n##[error]Process completed with exit code 1.\n";
+
+        CiLogExcerpt excerpt = CiLogExcerpt.from(source, 32 * 1024, 1024 * 1024);
+
+        assertThat(excerpt.text()).contains(failure).doesNotContain("PassingTest1500", "line shortened", "previous line repeated");
+        assertThat(excerpt.text()).contains("log lines omitted");
+    }
+
+    @Test
+    void exceedsTheTargetToKeepAnOversizedStackIntact()
+    {
+        String failure = "[ERROR] ExampleTest.testQuery <<< ERROR!\r\n"
+                + "java.lang.IllegalStateException: failure 日志🙂\r\n"
+                + "    at Worker.repeat(Worker.java:42)\r\n".repeat(1400)
+                + "Caused by: java.net.ConnectException: refused\r\n"
+                + "    at Client.connect(Client.java:55)\r\n";
+        String source = "[INFO] noise\n".repeat(4000) + failure + "[INFO] finished\n";
+
+        CiLogExcerpt excerpt = CiLogExcerpt.from(source, 32 * 1024, 1024 * 1024);
+
+        assertThat(excerpt.text()).contains(failure).doesNotContain("previous line repeated", "line shortened");
+        assertThat(excerpt.text().getBytes(UTF_8).length).isGreaterThan(32 * 1024).isLessThan(1024 * 1024);
+    }
+
+    @Test
+    void aHardResponseLimitOmitsAnOversizedStackAsAWhole()
+    {
+        String failure = "[ERROR] ExampleTest.testQuery <<< ERROR!\n"
+                + "java.lang.IllegalStateException: failure\n"
+                + "    at Worker.repeat(Worker.java:42)\n".repeat(1400)
+                + "Caused by: java.net.ConnectException: refused\n"
+                + "    at Client.connect(Client.java:55)\n";
+
+        for (String prefix : new String[] {"", "[INFO] starting\n"}) {
+            CiLogExcerpt excerpt = CiLogExcerpt.from(prefix + failure + "[INFO] finished\n", 4096);
+
+            assertThat(excerpt.text()).doesNotContain("ExampleTest", "Worker.repeat", "ConnectException", "Client.connect");
+            assertThat(excerpt.text()).contains("log lines omitted", "[INFO] finished");
+            assertThat(excerpt.text().getBytes(UTF_8).length).isLessThanOrEqualTo(4096);
+        }
+    }
+
+    @Test
+    void keepsLogPrefixesAndEveryFrameOfAPrefixedException()
+    {
+        String failure = "[ERROR] ExampleTest.testQuery <<< FAILURE!\n"
+                + "[ERROR] java.lang.AssertionError:\n[ERROR] \n[ERROR] expected: 1\n[ERROR]  but was: 2\n"
+                + "[ERROR]     at Worker.repeat(Worker.java:42)\n".repeat(900)
+                + "[ERROR] Caused by: java.io.IOException: actual cause\n"
+                + "[ERROR]     at Worker.open(Worker.java:51)\n";
+
+        CiLogExcerpt excerpt = CiLogExcerpt.from("[INFO] noise\n".repeat(4000) + failure + "[INFO] done\n", 32 * 1024, 1024 * 1024);
+
+        assertThat(excerpt.text()).contains(failure);
+    }
+
+    @Test
+    void aCompleteBlockCanUseTheEntireHardLimit()
+    {
+        String failure = "java.lang.IllegalStateException: failed\n"
+                + "    at Worker.repeat(Worker.java:42)\n".repeat(1400);
+
+        CiLogExcerpt excerpt = CiLogExcerpt.from(failure, 32 * 1024, failure.getBytes(UTF_8).length);
+
+        assertThat(excerpt.text()).isEqualTo(failure);
         assertThat(excerpt.compacted()).isFalse();
     }
 }

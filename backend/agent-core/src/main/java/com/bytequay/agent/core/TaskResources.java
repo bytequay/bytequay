@@ -24,6 +24,12 @@ public record TaskResources(
         Path blobsDirectory,
         Path providerDirectory)
 {
+    /** Disposable evidence retained only while the task worktree exists. */
+    public Path worktreeCacheDirectory()
+    {
+        return runtimeDirectory.resolve("worktree-cache");
+    }
+
     public TaskResources
     {
         requireNonNull(runtimeDirectory, "runtimeDirectory is null");

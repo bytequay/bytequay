@@ -21,6 +21,7 @@ import com.bytequay.app.ci.BoundedCiLog;
 import com.bytequay.app.ci.CiHeadSnapshot;
 import com.bytequay.app.ci.CiJob;
 import com.bytequay.app.ci.CiLogExcerpt;
+import com.bytequay.app.ci.CiRawLogStore;
 import com.bytequay.app.ci.CiRerunResult;
 import com.bytequay.app.ci.CiStep;
 import com.bytequay.app.ci.CiWorkflowRun;
@@ -44,15 +45,20 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.stereotype.Component;
 import org.springframework.web.client.ResourceAccessException;
 import org.springframework.web.client.RestClient;
-import org.springframework.web.client.RestClientException;
 import org.springframework.web.client.RestClientResponseException;
 import org.springframework.web.server.ResponseStatusException;
 
+import java.io.BufferedReader;
 import java.io.IOException;
 import java.io.InputStream;
+import java.io.InputStreamReader;
+import java.io.PrintWriter;
+import java.io.UncheckedIOException;
 import java.net.URI;
 import java.nio.ByteBuffer;
 import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Comparator;
@@ -65,7 +71,6 @@ import java.util.Optional;
 import java.util.Set;
 import java.util.concurrent.CancellationException;
 import java.util.function.Supplier;
-import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
 import static com.bytequay.app.ci.CiRerunResult.Outcome.ACCEPTED;
@@ -89,8 +94,9 @@ public class GitHubActionsClient
     private static final int MAX_PAGES = 10;
     private static final int MAX_TERMINAL_ERRORS = 20;
     private static final int MAX_ERROR_LINE = 500;
+    private static final String TAIL_NOTE = "No diagnostic keywords or stack trace matched. Showing only the log tail (at most 32 KiB); "
+            + "request the cached raw log for complete evidence.\n";
     private static final String LOG_MEDIA_TYPE = "text/plain; charset=utf-8";
-    private static final Pattern LOG_CONTENT_RANGE = Pattern.compile("bytes (\\d+)-(\\d+)/(\\d+)");
     private static final Pattern ANSI_ESCAPE = Pattern.compile("\\x1B(?:[@-Z\\\\-_]|\\[[0-?]*[ -/]*[@-~])");
     private static final Pattern TIMESTAMP_PREFIX = Pattern.compile(
             "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}(?:\\.\\d+)?Z\\s+");
@@ -103,31 +109,36 @@ public class GitHubActionsClient
     private final RestClient logRestClient;
     private final Supplier<String> tokenSupplier;
     private final LogBlobWriter blobWriter;
+    private final CiRawLogStore rawLogs;
 
     @Autowired
     public GitHubActionsClient(
             RestClient gitHubRestClient,
             @Qualifier("gitHubLogRestClient") RestClient logRestClient,
             CredentialService credentials,
-            TaskLogStore taskLogStore)
+            TaskLogStore taskLogStore,
+            CiRawLogStore rawLogs)
     {
         this(
                 gitHubRestClient,
                 logRestClient,
                 credentials::resolveGitHubToken,
-                taskLogStore::writeBlob);
+                taskLogStore::writeBlob,
+                rawLogs);
     }
 
     GitHubActionsClient(
             RestClient gitHubRestClient,
             RestClient logRestClient,
             Supplier<String> tokenSupplier,
-            LogBlobWriter blobWriter)
+            LogBlobWriter blobWriter,
+            CiRawLogStore rawLogs)
     {
         this.gitHubRestClient = requireNonNull(gitHubRestClient, "gitHubRestClient is null");
         this.logRestClient = requireNonNull(logRestClient, "logRestClient is null");
         this.tokenSupplier = requireNonNull(tokenSupplier, "tokenSupplier is null");
         this.blobWriter = requireNonNull(blobWriter, "blobWriter is null");
+        this.rawLogs = requireNonNull(rawLogs, "rawLogs is null");
     }
 
     public List<PrCheckRunState> fetchPrCheckRuns(String pat, String owner, String repo, String sha)
@@ -322,38 +333,47 @@ public class GitHubActionsClient
     public BoundedCiLog readLog(ReadCiLogQuery query)
     {
         requireNonNull(query, "query is null");
-        String pat = token();
-        LogHop result = retrieveLog(pat, query);
-        if (result.unavailableReason() != null) {
-            return BoundedCiLog.unavailable(result.unavailableReason());
+        Optional<String> unavailable = rawLogs.cache(query, path -> retrieveLog(token(), query.pullRequest(), query.job().id(), path));
+        if (unavailable.isPresent()) {
+            return BoundedCiLog.unavailable(unavailable.orElseThrow());
         }
-        RawLog raw = result.raw();
-        byte[] fullyRedacted = redact(raw.bytes(), pat);
-        byte[] redacted = fullyRedacted.length <= query.maximumBytes()
-                ? fullyRedacted
-                : Arrays.copyOf(fullyRedacted, query.maximumBytes());
-        boolean truncated = raw.truncated() || redacted.length < fullyRedacted.length;
-        String text = new String(redacted, StandardCharsets.UTF_8);
-        String captureNote = (raw.omittedBeginning() ? "[Beginning of log omitted; downloaded tail.]\n" : "")
-                + (truncated ? "[Log byte limit reached; end of log omitted.]\n" : "");
-        int maximumExcerptBytes = Math.min(query.maximumBytes(), 32 * 1024);
-        if (captureNote.length() >= maximumExcerptBytes) {
-            return BoundedCiLog.unavailable("CI log byte limit is too small to include omitted-content details");
+        String logId = CiRawLogStore.id(query);
+        String text = rawLogs.read(query.taskId(), logId);
+        String rawNote = "Raw log: read_ci_raw_log({\"logId\":\"" + logId + "\"}).\n";
+        int budget = query.maximumBytes() - rawNote.length() - TAIL_NOTE.length();
+        if (budget <= 0) {
+            return BoundedCiLog.unavailable("CI log byte limit is too small to include log retrieval details");
         }
-        CiLogExcerpt excerpt = CiLogExcerpt.from(text, maximumExcerptBytes - captureNote.length());
-        byte[] stored = (captureNote + excerpt.text()).getBytes(StandardCharsets.UTF_8);
+        CiLogExcerpt excerpt = CiLogExcerpt.from(text, Math.min(budget, 32 * 1024), budget);
+        byte[] stored = (rawNote + (excerpt.diagnosticsMatched() ? "" : TAIL_NOTE) + excerpt.text()).getBytes(StandardCharsets.UTF_8);
         BlobRef blob = blobWriter.write(query.taskId(), ByteBuffer.wrap(stored), LOG_MEDIA_TYPE);
-        return new BoundedCiLog(
-                Optional.of(blob),
-                stored.length,
-                truncated,
-                raw.omittedBeginning(),
-                excerpt.compacted(),
-                terminalErrors(text),
-                Optional.empty());
+        return new BoundedCiLog(Optional.of(blob), stored.length, false, false, excerpt.compacted(), terminalErrors(text),
+                Optional.empty(), Optional.of(logId), excerpt.diagnosticsMatched());
     }
 
-    private LogHop retrieveLog(String pat, ReadCiLogQuery query)
+    /** Uses the same full download and excerpt selection without creating task-owned storage. */
+    public String readJobLog(PullRequestRef pullRequest, long jobId)
+    {
+        try {
+            Path temporary = Files.createTempFile("bytequay-ci-", ".log");
+            try {
+                Optional<String> unavailable = retrieveLog(token(), pullRequest, jobId, temporary);
+                if (unavailable.isPresent()) {
+                    throw new ResponseStatusException(HttpStatus.NOT_FOUND, unavailable.orElseThrow());
+                }
+                CiLogExcerpt excerpt = CiLogExcerpt.from(Files.readString(temporary), 32 * 1024, 1024 * 1024);
+                return (excerpt.diagnosticsMatched() ? "" : "No diagnostic keywords or stack trace matched. Showing only the log tail (at most 32 KiB).\n") + excerpt.text();
+            }
+            finally {
+                Files.deleteIfExists(temporary);
+            }
+        }
+        catch (IOException failure) {
+            throw new UncheckedIOException("Cannot read CI log", failure);
+        }
+    }
+
+    private Optional<String> retrieveLog(String pat, PullRequestRef pullRequest, long jobId, Path destination)
     {
         String unavailableReason = "GitHub Actions log could not be downloaded";
         for (int attempt = 0; attempt < 2; attempt++) {
@@ -362,8 +382,8 @@ public class GitHubActionsClient
             }
             try {
                 // Each retry obtains a new short-lived storage URL.
-                LogHop first = requestLogRedirect(pat, query.pullRequest(), query.job().id(), query.maximumBytes());
-                return first.redirect() == null ? first : downloadRedirect(first.redirect(), query.maximumBytes());
+                LogHop first = requestLogRedirect(pat, pullRequest, jobId, destination);
+                return first.redirect().isEmpty() ? first.unavailableReason() : downloadRedirect(first.redirect().orElseThrow(), pat, destination);
             }
             catch (ResponseStatusException failure) {
                 int status = failure.getStatusCode().value();
@@ -371,7 +391,7 @@ public class GitHubActionsClient
                     throw failure;
                 }
                 if (status == 429) {
-                    return LogHop.unavailable("GitHub Actions log retrieval is rate limited; no immediate retry was attempted");
+                    return Optional.of("GitHub Actions log retrieval is rate limited; no immediate retry was attempted");
                 }
                 unavailableReason = "GitHub Actions log retrieval failed after 2 attempts (HTTP " + status + ")";
             }
@@ -382,7 +402,7 @@ public class GitHubActionsClient
                 unavailableReason = "GitHub Actions log retrieval failed after 2 attempts because of a network or read timeout error";
             }
         }
-        return LogHop.unavailable(unavailableReason);
+        return Optional.of(unavailableReason);
     }
 
     @Override
@@ -613,143 +633,96 @@ public class GitHubActionsClient
         });
     }
 
-    private LogHop requestLogRedirect(
-            String pat,
-            PullRequestRef pullRequest,
-            long jobId,
-            int maximumBytes)
+    private LogHop requestLogRedirect(String pat, PullRequestRef pullRequest, long jobId, Path destination)
     {
         return get(gitHubRestClient, pat, "/repos/{owner}/{repo}/actions/jobs/{jobId}/logs", pullRequest.owner(), pullRequest.repo(), jobId)
                 .exchange((request, response) -> {
                     int status = response.getStatusCode().value();
                     if (status == 200) {
-                        return new LogHop(null, readBounded(response.getBody(), maximumBytes), null);
+                        writeRedacted(response.getBody(), destination, pat);
+                        return new LogHop(Optional.empty(), Optional.empty());
                     }
                     if (status == 302 || status == 303 || status == 307 || status == 308) {
                         URI location = response.getHeaders().getLocation();
                         if (location == null || !safeLogLocation(location)) {
                             return LogHop.unavailable("GitHub returned an unsafe or missing log location");
                         }
-                        return new LogHop(location, null, null);
+                        return new LogHop(Optional.of(location), Optional.empty());
                     }
                     if (status == 404 || status == 410) {
                         return LogHop.unavailable("GitHub Actions log is missing or expired");
                     }
-                    throw new ResponseStatusException(
-                            HttpStatusCode.valueOf(status),
-                            "GitHub Actions log request failed with status " + status);
+                    if (status == 206 || status == 416) {
+                        return LogHop.unavailable("GitHub did not return a complete raw log");
+                    }
+                    throw new ResponseStatusException(HttpStatusCode.valueOf(status), "GitHub Actions log request failed with status " + status);
                 });
     }
 
-    private LogHop downloadRedirect(URI location, int maximumBytes)
+    private Optional<String> downloadRedirect(URI location, String pat, Path destination)
     {
-        Optional<Long> length = logLength(location).filter(value -> value > maximumBytes);
-        RestClient.RequestHeadersSpec<?> request = logRestClient.get()
-                .uri(location)
-                .header(HttpHeaders.ACCEPT_ENCODING, "identity");
-        length.ifPresent(value -> request.header(HttpHeaders.RANGE, "bytes=" + (value - maximumBytes) + "-" + (value - 1)));
-        return request.exchange((logRequest, response) -> {
+        return logRestClient.get().uri(location).header(HttpHeaders.ACCEPT_ENCODING, "identity").exchange((request, response) -> {
             int status = response.getStatusCode().value();
             if (status == 404 || status == 410) {
-                return LogHop.unavailable("GitHub Actions log is missing or expired");
+                return Optional.of("GitHub Actions log is missing or expired");
             }
-            if (status == 416) {
-                return LogHop.unavailable("GitHub Actions log is empty or the requested byte range is unavailable");
-            }
-            if (status == 206) {
-                if (length.isEmpty()) {
-                    return LogHop.unavailable("GitHub returned an unsolicited ranged log response");
-                }
-                return readLogRange(response.getBody(), response.getHeaders(), maximumBytes, length.orElseThrow());
+            if (status == 206 || status == 416) {
+                return Optional.of("GitHub did not return a complete raw log");
             }
             if (status != 200) {
-                throw new ResponseStatusException(
-                        HttpStatusCode.valueOf(status),
-                        "GitHub Actions log download failed with status " + status);
+                throw new ResponseStatusException(HttpStatusCode.valueOf(status), "GitHub Actions log download failed with status " + status);
             }
-            return new LogHop(null, readBounded(response.getBody(), maximumBytes), null);
+            writeRedacted(response.getBody(), destination, pat);
+            return Optional.empty();
         });
     }
 
-    private Optional<Long> logLength(URI location)
-    {
-        try {
-            return logRestClient.head().uri(location).header(HttpHeaders.ACCEPT_ENCODING, "identity").exchange((request, response) -> {
-                if (response.getStatusCode().value() == 429) {
-                    throw new ResponseStatusException(HttpStatus.TOO_MANY_REQUESTS, "GitHub Actions log size probe was rate limited");
-                }
-                if (response.getStatusCode().value() != 200
-                        || !"identity".equalsIgnoreCase(Optional.ofNullable(response.getHeaders().getFirst(HttpHeaders.CONTENT_ENCODING)).orElse("identity"))) {
-                    return Optional.empty();
-                }
-                return Optional.of(response.getHeaders().getContentLength()).filter(value -> value >= 0);
-            });
-        }
-        catch (RestClientException | IllegalArgumentException ignored) {
-            if (Thread.currentThread().isInterrupted()) {
-                throw ignored;
-            }
-            return Optional.empty();
-        }
-    }
-
-    private static LogHop readLogRange(InputStream input, HttpHeaders headers, int maximumBytes, long expectedLength)
+    private static void writeRedacted(InputStream input, Path destination, String pat)
             throws IOException
-    {
-        Matcher range = LOG_CONTENT_RANGE.matcher(Optional.ofNullable(headers.getFirst(HttpHeaders.CONTENT_RANGE)).orElse(""));
-        if (!range.matches() || !"identity".equalsIgnoreCase(Optional.ofNullable(headers.getFirst(HttpHeaders.CONTENT_ENCODING)).orElse("identity"))) {
-            return LogHop.unavailable("GitHub returned an invalid ranged log response");
-        }
-        try {
-            long first = Long.parseLong(range.group(1));
-            long last = Long.parseLong(range.group(2));
-            long total = Long.parseLong(range.group(3));
-            if (total != expectedLength || first != total - maximumBytes || last != total - 1) {
-                return LogHop.unavailable("GitHub returned an invalid ranged log response");
-            }
-            int expectedBytes = (int) (last - first + 1);
-            byte[] bytes = input.readNBytes(expectedBytes + 1);
-            if (bytes.length != expectedBytes) {
-                return LogHop.unavailable("GitHub returned an incomplete ranged log response");
-            }
-            if (first > 0) {
-                // A suffix can start inside a secret, before its recognizable token prefix.
-                int start = 0;
-                while (start < bytes.length && bytes[start] != '\n') {
-                    start++;
-                }
-                bytes = Arrays.copyOfRange(bytes, Math.min(bytes.length, start + 1), bytes.length);
-            }
-            return new LogHop(null, new RawLog(bytes, false, first > 0), null);
-        }
-        catch (NumberFormatException ignored) {
-            return LogHop.unavailable("GitHub returned an invalid ranged log response");
-        }
-    }
-
-    private static RawLog readBounded(InputStream input, int maximumBytes)
-            throws IOException
-    {
-        byte[] bytes = input.readNBytes(maximumBytes + 1);
-        boolean truncated = bytes.length > maximumBytes;
-        if (truncated) {
-            // A cut-off credential no longer matches full-value secret redaction.
-            int end = maximumBytes;
-            while (end > 0 && bytes[end - 1] != '\n') {
-                end--;
-            }
-            bytes = Arrays.copyOf(bytes, end);
-        }
-        return new RawLog(bytes, truncated, false);
-    }
-
-    private static byte[] redact(byte[] bytes, String pat)
     {
         SecretRedactor redactor = SecretRedactor.fromEnvironment(ImmutableMap.of("GITHUB_TOKEN", pat));
-        String text = redactor.redact(new String(bytes, StandardCharsets.UTF_8));
+        try (var reader = new BufferedReader(new InputStreamReader(input, StandardCharsets.UTF_8));
+                var writer = rawLogWriter(destination)) {
+            char[] buffer = new char[8192];
+            StringBuilder line = new StringBuilder();
+            int count;
+            while ((count = reader.read(buffer)) >= 0) {
+                if (Thread.currentThread().isInterrupted()) {
+                    throw new CancellationException("CI log download interrupted");
+                }
+                for (int index = 0; index < count; index++) {
+                    line.append(buffer[index]);
+                    if (buffer[index] == '\n') {
+                        writer.write(redact(line.toString(), redactor));
+                        line.setLength(0);
+                    }
+                }
+            }
+            if (!line.isEmpty()) {
+                writer.write(redact(line.toString(), redactor));
+            }
+            if (writer.checkError()) {
+                throw new UncheckedIOException("Cannot store raw CI log", new IOException("Raw log file write failed"));
+            }
+        }
+    }
+
+    private static PrintWriter rawLogWriter(Path destination)
+    {
+        try {
+            // Keep local write failures distinct from retriable HTTP stream failures.
+            return new PrintWriter(Files.newBufferedWriter(destination, StandardCharsets.UTF_8));
+        }
+        catch (IOException failure) {
+            throw new UncheckedIOException("Cannot store raw CI log", failure);
+        }
+    }
+
+    private static String redact(String text, SecretRedactor redactor)
+    {
+        text = redactor.redact(text);
         text = AUTHORIZATION_VALUE.matcher(text).replaceAll("$1[REDACTED]");
-        text = GITHUB_TOKEN.matcher(text).replaceAll("[REDACTED]");
-        return text.getBytes(StandardCharsets.UTF_8);
+        return GITHUB_TOKEN.matcher(text).replaceAll("[REDACTED]");
     }
 
     private static List<String> terminalErrors(String log)
@@ -848,16 +821,11 @@ public class GitHubActionsClient
         BlobRef write(TaskId taskId, ByteBuffer content, String mediaType);
     }
 
-    private record RawLog(byte[] bytes, boolean truncated, boolean omittedBeginning) {}
-
-    private record LogHop(
-            URI redirect,
-            RawLog raw,
-            String unavailableReason)
+    private record LogHop(Optional<URI> redirect, Optional<String> unavailableReason)
     {
         private static LogHop unavailable(String reason)
         {
-            return new LogHop(null, null, reason);
+            return new LogHop(Optional.empty(), Optional.of(reason));
         }
     }
 

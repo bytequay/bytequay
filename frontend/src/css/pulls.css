@@ -1011,6 +1011,13 @@
 .pr-checks__groups summary { cursor: pointer; list-style: none; }
 .pr-checks__groups summary span { display: inline-block; transform: rotate(90deg); }
 .pr-check { display: grid; grid-template-columns: 18px minmax(0, 1fr) auto auto; align-items: center; gap: 7px; padding: 8px 8px 3px; }
+.pr-check__actions { display: flex; align-items: center; gap: 6px; }
+.pr-check__actions button { border: 1px solid #d0d7de; border-radius: 5px; background: #f6f8fa; color: #24292f; padding: 3px 7px; font: inherit; white-space: nowrap; cursor: pointer; }
+.pr-check__actions button:disabled { opacity: 0.55; cursor: default; }
+.pr-check__log { grid-column: 2 / -1; min-width: 0; }
+.pr-check__log p { margin: 4px 0; }
+.pr-check__log [role="alert"] { color: #a40e26; }
+.pr-check__log pre { max-height: 320px; overflow: auto; margin: 6px 0; border: 1px solid #d0d7de; border-radius: 6px; background: #f6f8fa; padding: 10px; color: #24292f; font-family: var(--font-mono); white-space: pre-wrap; overflow-wrap: anywhere; }
 .pr-check__icon { display: block; width: 16px; height: 16px; stroke-width: 2.25; transform-origin: center; }
 .pr-check strong { overflow: hidden; color: #24292f; font-weight: 500; text-overflow: ellipsis; white-space: nowrap; }
 .pr-check time { color: #8c959f; white-space: nowrap; }

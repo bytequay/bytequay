@@ -429,6 +429,7 @@ public final class DefaultAgentCompletionService
             return task;
         }
         task.taskWorktree().ifPresent(worktreeService::cleanup);
+        resourceService.deleteWorktreeCache(task.id());
         // Only after the worktree is gone: a refused cleanup keeps the index for the retry, and retention covers the rest.
         task.taskWorktree().ifPresent(ignored -> codeGraph.deleteIndex(resourceService.require(task.id())));
         return taskStore.update(task.withWorktreeRemovedAt(Instant.now(clock)));

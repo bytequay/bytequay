@@ -84,6 +84,7 @@ const bridge: Bridge = {
     ipcRenderer.invoke('prs:review-comment:reply', repo, number, commentId, body),
   setReviewThreadResolved: (repo, number, commentId, resolved) =>
     ipcRenderer.invoke('prs:review-thread:resolution', repo, number, commentId, resolved),
+  getPrCheckLog: (repo, number, jobId) => ipcRenderer.invoke('prs:checks:log', repo, number, jobId),
   rerunFailedPrChecks: (repo, number) => ipcRenderer.invoke('prs:checks:rerun-failed', repo, number),
   submitReview: (prId, repo, number, event, body, comments) =>
     ipcRenderer.invoke('prs:review', prId, repo, number, event, body, comments),

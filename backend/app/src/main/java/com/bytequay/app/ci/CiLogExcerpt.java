@@ -13,8 +13,11 @@
  */
 package com.bytequay.app.ci;
 
+import com.google.common.collect.ImmutableList;
+
 import java.util.ArrayList;
 import java.util.BitSet;
+import java.util.Comparator;
 import java.util.List;
 import java.util.regex.Pattern;
 
@@ -22,16 +25,22 @@ import static com.google.common.base.Preconditions.checkArgument;
 import static java.nio.charset.StandardCharsets.UTF_8;
 import static java.util.Objects.requireNonNull;
 
-/** Selects bounded diagnostic context from already redacted, bounded log text. */
-public record CiLogExcerpt(String text, boolean compacted)
+/** Selects intact diagnostic blocks from a complete, credential-redacted log. */
+public record CiLogExcerpt(String text, boolean compacted, boolean diagnosticsMatched)
 {
     private static final Pattern ANSI_ESCAPE = Pattern.compile("\\x1B(?:[@-Z\\\\-_]|\\[[0-?]*[ -/]*[@-~])");
     private static final Pattern TIMESTAMP_PREFIX = Pattern.compile("^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}(?:\\.\\d+)?Z\\s?");
+    private static final Pattern FAILED_TEST = Pattern.compile("<<<\\s*(?:FAILURE|ERROR)!");
+    private static final Pattern COMPILER_ERROR = Pattern.compile("(?i)compilation (?:error|failed)|cannot find symbol");
     private static final Pattern ERROR = Pattern.compile(
             "(?i)(\\b(?:error|errors|failed|failure|fatal|panic|exception|traceback|assertion|assert|mismatch)\\b"
-                    + "|\\b\\w*(?:Exception|Error)\\b|Caused by:|timed out|segmentation fault|##\\[error\\])");
+                    + "|\\b\\w*(?:Exception|Error)\\b|Caused by:|Suppressed:|timed out|segmentation fault|##\\[error\\]|^\\s*at\\s+\\S+\\([^\\n]*\\))");
+    private static final Pattern PASSING_TEST = Pattern.compile("Tests run:.*\\bFailures: 0,\\s*Errors: 0\\b");
+    private static final Pattern EXIT_STATUS = Pattern.compile("^##\\[error]Process completed with exit code \\d+\\.?$");
+    private static final Pattern EXCEPTION = Pattern.compile("^(?:Caused by:|Suppressed:|[\\w.$]+(?:Exception|Error)(?::|$)|\\.\\.\\. \\d+ more)");
+    private static final Pattern LEVEL_PREFIX = Pattern.compile("^\\[(?:INFO|WARN|ERROR|DEBUG|TRACE)] ?");
+    private static final Pattern RECORD = Pattern.compile("^(?:\\[(?:INFO|WARN|ERROR|DEBUG|TRACE)]|##\\[)");
     private static final String OMISSION = "[... log lines omitted ...]\n";
-    private static final int MAXIMUM_LINE_BYTES = 2000;
 
     public CiLogExcerpt
     {
@@ -40,108 +49,150 @@ public record CiLogExcerpt(String text, boolean compacted)
 
     public static CiLogExcerpt from(String text, int maximumBytes)
     {
-        requireNonNull(text, "text is null");
-        checkArgument(maximumBytes > 0 && maximumBytes <= ReadCiLogQuery.MAXIMUM_BYTES, "maximumBytes is outside the log limit");
-        List<String> lines = new ArrayList<>();
-        int repetitions = 0;
-        String previous = null;
-        for (String line : text.lines().toList()) {
-            String normalized = TIMESTAMP_PREFIX.matcher(ANSI_ESCAPE.matcher(line).replaceAll("")).replaceFirst("").stripTrailing();
-            if (normalized.equals(previous)) {
-                repetitions++;
-                continue;
-            }
-            if (repetitions > 0) {
-                lines.add("[previous line repeated " + repetitions + " more times]");
-                repetitions = 0;
-            }
-            lines.add(normalized);
-            previous = normalized;
-        }
-        if (repetitions > 0) {
-            lines.add("[previous line repeated " + repetitions + " more times]");
-        }
-        String normalized = String.join("\n", lines);
-        if (normalized.getBytes(UTF_8).length <= maximumBytes) {
-            return new CiLogExcerpt(normalized, !normalized.equals(text));
-        }
-        if (maximumBytes < 256) {
-            return new CiLogExcerpt(boundedLine(normalized, maximumBytes), true);
-        }
-        List<Integer> errors = new ArrayList<>();
-        for (int index = 0; index < lines.size(); index++) {
-            if (ERROR.matcher(lines.get(index)).find()) {
-                errors.add(index);
-            }
-            lines.set(index, boundedLine(lines.get(index), Math.min(MAXIMUM_LINE_BYTES, Math.max(1, maximumBytes / 4))));
-        }
-        Selection selection = new Selection(lines, maximumBytes);
-        // The first diagnostic often names the cause; the final one records the failed command.
-        if (!errors.isEmpty()) {
-            selection.range(errors.getFirst(), errors.getFirst() + 1);
-            selection.range(errors.getLast(), errors.getLast() + 1);
-        }
-        selection.range(Math.max(0, lines.size() - 1), lines.size());
-        if (!errors.isEmpty()) {
-            selection.around(errors.getFirst());
-            selection.around(errors.getLast());
-        }
-        selection.range(Math.max(0, lines.size() - 30), lines.size());
-        selection.range(0, Math.min(8, lines.size()));
-        for (int index = errors.size() - 1; index >= 0 && selection.remaining > 0; index--) {
-            selection.around(errors.get(index));
-        }
-        return new CiLogExcerpt(selection.render(), true);
+        return from(text, maximumBytes, maximumBytes);
     }
 
-    private static String boundedLine(String value, int maximumBytes)
+    /** The target may be exceeded to retain a whole block; the hard maximum never is. */
+    public static CiLogExcerpt from(String text, int targetBytes, int maximumBytes)
     {
-        byte[] bytes = value.getBytes(UTF_8);
-        if (bytes.length <= maximumBytes) {
-            return value;
+        requireNonNull(text, "text is null");
+        checkArgument(targetBytes > 0 && targetBytes <= maximumBytes, "targetBytes is outside the log limit");
+        checkArgument(maximumBytes <= ReadCiLogQuery.MAXIMUM_BYTES, "maximumBytes is outside the log limit");
+        // Keep source lines, including their terminators, unchanged. Normalization is only for matching.
+        List<String> lines = ImmutableList.copyOf(text.split("(?<=\\n)"));
+        List<String> normalized = lines.stream()
+                .map(line -> TIMESTAMP_PREFIX.matcher(ANSI_ESCAPE.matcher(line).replaceAll("")).replaceFirst("").stripTrailing())
+                .toList();
+        List<Integer> diagnostics = new ArrayList<>();
+        for (int index = 0; index < lines.size(); index++) {
+            String line = normalized.get(index);
+            if (!PASSING_TEST.matcher(line).find() && !EXIT_STATUS.matcher(line).matches() && ERROR.matcher(line).find()) {
+                diagnostics.add(index);
+            }
         }
-        String marker = " [line shortened]";
-        if (maximumBytes <= marker.length()) {
-            marker = "";
+        if (diagnostics.isEmpty()) {
+            byte[] bytes = text.getBytes(UTF_8);
+            int start = Math.max(0, bytes.length - Math.min(targetBytes, 32 * 1024));
+            while (start < bytes.length && (bytes[start] & 0xC0) == 0x80) {
+                start++;
+            }
+            return new CiLogExcerpt(new String(bytes, start, bytes.length - start, UTF_8), start > 0, false);
         }
-        int end = maximumBytes - marker.length();
-        while (end > 0 && (bytes[end] & 0xC0) == 0x80) {
-            end--;
+        if (text.getBytes(UTF_8).length <= targetBytes) {
+            return new CiLogExcerpt(text, false, true);
         }
-        return new String(bytes, 0, end, UTF_8) + marker;
+        diagnostics.sort(Comparator.comparingInt(index -> priority(normalized.get(index))));
+        Selection selection = new Selection(lines, maximumBytes);
+        BitSet considered = new BitSet();
+        for (int anchor : diagnostics) {
+            if (selection.bytes >= targetBytes) {
+                break;
+            }
+            if (considered.get(anchor) || selection.selected.get(anchor)) {
+                continue;
+            }
+            int start = blockStart(normalized, anchor);
+            int end = blockEnd(normalized, anchor);
+            considered.set(start, end);
+            if (selection.range(start, end)) {
+                int before = blockStart(normalized, Math.max(0, start - 20));
+                int after = Math.min(lines.size(), end + 20);
+                while (after < lines.size() && continuation(normalized.get(after))) {
+                    after++;
+                }
+                if (selection.bytes < targetBytes) {
+                    selection.range(before, after);
+                }
+            }
+        }
+        // Keep the final command outcome, but never start halfway through its exception chain.
+        int end = lines.size();
+        int tailStart = Math.max(0, end - 30);
+        while (end > tailStart && selection.bytes < targetBytes) {
+            int start = blockStart(normalized, end - 1);
+            selection.range(start, end);
+            end = start;
+        }
+        if (selection.bytes < targetBytes && !lines.isEmpty()) {
+            selection.range(0, blockEnd(normalized, 0));
+        }
+        String excerpt = selection.render();
+        return new CiLogExcerpt(excerpt, !excerpt.equals(text), true);
+    }
+
+    private static int priority(String line)
+    {
+        if (FAILED_TEST.matcher(line).find() || COMPILER_ERROR.matcher(line).find()) {
+            return 0;
+        }
+        return line.startsWith("[ERROR]") || line.startsWith("##[error]") ? 1 : 2;
+    }
+
+    private static int blockStart(List<String> lines, int index)
+    {
+        while (index > 0 && continuation(lines.get(index))) {
+            index--;
+        }
+        return index;
+    }
+
+    private static int blockEnd(List<String> lines, int anchor)
+    {
+        int end = anchor + 1;
+        boolean failedTest = FAILED_TEST.matcher(lines.get(anchor)).find();
+        // ponytail: textual boundaries tolerate noise; add runner-specific boundaries only for demonstrated misses.
+        while (end < lines.size() && (continuation(lines.get(end)) || (failedTest && !RECORD.matcher(lines.get(end)).find()))) {
+            end++;
+        }
+        return end;
+    }
+
+    private static boolean continuation(String line)
+    {
+        line = LEVEL_PREFIX.matcher(line).replaceFirst("");
+        return line.isBlank() || Character.isWhitespace(line.charAt(0)) || EXCEPTION.matcher(line).find()
+                || line.startsWith("Expecting ") || line.startsWith("expected:") || line.startsWith("to be ");
     }
 
     private static final class Selection
     {
         private final List<String> lines;
         private final BitSet selected = new BitSet();
-        private int remaining;
+        private final int maximumBytes;
+        private int bytes;
 
         private Selection(List<String> lines, int maximumBytes)
         {
             this.lines = lines;
-            remaining = maximumBytes - OMISSION.length();
+            this.maximumBytes = maximumBytes;
         }
 
-        private void around(int anchor)
+        private boolean range(int start, int end)
         {
-            range(anchor, anchor + 1);
-            range(Math.max(0, anchor - 4), Math.min(lines.size(), anchor + 13));
-        }
-
-        private void range(int start, int end)
-        {
+            int additionalBytes = 0;
             for (int index = start; index < end; index++) {
-                if (selected.get(index)) {
-                    continue;
-                }
-                // Reserving a gap per line bounds output even when selected contexts never overlap.
-                int cost = lines.get(index).getBytes(UTF_8).length + 1 + OMISSION.length();
-                if (cost <= remaining) {
-                    selected.set(index);
-                    remaining -= cost;
+                if (!selected.get(index)) {
+                    additionalBytes += lines.get(index).getBytes(UTF_8).length;
                 }
             }
+            if (additionalBytes == 0) {
+                return true;
+            }
+            BitSet combined = (BitSet) selected.clone();
+            combined.set(start, end);
+            int gaps = 0;
+            int index = combined.nextClearBit(0);
+            while (index < lines.size()) {
+                gaps++;
+                int next = combined.nextSetBit(index);
+                index = next < 0 ? lines.size() : combined.nextClearBit(next);
+            }
+            if (bytes + additionalBytes + gaps * OMISSION.length() > maximumBytes) {
+                return false;
+            }
+            selected.set(start, end);
+            bytes += additionalBytes;
+            return true;
         }
 
         private String render()
@@ -152,10 +203,10 @@ public record CiLogExcerpt(String text, boolean compacted)
                 if (index > previous + 1) {
                     result.append(OMISSION);
                 }
-                result.append(lines.get(index)).append('\n');
+                result.append(lines.get(index));
                 previous = index;
             }
-            if (previous < lines.size() - 1 && remaining >= 0) {
+            if (previous < lines.size() - 1 && OMISSION.length() <= maximumBytes) {
                 result.append(OMISSION);
             }
             return result.toString();

@@ -73,6 +73,9 @@ public interface AgentResourceService
     /** Removes a stored attachment; a reference to it in an earlier message then reads as unavailable. */
     void deleteAttachment(TaskId taskId, String attachmentId);
 
+    /** Deletes disposable worktree evidence after worktree removal, retaining the task transcript. */
+    void deleteWorktreeCache(TaskId taskId);
+
     /**
      * Deletes all ByteQuay-owned runtime resources for a task.
      *

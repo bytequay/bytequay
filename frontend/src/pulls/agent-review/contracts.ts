@@ -64,6 +64,8 @@ export type ReviewStepDto = {
   validation: { investigationStep: number; candidates: ReviewCandidateValidationDto[]; coverage: ReviewCoverageDto; newCandidates: string[] } | null;
 };
 
+export type ContextDeliveryStateDto = { outcome: 'PREPARED' | 'SUBMITTED' | 'CONFIRMED' | 'UNCERTAIN'; detail: string | null };
+
 export type ReviewRunDto = {
   id: string;
   ordinal: number;
@@ -82,6 +84,7 @@ export type ReviewRunDto = {
   steps: ReviewStepDto[];
   evidence: ReviewEvidenceDto[];
   context: ReviewContextSnapshotDto | null;
+  contextDeliveryStates: Record<string, ContextDeliveryStateDto>;
   outcome: string | null;
   createdAt: string;
   endedAt: string | null;
@@ -356,6 +359,14 @@ function parseEvidence(value: unknown): ReviewEvidenceDto {
   };
 }
 
+function parseContextDeliveryStates(value: unknown): Record<string, ContextDeliveryStateDto> {
+  return Object.fromEntries(Object.entries(object(value, 'context delivery states')).map(([turnId, value]) => {
+    const state = object(value, 'context delivery state');
+    return [turnId, { outcome: oneOf(state.outcome, ['PREPARED', 'SUBMITTED', 'CONFIRMED', 'UNCERTAIN'] as const, 'context delivery outcome'),
+      detail: state.detail == null ? null : text(state.detail, 'context delivery detail') }];
+  }));
+}
+
 function parseRun(value: unknown): ReviewRunDto {
   const run = object(value, 'review run');
   return {
@@ -379,6 +390,7 @@ function parseRun(value: unknown): ReviewRunDto {
     steps: list(run.steps).map(parseStep),
     evidence: list(run.evidence).map(parseEvidence),
     context: parseReviewContextSnapshot(run.context),
+    contextDeliveryStates: parseContextDeliveryStates(run.contextDeliveryStates),
     outcome: optionalText(run.outcome),
     createdAt: text(run.createdAt, 'run time'),
     endedAt: optionalText(run.endedAt),

@@ -104,7 +104,7 @@ class TestReviewContextService
     void replayReturnsCapturedRunWithoutAnyReadsOrWrites()
     {
         ReviewContextSnapshot disabled = new ReviewContextSnapshot("context-off", false, 3, 42, Optional.empty(), Optional.empty(),
-                ImmutableList.of(), ImmutableList.of(), ImmutableList.of(), ImmutableList.of(), ImmutableList.of());
+                ImmutableList.of(), ImmutableList.of(), ImmutableList.of(), ImmutableList.of(), ImmutableList.of(), ImmutableList.of(), ImmutableList.of());
         ReviewRun captured = run().withContext(disabled, ImmutableMap.of(), NOW).withVersion(1);
 
         assertThat(service.prepareRun(REVIEW, captured, WORKSPACE, Optional.empty())).isSameAs(captured);

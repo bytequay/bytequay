@@ -31,7 +31,8 @@ There are two durable aggregates:
 
 1. One notebook JSON value per workspace in the existing application settings.
 2. A context snapshot on the existing review run, with source excerpts in its
-   existing evidence map and bounded per-turn delivery/discussion records.
+   existing evidence map and bounded per-turn delivery bindings. New discussion
+   source supplements remain a separate integration requirement.
 
 Knowledge is shared across that workspace's review tasks and providers. The
 first version does not automatically share notebooks across distinct workspaces,
@@ -220,7 +221,7 @@ The UI links to its existing transcript. There is no separate build-job engine.
 | Background PR/issue refresh | None | Refresh existing source records only |
 | Someone posts a GitHub review/comment | None | Existing refresh sees it; no automatic agent turn |
 | User posts a GitHub comment in ByteQuay | None | Existing publication/cache behavior; no automatic agent turn |
-| User asks privately about a card/finding | None unless explicitly saving a lesson | Existing immediate/queued discussion gets the source run plus relevant new evidence |
+| User asks privately about a card/finding | None unless explicitly saving a lesson | Existing immediate/queued discussion receives the source run's saved context at launch; new source supplements remain pending |
 | Update review / applicable Resume moves to a newer head | Check knowledge when preparing new run | Existing guarded sync, then new snapshot and review run |
 | Update review with unchanged accepted head | None | Existing PR detail refresh; no new review or automatic comment analysis |
 | Investigation becomes validation/evidence collection | None by default | Reuse the same run's context; append needed evidence |
@@ -235,19 +236,23 @@ Resolve the accepted turn through the existing ReviewToolAssignment. An old
 card's discussion remains bound to that card's source run and code identity,
 even when the managed worktree has since advanced.
 
-At actual turn execution, not enqueue time, capture the selected discussion
-thread and newly available relevant comments using existing local services.
-Append them as a turn-owned supplement with provenance. Do not mutate the
-original brief or silently replace its note versions with today's notebook.
-If newer knowledge is specifically needed, label it as a supplement.
+At actual turn execution, including a queued or resumed turn, resolve that
+source run's captured setting and immutable packet. The launch binding records
+the discussion message identity and the exact contribution prefix supplied;
+current workspace settings and notebook edits do not replace the old context.
+This is implemented without fetching new sources or moving the worktree.
 
-The current Ask-agent path starts/enqueues before inserting ReviewMessage.
-Change this ordering: persist the message's source run, card/finding revision,
-and request key with empty delivery IDs first; then start/enqueue and attach
-the returned IDs. The existing resolver can bind that saved request key.
-Otherwise an idle discussion reaches the new prelaunch context resolver before
-its source run can be resolved. Preserve a failed admission as a visible unsent
-message with retry using the same request identity; never silently retarget it.
+Ask agent persists ReviewMessage with its source run, card/finding revision and
+empty delivery IDs before start/enqueue. Its saved request identity lets a
+synchronous launch resolve the source before the turn ID is attached. Admission
+failure retains the message, and reconciliation attaches an already accepted
+turn or queue item without creating another request.
+
+Capturing newly available relevant comments or source evidence as a separate
+turn-owned discussion supplement remains pending. That later integration must
+capture provenance at actual launch, preserve the original brief and versions,
+and label newer knowledge explicitly; reusing an old snapshot alone does not
+claim that new discussion evidence was captured.
 
 An incoming GitHub comment is only new source data. To have it analyzed in V1,
 the user refers to it in the existing agent discussion/composer. This design
@@ -572,8 +577,9 @@ and truncation/refresh limitations. `BYTEQUAY_READ` means the application
 captured the text; it does not validate its truth or match a project release.
 Document version, remote freshness and applicability remain explicitly
 unverified. Native-web/model-pasted excerpts are not accepted as these captures.
-This increment does not populate generated notebook knowledge or automatically
-deliver the prepared bootstrap to the provider.
+A document read alone neither populates generated notebook knowledge nor proves
+provider receipt of the bootstrap. Preparation and automatic turn-input delivery
+use their separate report and launch contracts below.
 
 ### 3.4 Frozen baseline source reads and receipts
 
@@ -937,13 +943,29 @@ changes cannot be detected without a fetch; do not imply otherwise.
       "gaps": []
     }
   ],
-  "preparationResultRefs": [],
   "sourceReads": [],
-  "brief": null,
-  "collectionSupplements": [],
-  "gaps": [],
-  "deliveries": [],
-  "discussionSupplements": []
+  "contributions": [
+    {
+      "investigationStep": 1,
+      "text": "Applicable caller contract and its relationship to the change.",
+      "evidenceRefs": ["context-source:illustrative-digest"],
+      "preparationRefs": ["review-step:run-a:1:repository_context_prepare:SUBMIT:save"],
+      "limitations": ["Remote document applicability remains unverified."]
+    }
+  ],
+  "deliveries": [
+    {
+      "turnId": "illustrative-validation-turn",
+      "packetDigest": "sha256:illustrative-brief-packet",
+      "utf8Bytes": 1024,
+      "contributionCount": 1,
+      "inputDigest": "sha256:illustrative-composed-input",
+      "inputUtf8Bytes": 2048,
+      "discussionMessageId": null,
+      "preparedAt": "illustrative-local-capture-time"
+    }
+  ],
+  "gaps": []
 }
 ~~~
 
@@ -955,24 +977,43 @@ the snapshot does not duplicate them. baselineSha is the independently captured
 local monitored default branch. Capture the snapshot and its referenced evidence
 in one optimistic run update before provider admission. Null on historical runs
 means no snapshot was captured, not that the feature was switched off.
-INCLUDED means retained in the prepared packet. Only a separate delivery record
-can establish that the provider received it. Deferred notes retain their entry
-identity and version with absent text; complete note bodies are never cut to fit.
+INCLUDED means retained in the prepared packet. A delivery binding records exact
+prepared input; only the owning turn's existing provider receipt establishes
+acceptance. Deferred notes retain their entry identity and version with absent
+text; complete note bodies are never cut to fit.
 
 - enabled is captured from useInReviews at run creation. A disabled run retains
-  that flag and code identity with bootstrap/brief absent and empty selections,
-  preparation, delivery and supplement collections. Do not perform selection or
-  inject an empty feature packet merely to record the off state. The UI shows
-  “Repository context off for this run.” Historical enabled runs keep their data.
-- Bootstrap is immutable once submitted. The investigation may append preparation
-  results and fill brief once; seal it with the first accepted investigation.
-  Later COLLECT_EVIDENCE reports append a supplement keyed to their investigation
-  step with additional context/evidence/gaps. They cannot replace the original
-  brief. Validation receives the brief plus accepted supplements. Existing
-  report-repair replay rules apply to each step.
-- Entries created during cold preparation are delivered in captured tool results
-  and referenced by preparationResultRefs. Do not retroactively claim they
-  appeared in the bootstrap. The next validation input contains the finished brief.
+  that flag and code identity with bootstrap absent and empty selections, reads,
+  contributions and deliveries. Do not perform selection or inject an empty
+  feature packet merely to record the off state. Historical runs with no
+  snapshot receive no feature additions; their absence is distinct from Off.
+- Bootstrap is immutable once captured. contributions is an append-only list of
+  at most three ContextContribution values: the first accepted investigation's
+  brief followed by at most two COLLECT_EVIDENCE supplements. Each stores
+  investigationStep, text, evidenceRefs, preparationRefs and limitations. Steps
+  increase; an identical same-step replay is accepted and replacement is rejected.
+  The contribution, investigation and operation replay result persist in one run
+  update. Existing report-repair rules apply before a step is sealed.
+- Each entire rendered contribution, including references, labels and limitations,
+  is at most 8 KiB UTF-8. It accepts at most 80 distinct evidence references and
+  80 distinct preparation references, bounded to 200 and 400 UTF-8 bytes each,
+  and ten limitations of at most 1,000 UTF-8 bytes each. The combined limit can
+  be reached before these field limits; oversized reports fail visibly.
+- packetFor(0) returns the original bootstrap. packetFor(n) returns exactly the
+  first n contributions, including references and limitations, with a compact
+  untrusted-reference label. It does not append the bootstrap again. Known gaps
+  retained from initial preparation are also carried independently of the agent's
+  reported limitations. Whole gaps are included within the packet budget; if any
+  do not fit, an explicit omitted count points to retained review details and
+  marks context coverage incomplete. The packet remains at most 32 KiB and a
+  later supplement cannot change an earlier prefix. Validation and collection
+  require at least one sealed contribution.
+- Entries created during cold preparation arrive in captured tool results.
+  preparationRefs names the saved BEGIN/SUBMIT operation keys returned as
+  receiptRef, not notebook, note or attempt IDs. ReviewTools accepts only those
+  operation receipts from the same run; JOINED/DEFERRED has no saved receipt.
+  Do not retroactively claim generated entries appeared in the bootstrap. The
+  next validation input contains the finished brief.
 - The existing ReviewRun evidence map owns full retained excerpts. References
   from this snapshot point to it; do not duplicate full PR/issue objects.
 - sourceReads is implemented as a bounded append-only collection of typed
@@ -989,8 +1030,8 @@ identity and version with absent text; complete note bodies are never cut to fit
   replace them. The owning run validates retained references and exact excerpt
   byte counts on append and reload. A maximum of 128 receipts plus validated
   field lengths bounds metadata; no separate aggregate JSON-size guarantee is
-  claimed. Preparation must later resolve these typed identities directly,
-  rather than parsing descriptive evidence labels or trusting model-pasted IDs.
+  claimed. Preparation resolves these typed identities directly, rather than
+  parsing descriptive evidence labels or trusting model-pasted IDs.
 - applicability is MATCHED, VERSION_MISMATCH, or UNVERIFIED. A mismatch can be a
   useful pointer but cannot silently supply an applicable contract.
 - inputFingerprints retain each selected scope's local baseline input inventory.
@@ -1012,14 +1053,22 @@ identity and version with absent text; complete note bodies are never cut to fit
   reason, and entry/version reference, not their complete body. A later read
   can use that exact current version or an already captured evidence copy.
   If neither survives, return VERSION_UNAVAILABLE; never substitute today's
-  text. A fresh version requires an explicitly labeled supplement.
-- Each delivery stores turnId, packetDigest, byte count, input/evidence reference,
-  and outcome PREPARED, SUBMITTED, CONFIRMED, or UNCERTAIN. Use existing accepted
-  input/provider receipt facts to derive these labels. A prelaunch snapshot
-  is not proof that a provider accepted it; never resend uncertain input
-  automatically. Avoid redundant persisted status if existing facts derive it.
-- A discussion supplement stores its accepted turn/message identity, original
-  context ID, captured thread/source references, and additions. It is append-only.
+  text. The selected deferred-notebook exact-version read remains pending. A
+  fresh version requires an explicitly labeled supplement.
+- deliveries contains at most 128 immutable bindings with unique turnId. Each
+  ContextDelivery stores packetDigest, utf8Bytes, contributionCount, inputDigest,
+  inputUtf8Bytes, optional discussionMessageId and preparedAt. The snapshot
+  validates its exact packet prefix, digest and bytes on append and reload.
+  An identical turn binding replays; altered content for that turn is rejected.
+  Complete composed message text is bounded to 256 KiB UTF-8. Packet/input bounds
+  and binding exhaustion fail before provider launch without truncating text.
+- Delivery outcomes are not persisted in the snapshot. The run projection's
+  contextDeliveryStates map derives PREPARED, SUBMITTED, CONFIRMED or UNCERTAIN
+  from existing AgentTurn facts, as specified in Section 7.2. A missing turn
+  receipt is UNCERTAIN. Never resend uncertain input automatically.
+- discussionMessageId binds old-card questions to their source run at actual
+  launch. A separate append-only capture of newly read discussion sources remains
+  pending; the snapshot has no speculative discussionSupplements field.
 - Later notebook corrections do not rewrite old snapshots. The UI can compare
   captured entry versions with current disabled/corrected entries. No retroactive
   model rerun or publication is authorized.
@@ -1380,17 +1429,28 @@ Only small trusted policy instructions go through managedInstructions; source
 text is clearly delimited reference data and grants no authority. Do not inject
 the whole notebook into Claude's process arguments.
 
-At every actual provider turn start, resolve the accepted assignment and include
-the correct immutable packet/brief or old-run discussion supplement. Use the
-existing input delivery and replay boundary, including queued/resumed turns.
-Keep a digest and reference to one saved body; avoid duplicating it in logs.
+At every actual accepted turn launch, agent-core invokes ReviewTurnInputResolver
+outside the task monitor and without a provider session or enclosing transaction.
+The app's RepositoryContextTurnInput uses the existing review assignment fence
+to resolve the run, saved setting and exact packet prefix. It saves the binding
+before returning the original message plus clearly delimited reference data.
+Agent core then rechecks cancellation and worktree ownership before supplying
+that composed message through AgentTurnCommand. The original accepted message
+and transcript stay unchanged; reference bodies live in the review snapshot.
 
-Bootstrap selection uses the persisted run/task identity and does not require
-a turn ID that has not been allocated yet. At the accepted-turn launch boundary,
-compose the reference packet into that turn's actual input before provider
-submission and record its binding. This is a narrow launch-path addition;
-managedInstructions alone is insufficient for the reference-body transport.
-Queued discussion supplements are captured here, rather than when enqueued.
+Bootstrap selection uses persisted run/task identity before a turn ID exists.
+The launch hook covers direct, queued and resumed turns. A repeated binding uses
+its original contributionCount even when later collection has appended context.
+Validation/collection without a completed brief fails before provider launch.
+Off, absent historical context and ordinary non-review tasks add no reference
+input. Old-card discussions resolve the original run at actual execution,
+including queued starts, without reading today's notebook. New discussion-source
+supplement capture remains pending.
+
+Only the small trusted context policy is appended to the enabled review bridge's
+managed instructions. Source bodies travel in turn input or tool results, never
+as managed instructions or provider process arguments. Existing failure/recovery
+rules remain authoritative; preparing a binding cannot submit or retry input.
 
 Fixed tools return additional source excerpts and captured preparation results.
 Notebook IDs are not evidence IDs until the backend binds their actual content
@@ -1401,7 +1461,11 @@ explicit essential gaps; it does not infer tool decisions from assistant prose.
 | --- | ---: |
 | Selected knowledge + lessons in initial packet | 8 KiB |
 | Task brief + historical excerpts in initial packet | 16 KiB |
-| Total additional initial packet, including metadata/index | 32 KiB |
+| Any delivered context packet, including metadata/index | 32 KiB |
+| One completed brief or collection supplement, including references/limitations | 8 KiB |
+| Contributions per run | 3: initial brief plus two collection supplements |
+| Complete composed provider message text | 256 KiB |
+| Immutable delivery bindings per run | 128 |
 | One context source response | 16 KiB, paginated |
 | One notebook entry body | 8 KiB |
 | Entries per workspace | 100 |
@@ -1442,6 +1506,13 @@ sources, and the existing evidence-loop budget remain explicit.
 | Agent-reported source | Native research was reported but not independently captured |
 | Cited in review | A saved finding or validation conclusion references this evidence |
 | Refreshed / reused / empty / failed | Actual saved preparation receipt |
+
+The run projection's contextDeliveryStates is keyed by bound turn ID. A stored
+providerTurnReference produces CONFIRMED. knownUnsent or an absent startedAt
+produces PREPARED; an active started turn without a provider reference produces
+SUBMITTED. A terminal started turn without confirmed acceptance, or an unavailable
+turn receipt, produces UNCERTAIN. The snapshot persists none of these outcomes.
+These states describe input transport, never a model acknowledgment.
 
 Never label a read as “understood,” “verified correct,” or a proven improvement
 in quality. Do not use an acknowledgment turn or an echoed packet ID as proof
@@ -1489,14 +1560,16 @@ draft edits remain visible with a notice that another save creates another lesso
 The implemented Review details disclosure renders the immutable run snapshot:
 **Prepared**, **Off for this run**, or **Not recorded**, captured revision, exact
 packet and UTF-8 byte count, selected note versions and match reasons, related
-history, input fingerprints, source receipts/excerpts and gaps. Missing historical
-context is not interpreted as Off. It does not label prepared text as delivered,
-read, understood or responsible for a better conclusion. Automatic delivery and
-citation navigation require their later integration gates.
+history, input fingerprints, source receipts/excerpts and gaps. It also renders
+the completed brief, each collection supplement and per-turn delivery binding,
+with acceptance labels from existing turn receipts. Missing historical context
+is not interpreted as Off, and a missing delivery receipt is visibly uncertain.
+Prepared text is not labeled delivered, read, understood or responsible for a
+better conclusion. Citation navigation remains pending.
 
 Extend the existing Review details disclosure, not the top-level report card
-types. The completed delivery workflow should support this example display,
-with illustrative counts:
+types. The broader presentation target below includes citation and usage counts
+that are not yet implemented; its counts are illustrative:
 
 ~~~text
 Repository context provided · 18 KiB
@@ -1511,7 +1584,7 @@ Why selected · View exact text · Sources and versions
 1 documentation source unavailable
 ~~~
 
-The transcript folds preparation into ordinary activity with concise messages:
+The pending transcript presentation should fold preparation into ordinary activity with concise messages:
 “Reusing project overview,” “Preparing Iceberg knowledge,” “Waiting for shared
 knowledge,” and “Context ready.” Show elapsed time, additional bytes/token
 metrics when available, source/cache counts, and a link to the builder task.
@@ -1957,8 +2030,10 @@ List<ContextInputFingerprint> capture(
 
 The implemented review-owned slice uses the concrete application service below.
 It operates only on existing configured scopes and registered sources. Scope/root
-proposals, standalone Build/Refresh and automatic delivery remain pending. The
-broader planned interfaces that follow still describe the remaining builder work.
+proposals and standalone Build/Refresh remain pending. Automatic accepted-turn
+input delivery and completed-brief reporting use the concrete contracts below;
+selected deferred-notebook exact-version reads also remain pending. The broader
+preparation interface that follows describes remaining builder work.
 
 ~~~java
 public class RepositoryContextPreparation
@@ -2026,7 +2101,9 @@ investigation. `repository_context_prepare` has exactly BEGIN and SUBMIT:
 - checkedSourceIds in a report and note/claim sourceIds name returned **typed read
   IDs**, not review evidence aliases. The backend copies nonblank evidence using
   those identities and retains successful blank receipts for negative reuse.
-- Submission returns attemptId, notebookRevision, saved scopeResults and packet.
+- Accepted retained BEGIN/SUBMIT responses include receiptRef, the exact saved
+  run operation key. Submission also returns attemptId, notebookRevision, saved
+  scopeResults and packet.
   Responses project compact scope/attempt metadata, not full stored inventories
   or checked-read objects. The packet defers complete scope sections that do not
   fit 32 KiB and explicitly reports omissions. The exact serialized tool response
@@ -2036,12 +2113,16 @@ investigation. `repository_context_prepare` has exactly BEGIN and SUBMIT:
 - JOINED/DEFERRED are transient and not journaled; a retry can see a settled result.
   Accepted ownership/reuse and submission receipts replay before new revision checks.
   Validation, evidence collection, discussion, children and context-off runs have no
-  preparation capability. Direct automatic bootstrap/report delivery is still pending.
+  preparation capability. Enabled investigation/collection reports cite retained
+  receiptRef values through contextPreparationRefs; no acknowledgment is required.
 
 Settings displays last completed READY/EMPTY/FAILED distinctly from no completed
 result, plus retained owner details when present. This is extraction metadata,
 not a claim of current applicability, live execution or model comprehension.
 
+The remaining standalone builder and scope/root-proposal requirements use the
+following planned preparation contract; the concrete review-owned service above
+remains the implemented boundary.
 
 ~~~java
 public interface RepositoryContextPreparation
@@ -2097,64 +2178,79 @@ public interface RepositoryContextPreparation
      */
     void fail(ContextExecution execution, String attemptId, String reason);
 }
-
-public interface ReviewContextService
-{
-    /**
-     * Captures the bootstrap for a newly frozen review run.
-     *
-     * @param review trusted owning review resolved by startup or recovery
-     * @param run persisted run with frozen code identities
-     * @param workspace verified managed repository and monitored upstream routing
-     * @param previous accepted predecessor for incremental changed-path matching
-     * @return stored run with captured On/Off, packet and retained evidence;
-     *         replay of an existing snapshot returns the same run unchanged
-     *
-     * Reuse local selection. Persist packet body/digest before provider input
-     * submission and leave acceptance to existing delivery receipts. Missing
-     * generated notes are explicit; this method cannot synchronously invent them.
-     * Off records the disabled snapshot and bypasses selection/preparation.
-     */
-    ReviewRun prepareRun(AgentReview review, ReviewRun run,
-            WorkspaceRepositoryContext workspace, Optional<ReviewRun> previous);
-
-    /**
-     * Resolves the packet for an actual investigation/validation/discussion turn.
-     *
-     * @param execution backend-resolved accepted turn, including old-card binding
-     * @return exact run packet/brief and discussion supplement, or empty when
-     *         the source run captured Off
-     * @throws ContextConflictException if the binding is no longer active
-     *
-     * Called at execution, not enqueue. Never substitute current notebook text
-     * for an old snapshot or automatically move a worktree to another head.
-     * Resolve the source run's saved setting, not today's workspace switch.
-     */
-    Optional<ContextPacket> forTurn(ContextExecution execution);
-
-    /**
-     * Seals a context contribution alongside an accepted investigation report.
-     *
-     * @param execution current investigation or collection assignment/step
-     * @param brief bounded explanation of applicable contracts and gaps
-     * @param evidenceRefs references already captured for this run
-     * @return persisted context snapshot
-     * @throws ContextInvalidRequestException for missing/cross-run evidence
-     *
-     * The existing review operation key/report transaction owns replay.
-     * The first investigation seals the original brief. Later collection
-     * appends a step-owned supplement; it never overwrites that brief.
-     * Validation reads both without editing either contribution.
-     * Valid references establish provenance, not comprehension or correctness.
-     */
-    ReviewContextSnapshot sealInvestigation(ContextExecution execution, String brief, List<String> evidenceRefs);
-}
 ~~~
 
-The interface split represents notebook mutation, source reads, generation
-authority, and review ownership. Implement with the smallest concrete
-collaborators; do not add a provider/factory layer per source type. Existing
-AppSettingsStore and AgentReviewStore remain the persistence ports.
+Review startup uses the concrete app ReviewContextService.prepareRun to retain
+On/Off, local selection and bootstrap evidence in the existing run:
+
+~~~java
+/**
+ * Saves one immutable prepared packet and its evidence before a review turn is admitted.
+ *
+ * @param review owning review, already resolved by review startup
+ * @param run persisted run with frozen code identities; an existing capture is returned unchanged
+ * @param workspace verified managed repository, including monitored upstream routing
+ * @param previous accepted predecessor used to determine incremental review paths
+ * @return persisted run containing the snapshot and copied evidence from the same atomic write
+ * @throws IllegalArgumentException when review or workspace ownership does not match
+ *
+ * The On/Off setting and notebook revision are captured once. Off performs no Git or history
+ * selection. On uses only local data, keeps complete notes within 8 KiB, history within 16 KiB,
+ * and the complete packet within 32 KiB of UTF-8. Optional notes that do not fit are deferred
+ * whole. Local baseline input identities are retained separately; a matching fingerprint
+ * does not verify a note's claims or its applicability to the reviewed code.
+ */
+public ReviewRun prepareRun(AgentReview review, ReviewRun run,
+        WorkspaceRepositoryContext workspace, Optional<ReviewRun> previous);
+~~~
+
+Accepted turn delivery is a separate framework-free agent-core port implemented
+in app:
+
+~~~java
+public interface ReviewTurnInputResolver
+{
+    /**
+     * Composes the provider input after turn acceptance, including when queued input starts or resumes.
+     *
+     * The application resolves the accepted assignment and persists the exact reference binding
+     * before returning. The original message remains the transcript input; additional reference
+     * bodies belong to the review snapshot. Ordinary tasks and context-disabled or absent-context
+     * historical runs return it unchanged. This method runs outside the task monitor and provider
+     * session, without an enclosing transaction. The caller rechecks cancellation and worktree
+     * ownership before provider launch.
+     *
+     * Preparation is not proof of provider delivery. The existing turn's delivery-start timestamp,
+     * known-unsent flag, and provider reference retain that distinction; preparation must neither
+     * submit input itself nor retry a submission with an uncertain result.
+     *
+     * @param task task owning the accepted turn and its worktree claim
+     * @param turn persisted accepted turn whose immutable settings govern this launch
+     * @param message original accepted input, before any review reference data
+     * @return nonblank complete provider input with bounded, delimited reference material
+     * @throws RuntimeException when required reference preparation fails; the provider is not started
+     */
+    String prepare(AgentTask task, AgentTurn turn, String message);
+}
+
+public record ContextContribution(
+        int investigationStep, String text, List<String> evidenceRefs,
+        List<String> preparationRefs, List<String> limitations) {}
+
+public record ContextDelivery(
+        String turnId, String packetDigest, int utf8Bytes, int contributionCount,
+        String inputDigest, int inputUtf8Bytes,
+        Optional<String> discussionMessageId, Instant preparedAt) {}
+~~~
+
+RepositoryContextTurnInput implements that launch port using ReviewToolAssignment
+and ReviewLocks. ReviewTools validates the report fields and calls
+ReviewRun.withContextContribution in the same run update as the sealed
+investigation and its operation replay. ReviewContextSnapshot.packetFor,
+withContribution and withDelivery own immutable packet-prefix and append checks;
+ReviewRun.withContextDelivery retains the launch binding. There is no separate
+context acknowledgment service or delivery-state store. Existing AppSettingsStore
+and AgentReviewStore remain the persistence ports.
 
 ### 10.5 Existing interface additions
 
@@ -2204,28 +2300,36 @@ Use the current framework-free storage values and local read APIs.
 
 ## 11. Fixed tool and HTTP boundary
 
-Extend the existing task MCP broker with exactly:
+The implemented review boundary reuses the existing task MCP broker:
 
 | Fixed operation | Allowed execution | Contract |
 | --- | --- | --- |
-| repository_context_read | Context-enabled review turns; explicitly bound builder | Read packet/notebook selection, registered source plus optional relative page/cursor, or related candidates by typed kind |
-| repository_context_prepare | Context-enabled review investigation; explicitly bound builder | Begin/join with validated new scope/root proposals, or submit generated report using stable attempt/operation keys |
+| review_get_context | Existing review-bound turns; baseline/document context selectors require an enabled snapshot | Read assignment, selected frozen baseline files or registered documents, related candidates and retained run evidence |
+| repository_context_prepare | Enabled initial review investigation only | BEGIN existing configured scopes, or SUBMIT a generated report using stable attempt/operation keys; return retained receiptRef |
+| review_save_investigation | Assigned investigation or evidence collection | Seal the report and its bounded context contribution together |
 
-The operation discriminator is a closed schema, not a registry. Existing
-review_save_investigation gains bounded context brief/reference fields for the
-initial investigation, and context additions for each later collection step;
-no separate acknowledgment tool/turn is added. Reuse existing tool descriptor,
-strict schema, broker authentication and replay mechanisms. A policy-only
-ReviewBridge supplies builder restrictions without PR tool authority.
-Disabled runs use the existing report contract without requiring the new
-context brief, preparation receipts, or references.
+The operation discriminator is a closed schema, not a registry.
+review_save_investigation adds contextBrief, contextPreparationRefs and
+contextLimitations as schema fields required at runtime for enabled snapshots.
+It reuses contextEvidenceRefs, validating the owning run's saved evidence and
+preparation operation identities. The first accepted report seals the original
+brief; later collection appends. Identical operation retries return their saved
+result; invalid or oversized reports leave the step open for existing repair.
+Off and historical absent-context runs reject the added fields and retain the
+original report contract. No separate acknowledgment tool or turn is added.
+
+Standalone builder authority, scope/root proposals and the proposed selected
+notebook exact-version read remain pending. A future builder must use a
+policy-only ReviewBridge without PR reporting authority; their presence in the
+approved design does not make those tools available today.
 
 Backend binding supplies task, workspace, run, actor and accepted turn. Model
 arguments never select them. Source IDs must belong to the bound catalog.
 Context generation cannot call editEntry/saveLesson/delete or enable disabled
-content or useInReviews. The two new tools and their extra policy/input are
-absent for disabled review runs; this does not remove existing review tools
-such as review_get_context. No model-callable GitHub writer is introduced.
+content or useInReviews. Shared preparation, the added context policy and
+reference input are absent for disabled review runs; existing review tools such
+as review_get_context remain available under their existing selectors and gates.
+No model-callable GitHub writer is introduced.
 
 Use the current authenticated Electron transport; proposed endpoints are:
 

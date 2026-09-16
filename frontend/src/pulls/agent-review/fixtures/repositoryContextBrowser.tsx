@@ -16,8 +16,10 @@ import { createRoot, type Root } from 'react-dom/client';
 import type { Bridge } from '../../../types';
 import type { ContextSourceEvidenceDto, RepositoryNotebookDto, ReviewContextSnapshotDto, SaveRepositoryContextLessonRequest } from '../../../repository-context/contracts';
 import ReviewDetails from '../ReviewDetails';
+import ReviewContextDetails from '../ReviewContextDetails';
 import ReviewThread from '../ReviewThread';
 import { reviewFixture } from './review';
+import type { ReviewRunDto } from '../contracts';
 import '../../../css/base.css';
 import '../../../css/pulls.css';
 import '../../../css/agent-review.css';
@@ -37,6 +39,10 @@ const message = { ...base.messages[0], id: 'saved-discussion', runId: run.id, bo
 const review = { ...base, runs: [run, { ...run, id: 'newer-run', ordinal: 2 }], messages: [message] };
 const empty: RepositoryNotebookDto = { schemaVersion: 1, revision: 4, useInReviews: false, sources: [], activePreparation: null,
   scopes: [{ id: 'project', title: 'Project', match: { kind: 'REPOSITORY' }, enabled: true, preparation: null }], entries: [], suppressedKnowledgeIds: [], sourceEvidence: [] };
+const brief = { investigationStep: 1, text: 'Keep field IDs scoped to their parent struct.\n<script>Reference text stays inert.</script>',
+  evidenceRefs: ['E1'], preparationRefs: ['prepared:project'], limitations: ['Dependency version applicability is unverified.'] };
+const delivery = { turnId: 'validation-turn', packetDigest: `sha256:${'c'.repeat(64)}`, utf8Bytes: 420, contributionCount: 1,
+  inputDigest: `sha256:${'d'.repeat(64)}`, inputUtf8Bytes: 900, discussionMessageId: 'original-discussion', preparedAt: '2026-01-03T00:00:00Z' };
 
 function button(scope: Element, text: string): HTMLButtonElement {
   const found = [...scope.querySelectorAll<HTMLButtonElement>('button')].find(item => item.textContent === text);
@@ -168,6 +174,27 @@ export async function runScenarios(): Promise<string[]> {
       'Accepted previous content and the newer draft must be distinguished');
     assert(writes.length === previousAttempts, 'Keeping a changed draft must not create another lesson');
     results.push('Reconciliation preserves newer edits after a lost reply');
+
+    const context: ReviewContextSnapshotDto = { id: 'context', enabled: true, notebookRevision: 4, repositoryId: 7, baselineSha: 'a'.repeat(40),
+      bootstrap: { text: 'Initial packet', digest: `sha256:${'a'.repeat(64)}`, utf8Bytes: 14 }, selectedEntries: [], relatedItems: [], inputFingerprints: [],
+      sourceReads: [], gaps: [], contributions: [brief], deliveries: [delivery] };
+    for (const [outcome, label] of [['SUBMITTED', 'Waiting for confirmation'], ['UNCERTAIN', 'Delivery uncertain'], ['CONFIRMED', 'Provided to agent']] as const) {
+      flushSync(() => root.render(<ReviewContextDetails run={{ ...run, context, contextDeliveryStates: { 'validation-turn': { outcome, detail: null } } }} />));
+      assert(host.querySelector('h3')?.textContent === `Repository context · ${label}`, 'Delivery heading must follow the actual receipt state');
+    }
+    const briefSummary = [...host.querySelectorAll('summary')].find(item => item.textContent?.startsWith('Completed context brief'));
+    assert(briefSummary !== undefined && briefSummary.parentElement instanceof HTMLDetailsElement, 'The saved brief must have a native disclosure');
+    assert(!briefSummary.parentElement.open, 'The saved brief starts folded');
+    briefSummary.click();
+    await settle();
+    assert(briefSummary.parentElement.open, 'The saved brief can be expanded');
+    assert(briefSummary.parentElement.querySelector('pre')?.textContent === brief.text, 'The exact brief must remain available as text');
+    assert(host.querySelector('.agr-context script') === null, 'Source markup must remain inert');
+    const deliverySummary = [...host.querySelectorAll('summary')].find(item => item.textContent?.startsWith('Turn delivery'));
+    assert(deliverySummary !== undefined, 'The run must disclose its delivery records'); deliverySummary.click();
+    await settle();
+    assert(host.textContent?.includes('original-discussion') === true && host.textContent.includes(delivery.packetDigest), 'Delivery details preserve the original message and digest');
+    results.push('Context delivery follows receipts and keeps exact brief text in folded disclosures');
   }
   finally { flushSync(() => root.unmount()); host.remove(); }
   return results;
@@ -193,12 +220,13 @@ export async function showFixture(mode: 'context' | 'lesson'): Promise<void> {
     sourceReads: [{ kind: 'REPOSITORY_FILE', id: 'context-read:example', reference: { kind: 'REPOSITORY_FILE', repositoryId: 7,
       repository: { owner: 'trinodb', repo: 'trino' }, path: 'README.md', commit: 'a'.repeat(40) }, blobId: 'b'.repeat(40),
       readAt: '2026-01-01T00:00:00Z', startLine: 1, endLine: 2, totalLines: 30, utf8Bytes: 42, truncated: false, evidenceRef: 'E1' }],
-    gaps: ['Selected notebook claims have not been verified for this pull request.', 'Recent history is limited to locally cached records.'] };
+    gaps: ['Selected notebook claims have not been verified for this pull request.', 'Recent history is limited to locally cached records.'],
+    contributions: [brief], deliveries: [delivery] };
   Object.defineProperty(window, 'bridge', { configurable: true, value: {
     getRepositoryContext: async () => empty,
     saveRepositoryContextLesson: async (_workspaceId: string, request: SaveRepositoryContextLessonRequest) => stored(empty, request),
   } satisfies Pick<Bridge, 'getRepositoryContext' | 'saveRepositoryContextLesson'> });
-  const displayRun = { ...run, context };
+  const displayRun: ReviewRunDto = { ...run, context, contextDeliveryStates: { 'validation-turn': { outcome: 'CONFIRMED', detail: null } } };
   flushSync(() => previewRoot?.render(mode === 'context' ? <ReviewDetails run={displayRun} repository={review.repo} />
     : <ReviewThread review={review} messages={review.messages} viewerLogin="reader" viewerAvatarUrl={null} />));
   if (mode === 'context') {

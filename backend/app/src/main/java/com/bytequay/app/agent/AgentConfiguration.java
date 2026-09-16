@@ -29,6 +29,7 @@ import com.bytequay.agent.core.AgentTaskService;
 import com.bytequay.agent.core.AgentTaskTitleService;
 import com.bytequay.agent.core.AgentTurnService;
 import com.bytequay.agent.core.CodeGraphService;
+import com.bytequay.agent.core.ReviewTurnInputResolver;
 import com.bytequay.agent.core.TaskId;
 import com.bytequay.agent.core.WorktreeService;
 import com.bytequay.agent.core.impl.AgentMaintenance;
@@ -332,6 +333,7 @@ public class AgentConfiguration
             AgentRuntimeRegistry runtimeRegistry,
             CodeGraphService codeGraph,
             AgentSkillService skills,
+            ObjectProvider<ReviewTurnInputResolver> reviewTurnInput,
             Clock agentClock,
             AgentProperties properties,
             AgentReviewStore reviews,
@@ -355,6 +357,7 @@ public class AgentConfiguration
                 runtimeRegistry,
                 codeGraph,
                 task -> skills.instructions(task) + ciOwnership.instructions(task),
+                (task, turn, message) -> reviewTurnInput.getObject().prepare(task, turn, message),
                 agentClock,
                 properties.maximumTurnRuntime(),
                 // A queued turn starts from whatever thread ended the last one, which may be the

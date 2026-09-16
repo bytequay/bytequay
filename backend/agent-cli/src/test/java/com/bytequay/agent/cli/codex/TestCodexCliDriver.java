@@ -2796,6 +2796,40 @@ class TestCodexCliDriver
     }
 
     @Test
+    void transportsLargeReviewReferenceInputOnInitialAndResumedTurns()
+            throws Exception
+    {
+        ScriptedProcessSupervisor supervisor = new ScriptedProcessSupervisor(objectMapper);
+        CodexCliDriver driver = driver(supervisor);
+        String instructions = "p".repeat(100_000);
+        String reference = "reference-body-marker\n" + "知".repeat(10_000);
+        String input = "Review this change.\n<repository-context>\n" + reference + "\n</repository-context>\n";
+        input += "x".repeat(256 * 1024 - input.getBytes(StandardCharsets.UTF_8).length);
+        assertThat(input.getBytes(StandardCharsets.UTF_8)).hasSize(256 * 1024);
+        Optional<AgentSessionRef> sessionReference = Optional.empty();
+        for (int index = 0; index < 2; index++) {
+            AgentSessionContext plain = context(sessionReference, new AtomicReference<>());
+            AgentSessionContext configured = new AgentSessionContext(
+                    plain.taskId(), plain.worktree(), plain.runtimeDirectory(), plain.providerDirectory(), plain.permissionPolicy(),
+                    plain.sessionReference(), plain.approvals(), plain.model(), plain.effort(), plain.textOnly(), plain.codeGraph(), instructions);
+            try (AgentSession session = driver.open(configured, event -> {})) {
+                RunningTurn turn = session.start(new AgentTurnCommand("context-turn-" + index, input, ImmutableList.of(), Duration.ofMinutes(1)));
+                AppServerProcess server = supervisor.servers().getLast();
+                JsonNode submitted = server.turnRequests().getFirst().path("input");
+                assertThat(submitted).hasSize(1);
+                assertThat(submitted.get(0).path("text").asText()).isEqualTo(input);
+                assertThat(server.threadRequests().getFirst().path("developerInstructions").asText())
+                        .contains(instructions).doesNotContain("reference-body-marker");
+                assertThat(supervisor.serverArgv().getLast()).noneMatch(argument -> argument.contains("reference-body-marker"));
+                assertThat(server.resumeCount()).isEqualTo(index);
+                server.completeTurn();
+                assertThat(turn.completion().toCompletableFuture().get(10, TimeUnit.SECONDS).state()).isEqualTo(AgentTurnResult.State.COMPLETED);
+                sessionReference = Optional.of(session.reference());
+            }
+        }
+    }
+
+    @Test
     void replacesManagedInstructionsOnResumeWithoutAddingTools()
     {
         ScriptedProcessSupervisor supervisor = new ScriptedProcessSupervisor(objectMapper);

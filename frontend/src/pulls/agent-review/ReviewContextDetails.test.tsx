@@ -18,6 +18,7 @@ import ReviewContextDetails from './ReviewContextDetails';
 import ReviewDetails from './ReviewDetails';
 import ReviewThread from './ReviewThread';
 import { reviewFixture } from './fixtures/review';
+import type { ContextDeliveryStateDto } from './contracts';
 
 const original = reviewFixture().runs[0];
 const packet = 'Exact packet\n<script>source text</script>\n  retain indentation\n';
@@ -38,20 +39,72 @@ const context: ReviewContextSnapshotDto = {
       registration: { id: 'docs', kind: 'DOCUMENTATION_ROOT', url: 'https://example.com/docs/', origin: 'USER' }, notebookRevision: 4,
       captureId: 'capture-1', contentHash: 'c'.repeat(64), readAt: '2026-01-02T00:00:00Z', page: 1, totalPages: 2, utf8Bytes: 0,
       blank: true, truncated: false, refreshFailed: true, evidenceRef: null },
-  ], gaps: ['Selected notes have not been verified for this PR.'],
+  ], gaps: ['Selected notes have not been verified for this PR.'], contributions: [], deliveries: [],
 };
 const run = { ...original, context, evidence: [{ ref: 'E1', source: 'Frozen source', provenance: 'Observed at the saved baseline', excerpt: 'exact evidence\n', explanation: '' }] };
+const deliveredContext: ReviewContextSnapshotDto = { ...context, contributions: [
+  { investigationStep: 1, text: 'Saved brief\n<script>reference text</script>', evidenceRefs: ['E1'], preparationRefs: ['prepared:project'], limitations: ['Version applicability is unknown.'] },
+  { investigationStep: 3, text: 'Additional evidence preserves the first brief.', evidenceRefs: ['missing-evidence'], preparationRefs: [], limitations: [] },
+], deliveries: [{ turnId: 'turn-validation', packetDigest: 'sha256:brief-packet', utf8Bytes: 456, contributionCount: 1,
+  inputDigest: 'sha256:complete-input', inputUtf8Bytes: 789, discussionMessageId: 'original-message', preparedAt: '2026-01-03T00:00:00Z' }] };
 
 describe('saved review repository context', () => {
   it('distinguishes absent snapshots, captured off and prepared packets without asserting delivery', () => {
     expect(renderToStaticMarkup(<ReviewContextDetails run={{ ...run, context: null }} />)).toContain('Not recorded');
     const off = renderToStaticMarkup(<ReviewContextDetails run={{ ...run, context: { ...context, enabled: false, bootstrap: null } }} />);
     expect(off).toContain('Off for this run');
-    expect(off).not.toContain('Exact saved packet');
+    expect(off).not.toContain('Exact initial saved packet');
     const html = renderToStaticMarkup(<ReviewContextDetails run={run} />);
     expect(html).toContain('Repository context · Prepared');
-    expect(html).toContain('Delivery to the agent and use in its conclusions have not been established.');
+    expect(html).toContain('No provider submission has been recorded.');
     expect(html).not.toContain('Provided to agent');
+  });
+
+  it.each<[ContextDeliveryStateDto['outcome'], string]>([
+    ['PREPARED', 'Prepared'], ['SUBMITTED', 'Waiting for confirmation'], ['CONFIRMED', 'Provided to agent'], ['UNCERTAIN', 'Delivery uncertain'],
+  ])('derives the %s label only from the provider delivery state', (outcome, label) => {
+    const html = renderToStaticMarkup(<ReviewContextDetails run={{ ...run, context: deliveredContext,
+      contextDeliveryStates: { 'turn-validation': { outcome, detail: 'Recorded delivery detail.' } } }} />);
+    expect(html).toContain(`Repository context · ${label}`);
+    expect(html).toContain('456 UTF-8 bytes in the latest prepared turn');
+    expect(html).toContain('Recorded delivery detail.');
+    expect(html).toContain('sha256:brief-packet');
+    expect(html).toContain('sha256:complete-input');
+    expect(html).toContain('789 UTF-8 bytes');
+    expect(html).toContain('turn-validation');
+    expect(html).toContain('original-message');
+    expect(html).toContain('Delivery and source reads do not establish that context was understood or improved the review.');
+    if (outcome !== 'CONFIRMED') expect(html).not.toContain('Provided to agent');
+  });
+
+  it('keeps a missing receipt uncertain and displays append-only brief text and limitations alongside the bootstrap', () => {
+    const html = renderToStaticMarkup(<ReviewContextDetails run={{ ...run, context: deliveredContext }} />);
+    expect(html).toContain('Repository context · Delivery uncertain');
+    expect(html).toContain('The delivery receipt is unavailable for this turn.');
+    expect(html).toContain('Exact packet\n&lt;script&gt;source text&lt;/script&gt;\n  retain indentation\n');
+    expect(html).toContain('Completed context brief · investigation step 1');
+    expect(html).toContain('Evidence addition 1 · investigation step 3');
+    expect(html).toContain('Saved brief\n&lt;script&gt;reference text&lt;/script&gt;');
+    expect(html).toContain('Additional evidence preserves the first brief.');
+    expect(html).toContain('Version applicability is unknown.');
+    expect(html).toContain('prepared:project');
+    expect(html).toContain('The saved excerpt is unavailable in this run.');
+    expect(html).toContain('Its claims and applicability remain unverified.');
+    expect(html).not.toContain('<script>');
+    expect(html).not.toContain('Provided to agent');
+  });
+
+  it('reports the latest turn independently while preserving earlier confirmed receipts', () => {
+    const first = deliveredContext.deliveries[0];
+    const html = renderToStaticMarkup(<ReviewContextDetails run={{ ...run,
+      context: { ...deliveredContext, deliveries: [first, { ...first, turnId: 'turn-discussion', contributionCount: 2 }] },
+      contextDeliveryStates: { 'turn-validation': { outcome: 'CONFIRMED', detail: null }, 'turn-discussion': { outcome: 'PREPARED', detail: 'Prepared but not sent.' } },
+    }} />);
+    expect(html).toContain('Repository context · Prepared');
+    expect(html).toContain('Delivery 1 · Provided to agent');
+    expect(html).toContain('Delivery 2 · Prepared');
+    expect(html).toContain('Prepared but not sent.');
+    expect(html).toContain('Completed context brief and 1 evidence addition');
   });
 
   it('renders the exact captured packet as escaped text and keeps selected versions and matching reasons', () => {

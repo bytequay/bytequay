@@ -102,6 +102,41 @@ state. A failed or unsafe head move fails the request. The task stays in private
 review. Finishing explicitly discards experiments without creating a stash.
 See [development delivery](development-delivery.md#2-settings-and-scope).
 
+## Review reference input
+
+[Repository Context](repository-context.md) extends accepted review turn input
+through the narrow framework-free ReviewTurnInputResolver port. Agent core calls
+it outside the task monitor, before opening the provider session, after the
+original accepted message is saved and its transcript event drained. The app's
+RepositoryContextTurnInput resolves the current accepted assignment with the
+existing review fence and retains the exact saved packet binding on its source
+run. It returns the original message plus delimited untrusted reference data.
+Core then rechecks cancellation and worktree ownership and supplies that message
+through AgentTurnCommand. A preparation error fails the accepted turn as known
+unsent; no provider session starts. The accepted message/transcript stays unchanged.
+
+Direct starts and queued/resumed turns share this launch path. Initial enabled
+investigation receives the captured bootstrap; validation and collection require
+a sealed brief and receive its immutable contribution prefix. Old-card questions
+resolve the original run's snapshot and saved setting at execution, including
+when queued, without reading today's notebook or moving the worktree. Fresh
+discussion-source supplements remain pending. Off, absent historical context
+and ordinary non-review tasks add no reference input. Source bodies travel in
+message/tool-result transport, never managed instructions or process arguments;
+only the small trusted policy is added to enabled review bridge instructions.
+
+Existing turn facts remain the transport authority. Context bindings store turn
+ID, packet prefix/digest/bytes, composed-input digest/bytes and optional discussion
+message identity. The review projection derives delivery state from AgentTurn's
+provider reference, startedAt and knownUnsent; a missing receipt is uncertain.
+There is no second delivery status store, acknowledgment turn or automatic resend
+of uncertain input. Packets are bounded to 32 KiB UTF-8, complete composed message
+text to 256 KiB, and bindings to 128 per run. Each completed context contribution
+fits 8 KiB including references/limitations, with one original brief and at most
+two collection supplements. The existing report operation and run update seal
+these values together. Transport fixtures and live provider/quality measurements
+retain their own acceptance gates; stored context does not prove comprehension.
+
 ## Development-agent CI evidence
 
 Interactive development agents can call the fixed `read_pull_request_ci` tool
@@ -803,6 +838,11 @@ that marker immediately before launching the provider through the serialized
 path, allowing ordinary active-turn steering/queueing. Generated turns do not
 recapture the baseline and retain their continuation owner. Stop or shutdown
 during capture prevents late launch; startup never replays a lost capture.
+The review reference-input hook also runs outside the task monitor before launch
+for each accepted direct or queued turn. Its application-owned run binding is
+saved before provider submission; the subsequent ownership/cancellation check
+can leave that binding prepared but unsent. Original transcript input remains
+unchanged and existing turn receipts describe delivery.
 
 ```java
 package com.bytequay.agent.core;
@@ -2819,7 +2859,7 @@ coordinates the narrower interfaces shown in the last column.
 | 1. Create and send | `POST /agent/tasks` with `workspaceId`, first `message`, and idempotency key, never a path | `InteractiveAgentTaskCreator.create(...)`, `AgentTurnService.start(...)`, then `AgentTaskTitleService.generate(...)` | `app` resolves the workspace/repository and exact starting commit; core verifies readiness before provisioning and persists `OPEN` with a 36-character first-message fallback marked `PROVISIONAL`. The controller starts the idempotent initial turn, captures the response, and only for a new turn schedules best-effort naming. That disposable text-only session uses the same lane outside the task conversation; it may atomically replace only a still-provisional title and insert `TITLE_UPDATED`. Failure leaves the fallback, and a user rename always wins |
 | 2. Attach | Optional authenticated image upload | `AgentResourceService.storeAttachment(...)` | Validates content and limits, writes a task-owned blob, and returns an opaque `AttachmentRef`; arbitrary renderer paths are rejected |
 | 3. Observe | Open a recent page, scroll for adjacent pages, and subscribe at the latest sequence | `AgentEventService.readHistory(...)`, `subscribe(TaskId, afterSequence)`, and `AgentApprovalService.listPending(TurnId)` | Reads a bounded history window and streams later events under demand; current approvals remain available independently of unloaded history |
-| 4. Start turn | `POST /agent/tasks/{taskId}/turns` | `AgentTurnService.start(StartAgentTurnCommand)` | Rechecks lane readiness before accepting input and writes the bounded message blob. One short `AgentUnitOfWork` reserves the idempotency key and worktree-mutation claim as `ACCEPTED` with the user-message outbox entry. The event drains before provider send; the service opens/resumes the session, persists its reference, begins metrics, persists `startedAt`, starts the run, and records `RUNNING` with its provider reference. Failed readiness creates no turn |
+| 4. Start turn | `POST /agent/tasks/{taskId}/turns` | `AgentTurnService.start(StartAgentTurnCommand)` | Rechecks lane readiness before accepting input and writes the bounded message blob. One short `AgentUnitOfWork` reserves the idempotency key and worktree-mutation claim as `ACCEPTED` with the user-message outbox entry. The event drains before provider send; the review-input resolver prepares a saved reference binding outside the task monitor, then core rechecks ownership/cancellation, opens/resumes the session, persists its reference, begins metrics, persists `startedAt`, starts the run, and records `RUNNING` with its provider reference. Failed readiness creates no turn |
 | 5. Run | Keep SSE open; steer, queue, cancel, or resolve approvals | `AgentTurnService` and `AgentApprovalService` operations | Display-only provider events pass through `AgentEventService.append(...)`; any provider observation coupled to SQLite state uses `AgentUnitOfWork` plus the event outbox; steer persists and drains its input event before delivery; enqueue conditionally updates the task version with its row/event so it cannot race Complete and does not call the provider; approval resolution and its event commit and drain before the provider callback completes |
 | 6. Finish turn | Read turn state as needed | `AgentTurnService.get(TurnId)` | The root answer remains visible while recursive native status, latest-turn status, child inventory, and background checks verify work has finished. The driver durably records that fact before closing the per-turn App Server. Verified cleanup releases the claim; failed cleanup preserves a proven provider result and retains the claim. A failed provider check supplies no proof and triggers conservative shutdown. Core atomically finalizes metrics/state and terminal events; only a quiescent success may claim the FIFO head |
 | 7. Continue | Send or resume queued input on the same task | `AgentTurnService.start(...)` or `resumeQueued(...)` | Reuses the stored `AgentSessionRef`, creates one new `TurnId`, and launches a new matching-profile process; non-success leaves queued work paused |

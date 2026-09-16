@@ -36,8 +36,12 @@ There is no task per finding, new execution engine, or configurable pipeline.
 preparation. Each run can retain its captured On/Off setting, exact prepared
 packet, matching reasons, limitations and source excerpts. These are saved before
 initial provider admission and survive notebook edits and source-cache eviction.
-The run projection exposes this snapshot; its presence alone does not establish
-agent delivery, retrieval, comprehension or evidence sufficient for a finding.
+At actual accepted turn launch, the application adds the saved bootstrap or
+completed brief with collection supplements to provider input, while preserving
+the original accepted transcript message. Old-card questions use their source
+run's captured setting and context, including when queued. The run projection
+shows exact bindings and derives delivery status from existing provider receipts;
+snapshot presence alone establishes no acceptance, comprehension or finding proof.
 
 The user can watch activity, steer supported active turns, challenge the
 summary or individual findings, resolve findings privately, and explicitly
@@ -196,7 +200,7 @@ this is not a second task engine:
 | Record | Required facts |
 | --- | --- |
 | Review | Workspace and logical PR identity, physical repository/head-branch identity, agent task ID, latest completed run, latest observed remote head, follow-up execution enabled/paused, optimistic version, explicit closure |
-| Run | Review ID, full/incremental scope, frozen base tip and merge base, head SHA, prior successful reviewed head if any, turn IDs, ordered assignments, latest investigation, accepted result/coverage, terminal outcome |
+| Run | Review ID, full/incremental scope, frozen base tip and merge base, head SHA, prior successful reviewed head if any, turn IDs, ordered assignments, latest investigation, optional context snapshot with sealed contributions and immutable delivery bindings, accepted result/coverage, terminal outcome |
 | Assignment | Consecutive number, investigation/validation/evidence-collection kind, reporting-repair attempt, immutable report when sealed |
 | Investigation | Change map, distinct assessed changed-file paths, captured supporting context refs, numbered hypotheses, evidence-request answers, latest validation conclusions |
 | Validation | Sealed investigation step number, assessment of every candidate, newly discovered hypotheses, coverage and omissions |
@@ -344,9 +348,13 @@ otherwise complete review.
 Review details includes a Repository context disclosure from the selected run's
 saved snapshot. It shows Prepared, Off for this run, or Not recorded, exact packet
 text and bytes, selected note versions/reasons, history, input fingerprints,
-retained source reads and gaps. Prepared does not imply delivery or comprehension;
-provider delivery confirmation remains a separate Repository Context gate.
-Notebook edits never rewrite this historical display.
+retained source reads and gaps. It also shows the completed brief, collection
+supplements and each turn's exact packet/input binding. The projection derives
+PREPARED, SUBMITTED, CONFIRMED or UNCERTAIN from existing AgentTurn receipts;
+missing receipts remain uncertain. Prepared does not imply acceptance, and
+acceptance does not imply comprehension. Notebook edits never rewrite this
+historical display. Citation navigation and folded preparation activity remain
+separate presentation work.
 
 Enabled initial investigation turns also expose `repository_context_prepare`
 BEGIN/SUBMIT for existing configured scopes. Assignment metadata supplies current
@@ -356,8 +364,39 @@ input inspection. Notebook mutation and the exact operation receipt commit toget
 in the existing local transaction. One workspace owner admits work; matching consumers
 receive immediate JOINED or actual reused note text. Stop and terminal-turn cleanup
 preserve uncertain runtime ownership until existing recovery clears its claim.
-This capability does not yet imply automatic bootstrap delivery or completed-brief
-integration. Discussions, validation, collection and disabled snapshots cannot prepare.
+Persisted BEGIN/SUBMIT results return receiptRef for the saved run operation.
+Discussions, validation, collection and disabled snapshots cannot prepare.
+Standalone Build/Refresh, scope/root proposals and selected deferred-notebook
+exact-version reads remain outside this implemented capability.
+
+For enabled snapshots, review_save_investigation requires contextBrief,
+contextPreparationRefs and contextLimitations, alongside existing
+contextEvidenceRefs. Evidence must exist in this run, and preparation references
+must name its saved BEGIN/SUBMIT receipts. The entire rendered contribution,
+including labels, references and limitations, fits 8 KiB UTF-8. The first accepted
+investigation seals the original brief; each of at most two later collection
+reports appends an immutable contribution keyed to its step. Report, contribution
+and replay result persist together. Invalid fields, references or bounds leave
+the assignment unsealed for the existing repair path. Off and historical
+absent-context runs use the original report and reject the added fields.
+
+Automatic delivery resolves the accepted assignment at provider launch, outside
+the task lock, and persists an immutable binding before submission. Initial
+investigation receives the bootstrap. Validation and collection require the
+completed brief and receive its exact contribution prefix; later additions
+cannot rewrite an earlier binding. Saved initial preparation gaps remain in
+later packets even if the agent reports no limitations; any gaps that do not
+fit are explicitly counted with an incomplete-coverage notice. Packets fit
+32 KiB and complete composed message text fits 256 KiB UTF-8, with at most
+128 bindings per run. Core rechecks
+cancellation and worktree ownership before launch. Reference text is delimited
+untrusted input, never managed instructions or provider process arguments.
+A small trusted context policy is added only for enabled snapshots.
+
+Old-card discussion launches reuse their original run's saved context and setting,
+not today's notebook. Capturing new discussion sources as a separate supplement
+remains pending. Delivery and report fixtures establish transport/structure only;
+provider/performance and review-quality acceptance remain tracked separately.
 
 Each retained private discussion message with a known source run offers **Save
 lesson**. Its local editor lets the user accept or rewrite the text, choose a
@@ -366,9 +405,10 @@ retains the original message source even when a newer review run exists. Saving
 uses the notebook revision, preserves failed drafts, and starts no agent turn or
 GitHub write. The settings notebook is the place to edit or remove the saved lesson.
 
-The initial request is small: review purpose, PR identity, frozen scope,
-previous review reference where applicable, and available capabilities. The
-agent requests additional context as needed:
+The accepted review request contains purpose, PR identity, frozen scope,
+previous review reference where applicable, and available capabilities. Enabled
+runs append their bounded saved reference packet at launch. The agent requests
+additional context as needed:
 
 - PR title, author description, base/head identities and actual commits;
 - PR timeline, remote discussions, checks, and previous local findings;

@@ -12,7 +12,7 @@
  * limitations under the License.
  */
 import { describe, expect, it } from 'vitest';
-import { parseAgentReview } from '../pulls/agent-review/contracts';
+import { parseAgentReview, type ContextDeliveryStateDto } from '../pulls/agent-review/contracts';
 import { reviewFixture } from '../pulls/agent-review/fixtures/review';
 import {
   parseConfigureRepositoryContextRequest,
@@ -21,6 +21,7 @@ import {
   parseReviewContextSnapshot,
   parseSaveRepositoryContextLessonRequest,
   type ActiveContextPreparationDto,
+  type ContextDeliveryDto,
   type ContextPreparationResultDto,
   type ContextSourceDto,
   type RepositoryNotebookDto,
@@ -51,7 +52,7 @@ const snapshot: ReviewContextSnapshotDto = {
       registration: source, notebookRevision: 7, captureId: 'capture', contentHash: 'a'.repeat(64), readAt: '2026-09-01T00:00:00Z',
       page: 2, totalPages: 2, utf8Bytes: 2, blank: true, truncated: true, refreshFailed: true, evidenceRef: null },
   ],
-  gaps: ['Source applicability has not been verified.'],
+  gaps: ['Source applicability has not been verified.'], contributions: [], deliveries: [],
 };
 
 describe('repository context contracts', () => {
@@ -87,6 +88,31 @@ describe('repository context contracts', () => {
       { ...snapshot, relatedItems: [{ ...snapshot.relatedItems[0], presentInReviewedBase: 'unknown' }] }]) {
       expect(() => parseReviewContextSnapshot(value)).toThrow('Malformed repository context');
     }
+  });
+
+  it('retains completed brief contributions and exact delivery identities with receipt-derived state', () => {
+    const contribution = { investigationStep: 1, text: 'Conditional contracts.', evidenceRefs: ['E1'], preparationRefs: ['prepared:project'], limitations: ['Unverified version'] };
+    const delivery: ContextDeliveryDto = { turnId: 'turn-1', packetDigest: 'sha256:brief', utf8Bytes: 210, contributionCount: 1,
+      inputDigest: 'sha256:input', inputUtf8Bytes: 500, discussionMessageId: null, preparedAt: '2026-09-01T00:00:00Z' };
+    const context = { ...snapshot, contributions: [contribution], deliveries: [delivery] };
+    const review = reviewFixture();
+    const contextDeliveryStates: Record<string, ContextDeliveryStateDto> = { 'turn-1': { outcome: 'CONFIRMED', detail: null } };
+    const parsed = parseAgentReview({ ...review, runs: [{ ...review.runs[0], context, contextDeliveryStates }] });
+    expect(parsed.runs[0].context).toEqual(context);
+    expect(parsed.runs[0].contextDeliveryStates).toEqual(contextDeliveryStates);
+    for (const bad of [
+      { ...context, contributions: undefined }, { ...context, deliveries: undefined },
+      { ...context, contributions: [{ ...contribution, investigationStep: 0 }] },
+      { ...context, contributions: [{ ...contribution, limitations: 'missing' }] },
+      { ...context, deliveries: [{ ...delivery, contributionCount: 2 }] },
+      { ...context, deliveries: [{ ...delivery, utf8Bytes: -1 }] },
+      { ...context, deliveries: [{ ...delivery, inputUtf8Bytes: '500' }] },
+    ]) expect(() => parseReviewContextSnapshot(bad)).toThrow('Malformed repository context');
+    for (const badState of [{ outcome: 'UNDERSTOOD', detail: null }, { outcome: 'CONFIRMED', detail: 1 }, null]) {
+      expect(() => parseAgentReview({ ...review, runs: [{ ...review.runs[0], context, contextDeliveryStates: { 'turn-1': badState } }] }))
+        .toThrow('Malformed context delivery');
+    }
+    expect(() => parseAgentReview({ ...review, runs: [{ ...review.runs[0], contextDeliveryStates: undefined }] })).toThrow('context delivery states');
   });
 
   it('keeps optimistic revisions and absent configuration fields unchanged', () => {

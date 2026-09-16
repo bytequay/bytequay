@@ -48,6 +48,7 @@ import com.bytequay.agent.spi.AgentDriverRegistry;
 import com.bytequay.agent.spi.AgentLaneId;
 import com.bytequay.agent.spi.AgentPermissionPolicy;
 import com.bytequay.agent.spi.AgentProviderStatus;
+import com.bytequay.agent.spi.ProviderTurnRef;
 import com.bytequay.app.context.ReviewContextService;
 import com.bytequay.app.git.GitCommandRunner;
 import com.bytequay.app.git.ReviewExperiments;
@@ -177,13 +178,23 @@ class TestDefaultAgentReviewService
             assertThat(command.idempotencyKey()).isEqualTo(saved.currentStep().orElseThrow().key(saved.id()));
             assertThat(command.message()).doesNotContain(snapshot.bootstrap().orElseThrow().text());
             AgentTurn accepted = AgentTurn.accepted(TURN_ONE, TASK_ID, command.idempotencyKey(), SETTINGS, NOW);
-            fixture.acceptedTurns.put(command.idempotencyKey(), accepted);
-            return accepted;
+            when(fixture.turnStore.findActive(TASK_ID)).thenReturn(Optional.of(accepted));
+            RepositoryContextTurnInput input = new RepositoryContextTurnInput(fixture.store,
+                    new ReviewToolAssignment(fixture.turnStore, fixture.queueStore, fixture.store), new ReviewLocks(), CLOCK);
+            assertThat(input.prepare(idleTask(), accepted, command.message())).contains(snapshot.bootstrap().orElseThrow().text());
+            AgentTurn running = accepted.markDeliveryStarted(NOW).running(new ProviderTurnRef("provider-turn"), Optional.empty());
+            when(fixture.turnStore.find(TURN_ONE)).thenReturn(Optional.of(running));
+            fixture.acceptedTurns.put(command.idempotencyKey(), running);
+            return running;
         }).when(fixture.turns).start(any(StartAgentTurnCommand.class));
 
         AgentReviewProjection projection = fixture.service.start(WORKSPACE, REPO, NUMBER);
 
-        assertThat(projection.runs().getFirst().context()).contains(snapshot);
+        ReviewContextSnapshot captured = projection.runs().getFirst().context().orElseThrow();
+        assertThat(captured.bootstrap()).isEqualTo(snapshot.bootstrap());
+        assertThat(captured.deliveries()).hasSize(1);
+        assertThat(projection.runs().getFirst().contextDeliveryStates().get(TURN_ONE.toString()).outcome())
+                .isEqualTo(AgentReviewProjection.ContextDeliveryState.Outcome.CONFIRMED);
         assertThat(projection.byteQuayTurnIds()).containsExactly(TURN_ONE.toString());
     }
 
@@ -1902,7 +1913,7 @@ class TestDefaultAgentReviewService
     private static ReviewContextSnapshot contextSnapshot()
     {
         return new ReviewContextSnapshot("context", true, 7, 1, Optional.of(BASE_SHA), Optional.of(ContextPacket.create("Prepared reference packet")),
-                ImmutableList.of(), ImmutableList.of(), ImmutableList.of(), ImmutableList.of(), ImmutableList.of());
+                ImmutableList.of(), ImmutableList.of(), ImmutableList.of(), ImmutableList.of(), ImmutableList.of(), ImmutableList.of(), ImmutableList.of());
     }
 
     private static final class Fixture
@@ -1911,6 +1922,7 @@ class TestDefaultAgentReviewService
         private final ReviewDraftStore drafts = mock(ReviewDraftStore.class);
         private final AgentTaskService tasks = mock(AgentTaskService.class);
         private final AgentTurnService turns = mock(AgentTurnService.class);
+        private final AgentTurnStore turnStore = mock(AgentTurnStore.class);
         private final QueuedInputStore queueStore = mock(QueuedInputStore.class);
         private final AgentCompletionService completions = mock(AgentCompletionService.class);
         private final AgentApprovalService approvals = mock(AgentApprovalService.class);
@@ -1937,6 +1949,7 @@ class TestDefaultAgentReviewService
                     drafts,
                     tasks,
                     turns,
+                    turnStore,
                     queueStore,
                     completions,
                     approvals,

@@ -13,6 +13,7 @@
  */
 package com.bytequay.core.review;
 
+import com.bytequay.core.context.ContextContribution;
 import com.bytequay.core.context.ContextPacket;
 import com.bytequay.core.context.ContextReference;
 import com.bytequay.core.context.ContextRelatedItem;
@@ -110,9 +111,32 @@ class TestReviewRun
         assertThat(captured.evidence()).isEqualTo(original.evidence());
         assertThatThrownBy(() -> run().withContextSourceRead(empty, Optional.empty(), NOW)).isInstanceOf(IllegalStateException.class);
         ReviewContextSnapshot disabled = new ReviewContextSnapshot("off", false, 1, 42, Optional.empty(), Optional.empty(),
-                ImmutableList.of(), ImmutableList.of(), ImmutableList.of(), ImmutableList.of(), ImmutableList.of());
+                ImmutableList.of(), ImmutableList.of(), ImmutableList.of(), ImmutableList.of(), ImmutableList.of(), ImmutableList.of(), ImmutableList.of());
         assertThatThrownBy(() -> run().withContext(disabled, ImmutableMap.of(), NOW).withContextSourceRead(empty, Optional.empty(), NOW))
                 .isInstanceOf(IllegalStateException.class).hasMessageContaining("disabled");
+    }
+
+    @Test
+    void sealsContextOnlyWithInvestigationAndRetainedRunReferences()
+    {
+        ReviewRun captured = run().withContext(snapshot("context-1"), ImmutableMap.of(EVIDENCE.ref(), EVIDENCE), NOW)
+                .withOperation("preparation-receipt", new ReviewOperation("digest", "result"), NOW);
+        ReviewInvestigation investigation = new ReviewInvestigation("Changed callers", ImmutableList.of(), ImmutableList.of(EVIDENCE.ref()),
+                ImmutableList.of(), ImmutableList.of(), ImmutableList.of());
+        ContextContribution contribution = new ContextContribution(1, "Verified applicable contract", ImmutableList.of(EVIDENCE.ref()),
+                ImmutableList.of("preparation-receipt"), ImmutableList.of("Remote documentation unavailable"));
+        assertThatThrownBy(() -> captured.withContextContribution(contribution, NOW)).isInstanceOf(IllegalArgumentException.class).hasMessageContaining("sealed investigation");
+        ReviewRun sealed = captured.withInvestigation(investigation, NOW).withStep(ReviewStep.initial().withInvestigation(investigation), NOW);
+        ReviewRun updated = sealed.withContextContribution(contribution, NOW);
+
+        assertThat(updated.context().orElseThrow().contributions()).containsExactly(contribution);
+        assertThat(updated.withContextContribution(contribution, NOW.plusSeconds(1))).isSameAs(updated);
+        assertThat(updated.investigation()).contains(investigation);
+        assertThatThrownBy(() -> sealed.withContextContribution(new ContextContribution(1, "Brief", ImmutableList.of("foreign-evidence"),
+                ImmutableList.of(), ImmutableList.of()), NOW)).isInstanceOf(IllegalArgumentException.class).hasMessageContaining("missing run evidence");
+        assertThatThrownBy(() -> sealed.withContextContribution(new ContextContribution(1, "Brief", ImmutableList.of(),
+                ImmutableList.of("foreign-preparation"), ImmutableList.of()), NOW))
+                .isInstanceOf(IllegalArgumentException.class).hasMessageContaining("missing preparation receipts");
     }
 
     private static ContextRepositoryRead repositoryRead(String id, int bytes, Optional<String> ref)
@@ -130,7 +154,7 @@ class TestReviewRun
         return new ReviewContextSnapshot(id, true, 1, 42, Optional.of(SHA), Optional.of(ContextPacket.create("Previous review reference")),
                 ImmutableList.of(), ImmutableList.of(new ContextRelatedItem(EVIDENCE.ref(), ImmutableList.of("path:backend/core"), Optional.empty())),
                 ImmutableList.of(),
-                ImmutableList.of(),
+                ImmutableList.of(), ImmutableList.of(), ImmutableList.of(),
                 ImmutableList.of());
     }
 

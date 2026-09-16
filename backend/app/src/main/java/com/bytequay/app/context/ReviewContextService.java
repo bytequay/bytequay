@@ -105,7 +105,8 @@ public class ReviewContextService
         long repositoryId = RepositoryContextReader.repositoryId(workspace);
         if (!notebook.useInReviews()) {
             ReviewContextSnapshot snapshot = new ReviewContextSnapshot("context:" + run.id(), false, notebook.revision(), repositoryId,
-                    Optional.empty(), Optional.empty(), ImmutableList.of(), ImmutableList.of(), ImmutableList.of(), ImmutableList.of(), ImmutableList.of());
+                    Optional.empty(), Optional.empty(), ImmutableList.of(), ImmutableList.of(), ImmutableList.of(),
+                    ImmutableList.of(), ImmutableList.of(), ImmutableList.of(), ImmutableList.of());
             ReviewRun saved = reviews.updateRun(run.withContext(snapshot, ImmutableMap.of(), Instant.now(clock)));
             log.info("Repository context disabled for review run {}", run.id());
             return saved;
@@ -176,7 +177,7 @@ public class ReviewContextService
         }
         ContextPacket packet = ContextPacket.create(header + notes + history);
         ReviewContextSnapshot snapshot = new ReviewContextSnapshot("context:" + run.id(), true, notebook.revision(), repositoryId,
-                selection.baselineSha(), Optional.of(packet), entries, related, fingerprints, ImmutableList.of(), retainedGaps);
+                selection.baselineSha(), Optional.of(packet), entries, related, fingerprints, ImmutableList.of(), ImmutableList.of(), ImmutableList.of(), retainedGaps);
         ReviewRun saved = reviews.updateRun(run.withContext(snapshot, evidence, Instant.now(clock)));
         log.info("Prepared repository context for run {}: {} notes included, {} deferred, {} related sources, {} gaps, {} UTF-8 bytes in {} ms; delivery pending",
                 run.id(), entries.size() - deferred, deferred, related.size(), retainedGaps.size(), packet.utf8Bytes(), NANOSECONDS.toMillis(System.nanoTime() - started));

@@ -35,6 +35,7 @@ import com.bytequay.agent.core.TurnId;
 import com.bytequay.agent.core.WorktreeMutationClaim;
 import com.bytequay.agent.core.WorktreeService;
 import com.bytequay.agent.core.WorktreeSnapshot;
+import com.bytequay.agent.core.store.AgentTurnStore;
 import com.bytequay.agent.core.store.QueuedInputStore;
 import com.bytequay.agent.spi.AgentCapabilities;
 import com.bytequay.agent.spi.AgentDriverRegistry;
@@ -94,6 +95,7 @@ import static com.bytequay.app.review.DefaultAgentReviewService.CompletionAction
 import static com.bytequay.app.review.DefaultAgentReviewService.CompletionAction.REPAIR;
 import static com.bytequay.app.review.DefaultAgentReviewService.CompletionAction.VALIDATE;
 import static com.google.common.collect.ImmutableList.toImmutableList;
+import static com.google.common.collect.ImmutableMap.toImmutableMap;
 import static java.util.Objects.requireNonNull;
 
 @Service
@@ -106,6 +108,7 @@ public class DefaultAgentReviewService
     private final ReviewDraftStore drafts;
     private final AgentTaskService tasks;
     private final AgentTurnService turns;
+    private final AgentTurnStore turnStore;
     private final QueuedInputStore queueStore;
     private final AgentCompletionService completions;
     private final AgentApprovalService approvals;
@@ -130,6 +133,7 @@ public class DefaultAgentReviewService
             ReviewDraftStore drafts,
             AgentTaskService tasks,
             AgentTurnService turns,
+            AgentTurnStore turnStore,
             QueuedInputStore queueStore,
             AgentCompletionService completions,
             AgentApprovalService approvals,
@@ -152,6 +156,7 @@ public class DefaultAgentReviewService
         this.drafts = requireNonNull(drafts, "drafts is null");
         this.tasks = requireNonNull(tasks, "tasks is null");
         this.turns = requireNonNull(turns, "turns is null");
+        this.turnStore = requireNonNull(turnStore, "turnStore is null");
         this.queueStore = requireNonNull(queueStore, "queueStore is null");
         this.completions = requireNonNull(completions, "completions is null");
         this.approvals = requireNonNull(approvals, "approvals is null");
@@ -847,7 +852,10 @@ public class DefaultAgentReviewService
             throw failure;
         }
         // If this write fails after turn acceptance, reconciliation reattaches that same request.
-        store.updateRun(run.withTurn(turn.id().toString(), Instant.now(clock)));
+        ReviewRun current = store.findRun(run.id()).orElseThrow();
+        if (!current.turnIds().contains(turn.id().toString())) {
+            store.updateRun(current.withTurn(turn.id().toString(), Instant.now(clock)));
+        }
     }
 
     private static ReviewFinding relocated(ReviewFinding finding, ReviewAnchor anchor, String headSha, Instant now)
@@ -960,7 +968,9 @@ public class DefaultAgentReviewService
                 : ImmutableList.of();
         return new AgentReviewProjection(
                 review,
-                runs.stream().map(AgentReviewProjection.RunView::of).collect(toImmutableList()),
+                runs.stream().map(run -> AgentReviewProjection.RunView.of(run, run.context().stream().flatMap(snapshot -> snapshot.deliveries().stream())
+                        .collect(toImmutableMap(delivery -> delivery.turnId(), delivery -> AgentReviewProjection.ContextDeliveryState.of(
+                                turnStore.find(TurnId.valueOf(delivery.turnId())).filter(turn -> turn.taskId().equals(taskId))))))).collect(toImmutableList()),
                 store.listFindings(reviewId),
                 store.listMessages(reviewId).stream().map(this::messageView).collect(toImmutableList()),
                 new AgentReviewProjection.TaskView(

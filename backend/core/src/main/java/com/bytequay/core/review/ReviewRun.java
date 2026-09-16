@@ -13,6 +13,8 @@
  */
 package com.bytequay.core.review;
 
+import com.bytequay.core.context.ContextContribution;
+import com.bytequay.core.context.ContextDelivery;
 import com.bytequay.core.context.ContextLimits;
 import com.bytequay.core.context.ContextSourceRead;
 import com.bytequay.core.context.ReviewContextSnapshot;
@@ -94,6 +96,9 @@ public record ReviewRun(
         operations = ImmutableMap.copyOf(operations);
         evidence = ImmutableMap.copyOf(evidence);
         requireNonNull(context, "context is null");
+        Set<String> operationKeys = operations.keySet();
+        checkArgument(context.stream().flatMap(snapshot -> snapshot.contributions().stream())
+                .allMatch(contribution -> operationKeys.containsAll(contribution.preparationRefs())), "Context references missing preparation receipts");
         Set<String> evidenceIds = evidence.keySet();
         checkArgument(context.stream().allMatch(snapshot -> evidenceIds.containsAll(snapshot.evidenceRefs())), "Context references missing run evidence");
         for (ContextSourceRead read : context.stream().flatMap(snapshot -> snapshot.sourceReads().stream()).toList()) {
@@ -224,6 +229,37 @@ public record ReviewRun(
     public ReviewRun withCompletionRepairUsed(Instant now)
     {
         return copy(turnIds, state, summary, coverage, investigation, steps, true, operations, evidence, outcome, version, now, endedAt);
+    }
+
+    /** Retains the brief with the sealed investigation in the caller's existing atomic run update. */
+    public ReviewRun withContextContribution(ContextContribution contribution, Instant now)
+    {
+        requireNonNull(contribution, "contribution is null");
+        requireNonNull(now, "now is null");
+        checkState(context.isPresent(), "Review context is absent");
+        checkArgument(steps.stream().anyMatch(step -> step.number() == contribution.investigationStep() && step.investigation().isPresent()),
+                "Context contribution requires its sealed investigation");
+        ReviewContextSnapshot snapshot = context.orElseThrow().withContribution(contribution);
+        if (snapshot.equals(context.orElseThrow())) {
+            return this;
+        }
+        return new ReviewRun(id, reviewId, ordinal, scope, baseRef, baseSha, mergeBaseSha, headSha, priorHeadSha, commits, diff,
+                turnIds, state, summary, coverage, investigation, steps, completionRepairUsed, operations, evidence, Optional.of(snapshot),
+                outcome, version, createdAt, now, endedAt);
+    }
+
+    /** Records the exact packet bound to an accepted turn before provider submission. */
+    public ReviewRun withContextDelivery(ContextDelivery delivery, Instant now)
+    {
+        requireNonNull(now, "now is null");
+        checkState(context.isPresent(), "Review context is absent");
+        ReviewContextSnapshot snapshot = context.orElseThrow().withDelivery(delivery);
+        if (snapshot.equals(context.orElseThrow())) {
+            return this;
+        }
+        return new ReviewRun(id, reviewId, ordinal, scope, baseRef, baseSha, mergeBaseSha, headSha, priorHeadSha, commits, diff,
+                turnIds, state, summary, coverage, investigation, steps, completionRepairUsed, operations, evidence, Optional.of(snapshot),
+                outcome, version, createdAt, now, endedAt);
     }
 
     /**

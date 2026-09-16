@@ -13,6 +13,7 @@
  */
 package com.bytequay.app.review;
 
+import com.bytequay.agent.core.AgentTurn;
 import com.bytequay.core.context.ReviewContextSnapshot;
 import com.bytequay.core.domain.PullRequest;
 import com.bytequay.core.review.AgentReview;
@@ -27,9 +28,11 @@ import com.bytequay.core.review.ReviewRun;
 import com.bytequay.core.review.ReviewStep;
 import com.bytequay.core.review.ReviewSummary;
 import com.google.common.collect.ImmutableList;
+import com.google.common.collect.ImmutableMap;
 
 import java.time.Instant;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 
 import static java.util.Objects.requireNonNull;
@@ -99,13 +102,19 @@ public record AgentReviewProjection(
             List<ReviewStep> steps,
             List<ReviewEvidence> evidence,
             Optional<ReviewContextSnapshot> context,
+            Map<String, ContextDeliveryState> contextDeliveryStates,
             boolean completionRepairUsed,
             Optional<String> outcome,
             Instant createdAt,
             Instant updatedAt,
             Optional<Instant> endedAt)
     {
-        public static RunView of(ReviewRun run)
+        public RunView
+        {
+            contextDeliveryStates = ImmutableMap.copyOf(contextDeliveryStates);
+        }
+
+        public static RunView of(ReviewRun run, Map<String, ContextDeliveryState> deliveryStates)
         {
             return new RunView(
                     run.id(),
@@ -126,11 +135,48 @@ public record AgentReviewProjection(
                     run.steps(),
                     ImmutableList.copyOf(run.evidence().values()),
                     run.context(),
+                    deliveryStates,
                     run.completionRepairUsed(),
                     run.outcome(),
                     run.createdAt(),
                     run.updatedAt(),
                     run.endedAt());
+        }
+    }
+
+    /** Delivery labels derive only from durable provider receipts; runtime cleanup never establishes acceptance. */
+    public record ContextDeliveryState(Outcome outcome, Optional<String> detail)
+    {
+        public ContextDeliveryState
+        {
+            requireNonNull(outcome, "outcome is null");
+            requireNonNull(detail, "detail is null");
+        }
+
+        public static ContextDeliveryState of(Optional<AgentTurn> turn)
+        {
+            if (turn.isEmpty()) {
+                return new ContextDeliveryState(Outcome.UNCERTAIN, Optional.of("The provider receipt is unavailable."));
+            }
+            AgentTurn value = turn.orElseThrow();
+            if (value.providerTurnReference().isPresent()) {
+                return new ContextDeliveryState(Outcome.CONFIRMED, Optional.empty());
+            }
+            if (value.knownUnsent() || value.startedAt().isEmpty()) {
+                return new ContextDeliveryState(Outcome.PREPARED, Optional.of(value.state().terminal()
+                        ? "Not sent: the turn ended before provider submission." : "Prepared before provider submission."));
+            }
+            return value.state().active()
+                    ? new ContextDeliveryState(Outcome.SUBMITTED, Optional.of("Submission started; provider acceptance is not yet recorded."))
+                    : new ContextDeliveryState(Outcome.UNCERTAIN, Optional.of("Submission may have reached the provider; acceptance could not be confirmed."));
+        }
+
+        public enum Outcome
+        {
+            PREPARED,
+            SUBMITTED,
+            CONFIRMED,
+            UNCERTAIN
         }
     }
 

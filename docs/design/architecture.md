@@ -64,7 +64,9 @@ The Electron bridge exposes typed notebook reads and revision-guarded edits.
 Workspace settings renders knowledge, lessons, scopes and documentation sources;
 private review messages can be saved as user-edited lessons bound to their original
 run, with an explicit scope choice before saving. Review details renders the
-retained packet and receipts as prepared context, with gaps and provenance.
+retained packet, sealed investigation brief and collection supplements, source
+receipts, and per-turn input bindings with gaps and provenance. Delivery labels
+are derived from existing turn facts; preparation alone is never acceptance.
 Opening either surface performs no generation or remote
 fetch. Review-owned generation now uses `RepositoryContextPreparation` through
 one fixed BEGIN/SUBMIT tool on enabled initial investigation turns. Git/input
@@ -74,8 +76,33 @@ AgentUnitOfWork transaction. One workspace owner fences concurrent generation;
 READY/EMPTY reuse compares full input inventories and preserves checked blank
 receipts. Reconciliation clears only a terminal turn with no task runtime claim,
 recording FAILED and preserving saved notes. Settings displays these retained
-outcomes. Standalone Build/Refresh, automatic context delivery and provider
-acceptance remain separate gates.
+outcomes. Accepted preparation responses expose their saved operation key as
+receiptRef, so investigation reports can validate citations to the same run.
+
+The framework-free ReviewTurnInputResolver port in agent-core composes reference
+input after turn acceptance, outside the task monitor and before provider launch.
+Its app implementation uses the existing review assignment fence to select the
+saved run setting and immutable packet prefix. Core rechecks cancellation and
+worktree ownership, then sends the composed AgentTurnCommand message through the
+existing provider transport. Original accepted input/transcript text stays intact;
+source bodies do not enter managed instructions or process arguments. Direct,
+queued and resumed turns use this same boundary, including old-card discussions
+bound to their original run. Off and absent historical snapshots add no input.
+
+ContextContribution and ContextDelivery are bounded core values in the existing
+run JSON. Investigation seals the first contribution atomically with its report
+and replay receipt; at most two collection supplements append. Each rendered
+contribution fits 8 KiB, every packet fits 32 KiB, and composed message text fits
+256 KiB UTF-8. A maximum of 128 turn bindings stores exact packet prefix/digest
+and input digest/size, not another lifecycle state. contextDeliveryStates in the
+run projection derives acceptance from AgentTurn provider references, startedAt
+and knownUnsent; a missing receipt is uncertain. No automatic uncertain resend
+or model acknowledgment is introduced.
+
+Standalone Build/Refresh, scope/root proposals, selected deferred-notebook
+exact-version reads and fresh discussion-source supplements remain pending.
+Provider transport verification, citation navigation, folded activity and measured
+performance/quality retain their separate acceptance gates.
 
 [Development delivery](development-delivery.md) extends the current agent core
 through one application coordinator. Core reserves its source owner after a

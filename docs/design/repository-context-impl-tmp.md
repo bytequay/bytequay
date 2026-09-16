@@ -23,9 +23,12 @@ default-on review selection, source/scope configuration, Save lesson from retain
 private messages, and truthful prepared-packet/receipt inspection. Review-owned
 BEGIN/SUBMIT now admits shared preparation for existing scopes, retains
 READY/EMPTY/FAILED outcomes and checked source receipts, reuses equal inputs,
-and protects user edits. Standalone generation, direct context delivery and
-provider acceptance remain pending. Unchecked items remain pending even when
-related infrastructure already exists.
+and protects user edits. Accepted review turns now receive their frozen bootstrap
+or completed investigation brief with immutable collection supplements. Exact
+input bindings are retained before submission; the display derives delivery
+status from existing provider receipts. Standalone generation and live provider,
+performance and judgment acceptance remain pending. Unchecked items remain pending
+even when related infrastructure already exists.
 
 ## Delivery summary
 
@@ -40,9 +43,9 @@ related infrastructure already exists.
 | Frozen-baseline file reads and typed source receipts | Finished; committed as 3ba1ef0d2 |
 | Review-owned shared preparation and source/input reuse | Implemented; protected READY/EMPTY/FAILED with atomic replay |
 | Scope/source discovery and standalone Build/Refresh | Pending |
-| Automatic context delivery and complete report integration | Pending |
-| Notebook/settings UI, Save lesson and prepared-context display | Implemented, including retained preparation outcomes; build activity/delivery/citations remain pending |
-| On/Off quality comparison, performance and provider acceptance | Pending; required before enablement |
+| Automatic context delivery and investigation report integration | Implemented; frozen bootstrap, brief/supplements and old-run discussion binding; new discussion-source capture remains pending |
+| Notebook/settings UI, Save lesson and context delivery display | Implemented, including preparation outcomes and receipt-derived delivery state; build activity/citation navigation remain pending |
+| On/Off quality comparison, performance and live provider acceptance | Pending; required before enablement |
 
 An implemented source reader is not completion of automatic reusable knowledge.
 CP1/CP2 are partly complete; CP3 through CP6 retain their unchecked gates.
@@ -215,33 +218,38 @@ GitHub publication, credential-read, and development-delivery authority.
 
 ## CP4 — Review input, evidence, and fixed tools
 
-- [ ] Capture and directly deliver the bootstrap in the existing investigation
+- [x] Capture and directly deliver the bootstrap in the existing investigation
   turn. Do not add an acknowledgement turn or rewrite provider history.
 - [x] Capture On/Off and exact prepared packet/evidence per run before startup
   or recovery admits its initial turn; reuse the saved choice on replay.
-- [ ] Off bypasses only this feature's selection,
+- [x] Off bypasses only this feature's selection,
   automatic generation, extra input and tools; existing review behavior remains.
   Validation and old-run discussions use their source run's captured setting.
-- [ ] Implement the closed read/prepare tools with backend-resolved task, turn,
+- [x] Implement the closed read/prepare tools with backend-resolved task, turn,
   workspace, run, and code identity. Preserve the existing no-child profile.
-- [ ] Extend the existing investigation report with the completed brief,
+- [x] Extend the existing investigation report with the completed brief,
   actual preparation references, evidence and limitations; validate source
   identity/shape without claiming to validate semantic truth.
-- [ ] Deliver the frozen brief to validation/evidence collection and preserve
+- [x] Deliver the frozen brief to validation/evidence collection and preserve
   existing report repair, replay, coverage, incomplete, and cursor behavior.
 - [ ] Bind old-card discussions to their source run and capture relevant new
-  discussion evidence at actual queued/immediate turn execution.
+  discussion evidence at actual queued/immediate turn execution. Original saved
+  context and On/Off binding is implemented; fresh discussion-source capture remains.
 - [x] Persist the Ask-agent message's source run/revision before start/enqueue,
   then attach delivery IDs. Exercise an idle question about an older card,
   rejected admission, accepted-but-error recovery, and queued execution.
 - [x] Add explicit retry and restart reconciliation for a saved Ask-agent
   message whose delivery remains uncertain, without resending accepted input.
 - [ ] Persist exact supplied text, sizes/digests, source versions, omissions,
-  delivery outcome, actual retrievals and citations. Preserve delivery uncertainty.
-- [ ] Keep the small trusted instruction policy separate from untrusted notes;
+  delivery outcome, actual retrievals and citations. Frozen packet prefixes,
+  composed-input sizes/digests and receipt-derived outcomes are implemented;
+  integrated citation presentation remains pending. Preserve delivery uncertainty.
+- [x] Keep the small trusted instruction policy separate from untrusted notes;
   bound the whole composed transport input as well as context sections.
-- [ ] Verify context reaches both provider transports without copying the
+- [x] Verify context reaches both provider transports without copying the
   notebook into a command-line argument or exposing raw provider JSON.
+  Offline initial/resumed Codex and Claude transport fixtures pass; live-provider
+  behavior and judgment acceptance remain CP6 gates.
 
 Gate: cold/warm review fixtures; cancelled/replaced/queued turn fencing; frozen
 run and old-card identity; no new run on same accepted head; comment sync causes
@@ -264,7 +272,9 @@ derive from durable facts. Exercise each supported provider independently.
   use the same editor for user acceptance of text, evidence and scope.
 - [x] Extend Review details with prepared context, exact captured text and bytes,
   reasons, versions, gaps, fingerprints and retained source receipts.
-- [ ] Add confirmed provided state and links to cited findings/hypotheses.
+- [x] Add confirmed provided state from existing provider receipts; missing
+  acceptance stays uncertain and prepared-but-unsent stays distinct.
+- [ ] Add links to cited findings/hypotheses.
 - [ ] Use folded activity for reuse/build/join/failure. Keep no-match, unbuilt,
   ready-empty, failed and stale states understandable without technical JSON.
 - [ ] Show elapsed time and available bytes/token/caching metrics without
@@ -922,3 +932,57 @@ Required checks below describe the current increment, not full feature acceptanc
 - Next: the existing automatic investigation input, completed brief/report and
   downstream delivery work remains pending. This polish adds no model call,
   source fetch, schema field or automatic provider delivery.
+
+### Automatic review context input and retained delivery evidence
+
+- Committed the matching polish as `99e09cb9e` (`Refine saved lesson relevance
+  matching`). The following increment remains separate for review.
+- Enabled initial investigation receives its frozen bootstrap automatically at
+  accepted turn launch. Validation and evidence collection receive the completed
+  brief plus accepted additions; old-card questions retain their source run's
+  original setting and context even when queued. Off and absent historical
+  snapshots add no context input or policy.
+- A narrow agent-core launch port runs outside the task lock, before a provider
+  session opens. Existing cancellation/worktree checks run again afterward.
+  Original accepted transcript messages remain intact; source bodies travel in
+  existing message transport and only trusted policy enters managed instructions.
+- Investigation seals its context contribution together with its report and replay
+  receipt. Same-run source/preparation references are checked. At most two later
+  collection contributions append; their addition cannot rewrite a bound prefix.
+  Known preparation gaps are carried independently of the agent's own limitations,
+  with whole-gap omission counts if necessary. This establishes provenance and
+  transport, not semantic truth or applicability.
+- Each rendered contribution fits 8 KiB; context packets fit 32 KiB and complete
+  composed message text fits 256 KiB UTF-8. Each run retains at most 128 immutable
+  turn bindings with packet/input hashes and byte counts. Existing provider facts
+  derive Prepared, Waiting for confirmation, Provided to agent or Delivery
+  uncertain. A missing receipt cannot be interpreted as accepted delivery.
+- Review details displays delivery records and the original brief/additions with
+  retained source evidence and limitations. The original bootstrap remains visible.
+  Independent review also caught and fixed dropped backend gaps in later packets;
+  assignment serialization now uses the configured mapper for validation timestamps.
+- Focused core, tool, resolver, review-service and real SQLite regressions pass.
+  Log: `/private/tmp/bytequay-context-delivery-app-focused.log`. Scripted Codex and
+  Claude transport tests cover initial and resumed sessions with 256 KiB Unicode
+  messages and 100,000-byte managed policy, checking exact message transport and
+  exclusion of reference text from process arguments. No live provider was used.
+- Full `mvn -B verify` passed all modules: 227 suites / 2,682 tests, zero
+  failures, errors or skips. Log:
+  `/private/tmp/bytequay-context-delivery-backend-verify.log`. Focused reruns
+  corrected fixture ownership/terminal-state setup, a timestamp assertion and
+  Checkstyle line lengths before this complete passing run.
+- Frontend lint, TypeScript and all 84 files / 924 tests passed. Logs:
+  `/private/tmp/bytequay-context-delivery-frontend-{lint,types,tests}.log`.
+  Inspected normal/narrow offline display fixtures for prepared, provided and
+  uncertain states: `/private/tmp/bytequay-context-delivery-ui/{wide,narrow}-{prepared,provided,uncertain}.png`.
+  Layout and inert reference-text checks are retained in the same directory's
+  `checks.json`. Canonical design JSON, fences and local links pass.
+- Final desktop packaging passed and its backend JAR matches the verified JAR
+  by SHA-256. Log: `/private/tmp/bytequay-context-delivery-package.log`.
+  `git diff --check` and new-file whitespace/license checks pass. The complete
+  review patch, including new files, is
+  `/private/tmp/bytequay-context-delivery-review.patch`.
+- Next: fresh discussion-source supplements and selected deferred-note version
+  reads, then scope/root proposals and standalone Build/Refresh. Citation navigation,
+  folded preparation activity, measured performance and small-PR On/Off/live-provider
+  quality acceptance remain unchecked. No user database or GitHub write was used.

@@ -52,6 +52,7 @@ import com.bytequay.agent.core.QueuedInputNotFoundException;
 import com.bytequay.agent.core.RenameAgentTaskCommand;
 import com.bytequay.agent.core.RepositoryIdentity;
 import com.bytequay.agent.core.ResolveApprovalCommand;
+import com.bytequay.agent.core.ReviewTurnInputResolver;
 import com.bytequay.agent.core.StartAgentTurnCommand;
 import com.bytequay.agent.core.SteerAgentTurnCommand;
 import com.bytequay.agent.core.StoreAgentAttachmentCommand;
@@ -161,6 +162,7 @@ class TestDefaultAgentTurnService
     private Optional<Consumer<DevelopmentTurnCompletion>> developmentListener = Optional.empty();
     private Consumer<TaskId> stopChildren = ignored -> {};
     private BiConsumer<AgentTask, AgentTurn> developmentAccepted = (acceptedTask, turn) -> {};
+    private ReviewTurnInputResolver reviewTurnInput = ReviewTurnInputResolver.NONE;
 
     @BeforeEach
     void setUp()
@@ -905,6 +907,134 @@ class TestDefaultAgentTurnService
         driver.complete("Done");
         assertThat(service.ownsDevelopmentContinuation(task.id(), next.id())).isTrue();
         service.finishDevelopmentContinuation(task.id(), next.id());
+    }
+
+    @Test
+    void preparesReviewInputOnlyForTheProviderAfterAcceptance()
+    {
+        List<TurnId> prepared = new ArrayList<>();
+        String reference = "\n<repository-context>Frozen reference ✓</repository-context>";
+        reviewTurnInput = (acceptedTask, turn, message) -> {
+            awaitTaskLock(runtimeRegistry);
+            assertThat(turn.state()).isEqualTo(TurnState.ACCEPTED);
+            assertThat(stores.find(turn.id())).contains(turn);
+            assertThat(acceptedTask.worktreeMutationClaim()).contains(WorktreeMutationClaim.turn(turn.id(), turn.createdAt()));
+            assertThat(driver.openedContexts()).isEmpty();
+            assertThat(events.readAfter(task.id(), 0, 100))
+                    .filteredOn(event -> event.type() == AgentEventPayload.Kind.USER_MESSAGE)
+                    .extracting(event -> ((AgentEventPayload.UserMessage) event.payload()).text())
+                    .containsExactly(message);
+            prepared.add(turn.id());
+            return message + reference;
+        };
+
+        AgentTurn accepted = service.start(command("Review this change", "context-input"));
+
+        assertThat(driver.commands()).extracting(AgentTurnCommand::message).containsExactly("Review this change" + reference);
+        assertThat(events.readAfter(task.id(), 0, 100))
+                .filteredOn(event -> event.type() == AgentEventPayload.Kind.USER_MESSAGE)
+                .extracting(event -> ((AgentEventPayload.UserMessage) event.payload()).text())
+                .containsExactly("Review this change");
+        assertThat(accepted.providerTurnReference()).isPresent();
+        assertThat(service.start(command("Ignored duplicate", "context-input")).id()).isEqualTo(accepted.id());
+        assertThat(prepared).containsExactly(accepted.id());
+        assertThat(driver.commands()).hasSize(1);
+    }
+
+    @Test
+    void reviewPreparationFailureSettlesAsKnownUnsentBeforeOpeningTheProvider()
+    {
+        reviewTurnInput = (acceptedTask, turn, message) -> {
+            throw new AgentStorageException("Cannot persist required review reference");
+        };
+
+        assertThatThrownBy(() -> service.start(command("Review", "context-failure")))
+                .isInstanceOf(AgentStorageException.class).hasMessageContaining("required review reference");
+
+        assertThat(stores.list(task.id())).singleElement().satisfies(turn -> {
+            assertThat(turn.state()).isEqualTo(TurnState.FAILED);
+            assertThat(turn.knownUnsent()).isTrue();
+            assertThat(turn.startedAt()).isEmpty();
+            assertThat(turn.providerTurnReference()).isEmpty();
+        });
+        assertThat(driver.commands()).isEmpty();
+        assertThat(driver.openedContexts()).isEmpty();
+        assertThat(taskService.get(task.id()).worktreeMutationClaim()).isEmpty();
+    }
+
+    @Test
+    void stopDuringReviewPreparationPreventsProviderLaunch()
+    {
+        reviewTurnInput = (acceptedTask, turn, message) -> {
+            CompletableFuture.runAsync(() -> service.stopRuntime(acceptedTask.id(), "turn:" + turn.id())).orTimeout(5, TimeUnit.SECONDS).join();
+            return message + "\nFrozen reference";
+        };
+
+        assertThatThrownBy(() -> service.start(command("Review", "context-stop"))).isInstanceOf(AgentConflictException.class);
+
+        assertThat(stores.list(task.id())).singleElement().satisfies(turn -> {
+            assertThat(turn.state()).isEqualTo(TurnState.INTERRUPTED);
+            assertThat(turn.startedAt()).isEmpty();
+            assertThat(turn.providerTurnReference()).isEmpty();
+        });
+        assertThat(driver.commands()).isEmpty();
+        assertThat(driver.openedContexts()).isEmpty();
+        assertThat(taskService.get(task.id()).worktreeMutationClaim()).isEmpty();
+    }
+
+    @Test
+    void replacedTurnCannotLaunchItsPreparedReviewInput()
+    {
+        AtomicBoolean replace = new AtomicBoolean(true);
+        reviewTurnInput = (acceptedTask, turn, message) -> {
+            if (replace.getAndSet(false)) {
+                CompletableFuture.runAsync(() -> {
+                    service.stopRuntime(acceptedTask.id(), "turn:" + turn.id());
+                    service.start(command("Replacement", "context-replacement"));
+                }).orTimeout(5, TimeUnit.SECONDS).join();
+            }
+            return message + "\nFrozen reference";
+        };
+
+        assertThatThrownBy(() -> service.start(command("Original", "context-original"))).isInstanceOf(AgentConflictException.class);
+
+        assertThat(driver.commands()).extracting(AgentTurnCommand::message).containsExactly("Replacement\nFrozen reference");
+        assertThat(stores.findByIdempotencyKey(task.id(), "context-original").orElseThrow().state()).isEqualTo(TurnState.INTERRUPTED);
+        assertThat(stores.findByIdempotencyKey(task.id(), "context-replacement").orElseThrow().state()).isEqualTo(TurnState.RUNNING);
+    }
+
+    @Test
+    void preparesQueuedAndResumedReviewInputsWhenTheirTurnsActuallyStart()
+    {
+        List<TurnId> prepared = new ArrayList<>();
+        reviewTurnInput = (acceptedTask, turn, message) -> {
+            prepared.add(turn.id());
+            return message + "\nReference for accepted turn " + turn.id();
+        };
+        AgentTurn first = service.start(command("First", "context-first"));
+        service.enqueue(new QueueAgentInputCommand(task.id(), taskService.get(task.id()).version(), "Second", ImmutableList.of(), "context-second"));
+        QueuedAgentInput third = service.enqueue(new QueueAgentInputCommand(
+                task.id(), taskService.get(task.id()).version(), "Third", ImmutableList.of(), "context-third"));
+        assertThat(prepared).containsExactly(first.id());
+
+        driver.complete("First finished");
+        AgentTurn second = stores.findActive(task.id()).orElseThrow();
+        assertThat(prepared).containsExactly(first.id(), second.id());
+        service.cancel(second.id());
+        assertThat(stores.find(third.id()).orElseThrow().state()).isEqualTo(QueuedAgentInput.State.PAUSED);
+        assertThat(prepared).containsExactly(first.id(), second.id());
+
+        AgentTurn resumed = service.resumeQueued(task.id());
+
+        assertThat(prepared).containsExactly(first.id(), second.id(), resumed.id());
+        assertThat(driver.commands()).extracting(AgentTurnCommand::message).containsExactly(
+                "First\nReference for accepted turn " + first.id(),
+                "Second\nReference for accepted turn " + second.id(),
+                "Third\nReference for accepted turn " + resumed.id());
+        assertThat(events.readAfter(task.id(), 0, 100))
+                .filteredOn(event -> event.type() == AgentEventPayload.Kind.USER_MESSAGE)
+                .extracting(event -> ((AgentEventPayload.UserMessage) event.payload()).text())
+                .containsExactly("First", "Second", "Third");
     }
 
     @Test
@@ -3045,6 +3175,7 @@ class TestDefaultAgentTurnService
                     instructionTasks.add(instructionTask);
                     return managedInstructions.get();
                 },
+                (acceptedTask, turn, message) -> reviewTurnInput.prepare(acceptedTask, turn, message),
                 clock,
                 Duration.ofMinutes(5),
                 queueStarter,

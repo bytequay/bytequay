@@ -254,7 +254,7 @@ class TestContextBaselineReader
     {
         ReviewContextSnapshot snapshot = new ReviewContextSnapshot("context:run", enabled, 0, repositoryId, baseline,
                 enabled ? Optional.of(ContextPacket.create("Prepared context")) : Optional.empty(),
-                ImmutableList.of(), ImmutableList.of(), ImmutableList.of(), ImmutableList.of(),
+                ImmutableList.of(), ImmutableList.of(), ImmutableList.of(), ImmutableList.of(), ImmutableList.of(), ImmutableList.of(),
                 enabled && baseline.isEmpty() ? ImmutableList.of("Baseline unavailable") : ImmutableList.of());
         return runWithoutContext().withContext(snapshot, ImmutableMap.of(), NOW);
     }

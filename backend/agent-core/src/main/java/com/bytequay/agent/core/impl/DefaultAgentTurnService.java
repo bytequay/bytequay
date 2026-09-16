@@ -50,6 +50,7 @@ import com.bytequay.agent.core.QueueAgentInputCommand;
 import com.bytequay.agent.core.QueuedAgentInput;
 import com.bytequay.agent.core.QueuedInputId;
 import com.bytequay.agent.core.QueuedInputNotFoundException;
+import com.bytequay.agent.core.ReviewTurnInputResolver;
 import com.bytequay.agent.core.StartAgentTurnCommand;
 import com.bytequay.agent.core.SteerAgentTurnCommand;
 import com.bytequay.agent.core.TaskId;
@@ -141,6 +142,7 @@ public final class DefaultAgentTurnService
     private final AgentRuntimeRegistry runtimeRegistry;
     private final CodeGraphService codeGraph;
     private final Function<AgentTask, String> managedInstructions;
+    private final ReviewTurnInputResolver reviewTurnInput;
     private final Clock clock;
     private final Duration maximumTurnRuntime;
     /** Runs the queue's next turn off the thread that finished the last one, which may be the provider's own. */
@@ -189,6 +191,7 @@ public final class DefaultAgentTurnService
                 runtimeRegistry,
                 codeGraph,
                 managedInstructions,
+                ReviewTurnInputResolver.NONE,
                 clock,
                 maximumTurnRuntime,
                 queueStarter,
@@ -214,6 +217,7 @@ public final class DefaultAgentTurnService
             AgentRuntimeRegistry runtimeRegistry,
             CodeGraphService codeGraph,
             Function<AgentTask, String> managedInstructions,
+            ReviewTurnInputResolver reviewTurnInput,
             Clock clock,
             Duration maximumTurnRuntime,
             Executor queueStarter,
@@ -238,6 +242,7 @@ public final class DefaultAgentTurnService
                 runtimeRegistry,
                 codeGraph,
                 managedInstructions,
+                reviewTurnInput,
                 clock,
                 maximumTurnRuntime,
                 queueStarter,
@@ -263,6 +268,7 @@ public final class DefaultAgentTurnService
             AgentRuntimeRegistry runtimeRegistry,
             CodeGraphService codeGraph,
             Function<AgentTask, String> managedInstructions,
+            ReviewTurnInputResolver reviewTurnInput,
             Clock clock,
             Duration maximumTurnRuntime,
             Executor queueStarter,
@@ -287,6 +293,7 @@ public final class DefaultAgentTurnService
         this.runtimeRegistry = requireNonNull(runtimeRegistry, "runtimeRegistry is null");
         this.codeGraph = requireNonNull(codeGraph, "codeGraph is null");
         this.managedInstructions = requireNonNull(managedInstructions, "managedInstructions is null");
+        this.reviewTurnInput = requireNonNull(reviewTurnInput, "reviewTurnInput is null");
         this.clock = requireNonNull(clock, "clock is null");
         this.maximumTurnRuntime = requireNonNull(maximumTurnRuntime, "maximumTurnRuntime is null");
         checkArgument(!maximumTurnRuntime.isZero() && !maximumTurnRuntime.isNegative(), "maximumTurnRuntime must be positive");
@@ -736,7 +743,7 @@ public final class DefaultAgentTurnService
         }
     }
 
-    /** Captures accepted development scope without holding the task lock or starting a provider. */
+    /** Prepares accepted review input and development scope outside the task lock, before provider launch. */
     private AgentTurn launchAccepted(TurnAcceptance acceptance)
     {
         AgentTurn turn = acceptance.turn();
@@ -751,6 +758,8 @@ public final class DefaultAgentTurnService
                 // the accepted message first so the transcript shows it while Send is still waiting.
                 eventService.drain(acceptance.deliveryEventId());
             }
+            String message = reviewTurnInput.prepare(task, turn, acceptance.message());
+            checkNotBlank(message, "prepared review input");
             if (developmentTurnEligible(task, turn)) {
                 developmentAccepted.accept(task, turn);
             }
@@ -760,7 +769,7 @@ public final class DefaultAgentTurnService
                     task = taskStore.update(task.withDevelopmentContinuation(false, Instant.now(clock)));
                 }
                 launchAttempted = true;
-                launch = launchLocked(task, acceptance);
+                launch = launchLocked(task, new TurnAcceptance(turn, acceptance.deliveryEventId(), message, acceptance.attachments()));
             }
         }
         catch (RuntimeException failure) {

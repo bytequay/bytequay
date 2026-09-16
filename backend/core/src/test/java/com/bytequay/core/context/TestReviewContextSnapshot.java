@@ -50,16 +50,37 @@ class TestReviewContextSnapshot
     void distinguishesDisabledAndEnabledWithUnknownBaseline()
     {
         ReviewContextSnapshot disabled = new ReviewContextSnapshot("off", false, 0, 42, Optional.empty(), Optional.empty(),
-                ImmutableList.of(), ImmutableList.of(), ImmutableList.of(), ImmutableList.of(), ImmutableList.of());
+                ImmutableList.of(), ImmutableList.of(), ImmutableList.of(), ImmutableList.of(), ImmutableList.of(), ImmutableList.of(), ImmutableList.of());
         ReviewContextSnapshot unknown = new ReviewContextSnapshot("unknown", true, 3, 42, Optional.empty(), Optional.of(ContextPacket.create("Local notes")),
-                ImmutableList.of(), ImmutableList.of(), ImmutableList.of(), ImmutableList.of(), ImmutableList.of("Base revision could not be resolved"));
+                ImmutableList.of(), ImmutableList.of(), ImmutableList.of(), ImmutableList.of(), ImmutableList.of(), ImmutableList.of(),
+                ImmutableList.of("Base revision could not be resolved"));
 
         assertThat(disabled.bootstrap()).isEmpty();
+        assertThatThrownBy(() -> disabled.withContribution(contribution(1, "Brief"))).isInstanceOf(IllegalStateException.class).hasMessageContaining("disabled");
+        assertThatThrownBy(() -> disabled.packetFor(0)).isInstanceOf(IllegalStateException.class).hasMessageContaining("disabled");
         assertThat(unknown.baselineSha()).isEmpty();
         assertThatThrownBy(() -> new ReviewContextSnapshot("unknown", true, 3, 42, Optional.empty(), Optional.of(ContextPacket.create("Local notes")),
-                ImmutableList.of(), ImmutableList.of(), ImmutableList.of(), ImmutableList.of(), ImmutableList.of())).isInstanceOf(IllegalArgumentException.class);
+                ImmutableList.of(), ImmutableList.of(), ImmutableList.of(), ImmutableList.of(), ImmutableList.of(), ImmutableList.of(), ImmutableList.of()))
+                .isInstanceOf(IllegalArgumentException.class);
         assertThatThrownBy(() -> new ReviewContextSnapshot("off", false, 0, 42, Optional.empty(), Optional.of(ContextPacket.create("Local notes")),
-                ImmutableList.of(), ImmutableList.of(), ImmutableList.of(), ImmutableList.of(), ImmutableList.of())).isInstanceOf(IllegalArgumentException.class);
+                ImmutableList.of(), ImmutableList.of(), ImmutableList.of(), ImmutableList.of(), ImmutableList.of(), ImmutableList.of(), ImmutableList.of()))
+                .isInstanceOf(IllegalArgumentException.class);
+    }
+
+    @Test
+    void laterBriefsRetainKnownPreparationGapsEvenWhenTheAgentReportsNone()
+    {
+        List<String> gaps = IntStream.range(0, 100).mapToObj(index -> "Source gap " + index + ": " + "界".repeat(600)).collect(toImmutableList());
+        ReviewContextSnapshot original = new ReviewContextSnapshot("unknown", true, 3, 42, Optional.empty(), Optional.of(ContextPacket.create("Local notes")),
+                ImmutableList.of(), ImmutableList.of(), ImmutableList.of(), ImmutableList.of(), ImmutableList.of(), ImmutableList.of(), gaps);
+        ReviewContextSnapshot completed = original.withContribution(contribution(1, "Brief ".repeat(1200)))
+                .withContribution(contribution(3, "More ".repeat(1400))).withContribution(contribution(5, "Final ".repeat(1200)));
+
+        ContextPacket delivered = completed.packetFor(3);
+
+        assertThat(delivered.text()).contains("Known limitations from initial preparation", gaps.getFirst(), "additional preparation limitations did not fit");
+        assertThat(delivered.utf8Bytes()).isLessThanOrEqualTo(ContextPacket.MAXIMUM_BYTES);
+        assertThat(completed.gaps()).isEqualTo(gaps);
     }
 
     @Test
@@ -125,7 +146,7 @@ class TestReviewContextSnapshot
                 .add(ContextInputFingerprint.create("scope-100", ImmutableMap.of(), ImmutableList.of())).build();
         assertThatThrownBy(() -> fingerprintsSnapshot(tooMany)).isInstanceOf(IllegalArgumentException.class).hasMessageContaining("100 items");
         assertThatThrownBy(() -> new ReviewContextSnapshot("off", false, 0, 42, Optional.empty(), Optional.empty(),
-                ImmutableList.of(), ImmutableList.of(), ImmutableList.of(fingerprints.getFirst()), ImmutableList.of(), ImmutableList.of()))
+                ImmutableList.of(), ImmutableList.of(), ImmutableList.of(fingerprints.getFirst()), ImmutableList.of(), ImmutableList.of(), ImmutableList.of(), ImmutableList.of()))
                 .isInstanceOf(IllegalArgumentException.class).hasMessageContaining("Disabled context");
     }
 
@@ -153,6 +174,53 @@ class TestReviewContextSnapshot
         assertThatThrownBy(() -> full.withSourceRead(replaced)).isInstanceOf(IllegalStateException.class).hasMessageContaining("cannot be replaced");
     }
 
+    @Test
+    void sealsContributionsWithoutChangingPreviouslyResolvedPackets()
+    {
+        ReviewContextSnapshot original = snapshot();
+        ContextContribution first = contribution(1, "Verify the original caller contract");
+        ReviewContextSnapshot investigated = original.withContribution(first);
+        ContextPacket validationPacket = investigated.packetFor(1);
+        ReviewContextSnapshot collected = investigated.withContribution(contribution(3, "Collected caller evidence"));
+
+        assertThat(original.contributions()).isEmpty();
+        assertThat(collected.bootstrap()).isEqualTo(original.bootstrap());
+        assertThat(collected.packetFor(0)).isEqualTo(original.bootstrap().orElseThrow());
+        assertThat(collected.packetFor(1)).isEqualTo(validationPacket);
+        assertThat(collected.packetFor(2).text()).contains("Verify the original caller contract", "Collected caller evidence", "source-evidence", "Source unavailable");
+        assertThat(collected.evidenceRefs()).contains("source-evidence");
+        assertThat(collected.withContribution(first)).isSameAs(collected);
+        assertThatThrownBy(() -> collected.withContribution(contribution(1, "Replacement"))).isInstanceOf(IllegalStateException.class);
+        assertThatThrownBy(() -> collected.withContribution(contribution(2, "Out of order"))).isInstanceOf(IllegalArgumentException.class);
+        assertThatThrownBy(() -> investigated.packetFor(2)).isInstanceOf(IllegalArgumentException.class);
+        ReviewContextSnapshot full = collected.withContribution(contribution(5, "Final allowed collection"));
+        assertThat(full.packetFor(3).utf8Bytes()).isLessThanOrEqualTo(ContextPacket.MAXIMUM_BYTES);
+        assertThatThrownBy(() -> full.withContribution(contribution(7, "Extra collection"))).isInstanceOf(IllegalArgumentException.class);
+    }
+
+    @Test
+    void boundsContributionTextAndMetadataTogetherInUtf8Bytes()
+    {
+        int overhead = ContextLimits.bytes(contribution(1, "a").rendered()) - 1;
+        ContextContribution maximum = contribution(1, "a".repeat(ContextContribution.MAXIMUM_BYTES - overhead));
+        assertThat(ContextLimits.bytes(maximum.rendered())).isEqualTo(ContextContribution.MAXIMUM_BYTES);
+        assertThatThrownBy(() -> contribution(1, maximum.text() + "a")).isInstanceOf(IllegalArgumentException.class).hasMessageContaining("including references");
+        assertThatThrownBy(() -> contribution(1, "é".repeat(ContextContribution.MAXIMUM_BYTES / 2 + 1)))
+                .isInstanceOf(IllegalArgumentException.class).hasMessageContaining("UTF-8 bytes");
+        assertThatThrownBy(() -> new ContextContribution(1, "Brief", ImmutableList.of("E1", "E1"), ImmutableList.of(), ImmutableList.of()))
+                .isInstanceOf(IllegalArgumentException.class).hasMessageContaining("duplicates");
+        assertThatThrownBy(() -> new ContextContribution(1, "Brief", ImmutableList.of(), ImmutableList.of(), ImmutableList.of("é".repeat(501))))
+                .isInstanceOf(IllegalArgumentException.class).hasMessageContaining("context limitation");
+        ReviewContextSnapshot full = snapshot().withContribution(maximum)
+                .withContribution(contribution(3, maximum.text())).withContribution(contribution(5, maximum.text()));
+        assertThat(full.packetFor(3).utf8Bytes()).isLessThanOrEqualTo(ContextPacket.MAXIMUM_BYTES);
+    }
+
+    private static ContextContribution contribution(int step, String text)
+    {
+        return new ContextContribution(step, text, ImmutableList.of("source-evidence"), ImmutableList.of("saved-preparation"), ImmutableList.of("Source unavailable"));
+    }
+
     private static ContextRepositoryRead repositoryRead(String id, long repositoryId)
     {
         return new ContextRepositoryRead(id, new ContextReference.RepositoryFile(repositoryId, RepoRef.of("example", "repo"), "README.md", SHA),
@@ -162,7 +230,7 @@ class TestReviewContextSnapshot
     private static ReviewContextSnapshot fingerprintsSnapshot(List<ContextInputFingerprint> fingerprints)
     {
         return new ReviewContextSnapshot("context-1", true, 3, 42, Optional.of(SHA), Optional.of(ContextPacket.create("Local notes")),
-                ImmutableList.of(), ImmutableList.of(), fingerprints, ImmutableList.of(), ImmutableList.of());
+                ImmutableList.of(), ImmutableList.of(), fingerprints, ImmutableList.of(), ImmutableList.of(), ImmutableList.of(), ImmutableList.of());
     }
 
     private static ContextSelectedEntry entry(String id, String text)
@@ -176,7 +244,7 @@ class TestReviewContextSnapshot
         return new ReviewContextSnapshot("context-1", true, 3, 42, Optional.of(SHA), Optional.of(ContextPacket.create("Local notes")),
                 ImmutableList.copyOf(entries), ImmutableList.of(new ContextRelatedItem("ev-related", ImmutableList.of("path:backend/core"), Optional.empty())),
                 ImmutableList.of(),
-                ImmutableList.of(),
+                ImmutableList.of(), ImmutableList.of(), ImmutableList.of(),
                 ImmutableList.of());
     }
 }

@@ -45,6 +45,7 @@ import com.bytequay.app.workspace.WorkspaceIssueService;
 import com.bytequay.app.workspace.WorkspaceOperationLocks;
 import com.bytequay.app.workspace.WorkspaceRepositoryContext;
 import com.bytequay.app.workspace.WorkspaceRepositoryService;
+import com.bytequay.core.context.ContextContribution;
 import com.bytequay.core.context.ContextDocumentRead;
 import com.bytequay.core.context.ContextLimits;
 import com.bytequay.core.context.ContextPreparationResult;
@@ -213,10 +214,10 @@ public class ReviewTools
     {
         return store.findReviewByTask(taskId)
                 .filter(review -> review.state() == AgentReview.State.OPEN)
-                .map(review -> new ReviewBridge(tools(review.id(), assignments.capture(taskId)), ReviewPrompts.INSTRUCTION));
+                .map(review -> bridge(review.id(), assignments.capture(taskId)));
     }
 
-    private List<ReviewTool> tools(String reviewId, Optional<TurnId> turnId)
+    private ReviewBridge bridge(String reviewId, Optional<TurnId> turnId)
     {
         List<ReviewTool> tools = ImmutableList.of(
                 new ReviewTool("review_get_context",
@@ -307,12 +308,18 @@ public class ReviewTools
                 new ReviewTool("review_save_investigation",
                         "Save the change map, assessed changed-file paths, supporting evidence refs, and candidate claims before ending investigation. "
                                 + "Candidates are private hypotheses numbered from 1, not findings. "
-                                + "Only the assigned investigation or evidence-collection turn may seal this report. Evidence collection must answer every requested check.",
+                                + "Only the assigned investigation or evidence-collection turn may seal this report. Evidence collection must answer every requested check. "
+                                + "When repository context is enabled, include contextBrief, contextPreparationRefs and contextLimitations; the complete contribution "
+                                + "including references and limitations must fit 8 KiB UTF-8. Cite returned preparation receiptRef values, not notebook or attempt IDs. "
+                                + "The first brief is immutable; later collection contributes an additional brief. Omit these fields when context is disabled or absent.",
                         schema(ImmutableMap.of(
                                 "operationKey", ImmutableMap.of("type", "string", "minLength", 1, "maxLength", MAX_KEY),
                                 "changeMap", ImmutableMap.of("type", "string", "minLength", 1, "maxLength", MAX_TEXT),
                                 "reviewedFiles", stringArray(1000, 1000),
                                 "contextEvidenceRefs", stringArray(80, MAX_EVIDENCE_REF),
+                                "contextBrief", ImmutableMap.of("type", "string", "minLength", 1, "maxLength", ContextContribution.MAXIMUM_BYTES),
+                                "contextPreparationRefs", stringArray(ContextContribution.MAXIMUM_REFS, ContextContribution.MAXIMUM_PREPARATION_REF_BYTES),
+                                "contextLimitations", stringArray(ContextContribution.MAXIMUM_LIMITATIONS, ContextContribution.MAXIMUM_LIMITATION_BYTES),
                                 "candidates", stringArray(MAX_CANDIDATES, 2000),
                                 "answers", ImmutableMap.of("type", "array", "maxItems", MAX_CANDIDATES, "items", schema(ImmutableMap.of(
                                         "candidate", ImmutableMap.of("type", "integer", "minimum", 1),
@@ -400,8 +407,11 @@ public class ReviewTools
             ReviewToolAssignment.Binding binding = assignments.resolve(reviewId, turnId);
             if (binding.run().active() && binding.run().context().filter(ReviewContextSnapshot::enabled).flatMap(ReviewContextSnapshot::baselineSha).isPresent()
                     && binding.step().filter(step -> step.kind() == INVESTIGATE).isPresent()) {
-                return ImmutableList.<ReviewTool>builder().addAll(tools).add(preparationTool(reviewId, turnId)).build();
+                tools = ImmutableList.<ReviewTool>builder().addAll(tools).add(preparationTool(reviewId, turnId)).build();
             }
+            String instruction = ReviewPrompts.INSTRUCTION + (binding.run().context().filter(ReviewContextSnapshot::enabled).isPresent()
+                    ? "\n\n" + ReviewPrompts.CONTEXT_INSTRUCTION : "");
+            return new ReviewBridge(tools, instruction);
         }
         catch (ReviewConflictException ignored) {
             // A policy-only or stopped session retains its existing review restrictions.
@@ -409,7 +419,7 @@ public class ReviewTools
         finally {
             lock.unlock();
         }
-        return tools;
+        return new ReviewBridge(tools, ReviewPrompts.INSTRUCTION);
     }
 
     private ReviewTool preparationTool(String reviewId, Optional<TurnId> turnId)
@@ -550,7 +560,7 @@ public class ReviewTools
                 return replay.result().orElseThrow();
             }
             assigned(call, INVESTIGATE);
-            Function<Call, JsonNode> mutation;
+            Function<Call, ObjectNode> mutation;
             if (begin) {
                 JsonNode revision = call.arguments().get("expectedRevision");
                 if (revision == null || !revision.isIntegralNumber() || !revision.canConvertToLong() || revision.longValue() < 0) {
@@ -589,11 +599,15 @@ public class ReviewTools
                     return checked.result().orElseThrow();
                 }
                 assigned(current, INVESTIGATE);
-                JsonNode result = mutation.apply(current);
+                ObjectNode result = mutation.apply(current);
+                boolean retained = !begin || !(result.path("status").asText().equals("JOINED") || result.path("status").asText().equals("DEFERRED"));
+                if (retained) {
+                    result.put("receiptRef", checked.key());
+                }
                 if (ContextLimits.bytes(result.toString()) > MAX_PREPARATION_RESPONSE_BYTES) {
                     throw new ReviewInvalidRequestException("preparation: response exceeds 64 KiB; use fewer BEGIN scopes or shorter SUBMIT text; nothing was saved");
                 }
-                if (!begin || !(result.path("status").asText().equals("JOINED") || result.path("status").asText().equals("DEFERRED"))) {
+                if (retained) {
                     store.updateRun(current.run().withOperation(checked.key(), new ReviewOperation(checked.digest(), result.toString()), now()));
                 }
                 return result;
@@ -612,7 +626,7 @@ public class ReviewTools
         }
     }
 
-    private JsonNode preparationAdmission(Admission admission)
+    private ObjectNode preparationAdmission(Admission admission)
     {
         ObjectNode result = objectMapper.createObjectNode().put("status", admission.status().name()).put("notebookRevision", admission.notebookRevision());
         admission.attempt().ifPresentOrElse(active -> {
@@ -628,7 +642,7 @@ public class ReviewTools
         return result;
     }
 
-    private JsonNode preparationReceipt(Receipt receipt)
+    private ObjectNode preparationReceipt(Receipt receipt)
     {
         ObjectNode result = objectMapper.createObjectNode().put("attemptId", receipt.attemptId()).put("notebookRevision", receipt.notebookRevision());
         result.putPOJO("scopeResults", receipt.scopeResults().stream().map(this::preparationOutcome).collect(toImmutableList()));
@@ -722,6 +736,7 @@ public class ReviewTools
             throw new ReviewInvalidRequestException("reviewedFiles: use distinct paths from this run's frozen diff or requiredReviewFiles");
         }
         List<String> refs = evidenceRefs(call, call.arguments(), "contextEvidenceRefs", 80);
+        Optional<ContextContribution> contribution = contextContribution(call, step, refs);
         List<String> candidates = strings(call.arguments(), "candidates", MAX_CANDIDATES, 2000);
         List<String> previous = call.run().investigation().map(ReviewInvestigation::candidates).orElseGet(ImmutableList::of);
         if (step.kind() == COLLECT_EVIDENCE) {
@@ -755,9 +770,43 @@ public class ReviewTools
         ReviewInvestigation investigation = new ReviewInvestigation(text(call.arguments(), "changeMap", MAX_TEXT, true), files, refs, candidates, ImmutableList.of(), answers);
         ObjectNode result = objectMapper.createObjectNode().put("status", "accepted").put("candidates", candidates.size()).put("investigationStep", step.number())
                 .put("next", "End this investigation turn; ByteQuay will start a separate validation turn");
-        store.updateRun(call.run().withInvestigation(investigation, now()).replaceCurrentStep(step.withInvestigation(investigation), now())
-                .withOperation(replay.key(), new ReviewOperation(replay.digest(), result.toString()), now()));
+        ReviewRun updated = call.run().withInvestigation(investigation, now()).replaceCurrentStep(step.withInvestigation(investigation), now());
+        if (contribution.isPresent()) {
+            updated = updated.withContextContribution(contribution.orElseThrow(), now());
+        }
+        store.updateRun(updated.withOperation(replay.key(), new ReviewOperation(replay.digest(), result.toString()), now()));
         return result;
+    }
+
+    private static Optional<ContextContribution> contextContribution(Call call, ReviewStep step, List<String> evidenceRefs)
+    {
+        if (call.run().context().filter(ReviewContextSnapshot::enabled).isEmpty()) {
+            for (String field : ImmutableList.of("contextBrief", "contextPreparationRefs", "contextLimitations")) {
+                if (call.arguments().has(field)) {
+                    throw new ReviewInvalidRequestException(field + ": repository context was not enabled for this run");
+                }
+            }
+            return Optional.empty();
+        }
+        List<String> preparationRefs = strings(call.arguments(), "contextPreparationRefs", ContextContribution.MAXIMUM_REFS,
+                ContextContribution.MAXIMUM_PREPARATION_REF_BYTES);
+        if (!preparationReceiptRefs(call.run()).containsAll(preparationRefs)) {
+            throw new ReviewInvalidRequestException("contextPreparationRefs: use saved BEGIN or SUBMIT receiptRef values from this run");
+        }
+        String brief = text(call.arguments(), "contextBrief", ContextContribution.MAXIMUM_BYTES, true);
+        List<String> limitations = strings(call.arguments(), "contextLimitations", ContextContribution.MAXIMUM_LIMITATIONS, ContextContribution.MAXIMUM_LIMITATION_BYTES);
+        try {
+            return Optional.of(new ContextContribution(step.number(), brief, evidenceRefs, preparationRefs, limitations));
+        }
+        catch (IllegalArgumentException invalid) {
+            throw new ReviewInvalidRequestException("contextBrief: " + invalid.getMessage());
+        }
+    }
+
+    private static List<String> preparationReceiptRefs(ReviewRun run)
+    {
+        String prefix = "review-step:" + run.id() + ":1:repository_context_prepare:";
+        return run.operations().keySet().stream().filter(key -> key.startsWith(prefix + "BEGIN:") || key.startsWith(prefix + "SUBMIT:")).collect(toImmutableList());
     }
 
     private JsonNode saveFinding(Call call)
@@ -1307,14 +1356,20 @@ public class ReviewTools
             call.run().steps().stream().filter(value -> value.investigation().isPresent()).reduce((first, last) -> last)
                     .ifPresent(value -> node.put("investigationStep", value.number()));
             node.put("evidenceRoundsRemaining", 2 - call.run().steps().stream().filter(value -> value.kind() == COLLECT_EVIDENCE).count());
-            lastValidation(call.run()).ifPresent(validation -> node.putPOJO("previousValidation", validation));
+            lastValidation(call.run()).ifPresent(validation -> node.set("previousValidation", objectMapper.valueToTree(validation)));
         }, () -> node.put("kind", "DISCUSSION"));
-        if (call.run().context().filter(ReviewContextSnapshot::enabled).isPresent()
-                && call.step().filter(step -> call.run().active() && step.kind() == INVESTIGATE).isPresent()) {
+        if (call.run().context().filter(ReviewContextSnapshot::enabled).isPresent()) {
             ObjectNode context = node.putObject("repositoryContext");
             ReviewContextSnapshot snapshot = call.run().context().orElseThrow();
+            context.put("contributionCount", snapshot.contributions().size());
+            context.put("briefRequired", call.step().filter(step -> step.kind() == INVESTIGATE || step.kind() == COLLECT_EVIDENCE).isPresent());
+            context.putPOJO("preparationReceiptRefs", preparationReceiptRefs(call.run()));
+            context.putPOJO("contributions", snapshot.contributions());
             snapshot.baselineSha().ifPresent(sha -> context.put("baselineSha", sha));
             context.putPOJO("sourceReadIds", snapshot.sourceReads().stream().map(ContextSourceRead::id).collect(toImmutableList()));
+            if (call.step().filter(step -> call.run().active() && step.kind() == INVESTIGATE).isEmpty()) {
+                return node;
+            }
             try {
                 RepositoryNotebook notebook = selectedDocumentation.notebook(call.review().workspaceId());
                 List<ContextScope> scopes = notebook.scopes().stream().filter(ContextScope::enabled).collect(toImmutableList());

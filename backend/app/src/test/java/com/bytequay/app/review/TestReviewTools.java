@@ -303,6 +303,7 @@ class TestReviewTools
 
         JsonNode admitted = call("repository_context_prepare", beginPreparation());
         assertThat(admitted.path("status").asText()).isEqualTo("OWNED");
+        assertThat(admitted.path("receiptRef").asText()).isEqualTo("review-step:" + RUN_ID + ":1:repository_context_prepare:BEGIN:begin");
         assertThat(admitted.at("/attempt/scopes/0/scopeId").asText()).isEqualTo("project");
         assertThat(admitted.at("/attempt/scopes/0/digest").asText()).isEqualTo(active.inputs().getFirst().digest().orElseThrow());
         assertThat(admitted.at("/attempt/baseContentRevision").asLong()).isEqualTo(7);
@@ -380,6 +381,7 @@ class TestReviewTools
         JsonNode result = call("repository_context_prepare", request);
 
         assertThat(result.at("/packet/text").asText()).isEqualTo(receipt.packet().text());
+        assertThat(result.path("receiptRef").asText()).isEqualTo("review-step:" + RUN_ID + ":1:repository_context_prepare:SUBMIT:submit");
         assertThat(result.path("packet")).isEqualTo(objectMapper.valueToTree(receipt.packet()));
         assertThat(result.at("/scopeResults/0/scopeId").asText()).isEqualTo("project");
         assertThat(result.at("/scopeResults/0/outcome").asText()).isEqualTo("EMPTY");
@@ -418,6 +420,124 @@ class TestReviewTools
                 "report", ImmutableMap.of("scopeResults", ImmutableList.of(), "entries", ImmutableList.of(), "sources", ImmutableList.of())))
                 .at("/error/field").asText()).isEqualTo("report");
         verifyNoInteractions(preparation);
+    }
+
+    @Test
+    void enabledInvestigationSealsItsBriefAndCollectionAppendsWithoutChangingTheOriginal()
+    {
+        preparationContext();
+        call("review_save_summary", summary("summary", "Input change"));
+        readSource();
+        when(preparation.plan(any(), any())).thenReturn(new Plan(RepositoryNotebook.empty(), preparationAttempt().inputs()));
+        when(preparation.begin(any(), anyString(), anyString(), anyLong(), any())).thenReturn(new Admission(Status.REUSED, 8, Optional.empty(),
+                ImmutableList.of(preparationOutcome()), ImmutableList.of(), ContextPacket.create("Exact saved note available for reuse")));
+        String receipt = call("repository_context_prepare", beginPreparation()).path("receiptRef").asText();
+        Map<String, Object> request = contextInvestigation(investigation("initial", ImmutableList.of(DIFF_PATH), ImmutableList.of("E1"), ImmutableList.of(CANDIDATE)),
+                "Original applicable caller contract", ImmutableList.of(receipt), ImmutableList.of("Remote documentation unavailable"));
+        int updates = store.runUpdates;
+        JsonNode accepted = call("review_save_investigation", request);
+        ReviewRun investigated = store.findRun(RUN_ID).orElseThrow();
+
+        assertThat(accepted.path("status").asText()).isEqualTo("accepted");
+        assertThat(store.runUpdates).isEqualTo(updates + 1);
+        assertThat(investigated.context().orElseThrow().contributions()).hasSize(1);
+        assertThat(investigated.context().orElseThrow().contributions().getFirst().preparationRefs()).containsExactly(receipt);
+        assertThat(investigated.context().orElseThrow().contributions().getFirst().evidenceRefs()).containsExactly("E1");
+        assertThat(call("review_save_investigation", request)).isEqualTo(accepted);
+        assertThat(store.runUpdates).isEqualTo(updates + 1);
+        Map<String, Object> altered = ImmutableMap.<String, Object>builder().putAll(request).put("contextBrief", "Altered original").buildKeepingLast();
+        assertThat(call("review_save_investigation", altered).at("/error/field").asText()).isEqualTo("operationKey");
+        advance(VALIDATE);
+        assertThat(call("review_finish", incomplete("request", ImmutableList.of(needsEvidence(1)))).path("status").asText()).isEqualTo("accepted");
+        advance(COLLECT_EVIDENCE);
+        Map<String, Object> answer = ImmutableMap.of("candidate", 1, "attempted", "Traced callers", "evidenceRefs", ImmutableList.of("E1"));
+        Map<String, Object> collection = contextInvestigation(investigation("collection", ImmutableList.of(DIFF_PATH), ImmutableList.of("E1"),
+                ImmutableList.of(CANDIDATE), ImmutableList.of(answer)), "Additional caller evidence", ImmutableList.of(), ImmutableList.of());
+
+        assertThat(call("review_save_investigation", collection).path("status").asText()).isEqualTo("accepted");
+        ReviewContextSnapshot collected = store.findRun(RUN_ID).orElseThrow().context().orElseThrow();
+        assertThat(collected.contributions()).hasSize(2);
+        assertThat(collected.contributions().getFirst()).isEqualTo(investigated.context().orElseThrow().contributions().getFirst());
+        assertThat(collected.contributions().getLast().investigationStep()).isEqualTo(3);
+        assertThat(collected.packetFor(1)).isEqualTo(investigated.context().orElseThrow().packetFor(1));
+        assertThat(collected.packetFor(2).text()).contains("Original applicable caller contract", "Additional caller evidence", "Remote documentation unavailable");
+        JsonNode response = call("review_get_context", ImmutableMap.of("kind", "assignment"));
+        assertThat(response.has("repositoryContext")).as("Assignment response: %s", response).isTrue();
+        assertThat(objectMapper.convertValue(response.at("/previousValidation/coverage/recordedAt"), Instant.class)).isEqualTo(NOW);
+        JsonNode assignment = response.path("repositoryContext");
+        assertThat(assignment.path("contributionCount").asInt()).isEqualTo(2);
+        assertThat(assignment.path("preparationReceiptRefs")).extracting(JsonNode::asText).containsExactly(receipt);
+    }
+
+    @Test
+    void enabledInvestigationRejectsMissingFieldsForeignReferencesAndOversizedBriefsWithoutSealing()
+    {
+        preparationContext();
+        call("review_save_summary", summary("summary", "Input change"));
+        readSource();
+        Map<String, Object> plain = investigation("initial", ImmutableList.of(DIFF_PATH), ImmutableList.of("E1"), ImmutableList.of(CANDIDATE));
+        Map<String, Object> valid = contextInvestigation(plain, "Caller contract", ImmutableList.of(), ImmutableList.of());
+        int updates = store.runUpdates;
+        for (String field : ImmutableList.of("contextBrief", "contextPreparationRefs", "contextLimitations")) {
+            Map<String, Object> missing = new LinkedHashMap<>(valid);
+            missing.remove(field);
+            assertThat(call("review_save_investigation", missing).at("/error/field").asText()).isEqualTo(field);
+        }
+        for (String ref : ImmutableList.of("made-up", "review-step:other-run:1:repository_context_prepare:SUBMIT:submit",
+                "review-step:" + RUN_ID + ":1:review_save_summary:summary")) {
+            assertThat(call("review_save_investigation", contextInvestigation(plain, "Caller contract", ImmutableList.of(ref), ImmutableList.of()))
+                    .at("/error/field").asText()).isEqualTo("contextPreparationRefs");
+        }
+        Map<String, Object> foreignEvidence = ImmutableMap.<String, Object>builder().putAll(valid).put("contextEvidenceRefs", ImmutableList.of("E99")).buildKeepingLast();
+        assertThat(call("review_save_investigation", foreignEvidence).at("/error/field").asText()).isEqualTo("contextEvidenceRefs");
+        assertThat(call("review_save_investigation", contextInvestigation(plain, "é".repeat(4097), ImmutableList.of(), ImmutableList.of()))
+                .at("/error/field").asText()).isEqualTo("contextBrief");
+        assertThat(call("review_save_investigation", contextInvestigation(plain, "x".repeat(8192), ImmutableList.of(), ImmutableList.of()))
+                .at("/error/message").asText()).contains("including references and limitations");
+        assertThat(store.runUpdates).isEqualTo(updates);
+        assertThat(store.findRun(RUN_ID).orElseThrow().currentStep().orElseThrow().sealed()).isFalse();
+        assertThat(store.findRun(RUN_ID).orElseThrow().context().orElseThrow().contributions()).isEmpty();
+        assertThat(call("review_save_investigation", valid).path("status").asText()).isEqualTo("accepted");
+    }
+
+    @ParameterizedTest
+    @ValueSource(booleans = {false, true})
+    void offAndHistoricalRunsRetainTheOriginalReportAndPolicy(boolean disabledSnapshot)
+    {
+        store.updateRun(run(RUN_ID, 1, PATCH, false));
+        if (disabledSnapshot) {
+            documentContext(false);
+        }
+        assertThat(tools.bridge(TASK_ID).orElseThrow().instruction()).isEqualTo(ReviewPrompts.INSTRUCTION);
+        call("review_save_summary", summary("summary", "Input change"));
+        Map<String, Object> plain = investigation("initial", ImmutableList.of(DIFF_PATH), ImmutableList.of(), ImmutableList.of());
+        for (String field : ImmutableList.of("contextBrief", "contextPreparationRefs", "contextLimitations")) {
+            Map<String, Object> unexpected = ImmutableMap.<String, Object>builder().putAll(plain)
+                    .put(field, field.equals("contextBrief") ? "Brief" : ImmutableList.of()).buildOrThrow();
+            assertThat(call("review_save_investigation", unexpected).at("/error/field").asText()).isEqualTo(field);
+        }
+        assertThat(call("review_save_investigation", plain).path("status").asText()).isEqualTo("accepted");
+    }
+
+    @Test
+    void enabledBridgeAddsOnlyTrustedContextPolicyAndStoppedSessionsKeepTheirRestrictions()
+    {
+        preparationContext();
+        assertThat(bridge.instruction()).isEqualTo(ReviewPrompts.INSTRUCTION + "\n\n" + ReviewPrompts.CONTEXT_INSTRUCTION);
+        assertThat(bridge.instruction()).doesNotContain("Frozen context");
+        JsonNode schema = objectMapper.valueToTree(bridge.tool("review_save_investigation").orElseThrow().inputSchema());
+        assertThat(schema.at("/properties/contextBrief/maxLength").asInt()).isEqualTo(8192);
+        assertThat(schema.at("/properties/contextPreparationRefs/maxItems").asInt()).isEqualTo(80);
+        doThrow(new ReviewConflictException("turn: stopped")).when(assignments).resolve(REVIEW_ID, Optional.of(capturedTurn));
+        ReviewBridge stopped = tools.bridge(TASK_ID).orElseThrow();
+        assertThat(stopped.instruction()).isEqualTo(ReviewPrompts.INSTRUCTION);
+        assertThat(stopped.tool("repository_context_prepare")).isEmpty();
+    }
+
+    private static Map<String, Object> contextInvestigation(Map<String, Object> report, String brief, List<String> receipts, List<String> limitations)
+    {
+        return ImmutableMap.<String, Object>builder().putAll(report).put("contextBrief", brief)
+                .put("contextPreparationRefs", receipts).put("contextLimitations", limitations).buildOrThrow();
     }
 
     private void preparationContext()
@@ -470,7 +590,8 @@ class TestReviewTools
         List<String> gaps = IntStream.range(0, 12).mapToObj(index -> "Gap " + index + "x".repeat(2000)).collect(toImmutableList());
         when(selectedCommitPullRequests.read(workspace, shas)).thenReturn(new SelectedCommitPullRequestReader.Read(items, gaps));
         ReviewContextSnapshot snapshot = new ReviewContextSnapshot("frozen-context", true, 7, 7, Optional.of(BASE_SHA),
-                Optional.of(ContextPacket.create("Frozen context")), ImmutableList.of(), ImmutableList.of(), ImmutableList.of(), ImmutableList.of(), ImmutableList.of());
+                Optional.of(ContextPacket.create("Frozen context")),
+                ImmutableList.of(), ImmutableList.of(), ImmutableList.of(), ImmutableList.of(), ImmutableList.of(), ImmutableList.of(), ImmutableList.of());
         ReviewEvidence existing = new ReviewEvidence("E1", "Original source", "Frozen provenance", "Original evidence", "");
         ReviewRun before = store.updateRun(store.findRun(RUN_ID).orElseThrow().withContext(snapshot, ImmutableMap.of("E1", existing), NOW));
         int writes = store.runUpdates;
@@ -1320,7 +1441,8 @@ class TestReviewTools
         SelectedPullRequestDiffReader.Read read = relatedDiff(ImmutableList.of(new DiffFile(" related.txt ", "modified", 1, 1, patch)));
         when(selectedPullRequestDiffs.read(REPO, 19, Optional.of(DIFF_VERSION), false)).thenReturn(read);
         ReviewContextSnapshot snapshot = new ReviewContextSnapshot("frozen-context", true, 7, 1, Optional.of(BASE_SHA),
-                Optional.of(ContextPacket.create("Frozen context")), ImmutableList.of(), ImmutableList.of(), ImmutableList.of(), ImmutableList.of(), ImmutableList.of());
+                Optional.of(ContextPacket.create("Frozen context")),
+                ImmutableList.of(), ImmutableList.of(), ImmutableList.of(), ImmutableList.of(), ImmutableList.of(), ImmutableList.of(), ImmutableList.of());
         ReviewRun before = store.updateRun(store.findRun(RUN_ID).orElseThrow().withContext(snapshot, ImmutableMap.of(), NOW));
         int writes = store.runUpdates;
         StringBuilder reconstructed = new StringBuilder();
@@ -1841,7 +1963,7 @@ class TestReviewTools
     {
         ReviewContextSnapshot context = new ReviewContextSnapshot("document-context", enabled, 7, 1, Optional.of(BASE_SHA),
                 enabled ? Optional.of(ContextPacket.create("Frozen context")) : Optional.empty(),
-                ImmutableList.of(), ImmutableList.of(), ImmutableList.of(), ImmutableList.of(), ImmutableList.of());
+                ImmutableList.of(), ImmutableList.of(), ImmutableList.of(), ImmutableList.of(), ImmutableList.of(), ImmutableList.of(), ImmutableList.of());
         return store.updateRun(store.findRun(RUN_ID).orElseThrow().withContext(context, ImmutableMap.of(), NOW));
     }
 

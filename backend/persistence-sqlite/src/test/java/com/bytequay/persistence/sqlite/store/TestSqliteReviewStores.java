@@ -13,9 +13,12 @@
  */
 package com.bytequay.persistence.sqlite.store;
 
+import com.bytequay.core.context.ContextContribution;
+import com.bytequay.core.context.ContextDelivery;
 import com.bytequay.core.context.ContextDocumentRead;
 import com.bytequay.core.context.ContextEntryOrigin;
 import com.bytequay.core.context.ContextInputFingerprint;
+import com.bytequay.core.context.ContextLimits;
 import com.bytequay.core.context.ContextPacket;
 import com.bytequay.core.context.ContextReference;
 import com.bytequay.core.context.ContextRelatedItem;
@@ -159,7 +162,7 @@ class TestSqliteReviewStores
         store.insertReview(newReview("review-history", "workspace-a", "bytequay/sample", 7, "task-history", NOW));
         store.insertReview(newReview("review-off", "workspace-a", "bytequay/sample", 8, "task-off", NOW));
         ReviewContextSnapshot disabled = new ReviewContextSnapshot("context-off", false, 9, 42, Optional.empty(), Optional.empty(),
-                ImmutableList.of(), ImmutableList.of(), ImmutableList.of(), ImmutableList.of(), ImmutableList.of());
+                ImmutableList.of(), ImmutableList.of(), ImmutableList.of(), ImmutableList.of(), ImmutableList.of(), ImmutableList.of(), ImmutableList.of());
         ReviewRun historical = store.insertRun(newRun("run-history", "review-history"));
         ReviewRun off = store.insertRun(newRun("run-off", "review-off").withContext(disabled, ImmutableMap.of(), NOW));
         entityManager.clear();
@@ -204,6 +207,61 @@ class TestSqliteReviewStores
                 .executeUpdate();
         entityManager.clear();
         assertThatThrownBy(() -> store.findRun(saved.id())).isInstanceOf(IllegalArgumentException.class).hasMessageContaining("missing run evidence");
+    }
+
+    @Test
+    void retainsContextContributionsAndDeliveryPrefixesWithoutProviderAcceptance()
+    {
+        AgentReview review = newReview("review-context", "workspace-a", "bytequay/sample", 7, "task-context", NOW);
+        String preparationRef = "review-step:run-context:1:repository_context_prepare:BEGIN:prepare";
+        ReviewInvestigation investigation = new ReviewInvestigation("Counter lifetime", ImmutableList.of(REVIEW_TOOLS), ImmutableList.of("ev-1"),
+                ImmutableList.of("The counter may not be incremented"), ImmutableList.of(), ImmutableList.of());
+        ContextContribution brief = new ContextContribution(1, "Use the retained counter contract — 资料", ImmutableList.of("ev-1"),
+                ImmutableList.of(preparationRef), ImmutableList.of("Source version remains unverified"));
+        ReviewRun run = newRun("run-context", review.id())
+                .withContext(contextSnapshot(), ImmutableMap.of(), NOW)
+                .withOperation(preparationRef, new ReviewOperation("sha256:preparation", "{\"receiptRef\":\"" + preparationRef + "\"}"), NOW)
+                .withInvestigation(investigation, NOW)
+                .replaceCurrentStep(ReviewStep.initial().withInvestigation(investigation), NOW)
+                .withContextContribution(brief, NOW);
+        ContextPacket preparedPrefix = run.context().orElseThrow().packetFor(1);
+        String input = "Validate the investigation\n" + preparedPrefix.text();
+        ContextDelivery delivery = new ContextDelivery("turn-context", preparedPrefix.digest(), preparedPrefix.utf8Bytes(), 1,
+                ContextDelivery.digest(input), ContextLimits.bytes(input), Optional.empty(), NOW);
+        ContextContribution supplement = new ContextContribution(3, "The focused check confirms the unchanged counter", ImmutableList.of("ev-2"),
+                ImmutableList.of(), ImmutableList.of());
+        run = run.withContextDelivery(delivery, NOW)
+                .withStep(new ReviewStep(2, ReviewStep.Kind.VALIDATE, false, Optional.empty(), Optional.empty()), NOW)
+                .withStep(new ReviewStep(3, ReviewStep.Kind.COLLECT_EVIDENCE, false, Optional.of(investigation), Optional.empty()), NOW)
+                .withEvidence("ev-2", COMMAND_EVIDENCE, NOW)
+                .withContextContribution(supplement, NOW);
+        store.insertReview(review);
+        ReviewRun saved = store.insertRun(run);
+        entityManager.clear();
+
+        ReviewRun loaded = store.findRun(saved.id()).orElseThrow();
+        ReviewContextSnapshot snapshot = loaded.context().orElseThrow();
+        assertThat(loaded).isEqualTo(saved);
+        assertThat(snapshot.contributions()).containsExactly(brief, supplement);
+        assertThat(snapshot.deliveries()).containsExactly(delivery);
+        assertThat(snapshot.packetFor(delivery.contributionCount())).isEqualTo(preparedPrefix);
+        assertThat(snapshot.packetFor(delivery.contributionCount()).digest()).isEqualTo(delivery.packetDigest());
+        assertThat(snapshot.packetFor(delivery.contributionCount()).utf8Bytes()).isEqualTo(delivery.utf8Bytes());
+        assertThat(snapshot.packetFor(2).digest()).isNotEqualTo(delivery.packetDigest());
+        assertThat(snapshot.packetFor(1).text()).contains("Repository baseline unavailable").doesNotContain(supplement.text());
+        assertThat(loaded.evidence().keySet()).containsAll(snapshot.evidenceRefs());
+        assertThat(loaded.operations()).containsKey(preparationRef);
+        String storedContext = (String) entityManager.createNativeQuery("SELECT context_json FROM agent_review_run WHERE id = :id")
+                .setParameter("id", saved.id()).getSingleResult();
+        assertThat(storedContext).doesNotContain("\"outcome\"", "\"providerTurnReference\"", "\"knownUnsent\"", "CONFIRMED");
+        Number providerTurns = (Number) entityManager.createNativeQuery("SELECT COUNT(*) FROM agent_turn WHERE id = :id")
+                .setParameter("id", delivery.turnId()).getSingleResult();
+        assertThat(providerTurns.longValue()).isZero();
+
+        entityManager.createNativeQuery("UPDATE agent_review_run SET operations_json = '{}' WHERE id = :id")
+                .setParameter("id", saved.id()).executeUpdate();
+        entityManager.clear();
+        assertThatThrownBy(() -> store.findRun(saved.id())).isInstanceOf(IllegalArgumentException.class).hasMessageContaining("missing preparation receipts");
     }
 
     @Test
@@ -477,7 +535,7 @@ class TestSqliteReviewStores
                 ImmutableList.of(
                         ContextInputFingerprint.create("project", ImmutableMap.of("git:pom.xml", "100644 blob " + BASE_SHA, "git:README.md", "ABSENT"), ImmutableList.of()),
                         ContextInputFingerprint.create("path:backend/app/", ImmutableMap.of("scope:configuration", "sha256:scope"), ImmutableList.of("Tree read unavailable"))),
-                ImmutableList.of(),
+                ImmutableList.of(), ImmutableList.of(), ImmutableList.of(),
                 ImmutableList.of("Repository baseline unavailable"));
     }
 

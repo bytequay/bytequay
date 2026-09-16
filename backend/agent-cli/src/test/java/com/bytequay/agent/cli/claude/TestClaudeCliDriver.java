@@ -318,6 +318,33 @@ class TestClaudeCliDriver
     }
 
     @Test
+    void transportsLargeReviewReferenceInputOnInitialAndResumedTurns()
+            throws Exception
+    {
+        ScriptedProcessSupervisor supervisor = new ScriptedProcessSupervisor();
+        ClaudeCliDriver driver = driver(supervisor);
+        String instructions = "p".repeat(100_000);
+        String reference = "reference-body-marker\n" + "知".repeat(10_000);
+        String input = "Review this change.\n<repository-context>\n" + reference + "\n</repository-context>\n";
+        input += "x".repeat(256 * 1024 - input.getBytes(StandardCharsets.UTF_8).length);
+        assertThat(input.getBytes(StandardCharsets.UTF_8)).hasSize(256 * 1024);
+        Optional<AgentSessionRef> sessionReference = Optional.empty();
+        for (int index = 0; index < 2; index++) {
+            try (AgentSession session = driver.open(context(sessionReference, instructions), event -> {})) {
+                assertThat(await(session.start(new AgentTurnCommand("context-turn-" + index, input, ImmutableList.of(), Duration.ofMinutes(1)))).state())
+                        .isEqualTo(AgentTurnResult.State.COMPLETED);
+                ScriptedTurn turn = supervisor.turns().getLast();
+                assertThat(turn.prompt()).isEqualTo(input + "\n");
+                assertThat(turn.spec().argv()).containsSequence("--append-system-prompt", AgentCommandPolicy.instructions() + "\n\n" + instructions);
+                assertThat(turn.spec().argv()).noneMatch(argument -> argument.contains("reference-body-marker"));
+                assertThat(turn.spec().argv().contains("--resume")).isEqualTo(index == 1);
+                sessionReference = Optional.of(session.reference());
+            }
+        }
+        driver.close();
+    }
+
+    @Test
     void replacesManagedInstructionsOnResumeWithoutAddingTools()
             throws Exception
     {

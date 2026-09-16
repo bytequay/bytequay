@@ -64,6 +64,13 @@ export type ActiveContextPreparationDto = {
   attemptId: string; requestKey: string; requestDigest: string; ownerTaskId: string; ownerTurnId: string; ownerTurnKey: string;
   reviewId: string; runId: string; baseContentRevision: number; inputs: ContextInputFingerprintDto[];
 };
+export type ContextContributionDto = {
+  investigationStep: number; text: string; evidenceRefs: string[]; preparationRefs: string[]; limitations: string[];
+};
+export type ContextDeliveryDto = {
+  turnId: string; packetDigest: string; utf8Bytes: number; contributionCount: number; inputDigest: string; inputUtf8Bytes: number;
+  discussionMessageId: string | null; preparedAt: string;
+};
 export type ReviewContextSnapshotDto = {
   id: string; enabled: boolean; notebookRevision: number; repositoryId: number; baselineSha: string | null;
   bootstrap: { text: string; digest: string; utf8Bytes: number } | null;
@@ -71,6 +78,7 @@ export type ReviewContextSnapshotDto = {
   relatedItems: Array<{ sourceId: string; matchReasons: string[]; presentInReviewedBase: boolean | null }>;
   inputFingerprints: ContextInputFingerprintDto[];
   sourceReads: ContextSourceReadDto[]; gaps: string[];
+  contributions: ContextContributionDto[]; deliveries: ContextDeliveryDto[];
 };
 
 export type ConfigureRepositoryContextRequest = {
@@ -227,6 +235,21 @@ function sourceRead(value: unknown): ContextSourceReadDto {
   return malformed('source receipt and reference kinds disagree');
 }
 
+function contribution(value: unknown): ContextContributionDto {
+  const item = object(value, 'context contribution');
+  return { investigationStep: count(item.investigationStep, 'contribution investigation step', 1), text: text(item.text, 'contribution text'),
+    evidenceRefs: strings(item.evidenceRefs, 'contribution evidence references'), preparationRefs: strings(item.preparationRefs, 'contribution preparation references'),
+    limitations: strings(item.limitations, 'contribution limitations') };
+}
+
+function delivery(value: unknown): ContextDeliveryDto {
+  const item = object(value, 'context delivery');
+  return { turnId: text(item.turnId, 'delivery turn'), packetDigest: text(item.packetDigest, 'delivery packet digest'), utf8Bytes: count(item.utf8Bytes, 'delivery packet bytes'),
+    contributionCount: count(item.contributionCount, 'delivery contribution count'), inputDigest: text(item.inputDigest, 'delivery input digest'),
+    inputUtf8Bytes: count(item.inputUtf8Bytes, 'delivery input bytes'), discussionMessageId: optionalText(item.discussionMessageId, 'delivery discussion message'),
+    preparedAt: text(item.preparedAt, 'delivery preparation time') };
+}
+
 /** Older runs can lack context. A present but invalid snapshot is an error, never a false "off" or "used" result. */
 export function parseReviewContextSnapshot(value: unknown): ReviewContextSnapshotDto | null {
   if (value == null) return null;
@@ -244,10 +267,13 @@ export function parseReviewContextSnapshot(value: unknown): ReviewContextSnapsho
     }),
     inputFingerprints: array(item.inputFingerprints, 'input fingerprints', inputFingerprint),
     sourceReads: array(item.sourceReads, 'source receipts', sourceRead), gaps: strings(item.gaps, 'snapshot limitations'),
+    contributions: array(item.contributions, 'context contributions', contribution), deliveries: array(item.deliveries, 'context deliveries', delivery),
   };
   if (result.enabled !== (result.bootstrap !== null)) malformed('snapshot enabled state and packet disagree');
   if (!result.enabled && (result.selectedEntries.length > 0 || result.relatedItems.length > 0
-    || result.inputFingerprints.length > 0 || result.sourceReads.length > 0 || result.gaps.length > 0)) malformed('disabled snapshot contains context');
+    || result.inputFingerprints.length > 0 || result.sourceReads.length > 0 || result.gaps.length > 0
+    || result.contributions.length > 0 || result.deliveries.length > 0)) malformed('disabled snapshot contains context');
+  if (result.deliveries.some(item => item.contributionCount > result.contributions.length)) malformed('delivery refers to unavailable contributions');
   return result;
 }
 

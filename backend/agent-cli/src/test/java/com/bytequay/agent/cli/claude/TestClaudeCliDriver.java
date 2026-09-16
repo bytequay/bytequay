@@ -929,8 +929,9 @@ class TestClaudeCliDriver
         }
     }
 
-    @Test
-    void privateLocalReviewToolsPreserveDevelopmentAndNativeDelegationOnResume()
+    @ParameterizedTest
+    @ValueSource(booleans = {false, true})
+    void privateLocalReviewToolsPreserveDevelopmentAndNativeDelegationOnResume(boolean apiKey)
             throws Exception
     {
         ScriptedProcessSupervisor supervisor = new ScriptedProcessSupervisor();
@@ -940,7 +941,8 @@ class TestClaudeCliDriver
                 (taskId, query) -> "memory", ReviewBridgeResolver.NONE,
                 taskId -> Optional.of(new DevelopmentResultBridge("turn-1", DevelopmentResultBridge.INSTRUCTION)),
                 DraftPullRequestPublisher.NONE, taskId -> Optional.of(local));
-        ClaudeCliDriver driver = new ClaudeCliDriver("/fake/claude", objectMapper, broker, supervisor, ImmutableMap.of());
+        Map<String, String> environment = apiKey ? ImmutableMap.of("ANTHROPIC_API_KEY", "test-api-key") : ImmutableMap.of();
+        ClaudeCliDriver driver = new ClaudeCliDriver("/fake/claude", objectMapper, broker, supervisor, environment);
         AgentSessionRef reference;
         try (AgentSession session = driver.open(context(Optional.empty()), event -> {})) {
             await(session.start(command("local-review")));
@@ -952,11 +954,12 @@ class TestClaudeCliDriver
         for (ScriptedTurn turn : supervisor.turns()) {
             List<String> argv = turn.spec().argv();
             assertThat(argv).doesNotContain("--disable-slash-commands", "--tools");
-            assertThat(argv.get(argv.indexOf("--allowedTools") + 1)).contains(
+            assertThat(argv.get(argv.indexOf("--allowedTools") + 1).split(",")).containsExactlyInAnyOrder(
                     "mcp__bytequay__" + LocalReviewBridge.LIST_TOOL,
                     "mcp__bytequay__" + LocalReviewBridge.REPLY_TOOL,
                     "mcp__bytequay__" + LocalReviewBridge.RESOLVE_TOOL,
-                    "mcp__bytequay__" + DevelopmentResultBridge.TOOL_NAME);
+                    "mcp__bytequay__" + DevelopmentResultBridge.TOOL_NAME,
+                    "mcp__bytequay__" + DevelopmentResultBridge.PUBLISH_TOOL_NAME);
             assertThat(argv.get(argv.indexOf("--append-system-prompt") + 1)).contains(LocalReviewBridge.INSTRUCTION, DevelopmentResultBridge.INSTRUCTION);
         }
         driver.close();
@@ -992,8 +995,9 @@ class TestClaudeCliDriver
             throws Exception
     {
         ScriptedProcessSupervisor supervisor = new ScriptedProcessSupervisor();
-        ReviewBridge review = new ReviewBridge(ImmutableList.of(new ReviewTool(
-                "review_finish", "Finish review", ImmutableMap.of("type", "object"), arguments -> "{}")), "Review this PR");
+        ReviewBridge review = new ReviewBridge(ImmutableList.of(
+                new ReviewTool("review_finish", "Finish review", ImmutableMap.of("type", "object"), arguments -> "{}"),
+                new ReviewTool("review_extra_evidence", "Read more evidence", ImmutableMap.of("type", "object"), arguments -> "{}")), "Review this PR");
         ClaudeCliDriver driver = driver(supervisor, taskId -> Optional.of(review));
         AgentSession session = driver.open(context(Optional.empty(), "Keep explanations concise"), event -> {});
         await(session.start(command("review")));
@@ -1010,7 +1014,8 @@ class TestClaudeCliDriver
             String nativeTools = argv.get(argv.indexOf("--tools") + 1);
             assertThat(nativeTools.split(",")).contains("Bash", "Read", "TaskOutput", "TaskStop")
                     .doesNotContain("Agent", "Task", "Skill", "Workflow", "SendMessage", "RemoteTrigger", "ScheduleWakeup");
-            assertThat(argv.get(argv.indexOf("--allowedTools") + 1)).contains("mcp__bytequay__review_finish");
+            assertThat(argv.get(argv.indexOf("--allowedTools") + 1).split(","))
+                    .containsExactly("mcp__bytequay__review_finish", "mcp__bytequay__review_extra_evidence");
         }
         resumed.close();
         driver.close();

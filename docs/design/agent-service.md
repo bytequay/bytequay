@@ -3654,6 +3654,14 @@ UTF-8 user message to stdin and then closes stdin; prompts are not placed in the
 process list or interpolated into a command string. The process working
 directory is the task's canonical generated worktree.
 
+On every initial or resumed invocation, `--allowedTools` includes each business
+tool exposed by the task's broker registration. The registration derives these
+names from the same catalog used by MCP `tools/list`, so adding a ByteQuay tool
+does not require a second permission-list change in the driver. The provider's
+`permission_prompt` callback is excluded. Login and API-key authentication use
+the same path; broker task ownership, tool admission, and publication checks
+continue to authorize each call.
+
 For a turn with text attachments, the driver canonicalizes each file and
 requires it to remain inside that task's runtime directory. It gives Claude the
 attachment parent directory with `--add-dir` and grants an exact `Read` rule for

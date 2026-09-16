@@ -18,8 +18,10 @@ import com.bytequay.agent.spi.DevelopmentResultBridge;
 import com.bytequay.agent.spi.LocalReviewBridge;
 import com.bytequay.agent.spi.PullRequestCiBridge;
 import com.bytequay.agent.spi.ReviewBridge;
+import com.google.common.collect.ImmutableList;
 
 import java.nio.file.Path;
+import java.util.List;
 import java.util.Optional;
 
 import static java.util.Objects.requireNonNull;
@@ -31,6 +33,7 @@ public final class McpConfigRegistration
     private final Path configFile;
     private final Path settingsFile;
     private final String token;
+    private final List<String> toolNames;
     private final Optional<CodeGraphBridge> codeGraph;
     private final Optional<ReviewBridge> review;
     private final Optional<DevelopmentResultBridge> development;
@@ -42,6 +45,7 @@ public final class McpConfigRegistration
             Path configFile,
             Path settingsFile,
             String token,
+            List<String> toolNames,
             Optional<CodeGraphBridge> codeGraph,
             Optional<ReviewBridge> review,
             Optional<DevelopmentResultBridge> development,
@@ -52,6 +56,7 @@ public final class McpConfigRegistration
         this.configFile = requireNonNull(configFile, "configFile is null");
         this.settingsFile = requireNonNull(settingsFile, "settingsFile is null");
         this.token = requireNonNull(token, "token is null");
+        this.toolNames = ImmutableList.copyOf(toolNames);
         this.codeGraph = requireNonNull(codeGraph, "codeGraph is null");
         this.review = requireNonNull(review, "review is null");
         this.development = requireNonNull(development, "development is null");
@@ -100,6 +105,12 @@ public final class McpConfigRegistration
     public String token()
     {
         return token;
+    }
+
+    /** Agent-facing tools exposed by this token, excluding the provider's permission callback. */
+    public List<String> toolNames()
+    {
+        return toolNames;
     }
 
     @Override

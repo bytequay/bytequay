@@ -40,14 +40,10 @@ import com.bytequay.agent.spi.AgentTurnCommand;
 import com.bytequay.agent.spi.AgentTurnFailureKind;
 import com.bytequay.agent.spi.AgentTurnResult;
 import com.bytequay.agent.spi.AgentUnavailableException;
-import com.bytequay.agent.spi.CodeGraphBridge;
-import com.bytequay.agent.spi.DevelopmentResultBridge;
-import com.bytequay.agent.spi.LocalReviewBridge;
 import com.bytequay.agent.spi.ProviderAgentEvent;
 import com.bytequay.agent.spi.ProviderApprovalDecision;
 import com.bytequay.agent.spi.ProviderApprovalRequest;
 import com.bytequay.agent.spi.ProviderTurnRef;
-import com.bytequay.agent.spi.PullRequestCiBridge;
 import com.bytequay.agent.spi.RunningTurn;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -384,7 +380,6 @@ public final class ClaudeCliDriver
 
     private List<String> argv(
             McpConfigRegistration registration,
-            Optional<CodeGraphBridge> codeGraph,
             AgentPermissionPolicy permissionPolicy,
             Optional<String> model,
             Optional<String> effort,
@@ -423,9 +418,6 @@ public final class ClaudeCliDriver
             // Keep new provider workflow/delegation tools out of root-only review sessions.
             argv.add("--disable-slash-commands", "--tools", "Bash,Glob,Grep,Read,Edit,Write,NotebookEdit,WebFetch,WebSearch,TodoWrite,TaskOutput,TaskStop");
         }
-        if (permissionPolicy == AgentPermissionPolicy.CI_AUTOFIX) {
-            allowedTools.add("mcp__bytequay__read_ci_memory");
-        }
         if (!attachments.isEmpty()) {
             argv.add("--add-dir");
             attachments.stream()
@@ -439,12 +431,7 @@ public final class ClaudeCliDriver
                     .map(ClaudeCliDriver::absoluteReadRule)
                     .iterator());
         }
-        codeGraph.ifPresent(bridge -> allowedTools.add("mcp__bytequay__" + CodeGraphBridge.TOOL_NAME));
-        registration.development().ifPresent(bridge -> allowedTools.add("mcp__bytequay__" + DevelopmentResultBridge.TOOL_NAME));
-        registration.pullRequestCi().ifPresent(bridge -> allowedTools.add("mcp__bytequay__" + PullRequestCiBridge.TOOL_NAME));
-        registration.localReview().ifPresent(bridge -> LocalReviewBridge.TOOL_NAMES.forEach(name -> allowedTools.add("mcp__bytequay__" + name)));
-        registration.review().ifPresent(bridge -> bridge.tools()
-                .forEach(tool -> allowedTools.add("mcp__bytequay__" + tool.name())));
+        registration.toolNames().forEach(name -> allowedTools.add("mcp__bytequay__" + name));
         String instruction = Stream.of(
                         permissionPolicy.allowsGitHubCommands(textOnly, registration.review().isPresent()) ? AgentCommandPolicy.instructions() : "",
                         managedInstructions,
@@ -945,7 +932,6 @@ public final class ClaudeCliDriver
                             session.context.textOnly() ? session.context.taskId() : command.turnId()),
                     argv(
                             session.registration,
-                            session.context.codeGraph(),
                             session.context.permissionPolicy(),
                             command.model().or(session.context::model),
                             command.effort().or(session.context::effort),

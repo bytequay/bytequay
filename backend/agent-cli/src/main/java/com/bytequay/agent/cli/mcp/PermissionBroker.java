@@ -71,6 +71,7 @@ import static com.bytequay.agent.spi.ProviderAgentEventSource.root;
 import static com.bytequay.agent.spi.ProviderApprovalRequest.Decision.ALLOW_ONCE;
 import static com.bytequay.agent.spi.ProviderApprovalRequest.Decision.DENY;
 import static com.google.common.base.Preconditions.checkArgument;
+import static com.google.common.collect.ImmutableList.toImmutableList;
 import static java.util.Objects.requireNonNull;
 
 /** Serves ByteQuay's task-scoped MCP tools. */
@@ -236,7 +237,7 @@ public final class PermissionBroker
         Optional<LocalReviewBridge> localReview = textOnly ? Optional.empty() : localReviews.resolve(taskId);
         Optional<PullRequestCiBridge> pullRequestCi = permissionPolicy.allowsGitHubCommands(textOnly, review.isPresent())
                 ? pullRequestChecks.resolve(taskId) : Optional.empty();
-        contexts.put(token, new PermissionContext(
+        PermissionContext context = new PermissionContext(
                 taskId,
                 worktree,
                 permissionPolicy,
@@ -247,7 +248,8 @@ public final class PermissionBroker
                 review,
                 development,
                 localReview,
-                pullRequestCi));
+                pullRequestCi);
+        contexts.put(token, context);
         try {
             Files.createDirectories(providerDirectory);
             // Claude's HTTP first-response deadline otherwise expires after 60 seconds, before the approval card.
@@ -260,7 +262,11 @@ public final class PermissionBroker
                             APPROVAL_TIMEOUT.plusSeconds(30).toMillis()))));
             writeOwnerOnly(configFile, json);
             writeOwnerOnly(settingsFile, sandboxSettings(permissionPolicy, textOnly, review.isPresent(), runtimeDirectory.toRealPath(), environment));
-            return new McpConfigRegistration(configFile, settingsFile, token, codeGraph, review, development, localReview, pullRequestCi, () -> {
+            List<String> toolNames = tools(context).stream()
+                    .map(ToolDefinition::name)
+                    .filter(name -> !name.equals("permission_prompt"))
+                    .collect(toImmutableList());
+            return new McpConfigRegistration(configFile, settingsFile, token, toolNames, codeGraph, review, development, localReview, pullRequestCi, () -> {
                 contexts.remove(token);
                 delete(configFile);
                 delete(settingsFile);

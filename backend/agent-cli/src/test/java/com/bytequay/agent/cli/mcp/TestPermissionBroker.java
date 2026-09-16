@@ -24,6 +24,7 @@ import com.bytequay.agent.spi.DraftPullRequestPublisher;
 import com.bytequay.agent.spi.LocalReviewBridge;
 import com.bytequay.agent.spi.ProviderApprovalDecision;
 import com.bytequay.agent.spi.ProviderApprovalRequest;
+import com.bytequay.agent.spi.PullRequestCiBridge;
 import com.bytequay.agent.spi.ReviewBridge;
 import com.bytequay.agent.spi.ReviewBridgeResolver;
 import com.bytequay.agent.spi.ReviewTool;
@@ -55,6 +56,46 @@ class TestPermissionBroker
 
     @TempDir
     private Path temporaryDirectory;
+
+    @Test
+    void providerApprovalNamesMatchTheAdvertisedTaskTools()
+            throws Exception
+    {
+        ReviewBridge review = new ReviewBridge(ImmutableList.of(new ReviewTool(
+                "review_extra_evidence", "Read more evidence", ImmutableMap.of("type", "object"), arguments -> "evidence")), "Review this PR");
+        LocalReviewBridge local = new LocalReviewBridge(commentId -> "[]", reply -> "{}", resolution -> "{}", LocalReviewBridge.INSTRUCTION);
+        PermissionBroker broker = new PermissionBroker(
+                () -> URI.create("http://127.0.0.1:9000/internal/agent/claude/mcp"), objectMapper,
+                (taskId, query) -> "memory",
+                taskId -> taskId.equals("review") ? Optional.of(review) : Optional.empty(),
+                taskId -> taskId.equals("development") ? Optional.of(new DevelopmentResultBridge("turn-1", DevelopmentResultBridge.INSTRUCTION)) : Optional.empty(),
+                DraftPullRequestPublisher.NONE,
+                taskId -> taskId.equals("development") ? Optional.of(local) : Optional.empty(),
+                taskId -> taskId.equals("development") ? Optional.of(new PullRequestCiBridge(jobId -> "checks", PullRequestCiBridge.INSTRUCTION)) : Optional.empty());
+        for (String taskId : ImmutableList.of("plain", "review", "development", "graph", "ci")) {
+            AgentPermissionPolicy policy = taskId.equals("ci") ? AgentPermissionPolicy.CI_AUTOFIX : AgentPermissionPolicy.AUTO;
+            Optional<CodeGraphBridge> graph = taskId.equals("graph") ? Optional.of(new CodeGraphBridge(query -> "graph", "Use the graph")) : Optional.empty();
+            try (McpConfigRegistration registration = broker.register(
+                    taskId, temporaryDirectory, temporaryDirectory, temporaryDirectory, policy, false,
+                    (request, timeout) -> CompletableFuture.completedFuture(ProviderApprovalDecision.deny()),
+                    SecretRedactor.fromEnvironment(ImmutableMap.of()), graph)) {
+                JsonNode listed = broker.handle(registration.token(), objectMapper.readTree("""
+                        {"jsonrpc":"2.0","id":1,"method":"tools/list","params":{}}
+                        """)).body().orElseThrow();
+                assertThat(registration.toolNames()).as(taskId)
+                        .containsExactlyElementsOf(listed.at("/result/tools").findValuesAsText("name").stream()
+                                .filter(name -> !name.equals("permission_prompt"))
+                                .toList())
+                        .doesNotContain("permission_prompt");
+                if (taskId.equals("development")) {
+                    assertThat(registration.toolNames()).contains(DevelopmentResultBridge.PUBLISH_TOOL_NAME);
+                }
+                if (taskId.equals("review")) {
+                    assertThat(registration.toolNames()).containsExactly("review_extra_evidence");
+                }
+            }
+        }
+    }
 
     @Test
     void privateLocalReviewToolsShareTheTaskScopeWithoutChangingItsDevelopmentProfile()
@@ -145,6 +186,7 @@ class TestPermissionBroker
                 "task-1", temporaryDirectory, temporaryDirectory, temporaryDirectory, AgentPermissionPolicy.AUTO,
                 true, (request, timeout) -> CompletableFuture.completedFuture(ProviderApprovalDecision.deny()), redactor, Optional.empty())) {
             assertThat(helper.localReview()).isEmpty();
+            assertThat(helper.toolNames()).isEmpty();
         }
         PermissionBroker localOnly = new PermissionBroker(
                 () -> URI.create("http://127.0.0.1:9000/internal/agent/claude/mcp"), objectMapper,

@@ -16,6 +16,15 @@ import { AgentEventEnvelope } from './agents/events';
 import type { CreateDevelopmentLearningCommentRequest, CreateLocalReviewRequest, LocalReviewQuery, ReplyLocalReviewRequest, ResolveLocalReviewRequest, RetryLocalReviewRequest } from './pulls/local-review/contracts';
 import type { LocalReviewThreadDto } from './pulls/local-review/types';
 import type {
+  ConfigureRepositoryContextRequest,
+  EditRepositoryContextEntryRequest,
+  RemoveRepositoryContextEntryRequest,
+  RepositoryNotebookDto,
+  ResetRepositoryContextRequest,
+  SaveRepositoryContextLessonRequest,
+  SetRepositoryContextEntryEnabledRequest,
+} from './repository-context/contracts';
+import type {
   AgentReviewDto,
   ReviewDraftDto,
   ReviewEvent,
@@ -1528,6 +1537,13 @@ export type Bridge = {
   deleteGitHubToken: () => Promise<void>;
 
   getWorkspaceSettings: (workspaceId: string) => Promise<WorkspaceSettingsDto>;
+  getRepositoryContext: (workspaceId: string) => Promise<RepositoryNotebookDto>;
+  configureRepositoryContext: (workspaceId: string, request: ConfigureRepositoryContextRequest) => Promise<RepositoryNotebookDto>;
+  editRepositoryContextEntry: (workspaceId: string, request: EditRepositoryContextEntryRequest) => Promise<RepositoryNotebookDto>;
+  setRepositoryContextEntryEnabled: (workspaceId: string, request: SetRepositoryContextEntryEnabledRequest) => Promise<RepositoryNotebookDto>;
+  removeRepositoryContextEntry: (workspaceId: string, request: RemoveRepositoryContextEntryRequest) => Promise<RepositoryNotebookDto>;
+  resetRepositoryContext: (workspaceId: string, request: ResetRepositoryContextRequest) => Promise<RepositoryNotebookDto>;
+  saveRepositoryContextLesson: (workspaceId: string, request: SaveRepositoryContextLessonRequest) => Promise<RepositoryNotebookDto>;
   setWorkspaceCommitsTarget: (workspaceId: string, branch: string) => Promise<WorkspaceCommitsTargetDto>;
   clearWorkspaceCommitsTarget: (workspaceId: string) => Promise<WorkspaceCommitsTargetDto>;
   renameWorkspace: (workspaceId: string, name: string) => Promise<WorkspaceDto>;

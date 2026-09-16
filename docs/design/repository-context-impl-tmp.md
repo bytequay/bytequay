@@ -18,8 +18,10 @@ query and explicit references, sharing the three-excerpt cap with prior reviews.
 Baseline source reads and selected document pages retain typed read receipts,
 including successful empty observations, alongside exact optional evidence.
 Snapshots are prepared before agent admission and exposed in the existing review
-projection. Generation, direct context delivery, the settings/display UI, and
-provider acceptance remain pending. Unchecked items remain pending even when
+projection. The first settings/display UI now exposes local notebook editing,
+default-on review selection, source/scope configuration, Save lesson from retained
+private messages, and truthful prepared-packet/receipt inspection. Generation,
+direct context delivery and provider acceptance remain pending. Unchecked items remain pending even when
 related infrastructure already exists.
 
 ## Delivery summary
@@ -32,10 +34,10 @@ related infrastructure already exists.
 | Selected PR, issue, commit association and related diff reads | Finished |
 | Selected documentation capture and retained excerpts | Finished; committed as d42c105f0 |
 | Scoped task-summary discovery | Finished; committed as 333902583 |
-| Frozen-baseline file reads and typed source receipts | Finished; verification recorded below |
+| Frozen-baseline file reads and typed source receipts | Finished; committed as 3ba1ef0d2 |
 | Shared preparation, cold generation and explicit builder | Next; preparation and reuse first |
 | Automatic context delivery and complete report integration | Pending |
-| Notebook/settings UI and Context used display | Pending |
+| Notebook/settings UI, Save lesson and prepared-context display | Implemented; verification recorded below; build activity/delivery/citations remain pending |
 | On/Off quality comparison, performance and provider acceptance | Pending; required before enablement |
 
 An implemented source reader is not completion of automatic reusable knowledge.
@@ -242,16 +244,20 @@ derive from durable facts. Exercise each supported provider independently.
 
 ## CP5 — Friendly notebook and review display
 
-- [ ] Add Repository context to the existing workspace settings page with
-  Knowledge, Saved lessons, configured sources/scopes and preparation outcomes.
-- [ ] Add the default-on Use repository context in reviews switch and show its
+- [x] Add Repository context to the existing workspace settings page with
+  Knowledge, Saved lessons and configured sources/scopes.
+- [ ] Show preparation outcomes once the generation workflow exists.
+- [x] Add the default-on Use repository context in reviews switch and show its
   captured state on each run. Explain new-run scope and retained saved notes.
-- [ ] Add Build/Refresh, editing, disabling/removal and explicit reset using the
+- [x] Add editing, disabling/removal and explicit removal reset, with revision
+  conflicts, preserved drafts and UTF-8 limits.
+- [ ] Add Build/Refresh using the
   existing task transcript for progress, Stop, failure and recovery navigation.
-- [ ] Add Save lesson to the existing private discussion/response surface;
+- [x] Add Save lesson to the existing private discussion/response surface;
   use the same editor for user acceptance of text, evidence and scope.
-- [ ] Extend Review details with Context used, exact provided text, reasons,
-  versions, gaps, retrieved sources and links to cited findings/hypotheses.
+- [x] Extend Review details with prepared context, exact captured text and bytes,
+  reasons, versions, gaps, fingerprints and retained source receipts.
+- [ ] Add confirmed provided state and links to cited findings/hypotheses.
 - [ ] Use folded activity for reuse/build/join/failure. Keep no-match, unbuilt,
   ready-empty, failed and stale states understandable without technical JSON.
 - [ ] Show elapsed time and available bytes/token/caching metrics without
@@ -762,3 +768,59 @@ Required checks below describe the current increment, not full feature acceptanc
   generation and the explicit builder. READY/EMPTY/FAILED lifecycle, automatic
   delivery, Context used/settings UI and provider/judgment/performance
   acceptance remain separate unfinished gates.
+
+### First notebook and review UI
+
+- Added typed Electron contracts, guarded IPC and preload methods for all seven
+  existing notebook endpoints. Review parsing preserves nullable historical
+  snapshots and rejects malformed present context instead of displaying Off.
+- Added Workspace settings → Repository context with the persisted default-on
+  switch, knowledge and saved-lesson groups, manual knowledge creation, entry
+  editing/disable/remove, removal reset, and source/scope configuration. Opening
+  the page performs only local reads. Every mutation uses the displayed revision.
+- Shared native dialogs keep focus inside the editor, expose UTF-8 limits and
+  preserve failed drafts. Explicit reload precedes retry; the current disabled
+  scope state survives a configuration conflict. Changed source/claim structure
+  cannot be silently overwritten by an older note editor.
+- Review details now renders Prepared, Off for this run or Not recorded, exact
+  saved packet/bytes, note versions and reasons, history, input fingerprints,
+  retained source reads and gaps. It makes no delivery or comprehension claim.
+- Save lesson uses the retained private message's original run, supports selected
+  evidence, and asks the user to edit its title, summary, conditions and scope.
+  Duplicate clicks are fenced; reload recognizes a saved lesson after a lost
+  response while preserving edits made after that attempt. No provider turn or
+  GitHub write is started.
+- Existing backend storage/source bounds remain enforced. In particular a source
+  excerpt over 16 KiB or a full notebook can reject a lesson save; the editor
+  retains the draft and shows the backend error. Generation, Build/Refresh,
+  preparation activity, automatic delivery and cited-finding navigation are not
+  implemented by this UI increment.
+- Backend `mvn -B verify` passed all seven modules, 223 suites and 2,616 tests,
+  with zero failures, errors or skips. Log:
+  `/private/tmp/bytequay-context-ui-backend.log`.
+- Offline Chromium checks cover nine settings scenarios plus review lesson
+  conflicts, old-run binding, lost responses and newer draft preservation.
+  Inspected normal/narrow settings and editor layouts:
+  `/private/tmp/bytequay-context-settings-ui/wide.png`,
+  `/private/tmp/bytequay-context-settings-ui/narrow.png`, and
+  `/private/tmp/bytequay-context-settings-ui/editor.png`.
+  Review and lesson captures:
+  `/private/tmp/bytequay-review-context-wide.png`,
+  `/private/tmp/bytequay-review-context-narrow.png`,
+  `/private/tmp/bytequay-save-lesson.png`, and
+  `/private/tmp/bytequay-save-lesson-narrow.png`.
+  These use disposable local fixtures, not live provider or quality acceptance.
+- Frontend lint, TypeScript and the full suite passed: 84 files, 916 tests.
+  Logs: `/private/tmp/bytequay-context-ui-lint.log`,
+  `/private/tmp/bytequay-context-ui-types-final.log`, and
+  `/private/tmp/bytequay-context-ui-tests.log`. The full run exposed a fixture
+  timing assumption; replacing frame delays with bounded waits for actual dialog,
+  save and reload states resolved it without changing production behavior.
+- Final desktop packaging passed; its backend JAR matches the verified JAR by
+  SHA-256. Log: `/private/tmp/bytequay-context-ui-package.log`. Whitespace checks
+  include new files, and changed design-document local links resolve. The full
+  review patch, including new UI, contracts and tests, is
+  `/private/tmp/bytequay-context-ui-review.patch`.
+- Next: shared preparation admission and source/input reuse, then protected
+  generated updates, cold generation and the explicit builder; automatic delivery
+  and small-PR On/Off/provider/performance acceptance remain later gates.

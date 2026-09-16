@@ -1,0 +1,67 @@
+/*
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+.rc-page { color: #1d1d1f; }
+.rc-page > .rc-muted { margin: -10px 0 22px; }
+.rc-muted { font-size: 13px; line-height: 1.55; color: #6e6e73; }
+.rc-page .setw-card { margin-bottom: 24px; }
+.rc-page .setw-row { flex-wrap: wrap; }
+.rc-page .setw-row-controls { flex-wrap: wrap; }
+.rc-page .setw-row-sub { overflow-wrap: anywhere; }
+.rc-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.rc-note { padding: 15px 18px; }
+.rc-note + .rc-note { border-top: 1px solid #ededf0; }
+.rc-note-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; }
+.rc-note-head strong { font-size: 14px; overflow-wrap: anywhere; }
+.rc-note-head small { display: block; color: #6e6e73; font-size: 12px; margin-top: 4px; }
+.rc-note p { margin: 10px 0; line-height: 1.55; font-size: 13px; overflow-wrap: anywhere; }
+.rc-note summary { cursor: pointer; font-size: 12px; color: #55555b; padding: 5px 0; }
+.rc-note pre, .rc-saved-version { white-space: pre-wrap; overflow-wrap: anywhere; font: inherit; font-size: 13px; line-height: 1.55; }
+.rc-note .rc-actions { margin-top: 12px; }
+.rc-button { border: 1px solid #dcdce1; border-radius: 7px; padding: 6px 11px; font: inherit; font-size: 12px; background: #fff; color: #333338; cursor: pointer; }
+.rc-button:hover:not(:disabled) { background: #f5f5f7; }
+.rc-button.is-primary { background: #0969da; color: #fff; border-color: #0969da; }
+.rc-button.is-primary:hover:not(:disabled) { background: #075dc3; }
+.rc-button.is-danger { color: #b42318; }
+.rc-button:disabled { opacity: 0.5; cursor: default; }
+.rc-button:focus-visible, .rc-close:focus-visible { outline: 2px solid #0969da; outline-offset: 2px; }
+.rc-error { border: 1px solid #edc4bf; background: #fff4f2; color: #9a2e22; border-radius: 8px; padding: 10px 12px; font-size: 13px; line-height: 1.5; margin-bottom: 12px; overflow-wrap: anywhere; }
+.rc-status { color: #236b3a; font-size: 13px; margin-bottom: 14px; }
+.rc-dialog { width: 600px; max-width: calc(100vw - 40px); max-height: calc(100dvh - 40px); padding: 0; border: 1px solid #dcdce1; border-radius: 14px;
+  color: #1d1d1f; background: #fff; box-shadow: 0 25px 70px #0003; overflow: hidden; font-family: inherit; }
+.rc-dialog[open] { display: flex; flex-direction: column; }
+.rc-dialog::backdrop { background: #14141666; }
+.rc-dialog > header { display: flex; align-items: center; justify-content: space-between; padding: 15px 18px; border-bottom: 1px solid #ededf0; flex: none; }
+.rc-dialog h2 { margin: 0; font-size: 16px; font-weight: 600; }
+.rc-close { display: flex; align-items: center; justify-content: center; background: transparent; color: #6e6e73; border: 0; border-radius: 6px; width: 28px; height: 28px; cursor: pointer; }
+.rc-dialog > form { display: flex; flex-direction: column; min-height: 0; }
+.rc-dialog-body { padding: 16px 18px; overflow-y: auto; }
+.rc-dialog-body > p:first-child { margin-top: 0; }
+.rc-dialog label { display: block; font-size: 12px; font-weight: 600; margin: 14px 0 6px; }
+.rc-dialog input, .rc-dialog textarea, .rc-dialog select { display: block; width: 100%; box-sizing: border-box; padding: 8px 10px; border: 1px solid #dcdce1; border-radius: 7px;
+  font: inherit; font-size: 13px; font-weight: 400; line-height: 1.5; color: inherit; background: #fff; margin-top: 6px; }
+.rc-dialog textarea { resize: vertical; min-height: 48px; }
+.rc-dialog input:focus, .rc-dialog textarea:focus, .rc-dialog select:focus { outline: 2px solid #0969da; outline-offset: 1px; }
+.rc-dialog input[type=checkbox] { width: auto; display: inline-block; margin: 0 7px 0 0; }
+.rc-dialog label:has(input[type=checkbox]) { font-weight: 400; line-height: 1.5; }
+.rc-dialog footer { display: flex; gap: 8px; justify-content: flex-end; padding: 13px 18px; background: #fafafb; border-top: 1px solid #ededf0; flex: none; }
+.rc-count { display: block; margin-top: 5px; text-align: right; color: #6e6e73; font-size: 11px; }
+.rc-count.is-over { color: #b42318; }
+.rc-dialog details { margin: 12px 0; font-size: 13px; }
+.rc-dialog summary { cursor: pointer; }
+.rc-dialog .rc-saved-version { padding: 10px; border: 1px solid #e0e0e5; border-radius: 6px; background: #f8f8fa; }
+@media (max-width: 760px) {
+  .rc-note-head { flex-wrap: wrap; }
+  .rc-dialog { max-width: calc(100vw - 20px); max-height: calc(100dvh - 20px); }
+  .setw-scroll:has(.rc-page) { padding: 24px 18px; }
+}

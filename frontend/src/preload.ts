@@ -231,6 +231,13 @@ const bridge: Bridge = {
   deleteGitHubToken: () => ipcRenderer.invoke('pat:delete'),
 
   getWorkspaceSettings: workspaceId => ipcRenderer.invoke('workspaces:settings', workspaceId),
+  getRepositoryContext: workspaceId => ipcRenderer.invoke('repository-context:get', workspaceId),
+  configureRepositoryContext: (workspaceId, request) => ipcRenderer.invoke('repository-context:configure', workspaceId, request),
+  editRepositoryContextEntry: (workspaceId, request) => ipcRenderer.invoke('repository-context:edit', workspaceId, request),
+  setRepositoryContextEntryEnabled: (workspaceId, request) => ipcRenderer.invoke('repository-context:enabled', workspaceId, request),
+  removeRepositoryContextEntry: (workspaceId, request) => ipcRenderer.invoke('repository-context:remove', workspaceId, request),
+  resetRepositoryContext: (workspaceId, request) => ipcRenderer.invoke('repository-context:reset', workspaceId, request),
+  saveRepositoryContextLesson: (workspaceId, request) => ipcRenderer.invoke('repository-context:lesson', workspaceId, request),
   setWorkspaceCommitsTarget: (workspaceId, branch) => ipcRenderer.invoke('workspaces:commits-target:set', workspaceId, branch),
   clearWorkspaceCommitsTarget: workspaceId => ipcRenderer.invoke('workspaces:commits-target:clear', workspaceId),
   renameWorkspace: (workspaceId, name) => ipcRenderer.invoke('workspaces:rename', workspaceId, name),

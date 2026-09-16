@@ -341,6 +341,20 @@ otherwise complete review.
 
 ## 5. Context, anchors, and evidence
 
+Review details includes a Repository context disclosure from the selected run's
+saved snapshot. It shows Prepared, Off for this run, or Not recorded, exact packet
+text and bytes, selected note versions/reasons, history, input fingerprints,
+retained source reads and gaps. Prepared does not imply delivery or comprehension;
+provider delivery confirmation remains a separate Repository Context gate.
+Notebook edits never rewrite this historical display.
+
+Each retained private discussion message with a known source run offers **Save
+lesson**. Its local editor lets the user accept or rewrite the text, choose a
+notebook scope, and select additional evidence from that original run. The backend
+retains the original message source even when a newer review run exists. Saving
+uses the notebook revision, preserves failed drafts, and starts no agent turn or
+GitHub write. The settings notebook is the place to edit or remove the saved lesson.
+
 The initial request is small: review purpose, PR identity, frozen scope,
 previous review reference where applicable, and available capabilities. The
 agent requests additional context as needed:

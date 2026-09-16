@@ -50,6 +50,7 @@ const SETTINGS_ICONS: Record<SettingsSection, ReactNode> = {
   github: <CircleUser size={16} strokeWidth={1.7} aria-hidden="true" />,
   'ws-repository': <Tags size={16} strokeWidth={1.7} aria-hidden="true" />,
   'ws-agents': <Bot size={16} strokeWidth={1.7} aria-hidden="true" />,
+  'ws-context': <SquareLibrary size={16} strokeWidth={1.7} aria-hidden="true" />,
   'ws-token': <KeyRound size={16} strokeWidth={1.7} aria-hidden="true" />,
   'ws-advanced': <TriangleAlert size={16} strokeWidth={1.7} aria-hidden="true" />,
 };

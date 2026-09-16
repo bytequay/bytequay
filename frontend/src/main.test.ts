@@ -16,6 +16,7 @@ import { afterEach, expect, it, vi } from 'vitest';
 import { CI_RUN } from './agents/fixtures/ciAutofix';
 import contracts from './agents/fixtures/agent-contracts-v1.json';
 import { parseAgentTask } from './agents/contracts';
+import type { RepositoryNotebookDto } from './repository-context/contracts';
 
 const desktop = vi.hoisted(() => ({
   listeners: new Map<string, () => Promise<void>>(),
@@ -80,4 +81,53 @@ it('sends versioned local review actions and preserves the returned private revi
       expect.objectContaining({ method: 'POST', body: JSON.stringify({ expectedVersion: 7 }),
         headers: { 'Content-Type': 'application/json', 'X-ByteQuay-Session': 'test-session' } }));
   }
+});
+
+const emptyNotebook: RepositoryNotebookDto = { schemaVersion: 1, revision: 7, useInReviews: true, sources: [],
+  scopes: [{ id: 'project', title: 'Project', match: { kind: 'REPOSITORY' }, enabled: true }],
+  entries: [], suppressedKnowledgeIds: [], sourceEvidence: [] };
+
+it('routes notebook actions through authenticated workspace-scoped endpoints with exact revision and lesson bindings', async () => {
+  await import('./main');
+  await expect(desktop.listeners.get('ready')?.()).rejects.toThrow('End test startup');
+  const fetch = vi.fn(async () => new Response(JSON.stringify(emptyNotebook), { headers: { 'Content-Type': 'application/json' } }));
+  vi.stubGlobal('fetch', fetch);
+  const base = 'http://127.0.0.1:9527/api/workspaces/workspace%2Fone/repository-context';
+  await expect(desktop.handlers.get('repository-context:get')?.({}, 'workspace/one')).resolves.toEqual(emptyNotebook);
+  expect(fetch).toHaveBeenLastCalledWith(base, expect.objectContaining({ headers: { 'X-ByteQuay-Session': 'test-session' } }));
+  const actions: Array<{ action: string; path: string; method: string; request: Record<string, unknown> }> = [
+    { action: 'configure', path: '/configuration', method: 'PUT', request: { expectedRevision: 7, useInReviews: false } },
+    { action: 'edit', path: '/entries', method: 'PUT', request: { expectedRevision: 7, id: 'knowledge:project', scopeId: 'project',
+      title: 'Project', summary: 'Summary', body: 'Corrected text', claims: [], sourceIds: [] } },
+    { action: 'enabled', path: '/entries/enabled', method: 'PUT', request: { expectedRevision: 7, entryId: 'knowledge:project', enabled: false } },
+    { action: 'remove', path: '/entries', method: 'DELETE', request: { expectedRevision: 7, entryId: 'knowledge:project' } },
+    { action: 'reset', path: '/reset', method: 'POST', request: { expectedRevision: 7, scopeIds: ['project'] } },
+    { action: 'lesson', path: '/lessons', method: 'POST', request: { expectedRevision: 7, scopeId: 'project',
+      title: 'Lesson', summary: 'Summary', body: 'Conditional lesson', reviewId: 'review', runId: 'old-run', evidenceRefs: ['E2'], messageId: 'old-message' } },
+  ];
+  for (const { action, path, method, request } of actions) {
+    await expect(desktop.handlers.get(`repository-context:${action}`)?.({}, 'workspace/one', request)).resolves.toEqual(emptyNotebook);
+    expect(fetch).toHaveBeenLastCalledWith(base + path, expect.objectContaining({ method, body: JSON.stringify(request),
+      headers: { 'Content-Type': 'application/json', 'X-ByteQuay-Session': 'test-session' } }));
+  }
+  expect(fetch).toHaveBeenCalledTimes(7);
+});
+
+it('rejects forged notebook mutation fields before sending and surfaces stale revisions without an automatic retry', async () => {
+  await import('./main');
+  await expect(desktop.listeners.get('ready')?.()).rejects.toThrow('End test startup');
+  const fetch = vi.fn(async () => new Response(JSON.stringify({ message: 'Notebook changed; reload before saving.' }), { status: 409 }));
+  vi.stubGlobal('fetch', fetch);
+  const configure = desktop.handlers.get('repository-context:configure');
+  expect(() => configure?.({}, 'workspace', { expectedRevision: 7, sourceEvidence: [] })).toThrow('unsupported request field');
+  expect(fetch).not.toHaveBeenCalled();
+  await expect(configure?.({}, 'workspace', { expectedRevision: 7, useInReviews: false })).rejects.toThrow('Notebook changed; reload before saving.');
+  expect(fetch).toHaveBeenCalledTimes(1);
+});
+
+it('refuses malformed notebook responses instead of returning a fabricated empty notebook', async () => {
+  await import('./main');
+  await expect(desktop.listeners.get('ready')?.()).rejects.toThrow('End test startup');
+  vi.stubGlobal('fetch', vi.fn(async () => new Response(JSON.stringify({ ...emptyNotebook, useInReviews: 'false' }))));
+  await expect(desktop.handlers.get('repository-context:get')?.({}, 'workspace')).rejects.toThrow('Malformed repository context');
 });

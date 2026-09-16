@@ -43,6 +43,15 @@ import {
 import { parseLocalReviewThread, parseLocalReviewThreads, type CreateDevelopmentLearningCommentRequest, type CreateLocalReviewRequest, type LocalReviewQuery, type ReplyLocalReviewRequest, type ResolveLocalReviewRequest, type RetryLocalReviewRequest } from './pulls/local-review/contracts';
 import { parseAgentEventSequence, parseAgentHistoryPage, parseAgentPendingApprovals } from './agents/events';
 import {
+  parseConfigureRepositoryContextRequest,
+  parseEditRepositoryContextEntryRequest,
+  parseRemoveRepositoryContextEntryRequest,
+  parseRepositoryNotebook,
+  parseResetRepositoryContextRequest,
+  parseSaveRepositoryContextLessonRequest,
+  parseSetRepositoryContextEntryEnabledRequest,
+} from './repository-context/contracts';
+import {
   parseAgentReview,
   parseAgentReviews,
   parseReviewDraft,
@@ -1167,6 +1176,26 @@ function registerIpc(): void {
 
   ipcMain.handle('workspaces:settings', (_event, workspaceId: string) =>
     backendJson(`${backendBase()}/api/workspaces/${encodeURIComponent(workspaceId)}/settings`));
+  ipcMain.handle('repository-context:get', (_event, workspaceId: string) =>
+    backendJson(`${backendBase()}/api/workspaces/${encodeURIComponent(workspaceId)}/repository-context`, { headers: agentHeaders() }).then(parseRepositoryNotebook));
+  ipcMain.handle('repository-context:configure', (_event, workspaceId: string, request: unknown) =>
+    backendJson(`${backendBase()}/api/workspaces/${encodeURIComponent(workspaceId)}/repository-context/configuration`,
+      jsonInit('PUT', parseConfigureRepositoryContextRequest(request), agentHeaders())).then(parseRepositoryNotebook));
+  ipcMain.handle('repository-context:edit', (_event, workspaceId: string, request: unknown) =>
+    backendJson(`${backendBase()}/api/workspaces/${encodeURIComponent(workspaceId)}/repository-context/entries`,
+      jsonInit('PUT', parseEditRepositoryContextEntryRequest(request), agentHeaders())).then(parseRepositoryNotebook));
+  ipcMain.handle('repository-context:enabled', (_event, workspaceId: string, request: unknown) =>
+    backendJson(`${backendBase()}/api/workspaces/${encodeURIComponent(workspaceId)}/repository-context/entries/enabled`,
+      jsonInit('PUT', parseSetRepositoryContextEntryEnabledRequest(request), agentHeaders())).then(parseRepositoryNotebook));
+  ipcMain.handle('repository-context:remove', (_event, workspaceId: string, request: unknown) =>
+    backendJson(`${backendBase()}/api/workspaces/${encodeURIComponent(workspaceId)}/repository-context/entries`,
+      jsonInit('DELETE', parseRemoveRepositoryContextEntryRequest(request), agentHeaders())).then(parseRepositoryNotebook));
+  ipcMain.handle('repository-context:reset', (_event, workspaceId: string, request: unknown) =>
+    backendJson(`${backendBase()}/api/workspaces/${encodeURIComponent(workspaceId)}/repository-context/reset`,
+      jsonInit('POST', parseResetRepositoryContextRequest(request), agentHeaders())).then(parseRepositoryNotebook));
+  ipcMain.handle('repository-context:lesson', (_event, workspaceId: string, request: unknown) =>
+    backendJson(`${backendBase()}/api/workspaces/${encodeURIComponent(workspaceId)}/repository-context/lessons`,
+      jsonInit('POST', parseSaveRepositoryContextLessonRequest(request), agentHeaders())).then(parseRepositoryNotebook));
   ipcMain.handle('workspaces:commits-target:set', (_event, workspaceId: string, branch: string) =>
     backendJson(
       `${backendBase()}/api/workspaces/${encodeURIComponent(workspaceId)}/commits-target`,

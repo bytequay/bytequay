@@ -55,8 +55,12 @@ serializes the closed receipt types in the existing run JSON. App reads pinned
 local baseline blobs or registered documents, then rechecks turn ownership and
 retains receipt/evidence in one run update. These reads do not mutate the shared
 notebook or certify source applicability or completed knowledge preparation.
-Generation, review input delivery and
-the settings UI have separate implementation gates.
+The Electron bridge exposes typed notebook reads and revision-guarded edits.
+Workspace settings renders knowledge, lessons, scopes and documentation sources;
+private review messages can be saved as user-edited lessons bound to their original
+run. Review details renders the retained packet and receipts as prepared context,
+with gaps and provenance. Opening either surface performs no generation or remote
+fetch. Generation and confirmed review input delivery remain separate gates.
 
 [Development delivery](development-delivery.md) extends the current agent core
 through one application coordinator. Core reserves its source owner after a

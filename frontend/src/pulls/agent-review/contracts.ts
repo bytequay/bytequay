@@ -12,6 +12,7 @@
  * limitations under the License.
  */
 /** Wire shapes for the Agent review tab. Parsed once, so a malformed field never reaches a card. */
+import { parseReviewContextSnapshot, type ReviewContextSnapshotDto } from '../../repository-context/contracts';
 
 type ReviewRunState = 'RUNNING' | 'ACCEPTED' | 'INCOMPLETE' | 'STOPPED' | 'FAILED';
 type ReviewFindingState = 'OPEN' | 'RESOLVED' | 'WITHDRAWN';
@@ -80,6 +81,7 @@ export type ReviewRunDto = {
   investigation: ReviewInvestigationDto | null;
   steps: ReviewStepDto[];
   evidence: ReviewEvidenceDto[];
+  context: ReviewContextSnapshotDto | null;
   outcome: string | null;
   createdAt: string;
   endedAt: string | null;
@@ -376,6 +378,7 @@ function parseRun(value: unknown): ReviewRunDto {
     investigation: parseInvestigation(run.investigation),
     steps: list(run.steps).map(parseStep),
     evidence: list(run.evidence).map(parseEvidence),
+    context: parseReviewContextSnapshot(run.context),
     outcome: optionalText(run.outcome),
     createdAt: text(run.createdAt, 'run time'),
     endedAt: optionalText(run.endedAt),

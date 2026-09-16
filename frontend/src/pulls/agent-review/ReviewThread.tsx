@@ -14,6 +14,7 @@
 import Avatar from '../../Avatar';
 import MarkdownBody from '../MarkdownBody';
 import { ReviewThreadMessage } from '../ReviewThreadCard';
+import SaveReviewLesson from './SaveReviewLesson';
 import type { AgentReviewDto, ReviewMessageDto } from './contracts';
 import { queued } from './model';
 
@@ -38,13 +39,14 @@ export default function ReviewThread({ review, messages, viewerLogin, viewerAvat
     <div className="agr-thread">
       {messages.map(message => {
         const mine = message.author === 'USER';
+        const sourceRun = review.runs.find(run => run.id === message.runId);
         return (
           <ReviewThreadMessage key={message.id} timestamp={message.createdAt}
             author={<><Avatar login={mine ? viewerLogin : 'Agent'} avatarUrl={mine ? viewerAvatarUrl : null}
               size={22} allowGitHubFallback={false} /><strong>{mine ? 'You' : 'Agent'}</strong></>}
-            menu={queued(review, message) && (
+            menu={<>{queued(review, message) && (
               <span className="agr-pill is-queued"><Spinner />Queued · runs after the current turn</span>
-            )}>
+            )}{sourceRun !== undefined && <SaveReviewLesson review={review} run={sourceRun} message={message} />}</>}>
             <MarkdownBody body={message.body} repository={review.repo} />
           </ReviewThreadMessage>
         );

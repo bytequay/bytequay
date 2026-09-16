@@ -12,6 +12,7 @@
  * limitations under the License.
  */
 import MarkdownBody from '../MarkdownBody';
+import ReviewContextDetails from './ReviewContextDetails';
 import type { ReviewCandidateValidationDto, ReviewInvestigationDto, ReviewRunDto } from './contracts';
 import { shortSha } from './model';
 
@@ -59,6 +60,7 @@ export default function ReviewDetails({ run, repository }: { run: ReviewRunDto; 
       <p className="agr-learning-cards__scope">
         {run.scope === 'FULL' ? 'Full review' : 'Incremental review'} · {run.priorHeadSha === null ? run.baseRef : shortSha(run.priorHeadSha)} → {shortSha(run.headSha)}
       </p>
+      <ReviewContextDetails run={run} />
       {investigation !== null && <>
         <h3>Change understanding</h3>
         <MarkdownBody body={investigation.changeMap} repository={repository} />

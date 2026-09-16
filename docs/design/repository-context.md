@@ -1391,16 +1391,48 @@ must prevent complete coverage, through existing reporting rules.
 
 ### 7.3 Friendly presentation
 
-Add a Repository context card to existing workspace settings. It contains the
-default-on Use repository context in reviews switch, two note groups, source
-roots, Build/Refresh, entry editing, and disable/remove. Explain that the switch
-applies to new runs and that turning it off preserves saved notes.
-Save lesson on an existing private discussion/agent response opens the same
-editor prefilled with a suggested conditional lesson and its evidence. The user
-reviews the content and scope before Save.
+The first implemented UI is **Workspace settings → Repository context**. It
+contains the default-on Use repository context in reviews switch, Knowledge and
+Saved lessons, matching scopes, and registered documentation sources. The switch
+applies to new runs; turning it off preserves notes and historical run snapshots.
+Opening the page only reads the local notebook. Source registration saves a
+public HTTPS root or page without fetching it. Build/Refresh and preparation
+outcomes remain pending the generation workflow.
+
+Users can add one knowledge note per scope, edit existing knowledge or lessons,
+disable entries or scopes, and remove notes. Removing knowledge records its
+suppression; **Reset removal** allows a new note for that scope without restoring
+deleted text. Scopes can be disabled rather than removed. Existing source links
+and claim classifications survive text edits; saving generated text makes that
+note user-managed. Text fields display UTF-8 byte limits.
+
+All writes use the displayed notebook revision and wait for the backend before
+updating the page. A failed write retains the open draft and requires an explicit
+reload before retry. Reload preserves draft text and lets the user compare the
+latest saved note. A changed source/claim structure requires reopening the latest
+entry; a reloaded scope retains its current enabled state. Old workspace responses
+cannot replace a newly opened workspace's notebook.
+
+**Save lesson** on a retained private review message opens the shared editor with
+the original message text. The user writes its title and summary, edits its
+conditions and scope, and can select additional retained evidence before saving.
+The backend binds the source to that message's original review/run, including
+older discussions. This is a local notebook action and creates no provider turn
+or GitHub comment. Failed saves keep the draft; after an uncertain response, a
+reload recognizes an identical accepted lesson instead of duplicating it. Newer
+draft edits remain visible with a notice that another save creates another lesson.
+
+The implemented Review details disclosure renders the immutable run snapshot:
+**Prepared**, **Off for this run**, or **Not recorded**, captured revision, exact
+packet and UTF-8 byte count, selected note versions and match reasons, related
+history, input fingerprints, source receipts/excerpts and gaps. Missing historical
+context is not interpreted as Off. It does not label prepared text as delivered,
+read, understood or responsible for a better conclusion. Automatic delivery and
+citation navigation require their later integration gates.
 
 Extend the existing Review details disclosure, not the top-level report card
-types. Example display, with illustrative counts:
+types. The completed delivery workflow should support this example display,
+with illustrative counts:
 
 ~~~text
 Repository context provided · 18 KiB

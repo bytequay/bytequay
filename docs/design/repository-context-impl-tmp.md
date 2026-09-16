@@ -10,6 +10,7 @@ bounded baseline input inventories and fingerprints. Selected PR/issue and
 commit-association reads reuse existing caches and refresh paths, retaining
 freshness and failure evidence. The default-on preference now controls local
 snapshot capture; Off bypasses selection.
+Related patch pages pin cached contents by fingerprint and retain exact excerpts.
 Snapshots are prepared before agent admission and exposed in the existing review
 projection. Generation, direct context delivery, the settings/display UI, and
 provider acceptance remain pending. Unchecked items remain pending even when
@@ -118,8 +119,9 @@ runtime-retention and workspace-deletion behavior. Use current schema ownership.
   code; retain source freshness in returned evidence.
 - [x] Add selected missing commit-association reads through existing enrichment
   and lookup services, with shared negative retry rules and explicit failures.
-- [ ] Add exact related-diff hydration; current review diffs already come from
-  the retained run.
+- [x] Add related default-diff hydration with content fingerprints, consistent
+  pagination and exact retained patch excerpts; current review diffs already
+  come from the retained run. Do not infer verified/final revision ranges.
 - [ ] Register validated user/repository documentation roots with provenance;
   capture selected pages through the bounded reader and retain cited excerpts.
 - [ ] Check every redirect and resolved destination, document versions,
@@ -553,3 +555,43 @@ Required checks below describe the current increment, not full feature acceptanc
   Source whitespace, Java line-length, conflict-marker and local Markdown-link
   checks pass; all seven design JSON examples parse. Exact related-diff hydration,
   documentation capture, shared preparation, delivery and UI remain pending.
+- Committed the verified commit-association increment as `22756a834`
+  (`Resolve selected commit pull request context`).
+- Related patch reads use the existing default PR diff store and selected
+  refresh service. A content fingerprint binds the complete ordered artifact
+  to its repository and PR; continuation pages use local cache reads and reject
+  changed or missing artifacts. Separately observed PR metadata cannot certify
+  the diff's revisions, freshness, completeness or final merged contents.
+- The shared GitHub list reader now rejects missing bodies and unsolicited
+  not-modified responses instead of producing false empty data. Explicit empty
+  arrays and conditional first-page reuse retain their meanings. Existing
+  historical artifacts still have no recorded completeness or fetch timestamp.
+- Frontend related-diff checks passed: `npm run lint`,
+  `npx --no-install tsc --noEmit`, and `npm test` (80 files, 901 tests).
+  Logs: `/private/tmp/bytequay-context-related-diff-lint.log`,
+  `/private/tmp/bytequay-context-related-diff-types.log`, and
+  `/private/tmp/bytequay-context-related-diff-frontend-tests.log`.
+- Full backend related-diff gate: `mvn -B verify` passed in one invocation,
+  including license, Checkstyle, compilation, tests, Spring boot and packaging.
+  Reports contain 219 suites and 2,461 tests with zero failures, errors or skips.
+  Focused coverage includes 42 selected-diff reader cases, 60 review-tool cases
+  and 10 shared pagination cases. Tests exercise cache-only reuse, empty versus
+  unavailable artifacts, selected hydration/refresh and original-content
+  fallback, exact digest framing, changed-cache conflicts, Unicode fragments,
+  extreme page numbers and preservation of frozen review coordinates/anchors.
+  Log: `/private/tmp/bytequay-context-related-diff-verify.log`.
+- Related file indexes return at most 20 metadata entries without evidence
+  writes. Each patch page retains exactly its at-most-2,000-code-point fragment
+  with one run update; missing patches stay unavailable. No full diff copy,
+  schema change, provider transport change or new background job was added.
+  Hashing scans the cached artifact on each read; live latency/memory and
+  provider/judgment acceptance remain pending. All tests used existing isolated
+  fixtures, not live GitHub, provider credentials or the user-data database.
+- Related-diff desktop packaging passed and produced
+  `frontend/out/ByteQuay-darwin-arm64/ByteQuay.app`; its backend JAR matches the
+  verified JAR by SHA-256. Log:
+  `/private/tmp/bytequay-context-related-diff-package.log`.
+  Changed source whitespace, Java line lengths, conflict markers and local
+  document links pass; all seven design JSON examples parse. Selected
+  documentation capture, task-summary discovery, shared preparation/generation,
+  direct delivery, UI and provider/judgment acceptance remain pending.

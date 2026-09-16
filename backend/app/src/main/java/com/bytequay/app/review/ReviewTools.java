@@ -25,6 +25,7 @@ import com.bytequay.app.git.GitCommandRunner;
 import com.bytequay.app.repository.github.GitHubIssuePreview;
 import com.bytequay.app.service.RepoService;
 import com.bytequay.app.service.pr.PullRequestService;
+import com.bytequay.app.service.pr.SelectedPullRequestDiffReader;
 import com.bytequay.app.service.pr.SelectedPullRequestReader;
 import com.bytequay.app.workspace.WorkspaceIssueRefreshService;
 import com.bytequay.app.workspace.WorkspaceIssueService;
@@ -61,7 +62,9 @@ import com.fasterxml.jackson.databind.node.ObjectNode;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.hash.Hashing;
+import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Component;
+import org.springframework.web.server.ResponseStatusException;
 
 import java.nio.charset.StandardCharsets;
 import java.time.Clock;
@@ -106,6 +109,9 @@ public class ReviewTools
     private static final int MAX_EXCERPT = 4000;
     private static final int SOURCE_WINDOW = 200;
     private static final int DIFF_PAGE_LINES = 300;
+    private static final int RELATED_DIFF_FILES_PAGE = 20;
+    private static final int RELATED_DIFF_CODE_POINTS_PAGE = 2000;
+    private static final int MAX_RELATED_DIFF_GAPS = 10;
     private static final int TIMELINE_PAGE = 20;
     private static final int CHECK_PAGE = 20;
     private static final int MAX_COMMIT_ASSOCIATION_GAPS = 10;
@@ -114,6 +120,7 @@ public class ReviewTools
     private final AgentReviewStore store;
     private final PullRequestService pullRequests;
     private final SelectedPullRequestReader selectedPullRequests;
+    private final SelectedPullRequestDiffReader selectedPullRequestDiffs;
     private final SelectedCommitPullRequestReader selectedCommitPullRequests;
     private final RepoService repositories;
     private final WorkspaceIssueService issues;
@@ -130,6 +137,7 @@ public class ReviewTools
             AgentReviewStore store,
             PullRequestService pullRequests,
             SelectedPullRequestReader selectedPullRequests,
+            SelectedPullRequestDiffReader selectedPullRequestDiffs,
             SelectedCommitPullRequestReader selectedCommitPullRequests,
             RepoService repositories,
             WorkspaceIssueService issues,
@@ -145,6 +153,7 @@ public class ReviewTools
         this.store = requireNonNull(store, "store is null");
         this.pullRequests = requireNonNull(pullRequests, "pullRequests is null");
         this.selectedPullRequests = requireNonNull(selectedPullRequests, "selectedPullRequests is null");
+        this.selectedPullRequestDiffs = requireNonNull(selectedPullRequestDiffs, "selectedPullRequestDiffs is null");
         this.selectedCommitPullRequests = requireNonNull(selectedCommitPullRequests, "selectedCommitPullRequests is null");
         this.repositories = requireNonNull(repositories, "repositories is null");
         this.issues = requireNonNull(issues, "issues is null");
@@ -172,12 +181,14 @@ public class ReviewTools
                 new ReviewTool("review_get_context",
                         "Read bounded pull request context for this review: kind pr, timeline, checks "
                                 + "(optional same-repository PR number; defaults to this review; page for timeline/checks), "
-                                + "issue (required number), diff (optional path, page), "
+                                + "issue (required number), diff (optional same-repository PR number, path, page, diffVersion, refresh), "
                                 + "commit_prs (required shas: 1 to " + SelectedCommitPullRequestReader.MAX_COMMITS
                                 + " unique full 40/64-hex commit IDs in this repository), "
                                 + "source (path, startLine, endLine, revision: head/base/previous), command_output, investigation, findings, "
                                 + "summary, discussion (target), or evidence (ref). "
-                                + "Diff lines carry anchor ids; PR, timeline, checks, source, issue and command reads return evidence refs to cite in findings. "
+                                + "Only current-review diff lines carry anchor ids; related patch pages and other source reads return evidence refs. "
+                                + "For related diffs, read the file index first, then send its diffVersion on every path or later page. "
+                                + "refresh=true is only for a related initial index without diffVersion. Patch fragments may split lines. "
                                 + "Known PRs requested through issue return PR metadata; use timeline(number, page) for their discussion. "
                                 + "Selected metadata can be newer than the frozen reviewed code; inspect freshness before relying on historical discussion or checks.",
                         schema(ImmutableMap.<String, Object>builder()
@@ -207,6 +218,8 @@ public class ReviewTools
                                 .put("number", ImmutableMap.of("type", "integer", "minimum", 1))
                                 .put("shas", ImmutableMap.of("type", "array", "minItems", 1, "maxItems", SelectedCommitPullRequestReader.MAX_COMMITS,
                                         "uniqueItems", true, "items", ImmutableMap.of("type", "string", "pattern", "^(?:[0-9a-fA-F]{40}|[0-9a-fA-F]{64})$")))
+                                .put("diffVersion", ImmutableMap.of("type", "string", "pattern", "^[0-9a-f]{64}$"))
+                                .put("refresh", ImmutableMap.of("type", "boolean"))
                                 .put("page", ImmutableMap.of("type", "integer", "minimum", 1))
                                 .put("startLine", ImmutableMap.of("type", "integer", "minimum", 1))
                                 .put("endLine", ImmutableMap.of("type", "integer", "minimum", 1))
@@ -862,7 +875,7 @@ public class ReviewTools
             case "checks" -> checks(call, integer(arguments, "number").orElse(call.review().number()), page(arguments));
             case "issue" -> issue(call, integer(arguments, "number").orElseThrow(() -> new ReviewInvalidRequestException("number: required for kind issue")), page(arguments));
             case "commit_prs" -> commitPullRequests(call);
-            case "diff" -> diff(call, Optional.ofNullable(arguments.get("path")).filter(JsonNode::isTextual).map(JsonNode::asText), page(arguments));
+            case "diff" -> diff(call);
             case "source" -> source(call, text(arguments, "path", 1000, true), integer(arguments, "startLine").orElse(1), integer(arguments, "endLine"));
             case "command_output" -> commandOutput(call);
             case "investigation" -> objectMapper.valueToTree(call.run().investigation().orElse(null));
@@ -1211,6 +1224,113 @@ public class ReviewTools
                 .put("readAt", now().toString())
                 .put("evidenceRef", ref);
         node.putPOJO("labels", preview.labels());
+        return node;
+    }
+
+    private JsonNode diff(Call call)
+    {
+        ObjectNode arguments = call.arguments();
+        int number = integer(arguments, "number").orElse(call.review().number());
+        int page = page(arguments);
+        JsonNode refreshValue = arguments.get("refresh");
+        if (refreshValue != null && !refreshValue.isBoolean()) {
+            throw new ReviewInvalidRequestException("refresh: must be a boolean");
+        }
+        boolean refresh = refreshValue != null && refreshValue.booleanValue();
+        if (number == call.review().number()) {
+            if (arguments.has("diffVersion")) {
+                throw new ReviewInvalidRequestException("diffVersion: unavailable for the current review's frozen diff");
+            }
+            if (refresh) {
+                throw new ReviewInvalidRequestException("refresh: the current review's frozen diff cannot be refreshed");
+            }
+            return diff(call, Optional.ofNullable(arguments.get("path")).filter(JsonNode::isTextual).map(JsonNode::asText), page);
+        }
+        if (arguments.has("revision")) {
+            throw new ReviewInvalidRequestException("revision: related diffs use the selected PR's default artifact and diffVersion");
+        }
+        Optional<String> path = Optional.ofNullable(arguments.get("path")).map(value -> {
+            if (!value.isTextual() || value.textValue().isEmpty() || value.textValue().length() > 1000) {
+                throw new ReviewInvalidRequestException("path: must be non-empty text of at most 1000 characters");
+            }
+            return value.textValue();
+        });
+        Optional<String> version = Optional.ofNullable(arguments.get("diffVersion")).map(value -> {
+            if (!value.isTextual() || !value.textValue().matches("[0-9a-f]{64}")) {
+                throw new ReviewInvalidRequestException("diffVersion: must be the lowercase SHA-256 version returned by the initial diff index");
+            }
+            return value.textValue();
+        });
+        if ((path.isPresent() || page > 1) && version.isEmpty()) {
+            throw new ReviewInvalidRequestException("diffVersion: read the initial diff index first; a version is required for paths and later pages");
+        }
+        if (refresh && (path.isPresent() || page != 1 || version.isPresent())) {
+            throw new ReviewInvalidRequestException("refresh: only the initial related diff index without diffVersion can refresh");
+        }
+        SelectedPullRequestDiffReader.Read read;
+        try {
+            read = selectedPullRequestDiffs.read(call.review().repo(), number, version, refresh);
+        }
+        catch (ResponseStatusException failure) {
+            if (failure.getStatusCode().equals(HttpStatus.CONFLICT)) {
+                throw new ReviewConflictException("diffVersion: source changed or disappeared; restart with the initial related diff index");
+            }
+            if (failure.getStatusCode().equals(HttpStatus.NOT_FOUND)) {
+                throw new ReviewInvalidRequestException("number: selected pull request diff is unavailable");
+            }
+            throw failure;
+        }
+        ObjectNode node = objectMapper.createObjectNode()
+                .put("source", "selected-pull-request-diff").put("repository", call.review().repo()).put("number", number)
+                .put("diffVersion", read.version()).put("readAt", read.readAt().toString())
+                .put("freshnessKnown", false).put("completeKnown", false).put("finalMergedDiffVerified", false)
+                .put("refreshAttempted", read.refreshAttempted()).put("refreshFailed", read.refreshFailed())
+                .put("observedHeadSha", read.observedHeadSha().orElse(null))
+                .put("sourceUpdatedAt", read.sourceUpdatedAt().map(Instant::toString).orElse(null))
+                .put("reportedChangedFiles", read.reportedChangedFiles().orElse(null))
+                .put("metadataVersionLinked", false).put("page", page);
+        node.putPOJO("gaps", read.gaps().stream().limit(MAX_RELATED_DIFF_GAPS).map(gap -> bounded(gap, 1000)).collect(toImmutableList()));
+        node.put("omittedGaps", Math.max(0, read.gaps().size() - MAX_RELATED_DIFF_GAPS));
+        if (path.isEmpty()) {
+            int from = (int) Math.min(read.files().size(), (long) (page - 1) * RELATED_DIFF_FILES_PAGE);
+            int to = Math.min(read.files().size(), from + RELATED_DIFF_FILES_PAGE);
+            node.put("pages", Math.max(1, (read.files().size() + (long) RELATED_DIFF_FILES_PAGE - 1) / RELATED_DIFF_FILES_PAGE))
+                    .put("totalFiles", read.files().size()).put("pageSize", RELATED_DIFF_FILES_PAGE)
+                    .put("note", "Metadata-only index of the observed cached artifact; no completeness or final-merge proof. "
+                            + "Use diffVersion on path reads and later pages. Separately observed metadata is unverified; absent metadata is unknown.");
+            node.putPOJO("files", read.files().subList(from, to).stream().map(file -> {
+                boolean readable = !file.filename().isEmpty() && file.filename().length() <= 1000;
+                ObjectNode entry = objectMapper.createObjectNode().put("status", bounded(file.status(), MAX_TITLE))
+                        .put("additions", file.additions()).put("deletions", file.deletions()).put("patchAvailable", file.patch() != null)
+                        .put("pathReadable", readable).put("pathTruncated", file.filename().length() > 1000);
+                if (readable) {
+                    entry.put("path", file.filename());
+                }
+                else {
+                    entry.put("pathPreview", bounded(file.filename(), 1000));
+                }
+                return entry;
+            }).collect(toImmutableList()));
+            return node;
+        }
+        DiffFile file = read.files().stream().filter(candidate -> candidate.filename().equals(path.orElseThrow())).findFirst()
+                .orElseThrow(() -> new ReviewInvalidRequestException("path: not present in this selected PR diff artifact"));
+        node.put("path", file.filename()).put("status", bounded(file.status(), MAX_TITLE)).put("patchAvailable", file.patch() != null)
+                .put("format", "Exact raw patch fragment; may start or end mid-line. This related source has no current-review inline anchors.");
+        if (file.patch() == null) {
+            return node.putNull("patch").put("note", "Patch unavailable; this is not evidence that the file has no changes.");
+        }
+        String patch = file.patch();
+        int total = patch.codePointCount(0, patch.length());
+        int from = (int) Math.min(total, (long) (page - 1) * RELATED_DIFF_CODE_POINTS_PAGE);
+        int to = (int) Math.min(total, (long) from + RELATED_DIFF_CODE_POINTS_PAGE);
+        String fragment = patch.substring(patch.offsetByCodePoints(0, from), patch.offsetByCodePoints(0, to));
+        node.put("pages", Math.max(1, (total + (long) RELATED_DIFF_CODE_POINTS_PAGE - 1) / RELATED_DIFF_CODE_POINTS_PAGE))
+                .put("totalCodePoints", total).put("startCodePoint", from).put("endCodePoint", to).put("patch", fragment);
+        String provenance = "Selected default PR diff " + call.review().repo() + "#" + number + "; diffVersion=" + read.version()
+                + "; page=" + page + "; readAt=" + read.readAt() + "; exact returned raw patch fragment; may split lines. "
+                + "Content identity is not a verified Git range, current freshness, completeness, final merged diff or merge rationale.";
+        node.put("evidenceRef", registerEvidence(call, call.review().repo() + "#" + number + " " + file.filename(), provenance, fragment));
         return node;
     }
 

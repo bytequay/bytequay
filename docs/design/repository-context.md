@@ -386,6 +386,70 @@ related PR exists. A mapping also does not establish the final PR diff, why it
 was merged, or applicability to the reviewed code. The initial local context
 snapshot remains unchanged; this explicit source read does not build notes.
 
+### 3.2 Related PR patch reads
+
+The diff kind of review_get_context keeps the current review's frozen diff
+when number is absent or names that review. A different same-repository number
+selects its existing default PR diff through SelectedPullRequestDiffReader.
+This reads the PR's patch artifact; it does not reconstruct a merged PR by
+comparing today's base branch with the old head. The default cache has no
+verified base/head pair, retrieval time or completeness record.
+
+The initial read joins the stored PR identity and PrDiffStore entry. A missing
+PR uses the existing selected PR reader; its full-detail hydration can already
+populate the diff, so reread before requesting another refresh. A missing diff
+uses PullRequestRefreshService.refreshDiffFiles for that exact PR. An explicit
+refresh on the initial file-list read can replace an existing artifact through
+the same service. Cached artifacts otherwise remain local reads without an
+invented age limit. A stored empty file list differs from an absent snapshot.
+On refresh or confirming-read failure, retain the original cached artifact and
+report failure; with no artifact, report unavailable. Missing HTTP list bodies
+must fail rather than being saved as successful empty lists. A valid empty JSON
+array and an unchanged conditional response retain their existing meanings.
+
+The returned diffVersion is SHA-256 over the normalized repository, PR number
+and complete ordered file list, including framed paths, statuses, counts and
+nullable patch text. Null and empty patches hash differently. The fingerprint
+identifies the observed contents, not a verified Git revision pair. It excludes
+separately changing PR metadata and expanded file bodies. Duplicate paths make
+the artifact ambiguous and are rejected. String frames retain exact UTF-16 code
+units, including malformed surrogate values from old cached JSON; encoding
+replacement cannot make different contents share a version.
+
+Read the initial file-list page to obtain diffVersion. Every path read and
+later file-list page requires that value. Continuations are strictly local:
+if the PR/cache disappeared or the full artifact's fingerprint differs, return
+a source-changed error and require a new initial read. Do not refresh or switch
+artifacts midway through pagination. The fingerprint prevents accidental page
+mixing; the bound review repository and selected PR number provide authority.
+No per-review copy of the entire diff or new cache/table is necessary.
+Fingerprinting scans the cached artifact on each page. Measure that cost on
+large PRs before adding a stored digest; page-size limits bound transport, not
+the existing cache load or the full fingerprint scan.
+
+File lists return at most 20 entries per page. Patch pages contain at most
+2,000 Unicode code points, preserving surrogate pairs; they may start or end
+mid-line. Even a single enormous line remains bounded. Each returned patch
+fragment is retained exactly as evidence, with the PR identity,
+fingerprint, page and read time. Related patches have evidence references, never
+the current review's inline finding anchors. Finding locations still resolve
+only against the frozen reviewed diff. Large page numbers cannot overflow
+offset calculations. Paths exceeding the tool's supported length are shown as
+unreadable previews, never silently substituted as another exact path.
+
+Report the separately observed PR head/update time and changed-file count as
+metadata, with version linkage, freshness, completeness and final-merge status
+unverified. A count mismatch or missing patch adds a gap; matching counts do
+not prove completeness. GitHub's PR-file endpoint itself returns at most
+3,000 files, and the existing generic paginator has its own bounds. See the
+[GitHub PR-file contract](https://docs.github.com/en/rest/pulls/pulls#list-pull-requests-files).
+Existing cached artifacts can also predate the missing-response guard. Source
+pages preserve their exact contents without certifying the complete final
+merged change, current applicability or why the PR was accepted. Initial
+context capture and notebook knowledge remain unchanged.
+
+### 3.3 Selected documentation reads
+
 External documents are the narrow new capture requirement. Native web can
 discover useful URLs, but current provider events do not reliably retain
 retrieved page bodies. A model-pasted URL/quote is **agent-reported**, not an

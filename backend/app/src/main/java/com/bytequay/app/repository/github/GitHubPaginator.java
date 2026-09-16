@@ -19,6 +19,7 @@ import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.client.RestClient;
+import org.springframework.web.server.ResponseStatusException;
 
 import java.time.Instant;
 import java.util.LinkedHashSet;
@@ -27,6 +28,7 @@ import java.util.Optional;
 import java.util.Set;
 
 import static com.bytequay.app.repository.github.GitHubApiSupport.get;
+import static com.bytequay.app.repository.github.GitHubApiSupport.requireBody;
 import static com.bytequay.app.repository.github.GitHubApiSupport.translating;
 import static java.util.Objects.requireNonNull;
 
@@ -108,11 +110,14 @@ final class GitHubPaginator
             ResponseEntity<List<T>> entity = translating(() -> request.retrieve().toEntity(typeRef));
             if (currentPage == 1) {
                 responseEtag = Optional.ofNullable(entity.getHeaders().getETag()).or(() -> etag);
-                if (entity.getStatusCode() == HttpStatus.NOT_MODIFIED) {
-                    return new ConditionalList<>(Optional.empty(), responseEtag);
-                }
             }
-            List<T> rows = entity.getBody() == null ? ImmutableList.of() : entity.getBody();
+            if (entity.getStatusCode() == HttpStatus.NOT_MODIFIED) {
+                if (currentPage != 1 || etag.isEmpty()) {
+                    throw new ResponseStatusException(HttpStatus.BAD_GATEWAY, "Unexpected not-modified response without a conditional first GitHub page");
+                }
+                return new ConditionalList<>(Optional.empty(), responseEtag);
+            }
+            List<T> rows = requireBody(entity.getBody(), "Empty response from GitHub list endpoint");
             if (rows.isEmpty()) {
                 break;
             }
@@ -164,7 +169,7 @@ final class GitHubPaginator
             })
                     .retrieve()
                     .body(typeRef);
-            return rows == null ? ImmutableList.of() : rows;
+            return requireBody(rows, "Empty response from GitHub list endpoint");
         });
     }
 }

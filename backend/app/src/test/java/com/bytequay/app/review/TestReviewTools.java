@@ -29,6 +29,7 @@ import com.bytequay.app.git.GitCommandRunner;
 import com.bytequay.app.repository.github.GitHubIssuePreview;
 import com.bytequay.app.service.RepoService;
 import com.bytequay.app.service.pr.PullRequestService;
+import com.bytequay.app.service.pr.SelectedPullRequestDiffReader;
 import com.bytequay.app.service.pr.SelectedPullRequestReader;
 import com.bytequay.app.workspace.WorkspaceIssueRefreshService;
 import com.bytequay.app.workspace.WorkspaceIssueService;
@@ -67,6 +68,8 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.ValueSource;
+import org.springframework.http.HttpStatus;
+import org.springframework.web.server.ResponseStatusException;
 
 import java.io.IOException;
 import java.io.InputStream;
@@ -106,6 +109,7 @@ class TestReviewTools
     private static final String HEAD_SHA = "1111111111111111111111111111111111111111";
     private static final String BASE_SHA = "2222222222222222222222222222222222222222";
     private static final String COMMIT_SHA = "3333333333333333333333333333333333333333";
+    private static final String DIFF_VERSION = "abcdef01".repeat(8);
     private static final String DIFF_PATH = "src/main/java/Widget.java";
     private static final String CANDIDATE = "The new input might bypass validation";
     private static final String PATCH = "@@ -1,2 +1,3 @@\n alpha\n+beta\n gamma\n";
@@ -123,6 +127,7 @@ class TestReviewTools
     private RepoService repositories;
     private PullRequestService pullRequests;
     private SelectedPullRequestReader selectedPullRequests;
+    private SelectedPullRequestDiffReader selectedPullRequestDiffs;
     private SelectedCommitPullRequestReader selectedCommitPullRequests;
     private WorkspaceIssueService issues;
     private WorkspaceIssueRefreshService issueRefresh;
@@ -137,6 +142,7 @@ class TestReviewTools
 
         pullRequests = mock(PullRequestService.class);
         selectedPullRequests = mock(SelectedPullRequestReader.class);
+        selectedPullRequestDiffs = mock(SelectedPullRequestDiffReader.class);
         selectedCommitPullRequests = mock(SelectedCommitPullRequestReader.class);
         repositories = mock(RepoService.class);
         issues = mock(WorkspaceIssueService.class);
@@ -152,7 +158,8 @@ class TestReviewTools
             ReviewRun current = store.listRuns(REVIEW_ID).getLast();
             return new ReviewToolAssignment.Binding(current, current.currentStep(), Optional.empty());
         });
-        tools = new ReviewTools(store, pullRequests, selectedPullRequests, selectedCommitPullRequests, repositories, issues, issueRefresh, events, workspaces, git, objectMapper,
+        tools = new ReviewTools(store, pullRequests, selectedPullRequests, selectedPullRequestDiffs, selectedCommitPullRequests,
+                repositories, issues, issueRefresh, events, workspaces, git, objectMapper,
                 new ReviewLocks(), assignments, Clock.fixed(NOW, ZoneOffset.UTC));
 
         when(workspaces.requireReadableRepository(WORKSPACE_ID)).thenReturn(workspaceRepository());
@@ -613,6 +620,8 @@ class TestReviewTools
         assertThat(summary.description()).doesNotContain("combined result", "critical findings", "supporting evidence");
         assertThat(bridge.instruction()).contains("only purpose", "design", "implementation", "exact replacement code", "RIGHT-side", "omit severity");
         JsonNode contextSchema = objectMapper.valueToTree(bridge.tool("review_get_context").orElseThrow().inputSchema());
+        assertThat(contextSchema.at("/properties/diffVersion/pattern").asText()).isEqualTo("^[0-9a-f]{64}$");
+        assertThat(contextSchema.at("/properties/refresh/type").asText()).isEqualTo("boolean");
         assertThat(contextSchema.at("/properties/shas/minItems").asInt()).isEqualTo(1);
         assertThat(contextSchema.at("/properties/shas/maxItems").asInt()).isEqualTo(10);
         assertThat(contextSchema.at("/properties/shas/uniqueItems").asBoolean()).isTrue();
@@ -967,6 +976,198 @@ class TestReviewTools
 
         JsonNode absolute = call("review_get_context", ImmutableMap.<String, Object>of("kind", "source", "path", "/etc/passwd"));
         assertThat(absolute.path("error").path("field").asText()).isEqualTo("path");
+    }
+
+    @Test
+    void relatedDiffIndexIsBoundedAndExplicitlyUnverified()
+    {
+        List<DiffFile> files = IntStream.range(0, 22)
+                .mapToObj(index -> new DiffFile(index == 0 ? "x".repeat(1001) : "file-" + index, "modified", 1, 2, index == 1 ? null : PATCH))
+                .collect(toImmutableList());
+        List<String> gaps = IntStream.range(0, 12).mapToObj(index -> "Gap " + index + "x".repeat(2000)).collect(toImmutableList());
+        SelectedPullRequestDiffReader.Read initial = new SelectedPullRequestDiffReader.Read(files, DIFF_VERSION, Optional.of("a".repeat(40)),
+                Optional.of(NOW.minusSeconds(30)), Optional.of(30), NOW, true, true, gaps);
+        SelectedPullRequestDiffReader.Read continuation = relatedDiff(files);
+        when(selectedPullRequestDiffs.read(REPO, 19, Optional.empty(), true)).thenReturn(initial);
+        when(selectedPullRequestDiffs.read(REPO, 19, Optional.of(DIFF_VERSION), false)).thenReturn(continuation);
+
+        JsonNode index = call("review_get_context", ImmutableMap.of("kind", "diff", "number", 19, "refresh", true));
+
+        verify(selectedPullRequestDiffs).read(REPO, 19, Optional.empty(), true);
+        assertThat(index.path("repository").asText()).isEqualTo(REPO);
+        assertThat(index.path("number").asInt()).isEqualTo(19);
+        assertThat(index.path("diffVersion").asText()).isEqualTo(DIFF_VERSION);
+        assertThat(index.path("readAt").asText()).isEqualTo(NOW.toString());
+        assertThat(index.path("observedHeadSha").asText()).isEqualTo("a".repeat(40));
+        assertThat(index.path("sourceUpdatedAt").asText()).isEqualTo(NOW.minusSeconds(30).toString());
+        assertThat(index.path("reportedChangedFiles").asInt()).isEqualTo(30);
+        assertThat(index.path("refreshAttempted").asBoolean()).isTrue();
+        assertThat(index.path("refreshFailed").asBoolean()).isTrue();
+        assertThat(index.path("freshnessKnown").asBoolean()).isFalse();
+        assertThat(index.path("completeKnown").asBoolean()).isFalse();
+        assertThat(index.path("finalMergedDiffVerified").asBoolean()).isFalse();
+        assertThat(index.path("metadataVersionLinked").asBoolean()).isFalse();
+        assertThat(index.path("files")).hasSize(20);
+        assertThat(index.path("pages").asInt()).isEqualTo(2);
+        assertThat(index.path("totalFiles").asInt()).isEqualTo(22);
+        assertThat(index.at("/files/0/pathReadable").asBoolean()).isFalse();
+        assertThat(index.at("/files/0/pathTruncated").asBoolean()).isTrue();
+        assertThat(index.at("/files/0/pathPreview").asText()).hasSizeLessThanOrEqualTo(1014);
+        assertThat(index.at("/files/0").has("path")).isFalse();
+        assertThat(index.at("/files/1/patchAvailable").asBoolean()).isFalse();
+        assertThat(index.path("gaps")).hasSize(10).allSatisfy(gap -> assertThat(gap.asText()).hasSizeLessThanOrEqualTo(1014));
+        assertThat(index.path("omittedGaps").asInt()).isEqualTo(2);
+        assertThat(index.path("note").asText()).contains("Metadata-only", "no completeness", "absent metadata is unknown");
+        assertThat(index.has("anchors")).isFalse();
+        assertThat(index.has("headSha")).isFalse();
+        assertThat(index.has("baseSha")).isFalse();
+        JsonNode later = call("review_get_context", ImmutableMap.of("kind", "diff", "number", 19, "diffVersion", DIFF_VERSION, "page", 2));
+        assertThat(later.path("files")).hasSize(2);
+        assertThat(later.at("/files/0/path").asText()).isEqualTo("file-20");
+        assertThat(later.path("observedHeadSha").isNull()).isTrue();
+        assertThat(later.path("sourceUpdatedAt").isNull()).isTrue();
+        assertThat(later.path("reportedChangedFiles").isNull()).isTrue();
+        JsonNode beyond = call("review_get_context", ImmutableMap.of("kind", "diff", "number", 19, "diffVersion", DIFF_VERSION, "page", Integer.MAX_VALUE));
+        assertThat(beyond.path("files")).isEmpty();
+        assertThat(store.runUpdates).isZero();
+        verifyNoInteractions(selectedPullRequests, selectedCommitPullRequests, workspaces, git);
+    }
+
+    @Test
+    void relatedPatchPagesRetainExactUnicodeFragmentsWithoutChangingTheFrozenRun()
+    {
+        String patch = "@@ -1 +1 @@\n+" + "😀".repeat(4200) + "tail\n";
+        SelectedPullRequestDiffReader.Read read = relatedDiff(ImmutableList.of(new DiffFile(" related.txt ", "modified", 1, 1, patch)));
+        when(selectedPullRequestDiffs.read(REPO, 19, Optional.of(DIFF_VERSION), false)).thenReturn(read);
+        ReviewContextSnapshot snapshot = new ReviewContextSnapshot("frozen-context", true, 7, 1, Optional.of(BASE_SHA),
+                Optional.of(ContextPacket.create("Frozen context")), ImmutableList.of(), ImmutableList.of(), ImmutableList.of(), ImmutableList.of());
+        ReviewRun before = store.updateRun(store.findRun(RUN_ID).orElseThrow().withContext(snapshot, ImmutableMap.of(), NOW));
+        int writes = store.runUpdates;
+        StringBuilder reconstructed = new StringBuilder();
+        for (int page = 1; page <= 3; page++) {
+            JsonNode result = call("review_get_context", ImmutableMap.of("kind", "diff", "number", 19, "path", " related.txt ", "diffVersion", DIFF_VERSION, "page", page));
+            String fragment = result.path("patch").asText();
+            reconstructed.append(fragment);
+            assertThat(fragment.codePointCount(0, fragment.length())).isLessThanOrEqualTo(2000);
+            assertThat(fragment).hasSizeLessThanOrEqualTo(4000);
+            assertThat(Character.isLowSurrogate(fragment.charAt(0))).isFalse();
+            assertThat(Character.isHighSurrogate(fragment.charAt(fragment.length() - 1))).isFalse();
+            assertThat(result.path("page").asInt()).isEqualTo(page);
+            assertThat(result.path("pages").asInt()).isEqualTo(3);
+            assertThat(result.path("totalCodePoints").asInt()).isEqualTo(patch.codePointCount(0, patch.length()));
+            assertThat(result.path("format").asText()).contains("may start or end mid-line", "no current-review inline anchors");
+            assertThat(result.has("hunks")).isFalse();
+            assertThat(result.has("anchors")).isFalse();
+            String ref = result.path("evidenceRef").asText();
+            ReviewEvidence evidence = store.findRun(RUN_ID).orElseThrow().evidence().get(ref);
+            assertThat(evidence.excerpt()).isEqualTo(fragment);
+            assertThat(evidence.source()).isEqualTo(REPO + "#19  related.txt ");
+            assertThat(evidence.provenance()).contains("diffVersion=" + DIFF_VERSION, "page=" + page, "readAt=" + NOW, "not a verified Git range");
+            assertThat(call("review_get_context", ImmutableMap.of("kind", "evidence", "ref", ref)).path("excerpt").asText()).isEqualTo(fragment);
+        }
+        assertThat(reconstructed.toString()).isEqualTo(patch);
+        JsonNode beyond = call("review_get_context", ImmutableMap.of(
+                "kind", "diff", "number", 19, "path", " related.txt ", "diffVersion", DIFF_VERSION, "page", Integer.MAX_VALUE));
+        assertThat(beyond.path("patch").asText()).isEmpty();
+        assertThat(beyond.path("startCodePoint").asInt()).isEqualTo(patch.codePointCount(0, patch.length()));
+        assertThat(store.runUpdates).isEqualTo(writes + 4);
+        ReviewRun after = store.findRun(RUN_ID).orElseThrow();
+        assertThat(after.context()).contains(snapshot);
+        assertThat(after.diff()).isEqualTo(before.diff());
+        assertThat(after.commits()).isEqualTo(before.commits());
+        assertThat(after.baseSha()).isEqualTo(before.baseSha());
+        assertThat(after.headSha()).isEqualTo(before.headSha());
+        assertThat(after.mergeBaseSha()).isEqualTo(before.mergeBaseSha());
+        JsonNode current = call("review_get_context", ImmutableMap.of("kind", "diff", "number", 42, "path", DIFF_PATH));
+        assertThat(current.path("hunks").asText()).contains("A2 +R2 beta");
+        assertThat(current.has("diffVersion")).isFalse();
+        assertThat(current.has("evidenceRef")).isFalse();
+        assertThat(store.runUpdates).isEqualTo(writes + 4);
+    }
+
+    @Test
+    void relatedDiffKeepsUnavailableAndEmptyPatchArtifactsDistinct()
+    {
+        SelectedPullRequestDiffReader.Read read = relatedDiff(ImmutableList.of(
+                new DiffFile("unavailable", "modified", 1, 1, null), new DiffFile("empty", "renamed", 0, 0, "")));
+        when(selectedPullRequestDiffs.read(REPO, 19, Optional.of(DIFF_VERSION), false)).thenReturn(read);
+        JsonNode unavailable = call("review_get_context", ImmutableMap.of("kind", "diff", "number", 19, "path", "unavailable", "diffVersion", DIFF_VERSION));
+        assertThat(unavailable.path("patchAvailable").asBoolean()).isFalse();
+        assertThat(unavailable.path("patch").isNull()).isTrue();
+        assertThat(unavailable.path("note").asText()).contains("not evidence");
+        assertThat(unavailable.has("evidenceRef")).isFalse();
+        assertThat(store.runUpdates).isZero();
+        JsonNode empty = call("review_get_context", ImmutableMap.of("kind", "diff", "number", 19, "path", "empty", "diffVersion", DIFF_VERSION));
+        assertThat(empty.path("patchAvailable").asBoolean()).isTrue();
+        assertThat(empty.path("patch").asText()).isEmpty();
+        assertThat(empty.path("totalCodePoints").asInt()).isZero();
+        assertThat(empty.path("pages").asInt()).isEqualTo(1);
+        assertThat(store.findRun(RUN_ID).orElseThrow().evidence().get(empty.path("evidenceRef").asText()).excerpt()).isEmpty();
+        assertThat(store.runUpdates).isEqualTo(1);
+        SelectedPullRequestDiffReader.Read emptyArtifact = relatedDiff(ImmutableList.of());
+        when(selectedPullRequestDiffs.read(REPO, 20, Optional.empty(), false)).thenReturn(emptyArtifact);
+        JsonNode index = call("review_get_context", ImmutableMap.of("kind", "diff", "number", 20));
+        assertThat(index.path("files")).isEmpty();
+        assertThat(index.path("pages").asInt()).isEqualTo(1);
+        assertThat(index.has("error")).isFalse();
+    }
+
+    @Test
+    void relatedDiffRejectsInvalidSelectorsBeforeReading()
+    {
+        List<Map<String, Object>> invalid = ImmutableList.of(
+                ImmutableMap.of("path", "file"), ImmutableMap.of("page", 2), ImmutableMap.of("page", Integer.MAX_VALUE),
+                ImmutableMap.of("diffVersion", "a".repeat(40)), ImmutableMap.of("diffVersion", "A".repeat(64)), ImmutableMap.of("diffVersion", 1),
+                ImmutableMap.of("refresh", "true"), ImmutableMap.of("refresh", 1), ImmutableMap.of("refresh", true, "diffVersion", DIFF_VERSION),
+                ImmutableMap.of("refresh", true, "path", "file", "diffVersion", DIFF_VERSION), ImmutableMap.of("refresh", true, "page", 2),
+                ImmutableMap.of("path", "x".repeat(1001), "diffVersion", DIFF_VERSION), ImmutableMap.of("path", "", "diffVersion", DIFF_VERSION),
+                ImmutableMap.of("path", 1, "diffVersion", DIFF_VERSION), ImmutableMap.of("revision", "head"), ImmutableMap.of("page", 1.5));
+        for (Map<String, Object> arguments : invalid) {
+            Map<String, Object> request = new LinkedHashMap<>(arguments);
+            request.put("kind", "diff");
+            request.put("number", 19);
+            assertThat(call("review_get_context", request).has("error")).describedAs("%s", request).isTrue();
+        }
+        for (String field : ImmutableList.of("path", "diffVersion", "refresh")) {
+            Map<String, Object> request = new LinkedHashMap<>();
+            request.put("kind", "diff");
+            request.put("number", 19);
+            request.put(field, null);
+            assertThat(call("review_get_context", request).at("/error/field").asText()).isEqualTo(field);
+        }
+        for (Number number : ImmutableList.of(0, -1, 1.5)) {
+            assertThat(call("review_get_context", ImmutableMap.of("kind", "diff", "number", number)).at("/error/field").asText()).isEqualTo("number");
+        }
+        assertThat(call("review_get_context", ImmutableMap.of("kind", "diff", "refresh", true)).at("/error/field").asText()).isEqualTo("refresh");
+        assertThat(call("review_get_context", ImmutableMap.of("kind", "diff", "number", 42, "diffVersion", DIFF_VERSION))
+                .at("/error/field").asText()).isEqualTo("diffVersion");
+        assertThat(call("review_get_context", ImmutableMap.of("kind", "diff", "number", 42, "refresh", true))
+                .at("/error/field").asText()).isEqualTo("refresh");
+        verifyNoInteractions(selectedPullRequestDiffs, selectedPullRequests, workspaces, git);
+        assertThat(store.runUpdates).isZero();
+    }
+
+    @Test
+    void relatedDiffContinuationsAndUnavailableReadsReturnActionableErrors()
+    {
+        when(selectedPullRequestDiffs.read(REPO, 19, Optional.of(DIFF_VERSION), false))
+                .thenThrow(new ResponseStatusException(HttpStatus.CONFLICT, "Changed artifact"));
+        JsonNode changed = call("review_get_context", ImmutableMap.of("kind", "diff", "number", 19, "diffVersion", DIFF_VERSION));
+        assertThat(changed.at("/error/field").asText()).isEqualTo("diffVersion");
+        assertThat(changed.at("/error/message").asText()).contains("restart");
+        verify(selectedPullRequestDiffs).read(REPO, 19, Optional.of(DIFF_VERSION), false);
+        when(selectedPullRequestDiffs.read(REPO, 20, Optional.empty(), false))
+                .thenThrow(new ResponseStatusException(HttpStatus.NOT_FOUND, "No artifact"));
+        JsonNode unavailable = call("review_get_context", ImmutableMap.of("kind", "diff", "number", 20));
+        assertThat(unavailable.at("/error/field").asText()).isEqualTo("number");
+        assertThat(unavailable.at("/error/message").asText()).contains("unavailable");
+        assertThat(unavailable.has("files")).isFalse();
+        assertThat(store.runUpdates).isZero();
+    }
+
+    private static SelectedPullRequestDiffReader.Read relatedDiff(List<DiffFile> files)
+    {
+        return new SelectedPullRequestDiffReader.Read(files, DIFF_VERSION, Optional.empty(), Optional.empty(), Optional.empty(), NOW, false, false, ImmutableList.of());
     }
 
     @Test

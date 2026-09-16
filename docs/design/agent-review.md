@@ -456,6 +456,17 @@ suffixes never establish this association. The read retains per-item evidence
 in one run update and cannot change frozen review coordinates or its saved
 context snapshot.
 
+The diff read also accepts a related same-repository PR number. Omitted/current
+numbers retain the frozen reviewed diff and its finding anchors. Related reads
+reuse the default PR diff cache, hydrating a missing artifact through the
+existing refresh service. The first file-list page returns a content
+fingerprint; later pages and selected paths must present it and fail if the
+cache changes or disappears. Explicit refresh applies only to an initial
+related file-list read. Related patch pages are bounded Unicode text fragments
+retained exactly as evidence, with no current-review anchor IDs. The observed
+PR head is separate metadata: cached patches have no verified revision pair,
+fetch time or completeness, and cannot certify the final merged change.
+
 These are fixed application operations, not a model-controlled registry.
 Tool declarations carry strict JSON schemas and bounded fields; the backend
 validates again. Managed prompts request tool use, but ByteQuay never assumes

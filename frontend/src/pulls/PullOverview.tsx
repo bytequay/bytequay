@@ -889,7 +889,7 @@ function ReviewGroup({ activities, viewerLogin, pr, workspaceId, onRefresh, onDe
     <section className="pr-review-group">
       <div className="pr-review-group__summary">
         <span className="pr-review-group__marker" aria-hidden="true"><ReviewIcon /></span>
-        <UserAvatar login={actor} avatarUrl={review.payload.actorAvatarUrl} size={28} showLogin />
+        <UserAvatar login={actor} avatarUrl={review.payload.actorAvatarUrl} size={24} showLogin />
         {review.payload.actorBot && <span className="pr-bot-badge">Bot</span>}
         <span>reviewed</span>
         <time>{relativeTime(review.timestamp)}</time>
@@ -1245,7 +1245,7 @@ function CompactEvent({ activities }: { activities: Activity[] }) {
     return (
       <div className="pr-review-group__summary">
         <span className="pr-review-group__marker" aria-hidden="true"><ReviewIcon /></span>
-        <UserAvatar login={actor} avatarUrl={payload.actorAvatarUrl} size={28} showLogin />
+        <UserAvatar login={actor} avatarUrl={payload.actorAvatarUrl} size={24} showLogin />
         {payload.actorBot && <span className="pr-bot">Bot</span>}
         <span>{eventText(activity, activities)}</span>
         <time dateTime={activity.timestamp ?? undefined}>{relativeTime(activity.timestamp, { style: 'long' })}</time>

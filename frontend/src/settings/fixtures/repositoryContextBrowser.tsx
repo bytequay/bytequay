@@ -15,7 +15,7 @@ import { flushSync } from 'react-dom';
 import { createRoot } from 'react-dom/client';
 import AppSidebar from '../../AppSidebar';
 import type { Bridge, WorkspaceDto } from '../../types';
-import type { ContextEntryDto, RepositoryNotebookDto } from '../../repository-context/contracts';
+import type { ContextEntryDto, ContextScopeDto, RepositoryNotebookDto } from '../../repository-context/contracts';
 import SettingsWindow from '../SettingsWindow';
 import '../../css/base.css';
 import '../../css/settings-window.css';
@@ -29,12 +29,12 @@ const workspaces = [
 
 function notebook(second = false): RepositoryNotebookDto {
   return {
-    schemaVersion: 1, revision: 7, useInReviews: true,
+    schemaVersion: 1, revision: 7, useInReviews: true, activePreparation: null,
     sources: [{ id: 'docs-trino', kind: 'DOCUMENTATION_ROOT', url: 'https://trino.io/docs/current/', origin: 'USER' }],
     scopes: [
-      { id: 'project', title: 'Project overview', match: { kind: 'REPOSITORY' }, enabled: true },
+      { id: 'project', title: 'Project overview', match: { kind: 'REPOSITORY' }, enabled: true, preparation: null },
       { id: 'path:plugin/trino-iceberg/', title: 'Iceberg connector',
-        match: { kind: 'SELECTED', pathPrefixes: ['plugin/trino-iceberg/'], terms: ['Iceberg'] }, enabled: true },
+        match: { kind: 'SELECTED', pathPrefixes: ['plugin/trino-iceberg/'], terms: ['Iceberg'] }, enabled: true, preparation: null },
     ],
     entries: [
       { id: 'knowledge:project', kind: 'KNOWLEDGE', scopeId: 'project', title: second ? 'Second workspace notes' : 'Project architecture',
@@ -90,7 +90,8 @@ function backend() {
       return structuredClone(current);
     },
     configureRepositoryContext: (workspaceId, request) => mutate('configure', workspaceId, request, current => ({
-      ...current, useInReviews: request.useInReviews ?? current.useInReviews, scopes: request.scopes ?? current.scopes,
+      ...current, useInReviews: request.useInReviews ?? current.useInReviews,
+      scopes: request.scopes?.map(scope => ({ ...scope, preparation: current.scopes.find(value => value.id === scope.id)?.preparation ?? null })) ?? current.scopes,
       sources: request.sources?.map(source => ({ ...source, origin: 'USER' as const })) ?? current.sources,
     })),
     editRepositoryContextEntry: (workspaceId, request) => mutate('edit', workspaceId, request, current => {
@@ -266,7 +267,7 @@ export async function run(): Promise<Array<{ name: string; error?: string }>> {
 
   await check('Load failure is an error, never an empty notebook', async view => {
     assert(view.text().includes('Saved notebook could not be read'), 'Actual read error must be shown');
-    assert(!view.text().includes('No knowledge notes yet'), 'Unreadable notebook must not appear empty');
+    assert(!view.text().includes('No saved knowledge notes'), 'Unreadable notebook must not appear empty');
     assert(view.state.writes.length === 0, 'Failed loading never resets saved content');
   }, state => { state.readFailure = true; });
 
@@ -280,6 +281,31 @@ export async function run(): Promise<Array<{ name: string; error?: string }>> {
     await view.click('Use repository context in reviews');
     assert(view.state.writes[0].workspaceId === 'ws-2', 'Subsequent write stays scoped to selected workspace');
   }, state => { state.holdWorkspace = 'ws-1'; });
+
+  await check('Preparation results remain distinct from missing notes and task execution status', async view => {
+    assert(view.text().includes('Last preparation: No useful note found'), 'An empty checked result must be visible');
+    assert(view.text().includes('Last preparation: Failed'), 'A failed attempt must remain distinct from empty');
+    assert(view.text().includes('Shared preparation is claimed for Project overview'), 'Current ownership must be shown without claiming runtime progress');
+    assert(view.text().includes('Project architecture'), 'An empty refresh must not hide the retained note');
+    await view.click('Edit', view.row('Iceberg connector'));
+    await fill(view.dialog(), 'Name', 'Iceberg source contracts');
+    await view.click('Save scope', view.dialog());
+    assert(view.state.saved.get('ws-1')?.scopes.find(scope => scope.id === 'path:plugin/trino-iceberg/')?.preparation?.outcome === 'FAILED',
+      'A configuration edit must retain the latest completed outcome');
+  }, state => {
+    const current = state.saved.get('ws-1');
+    assert(current !== undefined, 'Notebook exists');
+    const input = { scopeId: 'project', inputs: { 'git:README.md': '100644 blob ' + 'a'.repeat(40) }, digest: 'sha256:' + 'a'.repeat(64), gaps: [] as string[] };
+    state.saved.set('ws-1', { ...current, activePreparation: { attemptId: 'active', requestKey: 'request', requestDigest: 'sha256:' + 'b'.repeat(64),
+      ownerTaskId: 'task', ownerTurnId: 'turn', ownerTurnKey: 'turn-key', reviewId: 'review', runId: 'run', baseContentRevision: 7, inputs: [input] },
+    scopes: current.scopes.map((scope): ContextScopeDto => ({ ...scope, preparation: scope.id === 'project'
+      ? { attemptId: 'empty', inputFingerprint: input, outcome: 'EMPTY', noteIds: [], explanation: 'The checked README was empty.',
+          checkedReads: [{ kind: 'REPOSITORY_FILE', id: 'context-read:blank', reference: { kind: 'REPOSITORY_FILE', repositoryId: 42,
+            repository: { owner: 'trinodb', repo: 'trino' }, path: 'README.md', commit: 'a'.repeat(40) }, blobId: 'a'.repeat(40),
+          readAt: '2026-09-01T00:00:00Z', startLine: 1, endLine: 0, totalLines: 0, utf8Bytes: 0, truncated: false, evidenceRef: null }] }
+      : { attemptId: 'failed', inputFingerprint: { ...input, scopeId: scope.id, digest: null, gaps: ['Source unavailable'] },
+          outcome: 'FAILED', noteIds: [], checkedReads: [], explanation: 'The source could not be read.' } })) });
+  });
 
   await check('UTF-8 body limits prevent oversize saves', async view => {
     await view.click('Add note');

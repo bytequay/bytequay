@@ -259,6 +259,6 @@ class TestSelectedDocumentationReader
     private static RepositoryNotebook notebook(RegisteredContextSource source)
     {
         return new RepositoryNotebook(1, 1, true, ImmutableList.of(source), ImmutableList.of(ContextScope.project()),
-                ImmutableList.of(), ImmutableList.of(), ImmutableList.of());
+                ImmutableList.of(), ImmutableList.of(), ImmutableList.of(), Optional.empty());
     }
 }

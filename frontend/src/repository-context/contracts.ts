@@ -13,7 +13,8 @@
  */
 export type ContextOrigin = 'USER' | 'GENERATED';
 export type ContextMatchDto = { kind: 'REPOSITORY' } | { kind: 'SELECTED'; pathPrefixes: string[]; terms: string[] };
-export type ContextScopeDto = { id: string; title: string; match: ContextMatchDto; enabled: boolean };
+export type ContextScopeConfigurationDto = { id: string; title: string; match: ContextMatchDto; enabled: boolean };
+export type ContextScopeDto = ContextScopeConfigurationDto & { preparation: ContextPreparationResultDto | null };
 export type ContextSourceDto = { id: string; kind: 'DOCUMENTATION_ROOT' | 'DOCUMENTATION_PAGE'; url: string; origin: ContextOrigin };
 export type ContextClaimDto = {
   text: string;
@@ -38,6 +39,7 @@ export type ContextSourceEvidenceDto = {
 export type RepositoryNotebookDto = {
   schemaVersion: number; revision: number; useInReviews: boolean; sources: ContextSourceDto[]; scopes: ContextScopeDto[];
   entries: ContextEntryDto[]; suppressedKnowledgeIds: string[]; sourceEvidence: ContextSourceEvidenceDto[];
+  activePreparation: ActiveContextPreparationDto | null;
 };
 export type ContextSelectedEntryDto = {
   entryId: string; entryVersion: number; title: string; text: string | null; sourceEvidenceRefs: Record<string, string>;
@@ -53,17 +55,26 @@ export type ContextDocumentReadDto = SourceRead & {
   notebookRevision: number; captureId: string; contentHash: string; page: number; totalPages: number; blank: boolean; refreshFailed: boolean;
 };
 export type ContextSourceReadDto = ContextRepositoryReadDto | ContextDocumentReadDto;
+export type ContextInputFingerprintDto = { scopeId: string; inputs: Record<string, string>; digest: string | null; gaps: string[] };
+export type ContextPreparationResultDto = {
+  attemptId: string; inputFingerprint: ContextInputFingerprintDto; outcome: 'READY' | 'EMPTY' | 'FAILED';
+  noteIds: string[]; checkedReads: ContextSourceReadDto[]; explanation: string;
+};
+export type ActiveContextPreparationDto = {
+  attemptId: string; requestKey: string; requestDigest: string; ownerTaskId: string; ownerTurnId: string; ownerTurnKey: string;
+  reviewId: string; runId: string; baseContentRevision: number; inputs: ContextInputFingerprintDto[];
+};
 export type ReviewContextSnapshotDto = {
   id: string; enabled: boolean; notebookRevision: number; repositoryId: number; baselineSha: string | null;
   bootstrap: { text: string; digest: string; utf8Bytes: number } | null;
   selectedEntries: ContextSelectedEntryDto[];
   relatedItems: Array<{ sourceId: string; matchReasons: string[]; presentInReviewedBase: boolean | null }>;
-  inputFingerprints: Array<{ scopeId: string; inputs: Record<string, string>; digest: string | null; gaps: string[] }>;
+  inputFingerprints: ContextInputFingerprintDto[];
   sourceReads: ContextSourceReadDto[]; gaps: string[];
 };
 
 export type ConfigureRepositoryContextRequest = {
-  expectedRevision: number; useInReviews?: boolean; sources?: Omit<ContextSourceDto, 'origin'>[]; scopes?: ContextScopeDto[];
+  expectedRevision: number; useInReviews?: boolean; sources?: Omit<ContextSourceDto, 'origin'>[]; scopes?: ContextScopeConfigurationDto[];
 };
 export type EditRepositoryContextEntryRequest = {
   expectedRevision: number; id: string; scopeId: string; title: string; summary: string; body: string; claims: ContextClaimDto[]; sourceIds: string[];
@@ -112,12 +123,16 @@ function source(value: unknown): ContextSourceDto {
   return { id: text(item.id, 'source id'), kind: oneOf(item.kind, ['DOCUMENTATION_ROOT', 'DOCUMENTATION_PAGE'], 'source kind'),
     url: text(item.url, 'source URL'), origin: oneOf(item.origin, ['USER', 'GENERATED'], 'source origin') };
 }
-function scope(value: unknown): ContextScopeDto {
+function scopeConfiguration(value: unknown): ContextScopeConfigurationDto {
   const item = object(value, 'scope');
   const match = object(item.match, 'scope match');
   const kind = oneOf(match.kind, ['REPOSITORY', 'SELECTED'], 'scope match kind');
   return { id: text(item.id, 'scope id'), title: text(item.title, 'scope title'), enabled: flag(item.enabled, 'scope enabled'),
     match: kind === 'REPOSITORY' ? { kind } : { kind, pathPrefixes: strings(match.pathPrefixes, 'path prefixes'), terms: strings(match.terms, 'terms') } };
+}
+function scope(value: unknown): ContextScopeDto {
+  const item = object(value, 'scope');
+  return { ...scopeConfiguration(item), preparation: item.preparation == null ? null : preparationResult(item.preparation) };
 }
 function claim(value: unknown): ContextClaimDto {
   const item = object(value, 'claim');
@@ -160,7 +175,27 @@ export function parseRepositoryNotebook(value: unknown): RepositoryNotebookDto {
   if (item.schemaVersion !== 1) malformed('notebook schema version');
   return { schemaVersion: 1, revision: count(item.revision, 'notebook revision'), useInReviews: flag(item.useInReviews, 'review preference'),
     sources: array(item.sources, 'sources', source), scopes: array(item.scopes, 'scopes', scope), entries: array(item.entries, 'entries', entry),
-    suppressedKnowledgeIds: strings(item.suppressedKnowledgeIds, 'suppression'), sourceEvidence: array(item.sourceEvidence, 'source evidence', evidence) };
+    suppressedKnowledgeIds: strings(item.suppressedKnowledgeIds, 'suppression'), sourceEvidence: array(item.sourceEvidence, 'source evidence', evidence),
+    activePreparation: item.activePreparation == null ? null : activePreparation(item.activePreparation) };
+}
+function inputFingerprint(value: unknown): ContextInputFingerprintDto {
+  const input = object(value, 'input fingerprint');
+  return { scopeId: text(input.scopeId, 'input scope'), inputs: stringMap(input.inputs, 'input identities'),
+    digest: optionalText(input.digest, 'input digest'), gaps: strings(input.gaps, 'input limitations') };
+}
+function preparationResult(value: unknown): ContextPreparationResultDto {
+  const item = object(value, 'preparation result');
+  return { attemptId: text(item.attemptId, 'preparation attempt'), inputFingerprint: inputFingerprint(item.inputFingerprint),
+    outcome: oneOf(item.outcome, ['READY', 'EMPTY', 'FAILED'], 'preparation outcome'), noteIds: strings(item.noteIds, 'prepared note ids'),
+    checkedReads: array(item.checkedReads, 'checked source reads', sourceRead), explanation: text(item.explanation, 'preparation explanation') };
+}
+function activePreparation(value: unknown): ActiveContextPreparationDto {
+  const item = object(value, 'active preparation');
+  return { attemptId: text(item.attemptId, 'preparation attempt'), requestKey: text(item.requestKey, 'preparation request key'),
+    requestDigest: text(item.requestDigest, 'preparation request digest'), ownerTaskId: text(item.ownerTaskId, 'preparation task'),
+    ownerTurnId: text(item.ownerTurnId, 'preparation turn'), ownerTurnKey: text(item.ownerTurnKey, 'preparation turn key'),
+    reviewId: text(item.reviewId, 'preparation review'), runId: text(item.runId, 'preparation run'),
+    baseContentRevision: count(item.baseContentRevision, 'preparation revision'), inputs: array(item.inputs, 'preparation inputs', inputFingerprint) };
 }
 function selectedEntry(value: unknown): ContextSelectedEntryDto {
   const item = object(value, 'selected entry');
@@ -207,11 +242,7 @@ export function parseReviewContextSnapshot(value: unknown): ReviewContextSnapsho
       return { sourceId: text(related.sourceId, 'related source id'), matchReasons: strings(related.matchReasons, 'related reasons'),
         presentInReviewedBase: related.presentInReviewedBase == null ? null : flag(related.presentInReviewedBase, 'source ancestry') };
     }),
-    inputFingerprints: array(item.inputFingerprints, 'input fingerprints', value => {
-      const input = object(value, 'input fingerprint');
-      return { scopeId: text(input.scopeId, 'input scope'), inputs: stringMap(input.inputs, 'input identities'),
-        digest: optionalText(input.digest, 'input digest'), gaps: strings(input.gaps, 'input limitations') };
-    }),
+    inputFingerprints: array(item.inputFingerprints, 'input fingerprints', inputFingerprint),
     sourceReads: array(item.sourceReads, 'source receipts', sourceRead), gaps: strings(item.gaps, 'snapshot limitations'),
   };
   if (result.enabled !== (result.bootstrap !== null)) malformed('snapshot enabled state and packet disagree');
@@ -229,7 +260,7 @@ export function parseConfigureRepositoryContextRequest(value: unknown): Configur
   const item = request(value, ['expectedRevision', 'useInReviews', 'sources', 'scopes']);
   const result: ConfigureRepositoryContextRequest = { expectedRevision: count(item.expectedRevision, 'expected revision') };
   if (item.useInReviews !== undefined) result.useInReviews = flag(item.useInReviews, 'review preference');
-  if (item.scopes !== undefined) result.scopes = array(item.scopes, 'scopes', scope);
+  if (item.scopes !== undefined) result.scopes = array(item.scopes, 'scopes', scopeConfiguration);
   if (item.sources !== undefined) result.sources = array(item.sources, 'sources', value => {
     const source = request(value, ['id', 'kind', 'url']);
     return { id: text(source.id, 'source id'), kind: oneOf(source.kind, ['DOCUMENTATION_ROOT', 'DOCUMENTATION_PAGE'], 'source kind'), url: text(source.url, 'source URL') };

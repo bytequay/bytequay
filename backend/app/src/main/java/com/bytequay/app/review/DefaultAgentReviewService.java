@@ -120,6 +120,7 @@ public class DefaultAgentReviewService
     private final CredentialService credentials;
     private final ReviewTaskObserver observer;
     private final ReviewContextService context;
+    private final ReviewContextPreparationCleanup preparationCleanup;
     private final Clock clock;
     private final Striped<Lock> startLocks = Striped.lock(32);
     private final ReviewLocks locks;
@@ -144,6 +145,7 @@ public class DefaultAgentReviewService
             ReviewTaskObserver observer,
             ReviewLocks locks,
             ReviewContextService context,
+            ReviewContextPreparationCleanup preparationCleanup,
             Clock clock)
     {
         this.store = requireNonNull(store, "store is null");
@@ -164,6 +166,7 @@ public class DefaultAgentReviewService
         this.credentials = requireNonNull(credentials, "credentials is null");
         this.observer = requireNonNull(observer, "observer is null");
         this.context = requireNonNull(context, "context is null");
+        this.preparationCleanup = requireNonNull(preparationCleanup, "preparationCleanup is null");
         this.clock = requireNonNull(clock, "clock is null");
         this.locks = requireNonNull(locks, "locks is null");
     }
@@ -304,6 +307,7 @@ public class DefaultAgentReviewService
             if (task.state() == TaskState.OPEN) {
                 completions.complete(new CompleteAgentTaskCommand(taskId, Optional.of("Agent review ended by the user")));
             }
+            preparationCleanup.reconcile(review);
             latestRun(reviewId).filter(ReviewRun::active)
                     .ifPresent(run -> store.updateRun(run.ended(ReviewRun.State.STOPPED, Optional.of("Review ended"), Instant.now(clock))));
             store.updateReview(store.findReview(reviewId).orElseThrow().closed(Instant.now(clock)));
@@ -482,6 +486,7 @@ public class DefaultAgentReviewService
                 return null;
             }
             AgentReview review = stored.orElseThrow();
+            preparationCleanup.reconcile(review);
             AgentTask task = tasks.get(TaskId.valueOf(review.taskId()));
             Optional<ReviewRun> active = latestRun(reviewId).filter(ReviewRun::active);
             if (active.isPresent()) {
@@ -494,6 +499,15 @@ public class DefaultAgentReviewService
                 }
                 return null;
             }
+            return null;
+        });
+    }
+
+    @Override
+    public void reconcilePreparation(String reviewId)
+    {
+        locked(reviewId, () -> {
+            preparationCleanup.reconcile(requireReview(reviewId));
             return null;
         });
     }
@@ -518,6 +532,7 @@ public class DefaultAgentReviewService
     /** Applies only the current assignment's accepted turn after its runtime has stopped. */
     private AgentReview settle(AgentReview review, ReviewRun run, AgentTask task)
     {
+        preparationCleanup.reconcile(review);
         if (run.currentStep().isEmpty()) {
             return incomplete(review, run, "The review has no current assignment; start a new review run");
         }

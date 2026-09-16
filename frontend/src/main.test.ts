@@ -83,8 +83,8 @@ it('sends versioned local review actions and preserves the returned private revi
   }
 });
 
-const emptyNotebook: RepositoryNotebookDto = { schemaVersion: 1, revision: 7, useInReviews: true, sources: [],
-  scopes: [{ id: 'project', title: 'Project', match: { kind: 'REPOSITORY' }, enabled: true }],
+const emptyNotebook: RepositoryNotebookDto = { schemaVersion: 1, revision: 7, useInReviews: true, sources: [], activePreparation: null,
+  scopes: [{ id: 'project', title: 'Project', match: { kind: 'REPOSITORY' }, enabled: true, preparation: null }],
   entries: [], suppressedKnowledgeIds: [], sourceEvidence: [] };
 
 it('routes notebook actions through authenticated workspace-scoped endpoints with exact revision and lesson bindings', async () => {

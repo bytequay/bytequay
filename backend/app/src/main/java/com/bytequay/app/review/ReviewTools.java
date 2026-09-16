@@ -18,11 +18,20 @@ import com.bytequay.agent.core.AgentEventPayload;
 import com.bytequay.agent.core.AgentEventService;
 import com.bytequay.agent.core.TaskId;
 import com.bytequay.agent.core.TurnId;
+import com.bytequay.agent.core.store.AgentUnitOfWork;
 import com.bytequay.agent.spi.ReviewBridge;
 import com.bytequay.agent.spi.ReviewTool;
 import com.bytequay.app.context.ContextBaselineReader;
+import com.bytequay.app.context.ContextConflictException;
 import com.bytequay.app.context.ContextNotFoundException;
 import com.bytequay.app.context.ContextStorageException;
+import com.bytequay.app.context.RepositoryContextPreparation;
+import com.bytequay.app.context.RepositoryContextPreparation.Admission;
+import com.bytequay.app.context.RepositoryContextPreparation.Completion;
+import com.bytequay.app.context.RepositoryContextPreparation.Execution;
+import com.bytequay.app.context.RepositoryContextPreparation.GeneratedReport;
+import com.bytequay.app.context.RepositoryContextPreparation.Plan;
+import com.bytequay.app.context.RepositoryContextPreparation.Receipt;
 import com.bytequay.app.context.SelectedCommitPullRequestReader;
 import com.bytequay.app.context.SelectedDocumentationReader;
 import com.bytequay.app.git.GitCommandRunner;
@@ -33,11 +42,15 @@ import com.bytequay.app.service.pr.SelectedPullRequestDiffReader;
 import com.bytequay.app.service.pr.SelectedPullRequestReader;
 import com.bytequay.app.workspace.WorkspaceIssueRefreshService;
 import com.bytequay.app.workspace.WorkspaceIssueService;
+import com.bytequay.app.workspace.WorkspaceOperationLocks;
 import com.bytequay.app.workspace.WorkspaceRepositoryContext;
 import com.bytequay.app.workspace.WorkspaceRepositoryService;
 import com.bytequay.core.context.ContextDocumentRead;
+import com.bytequay.core.context.ContextLimits;
+import com.bytequay.core.context.ContextPreparationResult;
 import com.bytequay.core.context.ContextReference;
 import com.bytequay.core.context.ContextRepositoryRead;
+import com.bytequay.core.context.ContextScope;
 import com.bytequay.core.context.ContextSourceRead;
 import com.bytequay.core.context.RepositoryNotebook;
 import com.bytequay.core.context.ReviewContextSnapshot;
@@ -66,6 +79,7 @@ import com.bytequay.core.review.ReviewStep;
 import com.bytequay.core.review.ReviewSummary;
 import com.bytequay.core.review.ReviewValidation;
 import com.fasterxml.jackson.core.JsonProcessingException;
+import com.fasterxml.jackson.databind.DeserializationFeature;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ObjectNode;
@@ -93,6 +107,7 @@ import java.util.TreeMap;
 import java.util.UUID;
 import java.util.concurrent.locks.Lock;
 import java.util.function.Function;
+import java.util.function.Supplier;
 
 import static com.bytequay.core.review.ReviewCandidateValidation.Outcome.NEEDS_EVIDENCE;
 import static com.bytequay.core.review.ReviewCandidateValidation.Outcome.SUPPORTED;
@@ -127,6 +142,8 @@ public class ReviewTools
     private static final int CHECK_PAGE = 20;
     private static final int MAX_COMMIT_ASSOCIATION_GAPS = 10;
     private static final int DOCUMENT_SOURCES_PAGE = 5;
+    private static final int PREPARATION_SCOPES_PAGE = 10;
+    private static final int MAX_PREPARATION_RESPONSE_BYTES = 64 * 1024;
     private static final List<String> SEVERITIES = ImmutableList.of("Critical", "High", "Medium", "Low");
 
     private final AgentReviewStore store;
@@ -146,6 +163,8 @@ public class ReviewTools
     private final Clock clock;
     private final ReviewLocks locks;
     private final ReviewToolAssignment assignments;
+    private final RepositoryContextPreparation preparation;
+    private final AgentUnitOfWork unitOfWork;
 
     public ReviewTools(
             AgentReviewStore store,
@@ -164,6 +183,8 @@ public class ReviewTools
             ObjectMapper objectMapper,
             ReviewLocks locks,
             ReviewToolAssignment assignments,
+            RepositoryContextPreparation preparation,
+            AgentUnitOfWork unitOfWork,
             Clock clock)
     {
         this.store = requireNonNull(store, "store is null");
@@ -183,6 +204,8 @@ public class ReviewTools
         this.clock = requireNonNull(clock, "clock is null");
         this.locks = requireNonNull(locks, "locks is null");
         this.assignments = requireNonNull(assignments, "assignments is null");
+        this.preparation = requireNonNull(preparation, "preparation is null");
+        this.unitOfWork = requireNonNull(unitOfWork, "unitOfWork is null");
     }
 
     /** The bridge for one review-owned task, or empty for any other task. */
@@ -195,7 +218,7 @@ public class ReviewTools
 
     private List<ReviewTool> tools(String reviewId, Optional<TurnId> turnId)
     {
-        return ImmutableList.of(
+        List<ReviewTool> tools = ImmutableList.of(
                 new ReviewTool("review_get_context",
                         "Read bounded pull request context for this review: kind pr, timeline, checks "
                                 + "(optional same-repository PR number; defaults to this review; page for timeline/checks), "
@@ -371,6 +394,68 @@ public class ReviewTools
                                 "validations", ImmutableMap.of("type", "array", "maxItems", MAX_CANDIDATES, "items", validationSchema())),
                                 ImmutableList.of("operationKey", "complete", "omissions", "validations")),
                         arguments -> call(reviewId, turnId, arguments, this::finish)));
+        Lock lock = locks.lock(reviewId);
+        lock.lock();
+        try {
+            ReviewToolAssignment.Binding binding = assignments.resolve(reviewId, turnId);
+            if (binding.run().active() && binding.run().context().filter(ReviewContextSnapshot::enabled).flatMap(ReviewContextSnapshot::baselineSha).isPresent()
+                    && binding.step().filter(step -> step.kind() == INVESTIGATE).isPresent()) {
+                return ImmutableList.<ReviewTool>builder().addAll(tools).add(preparationTool(reviewId, turnId)).build();
+            }
+        }
+        catch (ReviewConflictException ignored) {
+            // A policy-only or stopped session retains its existing review restrictions.
+        }
+        finally {
+            lock.unlock();
+        }
+        return tools;
+    }
+
+    private ReviewTool preparationTool(String reviewId, Optional<TurnId> turnId)
+    {
+        Map<String, Object> claim = schema(ImmutableMap.of(
+                "text", ImmutableMap.of("type", "string", "minLength", 1, "maxLength", 2000),
+                "basis", ImmutableMap.of("type", "string", "enum", ImmutableList.of("DOCUMENTED", "RECORDED_DECISION", "INFERENCE", "QUESTION")),
+                "sourceIds", stringArray(ContextLimits.MAX_SOURCES, 500)), ImmutableList.of("text", "basis", "sourceIds"));
+        Map<String, Object> entry = schema(ImmutableMap.of(
+                "id", ImmutableMap.of("type", "string", "minLength", 1, "maxLength", 1200),
+                "scopeId", ImmutableMap.of("type", "string", "minLength", 1, "maxLength", 1100),
+                "title", ImmutableMap.of("type", "string", "minLength", 1, "maxLength", 200),
+                "summary", ImmutableMap.of("type", "string", "minLength", 1, "maxLength", 1000),
+                "body", ImmutableMap.of("type", "string", "minLength", 1, "maxLength", ContextLimits.MAX_BODY_BYTES),
+                "claims", ImmutableMap.of("type", "array", "maxItems", 12, "items", claim),
+                "sourceIds", stringArray(ContextLimits.MAX_SOURCES, 500)), ImmutableList.of("id", "scopeId", "title", "summary", "body", "claims", "sourceIds"));
+        Map<String, Object> scope = schema(ImmutableMap.of(
+                "scopeId", ImmutableMap.of("type", "string", "minLength", 1, "maxLength", 1100),
+                "outcome", ImmutableMap.of("type", "string", "enum", ImmutableList.of("READY", "EMPTY", "FAILED")),
+                "noteIds", stringArray(1, 1200),
+                "checkedSourceIds", stringArray(ContextLimits.MAX_SOURCES, 100),
+                "explanation", ImmutableMap.of("type", "string", "minLength", 1, "maxLength", 2000)),
+                ImmutableList.of("scopeId", "outcome", "noteIds", "checkedSourceIds", "explanation"));
+        return new ReviewTool("repository_context_prepare",
+                "During the initial investigation, BEGIN shared knowledge preparation for existing configured scopeIds with requestKey and expectedRevision. "
+                        + "Read review_get_context kind assignment first for repositoryContext notebookRevision and paged scope catalog (page). "
+                        + "SUBMIT attemptId, operationKey and report after reading frozen baseline files or registered documents with review_get_context. "
+                        + "checkedSourceIds, sourceIds and claim sources must use returned readId values, never raw evidence refs or invented source records. "
+                        + "Report every admitted scope as READY, EMPTY or FAILED. EMPTY means inspected complete inputs yielded no useful note. "
+                        + "JOINED/DEFERRED does not grant write ownership: continue the review or retry later; no background wait or new builder starts. "
+                        + "Reuse unchanged saved knowledge; never treat a shared note as verified for this PR. "
+                        + "User lessons and user-owned notes cannot be generated or overwritten.",
+                schema(ImmutableMap.of(
+                        "operation", ImmutableMap.of("type", "string", "enum", ImmutableList.of("BEGIN", "SUBMIT")),
+                        "requestKey", ImmutableMap.of("type", "string", "minLength", 1, "maxLength", MAX_KEY),
+                        "expectedRevision", ImmutableMap.of("type", "integer", "minimum", 0),
+                        "scopeIds", stringArray(100, 1100),
+                        "attemptId", ImmutableMap.of("type", "string", "minLength", 1, "maxLength", 200),
+                        "operationKey", ImmutableMap.of("type", "string", "minLength", 1, "maxLength", MAX_KEY),
+                        "report", schema(ImmutableMap.of(
+                                "scopeResults", ImmutableMap.of("type", "array", "maxItems", 100, "items", scope),
+                                "entries", ImmutableMap.of("type", "array", "maxItems", 100, "items", entry)), ImmutableList.of("scopeResults", "entries"))),
+                        ImmutableList.of("operation")),
+                arguments -> ContextLimits.bytes(arguments) > ContextLimits.MAX_NOTEBOOK_BYTES
+                        ? error("arguments", "preparation request exceeds the UTF-8 byte limit")
+                        : call(reviewId, turnId, arguments, this::prepareContext));
     }
 
     private static Map<String, Object> validationSchema()
@@ -440,6 +525,147 @@ public class ReviewTools
     }
 
     // ---- writes ----
+
+    private JsonNode prepareContext(Call call)
+    {
+        try {
+            preparationExecution(call);
+            String operation = text(call.arguments(), "operation", 10, true);
+            boolean begin = switch (operation) {
+                case "BEGIN" -> true;
+                case "SUBMIT" -> false;
+                default -> throw new ReviewInvalidRequestException("operation: use BEGIN or SUBMIT");
+            };
+            List<String> allowed = begin ? ImmutableList.of("operation", "requestKey", "expectedRevision", "scopeIds")
+                    : ImmutableList.of("operation", "attemptId", "operationKey", "report");
+            call.arguments().fieldNames().forEachRemaining(field -> {
+                if (!allowed.contains(field)) {
+                    throw new ReviewInvalidRequestException(field + ": not allowed for " + operation);
+                }
+            });
+            String keyField = begin ? "requestKey" : "operationKey";
+            String operationName = "repository_context_prepare:" + operation;
+            Replay replay = replay(call, operationName, keyField);
+            if (replay.result().isPresent()) {
+                return replay.result().orElseThrow();
+            }
+            assigned(call, INVESTIGATE);
+            Function<Call, JsonNode> mutation;
+            if (begin) {
+                JsonNode revision = call.arguments().get("expectedRevision");
+                if (revision == null || !revision.isIntegralNumber() || !revision.canConvertToLong() || revision.longValue() < 0) {
+                    throw new ReviewInvalidRequestException("expectedRevision: required nonnegative integer");
+                }
+                List<String> scopes = strings(call.arguments(), "scopeIds", 100, 1100);
+                String requestKey = text(call.arguments(), "requestKey", MAX_KEY, true);
+                Plan plan = outsideReviewLock(call, () -> preparation.plan(preparationExecution(call), scopes));
+                mutation = current -> preparationAdmission(preparation.begin(preparationExecution(current), requestKey,
+                        "sha256:" + replay.digest(), revision.longValue(), plan));
+            }
+            else {
+                String attemptId = text(call.arguments(), "attemptId", 200, true);
+                JsonNode reportNode = call.arguments().get("report");
+                if (reportNode == null || !reportNode.isObject()) {
+                    throw new ReviewInvalidRequestException("report: required generated report object");
+                }
+                GeneratedReport report;
+                try {
+                    report = objectMapper.copy().enable(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES)
+                            .enable(DeserializationFeature.FAIL_ON_NUMBERS_FOR_ENUMS)
+                            .treeToValue(reportNode, GeneratedReport.class);
+                }
+                catch (JsonProcessingException failure) {
+                    throw new ReviewInvalidRequestException("report: invalid generated report fields or values");
+                }
+                Completion completion = outsideReviewLock(call, () -> preparation.prepareCompletion(preparationExecution(call), attemptId, report));
+                mutation = current -> preparationReceipt(preparation.complete(preparationExecution(current), completion));
+            }
+            return WorkspaceOperationLocks.withLock(call.review().workspaceId(), () -> unitOfWork.execute(() -> {
+                ReviewToolAssignment.Binding binding = assignments.resolve(call.review().id(), call.turnId());
+                Call current = new Call(call.review(), binding.run(), binding.step(), binding.discussion(), call.turnId(), call.arguments());
+                preparationExecution(current);
+                Replay checked = replay(current, operationName, keyField);
+                if (checked.result().isPresent()) {
+                    return checked.result().orElseThrow();
+                }
+                assigned(current, INVESTIGATE);
+                JsonNode result = mutation.apply(current);
+                if (ContextLimits.bytes(result.toString()) > MAX_PREPARATION_RESPONSE_BYTES) {
+                    throw new ReviewInvalidRequestException("preparation: response exceeds 64 KiB; use fewer BEGIN scopes or shorter SUBMIT text; nothing was saved");
+                }
+                if (!begin || !(result.path("status").asText().equals("JOINED") || result.path("status").asText().equals("DEFERRED"))) {
+                    store.updateRun(current.run().withOperation(checked.key(), new ReviewOperation(checked.digest(), result.toString()), now()));
+                }
+                return result;
+            }));
+        }
+        catch (ContextConflictException conflict) {
+            ObjectNode result = objectMapper.createObjectNode();
+            result.putObject("error").put("field", "expectedRevision").put("message", conflict.getMessage()).put("currentRevision", conflict.currentRevision());
+            return result;
+        }
+        catch (ReviewInvalidRequestException invalid) {
+            throw invalid;
+        }
+        catch (IllegalArgumentException invalid) {
+            throw new ReviewInvalidRequestException("preparation: " + bounded(Optional.ofNullable(invalid.getMessage()).orElse("invalid preparation"), 500));
+        }
+    }
+
+    private JsonNode preparationAdmission(Admission admission)
+    {
+        ObjectNode result = objectMapper.createObjectNode().put("status", admission.status().name()).put("notebookRevision", admission.notebookRevision());
+        admission.attempt().ifPresentOrElse(active -> {
+            ObjectNode attempt = result.putObject("attempt").put("attemptId", active.attemptId()).put("requestKey", active.requestKey())
+                    .put("ownerTaskId", active.ownerTaskId()).put("ownerTurnId", active.ownerTurnId()).put("ownerTurnKey", active.ownerTurnKey())
+                    .put("reviewId", active.reviewId()).put("runId", active.runId()).put("baseContentRevision", active.baseContentRevision());
+            attempt.putPOJO("scopes", active.inputs().stream().map(input -> ImmutableMap.of("scopeId", input.scopeId(), "digest", input.digest().orElseThrow()))
+                    .collect(toImmutableList()));
+        }, () -> result.putNull("attempt"));
+        result.putPOJO("reused", admission.reused().stream().map(this::preparationOutcome).collect(toImmutableList()));
+        result.putPOJO("gaps", admission.gaps());
+        result.set("packet", objectMapper.valueToTree(admission.packet()));
+        return result;
+    }
+
+    private JsonNode preparationReceipt(Receipt receipt)
+    {
+        ObjectNode result = objectMapper.createObjectNode().put("attemptId", receipt.attemptId()).put("notebookRevision", receipt.notebookRevision());
+        result.putPOJO("scopeResults", receipt.scopeResults().stream().map(this::preparationOutcome).collect(toImmutableList()));
+        result.set("packet", objectMapper.valueToTree(receipt.packet()));
+        return result;
+    }
+
+    private JsonNode preparationOutcome(ContextPreparationResult outcome)
+    {
+        ObjectNode result = objectMapper.createObjectNode().put("scopeId", outcome.inputFingerprint().scopeId()).put("outcome", outcome.outcome().name())
+                .put("explanation", outcome.explanation()).put("inputDigest", outcome.inputFingerprint().digest().orElse(null));
+        result.putPOJO("noteIds", outcome.noteIds());
+        result.putPOJO("checkedSourceIds", outcome.checkedReads().stream().map(ContextSourceRead::id).collect(toImmutableList()));
+        return result;
+    }
+
+    private static Execution preparationExecution(Call call)
+    {
+        ReviewStep step = call.step().filter(value -> call.run().active() && value.kind() == INVESTIGATE)
+                .orElseThrow(() -> new ReviewInvalidRequestException("preparation: only the assigned initial investigation can prepare shared knowledge"));
+        call.run().context().filter(ReviewContextSnapshot::enabled).flatMap(ReviewContextSnapshot::baselineSha)
+                .orElseThrow(() -> new ReviewInvalidRequestException("preparation: context must be enabled with a captured monitored baseline"));
+        return new Execution(call.review(), call.run(), call.turnId().orElseThrow().toString(), step.key(call.run().id()));
+    }
+
+    /** The tool call owns one review lock; preparation Git reads must not delay Stop or hold a database connection. */
+    private <T> T outsideReviewLock(Call call, Supplier<T> work)
+    {
+        Lock lock = locks.lock(call.review().id());
+        lock.unlock();
+        try {
+            return work.get();
+        }
+        finally {
+            lock.lock();
+        }
+    }
 
     private JsonNode saveSummary(Call call)
     {
@@ -1083,6 +1309,26 @@ public class ReviewTools
             node.put("evidenceRoundsRemaining", 2 - call.run().steps().stream().filter(value -> value.kind() == COLLECT_EVIDENCE).count());
             lastValidation(call.run()).ifPresent(validation -> node.putPOJO("previousValidation", validation));
         }, () -> node.put("kind", "DISCUSSION"));
+        if (call.run().context().filter(ReviewContextSnapshot::enabled).isPresent()
+                && call.step().filter(step -> call.run().active() && step.kind() == INVESTIGATE).isPresent()) {
+            ObjectNode context = node.putObject("repositoryContext");
+            ReviewContextSnapshot snapshot = call.run().context().orElseThrow();
+            snapshot.baselineSha().ifPresent(sha -> context.put("baselineSha", sha));
+            context.putPOJO("sourceReadIds", snapshot.sourceReads().stream().map(ContextSourceRead::id).collect(toImmutableList()));
+            try {
+                RepositoryNotebook notebook = selectedDocumentation.notebook(call.review().workspaceId());
+                List<ContextScope> scopes = notebook.scopes().stream().filter(ContextScope::enabled).collect(toImmutableList());
+                int page = page(call.arguments());
+                int from = (int) Math.min(scopes.size(), (long) (page - 1) * PREPARATION_SCOPES_PAGE);
+                int to = Math.min(scopes.size(), from + PREPARATION_SCOPES_PAGE);
+                context.put("notebookRevision", notebook.revision()).put("useInReviews", notebook.useInReviews()).put("page", page).put("totalScopes", scopes.size());
+                context.putPOJO("scopes", scopes.subList(from, to).stream().map(scope -> ImmutableMap.of("id", scope.id(), "title", scope.title())).collect(toImmutableList()));
+                context.put("nextPage", to < scopes.size() ? page + 1 : null);
+            }
+            catch (ContextNotFoundException | ContextStorageException failure) {
+                context.put("gap", "The current notebook catalog is unavailable; shared preparation cannot be admitted yet.");
+            }
+        }
         return node;
     }
 
@@ -1712,7 +1958,12 @@ public class ReviewTools
 
     private Replay replay(Call call, String tool)
     {
-        String operationKey = text(call.arguments(), "operationKey", MAX_KEY, true);
+        return replay(call, tool, "operationKey");
+    }
+
+    private Replay replay(Call call, String tool, String keyField)
+    {
+        String operationKey = text(call.arguments(), keyField, MAX_KEY, true);
         String key = call.step().map(step -> "review-step:" + call.run().id() + ":" + step.number() + ":").orElse("") + tool + ":" + operationKey;
         String digest = Hashing.sha256().hashString(canonical(call.arguments()), StandardCharsets.UTF_8).toString();
         ReviewOperation stored = call.run().operations().get(key);
@@ -1720,13 +1971,13 @@ public class ReviewTools
             return new Replay(key, digest, Optional.empty());
         }
         if (!stored.payloadDigest().equals(digest)) {
-            throw new ReviewConflictException("operationKey: " + operationKey + " was already used with different content; choose a new key for a new write");
+            throw new ReviewConflictException(keyField + ": " + operationKey + " was already used with different content; choose a new key for a new write");
         }
         try {
             return new Replay(key, digest, Optional.of(objectMapper.readTree(stored.result())));
         }
         catch (JsonProcessingException e) {
-            throw new ReviewConflictException("operationKey: stored result is unreadable");
+            throw new ReviewConflictException(keyField + ": stored result is unreadable");
         }
     }
 

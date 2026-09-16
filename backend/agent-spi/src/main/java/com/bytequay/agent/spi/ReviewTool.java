@@ -39,8 +39,8 @@ public record ReviewTool(String name, String description, Map<String, Object> in
         checkNotBlank(description, "description");
         inputSchema = ImmutableMap.copyOf(inputSchema);
         requireNonNull(call, "call is null");
-        if (!name.startsWith(NAME_PREFIX)) {
-            throw new IllegalArgumentException("review tool name must start with " + NAME_PREFIX + ": " + name);
+        if (!name.startsWith(NAME_PREFIX) && !name.equals("repository_context_prepare")) {
+            throw new IllegalArgumentException("Unknown review capability tool name: " + name);
         }
     }
 }

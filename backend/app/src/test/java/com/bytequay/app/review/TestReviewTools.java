@@ -21,12 +21,20 @@ import com.bytequay.agent.core.AgentHistoryPage;
 import com.bytequay.agent.core.EventId;
 import com.bytequay.agent.core.TaskId;
 import com.bytequay.agent.core.TurnId;
+import com.bytequay.agent.core.store.AgentUnitOfWork;
 import com.bytequay.agent.spi.ProviderAgentEvent.ActivityState;
 import com.bytequay.agent.spi.ReviewBridge;
 import com.bytequay.agent.spi.ReviewTool;
 import com.bytequay.app.context.ContextBaselineReader;
 import com.bytequay.app.context.ContextNotFoundException;
 import com.bytequay.app.context.ContextStorageException;
+import com.bytequay.app.context.RepositoryContextPreparation;
+import com.bytequay.app.context.RepositoryContextPreparation.Admission;
+import com.bytequay.app.context.RepositoryContextPreparation.Completion;
+import com.bytequay.app.context.RepositoryContextPreparation.Execution;
+import com.bytequay.app.context.RepositoryContextPreparation.Plan;
+import com.bytequay.app.context.RepositoryContextPreparation.Receipt;
+import com.bytequay.app.context.RepositoryContextPreparation.Status;
 import com.bytequay.app.context.SelectedCommitPullRequestReader;
 import com.bytequay.app.context.SelectedDocumentationReader;
 import com.bytequay.app.git.GitCommandRunner;
@@ -37,11 +45,16 @@ import com.bytequay.app.service.pr.SelectedPullRequestDiffReader;
 import com.bytequay.app.service.pr.SelectedPullRequestReader;
 import com.bytequay.app.workspace.WorkspaceIssueRefreshService;
 import com.bytequay.app.workspace.WorkspaceIssueService;
+import com.bytequay.app.workspace.WorkspaceOperationLocks;
 import com.bytequay.app.workspace.WorkspaceRepositoryContext;
 import com.bytequay.app.workspace.WorkspaceRepositoryService;
+import com.bytequay.core.context.ActiveContextPreparation;
 import com.bytequay.core.context.ContextDocumentRead;
 import com.bytequay.core.context.ContextEntryOrigin;
+import com.bytequay.core.context.ContextInputFingerprint;
+import com.bytequay.core.context.ContextMatch;
 import com.bytequay.core.context.ContextPacket;
+import com.bytequay.core.context.ContextPreparationResult;
 import com.bytequay.core.context.ContextReference;
 import com.bytequay.core.context.ContextRepositoryRead;
 import com.bytequay.core.context.ContextScope;
@@ -97,6 +110,7 @@ import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
 import java.util.OptionalLong;
+import java.util.concurrent.locks.ReentrantLock;
 import java.util.stream.IntStream;
 
 import static com.bytequay.core.review.ReviewStep.Kind.COLLECT_EVIDENCE;
@@ -105,6 +119,9 @@ import static com.google.common.base.Preconditions.checkArgument;
 import static com.google.common.collect.ImmutableList.toImmutableList;
 import static java.nio.charset.StandardCharsets.UTF_8;
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyLong;
+import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
@@ -154,6 +171,9 @@ class TestReviewTools
     private WorkspaceIssueService issues;
     private WorkspaceIssueRefreshService issueRefresh;
     private WorkspaceRepositoryService workspaces;
+    private RepositoryContextPreparation preparation;
+    private ReviewLocks locks;
+    private boolean inTransaction;
 
     @BeforeEach
     void setUp()
@@ -176,6 +196,8 @@ class TestReviewTools
         git = mock(GitCommandRunner.class);
         objectMapper = new ObjectMapper().findAndRegisterModules();
         assignments = mock(ReviewToolAssignment.class);
+        preparation = mock(RepositoryContextPreparation.class);
+        locks = new ReviewLocks();
         TurnId turn = TurnId.random();
         capturedTurn = turn;
         when(assignments.capture(TASK_ID)).thenReturn(Optional.of(turn));
@@ -185,7 +207,21 @@ class TestReviewTools
         });
         tools = new ReviewTools(store, pullRequests, selectedPullRequests, selectedPullRequestDiffs, selectedCommitPullRequests, selectedDocumentation, baselineSources,
                 repositories, issues, issueRefresh, events, workspaces, git, objectMapper,
-                new ReviewLocks(), assignments, Clock.fixed(NOW, ZoneOffset.UTC));
+                locks, assignments, preparation, new AgentUnitOfWork()
+                {
+                    @Override
+                    public <T> T execute(Work<T> work)
+                    {
+                        assertThat(((ReentrantLock) WorkspaceOperationLocks.get(WORKSPACE_ID)).isHeldByCurrentThread()).isTrue();
+                        inTransaction = true;
+                        try {
+                            return work.run();
+                        }
+                        finally {
+                            inTransaction = false;
+                        }
+                    }
+                }, Clock.fixed(NOW, ZoneOffset.UTC));
 
         when(workspaces.requireReadableRepository(WORKSPACE_ID)).thenReturn(workspaceRepository());
         when(git.run(repository, "show", HEAD_SHA + ":" + DIFF_PATH)).thenReturn(new GitCommandRunner.Result(0, "alpha\nbeta\ngamma\n", false));
@@ -202,6 +238,220 @@ class TestReviewTools
         store.updateReview(review(AgentReview.State.OPEN).closed(NOW));
 
         assertThat(tools.bridge(TASK_ID)).isEmpty();
+    }
+
+    @Test
+    void preparationIsOnlyRegisteredForAnEnabledInvestigation()
+    {
+        assertThat(bridge.tool("repository_context_prepare")).isEmpty();
+        preparationContext();
+        assertThat(bridge.tool("repository_context_prepare")).isPresent();
+        advance(COLLECT_EVIDENCE);
+        assertThat(tools.bridge(TASK_ID).orElseThrow().tool("repository_context_prepare")).isEmpty();
+        preparationContext();
+        store.updateRun(run(RUN_ID, 1, PATCH, false).withVersion(store.findRun(RUN_ID).orElseThrow().version()));
+        documentContext(false);
+        assertThat(tools.bridge(TASK_ID).orElseThrow().tool("repository_context_prepare")).isEmpty();
+        assertThat(call("repository_context_prepare", beginPreparation()).at("/error/field").asText()).isEqualTo("preparation");
+        verifyNoInteractions(preparation);
+    }
+
+    @Test
+    void investigationExposesPagedPreparationSelectorsWithoutFetchingSources()
+    {
+        preparationContext();
+        List<ContextScope> scopes = ImmutableList.<ContextScope>builder().add(ContextScope.project())
+                .addAll(IntStream.range(0, 12).mapToObj(index -> new ContextScope("path:module" + index + "/", "Module " + index,
+                        new ContextMatch.Selected(ImmutableList.of("module" + index + "/"), ImmutableList.of()), true, Optional.empty())).iterator()).build();
+        when(selectedDocumentation.notebook(WORKSPACE_ID)).thenReturn(new RepositoryNotebook(1, 9, true, ImmutableList.of(), scopes,
+                ImmutableList.of(), ImmutableList.of(), ImmutableList.of(), Optional.empty()));
+
+        JsonNode first = call("review_get_context", ImmutableMap.of("kind", "assignment")).path("repositoryContext");
+        JsonNode second = call("review_get_context", ImmutableMap.of("kind", "assignment", "page", 2)).path("repositoryContext");
+
+        assertThat(first.path("notebookRevision").asLong()).isEqualTo(9);
+        assertThat(first.path("baselineSha").asText()).isEqualTo(BASE_SHA);
+        assertThat(first.path("scopes")).hasSize(10);
+        assertThat(first.at("/scopes/0/id").asText()).isEqualTo("project");
+        assertThat(first.path("nextPage").asInt()).isEqualTo(2);
+        assertThat(second.path("scopes")).hasSize(3);
+        assertThat(second.path("nextPage").isNull()).isTrue();
+        assertThat(first.path("sourceReadIds")).isEmpty();
+        verifyNoInteractions(preparation, workspaces, git, baselineSources, selectedPullRequests);
+        store.updateRun(run(RUN_ID, 1, PATCH, false).withVersion(store.findRun(RUN_ID).orElseThrow().version()));
+        documentContext(false);
+        assertThat(call("review_get_context", ImmutableMap.of("kind", "assignment")).has("repositoryContext")).isFalse();
+    }
+
+    @Test
+    void preparationAdmissionReplaysTheActualReceiptWithoutRepeatingPlanningOrCheckingAnOldRevision()
+    {
+        preparationContext();
+        ActiveContextPreparation active = preparationAttempt();
+        when(preparation.plan(any(), any())).thenAnswer(invocation -> {
+            assertPreparationReadsOutsideLocks();
+            return new Plan(RepositoryNotebook.empty(), active.inputs());
+        });
+        when(preparation.begin(any(), anyString(), anyString(), anyLong(), any())).thenAnswer(invocation -> {
+            assertThat(inTransaction).isTrue();
+            Execution execution = invocation.getArgument(0);
+            assertThat(execution.turnId()).isEqualTo(capturedTurn.toString());
+            assertThat(execution.turnKey()).isEqualTo("review-step:" + RUN_ID + ":1");
+            assertThat(invocation.<String>getArgument(2)).matches("sha256:[0-9a-f]{64}");
+            return new Admission(Status.OWNED, 7, Optional.of(active), ImmutableList.of(), ImmutableList.of(), ContextPacket.create("Preparation admitted"));
+        });
+
+        JsonNode admitted = call("repository_context_prepare", beginPreparation());
+        assertThat(admitted.path("status").asText()).isEqualTo("OWNED");
+        assertThat(admitted.at("/attempt/scopes/0/scopeId").asText()).isEqualTo("project");
+        assertThat(admitted.at("/attempt/scopes/0/digest").asText()).isEqualTo(active.inputs().getFirst().digest().orElseThrow());
+        assertThat(admitted.at("/attempt/baseContentRevision").asLong()).isEqualTo(7);
+        assertThat(admitted.path("attempt").has("inputs")).isFalse();
+        assertThat(admitted.at("/packet/text").asText()).isEqualTo("Preparation admitted");
+        assertThat(store.findRun(RUN_ID).orElseThrow().operations()).hasSize(1);
+        assertThat(call("repository_context_prepare", beginPreparation())).isEqualTo(admitted);
+        ReviewRun current = store.findRun(RUN_ID).orElseThrow();
+        ReviewInvestigation sealed = new ReviewInvestigation("Changed behavior", ImmutableList.of(DIFF_PATH), ImmutableList.of(),
+                ImmutableList.of(), ImmutableList.of(), ImmutableList.of());
+        store.updateRun(current.replaceCurrentStep(current.currentStep().orElseThrow().withInvestigation(sealed), NOW));
+        assertThat(call("repository_context_prepare", beginPreparation())).isEqualTo(admitted);
+        Map<String, Object> changed = ImmutableMap.<String, Object>builder().putAll(beginPreparation()).put("expectedRevision", 8L).buildKeepingLast();
+        assertThat(call("repository_context_prepare", changed).at("/error/field").asText()).isEqualTo("requestKey");
+        verify(preparation).plan(any(), any());
+        verify(preparation).begin(any(), anyString(), anyString(), anyLong(), any());
+    }
+
+    @Test
+    void joinedPreparationCanObserveACompletedResultOnTheSameRequestRetry()
+    {
+        preparationContext();
+        when(preparation.plan(any(), any())).thenReturn(new Plan(RepositoryNotebook.empty(), preparationAttempt().inputs()));
+        when(preparation.begin(any(), anyString(), anyString(), anyLong(), any())).thenReturn(
+                new Admission(Status.JOINED, 7, Optional.of(preparationAttempt()), ImmutableList.of(), ImmutableList.of("Still preparing in another review"),
+                        ContextPacket.create("Waiting for shared knowledge")),
+                new Admission(Status.REUSED, 8, Optional.empty(), ImmutableList.of(preparationOutcome()), ImmutableList.of(),
+                        ContextPacket.create("Exact saved note available for reuse")));
+
+        assertThat(call("repository_context_prepare", beginPreparation()).path("status").asText()).isEqualTo("JOINED");
+        assertThat(store.findRun(RUN_ID).orElseThrow().operations()).isEmpty();
+        JsonNode reused = call("repository_context_prepare", beginPreparation());
+        assertThat(reused.path("status").asText()).isEqualTo("REUSED");
+        assertThat(reused.at("/packet/text").asText()).isEqualTo("Exact saved note available for reuse");
+        assertThat(reused.at("/reused/0/checkedSourceIds/0").asText()).isEqualTo("context-read:empty");
+        assertThat(reused.at("/reused/0").has("checkedReads")).isFalse();
+        assertThat(reused.at("/reused/0").has("inputFingerprint")).isFalse();
+        assertThat(store.findRun(RUN_ID).orElseThrow().operations()).hasSize(1);
+        verify(preparation, times(2)).begin(any(), anyString(), anyString(), anyLong(), any());
+    }
+
+    @Test
+    void stoppedPreparationCannotCommitAfterItsUnlockedInputInspection()
+    {
+        preparationContext();
+        when(preparation.plan(any(), any())).thenAnswer(invocation -> {
+            assertPreparationReadsOutsideLocks();
+            doThrow(new ReviewConflictException("turn: this turn was stopped during input inspection"))
+                    .when(assignments).resolve(REVIEW_ID, Optional.of(capturedTurn));
+            return new Plan(RepositoryNotebook.empty(), preparationAttempt().inputs());
+        });
+
+        assertThat(call("repository_context_prepare", beginPreparation()).at("/error/field").asText()).isEqualTo("turn");
+        assertThat(store.findRun(RUN_ID).orElseThrow().operations()).isEmpty();
+        verify(preparation, never()).begin(any(), anyString(), anyString(), anyLong(), any());
+    }
+
+    @Test
+    void preparationSubmissionValidatesOutsideLocksAndReplaysItsExactAcceptedPacket()
+    {
+        preparationContext();
+        Receipt receipt = new Receipt("attempt-1", 8, ImmutableList.of(preparationOutcome()), ContextPacket.create("Actual accepted knowledge; verify against this PR."));
+        when(preparation.prepareCompletion(any(), anyString(), any())).thenAnswer(invocation -> {
+            assertPreparationReadsOutsideLocks();
+            return new Completion(RepositoryNotebook.empty(), RepositoryNotebook.empty(), receipt);
+        });
+        when(preparation.complete(any(), any())).thenAnswer(invocation -> {
+            assertThat(inTransaction).isTrue();
+            return receipt;
+        });
+        Map<String, Object> request = ImmutableMap.of("operation", "SUBMIT", "attemptId", "attempt-1", "operationKey", "submit",
+                "report", ImmutableMap.of("scopeResults", ImmutableList.of(ImmutableMap.of("scopeId", "project", "outcome", "FAILED", "noteIds", ImmutableList.of(),
+                        "checkedSourceIds", ImmutableList.of(), "explanation", "Required source is unavailable")), "entries", ImmutableList.of()));
+
+        JsonNode result = call("repository_context_prepare", request);
+
+        assertThat(result.at("/packet/text").asText()).isEqualTo(receipt.packet().text());
+        assertThat(result.path("packet")).isEqualTo(objectMapper.valueToTree(receipt.packet()));
+        assertThat(result.at("/scopeResults/0/scopeId").asText()).isEqualTo("project");
+        assertThat(result.at("/scopeResults/0/outcome").asText()).isEqualTo("EMPTY");
+        assertThat(result.at("/scopeResults/0/checkedSourceIds/0").asText()).isEqualTo("context-read:empty");
+        assertThat(result.at("/scopeResults/0/inputDigest").asText()).isEqualTo(preparationOutcome().inputFingerprint().digest().orElseThrow());
+        assertThat(result.at("/scopeResults/0").has("checkedReads")).isFalse();
+        assertThat(result.at("/scopeResults/0").has("inputFingerprint")).isFalse();
+        assertThat(call("repository_context_prepare", request)).isEqualTo(result);
+        verify(preparation).prepareCompletion(any(), anyString(), any());
+        verify(preparation).complete(any(), any());
+        assertThat(store.findRun(RUN_ID).orElseThrow().operations()).hasSize(1);
+    }
+
+    @Test
+    void preparationBoundsTheActualSerializedResponseBeforeJournaling()
+    {
+        preparationContext();
+        when(preparation.plan(any(), any())).thenReturn(new Plan(RepositoryNotebook.empty(), preparationAttempt().inputs()));
+        when(preparation.begin(any(), anyString(), anyString(), anyLong(), any())).thenReturn(new Admission(Status.OWNED, 7,
+                Optional.of(preparationAttempt()), ImmutableList.of(), ImmutableList.of(), ContextPacket.create("x" + "\u0001".repeat(16 * 1024))));
+
+        JsonNode result = call("repository_context_prepare", beginPreparation());
+
+        assertThat(result.at("/error/field").asText()).isEqualTo("preparation");
+        assertThat(result.at("/error/message").asText()).contains("response exceeds 64 KiB", "nothing was saved");
+        assertThat(store.findRun(RUN_ID).orElseThrow().operations()).isEmpty();
+    }
+
+    @Test
+    void preparationRejectsOwnershipFieldsAndUnknownGeneratedReportFields()
+    {
+        preparationContext();
+        Map<String, Object> ownership = ImmutableMap.<String, Object>builder().putAll(beginPreparation()).put("turnId", "other-turn").buildOrThrow();
+        assertThat(call("repository_context_prepare", ownership).at("/error/field").asText()).isEqualTo("turnId");
+        assertThat(call("repository_context_prepare", ImmutableMap.of("operation", "SUBMIT", "attemptId", "attempt-1", "operationKey", "submit",
+                "report", ImmutableMap.of("scopeResults", ImmutableList.of(), "entries", ImmutableList.of(), "sources", ImmutableList.of())))
+                .at("/error/field").asText()).isEqualTo("report");
+        verifyNoInteractions(preparation);
+    }
+
+    private void preparationContext()
+    {
+        store.updateRun(run(RUN_ID, 1, PATCH, false).withVersion(store.findRun(RUN_ID).orElseThrow().version()));
+        documentContext(true);
+        bridge = tools.bridge(TASK_ID).orElseThrow();
+        when(selectedDocumentation.notebook(WORKSPACE_ID)).thenReturn(RepositoryNotebook.empty());
+    }
+
+    private ActiveContextPreparation preparationAttempt()
+    {
+        return new ActiveContextPreparation("attempt-1", "begin", "sha256:" + "a".repeat(64), TASK_ID, capturedTurn.toString(), "review-step:" + RUN_ID + ":1",
+                REVIEW_ID, RUN_ID, 7, ImmutableList.of(ContextInputFingerprint.create("project", ImmutableMap.of("README.md", BASE_SHA), ImmutableList.of())));
+    }
+
+    private ContextPreparationResult preparationOutcome()
+    {
+        ContextRepositoryRead read = new ContextRepositoryRead("context-read:empty",
+                new ContextReference.RepositoryFile(1, RepoRef.of("acme", "widgets"), "README.md", BASE_SHA), BASE_SHA, NOW, 1, 0, 0, 0, false, Optional.empty());
+        return new ContextPreparationResult("attempt-1", preparationAttempt().inputs().getFirst(), ContextPreparationResult.Outcome.EMPTY,
+                ImmutableList.of(), ImmutableList.of(read), "The selected source is empty");
+    }
+
+    private static Map<String, Object> beginPreparation()
+    {
+        return ImmutableMap.of("operation", "BEGIN", "requestKey", "begin", "expectedRevision", 7L, "scopeIds", ImmutableList.of("project"));
+    }
+
+    private void assertPreparationReadsOutsideLocks()
+    {
+        assertThat(inTransaction).isFalse();
+        assertThat(((ReentrantLock) locks.lock(REVIEW_ID)).isHeldByCurrentThread()).isFalse();
+        assertThat(((ReentrantLock) WorkspaceOperationLocks.get(WORKSPACE_ID)).isHeldByCurrentThread()).isFalse();
     }
 
     @Test
@@ -1215,7 +1465,7 @@ class TestReviewTools
         documentContext(true);
         int writes = store.runUpdates;
         RepositoryNotebook notebook = new RepositoryNotebook(1, 9, false, ImmutableList.of(DOCUMENT_SOURCE), ImmutableList.of(ContextScope.project()),
-                ImmutableList.of(), ImmutableList.of(), ImmutableList.of());
+                ImmutableList.of(), ImmutableList.of(), ImmutableList.of(), Optional.empty());
         when(selectedDocumentation.notebook(WORKSPACE_ID)).thenReturn(notebook);
 
         JsonNode result = call("review_get_context", ImmutableMap.of("kind", "document"));
@@ -1242,7 +1492,7 @@ class TestReviewTools
         List<RegisteredContextSource> sources = IntStream.range(0, 12).mapToObj(index -> new RegisteredContextSource(
                 "docs-" + index, DOCUMENT_SOURCE.kind(), DOCUMENT_SOURCE.url() + "root-" + index + "/", DOCUMENT_SOURCE.origin())).collect(toImmutableList());
         RepositoryNotebook notebook = new RepositoryNotebook(1, 9, true, sources, ImmutableList.of(ContextScope.project()),
-                ImmutableList.of(), ImmutableList.of(), ImmutableList.of());
+                ImmutableList.of(), ImmutableList.of(), ImmutableList.of(), Optional.empty());
         when(selectedDocumentation.notebook(WORKSPACE_ID)).thenReturn(notebook);
 
         JsonNode first = call("review_get_context", ImmutableMap.of("kind", "document"));

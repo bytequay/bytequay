@@ -15,12 +15,15 @@ package com.bytequay.app.context;
 
 import com.bytequay.app.workspace.WorkspaceOperationLocks;
 import com.bytequay.core.context.ContextClaim;
+import com.bytequay.core.context.ContextDocumentRead;
 import com.bytequay.core.context.ContextEntry;
 import com.bytequay.core.context.ContextLimits;
 import com.bytequay.core.context.ContextMatch;
 import com.bytequay.core.context.ContextReference;
+import com.bytequay.core.context.ContextRepositoryRead;
 import com.bytequay.core.context.ContextScope;
 import com.bytequay.core.context.ContextSourceEvidence;
+import com.bytequay.core.context.ContextSourceRead;
 import com.bytequay.core.context.RegisteredContextSource;
 import com.bytequay.core.context.RepositoryNotebook;
 import com.bytequay.core.review.AgentReview;
@@ -46,6 +49,7 @@ import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
 import java.util.function.UnaryOperator;
+import java.util.stream.Stream;
 
 import static com.bytequay.core.context.ContextEntryKind.KNOWLEDGE;
 import static com.bytequay.core.context.ContextEntryKind.MEMORY;
@@ -74,6 +78,7 @@ public class RepositoryContextService
         this.mapper = requireNonNull(mapper, "mapper is null").copy()
                 .addMixIn(ContextMatch.class, MatchJson.class)
                 .addMixIn(ContextReference.class, ReferenceJson.class)
+                .addMixIn(ContextSourceRead.class, SourceReadJson.class)
                 .enable(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES)
                 .enable(DeserializationFeature.FAIL_ON_NULL_FOR_PRIMITIVES)
                 .enable(DeserializationFeature.FAIL_ON_MISSING_CREATOR_PROPERTIES);
@@ -115,7 +120,10 @@ public class RepositoryContextService
     {
         requireNonNull(edit, "edit is null");
         return mutate(workspaceId, expectedRevision, current -> {
-            List<ContextScope> scopes = edit.scopes().orElse(current.scopes());
+            List<ContextScope> scopes = edit.scopes().<List<ContextScope>>map(values -> values.stream().map(scope -> new ContextScope(
+                    scope.id(), scope.title(), scope.match(), scope.enabled(), current.scopes().stream()
+                            .filter(existing -> existing.id().equals(scope.id())).findFirst().flatMap(ContextScope::preparation))).collect(toImmutableList()))
+                    .orElse(current.scopes());
             Set<String> scopeIds = scopes.stream().map(ContextScope::id).collect(toSet());
             checkArgument(current.scopes().stream().allMatch(scope -> scopeIds.contains(scope.id())), "Disable existing scopes instead of removing their identity");
             List<RegisteredContextSource> sources = edit.sources().<List<RegisteredContextSource>>map(values -> values.stream().map(value -> {
@@ -201,7 +209,10 @@ public class RepositoryContextService
             Set<String> known = current.scopes().stream().map(ContextScope::id).collect(toSet());
             checkArgument(known.containsAll(selected), "Unknown reset scope");
             Set<String> ids = selected.stream().map(ContextEntry::knowledgeId).collect(toSet());
-            return content(current, current.useInReviews(), current.sources(), current.scopes(), current.entries(),
+            List<ContextScope> scopes = current.scopes().stream().map(scope -> selected.contains(scope.id())
+                    && current.entries().stream().noneMatch(entry -> entry.id().equals(ContextEntry.knowledgeId(scope.id())))
+                    ? new ContextScope(scope.id(), scope.title(), scope.match(), scope.enabled(), Optional.empty()) : scope).collect(toImmutableList());
+            return content(current, current.useInReviews(), current.sources(), scopes, current.entries(),
                     current.suppressedKnowledgeIds().stream().filter(id -> !ids.contains(id)).collect(toImmutableList()), current.sourceEvidence());
         });
     }
@@ -274,10 +285,8 @@ public class RepositoryContextService
             if (changed.equals(current)) {
                 return current;
             }
-            Set<String> retained = changed.entries().stream().flatMap(entry -> entry.sourceIds().stream()).collect(toSet());
             RepositoryNotebook saved = new RepositoryNotebook(1, Math.addExact(current.revision(), 1), changed.useInReviews(), changed.sources(), changed.scopes(),
-                    changed.entries(), changed.suppressedKnowledgeIds(),
-                    changed.sourceEvidence().stream().filter(source -> retained.contains(source.id())).collect(toImmutableList()));
+                    changed.entries(), changed.suppressedKnowledgeIds(), changed.sourceEvidence(), changed.activePreparation());
             String json = encode(saved);
             checkArgument(ContextLimits.bytes(json) <= ContextLimits.MAX_NOTEBOOK_BYTES, "Serialized notebook exceeds UTF-8 limit");
             settings.put(key(workspaceId), json);
@@ -288,9 +297,30 @@ public class RepositoryContextService
     private static RepositoryNotebook content(RepositoryNotebook current, boolean useInReviews, List<RegisteredContextSource> sources, List<ContextScope> scopes,
             List<ContextEntry> entries, List<String> suppression, List<ContextSourceEvidence> evidence)
     {
-        Set<String> retained = entries.stream().flatMap(entry -> entry.sourceIds().stream()).collect(toSet());
+        Set<String> retained = retainedSources(scopes, entries);
         return new RepositoryNotebook(1, current.revision(), useInReviews, sources, scopes, entries, suppression,
-                evidence.stream().filter(source -> retained.contains(source.id())).collect(toImmutableList()));
+                evidence.stream().filter(source -> retained.contains(source.id())).collect(toImmutableList()), current.activePreparation());
+    }
+
+    static Set<String> retainedSources(List<ContextScope> scopes, List<ContextEntry> entries)
+    {
+        return Stream.concat(entries.stream().flatMap(entry -> entry.sourceIds().stream()), scopes.stream().flatMap(scope -> scope.preparation().stream())
+                .flatMap(result -> result.checkedReads().stream()).flatMap(read -> read.evidenceRef().stream())).collect(toSet());
+    }
+
+    /** Writes fenced preparation metadata/content; the caller's SQLite unit of work also journals the review result. */
+    RepositoryNotebook savePreparation(String workspaceId, RepositoryNotebook expected, RepositoryNotebook replacement)
+    {
+        return WorkspaceOperationLocks.withLock(workspaceId, () -> {
+            RepositoryNotebook current = getNotebook(workspaceId);
+            if (!current.equals(expected)) {
+                throw new ContextConflictException(current.revision());
+            }
+            String json = encode(replacement);
+            checkArgument(ContextLimits.bytes(json) <= ContextLimits.MAX_NOTEBOOK_BYTES, "Serialized notebook exceeds UTF-8 limit");
+            settings.put(key(workspaceId), json);
+            return replacement;
+        });
     }
 
     private static List<ContextEntry> replaceEntry(RepositoryNotebook current, ContextEntry replacement, boolean exists)
@@ -360,4 +390,10 @@ public class RepositoryContextService
             @JsonSubTypes.Type(value = ContextReference.Review.class, name = "REVIEW"),
             @JsonSubTypes.Type(value = ContextReference.Document.class, name = "DOCUMENT")})
     private interface ReferenceJson {}
+
+    @JsonTypeInfo(use = JsonTypeInfo.Id.NAME, include = JsonTypeInfo.As.EXISTING_PROPERTY, property = "kind")
+    @JsonSubTypes({
+            @JsonSubTypes.Type(value = ContextRepositoryRead.class, name = "REPOSITORY_FILE"),
+            @JsonSubTypes.Type(value = ContextDocumentRead.class, name = "DOCUMENT")})
+    private interface SourceReadJson {}
 }

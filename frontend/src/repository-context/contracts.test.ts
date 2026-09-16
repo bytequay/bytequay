@@ -20,6 +20,8 @@ import {
   parseRepositoryNotebook,
   parseReviewContextSnapshot,
   parseSaveRepositoryContextLessonRequest,
+  type ActiveContextPreparationDto,
+  type ContextPreparationResultDto,
   type ContextSourceDto,
   type RepositoryNotebookDto,
   type ReviewContextSnapshotDto,
@@ -27,8 +29,8 @@ import {
 
 const source: ContextSourceDto = { id: 'docs', kind: 'DOCUMENTATION_ROOT', url: 'https://example.com/docs/', origin: 'USER' };
 const notebook: RepositoryNotebookDto = {
-  schemaVersion: 1, revision: 7, useInReviews: true, sources: [source],
-  scopes: [{ id: 'project', title: 'Project', match: { kind: 'REPOSITORY' }, enabled: true }],
+  schemaVersion: 1, revision: 7, useInReviews: true, sources: [source], activePreparation: null,
+  scopes: [{ id: 'project', title: 'Project', match: { kind: 'REPOSITORY' }, enabled: true, preparation: null }],
   entries: [{ id: 'knowledge:project', kind: 'KNOWLEDGE', scopeId: 'project', title: 'Project', summary: 'Summary', body: 'Keep the condition.',
     claims: [{ text: 'Conditional claim', basis: 'INFERENCE', sourceIds: ['source'] }], sourceIds: ['source'], origin: 'GENERATED', enabled: false, version: 2 }],
   suppressedKnowledgeIds: [], sourceEvidence: [{ id: 'source', reference: { kind: 'DOCUMENT', sourceId: 'docs', url: 'https://example.com/docs/page' },
@@ -93,6 +95,24 @@ describe('repository context contracts', () => {
     expect(() => parseConfigureRepositoryContextRequest({ useInReviews: false })).toThrow('expected revision');
     expect(() => parseConfigureRepositoryContextRequest({ expectedRevision: 7, sources: [source] })).toThrow('origin');
     expect(() => parseEditRepositoryContextEntryRequest({ expectedRevision: 7, ...notebook.entries[0] })).toThrow('unsupported request field');
+  });
+
+  it('retains preparation ownership and negative evidence but never submits execution metadata as user configuration', () => {
+    const input = { scopeId: 'project', inputs: { 'git:README.md': 'ABSENT' }, digest: 'sha256:observed', gaps: [] as string[] };
+    const preparation: ContextPreparationResultDto = { attemptId: 'attempt', inputFingerprint: input, outcome: 'EMPTY', noteIds: [],
+      checkedReads: [snapshot.sourceReads[0]], explanation: 'No useful note from the checked input.' };
+    const activePreparation: ActiveContextPreparationDto = { attemptId: 'current-attempt', requestKey: 'request', requestDigest: 'sha256:request', ownerTaskId: 'task',
+      ownerTurnId: 'turn', ownerTurnKey: 'turn-key', reviewId: 'review', runId: 'run', baseContentRevision: 7, inputs: [input] };
+    const scopes = [{ ...notebook.scopes[0], preparation }];
+    const parsed = parseRepositoryNotebook({ ...notebook, activePreparation, scopes });
+    expect(parsed.activePreparation).toEqual(activePreparation);
+    expect(parsed.scopes[0].preparation).toEqual(preparation);
+    expect(parseConfigureRepositoryContextRequest({ expectedRevision: 7, scopes }).scopes)
+      .toEqual([{ id: 'project', title: 'Project', match: { kind: 'REPOSITORY' }, enabled: true }]);
+    expect(() => parseRepositoryNotebook({ ...notebook, scopes: [{ ...scopes[0], preparation: { ...preparation, outcome: 'VERIFIED' } }] }))
+      .toThrow('preparation outcome');
+    expect(() => parseRepositoryNotebook({ ...notebook, activePreparation: { ...activePreparation, baseContentRevision: '7' } }))
+      .toThrow('preparation revision');
   });
 
   it('preserves the selected discussion run and evidence rather than substituting the latest run', () => {

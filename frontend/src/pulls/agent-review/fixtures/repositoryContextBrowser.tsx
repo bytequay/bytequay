@@ -35,8 +35,8 @@ const base = reviewFixture();
 const run = { ...base.runs[0], evidence: [{ ref: 'E1', source: 'Original run source', provenance: 'Saved at this run', excerpt: 'source', explanation: '' }] };
 const message = { ...base.messages[0], id: 'saved-discussion', runId: run.id, body: 'Keep field IDs scoped to their parent struct.' };
 const review = { ...base, runs: [run, { ...run, id: 'newer-run', ordinal: 2 }], messages: [message] };
-const empty: RepositoryNotebookDto = { schemaVersion: 1, revision: 4, useInReviews: false, sources: [],
-  scopes: [{ id: 'project', title: 'Project', match: { kind: 'REPOSITORY' }, enabled: true }], entries: [], suppressedKnowledgeIds: [], sourceEvidence: [] };
+const empty: RepositoryNotebookDto = { schemaVersion: 1, revision: 4, useInReviews: false, sources: [], activePreparation: null,
+  scopes: [{ id: 'project', title: 'Project', match: { kind: 'REPOSITORY' }, enabled: true, preparation: null }], entries: [], suppressedKnowledgeIds: [], sourceEvidence: [] };
 
 function button(scope: Element, text: string): HTMLButtonElement {
   const found = [...scope.querySelectorAll<HTMLButtonElement>('button')].find(item => item.textContent === text);

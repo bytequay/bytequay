@@ -622,8 +622,8 @@ evidenceRef; retained source text is not duplicated. The accepted turn is
 resolved again after source work before recording the result. A stopped or
 replaced turn observed at that check cannot append it. Receipt and evidence
 share one optimistic run update, preserving the initial bootstrap, selection
-and code identities. This is evidence retention, not the still-pending atomic
-shared preparation admission/save protocol.
+and code identities. This source-read step only retains evidence. The separate atomic shared
+preparation admission/save protocol is described in Sections 6 and 10.4.
 
 ## 4. Notebook and JSON contracts
 
@@ -672,10 +672,15 @@ does not maintain authoring or inspection dates.
       "enabled": true,
       "preparation": {
         "attemptId": "attempt-a",
-        "inputFingerprint": "sha256:illustrative-input",
+        "inputFingerprint": {
+          "scopeId": "path:plugin/trino-iceberg/",
+          "inputs": {"git:plugin/trino-iceberg": "040000 tree <observed-tree-sha>"},
+          "digest": "sha256:<computed-from-inputs>",
+          "gaps": []
+        },
         "outcome": "READY",
         "noteIds": ["knowledge:path:plugin/trino-iceberg/"],
-        "checkedSourceIds": ["source-pom", "source-connector-doc"],
+        "checkedReads": ["<full typed baseline/document read receipts; see Section 4.3>"],
         "explanation": "Prepared connector overview from the recorded sources."
       }
     }
@@ -819,10 +824,15 @@ Each scope stores its last completed attempt:
 ~~~json
 {
   "attemptId": "attempt-b",
-  "inputFingerprint": "sha256:illustrative-input",
+  "inputFingerprint": {
+    "scopeId": "project",
+    "inputs": {"git:README.md": "100644 blob <observed-blob-sha>"},
+    "digest": "sha256:<computed-from-inputs>",
+    "gaps": []
+  },
   "outcome": "EMPTY",
   "noteIds": [],
-  "checkedSourceIds": ["source-readme"],
+  "checkedReads": ["<full typed baseline/document read receipt>"],
   "explanation": "The inspected sources did not establish useful component-specific knowledge."
 }
 ~~~
@@ -843,9 +853,20 @@ No failed refresh deletes the previous usable content.
 An EMPTY refresh also preserves saved text; it does not turn a previously
 mismatched/unverified note into an applicable contract or silently delete it.
 
-An activePreparation contains attemptId, requestKey, ownerTaskId,
-ownerTurnKey, selectedScopeIds, baseContentRevision, and captured input
-fingerprints. This is a fencing/ownership fact; running/queued/stopped states
+The persisted `checkedReads` are complete typed `ContextRepositoryRead` or
+`ContextDocumentRead` values from Section 3, including successful blank reads.
+These placeholder strings abbreviate full objects only in the examples above.
+For a nonblank read, its notebook `evidenceRef` becomes the globally unique read
+ID and resolves to the copied excerpt in `sourceEvidence`; run-local IDs such
+as E1 cannot collide across reviews. A blank receipt keeps no evidence reference
+and creates no invented prose. Each result permits at most eight checked reads.
+The fingerprint is the full input inventory plus computed digest and gaps,
+not a model-supplied digest. It is recomputed against the prospective retained
+sources before saving, so newly attached sources do not invalidate their own note.
+
+An activePreparation contains attemptId, requestKey, requestDigest, ownerTaskId,
+ownerTurnId, ownerTurnKey, reviewId, runId, baseContentRevision, and `inputs`
+(the complete per-scope input fingerprints). This is a fencing/ownership fact; running/queued/stopped states
 come from the existing task/turn. The standalone lastBuildRequest retains its
 requestKey, requestDigest, sequence, preallocated taskId, selected scopes,
 baseline and optional completionReceipt so retries/navigation can find the
@@ -1079,8 +1100,9 @@ facts, including authoritative fingerprints. It never accepts a model-supplied
 filesystem root or ownership identity. BEGIN returns admission OWNED, JOINED,
 REUSED or DEFERRED, the attempt reference when applicable, current revision,
 and source catalog. Repeating the same request joins/reuses its admitted input;
-only new admissions compare the caller's revision. JOINED reads wait at most
-30 seconds and can return still-preparing; they do not grant write ownership.
+only new admissions compare the caller's revision. JOINED returns immediately
+with “still preparing”; it does not wait inside the review call or grant write
+ownership. A later request can observe the completed result.
 
 The accepted submission receipt contains attemptId, operationKey, reportDigest,
 notebookRevision, the saved scope results, and a bounded result packet. Report
@@ -1227,8 +1249,8 @@ Use one notebook-mutation lock keyed by workspace for short local mutation:
 
 Only one shared generation owner is admitted per workspace. Another consumer
 can immediately reuse already valid notes. For the same pending scope/input it
-may join the existing result through a bounded tool wait (at most 30 seconds),
-then receive “still preparing” and retry later or continue with an explicit gap.
+may join by receiving “still preparing” immediately and retry later or continue
+with an explicit gap. No waiting loop runs inside the review call.
 Different missing scopes are deferred to that review's next requested read or
 an explicit refresh; do not create a second background queue. No database or
 workspace/task lock is held while waiting. Display “Waiting for shared knowledge”
@@ -1582,10 +1604,10 @@ public record ContextEntry(
  */
 public record ContextPreparationResult(
         String attemptId,
-        String inputFingerprint,
-        ContextPreparationOutcome outcome,
+        ContextInputFingerprint inputFingerprint,
+        ContextPreparationResult.Outcome outcome,
         List<String> noteIds,
-        List<String> checkedSourceIds,
+        List<ContextSourceRead> checkedReads,
         String explanation) {}
 
 /**
@@ -1890,6 +1912,94 @@ List<ContextInputFingerprint> capture(
 ~~~
 
 ### 10.4 Generated preparation and review integration
+
+The implemented review-owned slice uses the concrete application service below.
+It operates only on existing configured scopes and registered sources. Scope/root
+proposals, standalone Build/Refresh and automatic delivery remain pending. The
+broader planned interfaces that follow still describe the remaining builder work.
+
+~~~java
+public class RepositoryContextPreparation
+{
+    /**
+     * Reads the selected scopes and their frozen-baseline inputs outside locks.
+     * @param execution trusted accepted investigation, resolved by ReviewTools
+     * @param scopeIds existing configured IDs, never inferred filesystem roots
+     * @return notebook revision and bounded authoritative input inventories
+     */
+    Plan plan(Execution execution, List<String> scopeIds);
+
+    /**
+     * Records one owner or returns immediate JOINED/REUSED/DEFERRED.
+     * @param requestKey stable caller key, scoped to BEGIN in the run journal
+     * @param requestDigest application-computed normalized payload digest
+     * @param expectedRevision revision observed in the current scope catalog
+     * @param plan observations obtained before opening the transaction
+     * @return owner identity, reused outcomes, gaps and bounded actual note text
+     * The caller rechecks the accepted turn under the review lock and commits
+     * this mutation and its exact journal result within AgentUnitOfWork.
+     */
+    Admission begin(Execution execution, String requestKey, String requestDigest,
+            long expectedRevision, Plan plan);
+
+    /**
+     * Validates all admitted scope outcomes and source IDs, and computes input
+     * identities against the prospective retained sources outside locks.
+     * @param attemptId current owner attempt; every reported read belongs to its run
+     * @param report generated entries plus READY/EMPTY/FAILED for each owned scope
+     * @return exact expected/replacement notebooks and actual accepted-text receipt
+     * No shared write occurs here. Only baseline/document typed receipts qualify.
+     */
+    Completion prepareCompletion(Execution execution, String attemptId, GeneratedReport report);
+
+    /**
+     * Rechecks ownership and the exact expected notebook before saving.
+     * @param completion validated proposal from prepareCompletion
+     * @return saved result with packet bytes and digest, bounded to 32 KiB text
+     * The caller saves the SUBMIT operation receipt in the same transaction.
+     * Any user content revision change rejects the entire proposed batch.
+     */
+    Receipt complete(Execution execution, Completion completion);
+
+    /**
+     * Clears only the exact settled owner and records FAILED, preserving notes.
+     * @param expected retained ownership fact resolved by application cleanup
+     * @param reason bounded explanation; no provider restart is initiated
+     * Cleanup requires the recorded turn to be terminal and the task's runtime
+     * mutation/recovery claim to be absent. Uncertain runtime ownership stays fenced.
+     */
+    void fail(String workspaceId, ActiveContextPreparation expected, String reason);
+}
+~~~
+
+`review_get_context(kind=assignment)` exposes a paged current scope catalog,
+notebook revision, frozen baseline and retained read IDs to the enabled initial
+investigation. `repository_context_prepare` has exactly BEGIN and SUBMIT:
+
+- BEGIN accepts requestKey, expectedRevision and existing scopeIds. It returns
+  status, notebookRevision, optional attempt, reused outcomes, gaps and packet.
+- SUBMIT accepts attemptId, operationKey and report. Report fields are scopeResults
+  and entries. Entries contain id, scopeId, title, summary, body, claims and sourceIds;
+  server-owned origin/enabled/version and ownership fields are rejected.
+- checkedSourceIds in a report and note/claim sourceIds name returned **typed read
+  IDs**, not review evidence aliases. The backend copies nonblank evidence using
+  those identities and retains successful blank receipts for negative reuse.
+- Submission returns attemptId, notebookRevision, saved scopeResults and packet.
+  Responses project compact scope/attempt metadata, not full stored inventories
+  or checked-read objects. The packet defers complete scope sections that do not
+  fit 32 KiB and explicitly reports omissions. The exact serialized tool response
+  is capped at 64 KiB before the journal write; excess rolls back the shared
+  mutation and returns a bounded error. Request digest and operation keys remain in the existing run journal; BEGIN and
+  SUBMIT have separate namespaces. The journal stores the exact serialized result.
+- JOINED/DEFERRED are transient and not journaled; a retry can see a settled result.
+  Accepted ownership/reuse and submission receipts replay before new revision checks.
+  Validation, evidence collection, discussion, children and context-off runs have no
+  preparation capability. Direct automatic bootstrap/report delivery is still pending.
+
+Settings displays last completed READY/EMPTY/FAILED distinctly from no completed
+result, plus retained owner details when present. This is extraction metadata,
+not a claim of current applicability, live execution or model comprehension.
+
 
 ~~~java
 public interface RepositoryContextPreparation

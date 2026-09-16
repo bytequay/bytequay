@@ -13,17 +13,21 @@
  */
 package com.bytequay.core.context;
 
+import java.util.Optional;
+
 import static com.google.common.base.Preconditions.checkArgument;
 import static java.util.Objects.requireNonNull;
 
 /** A stable knowledge topic; disabling it preserves its notes and their identity. */
-public record ContextScope(String id, String title, ContextMatch match, boolean enabled)
+public record ContextScope(String id, String title, ContextMatch match, boolean enabled, Optional<ContextPreparationResult> preparation)
 {
     public ContextScope
     {
         ContextLimits.text(id, "scope id", 1100);
         ContextLimits.text(title, "scope title", 200);
         requireNonNull(match, "match is null");
+        requireNonNull(preparation, "preparation is null");
+        preparation.ifPresent(result -> checkArgument(result.inputFingerprint().scopeId().equals(id), "Preparation belongs to another scope"));
         checkArgument(id.equals("project") == (match instanceof ContextMatch.Repository), "Only project is repository-wide");
         if (id.startsWith("path:")) {
             String prefix = id.substring("path:".length());
@@ -34,6 +38,6 @@ public record ContextScope(String id, String title, ContextMatch match, boolean 
 
     public static ContextScope project()
     {
-        return new ContextScope("project", "Project overview", new ContextMatch.Repository(), true);
+        return new ContextScope("project", "Project overview", new ContextMatch.Repository(), true, Optional.empty());
     }
 }

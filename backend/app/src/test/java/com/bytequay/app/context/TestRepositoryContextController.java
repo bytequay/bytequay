@@ -105,8 +105,9 @@ class TestRepositoryContextController
         assertThat(edit.getValue().sources()).contains(ImmutableList.of(new EditContextConfiguration.Source(
                 "iceberg", RegisteredContextSource.Kind.DOCUMENTATION_ROOT, "https://iceberg.apache.org/docs/latest/")));
         assertThat(edit.getValue().scopes()).contains(ImmutableList.of(
-                new ContextScope("project", "Project", new ContextMatch.Repository(), true),
-                new ContextScope("path:plugin/trino-iceberg/", "Iceberg", new ContextMatch.Selected(ImmutableList.of("plugin/trino-iceberg/"), ImmutableList.of("Iceberg")), true)));
+                new ContextScope("project", "Project", new ContextMatch.Repository(), true, Optional.empty()),
+                new ContextScope("path:plugin/trino-iceberg/", "Iceberg",
+                        new ContextMatch.Selected(ImmutableList.of("plugin/trino-iceberg/"), ImmutableList.of("Iceberg")), true, Optional.empty())));
     }
 
     @Test

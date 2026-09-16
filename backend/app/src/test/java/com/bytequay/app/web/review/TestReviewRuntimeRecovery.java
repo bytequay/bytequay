@@ -179,6 +179,7 @@ class TestReviewRuntimeRecovery
         verify(supervisor).acknowledge("launch-1");
         verify(taskStore).update(argThat(task -> task.worktreeMutationClaim().isEmpty() && task.state() == blocked.state()));
         verify(reviews).task(REVIEW_ID);
+        verify(reviews).reconcilePreparation(REVIEW_ID);
         verify(reviews).get(REVIEW_ID);
         verifyNoMoreInteractions(reviews);
         verifyNoInteractions(turns);
@@ -194,6 +195,7 @@ class TestReviewRuntimeRecovery
         controller.stopRuntime(REVIEW_ID, new ReviewHttpModels.StopRuntimeRequest("task:8"));
 
         verify(turns).stopRuntime(TASK_ID, "task:8");
+        verify(reviews).reconcilePreparation(REVIEW_ID);
         verifyNoInteractions(supervisor, taskStore, turnStore, launchStore);
     }
 

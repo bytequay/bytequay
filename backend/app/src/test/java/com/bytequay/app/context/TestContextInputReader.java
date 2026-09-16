@@ -15,12 +15,15 @@ package com.bytequay.app.context;
 
 import com.bytequay.app.git.GitCommandRunner;
 import com.bytequay.app.workspace.WorkspaceRepositoryContext;
+import com.bytequay.core.context.ContextDocumentRead;
 import com.bytequay.core.context.ContextEntry;
 import com.bytequay.core.context.ContextEntryKind;
 import com.bytequay.core.context.ContextEntryOrigin;
 import com.bytequay.core.context.ContextInputFingerprint;
 import com.bytequay.core.context.ContextMatch;
+import com.bytequay.core.context.ContextPreparationResult;
 import com.bytequay.core.context.ContextReference;
+import com.bytequay.core.context.ContextRepositoryRead;
 import com.bytequay.core.context.ContextScope;
 import com.bytequay.core.context.ContextSourceEvidence;
 import com.bytequay.core.context.RegisteredContextSource;
@@ -41,6 +44,7 @@ import java.time.Instant;
 import java.util.List;
 import java.util.Optional;
 import java.util.OptionalLong;
+import java.util.UUID;
 import java.util.stream.IntStream;
 
 import static com.google.common.collect.ImmutableList.toImmutableList;
@@ -86,7 +90,7 @@ class TestContextInputReader
         assertThat(before).allSatisfy(input -> assertThat(input.digest()).isPresent());
         assertThat(after).isEqualTo(before);
         assertThat(capture(baseline, new RepositoryNotebook(1, 99, true, notebook.sources(), notebook.scopes(), notebook.entries(),
-                notebook.suppressedKnowledgeIds(), notebook.sourceEvidence()))).isEqualTo(before);
+                notebook.suppressedKnowledgeIds(), notebook.sourceEvidence(), Optional.empty()))).isEqualTo(before);
         assertThat(before.getFirst().inputs()).doesNotContainKey("git:unrelated").doesNotContainKey("git:.");
     }
 
@@ -226,7 +230,7 @@ class TestContextInputReader
         assertThat(reader.capture(workspace(), Optional.of("b".repeat(40)), reordered, reordered.scopes())).isEqualTo(before);
         RepositoryNotebook changed = notebook(ImmutableList.of(first), ImmutableList.of());
         assertThat(reader.capture(workspace(), Optional.of(SHA), changed, changed.scopes()).getLast().digest()).isNotEqualTo(before.getLast().digest());
-        ContextScope renamed = new ContextScope(COMPONENT.id(), "Different title", COMPONENT.match(), true);
+        ContextScope renamed = new ContextScope(COMPONENT.id(), "Different title", COMPONENT.match(), true, Optional.empty());
         RepositoryNotebook renamedNotebook = notebook(renamed, initial.sources(), ImmutableList.of());
         assertThat(reader.capture(workspace(), Optional.of(SHA), renamedNotebook, renamedNotebook.scopes()).getLast().digest()).isNotEqualTo(before.getLast().digest());
     }
@@ -268,6 +272,68 @@ class TestContextInputReader
     }
 
     @Test
+    void checkedBlankFileRemainsAnInputAfterEmptyPreparationAndInvalidatesWhenItsBlobChanges()
+            throws IOException
+    {
+        initialize();
+        write("README.md", "Project overview");
+        write("plugin/iceberg/Metadata.java", "Implementation");
+        write("reference/empty.txt", "");
+        String baseline = commit();
+        RepositoryNotebook initial = notebook(ImmutableList.of(), ImmutableList.of());
+        ContextInputFingerprint admitted = capture(baseline, initial).getLast();
+        ContextRepositoryRead blank = new ContextRepositoryRead("context-read:blank", new ContextReference.RepositoryFile(7, MONITORED, "reference/empty.txt", baseline),
+                command("rev-parse", baseline + ":reference/empty.txt").strip(), Instant.EPOCH, 1, 0, 0, 0, false, Optional.empty());
+        ContextPreparationResult preliminary = new ContextPreparationResult("attempt", admitted, ContextPreparationResult.Outcome.EMPTY,
+                ImmutableList.of(), ImmutableList.of(blank), "The checked file was empty");
+        ContextInputFingerprint acceptedInput = capture(baseline, preparedNotebook(preliminary, ImmutableList.of())).getLast();
+        ContextPreparationResult accepted = new ContextPreparationResult("attempt", acceptedInput, ContextPreparationResult.Outcome.EMPTY,
+                ImmutableList.of(), ImmutableList.of(blank), preliminary.explanation());
+        RepositoryNotebook saved = preparedNotebook(accepted, ImmutableList.of());
+
+        assertThat(acceptedInput.digest()).isPresent().isNotEqualTo(admitted.digest());
+        assertThat(acceptedInput.inputs()).containsEntry("git:reference/empty.txt", "100644 blob " + blank.blobId());
+        assertThat(capture(baseline, saved).getLast()).isEqualTo(acceptedInput);
+        assertThat(saved.sourceEvidence()).isEmpty();
+        write("unrelated.txt", "Unrelated change");
+        assertThat(capture(commit(), saved).getLast()).isEqualTo(acceptedInput);
+        write("reference/empty.txt", "New useful source text");
+        ContextInputFingerprint changed = capture(commit(), saved).getLast();
+        assertThat(changed.digest()).isPresent().isNotEqualTo(acceptedInput.digest());
+        assertThat(changed.inputs().get("git:reference/empty.txt")).isNotEqualTo(acceptedInput.inputs().get("git:reference/empty.txt"));
+    }
+
+    @Test
+    void checkedBlankDocumentRetainsItsObservedIdentityAndChangedRegistrationCreatesAGap()
+            throws IOException
+    {
+        initialize();
+        write("README.md", "Project overview");
+        write("plugin/iceberg/Metadata.java", "Implementation");
+        String baseline = commit();
+        RegisteredContextSource configured = new RegisteredContextSource("docs", RegisteredContextSource.Kind.DOCUMENTATION_ROOT,
+                "https://example.com/docs/", ContextEntryOrigin.USER);
+        RepositoryNotebook initial = notebook(ImmutableList.of(configured), ImmutableList.of());
+        ContextInputFingerprint admitted = capture(baseline, initial).getLast();
+        ContextDocumentRead blank = new ContextDocumentRead("context-read:blank-document", new ContextReference.Document("docs", configured.url() + "concepts"), configured,
+                0, UUID.randomUUID().toString(), "b".repeat(64), Instant.EPOCH, 1, 1, 0, true, false, false, Optional.empty());
+        ContextPreparationResult preliminary = new ContextPreparationResult("attempt", admitted, ContextPreparationResult.Outcome.EMPTY,
+                ImmutableList.of(), ImmutableList.of(blank), "The captured page was blank");
+        ContextInputFingerprint acceptedInput = capture(baseline, preparedNotebook(preliminary, ImmutableList.of(configured))).getLast();
+        ContextPreparationResult accepted = new ContextPreparationResult("attempt", acceptedInput, ContextPreparationResult.Outcome.EMPTY,
+                ImmutableList.of(), ImmutableList.of(blank), preliminary.explanation());
+        RepositoryNotebook saved = preparedNotebook(accepted, ImmutableList.of(configured));
+
+        assertThat(acceptedInput.digest()).isPresent().isNotEqualTo(admitted.digest());
+        assertThat(capture(baseline, saved).getLast()).isEqualTo(acceptedInput);
+        assertThat(saved.sourceEvidence()).isEmpty();
+        RegisteredContextSource changed = new RegisteredContextSource("docs", configured.kind(), "https://example.com/new-docs/", configured.origin());
+        ContextInputFingerprint after = capture(baseline, preparedNotebook(accepted, ImmutableList.of(changed))).getLast();
+        assertThat(after.digest()).isEmpty();
+        assertThat(after.gaps()).anySatisfy(gap -> assertThat(gap).contains("registration changed"));
+    }
+
+    @Test
     void savingAMemoryLessonDoesNotChangeBaselineKnowledgeInputs()
     {
         GitCommandRunner local = emptyGit();
@@ -278,7 +344,7 @@ class TestContextInputReader
         ContextEntry lesson = new ContextEntry("lesson", ContextEntryKind.MEMORY, COMPONENT.id(), "Lesson", "Summary", "Body", ImmutableList.of(),
                 ImmutableList.of(source.id()), ContextEntryOrigin.USER, true, 1);
         RepositoryNotebook updated = new RepositoryNotebook(1, 1, true, notebook.sources(), notebook.scopes(), ImmutableList.of(lesson),
-                ImmutableList.of(), ImmutableList.of(source));
+                ImmutableList.of(), ImmutableList.of(source), Optional.empty());
 
         assertThat(reader.capture(workspace(), Optional.of(SHA), updated, updated.scopes())).isEqualTo(before);
     }
@@ -342,7 +408,7 @@ class TestContextInputReader
         GitCommandRunner local = emptyGit();
         List<ContextScope> scopes = ImmutableList.<ContextScope>builder().add(ContextScope.project())
                 .addAll(IntStream.range(0, 99).mapToObj(index -> scope("module-" + index + "/component")).collect(toImmutableList())).build();
-        RepositoryNotebook notebook = new RepositoryNotebook(1, 0, true, ImmutableList.of(), scopes, ImmutableList.of(), ImmutableList.of(), ImmutableList.of());
+        RepositoryNotebook notebook = new RepositoryNotebook(1, 0, true, ImmutableList.of(), scopes, ImmutableList.of(), ImmutableList.of(), ImmutableList.of(), Optional.empty());
         List<ContextInputFingerprint> fingerprints = new ContextInputReader(local).capture(workspace(), Optional.of(SHA), notebook, scopes);
 
         assertThat(fingerprints).hasSize(100).anySatisfy(input -> {
@@ -367,7 +433,7 @@ class TestContextInputReader
     void termOnlyAndUnsupportedRetainedSourcesCannotClaimCompleteFreshness()
     {
         GitCommandRunner local = emptyGit();
-        ContextScope termOnly = new ContextScope("iceberg", "Iceberg", new ContextMatch.Selected(ImmutableList.of(), ImmutableList.of("Iceberg")), true);
+        ContextScope termOnly = new ContextScope("iceberg", "Iceberg", new ContextMatch.Selected(ImmutableList.of(), ImmutableList.of("Iceberg")), true, Optional.empty());
         ContextSourceEvidence source = source(new ContextReference.Issue(7, MONITORED, 12, Optional.empty()));
         RepositoryNotebook notebook = notebook(termOnly, ImmutableList.of(), ImmutableList.of(source));
 
@@ -398,7 +464,7 @@ class TestContextInputReader
 
     private static ContextScope scope(String directory)
     {
-        return new ContextScope("path:" + directory + "/", "Component", new ContextMatch.Selected(ImmutableList.of(directory + "/"), ImmutableList.of()), true);
+        return new ContextScope("path:" + directory + "/", "Component", new ContextMatch.Selected(ImmutableList.of(directory + "/"), ImmutableList.of()), true, Optional.empty());
     }
 
     private static RepositoryNotebook notebook(List<RegisteredContextSource> catalog, List<ContextSourceEvidence> sources)
@@ -406,12 +472,18 @@ class TestContextInputReader
         return notebook(COMPONENT, catalog, sources);
     }
 
+    private static RepositoryNotebook preparedNotebook(ContextPreparationResult result, List<RegisteredContextSource> catalog)
+    {
+        ContextScope scope = new ContextScope(COMPONENT.id(), COMPONENT.title(), COMPONENT.match(), COMPONENT.enabled(), Optional.of(result));
+        return notebook(scope, catalog, ImmutableList.of());
+    }
+
     private static RepositoryNotebook notebook(ContextScope scope, List<RegisteredContextSource> catalog, List<ContextSourceEvidence> sources)
     {
         List<ContextEntry> entries = sources.isEmpty() ? ImmutableList.of() : ImmutableList.of(new ContextEntry(ContextEntry.knowledgeId(scope.id()),
                 ContextEntryKind.KNOWLEDGE, scope.id(), "Source note", "Summary", "Body", ImmutableList.of(), sources.stream().map(ContextSourceEvidence::id).toList(),
                 ContextEntryOrigin.USER, true, 1));
-        return new RepositoryNotebook(1, 0, true, catalog, ImmutableList.of(ContextScope.project(), scope), entries, ImmutableList.of(), sources);
+        return new RepositoryNotebook(1, 0, true, catalog, ImmutableList.of(ContextScope.project(), scope), entries, ImmutableList.of(), sources, Optional.empty());
     }
 
     private static ContextSourceEvidence source(ContextReference reference)

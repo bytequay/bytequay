@@ -303,7 +303,7 @@ class TestReviewContextService
 
         assertThat(context.baselineSha()).isEmpty();
         assertThat(context.selectedEntries()).isEmpty();
-        assertThat(context.gaps()).contains("Baseline unavailable locally").anyMatch(gap -> gap.contains("No build has been attempted"));
+        assertThat(context.gaps()).contains("Baseline unavailable locally").anyMatch(gap -> gap.contains("No completed preparation is recorded"));
     }
 
     @Test
@@ -368,8 +368,8 @@ class TestReviewContextService
 
     private static RepositoryNotebook notebook(boolean enabled, List<ContextEntry> entries, List<ContextSourceEvidence> sources)
     {
-        ContextScope extra = new ContextScope("extra", "Extra", new ContextMatch.Selected(ImmutableList.of(), ImmutableList.of("extra")), true);
-        return new RepositoryNotebook(1, 4, enabled, ImmutableList.of(), ImmutableList.of(ContextScope.project(), extra), entries, ImmutableList.of(), sources);
+        ContextScope extra = new ContextScope("extra", "Extra", new ContextMatch.Selected(ImmutableList.of(), ImmutableList.of("extra")), true, Optional.empty());
+        return new RepositoryNotebook(1, 4, enabled, ImmutableList.of(), ImmutableList.of(ContextScope.project(), extra), entries, ImmutableList.of(), sources, Optional.empty());
     }
 
     private static ReviewRun run()

@@ -191,7 +191,7 @@ public class RepositoryContextReader
         related.addAll(historyPreviews(review, run, workspace, paths, terms, taskText, gaps));
         gaps.add("Selected notebook claims have not had their source versions checked against this PR; verify original sources before relying on them.");
         gaps.add("Local preparation does not refresh sources; selected PR, issue and registered documentation reads use the existing review tools.");
-        gaps.add("Shared preparation, generated knowledge and automatic context delivery remain unavailable.");
+        gaps.add("Automatic context delivery and source-version applicability checks remain unavailable.");
         return new Selection(baseline, notes, related.build(), gaps.build());
     }
 

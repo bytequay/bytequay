@@ -113,10 +113,11 @@ public class ReviewContextService
         RepositoryContextReader.Selection selection = reader.select(review, run, workspace, previous, notebook);
         List<String> gaps = new ArrayList<>(selection.gaps());
         List<ContextInputFingerprint> fingerprints = captureInputs(workspace, notebook, selection, gaps);
-        long missing = selection.notes().scopes().stream().filter(RepositoryContextMatcher.ScopeMatch::missingKnowledge).count();
-        if (missing > 0) {
-            gaps.add(missing + " relevant scopes have no knowledge entry. No build has been attempted by this local preparation.");
-        }
+        selection.notes().scopes().stream().filter(RepositoryContextMatcher.ScopeMatch::missingKnowledge).forEach(match -> {
+            String state = match.scope().preparation().map(result -> "Last preparation: " + result.outcome() + "; " + result.explanation())
+                    .orElse("No completed preparation is recorded.");
+            gaps.add(match.scope().id() + " has no knowledge entry. " + state + " Input reuse is checked when preparation is requested.");
+        });
         Map<String, ContextSourceEvidence> sources = new LinkedHashMap<>();
         notebook.sourceEvidence().forEach(source -> sources.put(source.id(), source));
         Map<String, ReviewEvidence> evidence = new LinkedHashMap<>();

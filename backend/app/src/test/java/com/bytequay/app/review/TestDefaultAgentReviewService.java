@@ -1396,6 +1396,21 @@ class TestDefaultAgentReviewService
     }
 
     @Test
+    void runtimePreparationCleanupDoesNotAdvanceOrRestartTheReview()
+    {
+        Fixture fixture = new Fixture();
+        String reviewId = fixture.service.start(WORKSPACE, REPO, NUMBER).review().id();
+        AgentReview review = fixture.store.findReview(reviewId).orElseThrow();
+        ReviewRun run = fixture.store.listRuns(reviewId).getLast();
+
+        fixture.service.reconcilePreparation(reviewId);
+
+        verify(fixture.preparationCleanup).reconcile(review);
+        assertThat(fixture.store.listRuns(reviewId)).containsExactly(run);
+        verify(fixture.turns, times(1)).start(any(StartAgentTurnCommand.class));
+    }
+
+    @Test
     void stopCancelsTheActiveTurnAndPausesFollowUp()
     {
         Fixture fixture = new Fixture();
@@ -1911,6 +1926,7 @@ class TestDefaultAgentReviewService
         private final CredentialService credentials = mock(CredentialService.class);
         private final ReviewTaskObserver observer = mock(ReviewTaskObserver.class);
         private final ReviewContextService context = mock(ReviewContextService.class);
+        private final ReviewContextPreparationCleanup preparationCleanup = mock(ReviewContextPreparationCleanup.class);
         private final Map<String, AgentTurn> acceptedTurns = new LinkedHashMap<>();
         private final DefaultAgentReviewService service;
 
@@ -1936,6 +1952,7 @@ class TestDefaultAgentReviewService
                     observer,
                     new ReviewLocks(),
                     context,
+                    preparationCleanup,
                     CLOCK);
             when(context.prepareRun(any(AgentReview.class), any(ReviewRun.class), any(WorkspaceRepositoryContext.class), any()))
                     .thenAnswer(invocation -> invocation.getArgument(1));

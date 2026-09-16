@@ -60,7 +60,16 @@ Workspace settings renders knowledge, lessons, scopes and documentation sources;
 private review messages can be saved as user-edited lessons bound to their original
 run. Review details renders the retained packet and receipts as prepared context,
 with gaps and provenance. Opening either surface performs no generation or remote
-fetch. Generation and confirmed review input delivery remain separate gates.
+fetch. Review-owned generation now uses `RepositoryContextPreparation` through
+one fixed BEGIN/SUBMIT tool on enabled initial investigation turns. Git/input
+inspection and report validation run outside locks; accepted ownership/results
+and the exact run operation journal commit under the workspace lock in the existing
+AgentUnitOfWork transaction. One workspace owner fences concurrent generation;
+READY/EMPTY reuse compares full input inventories and preserves checked blank
+receipts. Reconciliation clears only a terminal turn with no task runtime claim,
+recording FAILED and preserving saved notes. Settings displays these retained
+outcomes. Standalone Build/Refresh, automatic context delivery and provider
+acceptance remain separate gates.
 
 [Development delivery](development-delivery.md) extends the current agent core
 through one application coordinator. Core reserves its source owner after a

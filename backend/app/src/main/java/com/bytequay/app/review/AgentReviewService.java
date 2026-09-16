@@ -66,6 +66,9 @@ public interface AgentReviewService
     /** Idempotent progression of the current run from durable task facts: acceptance, completion repair, and pause. */
     void reconcile(String reviewId);
 
+    /** Settles only shared preparation after verified runtime recovery, without advancing review assignments. */
+    void reconcilePreparation(String reviewId);
+
     /** Records a newer remote head for every open review without moving its checkout or starting a run. */
     void observeHead(String repo, int number, String headSha);
 }

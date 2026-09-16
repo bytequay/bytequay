@@ -15,11 +15,13 @@ package com.bytequay.app.context;
 
 import com.bytequay.app.git.GitCommandRunner;
 import com.bytequay.app.workspace.WorkspaceRepositoryContext;
+import com.bytequay.core.context.ContextDocumentRead;
 import com.bytequay.core.context.ContextEntryKind;
 import com.bytequay.core.context.ContextInputFingerprint;
 import com.bytequay.core.context.ContextLimits;
 import com.bytequay.core.context.ContextMatch;
 import com.bytequay.core.context.ContextReference;
+import com.bytequay.core.context.ContextRepositoryRead;
 import com.bytequay.core.context.ContextScope;
 import com.bytequay.core.context.ContextSourceEvidence;
 import com.bytequay.core.context.RegisteredContextSource;
@@ -129,6 +131,7 @@ public class ContextInputReader
         Set<String> sourceIds = new LinkedHashSet<>();
         notebook.entries().stream().filter(entry -> entry.enabled() && entry.kind() == ContextEntryKind.KNOWLEDGE && entry.scopeId().equals(scope.id()))
                 .forEach(entry -> sourceIds.addAll(entry.sourceIds()));
+        scope.preparation().stream().flatMap(result -> result.checkedReads().stream()).flatMap(read -> read.evidenceRef().stream()).forEach(sourceIds::add);
         List<ContextSourceEvidence> sources = notebook.sourceEvidence().stream().filter(source -> sourceIds.contains(source.id()))
                 .sorted(Comparator.comparing(ContextSourceEvidence::id)).collect(toImmutableList());
         Set<String> referenceInputs = new LinkedHashSet<>();
@@ -158,6 +161,28 @@ public class ContextInputReader
                 default -> gaps.add("Retained " + source.reference().getKind() + " source freshness is not inspected by this local Git fingerprint.");
             }
         }
+        // Blank reads have no invented excerpt, but their path/page identity must still invalidate an EMPTY result when inputs change.
+        scope.preparation().stream().flatMap(result -> result.checkedReads().stream()).filter(read -> read.evidenceRef().isEmpty()).forEach(read -> {
+            switch (read) {
+                case ContextRepositoryRead file -> {
+                    referenceInputs.add(sourceIdentity(file.reference(), Optional.empty(), Optional.empty(), ContextSourceEvidence.Capture.BYTEQUAY_READ, file.truncated()));
+                    if (file.reference().repositoryId() == repositoryId(workspace)
+                            && file.reference().repository().fullName().equalsIgnoreCase(workspace.monitoredRepository().fullName())) {
+                        files.add(file.reference().path());
+                    }
+                    else {
+                        gaps.add("A checked empty repository file belongs to another repository.");
+                    }
+                }
+                case ContextDocumentRead document -> {
+                    referenceInputs.add(sourceIdentity(document.reference(), Optional.of(document.contentHash()), Optional.empty(),
+                            ContextSourceEvidence.Capture.BYTEQUAY_READ, document.truncated()));
+                    if (!notebook.sources().contains(document.registration()) || document.truncated() || document.refreshFailed()) {
+                        gaps.add("A checked blank document is incomplete or its registration changed.");
+                    }
+                }
+            }
+        });
         Hasher references = Hashing.sha256().newHasher();
         referenceInputs.stream().sorted().forEach(identity -> frame(references, identity));
         inputs.put("retained-source-identities", references.hash().toString());
@@ -313,9 +338,15 @@ public class ContextInputReader
 
     private static String sourceIdentity(ContextSourceEvidence source)
     {
+        return sourceIdentity(source.reference(), source.contentHash(), source.version(), source.capture(), source.truncated());
+    }
+
+    private static String sourceIdentity(ContextReference reference, Optional<String> contentHash, Optional<String> version,
+            ContextSourceEvidence.Capture capture, boolean truncated)
+    {
         Hasher hash = Hashing.sha256().newHasher();
-        frame(hash, source.reference().getKind());
-        switch (source.reference()) {
+        frame(hash, reference.getKind());
+        switch (reference) {
             case ContextReference.RepositoryFile file -> {
                 frame(hash, Long.toString(file.repositoryId()));
                 frame(hash, file.repository().fullName().toLowerCase(Locale.ROOT));
@@ -324,12 +355,12 @@ public class ContextInputReader
             case ContextReference.Document document -> {
                 frame(hash, document.sourceId());
                 frame(hash, document.url());
-                frame(hash, source.contentHash().orElse(""));
-                frame(hash, source.version().orElse(""));
-                frame(hash, source.capture().name());
-                frame(hash, Boolean.toString(source.truncated()));
+                frame(hash, contentHash.orElse(""));
+                frame(hash, version.orElse(""));
+                frame(hash, capture.name());
+                frame(hash, Boolean.toString(truncated));
             }
-            default -> frame(hash, source.reference().toString());
+            default -> frame(hash, reference.toString());
         }
         return hash.hash().toString();
     }

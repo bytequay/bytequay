@@ -23,6 +23,7 @@ import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.ValueSource;
 
 import java.util.List;
+import java.util.Optional;
 
 import static com.bytequay.app.context.RepositoryContextMatcher.Rank.EXPLICIT;
 import static com.bytequay.app.context.RepositoryContextMatcher.Rank.PATH;
@@ -102,13 +103,15 @@ class TestRepositoryContextMatcher
     @Test
     void explicitSelectionCannotReviveDisabledScopesNotesOrSuppression()
     {
-        ContextScope disabledScope = new ContextScope("disabled-scope", "Disabled", new ContextMatch.Selected(ImmutableList.of("plugin/"), ImmutableList.of()), false);
+        ContextScope disabledScope = new ContextScope("disabled-scope", "Disabled",
+                new ContextMatch.Selected(ImmutableList.of("plugin/"), ImmutableList.of()), false, Optional.empty());
         ContextScope disabledNote = selected("disabled-note", ImmutableList.of("plugin/"), ImmutableList.of());
         ContextScope suppressed = selected("suppressed", ImmutableList.of("plugin/"), ImmutableList.of());
         ContextScope missing = selected("missing", ImmutableList.of("plugin/"), ImmutableList.of());
         RepositoryNotebook notebook = new RepositoryNotebook(1, 1, true, ImmutableList.of(),
                 ImmutableList.of(ContextScope.project(), disabledScope, disabledNote, suppressed, missing),
-                ImmutableList.of(note(disabledScope, true), note(disabledNote, false)), ImmutableList.of(ContextEntry.knowledgeId(suppressed.id())), ImmutableList.of());
+                ImmutableList.of(note(disabledScope, true), note(disabledNote, false)),
+                ImmutableList.of(ContextEntry.knowledgeId(suppressed.id())), ImmutableList.of(), Optional.empty());
 
         RepositoryContextMatcher.Selection result = matcher.select(notebook, ImmutableList.of("plugin/Table.java"), "",
                 ImmutableList.of(ContextEntry.knowledgeId(disabledScope.id()), ContextEntry.knowledgeId(disabledNote.id()), ContextEntry.knowledgeId(suppressed.id())));
@@ -143,7 +146,7 @@ class TestRepositoryContextMatcher
 
     private static ContextScope selected(String id, List<String> paths, List<String> terms)
     {
-        return new ContextScope(id, id, new ContextMatch.Selected(paths, terms), true);
+        return new ContextScope(id, id, new ContextMatch.Selected(paths, terms), true, Optional.empty());
     }
 
     private static ContextEntry note(ContextScope scope, boolean enabled)
@@ -154,6 +157,6 @@ class TestRepositoryContextMatcher
 
     private static RepositoryNotebook notebook(List<ContextScope> scopes, List<ContextEntry> entries)
     {
-        return new RepositoryNotebook(1, 1, true, ImmutableList.of(), scopes, entries, ImmutableList.of(), ImmutableList.of());
+        return new RepositoryNotebook(1, 1, true, ImmutableList.of(), scopes, entries, ImmutableList.of(), ImmutableList.of(), Optional.empty());
     }
 }

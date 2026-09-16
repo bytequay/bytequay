@@ -14,7 +14,7 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react';
 import type { WorkspaceDto } from '../types';
 import ContextEntryEditor, { ContextDialog, type ContextEntryDraft } from '../repository-context/ContextEntryEditor';
-import type { ContextClaimDto, ContextEntryDto, ContextScopeDto, ContextSourceDto, RepositoryNotebookDto } from '../repository-context/contracts';
+import type { ContextClaimDto, ContextEntryDto, ContextScopeConfigurationDto, ContextScopeDto, ContextSourceDto, RepositoryNotebookDto } from '../repository-context/contracts';
 import { Badge, SettingsCard, SettingsRow, Toggle } from './primitives';
 
 type Editor = { kind: 'entry'; entry: ContextEntryDto | null; initial: ContextEntryDraft; claims: ContextClaimDto[] }
@@ -124,13 +124,20 @@ export default function RepositoryContextPage({ workspace }: { workspace: Worksp
         <Toggle on={notebook.useInReviews} disabled={disabled} label="Use repository context in reviews" onChange={enabled => void mutate(revision =>
           window.bridge.configureRepositoryContext(workspace.id, { expectedRevision: revision, useInReviews: enabled }), enabled ? 'Repository context enabled for new runs.' : 'Repository context disabled for new runs.')} />
       </SettingsRow></SettingsCard>
+      {notebook.activePreparation !== null && <div className="rc-status" role="status">Shared preparation is claimed for {notebook.activePreparation.inputs
+        .map(input => notebook.scopes.find(scope => scope.id === input.scopeId)?.title ?? input.scopeId).join(', ')}. Saved notes remain available.
+        <details><summary>Preparation owner</summary><p>Task: {notebook.activePreparation.ownerTaskId}</p>
+          <p>Task activity determines whether the agent is running, waiting or stopped.</p></details></div>}
       <div className="setw-section"><span className="setw-section-title">Knowledge</span><button className="rc-button" disabled={disabled || availableScopes.length === 0} onClick={() => openNote(null)}>Add note</button></div>
-      <SettingsCard>{notebook.entries.some(entry => entry.kind === 'KNOWLEDGE') ? entryRows('KNOWLEDGE') : <div className="setw-row-empty">No knowledge notes yet. Add a project note to get started.</div>}</SettingsCard>
+      <SettingsCard>{notebook.entries.some(entry => entry.kind === 'KNOWLEDGE') ? entryRows('KNOWLEDGE') : <div className="setw-row-empty">No saved knowledge notes. Preparation results below show whether sources have been checked.</div>}</SettingsCard>
       <div className="setw-section"><span className="setw-section-title">Saved lessons</span></div>
       <SettingsCard>{notebook.entries.some(entry => entry.kind === 'MEMORY') ? entryRows('MEMORY') : <div className="setw-row-empty">Use Save lesson on a private review discussion to keep a useful conclusion and its evidence.</div>}</SettingsCard>
       <div className="setw-section"><span className="setw-section-title">Matching scopes</span><button className="rc-button" disabled={disabled} onClick={() => setEditor({ kind: 'scope', scope: null })}>Add scope</button></div>
       <SettingsCard>{notebook.scopes.map(scope => <SettingsRow key={scope.id} title={scope.title} badge={!scope.enabled ? <Badge>Disabled</Badge> : undefined}
-        subtitle={scope.match.kind === 'REPOSITORY' ? 'Applies across this repository' : [...scope.match.pathPrefixes, ...scope.match.terms].join(' · ')}>
+        subtitle={<>{scope.match.kind === 'REPOSITORY' ? 'Applies across this repository' : [...scope.match.pathPrefixes, ...scope.match.terms].join(' · ')}
+          {scope.preparation === null ? <div>No completed preparation recorded.</div> : <details><summary>Last preparation: {{ READY: 'Note prepared', EMPTY: 'No useful note found', FAILED: 'Failed' }[scope.preparation.outcome]}</summary>
+            <p>{scope.preparation.explanation}</p><p>{scope.preparation.checkedReads.length} source reads retained. This result applies to the checked inputs; it does not verify the note against a new review.</p>
+          </details>}</>}>
         <button className="rc-button" disabled={disabled} onClick={() => setEditor({ kind: 'scope', scope })}>Edit</button>
         <button className="rc-button" disabled={disabled} onClick={() => void mutate(revision => window.bridge.configureRepositoryContext(workspace.id,
           { expectedRevision: revision, scopes: notebook.scopes.map(value => value.id === scope.id ? { ...value, enabled: !value.enabled } : value) }), 'Scope updated for future reviews.')}>{scope.enabled ? 'Disable' : 'Enable'}</button>
@@ -205,7 +212,7 @@ function SourceEditor({ source, busy, error, needsReload, onCancel, reloadContro
 }
 
 function ScopeEditor({ scope, busy, error, needsReload, onCancel, reloadControl, onSave }: ConfigurationEditorProps & {
-  scope: ContextScopeDto | null; onSave: (scope: ContextScopeDto) => void;
+  scope: ContextScopeDto | null; onSave: (scope: ContextScopeConfigurationDto) => void;
 }) {
   const [id] = useState(() => scope?.id ?? 'scope:' + crypto.randomUUID());
   const [title, setTitle] = useState(scope?.title ?? '');

@@ -20,8 +20,11 @@ including successful empty observations, alongside exact optional evidence.
 Snapshots are prepared before agent admission and exposed in the existing review
 projection. The first settings/display UI now exposes local notebook editing,
 default-on review selection, source/scope configuration, Save lesson from retained
-private messages, and truthful prepared-packet/receipt inspection. Generation,
-direct context delivery and provider acceptance remain pending. Unchecked items remain pending even when
+private messages, and truthful prepared-packet/receipt inspection. Review-owned
+BEGIN/SUBMIT now admits shared preparation for existing scopes, retains
+READY/EMPTY/FAILED outcomes and checked source receipts, reuses equal inputs,
+and protects user edits. Standalone generation, direct context delivery and
+provider acceptance remain pending. Unchecked items remain pending even when
 related infrastructure already exists.
 
 ## Delivery summary
@@ -29,15 +32,16 @@ related infrastructure already exists.
 | Entry | Status |
 | --- | --- |
 | Agreed concepts, overall flow and contracts | Finished |
-| Notebook persistence and editing/lesson APIs | Finished; generation-specific Reset/protection work remains in CP3 |
-| Local selection, frozen snapshots and input fingerprints | Finished; applicability/reuse decisions remain in CP3 |
+| Notebook persistence and editing/lesson APIs | Finished, including preparation-aware Reset/protection |
+| Local selection, frozen snapshots and input fingerprints | Finished; input reuse implemented, source applicability remains pending |
 | Selected PR, issue, commit association and related diff reads | Finished |
 | Selected documentation capture and retained excerpts | Finished; committed as d42c105f0 |
 | Scoped task-summary discovery | Finished; committed as 333902583 |
 | Frozen-baseline file reads and typed source receipts | Finished; committed as 3ba1ef0d2 |
-| Shared preparation, cold generation and explicit builder | Next; preparation and reuse first |
+| Review-owned shared preparation and source/input reuse | Implemented; protected READY/EMPTY/FAILED with atomic replay |
+| Scope/source discovery and standalone Build/Refresh | Pending |
 | Automatic context delivery and complete report integration | Pending |
-| Notebook/settings UI, Save lesson and prepared-context display | Implemented; verification recorded below; build activity/delivery/citations remain pending |
+| Notebook/settings UI, Save lesson and prepared-context display | Implemented, including retained preparation outcomes; build activity/delivery/citations remain pending |
 | On/Off quality comparison, performance and provider acceptance | Pending; required before enablement |
 
 An implemented source reader is not completion of automatic reusable knowledge.
@@ -106,15 +110,14 @@ design. Approval here concerns the design, not evidence that a feature works.
 - [x] Implement edit, disable, removal suppression, explicit reset, and Save
   lesson; preserve the supporting excerpt before source/runtime retention.
   Removing an edited knowledge note retains suppression.
-- [ ] Extend Reset when preparation records are introduced: clear the missing
-  note's preparation so an old READY result cannot block regeneration.
+- [x] Clear missing-note preparation on explicit Reset, including EMPTY and
+  removed READY; preserve existing user notes and prune unreferenced evidence.
 - [x] Make source/scope edits and all entry mutations use one workspace lock
   and expected content revision. No model/network/Git work holds the lock or
   a database connection.
 - [x] Apply notebook byte/count bounds and prune only unreferenced notebook
   evidence; reject invalid and stale local edits without replacing saved content.
-- [ ] Preserve user content on failed or stale generated updates when generation
-  is introduced in CP3.
+- [x] Preserve user content on failed or stale generated updates.
 - [x] Add the review context JSON mapping to the current run entity/store;
   reuse its existing evidence map and optimistic update behavior.
 - [x] Integrate explicit workspace deletion and retained-workspace behavior;
@@ -134,9 +137,10 @@ runtime-retention and workspace-deletion behavior. Use current schema ownership.
 - [x] Verify frozen-baseline regular-file reads and typed source receipts for
   repository/document observations, including empty reads, failures, immutable
   source identity and receipt/evidence retention in one run update.
-- [ ] Use those identities in shared preparation reuse and compare applicable
-  source/dependency versions with reviewed code. Manifest hashes do not resolve
-  effective versions or establish remote freshness.
+- [x] Use complete identities in READY/EMPTY shared preparation reuse, including
+  retained blank observations and post-save source inventory.
+- [ ] Compare source/dependency versions with reviewed code. Manifest hashes do
+  not resolve effective versions or establish remote freshness.
 - [x] Add the narrow path-filtered Git history overload and reuse persisted
   commit-to-PR associations. Treat parsed PR-number suffixes as unverified hints.
 - [x] Reuse existing PR detail/diff, issue detail, and review services;
@@ -174,17 +178,17 @@ redirect/size/failure regressions. No whole-site or whole-history fetch.
 
 ## CP3 — Shared preparation and explicit builder
 
-- [ ] Admit one generation owner per workspace and join matching active inputs.
-  Bound tool waits; display gaps when another scope/attempt prevents preparation.
-- [ ] Resolve identical admission replay before expected-revision comparison,
-  including when initial scope/root registration changed that revision.
-- [ ] Persist accepted task/turn ownership and input fencing before generation.
+- [x] Admit one review-owned generation owner per workspace and return immediate
+  JOINED for matching active inputs; DEFERRED/gaps for competing missing inputs.
+- [x] Resolve identical review admission replay before expected-revision comparison.
+  Scope/root proposal registration and its revision behavior remain pending.
+- [x] Persist accepted task/turn ownership and input fencing before generation.
   Derive execution status from existing tasks instead of a parallel job engine.
-- [ ] Implement READY, EMPTY, FAILED and negative-result reuse. A source failure
+- [x] Implement READY, EMPTY, FAILED and negative-result reuse. A source failure
   or essential truncation cannot be accepted as a successful empty extraction.
-- [ ] Reject stale/cancelled owner callbacks and stale content revisions without
+- [x] Reject stale/cancelled owner callbacks and stale content revisions without
   losing user edits. Save notebook mutations with their bounded replay receipt.
-- [ ] Keep review-local accepted evidence valid if shared notebook saving fails;
+- [x] Keep review-local accepted evidence valid if shared notebook saving fails;
   commit notebook updates and the final review journal receipt in one short
   local transaction. Replay/reconciliation must expose failure without inventing
   a successful save or regenerating blindly.
@@ -198,8 +202,10 @@ redirect/size/failure regressions. No whole-site or whole-history fetch.
   when intervening EMPTY builds did not change the content revision.
 - [ ] Explicitly complete the settled standalone builder and invoke permitted
   cleanup; an ordinary successful turn alone leaves the task open.
-- [ ] Preserve prior good notes on failure; retain dirty work under existing
-  cleanup rules. Do not add a background refresh queue.
+- [x] Preserve prior notes on review-owned failure; settle ownership only after
+  the accepted turn is terminal and its runtime claim is cleared.
+- [ ] Exercise standalone-builder dirty-work cleanup under existing task rules.
+  Do not add a background refresh queue.
 
 Gate: concurrent cold reviews generate once; unrelated task/late callback is
 rejected; user correction during generation wins; an EMPTY result is reused
@@ -246,7 +252,8 @@ derive from durable facts. Exercise each supported provider independently.
 
 - [x] Add Repository context to the existing workspace settings page with
   Knowledge, Saved lessons and configured sources/scopes.
-- [ ] Show preparation outcomes once the generation workflow exists.
+- [x] Display retained READY/EMPTY/FAILED outcomes distinctly from no completed
+  result, plus active owner metadata without claiming live execution.
 - [x] Add the default-on Use repository context in reviews switch and show its
   captured state on each run. Explain new-run scope and retained saved notes.
 - [x] Add editing, disabling/removal and explicit removal reset, with revision
@@ -338,8 +345,9 @@ Required checks below describe the current increment, not full feature acceptanc
   there is no new database or schema entity. It adds local configuration, note
   editing, enable/disable, removal/reset, explicit saved lessons, and workspace
   deletion integration. GET does not build notes or create a settings row.
-- The current notebook intentionally omits preparation/build/execution fields
-  until CP3 provides their behavior. No placeholder builder endpoint is exposed.
+- The notebook now retains last scope outcomes and one active review-owned
+  preparation. Standalone builder/request fields remain absent until implemented;
+  no placeholder builder endpoint is exposed.
 - Real-provider, performance, and review-quality comparisons have not started.
 - Independent integration/storage reviews resolved preparation replay ordering,
   suppression/reset, source page selection, atomic review save, builder identity
@@ -824,3 +832,51 @@ Required checks below describe the current increment, not full feature acceptanc
 - Next: shared preparation admission and source/input reuse, then protected
   generated updates, cold generation and the explicit builder; automatic delivery
   and small-PR On/Off/provider/performance acceptance remain later gates.
+
+
+### Review-owned shared knowledge preparation
+
+- Committed the reviewed notebook/settings and review-display UI as `5c90b8152`
+  (`Expose repository context and saved lessons`). This increment remains separate.
+- Added BEGIN/SUBMIT on the enabled initial investigation bridge, using existing
+  configured scope IDs and typed baseline/document read IDs. Assignment returns
+  a paged current scope catalog/revision so the agent does not guess selectors.
+- One workspace owner is persisted before generation. Matching consumers receive
+  immediate JOINED; unrelated inputs defer. READY/EMPTY reuse compares complete
+  frozen-baseline/source inventories. The accepted/reused response supplies actual
+  note text within 32 KiB, with explicit whole-section omissions; tool metadata
+  omits full inventories and the complete serialized result is capped at 64 KiB.
+- Checked blank receipts remain durable negative-result proof without invented
+  evidence. Nonblank excerpts are copied under globally unique read IDs. Completed
+  fingerprints use prospective saved sources, preventing immediate self-invalidation.
+- User-owned/disabled/removed content remains protected. Scope configuration cannot
+  forge or erase server-owned outcomes. Explicit Reset clears missing-note results.
+- Notebook ownership/save and the exact accepted run receipt use the existing
+  AgentUnitOfWork transaction; a real SQLite failing run-write test proves rollback.
+  Git capture/report validation occur outside locks and transactions. Existing
+  terminal-turn/runtime-claim facts control cleanup; no background agent is added.
+- Settings now displays recorded READY/EMPTY/FAILED and active ownership. Browser
+  fixtures: `/private/tmp/bytequay-context-settings-preparation-ui/{wide,narrow,editor}.png`.
+- Next: connect the frozen bootstrap and preparation results to actual investigation
+  input and completed brief/report, then carry that frozen brief to validation and
+  evidence collection. Scope/root proposals and standalone Build/Refresh remain
+  separate pending work. No live provider, GitHub write or user's database was used.
+- Verification completed:
+  - Full `mvn -B verify` passed: 226 suites, 2651 tests, zero failures/errors/skips.
+    Log: `/private/tmp/bytequay-preparation-backend-verify.log`.
+  - Frontend `npm run lint`, `npx tsc --noEmit`, all 84 files / 917 tests in
+    `npm test`, and `npm run package` passed. Logs:
+    `/private/tmp/bytequay-preparation-{lint,types,frontend-tests}.log` and
+    `/private/tmp/bytequay-context-preparation-package.log`.
+  - Sandbox process inspection/Electron launch restrictions required rerunning
+    those gates with normal local process access. Packaging required network
+    access for its existing Codegraph asset hook. No source workaround was added.
+  - Settings wide/narrow/editor fixture images were visually inspected for
+    wrapping, control visibility and overflow; ten browser scenarios include
+    no-completed-result versus EMPTY/FAILED and retained ownership metadata.
+  - Independent service/input review caught an oversized-packet edge case;
+    fixed with complete-section deferral, compact result metadata and a 64 KiB
+    serialized response limit. Largest legal note and JSON escape-expansion
+    regressions pass. `git diff --check` passes.
+  - Live-provider use, end-to-end automatic delivery, judgment quality and cold/warm
+    production performance remain unmeasured; their acceptance boxes stay open.

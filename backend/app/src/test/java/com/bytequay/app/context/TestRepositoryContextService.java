@@ -14,10 +14,14 @@
 package com.bytequay.app.context;
 
 import com.bytequay.app.service.InMemoryAppSettingsStore;
+import com.bytequay.core.context.ActiveContextPreparation;
 import com.bytequay.core.context.ContextClaim;
 import com.bytequay.core.context.ContextEntry;
+import com.bytequay.core.context.ContextInputFingerprint;
 import com.bytequay.core.context.ContextMatch;
+import com.bytequay.core.context.ContextPreparationResult;
 import com.bytequay.core.context.ContextReference;
+import com.bytequay.core.context.ContextRepositoryRead;
 import com.bytequay.core.context.ContextScope;
 import com.bytequay.core.context.ContextSourceEvidence;
 import com.bytequay.core.context.RegisteredContextSource;
@@ -38,6 +42,7 @@ import com.google.common.collect.ImmutableMap;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.EnumSource;
 import org.junit.jupiter.params.provider.ValueSource;
 
 import java.time.Instant;
@@ -107,7 +112,7 @@ class TestRepositoryContextService
     void configurationIsAtomicAndPreservesUnspecifiedFields()
     {
         ContextScope iceberg = new ContextScope("path:plugin/iceberg/", "Iceberg",
-                new ContextMatch.Selected(ImmutableList.of("plugin/iceberg/"), ImmutableList.of("iceberg")), true);
+                new ContextMatch.Selected(ImmutableList.of("plugin/iceberg/"), ImmutableList.of("iceberg")), true, Optional.empty());
         EditContextConfiguration.Source source = new EditContextConfiguration.Source("docs", RegisteredContextSource.Kind.DOCUMENTATION_ROOT, "https://example.com/docs/");
         RepositoryNotebook first = service.configure(WORKSPACE, 0, new EditContextConfiguration(
                 Optional.of(false), Optional.of(ImmutableList.of(source)), Optional.of(ImmutableList.of(ContextScope.project(), iceberg))));
@@ -122,6 +127,52 @@ class TestRepositoryContextService
                 Optional.empty(), Optional.empty(), Optional.of(ImmutableList.of(ContextScope.project())))))
                 .isInstanceOf(IllegalArgumentException.class).hasMessageContaining("Disable existing scopes");
         assertThat(service.getNotebook(WORKSPACE)).isEqualTo(second);
+    }
+
+    @Test
+    void scopeConfigurationPreservesServerPreparationAndOwnershipInsteadOfAcceptingCallerMetadata()
+            throws Exception
+    {
+        RepositoryNotebook initial = seedPreparation(ContextPreparationResult.Outcome.EMPTY);
+        ContextPreparationResult forged = new ContextPreparationResult("forged", initial.scopes().getFirst().preparation().orElseThrow().inputFingerprint(),
+                ContextPreparationResult.Outcome.FAILED, ImmutableList.of(), ImmutableList.of(), "Caller-provided preparation");
+        ContextScope edited = new ContextScope("project", "Edited project title", new ContextMatch.Repository(), false, Optional.of(forged));
+        RepositoryNotebook updated = service.configure(WORKSPACE, 1,
+                new EditContextConfiguration(Optional.empty(), Optional.empty(), Optional.of(ImmutableList.of(edited))));
+
+        assertThat(updated.revision()).isEqualTo(2);
+        assertThat(updated.scopes().getFirst().title()).isEqualTo("Edited project title");
+        assertThat(updated.scopes().getFirst().enabled()).isFalse();
+        assertThat(updated.scopes().getFirst().preparation()).isEqualTo(initial.scopes().getFirst().preparation());
+        assertThat(updated.activePreparation()).isEqualTo(initial.activePreparation());
+        assertThat(updated.sourceEvidence()).isEqualTo(initial.sourceEvidence());
+        assertThat(service.getNotebook(WORKSPACE)).isEqualTo(updated);
+    }
+
+    @ParameterizedTest
+    @EnumSource(value = ContextPreparationResult.Outcome.class, names = {"READY", "EMPTY"})
+    void resetClearsCompletedMissingKnowledgeAndUnusedEvidenceWithoutRecreatingContent(ContextPreparationResult.Outcome outcome)
+            throws Exception
+    {
+        RepositoryNotebook initial = seedPreparation(outcome);
+        RepositoryNotebook missing = initial;
+        if (outcome == ContextPreparationResult.Outcome.READY) {
+            RepositoryNotebook edited = service.editEntry(WORKSPACE, 1, edit("User correction", "context-read:source"));
+            RepositoryNotebook retained = service.resetSuppression(WORKSPACE, edited.revision(), ImmutableList.of("project"));
+            assertThat(retained).isEqualTo(edited);
+            assertThat(retained.entries().getFirst().origin()).isEqualTo(USER);
+            missing = service.removeEntry(WORKSPACE, retained.revision(), "knowledge:project");
+            assertThat(missing.suppressedKnowledgeIds()).containsExactly("knowledge:project");
+            assertThat(missing.scopes().getFirst().preparation()).isEqualTo(initial.scopes().getFirst().preparation());
+            assertThat(missing.sourceEvidence()).isEqualTo(initial.sourceEvidence());
+        }
+        RepositoryNotebook reset = service.resetSuppression(WORKSPACE, missing.revision(), ImmutableList.of("project"));
+        assertThat(reset.revision()).isEqualTo(missing.revision() + 1);
+        assertThat(reset.scopes().getFirst().preparation()).isEmpty();
+        assertThat(reset.entries()).isEmpty();
+        assertThat(reset.suppressedKnowledgeIds()).isEmpty();
+        assertThat(reset.sourceEvidence()).isEmpty();
+        assertThat(service.getNotebook(WORKSPACE)).isEqualTo(reset);
     }
 
     @Test
@@ -259,8 +310,31 @@ class TestRepositoryContextService
                 ImmutableList.of(new ContextClaim("Contract", ContextClaim.Basis.DOCUMENTED, ImmutableList.of("source"))), ImmutableList.of("source"), GENERATED, true, 1);
         RepositoryNotebook notebook = new RepositoryNotebook(1, 1, true,
                 ImmutableList.of(new RegisteredContextSource("docs", RegisteredContextSource.Kind.DOCUMENTATION_ROOT, "https://example.com/docs/", USER)),
-                ImmutableList.of(ContextScope.project()), ImmutableList.of(generated), ImmutableList.of(), ImmutableList.of(source));
+                ImmutableList.of(ContextScope.project()), ImmutableList.of(generated), ImmutableList.of(), ImmutableList.of(source), Optional.empty());
         settings.put(KEY, mapper.writeValueAsString(notebook));
+    }
+
+    private RepositoryNotebook seedPreparation(ContextPreparationResult.Outcome outcome)
+            throws Exception
+    {
+        String id = "context-read:source";
+        ContextReference.RepositoryFile reference = new ContextReference.RepositoryFile(1, RepoRef.of("example", "repository"), "README.md", HEAD);
+        ContextRepositoryRead read = new ContextRepositoryRead(id, reference, HEAD, Instant.EPOCH, 1, 1, 1, 7, false, Optional.of(id));
+        ContextSourceEvidence source = new ContextSourceEvidence(id, reference, "Captured baseline", "Excerpt", ContextSourceEvidence.Capture.BYTEQUAY_READ,
+                Optional.of(Instant.EPOCH), Optional.of(HEAD), Optional.empty(), false);
+        ContextInputFingerprint input = ContextInputFingerprint.create("project", ImmutableMap.of("git:README.md", "100644 blob " + HEAD), ImmutableList.of());
+        ContextPreparationResult result = new ContextPreparationResult("completed", input, outcome,
+                outcome == ContextPreparationResult.Outcome.READY ? ImmutableList.of("knowledge:project") : ImmutableList.of(), ImmutableList.of(read), "Checked baseline source");
+        ContextScope scope = new ContextScope("project", "Project", new ContextMatch.Repository(), true, Optional.of(result));
+        ContextEntry generated = new ContextEntry("knowledge:project", KNOWLEDGE, "project", "Project", "Summary", "Generated body",
+                ImmutableList.of(), ImmutableList.of(id), GENERATED, true, 1);
+        ActiveContextPreparation active = new ActiveContextPreparation("active", "request", "sha256:" + "a".repeat(64),
+                "task", "turn", "turn-key", "review", "run", 1, ImmutableList.of(input));
+        RepositoryNotebook notebook = new RepositoryNotebook(1, 1, true, ImmutableList.of(), ImmutableList.of(scope),
+                outcome == ContextPreparationResult.Outcome.READY ? ImmutableList.of(generated) : ImmutableList.of(),
+                ImmutableList.of(), ImmutableList.of(source), Optional.of(active));
+        settings.put(KEY, mapper.writeValueAsString(notebook));
+        return notebook;
     }
 
     private static EditContextEntry edit(String body, String... sources)

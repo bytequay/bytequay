@@ -348,6 +348,17 @@ retained source reads and gaps. Prepared does not imply delivery or comprehensio
 provider delivery confirmation remains a separate Repository Context gate.
 Notebook edits never rewrite this historical display.
 
+Enabled initial investigation turns also expose `repository_context_prepare`
+BEGIN/SUBMIT for existing configured scopes. Assignment metadata supplies current
+scope IDs and revision; typed baseline/document reads supply checked-source proof.
+The review bridge resolves the accepted task/turn/run and rechecks it after unlocked
+input inspection. Notebook mutation and the exact operation receipt commit together
+in the existing local transaction. One workspace owner admits work; matching consumers
+receive immediate JOINED or actual reused note text. Stop and terminal-turn cleanup
+preserve uncertain runtime ownership until existing recovery clears its claim.
+This capability does not yet imply automatic bootstrap delivery or completed-brief
+integration. Discussions, validation, collection and disabled snapshots cannot prepare.
+
 Each retained private discussion message with a known source run offers **Save
 lesson**. Its local editor lets the user accept or rewrite the text, choose a
 notebook scope, and select additional evidence from that original run. The backend

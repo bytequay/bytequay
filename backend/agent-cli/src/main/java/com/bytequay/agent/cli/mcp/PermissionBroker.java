@@ -232,23 +232,7 @@ public final class PermissionBroker
         Path configFile = providerDirectory.resolve("bytequay-mcp.json");
         Path settingsFile = providerDirectory.resolve("sandbox-settings.json");
         requireNonNull(codeGraph, "codeGraph is null");
-        Optional<ReviewBridge> review = reviews.resolve(taskId);
-        Optional<DevelopmentResultBridge> development = textOnly || review.isPresent() ? Optional.empty() : developments.resolve(taskId);
-        Optional<LocalReviewBridge> localReview = textOnly ? Optional.empty() : localReviews.resolve(taskId);
-        Optional<PullRequestCiBridge> pullRequestCi = permissionPolicy.allowsGitHubCommands(textOnly, review.isPresent())
-                ? pullRequestChecks.resolve(taskId) : Optional.empty();
-        PermissionContext context = new PermissionContext(
-                taskId,
-                worktree,
-                permissionPolicy,
-                approvals,
-                redactor.withSecret(token),
-                true,
-                codeGraph,
-                review,
-                development,
-                localReview,
-                pullRequestCi);
+        PermissionContext context = resolveContext(taskId, worktree, permissionPolicy, approvals, redactor.withSecret(token), codeGraph, textOnly, true);
         contexts.put(token, context);
         try {
             Files.createDirectories(providerDirectory);
@@ -261,16 +245,17 @@ public final class PermissionBroker
                             ImmutableMap.of("Authorization", "Bearer " + token),
                             APPROVAL_TIMEOUT.plusSeconds(30).toMillis()))));
             writeOwnerOnly(configFile, json);
-            writeOwnerOnly(settingsFile, sandboxSettings(permissionPolicy, textOnly, review.isPresent(), runtimeDirectory.toRealPath(), environment));
+            writeOwnerOnly(settingsFile, sandboxSettings(permissionPolicy, textOnly, context.review().isPresent(), runtimeDirectory.toRealPath(), environment));
             List<String> toolNames = tools(context).stream()
                     .map(ToolDefinition::name)
                     .filter(name -> !name.equals("permission_prompt"))
                     .collect(toImmutableList());
-            return new McpConfigRegistration(configFile, settingsFile, token, toolNames, codeGraph, review, development, localReview, pullRequestCi, () -> {
-                contexts.remove(token);
-                delete(configFile);
-                delete(settingsFile);
-            });
+            return new McpConfigRegistration(
+                    configFile, settingsFile, token, toolNames, codeGraph, context.review(), context.development(), context.localReview(), context.pullRequestCi(), () -> {
+                        contexts.remove(token);
+                        delete(configFile);
+                        delete(settingsFile);
+                    });
         }
         catch (IOException e) {
             contexts.remove(token);
@@ -299,20 +284,34 @@ public final class PermissionBroker
         requireNonNull(approvals, "approvals is null");
         requireNonNull(redactor, "redactor is null");
         requireNonNull(codeGraph, "codeGraph is null");
-        Optional<ReviewBridge> review = reviews.resolve(taskId);
-        Optional<DevelopmentResultBridge> development = review.isPresent() ? Optional.empty() : developments.resolve(taskId);
-        Optional<LocalReviewBridge> localReview = localReviews.resolve(taskId);
-        Optional<PullRequestCiBridge> pullRequestCi = permissionPolicy.allowsGitHubCommands(false, review.isPresent())
-                ? pullRequestChecks.resolve(taskId) : Optional.empty();
-        if (permissionPolicy != AgentPermissionPolicy.CI_AUTOFIX
-                && codeGraph.isEmpty() && review.isEmpty() && development.isEmpty() && localReview.isEmpty() && pullRequestCi.isEmpty()) {
+        String token = token();
+        PermissionContext context = resolveContext(taskId, worktree, permissionPolicy, approvals, redactor.withSecret(token), codeGraph, false, false);
+        // A policy-only review still needs registration to select the provider's review execution profile.
+        if (context.review().isEmpty() && tools(context).isEmpty()) {
             return Optional.empty();
         }
-        String token = token();
-        contexts.put(token, new PermissionContext(
-                taskId, worktree, permissionPolicy, approvals, redactor.withSecret(token), false, codeGraph, review, development, localReview, pullRequestCi));
+        contexts.put(token, context);
         return Optional.of(new CodeGraphRegistration(
-                token, requireNonNull(endpoint.get(), "endpoint URI is null"), codeGraph, review, development, localReview, pullRequestCi, () -> contexts.remove(token)));
+                token, requireNonNull(endpoint.get(), "endpoint URI is null"), codeGraph,
+                context.review(), context.development(), context.localReview(), context.pullRequestCi(), () -> contexts.remove(token)));
+    }
+
+    private PermissionContext resolveContext(
+            String taskId,
+            Path worktree,
+            AgentPermissionPolicy permissionPolicy,
+            AgentApprovalHandler approvals,
+            SecretRedactor redactor,
+            Optional<CodeGraphBridge> codeGraph,
+            boolean textOnly,
+            boolean permissionTools)
+    {
+        Optional<ReviewBridge> review = reviews.resolve(taskId);
+        Optional<DevelopmentResultBridge> development = textOnly || review.isPresent() ? Optional.empty() : developments.resolve(taskId);
+        Optional<LocalReviewBridge> localReview = textOnly ? Optional.empty() : localReviews.resolve(taskId);
+        Optional<PullRequestCiBridge> pullRequestCi = permissionPolicy.allowsGitHubCommands(textOnly, review.isPresent())
+                ? pullRequestChecks.resolve(taskId) : Optional.empty();
+        return new PermissionContext(taskId, worktree, permissionPolicy, approvals, redactor, permissionTools, codeGraph, review, development, localReview, pullRequestCi);
     }
 
     /** Combines the fixed capabilities' guidance for the session's instruction channel. */

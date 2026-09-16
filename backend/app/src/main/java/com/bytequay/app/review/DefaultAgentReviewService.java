@@ -491,42 +491,14 @@ public class DefaultAgentReviewService
         }
         AgentTurn turn = turns.get(accepted.orElseThrow().id());
         // A provider can accept a turn before its association is saved. The assignment key remains authoritative.
-        if (!run.turnIds().contains(turn.id().toString())) {
-            run = store.updateRun(run.withTurn(turn.id().toString(), Instant.now(clock)));
-        }
+        run = attachTurn(run, turn);
         if (!turn.state().terminal() || !idle(task)) {
             return review;
         }
         Instant now = Instant.now(clock);
         switch (turn.state()) {
             case COMPLETED -> {
-                CompletionAction action = completionAction(run);
-                // Pausing prevents continuation, but still records an already reported result.
-                if (review.followUpPaused() && action != ACCEPT && action != INCOMPLETE_COVERAGE) {
-                    return review;
-                }
-                return switch (action) {
-                    case VALIDATE, COLLECT_EVIDENCE -> {
-                        ReviewStep.Kind kind = action == VALIDATE ? ReviewStep.Kind.VALIDATE : ReviewStep.Kind.COLLECT_EVIDENCE;
-                        ReviewRun next = store.updateRun(run.withStep(step.next(kind), now));
-                        startFollowup(next, task);
-                        yield review;
-                    }
-                    case REPAIR -> {
-                        repairAssignment(run, task);
-                        yield review;
-                    }
-                    case ACCEPT -> {
-                        AgentReview advanced = review.withLatestCompletedRun(run.id(), now);
-                        ReviewRun completed = run.withCoverage(step.validation().orElseThrow().coverage(), now);
-                        store.acceptRun(advanced, completed.ended(ReviewRun.State.ACCEPTED, Optional.empty(), now));
-                        yield store.findReview(review.id()).orElseThrow();
-                    }
-                    case INCOMPLETE_COVERAGE -> incomplete(review, run, step.validation().filter(ReviewValidation::needsEvidence).isPresent()
-                            ? "The evidence follow-up limit was exhausted; candidates remain unresolved"
-                            : "The review has unresolved candidates or incomplete coverage");
-                    case INCOMPLETE_REPORT -> incomplete(review, run, "The agent stopped before saving a complete review report");
-                };
+                return settleCompleted(review, run, task, now);
             }
             case CANCELLED -> {
                 store.updateRun(run.ended(ReviewRun.State.STOPPED, Optional.of("Stopped by the user"), now));
@@ -544,6 +516,38 @@ public class DefaultAgentReviewService
                 return store.updateReview(review.withFollowUpPaused(true, now));
             }
         }
+    }
+
+    private AgentReview settleCompleted(AgentReview review, ReviewRun run, AgentTask task, Instant now)
+    {
+        CompletionAction action = completionAction(run);
+        // Pausing prevents continuation, but still records an already reported result.
+        if (review.followUpPaused() && action != ACCEPT && action != INCOMPLETE_COVERAGE) {
+            return review;
+        }
+        ReviewStep step = run.currentStep().orElseThrow();
+        return switch (action) {
+            case VALIDATE, COLLECT_EVIDENCE -> {
+                ReviewStep.Kind kind = action == VALIDATE ? ReviewStep.Kind.VALIDATE : ReviewStep.Kind.COLLECT_EVIDENCE;
+                ReviewRun next = store.updateRun(run.withStep(step.next(kind), now));
+                startFollowup(next, task);
+                yield review;
+            }
+            case REPAIR -> {
+                repairAssignment(run, task);
+                yield review;
+            }
+            case ACCEPT -> {
+                AgentReview advanced = review.withLatestCompletedRun(run.id(), now);
+                ReviewRun completed = run.withCoverage(step.validation().orElseThrow().coverage(), now);
+                store.acceptRun(advanced, completed.ended(ReviewRun.State.ACCEPTED, Optional.empty(), now));
+                yield store.findReview(review.id()).orElseThrow();
+            }
+            case INCOMPLETE_COVERAGE -> incomplete(review, run, step.validation().filter(ReviewValidation::needsEvidence).isPresent()
+                    ? "The evidence follow-up limit was exhausted; candidates remain unresolved"
+                    : "The review has unresolved candidates or incomplete coverage");
+            case INCOMPLETE_REPORT -> incomplete(review, run, "The agent stopped before saving a complete review report");
+        };
     }
 
     private CompletionAction completionAction(ReviewRun run)
@@ -636,9 +640,15 @@ public class DefaultAgentReviewService
             throw failure;
         }
         ReviewRun current = store.findRun(run.id()).orElseThrow();
-        if (!current.turnIds().contains(accepted.id().toString())) {
-            store.updateRun(current.withTurn(accepted.id().toString(), Instant.now(clock)));
+        attachTurn(current, accepted);
+    }
+
+    private ReviewRun attachTurn(ReviewRun run, AgentTurn turn)
+    {
+        if (run.turnIds().contains(turn.id().toString())) {
+            return run;
         }
+        return store.updateRun(run.withTurn(turn.id().toString(), Instant.now(clock)));
     }
 
     private AgentTurn startAssignment(ReviewRun run, StartAgentTurnCommand command)

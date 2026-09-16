@@ -58,7 +58,7 @@ class TestPermissionBroker
     private Path temporaryDirectory;
 
     @Test
-    void providerApprovalNamesMatchTheAdvertisedTaskTools()
+    void providersExposeAndApproveTheSameTaskTools()
             throws Exception
     {
         ReviewBridge review = new ReviewBridge(ImmutableList.of(new ReviewTool(
@@ -92,6 +92,22 @@ class TestPermissionBroker
                 }
                 if (taskId.equals("review")) {
                     assertThat(registration.toolNames()).containsExactly("review_extra_evidence");
+                }
+                Optional<CodeGraphRegistration> codex = broker.registerTools(
+                        taskId, temporaryDirectory, policy,
+                        (request, timeout) -> CompletableFuture.completedFuture(ProviderApprovalDecision.deny()),
+                        SecretRedactor.fromEnvironment(ImmutableMap.of()), graph);
+                if (taskId.equals("plain")) {
+                    assertThat(codex).isEmpty();
+                }
+                else {
+                    try (CodeGraphRegistration tools = codex.orElseThrow()) {
+                        JsonNode codexListed = broker.handle(tools.token(), objectMapper.readTree("""
+                                {"jsonrpc":"2.0","id":1,"method":"tools/list","params":{}}
+                                """)).body().orElseThrow();
+                        assertThat(codexListed.at("/result/tools").findValuesAsText("name")).as(taskId).containsExactlyElementsOf(registration.toolNames());
+                        assertThat(tools.instruction()).isEqualTo(registration.instruction().orElse(""));
+                    }
                 }
             }
         }

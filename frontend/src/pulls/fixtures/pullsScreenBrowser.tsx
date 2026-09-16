@@ -518,7 +518,7 @@ export async function runCheckLogs(): Promise<string> {
   const root = createRoot(host);
   const render = () => flushSync(() => root.render(<PullOverview pr={remotePullRequest(detail, 'bob')} detail={{ ...detail }} onRefresh={async () => {}} />));
   const button = (text: string) => {
-    const found = [...host.querySelectorAll<HTMLButtonElement>('.pr-check button')].find(entry => entry.textContent?.trim() === text);
+    const found = [...host.querySelectorAll<HTMLButtonElement>('.pr-check button')].find(entry => entry.getAttribute('aria-label') === text);
     assert(found !== undefined, `Missing ${text} button`);
     return found;
   };

@@ -14,7 +14,7 @@
 import LocalReviewThreadCard from './local-review/LocalReviewThreadCard';
 import type { LocalReviewThreads, LocalReviewThreadDto } from './local-review/types';
 import { useEffect, useId, useMemo, useRef, useState } from 'react';
-import { Check, CircleCheck, CircleDot, CircleMinus, CircleSlash2, CircleX, Clock3, Copy, Ellipsis, Eye, GitCommitHorizontal, Link, LoaderCircle, Pencil, Quote, SmilePlus, Tag, User } from 'lucide-react';
+import { Check, CircleCheck, CircleDot, CircleMinus, CircleSlash2, CircleX, Clock3, Copy, Ellipsis, ExternalLink, Eye, FileText, GitCommitHorizontal, Link, LoaderCircle, Pencil, Quote, RotateCw, SmilePlus, Tag, User } from 'lucide-react';
 import Avatar from '../Avatar';
 import { parseUnifiedDiff } from '../diffParse';
 import RepoAvatar from '../RepoAvatar';
@@ -1400,6 +1400,7 @@ function ChecksCard({ pr, detail, onRefresh }: {
   const [rerunning, setRerunning] = useState(false);
   const [rerunRequested, setRerunRequested] = useState(false);
   const [rerunError, setRerunError] = useState<string | null>(null);
+  const rerunLabel = rerunning ? 'Requesting…' : rerunRequested ? 'Rerun requested' : 'Rerun failed tests';
   const groups = useMemo(() => {
     const out = new Map<string, PullRequestDetailDto['checkRuns']>();
     detail.checkRuns.forEach(check => out.set(check.category, [...(out.get(check.category) ?? []), check]));
@@ -1440,7 +1441,10 @@ function ChecksCard({ pr, detail, onRefresh }: {
         <SummaryIcon className={pending && running ? 'is-running' : undefined} aria-hidden="true" /></span>
         <strong>{passing ? 'All checks have passed' : failing ? 'Some checks were not successful' : pending ? 'Checks are in progress' : 'No checks reported'}</strong>
         {canRerun && <button type="button" className="pr-checks__rerun" disabled={rerunning || rerunRequested}
-          onClick={() => { void rerun(); }}>{rerunning ? 'Requesting…' : rerunRequested ? 'Rerun requested' : 'Rerun failed tests'}</button>}
+          aria-label={rerunLabel} title={rerunLabel} onClick={() => { void rerun(); }}>
+          {rerunning ? <LoaderCircle size={16} className="is-running" aria-hidden="true" />
+            : rerunRequested ? <Check size={16} aria-hidden="true" /> : <RotateCw size={16} aria-hidden="true" />}
+        </button>}
       </header>
       {rerunError && <div className="pr-checks__error" role="alert">{rerunError}</div>}
       <div className="pr-checks__groups">
@@ -1479,6 +1483,7 @@ function CheckRow({ pr, check }: { pr: PullRequestDto; check: PullRequestDetailD
   const [error, setError] = useState<string | null>(null);
   const [browserError, setBrowserError] = useState<string | null>(null);
   const logId = useId();
+  const logLabel = loading ? 'Loading…' : error ? 'Retry log' : expanded ? 'Hide log' : 'Show log';
   const jobId = githubActionsJobId(check);
   const browserUrl = check.detailsUrl && /^https?:\/\//i.test(check.detailsUrl) ? check.detailsUrl : null;
   const openBrowser = async () => {
@@ -1522,13 +1527,16 @@ function CheckRow({ pr, check }: { pr: PullRequestDto; check: PullRequestDetailD
       <span className="pr-check__actions">
         {check.source === 'status' && <small>status</small>}
         {check.category === 'failing' && <>
-          <button type="button" disabled={browserUrl === null} title="Open this check in your web browser"
+          <button type="button" disabled={browserUrl === null} aria-label="Open in GitHub" title="Open in GitHub"
             onClick={() => { void openBrowser(); }}>
-            Open in GitHub
+            <ExternalLink size={16} aria-hidden="true" />
           </button>
-          <button type="button" aria-expanded={expanded} aria-controls={logId} disabled={loading || jobId === null}
-            title={jobId === null ? 'Inline logs are available for GitHub Actions jobs' : undefined}
-            onClick={() => { void toggleLog(); }}>{loading ? 'Loading…' : error ? 'Retry log' : expanded ? 'Hide log' : 'Show log'}</button>
+          <button type="button" aria-label={logLabel} aria-expanded={expanded} aria-controls={logId} disabled={loading || jobId === null}
+            title={jobId === null ? 'Inline logs are available for GitHub Actions jobs' : logLabel}
+            onClick={() => { void toggleLog(); }}>
+            {loading ? <LoaderCircle size={16} className="is-running" aria-hidden="true" />
+              : error ? <RotateCw size={16} aria-hidden="true" /> : <FileText size={16} aria-hidden="true" />}
+          </button>
         </>}
       </span>
       {browserError && <div className="pr-check__log"><div role="alert">{browserError}</div></div>}

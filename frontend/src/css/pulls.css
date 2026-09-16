@@ -1003,7 +1003,7 @@
 .pr-checks > header > span.is-pending { color: #bf8700; }
 .pr-checks > header > span.is-neutral { color: #6e7781; }
 .pr-checks > header strong { font-size: 13.5px; font-weight: 550; }
-.pr-checks__rerun { margin-left: auto; border: 1px solid #d0d7de; border-radius: 7px; background: #f6f8fa; color: #24292f; padding: 6px 10px; font: inherit; font-size: var(--ui-font-size); cursor: pointer; }
+.pr-checks__rerun { margin-left: auto; }
 .pr-checks__rerun:disabled { cursor: default; opacity: 0.55; }
 .pr-checks__error { border-bottom: 1px solid #ff8182; background: #fff1f0; color: #a40e26; padding: 8px 16px; font-size: var(--ui-font-size); }
 .pr-checks__groups { padding: 12px 16px 16px; color: #59636e; font-size: var(--ui-font-size); }
@@ -1012,7 +1012,8 @@
 .pr-checks__groups summary span { display: inline-block; transform: rotate(90deg); }
 .pr-check { display: grid; grid-template-columns: 18px minmax(0, 1fr) auto auto; align-items: center; gap: 7px; padding: 8px 8px 3px; }
 .pr-check__actions { display: flex; align-items: center; gap: 6px; }
-.pr-check__actions button { border: 1px solid #d0d7de; border-radius: 5px; background: #f6f8fa; color: #24292f; padding: 3px 7px; font: inherit; white-space: nowrap; cursor: pointer; }
+.pr-checks__rerun,
+.pr-check__actions button { display: inline-flex; flex-shrink: 0; align-items: center; justify-content: center; width: 28px; height: 28px; border: 0; border-radius: 5px; background: transparent; color: #24292f; padding: 0; cursor: pointer; }
 .pr-check__actions button:disabled { opacity: 0.55; cursor: default; }
 .pr-check__log { grid-column: 2 / -1; min-width: 0; }
 .pr-check__log p { margin: 4px 0; }
@@ -1028,9 +1029,11 @@
 .pr-check .is-neutral,
 .pr-check .is-skipped,
 .pr-check .is-cancelled { color: #6e7781; }
+.pr-checks button > svg.is-running,
 .pr-checks > header > span > svg.is-running,
 .pr-check__icon.is-running { animation: pulls-sync-spin 0.9s linear infinite; }
 @media (prefers-reduced-motion: reduce) {
+  .pr-checks button > svg.is-running,
   .pr-checks > header > span > svg.is-running,
   .pr-check__icon.is-running { animation: none; }
 }

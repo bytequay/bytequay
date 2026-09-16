@@ -646,8 +646,8 @@ describe('PullOverview', () => {
     const check = { ...value.checkRuns[0], githubId: 999, detailsUrl: 'https://github.com/owner/repo/actions/runs/101/job/301' };
     value.checkRuns = [check, { ...check, githubId: 2, category: 'successful' }, { ...check, githubId: 3, source: 'status', detailsUrl: 'https://ci.example/job/3' }];
     const html = renderToStaticMarkup(<PullOverview pr={pullRequest()} detail={value} onRefresh={async () => {}} />);
-    expect(html.match(/>Open in GitHub<\/button>/g)).toHaveLength(2);
-    expect(html.match(/>Show log<\/button>/g)).toHaveLength(2);
+    expect(html.match(/aria-label="Open in GitHub"/g)).toHaveLength(2);
+    expect(html.match(/aria-label="Show log"/g)).toHaveLength(2);
     expect(html).toContain('Inline logs are available for GitHub Actions jobs');
     expect(html).not.toContain('pr-check__log');
     expect(githubActionsJobId(check)).toBe(301);

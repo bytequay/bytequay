@@ -3117,6 +3117,18 @@ identical decisions or successful authentication for every command.
 
 ### 8.1 CodexCliDriver
 
+Task-owned MCP tools are already authorized by their ByteQuay feature boundary.
+When a task bridge is registered, its single `bytequay` server explicitly sets
+`default_tools_approval_mode="approve"`; the isolation guard verifies that
+setting and the exact endpoint before execution. Otherwise Codex can request
+`item/tool/requestUserInput` approval for every internal read or report write,
+which the adapter rejects and Codex reports as user cancellation. This setting
+does not apply to shell commands or external MCP servers. Broker authentication,
+task and turn ownership, tool admission, and publication checks still apply.
+The offline `scripts/codex-review-mcp-probe.py` checks both the rejected default
+and successful context/finish calls against the installed CLI using fake local
+servers and no account credentials.
+
 The Codex lane uses the documented
 [Codex App Server protocol](https://learn.chatgpt.com/docs/app-server),
 not terminal-screen scraping and not `codex exec --json`. ByteQuay starts one
@@ -4272,7 +4284,11 @@ requires a separate explicit user action and design decision.
 - Loss of a task-owned App Server interrupts only the running Codex root/child
   work for that task. ByteQuay terminates and verifies that owned process before
   starting a replacement. Stored thread references and queued inputs stay
-  intact, but no turn or queue head is implicitly restarted.
+  intact, but no turn or queue head is implicitly restarted. The private-review
+  coordinator may issue its bounded continuation of the current assignment after
+  verified cleanup and known delivery, as specified in [Agent Review](agent-review.md).
+  It preserves the frozen head and saved reports; cancellation, required sign-in,
+  and unknown delivery still prevent continuation.
 - A repeated start request uses an idempotency key. Another concurrent request
   receives HTTP 409.
 - Queue claiming, turn insertion, the task-local worktree-mutation claim,

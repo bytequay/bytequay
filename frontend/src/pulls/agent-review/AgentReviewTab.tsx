@@ -137,7 +137,7 @@ export default function AgentReviewTab({
 
   const status: ReturnType<typeof reviewStatus> | null = review === null ? null
     : resuming && !running
-      ? { status: 'running', label: 'Starting', tone: 'running', detail: 'resuming the review', chip: null, busy: true }
+      ? { status: 'running', label: 'Reviewing', tone: 'running', detail: 'starting the review', chip: null, busy: true }
       : reviewStatus(review);
   const currentRun = review === null ? null : shownRun(review);
   const run = review?.runs.find(item => item.id === reportRunId) ?? currentRun;
@@ -465,10 +465,10 @@ export default function AgentReviewTab({
           <button type="button" className="agr-action is-danger" disabled={busy}
             onClick={() => { void run_(async () => onReviewChange(await window.bridge.stopAgentReview(review.id))); }}>Stop</button>
         )}
-        {!running && review.state === 'OPEN' && review.followUpPaused && (
+        {!running && review.state === 'OPEN' && status?.status === 'stopped' && (
           <button type="button" className="agr-action" disabled={busy || recovery}
             onClick={() => { void run_(async () => onReviewChange(await window.bridge.resumeAgentReview(review.id)), 'resume'); }}>
-            {resuming ? 'Resuming…' : 'Resume'}
+            {resuming ? 'Starting…' : 'Resume'}
           </button>
         )}
         {!running && review.state === 'OPEN' && (
@@ -511,17 +511,13 @@ export default function AgentReviewTab({
               {onOpenWorkspace !== undefined && <button type="button" className="agr-action" onClick={onOpenWorkspace}>View in workspace</button>}
             </div>
           )}
-          {status?.status === 'incomplete' && (
+          {status?.status === 'failed' && (
             <div className="agr-banner is-danger">
-              <span className="agr-banner__chip">Incomplete</span>
+              <span className="agr-banner__chip">Could not finish</span>
               <div className="agr-banner__text">
-                {currentRun?.outcome ?? 'The run ended without recording complete coverage.'} What was saved is shown below; it is not a
-                clean result.
+                {status.detail}{' '}
+                {provisional(review) ? 'Any saved work below is provisional.' : 'The previous completed review is shown below.'}
               </div>
-              <button type="button" className="agr-action" disabled={busy || recovery}
-                onClick={() => { void run_(async () => onReviewChange(await window.bridge.resumeAgentReview(review.id)), 'resume'); }}>
-                {resuming ? 'Resuming…' : 'Run review again'}
-              </button>
               {onOpenWorkspace !== undefined && <button type="button" className="agr-action is-quiet" onClick={onOpenWorkspace}>See what happened</button>}
             </div>
           )}
@@ -564,7 +560,7 @@ export default function AgentReviewTab({
             <h2>Findings</h2>
             <span className="agr-findings__count">
               {findings.length === 0
-                ? 'none'
+                ? provisional(review) ? 'none saved' : 'none'
                 : `${findings.length} from this run · ${findings.filter(finding => finding.state === 'OPEN').length} open`}
             </span>
           </div>

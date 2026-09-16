@@ -40,6 +40,7 @@ import com.bytequay.agent.spi.AgentCapabilities;
 import com.bytequay.agent.spi.AgentDriverRegistry;
 import com.bytequay.agent.spi.AgentLaneId;
 import com.bytequay.agent.spi.AgentPermissionPolicy;
+import com.bytequay.agent.spi.AgentProviderUnavailableException;
 import com.bytequay.app.agent.WorkflowAgentTasks;
 import com.bytequay.app.git.GitCommandRunner;
 import com.bytequay.app.git.ReviewExperiments;
@@ -86,6 +87,7 @@ import java.util.UUID;
 import java.util.concurrent.locks.Lock;
 import java.util.function.Supplier;
 
+import static com.bytequay.agent.spi.AgentProviderStatus.Readiness.TEMPORARILY_UNAVAILABLE;
 import static com.bytequay.app.review.DefaultAgentReviewService.CompletionAction.ACCEPT;
 import static com.bytequay.app.review.DefaultAgentReviewService.CompletionAction.COLLECT_EVIDENCE;
 import static com.bytequay.app.review.DefaultAgentReviewService.CompletionAction.INCOMPLETE_COVERAGE;
@@ -511,8 +513,7 @@ public class DefaultAgentReviewService
                         yield review;
                     }
                     case REPAIR -> {
-                        ReviewRun repairing = store.updateRun(run.replaceCurrentStep(step.forRepair(), now).withCompletionRepairUsed(now));
-                        startFollowup(repairing, task);
+                        repairAssignment(run, task);
                         yield review;
                     }
                     case ACCEPT -> {
@@ -524,7 +525,7 @@ public class DefaultAgentReviewService
                     case INCOMPLETE_COVERAGE -> incomplete(review, run, step.validation().filter(ReviewValidation::needsEvidence).isPresent()
                             ? "The evidence follow-up limit was exhausted; candidates remain unresolved"
                             : "The review has unresolved candidates or incomplete coverage");
-                    case INCOMPLETE_REPORT -> incomplete(review, run, "The assignment ended without a complete current report");
+                    case INCOMPLETE_REPORT -> incomplete(review, run, "The agent stopped before saving a complete review report");
                 };
             }
             case CANCELLED -> {
@@ -532,6 +533,12 @@ public class DefaultAgentReviewService
                 return store.updateReview(review.withFollowUpPaused(true, now));
             }
             default -> {
+                // A fresh private continuation may recover known delivery, never an uncertain send or a user's stop.
+                if (!review.followUpPaused() && turn.cancellationRequestedAt().isEmpty() && turn.failureKind().isEmpty() && !step.repair()
+                        && (turn.knownUnsent() || turn.startedAt().isEmpty() || turn.providerTurnReference().isPresent())) {
+                    repairAssignment(run, task);
+                    return review;
+                }
                 store.updateRun(
                         run.ended(ReviewRun.State.FAILED, turn.terminalReason().or(() -> Optional.of("The provider turn " + turn.state().name().toLowerCase(Locale.ROOT))), now));
                 return store.updateReview(review.withFollowUpPaused(true, now));
@@ -545,7 +552,7 @@ public class DefaultAgentReviewService
         if (step.validation().isPresent()) {
             ReviewValidation validation = step.validation().orElseThrow();
             if (!currentValidation(run, validation)) {
-                return INCOMPLETE_REPORT;
+                return step.repair() ? INCOMPLETE_REPORT : REPAIR;
             }
             if (validation.needsEvidence() && run.steps().stream().filter(value -> value.kind() == ReviewStep.Kind.COLLECT_EVIDENCE).count() < 2) {
                 return COLLECT_EVIDENCE;
@@ -558,7 +565,19 @@ public class DefaultAgentReviewService
         if (step.investigation().isPresent() && run.hasCompleteSummary()) {
             return VALIDATE;
         }
-        return run.completionRepairUsed() ? INCOMPLETE_REPORT : REPAIR;
+        return step.repair() ? INCOMPLETE_REPORT : REPAIR;
+    }
+
+    private void repairAssignment(ReviewRun run, AgentTask task)
+    {
+        ReviewStep step = run.currentStep().orElseThrow();
+        // A stale sealed report needs a new identity: replaying its old operation key would restore the stale result.
+        boolean stale = step.validation().filter(report -> !currentValidation(run, report)).isPresent()
+                || (step.investigation().isPresent() && !run.hasCompleteSummary());
+        ReviewRun repairing = stale
+                ? run.withStep(step.next(step.kind()).forRepair(), Instant.now(clock))
+                : run.replaceCurrentStep(step.forRepair(), Instant.now(clock));
+        startFollowup(store.updateRun(repairing.withCompletionRepairUsed(Instant.now(clock))), task);
     }
 
     /** Tool admission checks again at acceptance, since a retained finding can be edited between writes. */
@@ -606,8 +625,7 @@ public class DefaultAgentReviewService
         String key = run.currentStep().orElseThrow().key(run.id());
         AgentTurn accepted;
         try {
-            accepted = turns.findTurnByIdempotencyKey(task.id(), key)
-                    .orElseGet(() -> turns.start(new StartAgentTurnCommand(task.id(), ReviewPrompts.stepRequest(run), ImmutableList.of(), key)));
+            accepted = startAssignment(run, new StartAgentTurnCommand(task.id(), ReviewPrompts.stepRequest(run), ImmutableList.of(), key));
         }
         catch (RuntimeException failure) {
             if (turns.findTurnByIdempotencyKey(task.id(), key).isEmpty()) {
@@ -620,6 +638,28 @@ public class DefaultAgentReviewService
         ReviewRun current = store.findRun(run.id()).orElseThrow();
         if (!current.turnIds().contains(accepted.id().toString())) {
             store.updateRun(current.withTurn(accepted.id().toString(), Instant.now(clock)));
+        }
+    }
+
+    private AgentTurn startAssignment(ReviewRun run, StartAgentTurnCommand command)
+    {
+        for (int attempt = 0; ; attempt++) {
+            try {
+                return turns.findTurnByIdempotencyKey(command.taskId(), command.idempotencyKey()).orElseGet(() -> turns.start(command));
+            }
+            catch (RuntimeException failure) {
+                Optional<AgentTurn> accepted = turns.findTurnByIdempotencyKey(command.taskId(), command.idempotencyKey());
+                if (accepted.isPresent()) {
+                    return accepted.orElseThrow();
+                }
+                // No accepted turn means no later lifecycle event will drive recovery. Retry this unsent launch once here.
+                if (attempt != 0 || requireReview(run.reviewId()).followUpPaused() || !idle(tasks.get(command.taskId()))
+                        || failure instanceof AgentConflictException
+                        || (failure instanceof AgentProviderUnavailableException unavailable && unavailable.status().readiness() != TEMPORARILY_UNAVAILABLE)) {
+                    throw failure;
+                }
+                log.warn("Review {} could not launch its assignment; retrying the unsent request: {}", run.reviewId(), failure.toString());
+            }
         }
     }
 
@@ -760,7 +800,7 @@ public class DefaultAgentReviewService
                         .orElseGet(() -> finding.withMapping(finding.validatedHeadSha(), true, now)));
             }
             String login = credentials.resolveGitHubCredential().profile().login();
-            turn = turns.start(new StartAgentTurnCommand(
+            turn = startAssignment(run, new StartAgentTurnCommand(
                     TaskId.valueOf(review.taskId()),
                     ReviewPrompts.reviewRequest(review, run, previous, findings, login),
                     ImmutableList.of(),

@@ -172,8 +172,11 @@ final class ReviewPrompts
                     + "For fixes/features, HEAD-pass and old-behavior-fail support only the behavior tested. A remaining defect must exist at frozen HEAD.";
         };
         return "Review assignment " + step.number() + " for frozen PR head " + shortSha(run.headSha()) + ". "
-                + (step.repair() ? "The previous turn ended without its required report. Reuse the evidence and repair only the missing report. " : "")
-                + assignment;
+                + (step.repair() ? "ByteQuay is automatically continuing this assignment after the previous turn could not finish. "
+                        + "Stay on this frozen head. Read review_get_context kind assignment, summary, and investigation before doing more work. "
+                        + "Reuse saved evidence and findings; do not repeat completed checks or ask the user to retry. " : "")
+                + (step.sealed() ? "The required report is already saved and sealed. End this turn without resubmitting it; ByteQuay will continue the review. " : assignment)
+                + (step.repair() && !run.hasCompleteSummary() ? " The saved summary is missing or lacks commit explanations: save purpose and an explanation for every commit in scope." : "");
     }
 
     static String question(String targetLabel, int targetRevision, String headSha, String message)

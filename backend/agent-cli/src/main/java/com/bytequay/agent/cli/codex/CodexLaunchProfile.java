@@ -173,9 +173,11 @@ final class CodexLaunchProfile
         if (childProfile == ChildProfile.V1) {
             arguments.add("-c", "agents.max_depth=" + MULTI_AGENT_MAX_DEPTH);
         }
+        // The broker admits only this task's authorized tools; Codex must not ask a second approval question for them.
         codeGraph.ifPresent(launch -> arguments.add(
                 "-c", "mcp_servers.bytequay.url=" + tomlString(launch.endpoint().toString()),
                 "-c", "mcp_servers.bytequay.bearer_token_env_var=" + tomlString(CodeGraphLaunch.TOKEN_VARIABLE),
+                "-c", "mcp_servers.bytequay.default_tools_approval_mode=\"approve\"",
                 "-c", "developer_instructions=" + tomlString(launch.instruction())));
         return arguments.build();
     }

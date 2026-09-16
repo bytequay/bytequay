@@ -71,8 +71,15 @@ Opening a request in the transcript opens and focuses that exact discussion.
 The tab also collects local comments for this PR across development and review
 tasks. Changes retains the same selected-line/range composer and saved threads.
 
-The tab can append compact derived **Investigating** or **Validating** status
-for a review run, while ordinary discussion uses **Running**. It has no
+The tab shows **Reviewing** throughout investigation, validation, and automatic
+report repair, including the gap between automatic assignments. An accepted result is **Finished**;
+a persistent failure is **Could not finish**, with its reason. There is no routine **Retry review**
+action: ByteQuay owns recovery within the running review. **Resume** is for a review the user stopped;
+**Update review** remains the explicit action to synchronize the remote head. Internal
+incomplete-report states are not user-facing stages. Only an accepted result's
+timestamp says **finished**; an unsuccessful attempt says **ended**. Saved
+partial work remains provisional, and a failed attempt never claims there are
+no findings. Ordinary discussion uses **Running**. The tab has no
 **Summary & comments** or **Activity** subtab. **View in workspace** opens the
 exact review task with the existing navigation, its agent conversation on the
 left, and the PR pane on the right. That conversation reuses task transcript,
@@ -217,7 +224,7 @@ copy of the entire transcript. Runtime retention must not erase these records.
 PR cache eviction must not delete or orphan an active review or unpublished
 local work; retain its logical PR identity and required snapshot data.
 
-Derive Running, Waiting for approval, Ready, Stopped, Incomplete, and New
+Derive Reviewing, Running, Waiting for approval, Finished, Stopped, Could not finish, and New
 commits from existing task/turn facts and review result facts. Do not add
 Reading/Thinking/Testing lifecycle enums or persist UI timers/percentages.
 Complete coverage means the recorded scope was reviewed, not that the PR is
@@ -551,18 +558,30 @@ it does not replace the summary with only a delta changelog.
 ### Missing or incorrect output
 
 Return field-specific recoverable errors without saving malformed output.
-The run has one shared reporting-repair allowance for a turn that ends without
-its required report. Repair retries the same numbered assignment and consumes
-no evidence round. Sealed reports are immutable; only an exact operation replay
-is accepted after sealing. Operation replay keys are scoped to the numbered assignment; a repair replays
-its earlier successful writes instead of repeating them.
+Each assignment has one automatic continuation for a missing report or a failed/interrupted
+provider turn whose delivery is known. Correcting investigation does not consume validation's
+continuation. Recovery retains the same run, conversation, worktree, frozen head, summary, findings,
+and evidence; it does not fetch or synchronize a new head. A repeated failure ends with an honest
+failure reason rather than an unbounded model loop or a request to click Retry.
+
+Repair retries the same numbered assignment and consumes no evidence round. The existing
+run-level repair flag records that a correction occurred; it is not a budget. Sealed reports stay
+intact during transport recovery: the continuation ends without resubmitting a report already saved.
+Operation replay keys are scoped to the numbered assignment. A sealed validation invalidated by a
+changed finding receives a new assignment identity, already marked as its correction attempt, so
+replay cannot return the stale result or create an endless correction chain.
 
 Each assignment is persisted before launch and has a deterministic key
 `review-step:<runId>:<number>`, with a repair suffix for that attempt. The
 coordinator reattaches an already accepted turn by that key after an interrupted
 association write. It advances only after the matching turn has completed and
-the existing task runtime is idle. Stop, recovery and explicit Resume reuse
-existing task semantics. No additional task lifecycle states are introduced.
+the existing task runtime is idle. The workflow continues a known failed turn only after runtime
+cleanup, with no cancellation request and no authentication failure. Unknown delivery remains
+non-retryable. A launch that throws before accepting any turn has no lifecycle event to drive a
+later attempt, so ByteQuay retries that unsent launch once using the same key. An already accepted
+turn is reattached instead. Authentication, incompatible-provider and conflicting-task refusals do
+not retry. Stop and explicit Resume retain their existing semantics. No additional task lifecycle
+states are introduced.
 
 Every tool closure captures the trusted accepted turn at registration. Calls
 must still belong to that active, uncancelled turn and its exact current
@@ -575,8 +594,8 @@ can receive a reporting assignment.
 A valid `NEEDS_EVIDENCE` assessment schedules collection if fewer than two
 collection assignments have run. Collection answers produce a new sealed
 investigation; all candidates must be validated against it again. Unavailable
-evidence may lead to `UNRESOLVED`; requests that exhaust the budget leave the
-run **Incomplete** with an explicit explanation. Neither advances the baseline
+evidence may lead to `UNRESOLVED`; requests that exhaust the budget end the
+attempt, shown as **Could not finish** with an explicit explanation. Neither advances the baseline
 or turns an uncertain claim into a supported finding. Explicit unreviewed scope
 without another actionable request also ends incomplete and pauses follow-up.
 
@@ -652,16 +671,17 @@ on a raw provider completion message. Startup reconciles open reviews against
 persisted run/turn/sync facts and restores their subscriptions; PR-refresh
 notifications also invoke the same idempotent reconcile operation. Normal
 review reads may reconcile opportunistically but are not the only trigger.
-This drives current-run completion repair and Ready with no
+This drives current-run completion repair and Finished with no
 renderer present, no new agent completion loop, and no separate polling
 scheduler. Duplicate events and restart between terminal commit and callback
 must be harmless.
 
 Run creation and reconciliation serialize on the review. If startup ends before
 the run records its turn, reconciliation looks up the original request's
-idempotency key and restores the accepted turn link. An attempt with no accepted
-turn becomes failed and paused; Resume retries on the same review and task.
-While Resume is pending, the control shows that startup is in progress and
+idempotency key and restores the accepted turn link. A launch with no accepted
+turn is retried automatically once; a persistent launch failure ends with its reason.
+**Resume** remains for a user-stopped review. While an explicit start or update is
+pending, the control shows that startup is in progress and
 preserves the previous result until the new projection arrives.
 
 ## 8. Incremental review
@@ -781,8 +801,9 @@ explicit; do not weaken isolation merely to enable review.
   where evidence permits.
 - Invalid local reports do not become findings. An exhausted repair leaves
   partial results visible and the successful cursor unchanged.
-- Provider/backend failure uses the existing interruption, replay, and
-  uncertain-delivery rules. No automatic duplicate turn or publication.
+- Provider/backend failure uses bounded automatic continuation after verified cleanup and known
+  delivery. Unknown delivery, cancellation and required sign-in are not replayed. No automatic
+  duplicate turn or publication.
 - Stale writes return conflicts; user resolution and user-edited drafts win
   over delayed agent updates.
 - Git ownership mismatch, unsafe sync, missing essential source, and unknown

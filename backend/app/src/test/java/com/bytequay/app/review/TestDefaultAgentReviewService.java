@@ -46,6 +46,9 @@ import com.bytequay.agent.spi.AgentDriverRegistry;
 import com.bytequay.agent.spi.AgentLaneId;
 import com.bytequay.agent.spi.AgentPermissionPolicy;
 import com.bytequay.agent.spi.AgentProviderStatus;
+import com.bytequay.agent.spi.AgentProviderUnavailableException;
+import com.bytequay.agent.spi.AgentTurnFailureKind;
+import com.bytequay.agent.spi.ProviderTurnRef;
 import com.bytequay.app.git.GitCommandRunner;
 import com.bytequay.app.git.ReviewExperiments;
 import com.bytequay.app.service.credentials.CredentialService;
@@ -85,6 +88,7 @@ import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.EnumSource;
 import org.junit.jupiter.params.provider.ValueSource;
 import org.mockito.ArgumentCaptor;
 import org.mockito.InOrder;
@@ -407,7 +411,7 @@ class TestDefaultAgentReviewService
                 assertThat(startedTurns.getValue().developmentAutomation()).isEmpty();
                 assertThat(fixture.store.listRuns(reviewId).getLast().state()).isEqualTo(ReviewRun.State.RUNNING);
                 ReviewRun run = fixture.store.listRuns(reviewId).getLast();
-                verify(fixture.turns).findTurnByIdempotencyKey(TASK_ID, run.currentStep().orElseThrow().key(run.id()));
+                verify(fixture.turns, times(2)).findTurnByIdempotencyKey(TASK_ID, run.currentStep().orElseThrow().key(run.id()));
             }
             finally {
                 continueStartup.countDown();
@@ -655,7 +659,7 @@ class TestDefaultAgentReviewService
     }
 
     @Test
-    void missingInvestigationUsesTheSharedRepairBeforeValidation()
+    void investigationAndValidationEachRecoverWithoutRestartingTheReview()
     {
         Fixture fixture = new Fixture();
         String reviewId = fixture.service.start(WORKSPACE, REPO, NUMBER).review().id();
@@ -682,6 +686,23 @@ class TestDefaultAgentReviewService
         assertThat(validating.turnIds()).hasSize(3);
         assertThat(fixture.store.findReview(reviewId).orElseThrow().latestCompletedRunId()).isEmpty();
         verify(fixture.turns, times(3)).start(any(StartAgentTurnCommand.class));
+
+        // Repairing investigation must not spend validation's own automatic continuation.
+        settleCurrentTurn(fixture, validating);
+        fixture.service.reconcile(reviewId);
+        fixture.service.reconcile(reviewId);
+        ReviewRun validationRepair = fixture.store.findRun(run.id()).orElseThrow();
+        assertThat(validationRepair.currentStep().orElseThrow().repair()).isTrue();
+        assertThat(validationRepair.turnIds()).hasSize(4);
+        completeValidation(fixture, validationRepair);
+        fixture.service.reconcile(reviewId);
+
+        assertThat(fixture.store.listRuns(reviewId)).hasSize(1);
+        assertThat(fixture.store.findRun(run.id()).orElseThrow().state()).isEqualTo(ReviewRun.State.ACCEPTED);
+        assertThat(fixture.store.findReview(reviewId).orElseThrow().latestCompletedRunId()).contains(run.id());
+        assertThat(fixture.store.findReview(reviewId).orElseThrow().followUpPaused()).isFalse();
+        verify(fixture.turns, times(4)).start(any(StartAgentTurnCommand.class));
+        verify(fixture.turns, never()).synchronizeWorktree(any(), anyLong(), any());
     }
 
     @Test
@@ -908,9 +929,14 @@ class TestDefaultAgentReviewService
 
         fixture.service.reconcile(validating.reviewId());
 
-        assertThat(fixture.store.findRun(validating.id()).orElseThrow().state()).isEqualTo(ReviewRun.State.INCOMPLETE);
+        ReviewRun repairing = fixture.store.findRun(validating.id()).orElseThrow();
+        assertThat(repairing.state()).isEqualTo(ReviewRun.State.RUNNING);
+        assertThat(repairing.steps().get(1).validation()).contains(report);
+        assertThat(repairing.currentStep().orElseThrow().number()).isEqualTo(3);
+        assertThat(repairing.currentStep().orElseThrow().repair()).isTrue();
+        assertThat(repairing.currentStep().orElseThrow().sealed()).isFalse();
         assertThat(fixture.store.findReview(validating.reviewId()).orElseThrow().latestCompletedRunId()).isEmpty();
-        verify(fixture.turns, times(2)).start(any(StartAgentTurnCommand.class));
+        verify(fixture.turns, times(3)).start(any(StartAgentTurnCommand.class));
     }
 
     @Test
@@ -931,8 +957,14 @@ class TestDefaultAgentReviewService
 
         fixture.service.reconcile(validating.reviewId());
 
-        assertThat(fixture.store.findRun(validating.id()).orElseThrow().state()).isEqualTo(ReviewRun.State.INCOMPLETE);
+        ReviewRun repairing = fixture.store.findRun(validating.id()).orElseThrow();
+        assertThat(repairing.state()).isEqualTo(ReviewRun.State.RUNNING);
+        assertThat(repairing.currentStep().orElseThrow().repair()).isTrue();
+        assertThat(repairing.currentStep().orElseThrow().number()).isEqualTo(5);
         assertThat(fixture.store.findReview(validating.reviewId()).orElseThrow().latestCompletedRunId()).isEmpty();
+        submitCandidateValidation(fixture, repairing, ReviewCandidateValidation.Outcome.REJECTED);
+        fixture.service.reconcile(validating.reviewId());
+        assertThat(fixture.store.findRun(validating.id()).orElseThrow().state()).isEqualTo(ReviewRun.State.ACCEPTED);
     }
 
     @Test
@@ -1139,9 +1171,23 @@ class TestDefaultAgentReviewService
 
         ReviewRun incomplete = fixture.store.listRuns(reviewId).getLast();
         assertThat(incomplete.state()).isEqualTo(ReviewRun.State.INCOMPLETE);
-        assertThat(incomplete.outcome()).contains("The assignment ended without a complete current report");
+        assertThat(incomplete.outcome()).contains("The agent stopped before saving a complete review report");
         assertThat(fixture.store.findReview(reviewId).orElseThrow().latestCompletedRunId()).isEmpty();
         verify(fixture.turns, times(3)).start(any(StartAgentTurnCommand.class));
+
+        fixture.service.resume(reviewId);
+
+        ReviewRun retry = fixture.store.listRuns(reviewId).getLast();
+        assertThat(retry.id()).isNotEqualTo(incomplete.id());
+        assertThat(retry.headSha()).isEqualTo(incomplete.headSha());
+        assertThat(retry.completionRepairUsed()).isFalse();
+        assertThat(fixture.store.findReview(reviewId).orElseThrow().followUpPaused()).isFalse();
+        completeValidation(fixture, beginValidation(fixture, retry));
+        fixture.service.reconcile(reviewId);
+
+        assertThat(fixture.store.findRun(retry.id()).orElseThrow().state()).isEqualTo(ReviewRun.State.ACCEPTED);
+        assertThat(fixture.store.findReview(reviewId).orElseThrow().latestCompletedRunId()).contains(retry.id());
+        assertThat(fixture.store.findRun(incomplete.id()).orElseThrow().state()).isEqualTo(ReviewRun.State.INCOMPLETE);
     }
 
     @Test
@@ -1157,6 +1203,151 @@ class TestDefaultAgentReviewService
         assertThat(stopped.state()).isEqualTo(ReviewRun.State.STOPPED);
         assertThat(stopped.outcome()).contains("Stopped by the user");
         assertThat(fixture.store.findReview(reviewId).orElseThrow().followUpPaused()).isTrue();
+        verify(fixture.turns, times(1)).start(any(StartAgentTurnCommand.class));
+    }
+
+    @ParameterizedTest
+    @EnumSource(value = TurnState.class, names = {"FAILED", "INTERRUPTED"})
+    void aKnownInterruptedTurnContinuesTheSameFrozenReviewAfterCleanup(TurnState state)
+    {
+        Fixture fixture = new Fixture();
+        String reviewId = fixture.service.start(WORKSPACE, REPO, NUMBER).review().id();
+        ReviewRun run = fixture.store.listRuns(reviewId).getLast();
+        fixture.store.updateRun(run.withSummary(summary(), NOW));
+        AgentTurn failed = AgentTurn.accepted(TURN_ONE, TASK_ID, run.currentStep().orElseThrow().key(run.id()), SETTINGS, NOW)
+                .markDeliveryStarted(NOW).running(new ProviderTurnRef("provider-turn"), Optional.empty())
+                .finish(state, AgentMetrics.empty(), Optional.of("Connection lost"), NOW);
+        when(fixture.turns.get(TURN_ONE)).thenReturn(failed);
+        when(fixture.tasks.get(TASK_ID)).thenReturn(idleTask().claimWorktreeMutation(WorktreeMutationClaim.recovery("cleanup", NOW), NOW));
+        fixture.service.reconcile(reviewId);
+        verify(fixture.turns, times(1)).start(any(StartAgentTurnCommand.class));
+
+        pushHead(fixture, NEW_HEAD);
+        fixture.service.observeHead(REPO, NUMBER, NEW_HEAD);
+        when(fixture.tasks.get(TASK_ID)).thenReturn(idleTask());
+        fixture.service.reconcile(reviewId);
+        fixture.service.reconcile(reviewId);
+
+        ReviewRun continuing = fixture.store.findRun(run.id()).orElseThrow();
+        assertThat(continuing.state()).isEqualTo(ReviewRun.State.RUNNING);
+        assertThat(continuing.headSha()).isEqualTo(HEAD);
+        assertThat(continuing.summary()).contains(summary());
+        assertThat(continuing.currentStep().orElseThrow().repair()).isTrue();
+        verify(fixture.turns, times(2)).start(any(StartAgentTurnCommand.class));
+        completeValidation(fixture, beginValidation(fixture, continuing));
+        fixture.service.reconcile(reviewId);
+        assertThat(fixture.store.listRuns(reviewId)).hasSize(1);
+        assertThat(fixture.store.findRun(run.id()).orElseThrow().state()).isEqualTo(ReviewRun.State.ACCEPTED);
+        verify(fixture.turns, never()).synchronizeWorktree(any(), anyLong(), any());
+    }
+
+    @Test
+    void automaticContinuationPreservesAnAlreadySealedValidation()
+    {
+        Fixture fixture = new Fixture();
+        String reviewId = fixture.service.start(WORKSPACE, REPO, NUMBER).review().id();
+        ReviewRun validating = beginValidation(fixture, fixture.store.listRuns(reviewId).getLast());
+        completeValidation(fixture, validating);
+        ReviewValidation report = fixture.store.findRun(validating.id()).orElseThrow().currentStep().orElseThrow().validation().orElseThrow();
+        AgentTurn failed = AgentTurn.accepted(TURN_TWO, TASK_ID, validating.currentStep().orElseThrow().key(validating.id()), SETTINGS, NOW)
+                .markDeliveryStarted(NOW).running(new ProviderTurnRef("provider-turn"), Optional.empty())
+                .finish(TurnState.FAILED, AgentMetrics.empty(), Optional.of("Connection lost after saving report"), NOW);
+        when(fixture.turns.get(TURN_TWO)).thenReturn(failed);
+
+        fixture.service.reconcile(reviewId);
+        ReviewRun continuing = fixture.store.findRun(validating.id()).orElseThrow();
+        assertThat(continuing.currentStep().orElseThrow().validation()).contains(report);
+        assertThat(ReviewPrompts.stepRequest(continuing)).contains("already saved and sealed", "without resubmitting");
+        settleCurrentTurn(fixture, continuing);
+        fixture.service.reconcile(reviewId);
+
+        assertThat(fixture.store.findRun(validating.id()).orElseThrow().state()).isEqualTo(ReviewRun.State.ACCEPTED);
+        verify(fixture.turns, times(3)).start(any(StartAgentTurnCommand.class));
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"stop", "authentication", "unknown-delivery"})
+    void automaticContinuationDoesNotOverrideAStopOrRequiredUserAction(String blocker)
+    {
+        Fixture fixture = new Fixture();
+        String reviewId = fixture.service.start(WORKSPACE, REPO, NUMBER).review().id();
+        ReviewRun run = fixture.store.listRuns(reviewId).getLast();
+        AgentTurn turn = AgentTurn.accepted(TURN_ONE, TASK_ID, run.currentStep().orElseThrow().key(run.id()), SETTINGS, NOW).markDeliveryStarted(NOW);
+        if (!blocker.equals("unknown-delivery")) {
+            turn = turn.running(new ProviderTurnRef("provider-turn"), Optional.empty());
+        }
+        if (blocker.equals("stop")) {
+            turn = turn.requestCancellation(NOW);
+        }
+        when(fixture.turns.get(TURN_ONE)).thenReturn(turn.finish(TurnState.FAILED, AgentMetrics.empty(), Optional.of(blocker),
+                blocker.equals("authentication") ? Optional.of(AgentTurnFailureKind.AUTHENTICATION_REQUIRED) : Optional.empty(), NOW));
+
+        fixture.service.reconcile(reviewId);
+        fixture.service.reconcile(reviewId);
+
+        assertThat(fixture.store.findRun(run.id()).orElseThrow().state()).isEqualTo(ReviewRun.State.FAILED);
+        verify(fixture.turns, times(1)).start(any(StartAgentTurnCommand.class));
+    }
+
+    @Test
+    void anUnsentLaunchFailureIsRetriedWithoutWaitingForAUserOrTaskEvent()
+    {
+        Fixture fixture = new Fixture();
+        doThrow(new IllegalStateException("Temporary launch failure"))
+                .doAnswer(invocation -> fixture.acceptTurn(invocation.getArgument(0)))
+                .when(fixture.turns).start(any(StartAgentTurnCommand.class));
+
+        String reviewId = fixture.service.start(WORKSPACE, REPO, NUMBER).review().id();
+        ReviewRun run = fixture.store.listRuns(reviewId).getLast();
+        assertThat(run.state()).isEqualTo(ReviewRun.State.RUNNING);
+        assertThat(run.turnIds()).containsExactly(TURN_ONE.toString());
+        ArgumentCaptor<StartAgentTurnCommand> commands = ArgumentCaptor.forClass(StartAgentTurnCommand.class);
+        verify(fixture.turns, times(2)).start(commands.capture());
+        assertThat(commands.getAllValues().getFirst()).isEqualTo(commands.getAllValues().getLast());
+        completeValidation(fixture, beginValidation(fixture, run));
+        fixture.service.reconcile(reviewId);
+        assertThat(fixture.store.findRun(run.id()).orElseThrow().state()).isEqualTo(ReviewRun.State.ACCEPTED);
+    }
+
+    @Test
+    void anAcceptedLaunchIsReattachedAfterItsResponseFails()
+    {
+        Fixture fixture = new Fixture();
+        doAnswer(invocation -> {
+            fixture.acceptTurn(invocation.getArgument(0));
+            throw new IllegalStateException("Response lost after acceptance");
+        }).when(fixture.turns).start(any(StartAgentTurnCommand.class));
+
+        String reviewId = fixture.service.start(WORKSPACE, REPO, NUMBER).review().id();
+
+        assertThat(fixture.store.listRuns(reviewId).getLast().turnIds()).containsExactly(TURN_ONE.toString());
+        assertThat(fixture.store.listRuns(reviewId).getLast().state()).isEqualTo(ReviewRun.State.RUNNING);
+        verify(fixture.turns, times(1)).start(any(StartAgentTurnCommand.class));
+    }
+
+    @Test
+    void aPersistentLaunchFailureStopsAfterTheAutomaticAttempt()
+    {
+        Fixture fixture = new Fixture();
+        doThrow(new IllegalStateException("Launch unavailable")).when(fixture.turns).start(any(StartAgentTurnCommand.class));
+
+        assertThatThrownBy(() -> fixture.service.start(WORKSPACE, REPO, NUMBER)).hasMessage("Launch unavailable");
+
+        String reviewId = fixture.store.listOpenReviews().getFirst().id();
+        fixture.service.reconcile(reviewId);
+        assertThat(fixture.store.listRuns(reviewId).getLast().state()).isEqualTo(ReviewRun.State.FAILED);
+        verify(fixture.turns, times(2)).start(any(StartAgentTurnCommand.class));
+    }
+
+    @Test
+    void aLaunchRequiringAuthenticationIsNotRetried()
+    {
+        Fixture fixture = new Fixture();
+        doThrow(new AgentProviderUnavailableException(new AgentProviderStatus(LANE, AgentProviderStatus.Readiness.AUTHENTICATION_REQUIRED,
+                Optional.empty(), "Sign in required", AgentCapabilities.none())))
+                .when(fixture.turns).start(any(StartAgentTurnCommand.class));
+
+        assertThatThrownBy(() -> fixture.service.start(WORKSPACE, REPO, NUMBER)).hasMessage("Sign in required");
         verify(fixture.turns, times(1)).start(any(StartAgentTurnCommand.class));
     }
 
@@ -1729,21 +1920,23 @@ class TestDefaultAgentReviewService
             when(tasks.get(TASK_ID)).thenReturn(idleTask());
             when(worktrees.inspect(taskWorktree())).thenReturn(new WorktreeSnapshot(taskWorktree(), HEAD, false, false));
             when(turns.start(any(StartAgentTurnCommand.class)))
-                    .thenAnswer(invocation -> {
-                        StartAgentTurnCommand command = invocation.getArgument(0);
-                        if (command == null) {
-                            return null;
-                        }
-                        TurnId id = acceptedTurns.isEmpty() ? TURN_ONE : acceptedTurns.size() == 1 ? TURN_TWO : TurnId.random();
-                        AgentTurn accepted = AgentTurn.accepted(id, TASK_ID, command.idempotencyKey(), SETTINGS, NOW);
-                        acceptedTurns.put(command.idempotencyKey(), accepted);
-                        return accepted;
-                    });
+                    .thenAnswer(invocation -> acceptTurn(invocation.getArgument(0)));
             when(turns.findTurnByIdempotencyKey(eq(TASK_ID), anyString()))
                     .thenAnswer(invocation -> Optional.ofNullable(acceptedTurns.get(invocation.getArgument(1))));
             when(turns.get(any(TurnId.class))).thenAnswer(invocation -> acceptedTurns.values().stream()
                     .filter(turn -> turn.id().equals(invocation.getArgument(0))).findFirst().orElse(null));
             stubGit();
+        }
+
+        private AgentTurn acceptTurn(StartAgentTurnCommand command)
+        {
+            if (command == null) {
+                return null;
+            }
+            TurnId id = acceptedTurns.isEmpty() ? TURN_ONE : acceptedTurns.size() == 1 ? TURN_TWO : TurnId.random();
+            AgentTurn accepted = AgentTurn.accepted(id, TASK_ID, command.idempotencyKey(), SETTINGS, NOW);
+            acceptedTurns.put(command.idempotencyKey(), accepted);
+            return accepted;
         }
 
         private void stubGit()

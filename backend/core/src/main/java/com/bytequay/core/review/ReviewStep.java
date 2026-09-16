@@ -50,7 +50,8 @@ public record ReviewStep(
 
     public ReviewStep forRepair()
     {
-        return new ReviewStep(number, kind, true, Optional.empty(), Optional.empty());
+        checkArgument(!repair, "step repair is already used");
+        return new ReviewStep(number, kind, true, investigation, validation);
     }
 
     public ReviewStep withInvestigation(ReviewInvestigation report)

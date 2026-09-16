@@ -102,6 +102,17 @@ describe('the status strip', () => {
     expect(html).not.toContain('>Recover runtime</button>');
   });
 
+  it('keeps automatic continuation under Reviewing and Stop while no assignment turn is active', () => {
+    const running = runningReviewFixture();
+    const html = tab({ ...running, activeTurn: null, task: { ...running.task, mutationClaim: null } });
+    expect(html).toContain('Reviewing');
+    expect(html).toContain('>Stop</button>');
+    expect(html).not.toContain('>Resume</button>');
+    expect(html).not.toContain('Retry review');
+    expect(html).not.toContain('>Update review</button>');
+    expect(html).not.toContain('>End review</button>');
+  });
+
   it('offers Update review and End review once the run has settled', () => {
     const html = tab(reviewFixture());
     expect(html).toContain('>Update review</button>');
@@ -120,7 +131,7 @@ describe('the status strip', () => {
     expect(tab(reviewFixture())).not.toContain('>Resume</button>');
   });
 
-  it('keeps a failed run’s saved summary visible and lets the user retry when no runtime is held', () => {
+  it('keeps a failed run’s saved summary visible without asking the user to recover it', () => {
     const failed = reviewFixture({
       followUpPaused: true,
       runs: [{ ...reviewFixture().runs[0], state: 'FAILED', coverage: null, outcome: 'Cannot start the review turn' }],
@@ -128,9 +139,11 @@ describe('the status strip', () => {
     const html = tab(failed);
     expect(html).toContain('Cannot start the review turn');
     expect(html).toContain('PR intention');
-    expect(html).toContain('>Resume</button>');
-    expect(html).not.toMatch(/disabled=""[^>]*>Resume<\/button>/);
-    expect(html).not.toMatch(/disabled=""[^>]*>Run review again<\/button>/);
+    expect(html).not.toContain('Retry review');
+    expect(html).not.toContain('>Resume</button>');
+    expect(html).not.toContain('>Run review again</button>');
+    expect(html).toContain('>Update review</button>');
+    expect(html).toContain('Any saved work below is provisional.');
   });
 
   it('shows recovery and disables further execution while an interrupted turn retains its claim', () => {
@@ -139,7 +152,7 @@ describe('the status strip', () => {
     expect(html).toContain('Provider shutdown could not be verified');
     expect(html).toMatch(/<button[^>]*>Recover runtime<\/button>/);
     expect(html).not.toMatch(/disabled=""[^>]*>Recover runtime<\/button>/);
-    expect(html).toMatch(/disabled=""[^>]*>Resume<\/button>/);
+    expect(html).not.toContain('>Resume</button>');
     expect(html).toMatch(/disabled=""[^>]*>Update review<\/button>/);
     expect(html).toMatch(/disabled=""[^>]*>End review<\/button>/);
     expect(html).toMatch(/disabled=""[^>]*>Ask agent<\/button>/);
@@ -164,13 +177,30 @@ describe('banners', () => {
     expect(html).toContain('waiting for your answer');
   });
 
-  it('says an incomplete run is not a clean result', () => {
+  it('shows a failed review with its reason, never a successful result or a retry instruction', () => {
     const html = tab(reviewFixture({
+      findings: [],
       runs: [{ ...reviewFixture().runs[0], state: 'INCOMPLETE', coverage: null, summary: null, outcome: 'coverage was not recorded' }],
     }));
-    expect(html).toContain('Incomplete');
-    expect(html).toContain('it is not a clean result');
+    expect(html).toContain('Could not finish');
+    expect(html).toContain('coverage was not recorded');
+    expect(html).not.toContain('Retry review');
+    expect(html).not.toContain('>Resume</button>');
+    expect(html).toContain('none saved');
     expect(html).toContain('No summary was saved for this run');
+    expect(html).not.toContain('Incomplete');
+    expect(html).not.toContain('finished ');
+    expect(html).not.toContain('No inline findings');
+  });
+
+  it('keeps an earlier completed report visible without hiding the latest failure reason', () => {
+    const review = reviewFixture();
+    const html = tab({ ...review, runs: [...review.runs, { ...review.runs[0], id: 'failed-run', state: 'FAILED',
+      summary: null, coverage: null, outcome: 'The review tools could not save the report' }] });
+    expect(html).toContain('The review tools could not save the report');
+    expect(html).toContain('The previous completed review is shown below.');
+    expect(html).toContain('PR intention');
+    expect(html).not.toContain('finished ');
   });
 
   it('offers Update review when new commits arrived', () => {
@@ -282,7 +312,7 @@ describe('review details', () => {
     const html = tab({ ...original, runs: [{ ...original.runs[0], coverage: {
       complete: false, omissions: ['Resource cleanup has not been reviewed'], recordedAt: '2026-09-06T16:15:00Z',
     } }] });
-    expect(html).toContain('Incomplete');
+    expect(html).toContain('Could not finish');
     expect(html).toContain('Resource cleanup has not been reviewed');
     expect(html).toContain('Complete coverage has not been recorded.');
     expect(html).not.toContain('No inline findings');

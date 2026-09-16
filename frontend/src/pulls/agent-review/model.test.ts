@@ -64,10 +64,10 @@ function draftItem(overrides: Partial<ReviewDraftDto['items'][number]> = {}): Re
 }
 
 describe('review status', () => {
-  it('reads Ready with its coverage and scope from an accepted run', () => {
+  it('reads Finished with its coverage and scope from an accepted run', () => {
     const status = reviewStatus(reviewFixture());
     expect(status.status).toBe('ready');
-    expect(status.label).toBe('Ready');
+    expect(status.label).toBe('Finished');
     expect(status.tone).toBe('ready');
     expect(status.detail).toBe('complete coverage · 5 commits · 30 files');
     expect(status.chip).toBe('3 findings');
@@ -85,19 +85,19 @@ describe('review status', () => {
     expect(reviewStatus(stillWorking).status).toBe('running');
   });
 
-  it('shows Incomplete rather than a clean result when the run recorded no coverage', () => {
+  it('reports that the review could not finish when the run recorded no coverage', () => {
     const review = reviewFixture({
       runs: [{ ...reviewFixture().runs[0], state: 'INCOMPLETE', coverage: null, summary: null, outcome: 'coverage was not recorded' }],
     });
     const status = reviewStatus(review);
-    expect(status.status).toBe('incomplete');
-    expect(status.chip).toBe('Incomplete');
+    expect(status.status).toBe('failed');
+    expect(status.chip).toBe('Could not finish');
     expect(status.detail).toBe('coverage was not recorded');
   });
 
   it('prefers Waiting for approval over Running while an approval is pending', () => {
     const running = runningReviewFixture();
-    expect(reviewStatus(running).chip).toBe('Investigating');
+    expect(reviewStatus(running).chip).toBe('Reviewing');
     expect(reviewStatus({ ...running, pendingApprovals: 1 }).status).toBe('approval');
     expect(reviewStatus({ ...running, pendingApprovals: 1 }).chip).toBe('Needs approval');
   });
@@ -117,23 +117,23 @@ describe('review status', () => {
   it('counts queued questions in the running chip', () => {
     const running = { ...runningReviewFixture(), queuedInputIds: ['q1', 'q2'] };
     expect(reviewStatus(running).status).toBe('queued');
-    expect(reviewStatus(running).chip).toBe('Investigating · 2 queued');
+    expect(reviewStatus(running).chip).toBe('Reviewing · 2 queued');
     expect(reviewStatus(running).detail).toBe('2 questions queued');
   });
 
-  it('derives each review pass from run facts and keeps discussion turns distinct', () => {
+  it('keeps all review passes under Reviewing while distinguishing discussion turns', () => {
     const running = runningReviewFixture();
-    expect(reviewStatus(running).label).toBe('Investigating');
+    expect(reviewStatus(running).label).toBe('Reviewing');
     const validating: AgentReviewDto = { ...running, runs: [{ ...running.runs[0], turnIds: ['turn-0', 'turn-1'], steps: [
       { number: 1, kind: 'VALIDATE', repair: false, investigation: null, validation: null },
     ] }] };
-    expect(reviewStatus(validating)).toMatchObject({ label: 'Validating', chip: 'Validating' });
+    expect(reviewStatus(validating)).toMatchObject({ label: 'Reviewing', chip: 'Reviewing' });
     const collecting: AgentReviewDto = { ...validating, runs: [{ ...validating.runs[0], steps: [
       { number: 1, kind: 'VALIDATE', repair: false, investigation: null, validation: null },
       { number: 2, kind: 'COLLECT_EVIDENCE', repair: false, investigation: null, validation: null },
     ] }] };
-    expect(reviewStatus(collecting)).toMatchObject({ label: 'Collecting evidence', chip: 'Collecting evidence' });
-    expect(reviewStatus({ ...collecting, queuedInputIds: ['q1'] }).chip).toBe('Collecting evidence · 1 queued');
+    expect(reviewStatus(collecting)).toMatchObject({ label: 'Reviewing', chip: 'Reviewing' });
+    expect(reviewStatus({ ...collecting, queuedInputIds: ['q1'] }).chip).toBe('Reviewing · 1 queued');
     expect(reviewStatus({ ...validating, activeTurn: { id: 'discussion-turn', state: 'RUNNING', startedAt: null, cancellationRequestedAt: null } }).label).toBe('Running');
     expect(reviewRequests(validating).find(request => request.turnId === 'turn-1')?.action).toBe('Follow-up review');
   });
@@ -143,7 +143,7 @@ describe('review status', () => {
     for (const coverage of [null, { complete: false, omissions: [], recordedAt: '2026-09-06T16:15:00Z' },
       { complete: true, omissions: ['Skipped the cleanup paths'], recordedAt: '2026-09-06T16:15:00Z' }]) {
       const review: AgentReviewDto = { ...original, findings: [], runs: [{ ...original.runs[0], coverage }] };
-      expect(reviewStatus(review)).toMatchObject({ status: 'incomplete', chip: 'Incomplete' });
+      expect(reviewStatus(review)).toMatchObject({ status: 'failed', chip: 'Could not finish' });
       expect(provisional(review)).toBe(true);
       expect(findingPublication(review, original.findings[0]).kind).toBe('blocked');
     }
@@ -154,7 +154,7 @@ describe('review status', () => {
     const failed = { ...review, runs: [...review.runs, { ...review.runs[0], id: 'failed-run', state: 'FAILED' as const,
       summary: null, coverage: null, outcome: 'The current scope could not be reviewed' }] };
     expect(shownRun(failed)?.id).toBe('run-1');
-    expect(reviewStatus(failed)).toMatchObject({ status: 'incomplete', detail: 'The current scope could not be reviewed' });
+    expect(reviewStatus(failed)).toMatchObject({ status: 'failed', detail: 'The current scope could not be reviewed' });
   });
 
   it('reports New commits when the observed head moved past the reviewed one', () => {
@@ -178,7 +178,9 @@ describe('review status', () => {
     const running = runningReviewFixture();
     const stopped: AgentReviewDto = { ...running, activeTurn: null, followUpPaused: true, task: { ...running.task, mutationClaim: null } };
     expect(reviewStatus(stopped)).toMatchObject({ status: 'stopped', label: 'Stopped', chip: 'Stopped', busy: false });
-    expect(reviewStatus({ ...stopped, followUpPaused: false }).status).toBe('running');
+    const continuing = { ...stopped, followUpPaused: false };
+    expect(reviewRunning(continuing)).toBe(true);
+    expect(reviewStatus(continuing)).toMatchObject({ status: 'running', label: 'Reviewing', chip: 'Reviewing', busy: true });
     expect(reviewStatus({ ...stopped, activeTurn: running.activeTurn }).status).toBe('running');
     expect(reviewStatus({ ...stopped, task: { ...stopped.task, mutationClaim: 'RECOVERY' } }).status).toBe('recovery');
   });
@@ -220,6 +222,17 @@ describe('the elapsed clock', () => {
     expect(reviewElapsed(running, started + 125_000)).toBe('2m 05s');
     expect(reviewElapsed(running, started + 9_000)).toBe('9s');
     expect(reviewElapsed(reviewFixture(), started)).toMatch(/^finished /);
+  });
+
+  it('uses the latest attempt time without calling a failed or stopped review finished', () => {
+    const review = reviewFixture();
+    const endedAt = '2026-09-06T18:45:00Z';
+    const ended = new Date(endedAt).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
+    for (const state of ['INCOMPLETE', 'FAILED', 'STOPPED'] as const) {
+      const latest: AgentReviewDto['runs'][number] = { ...review.runs[0], id: 'retry-run', state, summary: null, coverage: null, endedAt };
+      expect(reviewElapsed({ ...review, runs: [...review.runs, latest] }, Date.now())).toBe(`ended ${ended}`);
+    }
+    expect(reviewElapsed({ ...review, runs: [{ ...review.runs[0], coverage: null, endedAt }] }, Date.now())).toBe(`ended ${ended}`);
   });
 });
 

@@ -334,7 +334,7 @@ class TestCodexCliDriver
     private ScriptedProcessSupervisor ciSupervisor()
     {
         ScriptedProcessSupervisor supervisor = new ScriptedProcessSupervisor(objectMapper);
-        supervisor.configBody = "{\"mcp_servers\":{\"bytequay\":{\"url\":\"" + MCP_ENDPOINT + "\"}}}";
+        supervisor.configBody = "{\"mcp_servers\":{\"bytequay\":{\"url\":\"" + MCP_ENDPOINT + "\",\"default_tools_approval_mode\":\"approve\"}}}";
         supervisor.mcpStatuses = "{\"data\":[{\"name\":\"bytequay\",\"pluginId\":null}],\"nextCursor\":null}";
         return supervisor;
     }
@@ -2623,7 +2623,7 @@ class TestCodexCliDriver
     {
         ScriptedProcessSupervisor supervisor = new ScriptedProcessSupervisor(objectMapper);
         supervisor.reportModelVersion(Optional.of("v2"));
-        supervisor.configBody = "{\"mcp_servers\":{\"bytequay\":{\"url\":\"" + MCP_ENDPOINT + "\"}}}";
+        supervisor.configBody = "{\"mcp_servers\":{\"bytequay\":{\"url\":\"" + MCP_ENDPOINT + "\",\"default_tools_approval_mode\":\"approve\"}}}";
         supervisor.mcpStatuses = "{\"data\":[{\"name\":\"bytequay\",\"pluginId\":null}],\"nextCursor\":null}";
         ReviewBridge review = new ReviewBridge(ImmutableList.of(), "Keep private experiments uncommitted");
         PermissionBroker broker = new PermissionBroker(
@@ -2639,6 +2639,7 @@ class TestCodexCliDriver
                 JsonNode thread = server.threadRequests().getFirst();
                 assertThat(thread.path("developerInstructions").asText()).isEqualTo(review.instruction());
                 assertThat(thread.path("approvalsReviewer").asText()).isEqualTo("user");
+                assertThat(supervisor.serverArgv().getLast()).contains("mcp_servers.bytequay.default_tools_approval_mode=\"approve\"");
                 assertThat(thread.path("config").path("features").path("multi_agent_v2").asBoolean()).isFalse();
                 assertThat(supervisor.environments().getLast()).doesNotContainKeys("GH_TOKEN", "GITHUB_TOKEN");
                 String token = supervisor.environments().getLast().get("BYTEQUAY_CODEGRAPH_TOKEN");
@@ -2648,6 +2649,13 @@ class TestCodexCliDriver
                         """)).body().orElseThrow();
                 assertThat(listed.at("/result/tools")).isEmpty();
 
+                String admittedConfig = supervisor.configBody;
+                supervisor.configBody = admittedConfig.replace("approve", "prompt");
+                assertThatThrownBy(() -> session.start(command("private review")))
+                        .isInstanceOf(AgentUnavailableException.class)
+                        .hasMessageContaining("default_tools_approval_mode");
+                assertThat(server.turnRequests()).isEmpty();
+                supervisor.configBody = admittedConfig;
                 session.start(command("private review"));
                 assertThat(server.turnRequests().getFirst().path("approvalsReviewer").asText()).isEqualTo("user");
                 assertThat(server.turnRequests().getFirst().path("sandboxPolicy").path("type").asText()).isEqualTo("workspaceWrite");
@@ -2689,7 +2697,7 @@ class TestCodexCliDriver
     {
         ScriptedProcessSupervisor supervisor = new ScriptedProcessSupervisor(objectMapper);
         supervisor.reportModelVersion(Optional.of("v2"));
-        supervisor.configBody = "{\"mcp_servers\":{\"bytequay\":{\"url\":\"" + MCP_ENDPOINT + "\"}}}";
+        supervisor.configBody = "{\"mcp_servers\":{\"bytequay\":{\"url\":\"" + MCP_ENDPOINT + "\",\"default_tools_approval_mode\":\"approve\"}}}";
         supervisor.mcpStatuses = "{\"data\":[{\"name\":\"bytequay\",\"pluginId\":null}],\"nextCursor\":null}";
         PullRequestCiBridge ci = new PullRequestCiBridge(jobId -> "No pull request associated yet", PullRequestCiBridge.INSTRUCTION);
         PermissionBroker broker = new PermissionBroker(
@@ -2724,7 +2732,7 @@ class TestCodexCliDriver
     {
         ScriptedProcessSupervisor supervisor = new ScriptedProcessSupervisor(objectMapper);
         supervisor.reportModelVersion(Optional.of("v2"));
-        supervisor.configBody = "{\"mcp_servers\":{\"bytequay\":{\"url\":\"" + MCP_ENDPOINT + "\"}}}";
+        supervisor.configBody = "{\"mcp_servers\":{\"bytequay\":{\"url\":\"" + MCP_ENDPOINT + "\",\"default_tools_approval_mode\":\"approve\"}}}";
         supervisor.mcpStatuses = "{\"data\":[{\"name\":\"bytequay\",\"pluginId\":null}],\"nextCursor\":null}";
         LocalReviewBridge local = new LocalReviewBridge(commentId -> "[]", reply -> "{}", resolution -> "{}", LocalReviewBridge.INSTRUCTION);
         PermissionBroker broker = new PermissionBroker(
@@ -2757,7 +2765,7 @@ class TestCodexCliDriver
     void bridgedSessionLaunchesWithTheTaskMcpEndpointAndKeepsTheTokenOffTheCommandLine()
     {
         ScriptedProcessSupervisor supervisor = new ScriptedProcessSupervisor(objectMapper);
-        supervisor.configBody = "{\"mcp_servers\":{\"bytequay\":{\"url\":\"" + MCP_ENDPOINT + "\"}}}";
+        supervisor.configBody = "{\"mcp_servers\":{\"bytequay\":{\"url\":\"" + MCP_ENDPOINT + "\",\"default_tools_approval_mode\":\"approve\"}}}";
         supervisor.mcpStatuses = "{\"data\":[{\"name\":\"bytequay\",\"pluginId\":null}],\"nextCursor\":null}";
         CodexCliDriver driver = driver(supervisor);
         AgentSessionContext plain = context(Optional.empty(), new AtomicReference<>());

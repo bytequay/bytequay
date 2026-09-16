@@ -120,7 +120,7 @@ describe('workspace review tasks', () => {
     expect(markup.match(/class="agt-group__label"/g)).toHaveLength(1);
     expect(markup).toContain('class="agt-group__label">Yesterday</span>');
     expect(markup).toContain('2 reviews');
-    expect(markup).toContain('Investigating');
+    expect(markup).toContain('Reviewing');
     expect(markup).toContain('Ended');
     expect(markup).toContain('Codex');
     expect(markup).toContain('gpt-5-codex');

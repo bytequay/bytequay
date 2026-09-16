@@ -407,6 +407,7 @@ final class CodexIsolationGuard
         if (!servers.isObject() || servers.size() != 1 || !servers.path("bytequay").path("url").asText("").equals(expected)) {
             throw unavailable("config/read does not expose exactly the ByteQuay task MCP endpoint");
         }
+        requireTextValue(servers.path("bytequay"), "default_tools_approval_mode", "approve");
     }
 
     private static void requireTextValue(JsonNode object, String field, String expected)

@@ -19,12 +19,7 @@ import type {
   ReviewFindingDto,
   ReviewMessageDto,
   ReviewRunDto,
-  ReviewStepDto,
 } from './contracts';
-
-function reviewStepLabel(kind: ReviewStepDto['kind']): string {
-  return { INVESTIGATE: 'Investigating', COLLECT_EVIDENCE: 'Collecting evidence', VALIDATE: 'Validating' }[kind];
-}
 
 /**
  * What the review is doing, derived from task, turn and result facts. There is no stored review
@@ -36,7 +31,7 @@ type ReviewStatus =
   | 'queued'
   | 'ready'
   | 'nofindings'
-  | 'incomplete'
+  | 'failed'
   | 'recovery'
   | 'newcommits'
   | 'stopped'
@@ -74,8 +69,8 @@ export function shownRun(review: AgentReviewDto): ReviewRunDto | null {
 
 export function reviewRunning(review: AgentReviewDto): boolean {
   return review.state === 'OPEN'
-    && review.activeTurn !== null
-    && (review.activeTurn.state === 'RUNNING' || review.activeTurn.state === 'ACCEPTED');
+    && ((review.activeTurn !== null && (review.activeTurn.state === 'RUNNING' || review.activeTurn.state === 'ACCEPTED'))
+      || (!review.followUpPaused && latestRun(review)?.state === 'RUNNING' && review.task.mutationClaim === null));
 }
 
 /** A turn can end before its provider is verified stopped; its retained claim still blocks execution. */
@@ -125,9 +120,8 @@ export function reviewStatus(review: AgentReviewDto): ReviewStatusView {
       return { status: 'approval', label: 'Waiting for approval', tone: 'warn', detail: 'the run waits until you answer', chip: 'Needs approval', busy: false };
     }
     const queued = review.queuedInputIds.length;
-    const step = run?.steps.at(-1)?.kind ?? 'INVESTIGATE';
-    const label = run?.state === 'RUNNING' && run.turnIds.includes(review.activeTurn?.id ?? '')
-      ? reviewStepLabel(step) : 'Running';
+    const label = run?.state === 'RUNNING' && (review.activeTurn === null || run.turnIds.includes(review.activeTurn.id))
+      ? 'Reviewing' : 'Running';
     const detail = run === null
       ? 'starting the review'
       : `reviewing ${run.commits.length} ${run.commits.length === 1 ? 'commit' : 'commits'} at ${shortSha(run.headSha)}`;
@@ -139,7 +133,7 @@ export function reviewStatus(review: AgentReviewDto): ReviewStatusView {
     return { status: 'stopped', label: 'Stopped', tone: 'neutral', detail: 'follow-up paused · discussion open', chip: 'Stopped', busy: false };
   }
   if (run !== null && (run.state === 'INCOMPLETE' || run.state === 'FAILED' || (run.state === 'ACCEPTED' && !completeCoverage(run)))) {
-    return { status: 'incomplete', label: 'Incomplete', tone: 'danger', detail: run.outcome ?? 'complete coverage was not recorded', chip: 'Incomplete', busy: false };
+    return { status: 'failed', label: 'Could not finish', tone: 'danger', detail: run.outcome ?? 'The agent did not save a complete review result.', chip: 'Could not finish', busy: false };
   }
   if (newCommits(review)) {
     return {
@@ -154,10 +148,10 @@ export function reviewStatus(review: AgentReviewDto): ReviewStatusView {
   if (run !== null && run.state === 'ACCEPTED') {
     const scope = `${run.commits.length} ${run.commits.length === 1 ? 'commit' : 'commits'} · ${run.changedFiles} ${run.changedFiles === 1 ? 'file' : 'files'}`;
     return findings.length === 0
-      ? { status: 'nofindings', label: 'Ready', tone: 'ready', detail: 'complete coverage · no inline findings', chip: 'No findings', busy: false }
-      : { status: 'ready', label: 'Ready', tone: 'ready', detail: `complete coverage · ${scope}`, chip: findingChip, busy: false };
+      ? { status: 'nofindings', label: 'Finished', tone: 'ready', detail: 'complete coverage · no inline findings', chip: 'No findings', busy: false }
+      : { status: 'ready', label: 'Finished', tone: 'ready', detail: `complete coverage · ${scope}`, chip: findingChip, busy: false };
   }
-  return { status: 'running', label: 'Starting', tone: 'running', detail: 'preparing the review', chip: 'Running', busy: true };
+  return { status: 'running', label: 'Reviewing', tone: 'running', detail: 'preparing the review', chip: 'Reviewing', busy: true };
 }
 
 /**
@@ -166,11 +160,12 @@ export function reviewStatus(review: AgentReviewDto): ReviewStatusView {
  */
 export function reviewElapsed(review: AgentReviewDto, now: number): string | null {
   if (reviewRecoveryRequired(review)) return null;
-  const run = shownRun(review);
+  const run = latestRun(review);
   if (run === null) return null;
   if (run.endedAt !== null) {
     const ended = Date.parse(run.endedAt);
-    return Number.isNaN(ended) ? null : `finished ${new Date(ended).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}`;
+    const label = run.state === 'ACCEPTED' && completeCoverage(run) ? 'finished' : 'ended';
+    return Number.isNaN(ended) ? null : `${label} ${new Date(ended).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}`;
   }
   const started = Date.parse(run.createdAt);
   if (Number.isNaN(started)) return null;

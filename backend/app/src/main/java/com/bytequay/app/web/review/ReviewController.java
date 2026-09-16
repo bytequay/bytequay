@@ -21,7 +21,6 @@ import com.bytequay.agent.core.AgentTurnService;
 import com.bytequay.agent.core.QueuedInputId;
 import com.bytequay.agent.core.ResolveApprovalCommand;
 import com.bytequay.agent.core.SteerAgentTurnCommand;
-import com.bytequay.agent.core.TaskId;
 import com.bytequay.agent.core.TurnId;
 import com.bytequay.agent.core.WorktreeMutationClaim;
 import com.bytequay.app.agent.AgentStartupRecovery;
@@ -29,7 +28,7 @@ import com.bytequay.app.review.AgentReviewService;
 import com.bytequay.app.review.ReviewPublicationService;
 import com.bytequay.app.utils.PullRequestRefUtil;
 import com.bytequay.app.web.agent.AgentHttpModels;
-import com.bytequay.app.web.agent.AgentSseSubscriber;
+import com.bytequay.app.web.agent.AgentStreamRegistry;
 import com.bytequay.app.web.agent.ResolveApprovalRequest;
 import com.bytequay.core.review.ReviewDraftItem;
 import com.bytequay.core.review.ReviewInvalidRequestException;
@@ -76,6 +75,7 @@ public class ReviewController
     private final AgentEventService events;
     private final AgentApprovalService approvals;
     private final AgentStartupRecovery startupRecovery;
+    private final AgentStreamRegistry streams;
 
     public ReviewController(
             AgentReviewService reviews,
@@ -83,7 +83,8 @@ public class ReviewController
             AgentTurnService turns,
             AgentEventService events,
             AgentApprovalService approvals,
-            AgentStartupRecovery startupRecovery)
+            AgentStartupRecovery startupRecovery,
+            AgentStreamRegistry streams)
     {
         this.reviews = requireNonNull(reviews, "reviews is null");
         this.publications = requireNonNull(publications, "publications is null");
@@ -91,6 +92,7 @@ public class ReviewController
         this.events = requireNonNull(events, "events is null");
         this.approvals = requireNonNull(approvals, "approvals is null");
         this.startupRecovery = requireNonNull(startupRecovery, "startupRecovery is null");
+        this.streams = requireNonNull(streams, "streams is null");
     }
 
     @GetMapping(params = {"!repo", "!number"})
@@ -273,11 +275,7 @@ public class ReviewController
             @RequestParam(defaultValue = "0") long after)
             throws IOException
     {
-        TaskId taskId = reviews.task(reviewId).id();
-        SseEmitter emitter = new SseEmitter(0L);
-        emitter.send(SseEmitter.event().comment("connected"));
-        events.subscribe(taskId, after).subscribe(new AgentSseSubscriber(emitter));
-        return emitter;
+        return streams.open(events.subscribe(reviews.task(reviewId).id(), after));
     }
 
     @GetMapping("/{reviewId}/pending-approvals")

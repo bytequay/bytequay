@@ -44,6 +44,7 @@ import com.bytequay.app.agent.AgentStartupRecovery;
 import com.bytequay.app.review.AgentReviewProjection;
 import com.bytequay.app.review.AgentReviewService;
 import com.bytequay.app.review.ReviewPublicationService;
+import com.bytequay.app.web.agent.AgentStreamRegistry;
 import com.bytequay.core.review.AgentReview;
 import com.bytequay.core.review.ReviewMessage;
 import com.bytequay.core.review.ReviewNotFoundException;
@@ -87,7 +88,7 @@ class TestReviewRuntimeRecovery
             mock(AgentEventOutboxStore.class), mock(AgentEventService.class), maintenance(), supervisor,
             new AgentServingGate(), launchStore, taskStore, turnStore, mock(AgentTurnService.class));
     private final ReviewController controller = new ReviewController(
-            reviews, mock(ReviewPublicationService.class), turns, mock(AgentEventService.class), mock(AgentApprovalService.class), recovery);
+            reviews, mock(ReviewPublicationService.class), turns, mock(AgentEventService.class), mock(AgentApprovalService.class), recovery, new AgentStreamRegistry());
 
     @Test
     void workspaceListingAndPullRequestLookupKeepTheirOwnResponseShapes()

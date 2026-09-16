@@ -166,7 +166,8 @@ class TestAgentHttpErrors
                 ci,
                 startupProgress,
                 mock(DevelopmentFollowupCoordinator.class),
-                localReviewSessions);
+                localReviewSessions,
+                new AgentStreamRegistry());
         mvc = standaloneSetup(controller)
                 .setControllerAdvice(new GlobalExceptionHandler())
                 .build();

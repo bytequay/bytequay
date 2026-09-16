@@ -24,14 +24,14 @@ import java.util.concurrent.atomic.AtomicReference;
 
 import static java.util.Objects.requireNonNull;
 
-public final class AgentSseSubscriber
+final class AgentSseSubscriber
         implements Flow.Subscriber<AgentEventEnvelope>
 {
     private final SseEmitter emitter;
     private final AtomicReference<Flow.Subscription> subscription = new AtomicReference<>();
     private final AtomicBoolean stopped = new AtomicBoolean();
 
-    public AgentSseSubscriber(SseEmitter emitter)
+    AgentSseSubscriber(SseEmitter emitter)
     {
         this.emitter = requireNonNull(emitter, "emitter is null");
         emitter.onCompletion(this::cancel);
@@ -83,6 +83,15 @@ public final class AgentSseSubscriber
     public void onComplete()
     {
         if (stopped.compareAndSet(false, true)) {
+            emitter.complete();
+        }
+    }
+
+    /** Ends the stream from this side, which the client sees as a clean end rather than an error. */
+    void close()
+    {
+        if (stopped.compareAndSet(false, true)) {
+            cancelSubscription();
             emitter.complete();
         }
     }

@@ -147,6 +147,7 @@ public class AgentController
     private final AgentTaskStartupProgress startupProgress;
     private final DevelopmentFollowupCoordinator developmentFollowups;
     private final LocalReviewSessionService localReviewSessions;
+    private final AgentStreamRegistry streams;
 
     public AgentController(
             AgentTaskService taskService,
@@ -171,7 +172,8 @@ public class AgentController
             CiAutofixService ci,
             AgentTaskStartupProgress startupProgress,
             DevelopmentFollowupCoordinator developmentFollowups,
-            LocalReviewSessionService localReviewSessions)
+            LocalReviewSessionService localReviewSessions,
+            AgentStreamRegistry streams)
     {
         this.taskService = requireNonNull(taskService, "taskService is null");
         this.taskTitles = requireNonNull(taskTitles, "taskTitles is null");
@@ -196,6 +198,7 @@ public class AgentController
         this.startupProgress = requireNonNull(startupProgress, "startupProgress is null");
         this.developmentFollowups = requireNonNull(developmentFollowups, "developmentFollowups is null");
         this.localReviewSessions = requireNonNull(localReviewSessions, "localReviewSessions is null");
+        this.streams = requireNonNull(streams, "streams is null");
     }
 
     /**
@@ -839,13 +842,7 @@ public class AgentController
             @RequestParam(defaultValue = "0") long after)
             throws IOException
     {
-        SseEmitter emitter = new SseEmitter(0L);
-        // An idle task may have no event to send for minutes, and until something is written the
-        // response is never committed, so a client cannot tell an open stream from a hanging request.
-        emitter.send(SseEmitter.event().comment("connected"));
-        eventService.subscribe(TaskId.valueOf(taskId), after)
-                .subscribe(new AgentSseSubscriber(emitter));
-        return emitter;
+        return streams.open(eventService.subscribe(TaskId.valueOf(taskId), after));
     }
 
     @GetMapping("/tasks/{taskId}/history")

@@ -547,7 +547,7 @@ describe('PullOverview', () => {
     expect(html.indexOf('Retry BigQuery Storage Write API')).toBeLessThan(html.indexOf('force-pushed the head branch'));
   });
 
-  it('groups review requests and names every requested reviewer', () => {
+  it('groups review requests and names only the first three requested reviewers', () => {
     const now = vi.spyOn(Date, 'now').mockReturnValue(Date.parse('2026-09-03T03:03:15Z'));
     const value = detail();
     value.recentActivity = [
@@ -576,7 +576,8 @@ describe('PullOverview', () => {
     expect(groups).toHaveLength(1);
     expect(groups[0]).toHaveLength(4);
     expect(html.match(/requested review from/g)).toHaveLength(1);
-    expect(html.replace(/<[^>]+>/g, '')).toContain('requested review from dale, ezra-b, mwade77 and wren-d');
+    expect(html.replace(/<[^>]+>/g, '')).toContain('requested review from dale, ezra-b, mwade77 and 1 other person');
+    expect(html).not.toContain('wren-d');
     expect(html).toContain('class="pr-review-group__marker"');
     expect(html).toContain('<time dateTime="2026-09-02T12:03:15Z">15 hours ago</time>');
     expect(html).not.toContain('· 15 hours ago');

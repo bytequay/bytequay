@@ -1299,9 +1299,9 @@ function eventText(activity: Activity, activities: Activity[]) {
         .filter((reviewer): reviewer is string => typeof reviewer === 'string' && reviewer.length > 0))]
         .sort((left, right) => left.localeCompare(right));
       if (reviewers.length === 0) return <>requested a review</>;
-      return <>requested review from {reviewers.map((reviewer, index) => (
+      return <>requested review from {reviewers.slice(0, 3).map((reviewer, index) => (
         <span key={reviewer}>{index === 0 ? '' : index === reviewers.length - 1 ? ' and ' : ', '}<strong>{reviewer}</strong></span>
-      ))}</>;
+      ))}{reviewers.length > 3 && ` and ${reviewers.length - 3} other ${reviewers.length === 4 ? 'person' : 'people'}`}</>;
     }
     case 'review_request_removed': return <>removed a review request</>;
     case 'milestoned': return <>added this to the <strong>{p.milestoneTitle}</strong> milestone</>;

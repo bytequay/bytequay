@@ -6,13 +6,11 @@
 # First run: `(cd frontend && npm install)` if you haven't already.
 
 set -uo pipefail
-# Enable job control so each `&` child becomes its own process-group
-# leader. That's what lets cleanup() kill a whole subtree with
-# `kill -- -$pid` (Electron + Vite + the JVM), and it keeps the
-# terminal's Ctrl+C aimed at this script alone — cleanup() then tears
-# the children down deliberately instead of relying on the signal
-# reaching them (electron-forge swallows SIGINT).
-set -m
+# Job control stays off: with it on, each foreground command (curl, sleep,
+# node) would own the terminal while it runs and swallow Ctrl+C instead of
+# this script's INT trap. The two long-lived children lead their own process
+# groups instead, so cleanup() can kill a whole subtree with `kill -- -$pid`
+# and tear them down deliberately (electron-forge swallows SIGINT).
 
 ROOT="$(cd "$(dirname "$0")" && pwd)"
 backend_port=""
@@ -75,7 +73,10 @@ cleanup() {
   fi
 }
 
-trap cleanup EXIT INT TERM
+trap cleanup EXIT
+# Exit rather than carry on: a step interrupted before its children start
+# would otherwise start them after cleanup() has already run.
+trap 'exit 130' INT TERM
 
 wait_for_backend() {
   # 60s total — enough headroom for a cold mvn that still compiles + runs
@@ -159,6 +160,14 @@ echo "[dev] starting backend (Spring Boot prefers :9527, then an available OS-as
 # the packaged JVM. The exec keeps the process-group cleanup above reliable,
 # while using the same JAR layout that Electron packages.
 #
+# The JVM runs in its own session, without this terminal as its controlling
+# terminal, as when Finder launches the app. Otherwise an interactive shell
+# started under it, such as `zsh -il`, takes the terminal's foreground and
+# leaves it with the JVM, so Ctrl+C never reaches this script.
+# setsid needs a child that leads no process group, as one forked without job
+# control does; such a child also starts with INT and QUIT ignored, which perl
+# restores. The session makes the JVM a group leader for cleanup().
+#
 # -Dcheckstyle.skip + -Dlicense.skip drop the validate-phase plugins
 # bound in backend/pom.xml that otherwise run before every dev start
 # and routinely push mvn past the 60s readiness window above. CI and
@@ -173,7 +182,9 @@ backend_runtime_dir="$(mktemp -d "${TMPDIR:-/tmp}/bytequay-backend.XXXXXX")" || 
         -Dcheckstyle.skip=true \
         -Dlicense.skip=true \
     && cp app/target/bytequay-backend.jar "$backend_runtime_dir/bytequay-backend.jar" \
-    && BYTEQUAY_BACKEND_PORT_FILE="$backend_runtime_dir/port" exec java "${JVM_ARGS[@]}" -jar "$backend_runtime_dir/bytequay-backend.jar" ) &
+    && BYTEQUAY_BACKEND_PORT_FILE="$backend_runtime_dir/port" exec /usr/bin/perl -MPOSIX -e \
+        '$SIG{$_} = "DEFAULT" for qw(INT QUIT); setsid; exec @ARGV or die "$ARGV[0]: $!\n"' \
+        java "${JVM_ARGS[@]}" -jar "$backend_runtime_dir/bytequay-backend.jar" ) &
 backend_pid=$!
 pids+=("$backend_pid")
 
@@ -190,9 +201,12 @@ echo "[dev] starting frontend (Electron + Vite)..."
 # defers the INT trap until the command returns and electron-forge can
 # sit on the signal indefinitely. `wait` also returns on its own when
 # the Electron window is closed, so quitting the app still shuts the
-# backend down via the EXIT trap.
+# backend down via the EXIT trap. Job control is on only for this fork,
+# which gives Electron + Vite a process group of their own.
+set -m
 ( cd "$ROOT/frontend" && npm start ) &
 frontend_pid=$!
+set +m
 pids+=("$frontend_pid")
 frontend_status=0
 wait "$frontend_pid" || frontend_status=$?

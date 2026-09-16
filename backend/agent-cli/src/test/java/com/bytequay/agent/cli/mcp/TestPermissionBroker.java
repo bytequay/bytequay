@@ -855,6 +855,7 @@ class TestPermissionBroker
                             JsonNode settings = objectMapper.readTree(json);
                             assertThat(json).doesNotContain("provider-secret", "github-secret");
                             assertThat(settings.at("/sandbox/allowUnsandboxedCommands").asBoolean()).isFalse();
+                            assertThat(settings.at("/sandbox/network/allowLocalBinding").asBoolean()).isEqualTo(reviewSession && !textOnly && !policy.unattended());
                             if (interactive) {
                                 assertThat(settings.at("/sandbox/network/allowedDomains"))
                                         .isEqualTo(objectMapper.valueToTree(ImmutableList.of("*")));
@@ -865,20 +866,19 @@ class TestPermissionBroker
                                 assertThat(settings.at("/autoMode/classifyAllShell").asBoolean()).isTrue();
                             }
                             else {
-                                if (policy.unattended() || textOnly) {
-                                    assertThat(settings.at("/sandbox/network/allowedDomains"))
-                                            .isEqualTo(objectMapper.valueToTree(ImmutableList.of()));
-                                }
-                                else {
-                                    assertThat(settings.at("/sandbox/network").isMissingNode()).isTrue();
-                                }
+                                assertThat(settings.at("/sandbox/network/allowedDomains"))
+                                        .isEqualTo(objectMapper.valueToTree(ImmutableList.of()));
                                 if (reviewSession) {
                                     assertThat(settings.at("/sandbox/autoAllowBashIfSandboxed").asBoolean()).isFalse();
+                                    assertThat(settings.at("/sandbox/filesystem/allowWrite"))
+                                            .isEqualTo(objectMapper.valueToTree(ImmutableList.of("~/.m2", "~/.gradle", "~/.npm", "/var/tmp")));
                                     assertThat(settings.at("/permissions/deny").toString()).contains("Bash(git commit:*)", "Bash(git update-ref:*)")
                                             .doesNotContain("Bash(git add", "Bash(git write-tree", "Bash(git update-index", "Bash(git symbolic-ref", "Bash(git reset");
                                     assertThat(settings.at("/autoMode/classifyAllShell").asBoolean()).isTrue();
-                                    assertThat(settings.at("/autoMode/hard_deny").toString()).contains("Earlier development authorization does not apply",
-                                            "staging, unstaging, applying patches, and read-only Git metadata");
+                                    assertThat(settings.at("/autoMode/environment"))
+                                            .isEqualTo(objectMapper.valueToTree(ImmutableList.of("$defaults", AgentCommandPolicy.reviewInstructions())));
+                                    assertThat(settings.at("/autoMode/hard_deny"))
+                                            .isEqualTo(objectMapper.valueToTree(ImmutableList.<String>builder().add("$defaults").addAll(AgentCommandPolicy.reviewRestrictions()).build()));
                                 }
                                 else {
                                     assertThat(settings.path("autoMode").isMissingNode()).isTrue();

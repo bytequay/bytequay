@@ -27,16 +27,15 @@ final class CodexApprovalPolicy
 
     private CodexApprovalPolicy() {}
 
-    static String policy()
+    static String policy(boolean review)
     {
-        return POLICY;
+        return POLICY + "\n" + (review ? AgentCommandPolicy.reviewInstructions() : AgentCommandPolicy.instructions());
     }
 
     private static String readPolicy()
     {
         try {
-            return Resources.toString(Resources.getResource(CodexApprovalPolicy.class, "codex-auto-review-policy.md"), UTF_8)
-                    + "\n" + AgentCommandPolicy.instructions();
+            return Resources.toString(Resources.getResource(CodexApprovalPolicy.class, "codex-auto-review-policy.md"), UTF_8);
         }
         catch (IOException failure) {
             throw new UncheckedIOException("Cannot load the Codex automatic approval policy", failure);

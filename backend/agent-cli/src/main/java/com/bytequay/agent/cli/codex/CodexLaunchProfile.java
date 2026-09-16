@@ -115,7 +115,7 @@ final class CodexLaunchProfile
             Optional<CodeGraphLaunch> codeGraph,
             boolean textOnly)
     {
-        return arguments(executable, childProfile, codeGraph, textOnly, ImmutableList.of(), false);
+        return arguments(executable, childProfile, codeGraph, textOnly, ImmutableList.of(), false, false);
     }
 
     static List<String> arguments(
@@ -124,11 +124,12 @@ final class CodexLaunchProfile
             Optional<CodeGraphLaunch> codeGraph,
             boolean textOnly,
             List<String> ciWritableRoots,
-            boolean allowGitHubCommands)
+            boolean allowGitHubCommands,
+            boolean review)
     {
         requireNonNull(codeGraph, "codeGraph is null");
         boolean ci = !ciWritableRoots.isEmpty();
-        checkArgument(!allowGitHubCommands || (!textOnly && !ci), "Restricted Codex profiles cannot inherit Git authentication");
+        checkArgument(!allowGitHubCommands || (!textOnly && !ci && !review), "Restricted Codex profiles cannot inherit Git authentication");
         ImmutableList.Builder<String> arguments = ImmutableList.<String>builder().add(
                 executable,
                 "app-server",
@@ -154,7 +155,7 @@ final class CodexLaunchProfile
         DISABLED_FEATURES.forEach(feature -> arguments.add("--disable", feature));
         arguments.add(textOnly || ci ? "--disable" : "--enable", "guardian_approval");
         if (!textOnly && !ci) {
-            arguments.add("-c", "auto_review.policy=" + tomlString(CodexApprovalPolicy.policy()));
+            arguments.add("-c", "auto_review.policy=" + tomlString(CodexApprovalPolicy.policy(review)));
         }
         if (ci) {
             arguments.add(
@@ -202,20 +203,26 @@ final class CodexLaunchProfile
 
     static Map<String, Object> threadConfig(ChildProfile childProfile, boolean codeGraph, boolean textOnly)
     {
-        return threadConfig(childProfile, codeGraph, textOnly, ImmutableList.of(), false);
+        return threadConfig(childProfile, codeGraph, textOnly, ImmutableList.of(), false, false);
     }
 
-    static Map<String, Object> threadConfig(ChildProfile childProfile, boolean codeGraph, boolean textOnly, List<String> ciWritableRoots, boolean allowGitHubCommands)
+    static Map<String, Object> threadConfig(
+            ChildProfile childProfile,
+            boolean codeGraph,
+            boolean textOnly,
+            List<String> ciWritableRoots,
+            boolean allowGitHubCommands,
+            boolean review)
     {
         requireNonNull(childProfile, "childProfile is null");
         boolean ci = !ciWritableRoots.isEmpty();
-        checkArgument(!allowGitHubCommands || (!textOnly && !ci), "Restricted Codex profiles cannot inherit Git authentication");
+        checkArgument(!allowGitHubCommands || (!textOnly && !ci && !review), "Restricted Codex profiles cannot inherit Git authentication");
         ImmutableMap.Builder<String, Object> config = ImmutableMap.<String, Object>builder()
                 .put("web_search", textOnly || ci ? "disabled" : "live")
                 .put("features", expectedFeatures(childProfile, textOnly, ci))
                 .put("shell_environment_policy", expectedShellEnvironmentPolicy(allowGitHubCommands));
         if (!textOnly && !ci) {
-            config.put("auto_review", ImmutableMap.of("policy", CodexApprovalPolicy.policy()));
+            config.put("auto_review", ImmutableMap.of("policy", CodexApprovalPolicy.policy(review)));
         }
         if (ci) {
             config.put("approval_policy", "never")

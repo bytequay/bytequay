@@ -125,7 +125,7 @@ class TestCodexCliDriver
         assertThat(startedThread.path("model").asText()).isEqualTo("gpt-5");
         assertThat(startedThread.path("approvalsReviewer").asText()).isEqualTo("auto_review");
         assertThat(startedThread.path("config").path("web_search").asText()).isEqualTo("live");
-        assertThat(startedThread.path("config").path("auto_review").path("policy").asText()).isEqualTo(CodexApprovalPolicy.policy());
+        assertThat(startedThread.path("config").path("auto_review").path("policy").asText()).isEqualTo(CodexApprovalPolicy.policy(false));
         assertThat(startedThread.path("ephemeral").asBoolean()).isFalse();
         assertThat(startedThread.path("dynamicTools")).isEmpty();
         assertThat(startedThread.path("selectedCapabilityRoots")).isEmpty();
@@ -135,7 +135,7 @@ class TestCodexCliDriver
         JsonNode resumedThread = resumedServer.threadRequests().getFirst();
         assertThat(resumedThread.path("model").asText()).isEqualTo("gpt-5");
         assertThat(resumedThread.path("approvalsReviewer").asText()).isEqualTo("auto_review");
-        assertThat(resumedThread.path("config").path("auto_review").path("policy").asText()).isEqualTo(CodexApprovalPolicy.policy());
+        assertThat(resumedThread.path("config").path("auto_review").path("policy").asText()).isEqualTo(CodexApprovalPolicy.policy(false));
         assertThat(resumedThread.path("config").path("mcp_servers")).isEmpty();
 
         JsonNode startedTurn = resumedServer.turnRequests().getFirst();
@@ -2637,8 +2637,11 @@ class TestCodexCliDriver
             try (AgentSession session = driver.open(context(reference, approval), event -> {})) {
                 AppServerProcess server = supervisor.servers().getLast();
                 JsonNode thread = server.threadRequests().getFirst();
-                assertThat(thread.path("developerInstructions").asText()).isEqualTo(review.instruction());
-                assertThat(thread.path("approvalsReviewer").asText()).isEqualTo("user");
+                assertThat(thread.path("developerInstructions").asText()).isEqualTo(AgentCommandPolicy.reviewInstructions() + "\n\n" + review.instruction());
+                assertThat(thread.path("approvalsReviewer").asText()).isEqualTo("auto_review");
+                assertThat(thread.path("config").path("auto_review").path("policy").asText()).isEqualTo(CodexApprovalPolicy.policy(true));
+                assertThat(supervisor.serverArgv().getLast())
+                        .contains("auto_review.policy=" + CodexLaunchProfile.tomlString(CodexApprovalPolicy.policy(true)));
                 assertThat(supervisor.serverArgv().getLast()).contains("mcp_servers.bytequay.default_tools_approval_mode=\"approve\"");
                 assertThat(thread.path("config").path("features").path("multi_agent_v2").asBoolean()).isFalse();
                 assertThat(supervisor.environments().getLast()).doesNotContainKeys("GH_TOKEN", "GITHUB_TOKEN");
@@ -2655,9 +2658,16 @@ class TestCodexCliDriver
                         .isInstanceOf(AgentUnavailableException.class)
                         .hasMessageContaining("default_tools_approval_mode");
                 assertThat(server.turnRequests()).isEmpty();
+                ObjectNode wrongScope = (ObjectNode) objectMapper.readTree(admittedConfig);
+                wrongScope.putObject("auto_review").put("policy", CodexApprovalPolicy.policy(false));
+                supervisor.configBody = wrongScope.toString();
+                assertThatThrownBy(() -> session.start(command("private review")))
+                        .isInstanceOf(AgentUnavailableException.class)
+                        .hasMessageContaining("policy");
+                assertThat(server.turnRequests()).isEmpty();
                 supervisor.configBody = admittedConfig;
                 session.start(command("private review"));
-                assertThat(server.turnRequests().getFirst().path("approvalsReviewer").asText()).isEqualTo("user");
+                assertThat(server.turnRequests().getFirst().path("approvalsReviewer").asText()).isEqualTo("auto_review");
                 assertThat(server.turnRequests().getFirst().path("sandboxPolicy").path("type").asText()).isEqualTo("workspaceWrite");
                 List<String> deniedCommands = ImmutableList.of("git commit -am experiment", "git update-ref refs/heads/topic HEAD", "git push origin HEAD");
                 for (String shellCommand : deniedCommands) {
@@ -3491,10 +3501,7 @@ class TestCodexCliDriver
         private JsonNode configReadResponse()
         {
             try {
-                CodexLaunchProfile.ChildProfile childProfile = childProfile();
-                List<String> ciRoots = ciWritableRoots();
-                ObjectNode config = objectMapper.valueToTree(
-                        CodexLaunchProfile.threadConfig(childProfile, false, textOnlyProfile(), ciRoots, allowsGitHubCommands()));
+                ObjectNode config = launchConfig();
                 ObjectNode shell = (ObjectNode) config.path("shell_environment_policy");
                 shell.putNull("exclude");
                 shell.putNull("set");
@@ -3523,10 +3530,7 @@ class TestCodexCliDriver
 
                     ObjectNode sessionLayer = layers.addObject();
                     sessionLayer.putObject("name").put("type", "sessionFlags");
-                    sessionLayer.set(
-                            "config",
-                            objectMapper.valueToTree(
-                                    CodexLaunchProfile.threadConfig(childProfile, false, textOnlyProfile(), ciRoots, allowsGitHubCommands())));
+                    sessionLayer.set("config", launchConfig());
                     sessionLayer.putNull("disabledReason");
                 }
                 ObjectNode response = objectMapper.createObjectNode();
@@ -3538,6 +3542,21 @@ class TestCodexCliDriver
             catch (IOException e) {
                 throw new AssertionError("invalid scripted config", e);
             }
+        }
+
+        private ObjectNode launchConfig()
+                throws IOException
+        {
+            ObjectNode config = objectMapper.valueToTree(
+                    CodexLaunchProfile.threadConfig(childProfile(), false, textOnlyProfile(), ciWritableRoots(), allowsGitHubCommands(), false));
+            config.remove("auto_review");
+            String prefix = "auto_review.policy=";
+            for (String argument : argv) {
+                if (argument.startsWith(prefix)) {
+                    config.putObject("auto_review").set("policy", objectMapper.readTree(argument.substring(prefix.length())));
+                }
+            }
+            return config;
         }
 
         private CodexLaunchProfile.ChildProfile childProfile()

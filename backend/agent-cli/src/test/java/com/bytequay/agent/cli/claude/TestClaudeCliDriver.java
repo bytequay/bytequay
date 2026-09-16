@@ -980,6 +980,7 @@ class TestClaudeCliDriver
                 }
                 List<String> argv = supervisor.turns().getLast().spec().argv();
                 assertThat(argv).contains("--disable-slash-commands");
+                assertThat(argv).containsSequence("--permission-mode", "auto");
                 assertThat(argv).containsSequence("--append-system-prompt", review.instruction());
                 assertThat(argv).doesNotContain("--allowedTools");
                 assertThat(argv.get(argv.indexOf("--tools") + 1).split(","))
@@ -1009,6 +1010,7 @@ class TestClaudeCliDriver
         for (ScriptedTurn turn : supervisor.turns()) {
             List<String> argv = turn.spec().argv();
             assertThat(argv).contains("--disable-slash-commands");
+            assertThat(argv).containsSequence("--permission-mode", "auto");
             assertThat(argv).containsSequence("--append-system-prompt", "Keep explanations concise\n\nReview this PR");
             assertThat(argv.stream().filter("--append-system-prompt"::equals)).hasSize(1);
             String nativeTools = argv.get(argv.indexOf("--tools") + 1);

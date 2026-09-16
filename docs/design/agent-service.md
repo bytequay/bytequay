@@ -3075,10 +3075,10 @@ credentials. Authentication by subscription or API key does not select a
 different permission policy. Claude's existing login and API-key paths use the
 same policy; this change adds no API driver or Codex API-key task support.
 
-`AgentCommandPolicy` owns the provider-independent authorization instructions
-and restrictions in `agent-spi`. Both adapters supply those instructions to
-the development agent and their native reviewer configuration. Adapters own
-only the translation to their provider settings. Interactive development
+`AgentCommandPolicy` owns the provider-independent development and private-review
+authorization instructions and restrictions in `agent-spi`. Both adapters supply
+the appropriate scope to their native reviewer configuration. Adapters own only
+the translation to their provider settings. Interactive development
 permissions use no ByteQuay shell parser or second command approval engine.
 
 - Task-required local Git commands may operate wherever the existing
@@ -3387,9 +3387,13 @@ App Server control process still needs provider traffic; ByteQuay supplies the
 selected provider configuration but does not claim that the command sandbox or
 first-release process profile enforces a destination allowlist for that control
 traffic. The driver sets `approvalsReviewer: "auto_review"` at start, resume, and
-turn start for ordinary tasks. A separate native reviewer applies the complete
+turn start for attended development and private-review tasks. A separate native reviewer applies the complete
 pinned native tenant policy from Codex 0.152.1 plus the shared
-`AgentCommandPolicy` instructions through `auto_review.policy`.
+`AgentCommandPolicy` instructions through `auto_review.policy`. Private reviews
+select a separate scope that keeps experiments uncommitted and prohibits history
+moves and remote writes, including when a development task enters local review.
+That exact scope is verified at launch and before each turn; resuming cannot
+reuse the broader development policy.
 Routine task-required actions use native risk-based review, including build and
 test commands that need bounded cache, lock, or temporary-file writes outside
 the worktree. The user's task request authorizes its normal prerequisites;
@@ -3836,7 +3840,12 @@ domain request separately in Auto mode; a denial can report `user denied`
 without a ByteQuay tool-approval card. Development network effects
 are governed by complete-command classification and the shared authorization
 rules; this is not a destination allowlist. Unattended and text-only profiles
-keep an empty domain list, and review sessions retain their existing settings.
+keep an empty domain list. Review sessions permit local test-server binding while
+retaining their existing outbound-network policy. Their native classifier receives
+`autoMode.environment` with `$defaults` and the shared private-review instructions,
+including bounded builds, tests, dependency downloads and cache writes. Its
+`hard_deny` retains `$defaults` plus the shared review restrictions, and
+`classifyAllShell=true` prevents sandboxed commands from bypassing classification.
 
 `CI_AUTOFIX` and `CHERRY_PICK` remain unattended; the ByteQuay broker answers
 every escalation from their fixed policy and never waits for a frontend

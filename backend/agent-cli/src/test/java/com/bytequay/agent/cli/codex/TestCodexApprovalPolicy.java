@@ -23,19 +23,26 @@ import static org.assertj.core.api.Assertions.assertThat;
 class TestCodexApprovalPolicy
 {
     @Test
-    void preservesNativeRiskRulesWhileAuthorizingRoutineDevelopment()
+    void preservesNativeRiskRulesForDevelopmentAndPrivateReview()
     {
-        String policy = CodexApprovalPolicy.policy();
-        int nativeStart = policy.indexOf("## Environment Profile\n");
-        int scopeStart = policy.indexOf("\n## ByteQuay Automatic Approval Scope\n");
+        for (boolean review : new boolean[] {false, true}) {
+            String policy = CodexApprovalPolicy.policy(review);
+            int nativeStart = policy.indexOf("## Environment Profile\n");
+            int scopeStart = policy.indexOf("\n## ByteQuay Automatic Approval Scope\n");
 
-        assertThat(nativeStart).isNotNegative();
-        assertThat(scopeStart).isGreaterThan(nativeStart);
-        // A replacement policy must retain every native rule, not only the familiar section names.
-        assertThat(Hashing.sha256().hashString(policy.substring(nativeStart, scopeStart), UTF_8).toString())
-                .isEqualTo("e6b0cf0a2e1c4cabc0a37ac2a0bc424ddd7c89e85d049e32d281a8db6e8d3ce6");
-        assertThat(policy.substring(scopeStart + 1)).isEqualTo(AgentCommandPolicy.instructions());
-        AgentCommandPolicy.restrictions().forEach(restriction -> assertThat(policy).contains(restriction));
-        assertThat(policy).doesNotContain("Deny every non-read-only action crossing the sandbox boundary");
+            assertThat(nativeStart).isNotNegative();
+            assertThat(scopeStart).isGreaterThan(nativeStart);
+            // A replacement policy must retain every native rule, not only the familiar section names.
+            assertThat(Hashing.sha256().hashString(policy.substring(nativeStart, scopeStart), UTF_8).toString())
+                    .isEqualTo("e6b0cf0a2e1c4cabc0a37ac2a0bc424ddd7c89e85d049e32d281a8db6e8d3ce6");
+            assertThat(policy.substring(scopeStart + 1)).isEqualTo(review ? AgentCommandPolicy.reviewInstructions() : AgentCommandPolicy.instructions());
+            (review ? AgentCommandPolicy.reviewRestrictions() : AgentCommandPolicy.restrictions())
+                    .forEach(restriction -> assertThat(policy).contains(restriction));
+            assertThat(policy).contains("Maven's ~/.m2 repository locks", "loopback-only test servers")
+                    .doesNotContain("Deny every non-read-only action crossing the sandbox boundary");
+        }
+        assertThat(CodexApprovalPolicy.policy(true))
+                .contains("Private review experiments must remain uncommitted", "Earlier development authorization does not apply")
+                .doesNotContain("Git and gh are available for attended development", "supplies that authorization");
     }
 }

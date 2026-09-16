@@ -267,7 +267,7 @@ public final class CodexCliDriver
             Path workingDirectory,
             CodexLaunchProfile.ChildProfile childProfile)
     {
-        return appServerClient(ownerId, workingDirectory, childProfile, Optional.empty(), Optional.empty(), false, ImmutableList.of(), false);
+        return appServerClient(ownerId, workingDirectory, childProfile, Optional.empty(), Optional.empty(), false, ImmutableList.of(), false, false);
     }
 
     private CodexAppServerClient appServerClient(
@@ -278,7 +278,8 @@ public final class CodexCliDriver
             Optional<String> codeGraphToken,
             boolean textOnly,
             List<String> ciWritableRoots,
-            boolean allowGitHubCommands)
+            boolean allowGitHubCommands,
+            boolean review)
     {
         Map<String, String> sessionEnvironment = GitCliEnvironment.forSession(environment, allowGitHubCommands);
         Map<String, String> processEnvironment = codeGraphToken
@@ -291,7 +292,7 @@ public final class CodexCliDriver
                 supervisor,
                 new ProcessSpec(
                         new ProcessOwner(textOnly ? ProcessOwner.Kind.CLI_PROBE : ProcessOwner.Kind.APP_SERVER, ownerId),
-                        CodexLaunchProfile.arguments(executable, childProfile, codeGraph, textOnly, ciWritableRoots, allowGitHubCommands),
+                        CodexLaunchProfile.arguments(executable, childProfile, codeGraph, textOnly, ciWritableRoots, allowGitHubCommands, review),
                         workingDirectory,
                         processEnvironment,
                         OptionalInt.empty(),
@@ -509,7 +510,8 @@ public final class CodexCliDriver
                     codeGraph.map(CodeGraphRegistration::token),
                     context.textOnly(),
                     ciWritableRoots,
-                    allowGitHubCommands);
+                    allowGitHubCommands,
+                    review);
         }
         catch (RuntimeException failure) {
             codeGraph.ifPresent(CodeGraphRegistration::close);
@@ -790,7 +792,8 @@ public final class CodexCliDriver
                     codeGraph.map(CodeGraphRegistration::endpoint),
                     context.textOnly(),
                     ciWritableRoots,
-                    allowGitHubCommands);
+                    allowGitHubCommands,
+                    codeGraph.flatMap(CodeGraphRegistration::review).isPresent());
             // Attached before the process is started, so nothing App Server emits can arrive
             // before there is a session to receive it.
             client.listen(this);
@@ -820,7 +823,8 @@ public final class CodexCliDriver
             String sandbox = context.textOnly() ? "read-only" : "workspace-write";
             // Explicitly replace saved guidance on resume, including an empty value after a skill is removed.
             String developerInstructions = Stream.of(
-                            allowGitHubCommands ? AgentCommandPolicy.instructions() : "",
+                            codeGraph.flatMap(CodeGraphRegistration::review).isPresent() ? AgentCommandPolicy.reviewInstructions()
+                                    : allowGitHubCommands ? AgentCommandPolicy.instructions() : "",
                             context.managedInstructions(),
                             codeGraph.map(CodeGraphRegistration::instruction).orElse(""))
                     .filter(instruction -> !instruction.isBlank())
@@ -830,7 +834,8 @@ public final class CodexCliDriver
                     codeGraph.isPresent(),
                     context.textOnly(),
                     ciWritableRoots,
-                    allowGitHubCommands);
+                    allowGitHubCommands,
+                    codeGraph.flatMap(CodeGraphRegistration::review).isPresent());
             String method;
             Object params;
             if (existing.isPresent()) {
@@ -947,9 +952,7 @@ public final class CodexCliDriver
 
         private String approvalsReviewer()
         {
-            // Private review escalations must reach ByteQuay's command guard before any native auto-approval.
-            return context.textOnly() || !ciWritableRoots.isEmpty() || codeGraph.flatMap(CodeGraphRegistration::review).isPresent()
-                    ? "user" : "auto_review";
+            return context.textOnly() || !ciWritableRoots.isEmpty() ? "user" : "auto_review";
         }
 
         private Map<String, Object> sandboxPolicy(Path worktree)

@@ -96,7 +96,7 @@ class TestCodexLaunchProfile
     {
         List<String> roots = ImmutableList.of("/task", "/repo/.git/worktrees/task", "/repo/.git/refs/heads/task.lock");
         for (CodexLaunchProfile.ChildProfile childProfile : CodexLaunchProfile.ChildProfile.values()) {
-            List<String> arguments = CodexLaunchProfile.arguments("/usr/local/bin/codex", childProfile, Optional.empty(), false, roots, false);
+            List<String> arguments = CodexLaunchProfile.arguments("/usr/local/bin/codex", childProfile, Optional.empty(), false, roots, false, false);
             assertThat(arguments).containsSequence("-c", "approval_policy=\"never\"");
             assertThat(arguments).containsSequence("-c", "approvals_reviewer=\"user\"");
             assertThat(arguments).containsSequence("-c", "web_search=\"disabled\"");
@@ -105,7 +105,7 @@ class TestCodexLaunchProfile
             assertThat(arguments).containsSequence("-c", "sandbox_workspace_write.exclude_tmpdir_env_var=true");
             assertThat(arguments).containsSequence("-c", "sandbox_workspace_write.exclude_slash_tmp=true");
             assertThat(arguments).noneMatch(argument -> argument.startsWith("auto_review.policy="));
-            assertThat(CodexLaunchProfile.threadConfig(childProfile, true, false, roots, false))
+            assertThat(CodexLaunchProfile.threadConfig(childProfile, true, false, roots, false, false))
                     .containsEntry("approval_policy", "never")
                     .containsEntry("approvals_reviewer", "user")
                     .containsEntry("web_search", "disabled")
@@ -119,19 +119,19 @@ class TestCodexLaunchProfile
     void preservesPunctuationInsideWritablePaths()
     {
         List<String> roots = ImmutableList.of("/Work, Projects/task", "/repo/quote\"and\\slash");
-        assertThat(CodexLaunchProfile.arguments("codex", CodexLaunchProfile.ChildProfile.NONE, Optional.empty(), false, roots, false))
+        assertThat(CodexLaunchProfile.arguments("codex", CodexLaunchProfile.ChildProfile.NONE, Optional.empty(), false, roots, false, false))
                 .contains("sandbox_workspace_write.writable_roots=[\"/Work, Projects/task\",\"/repo/quote\\\"and\\\\slash\"]");
     }
 
     @Test
     void permitsOnlyNormalGitAuthenticationInTheInteractiveShell()
     {
-        List<String> arguments = CodexLaunchProfile.arguments("codex", CodexLaunchProfile.ChildProfile.V1, Optional.empty(), false, ImmutableList.of(), true);
+        List<String> arguments = CodexLaunchProfile.arguments("codex", CodexLaunchProfile.ChildProfile.V1, Optional.empty(), false, ImmutableList.of(), true, false);
         assertThat(arguments).contains("shell_environment_policy.inherit=\"all\"", "shell_environment_policy.ignore_default_excludes=true");
         assertThat(CodexLaunchProfile.expectedShellEnvironmentIncludeOnly(true))
                 .contains("GH_TOKEN", "GITHUB_TOKEN", "GH_ENTERPRISE_TOKEN", "GITHUB_ENTERPRISE_TOKEN", "GH_HOST", "GH_CONFIG_DIR", "XDG_CONFIG_HOME", "SSH_AUTH_SOCK")
                 .doesNotContain("OPENAI_API_KEY", "CODEX_API_KEY", "ANTHROPIC_API_KEY", "CODEX_HOME", "BYTEQUAY_CODEGRAPH_TOKEN", "GH_REPO", "GIT_DIR");
-        assertThat(CodexLaunchProfile.threadConfig(CodexLaunchProfile.ChildProfile.V1, false, false, ImmutableList.of(), true))
+        assertThat(CodexLaunchProfile.threadConfig(CodexLaunchProfile.ChildProfile.V1, false, false, ImmutableList.of(), true, false))
                 .containsEntry("shell_environment_policy", CodexLaunchProfile.expectedShellEnvironmentPolicy(true));
         assertThat(CodexLaunchProfile.expectedShellEnvironmentIncludeOnly(false))
                 .doesNotContain("GH_TOKEN", "GITHUB_TOKEN", "GH_CONFIG_DIR", "SSH_AUTH_SOCK", "XDG_CONFIG_HOME");

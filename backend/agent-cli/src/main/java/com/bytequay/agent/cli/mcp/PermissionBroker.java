@@ -943,6 +943,10 @@ public final class PermissionBroker
                     .ifPresent(socket -> network.put("allowUnixSockets", ImmutableList.of(socket)));
             sandbox.put("network", network.buildOrThrow());
         }
+        else if (reviewSession) {
+            // Review tests may start localhost servers; outbound hosts still need native approval.
+            sandbox.put("network", ImmutableMap.of("allowedDomains", ImmutableList.of(), "allowLocalBinding", true));
+        }
         ImmutableMap.Builder<String, Object> settings = ImmutableMap.<String, Object>builder()
                 .put("autoMemoryEnabled", false)
                 .put("permissions", ImmutableMap.of("deny", deny.build()))
@@ -956,14 +960,8 @@ public final class PermissionBroker
         else if (reviewSession) {
             settings.put("autoMode", ImmutableMap.of(
                     "classifyAllShell", true,
-                    "hard_deny", ImmutableList.of("$defaults", """
-                            Block creating commits, publishing changes, and moving HEAD or branch references to other commits.
-                            Private review experiments must remain uncommitted. Block pushes, GitHub writes, and credential access.
-                            Allow local experiment edits, staging, unstaging, applying patches, and read-only Git metadata commands.
-                            Resetting files to the current HEAD is allowed; moving HEAD or a branch to another commit is not.
-                            Evaluate complete commands, including Git options, aliases, shell chains, and invoked scripts.
-                            Earlier development authorization does not apply to this private review session.
-                            """.strip())));
+                    "environment", ImmutableList.of("$defaults", AgentCommandPolicy.reviewInstructions()),
+                    "hard_deny", ImmutableList.<String>builder().add("$defaults").addAll(AgentCommandPolicy.reviewRestrictions()).build()));
         }
         return objectMapper.writeValueAsString(settings.buildOrThrow());
     }

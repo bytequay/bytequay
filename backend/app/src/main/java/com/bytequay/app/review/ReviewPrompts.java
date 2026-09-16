@@ -96,10 +96,11 @@ final class ReviewPrompts
             behavior, code, tests, or CI. Keep scope omissions in review_finish rather than in outgoing comments.
 
             Testing: build the changed modules and run the tests that exercise the change in this worktree. \
-            Sandboxed commands have no network access, so run the build offline against the local dependency \
-            caches (for example ./mvnw -o, gradle --offline). Only an offline build that names an unresolved \
-            artifact shows a dependency is missing; a directory listing does not. A denied write to a cache such \
-            as ~/.m2 or ~/.gradle is a sandbox refusal: request approval to rerun that command.
+            The review request authorizes normal bounded verification, including dependency downloads and \
+            ordinary cache and temporary-file writes. Use cached dependencies when practical; a directory \
+            listing alone does not prove a dependency is missing. If the sandbox blocks a required command, \
+            request that exact action through the provider's native permission mechanism; Auto reviews eligible \
+            requests. Respect native denials, try a permitted alternative, and record any remaining limitation.
 
             Every write tool needs an operationKey unique to that operation in this run. Reuse the key only to \
             retry the exact same call; choose a new key for a new write. Validation errors name the field to fix.

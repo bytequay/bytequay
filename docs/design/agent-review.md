@@ -904,8 +904,12 @@ only inside review sessions. Staging, unstaging, patch application, and Git
 reads remain available for experiments; development and other workflow tasks
 retain their existing command policies. These are provider permission guards, not arbitrary
 shell or operating-system isolation. Claude disables sandbox auto-allow and
-adds native commit/history denials; Codex escalations reach the ByteQuay guard before
-approval, so legitimate non-Git escalations may still ask the user. Review anchors continue to use committed
+adds native commit/history denials. Codex uses `auto_review` for initial and resumed
+reviews, with the private-review scope pinned in both launch and thread configuration.
+Both native reviewers receive shared rules permitting bounded verification while
+prohibiting commits, history moves and remote publication. Build/cache escalations
+use the native automatic reviewer; requests that still reach the host retain the
+existing guard and approval boundary. Review anchors continue to use committed
 PR revisions, independent of edited experiment files.
 ByteQuay's own controlled remote-head synchronization remains available in
 review mode; it uses verified Git operations outside the agent CLI permission

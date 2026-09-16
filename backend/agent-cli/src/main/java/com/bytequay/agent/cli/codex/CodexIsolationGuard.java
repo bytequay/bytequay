@@ -59,6 +59,7 @@ final class CodexIsolationGuard
     private final boolean textOnly;
     private final List<String> ciWritableRoots;
     private final boolean allowGitHubCommands;
+    private final boolean review;
 
     /**
      * @param codexHome the isolated home ByteQuay assigned to this process
@@ -101,7 +102,7 @@ final class CodexIsolationGuard
             Optional<URI> codeGraphEndpoint,
             boolean textOnly)
     {
-        this(client, codexHome, childProfile, codeGraphEndpoint, textOnly, ImmutableList.of(), false);
+        this(client, codexHome, childProfile, codeGraphEndpoint, textOnly, ImmutableList.of(), false, false);
     }
 
     CodexIsolationGuard(
@@ -111,7 +112,8 @@ final class CodexIsolationGuard
             Optional<URI> codeGraphEndpoint,
             boolean textOnly,
             List<String> ciWritableRoots,
-            boolean allowGitHubCommands)
+            boolean allowGitHubCommands,
+            boolean review)
     {
         this.client = requireNonNull(client, "client is null");
         this.codexHome = requireNonNull(codexHome, "codexHome is null").toAbsolutePath().normalize();
@@ -120,6 +122,7 @@ final class CodexIsolationGuard
         this.textOnly = textOnly;
         this.ciWritableRoots = ImmutableList.copyOf(ciWritableRoots);
         this.allowGitHubCommands = allowGitHubCommands;
+        this.review = review;
     }
 
     /**
@@ -273,7 +276,7 @@ final class CodexIsolationGuard
         boolean ci = !ciWritableRoots.isEmpty();
         requireTextValue(config, "web_search", textOnly || ci ? "disabled" : "live");
         if (!textOnly && !ci) {
-            requireTextValue(config.path("auto_review"), "policy", CodexApprovalPolicy.policy());
+            requireTextValue(config.path("auto_review"), "policy", CodexApprovalPolicy.policy(review));
         }
         if (ci) {
             requireTextValue(config, "approval_policy", "never");

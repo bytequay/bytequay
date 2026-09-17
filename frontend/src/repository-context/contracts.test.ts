@@ -12,7 +12,7 @@
  * limitations under the License.
  */
 import { describe, expect, it } from 'vitest';
-import { parseAgentReview, type ContextDeliveryStateDto } from '../pulls/agent-review/contracts';
+import { parseAgentReview, type ContextNoteReadDto, type ContextPreparationActivityDto, type ContextDeliveryStateDto } from '../pulls/agent-review/contracts';
 import { reviewFixture } from '../pulls/agent-review/fixtures/review';
 import {
   parseApplyContextDiscoveryRequest,
@@ -187,7 +187,7 @@ describe('repository context contracts', () => {
   it('retains completed brief contributions and exact delivery identities with receipt-derived state', () => {
     const contribution = { investigationStep: 1, text: 'Conditional contracts.', evidenceRefs: ['E1'], preparationRefs: ['prepared:project'], limitations: ['Unverified version'] };
     const delivery: ContextDeliveryDto = { turnId: 'turn-1', packetDigest: 'sha256:brief', utf8Bytes: 210, contributionCount: 1,
-      inputDigest: 'sha256:input', inputUtf8Bytes: 500, discussionMessageId: null, preparedAt: '2026-09-01T00:00:00Z' };
+      inputDigest: 'sha256:input', inputUtf8Bytes: 500, discussionMessageId: null, discussionSupplement: null, preparedAt: '2026-09-01T00:00:00Z' };
     const context = { ...snapshot, contributions: [contribution], deliveries: [delivery] };
     const review = reviewFixture();
     const contextDeliveryStates: Record<string, ContextDeliveryStateDto> = { 'turn-1': { outcome: 'CONFIRMED', detail: null } };
@@ -207,6 +207,43 @@ describe('repository context contracts', () => {
         .toThrow('Malformed context delivery');
     }
     expect(() => parseAgentReview({ ...review, runs: [{ ...review.runs[0], contextDeliveryStates: undefined }] })).toThrow('context delivery states');
+  });
+
+  it('requires bounded discussion supplements on discussion deliveries and preserves exact packet text', () => {
+    const supplement = { packet: { text: 'later source', digest: 'sha256:discussion', utf8Bytes: 12 }, evidenceRefs: ['E1'],
+      capturedAt: '2026-09-01T00:00:00Z', gaps: ['Local cache only'] };
+    const delivery: ContextDeliveryDto = { turnId: 'discussion', packetDigest: 'sha256:base', utf8Bytes: 120, contributionCount: 0,
+      inputDigest: 'sha256:input', inputUtf8Bytes: 220, discussionMessageId: 'message', discussionSupplement: supplement, preparedAt: '2026-09-01T00:00:00Z' };
+    const context = { ...snapshot, deliveries: [delivery] };
+    expect(parseReviewContextSnapshot(context)?.deliveries[0].discussionSupplement).toEqual(supplement);
+    for (const bad of [
+      { ...delivery, discussionSupplement: undefined }, { ...delivery, discussionMessageId: null },
+      { ...delivery, discussionSupplement: { ...supplement, packet: { ...supplement.packet, utf8Bytes: 8193 } } },
+      { ...delivery, discussionSupplement: { ...supplement, evidenceRefs: Array(7).fill('E1') } },
+      { ...delivery, discussionSupplement: { ...supplement, gaps: Array(11).fill('gap') } },
+    ]) expect(() => parseReviewContextSnapshot({ ...context, deliveries: [bad] })).toThrow('Malformed repository context');
+  });
+
+  it('parses preparation observations strictly without inferring missing timings', () => {
+    const review = reviewFixture();
+    const activity: ContextPreparationActivityDto = { operationRef: 'context-activity:1', status: 'JOINED', attemptId: 'attempt', recordedAt: null, elapsedMillis: null,
+      scopes: [{ scopeId: 'project', outcome: null, explanation: '', noteIds: [], checkedSourceIds: [] }], gaps: ['Shared preparation is owned by another agent.'] };
+    const parse = (contextPreparationActivities: unknown) => parseAgentReview({ ...review, runs: [{ ...review.runs[0], contextPreparationActivities }] });
+    expect(parse([activity]).runs[0].contextPreparationActivities).toEqual([activity]);
+    for (const bad of [undefined, null, [{ ...activity, status: 'UNDERSTOOD' }], [{ ...activity, elapsedMillis: -1 }],
+      [{ ...activity, elapsedMillis: '10' }], [{ ...activity, elapsedMillis: 0.5 }], [{ ...activity, scopes: 'unknown' }],
+      [{ ...activity, recordedAt: 123 }], [{ ...activity, scopes: [{ ...activity.scopes[0], outcome: 'UNKNOWN' }] }]]) expect(() => parse(bad)).toThrow();
+  });
+
+  it('retains exact note-read identity and refuses ambiguous receipt content', () => {
+    const review = reviewFixture();
+    const read: ContextNoteReadDto = { entryId: 'knowledge:project', entryVersion: 3, status: 'AVAILABLE', text: 'exact note',
+      evidenceRef: 'note:3', sourceEvidenceRefs: { source: 'E1' } };
+    const parse = (contextNoteReads: unknown) => parseAgentReview({ ...review, runs: [{ ...review.runs[0], contextNoteReads }] });
+    expect(parse([read]).runs[0].contextNoteReads).toEqual([read]);
+    for (const bad of [undefined, [{ ...read, status: 'VERSION_UNAVAILABLE' }], [{ ...read, entryVersion: 0 }],
+      [{ ...read, text: null }], [{ ...read, evidenceRef: undefined }], [{ ...read, sourceEvidenceRefs: ['invalid'] }],
+      [{ ...read, status: 'RECEIPT_UNAVAILABLE' }]]) expect(() => parse(bad)).toThrow();
   });
 
   it('keeps optimistic revisions and absent configuration fields unchanged', () => {

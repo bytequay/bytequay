@@ -105,15 +105,16 @@ class TestReviewContextSnapshot
         String prefix = "a".repeat(999) + "/";
         new ContextMatch.Selected(ImmutableList.of(prefix), ImmutableList.of());
         List<String> reasons = IntStream.range(0, 41).mapToObj(index -> "Changed path matches prefix: " + prefix + index).collect(toImmutableList());
-        ContextSelectedEntry selected = new ContextSelectedEntry("knowledge:project", 1, "Project", Optional.of("Note"), ImmutableMap.of(), reasons,
+        List<String> compared = ImmutableList.<String>builder().addAll(reasons).add("Source identity UNVERIFIED: source mapping unavailable").build();
+        ContextSelectedEntry selected = new ContextSelectedEntry("knowledge:project", 1, "Project", Optional.of("Note"), ImmutableMap.of(), compared,
                 ContextSelectedEntry.Applicability.UNVERIFIED, ContextSelectedEntry.Inclusion.INCLUDED);
         ContextRelatedItem related = new ContextRelatedItem("ev-related", reasons, Optional.empty());
 
-        assertThat(selected.matchReasons()).hasSize(41);
+        assertThat(selected.matchReasons()).hasSize(42);
         assertThat(related.matchReasons()).hasSize(41);
         assertThatThrownBy(() -> new ContextRelatedItem("ev-related", ImmutableList.of("é".repeat(1001)), Optional.empty()))
                 .isInstanceOf(IllegalArgumentException.class);
-        List<String> tooMany = ImmutableList.<String>builder().addAll(reasons).add("One too many").build();
+        List<String> tooMany = ImmutableList.<String>builder().addAll(compared).add("One too many").build();
         assertThatThrownBy(() -> new ContextSelectedEntry("knowledge:project", 1, "Project", Optional.of("Note"), ImmutableMap.of(), tooMany,
                 ContextSelectedEntry.Applicability.UNVERIFIED, ContextSelectedEntry.Inclusion.INCLUDED)).isInstanceOf(IllegalArgumentException.class);
     }

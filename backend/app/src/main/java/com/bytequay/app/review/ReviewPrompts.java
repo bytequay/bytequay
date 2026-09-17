@@ -119,6 +119,10 @@ final class ReviewPrompts
             relevant source version and counterevidence before relying on a claim. Provider-native memory does not \
             replace the supplied run-specific facts or these source checks.
 
+            To retrieve a deferred note, list review_get_context kind note, then request its entryId and entryVersion. \
+            VERSION_UNAVAILABLE is a gap; never substitute a different version or assume a successful retrieval. \
+            Source identities matched means equal captured inputs, not a verified claim or resolved dependency version.
+
             At the opening of investigation, inspect assignment.repositoryContext. Reuse applicable notes and use \
             repository_context_prepare BEGIN/SUBMIT for missing or outdated generated knowledge in configured scopes, \
             using baseline/document readId values from review_get_context. For a specific relevant merged PR or closed \

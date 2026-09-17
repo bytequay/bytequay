@@ -526,7 +526,7 @@ export default function AgentReviewTab({
             </div>
           )}
 
-          {run !== null && <ReviewDetails run={run} repository={review.repo} />}
+          {run !== null && <ReviewDetails run={run} repository={review.repo} findings={review.findings} />}
           <ReviewSummaryCard
             review={review}
             run={run}

@@ -298,7 +298,7 @@ is a stale-input guard, not source evidence or a caller-selected repository iden
 | Background PR/issue refresh | None | Refresh existing source records only |
 | Someone posts a GitHub review/comment | None | Existing refresh sees it; no automatic agent turn |
 | User posts a GitHub comment in ByteQuay | None | Existing publication/cache behavior; no automatic agent turn |
-| User asks privately about a card/finding | None unless explicitly saving a lesson | Existing immediate/queued discussion receives the source run's saved context at launch; new source supplements remain pending |
+| User asks privately about a card/finding | None unless explicitly saving a lesson | Existing immediate/queued discussion receives the source run's saved context plus a separately retained bounded local discussion capture |
 | Update review / applicable Resume moves to a newer head | Check knowledge when preparing new run | Existing guarded sync, then new snapshot and review run |
 | Update review with unchanged accepted head | None | Existing PR detail refresh; no new review or automatic comment analysis |
 | Investigation becomes validation/evidence collection | None by default | Reuse the same run's context; append needed evidence |
@@ -325,11 +325,11 @@ synchronous launch resolve the source before the turn ID is attached. Admission
 failure retains the message, and reconciliation attaches an already accepted
 turn or queue item without creating another request.
 
-Capturing newly available relevant comments or source evidence as a separate
-turn-owned discussion supplement remains pending. That later integration must
-capture provenance at actual launch, preserve the original brief and versions,
-and label newer knowledge explicitly; reusing an old snapshot alone does not
-claim that new discussion evidence was captured.
+At first execution, the turn captures newly available local comments as a separate
+bounded supplement with its own provenance, timestamp, excerpts and gaps. It
+preserves the original brief and versions. Replaying that accepted turn uses the
+saved capture; reading newer evidence requires a new turn or an explicit tool
+read. Capture is local-only and does not assert remote freshness.
 
 An incoming GitHub comment is only new source data. To have it analyzed in V1,
 the user refers to it in the existing agent discussion/composer. This design
@@ -1211,7 +1211,12 @@ text; complete note bodies are never cut to fit.
   claimed. Preparation resolves these typed identities directly, rather than
   parsing descriptive evidence labels or trusting model-pasted IDs.
 - applicability is MATCHED, VERSION_MISMATCH, or UNVERIFIED. A mismatch can be a
-  useful pointer but cannot silently supply an applicable contract.
+  useful pointer but cannot silently supply an applicable contract. MATCHED means
+  that captured local source and READY-preparation input identities equal the
+  frozen reviewed head. Changed, absent or nonregular files are VERSION_MISMATCH;
+  incomplete observations, remote documents/history and agent-reported sources
+  remain UNVERIFIED. Matching identities do not verify a claim or resolve effective
+  dependency versions. The selection retains the result and an explanatory reason.
 - inputFingerprints retain each selected scope's local baseline input inventory.
   Each inventory maps stable input keys to observed Git mode/type/object IDs,
   explicit ABSENT results, or configuration hashes. A canonical SHA-256 covers
@@ -1231,11 +1236,15 @@ text; complete note bodies are never cut to fit.
   reason, and entry/version reference, not their complete body. A later read
   can use that exact current version or an already captured evidence copy.
   If neither survives, return VERSION_UNAVAILABLE; never substitute today's
-  text. The selected deferred-notebook exact-version read remains pending. A
-  fresh version requires an explicitly labeled supplement.
+  text. `review_get_context` with `kind=note` lists the original selection in
+  pages of ten; `entryId` and `entryVersion` retrieve that exact note. The result
+  and its source evidence are retained atomically in the existing run operation
+  journal/evidence map before return, then replayed independently of notebook
+  edits or deletion. Each response fits 64 KiB; cumulative retained note/source
+  text fits 1 MiB. A fresh version requires a new explicit selection.
 - deliveries contains at most 128 immutable bindings with unique turnId. Each
   ContextDelivery stores packetDigest, utf8Bytes, contributionCount, inputDigest,
-  inputUtf8Bytes, optional discussionMessageId and preparedAt. The snapshot
+  inputUtf8Bytes, optional discussionMessageId/discussionSupplement and preparedAt. The snapshot
   validates its exact packet prefix, digest and bytes on append and reload.
   An identical turn binding replays; altered content for that turn is rejected.
   Complete composed message text is bounded to 256 KiB UTF-8. Packet/input bounds
@@ -1245,8 +1254,14 @@ text; complete note bodies are never cut to fit.
   from existing AgentTurn facts, as specified in Section 7.2. A missing turn
   receipt is UNCERTAIN. Never resend uncertain input automatically.
 - discussionMessageId binds old-card questions to their source run at actual
-  launch. A separate append-only capture of newly read discussion sources remains
-  pending; the snapshot has no speculative discussionSupplements field.
+  launch. Its optional discussionSupplement retains a separate 8 KiB packet,
+  evidenceRefs, capturedAt and gaps. Up to three private messages on the same
+  source-run/card/finding and three locally cached PR comment excerpts are selected.
+  PR discovery inspects at most 100 events/comment candidates; a finding's path
+  and explicit comment URLs narrow selection. Local capture does not refresh
+  GitHub or rewrite the frozen review. Cache age, observed head and limitations
+  accompany the excerpts. Replay uses the same saved capture. Cancellation and
+  assignment are rechecked before the one atomic run save.
 - Later notebook corrections do not rewrite old snapshots. The UI can compare
   captured entry versions with current disabled/corrected entries. No retroactive
   model rerun or publication is authorized.
@@ -1594,7 +1609,11 @@ They retain their own source references and applicability limits in the review.
 Manifest blob equality establishes unchanged dependency declarations; it does
 not resolve effective versions, remote parents, profiles, lockless ranges or
 environment-dependent build inputs. Those remain explicit applicability limits.
-Comparing baseline inventories must never promote a claim to MATCHED for a PR.
+Baseline equality alone cannot establish applicability to a PR. Selection compares
+captured repository-file identities and available READY-preparation Git/layout
+inputs with the frozen PR head using bounded local reads. MATCHED is displayed as
+“Source identities matched”; remote document release mappings and effective
+build dependency resolution remain unverified.
 
 Refresh generated baseline knowledge from the captured monitored branch, not
 from an older task or an unmerged experiment. Version-specific differences
@@ -1631,8 +1650,11 @@ its original contributionCount even when later collection has appended context.
 Validation/collection without a completed brief fails before provider launch.
 Off, absent historical context and ordinary non-review tasks add no reference
 input. Old-card discussions resolve the original run at actual execution,
-including queued starts, without reading today's notebook. New discussion-source
-supplement capture remains pending.
+including queued starts, without reading today's notebook. At first launch it
+captures a separate bounded local discussion supplement; repeated launches use
+that exact saved packet. This path reads local stores only because existing Ask
+admission can hold the review lock. Selected remote refreshes remain explicit
+tool reads, outside notebook transactions.
 
 Only the small trusted context policy is appended to the enabled review bridge's
 managed instructions. Source bodies travel in turn input or tool results, never
@@ -1762,11 +1784,12 @@ the completed brief, each collection supplement and per-turn delivery binding,
 with acceptance labels from existing turn receipts. Missing historical context
 is not interpreted as Off, and a missing delivery receipt is visibly uncertain.
 Prepared text is not labeled delivered, read, understood or responsible for a
-better conclusion. Citation navigation remains pending.
+better conclusion. Retained evidence links show the saved validation conclusion,
+including rejected hypotheses, and navigate to a corresponding current finding
+when it still exists. Old finding revisions remain labeled as historical.
 
-Extend the existing Review details disclosure, not the top-level report card
-types. The broader presentation target below includes citation and usage counts
-that are not yet implemented; its counts are illustrative:
+The existing Review details disclosure includes exact captured discussion
+supplements and note/source evidence. The following counts are illustrative:
 
 ~~~text
 Repository context provided · 18 KiB
@@ -1781,11 +1804,15 @@ Why selected · View exact text · Sources and versions
 1 documentation source unavailable
 ~~~
 
-The pending transcript presentation should fold preparation into ordinary activity with concise messages:
-“Reusing project overview,” “Preparing Iceberg knowledge,” “Waiting for shared
-knowledge,” and “Context ready.” Show elapsed time, additional bytes/token
-metrics when available, source/cache counts, and a link to the builder task.
-Use existing events and task status; no Reading/Thinking lifecycle states.
+Folded preparation activity is projected from the existing run operation journal.
+Accepted BEGIN/SUBMIT results retain their observed time and elapsed milliseconds;
+JOINED/DEFERRED observations use a separate capped display-only journal namespace,
+so a later retry can still become owner or reuse completed results. These display
+observations are not report preparation receipts. The UI shows actual reuse,
+ownership, waiting, deferred and applied outcomes, including READY/EMPTY/FAILED.
+Missing or malformed historical metrics stay unavailable. Byte/source counts
+come from retained data; context-specific provider token/cache attribution remains
+unavailable. This adds no parallel job or delivery lifecycle.
 
 At completion, let users navigate from a cited source to the finding or rejected
 hypothesis. Citation count is not a claim that context caused a better review.
@@ -2000,8 +2027,8 @@ public record ContextSourcePage(
 
 Other values have the fields in Section 4: ContextScope/match, tagged
 ContextReference, ContextSourceEvidence, ContextClaim, ContextCodeIdentity,
-ActiveContextPreparation, ContextBuild and ReviewContextSnapshot. A separate
-discussion supplement remains pending, without a persisted placeholder. Use sealed reference/match interfaces for their
+ActiveContextPreparation, ContextBuild, ContextDiscussionSupplement and
+ReviewContextSnapshot. Use sealed reference/match interfaces for their
 closed variants rather than nullable bags of mutually exclusive fields.
 
 Commands below are typed records: EditContextEntry contains only user-editable
@@ -2354,13 +2381,47 @@ public class ContextHistoryReader
 }
 ~~~
 
+Exact selected-note retrieval uses the existing review tool and run journal:
+
+~~~java
+public class ContextNoteReader
+{
+    /**
+     * Resolves the immutable selection's exact note version.
+     *
+     * @param workspaceId workspace resolved from the owning review
+     * @param selected entry/version and applicability captured before review admission
+     * @return captured initial text, or the still-identical notebook version and its
+     *         source evidence; empty if an uncaptured version has changed or disappeared
+     *
+     * This does not rematch notes, substitute today's version, refresh sources or mutate
+     * the notebook. ReviewTools checks the accepted assignment before and after the
+     * read, validates the whole response and cumulative byte budgets, and atomically
+     * retains its evidence plus operation receipt before returning it. A saved receipt
+     * is replayed without consulting today's notebook. Current workspace Off does not
+     * retroactively change a historical run's captured setting.
+     */
+    public Optional<Read> read(String workspaceId, ContextSelectedEntry selected);
+
+    public record Read(String text, Map<String, String> sourceEvidenceRefs,
+            Map<String, ReviewEvidence> evidence) {}
+}
+~~~
+
+The projection derives `contextNoteReads` from these receipts, including an explicit
+RECEIPT_UNAVAILABLE state for inconsistent saved data. It renders successful exact
+text under the original selected entry while leaving the initial packet unchanged.
+Preparation activity is likewise a projection of saved operation results, not a
+new persistence store or lifecycle model.
+
 ### 10.4 Generated preparation and review integration
 
 The concrete application service below is shared by review investigations and
 explicit learning tasks. It operates only on existing configured scopes and
 registered sources. Implemented scope/root discovery acceptance occurs before
-Learn; selected deferred-note exact-version reads remain pending. Standalone
-Learn/Refresh is implemented. Review
+Learn. `ContextNoteReader` serves only originally selected note/version pairs;
+ReviewTools retains the exact successful read and replays it from the run journal.
+Standalone Learn/Refresh is implemented. Review
 tools construct the trusted execution from a frozen run; learning tools construct
 it from their saved ContextBuild and accepted task/turn. Neither callers nor
 models can supply a different owner through report arguments.
@@ -2550,7 +2611,12 @@ public record ContextContribution(
 public record ContextDelivery(
         String turnId, String packetDigest, int utf8Bytes, int contributionCount,
         String inputDigest, int inputUtf8Bytes,
-        Optional<String> discussionMessageId, Instant preparedAt) {}
+        Optional<String> discussionMessageId,
+        Optional<ContextDiscussionSupplement> discussionSupplement, Instant preparedAt) {}
+
+/** Exact local discussion capture for one accepted turn; does not replace its frozen packet. */
+public record ContextDiscussionSupplement(
+        ContextPacket packet, List<String> evidenceRefs, Instant capturedAt, List<String> gaps) {}
 ~~~
 
 RepositoryContextTurnInput implements that launch port using ReviewToolAssignment
@@ -2812,8 +2878,9 @@ The learning bridge is purpose-bound and exposes only its two fixed context
 tools. Its default assignment requires root-directory and repository-file work
 and an attempt for every frozen registered documentation source before BEGIN or
 reuse; failures remain explicit gaps. Scope/root discovery acceptance happens
-before Start Learn and grants no additional tool. Selected notebook exact-version
-reads remain pending. The Learn bridge has no PR reporting authority.
+before Start Learn and grants no additional tool. Review-side exact-version
+notebook retrieval uses the `note` selector; the Learn bridge has no PR reporting
+authority and does not inherit that review tool.
 
 repository_context_read has the closed kinds SELECTION, TREE, FILE, DOCUMENT and
 HISTORY. TREE pages start at zero; document pages start at one and use captureId

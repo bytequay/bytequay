@@ -15,6 +15,7 @@ package com.bytequay.persistence.sqlite.store;
 
 import com.bytequay.core.context.ContextContribution;
 import com.bytequay.core.context.ContextDelivery;
+import com.bytequay.core.context.ContextDiscussionSupplement;
 import com.bytequay.core.context.ContextDocumentRead;
 import com.bytequay.core.context.ContextEntryOrigin;
 import com.bytequay.core.context.ContextInputFingerprint;
@@ -225,9 +226,11 @@ class TestSqliteReviewStores
                 .replaceCurrentStep(ReviewStep.initial().withInvestigation(investigation), NOW)
                 .withContextContribution(brief, NOW);
         ContextPacket preparedPrefix = run.context().orElseThrow().packetFor(1);
-        String input = "Validate the investigation\n" + preparedPrefix.text();
+        ContextDiscussionSupplement discussion = new ContextDiscussionSupplement(ContextPacket.create("Captured discussion source"),
+                ImmutableList.of("ev-1"), NOW, ImmutableList.of("Local cache only"));
+        String input = "Validate the investigation\n" + preparedPrefix.text() + discussion.packet().text();
         ContextDelivery delivery = new ContextDelivery("turn-context", preparedPrefix.digest(), preparedPrefix.utf8Bytes(), 1,
-                ContextDelivery.digest(input), ContextLimits.bytes(input), Optional.empty(), NOW);
+                ContextDelivery.digest(input), ContextLimits.bytes(input), Optional.of("question-context"), Optional.of(discussion), NOW);
         ContextContribution supplement = new ContextContribution(3, "The focused check confirms the unchanged counter", ImmutableList.of("ev-2"),
                 ImmutableList.of(), ImmutableList.of());
         run = run.withContextDelivery(delivery, NOW)

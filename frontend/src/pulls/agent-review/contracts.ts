@@ -66,6 +66,18 @@ export type ReviewStepDto = {
 
 export type ContextDeliveryStateDto = { outcome: 'PREPARED' | 'SUBMITTED' | 'CONFIRMED' | 'UNCERTAIN'; detail: string | null };
 
+export type ContextPreparationActivityDto = {
+  operationRef: string; status: 'OWNED' | 'REUSED' | 'JOINED' | 'DEFERRED' | 'APPLIED' | 'UNAVAILABLE';
+  attemptId: string | null; recordedAt: string | null; elapsedMillis: number | null;
+  scopes: Array<{ scopeId: string; outcome: 'READY' | 'EMPTY' | 'FAILED' | null; explanation: string; noteIds: string[]; checkedSourceIds: string[] }>;
+  gaps: string[];
+};
+
+export type ContextNoteReadDto = {
+  entryId: string; entryVersion: number; status: 'AVAILABLE' | 'RECEIPT_UNAVAILABLE'; text: string | null;
+  evidenceRef: string | null; sourceEvidenceRefs: Record<string, string>;
+};
+
 export type ReviewRunDto = {
   id: string;
   ordinal: number;
@@ -85,6 +97,8 @@ export type ReviewRunDto = {
   evidence: ReviewEvidenceDto[];
   context: ReviewContextSnapshotDto | null;
   contextDeliveryStates: Record<string, ContextDeliveryStateDto>;
+  contextPreparationActivities: ContextPreparationActivityDto[];
+  contextNoteReads: ContextNoteReadDto[];
   outcome: string | null;
   createdAt: string;
   endedAt: string | null;
@@ -367,8 +381,47 @@ function parseContextDeliveryStates(value: unknown): Record<string, ContextDeliv
   }));
 }
 
+function parsePreparationActivity(value: unknown): ContextPreparationActivityDto {
+  const item = object(value, 'context preparation activity');
+  const elapsedMillis = item.elapsedMillis;
+  if (elapsedMillis !== null && (typeof elapsedMillis !== 'number' || !Number.isSafeInteger(elapsedMillis) || elapsedMillis < 0)) {
+    throw new Error('Invalid context preparation elapsed time');
+  }
+  if (!Array.isArray(item.scopes) || !Array.isArray(item.gaps) || item.gaps.some(gap => typeof gap !== 'string')) throw new Error('Malformed preparation lists');
+  return { operationRef: text(item.operationRef, 'context preparation reference'),
+    status: oneOf(item.status, ['OWNED', 'REUSED', 'JOINED', 'DEFERRED', 'APPLIED', 'UNAVAILABLE'] as const, 'context preparation status'),
+    attemptId: item.attemptId === null ? null : text(item.attemptId, 'preparation attempt'),
+    recordedAt: item.recordedAt === null ? null : text(item.recordedAt, 'preparation recorded time'),
+    elapsedMillis: elapsedMillis === null ? null : count(elapsedMillis, 'preparation elapsed time'),
+    scopes: list(item.scopes).map(value => {
+      const scope = object(value, 'context preparation scope');
+      for (const values of [scope.noteIds, scope.checkedSourceIds]) {
+        if (!Array.isArray(values) || values.some(value => typeof value !== 'string')) throw new Error('Malformed preparation scope references');
+      }
+      return { scopeId: text(scope.scopeId, 'preparation scope'), outcome: scope.outcome === null ? null : oneOf(scope.outcome, ['READY', 'EMPTY', 'FAILED'] as const, 'preparation outcome'),
+        explanation: text(scope.explanation, 'preparation explanation'), noteIds: strings(scope.noteIds), checkedSourceIds: strings(scope.checkedSourceIds) };
+    }), gaps: strings(item.gaps) };
+}
+
+function parseNoteRead(value: unknown): ContextNoteReadDto {
+  const item = object(value, 'saved context note read');
+  const entryVersion = count(item.entryVersion, 'saved note version');
+  if (!Number.isSafeInteger(entryVersion) || entryVersion < 1) throw new Error('Malformed saved note version');
+  const result: ContextNoteReadDto = { entryId: text(item.entryId, 'saved note id'), entryVersion,
+    status: oneOf(item.status, ['AVAILABLE', 'RECEIPT_UNAVAILABLE'] as const, 'saved note status'),
+    text: item.text === null ? null : text(item.text, 'saved note text'), evidenceRef: item.evidenceRef === null ? null : text(item.evidenceRef, 'saved note evidence'),
+    sourceEvidenceRefs: Object.fromEntries(Object.entries(object(item.sourceEvidenceRefs, 'saved note source references')).map(([id, value]) => [id, text(value, 'saved note source reference')])) };
+  if ((result.status === 'AVAILABLE') !== (result.text !== null && result.evidenceRef !== null)
+    || (result.status === 'RECEIPT_UNAVAILABLE' && (result.text !== null || result.evidenceRef !== null || Object.keys(result.sourceEvidenceRefs).length > 0))) {
+    throw new Error('Malformed saved note status and content');
+  }
+  return result;
+}
+
 function parseRun(value: unknown): ReviewRunDto {
   const run = object(value, 'review run');
+  if (!Array.isArray(run.contextPreparationActivities)) throw new Error('Malformed context preparation activities');
+  if (!Array.isArray(run.contextNoteReads)) throw new Error('Malformed saved context note reads');
   return {
     id: text(run.id, 'run id'),
     ordinal: count(run.ordinal, 'run ordinal'),
@@ -391,6 +444,8 @@ function parseRun(value: unknown): ReviewRunDto {
     evidence: list(run.evidence).map(parseEvidence),
     context: parseReviewContextSnapshot(run.context),
     contextDeliveryStates: parseContextDeliveryStates(run.contextDeliveryStates),
+    contextPreparationActivities: list(run.contextPreparationActivities).map(parsePreparationActivity),
+    contextNoteReads: list(run.contextNoteReads).map(parseNoteRead),
     outcome: optionalText(run.outcome),
     createdAt: text(run.createdAt, 'run time'),
     endedAt: optionalText(run.endedAt),

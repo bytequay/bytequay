@@ -95,9 +95,12 @@ export type ContextBuildViewDto = {
 export type ContextContributionDto = {
   investigationStep: number; text: string; evidenceRefs: string[]; preparationRefs: string[]; limitations: string[];
 };
+export type ContextDiscussionSupplementDto = {
+  packet: { text: string; digest: string; utf8Bytes: number }; evidenceRefs: string[]; capturedAt: string; gaps: string[];
+};
 export type ContextDeliveryDto = {
   turnId: string; packetDigest: string; utf8Bytes: number; contributionCount: number; inputDigest: string; inputUtf8Bytes: number;
-  discussionMessageId: string | null; preparedAt: string;
+  discussionMessageId: string | null; discussionSupplement: ContextDiscussionSupplementDto | null; preparedAt: string;
 };
 export type ReviewContextSnapshotDto = {
   id: string; enabled: boolean; notebookRevision: number; repositoryId: number; baselineSha: string | null;
@@ -290,9 +293,19 @@ function contribution(value: unknown): ContextContributionDto {
 
 function delivery(value: unknown): ContextDeliveryDto {
   const item = object(value, 'context delivery');
+  const discussionMessageId = optionalText(item.discussionMessageId, 'delivery discussion message');
+  const supplement = item.discussionSupplement === null ? null : object(item.discussionSupplement, 'discussion supplement');
+  const packet = supplement === null ? null : object(supplement.packet, 'discussion packet');
+  const discussionSupplement = supplement === null || packet === null ? null : {
+    packet: { text: text(packet.text, 'discussion packet text'), digest: text(packet.digest, 'discussion packet digest'), utf8Bytes: count(packet.utf8Bytes, 'discussion packet bytes') },
+    evidenceRefs: strings(supplement.evidenceRefs, 'discussion evidence references'), capturedAt: text(supplement.capturedAt, 'discussion capture time'),
+    gaps: strings(supplement.gaps, 'discussion limitations'),
+  };
+  if (discussionSupplement !== null && (discussionMessageId === null || discussionSupplement.packet.utf8Bytes > 8192
+    || discussionSupplement.evidenceRefs.length > 6 || discussionSupplement.gaps.length > 10)) malformed('invalid discussion supplement bounds or delivery');
   return { turnId: text(item.turnId, 'delivery turn'), packetDigest: text(item.packetDigest, 'delivery packet digest'), utf8Bytes: count(item.utf8Bytes, 'delivery packet bytes'),
     contributionCount: count(item.contributionCount, 'delivery contribution count'), inputDigest: text(item.inputDigest, 'delivery input digest'),
-    inputUtf8Bytes: count(item.inputUtf8Bytes, 'delivery input bytes'), discussionMessageId: optionalText(item.discussionMessageId, 'delivery discussion message'),
+    inputUtf8Bytes: count(item.inputUtf8Bytes, 'delivery input bytes'), discussionMessageId, discussionSupplement,
     preparedAt: text(item.preparedAt, 'delivery preparation time') };
 }
 

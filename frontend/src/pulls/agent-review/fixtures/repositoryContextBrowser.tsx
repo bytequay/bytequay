@@ -14,7 +14,7 @@
 import { flushSync } from 'react-dom';
 import { createRoot, type Root } from 'react-dom/client';
 import type { Bridge } from '../../../types';
-import type { ContextHistoryReadDto, ContextSourceEvidenceDto, RepositoryNotebookDto, ReviewContextSnapshotDto, SaveRepositoryContextLessonRequest } from '../../../repository-context/contracts';
+import type { ContextDeliveryDto, ContextHistoryReadDto, ContextSourceEvidenceDto, RepositoryNotebookDto, ReviewContextSnapshotDto, SaveRepositoryContextLessonRequest } from '../../../repository-context/contracts';
 import ReviewDetails from '../ReviewDetails';
 import ReviewContextDetails from '../ReviewContextDetails';
 import ReviewThread from '../ReviewThread';
@@ -41,8 +41,8 @@ const empty: RepositoryNotebookDto = { schemaVersion: 1, revision: 4, useInRevie
   scopes: [{ id: 'project', title: 'Project', match: { kind: 'REPOSITORY' }, enabled: true, preparation: null, discoveryEvidenceRef: null }], entries: [], suppressedKnowledgeIds: [], sourceEvidence: [] };
 const brief = { investigationStep: 1, text: 'Keep field IDs scoped to their parent struct.\n<script>Reference text stays inert.</script>',
   evidenceRefs: ['E1'], preparationRefs: ['prepared:project'], limitations: ['Dependency version applicability is unverified.'] };
-const delivery = { turnId: 'validation-turn', packetDigest: `sha256:${'c'.repeat(64)}`, utf8Bytes: 420, contributionCount: 1,
-  inputDigest: `sha256:${'d'.repeat(64)}`, inputUtf8Bytes: 900, discussionMessageId: 'original-discussion', preparedAt: '2026-01-03T00:00:00Z' };
+const delivery: ContextDeliveryDto = { turnId: 'validation-turn', packetDigest: `sha256:${'c'.repeat(64)}`, utf8Bytes: 420, contributionCount: 1,
+  inputDigest: `sha256:${'d'.repeat(64)}`, inputUtf8Bytes: 900, discussionMessageId: 'original-discussion', discussionSupplement: null, preparedAt: '2026-01-03T00:00:00Z' };
 const historyReads: ContextHistoryReadDto[] = [
   { kind: 'HISTORY', id: 'history:merged', reference: { kind: 'PR', repositoryId: 7, repository: { owner: 'trinodb', repo: 'trino' }, number: 30280, commentId: null },
     state: 'MERGED', sourceUpdatedAt: '2026-01-03T00:00:00Z', sourceRevision: 'd'.repeat(40), contentHash: 'e'.repeat(64), readAt: '2026-01-04T00:00:00Z',
@@ -208,6 +208,41 @@ export async function runScenarios(): Promise<string[]> {
     assert(historySummary.parentElement?.textContent?.includes('The retained discussion is partial') === true, 'History limitations remain visible');
     assert(host.textContent?.includes('Closed issue #29912') === true && host.textContent.includes('The closure reason is unknown.'), 'Closed issue state retains its missing closure reason');
     results.push('Context delivery follows receipts and keeps exact brief text in folded disclosures');
+
+    const citationRun: ReviewRunDto = { ...run, context, contextPreparationActivities: [{ operationRef: 'context-activity:joined', status: 'JOINED',
+      attemptId: 'shared-attempt', recordedAt: '2026-01-03T00:00:00Z', elapsedMillis: 14, scopes: [], gaps: ['Another agent is preparing these sources.'] }],
+      steps: [{ number: 2, kind: 'VALIDATE', repair: false, investigation: null, validation: { investigationStep: 1,
+        candidates: [{ candidate: 1, outcome: 'REJECTED', conclusion: 'The guard rules this out.', evidenceRefs: ['E1'], counterevidence: '',
+          findingId: null, findingRevision: null, request: null }], coverage: { complete: true, omissions: [], recordedAt: '2026-01-03T00:00:00Z' }, newCandidates: [] } }] };
+    flushSync(() => root.render(<>
+      <ReviewDetails run={citationRun} repository={review.repo} findings={base.findings} />
+      <article id="agent-review-finding-finding-1"><details><summary>Saved finding</summary><p>Finding body</p></details></article>
+    </>));
+    const outer = host.querySelector<HTMLDetailsElement>('.agr-review-details');
+    assert(outer !== null, 'Review details must be available'); outer.open = true;
+    const preparation = [...host.querySelectorAll('summary')].find(item => item.textContent?.startsWith('Context preparation'))?.parentElement;
+    assert(preparation instanceof HTMLDetailsElement && !preparation.open, 'Preparation observations must start folded');
+    assert(preparation.textContent?.includes('Waiting for shared preparation') === true && preparation.textContent.includes('14 ms'), 'Actual preparation receipt must remain visible after reconnect');
+    const link = [...host.querySelectorAll<HTMLAnchorElement>('a')].find(item => item.textContent === 'Pass 2 · hypothesis 1 · rejected');
+    assert(link !== undefined, 'Saved sources must link to a rejected hypothesis');
+    const originalHash = location.hash;
+    link.click(); await settle();
+    const target = document.getElementById('review-validation-run-1-2-1');
+    assert(target !== null && document.activeElement === target, 'Citation navigation must focus the saved conclusion');
+    for (let parent = target.parentElement; parent !== null; parent = parent.parentElement) {
+      assert(!(parent instanceof HTMLDetailsElement) || parent.open, 'Citation navigation must open every containing disclosure');
+    }
+    assert(location.hash === originalHash, 'Citation navigation must not replace the app route');
+    const sourceLink = target.querySelector<HTMLAnchorElement>('a');
+    assert(sourceLink !== null, 'The conclusion must link back to retained source evidence'); sourceLink.click(); await settle();
+    const source = document.getElementById('review-evidence-run-1-E1');
+    assert(source instanceof HTMLDetailsElement && source.open && document.activeElement === source, 'Source navigation must open and focus the retained excerpt');
+    const findingLink = [...host.querySelectorAll<HTMLAnchorElement>('a')].find(item => item.textContent?.startsWith('F-1:'));
+    assert(findingLink !== undefined, 'A same-run finding citation must be navigable'); findingLink.click(); await settle();
+    const finding = document.getElementById('agent-review-finding-finding-1');
+    assert(finding?.querySelector('details')?.open === true && document.activeElement === finding, 'Finding navigation must open and focus its card');
+    results.push('Source citations open and focus saved hypotheses, source excerpts and same-run findings without changing the route');
+
   }
   finally { flushSync(() => root.unmount()); host.remove(); }
   return results;
@@ -239,14 +274,33 @@ export async function showFixture(mode: 'context' | 'lesson'): Promise<void> {
     getRepositoryContext: async () => empty,
     saveRepositoryContextLesson: async (_workspaceId: string, request: SaveRepositoryContextLessonRequest) => stored(empty, request),
   } satisfies Pick<Bridge, 'getRepositoryContext' | 'saveRepositoryContextLesson'> });
-  const displayRun: ReviewRunDto = { ...run, context, contextDeliveryStates: { 'validation-turn': { outcome: 'CONFIRMED', detail: null } } };
+  const discussionText = 'Recent discussion at launch\n\nThe author confirmed that repeated field names must remain scoped to their parent struct.';
+  const noteText = 'Project overview captured after initial selection.\nClaims remain conditional on the reviewed source version.';
+  const displayRun: ReviewRunDto = { ...run, evidence: [...run.evidence, { ref: 'context-note:project-v3', source: 'Project overview v3',
+    provenance: 'Exact originally selected notebook version', excerpt: noteText, explanation: 'Unverified reference material' }],
+  contextNoteReads: [{ entryId: 'knowledge:project', entryVersion: 3, status: 'AVAILABLE', text: noteText,
+    evidenceRef: 'context-note:project-v3', sourceEvidenceRefs: { source: 'E1' } }],
+  context: { ...context, selectedEntries: [...context.selectedEntries, { entryId: 'knowledge:project', entryVersion: 3, title: 'Project overview',
+    text: null, sourceEvidenceRefs: {}, matchReasons: ['Project scope; omitted from the bounded initial packet'], applicability: 'UNVERIFIED', inclusion: 'DEFERRED' }], deliveries: [{ ...delivery, discussionSupplement: {
+    packet: { text: discussionText, digest: `sha256:${'e'.repeat(64)}`, utf8Bytes: new TextEncoder().encode(discussionText).length },
+    evidenceRefs: ['E1'], capturedAt: '2026-01-04T00:00:00Z', gaps: ['Only locally available discussion was captured.'],
+  } }] }, contextDeliveryStates: { 'validation-turn': { outcome: 'CONFIRMED', detail: null } }, contextPreparationActivities: [
+    { operationRef: 'context-activity:waiting', status: 'JOINED', attemptId: 'shared-preparation', recordedAt: '2026-01-03T00:00:00Z', elapsedMillis: 12,
+      scopes: [{ scopeId: 'project', outcome: null, explanation: '', noteIds: [], checkedSourceIds: [] }], gaps: [] },
+    { operationRef: 'review-step:run-1:1:repository_context_prepare:BEGIN:reuse', status: 'REUSED', attemptId: null,
+      recordedAt: '2026-01-03T00:00:10Z', elapsedMillis: 18, scopes: [{ scopeId: 'project', outcome: 'READY', explanation: 'The selected inputs are unchanged.',
+        noteIds: ['knowledge:project'], checkedSourceIds: ['context-read:example'] }], gaps: [] },
+  ], steps: [{ number: 2, kind: 'VALIDATE', repair: false, investigation: null, validation: { investigationStep: 1,
+    candidates: [{ candidate: 1, outcome: 'REJECTED', conclusion: 'The parent-scoped lookup rules out the suspected field collision.', evidenceRefs: ['E1'],
+      counterevidence: 'The checked source retains the complete parent path.', findingId: null, findingRevision: null, request: null }],
+    coverage: { complete: true, omissions: [], recordedAt: '2026-01-03T00:00:30Z' }, newCandidates: [] } }] };
   flushSync(() => previewRoot?.render(mode === 'context' ? <ReviewDetails run={displayRun} repository={review.repo} />
     : <ReviewThread review={review} messages={review.messages} viewerLogin="reader" viewerAvatarUrl={null} />));
   if (mode === 'context') {
     const details = host.querySelector<HTMLDetailsElement>('.agr-review-details');
     assert(details !== null, 'Context preview requires review details'); details.open = true;
-    const packet = host.querySelector<HTMLDetailsElement>('.agr-context__item');
-    assert(packet !== null, 'Context preview requires packet'); packet.open = true;
+    const activity = host.querySelector<HTMLDetailsElement>('.agr-context__item');
+    assert(activity !== null, 'Context preview requires preparation activity'); activity.open = true;
   }
   else {
     button(host, 'Save lesson').click();

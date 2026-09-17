@@ -15,17 +15,23 @@ package com.bytequay.app.context;
 
 import com.bytequay.agent.core.AgentApprovalService;
 import com.bytequay.agent.core.AgentCompletionService;
+import com.bytequay.agent.core.AgentEventService;
 import com.bytequay.agent.core.AgentMetrics;
+import com.bytequay.agent.core.AgentMetricsService;
+import com.bytequay.agent.core.AgentResourceService;
 import com.bytequay.agent.core.AgentTask;
 import com.bytequay.agent.core.AgentTaskService;
 import com.bytequay.agent.core.AgentTurn;
 import com.bytequay.agent.core.AgentTurnService;
 import com.bytequay.agent.core.AgentTurnSettings;
+import com.bytequay.agent.core.CodeGraphService;
 import com.bytequay.agent.core.CompleteAgentTaskCommand;
 import com.bytequay.agent.core.CreateAgentTaskCommand;
+import com.bytequay.agent.core.ProvisionWorktreeCommand;
 import com.bytequay.agent.core.StartAgentTurnCommand;
 import com.bytequay.agent.core.TaskCompletion;
 import com.bytequay.agent.core.TaskId;
+import com.bytequay.agent.core.TaskResources;
 import com.bytequay.agent.core.TaskState;
 import com.bytequay.agent.core.TaskSummary;
 import com.bytequay.agent.core.TaskWorktree;
@@ -33,8 +39,14 @@ import com.bytequay.agent.core.TitleSource;
 import com.bytequay.agent.core.TurnId;
 import com.bytequay.agent.core.TurnState;
 import com.bytequay.agent.core.WorktreeMutationClaim;
+import com.bytequay.agent.core.impl.AgentRuntimeRegistry;
+import com.bytequay.agent.core.impl.DefaultAgentCompletionService;
+import com.bytequay.agent.core.store.AgentEventOutboxStore;
 import com.bytequay.agent.core.store.AgentTaskStore;
 import com.bytequay.agent.core.store.AgentTurnStore;
+import com.bytequay.agent.core.store.AgentUnitOfWork;
+import com.bytequay.agent.core.store.QueuedInputStore;
+import com.bytequay.agent.core.store.TaskLogStore;
 import com.bytequay.agent.spi.AgentCapabilities;
 import com.bytequay.agent.spi.AgentDriver;
 import com.bytequay.agent.spi.AgentDriverRegistry;
@@ -50,6 +62,8 @@ import com.bytequay.app.service.credentials.CredentialService.GitHubCredential;
 import com.bytequay.app.service.settings.AgentModelSetting;
 import com.bytequay.app.service.settings.AgentModelType;
 import com.bytequay.app.service.settings.ModelSettingsService;
+import com.bytequay.app.workspace.ManagedWorktreeService;
+import com.bytequay.app.workspace.WorkspacePaths;
 import com.bytequay.app.workspace.WorkspaceRepositoryContext;
 import com.bytequay.app.workspace.WorkspaceRepositoryService;
 import com.bytequay.core.context.ActiveContextPreparation;
@@ -72,10 +86,13 @@ import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.io.TempDir;
 import org.mockito.ArgumentCaptor;
 import org.mockito.InOrder;
 import org.springframework.beans.factory.support.DefaultListableBeanFactory;
 
+import java.io.IOException;
+import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.Clock;
 import java.time.Duration;
@@ -196,10 +213,7 @@ class TestContextBuildService
             savedTasks.compute(call.getArgument(0), (id, task) -> task.withWorktreeRemovedAt(NOW));
             return null;
         }).when(completions).cleanupWorktree(any(TaskId.class));
-        DefaultListableBeanFactory beans = new DefaultListableBeanFactory();
-        beans.registerSingleton("contextBuildCoordinator", coordinator);
-        service = new ContextBuildService(builds, notebooks, preparation, workspaces, models, credentials, drivers, tasks, taskStore, turns, turnStore,
-                completions, approvals, beans.getBeanProvider(ContextBuildCoordinator.class), git, mapper, Clock.fixed(NOW, ZoneOffset.UTC));
+        service = createService(completions);
     }
 
     @Test
@@ -341,6 +355,113 @@ class TestContextBuildService
         assertThat(savedTasks.get(TaskId.valueOf(bound.taskId())).state()).isEqualTo(TaskState.COMPLETED);
         verify(completions, never()).abandon(any(), anyString());
         verify(turns).start(any(StartAgentTurnCommand.class));
+    }
+
+    @Test
+    void completedLearningPreservesDirtyWorkAndIgnoredOutputUntilExplicitlyCleared(@TempDir Path directory)
+            throws IOException
+    {
+        GitCommandRunner localGit = new GitCommandRunner();
+        WorkspacePaths paths = new WorkspacePaths(directory.resolve("managed").toString());
+        Path repository = paths.repository(WORKSPACE);
+        Files.createDirectories(repository);
+        Files.writeString(paths.workspace(WORKSPACE).resolve(".bytequay-workspace"), WORKSPACE + "\n1\n");
+        runGit(localGit, repository, "init", "--initial-branch=main");
+        runGit(localGit, repository, "remote", "add", "origin", "https://github.com/contributor/repository.git");
+        Files.writeString(repository.resolve("README.md"), "Original repository text\n");
+        Files.writeString(repository.resolve(".gitignore"), "build/\n");
+        runGit(localGit, repository, "add", ".");
+        runGit(localGit, repository, "-c", "user.name=Test", "-c", "user.email=test@example.test", "commit", "-qm", "Fixture");
+        String baseline = runGit(localGit, repository, "rev-parse", "HEAD").strip();
+        when(workspaceStore.findById(WORKSPACE)).thenReturn(Optional.of(new Workspace(WORKSPACE, "Repository", 1, FORK,
+                Optional.of(7L), Optional.of(REPOSITORY), 7, REPOSITORY, Workspace.Topology.FORK, "main", "https://github.com/contributor/repository.git",
+                Optional.of("main"), Optional.of("https://github.com/owner/repository.git"), repository.toString(), Optional.empty(), Optional.empty(), 0, NOW, NOW)));
+        when(workspaces.requireReadableRepository(WORKSPACE)).thenReturn(new WorkspaceRepositoryContext(WORKSPACE, repository, 1, FORK,
+                OptionalLong.of(7), REPOSITORY, "upstream", "origin", "main", ImmutableList.of()));
+        when(git.run(repository, "rev-parse", "--verify", "refs/remotes/upstream/main^{commit}"))
+                .thenReturn(new GitCommandRunner.Result(0, baseline + "\n", false));
+        ManagedWorktreeService managed = new ManagedWorktreeService(paths, workspaceStore, localGit);
+        doAnswer(call -> {
+            CreateAgentTaskCommand command = call.getArgument(0);
+            TaskWorktree tree = managed.provision(new ProvisionWorktreeCommand(command.taskId(), WORKSPACE, command.physicalRepository(),
+                    command.startCommit(), command.generatedBranch()));
+            AgentTask task = AgentTask.created(command.taskId(), false, command.title(), TitleSource.USER, command.laneId(), tree, command.defaults(), NOW);
+            savedTasks.put(task.id(), task);
+            return task;
+        }).when(tasks).create(any(CreateAgentTaskCommand.class));
+        when(taskStore.update(any(AgentTask.class))).thenAnswer(call -> {
+            AgentTask task = call.getArgument(0);
+            savedTasks.put(task.id(), task);
+            return task;
+        });
+        AgentUnitOfWork unit = mock(AgentUnitOfWork.class);
+        when(unit.execute(any())).thenAnswer(call -> ((AgentUnitOfWork.Work<?>) call.getArgument(0)).run());
+        AgentMetricsService metrics = mock(AgentMetricsService.class);
+        when(metrics.taskTotals(any())).thenReturn(AgentMetrics.empty());
+        AgentResourceService resources = mock(AgentResourceService.class);
+        Path runtime = directory.resolve("runtime");
+        when(resources.require(any())).thenReturn(new TaskResources(runtime, runtime.resolve("events"), runtime.resolve("blobs"), runtime.resolve("provider")));
+        service = createService(new DefaultAgentCompletionService(taskStore, turnStore, mock(QueuedInputStore.class), unit,
+                mock(AgentEventOutboxStore.class), mock(AgentEventService.class), mock(TaskLogStore.class), managed, resources,
+                new AgentRuntimeRegistry(), metrics, mock(CodeGraphService.class), () -> Duration.ofDays(7), Clock.fixed(NOW, ZoneOffset.UTC)));
+        RepositoryNotebook saved = notebooks.editEntry(WORKSPACE, 0, new EditContextEntry("knowledge:project", "project", "Project", "Summary",
+                "Keep the accepted knowledge", ImmutableList.of(), ImmutableList.of()));
+        ContextBuild bound = start();
+        TaskId taskId = TaskId.valueOf(bound.taskId());
+        ContextRepositoryRead empty = new ContextRepositoryRead("context-read:empty", new ContextReference.RepositoryFile(7, REPOSITORY, "README.md", baseline),
+                baseline, NOW, 1, 0, 0, 0, false, Optional.empty());
+        ContextPreparationResult result = new ContextPreparationResult("attempt", fingerprint(), EMPTY, ImmutableList.of(), ImmutableList.of(empty), "No new knowledge");
+        builds.save(Optional.of(bound), bound.withCapture(new ContextBuild.Capture(ImmutableList.of(empty), ImmutableMap.of(), ImmutableMap.of(), ImmutableMap.of(),
+                Optional.of(new ContextBuild.Result(ImmutableList.of(result))), ImmutableList.of())));
+        finishTurn(TurnState.COMPLETED, true);
+        Path tree = savedTasks.get(taskId).worktree();
+        Files.writeString(tree.resolve("README.md"), "Unfinished experiment\n");
+        Files.writeString(tree.resolve("scratch.txt"), "Untracked work\n");
+        Files.createDirectories(tree.resolve("build"));
+        Files.writeString(tree.resolve("build/result.txt"), "Ignored experiment result\n");
+
+        ContextBuildService.View dirty = service.get(WORKSPACE);
+
+        assertThat(dirty.canStart()).isFalse();
+        assertThat(savedTasks.get(taskId).state()).isEqualTo(TaskState.OPEN);
+        assertThat(savedTasks.get(taskId).worktreeMutationClaim()).isEmpty();
+        assertThat(builds.find(WORKSPACE).orElseThrow().capture().gaps()).anyMatch(gap -> gap.contains("cleanup needs attention"));
+        assertThat(Files.readString(tree.resolve("README.md"))).isEqualTo("Unfinished experiment\n");
+        assertThat(tree.resolve("scratch.txt")).exists();
+        assertThat(notebooks.getNotebook(WORKSPACE)).isEqualTo(saved);
+
+        Files.writeString(tree.resolve("README.md"), "Original repository text\n");
+        Files.delete(tree.resolve("scratch.txt"));
+        ContextBuildService.View ignored = service.get(WORKSPACE);
+        assertThat(ignored.canStart()).isFalse();
+        assertThat(savedTasks.get(taskId).state()).isEqualTo(TaskState.COMPLETED);
+        assertThat(savedTasks.get(taskId).worktreeRemovedAt()).isEmpty();
+        assertThat(tree.resolve("build/result.txt")).exists();
+        assertThat(notebooks.getNotebook(WORKSPACE)).isEqualTo(saved);
+
+        Files.delete(tree.resolve("build/result.txt"));
+        Files.delete(tree.resolve("build"));
+        assertThat(service.get(WORKSPACE).canStart()).isTrue();
+        assertThat(savedTasks.get(taskId).worktreeRemovedAt()).contains(NOW);
+        assertThat(tree).doesNotExist();
+        assertThat(notebooks.getNotebook(WORKSPACE)).isEqualTo(saved);
+        verify(tasks).create(any(CreateAgentTaskCommand.class));
+        verify(turns).start(any(StartAgentTurnCommand.class));
+    }
+
+    private ContextBuildService createService(AgentCompletionService completion)
+    {
+        DefaultListableBeanFactory beans = new DefaultListableBeanFactory();
+        beans.registerSingleton("contextBuildCoordinator", coordinator);
+        return new ContextBuildService(builds, notebooks, preparation, workspaces, models, credentials, drivers, tasks, taskStore, turns, turnStore,
+                completion, approvals, beans.getBeanProvider(ContextBuildCoordinator.class), git, mapper, Clock.fixed(NOW, ZoneOffset.UTC));
+    }
+
+    private static String runGit(GitCommandRunner git, Path repository, String... arguments)
+    {
+        GitCommandRunner.Result result = git.run(repository, arguments);
+        assertThat(result.successful()).as("%s: %s", String.join(" ", arguments), result.output()).isTrue();
+        return result.output();
     }
 
     private ContextBuild start()

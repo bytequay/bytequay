@@ -398,20 +398,20 @@ class TestContextInputReader
             case "traversal" -> new GitCommandRunner.Result(0, valid.replace("README.md", "../README.md"), false);
             default -> throw new AssertionError(kind);
         };
-        when(local.run(eq(repository), any(Duration.class), anyList())).thenReturn(result);
+        when(local.runLocalBounded(eq(repository), any(Duration.class), eq(256 * 1024), anyList())).thenReturn(result);
         ContextInputFingerprint input = new ContextInputReader(local)
                 .capture(workspace(), Optional.of(SHA), RepositoryNotebook.empty(), ImmutableList.of(ContextScope.project())).getFirst();
         assertThat(input.digest()).isEmpty();
         assertThat(input.gaps()).isNotEmpty();
         assertThat(input.inputs()).doesNotContainKey("git:README.md");
-        verify(local, times(1)).run(eq(repository), any(Duration.class), anyList());
+        verify(local, times(1)).runLocalBounded(eq(repository), any(Duration.class), eq(256 * 1024), anyList());
     }
 
     @Test
     void failedSelectedPathBatchDoesNotClaimItsPathsAreAbsent()
     {
         GitCommandRunner local = emptyGit();
-        when(local.run(eq(repository), any(Duration.class), anyList()))
+        when(local.runLocalBounded(eq(repository), any(Duration.class), eq(256 * 1024), anyList()))
                 .thenReturn(new GitCommandRunner.Result(0, "", false)).thenReturn(GitCommandRunner.Result.failed("Selected paths unavailable"));
         RepositoryNotebook notebook = notebook(ImmutableList.of(), ImmutableList.of());
         ContextInputFingerprint input = new ContextInputReader(local).capture(workspace(), Optional.of(SHA), notebook, notebook.scopes()).getLast();
@@ -439,7 +439,7 @@ class TestContextInputReader
         });
         ArgumentCaptor<Duration> timeout = ArgumentCaptor.forClass(Duration.class);
         ArgumentCaptor<List<String>> arguments = ArgumentCaptor.captor();
-        verify(local, times(5)).run(eq(repository), timeout.capture(), arguments.capture());
+        verify(local, times(5)).runLocalBounded(eq(repository), timeout.capture(), eq(256 * 1024), arguments.capture());
         assertThat(timeout.getAllValues()).allSatisfy(value -> assertThat(value).isPositive().isLessThanOrEqualTo(Duration.ofSeconds(2)));
         assertThat(arguments.getAllValues()).allSatisfy(value -> {
             assertThat(value).startsWith("--literal-pathspecs", "ls-tree", "-t", "-z", "--full-tree", SHA, "--");
@@ -463,6 +463,42 @@ class TestContextInputReader
                 .anySatisfy(gap -> assertThat(gap).contains("ISSUE"));
     }
 
+    @Test
+    void reviewedIdentitiesIncludeLessonFilesAtFrozenHeadWithoutChangingPreparationReuse()
+            throws IOException
+    {
+        initialize();
+        write("pom.xml", "Original declarations");
+        write("plugin/iceberg/Metadata.java", "Original component");
+        write("rules/contract.md", "Original lesson source");
+        String reviewedHead = commit();
+        String originalBlob = command("rev-parse", reviewedHead + ":rules/contract.md").strip();
+        ContextSourceEvidence source = new ContextSourceEvidence("lesson-source", new ContextReference.RepositoryFile(7, MONITORED, "rules/contract.md", reviewedHead),
+                "Captured lesson source", "Original lesson source", ContextSourceEvidence.Capture.BYTEQUAY_READ,
+                Optional.of(Instant.EPOCH), Optional.of(originalBlob), Optional.empty(), false);
+        ContextEntry lesson = new ContextEntry("lesson:contract", ContextEntryKind.MEMORY, COMPONENT.id(), "Contract", "Summary", "Conditional lesson",
+                ImmutableList.of(), ImmutableList.of(source.id()), ContextEntryOrigin.USER, true, 1);
+        RepositoryNotebook notebook = new RepositoryNotebook(1, 0, true, ImmutableList.of(), ImmutableList.of(ContextScope.project(), COMPONENT),
+                ImmutableList.of(lesson), ImmutableList.of(), ImmutableList.of(source), Optional.empty());
+        ContextInputReader reader = new ContextInputReader(git);
+        ContextInputFingerprint preparation = capture(reviewedHead, notebook).getLast();
+
+        write("rules/contract.md", "A later committed source");
+        write("pom.xml", "Later declarations");
+        String later = commit();
+        command("replace", reviewedHead, later);
+        write("rules/contract.md", "An uncommitted experiment");
+        ContextInputFingerprint frozen = reader.captureReviewed(workspace(), reviewedHead, notebook, ImmutableList.of(COMPONENT), ImmutableList.of(lesson)).getFirst();
+        ContextInputFingerprint current = reader.captureReviewed(workspace(), later, notebook, ImmutableList.of(COMPONENT), ImmutableList.of(lesson)).getFirst();
+
+        assertThat(frozen.digest()).isPresent();
+        assertThat(frozen.inputs()).containsEntry("git:rules/contract.md", "100644 blob " + originalBlob);
+        assertThat(current.inputs().get("git:rules/contract.md")).isNotEqualTo(frozen.inputs().get("git:rules/contract.md"));
+        assertThat(current.inputs().get("git:pom.xml")).isNotEqualTo(frozen.inputs().get("git:pom.xml"));
+        assertThat(preparation.inputs()).doesNotContainKey("git:rules/contract.md");
+        assertThat(capture(reviewedHead, notebook).getLast()).isEqualTo(preparation);
+    }
+
     private List<ContextInputFingerprint> capture(String baseline, RepositoryNotebook notebook)
     {
         return new ContextInputReader(git).capture(workspace(), Optional.of(baseline), notebook, notebook.scopes());
@@ -471,7 +507,7 @@ class TestContextInputReader
     private GitCommandRunner emptyGit()
     {
         GitCommandRunner local = mock(GitCommandRunner.class);
-        when(local.run(eq(repository), any(Duration.class), anyList())).thenReturn(new GitCommandRunner.Result(0, "", false));
+        when(local.runLocalBounded(eq(repository), any(Duration.class), eq(256 * 1024), anyList())).thenReturn(new GitCommandRunner.Result(0, "", false));
         return local;
     }
 

@@ -48,7 +48,7 @@ public record ContextSelectedEntry(
             ContextLimits.text(evidence, "run evidence reference", 200);
         });
         matchReasons = ImmutableList.copyOf(matchReasons);
-        checkArgument(!matchReasons.isEmpty() && matchReasons.size() <= 41, "Selected entry needs bounded matching reasons");
+        checkArgument(!matchReasons.isEmpty() && matchReasons.size() <= 42, "Selected entry needs bounded matching reasons");
         matchReasons.forEach(reason -> ContextLimits.text(reason, "matching reason", 2000));
         requireNonNull(applicability, "applicability is null");
         requireNonNull(inclusion, "inclusion is null");

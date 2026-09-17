@@ -32,7 +32,9 @@ status from existing provider receipts. Standalone Learn/Refresh task and UI are
 implemented and pass backend/frontend automated gates, focused process-test
 cleanup verification and desktop packaging. Explicit scope/document suggestions
 and bounded resolved-history discovery also pass backend/frontend and package
-gates. Live provider, performance
+gates. The final integration adds frozen-head source/input comparison, exact-version
+note reads, separate discussion captures, source-to-conclusion navigation and
+durable preparation activity. Live provider, performance
 and On/Off judgment acceptance remain pending. Unchecked items remain pending
 even when related infrastructure already exists.
 
@@ -42,7 +44,7 @@ even when related infrastructure already exists.
 | --- | --- |
 | Agreed concepts, overall flow and contracts | Finished |
 | Notebook persistence and editing/lesson APIs | Finished, including preparation-aware Reset/protection |
-| Local selection, frozen snapshots and input fingerprints | Finished; input reuse implemented, source applicability remains pending |
+| Local selection, frozen snapshots and input fingerprints | Implemented; frozen-head local source/input comparison, with remote/effective versions explicitly unverified |
 | Selected PR, issue, commit association and related diff reads | Finished, including selected closed-issue activity and historical preparation receipts |
 | Selected documentation capture and retained excerpts | Finished; committed as d42c105f0 |
 | Scoped task-summary discovery | Finished; committed as 333902583 |
@@ -51,13 +53,16 @@ even when related infrastructure already exists.
 | Historical PR/issue sources feeding shared generated knowledge | H1 finished; source admission, retention and reuse verified |
 | Standalone Learn / Refresh knowledge lifecycle and UI | H2 implemented; backend/frontend, focused process and package gates passed |
 | Scope/root discovery and bounded resolved-history discovery | H3 finished; language-neutral traversal passed backend verification and desktop packaging |
-| Automatic context delivery and investigation report integration | Implemented; frozen bootstrap, brief/supplements and old-run discussion binding; new discussion-source capture remains pending |
-| Notebook/settings UI, Save lesson and context delivery display | Implemented, including Learn task activity, preparation outcomes and receipt-derived delivery state; citation navigation/folded activity remain pending |
+| Automatic context delivery and investigation report integration | Implemented; frozen bootstrap/brief, exact-version deferred notes and separate replayable discussion capture |
+| Notebook/settings UI, Save lesson and context delivery display | Implemented; citations, retained retrievals, folded preparation outcomes, bytes/timing and receipt-derived delivery state |
 | On/Off quality comparison, performance and live provider acceptance | Pending; required before enablement |
 
 The H1–H3 cold-start work is implemented and its automated/package gates pass.
-Fresh discussion-source supplements and selected deferred-note exact-version
-reads are next. Existing CP sections
+Discussion-source supplements, selected deferred-note exact-version reads and
+display integration are implemented. Remaining acceptance requires deliberate
+live provider runs and a human-reviewed On/Off comparison; fixtures cannot certify
+review judgment. The [acceptance protocol](repository-context-acceptance.md) keeps
+those procedures and unknown metrics explicit. Existing CP sections
 retain the detailed foundation and verification checklist; their numbering does
 not override this priority order. Earlier “Next” notes are historical evidence.
 
@@ -309,8 +314,10 @@ runtime-retention and workspace-deletion behavior. Use current schema ownership.
   source identity and receipt/evidence retention in one run update.
 - [x] Use complete identities in READY/EMPTY shared preparation reuse, including
   retained blank observations and post-save source inventory.
-- [ ] Compare source/dependency versions with reviewed code. Manifest hashes do
-  not resolve effective versions or establish remote freshness.
+- [x] Compare application-captured repository-file and READY-preparation Git/input
+  identities with the frozen reviewed head. Distinguish MATCHED identities,
+  concrete VERSION_MISMATCH and UNVERIFIED/incomplete evidence. Manifest hashes
+  do not resolve effective versions or establish remote freshness.
 - [x] Add the narrow path-filtered Git history overload and reuse persisted
   commit-to-PR associations. Treat parsed PR-number suffixes as unverified hints.
 - [x] Reuse existing PR detail/diff, issue detail, and review services;
@@ -335,9 +342,11 @@ runtime-retention and workspace-deletion behavior. Use current schema ownership.
   exact returned excerpts in existing review evidence.
 - [x] Check every redirect and actual resolved destination, unsupported formats,
   truncation, response limits, and credential/proxy isolation.
-- [ ] Verify documentation versions against reviewed code during preparation;
-  current captures explicitly report unknown version/freshness/applicability.
-- [ ] Label native-web/model-reported excerpts accurately when ByteQuay did
+- [ ] Verify documentation release versions against effective dependencies.
+  Deferred beyond the minimal implementation: there is no reliable cross-language
+  mapping contract. Captures remain explicitly UNVERIFIED; version-looking URLs,
+  model assertions and equal manifest hashes cannot promote them.
+- [x] Label native-web/model-reported excerpts accurately when ByteQuay did
   not capture the original page itself.
 
 Gate: a fully cached selection makes zero remote requests; a selected miss
@@ -377,8 +386,10 @@ redirect/size/failure regressions. No whole-site or whole-history fetch.
   cleanup; an ordinary successful turn alone leaves the task open.
 - [x] Preserve prior notes on review-owned failure; settle ownership only after
   the accepted turn is terminal and its runtime claim is cleared.
-- [ ] Exercise standalone-builder dirty-work cleanup under existing task rules.
-  Do not add a background refresh queue.
+- [x] Exercise standalone-builder dirty-work cleanup with real managed Git and
+  completion services: tracked/untracked work prevents completion; ignored
+  output permits completion but blocks removal; explicit clearing permits cleanup
+  while preserving the notebook. No background refresh queue is added.
 
 Gate: concurrent cold reviews generate once; unrelated task/late callback is
 rejected; user correction during generation wins; an EMPTY result is reused
@@ -402,18 +413,20 @@ GitHub publication, credential-read, and development-delivery authority.
   identity/shape without claiming to validate semantic truth.
 - [x] Deliver the frozen brief to validation/evidence collection and preserve
   existing report repair, replay, coverage, incomplete, and cursor behavior.
-- [ ] Bind old-card discussions to their source run and capture relevant new
-  discussion evidence at actual queued/immediate turn execution. Original saved
-  context and On/Off binding is implemented; fresh discussion-source capture remains.
+- [x] Bind old-card discussions to their source run and capture relevant new
+  local discussion evidence at queued/immediate execution. Retain separate exact
+  packets/evidence with cache/coverage gaps, preserve original On/Off/head/context,
+  fence cancellation before saving and replay without rereading changed comments.
 - [x] Persist the Ask-agent message's source run/revision before start/enqueue,
   then attach delivery IDs. Exercise an idle question about an older card,
   rejected admission, accepted-but-error recovery, and queued execution.
 - [x] Add explicit retry and restart reconciliation for a saved Ask-agent
   message whose delivery remains uncertain, without resending accepted input.
-- [ ] Persist exact supplied text, sizes/digests, source versions, omissions,
-  delivery outcome, actual retrievals and citations. Frozen packet prefixes,
-  composed-input sizes/digests and receipt-derived outcomes are implemented;
-  integrated citation presentation remains pending. Preserve delivery uncertainty.
+- [x] Persist exact supplied text, sizes/digests, source versions, omissions,
+  delivery bindings, actual retained retrievals and citations. Display outcomes
+  from provider receipts while preserving delivery uncertainty. Deferred-note
+  reads bind original entry/version, retain exact successful text/source evidence
+  in the run journal, and never substitute a changed or deleted version.
 - [x] Keep the small trusted instruction policy separate from untrusted notes;
   bound the whole composed transport input as well as context sections.
 - [x] Verify context reaches both provider transports without copying the
@@ -444,12 +457,13 @@ derive from durable facts. Exercise each supported provider independently.
   reasons, versions, gaps, fingerprints and retained source receipts.
 - [x] Add confirmed provided state from existing provider receipts; missing
   acceptance stays uncertain and prepared-but-unsent stays distinct.
-- [ ] Add links to cited findings/hypotheses.
-- [ ] Use folded activity for reuse/build/join/failure. Keep no-match, unbuilt,
+- [x] Add links to cited findings/hypotheses, including saved rejected conclusions.
+- [x] Use folded activity for reuse/build/join/failure. Keep no-match, unbuilt,
   ready-empty, failed and stale states understandable without technical JSON.
-- [ ] Show elapsed time and available bytes/token/caching metrics without
-  implying that a model read or understood everything it received.
-- [ ] Preserve the display after reconnect, notebook corrections, source-cache
+- [x] Show observed preparation elapsed time and retained bytes/read counts without
+  implying that a model read or understood everything it received. Context-specific
+  provider token/cache attribution is explicitly unavailable.
+- [x] Preserve the display from durable run facts after reconnect, notebook corrections, source-cache
   eviction and task-runtime retention.
 
 Gate: component tests for user actions and provenance states, then normal and
@@ -468,19 +482,24 @@ opening settings or inspecting a source list must not launch generation.
   a quality metric.
 - [ ] Verify a false saved rule cannot establish a defect by itself; exercise
   original-source/code checks, counterevidence, corrections and future exclusion.
-- [ ] Exercise source prompt injection without granting new tool/publication
-  authority or accepting reference text as managed instructions.
+- [x] Exercise the offline source prompt-injection boundary: hostile source text
+  does not change managed policy, tool inventory or trusted caller routing.
+  Review/permission tests retain no-publication and no-child authority. Live
+  model resistance to misleading text remains part of the unperformed cases.
 - [ ] Verify Claude native-memory settings and supported Codex behavior. Disable
   autonomous cross-task memory where supported; otherwise document and test the
-  limitation before making the lane available. Never claim to disable pretraining.
+  limitation before making the lane available. Claude's actual generated settings
+  now have an explicit autoMemoryEnabled=false regression; live enforcement and
+  Codex behavior remain unverified. Never claim to disable pretraining.
 - [ ] Measure cold and warm overhead: model turns/tokens, elapsed preparation,
   source requests, notebook/run bytes, SQLite wait/write duration, and peak
   process memory/CPU under simultaneous review/task activity.
 - [ ] Record unknown or unavailable metrics explicitly. If contention exists,
   fix transaction length/write frequency before proposing separate storage.
   Measure existing source-hydrator locks separately from notebook mutation locks.
-- [ ] Confirm bounded documentation capture and one workspace generation owner
-  under cancellation, concurrency and repeated explicit refresh.
+- [x] Confirm bounded documentation capture and one workspace generation owner
+  in automated cancellation, concurrency and explicit-refresh/replay regressions.
+  Repeat under live-provider acceptance; fixtures do not establish live behavior.
 - [ ] Run live cold then warm review for each lane intended for enablement,
   plus an explicit builder and a new-comment discussion on an existing card.
 
@@ -501,8 +520,8 @@ small acceptance sample, not a guarantee that review judgments are correct.
 - [ ] Complete the provider-specific acceptance above before enabling that lane.
   Ship default on and keep the workspace Off switch for ordinary new reviews.
   Preserve saved notebook/run data; do not run comparisons for users automatically.
-- [ ] Reconcile Agent Review, Agent Service, Managed Agent Skills, task UI,
-  persistence, and workspace-deletion descriptions with the shipped behavior.
+- [x] Reconcile Agent Review, Agent Service, Managed Agent Skills, task UI,
+  persistence, and workspace-deletion descriptions with the implemented behavior.
 - [x] Review this increment and remove speculative scaffolding, duplicate source
   caches, redundant status models and unsupported completion claims. Repeat
   before final enablement.
@@ -1359,3 +1378,46 @@ Required checks below describe the current increment, not full feature acceptanc
   This completes the automated/package gates for the traversal refinement.
   Live-provider, performance and review-quality acceptance remain separate open
   gates.
+
+## Final context integration verification
+
+- Committed discovery as `96236bdb1` (`Discover repository context sources`).
+- Implemented frozen-head source/input identity comparison, exact selected-note
+  retrieval and retention, per-turn local discussion supplements, durable
+  preparation timing/activity, citation navigation and exact retrieved-note UI.
+  Original source-run settings, packet prefixes and source versions remain fixed.
+- Discussion selection uses the original finding revision when available. A
+  changed finding cannot silently supply a newer path filter; the missing old
+  anchor is an explicit gap. New comment capture never refreshes GitHub.
+- Added real managed-worktree completion/cleanup coverage and offline hostile
+  source/authority checks. Claude's generated auto-memory setting is asserted.
+- Full `mvn -B verify`: 237 suites / 2,809 tests, zero assertion failures,
+  one timeout in the existing
+  `TestAgentHttpApi.enabledQuestionKeepsTaskOpenAndPausesPreviouslyQueuedWork`.
+  Log: `/private/tmp/bytequay-context-final-verify.log`. The timeout is retained
+  here; a successful rerun does not prove its underlying cause.
+- After the final reader/discussion correction, `mvn -B verify
+  -Dtest=TestAgentHttpApi,TestRepositoryContextReader,TestContextDiscussionReader,TestRepositoryContextTurnInput,TestAgentReviewProjection
+  -Dsurefire.failIfNoSpecifiedTests=false` passed all five suites / 85 tests with
+  zero failures, errors or skips, including the whole 39-case HTTP suite. It
+  rebuilt the final backend JAR through verify. Log:
+  `/private/tmp/bytequay-context-final-affected-verify.log`.
+- Frontend `npm run lint`, `npx tsc --noEmit` and `npm test`: passed, 84 files /
+  942 tests. A final citation/browser rerun passed 16 tests after ensuring resolved
+  findings remain reachable. Logs: `/private/tmp/bytequay-context-observability-lint.log`,
+  `-types.log`, `-tests.log` and `-citation-tests.log` with the same prefix.
+- Normal and narrow browser checks exercised source-to-hypothesis-to-source and
+  source-to-finding navigation, folded ancestors, focus and unchanged app routing.
+  Eight screenshots were visually inspected at 1,280 and 640 CSS pixels without
+  overflow: `/private/tmp/bytequay-context-observability-ui/`.
+- `npm run package` passed. Source and bundled backend JAR SHA-256 both equal
+  `70d1e6ae1f5bf1a1bb45042417455cf16078cc13cb27f4fe763f37f7e6aa21e1`.
+  Log: `/private/tmp/bytequay-context-observability-package.log`.
+- Design contracts, managed guidance, task/review display, persistence and
+  workspace/runtime-retention descriptions now match the implemented boundaries.
+- Remaining acceptance is explicit in [the protocol](repository-context-acceptance.md):
+  human-approved On/Off judgments, live cold/warm runs and discussions/builders
+  for intended lanes, native-memory enforcement and measured contention/CPU/memory
+  overhead. These were not run and are not claimed complete. Automatic mapping
+  from external document releases to effective dependencies stays outside the
+  minimal implementation; those claims remain UNVERIFIED.

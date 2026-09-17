@@ -18,7 +18,8 @@ import ReviewContextDetails from './ReviewContextDetails';
 import ReviewDetails from './ReviewDetails';
 import ReviewThread from './ReviewThread';
 import { reviewFixture } from './fixtures/review';
-import type { ContextDeliveryStateDto } from './contracts';
+import { reviewCitations } from './ReviewEvidenceLinks';
+import type { ContextDeliveryStateDto, ContextPreparationActivityDto, ContextNoteReadDto, ReviewCandidateValidationDto, ReviewRunDto } from './contracts';
 
 const original = reviewFixture().runs[0];
 const packet = 'Exact packet\n<script>source text</script>\n  retain indentation\n';
@@ -46,7 +47,7 @@ const deliveredContext: ReviewContextSnapshotDto = { ...context, contributions: 
   { investigationStep: 1, text: 'Saved brief\n<script>reference text</script>', evidenceRefs: ['E1'], preparationRefs: ['prepared:project'], limitations: ['Version applicability is unknown.'] },
   { investigationStep: 3, text: 'Additional evidence preserves the first brief.', evidenceRefs: ['missing-evidence'], preparationRefs: [], limitations: [] },
 ], deliveries: [{ turnId: 'turn-validation', packetDigest: 'sha256:brief-packet', utf8Bytes: 456, contributionCount: 1,
-  inputDigest: 'sha256:complete-input', inputUtf8Bytes: 789, discussionMessageId: 'original-message', preparedAt: '2026-01-03T00:00:00Z' }] };
+  inputDigest: 'sha256:complete-input', inputUtf8Bytes: 789, discussionMessageId: 'original-message', discussionSupplement: null, preparedAt: '2026-01-03T00:00:00Z' }] };
 
 describe('saved review repository context', () => {
   it('distinguishes absent snapshots, captured off and prepared packets without asserting delivery', () => {
@@ -151,6 +152,74 @@ describe('saved review repository context', () => {
     expect(html).toContain('Final diff completeness is unverified.');
     expect(html).toContain('Closure reason is unknown.');
     expect(html).toContain('exact evidence\n');
+  });
+
+  it('shows durable preparation outcomes without treating waiting or empty as a current running state', () => {
+    const events: ContextPreparationActivityDto[] = [
+      { operationRef: 'begin', status: 'OWNED', attemptId: 'attempt', recordedAt: '2026-01-03T00:00:00Z', elapsedMillis: 12, scopes: [], gaps: [] },
+      { operationRef: 'join', status: 'JOINED', attemptId: 'attempt', recordedAt: null, elapsedMillis: null, scopes: [], gaps: ['Another agent owns preparation.'] },
+      { operationRef: 'defer', status: 'DEFERRED', attemptId: null, recordedAt: null, elapsedMillis: 0, scopes: [], gaps: ['Selected input is missing.'] },
+      { operationRef: 'reuse', status: 'REUSED', attemptId: null, recordedAt: null, elapsedMillis: 4, scopes: [
+        { scopeId: 'project', outcome: 'EMPTY', explanation: 'No useful note from checked sources.', noteIds: [], checkedSourceIds: ['read-1'] }], gaps: [] },
+      { operationRef: 'submit', status: 'APPLIED', attemptId: 'attempt', recordedAt: null, elapsedMillis: 20, scopes: [
+        { scopeId: 'connector', outcome: 'FAILED', explanation: 'Source unavailable.', noteIds: [], checkedSourceIds: [] }], gaps: [] },
+    ];
+    const html = renderToStaticMarkup(<ReviewContextDetails run={{ ...run, contextPreparationActivities: events }} />);
+    for (const text of ['Preparation started', 'Waiting for shared preparation', 'Preparation deferred', 'Reused saved preparation',
+      'Checked — no useful knowledge found', 'Preparation failed', 'No useful note from checked sources.', 'Another agent owns preparation.',
+      '12 ms', 'not current running state', 'Token usage', 'Not recorded for repository context']) expect(html).toContain(text);
+    expect(html).toContain('12 UTF-8 bytes across 2 read receipts');
+    expect(html).not.toContain('Cache hit');
+  });
+
+  it('keeps discussion supplements separate from the frozen base packet and renders exact inert source text', () => {
+    const delivery = { ...deliveredContext.deliveries[0], discussionSupplement: { packet: { text: 'Later comment\n<script>inert</script>',
+      utf8Bytes: 36, digest: 'sha256:discussion' }, evidenceRefs: ['E1'], capturedAt: '2026-01-04T00:00:00Z', gaps: ['Local comments only.'] } };
+    const html = renderToStaticMarkup(<ReviewContextDetails run={{ ...run, context: { ...deliveredContext, deliveries: [delivery] } }} />);
+    expect(html).toContain('Exact discussion context · 36 additional bytes');
+    expect(html).toContain('Later comment\n&lt;script&gt;inert&lt;/script&gt;');
+    expect(html).toContain('sha256:discussion');
+    expect(html).toContain('Local comments only.');
+    expect(html).toContain('Base context bytes</dt><dd>456 UTF-8 bytes');
+    expect(html).not.toContain('<script>');
+  });
+
+  it('links sources to saved conclusions and same-run findings without claiming brief references are citations', () => {
+    const validation: ReviewCandidateValidationDto = { candidate: 1, outcome: 'REJECTED' as const, conclusion: 'Guard disproves this claim.', evidenceRefs: ['E1'],
+      counterevidence: 'The guard rejects repeated fields.', findingId: null, findingRevision: null, request: null };
+    const validated: ReviewRunDto = { ...run, steps: [{ number: 2, kind: 'VALIDATE', repair: false, investigation: null,
+      validation: { investigationStep: 1, candidates: [validation], coverage: { complete: true, omissions: [], recordedAt: '2026-01-01T00:00:00Z' }, newCandidates: [] } }] };
+    const finding = { ...reviewFixture().findings[0], state: 'RESOLVED' as const };
+    const findings = [finding, { ...finding, id: 'other-run', runId: 'newer-run', label: 'F-new' }];
+    const targets = reviewCitations(validated, findings).get('E1');
+    expect(targets?.map(item => item.target)).toEqual(['agent-review-finding-finding-1', 'review-validation-run-1-2-1']);
+    const html = renderToStaticMarkup(<ReviewDetails run={validated} repository="trino/trino" findings={findings} />);
+    expect(html).toContain('Cited by');
+    expect(html).toContain('Pass 2 · hypothesis 1 · rejected');
+    expect(html).toContain('href="#review-validation-run-1-2-1"');
+    expect(html).toContain('id="review-validation-run-1-2-1"');
+    expect(html).toContain('href="#review-evidence-run-1-E1"');
+    expect(html).toContain('id="review-evidence-run-1-E1"');
+    expect(html).not.toContain('F-new');
+    expect(reviewCitations({ ...run, context: deliveredContext }, []).size).toBe(0);
+  });
+
+  it('shows an exact deferred-note receipt under its original selection and includes its sources in citation metrics', () => {
+    const read: ContextNoteReadDto = { entryId: 'knowledge:iceberg', entryVersion: 5, status: 'AVAILABLE', text: 'Exact deferred note',
+      evidenceRef: 'note:5', sourceEvidenceRefs: { 'new-source': 'E2' } };
+    const evidence = [...run.evidence, { ref: 'note:5', source: 'Selected note v5', provenance: 'Exact selected version', excerpt: read.text ?? '', explanation: '' },
+      { ref: 'E2', source: 'Captured note source', provenance: 'Original source', excerpt: 'source', explanation: '' }];
+    const finding = { ...reviewFixture().findings[0], evidence: [evidence[1]] };
+    const html = renderToStaticMarkup(<ReviewContextDetails run={{ ...run, evidence, contextNoteReads: [read] }} findings={[finding]} />);
+    expect(html).toContain('Iceberg contracts · version 5 · deferred');
+    expect(html).toContain('Retrieved by agent · exact version 5');
+    expect(html).toContain('Exact deferred note');
+    expect(html).toContain('Captured note source');
+    expect(html).toContain('1 of 3 saved context references cited');
+    const unavailable = renderToStaticMarkup(<ReviewContextDetails run={{ ...run, contextNoteReads: [{ ...read, status: 'RECEIPT_UNAVAILABLE',
+      text: null, evidenceRef: null, sourceEvidenceRefs: {} }] }} />);
+    expect(unavailable).toContain('The saved exact-version read is unavailable. No current note has been substituted.');
+    expect(unavailable).not.toContain('Retrieved by agent');
   });
 
   it('offers Save lesson only for messages bound to a retained run, including older runs', () => {

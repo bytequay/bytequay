@@ -231,6 +231,9 @@
 .agr-context__facts dt { color: #57606a; }
 .agr-context__facts dd { margin: 0; color: #1f2328; overflow-wrap: anywhere; }
 .agr-context__identity { overflow-wrap: anywhere; }
+.agr-context__link { color: #0969da; text-decoration: underline; overflow-wrap: anywhere; margin-right: 6px; }
+.agr-context__citations { margin: 8px 0; }
+.agr-context__citations ul { padding-left: 20px; }
 .agr-context__evidence { margin: 8px 0; }
 .agr-context .agr-evidence__excerpt { max-height: 320px; overflow: auto; }
 .agr-lesson-action { display: inline-flex; align-items: center; gap: 6px; }

@@ -73,6 +73,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyList;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
@@ -301,7 +302,7 @@ class TestRepositoryContextPreparation
     void selectedHistoryIsRetainedReusedAndNewObservationInvalidatesKnowledge()
     {
         GitCommandRunner git = mock(GitCommandRunner.class);
-        when(git.run(any(), any(Duration.class), anyList())).thenReturn(new GitCommandRunner.Result(0,
+        when(git.runLocalBounded(any(), any(Duration.class), eq(256 * 1024), anyList())).thenReturn(new GitCommandRunner.Result(0,
                 "100644 blob " + SHA + "\tREADME.md\0", false));
         var historyPreparation = new RepositoryContextPreparation(notebooks, new ContextInputReader(git), workspaces);
         Execution owner = withHistory(execution("turn", false, SHA), "history-1", "Merged decision", 2);

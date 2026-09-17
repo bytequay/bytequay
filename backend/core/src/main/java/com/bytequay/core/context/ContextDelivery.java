@@ -31,6 +31,7 @@ public record ContextDelivery(
         String inputDigest,
         int inputUtf8Bytes,
         Optional<String> discussionMessageId,
+        Optional<ContextDiscussionSupplement> discussionSupplement,
         Instant preparedAt)
 {
     public static final int MAXIMUM_INPUT_BYTES = 256 * 1024;
@@ -47,6 +48,9 @@ public record ContextDelivery(
         checkArgument(inputUtf8Bytes >= utf8Bytes && inputUtf8Bytes <= MAXIMUM_INPUT_BYTES, "Composed review input exceeds UTF-8 limit");
         requireNonNull(discussionMessageId, "discussionMessageId is null");
         discussionMessageId.ifPresent(id -> ContextLimits.text(id, "discussion message", 200));
+        requireNonNull(discussionSupplement, "discussionSupplement is null");
+        checkArgument(discussionSupplement.isEmpty() || discussionMessageId.isPresent(), "Only a discussion can have a supplement");
+        checkArgument(inputUtf8Bytes >= utf8Bytes + discussionSupplement.map(value -> value.packet().utf8Bytes()).orElse(0), "Input omits discussion supplement bytes");
         requireNonNull(preparedAt, "preparedAt is null");
     }
 

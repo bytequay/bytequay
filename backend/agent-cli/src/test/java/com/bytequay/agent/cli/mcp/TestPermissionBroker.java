@@ -794,6 +794,7 @@ class TestPermissionBroker
                                 SecretRedactor.fromEnvironment(environment), Optional.empty(), environment)) {
                             String json = Files.readString(registration.settingsFile());
                             JsonNode settings = objectMapper.readTree(json);
+                            assertThat(settings.path("autoMemoryEnabled")).isEqualTo(objectMapper.valueToTree(false));
                             assertThat(json).doesNotContain("provider-secret", "github-secret");
                             assertThat(settings.at("/sandbox/allowUnsandboxedCommands").asBoolean()).isFalse();
                             if (interactive) {

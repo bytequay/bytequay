@@ -33,14 +33,17 @@ import com.bytequay.agent.core.store.QueuedInputStore;
 import com.bytequay.agent.spi.AgentLaneId;
 import com.bytequay.agent.spi.AgentPermissionPolicy;
 import com.bytequay.agent.spi.ProviderTurnRef;
+import com.bytequay.app.context.ContextDiscussionReader;
 import com.bytequay.core.context.ContextContribution;
 import com.bytequay.core.context.ContextDelivery;
+import com.bytequay.core.context.ContextDiscussionSupplement;
 import com.bytequay.core.context.ContextLimits;
 import com.bytequay.core.context.ContextPacket;
 import com.bytequay.core.context.ReviewContextSnapshot;
 import com.bytequay.core.review.AgentReview;
 import com.bytequay.core.review.AgentReviewStore;
 import com.bytequay.core.review.ReviewConflictException;
+import com.bytequay.core.review.ReviewEvidence;
 import com.bytequay.core.review.ReviewInvestigation;
 import com.bytequay.core.review.ReviewMessage;
 import com.bytequay.core.review.ReviewRun;
@@ -153,7 +156,57 @@ class TestRepositoryContextTurnInput
                 new BlobRef("question.txt", "text/plain", 1), "Question", SETTINGS, NOW).starting(fixture.turn.id(), EventId.random(), NOW)));
 
         assertThat(fixture.prepare("Question about the old card")).contains("Original bootstrap");
-        assertThat(fixture.run.get().context().orElseThrow().deliveries().getFirst().discussionMessageId()).contains(message.id());
+        ContextDelivery delivery = fixture.run.get().context().orElseThrow().deliveries().getFirst();
+        assertThat(delivery.discussionMessageId()).contains(message.id());
+        assertThat(delivery.discussionSupplement()).isPresent();
+        assertThat(delivery.discussionSupplement().orElseThrow().packet().text()).isEqualTo("Fresh locally captured discussion");
+        verify(fixture.discussions).capture(REVIEW, original, message, fixture.turn.id().toString());
+    }
+
+    @Test
+    void discussionCapturesOnceAndRetainsEvidenceDespiteLaterCacheChanges()
+    {
+        Fixture fixture = new Fixture();
+        fixture.activate("review-ask:question");
+        ReviewMessage question = new ReviewMessage("question", REVIEW.id(), Optional.empty(), Optional.empty(), ReviewMessage.Author.USER,
+                "What about the new comment?", 1, "run", Optional.empty(), Optional.empty(), 0, NOW);
+        when(fixture.reviews.listMessages(REVIEW.id())).thenReturn(ImmutableList.of(question));
+        when(fixture.reviews.findRun("run")).thenAnswer(ignored -> Optional.of(fixture.run.get()));
+        ReviewEvidence evidence = new ReviewEvidence("discussion-source", "Cached PR comment", "Local capture; newer than the original review", "New source text", "");
+        ContextDiscussionSupplement supplement = new ContextDiscussionSupplement(ContextPacket.create("New source text"),
+                ImmutableList.of(evidence.ref()), NOW, ImmutableList.of("Remote freshness unknown"));
+        when(fixture.discussions.capture(REVIEW, fixture.run.get(), question, fixture.turn.id().toString()))
+                .thenReturn(new ContextDiscussionReader.Capture(supplement, ImmutableMap.of(evidence.ref(), evidence)));
+
+        String input = fixture.prepare(question.body());
+
+        assertThat(input).contains("Original bootstrap", "New source text", "ADDITIONAL DISCUSSION REFERENCE DATA");
+        assertThat(fixture.run.get().evidence()).containsEntry(evidence.ref(), evidence);
+        assertThat(fixture.run.get().context().orElseThrow().bootstrap().orElseThrow().text()).startsWith("Original bootstrap");
+        when(fixture.discussions.capture(any(), any(), any(), any())).thenThrow(new AssertionError("Replay must not read the cache"));
+        assertThat(fixture.prepare(question.body())).isEqualTo(input);
+        verify(fixture.discussions, times(1)).capture(any(), any(), any(), any());
+        verify(fixture.reviews, times(1)).updateRun(any());
+    }
+
+    @Test
+    void cancellationDuringDiscussionCapturePreventsItsRetention()
+    {
+        Fixture fixture = new Fixture();
+        fixture.activate("review-ask:question");
+        ReviewMessage question = new ReviewMessage("question", REVIEW.id(), Optional.empty(), Optional.empty(), ReviewMessage.Author.USER,
+                "Explain this", 1, "run", Optional.empty(), Optional.empty(), 0, NOW);
+        when(fixture.reviews.listMessages(REVIEW.id())).thenReturn(ImmutableList.of(question));
+        when(fixture.reviews.findRun("run")).thenAnswer(ignored -> Optional.of(fixture.run.get()));
+        when(fixture.discussions.capture(any(), any(), any(), any())).thenAnswer(ignored -> {
+            when(fixture.turns.findActive(TASK)).thenReturn(Optional.of(fixture.turn.requestCancellation(NOW)));
+            return new ContextDiscussionReader.Capture(new ContextDiscussionSupplement(
+                    ContextPacket.create("Captured but never retained"), ImmutableList.of(), NOW, ImmutableList.of()), ImmutableMap.of());
+        });
+
+        assertThatThrownBy(() -> fixture.prepare(question.body())).isInstanceOf(ReviewConflictException.class).hasMessageContaining("stopped or replaced");
+        assertThat(fixture.run.get().context().orElseThrow().deliveries()).isEmpty();
+        verify(fixture.reviews, never()).updateRun(any());
     }
 
     @Test
@@ -226,12 +279,15 @@ class TestRepositoryContextTurnInput
                         "bytequay/task/" + TASK, HEAD),
                 new AgentTaskDefaults(Optional.empty(), Optional.empty(), AgentPermissionPolicy.AUTO, Optional.empty()), NOW);
         private final AtomicReference<ReviewRun> run = new AtomicReference<>(run(Optional.of(snapshot(true))));
+        private final ContextDiscussionReader discussions = mock(ContextDiscussionReader.class);
         private final RepositoryContextTurnInput input = new RepositoryContextTurnInput(reviews, new ReviewToolAssignment(turns, queue, reviews),
-                new ReviewLocks(), Clock.fixed(NOW, ZoneOffset.UTC));
+                new ReviewLocks(), Clock.fixed(NOW, ZoneOffset.UTC), discussions);
         private AgentTurn turn;
 
         private Fixture()
         {
+            when(discussions.capture(any(), any(), any(), any())).thenReturn(new ContextDiscussionReader.Capture(
+                    new ContextDiscussionSupplement(ContextPacket.create("Fresh locally captured discussion"), ImmutableList.of(), NOW, ImmutableList.of()), ImmutableMap.of()));
             when(reviews.findReviewByTask(TASK.toString())).thenReturn(Optional.of(REVIEW));
             when(reviews.findReview(REVIEW.id())).thenReturn(Optional.of(REVIEW));
             when(reviews.listRuns(REVIEW.id())).thenAnswer(ignored -> ImmutableList.of(run.get()));

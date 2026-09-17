@@ -102,6 +102,7 @@ public record ReviewContextSnapshot(
         relatedItems.forEach(item -> refs.add(item.sourceId()));
         sourceReads.forEach(read -> read.evidenceRef().ifPresent(refs::add));
         contributions.forEach(contribution -> refs.addAll(contribution.evidenceRefs()));
+        deliveries.stream().flatMap(delivery -> delivery.discussionSupplement().stream()).forEach(supplement -> refs.addAll(supplement.evidenceRefs()));
         return refs.build();
     }
 

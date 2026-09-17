@@ -353,8 +353,11 @@ supplements and each turn's exact packet/input binding. The projection derives
 PREPARED, SUBMITTED, CONFIRMED or UNCERTAIN from existing AgentTurn receipts;
 missing receipts remain uncertain. Prepared does not imply acceptance, and
 acceptance does not imply comprehension. Notebook edits never rewrite this
-historical display. Citation navigation and folded preparation activity remain
-separate presentation work.
+historical display. Source links show saved validation conclusions, including
+rejected hypotheses, and navigate to current findings when available. Folded
+preparation activity derives from saved operation receipts/observations, with
+actual outcomes and elapsed time. Unknown token/cache metrics stay unavailable;
+reconnect and runtime cleanup do not require the current notebook or PR cache.
 
 Enabled initial investigation turns also expose `repository_context_prepare`
 BEGIN/SUBMIT for existing configured scopes. Assignment metadata supplies current
@@ -390,8 +393,10 @@ review/run IDs, without manufacturing PR reporting authority. Its lifecycle and
 cleanup remain with the ordinary task services. Live provider, performance and
 On/Off judgment acceptance remain pending.
 Project overview starts as a matching
-scope; its note appears under Knowledge only when created. Fresh discussion-source
-supplements and selected deferred-note exact-version reads are next.
+scope; its note appears under Knowledge only when created. The `note` selector
+lists originally selected entries or reads an exact entryId/entryVersion. It
+retains successful text and source evidence before returning, replays saved reads,
+and reports VERSION_UNAVAILABLE when an uncaptured version has changed or vanished.
 
 Find suggestions and Use selected suggestions provide explicit pre-Learn
 scope/source preview and acceptance. Verification is recorded in the implementation
@@ -444,8 +449,11 @@ untrusted input, never managed instructions or provider process arguments.
 A small trusted context policy is added only for enabled snapshots.
 
 Old-card discussion launches reuse their original run's saved context and setting,
-not today's notebook. Capturing new discussion sources as a separate supplement
-remains pending. Delivery and report fixtures establish transport/structure only;
+not today's notebook. At first execution a separate 8 KiB supplement captures
+up to three same-target private messages and three cached PR comment excerpts,
+with timestamps, observed head, excerpt hashes and explicit cache/coverage gaps.
+It does not refresh GitHub. The assignment is rechecked before atomic retention;
+replay cannot silently read newer comments. Delivery and report fixtures establish transport/structure only;
 provider/performance and review-quality acceptance remain tracked separately.
 
 Each retained private discussion message with a known source run offers **Save

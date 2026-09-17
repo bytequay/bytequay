@@ -195,15 +195,19 @@ Direct starts and queued/resumed turns share this launch path. Initial enabled
 investigation receives the captured bootstrap; validation and collection require
 a sealed brief and receive its immutable contribution prefix. Old-card questions
 resolve the original run's snapshot and saved setting at execution, including
-when queued, without reading today's notebook or moving the worktree. Fresh
-discussion-source supplements remain pending. Off, absent historical context
+when queued, without reading today's notebook or moving the worktree. The first
+launch appends a separately retained local discussion capture (up to 8 KiB and
+six excerpts) from same-target private messages and the current PR cache. No
+remote refresh runs in this launch path; cache freshness and selection gaps are
+explicit. Replays reuse the saved capture. Off, absent historical context
 and ordinary non-review tasks add no reference input. Source bodies travel in
 message/tool-result transport, never managed instructions or process arguments;
 only the small trusted policy is added to enabled review bridge instructions.
 
 Existing turn facts remain the transport authority. Context bindings store turn
 ID, packet prefix/digest/bytes, composed-input digest/bytes and optional discussion
-message identity. The review projection derives delivery state from AgentTurn's
+message identity plus its optional exact discussion supplement/evidence references.
+The review projection derives delivery state from AgentTurn's
 provider reference, startedAt and knownUnsent; a missing receipt is uncertain.
 There is no second delivery status store, acknowledgment turn or automatic resend
 of uncertain input. Packets are bounded to 32 KiB UTF-8, complete composed message
@@ -4326,6 +4330,15 @@ work is empty:
 Failed tasks use the same seven-day period, measured from their terminal
 timestamp. The product owner accepted this seven-day detailed-runtime window
 for the first release.
+
+Repository notebooks and the latest explicit-learning binding use the existing
+SQLite-backed AppSettingsStore. Context selections, discussion packets, exact
+note/source evidence and preparation activity belong to retained review runs and
+their operation journal. Ordinary task-runtime cleanup does not remove these
+records or rewrite old context. Source-cache eviction likewise leaves captured
+excerpts intact. Explicit confirmed workspace deletion purges workspace-owned
+notebooks/build bindings and reviews through the existing deletion path; Unwatch
+preserves them. No second database or separate retention scheduler is introduced.
 
 ### Explicit workspace deletion
 

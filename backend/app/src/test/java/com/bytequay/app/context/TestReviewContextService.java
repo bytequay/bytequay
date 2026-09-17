@@ -367,6 +367,42 @@ class TestReviewContextService
         assertThat(context.bootstrap().orElseThrow().utf8Bytes()).isLessThanOrEqualTo(ContextPacket.MAXIMUM_BYTES);
     }
 
+    @Test
+    void freezesReviewedSourceIdentityWithoutPromotingClaimsOrReplacingCaptureLabels()
+    {
+        ContextSourceEvidence source = new ContextSourceEvidence("file", new ContextReference.RepositoryFile(42, WORKSPACE.monitoredRepository(), "README.md", BASE),
+                "Observed source", "Conditional source text", ContextSourceEvidence.Capture.BYTEQUAY_READ,
+                Optional.of(NOW), Optional.of(BASE), Optional.empty(), false);
+        ContextEntry entry = new ContextEntry("knowledge:project", KNOWLEDGE, "project", "Project", "Summary", "Conditional body", ImmutableList.of(),
+                ImmutableList.of(source.id()), GENERATED, true, 1);
+        RepositoryNotebook notebook = notebook(true, ImmutableList.of(entry), ImmutableList.of(source));
+        ReviewRun original = run();
+        select(notebook, original, ImmutableList.of());
+        when(inputs.captureReviewed(WORKSPACE, HEAD, notebook, ImmutableList.of(ContextScope.project()), ImmutableList.of(entry)))
+                .thenReturn(ImmutableList.of(ContextInputFingerprint.create("project", ImmutableMap.of("git:README.md", "100644 blob " + BASE), ImmutableList.of())));
+        captureWrites();
+
+        ReviewRun captured = service.prepareRun(REVIEW, original, WORKSPACE, Optional.empty());
+        ContextSelectedEntry selected = captured.context().orElseThrow().selectedEntries().getFirst();
+
+        assertThat(selected.applicability()).isEqualTo(ContextSelectedEntry.Applicability.MATCHED);
+        assertThat(selected.matchReasons()).contains("Repository-wide scope").anyMatch(reason -> reason.contains("Source identity MATCHED"));
+        assertThat(selected.text().orElseThrow()).contains("Applicability: MATCHED", "source/input identity only", "remain UNVERIFIED");
+        assertThat(captured.context().orElseThrow().bootstrap().orElseThrow().text()).contains("Notebook claims are UNVERIFIED", "reviewed head: " + HEAD);
+        String ref = selected.sourceEvidenceRefs().get(source.id());
+        assertThat(captured.evidence().get(ref).provenance()).contains("capture=BYTEQUAY_READ");
+        ContextSourceEvidence reported = new ContextSourceEvidence("reported", SOURCE.reference(), "Provider native web result", SOURCE.excerpt(),
+                ContextSourceEvidence.Capture.AGENT_REPORTED, SOURCE.retrievedAt(), SOURCE.contentHash(), SOURCE.version(), false);
+        ReviewEvidence reportedEvidence = ReviewContextService.capture(reported, "reported-reference");
+        assertThat(reportedEvidence.provenance()).contains("capture=AGENT_REPORTED");
+        assertThat(reportedEvidence.excerpt()).isEqualTo(reported.excerpt());
+        assertThat(reportedEvidence.explanation()).contains("not independently captured");
+
+        clearInvocations(notebooks, reader, inputs, reviews);
+        assertThat(service.prepareRun(REVIEW, captured, WORKSPACE, Optional.empty())).isSameAs(captured);
+        verifyNoInteractions(notebooks, reader, inputs, reviews);
+    }
+
     private void captureWrites()
     {
         when(reviews.updateRun(any())).thenAnswer(invocation -> {

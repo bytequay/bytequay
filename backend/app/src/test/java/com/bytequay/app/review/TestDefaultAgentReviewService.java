@@ -49,6 +49,7 @@ import com.bytequay.agent.spi.AgentLaneId;
 import com.bytequay.agent.spi.AgentPermissionPolicy;
 import com.bytequay.agent.spi.AgentProviderStatus;
 import com.bytequay.agent.spi.ProviderTurnRef;
+import com.bytequay.app.context.ContextDiscussionReader;
 import com.bytequay.app.context.ReviewContextService;
 import com.bytequay.app.git.GitCommandRunner;
 import com.bytequay.app.git.ReviewExperiments;
@@ -180,7 +181,7 @@ class TestDefaultAgentReviewService
             AgentTurn accepted = AgentTurn.accepted(TURN_ONE, TASK_ID, command.idempotencyKey(), SETTINGS, NOW);
             when(fixture.turnStore.findActive(TASK_ID)).thenReturn(Optional.of(accepted));
             RepositoryContextTurnInput input = new RepositoryContextTurnInput(fixture.store,
-                    new ReviewToolAssignment(fixture.turnStore, fixture.queueStore, fixture.store), new ReviewLocks(), CLOCK);
+                    new ReviewToolAssignment(fixture.turnStore, fixture.queueStore, fixture.store), new ReviewLocks(), CLOCK, mock(ContextDiscussionReader.class));
             assertThat(input.prepare(idleTask(), accepted, command.message())).contains(snapshot.bootstrap().orElseThrow().text());
             AgentTurn running = accepted.markDeliveryStarted(NOW).running(new ProviderTurnRef("provider-turn"), Optional.empty());
             when(fixture.turnStore.find(TURN_ONE)).thenReturn(Optional.of(running));

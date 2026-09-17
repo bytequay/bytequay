@@ -332,7 +332,9 @@ function tableAlignments(line: string) {
   });
 }
 
-const INLINE_TOKEN = /(\\[\\`]|\[!\[[^\]]*\]\([^)]+\)\]\([^)]+\)|\*\*[^*]+\*\*|_[^_]+_|`[^`]+`|\[[^\]]+\]\([^)]+\)|\[[^\]]+\]\[[^\]]*\]|\[[^\]]+\]|https?:\/\/[^\s<>()\]]*[^\s<>()\].,!?;:'"]|@[A-Za-z0-9](?:[A-Za-z0-9-]*[A-Za-z0-9])?|#[0-9]+)/g;
+// Like GitHub, `_` emphasis cannot open or close inside a word, so ICEBERG_FILESYSTEM_ERROR stays literal.
+// Its content admits only intraword underscores, which keeps an unclosed `_` from scanning the rest of the text.
+const INLINE_TOKEN = /(\\[\\`]|\[!\[[^\]]*\]\([^)]+\)\]\([^)]+\)|\*\*[^*]+\*\*|(?<=^|[\s\p{P}\p{S}])_(?!\s)(?:[^_]|(?<=[^\s\p{P}\p{S}])_(?=[^\s\p{P}\p{S}]))+?(?<!\s)_(?=$|[\s\p{P}\p{S}])|`[^`]+`|\[[^\]]+\]\([^)]+\)|\[[^\]]+\]\[[^\]]*\]|\[[^\]]+\]|https?:\/\/[^\s<>()\]]*[^\s<>()\].,!?;:'"]|@[A-Za-z0-9](?:[A-Za-z0-9-]*[A-Za-z0-9])?|#[0-9]+)/gu;
 
 export function parseGitHubCodePermalink(value: string, repository?: string): GitHubCodePermalink | null {
   if (!repository) return null;

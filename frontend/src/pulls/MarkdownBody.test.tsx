@@ -203,6 +203,16 @@ describe('MarkdownBody', () => {
     expect(toggleMarkdownTask(body, 0, true)).toBe('Template:\n\n    - [ ] Example\n\n- [x] Real');
   });
 
+  it('keeps underscores inside words or beside spaces literal, like GitHub', () => {
+    const html = renderToStaticMarkup(<MarkdownBody body={'nit: why not ICEBERG_FILESYSTEM_ERROR?\n\n'
+      + 'Set _only_ this, (_quoted_), not snake_case_name, 1_000_000, a _ spaced _ pair, or 中文_强调_中文.\n\n'
+      + '_private_field_ and **bold**_after_ and `code`_after_'} />);
+
+    expect(html).toContain('<p>nit: why not ICEBERG_FILESYSTEM_ERROR?</p>');
+    expect(html).toContain('<p>Set <em>only</em> this, (<em>quoted</em>), not snake_case_name, 1_000_000, a _ spaced _ pair, or 中文_强调_中文.</p>');
+    expect(html).toContain('<p><em>private_field</em> and <strong>bold</strong><em>after</em> and <code>code</code><em>after</em></p>');
+  });
+
   it('renders an encoded checkmark as a checked task', () => {
     const html = renderToStaticMarkup(<MarkdownBody body="(&#x2713;) Release notes are required." />);
 

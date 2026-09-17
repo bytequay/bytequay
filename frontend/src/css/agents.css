@@ -2665,8 +2665,12 @@
   z-index: 45;
 }
 
-.agt-stage:has(> .agt-tasks-page) > .agt-overview-toggle[aria-pressed="false"] {
+.agt-tasks-page > .agt-overview-toggle[aria-pressed="false"] {
   top: 30px;
+}
+
+.agt-screen-head > .agt-overview-toggle {
+  position: static;
 }
 
 @keyframes agt-overview-in {

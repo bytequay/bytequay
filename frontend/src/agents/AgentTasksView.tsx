@@ -44,6 +44,7 @@ const STARTUP_POLL_MS = 500;
 
 interface AgentTasksViewProps {
   workspaceId: string;
+  headerAction?: React.ReactNode;
   /** The rest of the Tasks page, drawn above the agent tasks under the one heading. */
   children?: React.ReactNode;
   /** Electron's bridge unless a test supplies its own. */
@@ -460,7 +461,7 @@ export function startupSteps(
 }
 
 /** The first message is visible while the existing create-and-start request is in flight. */
-export function StartingAgentTask({ draft, images, laneId, providers, models, selection, startup = null }: {
+export function StartingAgentTask({ draft, images, laneId, providers, models, selection, startup = null, headerAction }: {
   draft: string;
   images: DraftImage[];
   laneId: string;
@@ -468,6 +469,7 @@ export function StartingAgentTask({ draft, images, laneId, providers, models, se
   models: ModelOptionDto[];
   selection: TaskModelSelection | null;
   startup?: AgentTaskStartupPhase | null;
+  headerAction?: React.ReactNode;
 }): React.JSX.Element {
   const provider = providers.find((candidate) => candidate.id === laneId)?.label ?? laneLabel(laneId);
   const model = models.find((candidate) => candidate.id === selection?.model);
@@ -479,6 +481,8 @@ export function StartingAgentTask({ draft, images, laneId, providers, models, se
         <span className="agt-mono agt-meta">
           {provider} · {displayModelName(model?.name ?? selection?.model ?? '')}{selection?.effort ? ` · ${selection.effort}` : ''}
         </span>
+        <span className="agt-spacer" />
+        {headerAction}
       </div>
       <div className="agt-transcript" aria-label="Starting task conversation">
         <div>
@@ -525,6 +529,7 @@ function failureMessage(failure: unknown): string {
 
 export default function AgentTasksView({
   workspaceId,
+  headerAction,
   children,
   bridge: explicitBridge,
   onOpenTask,
@@ -572,6 +577,7 @@ export default function AgentTasksView({
   }, [live, changesSeed, taskIds, workspaceId]);
   return (
     <AgentTaskList
+      headerAction={headerAction}
       automation={creation.automationControl}
       tasks={creation.tasks}
       changes={changes}
@@ -815,7 +821,7 @@ function TaskRow({ task, pullRequest, changes, providers, now, checked, selectin
 type ToastState = { id: number; text: string; undo?: () => void };
 
 export function AgentTaskList({
-  tasks, loading, error, laneId, providers, models, selection, draft, blocker, children, reviewTasks,
+  tasks, loading, error, laneId, providers, models, selection, draft, blocker, children, reviewTasks, headerAction,
   onDraftChange, onSelectProvider, onSelectModel, onCreate, onOpenTask, onOpenSettings, onArchive, onDelete,
   images = [], busy = false, startup = null, attaching = false, onAttach, onPasteImages, onRemoveImage, automation,
   now = Date.now(), initialTab = 'active', changes = {},
@@ -833,6 +839,7 @@ export function AgentTaskList({
   blocker: string | null;
   children?: React.ReactNode;
   reviewTasks?: React.ReactNode;
+  headerAction?: React.ReactNode;
   onDraftChange: (draft: string) => void;
   onSelectProvider: (laneId: string) => void;
   onSelectModel: (model: string, effort: string | null, serviceTier: string | null) => void;
@@ -873,7 +880,7 @@ export function AgentTaskList({
     return () => window.removeEventListener('keydown', onKey);
   }, [selecting]);
 
-  if (busy && !attaching) return <StartingAgentTask {...{ draft, images, laneId, providers, models, selection, startup }} />;
+  if (busy && !attaching) return <StartingAgentTask {...{ draft, images, laneId, providers, models, selection, startup, headerAction }} />;
 
   const active = tab === 'active';
   const visible = tasks.filter((task) => taskArchived(task) === !active);
@@ -927,6 +934,7 @@ export function AgentTaskList({
 
   return (
     <div className="agt-tasks-page">
+      {headerAction}
       <div className="agt-tasks-scroll">
         <div className="agt-tasks-head">
           <h1>Tasks</h1>

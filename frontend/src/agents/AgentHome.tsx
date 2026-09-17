@@ -123,6 +123,7 @@ function useWorkspaceAttention(workspaceId: string, repository: string): {
 
 interface AgentHomeProps {
   workspaceId: string;
+  headerAction?: React.ReactNode;
   /** "owner/repo", the monitored repository the page belongs to. */
   repository: string;
   bridge?: AgentBridgePort;
@@ -137,7 +138,7 @@ interface AgentHomeProps {
 }
 
 export default function AgentHome({
-  workspaceId, repository, bridge: explicitBridge, onOpenTask, onOpenSettings, onShowAll, onOpenPullRequests, onOpenPullRequest, onOpenIssue,
+  workspaceId, headerAction, repository, bridge: explicitBridge, onOpenTask, onOpenSettings, onShowAll, onOpenPullRequests, onOpenPullRequest, onOpenIssue,
   laneId = INTERACTIVE_LANE_ID,
 }: AgentHomeProps): React.JSX.Element {
   const live = useCallback((): AgentBridgePort => explicitBridge ?? window.bridge, [explicitBridge]);
@@ -163,6 +164,7 @@ export default function AgentHome({
   }, [onOpenIssue, onOpenPullRequest]);
   return (
     <AgentHomeView
+      headerAction={headerAction}
       automation={creation.automationControl}
       repository={repository}
       laneId={creation.laneId}
@@ -201,7 +203,7 @@ export default function AgentHome({
 }
 
 export function AgentHomeView({
-  repository, laneId, providers, bridge, tasks, models, selection, draft, blocker,
+  repository, headerAction, laneId, providers, bridge, tasks, models, selection, draft, blocker,
   onDraftChange, onSelectProvider, onSelectModel, onCreate, onOpenTask, onOpenSettings, onShowAll,
   hiddenTaskIds, onHideTask, onRevealTask,
   attention = [], handled = {}, onHandledChange = () => {}, onOpenAttention = () => {}, onSeeAllAttention = () => {},
@@ -234,6 +236,7 @@ export function AgentHomeView({
   onOpenSettings?: () => void;
   onShowAll: () => void;
   automation?: React.ReactNode;
+  headerAction?: React.ReactNode;
   error?: string | null;
   images?: DraftImage[];
   busy?: boolean;
@@ -244,12 +247,13 @@ export function AgentHomeView({
   onPasteImages?: () => void;
   onRemoveImage?: (id: string) => void;
 }): React.JSX.Element {
-  if (busy && !attaching) return <StartingAgentTask {...{ draft, images, laneId, providers, models, selection, startup }} />;
+  if (busy && !attaching) return <StartingAgentTask {...{ draft, images, laneId, providers, models, selection, startup, headerAction }} />;
   const slash = repository.indexOf('/');
   const owner = slash < 0 ? repository : repository.slice(0, slash);
   const repo = slash < 0 ? '' : repository.slice(slash + 1);
   return (
     <div className="agt-home">
+      {headerAction}
       <div className="agt-home__scroll">
         <div className="agt-home__avatar">
           <RepoAvatar owner={owner} repo={repo} size={64} radius={16} />

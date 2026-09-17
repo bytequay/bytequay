@@ -91,7 +91,7 @@ export default function WorkspaceShell({ workspace, tab, onSelectTab, onWorkspac
   const stage = (content: React.ReactNode) => (
     <div className="agt-stage">
       {content}
-      {(!taskDetail || overviewOpen) && overviewToggle}
+      {overviewOpen && overviewToggle}
       {overviewOpen && (
         <TaskOverview
           workspaceId={workspace.id}
@@ -222,6 +222,7 @@ export default function WorkspaceShell({ workspace, tab, onSelectTab, onWorkspac
     return stage(
       <AgentTasksView
         workspaceId={workspace.id}
+        headerAction={overviewOpen ? undefined : overviewToggle}
         onOpenReview={(review) => setOpenReview({ id: review.id, repo: review.repo, number: review.number })}
         onOpenReviewWorkspace={openReviewWorkspace}
         onOpenTask={(taskId) => onSelectAgentTask(taskId, 'push')}
@@ -235,6 +236,7 @@ export default function WorkspaceShell({ workspace, tab, onSelectTab, onWorkspac
   return stage(
     <AgentHome
       workspaceId={workspace.id}
+      headerAction={overviewOpen ? undefined : overviewToggle}
       repository={`${workspace.monitoredOwner}/${workspace.monitoredRepo}`}
       onOpenTask={(taskId) => onSelectAgentTask(taskId, 'push')}
       onOpenSettings={() => { window.location.hash = settingsRoute('ws-agents', workspace.id); }}

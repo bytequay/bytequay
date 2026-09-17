@@ -99,10 +99,39 @@ run projection derives acceptance from AgentTurn provider references, startedAt
 and knownUnsent; a missing receipt is uncertain. No automatic uncertain resend
 or model acknowledgment is introduced.
 
-Standalone Build/Refresh, scope/root proposals, selected deferred-notebook
-exact-version reads and fresh discussion-source supplements remain pending.
-Provider transport verification, citation navigation, folded activity and measured
-performance/quality retain their separate acceptance gates.
+Selected historical-source learning extends the existing source/preparation
+boundary: one merged PR or closed issue yields a bounded typed ContextHistoryRead
+and exact retained run evidence. BEGIN can admit up to ten already captured
+history IDs into scope input fingerprints; SUBMIT validates those same identities.
+History-backed generated knowledge also needs nonblank captured monitored-baseline
+evidence. History cannot prove EMPTY or automatically become user-owned memory.
+Closed-issue discovery remains separate from selected reads and the open cache.
+
+Cold-start work proceeds from this historical-source path to standalone Learn
+and Refresh knowledge, then scope/root proposals and bounded resolved-history
+discovery. The Learn task/UI are implemented. The user starts a visible,
+stoppable ordinary task with selected scopes; it reads repository files, directory
+structure, repository documentation and registered docs by default, including
+the first run. Those sources are part of the assignment, not optional switches.
+Selected merged-PR/closed-issue references add optional history. Opening the app,
+workspace or settings, startup recovery and source synchronization never start
+or resume learning; there is no background learning scheduler.
+ContextBuildStore keeps the latest accepted task/source binding in existing
+settings, separately from notebook content. ReviewBridgeResolver selects its
+fixed context tools and restricted profile from that binding, never from prompt
+text or a synthetic review. Shared preparation retains mandatory task/turn
+ownership with review/run IDs either both present or both absent. Existing task
+events drive settlement; a terminal task keeps its binding until recorded
+worktree removal permits replacement. Reconciliation leaves already-FAILED
+tasks' worktrees for explicit purpose-scoped cleanup; GET and startup cannot
+infer safe removal from a recovery claim discarded by Mark failed. Project input
+fingerprints include root entry names/modes without hashing every unrelated
+repository content change.
+Project overview is a default scope before any note exists; its generated content
+belongs under Knowledge. Save lesson remains the explicit user-owned memory
+action. Selected deferred-note exact-version reads and fresh
+discussion-source supplements follow cold start. Citation navigation, folded
+activity and measured provider/performance/quality retain their acceptance gates.
 
 [Development delivery](development-delivery.md) extends the current agent core
 through one application coordinator. Core reserves its source owner after a

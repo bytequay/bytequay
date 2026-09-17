@@ -358,7 +358,8 @@ separate presentation work.
 
 Enabled initial investigation turns also expose `repository_context_prepare`
 BEGIN/SUBMIT for existing configured scopes. Assignment metadata supplies current
-scope IDs and revision; typed baseline/document reads supply checked-source proof.
+scope IDs and revision; typed baseline/document and admitted historical reads
+supply retained source identities.
 The review bridge resolves the accepted task/turn/run and rechecks it after unlocked
 input inspection. Notebook mutation and the exact operation receipt commit together
 in the existing local transaction. One workspace owner admits work; matching consumers
@@ -366,8 +367,31 @@ receive immediate JOINED or actual reused note text. Stop and terminal-turn clea
 preserve uncertain runtime ownership until existing recovery clears its claim.
 Persisted BEGIN/SUBMIT results return receiptRef for the saved run operation.
 Discussions, validation, collection and disabled snapshots cannot prepare.
-Standalone Build/Refresh, scope/root proposals and selected deferred-notebook
-exact-version reads remain outside this implemented capability.
+The enabled `history` context selector reads one selected merged PR or closed
+issue, including available activity, into a bounded typed receipt and exact run
+evidence. BEGIN may include up to ten captured same-run historyReadIds in the
+admitted fingerprints; SUBMIT cannot substitute other historical observations.
+History-backed READY requires nonblank captured monitored-baseline evidence too,
+and history cannot prove EMPTY. Generated notes retain conditional claims and
+source limitations; a merge or closure never creates an automatic saved lesson.
+
+Cold-start priorities are this history-source learning path, then explicit Learn
+and Refresh knowledge, then scope/root proposals and bounded resolved-history
+discovery. The standalone Learn task/UI are implemented. Learn starts
+a visible, stoppable ordinary task and includes repository files, directory
+structure, repository documentation and registered docs by default, including
+the first run. The user selects scopes and may add optional merged-PR/closed-issue
+references; default source kinds have no optional switches. Opening, sync and
+startup never trigger learning, and no learning scheduler is introduced. Output
+is standalone Knowledge; Save lesson remains the user's explicit memory action.
+The learning task has a separate saved ContextBuild purpose binding and fixed
+context tools. It reuses preparation with task/turn ownership and absent paired
+review/run IDs, without manufacturing PR reporting authority. Its lifecycle and
+cleanup remain with the ordinary task services. Live provider, performance and
+On/Off judgment acceptance remain pending.
+Project overview starts as a matching
+scope; its note appears under Knowledge only when created. Deferred-note
+exact-version reads and fresh discussion-source supplements follow cold start.
 
 For enabled snapshots, review_save_investigation requires contextBrief,
 contextPreparationRefs and contextLimitations, alongside existing

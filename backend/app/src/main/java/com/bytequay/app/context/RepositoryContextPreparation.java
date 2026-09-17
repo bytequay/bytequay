@@ -20,6 +20,7 @@ import com.bytequay.core.context.ActiveContextPreparation;
 import com.bytequay.core.context.ContextClaim;
 import com.bytequay.core.context.ContextDocumentRead;
 import com.bytequay.core.context.ContextEntry;
+import com.bytequay.core.context.ContextHistoryRead;
 import com.bytequay.core.context.ContextInputFingerprint;
 import com.bytequay.core.context.ContextLimits;
 import com.bytequay.core.context.ContextPacket;
@@ -32,9 +33,9 @@ import com.bytequay.core.context.ContextSourceRead;
 import com.bytequay.core.context.RepositoryNotebook;
 import com.bytequay.core.context.ReviewContextSnapshot;
 import com.bytequay.core.review.AgentReview;
-import com.bytequay.core.review.ReviewEvidence;
 import com.bytequay.core.review.ReviewRun;
 import com.google.common.collect.ImmutableList;
+import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
 import org.springframework.stereotype.Service;
 
@@ -57,7 +58,7 @@ import static com.google.common.collect.ImmutableList.toImmutableList;
 import static com.google.common.collect.ImmutableMap.toImmutableMap;
 import static java.util.Objects.requireNonNull;
 
-/** Shared review-owned extraction. Provider execution, authorization and the atomic review journal remain with the review service. */
+/** Shared extraction for reviews and explicit learning tasks. Callers own provider authorization and atomic operation receipts. */
 @Service
 public class RepositoryContextPreparation
 {
@@ -82,12 +83,46 @@ public class RepositoryContextPreparation
      */
     public Plan plan(Execution execution, List<String> scopeIds)
     {
+        return plan(execution, scopeIds, ImmutableList.of());
+    }
+
+    /**
+     * Adds explicitly selected history observations to preparation inputs. Read IDs must belong to this frozen run;
+     * equal source content reuses knowledge, while a changed observation invalidates the selected scopes.
+     * No history fetch occurs during admission. Omitted history IDs retain existing observed inputs without refreshing them.
+     *
+     * @param execution trusted active investigation identity
+     * @param scopeIds configured scopes to prepare
+     * @param historyReadIds at most ten captured merged-PR or closed-issue read IDs, selected before BEGIN
+     * @return bounded input inventories including the selected historical observations
+     * @throws IllegalArgumentException when a read is missing, is not history, duplicates a source, or belongs to another repository
+     */
+    public Plan plan(Execution execution, List<String> scopeIds, List<String> historyReadIds)
+    {
         ContextLimits.unique(scopeIds, "preparation scopes", 100);
+        ContextLimits.unique(historyReadIds, "selected history reads", 10);
         checkArgument(!scopeIds.isEmpty(), "Select at least one preparation scope");
-        RepositoryNotebook notebook = notebooks.getNotebook(execution.review().workspaceId());
+        RepositoryNotebook notebook = notebooks.getNotebook(execution.workspaceId());
         List<ContextScope> scopes = scopeIds.stream().map(id -> scope(notebook, id)).collect(toImmutableList());
         WorkspaceRepositoryContext workspace = workspace(execution);
-        return new Plan(notebook, inputs.capture(workspace, snapshot(execution).baselineSha(), notebook, scopes));
+        List<ContextHistoryRead> history = historyReadIds.stream().map(id -> execution.sourceReads().stream()
+                .filter(read -> read.id().equals(id)).findFirst().filter(ContextHistoryRead.class::isInstance).map(ContextHistoryRead.class::cast)
+                .orElseThrow(() -> new IllegalArgumentException("Unknown captured history read: " + id))).collect(toImmutableList());
+        ContextLimits.unique(history.stream().map(ContextHistoryRead::sourceKey).toList(), "selected history sources", 10);
+        history.forEach(read -> checkArgument(read.repositoryId() == execution.repositoryId()
+                && read.repository().fullName().equalsIgnoreCase(execution.repository()), "History source belongs to another repository"));
+        List<ContextInputFingerprint> captured = inputs.capture(workspace, Optional.of(execution.baselineSha()), notebook, scopes);
+        return new Plan(notebook, captured.stream().map(input -> {
+            Map<String, String> selected = new LinkedHashMap<>(input.inputs());
+            history.forEach(read -> selected.put(read.sourceKey(), ContextInputReader.historyIdentity(read)));
+            if (selected.size() > 128 || selected.entrySet().stream().mapToInt(entry -> ContextLimits.bytes(entry.getKey())
+                    + ContextLimits.bytes(entry.getValue())).sum() > ContextInputFingerprint.MAXIMUM_INPUT_BYTES) {
+                List<String> gaps = ImmutableList.<String>builder().addAll(new TopKSelector(9).select(input.gaps()))
+                        .add("Selected history exceeds the per-scope input budget; select fewer sources or a narrower scope.").build();
+                return ContextInputFingerprint.create(input.scopeId(), input.inputs(), gaps);
+            }
+            return ContextInputFingerprint.create(input.scopeId(), selected, input.gaps());
+        }).collect(toImmutableList()));
     }
 
     /**
@@ -98,9 +133,8 @@ public class RepositoryContextPreparation
      */
     public Admission begin(Execution execution, String requestKey, String requestDigest, long expectedRevision, Plan plan)
     {
-        snapshot(execution);
-        return WorkspaceOperationLocks.withLock(execution.review().workspaceId(), () -> {
-            RepositoryNotebook current = notebooks.getNotebook(execution.review().workspaceId());
+        return WorkspaceOperationLocks.withLock(execution.workspaceId(), () -> {
+            RepositoryNotebook current = notebooks.getNotebook(execution.workspaceId());
             Optional<ActiveContextPreparation> active = current.activePreparation();
             if (active.filter(value -> owner(value, execution) && value.requestKey().equals(requestKey)).isPresent()) {
                 ActiveContextPreparation previous = active.orElseThrow();
@@ -124,7 +158,7 @@ public class RepositoryContextPreparation
                 else if (input.digest().isEmpty()) {
                     gaps.add(scope.id() + ": input observation is incomplete; no generation owner was admitted.");
                 }
-                else if (reusable(scope, note, input)) {
+                else if (reusable(scope, note, input, execution)) {
                     reused.add(scope.preparation().orElseThrow());
                 }
                 else {
@@ -146,22 +180,22 @@ public class RepositoryContextPreparation
                 return new Admission(matching ? Status.JOINED : Status.DEFERRED, current.revision(), active, saved, gaps.build(), packet(current, saved));
             }
             ActiveContextPreparation admitted = new ActiveContextPreparation(UUID.randomUUID().toString(), requestKey, requestDigest,
-                    execution.review().taskId(), execution.turnId(), execution.turnKey(), execution.review().id(), execution.run().id(), current.revision(), missing);
+                    execution.taskId(), execution.turnId(), execution.turnKey(), execution.reviewId(), execution.runId(), current.revision(), missing);
             RepositoryNotebook changed = copy(current, current.revision(), current.scopes(), current.entries(), current.sourceEvidence(), Optional.of(admitted));
-            notebooks.savePreparation(execution.review().workspaceId(), current, changed);
+            notebooks.savePreparation(execution.workspaceId(), current, changed);
             return new Admission(Status.OWNED, current.revision(), Optional.of(admitted), saved, gaps.build(), packet(current, saved));
         });
     }
 
     /**
-     * Validates a proposed batch against retained baseline/document receipts and prepares its exact accepted text.
+     * Validates a proposed batch against retained baseline, document and selected history receipts and prepares its exact accepted text.
      * Re-captures input identities against the prospective sources, including successful blank reads for EMPTY,
      * so saving new source links does not immediately invalidate a new note. Run outside all mutation locks/transactions.
      * This cannot certify the semantic truth or completeness of the model's conclusions.
      */
     public Completion prepareCompletion(Execution execution, String attemptId, GeneratedReport report)
     {
-        RepositoryNotebook current = notebooks.getNotebook(execution.review().workspaceId());
+        RepositoryNotebook current = notebooks.getNotebook(execution.workspaceId());
         ActiveContextPreparation active = owned(current, execution, attemptId);
         Set<String> expected = active.inputs().stream().map(ContextInputFingerprint::scopeId).collect(ImmutableSet.toImmutableSet());
         checkArgument(report.scopeResults().stream().map(ScopeReport::scopeId).collect(ImmutableSet.toImmutableSet()).equals(expected),
@@ -170,7 +204,7 @@ public class RepositoryContextPreparation
         Set<String> readyIds = report.scopeResults().stream().filter(result -> result.outcome() == READY).flatMap(result -> result.noteIds().stream())
                 .collect(ImmutableSet.toImmutableSet());
         checkArgument(proposals.keySet().equals(readyIds), "Entries must exactly match the ready scope results");
-        Map<String, ContextSourceRead> observed = snapshot(execution).sourceReads().stream().collect(toImmutableMap(ContextSourceRead::id, value -> value));
+        Map<String, ContextSourceRead> observed = execution.sourceReads().stream().collect(toImmutableMap(ContextSourceRead::id, value -> value));
         Map<String, ContextSourceEvidence> evidence = new LinkedHashMap<>();
         current.sourceEvidence().forEach(source -> evidence.put(source.id(), source));
         Map<String, ContextEntry> entries = new LinkedHashMap<>();
@@ -185,6 +219,13 @@ public class RepositoryContextPreparation
                 return retain(execution, current, read, evidence);
             }).collect(toImmutableList());
             ContextInputFingerprint initial = active.inputs().stream().filter(input -> input.scopeId().equals(scope.id())).findFirst().orElseThrow();
+            reads.stream().filter(ContextHistoryRead.class::isInstance).map(ContextHistoryRead.class::cast).forEach(read ->
+                    checkArgument(ContextInputReader.historyIdentity(read).equals(initial.inputs().get(read.sourceKey())),
+                            "History must be selected before preparation begins with the same observed content"));
+            if (result.outcome() == READY && reads.stream().anyMatch(ContextHistoryRead.class::isInstance)) {
+                checkArgument(reads.stream().anyMatch(read -> read instanceof ContextRepositoryRead && read.evidenceRef().isPresent()),
+                        "History-based knowledge requires captured nonblank monitored-baseline evidence");
+            }
             ContextPreparationResult completed = new ContextPreparationResult(active.attemptId(), initial, result.outcome(), result.noteIds(), reads, result.explanation());
             results.put(scope.id(), completed);
             if (result.outcome() == READY) {
@@ -202,7 +243,7 @@ public class RepositoryContextPreparation
                 ImmutableList.copyOf(evidence.values()), Optional.empty());
         WorkspaceRepositoryContext workspace = workspace(execution);
         List<ContextScope> selected = provisionalScopes.stream().filter(scope -> expected.contains(scope.id())).collect(toImmutableList());
-        List<ContextInputFingerprint> completedInputs = inputs.capture(workspace, snapshot(execution).baselineSha(), prospective, selected);
+        List<ContextInputFingerprint> completedInputs = inputs.capture(workspace, Optional.of(execution.baselineSha()), prospective, selected);
         checkArgument(completedInputs.stream().map(ContextInputFingerprint::scopeId).collect(ImmutableSet.toImmutableSet()).equals(expected)
                 && completedInputs.size() == expected.size(), "Completed input observations must cover every admitted scope");
         for (ContextInputFingerprint captured : completedInputs) {
@@ -254,13 +295,13 @@ public class RepositoryContextPreparation
      */
     public Receipt complete(Execution execution, Completion completion)
     {
-        return WorkspaceOperationLocks.withLock(execution.review().workspaceId(), () -> {
-            RepositoryNotebook current = notebooks.getNotebook(execution.review().workspaceId());
+        return WorkspaceOperationLocks.withLock(execution.workspaceId(), () -> {
+            RepositoryNotebook current = notebooks.getNotebook(execution.workspaceId());
             owned(current, execution, completion.receipt().attemptId());
             if (!current.equals(completion.expected())) {
                 throw new ContextConflictException(current.revision());
             }
-            notebooks.savePreparation(execution.review().workspaceId(), current, completion.replacement());
+            notebooks.savePreparation(execution.workspaceId(), current, completion.replacement());
             return completion.receipt();
         });
     }
@@ -284,18 +325,10 @@ public class RepositoryContextPreparation
 
     private WorkspaceRepositoryContext workspace(Execution execution)
     {
-        WorkspaceRepositoryContext workspace = workspaces.requireReadableRepository(execution.review().workspaceId());
-        ReviewContextSnapshot snapshot = snapshot(execution);
-        checkArgument(workspace.workspaceId().equals(execution.review().workspaceId()) && repositoryId(workspace) == snapshot.repositoryId()
-                && workspace.monitoredRepository().fullName().equalsIgnoreCase(execution.review().repo()), "Preparation repository routing changed");
+        WorkspaceRepositoryContext workspace = workspaces.requireReadableRepository(execution.workspaceId());
+        checkArgument(workspace.workspaceId().equals(execution.workspaceId()) && repositoryId(workspace) == execution.repositoryId()
+                && workspace.monitoredRepository().fullName().equalsIgnoreCase(execution.repository()), "Preparation repository routing changed");
         return workspace;
-    }
-
-    private static ReviewContextSnapshot snapshot(Execution execution)
-    {
-        ReviewContextSnapshot snapshot = execution.run().context().orElseThrow(() -> new IllegalArgumentException("Run has no captured repository context"));
-        checkArgument(snapshot.enabled() && snapshot.baselineSha().isPresent(), "Preparation requires enabled context and a captured baseline");
-        return snapshot;
     }
 
     private static ActiveContextPreparation owned(RepositoryNotebook notebook, Execution execution, String attemptId)
@@ -310,8 +343,8 @@ public class RepositoryContextPreparation
 
     private static boolean owner(ActiveContextPreparation active, Execution execution)
     {
-        return active.reviewId().equals(execution.review().id()) && active.runId().equals(execution.run().id())
-                && active.ownerTaskId().equals(execution.review().taskId()) && active.ownerTurnId().equals(execution.turnId())
+        return active.reviewId().equals(execution.reviewId()) && active.runId().equals(execution.runId())
+                && active.ownerTaskId().equals(execution.taskId()) && active.ownerTurnId().equals(execution.turnId())
                 && active.ownerTurnKey().equals(execution.turnKey());
     }
 
@@ -321,9 +354,14 @@ public class RepositoryContextPreparation
                 || entry.filter(note -> !note.enabled() || note.origin() == USER).isPresent();
     }
 
-    private static boolean reusable(ContextScope scope, Optional<ContextEntry> note, ContextInputFingerprint input)
+    private static boolean reusable(ContextScope scope, Optional<ContextEntry> note, ContextInputFingerprint input, Execution execution)
     {
         return scope.preparation().filter(result -> result.inputFingerprint().equals(input))
+                .filter(result -> execution.sourceReads().stream().filter(ContextDocumentRead.class::isInstance).map(ContextDocumentRead.class::cast)
+                        .allMatch(fresh -> result.checkedReads().stream().filter(ContextDocumentRead.class::isInstance).map(ContextDocumentRead.class::cast)
+                                .anyMatch(saved -> fresh.reference().equals(saved.reference()) && fresh.registration().equals(saved.registration())
+                                        && fresh.contentHash().equals(saved.contentHash()) && fresh.truncated() == saved.truncated()
+                                        && fresh.refreshFailed() == saved.refreshFailed())))
                 .filter(result -> result.outcome() == EMPTY || (result.outcome() == READY && note.filter(ContextEntry::enabled).isPresent())).isPresent();
     }
 
@@ -353,15 +391,20 @@ public class RepositoryContextPreparation
 
     private static ContextSourceRead retain(Execution execution, RepositoryNotebook notebook, ContextSourceRead read, Map<String, ContextSourceEvidence> evidence)
     {
-        ReviewContextSnapshot snapshot = snapshot(execution);
         Optional<String> retainedRef = read.evidenceRef().map(ignored -> read.id());
         ContextSourceRead retained = switch (read) {
             case ContextRepositoryRead file -> {
-                checkArgument(file.reference().repositoryId() == snapshot.repositoryId()
-                        && file.reference().repository().fullName().equalsIgnoreCase(execution.review().repo())
-                        && snapshot.baselineSha().equals(Optional.of(file.reference().commit())), "Only captured monitored-baseline files may become shared knowledge");
+                checkArgument(file.reference().repositoryId() == execution.repositoryId()
+                        && file.reference().repository().fullName().equalsIgnoreCase(execution.repository())
+                        && execution.baselineSha().equals(file.reference().commit()), "Only captured monitored-baseline files may become shared knowledge");
                 yield new ContextRepositoryRead(file.id(), file.reference(), file.blobId(), file.readAt(), file.startLine(), file.endLine(), file.totalLines(),
                         file.utf8Bytes(), file.truncated(), retainedRef);
+            }
+            case ContextHistoryRead history -> {
+                checkArgument(history.repositoryId() == execution.repositoryId()
+                        && history.repository().fullName().equalsIgnoreCase(execution.repository()), "History source belongs to another repository");
+                yield new ContextHistoryRead(history.id(), history.reference(), history.state(), history.sourceUpdatedAt(), history.sourceRevision(),
+                        history.contentHash(), history.readAt(), history.utf8Bytes(), history.truncated(), history.refreshFailed(), history.gaps(), retainedRef);
             }
             case ContextDocumentRead document -> {
                 checkArgument(notebook.sources().contains(document.registration()), "Captured document registration changed");
@@ -371,10 +414,13 @@ public class RepositoryContextPreparation
             }
         };
         read.evidenceRef().ifPresent(ref -> {
-            ReviewEvidence source = Optional.ofNullable(execution.run().evidence().get(ref)).orElseThrow(() -> new IllegalArgumentException("Captured source evidence is missing"));
+            CapturedSource source = Optional.ofNullable(execution.evidence().get(ref)).orElseThrow(() -> new IllegalArgumentException("Captured source evidence is missing"));
             ContextSourceEvidence captured = switch (read) {
                 case ContextRepositoryRead file -> new ContextSourceEvidence(file.id(), file.reference(), source.provenance(), source.excerpt(),
                         ContextSourceEvidence.Capture.BYTEQUAY_READ, Optional.of(file.readAt()), Optional.of(file.blobId()), Optional.empty(), file.truncated());
+                case ContextHistoryRead history -> new ContextSourceEvidence(history.id(), history.reference(), source.provenance(), source.excerpt(),
+                        ContextSourceEvidence.Capture.BYTEQUAY_READ, Optional.of(history.readAt()), Optional.of(history.contentHash()),
+                        history.sourceRevision(), history.truncated());
                 case ContextDocumentRead document -> new ContextSourceEvidence(document.id(), document.reference(), source.provenance(), source.excerpt(),
                         ContextSourceEvidence.Capture.BYTEQUAY_READ, Optional.of(document.readAt()), Optional.of(document.contentHash()), Optional.empty(), document.truncated());
             };
@@ -384,16 +430,63 @@ public class RepositoryContextPreparation
         return retained;
     }
 
-    /** Trusted application execution, never a renderer/model ownership command. */
-    public record Execution(AgentReview review, ReviewRun run, String turnId, String turnKey)
+    /** Trusted application execution shared by review and explicit learning owners, never deserialized from tool arguments. */
+    public record Execution(
+            String workspaceId, String repository, long repositoryId, String baselineSha, String taskId, String turnId, String turnKey,
+            Optional<String> reviewId, Optional<String> runId, List<ContextSourceRead> sourceReads, Map<String, CapturedSource> evidence)
     {
         public Execution
         {
-            requireNonNull(review, "review is null");
-            requireNonNull(run, "run is null");
-            checkArgument(review.id().equals(run.reviewId()), "Preparation run belongs to another review");
+            ContextLimits.text(workspaceId, "workspace id", 200);
+            ContextLimits.text(repository, "repository", 500);
+            checkArgument(repositoryId > 0, "Invalid preparation repository id");
+            checkArgument(baselineSha.matches("[0-9a-f]{40}|[0-9a-f]{64}"), "Invalid monitored baseline");
+            ContextLimits.text(taskId, "task id", 200);
             ContextLimits.text(turnId, "turn id", 200);
             ContextLimits.text(turnKey, "turn key", 500);
+            requireNonNull(reviewId, "reviewId is null");
+            requireNonNull(runId, "runId is null");
+            checkArgument(reviewId.isPresent() == runId.isPresent(), "Review and run identities must be paired");
+            sourceReads = ImmutableList.copyOf(sourceReads);
+            evidence = ImmutableMap.copyOf(evidence);
+            ContextLimits.unique(sourceReads.stream().map(ContextSourceRead::id).toList(), "captured source reads", 128);
+            for (ContextSourceRead read : sourceReads) {
+                if (read.evidenceRef().isPresent()) {
+                    CapturedSource source = evidence.get(read.evidenceRef().orElseThrow());
+                    checkArgument(source != null && ContextLimits.bytes(source.excerpt()) == read.utf8Bytes(), "Captured source evidence differs from receipt");
+                    if (read instanceof ContextHistoryRead history) {
+                        history.checkExcerpt(source.excerpt());
+                    }
+                }
+            }
+        }
+
+        /** Resolves the existing review's captured baseline and sources without manufacturing a review for standalone work. */
+        public Execution(AgentReview review, ReviewRun run, String turnId, String turnKey)
+        {
+            this(review.workspaceId(), review.repo(), context(review, run).repositoryId(), context(review, run).baselineSha().orElseThrow(),
+                    review.taskId(), turnId, turnKey, Optional.of(review.id()), Optional.of(run.id()), context(review, run).sourceReads(),
+                    run.evidence().entrySet().stream()
+                            .filter(entry -> context(review, run).sourceReads().stream().anyMatch(read -> read.evidenceRef().equals(Optional.of(entry.getKey()))))
+                            .collect(toImmutableMap(Map.Entry::getKey,
+                                    entry -> new CapturedSource(entry.getValue().provenance(), entry.getValue().excerpt()))));
+        }
+
+        private static ReviewContextSnapshot context(AgentReview review, ReviewRun run)
+        {
+            checkArgument(review.id().equals(run.reviewId()), "Preparation run belongs to another review");
+            ReviewContextSnapshot snapshot = run.context().orElseThrow(() -> new IllegalArgumentException("Run has no captured repository context"));
+            checkArgument(snapshot.enabled() && snapshot.baselineSha().isPresent(), "Preparation requires enabled context and a captured baseline");
+            return snapshot;
+        }
+    }
+
+    public record CapturedSource(String provenance, String excerpt)
+    {
+        public CapturedSource
+        {
+            ContextLimits.text(provenance, "source provenance", 4000);
+            ContextLimits.text(excerpt, "source excerpt", 16 * 1024);
         }
     }
 

@@ -16,12 +16,16 @@ import { parseAgentReview, type ContextDeliveryStateDto } from '../pulls/agent-r
 import { reviewFixture } from '../pulls/agent-review/fixtures/review';
 import {
   parseConfigureRepositoryContextRequest,
+  parseContextBuildView,
   parseEditRepositoryContextEntryRequest,
   parseRepositoryNotebook,
   parseReviewContextSnapshot,
   parseSaveRepositoryContextLessonRequest,
+  parseStartContextBuildRequest,
   type ActiveContextPreparationDto,
+  type ContextBuildViewDto,
   type ContextDeliveryDto,
+  type ContextHistoryReadDto,
   type ContextPreparationResultDto,
   type ContextSourceDto,
   type RepositoryNotebookDto,
@@ -54,6 +58,14 @@ const snapshot: ReviewContextSnapshotDto = {
   ],
   gaps: ['Source applicability has not been verified.'], contributions: [], deliveries: [],
 };
+const merged: ContextHistoryReadDto = { kind: 'HISTORY', id: 'context-read:merged-pr',
+  reference: { kind: 'PR', repositoryId: 42, repository: { owner: 'example', repo: 'repository' }, number: 18, commentId: null },
+  state: 'MERGED', sourceUpdatedAt: '2026-09-01T00:00:00Z', sourceRevision: 'a'.repeat(40), contentHash: 'b'.repeat(64),
+  readAt: '2026-09-02T00:00:00Z', utf8Bytes: 120, truncated: true, refreshFailed: true,
+  gaps: ['Stored reviews may be incomplete.'], evidenceRef: 'history:pr:18' };
+const closed: ContextHistoryReadDto = { ...merged, id: 'context-read:closed-issue',
+  reference: { ...merged.reference, kind: 'ISSUE', number: 9 }, state: 'CLOSED', sourceUpdatedAt: null, sourceRevision: null,
+  truncated: false, refreshFailed: false, gaps: ['Closure reason is unknown.'], evidenceRef: 'history:issue:9' };
 
 describe('repository context contracts', () => {
   it('retains ownership, disabled notes, conditional claims and incomplete source provenance', () => {
@@ -87,6 +99,38 @@ describe('repository context contracts', () => {
       { ...snapshot, selectedEntries: [{ ...snapshot.selectedEntries[0], inclusion: 'INCLUDED' }] },
       { ...snapshot, relatedItems: [{ ...snapshot.relatedItems[0], presentInReviewedBase: 'unknown' }] }]) {
       expect(() => parseReviewContextSnapshot(value)).toThrow('Malformed repository context');
+    }
+  });
+
+  it('retains merged PR and closed issue receipts in both the run and shared preparation', () => {
+    const sourceReads = [merged, closed];
+    expect(parseReviewContextSnapshot({ ...snapshot, sourceReads })?.sourceReads).toEqual(sourceReads);
+    const preparation: ContextPreparationResultDto = { attemptId: 'history-attempt', inputFingerprint: snapshot.inputFingerprints[0],
+      outcome: 'READY', noteIds: ['knowledge:project'], checkedReads: sourceReads, explanation: 'A conditional lesson with retained history.' };
+    const parsed = parseRepositoryNotebook({ ...notebook, scopes: [{ ...notebook.scopes[0], preparation }] });
+    expect(parsed.scopes[0].preparation?.checkedReads).toEqual(sourceReads);
+  });
+
+  it('rejects history receipts whose reference, state or retained evidence disagree', () => {
+    for (const read of [
+      { ...merged, state: 'OPEN' }, { ...merged, state: 'CLOSED' }, { ...closed, state: 'MERGED' },
+      { ...closed, sourceRevision: 'a'.repeat(40) }, { ...merged, reference: { ...merged.reference, commentId: 'comment-1' } },
+      { ...merged, reference: snapshot.sourceReads[1].reference }, { ...merged, gaps: 'unknown' },
+      { ...merged, refreshFailed: 'false' }, { ...merged, sourceUpdatedAt: 12 }, { ...merged, utf8Bytes: -1 },
+      { ...merged, evidenceRef: null }, { ...merged, evidenceRef: '' },
+    ]) expect(() => parseReviewContextSnapshot({ ...snapshot, sourceReads: [read] })).toThrow('Malformed repository context');
+  });
+
+  it('does not present history or incomplete source reads as an empty preparation', () => {
+    const document = { ...snapshot.sourceReads[1], truncated: false, refreshFailed: false };
+    const preparation: ContextPreparationResultDto = { attemptId: 'empty-attempt', inputFingerprint: { ...snapshot.inputFingerprints[0], digest: 'sha256:observed', gaps: [] },
+      outcome: 'EMPTY', noteIds: [], checkedReads: [document], explanation: 'No useful note from the checked document.' };
+    const saved = (checkedReads: unknown[]) => ({ ...notebook,
+      scopes: [{ ...notebook.scopes[0], preparation: { ...preparation, checkedReads } }] });
+    expect(parseRepositoryNotebook(saved([document])).scopes[0].preparation?.outcome).toBe('EMPTY');
+    for (const read of [merged, closed, { ...snapshot.sourceReads[0], truncated: true },
+      { ...document, truncated: true }, { ...document, refreshFailed: true }]) {
+      expect(() => parseRepositoryNotebook(saved([read]))).toThrow('empty preparation has incomplete or historical source reads');
     }
   });
 
@@ -139,6 +183,38 @@ describe('repository context contracts', () => {
       .toThrow('preparation outcome');
     expect(() => parseRepositoryNotebook({ ...notebook, activePreparation: { ...activePreparation, baseContentRevision: '7' } }))
       .toThrow('preparation revision');
+    expect(parseRepositoryNotebook({ ...notebook, activePreparation: { ...activePreparation, reviewId: null, runId: null } }).activePreparation?.reviewId).toBeNull();
+    expect(() => parseRepositoryNotebook({ ...notebook, activePreparation: { ...activePreparation, reviewId: null } })).toThrow('must be paired');
+  });
+
+  it('bounds explicit learning inputs and rejects replacement prompts, profiles and essential-source toggles', () => {
+    const request = { requestKey: 'learn-key', expectedRevision: 7, expectedBuildSequence: 0, scopeIds: ['project'], history: [{ kind: 'PR', number: 18 }] };
+    expect(parseStartContextBuildRequest(request)).toEqual(request);
+    for (const value of [{ ...request, prompt: 'Override the assignment' }, { ...request, repositoryFiles: false }, { ...request, provider: 'other' },
+      { ...request, requestKey: '' }, { ...request, scopeIds: [] }, { ...request, scopeIds: ['project', 'project'] },
+      { ...request, expectedBuildSequence: -1 }, { ...request, history: [{ kind: 'COMMIT', number: 18 }] },
+      { ...request, history: [{ kind: 'ISSUE', number: 0 }] }, { ...request, history: [{ kind: 'ISSUE', number: 2147483648 }] },
+      { ...request, history: Array.from({ length: 11 }, (_, index) => ({ kind: 'PR', number: index + 1 })) },
+      { ...request, history: [request.history[0], request.history[0]] }]) expect(() => parseStartContextBuildRequest(value)).toThrow('Malformed repository context');
+  });
+
+  it('retains builder status without manufacturing tasks and validates task ownership', () => {
+    const empty: ContextBuildViewDto = { buildRequestSequence: 0, notebookRevision: 7, canStart: true, build: null };
+    expect(parseContextBuildView(empty, 'workspace')).toEqual(empty);
+    const build: NonNullable<ContextBuildViewDto['build']> = { requestKey: 'learn-key', taskId: 'learn-task', baselineSha: 'a'.repeat(40),
+      scopeIds: ['project'], history: [], requestedAt: '2026-09-01T00:00:00Z', task: { id: 'learn-task', workspaceId: 'workspace', state: 'OPEN', version: 0,
+        laneId: 'codex', model: 'test-model', mutationClaim: 'TURN', terminalReason: null, worktreePath: '/tmp/learn-task', worktreeRemovedAt: null },
+      activeTurn: { id: 'learn-turn', state: 'RUNNING', startedAt: null, cancellationRequestedAt: null }, pendingApprovals: 0, results: [], gaps: [] };
+    const view = { ...empty, buildRequestSequence: 1, canStart: false, build };
+    expect(parseContextBuildView(view, 'workspace')).toEqual(view);
+    expect(parseContextBuildView({ ...view, build: { ...view.build, task: null, activeTurn: null } }, 'workspace').build?.task).toBeNull();
+    for (const value of [{ ...view, canStart: 'true' }, { ...view, build: undefined },
+      { ...view, build: { ...view.build, task: { ...view.build.task, workspaceId: 'other' } } },
+      { ...view, build: { ...view.build, task: { ...view.build.task, id: 'other' } } },
+      { ...view, build: { ...view.build, task: { ...view.build.task, state: 'VERIFIED' } } },
+      { ...view, build: { ...view.build, task: { ...view.build.task, worktreePath: undefined } } },
+      { ...view, build: { ...view.build, task: { ...view.build.task, worktreePath: null } } },
+      { ...view, build: { ...view.build, results: null } }]) expect(() => parseContextBuildView(value, 'workspace')).toThrow('Malformed repository context');
   });
 
   it('preserves the selected discussion run and evidence rather than substituting the latest run', () => {

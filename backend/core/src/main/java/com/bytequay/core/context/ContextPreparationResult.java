@@ -49,6 +49,7 @@ public record ContextPreparationResult(
             checkArgument(checkedReads.stream().allMatch(read -> switch (read) {
                 case ContextRepositoryRead repository -> !repository.truncated();
                 case ContextDocumentRead document -> !document.truncated() && !document.refreshFailed();
+                case ContextHistoryRead ignored -> false;
             }), "Empty preparation cannot use incomplete or failed source reads");
         }
     }

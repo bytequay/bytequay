@@ -125,6 +125,17 @@ class TestContextPreparation
         assertThatThrownBy(() -> result(READY, ready.noteIds(), excessive)).isInstanceOf(IllegalArgumentException.class);
     }
 
+    @Test
+    void standaloneOwnerRequiresNoReviewAndRejectsPartialReviewIdentity()
+    {
+        ActiveContextPreparation standalone = new ActiveContextPreparation("attempt", "request", "sha256:" + "a".repeat(64), "task", "turn", "turn-key",
+                Optional.empty(), Optional.empty(), 0, ImmutableList.of(input("project")));
+        assertThat(standalone.reviewId()).isEmpty();
+        assertThatThrownBy(() -> new ActiveContextPreparation("attempt", "request", "sha256:" + "a".repeat(64), "task", "turn", "turn-key",
+                Optional.of("review"), Optional.empty(), 0, ImmutableList.of(input("project"))))
+                .isInstanceOf(IllegalArgumentException.class).hasMessageContaining("paired");
+    }
+
     private static ContextInputFingerprint input(String scope)
     {
         return ContextInputFingerprint.create(scope, ImmutableMap.of("git:README.md", "100644 blob " + SHA), ImmutableList.of());
@@ -137,7 +148,8 @@ class TestContextPreparation
 
     private static ActiveContextPreparation active(List<ContextInputFingerprint> inputs, long revision)
     {
-        return new ActiveContextPreparation("attempt", "request", "sha256:" + "a".repeat(64), "task", "turn", "turn-key", "review", "run", revision, inputs);
+        return new ActiveContextPreparation("attempt", "request", "sha256:" + "a".repeat(64), "task", "turn", "turn-key",
+                Optional.of("review"), Optional.of("run"), revision, inputs);
     }
 
     private static ContextRepositoryRead read(String suffix)

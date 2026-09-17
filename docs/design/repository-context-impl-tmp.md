@@ -17,6 +17,8 @@ Completed task summaries now join local history through a scoped task-service
 query and explicit references, sharing the three-excerpt cap with prior reviews.
 Baseline source reads and selected document pages retain typed read receipts,
 including successful empty observations, alongside exact optional evidence.
+Selected merged PRs and closed issues now retain typed historical receipts and
+can support shared knowledge alongside captured monitored-baseline evidence.
 Snapshots are prepared before agent admission and exposed in the existing review
 projection. The first settings/display UI now exposes local notebook editing,
 default-on review selection, source/scope configuration, Save lesson from retained
@@ -26,8 +28,10 @@ READY/EMPTY/FAILED outcomes and checked source receipts, reuses equal inputs,
 and protects user edits. Accepted review turns now receive their frozen bootstrap
 or completed investigation brief with immutable collection supplements. Exact
 input bindings are retained before submission; the display derives delivery
-status from existing provider receipts. Standalone generation and live provider,
-performance and judgment acceptance remain pending. Unchecked items remain pending
+status from existing provider receipts. Standalone Learn/Refresh task and UI are
+implemented and pass backend/frontend automated gates, focused process-test
+cleanup verification and desktop packaging. Live provider, performance
+and On/Off judgment acceptance remain pending. Unchecked items remain pending
 even when related infrastructure already exists.
 
 ## Delivery summary
@@ -37,18 +41,137 @@ even when related infrastructure already exists.
 | Agreed concepts, overall flow and contracts | Finished |
 | Notebook persistence and editing/lesson APIs | Finished, including preparation-aware Reset/protection |
 | Local selection, frozen snapshots and input fingerprints | Finished; input reuse implemented, source applicability remains pending |
-| Selected PR, issue, commit association and related diff reads | Finished |
+| Selected PR, issue, commit association and related diff reads | Finished, including selected closed-issue activity and historical preparation receipts |
 | Selected documentation capture and retained excerpts | Finished; committed as d42c105f0 |
 | Scoped task-summary discovery | Finished; committed as 333902583 |
 | Frozen-baseline file reads and typed source receipts | Finished; committed as 3ba1ef0d2 |
 | Review-owned shared preparation and source/input reuse | Implemented; protected READY/EMPTY/FAILED with atomic replay |
-| Scope/source discovery and standalone Build/Refresh | Pending |
+| Historical PR/issue sources feeding shared generated knowledge | H1 finished; source admission, retention and reuse verified |
+| Standalone Learn / Refresh knowledge lifecycle and UI | H2 implemented; backend/frontend, focused process and package gates passed |
+| Scope/root discovery and bounded resolved-history discovery | H3: follows the explicit builder; not implemented |
 | Automatic context delivery and investigation report integration | Implemented; frozen bootstrap, brief/supplements and old-run discussion binding; new discussion-source capture remains pending |
-| Notebook/settings UI, Save lesson and context delivery display | Implemented, including preparation outcomes and receipt-derived delivery state; build activity/citation navigation remain pending |
+| Notebook/settings UI, Save lesson and context delivery display | Implemented, including Learn task activity, preparation outcomes and receipt-derived delivery state; citation navigation/folded activity remain pending |
 | On/Off quality comparison, performance and live provider acceptance | Pending; required before enablement |
 
-An implemented source reader is not completion of automatic reusable knowledge.
-CP1/CP2 are partly complete; CP3 through CP6 retain their unchecked gates.
+The standalone cold-start lifecycle is implemented and its automated/package
+gates pass. Continue with H3 below; H1 supplies their verified
+historical-source foundation. Existing CP sections
+retain the detailed foundation and verification checklist; their numbering does
+not override this priority order. Earlier “Next” notes are historical evidence.
+
+## Cold-start priority order
+
+### H1 — Learn shared knowledge from selected history
+
+Implemented and verified. The evidence entry below records the completed gates.
+
+- [x] Extend selected closed-issue reads to retain bounded body, recorded outcome
+  and available activity through existing source services, with explicit pagination, missing
+  sections, stale-cache and refresh-failure limitations.
+- [x] Retain typed PR/issue source receipts alongside exact run evidence, including
+  selected merged-PR metadata, available diff artifacts and recorded discussion.
+  A merged/closed label alone establishes neither resolution rationale nor truth.
+- [x] Permit eligible historical receipts in generated KNOWLEDGE preparation,
+  validating repository identity, actual observed state/version and retained
+  evidence. Keep unsupported, incomplete or unsuccessful reads as explicit gaps.
+- [x] Extend source/input equality and reuse so changed historical evidence can
+  invalidate a reused preparation. Preserve stable provenance and bounded packets.
+- [x] Verify that baseline/doc/history-derived notes can be saved and reused while
+  user edits, disabled/suppressed notes, stale ownership and report replay retain
+  their existing protection. No automatic MEMORY entry or Save lesson substitute.
+
+Gate: selected merged PR and resolved issue fixtures exercise current-state
+validation, exact source retention, closed-issue activity, preparation admission,
+READY/EMPTY/FAILED results and stale/cross-repository rejection. Selected reads
+remain bounded; no full history crawl or background agent run. Keep actual receipt
+schemas in the canonical design and distinguish available partial data from a
+complete-resolution account. Required checks belong to the H1 evidence entry.
+
+### H2 — Explicit Learn and Refresh knowledge
+
+Implemented after H1, with backend/frontend automated verification, desktop
+packaging and the focused process-test cleanup check passed.
+Live provider, performance and On/Off judgment acceptance remain separate open gates.
+
+The backend has ContextBuild/Store/Service/Tools/Coordinator and the purpose-checked
+build controller, with Learn/Refresh controls and task details in the existing
+notebook UI. The latest request lives in the existing
+AppSettingsStore separately from the notebook; active preparation shares a
+trusted execution with paired optional review/run IDs. Generic frozen-baseline
+file and directory reads need no synthetic review. Project fingerprints now
+include immediate root layout names/modes, while component subtree and selected
+content identities retain their existing behavior. Task details display the
+required actual worktreePath and preserve explicit cleanup controls for retained
+FAILED tasks. The evidence entry records the passing automated/package gates;
+these do not imply live-provider, real dirty-worktree or quality acceptance.
+
+- [x] Add the explicit workspace-settings action with selected knowledge scopes,
+  and optional selected merged-PR/closed-issue references. The first Learn task
+  includes repository files, directory structure, repository documentation and
+  registered docs by default, without optional switches for those foundations.
+  Verify the accepted request schema and explicit revision/sequence fences;
+  do not present remaining proposed fields as already shipped.
+- [x] Default project matching scope exists before content. Show “not prepared”
+  when it has no note; a generated Project overview appears under Knowledge.
+  Offer that scope directly in the build action instead of implying the existing
+  scope row already contains project knowledge.
+- [x] Start one ordinary managed-worktree task through current readiness and
+  task services, with saved builder purpose, immutable accepted selections and
+  the existing policy-only review restrictions before provider launch.
+- [x] Reuse shared preparation admission, typed source reads, retained evidence,
+  report fencing, note protection and READY/EMPTY/FAILED outcomes from review.
+  Keep generated KNOWLEDGE distinct from explicit user-owned MEMORY lessons.
+- [x] Reuse exact task/request identity across repeat clicks and recovery; preserve
+  uncertain accepted starts without resending. Do not add a parallel build-job
+  state machine, provider runner or background refresh queue.
+  Keep the latest binding until terminal task state and recorded worktree removal
+  permit replacement, so cleanup/recovery controls remain reachable.
+- [x] Link to the ordinary task transcript for progress, Stop, errors and recovery.
+  After a settled builder report, explicitly complete the task and invoke only
+  permitted cleanup; dirty or unverifiable work follows existing retention rules.
+  A task already FAILED at reconciliation entry retains its worktree for explicit
+  purpose-scoped cleanup, including after Mark failed discards a recovery claim.
+  GET/startup must preserve it; a claim-free OPEN task abandoned in that same
+  reconciliation pass may still undergo verified cleanup.
+- [x] Prove learning starts only from the explicit Learn/Refresh action: opening
+  the app/workspace/settings, startup recovery and source synchronization never
+  start or resume a learning task. There is no background learning scheduler.
+
+Gate: cold empty notebook -> explicit Learn with default repository and
+documentation reads -> visible source-linked
+Knowledge -> reuse in a later review, including Off-for-reviews with an explicit
+Learn action. Verify bounded directory/source coverage and explicit gaps when
+default sources cannot be read, then exercise optional selected history,
+cancellation, concurrent build/review ownership, user corrections,
+stale requests, failed/uncertain admission and dirty-work cleanup through real UI
+controls and current task services. No GitHub publication authority.
+
+### H3 — Bounded scope, source and resolved-history discovery
+
+Follows the explicit builder; manual scopes and explicit sources remain usable
+without this automation.
+
+- [ ] Propose component scopes and documentation roots only from captured
+  repository/module evidence; validate and save before preparation admission.
+- [ ] Discover a bounded relevant selection of merged PRs and resolved issues,
+  reusing repository identity, local caches, path history and explicit search
+  limits. Distinguish resolved from merely closed and retain actual outcome facts.
+- [ ] Keep closed-issue discovery separate from the current open-issue projection;
+  avoid silently dropping resolution sources or claiming exhaustive history.
+- [ ] Expose why each historical item/scope matched, counts/limits and unavailable
+  sources. Selected hydration must not become a repository-wide or website crawl.
+
+Gate: explicit source inputs still work when discovery is empty/unavailable;
+limits, source state, fork/upstream identity and repository-derived proposal
+provenance are tested. Discovery alone performs no generation or memory promotion.
+
+### After cold start
+
+Fresh discussion-source supplements and selected deferred-note exact-version
+reads follow H1–H3. Citation navigation and folded activity remain ordinary UI
+work. CP6's live provider, performance, poisoned-note and On/Off quality gates,
+and CP7's required repository checks/enablement rules remain unchanged. Offline
+fixtures or a working builder do not prove improved review judgments.
 
 ## Working rules
 
@@ -162,7 +285,7 @@ runtime-retention and workspace-deletion behavior. Use current schema ownership.
   come from the retained run. Do not infer verified/final revision ranges.
 - [x] Register validated user documentation roots/pages with provenance through
   the existing notebook configuration API.
-- [ ] Register repository-proposed roots from captured README/module evidence
+- [ ] H3: register repository-proposed roots from captured README/module evidence
   together with preparation admission; do not accept model-selected URLs alone.
 - [x] Capture selected registered pages through the bounded reader and retain
   exact returned excerpts in existing review evidence.
@@ -195,15 +318,17 @@ redirect/size/failure regressions. No whole-site or whole-history fetch.
   commit notebook updates and the final review journal receipt in one short
   local transaction. Replay/reconciliation must expose failure without inventing
   a successful save or regenerating blindly.
-- [ ] Start explicit Build/Refresh through current readiness, managed worktree,
-  task, turn, completion, Stop, and recovery services.
-- [ ] Save builder identity/purpose before the provider starts and use a
+- [x] H2: start explicit Learn/Refresh through current readiness, managed worktree,
+  task, turn, completion, Stop, and recovery services, with selected scopes,
+  default repository files/structure/documentation and registered docs, plus
+  optional selected PR/issue inputs. Opening/sync/startup cannot trigger learning.
+- [x] Save builder identity/purpose before the provider starts and use a
   policy-only review bridge. AUTO alone must not grant development authority.
-- [ ] Reuse a matching request after double-click/retry/restart without creating
+- [x] Reuse a matching request after double-click/retry/restart without creating
   a duplicate builder or resending an uncertain accepted turn. Preallocate its
   task ID in the binding and reject superseded request sequences, including
   when intervening EMPTY builds did not change the content revision.
-- [ ] Explicitly complete the settled standalone builder and invoke permitted
+- [x] Explicitly complete the settled standalone builder and invoke permitted
   cleanup; an ordinary successful turn alone leaves the task open.
 - [x] Preserve prior notes on review-owned failure; settle ownership only after
   the accepted turn is terminal and its runtime claim is cleared.
@@ -266,7 +391,7 @@ derive from durable facts. Exercise each supported provider independently.
   captured state on each run. Explain new-run scope and retained saved notes.
 - [x] Add editing, disabling/removal and explicit removal reset, with revision
   conflicts, preserved drafts and UTF-8 limits.
-- [ ] Add Build/Refresh using the
+- [x] Add Build/Refresh using the
   existing task transcript for progress, Stop, failure and recovery navigation.
 - [x] Add Save lesson to the existing private discussion/response surface;
   use the same editor for user acceptance of text, evidence and scope.
@@ -982,7 +1107,90 @@ Required checks below describe the current increment, not full feature acceptanc
   `git diff --check` and new-file whitespace/license checks pass. The complete
   review patch, including new files, is
   `/private/tmp/bytequay-context-delivery-review.patch`.
-- Next: fresh discussion-source supplements and selected deferred-note version
-  reads, then scope/root proposals and standalone Build/Refresh. Citation navigation,
-  folded preparation activity, measured performance and small-PR On/Off/live-provider
-  quality acceptance remain unchecked. No user database or GitHub write was used.
+- The next-work order is superseded by the cold-start priority section above:
+  H1 historical-source learning, H2 standalone Build context, then H3 bounded
+  discovery. Fresh discussion supplements and deferred-note exact-version reads
+  follow cold start. Citation navigation, folded activity, measured performance
+  and small-PR On/Off/live-provider quality acceptance remain unchecked. No user
+  database or GitHub write was used.
+
+
+### Selected historical sources for shared knowledge
+
+- Added the concrete ContextHistoryReader and the `review_get_context` history
+  selector. Merged PRs require an actual observed merge timestamp; closed issues
+  require an exact non-PR issue preview because the existing projection contains
+  only open issues. The reader reuses selected PR/detail/diff and issue activity
+  services. It does not start repository-wide sync or create another history store.
+- Retained history records include exact UTF-8 excerpts, state, update/revision,
+  content hash, provenance and bounded limitations. Up to twenty latest observed
+  activity items and three selected PR diff files fit within a 16 KiB excerpt;
+  unknown timestamps sort last, and omitted items remain visible. Merge/closure
+  labels do not certify a resolution, correctness or current applicability.
+- BEGIN accepts at most ten same-run historical read IDs before admitting an
+  owner. SUBMIT checks admitted identities and requires nonblank monitored-baseline
+  evidence for history-based READY. Historical receipts cannot establish EMPTY.
+  The existing notebook protection, attempt ownership, report replay and explicit
+  Save lesson boundary remain in place; this adds no automatic memory promotion.
+- Input equality includes retained historical content while excluding receipt IDs,
+  cache timestamps and successful refresh-attempt flags. Equal observations reuse
+  notes; changed observations can refresh them. A FAILED refresh can retain old
+  knowledge alongside newer checked observations and still retry. Over-budget
+  scope inputs defer generation with a limitation instead of aborting all scopes.
+- Review details show historical state, source identity, exact evidence and partial
+  or failed-refresh limitations. Settings distinguish the Project overview scope
+  from its saved Knowledge note and explain current review-based preparation.
+- Focused context/preparation/review-tool/persistence checks passed. The complete
+  final `mvn -B verify` run passed 228 suites / 2709 tests with zero failures,
+  errors or skips, including the long-thread activity regressions. Logs:
+  `/private/tmp/bytequay-context-history-focused-tests.log` and
+  `/private/tmp/bytequay-context-history-backend-verify.log`.
+- Frontend lint, TypeScript and all 84 files / 928 tests passed. Logs:
+  `/private/tmp/bytequay-context-history-frontend-{lint,types,tests}.log`.
+  Wide/narrow history and saved/empty settings displays were visually inspected
+  in `/private/tmp/bytequay-context-history-ui/`; final history copy checks are
+  recorded in `history-final-checks.json`.
+- Desktop packaging passed. The packaged and verified backend JAR share SHA-256
+  `408f10ec57bee8b31df97589a2b69a82a0c886828aff793f0c2189cf68287fb1`.
+  Log: `/private/tmp/bytequay-context-history-package.log`.
+- Next: H2 standalone Build context / Refresh knowledge using the current task
+  lifecycle and existing notebook page, followed by H3 bounded scope/root and
+  resolved-history discovery. Live provider, performance and small-PR quality
+  acceptance remain pending. No user database or GitHub write was used.
+
+### Explicit Learn / Refresh knowledge
+
+- Implemented the explicit settings action, scope and optional history selection,
+  saved ContextBuild purpose binding, fixed source/preparation tools, and existing
+  task lifecycle integration. First-run defaults include repository files,
+  directory structure, repository documentation and every registered document.
+  No startup, page-open, synchronization or scheduled learning is introduced.
+- Shared preparation retains source receipts, replay, user-note protection and
+  scope outcomes. Mixed reused/owned preparations retain both kinds of result in
+  the assigned scope order. Task details display the actual managed worktree path.
+  Already-FAILED tasks retain their tree until explicit purpose-scoped cleanup;
+  replacing the binding requires terminal state and recorded worktree removal.
+- Final frontend lint, TypeScript and all 931 tests passed, including the required
+  task worktree-path contract.
+- Final production-backend `mvn -B verify` passed 231 suites / 2738 tests with zero
+  failures, errors or skips in 4:09. Log:
+  `/private/tmp/bytequay-context-build-final-backend-retry.log`.
+  An initial complete backend verification also passed. An intervening verification
+  encountered an existing process-test temporary-directory cleanup race: the
+  terminal receipt writer could still be finishing after stopAndVerify returned.
+  The test cleanup now waits for process.exit().get(). The focused
+  TestDefaultProcessSupervisor run for that test-only change passed all 28 tests:
+  `/private/tmp/bytequay-context-build-process-cleanup.log`.
+  The passing full retry verifies the final production code.
+  The interrupted run is retained at
+  `/private/tmp/bytequay-context-build-final-backend.log`.
+- Desktop packaging passed for darwin arm64:
+  `/private/tmp/bytequay-context-build-package.log`.
+  The verified `backend/app/target/bytequay-backend.jar` and bundled
+  `frontend/out/ByteQuay-darwin-arm64/ByteQuay.app/Contents/Resources/bytequay-backend.jar`
+  share SHA-256 `4201a61de127044b1fa284d97ae21ccb1b8b8e5bdf562f7381228b7a7aac745d`.
+- H2 implementation and automated/package gates are complete. The separate
+  real dirty-worktree end-to-end exercise remains unchecked.
+  H3 bounded scope/root and resolved-history discovery is next. Live provider,
+  measured performance and small-PR On/Off judgment acceptance remain separate
+  pending gates; automated checks do not establish those claims.

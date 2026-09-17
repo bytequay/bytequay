@@ -16,6 +16,7 @@ import type { WorkspaceDto } from '../types';
 import ContextEntryEditor, { ContextDialog, type ContextEntryDraft } from '../repository-context/ContextEntryEditor';
 import type { ContextClaimDto, ContextEntryDto, ContextScopeConfigurationDto, ContextScopeDto, ContextSourceDto, RepositoryNotebookDto } from '../repository-context/contracts';
 import { Badge, SettingsCard, SettingsRow, Toggle } from './primitives';
+import RepositoryContextBuild from './RepositoryContextBuild';
 
 type Editor = { kind: 'entry'; entry: ContextEntryDto | null; initial: ContextEntryDraft; claims: ContextClaimDto[] }
   | { kind: 'source'; source: ContextSourceDto | null } | { kind: 'scope'; scope: ContextScopeDto | null };
@@ -124,6 +125,7 @@ export default function RepositoryContextPage({ workspace }: { workspace: Worksp
         <Toggle on={notebook.useInReviews} disabled={disabled} label="Use repository context in reviews" onChange={enabled => void mutate(revision =>
           window.bridge.configureRepositoryContext(workspace.id, { expectedRevision: revision, useInReviews: enabled }), enabled ? 'Repository context enabled for new runs.' : 'Repository context disabled for new runs.')} />
       </SettingsRow></SettingsCard>
+      <RepositoryContextBuild workspaceId={workspace.id} notebook={notebook} onNotebookChange={setNotebook} disabled={disabled} />
       {notebook.activePreparation !== null && <div className="rc-status" role="status">Shared preparation is claimed for {notebook.activePreparation.inputs
         .map(input => notebook.scopes.find(scope => scope.id === input.scopeId)?.title ?? input.scopeId).join(', ')}. Saved notes remain available.
         <details><summary>Preparation owner</summary><p>Task: {notebook.activePreparation.ownerTaskId}</p>
@@ -133,8 +135,10 @@ export default function RepositoryContextPage({ workspace }: { workspace: Worksp
       <div className="setw-section"><span className="setw-section-title">Saved lessons</span></div>
       <SettingsCard>{notebook.entries.some(entry => entry.kind === 'MEMORY') ? entryRows('MEMORY') : <div className="setw-row-empty">Use Save lesson on a private review discussion to keep a useful conclusion and its evidence.</div>}</SettingsCard>
       <div className="setw-section"><span className="setw-section-title">Matching scopes</span><button className="rc-button" disabled={disabled} onClick={() => setEditor({ kind: 'scope', scope: null })}>Add scope</button></div>
+      <p className="rc-muted">Scopes choose where knowledge and lessons apply. Project overview is a scope; its saved note appears under Knowledge.</p>
       <SettingsCard>{notebook.scopes.map(scope => <SettingsRow key={scope.id} title={scope.title} badge={!scope.enabled ? <Badge>Disabled</Badge> : undefined}
         subtitle={<>{scope.match.kind === 'REPOSITORY' ? 'Applies across this repository' : [...scope.match.pathPrefixes, ...scope.match.terms].join(' · ')}
+          {!notebook.entries.some(entry => entry.kind === 'KNOWLEDGE' && entry.scopeId === scope.id) && <div>No saved knowledge note for this scope.</div>}
           {scope.preparation === null ? <div>No completed preparation recorded.</div> : <details><summary>Last preparation: {{ READY: 'Note prepared', EMPTY: 'No useful note found', FAILED: 'Failed' }[scope.preparation.outcome]}</summary>
             <p>{scope.preparation.explanation}</p><p>{scope.preparation.checkedReads.length} source reads retained. This result applies to the checked inputs; it does not verify the note against a new review.</p>
           </details>}</>}>
@@ -156,7 +160,7 @@ export default function RepositoryContextPage({ workspace }: { workspace: Worksp
             <button className="rc-button" disabled={disabled || scope === undefined} onClick={() => scope && void mutate(revision => window.bridge.resetRepositoryContext(workspace.id,
               { expectedRevision: revision, scopeIds: [scope.id] }), 'Removal reset. You can add a new note for this scope.')}>Reset removal</button></SettingsRow>;
         })}</SettingsCard></>}
-      <p className="rc-muted">New reviews can prepare saved context. Automatic delivery, knowledge generation and Build/Refresh are not available yet. Opening this page never starts an agent or fetches documentation.</p>
+      <p className="rc-muted">Reviews can prepare reusable knowledge for configured scopes and provide saved context to the agent. Learn / Refresh starts an explicit learning task. Opening this page does not start learning.</p>
       {editor?.kind === 'entry' && <ContextEntryEditor initialValue={editor.initial} scopes={editor.entry === null ? availableScopes : notebook.scopes}
         scopeLocked={editor.entry !== null} busy={busy} error={error} submitDisabled={needsReload || sourceLinksChanged || editor.claims.some(claim => claim.text.trim() === '' || new TextEncoder().encode(claim.text).length > 2000)
           || (editor.entry !== null && !notebook.entries.some(entry => entry.id === editor.entry?.id))} title={editor.entry === null ? 'Add knowledge note' : 'Edit note'} onCancel={closeEditor}

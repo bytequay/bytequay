@@ -44,12 +44,14 @@ import { parseLocalReviewThread, parseLocalReviewThreads, type CreateDevelopment
 import { parseAgentEventSequence, parseAgentHistoryPage, parseAgentPendingApprovals } from './agents/events';
 import {
   parseConfigureRepositoryContextRequest,
+  parseContextBuildView,
   parseEditRepositoryContextEntryRequest,
   parseRemoveRepositoryContextEntryRequest,
   parseRepositoryNotebook,
   parseResetRepositoryContextRequest,
   parseSaveRepositoryContextLessonRequest,
   parseSetRepositoryContextEntryEnabledRequest,
+  parseStartContextBuildRequest,
 } from './repository-context/contracts';
 import {
   parseAgentReview,
@@ -1178,6 +1180,21 @@ function registerIpc(): void {
     backendJson(`${backendBase()}/api/workspaces/${encodeURIComponent(workspaceId)}/settings`));
   ipcMain.handle('repository-context:get', (_event, workspaceId: string) =>
     backendJson(`${backendBase()}/api/workspaces/${encodeURIComponent(workspaceId)}/repository-context`, { headers: agentHeaders() }).then(parseRepositoryNotebook));
+  const contextBuildUrl = (workspaceId: string) => `${backendBase()}/api/workspaces/${encodeURIComponent(workspaceId)}/repository-context/build`;
+  ipcMain.handle('repository-context:build:get', (_event, workspaceId: string) =>
+    backendJson(contextBuildUrl(workspaceId), { headers: agentHeaders() }).then(value => parseContextBuildView(value, workspaceId)));
+  ipcMain.handle('repository-context:build:start', (_event, workspaceId: string, request: unknown) =>
+    backendJson(contextBuildUrl(workspaceId), jsonInit('POST', parseStartContextBuildRequest(request), agentHeaders())).then(value => parseContextBuildView(value, workspaceId)));
+  ipcMain.handle('repository-context:build:stop', (_event, workspaceId: string, taskId: string) =>
+    backendJson(contextBuildUrl(workspaceId) + '/stop', jsonInit('POST', { taskId }, agentHeaders())).then(value => parseContextBuildView(value, workspaceId)));
+  ipcMain.handle('repository-context:build:stop-impact', (_event, workspaceId: string, taskId: string) =>
+    backendJson(contextBuildUrl(workspaceId) + '/runtime/stop-impact?taskId=' + encodeURIComponent(taskId), { headers: agentHeaders() }).then(parseAgentRuntimeStopImpact));
+  ipcMain.handle('repository-context:build:stop-runtime', (_event, workspaceId: string, taskId: string, generation: string) =>
+    backendJson(contextBuildUrl(workspaceId) + '/runtime/stop', jsonInit('POST', { taskId, generation }, agentHeaders())).then(value => parseContextBuildView(value, workspaceId)));
+  ipcMain.handle('repository-context:build:fail', (_event, workspaceId: string, taskId: string, reason: string) =>
+    backendJson(contextBuildUrl(workspaceId) + '/mark-failed', jsonInit('POST', { taskId, reason }, agentHeaders())).then(value => parseContextBuildView(value, workspaceId)));
+  ipcMain.handle('repository-context:build:cleanup', (_event, workspaceId: string, taskId: string) =>
+    backendJson(contextBuildUrl(workspaceId) + '/cleanup', jsonInit('POST', { taskId }, agentHeaders())).then(value => parseContextBuildView(value, workspaceId)));
   ipcMain.handle('repository-context:configure', (_event, workspaceId: string, request: unknown) =>
     backendJson(`${backendBase()}/api/workspaces/${encodeURIComponent(workspaceId)}/repository-context/configuration`,
       jsonInit('PUT', parseConfigureRepositoryContextRequest(request), agentHeaders())).then(parseRepositoryNotebook));

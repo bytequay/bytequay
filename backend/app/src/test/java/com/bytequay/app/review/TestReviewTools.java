@@ -26,6 +26,7 @@ import com.bytequay.agent.spi.ProviderAgentEvent.ActivityState;
 import com.bytequay.agent.spi.ReviewBridge;
 import com.bytequay.agent.spi.ReviewTool;
 import com.bytequay.app.context.ContextBaselineReader;
+import com.bytequay.app.context.ContextHistoryReader;
 import com.bytequay.app.context.ContextNotFoundException;
 import com.bytequay.app.context.ContextStorageException;
 import com.bytequay.app.context.RepositoryContextPreparation;
@@ -51,6 +52,7 @@ import com.bytequay.app.workspace.WorkspaceRepositoryService;
 import com.bytequay.core.context.ActiveContextPreparation;
 import com.bytequay.core.context.ContextDocumentRead;
 import com.bytequay.core.context.ContextEntryOrigin;
+import com.bytequay.core.context.ContextHistoryRead;
 import com.bytequay.core.context.ContextInputFingerprint;
 import com.bytequay.core.context.ContextMatch;
 import com.bytequay.core.context.ContextPacket;
@@ -88,6 +90,7 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
+import com.google.common.hash.Hashing;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
@@ -166,6 +169,7 @@ class TestReviewTools
     private SelectedCommitPullRequestReader selectedCommitPullRequests;
     private SelectedDocumentationReader selectedDocumentation;
     private ContextBaselineReader baselineSources;
+    private ContextHistoryReader historySources;
     private ReviewToolAssignment assignments;
     private TurnId capturedTurn;
     private WorkspaceIssueService issues;
@@ -188,6 +192,7 @@ class TestReviewTools
         selectedCommitPullRequests = mock(SelectedCommitPullRequestReader.class);
         selectedDocumentation = mock(SelectedDocumentationReader.class);
         baselineSources = mock(ContextBaselineReader.class);
+        historySources = mock(ContextHistoryReader.class);
         repositories = mock(RepoService.class);
         issues = mock(WorkspaceIssueService.class);
         issueRefresh = mock(WorkspaceIssueRefreshService.class);
@@ -206,7 +211,7 @@ class TestReviewTools
             return new ReviewToolAssignment.Binding(current, current.currentStep(), Optional.empty());
         });
         tools = new ReviewTools(store, pullRequests, selectedPullRequests, selectedPullRequestDiffs, selectedCommitPullRequests, selectedDocumentation, baselineSources,
-                repositories, issues, issueRefresh, events, workspaces, git, objectMapper,
+                historySources, repositories, issues, issueRefresh, events, workspaces, git, objectMapper,
                 locks, assignments, preparation, new AgentUnitOfWork()
                 {
                     @Override
@@ -288,7 +293,7 @@ class TestReviewTools
     {
         preparationContext();
         ActiveContextPreparation active = preparationAttempt();
-        when(preparation.plan(any(), any())).thenAnswer(invocation -> {
+        when(preparation.plan(any(), any(), any())).thenAnswer(invocation -> {
             assertPreparationReadsOutsideLocks();
             return new Plan(RepositoryNotebook.empty(), active.inputs());
         });
@@ -318,7 +323,7 @@ class TestReviewTools
         assertThat(call("repository_context_prepare", beginPreparation())).isEqualTo(admitted);
         Map<String, Object> changed = ImmutableMap.<String, Object>builder().putAll(beginPreparation()).put("expectedRevision", 8L).buildKeepingLast();
         assertThat(call("repository_context_prepare", changed).at("/error/field").asText()).isEqualTo("requestKey");
-        verify(preparation).plan(any(), any());
+        verify(preparation).plan(any(), any(), any());
         verify(preparation).begin(any(), anyString(), anyString(), anyLong(), any());
     }
 
@@ -326,7 +331,7 @@ class TestReviewTools
     void joinedPreparationCanObserveACompletedResultOnTheSameRequestRetry()
     {
         preparationContext();
-        when(preparation.plan(any(), any())).thenReturn(new Plan(RepositoryNotebook.empty(), preparationAttempt().inputs()));
+        when(preparation.plan(any(), any(), any())).thenReturn(new Plan(RepositoryNotebook.empty(), preparationAttempt().inputs()));
         when(preparation.begin(any(), anyString(), anyString(), anyLong(), any())).thenReturn(
                 new Admission(Status.JOINED, 7, Optional.of(preparationAttempt()), ImmutableList.of(), ImmutableList.of("Still preparing in another review"),
                         ContextPacket.create("Waiting for shared knowledge")),
@@ -349,7 +354,7 @@ class TestReviewTools
     void stoppedPreparationCannotCommitAfterItsUnlockedInputInspection()
     {
         preparationContext();
-        when(preparation.plan(any(), any())).thenAnswer(invocation -> {
+        when(preparation.plan(any(), any(), any())).thenAnswer(invocation -> {
             assertPreparationReadsOutsideLocks();
             doThrow(new ReviewConflictException("turn: this turn was stopped during input inspection"))
                     .when(assignments).resolve(REVIEW_ID, Optional.of(capturedTurn));
@@ -399,7 +404,7 @@ class TestReviewTools
     void preparationBoundsTheActualSerializedResponseBeforeJournaling()
     {
         preparationContext();
-        when(preparation.plan(any(), any())).thenReturn(new Plan(RepositoryNotebook.empty(), preparationAttempt().inputs()));
+        when(preparation.plan(any(), any(), any())).thenReturn(new Plan(RepositoryNotebook.empty(), preparationAttempt().inputs()));
         when(preparation.begin(any(), anyString(), anyString(), anyLong(), any())).thenReturn(new Admission(Status.OWNED, 7,
                 Optional.of(preparationAttempt()), ImmutableList.of(), ImmutableList.of(), ContextPacket.create("x" + "\u0001".repeat(16 * 1024))));
 
@@ -428,7 +433,7 @@ class TestReviewTools
         preparationContext();
         call("review_save_summary", summary("summary", "Input change"));
         readSource();
-        when(preparation.plan(any(), any())).thenReturn(new Plan(RepositoryNotebook.empty(), preparationAttempt().inputs()));
+        when(preparation.plan(any(), any(), any())).thenReturn(new Plan(RepositoryNotebook.empty(), preparationAttempt().inputs()));
         when(preparation.begin(any(), anyString(), anyString(), anyLong(), any())).thenReturn(new Admission(Status.REUSED, 8, Optional.empty(),
                 ImmutableList.of(preparationOutcome()), ImmutableList.of(), ContextPacket.create("Exact saved note available for reuse")));
         String receipt = call("repository_context_prepare", beginPreparation()).path("receiptRef").asText();
@@ -551,7 +556,8 @@ class TestReviewTools
     private ActiveContextPreparation preparationAttempt()
     {
         return new ActiveContextPreparation("attempt-1", "begin", "sha256:" + "a".repeat(64), TASK_ID, capturedTurn.toString(), "review-step:" + RUN_ID + ":1",
-                REVIEW_ID, RUN_ID, 7, ImmutableList.of(ContextInputFingerprint.create("project", ImmutableMap.of("README.md", BASE_SHA), ImmutableList.of())));
+                Optional.of(REVIEW_ID), Optional.of(RUN_ID), 7,
+                ImmutableList.of(ContextInputFingerprint.create("project", ImmutableMap.of("README.md", BASE_SHA), ImmutableList.of())));
     }
 
     private ContextPreparationResult preparationOutcome()
@@ -1957,6 +1963,153 @@ class TestReviewTools
         assertThat(result.at("/error/field").asText()).isEqualTo("turn");
         assertThat(result.has("readId")).isFalse();
         assertThat(store.runUpdates).isEqualTo(writes);
+    }
+
+    @Test
+    void historyRetainsExactExcerptAndTypedReceiptAfterReadingOutsideMutationLocks()
+    {
+        ReviewRun before = documentContext(true);
+        String excerpt = "Untrusted merged history 😀\nObserved state=MERGED\nKnown missing discussion\n";
+        ContextHistoryReader.Read read = historyRead(excerpt);
+        when(historySources.read(workspaceRepository(), before, ContextHistoryReader.SourceKind.PR, 17)).thenAnswer(_ -> {
+            assertPreparationReadsOutsideLocks();
+            return read;
+        });
+        int writes = store.runUpdates;
+
+        JsonNode result = call("review_get_context", ImmutableMap.of("kind", "history", "sourceKind", "PR", "number", 17));
+
+        assertThat(result.path("source").asText()).isEqualTo(excerpt);
+        assertThat(result.path("applicabilityVerified").asBoolean()).isFalse();
+        assertThat(result.at("/receipt/kind").asText()).isEqualTo("HISTORY");
+        assertThat(result.path("state").asText()).isEqualTo("MERGED");
+        assertThat(result.path("refreshFailed").asBoolean()).isTrue();
+        assertThat(result.path("truncated").asBoolean()).isTrue();
+        ReviewRun after = store.findRun(RUN_ID).orElseThrow();
+        ContextHistoryRead receipt = (ContextHistoryRead) after.context().orElseThrow().sourceReads().getFirst();
+        assertThat(receipt.id()).isEqualTo(result.path("readId").asText());
+        assertThat(receipt.reference()).isEqualTo(read.reference());
+        assertThat(receipt.sourceUpdatedAt()).isEqualTo(read.sourceUpdatedAt());
+        assertThat(receipt.sourceRevision()).isEqualTo(read.sourceRevision());
+        assertThat(receipt.contentHash()).isEqualTo(read.contentHash());
+        assertThat(receipt.evidenceRef()).contains(result.path("evidenceRef").asText());
+        ReviewEvidence evidence = after.evidence().get(receipt.evidenceRef().orElseThrow());
+        assertThat(evidence.excerpt()).isEqualTo(excerpt);
+        assertThat(evidence.provenance()).contains("BYTEQUAY_READ", read.provenance());
+        receipt.checkExcerpt(evidence.excerpt());
+        assertThat(store.runUpdates).isEqualTo(writes + 1);
+        assertThat(after.context().orElseThrow().contributions()).isEmpty();
+    }
+
+    @Test
+    void historyRequiresEnabledContextBeforeSourceWork()
+    {
+        Map<String, Object> request = ImmutableMap.of("kind", "history", "sourceKind", "PR", "number", 17);
+        assertThat(call("review_get_context", request).at("/error/message").asText()).contains("not enabled");
+        documentContext(false);
+        assertThat(call("review_get_context", request).at("/error/message").asText()).contains("not enabled");
+        verifyNoInteractions(historySources);
+    }
+
+    @Test
+    void historyAcceptsOnlyItsOwnSelectorsBeforeSourceWork()
+    {
+        Map<String, Object> request = ImmutableMap.of("kind", "history", "sourceKind", "PR", "number", 17);
+        documentContext(true);
+        for (String selector : ImmutableList.of("page", "path", "revision", "sourceId", "refresh", "diffVersion", "captureId", "relativePage", "shas", "target", "ref")) {
+            Map<String, Object> invalid = ImmutableMap.<String, Object>builder().putAll(request).put(selector, "ignored").buildOrThrow();
+            assertThat(call("review_get_context", invalid).at("/error/field").asText()).isEqualTo(selector);
+        }
+        assertThat(call("review_get_context", ImmutableMap.of("kind", "history", "sourceKind", "pr", "number", 17)).at("/error/field").asText()).isEqualTo("sourceKind");
+        assertThat(call("review_get_context", ImmutableMap.of("kind", "history", "number", 17)).at("/error/field").asText()).isEqualTo("sourceKind");
+        assertThat(call("review_get_context", ImmutableMap.of("kind", "history", "sourceKind", "ISSUE")).at("/error/field").asText()).isEqualTo("number");
+        assertThat(call("review_get_context", ImmutableMap.of("kind", "history", "sourceKind", "ISSUE", "number", 0)).at("/error/field").asText()).isEqualTo("number");
+        verifyNoInteractions(historySources);
+    }
+
+    @Test
+    void historyRejectsChangedWorkspaceRoutingAndUnavailableTerminalObservation()
+    {
+        ReviewRun before = documentContext(true);
+        when(workspaces.requireReadableRepository(WORKSPACE_ID)).thenReturn(new WorkspaceRepositoryContext(WORKSPACE_ID, repository, 1,
+                RepoRef.of("other", "repo"), OptionalLong.empty(), RepoRef.of("other", "repo"), "origin", "origin", "main", ImmutableList.of()));
+        Map<String, Object> request = ImmutableMap.of("kind", "history", "sourceKind", "PR", "number", 17);
+        assertThat(call("review_get_context", request).at("/error/message").asText()).contains("routing");
+        verifyNoInteractions(historySources);
+        when(workspaces.requireReadableRepository(WORKSPACE_ID)).thenReturn(workspaceRepository());
+        int writes = store.runUpdates;
+        when(historySources.read(workspaceRepository(), before, ContextHistoryReader.SourceKind.PR, 17))
+                .thenThrow(new IllegalArgumentException("An actual mergedAt is required"));
+        assertThat(call("review_get_context", request).at("/error/field").asText()).isEqualTo("history");
+        doThrow(new ResponseStatusException(HttpStatus.NOT_FOUND)).when(historySources).read(workspaceRepository(), before, ContextHistoryReader.SourceKind.PR, 17);
+        assertThat(call("review_get_context", request).at("/error/message").asText()).contains("no history evidence");
+        assertThat(store.runUpdates).isEqualTo(writes);
+        assertThat(store.findRun(RUN_ID).orElseThrow().context().orElseThrow().sourceReads()).isEmpty();
+    }
+
+    @Test
+    void stoppedTurnCannotRetainHistoryAfterExternalRead()
+    {
+        ReviewRun before = documentContext(true);
+        int writes = store.runUpdates;
+        when(historySources.read(workspaceRepository(), before, ContextHistoryReader.SourceKind.PR, 17)).thenAnswer(_ -> {
+            assertPreparationReadsOutsideLocks();
+            doThrow(new ReviewConflictException("turn: this tool belongs to a stopped or replaced turn"))
+                    .when(assignments).resolve(REVIEW_ID, Optional.of(capturedTurn));
+            return historyRead("Observed history");
+        });
+        JsonNode result = call("review_get_context", ImmutableMap.of("kind", "history", "sourceKind", "PR", "number", 17));
+        assertThat(result.at("/error/field").asText()).isEqualTo("turn");
+        assertThat(result.has("readId")).isFalse();
+        assertThat(store.runUpdates).isEqualTo(writes);
+    }
+
+    @Test
+    void preparationPassesSelectedHistoryOnlyForBeginAndReplaysItsExactSelection()
+    {
+        preparationContext();
+        when(preparation.plan(any(), any(), any())).thenAnswer(invocation -> {
+            assertPreparationReadsOutsideLocks();
+            assertThat(invocation.<List<String>>getArgument(2)).containsExactly("context-read:selected-history");
+            return new Plan(RepositoryNotebook.empty(), preparationAttempt().inputs());
+        });
+        when(preparation.begin(any(), anyString(), anyString(), anyLong(), any())).thenReturn(
+                new Admission(Status.OWNED, 7, Optional.of(preparationAttempt()), ImmutableList.of(), ImmutableList.of(), ContextPacket.create("Prepared")));
+        Map<String, Object> selected = ImmutableMap.<String, Object>builder().putAll(beginPreparation())
+                .put("historyReadIds", ImmutableList.of("context-read:selected-history")).buildOrThrow();
+        JsonNode result = call("repository_context_prepare", selected);
+        assertThat(result.path("status").asText()).isEqualTo("OWNED");
+        assertThat(call("repository_context_prepare", selected)).isEqualTo(result);
+        assertThat(call("repository_context_prepare", beginPreparation()).at("/error/field").asText()).isEqualTo("requestKey");
+        verify(preparation).plan(any(), any(), any());
+        assertThat(call("repository_context_prepare", ImmutableMap.of("operation", "SUBMIT", "historyReadIds", ImmutableList.of("context-read:selected-history")))
+                .at("/error/field").asText()).isEqualTo("historyReadIds");
+    }
+
+    @Test
+    void preparationRejectsMalformedHistorySelectorsAndPropagatesNonHistoryRejectionWithoutMutation()
+    {
+        preparationContext();
+        for (Object invalid : ImmutableList.of("context-read:wrong-type", ImmutableList.of(17), ImmutableList.of(""),
+                IntStream.range(0, 11).mapToObj(index -> "context-read:" + index).collect(toImmutableList()))) {
+            Map<String, Object> arguments = ImmutableMap.<String, Object>builder().putAll(beginPreparation()).put("historyReadIds", invalid).buildOrThrow();
+            assertThat(call("repository_context_prepare", arguments).at("/error/field").asText()).isEqualTo("historyReadIds");
+        }
+        verifyNoInteractions(preparation);
+        when(preparation.plan(any(), any(), any())).thenThrow(new IllegalArgumentException("Unknown captured history read: context-read:baseline"));
+        Map<String, Object> nonHistory = ImmutableMap.<String, Object>builder().putAll(beginPreparation())
+                .put("historyReadIds", ImmutableList.of("context-read:baseline")).buildOrThrow();
+        int writes = store.runUpdates;
+        assertThat(call("repository_context_prepare", nonHistory).at("/error/message").asText()).contains("Unknown captured history read");
+        verify(preparation, never()).begin(any(), anyString(), anyString(), anyLong(), any());
+        assertThat(store.runUpdates).isEqualTo(writes);
+    }
+
+    private static ContextHistoryReader.Read historyRead(String excerpt)
+    {
+        return new ContextHistoryReader.Read(new ContextReference.PullRequest(1, RepoRef.of("acme", "widgets"), 17, Optional.empty()), ContextHistoryRead.State.MERGED,
+                Optional.of(NOW.minusSeconds(60)), Optional.of(HEAD_SHA), Hashing.sha256().hashString(excerpt, UTF_8).toString(), NOW,
+                excerpt, true, true, ImmutableList.of("Known missing discussion"), "cacheUpdatedAt=" + NOW.minusSeconds(30));
     }
 
     private ReviewRun documentContext(boolean enabled)

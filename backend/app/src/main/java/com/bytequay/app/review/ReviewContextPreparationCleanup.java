@@ -56,7 +56,7 @@ public class ReviewContextPreparationCleanup
     {
         WorkspaceOperationLocks.withLock(review.workspaceId(), () -> unitOfWork.execute(() -> {
             Optional<ActiveContextPreparation> found = notebooks.getNotebook(review.workspaceId()).activePreparation()
-                    .filter(active -> active.reviewId().equals(review.id()) && active.ownerTaskId().equals(review.taskId()));
+                    .filter(active -> active.reviewId().equals(Optional.of(review.id())) && active.ownerTaskId().equals(review.taskId()));
             if (found.isEmpty()) {
                 return null;
             }

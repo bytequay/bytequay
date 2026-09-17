@@ -16,10 +16,12 @@ package com.bytequay.core.context;
 import com.google.common.collect.ImmutableList;
 
 import java.util.List;
+import java.util.Optional;
 
 import static com.google.common.base.Preconditions.checkArgument;
+import static java.util.Objects.requireNonNull;
 
-/** One accepted review execution owns these captured inputs; task lifecycle and cancellation remain authoritative elsewhere. */
+/** One accepted review or explicit learning execution owns these captured inputs; task lifecycle and cancellation remain authoritative elsewhere. */
 public record ActiveContextPreparation(
         String attemptId,
         String requestKey,
@@ -27,8 +29,8 @@ public record ActiveContextPreparation(
         String ownerTaskId,
         String ownerTurnId,
         String ownerTurnKey,
-        String reviewId,
-        String runId,
+        Optional<String> reviewId,
+        Optional<String> runId,
         long baseContentRevision,
         List<ContextInputFingerprint> inputs)
 {
@@ -41,8 +43,11 @@ public record ActiveContextPreparation(
         ContextLimits.text(ownerTaskId, "preparation task id", 200);
         ContextLimits.text(ownerTurnId, "preparation turn id", 200);
         ContextLimits.text(ownerTurnKey, "preparation turn key", 500);
-        ContextLimits.text(reviewId, "preparation review id", 200);
-        ContextLimits.text(runId, "preparation run id", 200);
+        requireNonNull(reviewId, "reviewId is null");
+        requireNonNull(runId, "runId is null");
+        checkArgument(reviewId.isPresent() == runId.isPresent(), "Preparation review and run identities must be paired");
+        reviewId.ifPresent(value -> ContextLimits.text(value, "preparation review id", 200));
+        runId.ifPresent(value -> ContextLimits.text(value, "preparation run id", 200));
         checkArgument(baseContentRevision >= 0, "Negative preparation revision");
         inputs = ImmutableList.copyOf(inputs);
         ContextLimits.unique(inputs.stream().map(ContextInputFingerprint::scopeId).toList(), "preparation input scopes", 100);

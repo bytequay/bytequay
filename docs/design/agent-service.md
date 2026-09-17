@@ -102,6 +102,49 @@ state. A failed or unsafe head move fails the request. The task stays in private
 review. Finishing explicitly discards experiments without creating a stash.
 See [development delivery](development-delivery.md#2-settings-and-scope).
 
+## Explicit repository learning
+
+[Repository Context](repository-context.md#23-explicit-learnrefresh-without-a-review)
+adds an explicit Learn/Refresh action through the current task service. The first
+run includes repository files, directory structure, repository documentation and
+registered docs by default. Users choose scopes and may add selected merged PRs
+or closed issues. The result is shared Knowledge; user-owned memory still requires
+Save lesson. The task is visible with its transcript, Stop and existing recovery.
+Task details use the required TaskView.worktreePath string to display its actual
+managed worktree, including a retained tree that still needs explicit cleanup.
+
+ContextBuildService checks the configured Review provider/model before allocation,
+freezes the local monitored baseline, and stores a reserved task ID plus accepted
+source selection in ContextBuild before creating a noninteractive AUTO task and
+starting its root turn. ContextBuildStore uses the existing AppSettingsStore key
+`workspace.repositoryContextBuild.<workspaceId>` for the latest binding, captured
+sources and exact operation receipts. Task/turn records remain the lifecycle
+authority. No PR, review run or parallel build-job state is manufactured.
+
+Purpose is resolved from the current saved task binding, never from the task's
+title, user message or model-authored field. ReviewBridgeResolver gives that root
+the existing restricted/no-child profile with only repository_context_read and
+repository_context_prepare. Global user skills apply; AUTO does not grant
+development delivery, PR-reporting or publication authority. Source bodies remain
+untrusted tool results, separate from the trusted policy. Shared preparation uses
+mandatory task/turn ownership and paired optional review/run IDs; standalone
+learning has neither review nor run ID.
+
+ContextBuildCoordinator observes existing task events. Startup restores that
+observation and settles existing work only; opening a surface, synchronization
+and startup never start or resume learning. There is no learning scheduler.
+An accepted structured result still waits for a terminal, quiescent turn before
+the application explicitly completes the task and invokes verified clean-worktree
+cleanup. Stop/failure preserves prior notes. The latest binding remains until
+the task is terminal and worktree removal is recorded, so cleanup controls and
+purpose fencing remain reachable. Missing-task provisioning failures remain
+attached to their request; uncertain accepted input is never resent automatically.
+A task already FAILED when reconciliation begins keeps its worktree until the
+user invokes purpose-scoped cleanup. Mark failed can discard an unverified
+recovery claim, so GET and startup do not automatically remove that worktree.
+A claim-free OPEN task whose turn just cancelled or failed may be abandoned and
+checked for safe cleanup in the same reconciliation pass.
+
 ## Review reference input
 
 [Repository Context](repository-context.md) extends accepted review turn input
@@ -265,6 +308,9 @@ receive private review guidance through their existing review bridge, with
 executable proof as the first priority and at most ten qualifying findings per
 round. User skills combine Global with the matching task scope; open review
 ownership selects Review, and helpers receive only Global user skills.
+Explicit repository-learning tasks also receive only Global user skills; their
+saved ContextBuild binding selects the separate trusted research policy and
+fixed tool bridge, not development guidance or an invented review ownership.
 Scope and native
 child inheritance are specified in the linked skills design.
 

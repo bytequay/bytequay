@@ -14,12 +14,15 @@
 package com.bytequay.core.context;
 
 import com.bytequay.core.domain.RepoRef;
+import com.google.common.collect.ImmutableList;
+import com.google.common.hash.Hashing;
 import org.junit.jupiter.api.Test;
 
 import java.time.Instant;
 import java.util.Optional;
 import java.util.UUID;
 
+import static java.nio.charset.StandardCharsets.UTF_8;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
@@ -80,6 +83,35 @@ class TestContextSourceRead
         assertThat(document(exact, "docs", exact.url(), 1, 1, 4, false, Optional.of("evidence")).registration()).isEqualTo(exact);
         assertThatThrownBy(() -> document(exact, "docs", exact.url() + "/child", 1, 1, 4, false, Optional.of("evidence")))
                 .isInstanceOf(IllegalArgumentException.class);
+    }
+
+    @Test
+    void historyRequiresTerminalTypedIdentityAndExactEvidence()
+    {
+        ContextReference pr = new ContextReference.PullRequest(1, RepoRef.of("example", "repo"), 3, Optional.empty());
+        ContextReference issue = new ContextReference.Issue(1, RepoRef.of("example", "repo"), 4, Optional.empty());
+        ContextHistoryRead read = history(pr, ContextHistoryRead.State.MERGED, Optional.of(SHA), Optional.of("evidence"));
+        assertThat(read.sourceKey()).isEqualTo("history:PR:1:3");
+        read.checkExcerpt("Merged decision");
+        assertThatThrownBy(() -> read.checkExcerpt("Merged decisioN")).hasMessageContaining("content hash");
+        assertThat(history(issue, ContextHistoryRead.State.CLOSED, Optional.empty(), Optional.of("evidence")).sourceKey()).isEqualTo("history:ISSUE:1:4");
+        assertThatThrownBy(() -> history(pr, ContextHistoryRead.State.CLOSED, Optional.empty(), Optional.of("evidence")))
+                .isInstanceOf(IllegalArgumentException.class);
+        assertThatThrownBy(() -> history(issue, ContextHistoryRead.State.MERGED, Optional.empty(), Optional.of("evidence")))
+                .isInstanceOf(IllegalArgumentException.class);
+        assertThatThrownBy(() -> history(issue, ContextHistoryRead.State.CLOSED, Optional.of(SHA), Optional.of("evidence")))
+                .isInstanceOf(IllegalArgumentException.class);
+        assertThatThrownBy(() -> history(pr, ContextHistoryRead.State.MERGED, Optional.empty(), Optional.empty()))
+                .isInstanceOf(IllegalArgumentException.class);
+        assertThatThrownBy(() -> history(new ContextReference.PullRequest(1, RepoRef.of("example", "repo"), 3, Optional.of("comment")),
+                ContextHistoryRead.State.MERGED, Optional.empty(), Optional.of("evidence"))).isInstanceOf(IllegalArgumentException.class);
+    }
+
+    private static ContextHistoryRead history(ContextReference reference, ContextHistoryRead.State state, Optional<String> revision, Optional<String> evidence)
+    {
+        String excerpt = "Merged decision";
+        return new ContextHistoryRead("context-read:history", reference, state, Optional.of(Instant.EPOCH), revision,
+                Hashing.sha256().hashString(excerpt, UTF_8).toString(), Instant.EPOCH, excerpt.getBytes(UTF_8).length, false, false, ImmutableList.of(), evidence);
     }
 
     private static ContextDocumentRead document(

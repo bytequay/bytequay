@@ -16,7 +16,8 @@ import { afterEach, expect, it, vi } from 'vitest';
 import { CI_RUN } from './agents/fixtures/ciAutofix';
 import contracts from './agents/fixtures/agent-contracts-v1.json';
 import { parseAgentTask } from './agents/contracts';
-import type { RepositoryNotebookDto } from './repository-context/contracts';
+import type { ContextBuildViewDto, RepositoryNotebookDto } from './repository-context/contracts';
+import type { AgentRuntimeStopImpactDto } from './types';
 
 const desktop = vi.hoisted(() => ({
   listeners: new Map<string, () => Promise<void>>(),
@@ -130,4 +131,35 @@ it('refuses malformed notebook responses instead of returning a fabricated empty
   await expect(desktop.listeners.get('ready')?.()).rejects.toThrow('End test startup');
   vi.stubGlobal('fetch', vi.fn(async () => new Response(JSON.stringify({ ...emptyNotebook, useInReviews: 'false' }))));
   await expect(desktop.handlers.get('repository-context:get')?.({}, 'workspace')).rejects.toThrow('Malformed repository context');
+});
+
+it('routes explicit learning and recovery through the authenticated purpose-bound API', async () => {
+  await import('./main');
+  await expect(desktop.listeners.get('ready')?.()).rejects.toThrow('End test startup');
+  const view: ContextBuildViewDto = { buildRequestSequence: 0, notebookRevision: 7, canStart: true, build: null };
+  const fetch = vi.fn(async () => new Response(JSON.stringify(view)));
+  vi.stubGlobal('fetch', fetch);
+  const base = 'http://127.0.0.1:9527/api/workspaces/workspace%2Fone/repository-context/build';
+  await expect(desktop.handlers.get('repository-context:build:get')?.({}, 'workspace/one')).resolves.toEqual(view);
+  expect(fetch).toHaveBeenLastCalledWith(base, expect.objectContaining({ headers: { 'X-ByteQuay-Session': 'test-session' } }));
+  const request = { requestKey: 'learn-key', expectedRevision: 7, expectedBuildSequence: 0, scopeIds: ['project'], history: [{ kind: 'PR', number: 18 }] };
+  const cases = [
+    { name: 'start', path: '', args: [request], body: request },
+    { name: 'stop', path: '/stop', args: ['task'], body: { taskId: 'task' } },
+    { name: 'stop-runtime', path: '/runtime/stop', args: ['task', 'generation'], body: { taskId: 'task', generation: 'generation' } },
+    { name: 'fail', path: '/mark-failed', args: ['task', 'User stopped learning'], body: { taskId: 'task', reason: 'User stopped learning' } },
+    { name: 'cleanup', path: '/cleanup', args: ['task'], body: { taskId: 'task' } },
+  ];
+  for (const item of cases) {
+    await expect(desktop.handlers.get(`repository-context:build:${item.name}`)?.({}, 'workspace/one', ...item.args)).resolves.toEqual(view);
+    expect(fetch).toHaveBeenLastCalledWith(base + item.path, expect.objectContaining({ method: 'POST', body: JSON.stringify(item.body),
+      headers: { 'Content-Type': 'application/json', 'X-ByteQuay-Session': 'test-session' } }));
+  }
+  const impact: AgentRuntimeStopImpactDto = { taskId: 'task/one', generation: 'generation', activeTurnId: null, liveProcess: true };
+  fetch.mockImplementation(async () => new Response(JSON.stringify(impact)));
+  await expect(desktop.handlers.get('repository-context:build:stop-impact')?.({}, 'workspace/one', 'task/one')).resolves.toEqual(impact);
+  expect(fetch).toHaveBeenLastCalledWith(base + '/runtime/stop-impact?taskId=task%2Fone', expect.objectContaining({ headers: { 'X-ByteQuay-Session': 'test-session' } }));
+  fetch.mockClear();
+  expect(() => desktop.handlers.get('repository-context:build:start')?.({}, 'workspace/one', { ...request, prompt: 'forged' })).toThrow('unsupported request field');
+  expect(fetch).not.toHaveBeenCalled();
 });

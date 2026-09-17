@@ -13,7 +13,7 @@
  */
 import { renderToStaticMarkup } from 'react-dom/server';
 import { describe, expect, it } from 'vitest';
-import type { ReviewContextSnapshotDto } from '../../repository-context/contracts';
+import type { ContextHistoryReadDto, ReviewContextSnapshotDto } from '../../repository-context/contracts';
 import ReviewContextDetails from './ReviewContextDetails';
 import ReviewDetails from './ReviewDetails';
 import ReviewThread from './ReviewThread';
@@ -128,6 +128,29 @@ describe('saved review repository context', () => {
     expect(html).toContain('No nonblank excerpt was recorded for this read.');
     expect(html).toContain('Manifest missing');
     expect(html).toContain('Presence in the reviewed base is unknown.');
+  });
+
+  it('shows retained history state and exact evidence without equating merge or closure with a fix', () => {
+    const merged: ContextHistoryReadDto = { kind: 'HISTORY', id: 'history:merged',
+      reference: { kind: 'PR', repositoryId: 7, repository: { owner: 'trino', repo: 'trino' }, number: 18, commentId: null },
+      state: 'MERGED', sourceUpdatedAt: '2026-01-03T00:00:00Z', sourceRevision: 'd'.repeat(40), contentHash: 'e'.repeat(64),
+      readAt: '2026-01-04T00:00:00Z', utf8Bytes: 120, truncated: true, refreshFailed: true, gaps: ['Final diff completeness is unverified.'], evidenceRef: 'E1' };
+    const closed: ContextHistoryReadDto = { ...merged, id: 'history:closed', reference: { ...merged.reference, kind: 'ISSUE', number: 9 },
+      state: 'CLOSED', sourceUpdatedAt: null, sourceRevision: null, truncated: false, refreshFailed: false, gaps: ['Closure reason is unknown.'] };
+    const html = renderToStaticMarkup(<ReviewContextDetails run={{ ...run, context: { ...context, sourceReads: [merged, closed] } }} />);
+    expect(html).toContain('Merged PR #18');
+    expect(html).toContain('Closed issue #9');
+    expect(html).toContain('trino/trino · ID 7');
+    expect(html).toContain('2026-01-03T00:00:00Z');
+    expect(html).toContain('2026-01-04T00:00:00Z');
+    expect(html).toContain('d'.repeat(40));
+    expect(html).toContain('e'.repeat(64));
+    expect(html).toContain('Source updated</dt><dd>Unknown');
+    expect(html).toContain('A selected source refresh failed. See the limitations for missing or earlier stored data.');
+    expect(html).toContain('Merged or closed status does not establish current behavior or prove that an issue was fixed.');
+    expect(html).toContain('Final diff completeness is unverified.');
+    expect(html).toContain('Closure reason is unknown.');
+    expect(html).toContain('exact evidence\n');
   });
 
   it('offers Save lesson only for messages bound to a retained run, including older runs', () => {

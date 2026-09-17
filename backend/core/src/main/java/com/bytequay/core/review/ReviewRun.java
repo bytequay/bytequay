@@ -15,6 +15,7 @@ package com.bytequay.core.review;
 
 import com.bytequay.core.context.ContextContribution;
 import com.bytequay.core.context.ContextDelivery;
+import com.bytequay.core.context.ContextHistoryRead;
 import com.bytequay.core.context.ContextLimits;
 import com.bytequay.core.context.ContextSourceRead;
 import com.bytequay.core.context.ReviewContextSnapshot;
@@ -106,6 +107,9 @@ public record ReviewRun(
                 ReviewEvidence item = evidence.get(read.evidenceRef().orElseThrow());
                 checkArgument(read.evidenceRef().orElseThrow().equals(item.ref()), "Source read evidence reference differs");
                 checkArgument(!item.excerpt().isBlank() && ContextLimits.bytes(item.excerpt()) == read.utf8Bytes(), "Source read excerpt byte count or content differs");
+                if (read instanceof ContextHistoryRead history) {
+                    history.checkExcerpt(item.excerpt());
+                }
             }
         }
         requireNonNull(outcome, "outcome is null");

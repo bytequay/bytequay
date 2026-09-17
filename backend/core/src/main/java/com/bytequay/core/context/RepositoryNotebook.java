@@ -77,9 +77,15 @@ public record RepositoryNotebook(
             checkArgument(source.reference().equals(switch (read) {
                 case ContextRepositoryRead repository -> repository.reference();
                 case ContextDocumentRead document -> document.reference();
+                case ContextHistoryRead history -> history.reference();
             }), "Checked source evidence identity differs");
             checkArgument(source.capture() == ContextSourceEvidence.Capture.BYTEQUAY_READ, "Checked sources must be application captures");
             checkArgument(ContextLimits.bytes(source.excerpt()) == read.utf8Bytes(), "Checked source evidence byte count differs");
+            if (read instanceof ContextHistoryRead history) {
+                history.checkExcerpt(source.excerpt());
+                checkArgument(source.contentHash().equals(Optional.of(history.contentHash())) && source.version().equals(history.sourceRevision()),
+                        "History evidence content identity differs");
+            }
         }));
         long proseBytes = entries.stream().mapToLong(ContextEntry::proseBytes).sum()
                 + results.stream().mapToLong(result -> ContextLimits.bytes(result.explanation())).sum()

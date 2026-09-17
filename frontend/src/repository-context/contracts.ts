@@ -54,7 +54,11 @@ export type ContextDocumentReadDto = SourceRead & {
   kind: 'DOCUMENT'; reference: Extract<ContextReferenceDto, { kind: 'DOCUMENT' }>; registration: ContextSourceDto;
   notebookRevision: number; captureId: string; contentHash: string; page: number; totalPages: number; blank: boolean; refreshFailed: boolean;
 };
-export type ContextSourceReadDto = ContextRepositoryReadDto | ContextDocumentReadDto;
+export type ContextHistoryReadDto = SourceRead & {
+  kind: 'HISTORY'; reference: Extract<ContextReferenceDto, { kind: 'PR' | 'ISSUE' }>; state: 'MERGED' | 'CLOSED';
+  sourceUpdatedAt: string | null; sourceRevision: string | null; contentHash: string; refreshFailed: boolean; gaps: string[];
+};
+export type ContextSourceReadDto = ContextRepositoryReadDto | ContextDocumentReadDto | ContextHistoryReadDto;
 export type ContextInputFingerprintDto = { scopeId: string; inputs: Record<string, string>; digest: string | null; gaps: string[] };
 export type ContextPreparationResultDto = {
   attemptId: string; inputFingerprint: ContextInputFingerprintDto; outcome: 'READY' | 'EMPTY' | 'FAILED';
@@ -62,7 +66,21 @@ export type ContextPreparationResultDto = {
 };
 export type ActiveContextPreparationDto = {
   attemptId: string; requestKey: string; requestDigest: string; ownerTaskId: string; ownerTurnId: string; ownerTurnKey: string;
-  reviewId: string; runId: string; baseContentRevision: number; inputs: ContextInputFingerprintDto[];
+  reviewId: string | null; runId: string | null; baseContentRevision: number; inputs: ContextInputFingerprintDto[];
+};
+export type ContextBuildHistoryDto = { kind: 'PR' | 'ISSUE'; number: number };
+export type StartContextBuildRequest = {
+  requestKey: string; expectedRevision: number; expectedBuildSequence: number; scopeIds: string[]; history: ContextBuildHistoryDto[];
+};
+export type ContextBuildViewDto = {
+  buildRequestSequence: number; notebookRevision: number; canStart: boolean;
+  build: null | {
+    requestKey: string; taskId: string; baselineSha: string; scopeIds: string[]; history: ContextBuildHistoryDto[]; requestedAt: string;
+    task: null | { id: string; workspaceId: string; state: 'OPEN' | 'COMPLETED' | 'FAILED'; version: number; laneId: string; model: string | null;
+      mutationClaim: string | null; terminalReason: string | null; worktreePath: string; worktreeRemovedAt: string | null };
+    activeTurn: null | { id: string; state: string; startedAt: string | null; cancellationRequestedAt: string | null };
+    pendingApprovals: number; results: ContextPreparationResultDto[]; gaps: string[];
+  };
 };
 export type ContextContributionDto = {
   investigationStep: number; text: string; evidenceRefs: string[]; preparationRefs: string[]; limitations: string[];
@@ -193,16 +211,22 @@ function inputFingerprint(value: unknown): ContextInputFingerprintDto {
 }
 function preparationResult(value: unknown): ContextPreparationResultDto {
   const item = object(value, 'preparation result');
-  return { attemptId: text(item.attemptId, 'preparation attempt'), inputFingerprint: inputFingerprint(item.inputFingerprint),
+  const result: ContextPreparationResultDto = { attemptId: text(item.attemptId, 'preparation attempt'), inputFingerprint: inputFingerprint(item.inputFingerprint),
     outcome: oneOf(item.outcome, ['READY', 'EMPTY', 'FAILED'], 'preparation outcome'), noteIds: strings(item.noteIds, 'prepared note ids'),
     checkedReads: array(item.checkedReads, 'checked source reads', sourceRead), explanation: text(item.explanation, 'preparation explanation') };
+  if (result.outcome === 'EMPTY' && result.checkedReads.some(read => read.kind === 'HISTORY' || read.truncated
+    || (read.kind === 'DOCUMENT' && read.refreshFailed))) malformed('empty preparation has incomplete or historical source reads');
+  return result;
 }
 function activePreparation(value: unknown): ActiveContextPreparationDto {
   const item = object(value, 'active preparation');
+  const reviewId = optionalText(item.reviewId, 'preparation review');
+  const runId = optionalText(item.runId, 'preparation run');
+  if ((reviewId === null) !== (runId === null)) malformed('preparation review and run must be paired');
   return { attemptId: text(item.attemptId, 'preparation attempt'), requestKey: text(item.requestKey, 'preparation request key'),
     requestDigest: text(item.requestDigest, 'preparation request digest'), ownerTaskId: text(item.ownerTaskId, 'preparation task'),
     ownerTurnId: text(item.ownerTurnId, 'preparation turn'), ownerTurnKey: text(item.ownerTurnKey, 'preparation turn key'),
-    reviewId: text(item.reviewId, 'preparation review'), runId: text(item.runId, 'preparation run'),
+    reviewId, runId,
     baseContentRevision: count(item.baseContentRevision, 'preparation revision'), inputs: array(item.inputs, 'preparation inputs', inputFingerprint) };
 }
 function selectedEntry(value: unknown): ContextSelectedEntryDto {
@@ -217,7 +241,7 @@ function selectedEntry(value: unknown): ContextSelectedEntryDto {
 }
 function sourceRead(value: unknown): ContextSourceReadDto {
   const item = object(value, 'source receipt');
-  const kind = oneOf(item.kind, ['REPOSITORY_FILE', 'DOCUMENT'], 'source receipt kind');
+  const kind = oneOf(item.kind, ['REPOSITORY_FILE', 'DOCUMENT', 'HISTORY'], 'source receipt kind');
   const observed = reference(item.reference);
   const common: SourceRead = { id: text(item.id, 'source receipt id'), readAt: text(item.readAt, 'source read time'),
     utf8Bytes: count(item.utf8Bytes, 'source bytes'), evidenceRef: optionalText(item.evidenceRef, 'source evidence reference'),
@@ -231,6 +255,16 @@ function sourceRead(value: unknown): ContextSourceReadDto {
       captureId: text(item.captureId, 'document capture id'), contentHash: text(item.contentHash, 'document content hash'),
       page: count(item.page, 'document page', 1), totalPages: count(item.totalPages, 'document pages', 1),
       blank: flag(item.blank, 'blank document'), refreshFailed: flag(item.refreshFailed, 'refresh failure') };
+  }
+  if (kind === 'HISTORY' && (observed.kind === 'PR' || observed.kind === 'ISSUE')) {
+    const state = oneOf(item.state, ['MERGED', 'CLOSED'], 'history source state');
+    const sourceRevision = optionalText(item.sourceRevision, 'history source revision');
+    if (common.evidenceRef === null || common.evidenceRef.trim() === '') malformed('history evidence reference is missing');
+    if ((observed.kind === 'PR') !== (state === 'MERGED') || observed.commentId !== null
+      || (observed.kind === 'ISSUE' && sourceRevision !== null)) malformed('history source identity and state disagree');
+    return { ...common, kind, reference: observed, state, sourceRevision, sourceUpdatedAt: optionalText(item.sourceUpdatedAt, 'history source update'),
+      contentHash: text(item.contentHash, 'history content hash'), refreshFailed: flag(item.refreshFailed, 'history refresh failure'),
+      gaps: strings(item.gaps, 'history limitations') };
   }
   return malformed('source receipt and reference kinds disagree');
 }
@@ -281,6 +315,44 @@ function request(value: unknown, fields: string[]): Record<string, unknown> {
   const item = object(value, 'request');
   for (const key of Object.keys(item)) if (!fields.includes(key)) malformed(`unsupported request field ${key}`);
   return item;
+}
+function buildHistory(value: unknown): ContextBuildHistoryDto {
+  const item = request(value, ['kind', 'number']);
+  return { kind: oneOf(item.kind, ['PR', 'ISSUE'], 'history kind'), number: count(item.number, 'history number', 1) };
+}
+export function parseStartContextBuildRequest(value: unknown): StartContextBuildRequest {
+  const item = request(value, ['requestKey', 'expectedRevision', 'expectedBuildSequence', 'scopeIds', 'history']);
+  const result = { requestKey: text(item.requestKey, 'build request key'), expectedRevision: count(item.expectedRevision, 'expected revision'),
+    expectedBuildSequence: count(item.expectedBuildSequence, 'expected build sequence'), scopeIds: strings(item.scopeIds, 'build scopes'),
+    history: array(item.history, 'selected history', buildHistory) };
+  if (result.requestKey.trim() === '' || result.scopeIds.length === 0 || result.scopeIds.length > 100
+    || result.scopeIds.some(id => id.trim() === '') || new Set(result.scopeIds).size !== result.scopeIds.length) malformed('build request identity or scopes');
+  if (result.history.length > 10 || new Set(result.history.map(item => `${item.kind}:${item.number}`)).size !== result.history.length
+    || result.history.some(item => item.number > 2147483647)) malformed('selected history limit or identity');
+  return result;
+}
+export function parseContextBuildView(value: unknown, workspaceId: string): ContextBuildViewDto {
+  const item = object(value, 'build view');
+  const result: ContextBuildViewDto = { buildRequestSequence: count(item.buildRequestSequence, 'build sequence'),
+    notebookRevision: count(item.notebookRevision, 'build notebook revision'), canStart: flag(item.canStart, 'build availability'), build: null };
+  if (item.build === null) return result;
+  const build = object(item.build, 'build');
+  const task = build.task === null ? null : object(build.task, 'build task');
+  const turn = build.activeTurn === null ? null : object(build.activeTurn, 'build turn');
+  result.build = { requestKey: text(build.requestKey, 'build request key'), taskId: text(build.taskId, 'build task id'),
+    baselineSha: text(build.baselineSha, 'build baseline'), scopeIds: strings(build.scopeIds, 'build scopes'),
+    history: array(build.history, 'build history', buildHistory), requestedAt: text(build.requestedAt, 'build request time'),
+    task: task === null ? null : { id: text(task.id, 'task id'), workspaceId: text(task.workspaceId, 'task workspace'),
+      state: oneOf(task.state, ['OPEN', 'COMPLETED', 'FAILED'], 'task state'), version: count(task.version, 'task version'),
+      laneId: text(task.laneId, 'task provider'), model: optionalText(task.model, 'task model'), mutationClaim: optionalText(task.mutationClaim, 'task claim'),
+      terminalReason: optionalText(task.terminalReason, 'task result'), worktreePath: text(task.worktreePath, 'task worktree'),
+      worktreeRemovedAt: optionalText(task.worktreeRemovedAt, 'task cleanup') },
+    activeTurn: turn === null ? null : { id: text(turn.id, 'turn id'), state: text(turn.state, 'turn state'),
+      startedAt: optionalText(turn.startedAt, 'turn start'), cancellationRequestedAt: optionalText(turn.cancellationRequestedAt, 'turn cancellation') },
+    pendingApprovals: count(build.pendingApprovals, 'pending approvals'), results: array(build.results, 'build results', preparationResult),
+    gaps: strings(build.gaps, 'build limitations') };
+  if (result.build.task !== null && (result.build.task.id !== result.build.taskId || result.build.task.workspaceId !== workspaceId)) malformed('build task ownership');
+  return result;
 }
 export function parseConfigureRepositoryContextRequest(value: unknown): ConfigureRepositoryContextRequest {
   const item = request(value, ['expectedRevision', 'useInReviews', 'sources', 'scopes']);

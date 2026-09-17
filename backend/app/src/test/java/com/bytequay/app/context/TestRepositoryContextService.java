@@ -270,11 +270,13 @@ class TestRepositoryContextService
     void removedWorkspaceCannotRecreateNotebookAndDeletionIsIdempotent()
     {
         service.setUseInReviews(WORKSPACE, 0, false);
+        settings.put(ContextBuildStore.PREFIX + WORKSPACE, "retained learning request");
         service.deleteWorkspaceData(WORKSPACE);
         service.deleteWorkspaceData(WORKSPACE);
         when(workspaces.findById(WORKSPACE)).thenReturn(Optional.empty());
         assertThatThrownBy(() -> service.editEntry(WORKSPACE, 0, edit("Orphan"))).isInstanceOf(ContextNotFoundException.class);
         assertThat(settings.get(KEY)).isEmpty();
+        assertThat(settings.get(ContextBuildStore.PREFIX + WORKSPACE)).isEmpty();
     }
 
     @Test
@@ -329,7 +331,7 @@ class TestRepositoryContextService
         ContextEntry generated = new ContextEntry("knowledge:project", KNOWLEDGE, "project", "Project", "Summary", "Generated body",
                 ImmutableList.of(), ImmutableList.of(id), GENERATED, true, 1);
         ActiveContextPreparation active = new ActiveContextPreparation("active", "request", "sha256:" + "a".repeat(64),
-                "task", "turn", "turn-key", "review", "run", 1, ImmutableList.of(input));
+                "task", "turn", "turn-key", Optional.of("review"), Optional.of("run"), 1, ImmutableList.of(input));
         RepositoryNotebook notebook = new RepositoryNotebook(1, 1, true, ImmutableList.of(), ImmutableList.of(scope),
                 outcome == ContextPreparationResult.Outcome.READY ? ImmutableList.of(generated) : ImmutableList.of(),
                 ImmutableList.of(), ImmutableList.of(source), Optional.of(active));

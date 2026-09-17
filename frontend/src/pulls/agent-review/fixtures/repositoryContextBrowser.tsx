@@ -14,7 +14,7 @@
 import { flushSync } from 'react-dom';
 import { createRoot, type Root } from 'react-dom/client';
 import type { Bridge } from '../../../types';
-import type { ContextSourceEvidenceDto, RepositoryNotebookDto, ReviewContextSnapshotDto, SaveRepositoryContextLessonRequest } from '../../../repository-context/contracts';
+import type { ContextHistoryReadDto, ContextSourceEvidenceDto, RepositoryNotebookDto, ReviewContextSnapshotDto, SaveRepositoryContextLessonRequest } from '../../../repository-context/contracts';
 import ReviewDetails from '../ReviewDetails';
 import ReviewContextDetails from '../ReviewContextDetails';
 import ReviewThread from '../ReviewThread';
@@ -43,6 +43,14 @@ const brief = { investigationStep: 1, text: 'Keep field IDs scoped to their pare
   evidenceRefs: ['E1'], preparationRefs: ['prepared:project'], limitations: ['Dependency version applicability is unverified.'] };
 const delivery = { turnId: 'validation-turn', packetDigest: `sha256:${'c'.repeat(64)}`, utf8Bytes: 420, contributionCount: 1,
   inputDigest: `sha256:${'d'.repeat(64)}`, inputUtf8Bytes: 900, discussionMessageId: 'original-discussion', preparedAt: '2026-01-03T00:00:00Z' };
+const historyReads: ContextHistoryReadDto[] = [
+  { kind: 'HISTORY', id: 'history:merged', reference: { kind: 'PR', repositoryId: 7, repository: { owner: 'trinodb', repo: 'trino' }, number: 30280, commentId: null },
+    state: 'MERGED', sourceUpdatedAt: '2026-01-03T00:00:00Z', sourceRevision: 'd'.repeat(40), contentHash: 'e'.repeat(64), readAt: '2026-01-04T00:00:00Z',
+    utf8Bytes: 6, truncated: true, refreshFailed: true, gaps: ['The retained discussion is partial; inspect the final change before applying its lesson.'], evidenceRef: 'E1' },
+  { kind: 'HISTORY', id: 'history:closed', reference: { kind: 'ISSUE', repositoryId: 7, repository: { owner: 'trinodb', repo: 'trino' }, number: 29912, commentId: null },
+    state: 'CLOSED', sourceUpdatedAt: null, sourceRevision: null, contentHash: 'f'.repeat(64), readAt: '2026-01-04T00:00:00Z', utf8Bytes: 6,
+    truncated: false, refreshFailed: false, gaps: ['The closure reason is unknown.'], evidenceRef: 'E1' },
+];
 
 function button(scope: Element, text: string): HTMLButtonElement {
   const found = [...scope.querySelectorAll<HTMLButtonElement>('button')].find(item => item.textContent === text);
@@ -177,7 +185,7 @@ export async function runScenarios(): Promise<string[]> {
 
     const context: ReviewContextSnapshotDto = { id: 'context', enabled: true, notebookRevision: 4, repositoryId: 7, baselineSha: 'a'.repeat(40),
       bootstrap: { text: 'Initial packet', digest: `sha256:${'a'.repeat(64)}`, utf8Bytes: 14 }, selectedEntries: [], relatedItems: [], inputFingerprints: [],
-      sourceReads: [], gaps: [], contributions: [brief], deliveries: [delivery] };
+      sourceReads: historyReads, gaps: [], contributions: [brief], deliveries: [delivery] };
     for (const [outcome, label] of [['SUBMITTED', 'Waiting for confirmation'], ['UNCERTAIN', 'Delivery uncertain'], ['CONFIRMED', 'Provided to agent']] as const) {
       flushSync(() => root.render(<ReviewContextDetails run={{ ...run, context, contextDeliveryStates: { 'validation-turn': { outcome, detail: null } } }} />));
       assert(host.querySelector('h3')?.textContent === `Repository context · ${label}`, 'Delivery heading must follow the actual receipt state');
@@ -194,6 +202,11 @@ export async function runScenarios(): Promise<string[]> {
     assert(deliverySummary !== undefined, 'The run must disclose its delivery records'); deliverySummary.click();
     await settle();
     assert(host.textContent?.includes('original-discussion') === true && host.textContent.includes(delivery.packetDigest), 'Delivery details preserve the original message and digest');
+    const historySummary = [...host.querySelectorAll('summary')].find(item => item.textContent?.startsWith('Merged PR #30280'));
+    assert(historySummary !== undefined, 'Retained merged PR reads must be available in the source disclosures'); historySummary.click();
+    await settle();
+    assert(historySummary.parentElement?.textContent?.includes('The retained discussion is partial') === true, 'History limitations remain visible');
+    assert(host.textContent?.includes('Closed issue #29912') === true && host.textContent.includes('The closure reason is unknown.'), 'Closed issue state retains its missing closure reason');
     results.push('Context delivery follows receipts and keeps exact brief text in folded disclosures');
   }
   finally { flushSync(() => root.unmount()); host.remove(); }
@@ -219,7 +232,7 @@ export async function showFixture(mode: 'context' | 'lesson'): Promise<void> {
     inputFingerprints: [{ scopeId: 'project', inputs: { 'git:README.md': '100644 blob source-identity' }, digest: null, gaps: ['Effective dependency version was not resolved.'] }],
     sourceReads: [{ kind: 'REPOSITORY_FILE', id: 'context-read:example', reference: { kind: 'REPOSITORY_FILE', repositoryId: 7,
       repository: { owner: 'trinodb', repo: 'trino' }, path: 'README.md', commit: 'a'.repeat(40) }, blobId: 'b'.repeat(40),
-      readAt: '2026-01-01T00:00:00Z', startLine: 1, endLine: 2, totalLines: 30, utf8Bytes: 42, truncated: false, evidenceRef: 'E1' }],
+      readAt: '2026-01-01T00:00:00Z', startLine: 1, endLine: 2, totalLines: 30, utf8Bytes: 42, truncated: false, evidenceRef: 'E1' }, ...historyReads],
     gaps: ['Selected notebook claims have not been verified for this pull request.', 'Recent history is limited to locally cached records.'],
     contributions: [brief], deliveries: [delivery] };
   Object.defineProperty(window, 'bridge', { configurable: true, value: {

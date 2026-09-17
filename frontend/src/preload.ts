@@ -232,6 +232,13 @@ const bridge: Bridge = {
 
   getWorkspaceSettings: workspaceId => ipcRenderer.invoke('workspaces:settings', workspaceId),
   getRepositoryContext: workspaceId => ipcRenderer.invoke('repository-context:get', workspaceId),
+  getRepositoryContextBuild: workspaceId => ipcRenderer.invoke('repository-context:build:get', workspaceId),
+  startRepositoryContextBuild: (workspaceId, request) => ipcRenderer.invoke('repository-context:build:start', workspaceId, request),
+  stopRepositoryContextBuild: (workspaceId, taskId) => ipcRenderer.invoke('repository-context:build:stop', workspaceId, taskId),
+  getRepositoryContextBuildStopImpact: (workspaceId, taskId) => ipcRenderer.invoke('repository-context:build:stop-impact', workspaceId, taskId),
+  stopRepositoryContextBuildRuntime: (workspaceId, taskId, generation) => ipcRenderer.invoke('repository-context:build:stop-runtime', workspaceId, taskId, generation),
+  failRepositoryContextBuild: (workspaceId, taskId, reason) => ipcRenderer.invoke('repository-context:build:fail', workspaceId, taskId, reason),
+  cleanupRepositoryContextBuild: (workspaceId, taskId) => ipcRenderer.invoke('repository-context:build:cleanup', workspaceId, taskId),
   configureRepositoryContext: (workspaceId, request) => ipcRenderer.invoke('repository-context:configure', workspaceId, request),
   editRepositoryContextEntry: (workspaceId, request) => ipcRenderer.invoke('repository-context:edit', workspaceId, request),
   setRepositoryContextEntryEnabled: (workspaceId, request) => ipcRenderer.invoke('repository-context:enabled', workspaceId, request),

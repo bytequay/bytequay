@@ -43,8 +43,10 @@ function Evidence({ run, reference }: { run: ReviewRunDto; reference: string | n
 }
 
 function SourceReceipt({ read, run }: { read: SourceRead; run: ReviewRunDto }) {
+  const title = read.kind === 'DOCUMENT' ? read.reference.url : read.kind === 'REPOSITORY_FILE' ? read.reference.path
+    : `${read.reference.kind === 'PR' ? 'Merged PR' : 'Closed issue'} #${read.reference.number}`;
   return <details className="agr-context__item">
-    <summary>{read.kind === 'DOCUMENT' ? read.reference.url : read.reference.path}
+    <summary>{title}
       {' · '}{read.utf8Bytes.toLocaleString()} bytes{read.truncated ? ' · truncated' : ''}</summary>
     <dl className="agr-context__facts">
       <dt>Captured</dt><dd>{read.readAt}</dd>
@@ -54,16 +56,27 @@ function SourceReceipt({ read, run }: { read: SourceRead; run: ReviewRunDto }) {
         <dt>Frozen commit</dt><dd><code>{read.reference.commit}</code></dd>
         <dt>Blob</dt><dd><code>{read.blobId}</code></dd>
         <dt>Lines</dt><dd>{read.totalLines === 0 ? 'Empty file' : `${read.startLine}–${read.endLine} of ${read.totalLines}`}</dd>
-      </> : <>
+      </> : read.kind === 'DOCUMENT' ? <>
         <dt>Registered source</dt><dd>{read.registration.id} · {read.registration.url}</dd>
         <dt>Notebook revision</dt><dd>{read.notebookRevision}</dd>
         <dt>Capture</dt><dd><code>{read.captureId}</code></dd>
         <dt>Content hash</dt><dd><code>{read.contentHash}</code></dd>
         <dt>Page</dt><dd>{read.page} of {read.totalPages}{read.blank ? ' · blank' : ''}</dd>
+      </> : <>
+        <dt>Repository</dt><dd>{read.reference.repository.owner}/{read.reference.repository.repo} · ID {read.reference.repositoryId}</dd>
+        <dt>Recorded state</dt><dd>{read.state === 'MERGED' ? 'Merged pull request' : 'Closed issue'} #{read.reference.number}</dd>
+        <dt>Source updated</dt><dd>{read.sourceUpdatedAt ?? 'Unknown'}</dd>
+        {read.sourceRevision !== null && <><dt>Observed source revision</dt><dd><code>{read.sourceRevision}</code></dd></>}
+        <dt>Content hash</dt><dd><code>{read.contentHash}</code></dd>
       </>}
     </dl>
     {read.truncated && <p>The excerpt does not contain the complete source window.</p>}
     {read.kind === 'DOCUMENT' && read.refreshFailed && <p>Refresh failed. This is the earlier capture, with its original capture time.</p>}
+    {read.kind === 'HISTORY' && <>
+      {read.refreshFailed && <p>A selected source refresh failed. See the limitations for missing or earlier stored data.</p>}
+      <p>Merged or closed status does not establish current behavior or prove that an issue was fixed.</p>
+      {read.gaps.length > 0 && <ul>{read.gaps.map(gap => <li key={gap}>{gap}</li>)}</ul>}
+    </>}
     <Evidence run={run} reference={read.evidenceRef} />
   </details>;
 }

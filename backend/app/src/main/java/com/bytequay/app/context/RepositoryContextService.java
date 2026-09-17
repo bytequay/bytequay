@@ -17,6 +17,7 @@ import com.bytequay.app.workspace.WorkspaceOperationLocks;
 import com.bytequay.core.context.ContextClaim;
 import com.bytequay.core.context.ContextDocumentRead;
 import com.bytequay.core.context.ContextEntry;
+import com.bytequay.core.context.ContextHistoryRead;
 import com.bytequay.core.context.ContextLimits;
 import com.bytequay.core.context.ContextMatch;
 import com.bytequay.core.context.ContextReference;
@@ -270,7 +271,10 @@ public class RepositoryContextService
     public void deleteWorkspaceData(String workspaceId)
     {
         checkText(workspaceId, "workspaceId", 200);
-        WorkspaceOperationLocks.withLock(workspaceId, () -> settings.delete(key(workspaceId)));
+        WorkspaceOperationLocks.withLock(workspaceId, () -> {
+            settings.delete(key(workspaceId));
+            settings.delete(ContextBuildStore.PREFIX + workspaceId);
+        });
     }
 
     private RepositoryNotebook mutate(String workspaceId, long expectedRevision, UnaryOperator<RepositoryNotebook> operation)
@@ -379,7 +383,7 @@ public class RepositoryContextService
     @JsonSubTypes({
             @JsonSubTypes.Type(value = ContextMatch.Repository.class, name = "REPOSITORY"),
             @JsonSubTypes.Type(value = ContextMatch.Selected.class, name = "SELECTED")})
-    private interface MatchJson {}
+    interface MatchJson {}
 
     @JsonTypeInfo(use = JsonTypeInfo.Id.NAME, include = JsonTypeInfo.As.EXISTING_PROPERTY, property = "kind")
     @JsonSubTypes({
@@ -389,11 +393,12 @@ public class RepositoryContextService
             @JsonSubTypes.Type(value = ContextReference.Task.class, name = "TASK"),
             @JsonSubTypes.Type(value = ContextReference.Review.class, name = "REVIEW"),
             @JsonSubTypes.Type(value = ContextReference.Document.class, name = "DOCUMENT")})
-    private interface ReferenceJson {}
+    interface ReferenceJson {}
 
     @JsonTypeInfo(use = JsonTypeInfo.Id.NAME, include = JsonTypeInfo.As.EXISTING_PROPERTY, property = "kind")
     @JsonSubTypes({
             @JsonSubTypes.Type(value = ContextRepositoryRead.class, name = "REPOSITORY_FILE"),
-            @JsonSubTypes.Type(value = ContextDocumentRead.class, name = "DOCUMENT")})
-    private interface SourceReadJson {}
+            @JsonSubTypes.Type(value = ContextDocumentRead.class, name = "DOCUMENT"),
+            @JsonSubTypes.Type(value = ContextHistoryRead.class, name = "HISTORY")})
+    interface SourceReadJson {}
 }

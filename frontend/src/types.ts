@@ -17,12 +17,14 @@ import type { CreateDevelopmentLearningCommentRequest, CreateLocalReviewRequest,
 import type { LocalReviewThreadDto } from './pulls/local-review/types';
 import type {
   ConfigureRepositoryContextRequest,
+  ContextBuildViewDto,
   EditRepositoryContextEntryRequest,
   RemoveRepositoryContextEntryRequest,
   RepositoryNotebookDto,
   ResetRepositoryContextRequest,
   SaveRepositoryContextLessonRequest,
   SetRepositoryContextEntryEnabledRequest,
+  StartContextBuildRequest,
 } from './repository-context/contracts';
 import type {
   AgentReviewDto,
@@ -1538,6 +1540,13 @@ export type Bridge = {
 
   getWorkspaceSettings: (workspaceId: string) => Promise<WorkspaceSettingsDto>;
   getRepositoryContext: (workspaceId: string) => Promise<RepositoryNotebookDto>;
+  getRepositoryContextBuild: (workspaceId: string) => Promise<ContextBuildViewDto>;
+  startRepositoryContextBuild: (workspaceId: string, request: StartContextBuildRequest) => Promise<ContextBuildViewDto>;
+  stopRepositoryContextBuild: (workspaceId: string, taskId: string) => Promise<ContextBuildViewDto>;
+  getRepositoryContextBuildStopImpact: (workspaceId: string, taskId: string) => Promise<AgentRuntimeStopImpactDto>;
+  stopRepositoryContextBuildRuntime: (workspaceId: string, taskId: string, generation: string) => Promise<ContextBuildViewDto>;
+  failRepositoryContextBuild: (workspaceId: string, taskId: string, reason: string) => Promise<ContextBuildViewDto>;
+  cleanupRepositoryContextBuild: (workspaceId: string, taskId: string) => Promise<ContextBuildViewDto>;
   configureRepositoryContext: (workspaceId: string, request: ConfigureRepositoryContextRequest) => Promise<RepositoryNotebookDto>;
   editRepositoryContextEntry: (workspaceId: string, request: EditRepositoryContextEntryRequest) => Promise<RepositoryNotebookDto>;
   setRepositoryContextEntryEnabled: (workspaceId: string, request: SetRepositoryContextEntryEnabledRequest) => Promise<RepositoryNotebookDto>;

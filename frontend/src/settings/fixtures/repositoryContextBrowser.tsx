@@ -14,8 +14,10 @@
 import { flushSync } from 'react-dom';
 import { createRoot } from 'react-dom/client';
 import AppSidebar from '../../AppSidebar';
-import type { Bridge, WorkspaceDto } from '../../types';
-import type { ContextEntryDto, ContextScopeDto, RepositoryNotebookDto } from '../../repository-context/contracts';
+import type { AgentPendingApprovalDto, Bridge, WorkspaceDto } from '../../types';
+import type { AgentEventEnvelope } from '../../agents/events';
+import { createPreviewBridge } from '../../agents/fixtures/previewBridge';
+import type { ContextBuildViewDto, ContextEntryDto, ContextScopeDto, RepositoryNotebookDto, StartContextBuildRequest } from '../../repository-context/contracts';
 import SettingsWindow from '../SettingsWindow';
 import '../../css/base.css';
 import '../../css/settings-window.css';
@@ -26,6 +28,8 @@ const workspaces = [
   { id: 'ws-1', name: 'Trino', selectedOwner: 'trinodb', selectedRepo: 'trino', monitoredOwner: 'trinodb', monitoredRepo: 'trino' },
   { id: 'ws-2', name: 'Iceberg', selectedOwner: 'apache', selectedRepo: 'iceberg', monitoredOwner: 'apache', monitoredRepo: 'iceberg' },
 ] as WorkspaceDto[];
+const eventSource: AgentPendingApprovalDto['source'] = { providerThreadId: null, parentProviderThreadId: null, logicalAgentPath: null,
+  providerTurnId: null, providerItemId: null, providerEventId: null, providerOccurredAt: null };
 
 function notebook(second = false): RepositoryNotebookDto {
   return {
@@ -62,11 +66,17 @@ function notebook(second = false): RepositoryNotebookDto {
 
 type Mutation = { action: string; workspaceId: string; request: { expectedRevision: number } };
 function backend() {
+  sessionStorage.clear();
   const saved = new Map(workspaces.map(workspace => [workspace.id, notebook(workspace.id === 'ws-2')]));
+  const builds = new Map<string, ContextBuildViewDto>(workspaces.map((workspace): [string, ContextBuildViewDto] => [workspace.id,
+    { buildRequestSequence: 0, notebookRevision: 7, canStart: true, build: null }]));
+  const starts: Array<{ workspaceId: string; request: StartContextBuildRequest }> = [];
+  const controls: Array<{ action: string; taskId: string; generation?: string }> = [];
   const reads: string[] = [];
   const writes: Mutation[] = [];
   const delayed = new Map<string, (notebook: RepositoryNotebookDto) => void>();
-  const state = { saved, reads, writes, delayed, readFailure: false, holdWorkspace: '' };
+  const state = { saved, reads, writes, delayed, builds, starts, controls, readFailure: false, holdWorkspace: '', unavailable: false,
+    loseStartBefore: false, loseStartAfter: false, approvals: [] as AgentPendingApprovalDto[], events: [] as AgentEventEnvelope[] };
   const mutate = <T extends { expectedRevision: number }>(action: string, workspaceId: string, request: T,
     change: (current: RepositoryNotebookDto) => RepositoryNotebookDto): Promise<RepositoryNotebookDto> => {
     writes.push({ action, workspaceId, request: structuredClone(request) });
@@ -88,6 +98,57 @@ function backend() {
       const current = saved.get(workspaceId);
       assert(current !== undefined, 'Notebook workspace must exist');
       return structuredClone(current);
+    },
+    getModelSettings: async () => {
+      const catalog = await createPreviewBridge('ws-1').getModelSettings();
+      return { ...catalog, providers: catalog.providers.map(provider => ({ ...provider,
+        readiness: state.unavailable ? 'AUTHENTICATION_REQUIRED' as const : provider.readiness })) };
+    },
+    getRepositoryContextBuild: async (workspaceId: string) => {
+      const value = builds.get(workspaceId); assert(value !== undefined, 'Builder belongs to workspace'); return structuredClone(value);
+    },
+    startRepositoryContextBuild: async (workspaceId, request) => {
+      starts.push({ workspaceId, request: structuredClone(request) });
+      if (state.loseStartBefore) { state.loseStartBefore = false; throw new Error('Start response was lost'); }
+      const current = builds.get(workspaceId); assert(current !== undefined, 'Builder workspace exists');
+      if (current.build?.requestKey === request.requestKey) return structuredClone(current);
+      assert(current.canStart && request.expectedBuildSequence === current.buildRequestSequence, 'Start must use displayed build sequence');
+      assert(request.expectedRevision === saved.get(workspaceId)?.revision, 'Start must use displayed notebook revision');
+      const value: ContextBuildViewDto = { buildRequestSequence: current.buildRequestSequence + 1, notebookRevision: request.expectedRevision, canStart: false,
+        build: { requestKey: request.requestKey, taskId: 'build-task', baselineSha: 'a'.repeat(40), scopeIds: request.scopeIds, history: request.history,
+          requestedAt: '2026-09-01T00:00:00Z', task: { id: 'build-task', workspaceId, state: 'OPEN', version: 1, laneId: 'codex', model: 'gpt-5.6-codex',
+            mutationClaim: 'TURN', terminalReason: null, worktreePath: '/tmp/bytequay-fixture/learning-worktree', worktreeRemovedAt: null },
+          activeTurn: { id: 'build-turn', state: 'RUNNING', startedAt: '2026-09-01T00:00:01Z', cancellationRequestedAt: null },
+          pendingApprovals: state.approvals.length, results: [], gaps: [] } };
+      builds.set(workspaceId, value);
+      if (state.loseStartAfter) { state.loseStartAfter = false; throw new Error('Start response was lost'); }
+      return structuredClone(value);
+    },
+    stopRepositoryContextBuild: async (workspaceId, taskId) => {
+      controls.push({ action: 'stop', taskId });
+      const current = builds.get(workspaceId); assert(current?.build?.taskId === taskId && current.build.activeTurn !== null, 'Stop must name current builder');
+      const value = { ...current, build: { ...current.build, activeTurn: { ...current.build.activeTurn, cancellationRequestedAt: '2026-09-01T00:00:10Z' } } };
+      builds.set(workspaceId, value); return structuredClone(value);
+    },
+    getRepositoryContextBuildStopImpact: async (_workspaceId, taskId) => {
+      controls.push({ action: 'impact', taskId }); return { taskId, generation: 'generation-1', activeTurnId: null, liveProcess: true };
+    },
+    stopRepositoryContextBuildRuntime: async (workspaceId, taskId, generation) => {
+      controls.push({ action: 'stop-runtime', taskId, generation });
+      const current = builds.get(workspaceId); assert(current !== undefined, 'Builder exists'); return structuredClone(current);
+    },
+    readAgentHistory: async () => ({ events: structuredClone(state.events), beforeCursor: null, afterCursor: null, latestSequence: state.events.at(-1)?.sequence ?? 0 }),
+    readAgentPendingApprovals: async () => structuredClone(state.approvals),
+    getAgentTurn: async (turnId: string) => {
+      const completed = builds.get('ws-1')?.build?.task?.state === 'COMPLETED';
+      return { ...await createPreviewBridge('ws-1').getAgentTurn(turnId), id: turnId, taskId: 'build-task', state: completed ? 'COMPLETED' : 'RUNNING',
+        startedAt: '2026-09-01T00:00:01Z', endedAt: completed ? '2026-09-01T00:00:20Z' : null };
+    },
+    resolveAgentApproval: async (approvalId, decision) => {
+      state.approvals = state.approvals.filter(approval => approval.approvalId !== approvalId);
+      const current = builds.get('ws-1'); assert(current?.build !== null && current !== undefined, 'Builder exists');
+      builds.set('ws-1', { ...current, build: { ...current.build, pendingApprovals: state.approvals.length } });
+      return createPreviewBridge('ws-1').resolveAgentApproval(approvalId, decision);
     },
     configureRepositoryContext: (workspaceId, request) => mutate('configure', workspaceId, request, current => ({
       ...current, useInReviews: request.useInReviews ?? current.useInReviews,
@@ -113,7 +174,9 @@ function backend() {
       ...current, suppressedKnowledgeIds: current.suppressedKnowledgeIds.filter(id => !request.scopeIds.some(scope => id === 'knowledge:' + scope)),
     })),
   } satisfies Pick<Bridge, 'getAppVersion' | 'getAppPreferences' | 'getWorkspaceSettings' | 'getRepositoryContext' | 'configureRepositoryContext'
-    | 'editRepositoryContextEntry' | 'setRepositoryContextEntryEnabled' | 'removeRepositoryContextEntry' | 'resetRepositoryContext'>;
+    | 'editRepositoryContextEntry' | 'setRepositoryContextEntryEnabled' | 'removeRepositoryContextEntry' | 'resetRepositoryContext' | 'getModelSettings'
+    | 'getRepositoryContextBuild' | 'startRepositoryContextBuild' | 'stopRepositoryContextBuild' | 'getRepositoryContextBuildStopImpact'
+    | 'stopRepositoryContextBuildRuntime' | 'readAgentHistory' | 'readAgentPendingApprovals' | 'getAgentTurn' | 'resolveAgentApproval'>;
   Object.defineProperty(window, 'bridge', { configurable: true, value: bridge });
   return state;
 }
@@ -194,12 +257,162 @@ export async function run(): Promise<Array<{ name: string; error?: string }>> {
   await check('Opening is read-only and the default-on toggle retains saved notes', async view => {
     assert(view.state.reads.length === 1 && Number(view.state.writes.length) === 0, 'Opening must only read the notebook');
     assert(button(view.host, 'Use repository context in reviews').getAttribute('aria-checked') === 'true', 'Initial preference must be on');
+    assert(view.text().includes('Reviews can prepare reusable knowledge for configured scopes and provide saved context to the agent.'), 'Help must describe the implemented review workflow');
+    assert(view.text().includes('Learn / Refresh starts an explicit learning task.'), 'Standalone preparation is an explicit action');
+    assert(view.state.starts.length === 0, 'Opening settings must not start learning');
+    assert(!view.row('Project overview').textContent?.includes('No saved knowledge note'), 'A scope with a retained note must not claim that knowledge is absent');
     await view.click('Use repository context in reviews');
     assert(view.state.writes.length === 1 && view.state.writes[0].request.expectedRevision === 7, 'Toggle must use displayed revision');
     assert(!view.state.saved.get('ws-1')?.useInReviews && view.state.saved.get('ws-1')?.entries.length === 2, 'Off retains both saved notes');
     assert(view.text().includes('Project architecture'), 'Notes stay visible after disabling');
     assert(button(view.host, 'Use repository context in reviews').getAttribute('aria-checked') === 'false', 'Saved off state must render');
   });
+
+  await check('An empty Project overview scope is not presented as generated knowledge', async view => {
+    assert(view.text().includes('No saved knowledge notes.'), 'Knowledge remains explicitly empty');
+    assert(view.row('Project overview').textContent?.includes('No saved knowledge note for this scope.'), 'Project scope must disclose its missing note');
+    assert(view.row('Project overview').textContent?.includes('No completed preparation recorded.'), 'Missing note and missing preparation remain separate facts');
+    assert(view.text().includes('Project overview is a scope; its saved note appears under Knowledge.'), 'The scope label must not imply a saved overview');
+    assert(view.state.writes.length === 0, 'Explaining an empty scope must not start preparation');
+  }, state => {
+    const current = state.saved.get('ws-1');
+    assert(current !== undefined, 'Notebook exists');
+    state.saved.set('ws-1', { ...current, entries: [] });
+  });
+
+  await check('Learning includes essential sources, starts once with explicit history, and can be stopped', async view => {
+    await view.click('Use repository context in reviews');
+    await view.click('Learn / Refresh');
+    const dialog = view.dialog();
+    assert(dialog.textContent?.includes('Repository files, directory structure, repository documentation and registered documentation are always included.') === true,
+      'Essential inputs must be visible and always included');
+    const choices = [...dialog.querySelectorAll<HTMLInputElement>('input[type=checkbox]')];
+    assert(choices.length === 2 && choices[0].checked && !choices[1].checked, 'Only scope choices exist, with Project overview selected');
+    assert(view.state.starts.length === 0, 'Opening the dialog does not launch an agent');
+    await fill(dialog, 'Merged PR numbers (optional)', '#123, 456');
+    await fill(dialog, 'Closed issue numbers (optional)', '789');
+    const start = button(dialog, 'Start learning'); start.click(); start.click(); await settle(); await settle();
+    assert(Number(view.state.starts.length) === 1, 'Repeated click starts only one request');
+    const request = view.state.starts[0].request;
+    assert(request.expectedRevision === 8 && request.expectedBuildSequence === 0 && request.scopeIds.join() === 'project', 'Start uses displayed scope and revision');
+    assert(JSON.stringify(request.history) === JSON.stringify([{ kind: 'PR', number: 123 }, { kind: 'PR', number: 456 }, { kind: 'ISSUE', number: 789 }]), 'Explicit history is typed and bounded');
+    assert(!('sourceKinds' in request) && !('provider' in request) && !('prompt' in request), 'Essential inputs and Review profile cannot be replaced by the renderer');
+    assert(view.text().includes('Repository learning · Learning'), 'Running learning is visible even when review context is off');
+    await view.click('Stop learning');
+    assert(view.state.controls[0].action === 'stop' && view.state.controls[0].taskId === 'build-task', 'Stop targets the current builder');
+    assert(view.text().includes('Repository learning · Stopping') && button(view.host, 'Stop learning').disabled, 'Cancellation is distinct from completion');
+    const value = view.state.builds.get('ws-1'); assert(value?.build?.task !== null && value?.build !== null && value !== undefined, 'Builder exists');
+    view.state.builds.set('ws-1', { ...value, canStart: false, build: { ...value.build, activeTurn: null,
+      task: { ...value.build.task, state: 'COMPLETED', mutationClaim: null } } });
+    await view.click('Inspect latest task');
+    assert(button(view.host, 'Learn / Refresh').disabled && !button(view.host, 'Clean up worktree').disabled
+      && view.text().includes('Clean up the retained worktree before starting another learning task.'), 'Retained worktree blocks a new task with a visible remedy');
+    view.state.builds.set('ws-1', { ...value, canStart: true, build: { ...value.build, activeTurn: null,
+      task: { ...value.build.task, state: 'COMPLETED', mutationClaim: null, worktreeRemovedAt: '2026-09-01T00:00:20Z' } } });
+    await view.click('Inspect latest task');
+    assert(view.text().includes('Repository learning · Completed') && view.text().includes('Worktree cleaned up'), 'Completed task and cleanup facts remain visible');
+    assert(Number(view.state.starts.length) === 1, 'Inspecting terminal state never starts another task');
+  });
+
+  await check('Readiness and history limits block submission without starting a task', async view => {
+    await view.click('Learn / Refresh');
+    assert(button(view.dialog(), 'Start learning').disabled && view.dialog().textContent?.includes('Sign in'), 'Unavailable Review provider blocks learning');
+    view.state.unavailable = false;
+    await view.click('Check provider', view.dialog());
+    await fill(view.dialog(), 'Merged PR numbers (optional)', '1 2 3 4 5 6 7 8 9 10 11');
+    assert(button(view.dialog(), 'Start learning').disabled, 'Too much history blocks submission');
+    await fill(view.dialog(), 'Merged PR numbers (optional)', '1 1');
+    assert(button(view.dialog(), 'Start learning').disabled, 'Duplicate history blocks submission');
+    await fill(view.dialog(), 'Merged PR numbers (optional)', '1');
+    assert(!button(view.dialog(), 'Start learning').disabled && view.state.starts.length === 0, 'Rechecking readiness does not start learning');
+  }, state => { state.unavailable = true; });
+
+  await check('Unconfirmed starts retain the same request after closing and reopening settings', async view => {
+    await view.click('Learn / Refresh');
+    await view.click('Start learning', view.dialog());
+    await view.click('Cancel', view.dialog());
+    assert(view.text().includes('start response is unconfirmed'), 'Lost response is not success or empty context');
+    await view.workspace('ws-2'); await view.workspace('ws-1');
+    assert(view.text().includes('Retry same request'), 'Pending request survives settings remount');
+    await view.click('Inspect latest task');
+    assert(view.state.starts.length === 1, 'Inspection never resends');
+    await view.click('Retry same request');
+    assert(Number(view.state.starts.length) === 2 && JSON.stringify(view.state.starts[0]) === JSON.stringify(view.state.starts[1]), 'Explicit retry preserves the exact body and key');
+    assert(view.text().includes('Repository learning · Learning'), 'Confirmed retry exposes the existing task');
+  }, state => { state.loseStartBefore = true; });
+
+  await check('A lost accepted response is reconciled without another start', async view => {
+    await view.click('Learn / Refresh'); await view.click('Start learning', view.dialog()); await view.click('Cancel', view.dialog());
+    await view.click('Inspect latest task');
+    assert(view.state.starts.length === 1 && view.text().includes('Repository learning · Learning'), 'Existing accepted task is discovered');
+    assert(!view.text().includes('Retry same request'), 'Matching receipt clears uncertainty');
+  }, state => { state.loseStartAfter = true; });
+
+  await check('A rejected request can be discarded only after inspecting current state', async view => {
+    await view.click('Learn / Refresh'); await view.click('Start learning', view.dialog()); await view.click('Cancel', view.dialog());
+    assert(!view.text().includes('Discard unconfirmed request'), 'No discard without inspection after the failure');
+    await view.click('Inspect latest task'); await view.click('Discard unconfirmed request');
+    assert(!button(view.host, 'Learn / Refresh').disabled && view.state.starts.length === 1, 'Discard unlocks a new deliberate request without sending it');
+  }, state => { state.loseStartBefore = true; });
+
+  await check('Removed and user-managed notes cannot be overwritten by learning', async view => {
+    await view.click('Learn / Refresh');
+    const choices = [...view.dialog().querySelectorAll<HTMLInputElement>('input[type=checkbox]')];
+    assert(choices.every(choice => choice.disabled && !choice.checked), 'Protected scopes are unavailable');
+    assert(view.dialog().textContent?.includes('User-managed note is preserved') === true && button(view.dialog(), 'Start learning').disabled, 'Protected scope reason is explicit');
+    assert(view.state.starts.length === 0, 'Protected notes never trigger an agent');
+  }, state => {
+    const current = state.saved.get('ws-1'); assert(current !== undefined, 'Notebook exists');
+    state.saved.set('ws-1', { ...current, entries: current.entries.map(entry => entry.kind === 'KNOWLEDGE' ? { ...entry, origin: 'USER' } : entry),
+      suppressedKnowledgeIds: ['knowledge:path:plugin/trino-iceberg/'] });
+  });
+
+  await check('Learning messages and current approvals use the existing task transcript', async view => {
+    await view.click('Learn / Refresh'); await view.click('Start learning', view.dialog()); await settle();
+    assert(view.text().includes('Approval needed') && view.text().includes('Checking connector contracts.'), 'Task messages and pending approval are visible');
+    await view.click('Allow once: Read selected file');
+    assert(view.state.approvals.length === 0 && view.state.starts.length === 1, 'Approval resolves on the existing task without resending learning');
+  }, state => {
+    state.events = [{ schemaVersion: 2, eventId: 'commentary', sequence: 1, taskId: 'build-task', turnId: 'build-turn', source: eventSource,
+      occurredAt: '2026-09-01T00:00:02Z', type: 'assistant_message', payload: { messageKind: 'COMMENTARY', phase: 'FINAL', text: 'Checking connector contracts.' } }];
+    state.approvals = [{ approvalId: 'read-file', taskId: 'build-task', turnId: 'build-turn', source: eventSource,
+      occurredAt: '2026-09-01T00:00:03Z', title: 'Read selected file', detail: 'Inspect README.md', approvalKind: 'COMMAND',
+      scope: ['README.md'], availableDecisions: ['ALLOW_ONCE', 'DENY'], actionable: true }];
+  });
+
+  await check('Process recovery requires the inspected generation before stopping the runtime', async view => {
+    await view.click('Learn / Refresh'); await view.click('Start learning', view.dialog());
+    const current = view.state.builds.get('ws-1'); assert(current?.build?.task !== null && current?.build !== null && current !== undefined, 'Builder exists');
+    view.state.builds.set('ws-1', { ...current, build: { ...current.build, activeTurn: null, task: { ...current.build.task, mutationClaim: 'RECOVERY' } } });
+    await view.click('Inspect latest task'); await view.click('Stop remaining processes');
+    assert([...view.host.querySelectorAll('.rc-build-result details:last-child code')].some(element => element.textContent === '/tmp/bytequay-fixture/learning-worktree'),
+      'Task details expose the worktree path as read-only text for recovery');
+    assert(view.state.controls.length === 1 && view.state.controls[0].action === 'impact', 'Inspection alone must not stop a runtime');
+    await view.click('Stop processes', view.dialog());
+    assert(view.state.controls[1].action === 'stop-runtime' && view.state.controls[1].generation === 'generation-1', 'Confirmed stop sends the inspected generation');
+  });
+
+  await check('Empty preparation results refresh the notebook even without a content revision change', async view => {
+    await view.click('Learn / Refresh'); await view.click('Start learning', view.dialog());
+    const current = view.state.builds.get('ws-1'); const saved = view.state.saved.get('ws-1');
+    assert(current?.build?.task !== null && current?.build !== null && current !== undefined && saved !== undefined, 'Builder and notebook exist');
+    const result: NonNullable<ContextScopeDto['preparation']> = { attemptId: 'learning-empty', inputFingerprint: { scopeId: 'project', inputs: {}, digest: 'sha256:empty', gaps: [] },
+      outcome: 'EMPTY', noteIds: [], checkedReads: [], explanation: 'The inspected source yielded no useful note.' };
+    view.state.saved.set('ws-1', { ...saved, scopes: saved.scopes.map(scope => scope.id === 'project' ? { ...scope, preparation: result } : scope) });
+    view.state.builds.set('ws-1', { ...current, canStart: true, build: { ...current.build, activeTurn: null, results: [result],
+      task: { ...current.build.task, state: 'COMPLETED', mutationClaim: null, worktreeRemovedAt: '2026-09-01T00:00:20Z' } } });
+    await view.click('Inspect latest task');
+    assert(view.text().includes('Last preparation: No useful note found'), 'Preparation metadata is refreshed even at unchanged content revision');
+    assert(view.text().includes('Project architecture'), 'An empty result does not replace existing knowledge');
+  });
+
+  await check('Failed provisioning shows a failed start without a phantom running task', async view => {
+    assert(view.text().includes('Repository learning · Could not start'), 'Missing task with canStart is a failed provision');
+    assert(![...view.host.querySelectorAll('button')].some(control => control.textContent === 'Stop learning'), 'An absent task has no Stop action');
+    assert(!button(view.host, 'Learn / Refresh').disabled && view.state.starts.length === 0, 'A new explicit start remains available');
+  }, state => state.builds.set('ws-1', { buildRequestSequence: 1, notebookRevision: 7, canStart: true, build: {
+    requestKey: 'failed-request', taskId: 'missing-task', baselineSha: 'a'.repeat(40), scopeIds: ['project'], history: [], requestedAt: '2026-09-01T00:00:00Z',
+    task: null, activeTurn: null, pendingApprovals: 0, results: [], gaps: ['Task provisioning failed.'] } }));
 
   await check('Source edits keep source identity and revision', async view => {
     await view.click('Edit', view.row('Documentation website'));
@@ -320,12 +533,38 @@ export async function run(): Promise<Array<{ name: string; error?: string }>> {
 
 let displayed: View | null = null;
 /** A persistent offline fixture for wide, narrow and native-editor visual checks. */
-export async function show(mode: 'page' | 'editor' = 'page'): Promise<void> {
+export async function show(mode: 'page' | 'editor' | 'learn' | 'learning' | 'completed' = 'page'): Promise<void> {
   displayed?.dispose();
-  displayed = fixture(backend());
+  const state = backend();
+  state.events = [
+    { schemaVersion: 2, eventId: 'request', sequence: 1, taskId: 'build-task', turnId: 'build-turn', source: eventSource,
+      occurredAt: '2026-09-01T00:00:00Z', type: 'user_message', payload: { deliveryKind: 'TURN', attachments: [], text: 'Learn the project architecture from repository files and selected documentation.' } },
+    { schemaVersion: 2, eventId: 'progress', sequence: 2, taskId: 'build-task', turnId: 'build-turn', source: eventSource,
+      occurredAt: '2026-09-01T00:00:02Z', type: 'assistant_message', payload: { messageKind: 'COMMENTARY', phase: 'FINAL', text: 'I found the coordinator, worker and connector modules. I’m checking their source contracts before saving a reusable overview.' } },
+  ];
+  displayed = fixture(state);
   await settle(); await settle();
   if (mode === 'editor') {
     await displayed.click('Edit', displayed.note('Project architecture'));
     await draft(displayed, 'Project architecture');
+  }
+  if (mode === 'learn' || mode === 'learning' || mode === 'completed') {
+    await displayed.click('Learn / Refresh');
+    if (mode === 'learn') await fill(displayed.dialog(), 'Merged PR numbers (optional)', '30280');
+    else {
+      await displayed.click('Start learning', displayed.dialog());
+      if (mode === 'completed') {
+        const current = state.builds.get('ws-1'); assert(current?.build?.task !== null && current?.build !== null && current !== undefined, 'Builder exists');
+        state.events.push({ schemaVersion: 2, eventId: 'answer', sequence: 3, taskId: 'build-task', turnId: 'build-turn', source: eventSource,
+          occurredAt: '2026-09-01T00:00:20Z', type: 'assistant_message', payload: { messageKind: 'ANSWER', phase: 'FINAL',
+            text: 'Saved a project overview with the inspected source references. Connector-specific behavior still needs verification for each review.' } });
+        state.builds.set('ws-1', { ...current, canStart: true, build: { ...current.build, activeTurn: null, task: { ...current.build.task,
+          state: 'COMPLETED', mutationClaim: null, terminalReason: 'Selected knowledge preparation completed.', worktreeRemovedAt: '2026-09-01T00:00:21Z' },
+          results: [{ attemptId: 'prepared', outcome: 'READY', inputFingerprint: { scopeId: 'project', inputs: {}, digest: 'sha256:captured', gaps: [] },
+            noteIds: ['knowledge:project'], checkedReads: [], explanation: 'Saved the overview with source references; applicability remains unverified.' }],
+          gaps: ['Some documentation describes a later release. Check the dependency version before applying its guidance.'] } });
+        await displayed.click('Inspect latest task'); await settle();
+      }
+    }
   }
 }

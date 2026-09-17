@@ -17,15 +17,20 @@ import com.bytequay.app.context.RepositoryContextPreparation.Execution;
 import com.bytequay.app.context.RepositoryContextPreparation.GeneratedEntry;
 import com.bytequay.app.context.RepositoryContextPreparation.GeneratedReport;
 import com.bytequay.app.context.RepositoryContextPreparation.ScopeReport;
+import com.bytequay.app.git.GitCommandRunner;
 import com.bytequay.app.service.InMemoryAppSettingsStore;
 import com.bytequay.app.workspace.WorkspaceRepositoryContext;
 import com.bytequay.app.workspace.WorkspaceRepositoryService;
 import com.bytequay.core.context.ContextClaim;
+import com.bytequay.core.context.ContextDocumentRead;
+import com.bytequay.core.context.ContextHistoryRead;
 import com.bytequay.core.context.ContextInputFingerprint;
 import com.bytequay.core.context.ContextPacket;
 import com.bytequay.core.context.ContextReference;
 import com.bytequay.core.context.ContextRepositoryRead;
 import com.bytequay.core.context.ContextScope;
+import com.bytequay.core.context.ContextSourceRead;
+import com.bytequay.core.context.RegisteredContextSource;
 import com.bytequay.core.context.RepositoryNotebook;
 import com.bytequay.core.context.ReviewContextSnapshot;
 import com.bytequay.core.domain.RepoRef;
@@ -40,10 +45,12 @@ import com.fasterxml.jackson.datatype.jdk8.Jdk8Module;
 import com.fasterxml.jackson.datatype.jsr310.JavaTimeModule;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
+import com.google.common.hash.Hashing;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
 import java.nio.file.Path;
+import java.time.Duration;
 import java.time.Instant;
 import java.util.List;
 import java.util.Optional;
@@ -58,6 +65,7 @@ import static com.bytequay.app.context.RepositoryContextPreparation.Status.REUSE
 import static com.bytequay.core.context.ContextPreparationResult.Outcome.EMPTY;
 import static com.bytequay.core.context.ContextPreparationResult.Outcome.FAILED;
 import static com.bytequay.core.context.ContextPreparationResult.Outcome.READY;
+import static java.nio.charset.StandardCharsets.UTF_8;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
@@ -96,6 +104,48 @@ class TestRepositoryContextPreparation
                     notebook.sourceEvidence().toString() + scope.preparation().map(result -> result.checkedReads().toString()).orElse("")), ImmutableList.of()))
                     .collect(ImmutableList.toImmutableList());
         });
+    }
+
+    @Test
+    void standaloneLearningOwnsKnowledgeWithoutAReviewEvenWhenUseInReviewsIsOff()
+    {
+        notebooks.setUseInReviews("workspace", 0, false);
+        Execution review = execution("turn", false, SHA);
+        Execution owner = new Execution(review.workspaceId(), review.repository(), review.repositoryId(), review.baselineSha(), "learning-task", "learning-turn",
+                "learning-key", Optional.empty(), Optional.empty(), review.sourceReads(), review.evidence());
+        var admitted = begin(owner);
+        assertThat(admitted.attempt().orElseThrow().reviewId()).isEmpty();
+        assertThat(admitted.attempt().orElseThrow().runId()).isEmpty();
+        assertThatThrownBy(() -> preparation.prepareCompletion(review, admitted.attempt().orElseThrow().attemptId(), readyReport(READ_ID)))
+                .isInstanceOf(IllegalArgumentException.class).hasMessageContaining("not owned");
+        preparation.complete(owner, preparation.prepareCompletion(owner, admitted.attempt().orElseThrow().attemptId(), readyReport(READ_ID)));
+        RepositoryNotebook saved = notebooks.getNotebook("workspace");
+        assertThat(saved.useInReviews()).isFalse();
+        assertThat(saved.entries()).singleElement().satisfies(entry -> assertThat(entry.body()).isEqualTo("Useful generated body"));
+        assertThat(saved.activePreparation()).isEmpty();
+    }
+
+    @Test
+    void freshDocumentContentInvalidatesReuseButNewReadIdsAndTimesDoNot()
+    {
+        notebooks.configure("workspace", 0, new EditContextConfiguration(Optional.empty(), Optional.of(ImmutableList.of(new EditContextConfiguration.Source(
+                "docs", RegisteredContextSource.Kind.DOCUMENTATION_PAGE, "https://example.com/docs/page"))), Optional.empty()));
+        Execution owner = documentExecution("original", "a".repeat(64));
+        var admitted = begin(owner);
+        preparation.complete(owner, preparation.prepareCompletion(owner, admitted.attempt().orElseThrow().attemptId(), readyReport("context-read:original")));
+        Execution same = documentExecution("same-content", "a".repeat(64));
+        assertThat(begin(same).status()).isEqualTo(REUSED);
+        Execution changed = documentExecution("changed", "b".repeat(64));
+        assertThat(begin(changed).status()).isEqualTo(OWNED);
+    }
+
+    private Execution documentExecution(String suffix, String hash)
+    {
+        RegisteredContextSource registration = notebooks.getNotebook("workspace").sources().getFirst();
+        ContextDocumentRead read = new ContextDocumentRead("context-read:" + suffix, new ContextReference.Document("docs", registration.url()), registration,
+                notebooks.getNotebook("workspace").revision(), UUID.randomUUID().toString(), hash, Instant.EPOCH, 1, 1, 6, false, false, false, Optional.of("E1"));
+        return new Execution("workspace", REPOSITORY.fullName(), 1, SHA, "learning-task", suffix, "learn-key", Optional.empty(), Optional.empty(),
+                ImmutableList.of(read), ImmutableMap.of("E1", new RepositoryContextPreparation.CapturedSource("Registered documentation", "source")));
     }
 
     @Test
@@ -220,6 +270,116 @@ class TestRepositoryContextPreparation
         assertThat(next.attempt()).isNotEqualTo(admitted.attempt());
         preparation.fail("workspace", admitted.attempt().orElseThrow(), "Obsolete cleanup");
         assertThat(notebooks.getNotebook("workspace").activePreparation()).isEqualTo(next.attempt());
+    }
+
+    @Test
+    void selectedHistoryIsRetainedReusedAndNewObservationInvalidatesKnowledge()
+    {
+        GitCommandRunner git = mock(GitCommandRunner.class);
+        when(git.run(any(), any(Duration.class), anyList())).thenReturn(new GitCommandRunner.Result(0,
+                "100644 blob " + SHA + "\tREADME.md\0", false));
+        var historyPreparation = new RepositoryContextPreparation(notebooks, new ContextInputReader(git), workspaces);
+        Execution owner = withHistory(execution("turn", false, SHA), "history-1", "Merged decision", 2);
+        var plan = historyPreparation.plan(owner, ImmutableList.of("project"), ImmutableList.of("context-read:history-1"));
+        var admitted = historyPreparation.begin(owner, "request", DIGEST, 0, plan);
+        assertThat(admitted.status()).isEqualTo(OWNED);
+        var completed = historyPreparation.prepareCompletion(owner, admitted.attempt().orElseThrow().attemptId(), historyReport("context-read:history-1", true));
+        historyPreparation.complete(owner, completed);
+        RepositoryNotebook saved = notebooks.getNotebook("workspace");
+        assertThat(saved.sourceEvidence()).hasSize(2);
+        assertThat(saved.scopes().getFirst().preparation().orElseThrow().checkedReads()).filteredOn(ContextHistoryRead.class::isInstance).hasSize(1);
+        assertThat(saved.entries()).singleElement().satisfies(entry -> assertThat(entry.sourceIds()).contains("context-read:history-1"));
+
+        Execution other = withHistory(execution("other-turn", false, SHA), "history-2", "Merged decision", 2);
+        var equal = historyPreparation.plan(other, ImmutableList.of("project"), ImmutableList.of("context-read:history-2"));
+        assertThat(historyPreparation.begin(other, "reuse", DIGEST, 1, equal).status()).isEqualTo(REUSED);
+        var unchanged = historyPreparation.plan(other, ImmutableList.of("project"));
+        assertThat(historyPreparation.begin(other, "reuse-retained", DIGEST, 1, unchanged).status()).isEqualTo(REUSED);
+
+        Execution changed = withHistory(execution("changed-turn", false, SHA), "history-3", "Updated merged decision", 2);
+        var different = historyPreparation.plan(changed, ImmutableList.of("project"), ImmutableList.of("context-read:history-3"));
+        var refresh = historyPreparation.begin(changed, "changed", DIGEST, 1, different);
+        assertThat(refresh.status()).isEqualTo(OWNED);
+        var failed = new GeneratedReport(ImmutableList.of(new ScopeReport("project", FAILED, ImmutableList.of(),
+                ImmutableList.of("context-read:history-3"), "Interpretation incomplete")), ImmutableList.of());
+        historyPreparation.complete(changed, historyPreparation.prepareCompletion(changed, refresh.attempt().orElseThrow().attemptId(), failed));
+        assertThat(notebooks.getNotebook("workspace").entries()).isEqualTo(saved.entries());
+        var retry = historyPreparation.plan(changed, ImmutableList.of("project"), ImmutableList.of("context-read:history-3"));
+        var retried = historyPreparation.begin(changed, "retry", DIGEST, 1, retry);
+        assertThat(retried.status()).isEqualTo(OWNED);
+        historyPreparation.complete(changed, historyPreparation.prepareCompletion(changed, retried.attempt().orElseThrow().attemptId(),
+                historyReport("context-read:history-3", true)));
+        assertThat(notebooks.getNotebook("workspace").sourceEvidence()).extracting(source -> source.id()).doesNotContain("context-read:history-1");
+    }
+
+    @Test
+    void historyMustBeSelectedBeforeBeginAndSupportedByNonblankBaseline()
+    {
+        Execution owner = withHistory(execution("turn", false, SHA), "history", "Merged decision", 2);
+        assertThatThrownBy(() -> preparation.plan(owner, ImmutableList.of("project"), ImmutableList.of(READ_ID)))
+                .hasMessageContaining("Unknown captured history read");
+        var admitted = begin(owner);
+        assertThatThrownBy(() -> preparation.prepareCompletion(owner, admitted.attempt().orElseThrow().attemptId(), historyReport("context-read:history", true)))
+                .hasMessageContaining("selected before preparation");
+        preparation.fail("workspace", admitted.attempt().orElseThrow(), "Retry with selected history");
+        var plan = preparation.plan(owner, ImmutableList.of("project"), ImmutableList.of("context-read:history"));
+        var selected = preparation.begin(owner, "selected", DIGEST, 0, plan);
+        assertThatThrownBy(() -> preparation.prepareCompletion(owner, selected.attempt().orElseThrow().attemptId(), historyReport("context-read:history", false)))
+                .hasMessageContaining("nonblank monitored-baseline");
+        var empty = new GeneratedReport(ImmutableList.of(new ScopeReport("project", EMPTY, ImmutableList.of(),
+                ImmutableList.of("context-read:history"), "History was checked")), ImmutableList.of());
+        assertThatThrownBy(() -> preparation.prepareCompletion(owner, selected.attempt().orElseThrow().attemptId(), empty))
+                .isInstanceOf(IllegalArgumentException.class);
+        Execution replacement = withHistory(execution("turn", false, SHA), "replacement", "Different observation", 2);
+        assertThatThrownBy(() -> preparation.prepareCompletion(replacement, selected.attempt().orElseThrow().attemptId(),
+                historyReport("context-read:replacement", true))).hasMessageContaining("selected before preparation");
+        assertThat(notebooks.getNotebook("workspace").entries()).isEmpty();
+    }
+
+    @Test
+    void duplicateHistorySourcesAreRejectedBeforeAdmission()
+    {
+        Execution owner = withHistory(withHistory(execution("turn", false, SHA), "first", "Old observation", 2), "second", "New observation", 2);
+        assertThatThrownBy(() -> preparation.plan(owner, ImmutableList.of("project"), ImmutableList.of("context-read:first", "context-read:second")))
+                .isInstanceOf(IllegalArgumentException.class).hasMessageContaining("duplicates");
+        assertThat(notebooks.getNotebook("workspace").activePreparation()).isEmpty();
+    }
+
+    @Test
+    void historyInputOverflowDefersWithoutStartingPreparation()
+    {
+        when(inputs.capture(any(), any(), any(), anyList())).thenReturn(ImmutableList.of(ContextInputFingerprint.create("project",
+                IntStream.range(0, 128).boxed().collect(ImmutableMap.toImmutableMap(index -> "git:path-" + index, index -> SHA)), ImmutableList.of())));
+        Execution owner = withHistory(execution("turn", false, SHA), "history", "Merged decision", 2);
+        var plan = preparation.plan(owner, ImmutableList.of("project"), ImmutableList.of("context-read:history"));
+        assertThat(plan.inputs()).singleElement().satisfies(input -> {
+            assertThat(input.digest()).isEmpty();
+            assertThat(input.gaps()).anyMatch(gap -> gap.contains("input budget"));
+        });
+        assertThat(preparation.begin(owner, "request", DIGEST, 0, plan).status()).isEqualTo(DEFERRED);
+        assertThat(notebooks.getNotebook("workspace").activePreparation()).isEmpty();
+    }
+
+    private static GeneratedReport historyReport(String historyId, boolean baseline)
+    {
+        List<String> checked = baseline ? ImmutableList.of(READ_ID, historyId) : ImmutableList.of(historyId);
+        return new GeneratedReport(ImmutableList.of(new ScopeReport("project", READY, ImmutableList.of("knowledge:project"), checked,
+                "Recorded a historical decision alongside baseline evidence")), ImmutableList.of(new GeneratedEntry("knowledge:project", "project", "Project note",
+                "Historical decision", "Verify this decision against current code", ImmutableList.of(new ContextClaim("Historical decision",
+                ContextClaim.Basis.RECORDED_DECISION, ImmutableList.of(historyId))), checked)));
+    }
+
+    private static Execution withHistory(Execution execution, String suffix, String excerpt, int number)
+    {
+        String evidenceRef = "history-evidence:" + suffix;
+        var read = new ContextHistoryRead("context-read:" + suffix, new ContextReference.PullRequest(1, REPOSITORY, number, Optional.empty()),
+                ContextHistoryRead.State.MERGED, Optional.of(Instant.EPOCH), Optional.of(SHA), Hashing.sha256().hashString(excerpt, UTF_8).toString(),
+                Instant.EPOCH, excerpt.getBytes(UTF_8).length, false, false, ImmutableList.of("Bounded historical observation"), Optional.of(evidenceRef));
+        return new Execution(execution.workspaceId(), execution.repository(), execution.repositoryId(), execution.baselineSha(), execution.taskId(),
+                execution.turnId(), execution.turnKey(), execution.reviewId(), execution.runId(),
+                ImmutableList.<ContextSourceRead>builder().addAll(execution.sourceReads()).add(read).build(),
+                ImmutableMap.<String, RepositoryContextPreparation.CapturedSource>builder().putAll(execution.evidence())
+                        .put(evidenceRef, new RepositoryContextPreparation.CapturedSource("Retained source", excerpt)).buildOrThrow());
     }
 
     private RepositoryContextPreparation.Admission begin(Execution execution)

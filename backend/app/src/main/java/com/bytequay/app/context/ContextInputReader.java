@@ -17,6 +17,7 @@ import com.bytequay.app.git.GitCommandRunner;
 import com.bytequay.app.workspace.WorkspaceRepositoryContext;
 import com.bytequay.core.context.ContextDocumentRead;
 import com.bytequay.core.context.ContextEntryKind;
+import com.bytequay.core.context.ContextHistoryRead;
 import com.bytequay.core.context.ContextInputFingerprint;
 import com.bytequay.core.context.ContextLimits;
 import com.bytequay.core.context.ContextMatch;
@@ -124,6 +125,14 @@ public class ContextInputReader
     {
         Map<String, String> inputs = new LinkedHashMap<>();
         inputs.put("scope-configuration", scopeHash(scope));
+        if (scope.match() instanceof ContextMatch.Repository && root.gap().isEmpty()) {
+            Hasher layout = Hashing.sha256().newHasher();
+            root.objects().entrySet().stream().sorted(Map.Entry.comparingByKey()).forEach(entry -> {
+                frame(layout, entry.getKey());
+                frame(layout, entry.getValue().substring(0, entry.getValue().lastIndexOf(' ')));
+            });
+            inputs.put("repository-root-layout", layout.hash().toString());
+        }
         inputs.put("registered-documentation-catalog-remote-content-unchecked", catalog);
         inputs.put("repository", repositoryId(workspace) + ":" + workspace.monitoredRepository().fullName().toLowerCase(Locale.ROOT));
         Set<String> gaps = new LinkedHashSet<>();
@@ -135,8 +144,13 @@ public class ContextInputReader
         List<ContextSourceEvidence> sources = notebook.sourceEvidence().stream().filter(source -> sourceIds.contains(source.id()))
                 .sorted(Comparator.comparing(ContextSourceEvidence::id)).collect(toImmutableList());
         Set<String> referenceInputs = new LinkedHashSet<>();
+        Map<String, Set<String>> historyInputs = new LinkedHashMap<>();
         List<String> files = new ArrayList<>();
         for (ContextSourceEvidence source : sources) {
+            if (source.reference() instanceof ContextReference.PullRequest || source.reference() instanceof ContextReference.Issue) {
+                retainHistoryInput(workspace, source, historyInputs, gaps);
+                continue;
+            }
             referenceInputs.add(sourceIdentity(source));
             switch (source.reference()) {
                 case ContextReference.RepositoryFile file -> {
@@ -161,6 +175,15 @@ public class ContextInputReader
                 default -> gaps.add("Retained " + source.reference().getKind() + " source freshness is not inspected by this local Git fingerprint.");
             }
         }
+        historyInputs.forEach((key, identities) -> {
+            if (inputs.size() < 127) {
+                inputs.put(key, identities.size() == 1 ? identities.iterator().next()
+                        : Hashing.sha256().hashString(String.join("\n", identities.stream().sorted().toList()), UTF_8).toString());
+            }
+            else {
+                gaps.add("Retained history exceeded the per-scope input count budget.");
+            }
+        });
         // Blank reads have no invented excerpt, but their path/page identity must still invalidate an EMPTY result when inputs change.
         scope.preparation().stream().flatMap(result -> result.checkedReads().stream()).filter(read -> read.evidenceRef().isEmpty()).forEach(read -> {
             switch (read) {
@@ -174,6 +197,7 @@ public class ContextInputReader
                         gaps.add("A checked empty repository file belongs to another repository.");
                     }
                 }
+                case ContextHistoryRead ignored -> throw new IllegalArgumentException("History requires retained evidence");
                 case ContextDocumentRead document -> {
                     referenceInputs.add(sourceIdentity(document.reference(), Optional.of(document.contentHash()), Optional.empty(),
                             ContextSourceEvidence.Capture.BYTEQUAY_READ, document.truncated()));
@@ -236,8 +260,8 @@ public class ContextInputReader
             String key = "git:" + path;
             String identity = objects.getOrDefault(path, "ABSENT");
             int added = bytes(key) + bytes(identity);
-            if (inputBytes + added > ContextInputFingerprint.MAXIMUM_INPUT_BYTES) {
-                gaps.add("Essential inputs exceeded the per-scope UTF-8 byte budget.");
+            if (inputs.size() >= 128 || inputBytes + added > ContextInputFingerprint.MAXIMUM_INPUT_BYTES) {
+                gaps.add("Essential inputs exceeded the per-scope count or UTF-8 byte budget.");
                 continue;
             }
             inputs.put(key, identity);
@@ -341,6 +365,42 @@ public class ContextInputReader
         return sourceIdentity(source.reference(), source.contentHash(), source.version(), source.capture(), source.truncated());
     }
 
+    /** Matches the retained source identity, excluding receipt IDs and read times from reuse decisions. */
+    static String historyIdentity(ContextHistoryRead read)
+    {
+        return sourceIdentity(read.reference(), Optional.of(read.contentHash()), read.sourceRevision(), ContextSourceEvidence.Capture.BYTEQUAY_READ, read.truncated());
+    }
+
+    private static void retainHistoryInput(WorkspaceRepositoryContext workspace, ContextSourceEvidence source, Map<String, Set<String>> inputs, Set<String> gaps)
+    {
+        long sourceRepositoryId;
+        String repository;
+        int number;
+        Optional<String> commentId;
+        if (source.reference() instanceof ContextReference.PullRequest pr) {
+            sourceRepositoryId = pr.repositoryId();
+            repository = pr.repository().fullName();
+            number = pr.number();
+            commentId = pr.commentId();
+        }
+        else {
+            ContextReference.Issue issue = (ContextReference.Issue) source.reference();
+            sourceRepositoryId = issue.repositoryId();
+            repository = issue.repository().fullName();
+            number = issue.number();
+            commentId = issue.commentId();
+        }
+        if (sourceRepositoryId != repositoryId(workspace) || !repository.equalsIgnoreCase(workspace.monitoredRepository().fullName())
+                || commentId.isPresent() || source.capture() != ContextSourceEvidence.Capture.BYTEQUAY_READ
+                || source.contentHash().filter(hash -> hash.matches("[0-9a-f]{64}")).isEmpty()) {
+            gaps.add("A retained " + source.reference().getKind() + " history source lacks a matching repository and application-observed content identity.");
+            return;
+        }
+        String key = "history:" + source.reference().getKind() + ":" + sourceRepositoryId + ":" + number;
+        // A failed refresh may retain newer checked history alongside an older note. Both are observations, not a fatal input gap.
+        inputs.computeIfAbsent(key, ignored -> new LinkedHashSet<>()).add(sourceIdentity(source));
+    }
+
     private static String sourceIdentity(ContextReference reference, Optional<String> contentHash, Optional<String> version,
             ContextSourceEvidence.Capture capture, boolean truncated)
     {
@@ -360,7 +420,25 @@ public class ContextInputReader
                 frame(hash, capture.name());
                 frame(hash, Boolean.toString(truncated));
             }
+            case ContextReference.PullRequest pr -> {
+                frame(hash, Long.toString(pr.repositoryId()));
+                frame(hash, pr.repository().fullName().toLowerCase(Locale.ROOT));
+                frame(hash, Integer.toString(pr.number()));
+                frame(hash, pr.commentId().orElse(""));
+            }
+            case ContextReference.Issue issue -> {
+                frame(hash, Long.toString(issue.repositoryId()));
+                frame(hash, issue.repository().fullName().toLowerCase(Locale.ROOT));
+                frame(hash, Integer.toString(issue.number()));
+                frame(hash, issue.commentId().orElse(""));
+            }
             default -> frame(hash, reference.toString());
+        }
+        if (reference instanceof ContextReference.PullRequest || reference instanceof ContextReference.Issue) {
+            frame(hash, contentHash.orElse(""));
+            frame(hash, version.orElse(""));
+            frame(hash, capture.name());
+            frame(hash, Boolean.toString(truncated));
         }
         return hash.hash().toString();
     }

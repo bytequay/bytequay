@@ -70,6 +70,8 @@ public record ReviewContextSnapshot(
         long inputBytes = inputFingerprints.stream().mapToLong(ContextInputFingerprint::inputBytes).sum();
         checkArgument(inputBytes <= MAXIMUM_INPUT_BYTES, "Context fingerprint inputs exceed UTF-8 budget");
         checkArgument(enabled || inputFingerprints.isEmpty(), "Disabled context cannot contain input fingerprints");
+        checkArgument(sourceReads.stream().filter(ContextHistoryRead.class::isInstance).map(ContextHistoryRead.class::cast)
+                .allMatch(read -> read.repositoryId() == repositoryId), "History source belongs to another repository");
         checkArgument(enabled || sourceReads.isEmpty(), "Disabled context cannot contain source reads");
         checkArgument(enabled || contributions.isEmpty(), "Disabled context cannot contain contributions");
         checkArgument(enabled || deliveries.isEmpty(), "Disabled context cannot contain deliveries");

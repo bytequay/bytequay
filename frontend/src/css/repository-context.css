@@ -60,6 +60,16 @@
 .rc-dialog details { margin: 12px 0; font-size: 13px; }
 .rc-dialog summary { cursor: pointer; }
 .rc-dialog .rc-saved-version { padding: 10px; border: 1px solid #e0e0e5; border-radius: 6px; background: #f8f8fa; }
+.rc-build { margin: 0 0 24px; }
+.rc-build-result { border: 1px solid #e0e0e5; border-radius: 10px; }
+.rc-build-result code, .rc-build-result li { overflow-wrap: anywhere; }
+.rc-build fieldset { border: 1px solid #e0e0e5; border-radius: 7px; padding: 8px 12px; }
+.rc-build legend { padding: 0 4px; font-size: 13px; }
+.rc-build-transcript { display: flex; flex-direction: column; height: 540px; min-height: 250px; min-width: 0; margin-top: 10px; border: 1px solid #e0e0e5; border-radius: 8px; overflow: hidden; }
+.rc-build-transcript .agt-conversation { min-height: 0; flex: 1; }
+.rc-build-transcript .agt-transcript { padding: 14px; }
+.rc-build-transcript .agt-turn.is-latest { min-height: 0; }
+.rc-build-transcript p, .rc-build-transcript li { overflow-wrap: anywhere; }
 @media (max-width: 760px) {
   .rc-note-head { flex-wrap: wrap; }
   .rc-dialog { max-width: calc(100vw - 20px); max-height: calc(100dvh - 20px); }

@@ -80,7 +80,7 @@ class TestContextBaselineReader
         command("add", PATH);
         Files.writeString(repository.resolve(PATH), "working content");
 
-        ContextBaselineReader.Read read = read(git, run(Optional.of(baseline)), PATH, 1, Optional.empty());
+        ContextBaselineReader.Read read = new ContextBaselineReader(git, CLOCK).read(workspace(), 7, baseline, PATH, 1, Optional.empty());
 
         assertThat(read.reference()).isEqualTo(new ContextReference.RepositoryFile(7, MONITORED, PATH, baseline));
         assertThat(read.blobId()).isEqualTo(originalBlob);
@@ -90,6 +90,71 @@ class TestContextBaselineReader
         assertThat(read.endLine()).isEqualTo(2);
         assertThat(read.totalLines()).isEqualTo(2);
         assertThat(read.truncated()).isFalse();
+    }
+
+    @Test
+    void discoversFrozenNestedDirectoriesWithoutFollowingSymlinksOrSubmodules()
+            throws IOException
+    {
+        initialize();
+        Files.createDirectories(repository.resolve("docs/reference"));
+        Files.writeString(repository.resolve(PATH), "Repository overview");
+        Files.writeString(repository.resolve("docs/guide.md"), "Guide");
+        Files.writeString(repository.resolve("docs/reference/api.md"), "API");
+        Files.createSymbolicLink(repository.resolve("documentation"), Path.of("docs"));
+        String submodule = commit();
+        command("update-index", "--add", "--cacheinfo", "160000," + submodule + ",vendor");
+        command("-c", "user.name=Test", "-c", "user.email=test@example.com", "commit", "-qm", "Submodule fixture");
+        String baseline = command("rev-parse", "HEAD").strip();
+        String docsTree = command("rev-parse", baseline + ":docs").strip();
+        Files.delete(repository.resolve("docs/reference/api.md"));
+        Files.writeString(repository.resolve("docs/new.md"), "New head documentation");
+        String head = commit();
+        command("replace", docsTree, command("rev-parse", head + ":docs").strip());
+        command("replace", baseline, head);
+        Files.writeString(repository.resolve("docs/staged.md"), "Staged documentation");
+        command("add", "docs/staged.md");
+        Files.writeString(repository.resolve("docs/untracked.md"), "Untracked documentation");
+        ContextBaselineReader reader = new ContextBaselineReader(git, CLOCK);
+
+        ContextBaselineReader.Directory root = reader.directory(workspace(), 7, baseline, "", 0);
+        assertThat(root.path()).isEmpty();
+        assertThat(root.commitSha()).isEqualTo(baseline);
+        assertThat(root.page()).isZero();
+        assertThat(root.hasMore()).isFalse();
+        assertThat(root.entries()).extracting(ContextBaselineReader.TreeEntry::path).containsExactly(PATH, "docs", "documentation", "vendor");
+        assertThat(root.entries()).extracting(ContextBaselineReader.TreeEntry::kind).containsExactly("FILE", "DIRECTORY", "SYMLINK", "SUBMODULE");
+        assertThat(root.entries().getLast().objectId()).isEqualTo(submodule);
+        assertThat(reader.directory(workspace(), 7, baseline, "docs", 0).entries())
+                .extracting(ContextBaselineReader.TreeEntry::path).containsExactly("docs/guide.md", "docs/reference");
+        assertThat(reader.directory(workspace(), 7, baseline, "docs/reference", 0).entries())
+                .extracting(ContextBaselineReader.TreeEntry::path).containsExactly("docs/reference/api.md");
+        for (String path : ImmutableList.of(PATH, "documentation", "vendor", "missing")) {
+            assertThatIllegalArgumentException().isThrownBy(() -> reader.directory(workspace(), 7, baseline, path, 0)).withMessageContaining("not a directory");
+        }
+    }
+
+    @Test
+    void pagesDirectoryEntriesWithoutOmittingOrRepeatingPaths()
+            throws IOException
+    {
+        initialize();
+        Files.createDirectory(repository.resolve("docs"));
+        for (int index = 0; index < 205; index++) {
+            Files.writeString(repository.resolve("docs/guide-%03d.md".formatted(index)), "Documentation");
+        }
+        String baseline = commit();
+        ContextBaselineReader reader = new ContextBaselineReader(git, CLOCK);
+
+        for (int page = 0; page < 3; page++) {
+            ContextBaselineReader.Directory directory = reader.directory(workspace(), 7, baseline, "docs", page);
+            assertThat(directory.page()).isEqualTo(page);
+            assertThat(directory.hasMore()).isEqualTo(page < 2);
+            assertThat(directory.entries()).extracting(ContextBaselineReader.TreeEntry::path)
+                    .containsExactlyElementsOf(IntStream.range(page * 100, Math.min(205, (page + 1) * 100))
+                            .mapToObj(index -> "docs/guide-%03d.md".formatted(index)).toList());
+        }
+        assertThatIllegalArgumentException().isThrownBy(() -> reader.directory(workspace(), 7, baseline, "docs", 3)).withMessageContaining("outside");
     }
 
     @Test
@@ -235,14 +300,63 @@ class TestContextBaselineReader
     {
         GitCommandRunner local = mock(GitCommandRunner.class);
         assertThatIllegalArgumentException().isThrownBy(() -> read(local, run(Optional.of(SHA)), path, 1, Optional.empty()));
+        ContextBaselineReader reader = new ContextBaselineReader(local, CLOCK);
+        assertThatIllegalArgumentException().isThrownBy(() -> reader.read(workspace(), 7, SHA, path, 1, Optional.empty()));
+        assertThatIllegalArgumentException().isThrownBy(() -> reader.directory(workspace(), 7, SHA, path, 0));
         verifyNoInteractions(local);
+    }
+
+    @Test
+    void rejectsInvalidFrozenIdentityAndDirectoryPagesBeforeGit()
+    {
+        GitCommandRunner local = mock(GitCommandRunner.class);
+        ContextBaselineReader reader = new ContextBaselineReader(local, CLOCK);
+        assertThatIllegalArgumentException().isThrownBy(() -> reader.read(workspace(), 1, SHA, PATH, 1, Optional.empty()));
+        assertThatIllegalArgumentException().isThrownBy(() -> reader.directory(workspace(), 1, SHA, "", 0));
+        for (String baseline : ImmutableList.of("HEAD", "main", "a".repeat(39), SHA + ":docs", "A".repeat(40))) {
+            assertThatIllegalArgumentException().isThrownBy(() -> reader.read(workspace(), 7, baseline, PATH, 1, Optional.empty()));
+            assertThatIllegalArgumentException().isThrownBy(() -> reader.directory(workspace(), 7, baseline, "", 0));
+        }
+        for (int page : ImmutableList.of(-1, 10, Integer.MAX_VALUE)) {
+            assertThatIllegalArgumentException().isThrownBy(() -> reader.directory(workspace(), 7, SHA, "", page));
+        }
+        verifyNoInteractions(local);
+    }
+
+    @Test
+    void rejectsUnavailableTruncatedAndOversizedDirectoryOutput()
+    {
+        for (GitCommandRunner.Result failure : ImmutableList.of(GitCommandRunner.Result.failed("Git timed out"),
+                new GitCommandRunner.Result(0, "040000 tree " + BLOB + "\tdocs\0", true),
+                new GitCommandRunner.Result(0, "😀".repeat(32 * 1024 + 1), false))) {
+            GitCommandRunner local = mock(GitCommandRunner.class);
+            when(local.runLocalBounded(repository, TIMEOUT, 128 * 1024, ImmutableList.of("ls-tree", "-z", SHA))).thenReturn(failure);
+            ContextBaselineReader reader = new ContextBaselineReader(local, CLOCK);
+
+            assertThatIllegalArgumentException().isThrownBy(() -> reader.directory(workspace(), 7, SHA, "", 0)).withMessageContaining("128 KiB");
+        }
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"100644 blob %s\tREADME.md", "100644 blob invalid\tREADME.md\0", "100644 tree %s\tdocs\0", "malformed\0"})
+    void rejectsMalformedDirectoryOutput(String output)
+    {
+        GitCommandRunner local = mock(GitCommandRunner.class);
+        when(local.runLocalBounded(repository, TIMEOUT, 128 * 1024, ImmutableList.of("ls-tree", "-z", SHA)))
+                .thenReturn(new GitCommandRunner.Result(0, output.formatted(BLOB), false));
+
+        assertThatIllegalArgumentException().isThrownBy(() -> new ContextBaselineReader(local, CLOCK).directory(workspace(), 7, SHA, "", 0));
     }
 
     private ContextBaselineReader.Read read(GitCommandRunner runner, ReviewRun run, String path, int start, Optional<Integer> end)
     {
-        WorkspaceRepositoryContext workspace = new WorkspaceRepositoryContext("workspace", repository, 1, RepoRef.of("fork", "trino"), OptionalLong.of(7), MONITORED,
+        return new ContextBaselineReader(runner, CLOCK).read(workspace(), run, path, start, end);
+    }
+
+    private WorkspaceRepositoryContext workspace()
+    {
+        return new WorkspaceRepositoryContext("workspace", repository, 1, RepoRef.of("fork", "trino"), OptionalLong.of(7), MONITORED,
                 "upstream", "origin", "main", ImmutableList.of());
-        return new ContextBaselineReader(runner, CLOCK).read(workspace, run, path, start, end);
     }
 
     private static ReviewRun run(Optional<String> baseline)

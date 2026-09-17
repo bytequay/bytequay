@@ -78,6 +78,7 @@ class TestContextInputReader
         write("pom.xml", "Dependency declarations");
         write("docs/concepts.md", "Architecture");
         write("plugin/iceberg/Metadata.java", "Relevant implementation");
+        write("unrelated/Other.java", "Original unrelated implementation");
         String baseline = commit();
         RepositoryNotebook notebook = notebook(ImmutableList.of(), ImmutableList.of());
         List<ContextInputFingerprint> before = capture(baseline, notebook);
@@ -167,6 +168,23 @@ class TestContextInputReader
             assertThat(input.digest()).isPresent();
             assertThat(input.inputs()).doesNotContainKey("git:-notes.txt").doesNotContainKey("git:plugin/iceberg/-notes.txt");
         });
+    }
+
+    @Test
+    void projectStructureTracksRootLayoutWithoutTreatingEveryCodeEditAsAnOverviewChange()
+            throws IOException
+    {
+        initialize();
+        write("README.md", "Overview");
+        write("src/Main.java", "Original source");
+        ContextInputFingerprint before = capture(commit(), RepositoryNotebook.empty()).getFirst();
+        write("src/Main.java", "Changed implementation");
+        ContextInputFingerprint implementation = capture(commit(), RepositoryNotebook.empty()).getFirst();
+        assertThat(implementation).isEqualTo(before);
+        write("plugin/Connector.java", "New component");
+        ContextInputFingerprint structure = capture(commit(), RepositoryNotebook.empty()).getFirst();
+        assertThat(structure.digest()).isPresent().isNotEqualTo(before.digest());
+        assertThat(structure.inputs().get("repository-root-layout")).isNotEqualTo(before.inputs().get("repository-root-layout"));
     }
 
     @Test

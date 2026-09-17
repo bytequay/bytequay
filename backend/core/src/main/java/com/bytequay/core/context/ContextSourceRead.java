@@ -18,7 +18,7 @@ import java.util.Optional;
 
 /** A successful application-observed read retained with a review; it does not establish source applicability or useful knowledge. */
 public sealed interface ContextSourceRead
-        permits ContextRepositoryRead, ContextDocumentRead
+        permits ContextRepositoryRead, ContextDocumentRead, ContextHistoryRead
 {
     String getKind();
 

@@ -27,6 +27,11 @@ investigation/validation, and SQLite. It does not create another agent engine.
 context**, with **Knowledge** and **Saved lessons** groups. It is not a provider
 conversation or provider-owned memory store.
 
+Project overview is the default repository-wide matching scope, created before
+any knowledge text exists. Its scope row is not a generated summary. Once a
+review investigation or an explicit build produces the note, Project overview
+appears under **Knowledge**; until then, the scope is unprepared.
+
 There are two durable aggregates:
 
 1. One notebook JSON value per workspace in the existing application settings.
@@ -44,7 +49,7 @@ The existing repository-ID/SHA enrichment and PR caches remain shared.
 Included:
 
 - Automatic selection and preparation at the beginning of a review investigation.
-- Explicit Build/Refresh, note editing, disabling/removal, and Save lesson.
+- Explicit Learn/Refresh, note editing, disabling/removal, and Save lesson.
 - Existing-data-first related history discovery and targeted missing-data reads.
 - Mandatory compact context delivery, larger on-demand reads, and visible provenance.
 - Shared generated notes with version checks, explicit empty/failed outcomes,
@@ -83,7 +88,7 @@ gates pass. There are no separate knowledge/memory/context switches in V1.
   validation turns, and later discussions retain their captured setting and
   sources. Already delivered conversation text cannot be removed from a model.
 - Turning it off preserves the notebook and review history. Viewing/editing
-  notes and explicitly clicking Build/Refresh remain available; those are
+  notes and explicitly clicking Learn/Refresh remain available; those are
   deliberate notebook actions, independent of automatic use in reviews.
 
 The comparison starts with a small representative PR set, using the same frozen
@@ -157,9 +162,12 @@ not start this flow.
 ### 2.2 First Iceberg review, then a second review
 
 **First review:** build a short project overview and an Iceberg component note
-from the captured repository baseline and applicable documents. Inspect local
-path history, join commits to existing PR mappings, and read selected cached
-discussions. Save generated notes and this run's selected evidence.
+from the captured repository baseline, applicable documents, and selected merged
+PR/resolved-issue evidence. Inspect local path history, join commits to existing
+PR mappings, and read the selected change artifacts and actual discussion.
+Retain source identities and resolution limitations with the generated knowledge;
+a merged PR or closed issue alone does not establish a reusable contract.
+Save generated notes and this run's selected evidence.
 
 **Second review:** reuse those notes, regardless of whether the provider is
 Codex or Claude. Compare relevant source fingerprints and versions. Build only
@@ -169,53 +177,88 @@ the new PR has different code and discussions.
 A PR-only implementation change belongs in that run's context. It must not
 rewrite shared knowledge as though it had already landed on the default branch.
 
-### 2.3 Explicit Build/Refresh without a review
+### 2.3 Explicit Learn/Refresh without a review
 
-In **Workspace settings → Repository context**, Build context prepares the
-project overview and explicitly configured component scopes. Refresh knowledge
-operates on selected enabled scopes, or all configured enabled scopes when the
-user chooses all. It never invents a project-wide crawl of every directory.
+Learn and Refresh knowledge are the explicit cold-start actions now being
+implemented and verified; the checklist records their remaining gates. Their flow belongs
+in **Workspace settings → Repository context**, independently of whether automatic
+review use is On or Off.
+
+The user selects knowledge scopes, including the existing Project overview
+scope. Learn includes repository files, directory structure, repository
+documentation and registered documentation by default, including the first run.
+These foundational sources are part of the assignment, not optional input
+switches that the user must discover and enable. Reads remain bounded and record
+missing, inaccessible or incomplete sources explicitly. An empty documentation
+catalog does not imply that repository documentation can be skipped.
+
+The user may additionally select specific merged PRs or closed issues to learn
+from their recorded decisions and available discussions. History is optional;
+it does not replace present repository and documentation evidence. Refresh
+knowledge operates on selected enabled scopes, or all configured enabled scopes
+when chosen explicitly. Accepted scopes and optional history references bound
+the task; they do not authorize a full-history or website crawl. The proposed
+request shape is separate from shipped review-tool fields.
 
 The application:
 
-1. Checks provider readiness before allocation and uses the current local
-   baseline, running the existing workspace synchronization only when its normal
-   readiness/staleness rules require it.
-2. Creates a normal managed-worktree, noninteractive attended AUTO task using
-   the existing task service. A saved context-build binding establishes its
-   purpose before its first turn starts.
+1. Checks the configured Review provider/model's readiness before allocation and
+   freezes the locally available monitored remote-tracking commit. An unavailable
+   baseline fails before allocation; Learn does not silently synchronize or fetch.
+2. Saves a ContextBuild binding with a reserved task ID, then creates a normal
+   managed-worktree, noninteractive attended AUTO task through the existing task
+   service. The binding establishes purpose before task/turn creation.
 3. Gives it a **policy-only review bridge**, plus the fixed context tools.
    This reuses existing review restrictions and the no-child launch profile
    without fabricating a PR, review, or finding. AUTO by itself is insufficient
    to establish these restrictions.
 4. Uses common/Global guidance and a research assignment; it receives neither
    development delivery automation nor PR reporting/publication tools.
-5. Records structured preparation results. Completion, Stop, approvals, runtime
-   recovery, and verified clean-worktree cleanup use existing task behavior.
-   Failed or dirty work is preserved according to that behavior.
+5. Reads the default repository and documentation sources, then any selected
+   history, and reuses source capture and generated-note preparation to record
+   structured results for the selected scopes. The resulting Project
+   overview and component notes appear under Knowledge; Save lesson remains the
+   only route for deliberate user-owned memory.
+6. Uses existing task behavior for completion, Stop, approvals, runtime recovery
+   and verified clean-worktree cleanup. Failed or dirty work is preserved.
 
 After the builder turn settles, its application observer records the preparation
 outcome and explicitly invokes AgentCompletionService.complete, then
 cleanupWorktree when permitted. An ordinary successful turn alone leaves a task
 open. An unresolved runtime ownership/cleanup failure stays visible through the
 existing recovery flow; it cannot be reported as a cleaned-up build.
+If reconciliation finds the task already FAILED, it preserves its worktree and
+requires the purpose-scoped explicit cleanup action. In particular, Mark failed
+may have discarded an unverified recovery claim; GET and startup must not turn
+that into automatic removal. A claim-free OPEN task whose accepted turn has just
+cancelled or failed may be abandoned and checked for safe cleanup in that same
+reconciliation pass.
 
 This is a restricted research assignment, not a claim that every native tool is
 read-only: the existing review profile permits local scratch/experiment writes.
 It grants no commit, push, GitHub publication, or credential-read authority.
-The UI links to its existing transcript. There is no separate build-job engine.
+The task is visible in the ordinary task surface from admission onward, with its
+existing transcript and Stop action. There is no separate build-job engine or
+background learning scheduler. Opening the app, workspace or settings, startup
+recovery, and source synchronization never start or resume a learning task.
+
+The cold-start sequence is selected history-source learning first, this explicit
+builder second, then repository-derived scope/root proposals and bounded discovery
+of relevant merged PRs/resolved issues. New discussion-source supplements and
+selected deferred-note exact-version reads follow that cold-start path. Provider,
+performance and On/Off review-quality acceptance retain their final gates.
 
 ### 2.4 Exact trigger matrix
 
 | Event | Notebook effect | Agent execution and context effect |
 | --- | --- | --- |
-| Read/open settings, notebook, or PR | None | None |
+| App startup or read/open workspace, settings, notebook, or PR | None | No learning task |
 | Change Use repository context in reviews | Save workspace preference; retain content | Applies to new runs; no automatic run, rebuild, or cancellation |
 | First requested review needs an unbuilt scope | Prepare missing generated knowledge | Opening part of existing investigation |
 | Start a new run with matching existing notes | Check selected source fingerprints; reuse or prepare | Capture a new bootstrap and run snapshot |
 | Git/commit synchronization | None by itself | Source data becomes available; no model execution |
 | Worktree HEAD changes | None by itself | No generation merely because HEAD moved |
-| Build/Refresh button | Prepare selected generated scopes | Explicit research task through the current agent service |
+| Learn/Refresh button | Prepare selected generated scopes | Visible, stoppable task reads repository files/structure/documentation and registered docs by default, plus optional selected history |
 | User edits/disables/removes a note | New notebook content revision | No review restart |
 | User saves a lesson | New user-owned MEMORY entry | No review restart |
 | Background PR/issue refresh | None | Refresh existing source records only |
@@ -272,7 +315,7 @@ Never join a fork's PR number to an upstream PR merely because the numbers match
 | PR list/title/number search | PullRequestService.listPullRequests | Current search is title substring or number, not full body/path search |
 | PR body, merged state, reviews, discussions | PullRequestService and PrDetailStore | Read saved detail first; selected missing/stale detail uses existing refresh |
 | PR final files/diff | PullRequestService.getPullRequestDiffFiles; PrDiffStore | Missing snapshots need existing refreshDiffFiles; no new path index |
-| Issues and comments | WorkspaceIssueService.list/find/detail | Open-issue projection; no claim of complete closed-issue history |
+| Issues and comments | WorkspaceIssueService.list/find/detail; selected history reader | Open-issue discovery stays bounded; an explicitly selected closed issue can supply retained activity |
 | Issue refresh | WorkspaceIssueRefreshService.refreshIssues/refreshDetail | Reuse current services; selected closed/missing references may need existing backend client |
 | Past task conclusions | AgentTaskService.listCompleted/getInteractive | Scoped completed interactive summaries; open-task learning reports remain deferred; no general task changed-path index |
 | Past review paths and discussion | AgentReviewStore.listReviews/listRuns/listFindings/listMessages | Reuse run diffs and retained evidence |
@@ -283,8 +326,10 @@ Never join a fork's PR number to an upstream PR merely because the numbers match
 ReviewTools uses the existing issue row/detail first and refreshes selected
 missing or outdated activity. A known PR selected through the issue/PR read
 uses the PR cache instead. An uncached issue or closed issue absent from the
-open projection uses the existing exact RepoService.getIssuePreview fallback;
-it does not refresh the whole issue projection.
+open projection uses the existing exact RepoService.getIssuePreview fallback
+for the ordinary issue selector. The enabled history selector separately reads
+the selected closed issue's activity and retains one typed historical bundle;
+neither path refreshes or discovers the whole closed-issue history.
 
 PR discovery/retention and issue synchronization are bounded. Older closed PRs
 may expire; the open-issue projection drops closed rows; commit enrichment
@@ -631,6 +676,68 @@ share one optimistic run update, preserving the initial bootstrap, selection
 and code identities. This source-read step only retains evidence. The separate atomic shared
 preparation admission/save protocol is described in Sections 6 and 10.4.
 
+### 3.5 Selected merged-PR and closed-issue knowledge sources
+
+The enabled review tool adds `review_get_context` with `kind=history`,
+`sourceKind=PR` or `ISSUE`, and one positive `number`. The accepted review binds
+workspace, repository, run and turn; arguments cannot select another owner or
+an arbitrary URL. Off and absent historical snapshots reject this selector.
+This is one selected source read, not a historical crawler or closed-issue search.
+
+~~~json
+{
+  "kind": "history",
+  "sourceKind": "PR",
+  "number": 123
+}
+~~~
+
+A PR source must be observed merged, and an issue source observed closed.
+The reader reuses existing selected PR metadata/activity/diff and issue activity
+services, including available comments/timeline for an issue absent from the
+open-issue projection. It retains a bounded bundle of actual source content and
+returns a backend-issued readId and evidenceRef. Available discussion and change
+artifacts explain recorded decisions; a state label alone cannot establish how
+an issue was resolved, why a PR was accepted, or that a current contract still
+holds. CLOSED must not be presented as proof of a successful resolution.
+
+ContextHistoryRead has kind HISTORY and a typed PR or ISSUE reference. It records
+state MERGED or CLOSED, optional sourceUpdatedAt and PR sourceRevision,
+contentHash of the exact returned excerpt, readAt, utf8Bytes, truncated,
+refreshFailed, up to ten gaps, and a required evidenceRef. The excerpt fits
+16 KiB UTF-8 and is retained once in the owning run's evidence map. Pagination
+limits, incomplete artifacts, stale fallback and failed refresh remain visible;
+a bounded bundle does not claim an exhaustive final-diff or resolution account.
+Activity selects the latest twenty observed events, with unknown timestamps last
+and stable GitHub IDs breaking timestamp ties. Omitted counts are explicit so
+long threads do not silently substitute their opening discussion for the final
+merge or closure explanation. Source update times, observed revisions and content
+participate in the excerpt hash; cache timestamps and successful refresh-attempt
+flags remain provenance, so an equivalent cache hit does not force regeneration.
+The accepted turn is rechecked before receipt and evidence persist together.
+
+To use these observations for shared generated knowledge, the investigation
+reads the selected history before preparation and passes at most ten same-run
+historyReadIds in BEGIN. Their observed identities participate in the admitted
+scope fingerprints; changed observations can therefore require a new preparation.
+SUBMIT may cite only history receipts bound by those admitted inputs, retaining
+their exact source content and limitations. Arbitrary run evidence references,
+model-pasted excerpts and unadmitted history IDs cannot substitute for a receipt.
+
+A READY result using history also requires a captured nonblank repository-file
+read from this run's monitored baseline. History supports conditional knowledge
+or RECORDED_DECISION claims, with the baseline supplying present-code context;
+it does not certify applicability. Historical observations alone cannot justify
+EMPTY. Unreadable or incomplete essential sources require FAILED or explicit
+limitations rather than an invented successful empty extraction.
+
+This path writes generated KNOWLEDGE through the existing fenced preparation
+report. It never creates MEMORY automatically. Save lesson remains the user's
+explicit action. The standalone Learn task and scope/history selection UI are
+implemented. Scope/root and bounded resolved-history discovery follow in H3.
+The Learn assignment always includes
+repository and documentation sources.
+
 ## 4. Notebook and JSON contracts
 
 The following JSON examples are illustrative, not observations about a real
@@ -644,7 +751,6 @@ does not maintain authoring or inspection dates.
   "schemaVersion": 1,
   "revision": 7,
   "useInReviews": true,
-  "buildRequestSequence": 0,
   "sources": [
     {
       "id": "docs-trino",
@@ -686,7 +792,7 @@ does not maintain authoring or inspection dates.
         },
         "outcome": "READY",
         "noteIds": ["knowledge:path:plugin/trino-iceberg/"],
-        "checkedReads": ["<full typed baseline/document read receipts; see Section 4.3>"],
+        "checkedReads": ["<full typed source read receipts; see Section 4.3>"],
         "explanation": "Prepared connector overview from the recorded sources."
       }
     }
@@ -733,8 +839,7 @@ does not maintain authoring or inspection dates.
   ],
   "suppressedKnowledgeIds": [],
   "sourceEvidence": [],
-  "activePreparation": null,
-  "lastBuildRequest": null
+  "activePreparation": null
 }
 ~~~
 
@@ -749,9 +854,10 @@ Field rules:
   automatic review use, not retention or explicit notebook actions. A settings
   edit uses the same optimistic revision check; an in-flight generated shared
   save can conflict with it while the run retains its already captured context.
-- buildRequestSequence increments on admission of an explicit builder request,
-  even if extraction later returns EMPTY and content does not change. It fences
-  older HTTP retries independently of content revision.
+- Explicit learning stores its latest request separately as ContextBuild under
+  `workspace.repositoryContextBuild.<workspaceId>`. The notebook has no
+  buildRequestSequence or lastBuildRequest fields. The build sequence fences
+  retries independently of notebook content revision, including EMPTY results.
 - Scope IDs are stable. The project scope is fixed. Generated component scopes
   use a validated normalized repository-relative directory, not a model's
   changing display title. An agent can propose a component boundary from
@@ -770,7 +876,7 @@ Field rules:
 - Disable retains the entry but excludes it from new selection. Removing a
   KNOWLEDGE entry adds its ID to suppressedKnowledgeIds, including an edited
   note now owned by USER. Disabling a scope suppresses creation for that scope.
-  Ordinary Build/Refresh preserves suppression. The separate explicit Reset
+  Ordinary Learn/Refresh preserves suppression. The separate explicit Reset
   action clears selected suppression; it never deletes an existing user note.
   To regenerate an edited note, the user removes it and then resets its scope.
   Reset also clears completed preparation for a selected missing note, so an
@@ -838,7 +944,7 @@ Each scope stores its last completed attempt:
   },
   "outcome": "EMPTY",
   "noteIds": [],
-  "checkedReads": ["<full typed baseline/document read receipt>"],
+  "checkedReads": ["<full typed source read receipt>"],
   "explanation": "The inspected sources did not establish useful component-specific knowledge."
 }
 ~~~
@@ -859,8 +965,10 @@ No failed refresh deletes the previous usable content.
 An EMPTY refresh also preserves saved text; it does not turn a previously
 mismatched/unverified note into an applicable contract or silently delete it.
 
-The persisted `checkedReads` are complete typed `ContextRepositoryRead` or
-`ContextDocumentRead` values from Section 3, including successful blank reads.
+The persisted `checkedReads` are complete typed `ContextRepositoryRead`,
+`ContextDocumentRead` or admitted `ContextHistoryRead` values from Section 3.
+Repository/document reads can represent successful blank observations; history
+always retains a nonblank excerpt and cannot prove EMPTY.
 These placeholder strings abbreviate full objects only in the examples above.
 For a nonblank read, its notebook `evidenceRef` becomes the globally unique read
 ID and resolves to the copied excerpt in `sourceEvidence`; run-local IDs such
@@ -871,25 +979,41 @@ not a model-supplied digest. It is recomputed against the prospective retained
 sources before saving, so newly attached sources do not invalidate their own note.
 
 An activePreparation contains attemptId, requestKey, requestDigest, ownerTaskId,
-ownerTurnId, ownerTurnKey, reviewId, runId, baseContentRevision, and `inputs`
-(the complete per-scope input fingerprints). This is a fencing/ownership fact; running/queued/stopped states
-come from the existing task/turn. The standalone lastBuildRequest retains its
-requestKey, requestDigest, sequence, preallocated taskId, selected scopes,
-baseline and optional completionReceipt so retries/navigation can find the
-existing task. The completion receipt holds attemptId, operationKey,
-reportDigest and the actual accepted result. Do not create a second execution
-status machine.
+ownerTurnId, ownerTurnKey, optional reviewId/runId, baseContentRevision, and
+`inputs` (the complete per-scope input fingerprints). Review and run identities
+must be both present for review-owned preparation or both absent for explicit
+learning. The owning task/turn remains mandatory; there is no synthetic PR or
+review. This is a fencing fact; running/queued/stopped states come from the
+existing task/turn.
 
-Explicit Build passes the displayed expectedBuildSequence and expectedRevision.
-A matching last request returns that task; the same key with different accepted
-inputs conflicts. Any other request with an old sequence is rejected, including
-a retry of A after B. Under the lock, increment sequence and save the binding
-with a backend-allocated task ID before provisioning. Existing task creation
-uses that ID. Recovery inspects that task/worktree identity; it never allocates
-a replacement ID or blindly resends an uncertain start. A failed provisioning
-request is shown as interrupted/failed through reconciliation, with explicit
-Retry admitting a new request after ownership is settled. This bounds replay
-storage without promising that every historical request remains replayable.
+ContextBuild is the latest explicit Learn/Refresh request in the existing settings
+store, separate from notebook content. Its accepted binding freezes sequence,
+requestKey/requestDigest, workspaceId/taskId, physical repository, monitored
+repository ID/name, baselineSha, branch, lane/defaults, selected scopeIds,
+optional selected history, registered documentation sources, notebookRevision
+and requestedAt before a turn starts. ContextBuildStore compares the exact prior
+binding under the workspace lock. A newer request can replace the binding only
+after the previous task is terminal and worktree removal is recorded, preserving
+purpose, tool ownership and cleanup controls. An absent task from failed
+provisioning has no retained worktree ownership to replace.
+
+The binding's capture contains typed sourceReads, retained evidence, source
+attempts, exact operation receipts, an optional structured result and gaps.
+It is bounded to 128 source receipts, 128 evidence/attempt entries, 20 operation
+receipts, 256 KiB evidence text, forty gaps of at most 1,000 bytes, and 1 MiB
+serialized storage. Each operation records its normalized digest and exact
+result, bounded to 64 KiB. These are capture/replay facts, not another lifecycle
+state machine. Successful note sources are copied into the notebook so replacing
+the latest task binding does not erase Knowledge provenance.
+
+Explicit Learn/Refresh uses the displayed request sequence and notebook revision.
+A matching latest request returns its existing task; conflicting content or an
+older sequence is rejected, including a retry of A after B. The binding reserves
+a backend task ID before provisioning through current task services. Recovery
+inspects that task/worktree identity; it never allocates a replacement ID or
+resends uncertain input. A failed provisioning request remains visible, and
+explicit retry is fenced by settled ownership. This bounds replay storage without
+promising that every historical request remains replayable.
 
 Input fingerprints include scope/source configuration, relevant local source
 blob or directory-tree identities, and dependency versions. Recording a baseline
@@ -1023,12 +1147,16 @@ text; complete note bodies are never cut to fit.
   reference (registered source ID, resolved URL), the exact registration,
   notebookRevision observed during source selection, captureId, contentHash,
   readAt, page, totalPages, utf8Bytes, blank, truncated, refreshFailed and
-  optional evidenceRef. JSON kind is REPOSITORY_FILE or DOCUMENT. The original
+  optional evidenceRef. Their JSON kinds are REPOSITORY_FILE and DOCUMENT. The original
   document capture identity/time survives cache reuse or failed refresh.
+  ContextHistoryRead adds kind HISTORY, a PR/ISSUE reference, MERGED/CLOSED state,
+  optional sourceUpdatedAt/sourceRevision, exact excerpt contentHash, readAt,
+  utf8Bytes, truncated, refreshFailed, bounded gaps and required evidenceRef.
   These metadata receipts neither assert applicability nor change the original
   packet. Equal receipt-ID retries are idempotent; altered receipts cannot
   replace them. The owning run validates retained references and exact excerpt
-  byte counts on append and reload. A maximum of 128 receipts plus validated
+  byte counts on append and reload; history also verifies its exact content hash.
+  A maximum of 128 receipts plus validated
   field lengths bounds metadata; no separate aggregate JSON-size guarantee is
   claimed. Preparation resolves these typed identities directly, rather than
   parsing descriptive evidence labels or trusting model-pasted IDs.
@@ -1075,7 +1203,12 @@ text; complete note bodies are never cut to fit.
 
 ### 4.5 Requests and generated reports
 
-An explicit Build/Refresh request from the notebook settings page:
+The explicit Learn/Refresh body is ContextBuildController.StartRequest, which
+requires both revision fields before constructing ContextBuildService.Request.
+The route supplies workspace identity; the service resolves the configured Review
+provider/model. Repository files, directory structure, repository documentation
+and registered docs are included by the server-owned assignment; they have no
+optional source-kind switches. History is a bounded list of selected references:
 
 ~~~json
 {
@@ -1083,25 +1216,26 @@ An explicit Build/Refresh request from the notebook settings page:
   "expectedRevision": 7,
   "expectedBuildSequence": 0,
   "scopeIds": ["project", "path:plugin/trino-iceberg/"],
-  "provider": "workspace-selected-provider",
-  "model": "workspace-selected-model"
+  "history": [{"kind": "PR", "number": 123}]
 }
 ~~~
 
-The provider/model values above are placeholders for validated existing task
-defaults. The route supplies workspace identity. A duplicate matching request
-returns the same builder; a stale sequence returns a conflict. The response
-contains taskId, requestKey, buildRequestSequence and notebookRevision plus
-status derived from the existing task. It does not return a parallel build job.
+An empty history list requests no historical source learning. A duplicate
+matching request returns the same builder; stale sequence or changed content
+under the same key is rejected. The response contains buildRequestSequence,
+notebookRevision, canStart and optional build. Build details include requestKey,
+taskId, baselineSha, scopeIds, history, requestedAt, optional task/activeTurn,
+pendingApprovals, structured results and gaps. Task state and runtime ownership
+come from existing agent records. There is no parallel build-job status.
 
-A fixed source-read tool request for one documentation page:
+A standalone repository_context_read request for one registered documentation page:
 
 ~~~json
 {
-  "operation": "SOURCE",
+  "kind": "DOCUMENT",
   "sourceId": "docs-trino",
   "relativePage": "connector/iceberg.html",
-  "cursor": null
+  "page": 1
 }
 ~~~
 
@@ -1359,9 +1493,10 @@ Repeated review-owned tool operations use the existing run operation journal.
 Commit that final journal receipt/run update and the notebook update in **one
 short local SQLite transaction**, inside the workspace mutation lock. Existing
 settings/review store transactions join this application transaction; no new
-persistence engine or distributed transaction is needed. Standalone builds
-store their operation key, normalized payload digest, and actual result with
-lastBuildRequest in the same notebook write. A key with different input conflicts.
+persistence engine or distributed transaction is needed. Standalone learning
+stores its operation key, normalized payload digest and exact result in the latest
+ContextBuild capture, atomically with the notebook update through the same local
+unit of work. A key with different input conflicts.
 An older standalone attempt whose receipt has been replaced returns a stale
 request error and cannot write. There is no new unbounded replay ledger.
 
@@ -1396,8 +1531,10 @@ on the next requested run; sync and HEAD movement alone do nothing.
 
 Local inventory reads use the captured monitored commit, independently of
 working-tree edits or later HEAD movement. Project input discovery covers
-bounded root documentation/build entries rather than hashing the entire
-repository tree. Component inputs use their selected subtree identities and
+bounded root documentation/build entries and a repository-root-layout hash of
+immediate root names and modes/types. Layout changes invalidate Project overview
+without invalidating it for every unrelated file-content edit. The fingerprint
+does not hash the entire repository tree. Component inputs use their selected subtree identities and
 referenced repository files, with ancestor dependency manifests. Explicit
 absence and the documentation-source catalog participate in the fingerprint,
 so newly added relevant input invalidates an earlier negative preparation.
@@ -1412,7 +1549,7 @@ Comparing baseline inventories must never promote a claim to MATCHED for a PR.
 Refresh generated baseline knowledge from the captured monitored branch, not
 from an older task or an unmerged experiment. Version-specific differences
 required by a PR are retained in its context. Documentation refresh occurs on
-explicit Build/Refresh or when the applicable version is missing. Unknown
+explicit Learn/Refresh or when the applicable version is missing. Unknown
 remote freshness is displayed as last observed, not guessed.
 
 MEMORY is written only through the user's Save lesson/Edit action. No merged
@@ -1527,8 +1664,18 @@ contains the default-on Use repository context in reviews switch, Knowledge and
 Saved lessons, matching scopes, and registered documentation sources. The switch
 applies to new runs; turning it off preserves notes and historical run snapshots.
 Opening the page only reads the local notebook. Source registration saves a
-public HTTPS root or page without fetching it. Build/Refresh and preparation
-outcomes remain pending the generation workflow.
+public HTTPS root or page without fetching it. Review-owned preparation outcomes
+are displayed from retained READY/EMPTY/FAILED receipts. The explicit Learn/Refresh
+controls and standalone generation task are implemented.
+
+Project overview initially appears as a matching scope without note content.
+When generated or manually saved, its note appears under Knowledge. The
+Learn action offers scopes and optional selected PR/issue inputs, then links
+to the existing task transcript for progress and Stop. Its first-run assignment
+includes repository files, directory structure, repository documentation and
+registered docs without source-kind switches.
+Task details display the actual managed worktree path from the required
+TaskView.worktreePath string, including a retained tree awaiting explicit cleanup.
 
 Users can add one knowledge note per scope, edit existing knowledge or lessons,
 disable entries or scopes, and remove notes. Removing knowledge records its
@@ -1666,7 +1813,12 @@ memory” eviction in V1. Preserve pending drafts/local work under existing rule
 
 ## 10. Java interfaces and method contracts
 
-These are proposed API contracts, not implemented classes. Public values belong
+The concrete baseline/history readers, shared preparation/review integration and
+explicit learning service below document implemented application contracts.
+Live provider, performance and On/Off judgment acceptance remain pending.
+The broader selection/interface sketches are
+proposals, explicitly separate from persisted fields and accepted tool schemas.
+Public values belong
 in **com.bytequay.core.context**. Application orchestration/HTTP/tool adapters
 belong in **com.bytequay.app.context**, with implementations in impl when split.
 Provider-neutral fixed descriptors stay in agent-spi; the adapters must not
@@ -1686,14 +1838,12 @@ public record RepositoryNotebook(
         int schemaVersion,
         long revision,
         boolean useInReviews,
-        long buildRequestSequence,
         List<RegisteredContextSource> sources,
         List<ContextScope> scopes,
         List<ContextEntry> entries,
         List<String> suppressedKnowledgeIds,
         List<ContextSourceEvidence> sourceEvidence,
-        Optional<ActiveContextPreparation> activePreparation,
-        Optional<ContextBuildRequest> lastBuildRequest) {}
+        Optional<ActiveContextPreparation> activePreparation) {}
 
 /**
  * One reusable note. Scope is explicit and source IDs resolve within the
@@ -1792,16 +1942,16 @@ public record ContextSourcePage(
 
 Other values have the fields in Section 4: ContextScope/match, tagged
 ContextReference, ContextSourceEvidence, ContextClaim, ContextCodeIdentity,
-ActiveContextPreparation, ContextBuildRequest, ReviewContextSnapshot and
-ContextDiscussionSupplement. Use sealed reference/match interfaces for their
+ActiveContextPreparation, ContextBuild and ReviewContextSnapshot. A separate
+discussion supplement remains pending, without a persisted placeholder. Use sealed reference/match interfaces for their
 closed variants rather than nullable bags of mutually exclusive fields.
 
 Commands below are typed records: EditContextEntry contains only user-editable
 fields and expected entry ID; SaveContextLesson contains the selected local
-discussion/evidence IDs, edited lesson text and explicit scope; StartContextBuild
-contains workspace ID, expectedRevision, expectedBuildSequence, request key,
-selected scope IDs and selected provider/model defaults. It accepts no filesystem
-path, caller-supplied task ownership,
+discussion/evidence IDs, edited lesson text and explicit scope. ContextBuildService.Request
+contains requestKey, expectedRevision, expectedBuildSequence, selected scopeIds
+and optional selected history. Workspace and provider/model defaults are resolved
+by the application. It accepts no filesystem path, caller-supplied task ownership,
 secret, or arbitrary target repository.
 
 ### 10.2 Workspace notebook service
@@ -1855,7 +2005,7 @@ public interface RepositoryContextService
      * Does not overwrite USER notes, re-enable disabled content, or run a
      * model. A subsequent requested preparation may recreate a missing note.
      * Clear that missing note's completed preparation when clearing suppression.
-     * Ordinary Build/Refresh does not call this method implicitly.
+     * Ordinary Learn/Refresh does not call this method implicitly.
      */
     RepositoryNotebook resetSuppression(String workspaceId, long expectedRevision, List<String> scopeIds);
 
@@ -1918,22 +2068,6 @@ public interface RepositoryContextService
      * This method is not exposed to an autonomous model-write tool.
      */
     RepositoryNotebook saveLesson(String workspaceId, long expectedRevision, SaveContextLesson lesson);
-
-    /**
-     * Starts or returns an explicit Build/Refresh using the existing agent
-     * task service, after readiness and workspace ownership checks.
-     *
-     * @param request accepted scope/provider, content revision and build sequence
-     * @return existing/new builder task identity and current notebook revision
-     * @throws ContextConflictException for conflicting in-flight work or
-     *         reuse of a request key with different accepted inputs
-     *
-     * Establish the binding with preallocated task ID before provisioning. Provision
-     * a separate managed worktree and apply the policy-only review bridge.
-     * Replay the matching last request; reject an older sequence. Never allocate
-     * a second task ID for a retained request or resend uncertain input.
-     */
-    ContextBuildView startBuild(StartContextBuild request);
 
     /**
      * Deletes notebook content as part of verified explicit workspace deletion.
@@ -1999,6 +2133,57 @@ public interface RepositoryContextReader
 }
 ~~~
 
+Explicit learning uses the same frozen file reader without constructing a
+review run. Directory discovery is metadata only; generated claims still need
+retained file or documentation evidence:
+
+~~~java
+public class ContextBaselineReader
+{
+    /**
+     * Captures one regular file window from an application-owned frozen baseline.
+     *
+     * @param workspace trusted checkout and monitored repository routing
+     * @param repositoryId monitored repository ID saved before the task starts
+     * @param baseline full immutable commit SHA saved with the request, never a model revision
+     * @param path literal repository-relative file path
+     * @param startLine first one-based line; an empty file accepts only line one
+     * @param endLine optional inclusive last line, capped to 200 lines from the start
+     * @return exact file/blob identity, read time, line counts and at most 16 KiB UTF-8
+     *         numbered text; a complete empty file has no invented evidence text
+     * @throws IllegalArgumentException for identity/range/path mismatch, missing or
+     *         non-regular files, incomplete output, or unsupported binary/non-UTF-8 text
+     *
+     * Run outside mutation locks. Read immutable local objects with replacement
+     * objects and lazy fetching disabled; worktree, index and HEAD are not inputs.
+     * The full blob must fit 128 KiB before reporting source lines or an excerpt.
+     * The caller owns accepted-turn checks and durable receipt/evidence registration.
+     */
+    public Read read(WorkspaceRepositoryContext workspace, long repositoryId,
+            String baseline, String path, int startLine, Optional<Integer> endLine);
+
+    /**
+     * Lists immediate children of one directory at the same frozen baseline.
+     *
+     * @param workspace trusted checkout and monitored repository routing
+     * @param repositoryId monitored repository identity frozen by the application
+     * @param baseline full immutable commit SHA frozen by the application
+     * @param path empty for the root, otherwise a validated repository-relative directory
+     * @param page zero-based page, from zero through nine
+     * @return at most 100 entries with exact path, object ID and FILE/DIRECTORY/
+     *         SYMLINK/SUBMODULE kind, the selected commit and whether more entries exist
+     * @throws IllegalArgumentException for identity/path/page mismatch, a non-directory,
+     *         unavailable/malformed output, or a full listing exceeding 128 KiB
+     *
+     * Read outside mutation locks. Never follow symlinks or enter submodules, read
+     * working files, fetch objects or silently present partial Git output as complete.
+     * Listing a file does not count as reading its content or proving EMPTY knowledge.
+     */
+    public Directory directory(WorkspaceRepositoryContext workspace, long repositoryId,
+            String baseline, String path, int page);
+}
+~~~
+
 The application also captures baseline input identities before the initial
 review turn; this is a local collaborator, not an agent-callable tool:
 
@@ -2026,34 +2211,113 @@ List<ContextInputFingerprint> capture(
         List<ContextScope> scopes);
 ~~~
 
+The implemented selected-history collaborator uses existing PR and issue read
+services. `ReviewTools` owns the accepted-turn check, read ID and retained evidence;
+the reader does not mutate the notebook or create a preparation attempt:
+
+~~~java
+public class ContextHistoryReader
+{
+    /**
+     * Reads one explicitly selected merged PR or closed issue for an enabled run.
+     *
+     * @param workspace application-resolved checkout and monitored repository routing
+     * @param run retained review run with an enabled, frozen repository-context identity
+     * @param kind PR or ISSUE; no free-form source type or remote destination
+     * @param number positive PR or issue number in the monitored repository
+     * @return source reference, observed terminal state, optional update/revision identity,
+     *         read time, exact excerpt hash, truncation/refresh flags and at most ten gaps;
+     *         the returned excerpt includes those observations and is at most 16 KiB UTF-8
+     * @throws IllegalArgumentException for a disabled/missing snapshot, changed repository,
+     *         invalid number, mismatched source, unmerged PR or non-closed/non-issue result
+     * @throws RuntimeException when the selected source cannot be read sufficiently to
+     *         establish its identity and required terminal state
+     *
+     * Read outside the review lock. Reuse existing selected PR metadata/activity/diff
+     * caches and refresh paths. For an issue, obtain its exact non-PR closed preview:
+     * the open-issue projection cannot prove closure. Reuse cached activity unless
+     * absent or older than the preview. Ancillary refresh failures retain available
+     * cached material and explicit gaps, not an invented empty or complete source.
+     * Activity and patches are bounded excerpts; closed/merged state does not prove
+     * correctness, a successful resolution or applicability to the reviewed code.
+     * No discovery, notebook write, provider launch or task transcript edit occurs.
+     * Before returning a tool result, ReviewTools rechecks the accepted turn, assigns
+     * a typed ContextHistoryRead ID and registers the exact excerpt as run evidence.
+     */
+    public Read read(WorkspaceRepositoryContext workspace, ReviewRun run,
+            SourceKind kind, int number);
+
+    /**
+     * Applies the same selected-source rules for an explicit learning task.
+     * @param workspace application-resolved routing, rechecked against the saved task binding
+     * @param repositoryId immutable monitored repository ID from that binding
+     * @param kind PR or ISSUE, limited by the user's accepted history selection
+     * @param number positive selected PR/issue number in that repository
+     * @return the same bounded, untrusted source bundle and observed metadata
+     * @throws IllegalArgumentException for a changed repository or ineligible source
+     *
+     * No synthetic review/run is required. The learning tool owns turn authorization,
+     * selected-history admission, receipt retention and its exact evidence hash.
+     */
+    public Read read(WorkspaceRepositoryContext workspace, long repositoryId,
+            SourceKind kind, int number);
+}
+~~~
+
 ### 10.4 Generated preparation and review integration
 
-The implemented review-owned slice uses the concrete application service below.
-It operates only on existing configured scopes and registered sources. Scope/root
-proposals and standalone Build/Refresh remain pending. Automatic accepted-turn
-input delivery and completed-brief reporting use the concrete contracts below;
-selected deferred-notebook exact-version reads also remain pending. The broader
-preparation interface that follows describes remaining builder work.
+The concrete application service below is shared by review investigations and
+explicit learning tasks. It operates only on existing configured scopes and
+registered sources. Scope/root proposals and selected deferred-note exact-version
+reads remain pending; standalone Learn/Refresh is implemented. Review
+tools construct the trusted execution from a frozen run; learning tools construct
+it from their saved ContextBuild and accepted task/turn. Neither callers nor
+models can supply a different owner through report arguments.
 
 ~~~java
 public class RepositoryContextPreparation
 {
     /**
-     * Reads the selected scopes and their frozen-baseline inputs outside locks.
-     * @param execution trusted accepted investigation, resolved by ReviewTools
-     * @param scopeIds existing configured IDs, never inferred filesystem roots
-     * @return notebook revision and bounded authoritative input inventories
+     * Trusted owner and captured sources for one accepted preparation execution.
+     * Review/run IDs are both present for review and both absent for standalone Learn.
+     * Evidence references must resolve to exact retained excerpts; historical hashes
+     * are checked. This value is never deserialized from renderer or model arguments.
      */
-    Plan plan(Execution execution, List<String> scopeIds);
+    public record Execution(
+            String workspaceId, String repository, long repositoryId, String baselineSha,
+            String taskId, String turnId, String turnKey, Optional<String> reviewId,
+            Optional<String> runId, List<ContextSourceRead> sourceReads,
+            Map<String, CapturedSource> evidence) {}
+
+    /**
+     * Reads the selected scopes and their frozen-baseline inputs outside locks.
+     * Selected history must already be captured; this call performs no history fetch.
+     *
+     * @param execution trusted accepted investigation or explicit Learn root turn
+     * @param scopeIds existing configured IDs, never inferred filesystem roots
+     * @param historyReadIds at most ten same-execution merged-PR/closed-issue receipt IDs,
+     *         one per historical source; an empty list adds no new observations
+     * @return notebook revision and bounded input inventories with the selected
+     *         historical observations included in each selected scope fingerprint
+     * @throws IllegalArgumentException for missing/non-history read IDs, duplicate
+     *         source identities, or a source from another repository
+     *
+     * Equal observations permit reuse; a changed selected observation invalidates
+     * the affected scope input. Omitted historical sources retain previously
+     * observed input identities without a refresh. No notebook mutation, provider
+     * call or documentation fetch occurs. The caller must recheck the accepted
+     * turn under its owning review/task boundary before committing admission and its receipt.
+     */
+    Plan plan(Execution execution, List<String> scopeIds, List<String> historyReadIds);
 
     /**
      * Records one owner or returns immediate JOINED/REUSED/DEFERRED.
-     * @param requestKey stable caller key, scoped to BEGIN in the run journal
+     * @param requestKey stable caller key, scoped to BEGIN in the owner's operation journal
      * @param requestDigest application-computed normalized payload digest
      * @param expectedRevision revision observed in the current scope catalog
      * @param plan observations obtained before opening the transaction
      * @return owner identity, reused outcomes, gaps and bounded actual note text
-     * The caller rechecks the accepted turn under the review lock and commits
+     * The caller rechecks the accepted turn under its owner boundary and commits
      * this mutation and its exact journal result within AgentUnitOfWork.
      */
     Admission begin(Execution execution, String requestKey, String requestDigest,
@@ -2062,10 +2326,12 @@ public class RepositoryContextPreparation
     /**
      * Validates all admitted scope outcomes and source IDs, and computes input
      * identities against the prospective retained sources outside locks.
-     * @param attemptId current owner attempt; every reported read belongs to its run
+     * @param attemptId current owner attempt; every reported read belongs to its execution
      * @param report generated entries plus READY/EMPTY/FAILED for each owned scope
      * @return exact expected/replacement notebooks and actual accepted-text receipt
-     * No shared write occurs here. Only baseline/document typed receipts qualify.
+     * No shared write occurs here. Baseline/document receipts and BEGIN-admitted historical receipts
+     * qualify; history-backed READY also requires a nonblank monitored-baseline repository read.
+     * Historical observations cannot establish EMPTY or become automatic MEMORY.
      */
     Completion prepareCompletion(Execution execution, String attemptId, GeneratedReport report);
 
@@ -2073,7 +2339,8 @@ public class RepositoryContextPreparation
      * Rechecks ownership and the exact expected notebook before saving.
      * @param completion validated proposal from prepareCompletion
      * @return saved result with packet bytes and digest, bounded to 32 KiB text
-     * The caller saves the SUBMIT operation receipt in the same transaction.
+     * The caller saves the SUBMIT operation receipt in the review journal or
+     * ContextBuild capture in the same transaction.
      * Any user content revision change rejects the entire proposed batch.
      */
     Receipt complete(Execution execution, Completion completion);
@@ -2093,14 +2360,19 @@ public class RepositoryContextPreparation
 notebook revision, frozen baseline and retained read IDs to the enabled initial
 investigation. `repository_context_prepare` has exactly BEGIN and SUBMIT:
 
-- BEGIN accepts requestKey, expectedRevision and existing scopeIds. It returns
-  status, notebookRevision, optional attempt, reused outcomes, gaps and packet.
+- BEGIN accepts requestKey, expectedRevision and existing scopeIds, plus optional
+  historyReadIds naming at most ten already captured same-run historical receipts.
+  The selected observations participate in the admitted scope fingerprints. It
+  returns status, notebookRevision, optional attempt, reused outcomes, gaps and packet.
 - SUBMIT accepts attemptId, operationKey and report. Report fields are scopeResults
   and entries. Entries contain id, scopeId, title, summary, body, claims and sourceIds;
   server-owned origin/enabled/version and ownership fields are rejected.
 - checkedSourceIds in a report and note/claim sourceIds name returned **typed read
-  IDs**, not review evidence aliases. The backend copies nonblank evidence using
-  those identities and retains successful blank receipts for negative reuse.
+  IDs**, not review evidence aliases. Historical IDs must match the BEGIN-admitted
+  observations. The backend copies nonblank evidence and preserves historical
+  limitations; successful blank repository/document reads support negative reuse.
+  History cannot prove EMPTY, and history-backed READY also requires captured
+  nonblank monitored-baseline repository evidence.
 - Accepted retained BEGIN/SUBMIT responses include receiptRef, the exact saved
   run operation key. Submission also returns attemptId, notebookRevision, saved
   scopeResults and packet.
@@ -2120,65 +2392,11 @@ Settings displays last completed READY/EMPTY/FAILED distinctly from no completed
 result, plus retained owner details when present. This is extraction metadata,
 not a claim of current applicability, live execution or model comprehension.
 
-The remaining standalone builder and scope/root-proposal requirements use the
-following planned preparation contract; the concrete review-owned service above
-remains the implemented boundary.
-
-~~~java
-public interface RepositoryContextPreparation
-{
-    /**
-     * Admits one workspace-scoped generation owner or joins a matching attempt.
-     *
-     * @param execution trusted review-investigation or explicit builder turn
-     * @param plan captured scopes/sources/fingerprints/revision and optional
-     *         repository-derived additions validated before admission
-     * @return owner/join/reuse result and stable attempt identity
-     * @throws ContextConflictException when the captured revision is stale
-     *
-     * Persist only short ownership/input facts under the workspace lock.
-     * Never call a model or hold a connection while waiting for another task.
-     * Commit permitted new scopes/roots before capturing the admitted revision
-     * in the same local mutation. Do not register more roots mid-attempt.
-     * Disabled scopes and user-owned entries cannot be replaced autonomously.
-     */
-    ContextPreparationAdmission begin(ContextExecution execution, ContextPreparationPlan plan);
-
-    /**
-     * Accepts a completed generated batch from the admitted root execution.
-     *
-     * @param execution current accepted owner turn
-     * @param attemptId active fenced attempt returned by begin
-     * @param operationKey stable key reused for an identical tool retry
-     * @param report READY/EMPTY/FAILED results, entries, captured source references
-     *         and explanations for every admitted scope
-     * @return durable receipt, updated revision, and bounded actual result packet
-     * @throws ContextConflictException if ownership/revision changed or the key
-     *         was reused with a different normalized report
-     * @throws ContextInvalidRequestException for invalid claim basis, unresolved
-     *         references, target scope, or byte limits
-     *
-     * Validate structure/identity, not semantic truth. Only source-backed
-     * generated entries may change. Commit content and replay receipt together.
-     * Return the text actually accepted so callers cannot assume every proposal
-     * was saved. User edits/disables always defeat a stale batch.
-     */
-    ContextPreparationReceipt complete(ContextExecution execution, String attemptId, String operationKey, GeneratedContextReport report);
-
-    /**
-     * Records a failed/interrupted attempt without deleting prior good content.
-     *
-     * @param execution trusted owner or application reconciliation identity
-     * @param attemptId still-current attempt to fence
-     * @param reason bounded user-facing reason, without credentials/raw logs
-     *
-     * A late callback for another attempt cannot mutate current ownership.
-     * Startup uses existing task/runtime recovery before clearing uncertain
-     * owners. This method never schedules a replacement model run.
-     */
-    void fail(ContextExecution execution, String attemptId, String reason);
-}
-~~~
+Repository-derived scope/root proposals remain pending. They must validate
+captured repository evidence and save approved configuration before shared
+preparation admission; they do not require another preparation lifecycle or
+provider runner. The same concrete service owns generated-note validation and
+protected notebook replacement for both existing review and Learn tool bridges.
 
 Review startup uses the concrete app ReviewContextService.prepareRun to retain
 On/Off, local selection and bootstrap evidence in the existing run:
@@ -2298,14 +2516,116 @@ Do not change existing methods to fetch merely because context needs data.
 Add explicit selected hydration through the already-existing refresh services.
 Use the current framework-free storage values and local read APIs.
 
+### 10.6 Explicit learning task service
+
+ContextBuildService coordinates the existing task services; ContextBuildStore
+retains the latest purpose binding and source/operation capture. No new agent
+runner, task state enum or background learning scheduler is introduced.
+The returned BuildView carries existing task/turn facts and saved scope results.
+TaskView.worktreePath is a required String containing the actual managed path;
+the task details display it without allowing the renderer to choose a worktree.
+
+~~~java
+public class ContextBuildService
+{
+    /**
+     * Returns the latest explicit learning request and existing task/turn facts.
+     * @param workspaceId existing workspace whose notebook and binding are read
+     * @return current sequence/revision, whether another request may start, and optional build
+     *
+     * May settle a previously requested terminal turn or retry permitted cleanup.
+     * A task already FAILED retains its worktree until explicit purpose-scoped cleanup.
+     * Never allocates a task, starts a turn, fetches sources or resumes learning.
+     */
+    public View get(String workspaceId);
+
+    /**
+     * Admits one explicit Learn/Refresh request and starts its ordinary managed task.
+     * @param workspaceId application-owned workspace route
+     * @param request displayed notebook/build revisions, request key, enabled scopes
+     *         and at most ten selected PR/issue references; defaults are not source switches
+     * @return the same task for an identical latest request, or the newly bound task view
+     * @throws IllegalArgumentException for stale revisions, conflicting reuse of a key,
+     *         disabled/unknown scopes, an unfinished/uncleaned prior task or unavailable baseline
+     * @throws AgentProviderUnavailableException when readiness fails before allocation
+     *
+     * Serialize admission with the per-workspace build lock. Check provider/model
+     * readiness before reserving identity; freeze the local monitored baseline and
+     * save the exact binding before task creation and turn start. Keep provisioning
+     * and provider calls outside notebook transactions. Later start failures remain
+     * attached to that request with gaps and existing task recovery; never resend
+     * uncertain input. useInReviews=false does not prohibit explicit learning.
+     */
+    public View start(String workspaceId, Request request);
+
+    /**
+     * Resolves the exact noninteractive AUTO task owned by the latest build binding.
+     * @param workspaceId owning workspace route
+     * @param taskId task selected from its retained build view
+     * @return task after matching physical repository, baseline and generated worktree branch
+     * @throws IllegalArgumentException for a replaced request or mismatched task ownership
+     */
+    public AgentTask task(String workspaceId, String taskId);
+
+    /**
+     * Requests cancellation through the existing turn service, then returns current facts.
+     * @param workspaceId owning workspace route
+     * @param taskId current learning task, validated through task()
+     * @return current build/task view; cancellation alone does not establish runtime quiescence
+     *
+     * Preserve saved notes and preparation ownership until terminal runtime facts
+     * permit reconciliation. No new task or replacement turn is started.
+     */
+    public View stop(String workspaceId, String taskId);
+
+    /**
+     * Rechecks one captured tool execution before and after external source work.
+     * @param taskId server-bound tool session task identity
+     * @param capturedTurn root turn captured when the fixed bridge was opened
+     * @return latest binding for the same open task and matching accepted turn key
+     * @throws IllegalArgumentException if the turn is missing, cancelled, terminal,
+     *         replaced or no longer owns the task's TURN worktree claim
+     *
+     * Tool arguments never supply these owner identities. No source text, prompt
+     * title or agent-authored purpose field can grant learning authority.
+     */
+    public ContextBuild authorize(String taskId, Optional<TurnId> capturedTurn);
+
+    /**
+     * Settles an already requested task using durable task/turn and report facts.
+     * @param workspaceId workspace containing the still-current binding
+     * @param taskId exact bound task; replaced or absent identities cannot settle another owner
+     *
+     * Retain any live runtime claim. Once quiescent, fail an unfinished preparation
+     * while preserving notes. A completed turn with a retained structured result
+     * explicitly completes its task; missing/failed reports follow task failure.
+     * If the task was already FAILED at entry, retain its worktree for explicit
+     * purpose-scoped cleanup: Mark failed may have discarded an unverified recovery claim.
+     * An OPEN task abandoned in this pass may proceed to verified clean-worktree cleanup.
+     * Cleanup failures remain visible.
+     * This method never starts or resends learning, including during startup.
+     */
+    public void reconcile(String workspaceId, String taskId);
+}
+~~~
+
+ContextBuildCoordinator subscribes to the existing task event stream. Startup
+restores observation and reconciles retained requests only. Purpose comes from
+ContextBuildStore.findByTask, resolved through the task's workspace and current
+binding. ReviewBridgeResolver attaches the fixed learning tools and trusted
+research policy to that identity, with the existing restricted/no-child profile
+and Global-only user skills. Interactive development ownership, delivery tools,
+PR reporting and publication are not inferred from AUTO or the task title.
+
 ## 11. Fixed tool and HTTP boundary
 
 The implemented review boundary reuses the existing task MCP broker:
 
 | Fixed operation | Allowed execution | Contract |
 | --- | --- | --- |
-| review_get_context | Existing review-bound turns; baseline/document context selectors require an enabled snapshot | Read assignment, selected frozen baseline files or registered documents, related candidates and retained run evidence |
-| repository_context_prepare | Enabled initial review investigation only | BEGIN existing configured scopes, or SUBMIT a generated report using stable attempt/operation keys; return retained receiptRef |
+| review_get_context | Existing review-bound turns; baseline/document/history selectors require an enabled snapshot | Read assignment, selected baseline files/documents, one merged PR or closed issue history bundle, related candidates and retained evidence |
+| repository_context_read | Root turn of the current explicit Learn task | Read its saved selection, frozen repository files/tree, registered documents and optional selected history; retain source attempts/receipts and gaps |
+| repository_context_prepare | Enabled initial review investigation or root turn of the current explicit Learn task | BEGIN existing scopes with selected source receipts, or SUBMIT a generated report using stable attempt/operation keys; retain exact operation receipts |
 | review_save_investigation | Assigned investigation or evidence collection | Seal the report and its bounded context contribution together |
 
 The operation discriminator is a closed schema, not a registry.
@@ -2318,10 +2638,21 @@ result; invalid or oversized reports leave the step open for existing repair.
 Off and historical absent-context runs reject the added fields and retain the
 original report contract. No separate acknowledgment tool or turn is added.
 
-Standalone builder authority, scope/root proposals and the proposed selected
-notebook exact-version read remain pending. A future builder must use a
-policy-only ReviewBridge without PR reporting authority; their presence in the
-approved design does not make those tools available today.
+The learning bridge is purpose-bound and exposes only its two fixed context
+tools. Its default assignment requires root-directory and repository-file work
+and an attempt for every frozen registered documentation source before BEGIN or
+reuse; failures remain explicit gaps. Source/root proposals and selected notebook
+exact-version reads remain pending. The Learn bridge has no PR reporting authority.
+
+repository_context_read has the closed kinds SELECTION, TREE, FILE, DOCUMENT and
+HISTORY. TREE pages start at zero; document pages start at one and use captureId
+for continuation. Initial document reads request fresh observations. Discovery
+of repository documentation requires an attempt to read it before BEGIN, and
+every selected historical reference must be attempted. An unavailable source
+records a gap without inventing evidence. READY requires checked nonblank frozen
+baseline evidence for each scope. EMPTY additionally requires no captured source
+or coverage gaps and must check every captured default source. JOINED/DEFERRED
+ends this learning request with gaps rather than starting a waiting loop or task.
 
 Backend binding supplies task, workspace, run, actor and accepted turn. Model
 arguments never select them. Source IDs must belong to the bound catalog.
@@ -2331,7 +2662,7 @@ reference input are absent for disabled review runs; existing review tools such
 as review_get_context remain available under their existing selectors and gates.
 No model-callable GitHub writer is introduced.
 
-Use the current authenticated Electron transport; proposed endpoints are:
+Use the current authenticated Electron transport:
 
 | Method/path | Purpose |
 | --- | --- |
@@ -2342,7 +2673,13 @@ Use the current authenticated Electron transport; proposed endpoints are:
 | POST /api/workspaces/{workspaceId}/repository-context/lessons | Explicit edited Save lesson |
 | PUT /api/workspaces/{workspaceId}/repository-context/configuration | Edit useInReviews and/or registered source roots/scopes with expectedRevision |
 | POST /api/workspaces/{workspaceId}/repository-context/reset | Explicit selected suppression reset with expectedRevision |
-| POST /api/workspaces/{workspaceId}/repository-context/build | Scoped Build/Refresh, requestKey, expectedRevision, expectedBuildSequence and provider choices |
+| GET /api/workspaces/{workspaceId}/repository-context/build | Latest learning view; may reconcile existing terminal work but never starts learning |
+| POST /api/workspaces/{workspaceId}/repository-context/build | Explicit Learn/Refresh request with requestKey, expectedRevision, expectedBuildSequence, scopeIds and history |
+| POST /api/workspaces/{workspaceId}/repository-context/build/stop | Request current task cancellation with taskId |
+| GET /api/workspaces/{workspaceId}/repository-context/build/runtime/stop-impact?taskId=... | Existing runtime stop-impact view for the purpose-checked task |
+| POST /api/workspaces/{workspaceId}/repository-context/build/runtime/stop | Stop/recover runtime with taskId and observed generation |
+| POST /api/workspaces/{workspaceId}/repository-context/build/mark-failed | Explicit failure through existing completion service, with taskId and reason |
+| POST /api/workspaces/{workspaceId}/repository-context/build/cleanup | Retry permitted clean-worktree removal with taskId |
 
 Source editing uses the same guarded mutation semantics as entry editing.
 Entry IDs travel in request bodies because canonical knowledge IDs contain
@@ -2350,9 +2687,10 @@ repository paths and slashes; they are not URL path segments. Every mutation
 requires an explicit nonnegative expectedRevision rather than defaulting a
 missing field to zero. Source/excerpt provenance, generated origin and entry
 versions remain assigned by the backend.
-Reuse existing task/turn endpoints for transcript, Stop, approvals and runtime
-recovery through an ownership-checked context-build route/adapter if interactive
-routes exclude workflow tasks. Do not weaken those interactive ownership guards.
+The build control routes return the current View, except stop-impact which returns
+the existing runtime-impact response. Reuse ordinary task/turn records for
+transcript and approvals. The purpose-checked build routes provide Stop, failure
+and runtime recovery without weakening interactive-task ownership guards.
 Review context is added to the existing review DTO/read path; do not expose
 another cross-task history endpoint.
 

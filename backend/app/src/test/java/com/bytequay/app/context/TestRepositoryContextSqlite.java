@@ -138,7 +138,7 @@ class TestRepositoryContextSqlite
                 ImmutableList.of(read, blank), "The inspected sources did not establish a useful note");
         ContextScope scope = new ContextScope("project", "Project", new ContextMatch.Repository(), true, Optional.of(result));
         ActiveContextPreparation active = new ActiveContextPreparation("active-attempt", "request", "sha256:" + "a".repeat(64),
-                "task", "turn", "turn-key", "review", "run", 0, ImmutableList.of(input));
+                "task", "turn", "turn-key", Optional.of("review"), Optional.of("run"), 0, ImmutableList.of(input));
         RepositoryNotebook notebook = new RepositoryNotebook(1, 0, true, ImmutableList.of(documentation), ImmutableList.of(scope), ImmutableList.of(),
                 ImmutableList.of(), ImmutableList.of(evidence), Optional.of(active));
         settings.put(key(), mapper.writeValueAsString(notebook));
@@ -162,7 +162,7 @@ class TestRepositoryContextSqlite
                 Optional.empty(), 0, Instant.EPOCH, Instant.EPOCH, Optional.empty()));
         ContextInputFingerprint input = ContextInputFingerprint.create("project", ImmutableMap.of("git:README.md", "100644 blob " + sha), ImmutableList.of());
         ActiveContextPreparation active = new ActiveContextPreparation("attempt", "request", "sha256:" + "a".repeat(64),
-                "task", "turn", "turn-key", run.reviewId(), run.id(), 0, ImmutableList.of(input));
+                "task", "turn", "turn-key", Optional.of(run.reviewId()), Optional.of(run.id()), 0, ImmutableList.of(input));
         RepositoryNotebook empty = context.getNotebook(workspaceId);
         RepositoryNotebook owned = new RepositoryNotebook(1, 0, true, empty.sources(), empty.scopes(), empty.entries(),
                 empty.suppressedKnowledgeIds(), empty.sourceEvidence(), Optional.of(active));

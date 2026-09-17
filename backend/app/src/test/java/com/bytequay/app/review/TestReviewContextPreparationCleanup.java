@@ -71,7 +71,7 @@ class TestReviewContextPreparationCleanup
     private static final AgentTurnSettings SETTINGS = new AgentTurnSettings(Optional.empty(), Optional.empty(), AgentPermissionPolicy.AUTO,
             Duration.ofMinutes(10), ImmutableList.of());
     private static final ActiveContextPreparation ACTIVE = new ActiveContextPreparation("attempt", "request", "sha256:" + "a".repeat(64),
-            TASK.toString(), TURN.toString(), TURN_KEY, REVIEW.id(), "run", 0,
+            TASK.toString(), TURN.toString(), TURN_KEY, Optional.of(REVIEW.id()), Optional.of("run"), 0,
             ImmutableList.of(ContextInputFingerprint.create("project", ImmutableMap.of("README.md", "b".repeat(40)), ImmutableList.of())));
 
     private final RepositoryContextService notebooks = mock(RepositoryContextService.class);

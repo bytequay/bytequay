@@ -15,6 +15,12 @@ apply on every turn, including progress updates, within the requested format.
 Required review coverage is preserved when grouping long lists.
 Wording rules favor readable sentences and preserve exact technical details,
 conditions, and normal prose in shared artifacts.
+PR descriptions explain the problem, resulting behavior and design choices.
+They never report local commands, test runs or counts, pass/fail results, build
+or validation outcomes, logs, environment limitations or agent-work recaps.
+This applies to creation and updates, including Testing, Validation and Test
+plan template sections. Local execution details stay in the task conversation;
+descriptions of test changes may explain the behavior covered.
 PR and development Review & Learning cards default to short, complete sentences:
 purpose usually takes 1–2 sentences, and each commit usually takes 1–3. Commit
 cards explain the change, its key design or implementation choice, and why it

@@ -420,6 +420,15 @@ from the actual change and the repository template. ByteQuay performs the push
 and the GitHub write itself. Reuse an existing open PR; closed/merged/ambiguous
 matches stop the MVP.
 
+PR descriptions explain the change and why it matters. They never include local
+commands, test runs or counts, pass/fail results, build or validation outcomes,
+logs, tooling, environment limitations or agent-work recaps. Leave template
+Testing, Validation and Test plan sections as provided rather than filling them
+with local execution reports. Test changes may be described by the behavior
+covered. Local verification remains in the ByteQuay task conversation. The same
+writing rule applies to direct agent-authored PR updates and CI-description
+repairs through the shared managed guidance.
+
 The task's pull-request panel reaches the same request without any accepted
 automation: its **Create draft PR** action asks ByteQuay to verify the branch,
 build this request, and start the turn, with the click as the authorization. The

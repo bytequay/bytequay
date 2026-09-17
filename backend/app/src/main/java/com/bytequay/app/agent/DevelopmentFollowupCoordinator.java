@@ -759,7 +759,11 @@ public class DevelopmentFollowupCoordinator
                 Choose title and body from the actual change and the repository PR template. Fill only the
                 template sections this change actually has something to say for, and leave the rest exactly as
                 the template leaves them: an empty section is better than one filled to look complete. Do not
-                describe your own tooling, sandbox, or which checks you could not run, and never add an
+                include local execution details: commands run, test classes executed, test counts, pass/fail
+                results, build or validation outcomes, logs, tooling, sandbox, or environment limitations.
+                Keep all local execution reporting in the ByteQuay task conversation, never the PR description,
+                including its Testing, Validation, or Test plan sections. Describe tests added or changed by
+                the behavior they cover, without reporting that they ran or passed. Never add an
                 attribution, co-authorship, or generated-with trailer.
                 Pass the body as tool input; do not write a body file into the worktree.
                 The tool reports the resulting pull request. If it refuses or its result is uncertain, stop without

@@ -177,7 +177,7 @@ async function runCommitMessages(): Promise<string> {
     element<HTMLButtonElement>('[aria-label="Show message"]').click();
     await settle();
     const pre = element('.pull-commit-picker__body');
-    assert(bodies().join('|') === `${body}|One place builds the map.` && getComputedStyle(pre).whiteSpace === 'pre-wrap',
+    assert(bodies().join('|') === `${body}|One place builds the map.` && getComputedStyle(pre).whiteSpace === 'pre',
       'Each row must expand independently to its whole body with blank lines and indentation intact');
     assert(host.querySelector('[aria-label="Choose commits, 3 selected"]') !== null && !element<HTMLInputElement>('[aria-label="Select one: Simplify collectors"]').checked,
       'Showing a message must not change the commit selection');

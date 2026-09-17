@@ -16,6 +16,7 @@ import { flushSync } from 'react-dom';
 import { createRoot } from 'react-dom/client';
 import type { AgentStreamMessage, Bridge, DiffCommitDto, DiffFileDto, InlineReviewCommentDto, PullRequestDetailDto, PullTimelinePayloadDto } from '../../types';
 import PullOverview from '../PullOverview';
+import PullRequestTaskActions from '../PullRequestTaskActions';
 import PullsScreen, { remotePullRequest, ReviewDialog } from '../PullsScreen';
 import ReviewTaskScreen from '../../agents/ReviewTaskScreen';
 import type { AgentEventEnvelope } from '../../agents/events';
@@ -570,5 +571,70 @@ export async function runCheckLogs(): Promise<string> {
   finally {
     flushSync(() => root.unmount());
     host.remove();
+  }
+}
+
+export async function runAssignedPrActions(): Promise<string> {
+  const host = document.createElement('div');
+  document.body.append(host);
+  const root = createRoot(host);
+  let assigned = 0;
+  let reviewed = 0;
+  let route = '';
+  let resolveAssignment: ((value: { workspaceId: string; taskId: string }) => void) | undefined;
+  const review = reviewFixture();
+  const original = window.bridge;
+  window.bridge = { ...original,
+    findPullRequestTask: async () => null,
+    assignPullRequestAgent: async () => { assigned++; return new Promise(resolve => { resolveAssignment = resolve; }); },
+    startAgentReview: async () => { reviewed++; return review; },
+  };
+  const render = (authored: boolean, workspaceId?: string, existing: AgentReviewDto | null = null, key = 'pr') => {
+    flushSync(() => root.render(<PullRequestTaskActions key={key} repo="owner/repo" number={7} authored={authored}
+      workspaceId={workspaceId} loading={false} contextError={null} review={existing} onRetryContext={() => {}}
+      onNavigate={value => { route = value; }} />));
+  };
+  const button = (name: string): HTMLButtonElement => {
+    const element = host.querySelector<HTMLButtonElement>(`button[aria-label="${name}"]`);
+    assert(element !== null, `Missing ${name}`);
+    return element;
+  };
+  try {
+    render(true);
+    assert(button('Assign agent').disabled && button('View in task').disabled, 'Both actions require a workspace');
+    render(true, 'workspace');
+    await settle();
+    button('Assign agent').click();
+    button('Assign agent').click();
+    await settle();
+    assert(assigned === 1 && reviewed === 0, 'Own PR assignment must use one development task request, never a review');
+    assert(button('View in task').disabled, 'Do not start duplicate tasks while assigning');
+    resolveAssignment?.({ workspaceId: 'workspace', taskId: 'assigned-task' });
+    await settle();
+    assert(route === '#/workspaces/workspace/tasks/agent/assigned-task', `Open the assigned conversation with its PR: ${route}`);
+    render(false, 'workspace', review, 'other');
+    await settle();
+    assert(host.querySelector('[aria-label="Assign agent"]') === null, 'Other authors retain review ownership');
+    button('View in task').click();
+    await settle();
+    assert(route.endsWith(`/tasks/review/${review.id}`) && reviewed === 0, 'Open an existing review without restarting it');
+    render(false, 'workspace', null, 'new-review');
+    button('View in task').click();
+    await settle();
+    assert(Number(reviewed) === 1, 'An unassigned review opens via the existing review service');
+    render(true, 'workspace', null, 'stale');
+    button('Assign agent').click();
+    await settle();
+    route = '';
+    render(true, 'workspace', null, 'replacement');
+    resolveAssignment?.({ workspaceId: 'workspace', taskId: 'old-selection' });
+    await settle();
+    assert(route === '', 'A late assignment cannot navigate away from a different PR');
+    return 'Assign authored PRs and open existing task conversations';
+  }
+  finally {
+    flushSync(() => root.unmount());
+    host.remove();
+    window.bridge = original;
   }
 }

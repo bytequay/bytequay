@@ -73,6 +73,7 @@ import com.bytequay.agent.spi.DevelopmentResultReport;
 import com.bytequay.agent.spi.ProviderAgentEvent;
 import com.bytequay.agent.spi.ProviderTurnRef;
 import com.bytequay.agent.spi.RunningTurn;
+import com.bytequay.core.domain.PullRequestTask;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
 import jakarta.persistence.EntityManager;
@@ -113,6 +114,9 @@ class TestSqliteAgentStores
 
     @Autowired
     private SqliteAgentTaskStore taskStore;
+
+    @Autowired
+    private SqlitePullRequestTaskStore pullRequestTasks;
 
     @Autowired
     private SqliteAgentTurnStore turnStore;
@@ -773,11 +777,19 @@ class TestSqliteAgentStores
         taskStore.insert(other);
         launchStore.insert(new AgentProcessLaunch("launch-other", LaunchOwnerKind.APP_SERVER, other.id().toString(), true, "/usr/bin/codex", "digest", now));
         entityManager.clear();
+        PullRequestTask assignment = new PullRequestTask(task.id().toString(), "workspace", "Owner/Repo", 7, "Load PR context");
+        pullRequestTasks.insert(assignment);
+        entityManager.clear();
+        assertThat(pullRequestTasks.find("workspace", "OWNER/REPO", 7)).contains(assignment);
+        assertThat(pullRequestTasks.findByTaskId(task.id().toString())).contains(assignment);
+        assertThat(pullRequestTasks.find("another-workspace", "owner/repo", 7)).isEmpty();
+
 
         taskStore.delete(task.id());
         entityManager.clear();
 
         assertThat(taskStore.find(task.id())).isEmpty();
+        assertThat(pullRequestTasks.findByTaskId(task.id().toString())).isEmpty();
         assertThat(turnStore.find(turn.id())).isEmpty();
         for (String table : ImmutableList.of("agent_turn", "agent_queued_input", "agent_input_delivery", "agent_event_outbox")) {
             assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM " + table + " WHERE task_id = ?", Integer.class, task.id().toString()))

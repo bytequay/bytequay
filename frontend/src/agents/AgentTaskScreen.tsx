@@ -1072,7 +1072,7 @@ export function AgentTaskBody({
     .filter((child) => !agents.some((agent) => agent.threadId === child.threadId));
   const hasAgents = agents.length > 0 || expiredChildren.length > 0;
   const visiblePanelTab: PanelTab = supportsNestedAgents || panelTab !== 'agents' ? panelTab : 'pr';
-  const taskPr = taskPullRequest(pullRequests);
+  const taskPr = taskPullRequest(pullRequests, state.task?.pullRequest?.number);
   const localReviewActive = state.task?.localReviewHead != null;
   const localReviewAvailable = state.task?.interactive === true && state.task.state === 'OPEN'
     && taskPr !== null && taskPr.state !== 'closed' && taskPr.state !== 'merged';
@@ -1713,7 +1713,7 @@ export default function AgentTaskScreen({
   const pullRequestTurnId = state.turn?.id ?? null;
   const pullRequestTurnEndedAt = state.turn?.endedAt ?? null;
   const pullRequestTurnKnown = latestTurnId === null || latestTurnId === pullRequestTurnId;
-  const taskPr = taskPullRequest(pullRequests);
+  const taskPr = taskPullRequest(pullRequests, state.task?.pullRequest?.number);
   // A task whose branch already has a pull request opens on it; from the first deliberate
   // open or close the panel is the user's, until they leave the task.
   const panelOpen = panelChoice ?? taskPr !== null;

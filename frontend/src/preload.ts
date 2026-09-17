@@ -331,6 +331,8 @@ const bridge: Bridge = {
   stopAgentRuntime: (taskId, workspaceId, generation) =>
     ipcRenderer.invoke('agent:task:stop', taskId, workspaceId, generation),
   listAgentReviews: workspaceId => ipcRenderer.invoke('review:list', workspaceId),
+  findPullRequestTask: (workspaceId, repo, number) => ipcRenderer.invoke('agent:pr-task:find', workspaceId, repo, number),
+  assignPullRequestAgent: (workspaceId, repo, number) => ipcRenderer.invoke('agent:pr-task:assign', workspaceId, repo, number),
   findAgentReview: (workspaceId, repo, number) => ipcRenderer.invoke('review:find', workspaceId, repo, number),
   startAgentReview: (workspaceId, repo, number) => ipcRenderer.invoke('review:start', workspaceId, repo, number),
   getAgentReview: reviewId => ipcRenderer.invoke('review:get', reviewId),

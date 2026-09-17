@@ -761,6 +761,16 @@ product tool.
 
 ### 2.8 Screen shape and navigation
 
+Authored PR browsing uses **Assign agent** beside GitHub and omits the
+**Review & Learning** tab. Assignment opens the existing task layout with
+navigation, conversation and PR side pane, loading the PR context in its first
+turn. **View in task** is available for all PRs in a matching workspace, using
+an interactive task for authored PRs and a review task for other authors.
+An existing task is reused; without one, the icon's tooltip describes the start
+action. These icons are disabled when no workspace matches the repository.
+The exact imported PR remains selected even after it closes or merges.
+
+
 The existing Tasks screen keeps cherry-pick executions and adds a separate
 **Agent tasks** section. It does not broaden `CherryPickExecution` into a
 generic task DTO. There is no New-agent-task dialog and no title field: the

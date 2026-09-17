@@ -20,6 +20,7 @@ import Toast from '../Toast';
 import type { Bridge, DiffCommitDto, DiffFileDto, InlineReviewCommentDto, PullRequestDetailDto, PullRequestDto, PullRequestPageDto, UserProfileDto } from '../types';
 import AgentReviewTab, { type ReviewNavigationTarget } from './agent-review/AgentReviewTab';
 import CodeTestsTab from './code-tests/CodeTestsTab';
+import PullRequestTaskActions from './PullRequestTaskActions';
 import type { ReviewCardFocus } from '../agents/ReviewRequestCard';
 import type { AgentReviewDto, ReviewDraftItemDto } from './agent-review/contracts';
 import { pendingDraftCount, reviewStatus } from './agent-review/model';
@@ -68,6 +69,7 @@ export async function loadAgentReviewContext(
   number: number,
   workspaceId?: string,
   reviewId?: string,
+  findTask?: Bridge['findPullRequestTask'],
 ): Promise<AgentReviewContext> {
   if (reviewId !== undefined) {
     const review = await bridge.getAgentReview(reviewId);
@@ -82,6 +84,13 @@ export async function loadAgentReviewContext(
   }
   const workspaces = (await bridge.listWorkspaces()).filter(workspace =>
     `${workspace.monitoredOwner}/${workspace.monitoredRepo}`.toLowerCase() === repo.toLowerCase());
+  if (findTask !== undefined) {
+    for (const workspace of workspaces) {
+      if (await findTask(workspace.id, repo, number) !== null) {
+        return { workspaceId: workspace.id, review: await bridge.findAgentReview(workspace.id, repo, number) };
+      }
+    }
+  }
   // Several fork workspaces can watch the same upstream. Reuse a review before offering a new one.
   for (const workspace of workspaces) {
     const review = await bridge.findAgentReview(workspace.id, repo, number);
@@ -702,6 +711,8 @@ export default function PullsScreen({
   const review = currentReviewContext?.review ?? null;
   const reviewLoading = reviewKey !== null && currentReviewContext === null;
   const reviewError = currentReviewContext?.error ?? null;
+  const authored = viewerLogin ? (detail?.author ?? selectedPr?.author)?.toLowerCase() === viewerLogin.toLowerCase() : selectedPr?.origin === 'AUTHORED';
+  if (authored && detailTab === 'review' && reviewWorkspace === undefined) setDetailTab('overview');
 
   useEffect(() => {
     setReviewContext(null);
@@ -710,7 +721,8 @@ export default function PullsScreen({
     setReviewCardFocus(null);
     if (reviewKey === null || selectedPrRepo === undefined || selectedPrNumber === undefined) return;
     let cancelled = false;
-    void loadAgentReviewContext(window.bridge, selectedPrRepo, selectedPrNumber, scopedWorkspaceId, requestedReviewId)
+    void loadAgentReviewContext(window.bridge, selectedPrRepo, selectedPrNumber, scopedWorkspaceId, requestedReviewId,
+      authored ? window.bridge.findPullRequestTask : undefined)
       .then(context => {
         if (!cancelled) setReviewContext({ ...context, key: reviewKey, error: null });
       })
@@ -718,7 +730,7 @@ export default function PullsScreen({
         if (!cancelled) setReviewContext({ key: reviewKey, workspaceId: undefined, review: null, error: remoteErrorMessage(failure) });
       });
     return () => { cancelled = true; };
-  }, [scopedWorkspaceId, selectedPrRepo, selectedPrNumber, reviewKey, reviewReload, requestedReviewId]);
+  }, [scopedWorkspaceId, selectedPrRepo, selectedPrNumber, reviewKey, reviewReload, requestedReviewId, authored]);
 
   const updateReview = useCallback((updated: AgentReviewDto) => {
     setReviewContext(current => current !== null && current.key === reviewKey
@@ -1001,6 +1013,7 @@ export default function PullsScreen({
             detail={detail}
             tab={detailTab === 'code' ? null : detailTab}
             review={review}
+            showReview={!authored}
             onReviewChange={updateReview}
             agentTab={(
               <button className={detailTab === 'code' ? 'is-active' : ''} type="button" aria-pressed={detailTab === 'code'}
@@ -1057,6 +1070,16 @@ export default function PullsScreen({
               localReview={localReview}
               ownReviewStream={reviewWorkspace === undefined}
               tab={detailTab}
+              taskActions={reviewWorkspace === undefined ? <PullRequestTaskActions
+                key={`${workspaceId ?? ''}:${detail.repo.toLowerCase()}#${detail.number}`}
+                repo={detail.repo} number={detail.number}
+                authored={viewerLogin ? detail.author?.toLowerCase() === viewerLogin.toLowerCase() : selectedPr.origin === 'AUTHORED'}
+                workspaceId={workspaceId} loading={reviewLoading} contextError={reviewError} review={review}
+                onRetryContext={() => setReviewReload(value => value + 1)}
+                onNavigate={route => {
+                  onClose?.();
+                  window.location.hash = route;
+                }} /> : undefined}
               pr={selectedPr}
               detail={detail}
               workspaceId={workspaceId}
@@ -1159,6 +1182,7 @@ export function PullDetailHeader({
   review = null,
   onReviewChange,
   agentTab,
+  showReview = pr.origin !== 'AUTHORED',
   onTab,
   onRefresh,
   onDetailUpdate,
@@ -1178,6 +1202,7 @@ export function PullDetailHeader({
   review?: AgentReviewDto | null;
   onReviewChange?: (review: AgentReviewDto) => void;
   agentTab?: ReactNode;
+  showReview?: boolean;
   onTab: (tab: HeaderTab) => void;
   onRefresh: () => Promise<void>;
   onDetailUpdate?: PullDetailUpdater;
@@ -1256,7 +1281,7 @@ export function PullDetailHeader({
             <span className="pull-detail__change-count is-addition">+{detail?.additions ?? pr.additions}</span>
             <span className="pull-detail__change-count is-deletion">−{detail?.deletions ?? pr.deletions}</span>
           </button>
-          <button
+          {showReview && <button
             className={tab === 'review' ? 'is-active' : ''}
             type="button"
             aria-pressed={tab === 'review'}
@@ -1268,7 +1293,7 @@ export function PullDetailHeader({
                 {reviewChip.chip}
               </span>
             )}
-          </button>
+          </button>}
           {agentTab}
         </nav>
         <div className="pull-detail__header-actions">
@@ -1738,7 +1763,7 @@ function ConflictIcon() {
 }
 
 function DetailBody({
-  tab, localReview, ownReviewStream,
+  tab, localReview, ownReviewStream, taskActions,
   pr,
   detail,
   workspaceId,
@@ -1768,6 +1793,7 @@ function DetailBody({
   localReview?: LocalReviewThreads;
   /** False in the review workspace, whose conversation pane already streams this review. */
   ownReviewStream: boolean;
+  taskActions?: ReactNode;
   pr: PullRequestDto;
   detail: PullRequestDetailDto;
   workspaceId: string | undefined;
@@ -1845,6 +1871,7 @@ function DetailBody({
     /></div>;
   }
   return <div className="pull-detail__body"><PullOverview
+    taskActions={taskActions}
     localReview={localReview}
     key={`${pr.repo.toLowerCase()}#${pr.number}`}
     pr={pr}

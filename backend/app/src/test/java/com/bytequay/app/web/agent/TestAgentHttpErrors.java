@@ -73,6 +73,7 @@ import com.bytequay.core.ci.CiAutofixStore;
 import com.bytequay.core.domain.PullRequestRef;
 import com.bytequay.core.domain.RepoRef;
 import com.bytequay.core.store.PullRequestStore;
+import com.bytequay.core.store.PullRequestTaskStore;
 import com.bytequay.core.store.WorkspaceStore;
 import com.google.common.collect.ImmutableList;
 import org.junit.jupiter.api.BeforeEach;
@@ -159,6 +160,7 @@ class TestAgentHttpErrors
                 mock(AgentResourceService.class),
                 mock(RecentTouchRecorder.class),
                 mock(PullRequestStore.class),
+                mock(PullRequestTaskStore.class),
                 new ManagedWorktreeService(new WorkspacePaths(System.getProperty("java.io.tmpdir")), mock(WorkspaceStore.class), git),
                 mock(PullRequestService.class),
                 mock(WorkspaceStore.class),

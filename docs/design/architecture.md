@@ -317,6 +317,13 @@ The current parent POM aggregates all six implemented children:
 Dependency and plugin versions belong in the parent. Each child declares only
 the dependencies it uses.
 
+Authored PR assignment reuses interactive tasks, with a `PullRequestTask`
+association and storage port in `core`, Hibernate entity/store in
+`persistence-sqlite`, and application orchestration in `app`. Its explicit PR
+identity lets a task imported at a fetched PR head retain the original PR in
+its side pane independently of its generated local branch. The association
+is removed with task deletion.
+
 ## 6. System data flow
 
 ### 6.1 Pull-request flow

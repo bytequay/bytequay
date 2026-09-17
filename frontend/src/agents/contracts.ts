@@ -47,6 +47,7 @@ import type {
   ModelOptionDto,
   ModelProviderDto,
   ModelSettingsDto,
+  PullRequestTaskLink,
 } from '../types';
 
 const AGENT_PROVIDER_UNAVAILABLE_MARKER = 'AGENT_PROVIDER_UNAVAILABLE:';
@@ -237,6 +238,11 @@ function summary(value: unknown, path: string): AgentTaskSummaryDto {
       };
     }),
   };
+}
+
+export function parsePullRequestTaskLink(value: unknown): PullRequestTaskLink {
+  const source = object(value, 'pullRequestTask');
+  return { workspaceId: text(source.workspaceId, 'pullRequestTask.workspaceId'), taskId: text(source.taskId, 'pullRequestTask.taskId') };
 }
 
 function issueSource(value: unknown, path: string): AgentIssueSourceDto {

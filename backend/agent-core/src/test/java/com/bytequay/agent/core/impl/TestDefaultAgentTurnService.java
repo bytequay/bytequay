@@ -302,6 +302,22 @@ class TestDefaultAgentTurnService
     }
 
     @Test
+    void importsContextWithoutAutomationAndPreservesLaterDevelopmentDefaults()
+    {
+        AgentTask interactive = interactiveTask("Understand this PR");
+        StartAgentTurnCommand command = StartAgentTurnCommand.trustedInitialInteractiveTurn(interactive.id(), "Read PR context", ImmutableList.of(), "context");
+        AgentTurn context = service.startContextTurn(command);
+        assertThat(context.settings().orElseThrow().developmentAutomation()).contains(DevelopmentAutomation.LOCAL_ONLY);
+        assertThat(service.startContextTurn(command).id()).isEqualTo(context.id());
+        driver.complete("Understood");
+        assertThatThrownBy(() -> service.startContextTurn(new StartAgentTurnCommand(interactive.id(), "Read again", ImmutableList.of(), "second-context")))
+                .hasMessageContaining("fresh interactive task");
+        AgentTurn development = service.start(new StartAgentTurnCommand(interactive.id(), "Implement the requested fix", ImmutableList.of(), "work"));
+        assertThat(development.settings().orElseThrow().developmentAutomation().orElseThrow().autoCommit()).isTrue();
+        driver.complete("Done");
+    }
+
+    @Test
     void rejectsTaskCreationReadinessForANonInteractiveTask()
     {
         int probesBeforeStart = driver.probeCount();

@@ -701,6 +701,12 @@ class TestBranchRebaseService
         private boolean failAfterStarting;
 
         @Override
+        public AgentTurn startContextTurn(StartAgentTurnCommand command)
+        {
+            throw new UnsupportedOperationException("Rebase tasks do not import pull requests");
+        }
+
+        @Override
         public AgentTask updateLocalReview(TaskId taskId, long expectedVersion, Function<AgentTask, Optional<String>> action)
         {
             throw new UnsupportedOperationException();

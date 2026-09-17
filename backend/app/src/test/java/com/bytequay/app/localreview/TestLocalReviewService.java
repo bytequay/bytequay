@@ -61,6 +61,7 @@ import com.bytequay.core.localreview.LocalReviewThread;
 import com.bytequay.core.review.AgentReview;
 import com.bytequay.core.review.AgentReviewStore;
 import com.bytequay.core.store.PullRequestStore;
+import com.bytequay.core.store.PullRequestTaskStore;
 import com.bytequay.core.store.WorkspaceStore;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.google.common.collect.ImmutableList;
@@ -151,7 +152,8 @@ class TestLocalReviewService
         turn = AgentTurn.accepted(TurnId.random(), taskId, "turn", settings, Instant.EPOCH)
                 .markDeliveryStarted(Instant.EPOCH).running(new ProviderTurnRef("provider"), Optional.empty());
         ManagedWorktreeService worktrees = new ManagedWorktreeService(paths, workspaces, new GitCommandRunner());
-        service = new LocalReviewService(store, tasks, turns, turnStore, queueStore, workspaces, pullRequests, worktrees, reviews, reviewTasks, sessions, clock);
+        service = new LocalReviewService(store, tasks, turns, turnStore, queueStore, workspaces, pullRequests, worktrees,
+                reviews, reviewTasks, sessions, mock(PullRequestTaskStore.class), clock);
         when(store.find(anyString())).thenAnswer(call -> Optional.ofNullable(stored.get(call.getArgument(0))));
         when(store.listByTask(anyString())).thenAnswer(call -> stored.values().stream()
                 .filter(value -> value.taskId().equals(call.getArgument(0))).collect(toImmutableList()));

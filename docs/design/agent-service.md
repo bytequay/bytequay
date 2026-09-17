@@ -26,6 +26,44 @@ relying on provider history. The existing task and first-turn replay rules
 still govern admission; no additional agent lifecycle is introduced.
 
 
+## Assigning an existing authored pull request
+
+An authored PR can be assigned an interactive development task in a matching
+workspace even when it was developed elsewhere. **Assign agent** beside the
+GitHub icon reuses its existing task or imports the PR into a generated managed
+worktree at the exact fetched PR head. The backend validates the workspace's
+monitored repository and the authenticated author's identity, checks the configured
+Development provider/model, and fetches the PR ref through the workspace remote,
+including fork PRs. A head that changed during loading is rejected for retry.
+
+The existing task/turn service owns execution, approvals, queueing, history,
+completion and cleanup. A durable `PullRequestTask` association in `core` and
+SQLite binds workspace/repository/PR number to the interactive task independently
+of its generated branch and of PR cache retention. It retains the initial context
+snapshot so a failed first start can retry the same task and idempotency key.
+Every resumed session also receives that snapshot through managed instructions,
+marked as initial, untrusted context; it never depends only on provider history.
+Task deletion removes the association. No separate agent lifecycle is introduced.
+
+The initial turn reads the description, recent activity and checks supplied by
+ByteQuay, then the PR commits, diff, affected code and tests in its checkout.
+Context includes the frozen head and merge base, the original PR identity and
+branches, and explicit missing/truncated markers. External text is untrusted
+context. This first turn only explains its understanding; it must not edit,
+commit or publish. A trusted, first-turn-only `startContextTurn` entry point
+snapshots `LOCAL_ONLY` automation without changing task defaults, so context
+loading cannot activate the development follow-up coordinator. It reuses normal
+turn admission, provider startup and replay. Automatic draft publication and CI fixing default off for
+imported tasks. Later user messages resume this conversation using the existing
+development permissions and direct authorization for GitHub writes.
+
+`GET /agent/pull-request-task` resolves a workspace-scoped association or an
+existing development task on the PR branch. `POST` assigns an authored PR and
+ensures its initial context turn is accepted. Repeated clicks reuse the task.
+The task's PR projection, refresh and local comment checks use this explicit
+association, including retained closed PRs, rather than searching only the
+new generated branch.
+
 ## Local review comments
 
 Interactive development and PR-owned review tasks own private **Local review

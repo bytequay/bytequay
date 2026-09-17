@@ -623,7 +623,7 @@ describe('agent task side panel', () => {
     capabilities: CAPABILITIES,
   };
 
-  it('opens on the task pull request with Changes, Review & Learning and Subagents beside it', () => {
+  it('opens on the authored pull request with Changes and Subagents beside it', () => {
     const markup = renderToStaticMarkup(
       <AgentTaskBody
         state={state}
@@ -645,7 +645,7 @@ describe('agent task side panel', () => {
     expect(markup).toContain('aria-label="Refresh pull request"');
     expect(markup).not.toContain('aria-label="Hide the side panel"');
     expect(markup).not.toContain('Agent review');
-    expect(markup).toContain('Review &amp; Learning');
+    expect(markup).not.toContain('Review &amp; Learning');
     expect(markup).toContain('title="Drag to resize the panel"');
     expect(markup).toContain('style="width:960px"');
     expect(markup).toContain('class="pull-detail__body"');
@@ -924,6 +924,7 @@ describe('agent task side panel', () => {
     expect(taskPullRequest([merged, pullRequest(490, 'Second delivery', 'merged')])?.number).toBe(490);
     // A closed, unmerged row leaves the branch without a pull request.
     expect(taskPullRequest([closed])).toBeNull();
+    expect(taskPullRequest([closed], closed.number)).toBe(closed);
   });
 
   it('treats a transcript link to the task pull request as that panel tab', () => {

@@ -32,6 +32,7 @@ import {
   parseAgentSkillInput,
   parseAgentSkills,
   parseAgentTask,
+  parsePullRequestTaskLink,
   parseAgentTaskChanges,
   parseAgentTaskStartup,
   parseAgentTasks,
@@ -513,6 +514,18 @@ function registerIpc(): void {
       signal: AbortSignal.timeout(15 * 60_000),
     });
   });
+  ipcMain.handle('agent:pr-task:find', async (_event, workspaceId: string, repo: string, number: number) => {
+    const query = new URLSearchParams({ workspaceId, repo, number: String(number) });
+    const response = await fetch(`${backendBase()}/agent/pull-request-task?${query}`, { headers: agentHeaders() });
+    if (response.status === 204) return null;
+    if (!response.ok) throw new Error(extractMessage(await response.text().catch(() => '')) || `Task lookup returned ${response.status}`);
+    return parsePullRequestTaskLink(await response.json());
+  });
+  ipcMain.handle('agent:pr-task:assign', async (_event, workspaceId: string, repo: string, number: number) =>
+    parsePullRequestTaskLink(await backendJson(`${backendBase()}/agent/pull-request-task`, {
+      method: 'POST', headers: agentHeaders(true), body: JSON.stringify({ workspaceId, repo, number }), signal: AbortSignal.timeout(15 * 60_000),
+    })));
+
   ipcMain.handle('agent:tasks:list', (_event, workspaceId: string, limit?: number) => {
     const query = new URLSearchParams({ workspaceId });
     if (limit !== undefined) query.set('limit', String(limit));

@@ -13,7 +13,7 @@
  */
 import LocalReviewThreadCard from './local-review/LocalReviewThreadCard';
 import type { LocalReviewThreads, LocalReviewThreadDto } from './local-review/types';
-import { useEffect, useId, useMemo, useRef, useState } from 'react';
+import { useEffect, useId, useMemo, useRef, useState, type ReactNode } from 'react';
 import { Check, CircleCheck, CircleDot, CircleMinus, CircleSlash2, CircleX, Clock3, Copy, Ellipsis, ExternalLink, Eye, FileText, GitCommitHorizontal, Link, LoaderCircle, Pencil, Quote, RotateCw, SmilePlus, Tag, User } from 'lucide-react';
 import Avatar from '../Avatar';
 import { parseUnifiedDiff } from '../diffParse';
@@ -104,10 +104,11 @@ export function isViewerComment(actor: string | null | undefined, viewerLogin: s
   return Boolean(actor && viewerLogin && actor.toLowerCase() === viewerLogin.toLowerCase());
 }
 
-export default function PullOverview({ pr, detail, contributorsWorkspaceId, localReview, onRefresh, onDetailUpdate = () => {}, onDetailChange = () => { void onRefresh(); } }: {
+export default function PullOverview({ pr, detail, contributorsWorkspaceId, localReview, taskActions, onRefresh, onDetailUpdate = () => {}, onDetailChange = () => { void onRefresh(); } }: {
   pr: PullRequestDto;
   detail: PullRequestDetailDto;
   contributorsWorkspaceId?: string;
+  taskActions?: ReactNode;
   localReview?: LocalReviewThreads;
   onRefresh: () => Promise<void>;
   onDetailUpdate?: PullDetailUpdater;
@@ -166,6 +167,7 @@ export default function PullOverview({ pr, detail, contributorsWorkspaceId, loca
             onClick={() => { void window.bridge.openInAppBrowser(detail.htmlUrl ?? pr.htmlUrl); }}>
             <Avatar login="github" size={18} />
           </button>
+          {taskActions}
         </div>
       </section>
 

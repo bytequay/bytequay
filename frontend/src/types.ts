@@ -411,6 +411,8 @@ export type UserProfileDto = {
   email: string | null;
 };
 
+export type PullRequestTaskLink = { workspaceId: string; taskId: string };
+
 export type ContributionDayDto = { date: string; contributionCount: number; color: string };
 export type ContributionCalendarDto = {
   totalContributions: number;
@@ -1654,6 +1656,8 @@ export type Bridge = {
   pasteAgentAttachments: (taskId: string, workspaceId: string) => Promise<AgentAttachmentDto[]>;
   readAgentAttachment: (taskId: string, workspaceId: string, attachmentId: string) => Promise<AgentAttachmentBytesDto>;
   removeAgentAttachment: (taskId: string, workspaceId: string, attachmentId: string) => Promise<void>;
+  findPullRequestTask: (workspaceId: string, repo: string, number: number) => Promise<PullRequestTaskLink | null>;
+  assignPullRequestAgent: (workspaceId: string, repo: string, number: number) => Promise<PullRequestTaskLink>;
   /** Private reviews belonging to this workspace, including ended reviews. */
   listAgentReviews: (workspaceId: string) => Promise<AgentReviewDto[]>;
   /** The open Agent review of a pull request, or null when it has none. */

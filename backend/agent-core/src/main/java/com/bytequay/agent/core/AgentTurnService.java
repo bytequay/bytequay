@@ -42,6 +42,9 @@ public interface AgentTurnService
      */
     AgentTurn start(StartAgentTurnCommand command);
 
+    /** Starts an imported PR's first context turn without commit, publication or CI automation; never exposed as a user override. */
+    AgentTurn startContextTurn(StartAgentTurnCommand command);
+
     /** Starts one bounded internal follow-up using its source user turn's immutable settings. */
     CompletionStage<DevelopmentTurnCompletion> startGeneratedTurn(TaskId taskId, DevelopmentTurnOrigin origin, String message);
 

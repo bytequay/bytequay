@@ -114,6 +114,25 @@ describe('loadAgentReviewContext', () => {
     ]);
   });
 
+  it('reuses an assigned authored PR task across workspaces before selecting a review', async () => {
+    const bridge = {
+      getAgentReview: vi.fn<Parameters<Bridge['getAgentReview']>, ReturnType<Bridge['getAgentReview']>>(),
+      listWorkspaces: vi.fn<Parameters<Bridge['listWorkspaces']>, ReturnType<Bridge['listWorkspaces']>>().mockResolvedValue([
+        workspace('workspace-1'), workspace('workspace-2'),
+      ]),
+      findAgentReview: vi.fn<Parameters<Bridge['findAgentReview']>, ReturnType<Bridge['findAgentReview']>>().mockResolvedValue(null),
+    };
+    const findTask = vi.fn<Parameters<Bridge['findPullRequestTask']>, ReturnType<Bridge['findPullRequestTask']>>()
+      .mockResolvedValueOnce(null).mockResolvedValue({ workspaceId: 'workspace-2', taskId: 'assigned-task' });
+
+    await expect(loadAgentReviewContext(bridge, 'trinodb/trino', 30304, undefined, undefined, findTask))
+      .resolves.toEqual({ workspaceId: 'workspace-2', review: null });
+    expect(bridge.findAgentReview.mock.calls).toEqual([['workspace-2', 'trinodb/trino', 30304]]);
+    expect(findTask.mock.calls).toEqual([
+      ['workspace-1', 'trinodb/trino', 30304], ['workspace-2', 'trinodb/trino', 30304],
+    ]);
+  });
+
   it('allows starting review in the first matching workspace when none has a review', async () => {
     const bridge = {
       getAgentReview: vi.fn<Parameters<Bridge['getAgentReview']>, ReturnType<Bridge['getAgentReview']>>(),

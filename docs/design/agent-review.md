@@ -45,8 +45,18 @@ or restoration of deleted task/development-flow systems.
 
 ## 2. UI placement and reuse
 
-The PR list and development task PR pane both expose **Review & Learning**
-beside **PR #number** and **Changes**. The tab shows independent private cards
+PR browsing exposes **Review & Learning** beside **PR #number** and **Changes**
+for other authors' pull requests. Authored PRs omit this tab in browsing and the
+task PR pane. Their **Assign agent** icon beside GitHub uses the existing
+interactive development task service to load the PR context and continue work;
+see [Assigning an existing authored pull request](agent-service.md#assigning-an-existing-authored-pull-request).
+A **View in task** icon for every PR with a matching workspace opens navigation,
+the agent conversation and the PR together. It reuses a linked task/review;
+without one, its tooltip explains that it assigns an agent or starts a review.
+Both icons are disabled without a matching workspace, with an explanatory tooltip.
+Workspace lookup loading and errors remain distinct from absence.
+
+The tab shows independent private cards
 in three visually distinct areas: **PR intention**, **Commit implementation**,
 and **Findings**. PR intention has a larger green card and stronger top border.
 Commit implementation is a native ordered list with visible `1.`, `2.`, `3.`
@@ -116,9 +126,10 @@ copies the other's state. **View in Changes** opens the exact file/range and
 **Open discussion** returns to that finding. Outdated findings open their
 recorded snapshot, not an unrelated line in the latest diff.
 
-Private review is available for the user's own PRs and closed/merged PRs
-when their source can be resolved. Do not reuse the existing remote-review
-eligibility predicate to hide it. Remote publication retains existing
+Private review is available for other authors' closed/merged PRs when their
+source can be resolved. Authored PRs enter through assignment instead; retained
+older private reviews remain accessible from their existing task routes.
+Do not reuse the remote-review eligibility predicate for private review. Remote publication retains existing
 account/PR eligibility checks; a private review does not grant new remote
 approval or comment permissions.
 

@@ -43,6 +43,7 @@ import com.bytequay.core.localreview.LocalReviewThread;
 import com.bytequay.core.review.AgentReview;
 import com.bytequay.core.review.AgentReviewStore;
 import com.bytequay.core.store.PullRequestStore;
+import com.bytequay.core.store.PullRequestTaskStore;
 import com.bytequay.core.store.WorkspaceStore;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
@@ -81,13 +82,14 @@ public class LocalReviewService
     private final QueuedInputStore queueStore;
     private final WorkspaceStore workspaces;
     private final PullRequestStore pullRequests;
+    private final PullRequestTaskStore pullRequestTasks;
     private final ManagedWorktreeService worktrees;
     private final Clock clock;
     private final Striped<Lock> locks = Striped.lock(64);
 
     public LocalReviewService(LocalReviewStore store, AgentTaskService tasks, AgentTurnService turns, AgentTurnStore turnStore, QueuedInputStore queueStore,
             WorkspaceStore workspaces, PullRequestStore pullRequests, ManagedWorktreeService worktrees, AgentReviewStore reviews,
-            AgentReviewService reviewTasks, LocalReviewSessionService sessions, Clock clock)
+            AgentReviewService reviewTasks, LocalReviewSessionService sessions, PullRequestTaskStore pullRequestTasks, Clock clock)
     {
         this.store = requireNonNull(store, "store is null");
         this.tasks = requireNonNull(tasks, "tasks is null");
@@ -99,6 +101,7 @@ public class LocalReviewService
         this.queueStore = requireNonNull(queueStore, "queueStore is null");
         this.workspaces = requireNonNull(workspaces, "workspaces is null");
         this.pullRequests = requireNonNull(pullRequests, "pullRequests is null");
+        this.pullRequestTasks = requireNonNull(pullRequestTasks, "pullRequestTasks is null");
         this.worktrees = requireNonNull(worktrees, "worktrees is null");
         this.clock = requireNonNull(clock, "clock is null");
     }
@@ -402,6 +405,9 @@ public class LocalReviewService
         }
         String monitored = workspaces.findById(task.workspaceId().orElseThrow()).orElseThrow().monitoredRepository().fullName();
         checkArgument(monitored.equalsIgnoreCase(repo), "Pull request repository does not match the task workspace");
+        if (pullRequestTasks.findByTaskId(task.id().toString()).filter(pr -> pr.repo().equalsIgnoreCase(repo) && pr.number() == number).isPresent()) {
+            return;
+        }
         var worktree = task.taskWorktree().orElseThrow(() -> new AgentConflictException("Task worktree is unavailable"));
         boolean matches = Stream.concat(Stream.of(worktree.generatedBranch()), worktrees.currentBranch(worktree).stream()).distinct()
                 .flatMap(branch -> pullRequests.findByHeadRef(monitored, branch).stream())

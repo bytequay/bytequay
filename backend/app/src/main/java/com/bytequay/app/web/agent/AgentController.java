@@ -75,6 +75,7 @@ import com.bytequay.core.domain.GitHubIssueSource;
 import com.bytequay.core.domain.PullRequest;
 import com.bytequay.core.domain.RepoRef;
 import com.bytequay.core.store.PullRequestStore;
+import com.bytequay.core.store.PullRequestTaskStore;
 import com.bytequay.core.store.WorkspaceStore;
 import com.google.common.collect.ImmutableList;
 import com.google.common.hash.Hasher;
@@ -141,6 +142,7 @@ public class AgentController
     private final AgentResourceService resourceService;
     private final RecentTouchRecorder recent;
     private final PullRequestStore pullRequests;
+    private final PullRequestTaskStore pullRequestTasks;
     private final ManagedWorktreeService worktrees;
     private final PullRequestService pullRequestCatalog;
     private final WorkspaceStore workspaces;
@@ -167,6 +169,7 @@ public class AgentController
             AgentResourceService resourceService,
             RecentTouchRecorder recent,
             PullRequestStore pullRequests,
+            PullRequestTaskStore pullRequestTasks,
             ManagedWorktreeService worktrees,
             PullRequestService pullRequestCatalog,
             WorkspaceStore workspaces,
@@ -193,6 +196,7 @@ public class AgentController
         this.resourceService = requireNonNull(resourceService, "resourceService is null");
         this.recent = requireNonNull(recent, "recent is null");
         this.pullRequests = requireNonNull(pullRequests, "pullRequests is null");
+        this.pullRequestTasks = requireNonNull(pullRequestTasks, "pullRequestTasks is null");
         this.worktrees = requireNonNull(worktrees, "worktrees is null");
         this.pullRequestCatalog = requireNonNull(pullRequestCatalog, "pullRequestCatalog is null");
         this.workspaces = requireNonNull(workspaces, "workspaces is null");
@@ -216,10 +220,13 @@ public class AgentController
         Optional<CiAutofixHttpModels.DevelopmentResponse> developmentCi = ciRuns.listByParentTaskId(task.id().toString()).stream()
                 .max(comparing(CiAutofixRun::createdAt))
                 .map(run -> CiAutofixHttpModels.development(run, ci.canMessage(run)));
-        Optional<InteractiveAgentHttpContract.TaskPullRequestResponse> pullRequest = task.taskWorktree()
-                .flatMap(worktree -> workspaces.findById(worktree.workspaceId())
-                        .map(workspace -> pullRequests.findByHeadRef(workspace.monitoredRepository().fullName(), worktree.generatedBranch()))
-                        .flatMap(InteractiveAgentHttpContract::taskPullRequest));
+        Optional<InteractiveAgentHttpContract.TaskPullRequestResponse> pullRequest = assignedPullRequests(task)
+                .flatMap(prs -> prs.stream().findFirst())
+                .map(pr -> new InteractiveAgentHttpContract.TaskPullRequestResponse(pr.number(), pr.title(), pr.state(), pr.draft()))
+                .or(() -> task.taskWorktree()
+                        .flatMap(worktree -> workspaces.findById(worktree.workspaceId())
+                                .map(workspace -> pullRequests.findByHeadRef(workspace.monitoredRepository().fullName(), worktree.generatedBranch()))
+                                .flatMap(InteractiveAgentHttpContract::taskPullRequest)));
         return InteractiveAgentHttpContract.task(task, metrics, developmentCi, pullRequest, issueDevelopment.source(task.id().toString()).map(source ->
                 new InteractiveAgentHttpContract.IssueSourceResponse(source.issue(), source.initialTurnId(), source.instructions())));
     }
@@ -439,9 +446,9 @@ public class AgentController
             @RequestParam String workspaceId)
     {
         AgentTask task = taskService.getInteractive(workspaceId, TaskId.valueOf(taskId));
-        return task.taskWorktree()
+        return assignedPullRequests(task).orElseGet(() -> task.taskWorktree()
                 .map(worktree -> taskPullRequests(taskPullRequestRepository(workspaceId), taskBranches(worktree)))
-                .orElse(ImmutableList.of());
+                .orElse(ImmutableList.of()));
     }
 
     /** What each listed task's live checkout holds, by task id; a checkout that cannot be read is absent. */
@@ -465,6 +472,12 @@ public class AgentController
         lock.lock();
         try {
             AgentTask task = taskService.getInteractive(workspaceId, TaskId.valueOf(taskId));
+            var assignment = pullRequestTasks.findByTaskId(taskId);
+            if (assignment.isPresent()) {
+                var pr = assignment.orElseThrow();
+                pullRequestCatalog.observeWorkspacePullRequest(taskPullRequestRepository(workspaceId), pr.number());
+                return assignedPullRequests(task).orElseThrow();
+            }
             return task.taskWorktree().map(worktree -> {
                 List<String> branches = taskBranches(worktree);
                 RepoRef repository = taskPullRequestRepository(workspaceId);
@@ -475,6 +488,12 @@ public class AgentController
         finally {
             lock.unlock();
         }
+    }
+
+    private Optional<List<PullRequest>> assignedPullRequests(AgentTask task)
+    {
+        return pullRequestTasks.findByTaskId(task.id().toString())
+                .map(pr -> pullRequests.findIdByRepoAndNumber(pr.repo(), pr.number()).flatMap(pullRequests::findById).stream().collect(toImmutableList()));
     }
 
     private List<String> taskBranches(TaskWorktree worktree)

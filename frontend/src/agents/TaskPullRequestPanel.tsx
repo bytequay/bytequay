@@ -28,7 +28,7 @@ import type {
 } from '../types';
 
 /**
- * The one pull request the panel reads for this task's branch.
+ * The pull request explicitly assigned to this task, including a closed PR, or the task's branch PR.
  *
  * The branch match can return several rows over a task's life — an abandoned attempt, a merged
  * delivery, the current one. An open pull request is the one the task is working on; without one,
@@ -36,7 +36,9 @@ import type {
  * unmerged row leaves the branch without a pull request, which is the state that offers a fresh
  * draft. Within each state the newest number wins.
  */
-export function taskPullRequest(pullRequests: PullRequestDto[]): PullRequestDto | null {
+export function taskPullRequest(pullRequests: PullRequestDto[], linkedNumber?: number): PullRequestDto | null {
+  const linked = pullRequests.find(pr => pr.number === linkedNumber);
+  if (linked !== undefined) return linked;
   const newest = (matches: (pr: PullRequestDto) => boolean): PullRequestDto | null => pullRequests
     .filter(matches)
     .reduce<PullRequestDto | null>((best, pr) => (best === null || pr.number > best.number ? pr : best), null);

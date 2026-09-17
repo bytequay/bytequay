@@ -25,7 +25,6 @@ import com.bytequay.agent.core.AgentTask;
 import com.bytequay.agent.core.AgentTaskDefaults;
 import com.bytequay.agent.core.AgentTaskNotFoundException;
 import com.bytequay.agent.core.AgentTaskService;
-import com.bytequay.agent.core.AgentTaskTitleService;
 import com.bytequay.agent.core.AgentTurn;
 import com.bytequay.agent.core.AgentTurnService;
 import com.bytequay.agent.core.ApprovalId;
@@ -128,7 +127,6 @@ public class AgentController
     private static final Logger log = LoggerFactory.getLogger(AgentController.class);
 
     private final AgentTaskService taskService;
-    private final AgentTaskTitleService taskTitles;
     private final InteractiveAgentTaskCreator taskCreator;
     private final AgentStartupRecovery startupRecovery;
     private final AgentTurnService turnService;
@@ -156,7 +154,6 @@ public class AgentController
 
     public AgentController(
             AgentTaskService taskService,
-            AgentTaskTitleService taskTitles,
             InteractiveAgentTaskCreator taskCreator,
             AgentStartupRecovery startupRecovery,
             AgentTurnService turnService,
@@ -183,7 +180,6 @@ public class AgentController
             IssueDevelopmentService issueDevelopment)
     {
         this.taskService = requireNonNull(taskService, "taskService is null");
-        this.taskTitles = requireNonNull(taskTitles, "taskTitles is null");
         this.taskCreator = requireNonNull(taskCreator, "taskCreator is null");
         this.startupRecovery = requireNonNull(startupRecovery, "startupRecovery is null");
         this.turnService = requireNonNull(turnService, "turnService is null");
@@ -290,7 +286,7 @@ public class AgentController
                 uploads.forEach(resourceService::validateAttachment);
                 requireImageInput(new AgentLaneId(request.laneId()), defaults.model(), uploads.stream().map(StoreAgentAttachmentCommand::mediaType).collect(toImmutableList()));
             }
-            AgentTask task = taskCreator.create(
+            taskCreator.create(
                     taskId,
                     request.workspaceId(),
                     message,
@@ -299,7 +295,7 @@ public class AgentController
                     request.idempotencyKey(),
                     uploads.isEmpty() ? Optional.empty() : Optional.of(attachmentDigest(uploads)),
                     request.developmentAutomation().map(DevelopmentAutomationDto::toDomain),
-                    source.map(accepted -> accepted.host() + ":" + accepted.issueId()),
+                    source,
                     source.map(accepted -> prepared -> issueDevelopment.persistTask(prepared, accepted, request.message())));
             if (!replay && !uploads.isEmpty()) {
                 startupProgress.record(taskId, AgentTaskStartupProgress.Phase.ATTACHMENTS);
@@ -309,14 +305,13 @@ public class AgentController
                     .map(StoredAgentAttachment::input)
                     .collect(toImmutableList());
             startupProgress.record(taskId, AgentTaskStartupProgress.Phase.SESSION);
-            AgentTurn initialTurn = turnService.start(StartAgentTurnCommand.trustedInitialInteractiveTurn(
+            turnService.start(StartAgentTurnCommand.trustedInitialInteractiveTurn(
                     taskId,
                     message,
                     attachments,
                     request.idempotencyKey()).withDevelopmentAutomation(request.developmentAutomation().map(DevelopmentAutomationDto::toDomain)));
             AgentTask responseTask = taskService.get(taskId);
             if (!replay) {
-                taskTitles.generate(task, initialTurn.id(), request.message());
                 recordPrompt(taskId.toString(), request.idempotencyKey(), request.message());
             }
             return responseTask;

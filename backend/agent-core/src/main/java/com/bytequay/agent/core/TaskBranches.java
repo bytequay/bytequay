@@ -28,7 +28,7 @@ public final class TaskBranches
     private static final int MAX_SLUG_WORDS = 4;
     private static final int MAX_SLUG_LENGTH = 32;
     private static final String LOGIN = "[a-z0-9](?:[a-z0-9-]{0,37}[a-z0-9])?";
-    private static final Pattern BRANCH = Pattern.compile(LOGIN + "/bytequay/[a-z0-9]+(?:-[a-z0-9]+)*-[0-9a-f]{8}");
+    private static final Pattern BRANCH = Pattern.compile(LOGIN + "/bytequay/[a-z0-9]+(?:-[a-z0-9]+)*");
     // ponytail: English request lead-ins only; semantic summaries would need naming before provisioning.
     private static final Pattern REQUEST_PREFIX = Pattern.compile("^(?:(?:let['’]s|let us|please|(?:can|could|would|will) you|"
             + "(?:i|we) (?:want|need|would like) to|(?:i|we)['’]d like to|help (?:me|us)(?: to)?)\\b[\\s,:;!]*)++");
@@ -38,10 +38,8 @@ public final class TaskBranches
     public static String generate(TaskId taskId, String githubLogin, String description)
     {
         requireNonNull(taskId, "taskId is null");
-        checkNotBlank(githubLogin, "githubLogin");
         checkNotBlank(description, "description");
-        String login = githubLogin.toLowerCase(Locale.ROOT);
-        checkArgument(login.matches(LOGIN), "githubLogin is not a safe GitHub login");
+        String prefix = prefix(githubLogin);
         String descriptionLine = TaskTitles.firstLine(description).toLowerCase(Locale.ROOT);
         String slug = Normalizer.normalize(REQUEST_PREFIX.matcher(descriptionLine).replaceFirst(""), Normalizer.Form.NFKD)
                 .replaceAll("\\p{M}+", "")
@@ -57,11 +55,24 @@ public final class TaskBranches
         if (!shortSlug.equals(slug)) {
             shortSlug = shortSlug.replaceFirst("(?:-(?:a|an|the|and|or|in|on|at|to|for|of|with|from))+$", "");
         }
-        return login + "/bytequay/" + (shortSlug.isEmpty() ? "task" : shortSlug) + "-" + taskId.toString().substring(0, 8);
+        return prefix + (shortSlug.isEmpty() ? "task" : shortSlug) + "-" + taskId.toString().substring(0, 8);
     }
 
-    static boolean matches(TaskId taskId, String branch)
+    public static String prefix(String githubLogin)
     {
-        return branch.length() <= 128 && BRANCH.matcher(branch).matches() && branch.endsWith("-" + taskId.toString().substring(0, 8));
+        checkNotBlank(githubLogin, "githubLogin");
+        String login = githubLogin.toLowerCase(Locale.ROOT);
+        checkArgument(login.matches(LOGIN), "githubLogin is not a safe GitHub login");
+        return login + "/bytequay/";
+    }
+
+    static boolean isCleanName(String branch)
+    {
+        return branch.matches("[a-z][a-z0-9]*(?:-[a-z0-9]+)+");
+    }
+
+    static boolean matches(String branch)
+    {
+        return branch.length() <= 128 && BRANCH.matcher(branch).matches();
     }
 }

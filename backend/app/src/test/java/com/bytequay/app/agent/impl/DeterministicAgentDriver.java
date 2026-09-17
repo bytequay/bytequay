@@ -200,7 +200,7 @@ public final class DeterministicAgentDriver
 
     private RunningTurn start(AgentTurnCommand command, AgentEventSink events, boolean textOnly)
     {
-        String response = textOnly ? "Name first task" : "deterministic: " + command.message();
+        String response = textOnly ? "{\"title\":\"Name first task\",\"branch\":\"name-first-task\"}" : "deterministic: " + command.message();
         events.emit(new ProviderAgentEvent.Message(
                 Optional.of("message-" + command.turnId()),
                 Optional.empty(),
@@ -214,7 +214,7 @@ public final class DeterministicAgentDriver
                             Optional.of("deterministic-" + command.turnId()), Optional.of("report-" + command.turnId())))));
         }
         CompletableFuture<AgentTurnResult> completion = new CompletableFuture<>();
-        if (holdNextTurn.compareAndSet(true, false)) {
+        if (!textOnly && holdNextTurn.compareAndSet(true, false)) {
             checkState(heldTurn.compareAndSet(null, new HeldTurn(response, completion)), "a turn is already held");
         }
         else {

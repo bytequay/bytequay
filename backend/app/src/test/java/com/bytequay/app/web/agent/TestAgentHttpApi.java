@@ -362,7 +362,8 @@ class TestAgentHttpApi
         assertThat(response.getStatusCode()).as("create response: %s", response.getBody()).isEqualTo(HttpStatus.CREATED);
         JsonNode created = response.getBody();
         String taskId = created.required("id").asText();
-        assertThat(created.path("title").asText()).isEqualTo(instruction);
+        assertThat(created.path("title").asText()).isEqualTo("Name first task");
+        assertThat(created.path("titleSource").asText()).isEqualTo("AGENT");
         assertThat(created.at("/issueSource/instructions").asText()).isEqualTo(instruction);
         assertThat(created.at("/issueSource/body").asText()).isEqualTo(source.body());
         JsonNode firstMessage = StreamSupport.stream(get("/agent/tasks/" + taskId + "/events?after=0&limit=20").getBody().spliterator(), false)
@@ -1084,7 +1085,7 @@ class TestAgentHttpApi
 
         JsonNode events = get("/agent/tasks/" + taskId + "/events?after=0&limit=20").getBody();
         assertThat(events).isNotNull();
-        assertThat(events).hasSize(14);
+        assertThat(events).hasSize(13);
         assertThat(events)
                 .extracting(event -> event.get("type").asText())
                 .containsExactly(
@@ -1093,7 +1094,6 @@ class TestAgentHttpApi
                         "lifecycle",
                         "assistant_message",
                         "development_result",
-                        "lifecycle",
                         "lifecycle",
                         "lifecycle",
                         "user_message",
@@ -1108,15 +1108,14 @@ class TestAgentHttpApi
         assertThat(events.get(3).get("payload").get("text").asText()).isEqualTo("deterministic: first");
         assertThat(events.get(4).get("payload").get("readyForDelivery").asBoolean()).isTrue();
         assertThat(events.get(5).get("payload").get("phase").asText()).isEqualTo("TURN_COMPLETED");
-        assertThat(events.get(6).get("payload").get("phase").asText()).isEqualTo("TITLE_UPDATED");
-        assertThat(events.get(7).get("payload").get("phase").asText()).isEqualTo("DEVELOPMENT_AUTOMATION_UPDATED");
-        assertThat(events.get(8).get("payload").get("text").asText()).isEqualTo("second");
-        assertThat(events.get(9).get("payload").get("phase").asText()).isEqualTo("TURN_STARTED");
-        assertThat(events.get(10).get("payload").get("text").asText()).isEqualTo("deterministic: second");
-        assertThat(events.get(11).get("payload").get("readyForDelivery").asBoolean()).isTrue();
-        assertThat(events.get(12).get("payload").get("phase").asText()).isEqualTo("TURN_COMPLETED");
-        assertThat(events.get(13).get("payload").get("phase").asText()).isEqualTo("DEVELOPMENT_AUTOMATION_UPDATED");
-        long firstSequence = events.get(7).get("sequence").asLong();
+        assertThat(events.get(6).get("payload").get("phase").asText()).isEqualTo("DEVELOPMENT_AUTOMATION_UPDATED");
+        assertThat(events.get(7).get("payload").get("text").asText()).isEqualTo("second");
+        assertThat(events.get(8).get("payload").get("phase").asText()).isEqualTo("TURN_STARTED");
+        assertThat(events.get(9).get("payload").get("text").asText()).isEqualTo("deterministic: second");
+        assertThat(events.get(10).get("payload").get("readyForDelivery").asBoolean()).isTrue();
+        assertThat(events.get(11).get("payload").get("phase").asText()).isEqualTo("TURN_COMPLETED");
+        assertThat(events.get(12).get("payload").get("phase").asText()).isEqualTo("DEVELOPMENT_AUTOMATION_UPDATED");
+        long firstSequence = events.get(6).get("sequence").asLong();
         assertThat(events.get(0).get("schemaVersion").asInt()).isEqualTo(2);
         assertThat(events.get(0).get("eventId").asText()).isNotBlank();
         assertThat(events.get(0).get("source").isObject()).isTrue();
@@ -1237,7 +1236,7 @@ class TestAgentHttpApi
         assertThat(claudeEvents)
                 .extracting(event -> event.required("type").asText())
                 .containsExactly(
-                        "user_message", "lifecycle", "lifecycle", "assistant_message", "lifecycle", "lifecycle", "lifecycle");
+                        "user_message", "lifecycle", "lifecycle", "assistant_message", "lifecycle", "lifecycle");
         assertThat(claudeEvents.get(0).required("payload").required("text").asText()).isEqualTo("Claude first");
         assertThat(claudeEvents.get(3).required("payload").required("text").asText()).isEqualTo("deterministic: Claude first");
         String turnId = claudeEvents.get(0).required("turnId").asText();
@@ -1245,7 +1244,7 @@ class TestAgentHttpApi
 
         long userSequence = claudeEvents.get(0).required("sequence").asLong();
         JsonNode replay = get("/agent/tasks/" + claudeTaskId + "/events?after=" + userSequence + "&limit=20").getBody();
-        assertThat(replay).hasSize(6);
+        assertThat(replay).hasSize(5);
         assertThat(objectMapper.readTree(firstSseData(claudeTaskId, userSequence))).isEqualTo(replay.get(0));
 
         ResponseEntity<JsonNode> codexCreated = post(

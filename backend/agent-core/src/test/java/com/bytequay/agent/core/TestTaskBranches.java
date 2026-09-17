@@ -35,8 +35,8 @@ class TestTaskBranches
                 .isEqualTo("user/bytequay/task-c587a121");
         String longBranch = TaskBranches.generate(TASK_ID, "user", "a".repeat(1000));
         assertThat(longBranch).isEqualTo("user/bytequay/" + "a".repeat(32) + "-c587a121");
-        assertThat(TaskBranches.matches(TASK_ID, longBranch)).isTrue();
-        assertThat(TaskBranches.matches(TASK_ID, TaskBranches.generate(TASK_ID, "u".repeat(39), "ﬃ".repeat(100)))).isTrue();
+        assertThat(TaskBranches.matches(longBranch)).isTrue();
+        assertThat(TaskBranches.matches(TaskBranches.generate(TASK_ID, "u".repeat(39), "ﬃ".repeat(100)))).isTrue();
     }
 
     @Test
@@ -74,8 +74,21 @@ class TestTaskBranches
     }
 
     @Test
+    void validatesGeneratedNamesWithoutCuttingOffTheIssueNumber()
+    {
+        TaskNames names = new TaskNames("Fix duplicate table samples", "fix-dup-table-sample-issue-31178");
+        assertThat(names.branch()).endsWith("issue-31178");
+        for (String invalid : new String[] {"main", "fix/issue", "-fix-issue", "fix..issue", "fix--issue", "fix-issue.lock", "fix-" + "a".repeat(61)}) {
+            assertThatThrownBy(() -> new TaskNames("Fix samples", invalid)).isInstanceOf(IllegalArgumentException.class);
+        }
+        assertThatThrownBy(() -> new TaskNames("Fix duplicate samples without losing issue references", "fix-samples"))
+                .isInstanceOf(IllegalArgumentException.class);
+    }
+
+    @Test
     void rejectsUnsafeOrWrongTaskBranchesAndRetainsRecordedBranches()
     {
+        TaskWorktree.checkGeneratedBranch(TASK_ID, "chenjian2664/bytequay/fix-dup-table-sample-issue-31178");
         String branch = TaskBranches.generate(TASK_ID, "user", "Fix bug");
         TaskWorktree.checkGeneratedBranch(TASK_ID, branch);
         TaskWorktree.checkGeneratedBranch(TASK_ID, "bytequay/task/" + TASK_ID);
@@ -86,12 +99,12 @@ class TestTaskBranches
                 .isInstanceOf(IllegalArgumentException.class);
         for (String invalid : new String[] {
                 "other/branch", "user/bytequay/../fix-c587a121", "user/bytequay/fix.lock-c587a121",
-                "user/bytequay/fix@{1}-c587a121", "user/bytequay/fix-00000000",
+                "user/bytequay/fix@{1}-c587a121", "fix-dup-table-sample-issue-31178",
                 "bytequay/task/00000000-a71d-40a1-9755-3f6ee9db0547"}) {
             assertThatThrownBy(() -> new TaskWorktree(TASK_ID, "workspace", RepositoryIdentity.valueOf("org/repo"),
                     Path.of("/tmp").resolve(TASK_ID.toString()), invalid, "a".repeat(40)))
                     .isInstanceOf(IllegalArgumentException.class)
-                    .hasMessageContaining("branch is not derived");
+                    .hasMessageContaining("branch is not a safe generated name");
         }
     }
 }

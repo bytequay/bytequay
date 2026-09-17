@@ -18,11 +18,13 @@ import com.bytequay.agent.core.AgentTask;
 import com.bytequay.agent.core.AgentTaskDefaults;
 import com.bytequay.agent.core.AgentTaskNotFoundException;
 import com.bytequay.agent.core.AgentTaskService;
+import com.bytequay.agent.core.AgentTaskTitleService;
 import com.bytequay.agent.core.AgentTurnService;
 import com.bytequay.agent.core.CreateInteractiveAgentTaskCommand;
 import com.bytequay.agent.core.DevelopmentAutomation;
 import com.bytequay.agent.core.RepositoryIdentity;
 import com.bytequay.agent.core.TaskId;
+import com.bytequay.agent.core.TaskNames;
 import com.bytequay.agent.core.TaskWorktree;
 import com.bytequay.agent.core.TitleSource;
 import com.bytequay.agent.spi.AgentCapabilities;
@@ -42,9 +44,13 @@ import com.bytequay.app.workspace.WorkspaceCodeSyncResult;
 import com.bytequay.app.workspace.WorkspaceProvisioningService;
 import com.bytequay.app.workspace.WorkspaceRepositoryContext;
 import com.bytequay.app.workspace.WorkspaceRepositoryService;
+import com.bytequay.core.domain.GitHubIssueSource;
+import com.bytequay.core.domain.PullRequest;
 import com.bytequay.core.domain.RepoRef;
 import com.bytequay.core.domain.UserProfile;
+import com.bytequay.core.store.PullRequestStore;
 import com.google.common.collect.ImmutableList;
+import com.google.common.collect.ImmutableMap;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
@@ -88,7 +94,8 @@ class TestInteractiveAgentTaskCreator
     private GitCommandRunner git;
     private AgentTaskStartupProgress progress;
     private InteractiveAgentTaskCreator creator;
-    private CredentialService credentials;
+    private AgentTaskTitleService names;
+    private PullRequestStore pullRequests;
 
     @BeforeEach
     void setUp()
@@ -112,10 +119,14 @@ class TestInteractiveAgentTaskCreator
         });
         ready();
         progress = new AgentTaskStartupProgress();
-        credentials = mock(CredentialService.class);
+        names = mock(AgentTaskTitleService.class);
+        pullRequests = mock(PullRequestStore.class);
+        when(git.run(any(Path.class), eq("for-each-ref"), eq("--format=%(refname)"), any(String.class), any(String.class), any(String.class)))
+                .thenReturn(new GitCommandRunner.Result(0, "", false));
+        CredentialService credentials = mock(CredentialService.class);
         when(credentials.resolveGitHubCredential()).thenReturn(new GitHubCredential(
-                "test-token", new UserProfile("chenjian2664", "", "", "", 0, 0, 0, "", "", "", "")));
-        creator = new InteractiveAgentTaskCreator(tasks, turns, drivers, models, workspaces, provisioning, git, settings, progress, credentials);
+                "test-token", new UserProfile("Chenjian2664", "", "", "", 0, 0, 0, "", "", "", "")));
+        creator = new InteractiveAgentTaskCreator(tasks, turns, drivers, models, workspaces, provisioning, git, settings, progress, names, pullRequests, credentials);
     }
 
     @Test
@@ -139,7 +150,7 @@ class TestInteractiveAgentTaskCreator
         assertThat(command.getValue().physicalRepository())
                 .isEqualTo(new RepositoryIdentity("selected", "fork"));
         assertThat(command.getValue().startCommit()).isEqualTo(START_COMMIT);
-        assertThat(command.getValue().generatedBranch()).isEqualTo("chenjian2664/bytequay/review-11111111");
+        assertThat(command.getValue().generatedBranch()).isEqualTo("chenjian2664/bytequay/task-11111111");
         assertThat(command.getValue().defaults().developmentAutomation()).contains(DevelopmentAutomation.DEFAULT);
         InOrder order = inOrder(provisioning, workspaces, git, tasks);
         order.verify(provisioning).synchronizeCode("workspace-1");
@@ -229,16 +240,16 @@ class TestInteractiveAgentTaskCreator
         assertThat(created.defaults().developmentAutomation()).contains(DevelopmentAutomation.DEFAULT);
         when(settings.developmentAutomation()).thenReturn(DevelopmentAutomation.LOCAL_ONLY);
         doReturn(created).when(tasks).getInteractive("workspace-1", taskId);
-        when(credentials.resolveGitHubCredential()).thenThrow(new IllegalStateException("Account no longer available"));
+        when(names.generate(any(), any(), any())).thenThrow(new IllegalStateException("Naming no longer available"));
 
         assertThat(creator.create(taskId, "workspace-1", "Task", AgentLaneId.CODEX_CLI,
                 defaults(), "create-key", Optional.empty(), Optional.of(DevelopmentAutomation.LOCAL_ONLY)))
                 .isSameAs(created);
-        verify(credentials, times(1)).resolveGitHubCredential();
+        verify(names, times(1)).generate(any(), any(), any());
         verify(settings, times(1)).developmentAutomation();
         verify(tasks, times(1)).createInteractive(any());
         assertThatThrownBy(() -> creator.create(taskId, "workspace-1", "Task", AgentLaneId.CODEX_CLI,
-                defaults(), "create-key", Optional.empty(), Optional.of(DevelopmentAutomation.LOCAL_ONLY), Optional.of("github.com:70"), Optional.empty()))
+                defaults(), "create-key", Optional.empty(), Optional.of(DevelopmentAutomation.LOCAL_ONLY), Optional.of(issue()), Optional.empty()))
                 .isInstanceOf(AgentConflictException.class).hasMessageContaining("creation request changed");
         assertThatThrownBy(() -> creator.create(taskId, "workspace-1", "Task", AgentLaneId.CODEX_CLI,
                 defaults(), "create-key", Optional.empty(), Optional.of(DevelopmentAutomation.DEFAULT)))
@@ -314,6 +325,64 @@ class TestInteractiveAgentTaskCreator
                 .hasMessageContaining("start commit");
 
         verify(tasks, never()).createInteractive(any());
+    }
+
+    @Test
+    void namesTheIssueIntentBeforeFreezingTheBranch()
+    {
+        Path repository = temporaryDirectory.resolve("repository");
+        when(workspaces.requireReadyRepository("workspace-1")).thenReturn(workspace(repository));
+        when(git.run(repository, "rev-parse", "--verify", "refs/remotes/origin/main^{commit}"))
+                .thenReturn(new GitCommandRunner.Result(0, START_COMMIT, false));
+        TaskNames generated = new TaskNames("Fix duplicate table samples", "fix-dup-table-sample-issue-31178");
+        when(names.generate(any(), any(), any())).thenReturn(Optional.of(generated));
+        creator.create(TASK_ID, "workspace-1", "Develop the following GitHub issue", AgentLaneId.CODEX_CLI, defaults(), "create-key",
+                Optional.empty(), Optional.empty(), Optional.of(issue()), Optional.empty());
+
+        ArgumentCaptor<String> context = ArgumentCaptor.forClass(String.class);
+        verify(names).generate(eq(AgentLaneId.CODEX_CLI), eq(defaults()), context.capture());
+        assertThat(context.getValue()).contains("#31178", "TABLESAMPLE produces duplicates", "Develop the following GitHub issue");
+        ArgumentCaptor<CreateInteractiveAgentTaskCommand> command = ArgumentCaptor.forClass(CreateInteractiveAgentTaskCommand.class);
+        verify(tasks).createInteractive(command.capture());
+        assertThat(command.getValue().names()).contains(generated);
+        assertThat(command.getValue().generatedBranch()).isEqualTo("chenjian2664/bytequay/fix-dup-table-sample-issue-31178");
+        InOrder order = inOrder(names, tasks);
+        order.verify(names).generate(any(), any(), any());
+        order.verify(tasks).createInteractive(any());
+    }
+
+    @Test
+    void addsAnIdWhenTheSemanticBranchIsRetainedByGitOrAPullRequest()
+    {
+        Path repository = temporaryDirectory.resolve("repository");
+        when(workspaces.requireReadyRepository("workspace-1")).thenReturn(workspace(repository));
+        when(git.run(repository, "rev-parse", "--verify", "refs/remotes/origin/main^{commit}"))
+                .thenReturn(new GitCommandRunner.Result(0, START_COMMIT, false));
+        when(names.generate(any(), any(), any())).thenReturn(Optional.of(new TaskNames("Fix samples", "fix-samples")));
+        when(git.run(repository, "for-each-ref", "--format=%(refname)",
+                "refs/heads/chenjian2664/bytequay/fix-samples", "refs/remotes/origin/chenjian2664/bytequay/fix-samples", "refs/remotes/upstream/chenjian2664/bytequay/fix-samples"))
+                .thenReturn(new GitCommandRunner.Result(0, "refs/remotes/origin/chenjian2664/bytequay/fix-samples\n", false));
+        create(defaults());
+        ArgumentCaptor<CreateInteractiveAgentTaskCommand> command = ArgumentCaptor.forClass(CreateInteractiveAgentTaskCommand.class);
+        verify(tasks).createInteractive(command.capture());
+        assertThat(command.getValue().generatedBranch()).isEqualTo("chenjian2664/bytequay/fix-samples-11111111");
+
+        when(git.run(repository, "for-each-ref", "--format=%(refname)",
+                "refs/heads/chenjian2664/bytequay/fix-samples", "refs/remotes/origin/chenjian2664/bytequay/fix-samples", "refs/remotes/upstream/chenjian2664/bytequay/fix-samples"))
+                .thenReturn(new GitCommandRunner.Result(0, "", false));
+        PullRequest previous = new PullRequest(1, "selected/fork", 1, "Fix samples", "user", "https://github.com/selected/fork/pull/1",
+                Instant.EPOCH, Instant.EPOCH, PullRequest.Origin.AUTHORED, ImmutableList.of(), ImmutableMap.of(), false, null, null, null,
+                ImmutableList.of(), null, 0, 0, 0, null, "closed", Instant.EPOCH, null, null, null, null, "chenjian2664/bytequay/fix-samples", null, null, null, null);
+        when(pullRequests.findByHeadRef("selected/fork", "chenjian2664/bytequay/fix-samples")).thenReturn(ImmutableList.of(previous));
+        create(defaults());
+        verify(tasks, times(2)).createInteractive(command.capture());
+        assertThat(command.getValue().generatedBranch()).isEqualTo("chenjian2664/bytequay/fix-samples-11111111");
+    }
+
+    private static GitHubIssueSource issue()
+    {
+        return new GitHubIssueSource("github.com", 70, "selected/fork", 31178, "https://github.com/selected/fork/issues/31178",
+                "Duplicate table samples", "TABLESAMPLE produces duplicates", Instant.parse("2026-09-01T00:00:00Z"));
     }
 
     private void ready()

@@ -667,7 +667,7 @@ export function parseAgentRuntimeStopImpact(value: unknown, path = 'stopImpact')
   };
 }
 
-const STARTUP_PHASES: readonly AgentTaskStartupPhase[] = ['PROVIDER', 'REPOSITORY', 'WORKTREE', 'ATTACHMENTS', 'SESSION'];
+const STARTUP_PHASES: readonly AgentTaskStartupPhase[] = ['PROVIDER', 'REPOSITORY', 'NAMING', 'WORKTREE', 'ATTACHMENTS', 'SESSION'];
 
 export function parseAgentTaskStartup(value: unknown, path = 'startup'): AgentTaskStartupDto {
   const phase = optionalText(object(value, path).phase, `${path}.phase`);

@@ -82,7 +82,7 @@ class TestWorktreeContract
                 "other/branch",
                 START_COMMIT))
                 .isInstanceOf(IllegalArgumentException.class)
-                .hasMessageContaining("branch is not derived");
+                .hasMessageContaining("branch is not a safe generated name");
     }
 
     @Test

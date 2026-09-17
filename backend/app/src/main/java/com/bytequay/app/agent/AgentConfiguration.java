@@ -295,28 +295,9 @@ public class AgentConfiguration
     }
 
     @Bean
-    public AgentTaskTitleService agentTaskTitleService(
-            AgentTaskStore taskStore,
-            AgentResourceService resourceService,
-            AgentDriverRegistry driverRegistry,
-            AgentUnitOfWork unitOfWork,
-            AgentEventOutboxStore outboxStore,
-            AgentEventService eventService,
-            AgentRuntimeRegistry runtimeRegistry,
-            AgentSkillService skills,
-            Clock agentClock)
+    public AgentTaskTitleService agentTaskTitleService(AgentResourceService resourceService, AgentDriverRegistry driverRegistry, AgentSkillService skills)
     {
-        return new DefaultAgentTaskTitleService(
-                taskStore,
-                resourceService,
-                driverRegistry,
-                unitOfWork,
-                outboxStore,
-                eventService,
-                runtimeRegistry,
-                skills::instructions,
-                command -> Thread.ofVirtual().name("bytequay-task-title").start(command),
-                agentClock);
+        return new DefaultAgentTaskTitleService(resourceService, driverRegistry, skills::instructions);
     }
 
     @Bean

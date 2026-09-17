@@ -19,11 +19,13 @@ import com.bytequay.agent.core.AgentTask;
 import com.bytequay.agent.core.AgentTaskDefaults;
 import com.bytequay.agent.core.AgentTaskNotFoundException;
 import com.bytequay.agent.core.AgentTaskService;
+import com.bytequay.agent.core.AgentTaskTitleService;
 import com.bytequay.agent.core.AgentTurnService;
 import com.bytequay.agent.core.CreateInteractiveAgentTaskCommand;
 import com.bytequay.agent.core.DevelopmentAutomation;
 import com.bytequay.agent.core.TaskBranches;
 import com.bytequay.agent.core.TaskId;
+import com.bytequay.agent.core.TaskNames;
 import com.bytequay.agent.spi.AgentDriverRegistry;
 import com.bytequay.agent.spi.AgentLaneId;
 import com.bytequay.agent.spi.AgentUnavailableException;
@@ -33,9 +35,12 @@ import com.bytequay.app.git.GitCommandRunner.Result;
 import com.bytequay.app.service.credentials.CredentialService;
 import com.bytequay.app.service.settings.AppSettingsService;
 import com.bytequay.app.service.settings.ModelSettingsService;
+import com.bytequay.app.workspace.WorkspaceOperationLocks;
 import com.bytequay.app.workspace.WorkspaceProvisioningService;
 import com.bytequay.app.workspace.WorkspaceRepositoryContext;
 import com.bytequay.app.workspace.WorkspaceRepositoryService;
+import com.bytequay.core.domain.GitHubIssueSource;
+import com.bytequay.core.store.PullRequestStore;
 import com.google.common.util.concurrent.Striped;
 import org.springframework.stereotype.Component;
 
@@ -65,6 +70,8 @@ public final class InteractiveAgentTaskCreator
     private final WorkspaceProvisioningService provisioning;
     private final GitCommandRunner git;
     private final AgentTaskStartupProgress progress;
+    private final AgentTaskTitleService names;
+    private final PullRequestStore pullRequests;
     private final CredentialService credentials;
     private final Striped<Lock> creationLocks = Striped.lock(64);
 
@@ -78,6 +85,8 @@ public final class InteractiveAgentTaskCreator
             GitCommandRunner git,
             AppSettingsService settings,
             AgentTaskStartupProgress progress,
+            AgentTaskTitleService names,
+            PullRequestStore pullRequests,
             CredentialService credentials)
     {
         this.tasks = requireNonNull(tasks, "tasks is null");
@@ -89,6 +98,8 @@ public final class InteractiveAgentTaskCreator
         this.git = requireNonNull(git, "git is null");
         this.settings = requireNonNull(settings, "settings is null");
         this.progress = requireNonNull(progress, "progress is null");
+        this.names = requireNonNull(names, "names is null");
+        this.pullRequests = requireNonNull(pullRequests, "pullRequests is null");
         this.credentials = requireNonNull(credentials, "credentials is null");
     }
 
@@ -137,18 +148,18 @@ public final class InteractiveAgentTaskCreator
             String idempotencyKey,
             Optional<String> attachmentDigest,
             Optional<DevelopmentAutomation> initialAutomation,
-            Optional<String> issueIdentity,
+            Optional<GitHubIssueSource> issueSource,
             Optional<Consumer<AgentTask>> persistTask)
     {
         requireNonNull(taskId, "taskId is null");
         requireNonNull(persistTask, "persistTask is null");
-        requireNonNull(issueIdentity, "issueIdentity is null");
+        requireNonNull(issueSource, "issueSource is null");
         requireNonNull(initialAutomation, "initialAutomation is null");
         requireNonNull(attachmentDigest, "attachmentDigest is null");
         Lock lock = creationLocks.get(taskId);
         lock.lock();
         try {
-            return createLocked(taskId, workspaceId, message, laneId, defaults, idempotencyKey, attachmentDigest, initialAutomation, issueIdentity, persistTask);
+            return createLocked(taskId, workspaceId, message, laneId, defaults, idempotencyKey, attachmentDigest, initialAutomation, issueSource, persistTask);
         }
         finally {
             lock.unlock();
@@ -164,7 +175,7 @@ public final class InteractiveAgentTaskCreator
             String idempotencyKey,
             Optional<String> attachmentDigest,
             Optional<DevelopmentAutomation> initialAutomation,
-            Optional<String> issueIdentity,
+            Optional<GitHubIssueSource> issueSource,
             Optional<Consumer<AgentTask>> persistTask)
     {
         checkNotBlank(workspaceId, "workspaceId");
@@ -172,7 +183,8 @@ public final class InteractiveAgentTaskCreator
         requireNonNull(laneId, "laneId is null");
         requireNonNull(defaults, "defaults is null");
         checkNotBlank(idempotencyKey, "idempotencyKey");
-        String fingerprint = fingerprint(workspaceId, message, laneId, defaults, idempotencyKey, attachmentDigest, initialAutomation, issueIdentity);
+        String fingerprint = fingerprint(workspaceId, message, laneId, defaults, idempotencyKey, attachmentDigest, initialAutomation,
+                issueSource.map(source -> source.host() + ":" + source.issueId()));
         Optional<AgentTask> replay = interactiveTask(workspaceId, taskId);
         if (replay.isPresent()) {
             AgentTask task = requireReplay(replay.orElseThrow(), fingerprint);
@@ -202,24 +214,44 @@ public final class InteractiveAgentTaskCreator
         if (!head.successful() || head.truncated() || head.output().isBlank()) {
             throw new AgentStorageException("Cannot resolve the workspace start commit");
         }
+        progress.record(taskId, Phase.NAMING);
+        String context = issueSource.map(source -> "GitHub issue #" + source.number() + ": " + source.title() + "\n" + source.body()
+                + "\n\nUser request:\n" + message).orElse(message);
+        Optional<TaskNames> generated = names.generate(laneId, defaults, context);
+        String branch = TaskBranches.prefix(credentials.resolveGitHubCredential().profile().login())
+                + generated.map(TaskNames::branch).orElse("task-" + taskId.toString().substring(0, 8));
         progress.record(taskId, Phase.WORKTREE);
+        Lock workspaceLock = WorkspaceOperationLocks.get(workspaceId);
+        workspaceLock.lock();
         try {
+            Result existing = git.run(workspace.repository(), "for-each-ref", "--format=%(refname)",
+                    "refs/heads/" + branch, "refs/remotes/origin/" + branch, "refs/remotes/upstream/" + branch);
+            if (!existing.successful() || existing.truncated()) {
+                throw new AgentStorageException("Cannot check the generated task branch");
+            }
+            if (!existing.output().isBlank() || !pullRequests.findByHeadRef(workspace.monitoredRepository().fullName(), branch).isEmpty()) {
+                branch += "-" + taskId.toString().substring(0, 8);
+            }
             CreateInteractiveAgentTaskCommand command = new CreateInteractiveAgentTaskCommand(
                     taskId,
                     workspace.workspaceId(),
                     laneId,
                     repositoryIdentity(workspace.selectedRepository()),
                     head.output().strip(),
-                    TaskBranches.generate(taskId, credentials.resolveGitHubCredential().profile().login(), message),
+                    branch,
                     message,
                     defaults.withDevelopmentAutomation(automation),
-                    fingerprint);
+                    fingerprint,
+                    generated);
             return persistTask.map(writer -> tasks.createInteractive(command, writer)).orElseGet(() -> tasks.createInteractive(command));
         }
         catch (AgentConflictException conflict) {
             return interactiveTask(workspaceId, taskId)
                     .map(task -> requireReplay(task, fingerprint))
                     .orElseThrow(() -> conflict);
+        }
+        finally {
+            workspaceLock.unlock();
         }
     }
 

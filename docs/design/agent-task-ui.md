@@ -259,9 +259,10 @@ isolation requirements retained after release.
 - ByteQuay runs one task-owned, worktree-capable Codex App Server per active
   turn, with the task worktree as its working directory. It verifies that
   process tree stopped at turn completion; the next turn resumes the same
-  provider thread in a new matching-profile process. The only concurrent
-  process allowed for that task is its bounded title helper, confined to empty
-  read-only task-owned scratch with tools and network disabled. Root and child
+  provider thread in a new matching-profile process. Task and branch naming runs
+  before provisioning in a bounded helper, confined to empty read-only scratch
+  with tools and network disabled. Startup shows “Naming task and branch”
+  while that helper is running. Root and child
   threads inside a process all belong to that task, so IDs are never routed
   between tasks.
 - No execution environment is registered. App Server's default environment is

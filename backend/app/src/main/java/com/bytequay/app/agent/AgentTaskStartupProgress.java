@@ -37,6 +37,8 @@ public final class AgentTaskStartupProgress
         PROVIDER,
         /** Refreshing the workspace repository from GitHub. */
         REPOSITORY,
+        /** Understanding the request to name the task and branch. */
+        NAMING,
         /** Provisioning the task branch and worktree, then persisting the task. */
         WORKTREE,
         /** Storing the first message's images. */

@@ -30,6 +30,7 @@ import com.bytequay.agent.core.StoreAgentAttachmentCommand;
 import com.bytequay.agent.core.StoredAgentAttachment;
 import com.bytequay.agent.core.TaskBranches;
 import com.bytequay.agent.core.TaskId;
+import com.bytequay.agent.core.TaskNames;
 import com.bytequay.agent.core.TaskResources;
 import com.bytequay.agent.core.TaskState;
 import com.bytequay.agent.core.TaskWorktree;
@@ -93,6 +94,19 @@ class TestDefaultAgentTaskService
                 () -> codeGraphEnabled,
                 Runnable::run,
                 Clock.fixed(NOW, ZoneOffset.UTC));
+    }
+
+    @Test
+    void persistsGeneratedNamesBeforeAnyTurnStarts()
+    {
+        CreateInteractiveAgentTaskCommand input = interactiveCommand(TaskId.random());
+        TaskNames names = new TaskNames("Fix duplicate table samples", "fix-dup-table-sample-issue-31178");
+        AgentTask task = service.createInteractive(new CreateInteractiveAgentTaskCommand(
+                input.taskId(), input.workspaceId(), input.laneId(), input.physicalRepository(), input.startCommit(), "user/bytequay/" + names.branch(),
+                "Develop the following GitHub issue", input.defaults(), input.creationFingerprint(), Optional.of(names)));
+        assertThat(task.title()).isEqualTo(names.title());
+        assertThat(task.titleSource()).isEqualTo(TitleSource.AGENT);
+        assertThat(task.taskWorktree().orElseThrow().generatedBranch()).isEqualTo("user/bytequay/" + names.branch());
     }
 
     @Test
@@ -401,7 +415,7 @@ class TestDefaultAgentTaskService
                 TaskBranches.generate(taskId, "user", "Interactive task"),
                 "Interactive task",
                 AgentTaskDefaults.forPermission(AgentPermissionPolicy.AUTO),
-                "creation-fingerprint");
+                "creation-fingerprint", Optional.empty());
     }
 
     @Test

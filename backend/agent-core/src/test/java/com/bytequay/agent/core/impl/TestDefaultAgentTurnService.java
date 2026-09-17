@@ -612,7 +612,7 @@ class TestDefaultAgentTurnService
                         Optional.of("model-a"),
                         Optional.of("low"),
                         AgentPermissionPolicy.AUTO),
-                "test-creation-fingerprint"));
+                "test-creation-fingerprint", Optional.empty()));
     }
 
     @Test

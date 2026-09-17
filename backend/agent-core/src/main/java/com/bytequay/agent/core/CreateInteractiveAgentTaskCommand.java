@@ -15,6 +15,8 @@ package com.bytequay.agent.core;
 
 import com.bytequay.agent.spi.AgentLaneId;
 
+import java.util.Optional;
+
 import static com.bytequay.agent.spi.AgentChecks.checkNotBlank;
 import static java.util.Objects.requireNonNull;
 
@@ -28,7 +30,8 @@ public record CreateInteractiveAgentTaskCommand(
         String generatedBranch,
         String message,
         AgentTaskDefaults defaults,
-        String creationFingerprint)
+        String creationFingerprint,
+        Optional<TaskNames> names)
 {
     public CreateInteractiveAgentTaskCommand
     {
@@ -41,5 +44,6 @@ public record CreateInteractiveAgentTaskCommand(
         checkNotBlank(message, "message");
         requireNonNull(defaults, "defaults is null");
         checkNotBlank(creationFingerprint, "creationFingerprint");
+        requireNonNull(names, "names is null");
     }
 }

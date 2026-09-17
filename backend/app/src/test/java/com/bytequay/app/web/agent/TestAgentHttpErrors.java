@@ -137,7 +137,6 @@ class TestAgentHttpErrors
         AgentTaskStartupProgress startupProgress = new AgentTaskStartupProgress();
         AgentController controller = new AgentController(
                 taskService,
-                mock(com.bytequay.agent.core.AgentTaskTitleService.class),
                 new InteractiveAgentTaskCreator(
                         taskService,
                         turnService,
@@ -148,6 +147,8 @@ class TestAgentHttpErrors
                         git,
                         appSettings,
                         startupProgress,
+                        mock(com.bytequay.agent.core.AgentTaskTitleService.class),
+                        mock(PullRequestStore.class),
                         mock(CredentialService.class)),
                 startupRecovery,
                 turnService,

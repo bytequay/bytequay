@@ -1038,9 +1038,10 @@ public interface WorktreeService
 
 The command carries a backend-validated task ID, trusted workspace ID, the
 physical selected-repository/origin identity, exact starting commit, and the
-application's frozen generated branch. For new tasks, `TaskBranches` derives
-`<authenticated-github-login>/bytequay/<description-slug>-<short-task-id>` from
-the initial description and first eight task-ID characters. The worktree
+application's frozen generated branch. New interactive tasks generate a compact title and clean hyphenated branch
+from the full request and accepted issue context before provisioning. Branches
+retain the authenticated login/`bytequay` prefix with no routine ID suffix;
+an occupied name gets the short task ID. Workflow labels still use `TaskBranches` with the login and short ID. The worktree
 service derives the managed repository and full-task-ID path and validates the
 branch; the renderer selects neither an arbitrary branch nor a path. Repeating the exact request is
 idempotent when the existing worktree matches exactly. A half-finished or
@@ -1059,7 +1060,7 @@ without moving local branches or existing task worktrees. This changes the
 starting commit, not the immutable physical selected-repository identity.
 Creation retries and later turns reuse the existing task's recorded worktree,
 branch, and starting commit, including previously generated UUID-only branch
-names. Background title generation, user renames, and GitHub login changes do
+names. User renames and GitHub login changes do
 not rename a task's branch. Existing tasks also keep their recorded worktree ownership
 when later watches resolve a personal fork; see
 [Watched Repository / Workspace](watched-repo.md).
@@ -2886,7 +2887,7 @@ coordinates the narrower interfaces shown in the last column.
 
 | Step | Frontend action | Public service method | Required internal calls and result |
 | --- | --- | --- | --- |
-| 1. Create and send | `POST /agent/tasks` with `workspaceId`, first `message`, and idempotency key, never a path | `InteractiveAgentTaskCreator.create(...)`, `AgentTurnService.start(...)`, then `AgentTaskTitleService.generate(...)` | `app` resolves the workspace/repository and exact starting commit; core verifies readiness before provisioning and persists `OPEN` with a 36-character first-message fallback marked `PROVISIONAL`. The controller starts the idempotent initial turn, captures the response, and only for a new turn schedules best-effort naming. That disposable text-only session uses the same lane outside the task conversation; it may atomically replace only a still-provisional title and insert `TITLE_UPDATED`. Failure leaves the fallback, and a user rename always wins |
+| 1. Create and send | `POST /agent/tasks` with `workspaceId`, first `message`, and idempotency key, never a path | `InteractiveAgentTaskCreator.create(...)` calls `AgentTaskTitleService.generate(...)` before provisioning, then the controller calls `AgentTurnService.start(...)` | `app` verifies readiness, resolves the exact starting commit, and uses a bounded isolated text-only helper to infer intent from the full request and accepted issue context. It freezes a validated clean branch and persists the generated title as `AGENT` with the task. Failure uses a neutral `<login>/bytequay/task-<short-id>` branch and a 36-character provisional label. Replays reuse recorded names; no background rename races with a user rename |
 | 2. Attach | Optional authenticated image upload | `AgentResourceService.storeAttachment(...)` | Validates content and limits, writes a task-owned blob, and returns an opaque `AttachmentRef`; arbitrary renderer paths are rejected |
 | 3. Observe | Open a recent page, scroll for adjacent pages, and subscribe at the latest sequence | `AgentEventService.readHistory(...)`, `subscribe(TaskId, afterSequence)`, and `AgentApprovalService.listPending(TurnId)` | Reads a bounded history window and streams later events under demand; current approvals remain available independently of unloaded history |
 | 4. Start turn | `POST /agent/tasks/{taskId}/turns` | `AgentTurnService.start(StartAgentTurnCommand)` | Rechecks lane readiness before accepting input and writes the bounded message blob. One short `AgentUnitOfWork` reserves the idempotency key and worktree-mutation claim as `ACCEPTED` with the user-message outbox entry. The event drains before provider send; the service opens/resumes the session, persists its reference, begins metrics, persists `startedAt`, starts the run, and records `RUNNING` with its provider reference. Failed readiness creates no turn |
@@ -2948,33 +2949,29 @@ sequenceDiagram
     User->>Desktop: Create task with first message
     Desktop->>Web: POST /agent/tasks
     Web->>Creator: create(taskId, workspaceId, message, lane, defaults, key)
-    Creator->>Tasks: createInteractive(CreateInteractiveAgentTaskCommand)
+    Creator->>Titles: generate(lane, defaults, full request + issue context)
+    Titles->>Resources: allocate(disposable helper ID)
+    Titles->>Driver: open(text-only, isolated, no task worktree)
+    Driver-->>Titles: TitleSession
+    Titles->>TitleSession: start(intent naming prompt)
+    TitleSession-->>Titles: title + branch or failure
+    Titles->>TitleSession: close and verify stopped
+    Titles->>Resources: delete helper resources after verified stop
+    Titles-->>Creator: validated names or empty
+    Creator->>Tasks: createInteractive(frozen branch + names)
     Tasks->>Drivers: require(laneId) + probe()
     Tasks->>Worktree: provision(ProvisionWorktreeCommand)
     Worktree-->>Tasks: TaskWorktree
     Tasks->>Resources: allocate(taskId)
-    Tasks->>UoW: persist OPEN + PROVISIONAL fallback
+    Tasks->>UoW: persist OPEN + generated title or PROVISIONAL fallback
     Tasks-->>Creator: AgentTask(OPEN)
     Creator-->>Web: AgentTask(OPEN)
     Web->>Turns: start(trusted initial message)
     Turns-->>Web: initial AgentTurn
     Web->>Tasks: get(taskId)
     Tasks-->>Web: response snapshot
-    Web->>Titles: schedule generate(task, initialTurnId, firstMessage)
     Web-->>Desktop: 201 Created
     Desktop-->>User: Task created
-
-    par Background naming
-        Titles->>Resources: require(taskId) + create task-owned scratch
-        Titles->>Driver: open(text-only, isolated, no tools or task-worktree write)
-        Driver-->>Titles: TitleSession
-        Titles->>TitleSession: start(first-message naming prompt)
-        TitleSession-->>Titles: short title or failure
-        Titles->>UoW: update PROVISIONAL title + insert TITLE_UPDATED
-        Titles->>Events: drain(titleUpdatedEventId)
-    and Initial turn
-        Note over Turns,Session: Runs through the same turn lifecycle below
-    end
 
     User->>Desktop: Open task
     Desktop->>Web: GET /agent/tasks/{taskId}/history
@@ -4141,11 +4138,10 @@ safe to remove; the shared service has no force-removal operation.
 
 The public task-creation DTO contains the client-generated `taskId`,
 `workspaceId`, first `message`, immutable `laneId`, defaults, and an
-`idempotencyKey`, not a title or filesystem path. The first message provides
-the bounded provisional task label and the input to best-effort background
-title generation. Its first line also supplies the readable branch slug;
-branch creation does not wait for the title helper. `app` resolves the
-authenticated GitHub login, managed repository, and exact starting commit,
+`idempotencyKey`, not a title or filesystem path. The full first message and accepted issue context supply the input to bounded
+intent-based title and branch generation. Naming completes before the worktree
+is created; failure retains the provisional label and a neutral task-ID branch.
+`app` resolves the managed repository and exact starting commit,
 freezes the generated branch, verifies the task belongs to that workspace, and only then
 builds the core command. Trusted internal workflow callers such as cherry-pick
 and CI Autofix supply their own already-frozen commit, but they use the same
@@ -4258,17 +4254,17 @@ The directory is outside every worktree:
 ~/Library/Application Support/ByteQuay/agent-runtime/
 ├── _processes/
 │   └── <launch-id>.json
-└── <task-id>/
-    ├── events.jsonl
-    ├── blobs/
-    │   ├── attachments/<content-id>
-    │   ├── queue/<content-id>
-    │   └── events/<content-id>
-    ├── provider/
-    │   └── scratch/
-    └── title-<request-id>/
-        ├── worktree/
-        └── provider/
+├── <task-id>/
+│   ├── events.jsonl
+│   ├── blobs/
+│   │   ├── attachments/<content-id>
+│   │   ├── queue/<content-id>
+│   │   └── events/<content-id>
+│   └── provider/
+│       └── scratch/
+└── <naming-helper-id>/
+    ├── naming-worktree/
+    └── provider/
 ```
 
 The task ID and content IDs are generated by ByteQuay, not supplied as paths.
@@ -4281,10 +4277,9 @@ Attachment and event blobs share this root but use typed references,
 independent media/size validation, and separate subdirectories. Only a
 validated attachment owned by the task can be converted into a provider input
 path. A disposable helper's unique scratch is deleted only after verified
-shutdown. Task-title scratch otherwise stays inside the owning task's resources
-until recovery and normal task cleanup can safely remove it; standalone Better
-Words scratch is likewise retained rather than deleting files beneath a
-possibly live process.
+shutdown. Naming scratch belongs to a disposable helper ID, separate from the task
+resources. Like standalone Better Words scratch, it is retained if shutdown
+cannot be verified, rather than deleting files beneath a possibly live process.
 
 On successful completion, after the execution tree is quiescent and live queued
 work is empty:

@@ -494,6 +494,7 @@ export function useAgentTaskCreation({ workspaceId, initialLaneId, bridge, onOpe
 const STARTUP_STEPS: { phase: AgentTaskStartupPhase; withImages?: true; label: (provider: string) => string }[] = [
   { phase: 'PROVIDER', label: (provider) => `Checking that ${provider} is installed and signed in` },
   { phase: 'REPOSITORY', label: () => 'Fetching the latest commits from GitHub' },
+  { phase: 'NAMING', label: () => 'Naming task and branch' },
   { phase: 'WORKTREE', label: () => 'Creating the task branch and worktree' },
   { phase: 'ATTACHMENTS', withImages: true, label: () => 'Storing the attached images' },
   { phase: 'SESSION', label: (provider) => `Starting ${provider} and sending your message` },

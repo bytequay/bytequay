@@ -874,7 +874,7 @@ export type AgentRuntimeStopImpactDto = {
 };
 
 /** The creation step an in-flight createAgentTask is in; null before the first step and once the call has returned. */
-export type AgentTaskStartupPhase = 'PROVIDER' | 'REPOSITORY' | 'WORKTREE' | 'ATTACHMENTS' | 'SESSION';
+export type AgentTaskStartupPhase = 'PROVIDER' | 'REPOSITORY' | 'NAMING' | 'WORKTREE' | 'ATTACHMENTS' | 'SESSION';
 export type AgentTaskStartupDto = { phase: AgentTaskStartupPhase | null };
 
 export type AgentCompletionDto = {

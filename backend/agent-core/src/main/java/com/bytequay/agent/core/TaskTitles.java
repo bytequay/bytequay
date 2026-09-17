@@ -25,7 +25,7 @@ public final class TaskTitles
     private TaskTitles() {}
 
     /**
-     * The title a task carries while its dedicated naming request is pending: the first message's
+     * The fallback when its dedicated naming request fails: the first message's
      * first plain-text line.
      *
      * @param message the first message, not blank

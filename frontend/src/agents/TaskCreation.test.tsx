@@ -76,8 +76,9 @@ describe.each(['Home', 'Tasks'])('first-message feedback on %s', (surface) => {
     const markup = render({ busy: true, startup: 'WORKTREE' });
 
     expect([...markup.matchAll(/agt-starting-step is-(\w+)/g)].map((match) => match[1]))
-      .toEqual(['done', 'done', 'current', 'pending', 'pending']);
+      .toEqual(['done', 'done', 'done', 'current', 'pending', 'pending']);
     expect(markup).toContain('Checking that Codex is installed and signed in');
+    expect(markup).toContain('Naming task and branch');
     expect(markup).toContain('Creating the task branch and worktree');
     expect(markup).toContain('Storing the attached images');
     expect(markup).toContain('Starting Codex and sending your message');
@@ -87,7 +88,7 @@ describe.each(['Home', 'Tasks'])('first-message feedback on %s', (surface) => {
     const markup = render({ busy: true, images: [] });
 
     expect([...markup.matchAll(/agt-starting-step is-(\w+)/g)].map((match) => match[1]))
-      .toEqual(['pending', 'pending', 'pending', 'pending']);
+      .toEqual(['pending', 'pending', 'pending', 'pending', 'pending']);
     expect(markup).not.toContain('Storing the attached images');
   });
 

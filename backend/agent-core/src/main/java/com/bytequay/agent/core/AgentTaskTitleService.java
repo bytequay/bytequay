@@ -13,18 +13,13 @@
  */
 package com.bytequay.agent.core;
 
-/** Generates an interactive task's short UI title outside its real provider conversation. */
+import com.bytequay.agent.spi.AgentLaneId;
+
+import java.util.Optional;
+
+/** Generates task and branch names together before the task worktree exists. */
 public interface AgentTaskTitleService
 {
-    /**
-     * Schedules a best-effort title request based only on the task's first message.
-     *
-     * <p>The task already has a provisional title, so scheduling or provider failure is silent.
-     * A result may replace only that provisional title; a user rename always wins.
-     *
-     * @param task newly created interactive task
-     * @param ownerTurnId durable initial turn used to attribute the disposable provider process
-     * @param firstMessage message that created it
-     */
-    void generate(AgentTask task, TurnId ownerTurnId, String firstMessage);
+    /** Uses the full request and available issue context in a disposable text-only session; failures return empty. */
+    Optional<TaskNames> generate(AgentLaneId laneId, AgentTaskDefaults defaults, String context);
 }

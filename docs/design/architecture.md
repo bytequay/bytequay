@@ -437,7 +437,8 @@ React projection implement this end-to-end flow:
    a workspace ID, never a repository or worktree path. Electron main adds the
    private desktop session credential and sends the localhost HTTP request.
 2. `app` validates that task ID, resolves an exact commit in the selected
-   workspace, and provisions one ByteQuay-owned generated branch/worktree
+   workspace, and generates a concise title and branch from the complete request
+   and accepted issue context in an isolated text-only helper. It then provisions one ByteQuay-owned generated branch/worktree
    through the shared synchronous `WorktreeService`. Only after the returned
    worktree is verified does it create or resume the worktree-scoped task
    through `agent-core`.

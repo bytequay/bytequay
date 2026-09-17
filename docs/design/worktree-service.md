@@ -105,24 +105,26 @@ The service derives the worktree path from the full task ID:
 <workspace-root>/worktrees/<task-id>
 ```
 
-For new tasks, the application uses `TaskBranches` to generate:
+For new interactive tasks, the application asks the selected provider to infer
+intent from the full request and any attached issue's accepted title, body, and
+number. One bounded, disposable text-only session returns both a compact UI title
+and a separate English branch slug before provisioning. The descriptive suffix
+uses lowercase ASCII words separated by hyphens, at most 64 characters, without
+a routine ID suffix. The application prepends the authenticated GitHub login
+and `bytequay/`, retaining the branch namespace. For example, an issue about
+duplicate table samples can produce
+`chenjian2664/bytequay/fix-dup-table-sample-issue-31178`, even when the request opens with
+“Develop the following GitHub issue.” It names the intended outcome rather than
+truncating that opening sentence.
 
-```text
-<authenticated-github-login>/bytequay/<description-slug>-<first-eight-task-id-characters>
-```
-
-The login comes from the user's authenticated GitHub identity, independently of
-the selected repository owner. Interactive tasks use the initial message's
-first plain-text line before UI-title truncation; workflows use their initial
-descriptive label. The generator removes common conversational request lead-ins
-such as “let's,” “please,” and “could you,” then makes a lowercase slug with
-hyphen-separated words. It keeps at most four words and 32 characters, cuts at
-a whole-word boundary where possible, and removes dangling function words.
-It uses `task` when no usable description remains. This is deterministic text
-cleanup, not model-generated summarization or grammatical rewriting. For
-example, “Let's refactor nits in Delta Lake” produces
-`refactor-nits-in-delta`. Generation is synchronous and does not wait for the
-optional task-title helper.
+The application checks local and remote-tracking branch refs and cached PR
+head refs under the workspace lock. A cached PR still occupies a name after its
+local or remote branch has been deleted. If the name is occupied it appends the task ID's first eight characters;
+provisioning still refuses any remaining collision. A failed or invalid naming
+result uses `<login>/bytequay/task-<short-task-id>` and the provisional UI title. Naming has a
+30-second turn budget and never runs in the task conversation or edits Git.
+Internal workflows continue to use their descriptive labels and `TaskBranches`
+with the authenticated login and short task ID.
 
 The application freezes the branch once and passes it through task creation
 and provisioning. The renderer cannot submit an arbitrary branch. Existing
@@ -151,8 +153,9 @@ returns those facts for an existing verified worktree or throws; it does not
 represent absence with another state or optional HEAD.
 
 The contract accepts only lowercase 40- or 64-character Git object IDs for the
-exact start commit and observed HEAD. Generated branches must match the strict
-login/`bytequay`/slug format and this task's eight-character ID suffix. Exact
+exact start commit and observed HEAD. Branches must match the login/`bytequay`/hyphenated-slug format, at most 128
+characters overall. Interactive suffixes allow up to 64 characters plus a
+collision suffix; workflow branches include the short task ID. Exact
 previously recorded `bytequay/task/<full-task-id>` names remain valid for their
 owning task. Validation rejects arbitrary refs and unsafe Git-ref characters.
 The normalized absolute path has the full task ID as its basename. The
@@ -184,7 +187,7 @@ that physically owns the Git worktree.
 Repeating the same command may return an already-created worktree only when all
 of those exact facts match and it is still clean. A conflicting path, branch,
 repository, or Git state is preserved and reported rather than adopted or
-deleted. If distinct tasks produce the same short-ID branch name, provisioning
+deleted. If distinct tasks produce the same frozen branch name, provisioning
 reports a collision without overwriting the branch or silently choosing another
 name.
 
@@ -258,8 +261,8 @@ For a new task, the application synchronously fetches the workspace remotes,
 requires a successful synchronization, then resolves the monitored repository's default branch:
 `refs/remotes/upstream/<upstream-default-branch>^{commit}` when linked, otherwise
 `refs/remotes/origin/<default-branch>^{commit}`. It validates the interactive
-client-generated task ID, freezes the branch from the authenticated GitHub login
-and initial message, provisions its worktree, and stores the returned
+client-generated task ID, generates the task title and branch from the request and accepted issue context,
+freezes the available branch, provisions its worktree, and stores the returned
 facts with the task. The selected write repository remains the physical worktree
 identity in both cases. Fetch leaves local branches and existing worktrees
 unchanged. A failed fetch prevents new task allocation; a replayed creation
@@ -316,8 +319,7 @@ until the full top-level workflow has settled.
 ## 6. Safety invariants
 
 - One backend-validated full task ID deterministically names one path. Its
-  generated branch is frozen from the authenticated login, initial description,
-  and short task ID; interactive IDs are client-generated idempotency values,
+  generated branch is frozen before provisioning; interactive IDs are client-generated idempotency values,
   not paths.
 - A task is published only after `provision(...)` returns a verified clean
   worktree at the exact starting commit.

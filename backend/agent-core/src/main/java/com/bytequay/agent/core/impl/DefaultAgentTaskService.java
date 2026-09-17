@@ -27,6 +27,7 @@ import com.bytequay.agent.core.InvalidAgentRequestException;
 import com.bytequay.agent.core.ProvisionWorktreeCommand;
 import com.bytequay.agent.core.RenameAgentTaskCommand;
 import com.bytequay.agent.core.TaskId;
+import com.bytequay.agent.core.TaskNames;
 import com.bytequay.agent.core.TaskResources;
 import com.bytequay.agent.core.TaskTitles;
 import com.bytequay.agent.core.TaskWorktree;
@@ -107,12 +108,11 @@ public final class DefaultAgentTaskService
                 command.physicalRepository(),
                 command.startCommit(),
                 command.generatedBranch()));
-        // The dedicated naming request may replace this prompt fallback after creation returns.
         return createManaged(
                 command.taskId(),
                 true,
-                TaskTitles.provisional(command.message()),
-                TitleSource.PROVISIONAL,
+                command.names().map(TaskNames::title).orElseGet(() -> TaskTitles.provisional(command.message())),
+                command.names().isPresent() ? TitleSource.AGENT : TitleSource.PROVISIONAL,
                 command.laneId(),
                 command.defaults(),
                 Optional.of(command.creationFingerprint()),

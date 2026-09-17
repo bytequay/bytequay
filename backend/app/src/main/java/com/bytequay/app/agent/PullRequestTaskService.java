@@ -157,7 +157,7 @@ public class PullRequestTaskService
                     .withDevelopmentAutomation(new DevelopmentAutomation(true, false, false, Optional.empty()));
             AgentTask task = taskStore.find(id).orElseGet(() -> tasks.createInteractive(new CreateInteractiveAgentTaskCommand(
                     id, workspaceId, lane, WorkflowAgentTasks.repositoryIdentity(workspace.selectedRepository()), head,
-                    TaskBranches.generate(id, login, "Discuss PR " + number), "Discuss PR #" + number, defaults, "assigned-pr:" + repository + "#" + number)));
+                    TaskBranches.generate(id, login, "Discuss PR " + number), "Discuss PR #" + number, defaults, "assigned-pr:" + repository + "#" + number, Optional.empty())));
             if (!task.workspaceId().equals(Optional.of(workspaceId)) || !task.interactive()
                     || task.taskWorktree().filter(worktree -> worktree.startCommit().equals(head)).isEmpty()) {
                 throw new AgentConflictException("The previously created PR task has a different checkout; open it from Tasks");

@@ -13,7 +13,9 @@
  */
 package com.bytequay.app.repository.github;
 
+import com.bytequay.agent.core.AgentConflictException;
 import com.bytequay.app.repository.github.CommitAvatarSnapshot.CommitAvatar;
+import com.bytequay.core.domain.GitHubIssueSource;
 import com.bytequay.core.domain.RepoRef;
 import com.bytequay.core.domain.RepositoryContributor;
 import com.bytequay.core.domain.RepositoryIssue;
@@ -185,6 +187,21 @@ public class GitHubRepoClient
                         value.updatedAt()))
                 .collect(toImmutableList());
         return new IssuePage(issues, response.size() == GitHubPaginator.PAGE_SIZE);
+    }
+
+    public GitHubIssueSource fetchOpenIssueSource(String pat, RepoRef repo, int issueNumber)
+    {
+        checkArgument(issueNumber > 0, "issueNumber must be positive");
+        return translating(() -> {
+            IssueResponse issue = requireBody(get(gitHubRestClient, pat, "/repos/{owner}/{repo}/issues/{number}", repo.owner(), repo.repo(), issueNumber)
+                    .retrieve().body(IssueResponse.class), "Empty issue response from GitHub");
+            if (!"open".equals(issue.state()) || issue.pullRequest() != null || issue.number() != issueNumber) {
+                throw new AgentConflictException("This source is not an open issue. Refresh issues before starting development.");
+            }
+            return new GitHubIssueSource("github.com", issue.id(), repo.fullName(), issueNumber,
+                    "https://github.com/" + repo.fullName() + "/issues/" + issueNumber,
+                    issue.title(), Optional.ofNullable(issue.body()).orElse(""), issue.updatedAt());
+        });
     }
 
     public GitHubIssuePreview fetchIssuePreview(String pat, RepoRef repo, int issueNumber)

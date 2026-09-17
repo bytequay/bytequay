@@ -14,6 +14,7 @@
 package com.bytequay.agent.core;
 
 import java.util.List;
+import java.util.function.Consumer;
 
 /**
  * Creates agent tasks and exposes their durable task-level state.
@@ -35,6 +36,9 @@ public interface AgentTaskService
      * @return newly persisted open task
      */
     AgentTask createInteractive(CreateInteractiveAgentTaskCommand command);
+
+    /** Persists the prepared task through the caller's atomic task-and-source write, without putting provisioning in a transaction. */
+    AgentTask createInteractive(CreateInteractiveAgentTaskCommand command, Consumer<AgentTask> persistTask);
 
     /**
      * Creates a durable task for one clean, validated worktree and provider lane.

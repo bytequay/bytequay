@@ -53,6 +53,7 @@ import com.bytequay.app.agent.AgentStartupRecovery;
 import com.bytequay.app.agent.AgentTaskStartupProgress;
 import com.bytequay.app.agent.DevelopmentFollowupCoordinator;
 import com.bytequay.app.agent.InteractiveAgentTaskCreator;
+import com.bytequay.app.agent.IssueDevelopmentService;
 import com.bytequay.app.agent.LocalReviewSessionService;
 import com.bytequay.app.ci.CiAutofixService;
 import com.bytequay.app.git.GitCommandRunner;
@@ -167,7 +168,8 @@ class TestAgentHttpErrors
                 startupProgress,
                 mock(DevelopmentFollowupCoordinator.class),
                 localReviewSessions,
-                new AgentStreamRegistry());
+                new AgentStreamRegistry(),
+                mock(IssueDevelopmentService.class));
         mvc = standaloneSetup(controller)
                 .setControllerAdvice(new GlobalExceptionHandler())
                 .build();

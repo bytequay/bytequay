@@ -48,6 +48,7 @@ import java.util.List;
 import java.util.Optional;
 import java.util.concurrent.Executor;
 import java.util.function.BooleanSupplier;
+import java.util.function.Consumer;
 
 import static com.bytequay.agent.core.impl.AgentFailures.suppressFailure;
 import static java.util.Objects.requireNonNull;
@@ -87,7 +88,14 @@ public final class DefaultAgentTaskService
     @Override
     public AgentTask createInteractive(CreateInteractiveAgentTaskCommand command)
     {
+        return createInteractive(command, taskStore::insert);
+    }
+
+    @Override
+    public AgentTask createInteractive(CreateInteractiveAgentTaskCommand command, Consumer<AgentTask> persistTask)
+    {
         requireNonNull(command, "command is null");
+        requireNonNull(persistTask, "persistTask is null");
         requireReady(command.laneId(), command.defaults().permissionPolicy());
         if (taskStore.find(command.taskId()).isPresent()) {
             throw new AgentConflictException("Task already exists: " + command.taskId());
@@ -108,7 +116,8 @@ public final class DefaultAgentTaskService
                 command.laneId(),
                 command.defaults(),
                 Optional.of(command.creationFingerprint()),
-                worktree);
+                worktree,
+                persistTask);
     }
 
     @Override
@@ -133,7 +142,8 @@ public final class DefaultAgentTaskService
                 command.laneId(),
                 command.defaults(),
                 Optional.empty(),
-                worktree);
+                worktree,
+                taskStore::insert);
     }
 
     @Override
@@ -253,7 +263,8 @@ public final class DefaultAgentTaskService
             AgentLaneId laneId,
             AgentTaskDefaults defaults,
             Optional<String> creationFingerprint,
-            TaskWorktree worktree)
+            TaskWorktree worktree,
+            Consumer<AgentTask> persistTask)
     {
         // Stamped once, so a later settings change never alters what a running task was given.
         boolean codegraph = codeGraph.available() && codeGraphEnabled.getAsBoolean();
@@ -272,7 +283,7 @@ public final class DefaultAgentTaskService
                     defaults,
                     codegraph,
                     Instant.now(clock));
-            taskStore.insert(task);
+            persistTask.accept(task);
         }
         catch (RuntimeException failure) {
             rollbackManagedCreation(taskId, worktree, failure);

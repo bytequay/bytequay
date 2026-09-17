@@ -77,6 +77,15 @@ describe('agent skills bridge contract', () => {
 });
 
 describe('agent contract parsing', () => {
+  it('retains issue provenance without exposing additional backend fields', () => {
+    const source = { host: 'github.com', issueId: 23, number: 7, repo: 'upstream/repo', url: 'https://github.com/upstream/repo/issues/7',
+      initialTurnId: 'initial-turn', instructions: 'Keep retries unchanged', title: 'Fix upload', body: 'Reproduce the timeout', updatedAt: '2026-09-17T00:00:00Z' };
+    expect(parseAgentTask({ ...fixture.task, issueSource: { ...source, internalPath: '/private' } }).issueSource).toEqual(source);
+    expect(() => parseAgentTask({ ...fixture.task, issueSource: { ...source, issueId: '23' } })).toThrow(/issueId/);
+    expect(parseAgentTask({ ...fixture.task, issueSource: { ...source, initialTurnId: undefined, instructions: undefined } }).issueSource)
+      .toMatchObject({ initialTurnId: null, instructions: '' });
+  });
+
   it('reads a task the backend actually returns', () => {
     const task = parseAgentTask(fixture.task);
 

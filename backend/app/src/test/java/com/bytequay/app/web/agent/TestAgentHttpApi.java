@@ -51,6 +51,7 @@ import com.bytequay.app.agent.InteractiveAgentTaskCreator;
 import com.bytequay.app.agent.codegraph.FakeCodeGraphService;
 import com.bytequay.app.agent.impl.DeterministicAgentDriver;
 import com.bytequay.app.repository.github.GitHubPullRequestReadClient;
+import com.bytequay.app.repository.github.GitHubRepoClient;
 import com.bytequay.app.service.credentials.CredentialService;
 import com.bytequay.app.service.credentials.CredentialService.GitHubCredential;
 import com.bytequay.app.service.settings.ModelSettingsService;
@@ -58,11 +59,14 @@ import com.bytequay.app.workspace.WorkspaceCodeSyncResult;
 import com.bytequay.app.workspace.WorkspacePaths;
 import com.bytequay.app.workspace.WorkspaceProvisioningService;
 import com.bytequay.core.domain.FetchedPullRequest;
+import com.bytequay.core.domain.GitHubIssueSource;
 import com.bytequay.core.domain.PullRequest;
 import com.bytequay.core.domain.RepoRef;
+import com.bytequay.core.domain.RepositoryIssue;
 import com.bytequay.core.domain.UserProfile;
 import com.bytequay.core.domain.Workspace;
 import com.bytequay.core.store.PullRequestStore;
+import com.bytequay.core.store.RepositoryIssueStore;
 import com.bytequay.core.store.WorkspaceStore;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -244,6 +248,12 @@ class TestAgentHttpApi
     @Autowired
     private PullRequestStore pullRequests;
 
+    @Autowired
+    private RepositoryIssueStore issueRows;
+
+    @MockitoBean
+    private GitHubRepoClient issueClient;
+
     @MockitoBean
     private GitHubPullRequestReadClient gitHub;
 
@@ -330,6 +340,40 @@ class TestAgentHttpApi
         assertThat(status.getBody().get(0).get("laneId").asText()).isEqualTo("codex");
         assertThat(status.getBody().get(0).get("readiness").asText()).isEqualTo("READY");
         assertThat(status.getBody().get(0).has("health")).isFalse();
+    }
+
+    @Test
+    void issueLaunchKeepsUserInstructionVisibleAndProjectsStableSourceTurn()
+            throws Exception
+    {
+        Workspace workspace = workspaces.findById(workspaceId).orElseThrow();
+        Instant updated = Instant.parse("2026-09-16T00:00:00Z");
+        long issueId = workspace.monitoredRepositoryId() * 1000 + 7;
+        GitHubIssueSource source = new GitHubIssueSource("github.com", issueId, workspace.monitoredRepository().fullName(), 7,
+                "https://github.com/" + workspace.monitoredRepository().fullName() + "/issues/7", "Fix issue selection", "Long source description kept in local metadata", updated);
+        issueRows.saveSyncPage(workspace.monitoredRepositoryId(), ImmutableList.of(new RepositoryIssue(issueId, 7, source.title(), source.body(),
+                "alice", "", source.url(), ImmutableList.of(), ImmutableList.of(), 0, updated, updated)), "issue-test");
+        when(credentials.resolveGitHubToken()).thenReturn("pat");
+        when(issueClient.fetchOpenIssueSource("pat", workspace.monitoredRepository(), 7)).thenReturn(source);
+        String instruction = "Implement issue selection";
+        Map<String, Object> request = ImmutableMap.<String, Object>builder().putAll(createTaskBody("codex", "test-model", instruction))
+                .put("issueSource", ImmutableMap.of("issueId", issueId, "number", 7, "updatedAt", updated.toString())).buildOrThrow();
+        ResponseEntity<JsonNode> response = post("/agent/tasks", request, null);
+        assertThat(response.getStatusCode()).as("create response: %s", response.getBody()).isEqualTo(HttpStatus.CREATED);
+        JsonNode created = response.getBody();
+        String taskId = created.required("id").asText();
+        assertThat(created.path("title").asText()).isEqualTo(instruction);
+        assertThat(created.at("/issueSource/instructions").asText()).isEqualTo(instruction);
+        assertThat(created.at("/issueSource/body").asText()).isEqualTo(source.body());
+        JsonNode firstMessage = StreamSupport.stream(get("/agent/tasks/" + taskId + "/events?after=0&limit=20").getBody().spliterator(), false)
+                .filter(event -> event.path("type").asText().equals("user_message")).findFirst().orElseThrow();
+        assertThat(firstMessage.at("/payload/text").asText()).isEqualTo(instruction);
+        assertThat(created.at("/issueSource/initialTurnId").asText()).isEqualTo(firstMessage.path("turnId").asText());
+        issueRows.delete(workspace.monitoredRepositoryId(), 7);
+        JsonNode retained = get("/agent/tasks/" + taskId + "?workspaceId=" + workspaceId).getBody();
+        assertThat(retained.path("issueSource")).isEqualTo(created.path("issueSource"));
+        assertThat(post("/agent/tasks", request, null).getBody().path("id").asText()).isEqualTo(taskId);
+        verify(issueClient).fetchOpenIssueSource("pat", workspace.monitoredRepository(), 7);
     }
 
     @Test

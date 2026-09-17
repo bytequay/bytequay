@@ -29,6 +29,7 @@ import com.bytequay.agent.spi.AgentPermissionPolicy;
 import com.bytequay.agent.spi.AgentTurnFailureKind;
 import com.bytequay.agent.spi.DevelopmentResultReport;
 import com.bytequay.agent.spi.ProviderTurnRef;
+import com.bytequay.core.domain.GitHubIssueSource;
 import com.bytequay.core.domain.PullRequest;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -72,12 +73,25 @@ class TestInteractiveAgentHttpContract
                 "create-key"));
 
         assertThat(request.fieldNames()).toIterable()
-                .containsExactlyInAnyOrder("taskId", "workspaceId", "message", "laneId", "defaults", "idempotencyKey", "developmentAutomation");
+                .containsExactlyInAnyOrder("taskId", "workspaceId", "message", "laneId", "defaults", "idempotencyKey", "developmentAutomation", "issueSource");
         assertThat(request.toString())
                 .doesNotContain("worktree")
                 .doesNotContain("repository")
                 .doesNotContain("path")
                 .doesNotContain("attachment");
+    }
+
+    @Test
+    void exposesStructuredIssueRequestProvenanceWithoutAWrappedPrompt()
+    {
+        GitHubIssueSource source = new GitHubIssueSource("github.com", 70, "owner/repo", 7, "https://github.com/owner/repo/issues/7",
+                "Fix selection", "Accepted Markdown description", Instant.parse("2026-09-16T00:00:00Z"));
+        JsonNode json = objectMapper.valueToTree(new InteractiveAgentHttpContract.IssueSourceResponse(source,
+                Optional.of("initial-turn"), "Implement using the existing model"));
+        assertThat(json.path("title").asText()).isEqualTo("Fix selection");
+        assertThat(json.path("initialTurnId").asText()).isEqualTo("initial-turn");
+        assertThat(json.path("instructions").asText()).isEqualTo("Implement using the existing model");
+        assertThat(json.has("source")).isFalse();
     }
 
     @Test
@@ -112,7 +126,8 @@ class TestInteractiveAgentHttpContract
                         "developmentContinuationUnfinished",
                         "developmentCi",
                         "pullRequest",
-                        "localReviewHead");
+                        "localReviewHead",
+                        "issueSource");
         assertThat(InteractiveAgentHttpContract.MutationClaim.class.getRecordComponents())
                 .extracting(component -> component.getName())
                 .containsExactly("kind", "ownerId", "acquiredAt");
@@ -263,7 +278,7 @@ class TestInteractiveAgentHttpContract
                 Optional.empty(),
                 AgentMetrics.empty());
 
-        JsonNode taskJson = objectMapper.valueToTree(InteractiveAgentHttpContract.task(task, task.metrics(), Optional.empty(), Optional.empty()));
+        JsonNode taskJson = objectMapper.valueToTree(InteractiveAgentHttpContract.task(task, task.metrics(), Optional.empty(), Optional.empty(), Optional.empty()));
         JsonNode turnJson = objectMapper.valueToTree(InteractiveAgentHttpContract.turn(turn));
 
         assertThat(taskJson.path("defaults").get("model").isNull()).isTrue();

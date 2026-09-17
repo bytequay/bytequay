@@ -1,5 +1,12 @@
 # ByteQuay Architecture
 
+Issue-backed development exposes one read-only task-bound context tool through
+the existing provider bridge. The application reads its durable issue association
+and existing local caches; the tool performs no remote issue fetch. Codex and
+Claude use the same source capability and receive its instructions on every
+session. The shared conversation renders source and initial-request cards from
+structured task facts while the existing agent service owns execution.
+
 Private development and PR-owned **Local review comments** use domain values and a storage
 port in `core`, one SQLite aggregate adapter in `persistence-sqlite`, and
 application orchestration/HTTP in `app`. Existing task turns and queued inputs

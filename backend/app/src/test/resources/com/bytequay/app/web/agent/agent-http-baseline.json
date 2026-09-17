@@ -65,7 +65,8 @@
     "developmentContinuationUnfinished": true,
     "developmentCi": null,
     "pullRequest": null,
-    "localReviewHead": null
+    "localReviewHead": null,
+    "issueSource": null
   },
   "turns": [
     {
@@ -944,6 +945,7 @@
     "developmentContinuationUnfinished": false,
     "developmentCi": null,
     "pullRequest": null,
-    "localReviewHead": null
+    "localReviewHead": null,
+    "issueSource": null
   }
 }

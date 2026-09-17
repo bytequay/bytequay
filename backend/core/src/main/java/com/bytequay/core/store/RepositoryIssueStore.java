@@ -27,11 +27,15 @@ public interface RepositoryIssueStore
 
     Optional<RepositoryIssue> find(long repositoryId, int issueNumber);
 
+    List<RepositoryIssue> findAssignedEligible(long repositoryId, String login, int limit);
+
     void saveSyncPage(long repositoryId, List<RepositoryIssue> issues, String syncMarker);
 
     void completeSync(long repositoryId, String syncMarker, Instant syncedAt);
 
     void updateMetadata(long repositoryId, int issueNumber, List<String> assignees, List<String> labels, Instant updatedAt);
+
+    void updateContent(long repositoryId, int issueNumber, String title, String body, Instant updatedAt);
 
     void delete(long repositoryId, int issueNumber);
 }

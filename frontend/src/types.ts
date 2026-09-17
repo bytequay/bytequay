@@ -335,10 +335,25 @@ export type RepositoryMetadataDto = {
   labelsTopicsSyncedAt: string | null;
 };
 
+export type IssueDevelopmentTaskDto = { taskId: string; workspaceId: string };
+export type IssueDevelopmentDto = { isGoal: boolean; developmentTask: IssueDevelopmentTaskDto | null };
+export type IssueTaskSourceRequest = { issueId: number; number: number; updatedAt: string };
+export type AgentIssueSourceDto = IssueTaskSourceRequest & {
+  initialTurnId: string | null;
+  instructions: string;
+  host: string;
+  repo: string;
+  url: string;
+  title: string;
+  body: string;
+};
+
 export type RepositoryIssueSnapshotDto = {
   repositoryId: number;
   repository: { owner: string; repo: string };
   issues: Array<{
+    isGoal?: boolean;
+    developmentTask?: IssueDevelopmentTaskDto | null;
     id: number;
     number: number;
     title: string;
@@ -611,6 +626,7 @@ export type AgentTaskPullRequestDto = Pick<PullRequestDto, 'number' | 'title' | 
 export type AgentTaskChangesDto = { uncommitted: boolean; commits: number };
 
 export type AgentTaskDto = {
+  issueSource?: AgentIssueSourceDto | null;
   interactive?: boolean;
   localReviewHead?: string | null;
   developmentContinuationUnfinished: boolean;
@@ -739,6 +755,7 @@ export type CiAutofixRunDto = {
 };
 
 export type CreateAgentTaskRequest = {
+  issueSource?: IssueTaskSourceRequest;
   developmentAutomation?: DevelopmentAutomationDto;
   /** Client-generated identity makes task provisioning safe to replay after a lost response. */
   taskId: string;
@@ -1385,6 +1402,8 @@ export type Bridge = {
   getWorkspaceMetadata: (workspaceId: string) => Promise<RepositoryMetadataDto>;
   fetchWorkspaceIssues: (workspaceId: string, page: number, pageSize: number) => Promise<RepositoryIssueSnapshotDto>;
   fetchWorkspaceIssue: (workspaceId: string, issueNumber: number) => Promise<RepositoryIssueSnapshotDto['issues'][number]>;
+  fetchWorkspaceIssueAttention: (workspaceId: string) => Promise<RepositoryIssueSnapshotDto>;
+  setWorkspaceIssueGoal: (workspaceId: string, issueNumber: number, isGoal: boolean) => Promise<IssueDevelopmentDto>;
   refreshWorkspaceIssues: (workspaceId: string) => Promise<RepositoryIssueSnapshotDto>;
   fetchWorkspaceIssueDetail: (workspaceId: string, issueNumber: number) => Promise<WorkspaceIssueDetailDto>;
   refreshWorkspaceIssueDetail: (workspaceId: string, issueNumber: number) => Promise<WorkspaceIssueDetailDto>;

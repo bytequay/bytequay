@@ -15,6 +15,7 @@ package com.bytequay.agent.cli.mcp;
 
 import com.bytequay.agent.spi.CodeGraphBridge;
 import com.bytequay.agent.spi.DevelopmentResultBridge;
+import com.bytequay.agent.spi.IssueContextBridge;
 import com.bytequay.agent.spi.LocalReviewBridge;
 import com.bytequay.agent.spi.PullRequestCiBridge;
 import com.bytequay.agent.spi.ReviewBridge;
@@ -39,6 +40,7 @@ public final class McpConfigRegistration
     private final Optional<DevelopmentResultBridge> development;
     private final Optional<LocalReviewBridge> localReview;
     private final Optional<PullRequestCiBridge> pullRequestCi;
+    private final Optional<IssueContextBridge> issueContext;
     private final Runnable release;
 
     McpConfigRegistration(
@@ -51,6 +53,7 @@ public final class McpConfigRegistration
             Optional<DevelopmentResultBridge> development,
             Optional<LocalReviewBridge> localReview,
             Optional<PullRequestCiBridge> pullRequestCi,
+            Optional<IssueContextBridge> issueContext,
             Runnable release)
     {
         this.configFile = requireNonNull(configFile, "configFile is null");
@@ -62,6 +65,7 @@ public final class McpConfigRegistration
         this.development = requireNonNull(development, "development is null");
         this.localReview = requireNonNull(localReview, "localReview is null");
         this.pullRequestCi = requireNonNull(pullRequestCi, "pullRequestCi is null");
+        this.issueContext = requireNonNull(issueContext, "issueContext is null");
         this.release = requireNonNull(release, "release is null");
     }
 
@@ -89,7 +93,7 @@ public final class McpConfigRegistration
     /** The managed guidance this session's instruction channel carries, if any tool needs one. */
     public Optional<String> instruction()
     {
-        return PermissionBroker.managedInstruction(codeGraph, review, development, localReview, pullRequestCi);
+        return PermissionBroker.managedInstruction(codeGraph, review, development, localReview, pullRequestCi, issueContext);
     }
 
     public Path configFile()

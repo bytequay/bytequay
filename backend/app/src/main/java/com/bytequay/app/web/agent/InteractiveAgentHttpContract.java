@@ -28,9 +28,12 @@ import com.bytequay.agent.spi.AgentLaneId;
 import com.bytequay.agent.spi.AgentPermissionPolicy;
 import com.bytequay.agent.spi.AgentTurnFailureKind;
 import com.bytequay.agent.spi.DevelopmentResultReport;
+import com.bytequay.app.agent.IssueSourceInput;
 import com.bytequay.app.web.DevelopmentAutomationDto;
 import com.bytequay.app.web.ci.CiAutofixHttpModels;
+import com.bytequay.core.domain.GitHubIssueSource;
 import com.bytequay.core.domain.PullRequest;
+import com.fasterxml.jackson.annotation.JsonUnwrapped;
 import com.google.common.collect.ImmutableList;
 
 import java.time.Instant;
@@ -62,7 +65,8 @@ final class InteractiveAgentHttpContract
             AgentTask task,
             AgentMetrics metrics,
             Optional<CiAutofixHttpModels.DevelopmentResponse> developmentCi,
-            Optional<TaskPullRequestResponse> pullRequest)
+            Optional<TaskPullRequestResponse> pullRequest,
+            Optional<IssueSourceResponse> issueSource)
     {
         requireNonNull(task, "task is null");
         requireNonNull(metrics, "metrics is null");
@@ -94,7 +98,8 @@ final class InteractiveAgentHttpContract
                 task.developmentContinuationUnfinished(),
                 developmentCi,
                 pullRequest,
-                task.localReviewHead());
+                task.localReviewHead(),
+                issueSource);
     }
 
     /**
@@ -238,15 +243,24 @@ final class InteractiveAgentHttpContract
             String laneId,
             TaskDefaults defaults,
             String idempotencyKey,
-            Optional<DevelopmentAutomationDto> developmentAutomation)
+            Optional<DevelopmentAutomationDto> developmentAutomation,
+            Optional<IssueSourceInput> issueSource)
     {
         CreateTaskRequest(String taskId, String workspaceId, String message, String laneId, TaskDefaults defaults, String idempotencyKey)
         {
-            this(taskId, workspaceId, message, laneId, defaults, idempotencyKey, Optional.empty());
+            this(taskId, workspaceId, message, laneId, defaults, idempotencyKey, Optional.empty(), Optional.empty());
+        }
+
+        CreateTaskRequest(
+                String taskId, String workspaceId, String message, String laneId, TaskDefaults defaults,
+                String idempotencyKey, Optional<DevelopmentAutomationDto> developmentAutomation)
+        {
+            this(taskId, workspaceId, message, laneId, defaults, idempotencyKey, developmentAutomation, Optional.empty());
         }
 
         CreateTaskRequest
         {
+            requireNonNull(issueSource, "issueSource is null");
             requireNonNull(developmentAutomation, "developmentAutomation is null");
             checkNotBlank(taskId, "taskId");
             checkNotBlank(workspaceId, "workspaceId");
@@ -320,6 +334,8 @@ final class InteractiveAgentHttpContract
         }
     }
 
+    record IssueSourceResponse(@JsonUnwrapped GitHubIssueSource source, Optional<String> initialTurnId, String instructions) {}
+
     record TaskResponse(
             String id,
             String workspaceId,
@@ -347,7 +363,8 @@ final class InteractiveAgentHttpContract
             boolean developmentContinuationUnfinished,
             Optional<CiAutofixHttpModels.DevelopmentResponse> developmentCi,
             Optional<TaskPullRequestResponse> pullRequest,
-            Optional<String> localReviewHead) {}
+            Optional<String> localReviewHead,
+            Optional<IssueSourceResponse> issueSource) {}
 
     record TaskPullRequestResponse(
             int number,

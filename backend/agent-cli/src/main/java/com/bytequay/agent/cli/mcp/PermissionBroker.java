@@ -25,6 +25,8 @@ import com.bytequay.agent.spi.DevelopmentResultBridge;
 import com.bytequay.agent.spi.DevelopmentResultBridgeResolver;
 import com.bytequay.agent.spi.DevelopmentResultReport;
 import com.bytequay.agent.spi.DraftPullRequestPublisher;
+import com.bytequay.agent.spi.IssueContextBridge;
+import com.bytequay.agent.spi.IssueContextBridgeResolver;
 import com.bytequay.agent.spi.LocalReviewBridge;
 import com.bytequay.agent.spi.LocalReviewBridgeResolver;
 import com.bytequay.agent.spi.ProviderApprovalDecision;
@@ -99,6 +101,7 @@ public final class PermissionBroker
     private final DraftPullRequestPublisher draftPullRequests;
     private final LocalReviewBridgeResolver localReviews;
     private final PullRequestCiBridgeResolver pullRequestChecks;
+    private final IssueContextBridgeResolver issueContexts;
     private final Map<String, PermissionContext> contexts = new ConcurrentHashMap<>();
 
     public PermissionBroker(
@@ -161,6 +164,20 @@ public final class PermissionBroker
             LocalReviewBridgeResolver localReviews,
             PullRequestCiBridgeResolver pullRequestChecks)
     {
+        this(endpoint, objectMapper, ciMemoryReader, reviews, developments, draftPullRequests, localReviews, pullRequestChecks, IssueContextBridgeResolver.NONE);
+    }
+
+    public PermissionBroker(
+            Supplier<URI> endpoint,
+            ObjectMapper objectMapper,
+            CiMemoryReader ciMemoryReader,
+            ReviewBridgeResolver reviews,
+            DevelopmentResultBridgeResolver developments,
+            DraftPullRequestPublisher draftPullRequests,
+            LocalReviewBridgeResolver localReviews,
+            PullRequestCiBridgeResolver pullRequestChecks,
+            IssueContextBridgeResolver issueContexts)
+    {
         this.endpoint = requireNonNull(endpoint, "endpoint is null");
         this.objectMapper = requireNonNull(objectMapper, "objectMapper is null")
                 .copy()
@@ -172,6 +189,7 @@ public final class PermissionBroker
         this.draftPullRequests = requireNonNull(draftPullRequests, "draftPullRequests is null");
         this.localReviews = requireNonNull(localReviews, "localReviews is null");
         this.pullRequestChecks = requireNonNull(pullRequestChecks, "pullRequestChecks is null");
+        this.issueContexts = requireNonNull(issueContexts, "issueContexts is null");
     }
 
     McpConfigRegistration register(
@@ -252,7 +270,8 @@ public final class PermissionBroker
                     .filter(name -> !name.equals("permission_prompt"))
                     .collect(toImmutableList());
             return new McpConfigRegistration(
-                    configFile, settingsFile, token, toolNames, codeGraph, context.review(), context.development(), context.localReview(), context.pullRequestCi(), () -> {
+                    configFile, settingsFile, token, toolNames, codeGraph, context.review(), context.development(), context.localReview(), context.pullRequestCi(),
+                    context.issueContext(), () -> {
                         contexts.remove(token);
                         delete(configFile);
                         delete(settingsFile);
@@ -294,7 +313,7 @@ public final class PermissionBroker
         contexts.put(token, context);
         return Optional.of(new CodeGraphRegistration(
                 token, requireNonNull(endpoint.get(), "endpoint URI is null"), codeGraph,
-                context.review(), context.development(), context.localReview(), context.pullRequestCi(), () -> contexts.remove(token)));
+                context.review(), context.development(), context.localReview(), context.pullRequestCi(), context.issueContext(), () -> contexts.remove(token)));
     }
 
     private PermissionContext resolveContext(
@@ -313,20 +332,23 @@ public final class PermissionBroker
         Optional<PullRequestCiBridge> pullRequestCi = !textOnly && (permissionPolicy == AgentPermissionPolicy.CI_AUTOFIX
                 || permissionPolicy.allowsGitHubCommands(false, review.isPresent()))
                 ? pullRequestChecks.resolve(taskId) : Optional.empty();
-        return new PermissionContext(taskId, worktree, permissionPolicy, approvals, redactor, permissionTools, codeGraph, review, development, localReview, pullRequestCi);
+        Optional<IssueContextBridge> issueContext = textOnly ? Optional.empty() : issueContexts.resolve(taskId);
+        return new PermissionContext(
+                taskId, worktree, permissionPolicy, approvals, redactor, permissionTools, codeGraph, review, development, localReview, pullRequestCi, issueContext);
     }
 
     /** Combines the fixed capabilities' guidance for the session's instruction channel. */
     static Optional<String> managedInstruction(
             Optional<CodeGraphBridge> codeGraph, Optional<ReviewBridge> review, Optional<DevelopmentResultBridge> development,
-            Optional<LocalReviewBridge> localReview, Optional<PullRequestCiBridge> pullRequestCi)
+            Optional<LocalReviewBridge> localReview, Optional<PullRequestCiBridge> pullRequestCi, Optional<IssueContextBridge> issueContext)
     {
         String joined = Stream.of(
                         review.map(ReviewBridge::instruction),
                         codeGraph.map(CodeGraphBridge::instruction),
                         development.map(DevelopmentResultBridge::instruction),
                         localReview.map(LocalReviewBridge::instruction),
-                        pullRequestCi.map(PullRequestCiBridge::instruction))
+                        pullRequestCi.map(PullRequestCiBridge::instruction),
+                        issueContext.map(IssueContextBridge::instruction))
                 .flatMap(Optional::stream)
                 .collect(Collectors.joining("\n\n"));
         return joined.isBlank() ? Optional.empty() : Optional.of(joined);
@@ -374,6 +396,7 @@ public final class PermissionBroker
             case "permission_prompt" -> context.permissionTools() ? permission(request.id(), params.arguments(), context) : error(request.id(), -32602, "Unknown tool");
             case "read_ci_memory" -> readCiMemory(request.id(), params.arguments(), context);
             case CodeGraphBridge.TOOL_NAME -> codeGraphExplore(request.id(), params.arguments(), context);
+            case IssueContextBridge.TOOL_NAME -> readIssueContext(request.id(), params.arguments(), context);
             case DevelopmentResultBridge.TOOL_NAME -> developmentResult(request.id(), params.arguments(), context);
             case DevelopmentResultBridge.PUBLISH_TOOL_NAME -> createDraftPullRequest(request.id(), params.arguments(), context);
             case CiDescriptionProposal.TOOL_NAME -> proposeCiDescription(request.id(), params.arguments(), context);
@@ -432,6 +455,27 @@ public final class PermissionBroker
         }
         catch (RuntimeException failure) {
             return response(id, new ToolResult(ImmutableList.of(new TextContent("text", "Rerun request was not accepted. Read current CI before trying again.")), true));
+        }
+    }
+
+    private McpHttpResponse readIssueContext(JsonNode id, JsonNode arguments, PermissionContext context)
+    {
+        if (context.issueContext().isEmpty()) {
+            return error(id, -32602, "Unknown tool");
+        }
+        if (!arguments.isObject() || !arguments.isEmpty()) {
+            return error(id, -32602, "read_issue_context accepts no arguments");
+        }
+        try {
+            IssueContextBridge bridge = issueContexts.resolve(context.taskId())
+                    .orElseThrow(() -> new IllegalStateException("Issue context is no longer available for this task"));
+            String text = context.redactor().redact(bridge.read().get());
+            return response(id, new ToolResult(ImmutableList.of(new TextContent("text", text)), false));
+        }
+        catch (RuntimeException failure) {
+            String reason = Optional.ofNullable(failure.getMessage()).orElse(failure.getClass().getSimpleName());
+            return response(id, new ToolResult(
+                    ImmutableList.of(new TextContent("text", "Unable to read local issue context: " + context.redactor().redact(reason))), true));
         }
     }
 
@@ -802,6 +846,10 @@ public final class PermissionBroker
             tools.add(codeGraphTool());
         }
         context.review().ifPresent(review -> review.tools().forEach(tool -> tools.add(new ToolDefinition(tool.name(), tool.description(), tool.inputSchema()))));
+        context.issueContext().ifPresent(ignored -> tools.add(new ToolDefinition(
+                IssueContextBridge.TOOL_NAME,
+                "Read the accepted issue snapshot and locally cached source observations for this task; missing or stale context is marked. Read-only; no remote fetch",
+                ImmutableMap.of("type", "object", "properties", ImmutableMap.of(), "additionalProperties", false))));
         context.pullRequestCi().ifPresent(ignored -> {
             tools.add(new ToolDefinition(
                     PullRequestCiBridge.TOOL_NAME,
@@ -1092,7 +1140,8 @@ public final class PermissionBroker
             Optional<ReviewBridge> review,
             Optional<DevelopmentResultBridge> development,
             Optional<LocalReviewBridge> localReview,
-            Optional<PullRequestCiBridge> pullRequestCi)
+            Optional<PullRequestCiBridge> pullRequestCi,
+            Optional<IssueContextBridge> issueContext)
     {
         private PermissionContext
         {
@@ -1106,6 +1155,7 @@ public final class PermissionBroker
             requireNonNull(development, "development is null");
             requireNonNull(localReview, "localReview is null");
             requireNonNull(pullRequestCi, "pullRequestCi is null");
+            requireNonNull(issueContext, "issueContext is null");
         }
     }
 

@@ -165,6 +165,20 @@ class TestDefaultAgentTaskService
     }
 
     @Test
+    void sourcePersistenceFailureCleansPreparedResourcesWithoutLeavingTask()
+    {
+        TaskId taskId = TaskId.random();
+        assertThatThrownBy(() -> service.createInteractive(interactiveCommand(taskId), prepared -> {
+            assertThat(prepared.taskWorktree()).contains(managedWorktrees.provisioned.getFirst());
+            assertThat(resources.allocated).containsExactly(taskId);
+            throw new AgentStorageException("source association failed");
+        })).isInstanceOf(AgentStorageException.class).hasMessageContaining("source association failed");
+        assertThat(stores.tasks()).isEmpty();
+        assertThat(resources.deleted).containsExactly(taskId);
+        assertThat(managedWorktrees.cleaned).containsExactly(managedWorktrees.provisioned.getFirst());
+    }
+
+    @Test
     void preservesResourcesWhenFailedInsertMayHavePersistedOwnership()
     {
         TaskId taskId = TaskId.random();

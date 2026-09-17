@@ -56,6 +56,7 @@ import com.bytequay.app.agent.AgentStartupRecovery;
 import com.bytequay.app.agent.AgentTaskStartupProgress;
 import com.bytequay.app.agent.DevelopmentFollowupCoordinator;
 import com.bytequay.app.agent.InteractiveAgentTaskCreator;
+import com.bytequay.app.agent.IssueDevelopmentService;
 import com.bytequay.app.agent.LocalReviewSessionService;
 import com.bytequay.app.ci.CiAutofixService;
 import com.bytequay.app.service.pr.PullRequestService;
@@ -70,6 +71,7 @@ import com.bytequay.app.workspace.WorkspaceOperationLocks;
 import com.bytequay.app.workspace.WorktreeChanges;
 import com.bytequay.core.ci.CiAutofixRun;
 import com.bytequay.core.ci.CiAutofixStore;
+import com.bytequay.core.domain.GitHubIssueSource;
 import com.bytequay.core.domain.PullRequest;
 import com.bytequay.core.domain.RepoRef;
 import com.bytequay.core.store.PullRequestStore;
@@ -148,6 +150,7 @@ public class AgentController
     private final DevelopmentFollowupCoordinator developmentFollowups;
     private final LocalReviewSessionService localReviewSessions;
     private final AgentStreamRegistry streams;
+    private final IssueDevelopmentService issueDevelopment;
 
     public AgentController(
             AgentTaskService taskService,
@@ -173,7 +176,8 @@ public class AgentController
             AgentTaskStartupProgress startupProgress,
             DevelopmentFollowupCoordinator developmentFollowups,
             LocalReviewSessionService localReviewSessions,
-            AgentStreamRegistry streams)
+            AgentStreamRegistry streams,
+            IssueDevelopmentService issueDevelopment)
     {
         this.taskService = requireNonNull(taskService, "taskService is null");
         this.taskTitles = requireNonNull(taskTitles, "taskTitles is null");
@@ -199,6 +203,7 @@ public class AgentController
         this.developmentFollowups = requireNonNull(developmentFollowups, "developmentFollowups is null");
         this.localReviewSessions = requireNonNull(localReviewSessions, "localReviewSessions is null");
         this.streams = requireNonNull(streams, "streams is null");
+        this.issueDevelopment = requireNonNull(issueDevelopment, "issueDevelopment is null");
     }
 
     /**
@@ -215,7 +220,8 @@ public class AgentController
                 .flatMap(worktree -> workspaces.findById(worktree.workspaceId())
                         .map(workspace -> pullRequests.findByHeadRef(workspace.monitoredRepository().fullName(), worktree.generatedBranch()))
                         .flatMap(InteractiveAgentHttpContract::taskPullRequest));
-        return InteractiveAgentHttpContract.task(task, metrics, developmentCi, pullRequest);
+        return InteractiveAgentHttpContract.task(task, metrics, developmentCi, pullRequest, issueDevelopment.source(task.id().toString()).map(source ->
+                new InteractiveAgentHttpContract.IssueSourceResponse(source.issue(), source.initialTurnId(), source.instructions())));
     }
 
     @PostMapping(value = "/tasks", consumes = MediaType.APPLICATION_JSON_VALUE)
@@ -248,6 +254,22 @@ public class AgentController
             InteractiveAgentHttpContract.CreateTaskRequest request,
             List<StoreAgentAttachmentCommand> uploads)
     {
+        if (request.issueSource().isEmpty()) {
+            issueDevelopment.requireUnattachedCreate(TaskId.valueOf(request.taskId()));
+        }
+        AgentTask task = request.issueSource()
+                .map(source -> issueDevelopment.start(request.workspaceId(), TaskId.valueOf(request.taskId()), source, request.message(),
+                        accepted -> createTask(request, uploads, Optional.of(accepted))))
+                .orElseGet(() -> createTask(request, uploads, Optional.empty()));
+        return ResponseEntity.status(HttpStatus.CREATED).body(taskResponse(task));
+    }
+
+    private AgentTask createTask(
+            InteractiveAgentHttpContract.CreateTaskRequest request,
+            List<StoreAgentAttachmentCommand> uploads,
+            Optional<GitHubIssueSource> source)
+    {
+        String message = request.message();
         AgentTaskDefaults defaults = new AgentTaskDefaults(
                 request.defaults().model(),
                 request.defaults().effort(),
@@ -264,12 +286,14 @@ public class AgentController
             AgentTask task = taskCreator.create(
                     taskId,
                     request.workspaceId(),
-                    request.message(),
+                    message,
                     new AgentLaneId(request.laneId()),
                     defaults,
                     request.idempotencyKey(),
                     uploads.isEmpty() ? Optional.empty() : Optional.of(attachmentDigest(uploads)),
-                    request.developmentAutomation().map(DevelopmentAutomationDto::toDomain));
+                    request.developmentAutomation().map(DevelopmentAutomationDto::toDomain),
+                    source.map(accepted -> accepted.host() + ":" + accepted.issueId()),
+                    source.map(accepted -> prepared -> issueDevelopment.persistTask(prepared, accepted, request.message())));
             if (!replay && !uploads.isEmpty()) {
                 startupProgress.record(taskId, AgentTaskStartupProgress.Phase.ATTACHMENTS);
             }
@@ -280,15 +304,15 @@ public class AgentController
             startupProgress.record(taskId, AgentTaskStartupProgress.Phase.SESSION);
             AgentTurn initialTurn = turnService.start(StartAgentTurnCommand.trustedInitialInteractiveTurn(
                     taskId,
-                    request.message(),
+                    message,
                     attachments,
                     request.idempotencyKey()).withDevelopmentAutomation(request.developmentAutomation().map(DevelopmentAutomationDto::toDomain)));
-            InteractiveAgentHttpContract.TaskResponse response = taskResponse(taskService.get(taskId));
+            AgentTask responseTask = taskService.get(taskId);
             if (!replay) {
                 taskTitles.generate(task, initialTurn.id(), request.message());
                 recordPrompt(taskId.toString(), request.idempotencyKey(), request.message());
             }
-            return ResponseEntity.status(HttpStatus.CREATED).body(response);
+            return responseTask;
         }
         finally {
             // The screen polling this is about to get the answer or the error; a phase must not outlive either.

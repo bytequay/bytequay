@@ -54,6 +54,7 @@ import com.bytequay.agent.core.store.TaskLogStore;
 import com.bytequay.agent.spi.AgentDriver;
 import com.bytequay.agent.spi.AgentDriverRegistry;
 import com.bytequay.agent.spi.DevelopmentResultBridgeResolver;
+import com.bytequay.agent.spi.IssueContextBridgeResolver;
 import com.bytequay.agent.spi.LocalReviewBridgeResolver;
 import com.bytequay.agent.spi.PullRequestCiBridgeResolver;
 import com.bytequay.agent.spi.ReviewBridgeResolver;
@@ -134,6 +135,7 @@ public class AgentConfiguration
             DevelopmentResultBridgeResolver developmentResults,
             LocalReviewBridgeResolver localReviews,
             PullRequestCiBridgeResolver pullRequestChecks,
+            IssueContextBridgeResolver issueContexts,
             ObjectProvider<DevelopmentFollowupCoordinator> developmentFollowups)
     {
         return new PermissionBroker(
@@ -146,7 +148,8 @@ public class AgentConfiguration
                 developmentResults,
                 (taskId, title, body) -> developmentFollowups.getObject().publishDraftPullRequest(taskId, title, body),
                 localReviews,
-                pullRequestChecks);
+                pullRequestChecks,
+                issueContexts);
     }
 
     @Bean(destroyMethod = "close")

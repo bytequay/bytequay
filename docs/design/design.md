@@ -10,6 +10,11 @@ historical checkpoint evidence and explicitly deferred future work.
 
 ## Design documents
 
+- [Issue-backed Development](issue-development-plan.md) defines the approved small
+  GitHub release: local Goal marking, issue-to-task launch and navigation, and
+  actionable work items in both existing Needs attention views. The broader
+  [work planning design](issue-development.md) remains the later roadmap.
+
 - [Architecture](architecture.md) describes the whole system, Maven module
   boundaries, dependency direction, the dedicated SQLite persistence module,
   runtime composition, and extraction sequence.

@@ -37,12 +37,15 @@ import { relativeTime } from '../relativeTime';
 import {
   workspaceIsUpdating,
   workspaceIssueRoute,
+  workspaceRoute,
 } from '../workspaces/model';
+import { ISSUE_DEVELOPMENT_CHANGED } from '../workspaces/issueDevelopment';
 
 type Props = {
   onSelectRepo: (owner: string, repo: string, prNumber?: number) => void;
   onGoToMyPrs: () => void;
   onOpenWorkspace: (workspaceId: string) => void;
+  onStartIssue?: (workspaceId: string, issueNumber: number) => void;
 };
 
 const ACTIVITY_TTL_MS = 5 * 60 * 1000;
@@ -119,6 +122,7 @@ function HomePage({
   onSelectRepo,
   onGoToMyPrs,
   onOpenWorkspace,
+  onStartIssue,
 }: Props) {
   /** PR links open over Home; other GitHub links use the embedded browser or repository list. */
   const handleActivityLink = (url: string) => {
@@ -138,6 +142,7 @@ function HomePage({
   const [attentionPrs, setAttentionPrs] = useState<PullRequestDto[] | null>(
     () => getCached<PullRequestDto[]>(SEED.attention) ?? null);
   const [attentionError, setAttentionError] = useState<string | null>(null);
+  const [issueAttentionError, setIssueAttentionError] = useState<string | null>(null);
   const [loading, setLoading] = useState(() => getCached(SEED.workspaces) === undefined);
   const [workspaceError, setWorkspaceError] = useState<string | null>(null);
   const [showModal, setShowModal] = useState(false);
@@ -261,23 +266,45 @@ function HomePage({
   }, [login]);
 
   useEffect(() => {
-    if (!login || workspaceKey === '') return;
+    if (!login || workspaceKey === '') {
+      setIssueAttentionError(null);
+      setIssueItems([]);
+      setCached(SEED.issues, []);
+      return;
+    }
     let cancelled = false;
-    void Promise.all(workspaceKey.split(',').map(workspaceId =>
-      window.bridge.fetchWorkspaceIssues(workspaceId, 0, 100)
-        .then(snapshot => assignedIssues(snapshot, workspaceId, login))
-        .catch(() => [] as AttentionItem[])))
-      .then(groups => {
-        const items = groups.flat();
-        setCached(SEED.issues, items);
-        if (!cancelled) setIssueItems(items);
-      });
-    return () => { cancelled = true; };
+    let request = 0;
+    const reload = () => {
+      const current = ++request;
+      void Promise.allSettled(workspaceKey.split(',').map(workspaceId =>
+        window.bridge.fetchWorkspaceIssueAttention(workspaceId)
+          .then(snapshot => assignedIssues(snapshot, workspaceId, login))))
+        .then(results => {
+          if (cancelled || current !== request) return;
+          const items = results.flatMap(result => result.status === 'fulfilled' ? result.value : []);
+          setCached(SEED.issues, items);
+          setIssueItems(items);
+          setIssueAttentionError(results.some(result => result.status === 'rejected')
+            ? 'Some work items could not be loaded. Open the workspace’s Issues tab to retry.' : null);
+        });
+    };
+    const changed = () => { setIssueItems([]); reload(); };
+    reload();
+    window.addEventListener(ISSUE_DEVELOPMENT_CHANGED, changed);
+    // Reuse the desktop's existing attention refresh cadence; these calls only read the local cache.
+    window.addEventListener('bytequay:pr-attention-updated', reload);
+    return () => {
+      cancelled = true;
+      window.removeEventListener(ISSUE_DEVELOPMENT_CHANGED, changed);
+      window.removeEventListener('bytequay:pr-attention-updated', reload);
+    };
   }, [login, workspaceKey]);
 
   const candidates = useMemo(
-    () => attentionCandidates(attentionPrs ?? [], issueItems, login),
-    [attentionPrs, issueItems, login]);
+    () => attentionCandidates(attentionPrs ?? [], issueItems.map(item => ({
+      ...item, workspaceName: workspaces.find(workspace => workspace.id === item.workspaceId)?.name,
+    })), login),
+    [attentionPrs, issueItems, login, workspaces]);
 
   const snoozedCount = useMemo(() => {
     const now = Date.now();
@@ -339,6 +366,7 @@ function HomePage({
       </div>
 
       {attentionError && <div className="ws-error" role="alert">Unable to load PR attention: {attentionError}</div>}
+      {issueAttentionError && <div className="ws-error" role="alert">{issueAttentionError}</div>}
       <AttentionList
         candidates={candidates}
         handled={handled}
@@ -351,6 +379,18 @@ function HomePage({
           const slash = item.repo.indexOf('/');
           onSelectRepo(item.repo.slice(0, slash), item.repo.slice(slash + 1), item.number);
         }}
+        onStartIssue={onStartIssue ? item => {
+          if (item.workspaceId !== null) onStartIssue(item.workspaceId, item.number);
+        } : undefined}
+        issueNavigation={workspaces.length > 0 ? (
+          <select className="atn-head__issues" aria-label="Open workspace issues" value=""
+            onChange={event => { if (event.target.value) window.location.hash = workspaceRoute(event.target.value, 'issues'); }}>
+            <option value="" disabled>All issues…</option>
+            {workspaces.map(workspace => (
+              <option key={workspace.id} value={workspace.id}>{workspace.name || `${workspace.selectedOwner}/${workspace.selectedRepo}`}</option>
+            ))}
+          </select>
+        ) : undefined}
         onSeeAll={onGoToMyPrs}
       />
 

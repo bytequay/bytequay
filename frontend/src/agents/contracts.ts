@@ -13,6 +13,7 @@
  */
 
 import type {
+  AgentIssueSourceDto,
   DevelopmentAutomationDto,
   DevelopmentResultDto,
   AgentModelSettingDto,
@@ -238,11 +239,28 @@ function summary(value: unknown, path: string): AgentTaskSummaryDto {
   };
 }
 
+function issueSource(value: unknown, path: string): AgentIssueSourceDto {
+  const source = object(value, path);
+  return {
+    initialTurnId: optionalText(source.initialTurnId, `${path}.initialTurnId`),
+    instructions: source.instructions === undefined ? '' : text(source.instructions, `${path}.instructions`),
+    host: text(source.host, `${path}.host`),
+    issueId: count(source.issueId, `${path}.issueId`),
+    repo: text(source.repo, `${path}.repo`),
+    number: count(source.number, `${path}.number`),
+    url: text(source.url, `${path}.url`),
+    title: text(source.title, `${path}.title`),
+    body: text(source.body, `${path}.body`),
+    updatedAt: text(source.updatedAt, `${path}.updatedAt`),
+  };
+}
+
 export function parseAgentTask(value: unknown, path = 'task'): AgentTaskDto {
   const source = object(value, path);
   return {
     id: text(source.id, `${path}.id`),
     workspaceId: text(source.workspaceId, `${path}.workspaceId`),
+    issueSource: source.issueSource == null ? null : issueSource(source.issueSource, `${path}.issueSource`),
     generatedBranch: optionalText(source.generatedBranch, `${path}.generatedBranch`),
     ...(source.interactive === undefined ? {} : { interactive: flag(source.interactive, `${path}.interactive`) }),
     localReviewHead: optionalText(source.localReviewHead, `${path}.localReviewHead`),

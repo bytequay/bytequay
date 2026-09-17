@@ -19,6 +19,9 @@ import { relativeTime } from '../relativeTime';
 import { INTERACTIVE_LANE_ID, displayModelName, laneLabel, providerAvailable, providerRemedy, remedyCommand } from '../settings/model';
 import { getCached, setCached } from '../dataCache';
 import Toast from '../Toast';
+import { notifyIssueDevelopmentChanged, type DevelopmentIssue } from '../workspaces/issueDevelopment';
+import { workspaceAgentTaskRoute } from '../workspaces/model';
+import { IssueAttachment } from './IssueAttachment';
 import { AutomationControl } from './AutomationControl';
 import { automationForSubmission } from './developmentAutomation';
 import { ModelPicker } from './ModelPicker';
@@ -44,6 +47,8 @@ const STARTUP_POLL_MS = 500;
 
 interface AgentTasksViewProps {
   workspaceId: string;
+  sourceIssueNumber?: number | null;
+  onOpenCreatedTask?: (task: AgentTaskDto) => void;
   headerAction?: React.ReactNode;
   /** The rest of the Tasks page, drawn above the agent tasks under the one heading. */
   children?: React.ReactNode;
@@ -174,11 +179,13 @@ export function creationBlocker(
  * Everything creating a task needs: the list, the catalog, the chosen model, the draft, why
  * creation is blocked, and the create call itself — shared by the Tasks page and the Home hero.
  */
-export function useAgentTaskCreation({ workspaceId, initialLaneId, bridge, onOpenTask }: {
+export function useAgentTaskCreation({ workspaceId, initialLaneId, bridge, onOpenTask, sourceIssueNumber = null, onOpenCreatedTask }: {
   workspaceId: string;
   initialLaneId: string;
   bridge: () => AgentBridgePort;
   onOpenTask: (taskId: string) => void;
+  sourceIssueNumber?: number | null;
+  onOpenCreatedTask?: (task: AgentTaskDto) => void;
 }) {
   // Home and the Tasks page remount on every tab switch; the last list paints the first frame, and
   // the mount still re-reads it.
@@ -190,6 +197,11 @@ export function useAgentTaskCreation({ workspaceId, initialLaneId, bridge, onOpe
   const [laneId, setLaneId] = useState(initialLaneId);
   const [selection, setSelection] = useState<TaskModelSelection | null>(null);
   const [draft, setDraft] = useState('');
+  const [issue, setIssue] = useState<DevelopmentIssue | null>(null);
+  const [sourceLoading, setSourceLoading] = useState(sourceIssueNumber !== null);
+  const [sourceError, setSourceError] = useState<string | null>(null);
+  const sourceRequest = useRef(0);
+  const sourceTitle = useRef<string | null>(null);
   const [automation, setAutomation] = useState<DevelopmentAutomationDto | null>(null);
   const [localOnly, setLocalOnly] = useState(false);
   const [automationError, setAutomationError] = useState<string | null>(null);
@@ -288,10 +300,43 @@ export function useAgentTaskCreation({ workspaceId, initialLaneId, bridge, onOpe
     return () => { active = false; };
   }, [bridge, workspaceId]);
 
+  const refreshIssue = useCallback(async () => {
+    if (sourceIssueNumber === null) return;
+    const request = ++sourceRequest.current;
+    setSourceLoading(true);
+    setSourceError(null);
+    try {
+      const updated = await bridge().fetchWorkspaceIssue(workspaceId, sourceIssueNumber);
+      if (!mountedRef.current || request !== sourceRequest.current) return;
+      if (updated.developmentTask != null) {
+        notifyIssueDevelopmentChanged(updated.id);
+        window.location.hash = workspaceAgentTaskRoute(updated.developmentTask.workspaceId, updated.developmentTask.taskId);
+        return;
+      }
+      const previousTitle = sourceTitle.current;
+      setDraft(current => current === '' || current === `Implement ${previousTitle}` ? `Implement ${updated.title}` : current);
+      sourceTitle.current = updated.title;
+      setIssue(updated);
+    }
+    catch (failure) {
+      if (mountedRef.current && request === sourceRequest.current) {
+        setSourceError(failureMessage(failure));
+      }
+    }
+    finally { if (mountedRef.current && request === sourceRequest.current) setSourceLoading(false); }
+  }, [bridge, sourceIssueNumber, workspaceId]);
+
+  useEffect(() => {
+    void refreshIssue();
+    return () => { sourceRequest.current += 1; };
+  }, [refreshIssue]);
+
   const provider = catalog?.providers.find((candidate) => candidate.id === laneId) ?? null;
   const models: ModelOptionDto[] = provider?.models ?? [];
   const imagesAccepted = acceptsImages(models, selection?.model, provider?.capabilities ?? null);
-  const blocker = creationBlocker(catalog, laneId, selection)
+  const blocker = (sourceLoading ? 'Loading issue…' : sourceError)
+    ?? (issue?.isGoal ? 'Goals organize work and cannot start development. Unmark this issue as a Goal to run it.' : null)
+    ?? creationBlocker(catalog, laneId, selection)
     ?? automationError
     ?? (automation === null ? 'Loading automation settings…' : null)
     ?? (images.length > 0 && !imagesAccepted ? 'Choose a model that accepts images or remove the images.' : null);
@@ -354,7 +399,9 @@ export function useAgentTaskCreation({ workspaceId, initialLaneId, bridge, onOpe
       permissionPolicy: 'AUTO',
       serviceTier: selection.serviceTier ?? null,
       developmentAutomation: automation,
-    }, images.map((image) => image.id), automationForSubmission(automation, localOnly));
+    }, images.map((image) => image.id), automationForSubmission(automation, localOnly), issue === null ? undefined : {
+      issueId: issue.id, number: issue.number, updatedAt: issue.updatedAt,
+    });
     // The create call blocks until the first turn is running; the backend names the step it is in meanwhile.
     let watching = true;
     const watch = setInterval(() => {
@@ -364,13 +411,15 @@ export function useAgentTaskCreation({ workspaceId, initialLaneId, bridge, onOpe
     }, STARTUP_POLL_MS);
     const acceptCreatedTask = (task: AgentTaskDto) => {
       submissions.settled(request.taskId);
-      setTasks((current) => [task, ...current.filter((existing) => existing.id !== task.id)]);
+      if (task.workspaceId === workspaceId) setTasks((current) => [task, ...current.filter((existing) => existing.id !== task.id)]);
+      if (issue !== null) notifyIssueDevelopmentChanged(issue.id);
       setDraft('');
       setLocalOnly(false);
       clearImages();
       setImages([]);
       setError(null);
-      onOpenTask(task.id);
+      if (onOpenCreatedTask !== undefined) onOpenCreatedTask(task);
+      else onOpenTask(task.id);
     };
     try {
       // Creation and its first turn are one replay-safe backend operation.
@@ -409,9 +458,13 @@ export function useAgentTaskCreation({ workspaceId, initialLaneId, bridge, onOpe
       busyRef.current = false;
       setOperation(null);
     }
-  }, [applyCatalog, automation, blocker, bridge, clearImages, draft, images, laneId, localOnly, onOpenTask, selection, submissions, workspaceId]);
+  }, [applyCatalog, automation, blocker, bridge, clearImages, draft, images, issue, laneId, localOnly, onOpenCreatedTask, onOpenTask, selection, submissions, workspaceId]);
 
   return {
+    issueAttachment: issue === null ? null : <IssueAttachment source={{
+      number: issue.number, title: issue.title, body: issue.body, url: issue.htmlUrl,
+      repo: new URL(issue.htmlUrl).pathname.split('/').slice(1, 3).join('/'),
+    }} onRefresh={() => { void refreshIssue(); }} refreshing={busy || sourceLoading} />,
     automationControl: automation === null ? null : <AutomationControl value={automation} providers={catalog?.providers ?? []} disabled={busy}
       localOnly={localOnly} onChange={setAutomation} onLocalOnlyChange={setLocalOnly} />,
     tasks,
@@ -529,6 +582,8 @@ function failureMessage(failure: unknown): string {
 
 export default function AgentTasksView({
   workspaceId,
+  sourceIssueNumber = null,
+  onOpenCreatedTask,
   headerAction,
   children,
   bridge: explicitBridge,
@@ -540,7 +595,7 @@ export default function AgentTasksView({
 }: AgentTasksViewProps): React.JSX.Element {
   // Resolved when used, not when rendered: a static render has no window to reach.
   const live = useCallback((): AgentBridgePort => explicitBridge ?? window.bridge, [explicitBridge]);
-  const creation = useAgentTaskCreation({ workspaceId, initialLaneId: laneId, bridge: live, onOpenTask });
+  const creation = useAgentTaskCreation({ workspaceId, initialLaneId: laneId, bridge: live, onOpenTask, sourceIssueNumber, onOpenCreatedTask });
   const { setTasks } = creation;
   const tasksRef = useRef(creation.tasks);
   tasksRef.current = creation.tasks;
@@ -579,6 +634,7 @@ export default function AgentTasksView({
     <AgentTaskList
       headerAction={headerAction}
       automation={creation.automationControl}
+      issueAttachment={creation.issueAttachment}
       tasks={creation.tasks}
       changes={changes}
       loading={creation.loading}
@@ -614,7 +670,7 @@ export default function AgentTasksView({
 /** The card that creates a task: the first message above its provider, automation and model controls. */
 export function TaskComposer({
   draft, blocker, laneId, providers, models, selection, onDraftChange, onSelectProvider, onSelectModel, onCreate, onOpenSettings,
-  images = [], busy = false, attaching = false, onAttach, onPasteImages, onRemoveImage, automation,
+  images = [], busy = false, attaching = false, onAttach, onPasteImages, onRemoveImage, automation, issueAttachment,
 }: {
   draft: string;
   blocker: string | null;
@@ -628,6 +684,7 @@ export function TaskComposer({
   onCreate: () => void;
   onOpenSettings?: () => void;
   automation?: React.ReactNode;
+  issueAttachment?: React.ReactNode;
   images?: DraftImage[];
   busy?: boolean;
   attaching?: boolean;
@@ -649,6 +706,7 @@ export function TaskComposer({
           )}
         </div>
       )}
+      {issueAttachment}
       <div className="agt-compose is-new-task">
         <span className="agt-compose__streamer" aria-hidden="true" />
         {images.length > 0 && (
@@ -823,7 +881,7 @@ type ToastState = { id: number; text: string; undo?: () => void };
 export function AgentTaskList({
   tasks, loading, error, laneId, providers, models, selection, draft, blocker, children, reviewTasks, headerAction,
   onDraftChange, onSelectProvider, onSelectModel, onCreate, onOpenTask, onOpenSettings, onArchive, onDelete,
-  images = [], busy = false, startup = null, attaching = false, onAttach, onPasteImages, onRemoveImage, automation,
+  images = [], busy = false, startup = null, attaching = false, onAttach, onPasteImages, onRemoveImage, automation, issueAttachment,
   now = Date.now(), initialTab = 'active', changes = {},
 }: {
   tasks: AgentTaskDto[];
@@ -851,6 +909,7 @@ export function AgentTaskList({
   /** Removes the tasks for good; the caller drops each from its list as it goes. */
   onDelete?: (ids: string[]) => Promise<void>;
   automation?: React.ReactNode;
+  issueAttachment?: React.ReactNode;
   images?: DraftImage[];
   busy?: boolean;
   /** Which creation step the in-flight create request is in, for the starting screen. */
@@ -1038,6 +1097,7 @@ export function AgentTaskList({
       {active && (
         <TaskComposer
           automation={automation}
+          issueAttachment={issueAttachment}
           draft={draft}
           blocker={blocker}
           busy={busy}

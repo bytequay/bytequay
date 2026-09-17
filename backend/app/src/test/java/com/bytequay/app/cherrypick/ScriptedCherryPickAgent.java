@@ -161,6 +161,12 @@ final class ScriptedCherryPickAgent
     }
 
     @Override
+    public AgentTask createInteractive(CreateInteractiveAgentTaskCommand command, Consumer<AgentTask> persistTask)
+    {
+        throw new UnsupportedOperationException("interactive creation is not used by cherry-pick tests");
+    }
+
+    @Override
     public AgentTask create(CreateAgentTaskCommand command)
     {
         TaskWorktree worktree = worktrees.provision(new ProvisionWorktreeCommand(

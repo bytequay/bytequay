@@ -154,6 +154,7 @@ export function createPreviewBridge(
       }));
     },
 
+    fetchWorkspaceIssue: async () => { throw new Error('No issue selected in this preview'); },
     listAgentTasks: async (id, limit) => {
       record('listAgentTasks', id, limit);
       return [previewTask(id, FIXTURE_EVENTS[0].taskId)];

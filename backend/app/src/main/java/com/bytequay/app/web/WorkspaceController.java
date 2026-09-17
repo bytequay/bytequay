@@ -13,6 +13,7 @@
  */
 package com.bytequay.app.web;
 
+import com.bytequay.app.agent.IssueDevelopmentService;
 import com.bytequay.app.service.credentials.CredentialService;
 import com.bytequay.app.service.pr.PullRequestRefreshService;
 import com.bytequay.app.service.pr.PullRequestService;
@@ -36,9 +37,7 @@ import com.bytequay.core.domain.PrTimelineEvent;
 import com.bytequay.core.domain.PullRequestPage;
 import com.bytequay.core.domain.RepoRef;
 import com.bytequay.core.domain.RepositoryContributor;
-import com.bytequay.core.domain.RepositoryIssue;
 import com.bytequay.core.domain.RepositoryIssueDetail;
-import com.bytequay.core.domain.RepositoryIssuePage;
 import com.bytequay.core.domain.RepositoryMetadataSnapshot;
 import com.google.common.collect.ImmutableMap;
 import org.springframework.http.HttpStatus;
@@ -78,6 +77,7 @@ public class WorkspaceController
     private final ModelSettingsService models;
     private final CredentialService credentials;
     private final WorkspaceCommitsSettingsService commitsSettings;
+    private final IssueDevelopmentService issueDevelopment;
 
     public WorkspaceController(
             WorkspaceRepositoryService workspaces,
@@ -90,7 +90,8 @@ public class WorkspaceController
             WorkspaceRemoteSourceService remoteSources,
             ModelSettingsService models,
             CredentialService credentials,
-            WorkspaceCommitsSettingsService commitsSettings)
+            WorkspaceCommitsSettingsService commitsSettings,
+            IssueDevelopmentService issueDevelopment)
     {
         this.workspaces = requireNonNull(workspaces, "workspaces is null");
         this.deletion = requireNonNull(deletion, "deletion is null");
@@ -103,6 +104,7 @@ public class WorkspaceController
         this.models = requireNonNull(models, "models is null");
         this.credentials = requireNonNull(credentials, "credentials is null");
         this.commitsSettings = requireNonNull(commitsSettings, "commitsSettings is null");
+        this.issueDevelopment = requireNonNull(issueDevelopment, "issueDevelopment is null");
     }
 
     @PostMapping
@@ -171,25 +173,40 @@ public class WorkspaceController
     }
 
     @GetMapping("/{workspaceId}/issues")
-    public RepositoryIssuePage issues(
+    public WorkspaceIssueHttpContract.Page issues(
             @PathVariable String workspaceId,
             @RequestParam(defaultValue = "0") int page,
             @RequestParam(defaultValue = "50") int size)
     {
-        return issues.list(workspaceId, page, size);
+        return WorkspaceIssueHttpContract.page(issues.list(workspaceId, page, size), issueDevelopment);
     }
 
     @GetMapping("/{workspaceId}/issues/{issueNumber}")
-    public RepositoryIssue issue(@PathVariable String workspaceId, @PathVariable int issueNumber)
+    public WorkspaceIssueHttpContract.Issue issue(@PathVariable String workspaceId, @PathVariable int issueNumber)
     {
-        return issues.find(workspaceId, issueNumber)
-                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Issue is not available locally"));
+        return WorkspaceIssueHttpContract.issue(issues.find(workspaceId, issueNumber)
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Issue is not available locally")), issueDevelopment);
     }
 
     @PostMapping("/{workspaceId}/issues/refresh")
-    public RepositoryIssuePage refreshIssues(@PathVariable String workspaceId)
+    public WorkspaceIssueHttpContract.Page refreshIssues(@PathVariable String workspaceId)
     {
-        return issueRefresh.refreshIssues(workspaceId);
+        return WorkspaceIssueHttpContract.page(issueRefresh.refreshIssues(workspaceId), issueDevelopment);
+    }
+
+    @GetMapping("/{workspaceId}/issues/attention")
+    public WorkspaceIssueHttpContract.Page attentionIssues(@PathVariable String workspaceId)
+    {
+        return WorkspaceIssueHttpContract.page(issueDevelopment.attention(workspaceId), issueDevelopment);
+    }
+
+    @PatchMapping("/{workspaceId}/issues/{issueNumber}/goal")
+    public IssueDevelopmentService.Metadata updateIssueGoal(
+            @PathVariable String workspaceId,
+            @PathVariable int issueNumber,
+            @RequestBody IssueGoalRequest request)
+    {
+        return issueDevelopment.setGoal(workspaceId, issueNumber, request.isGoal());
     }
 
     @GetMapping("/{workspaceId}/issues/{issueNumber}/detail")
@@ -365,6 +382,8 @@ public class WorkspaceController
     public record IssueCommentRequest(String body) {}
 
     public record IssueTypeRequest(String type) {}
+
+    public record IssueGoalRequest(boolean isGoal) {}
 
     public record IssueMetadataRequest(List<String> assignees, List<String> labels) {}
 

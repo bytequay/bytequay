@@ -86,6 +86,10 @@ export function workspaceIssueRoute(workspaceId: string, issueNumber: number): s
   return `${workspaceRoute(workspaceId, 'issues')}/${issueNumber}`;
 }
 
+export function workspaceIssueTaskRoute(workspaceId: string, issueNumber: number): string {
+  return `${workspaceRoute(workspaceId, 'tasks')}/issue/${issueNumber}`;
+}
+
 export function workspacePullRequestRoute(workspaceId: string, pullRequestNumber: number): string {
   return `${workspaceRoute(workspaceId, 'prs')}/${pullRequestNumber}`;
 }
@@ -106,13 +110,16 @@ export function workspaceLocationFromRoute(hash: string): {
   issueNumber: number | null;
   agentTaskId: string | null;
   reviewId?: string;
+  sourceIssueNumber?: number;
 } | null {
-  const match = /^#\/workspaces\/([^/]+)(?:\/(home|tasks|prs|issues|commits)(?:\/(?:agent\/([^/]+)|(\d+)|review\/([^/]+)))?)?$/
+  const match = /^#\/workspaces\/([^/]+)(?:\/(home|tasks|prs|issues|commits)(?:\/(?:agent\/([^/]+)|(\d+)|review\/([^/]+)|issue\/(\d+)))?)?$/
     .exec(hash);
   if (!match) return null;
   const tab = match[2] as WorkspaceTab | undefined;
   const agentTaskId = match[3];
   const reviewId = match[5];
+  const sourceIssueNumber = match[6] === undefined ? undefined : Number(match[6]);
+  if (sourceIssueNumber !== undefined && (tab !== 'tasks' || !Number.isSafeInteger(sourceIssueNumber) || sourceIssueNumber < 1)) return null;
   const number = match[4] ? Number(match[4]) : null;
   if (number !== null && (number < 1 || tab !== 'prs' && tab !== 'issues')) return null;
   // Only the tasks tab owns an agent task, so `prs/agent/x` is not a route at all.
@@ -125,6 +132,7 @@ export function workspaceLocationFromRoute(hash: string): {
       issueNumber: tab === 'issues' ? number : null,
       agentTaskId: agentTaskId === undefined ? null : decodeURIComponent(agentTaskId),
       ...(reviewId === undefined ? {} : { reviewId: decodeURIComponent(reviewId) }),
+      ...(sourceIssueNumber === undefined ? {} : { sourceIssueNumber }),
     };
   }
   catch {

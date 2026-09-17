@@ -20,7 +20,8 @@ import {
   type UIEvent as ReactUIEvent,
 } from 'react';
 import Avatar from '../Avatar';
-import { CircleCheck, CircleDot, User } from 'lucide-react';
+import { CircleCheck, CircleDot, ExternalLink, Flag, ListTodo, Play, User } from 'lucide-react';
+import { issueDevelopmentAction, notifyIssueDevelopmentChanged } from './issueDevelopment';
 import type { NavigationMode } from '../navigationHistory';
 import MarkdownBody, { GitHubReferenceLink } from '../pulls/MarkdownBody';
 import {
@@ -39,6 +40,7 @@ import { relativeTime } from '../relativeTime';
 import { useRecentTouch } from '../recent/useRecentTouch';
 import type {
   Bridge,
+  IssueDevelopmentTaskDto,
   PullReactionDto,
   RepoLabelDto,
   RepoUserDto,
@@ -74,11 +76,13 @@ export async function loadWorkspaceIssueDetail(
     : detail;
 }
 
-export default function WorkspaceIssuesScreen({ workspaceId, repository, initialIssueNumber, onSelectIssue }: {
+export default function WorkspaceIssuesScreen({ workspaceId, repository, initialIssueNumber, onSelectIssue, onStartDevelopment, onViewTask }: {
   workspaceId: string;
   repository: string;
   initialIssueNumber: number | null;
   onSelectIssue: (number: number, mode: NavigationMode) => void;
+  onStartDevelopment?: (number: number) => void;
+  onViewTask?: (link: IssueDevelopmentTaskDto) => void;
 }) {
   const [snapshot, setSnapshot] = useState<RepositoryIssueSnapshotDto | null>(null);
   const [metadata, setMetadata] = useState<RepositoryMetadataDto | null>(null);
@@ -93,6 +97,7 @@ export default function WorkspaceIssuesScreen({ workspaceId, repository, initial
   const [error, setError] = useState<string | null>(null);
   const [detailError, setDetailError] = useState<string | null>(null);
   const [mutationError, setMutationError] = useState<string | null>(null);
+  const [changingGoal, setChangingGoal] = useState<number | null>(null);
   const [closedIssueId, setClosedIssueId] = useState<number | null>(null);
   const detailRequest = useRef(0);
   const loadingMoreRequest = useRef(false);
@@ -169,10 +174,28 @@ export default function WorkspaceIssuesScreen({ workspaceId, repository, initial
     }
   }, [workspaceId]);
 
+  const toggleGoal = useCallback(async (issue: Issue) => {
+    setChangingGoal(issue.id);
+    setMutationError(null);
+    try {
+      const development = await window.bridge.setWorkspaceIssueGoal(workspaceId, issue.number, !issue.isGoal);
+      setSnapshot(current => current === null ? null : {
+        ...current,
+        issues: current.issues.map(candidate => candidate.id === issue.id ? { ...candidate, ...development } : candidate),
+      });
+      notifyIssueDevelopmentChanged(issue.id);
+    }
+    catch (failure) {
+      setMutationError(remoteErrorMessage(failure));
+    }
+    finally { setChangingGoal(null); }
+  }, [workspaceId]);
+
   const closeIssue = useCallback(async (issue: Issue) => {
     setMutationError(null);
     try {
       await window.bridge.closeWorkspaceIssue(workspaceId, issue.number);
+      notifyIssueDevelopmentChanged();
       // The store has already dropped the issue, so reloading the list here would swap the issue being read.
       setClosedIssueId(issue.id);
     }
@@ -187,6 +210,7 @@ export default function WorkspaceIssuesScreen({ workspaceId, repository, initial
     try {
       const value = await window.bridge.refreshWorkspaceIssues(workspaceId);
       apply(value);
+      notifyIssueDevelopmentChanged();
     }
     catch (failure) {
       setError(failure instanceof Error ? failure.message : String(failure));
@@ -367,11 +391,14 @@ export default function WorkspaceIssuesScreen({ workspaceId, repository, initial
         </header>
         {snapshot?.syncedAt && <div className="issues-freshness">Updated {relativeTime(snapshot.syncedAt)}</div>}
         {error && <div className="issues-error" role="alert">Could not refresh {repository}. {error}</div>}
+        {mutationError && !paneShown && <div className="issues-error" role="alert">Could not update issue. {mutationError}</div>}
         <div className="pulls-list__rows" onScroll={scrollIssues}>
           {loading && !snapshot && <div className="hp-loading">Loading…</div>}
           {!loading && snapshot?.issues.length === 0 && <div className="hp-empty">No open issues for {repository}.</div>}
           {snapshot?.issues.map(issue => (
             <IssueRow key={issue.id} issue={issue} repository={repository} labelColors={labelColors}
+              actions={<IssueDevelopmentActions issue={issue} onStart={onStartDevelopment} onViewTask={onViewTask}
+                onToggleGoal={() => { void toggleGoal(issue); }} changingGoal={changingGoal !== null} />}
               selected={issue.id === selectedId} onPick={() => {
                 onSelectIssue(issue.number, 'push');
                 setSelectedId(issue.id);
@@ -388,13 +415,10 @@ export default function WorkspaceIssuesScreen({ workspaceId, repository, initial
             aria-label="Resize issue panes" onMouseDown={resizeDetail} title="Drag to resize" />
           <header className="pull-detail__header">
             <div className="pull-detail__title-row">
-              <h1>{selected.title}</h1>
+              <h1>{selected.title} {selected.isGoal && <GoalBadge />}</h1>
               <div className="pull-detail__header-actions">
                 <button type="button" title="Refresh" aria-label="Refresh" disabled={detailLoading}
                   onClick={() => { void loadDetail(selected.number, true); }}><RefreshIcon /></button>
-                <button type="button" onClick={() => { void window.bridge.openInAppBrowser(selected.htmlUrl); }}>
-                  Open on GitHub <span aria-hidden="true">↗</span>
-                </button>
                 <button className="pull-detail__review-action" type="button"
                   onClick={() => { void window.bridge.openInAppBrowser(`https://github.com/${repository}/issues/new`); }}>
                   New issue
@@ -411,6 +435,8 @@ export default function WorkspaceIssuesScreen({ workspaceId, repository, initial
           <div className="pull-detail__body">
             <IssueOverview key={selected.id} issue={selected} closed={selected.id === closedIssueId} metadata={metadata} timeline={timeline} issueType={issueType}
               repository={repository} workspaceId={workspaceId}
+              actions={<IssueDevelopmentActions issue={selected} onStart={onStartDevelopment} onViewTask={onViewTask}
+                onToggleGoal={() => { void toggleGoal(selected); }} changingGoal={changingGoal !== null} />}
               timelineLoading={detailLoading} onTypeChange={type => updateIssueType(selected.number, type)}
               onMetadataChange={(assignees, labels) => updateIssueMetadata(selected.number, assignees, labels)}
               onClose={() => closeIssue(selected)}
@@ -434,20 +460,46 @@ export function appendIssuePage(
   return { ...next, issues: [...current.issues, ...next.issues.filter(issue => !loaded.has(issue.id))] };
 }
 
-function IssueRow({ issue, repository, labelColors, selected, onPick }: {
+export function IssueDevelopmentActions({ issue, onStart, onViewTask, onToggleGoal, changingGoal = false }: {
+  issue: Issue;
+  onStart?: (number: number) => void;
+  onViewTask?: (link: IssueDevelopmentTaskDto) => void;
+  onToggleGoal?: () => void;
+  changingGoal?: boolean;
+}) {
+  const action = issueDevelopmentAction(issue);
+  return <span className="issues-development-actions">
+    {action === 'view' && onViewTask !== undefined && <button className="pulls-toolbar-button" type="button" title="View task" aria-label="View task"
+      onClick={() => { if (issue.developmentTask != null) onViewTask(issue.developmentTask); }}><ListTodo size={16} aria-hidden="true" /></button>}
+    {action === 'start' && onStart !== undefined && <button className="pulls-toolbar-button" type="button" disabled={changingGoal}
+      title="Use agent to develop" aria-label="Start development" onClick={() => onStart(issue.number)}><Play size={16} aria-hidden="true" /></button>}
+    {onToggleGoal !== undefined && <button className={`pulls-toolbar-button${issue.isGoal ? ' is-active' : ''}`} type="button"
+      disabled={changingGoal} onClick={onToggleGoal} aria-pressed={issue.isGoal === true}
+      title={issue.isGoal ? 'Unmark as Goal' : 'Mark as Goal'} aria-label={issue.isGoal ? 'Unmark as Goal' : 'Mark as Goal'}>
+      <Flag size={16} aria-hidden="true" />
+    </button>}
+  </span>;
+}
+
+function GoalBadge() {
+  return <span className="issues-goal-badge"><Flag size={12} aria-hidden="true" />Goal</span>;
+}
+
+function IssueRow({ issue, repository, labelColors, selected, onPick, actions }: {
   issue: Issue;
   repository: string;
   labelColors: Record<string, string>;
   selected: boolean;
   onPick: () => void;
+  actions: React.ReactNode;
 }) {
   const owner = repository.split('/')[0] ?? repository;
   return (
-    <button type="button" className={`pull-row issues-row${selected ? ' is-selected' : ''}`}
-      aria-pressed={selected} onClick={onPick}>
+    <div className={`pull-row issues-row${selected ? ' is-selected' : ''}`}>
+      <button type="button" className="issues-row__select" aria-pressed={selected} onClick={onPick}>
       <span className="pull-row__title">
         <span className="pull-row__state issues-row__state" aria-hidden="true"><IssueIcon /></span>
-        <span>{issue.title} <small>#{issue.number}</small></span>
+        <span>{issue.title} <small>#{issue.number}</small> {issue.isGoal && <GoalBadge />}</span>
       </span>
       {issue.labels.length > 0 && (
         <span className="pull-row__labels">
@@ -458,16 +510,22 @@ function IssueRow({ issue, repository, labelColors, selected, onPick }: {
         {issue.assignees.length > 0 && <span className="issues-row__assignees">Assigned to {issue.assignees.join(', ')}</span>}
         <span className="pull-row__comments"><CommentIcon />{issue.commentCount}</span>
       </span>
-      <span className="pull-row__meta">
-        <Avatar login={owner} size={16} />
-        <span className="pull-row__meta-name" title={repository}>{repository}</span>
-        <span>·</span>
-        <Avatar login={issue.author} avatarUrl={issue.authorAvatarUrl} size={16} />
-        <span className="pull-row__meta-name" title={issue.author}>{issue.author}</span>
-        <span>·</span>
-        <span className="pull-row__meta-time">{relativeTime(issue.updatedAt)}</span>
-      </span>
-    </button>
+      </button>
+      <div className="issues-row__footer">
+        <button type="button" className="issues-row__select" aria-label={`Open issue #${issue.number}`} onClick={onPick}>
+          <span className="pull-row__meta">
+            <Avatar login={owner} size={16} />
+            <span className="pull-row__meta-name" title={repository}>{repository}</span>
+            <span>·</span>
+            <Avatar login={issue.author} avatarUrl={issue.authorAvatarUrl} size={16} />
+            <span className="pull-row__meta-name" title={issue.author}>{issue.author}</span>
+            <span>·</span>
+            <span className="pull-row__meta-time">{relativeTime(issue.updatedAt)}</span>
+          </span>
+        </button>
+        {actions}
+      </div>
+    </div>
   );
 }
 
@@ -486,6 +544,7 @@ export function IssueOverview({
   onMetadataChange,
   onClose,
   onComment,
+  actions,
 }: {
   issue: Issue;
   closed?: boolean;
@@ -499,6 +558,7 @@ export function IssueOverview({
   onMetadataChange: (assignees: string[], labels: string[]) => Promise<void>;
   onClose: () => Promise<void>;
   onComment: (body: string) => Promise<void>;
+  actions?: React.ReactNode;
 }) {
   const root = useRef<HTMLDivElement>(null);
   const [open, setOpen] = useState<IssueMetadataPickerKind | null>(null);
@@ -597,6 +657,11 @@ export function IssueOverview({
             : <span className="pr-state"><IssueIcon /> Open</span>}
           <span>opened by <strong>{issue.author}</strong> {relativeTime(issue.createdAt)}</span>
           <span>· updated {relativeTime(issue.updatedAt)}</span>
+          <span className="issues-development-actions">
+            <button className="pulls-toolbar-button" type="button" title="Open on GitHub" aria-label="Open on GitHub"
+              onClick={() => { void window.bridge.openInAppBrowser(issue.htmlUrl); }}><ExternalLink size={16} aria-hidden="true" /></button>
+            {actions}
+          </span>
         </div>
       </section>
 

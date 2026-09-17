@@ -1,6 +1,6 @@
 # ByteQuay: small GitHub issue development release
 
-Status: implementation plan, not implemented.
+Status: v1 implemented. The design was committed before implementation.
 
 This is the approved first-release scope. The broader [product design](issue-development.md) remains the roadmap. This feature extends the existing [agent service](agent-service.md) and [task UI](agent-task-ui.md); it adds no second execution engine.
 
@@ -21,6 +21,7 @@ The only new UI is a Goal action/badge, development action/source attachment, an
 ### Marking an issue
 
 - Add **Mark as Goal / Unmark as Goal** to the issue's existing actions, and show a small **Goal** badge when marked.
+- Use icon actions with tooltips and accessible labels after the timestamp on issue cards. In the detail pane, group the GitHub, development and Goal icons after the updated timestamp.
 - Default is unmarked; there is no separate “convert to work item” or import step.
 - Store the marker locally in ByteQuay. The action does not edit GitHub labels, issue type, assignment or comments.
 - Proposed scope: one marker per canonical GitHub issue within this ByteQuay installation, shared across workspaces monitoring that issue. This refines the earlier per-workspace proposal so global and workspace views cannot disagree. Execution links retain their workspace identity.
@@ -37,15 +38,15 @@ The only new UI is a Goal action/badge, development action/source attachment, an
 | Linked development exists | **View task** is the default action |
 | Source closed or inaccessible | No ordinary new-start action; preserve existing task/source history |
 
-**Start development** opens the existing task composer with an attached issue reference and prefilled issue context. The user can add instructions and submit using current provider/model and Automation controls. The issue action is the direct entry point; no separate issue-import workflow is introduced.
+**Start development** opens the existing task composer with an attached issue reference and prefilled user instruction. A compact source card sits immediately above the input, both before creation and during the task conversation. Hovering or focusing it reveals the issue title, repository, number and Markdown description; the preview remains usable while the pointer or focus is inside it. View issue and the pre-launch refresh action remain available. The user can add instructions and submit using current provider/model and Automation controls.
 
-Use title, description, URL and repository identity for the v1 source context. A new comment-selection interface is deferred. Retain current default-branch and isolated-worktree behavior, including the distinction between monitored upstream and selected checkout/fork.
+Use title, description, URL and repository identity for the accepted source snapshot. ByteQuay supplies issue context through the fixed, read-only `read_issue_context` tool. It returns the task's saved source and available local metadata/discussion, with missing or truncated context disclosed. Provider instructions direct Codex and Claude to this tool for issue information, rather than retrieving the issue through GitHub CLI, HTTP or browsing. Tool reads never fetch GitHub and cannot select another task or issue. Source instructions are supplied again when a task resumes. A new comment-selection interface is deferred. Retain current default-branch and isolated-worktree behavior, including the distinction between monitored upstream and selected checkout/fork.
 
 The backend validates the issue, workspace and Goal marker before admission. Preserve the source/context the user accepted; if a fresh source read reveals substantive changes, refresh the attachment before submission rather than silently changing the assignment. Retries reuse the accepted snapshot.
 
 Persist task creation and its source association through the same replay-safe creation operation, before admitting the initial turn. Double clicks, lost responses and retry must produce one task and one initial turn. Recheck existing linked work so a stale card opens that task rather than accidentally creating another. Goal updates and launch admission must have a consistent order: once Goal marking succeeds, new launches are rejected server-side.
 
-After launch, open the ordinary task screen. Show a compact **View issue** source link there, and **View task** on the issue card. View task selects the linked task in the correct workspace’s Tasks tab and remains available after task completion; it never starts another task. Canceling the composer creates no task or worktree. Provider/repository setup failure preserves the user's draft and uses existing remediation.
+After launch, open the ordinary task screen. Render the initial development request as a compact **Start development · repository#number** row using the draft-PR request style. Match it through durable initial-turn identity; for an older response without that field, only a confirmed complete history prefix identifies the first root request. Never classify messages by parsing their text. Hide generated prompts and source payloads while retaining uploaded images. The compact source card remains above the composer, with **View issue** available after completion. **View task** on the issue card selects the linked task in the correct workspace’s Tasks tab and remains available after task completion; it never starts another task. Canceling the composer creates no task or worktree. Provider/repository setup failure preserves the user's draft and uses existing remediation.
 
 Keep existing source close and task completion behavior. V1 does not introduce automatic issue closure, completion tracking, a new merge flow, or automatic closing-keyword generation.
 
@@ -70,7 +71,7 @@ Assignment is a recommendation filter, not a prerequisite for manually starting 
 ## Minimum persistence and API changes
 
 1. **Issue classification metadata:** stable source identity, `isGoal`, update timestamp. Keep this separate from the transient open-issue cache.
-2. **Issue-to-task association:** task/workspace IDs, canonical issue identity, display URL/key, accepted initial context and creation timestamp. Follow the existing durable PR-to-task association conventions. The current checkout has a `PullRequestTask` pattern that is useful precedent; do not generalize all source providers now.
+2. **Issue-to-task association:** task/workspace IDs, canonical issue identity, display URL/key, accepted source snapshot, user's instructions, initial request identity and creation timestamp. Follow the existing durable PR-to-task association conventions; do not generalize all source providers now.
 3. **Existing issue projections:** expose Goal status and linked development reference needed by the card and attention views.
 4. **Existing task-create request:** optional issue source attachment. Extend the canonical creation path, not a second issue execution endpoint/engine.
 
@@ -119,8 +120,12 @@ Use focused checks for persistence, admission/replay, and attention eligibility 
 5. Source provenance remains readable after closure or cache removal; earlier linked tasks survive classification changes.
 6. Both Homes agree on assignment, Goal exclusion, linked-work suppression, deduplication and Ack/Snooze. Include an eligible issue beyond the former first 100 cached rows.
 7. Existing free-text creation, PR-originated tasks, review and task completion remain valid.
+8. Both providers receive the task-bound issue tool on initial and resumed sessions. Tool reads use only ByteQuay data, reject source/task selectors, disclose unavailable context and retain the accepted issue after cache removal.
+9. The source card stays above the composer and supports hover/focus preview; the initial request card replaces only its own user message, without hiding subsequent instructions, images or review requests.
 
-Run the repository's required backend checks and frontend lint/type checks/tests/build appropriate to the final changes. Manually exercise issue card → composer → task → source link and both Home entry points.
+Run the repository's required backend checks and frontend lint/type checks/tests/build appropriate to the final changes. Exercise issue card → composer → task → source link and both Home entry points.
+
+Implementation verification: full backend `mvn verify` (2,347 tests), frontend lint and TypeScript checks, all 1,012 frontend tests, and `npm run package` passed. Isolated Chromium fixtures cover Goal toggling, composer cancellation, source refresh, double submission/lost-response retry, linked-workspace navigation, completed-task source navigation, attention actions, source hover/keyboard preview and the compact initial request card, including older source responses. Visual checks passed at normal and narrower content widths. Provider tests cover local issue context on initial and resumed sessions; HTTP and persistence checks retain the accepted source and initial-request identity after cache removal. The existing scroll-animation fixture now waits for precise message alignment before its unchanged assertion.
 
 The current repository has uncommitted changes in several integration files, including task contracts, task UI and persistence. Inspect and preserve those changes during implementation. Follow repository requirements for the canonical agent service, Hibernate-managed schema, plain CSS and the prohibition on restoring the removed development-flow engine.
 

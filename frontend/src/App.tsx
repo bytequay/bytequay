@@ -50,6 +50,7 @@ import WorkspacesPage from './workspaces/WorkspacesPage';
 import WorkspaceShell from './workspaces/WorkspaceShell';
 import {
   workspaceIssueRoute,
+  workspaceIssueTaskRoute,
   workspaceAgentTaskRoute,
   workspaceLocationFromRoute,
   workspacePullRequestRoute,
@@ -76,6 +77,7 @@ export default function App() {
   const [initialPr, setInitialPr] = useState<{ repo: string; number: number } | undefined>();
   const [initialWorkspacePrNumber, setInitialWorkspacePrNumber] = useState<number | null>(null);
   const [initialIssueNumber, setInitialIssueNumber] = useState<number | null>(null);
+  const [sourceIssueNumber, setSourceIssueNumber] = useState<number | null>(null);
   const [initialAgentTaskId, setInitialAgentTaskId] = useState<string | null>(null);
   const [initialAgentReviewId, setInitialAgentReviewId] = useState<string | null>(null);
   const [browser, setBrowser] = useState<InAppBrowserState>({ tabs: [], activeTabId: null });
@@ -189,6 +191,7 @@ export default function App() {
         updateWorkspace(null);
         setInitialWorkspacePrNumber(null);
         setInitialIssueNumber(null);
+        setSourceIssueNumber(null);
         setInitialAgentTaskId(null);
         setInitialAgentReviewId(null);
         const pullRequest = pullRequestFromRoute(window.location.hash);
@@ -202,6 +205,7 @@ export default function App() {
       setWorkspaceTab(workspaceLocation.tab ?? 'home');
       setInitialWorkspacePrNumber(workspaceLocation.pullRequestNumber);
       setInitialIssueNumber(workspaceLocation.issueNumber);
+      setSourceIssueNumber(workspaceLocation.sourceIssueNumber ?? null);
       setInitialAgentTaskId(workspaceLocation.agentTaskId);
       setInitialAgentReviewId(workspaceLocation.reviewId ?? null);
       if (workspaceRef.current?.id === workspaceLocation.workspaceId) return;
@@ -216,6 +220,7 @@ export default function App() {
             setWorkspaceTab('home');
             setInitialWorkspacePrNumber(null);
             setInitialIssueNumber(null);
+            setSourceIssueNumber(null);
             setInitialAgentTaskId(null);
             setInitialAgentReviewId(null);
             replaceCurrentRoute('#/workspaces');
@@ -383,6 +388,7 @@ export default function App() {
     setWorkspaceTab(next);
     setInitialWorkspacePrNumber(null);
     setInitialIssueNumber(null);
+    setSourceIssueNumber(null);
     if (workspace) {
       window.location.hash = workspaceRoute(workspace.id, next);
     }
@@ -448,6 +454,7 @@ export default function App() {
                 window.location.hash = '#/pulls';
               }}
               onOpenWorkspace={openWorkspace}
+              onStartIssue={(workspaceId, issueNumber) => navigateTo(workspaceIssueTaskRoute(workspaceId, issueNumber), 'push')}
             />
           )}
           <RecentPage active={page === 'recent'} onOpenRow={openRecentRow} />
@@ -472,6 +479,7 @@ export default function App() {
               onWorkspaceChanged={updateWorkspace}
               initialPullRequestNumber={initialWorkspacePrNumber}
               initialIssueNumber={initialIssueNumber}
+              sourceIssueNumber={sourceIssueNumber}
               initialAgentTaskId={initialAgentTaskId}
               initialAgentReviewId={initialAgentReviewId}
               browserOpen={browserOpen}

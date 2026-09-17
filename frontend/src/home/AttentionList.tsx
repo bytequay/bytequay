@@ -11,7 +11,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';
 import {
   Check,
@@ -23,6 +23,7 @@ import {
   GitCommitHorizontal,
   GitMerge,
   ListChecks,
+  Play,
   type LucideIcon,
 } from 'lucide-react';
 import Avatar from '../Avatar';
@@ -73,6 +74,8 @@ type Props = {
   onHandledChange: (handled: Handled) => void;
   onOpen: (item: AttentionItem) => void;
   onSeeAll: () => void;
+  onStartIssue?: (item: AttentionItem) => void;
+  issueNavigation?: ReactNode;
   /** How many rows show before the rest waits behind "See all". */
   maxRows?: number;
   /** Home spans every watched repository; a workspace shows only its own and disappears when quiet. */
@@ -83,7 +86,7 @@ type Anchored = { item: AttentionItem; anchor: DOMRect };
 type ToastState = { id: number; text: string; key: string };
 
 export default function AttentionList({
-  candidates, handled, onHandledChange, onOpen, onSeeAll, maxRows = HOME_MAX_ROWS, variant = 'home',
+  candidates, handled, onHandledChange, onOpen, onSeeAll, onStartIssue, issueNavigation, maxRows = HOME_MAX_ROWS, variant = 'home',
 }: Props) {
   const [hover, setHover] = useState<Anchored | null>(null);
   const [snooze, setSnooze] = useState<Anchored | null>(null);
@@ -190,14 +193,20 @@ export default function AttentionList({
           <span className="atn-head__label">Needs attention</span>
           <span className="atn-count">{count}</span>
           <div className="atn-spacer" />
-          <button className="atn-head__link" type="button" onClick={onSeeAll}>See all</button>
+          <div className="atn-head__navigation">
+            {issueNavigation}
+            <button className="atn-head__link" type="button" onClick={onSeeAll}>All pull requests</button>
+          </div>
         </div>
       ) : (
         <div className="home-section__header">
           <span className="home-section__title">Needs attention</span>
           <span className="atn-count">{count}</span>
           <div className="atn-spacer" />
-          <button className="home-section__action" type="button" onClick={onSeeAll}>See all</button>
+          <div className="atn-head__navigation">
+            {issueNavigation}
+            <button className="home-section__action" type="button" onClick={onSeeAll}>All pull requests</button>
+          </div>
         </div>
       )}
 
@@ -234,11 +243,19 @@ export default function AttentionList({
                   <span className="atn-row__meta">#{item.number}</span>
                 </span>
                 <span className="atn-row__detail">
-                  <span className="atn-row__kind" style={{ color: kind.color }}>{activity.label}</span>
+                  <span className="atn-row__kind" style={{ color: kind.color }}>{item.type === 'issue' ? kind.label : activity.label}</span>
                   <span className="atn-row__sep" aria-hidden="true">·</span>
-                  <span className="atn-row__what">{activity.detail}</span>
+                  <span className="atn-row__what">{item.type === 'issue' && variant === 'home'
+                    ? item.workspaceName || item.repo : activity.detail}</span>
                 </span>
               </span>
+              {item.type === 'issue' && onStartIssue && (
+                <button className="bq-button atn-start" type="button" aria-label={`Start development for #${item.number}`}
+                  title={`Start in ${item.workspaceName || item.repo}`}
+                  onClick={event => { event.stopPropagation(); closePreview(); onStartIssue(item); }}>
+                  <Play size={13} aria-hidden="true" /> Start development
+                </button>
+              )}
               {variant === 'home' && <RepoAvatar owner={owner} repo={repo ?? ''} size={18} />}
               <Avatar login={item.author ?? ''} avatarUrl={item.authorAvatarUrl} size={22} />
               <time className="atn-row__age" dateTime={activity.timestamp}
@@ -288,7 +305,7 @@ export default function AttentionList({
         )}
       </div>
 
-      {hover && (
+      {hover && live.some(item => item.key === hover.item.key) && (
         <AttentionPreview
           key={hover.item.key}
           item={hover.item}
@@ -296,6 +313,8 @@ export default function AttentionList({
           onHold={() => window.clearTimeout(leaveTimer.current)}
           onRelease={leaveRow}
           onOpen={() => { closePreview(); onOpen(hover.item); }}
+          onStartIssue={hover.item.type === 'issue' && onStartIssue
+            ? () => { closePreview(); onStartIssue(hover.item); } : undefined}
           onAck={() => acknowledge(hover.item)}
           onSnooze={button => openSnoozeMenu(hover.item, button)}
         />

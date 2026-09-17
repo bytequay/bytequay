@@ -13,6 +13,7 @@
  */
 package com.bytequay.app.web;
 
+import com.bytequay.app.agent.IssueDevelopmentService;
 import com.bytequay.app.service.credentials.CredentialService;
 import com.bytequay.app.service.pr.PullRequestRefreshService;
 import com.bytequay.app.service.pr.PullRequestService;
@@ -64,7 +65,7 @@ class TestWorkspaceCommitsSettingsController
         PullRequestRefreshService refresh = mock(PullRequestRefreshService.class);
         WorkspaceController controller = new WorkspaceController(workspaces, deletion, mock(PullRequestService.class), refresh,
                 mock(WorkspaceMetadataService.class), mock(WorkspaceIssueService.class), mock(WorkspaceIssueRefreshService.class),
-                mock(WorkspaceRemoteSourceService.class), models, mock(CredentialService.class), settings);
+                mock(WorkspaceRemoteSourceService.class), models, mock(CredentialService.class), settings, mock(IssueDevelopmentService.class));
         var mvc = standaloneSetup(controller).build();
 
         mvc.perform(get("/api/workspaces/workspace/settings"))

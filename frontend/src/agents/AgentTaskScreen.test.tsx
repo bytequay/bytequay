@@ -171,6 +171,57 @@ function declarations(selector: string): string[] {
     .filter(declaration => declaration !== '');
 }
 
+describe('issue development conversation', () => {
+  const opening = events[0];
+  if (opening.type !== 'user_message') throw new Error('Fixture must start with a user message');
+  const rawPrompt = 'INTERNAL GENERATED PROVIDER PROMPT';
+  const message = { ...opening, payload: { ...opening.payload, text: rawPrompt } };
+  const source = {
+    host: 'github.com', issueId: 23, number: 7, repo: 'upstream/app', url: 'https://github.com/upstream/app/issues/7',
+    title: 'Fix upload timeout', body: '## Expected behavior\n\nPreserve the upload API.', updatedAt: '2026-09-17T00:00:00Z',
+    initialTurnId: opening.turnId, instructions: 'Keep the **public API** stable.',
+  };
+
+  it.each([source.instructions, ''])('shows a compact source request without disclosing instructions (%s)', instructions => {
+    const markup = body({ task: { ...task('t-1', 'OPEN', 'Issue development'), issueSource: { ...source, instructions } },
+      connection: 'open', events: [message] });
+    expect(markup).toContain('Start development');
+    expect(markup).toContain('class="agt-issue-request"');
+    expect(markup).toContain('Fix upload timeout');
+    expect(markup).toContain('upstream/app#7');
+    expect(markup).not.toContain(rawPrompt);
+    expect(markup).toContain('flow.png');
+    expect(markup.indexOf('agt-issue-attachment')).toBeGreaterThan(markup.indexOf('agt-transcript'));
+    expect(markup.indexOf('agt-issue-attachment')).toBeLessThan(markup.indexOf('agt-compose-dock is-task'));
+    expect(markup).not.toContain('Show request details');
+    expect(markup).not.toContain('public API');
+  });
+
+  it('recognizes an old source response only from the confirmed first root turn', () => {
+    const legacyTask: AgentTaskDto = { ...task('t-1', 'OPEN', 'Legacy issue development'), issueSource: { ...source, initialTurnId: null, instructions: '' } };
+    const later = { ...message, eventId: 'later-request', sequence: message.sequence + 1, turnId: 'later-turn',
+      payload: { ...message.payload, text: 'Keep this follow-up visible.' } };
+    const firstPage: AgentTaskState['historyPages'][number] = { events: [message, later], beforeCursor: null, afterCursor: null, latestSequence: later.sequence };
+    const markup = body({ task: legacyTask, connection: 'open', events: firstPage.events, historyPages: [firstPage] });
+    expect(markup.match(/class="agt-issue-request"/g)).toHaveLength(1);
+    expect(markup).not.toContain(rawPrompt);
+    expect(markup).toContain('Keep this follow-up visible.');
+
+    const partialPage = { ...firstPage, events: [later], beforeCursor: 'earlier-history' };
+    const partial = body({ task: legacyTask, connection: 'open', events: partialPage.events, historyPages: [partialPage] });
+    expect(partial).not.toContain('class="agt-issue-request"');
+    expect(partial).toContain('Keep this follow-up visible.');
+  });
+
+  it('keeps ordinary input and other turns unchanged instead of guessing which text was generated', () => {
+    expect(body({ task: task('t-1', 'OPEN', 'Normal task'), connection: 'open', events: [message] })).toContain(rawPrompt);
+    const markup = body({ task: { ...task('t-1', 'OPEN', 'Other turn'), issueSource: { ...source, initialTurnId: 'different-turn' } },
+      connection: 'open', events: [message] });
+    expect(markup).toContain(rawPrompt);
+    expect(markup).not.toContain('Start development');
+  });
+});
+
 describe('agent task layout', () => {
   it('offers scrollable history without newer-activity navigation buttons', () => {
     const markup = body({

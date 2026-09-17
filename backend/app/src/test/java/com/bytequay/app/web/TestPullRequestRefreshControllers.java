@@ -13,6 +13,7 @@
  */
 package com.bytequay.app.web;
 
+import com.bytequay.app.agent.IssueDevelopmentService;
 import com.bytequay.app.service.credentials.CredentialService;
 import com.bytequay.app.service.pr.PullRequestRefreshService;
 import com.bytequay.app.service.pr.PullRequestService;
@@ -356,7 +357,7 @@ class TestPullRequestRefreshControllers
                 mock(WorkspaceRemoteSourceService.class),
                 mock(ModelSettingsService.class),
                 mock(CredentialService.class),
-                mock(WorkspaceCommitsSettingsService.class));
+                mock(WorkspaceCommitsSettingsService.class), mock(IssueDevelopmentService.class));
 
         standaloneSetup(controller).build().perform(post("/api/workspaces/workspace-id/issues/9/close"))
                 .andExpect(status().isNoContent());
@@ -373,7 +374,7 @@ class TestPullRequestRefreshControllers
         WorkspaceController controller = new WorkspaceController(
                 workspaces, deletion, mock(PullRequestService.class), mock(PullRequestRefreshService.class),
                 mock(WorkspaceMetadataService.class), mock(WorkspaceIssueService.class), mock(WorkspaceIssueRefreshService.class),
-                mock(WorkspaceRemoteSourceService.class), mock(ModelSettingsService.class), mock(CredentialService.class), mock(WorkspaceCommitsSettingsService.class));
+                mock(WorkspaceRemoteSourceService.class), mock(ModelSettingsService.class), mock(CredentialService.class), mock(WorkspaceCommitsSettingsService.class), mock(IssueDevelopmentService.class));
         var mvc = standaloneSetup(controller).build();
 
         mvc.perform(delete("/api/workspaces/workspace-id"))
@@ -403,7 +404,7 @@ class TestPullRequestRefreshControllers
         WorkspaceController controller = new WorkspaceController(
                 workspaces, deletion, mock(PullRequestService.class), refresh,
                 mock(WorkspaceMetadataService.class), mock(WorkspaceIssueService.class), mock(WorkspaceIssueRefreshService.class),
-                mock(WorkspaceRemoteSourceService.class), mock(ModelSettingsService.class), credentials, mock(WorkspaceCommitsSettingsService.class));
+                mock(WorkspaceRemoteSourceService.class), mock(ModelSettingsService.class), credentials, mock(WorkspaceCommitsSettingsService.class), mock(IssueDevelopmentService.class));
         var mvc = standaloneSetup(controller).build();
 
         mvc.perform(get("/api/workspaces/retired"))
@@ -440,7 +441,7 @@ class TestPullRequestRefreshControllers
                 mock(WorkspaceRemoteSourceService.class),
                 mock(ModelSettingsService.class),
                 mock(CredentialService.class),
-                mock(WorkspaceCommitsSettingsService.class));
+                mock(WorkspaceCommitsSettingsService.class), mock(IssueDevelopmentService.class));
 
         controller.syncPullRequests("workspace-id");
 

@@ -32,6 +32,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 
+import static com.google.common.base.Preconditions.checkArgument;
 import static java.util.Objects.requireNonNull;
 import static java.util.function.Function.identity;
 import static java.util.stream.Collectors.toMap;
@@ -79,6 +80,16 @@ public class SqliteRepositoryIssueStore
     {
         return issueRows.findByRepositoryIdAndNumber(repositoryId, issueNumber)
                 .map(RepositoryIssueEntity::toDomain);
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public List<RepositoryIssue> findAssignedEligible(long repositoryId, String login, int limit)
+    {
+        requireNonNull(login, "login is null");
+        checkArgument(!login.isBlank(), "login must not be blank");
+        checkArgument(limit > 0, "limit must be positive");
+        return issueRows.findAssignedEligible(repositoryId, login, limit).stream().map(RepositoryIssueEntity::toDomain).collect(ImmutableList.toImmutableList());
     }
 
     @Override
@@ -141,5 +152,15 @@ public class SqliteRepositoryIssueStore
     {
         issueRows.findByRepositoryIdAndNumber(repositoryId, issueNumber)
                 .ifPresent(issueRows::delete);
+    }
+
+    @Override
+    @Transactional
+    public void updateContent(long repositoryId, int issueNumber, String title, String body, Instant updatedAt)
+    {
+        requireNonNull(title, "title is null");
+        requireNonNull(body, "body is null");
+        requireNonNull(updatedAt, "updatedAt is null");
+        issueRows.findByRepositoryIdAndNumber(repositoryId, issueNumber).ifPresent(issue -> issue.updateContent(title, body, updatedAt));
     }
 }

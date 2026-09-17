@@ -19,7 +19,7 @@ import '../css/agents.css';
 import { displayModelName } from '../settings/model';
 import LocalReviewThreadCard from '../pulls/local-review/LocalReviewThreadCard';
 import type { LocalReviewThreads } from '../pulls/local-review/types';
-import type { AgentApprovalDecision,AgentAttachmentDto,AgentPendingApprovalDto,AgentQueuedInputDto,AgentStreamConnectionState,AgentTurnDto,ModelOptionDto,ToolCountersDto } from '../types';
+import type { AgentIssueSourceDto,AgentApprovalDecision,AgentAttachmentDto,AgentPendingApprovalDto,AgentQueuedInputDto,AgentStreamConnectionState,AgentTurnDto,ModelOptionDto,ToolCountersDto } from '../types';
 import { AgentMark } from './AgentMark';
 import { developmentTurnLabel,draftPullRequestRequest } from './DevelopmentFacts';
 import type { AgentEventEnvelope } from './events';
@@ -28,6 +28,7 @@ import { ImageAttachment } from './ImageAttachment';
 import { renderMarkdown } from './markdown';
 import { approvalDecisions, type PendingMessage } from './model';
 import { ModelPicker } from './ModelPicker';
+import { IssueRequestCard } from './IssueAttachment';
 import { ReviewRequestCard, type ReviewRequest, type ReviewRequestTarget } from './ReviewRequestCard';
 import { activityExpanded,activityPhrase,activityRunning,activitySummary,formatDuration,planChip,turnElapsedMs,turnLabel,type ActivityBlock,type ActivityMember,type ApprovalBlock,type CommandAction,type CommandMember,type PlanStep,type TranscriptTurn,type TurnBlock } from './transcript';
 
@@ -488,9 +489,10 @@ function TurnFooter({ turn, durable, models }: {
   );
 }
 
-export function TurnView({ turn, first, open, now, models, durableTurns, activityChoice, previews, agentLabels, onToggle, onToggleActivity, onDecide, onOpenAgent, generatedRequest = false, generatedBranch = null, localReview, reviewRequests, onOpenReview, latest = false, children }: {
+export function TurnView({ turn, first, open, now, models, durableTurns, activityChoice, previews, agentLabels, onToggle, onToggleActivity, onDecide, onOpenAgent, generatedRequest = false, generatedBranch = null, localReview, reviewRequests, issueSource, onOpenReview, latest = false, children }: {
   localReview?: LocalReviewThreads;
   reviewRequests?: readonly ReviewRequest[];
+  issueSource?: AgentIssueSourceDto | null;
   onOpenReview?: (target: ReviewRequestTarget) => void;
   latest?: boolean;
   children?: React.ReactNode;
@@ -517,6 +519,9 @@ export function TurnView({ turn, first, open, now, models, durableTurns, activit
   const generatedLabel = developmentTurnLabel(durable) ?? (generatedRequest ? 'Review request' : null);
   const opening = turn.users[0];
   const request = opening?.delivery === 'TURN' ? draftPullRequestRequest(durable, opening, generatedBranch) : null;
+  // Legacy source responses lack the ID; ordinal 1 is known only when history includes its beginning.
+  const issueRequest = issueSource != null && turn.turnId != null && (issueSource.initialTurnId != null
+    ? turn.turnId === issueSource.initialTurnId : first && turn.ordinal === 1);
   return (
     <section className={`agt-turn${latest ? ' is-latest' : ''}`} data-history-anchor={turn.turnId ?? `turn-${turn.ordinal}`} aria-label={turn.ordinal > 0 ? `Turn ${turn.ordinal}` : 'Turn'}>
       {turn.users.map((user, index) => {
@@ -539,7 +544,10 @@ export function TurnView({ turn, first, open, now, models, durableTurns, activit
               </ReviewRequestCard>
             </div>
           ) : <div className="agt-user" data-history-anchor={user.id}>
-            {reviewRequest !== undefined ? <ReviewRequestCard {...reviewRequest}
+            {index === 0 && user.delivery === 'TURN' && issueRequest && issueSource != null
+              ? <IssueRequestCard source={issueSource} attachments={user.attachments.length > 0 && <div className="agt-user__files">
+                {user.attachments.map(attachment => <AttachmentTile key={attachment.id} attachment={attachment} preview={previews[attachment.id]} />)}
+              </div>} /> : reviewRequest !== undefined ? <ReviewRequestCard {...reviewRequest}
               onOpen={onOpenReview !== undefined && reviewTarget !== undefined ? () => onOpenReview(reviewTarget) : undefined} /> : index === 0 && request !== null ? (
               <div className="agt-user__request">
                 <GitPullRequest aria-hidden="true" />
@@ -812,7 +820,7 @@ export function AgentConversation({
   turns, durableTurns, models, now, scroll, connection, running, activeTurn, activeTurnId = activeTurn?.id, waiting, gap = false, pendingMessage = null,
   activityChoice, turnChoice, onToggleTurn, onToggleActivity, onDecide,
   previews = {}, agentLabels = {}, pendingApprovals = [], generatedTurnIds, generatedBranch,
-  onOpenAgent, children, transcriptFooter, localReview, reviewRequests, onOpenReview, label = 'Task transcript',
+  onOpenAgent, children, transcriptFooter, localReview, reviewRequests, issueSource, onOpenReview, label = 'Task transcript',
 }: {
   turns: TranscriptTurn[];
   durableTurns: Record<string, AgentTurnDto>;
@@ -842,6 +850,7 @@ export function AgentConversation({
   transcriptFooter?: React.ReactNode;
   localReview?: LocalReviewThreads;
   reviewRequests?: readonly ReviewRequest[];
+  issueSource?: AgentIssueSourceDto | null;
   onOpenReview?: (target: ReviewRequestTarget) => void;
   label?: string;
 }): React.JSX.Element {
@@ -892,7 +901,7 @@ export function AgentConversation({
               models={models} durableTurns={durableTurns} activityChoice={activityChoice}
               previews={previews} agentLabels={agentLabels} onToggle={() => onToggleTurn(id, !open)}
               onToggleActivity={onToggleActivity} onDecide={onDecide} onOpenAgent={onOpenAgent}
-              localReview={localReview} reviewRequests={reviewRequests} onOpenReview={onOpenReview} latest={latest}
+              localReview={localReview} reviewRequests={reviewRequests} issueSource={issueSource} onOpenReview={onOpenReview} latest={latest}
               generatedRequest={turn.turnId !== null && generatedTurnIds?.has(turn.turnId)} generatedBranch={generatedBranch}>
               {latest && liveActivity}
             </TurnView>;

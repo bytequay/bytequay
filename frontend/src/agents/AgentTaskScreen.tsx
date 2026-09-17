@@ -67,6 +67,7 @@ import type { AgentReviewDto } from '../pulls/agent-review/contracts';
 import { workspaceReviewTaskRoute } from '../workspaces/model';
 import DevelopmentLearningPanel from './DevelopmentLearningPanel';
 import LocalReviewThreadCard from '../pulls/local-review/LocalReviewThreadCard';
+import { IssueAttachment } from './IssueAttachment';
 import type { ReviewCardFocus, ReviewRequestTarget } from './ReviewRequestCard';
 import { useReviewCardFocus } from './reviewCardNavigation';
 import { pullRequestDiffRevision, usePullRequestChanges } from '../pulls/usePullRequestChanges';
@@ -1230,7 +1231,7 @@ export function AgentTaskBody({
 
       <AgentConversation
         turns={turns} durableTurns={state.turns} models={models} now={now} scroll={scroll}
-        localReview={localReview} onOpenReview={onOpenReview}
+        localReview={localReview} onOpenReview={onOpenReview} issueSource={state.task?.issueSource}
         generatedBranch={state.task?.generatedBranch}
         connection={state.connection} running={status === 'running'} activeTurn={state.turn} activeTurnId={state.turn?.id ?? state.latestTurnId}
         waiting={waiting} gap={state.gap} pendingMessage={state.pendingMessage} activityChoice={activityChoice} turnChoice={turnChoice}
@@ -1310,6 +1311,8 @@ export function AgentTaskBody({
           PR <span className="agt-pr-chip__number">#{taskPr.number}</span>
         </button>
       )}
+
+      {state.task?.issueSource != null && <IssueAttachment source={state.task.issueSource} />}
 
       {/* The design's composer: the message above one row of controls, and one round button. */}
       {!terminal && status !== 'recovery' && !providerRecoveryRequired && (

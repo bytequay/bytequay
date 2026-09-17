@@ -167,6 +167,37 @@ describe('attentionKind', () => {
   it('keeps only issues assigned to the signed-in user', () => {
     expect(assignedIssues(snapshot(), 'workspace-id', 'someone-else')).toEqual([]);
   });
+
+  it('excludes Goals and previously started development, even when the source stays open', () => {
+    const source = snapshot();
+    source.issues.push(
+      { ...source.issues[0], id: 10, number: 8, isGoal: true },
+      { ...source.issues[0], id: 11, number: 9, developmentTask: { taskId: 'finished-task', workspaceId: 'other-workspace' } },
+    );
+    expect(assignedIssues(source, 'workspace-id', 'jack').map(item => item.number)).toEqual([7]);
+    source.issues[1].isGoal = false;
+    expect(assignedIssues(source, 'workspace-id', 'jack').map(item => item.number)).toEqual([7, 8]);
+  });
+
+  it('deduplicates the upstream issue across workspaces with a stable launch destination', () => {
+    const first = assignedIssues(snapshot(), 'workspace-a', 'jack');
+    const second = assignedIssues(snapshot(), 'workspace-b', 'jack');
+    expect(attentionCandidates([], [...second, ...first])).toEqual(first);
+    expect(attentionCandidates([], [...first, ...second])).toEqual(first);
+    // Repository display names can change without changing the source identity.
+    expect(attentionCandidates([], [...first, { ...second[0], key: 'renamed/app#7', repo: 'renamed/app' }])).toEqual(first);
+    expect(attentionCandidates([], [...first, { ...second[0], sourceKey: 'another-host:issue:9' }])).toHaveLength(2);
+  });
+
+  it('keeps acknowledgement after Goal classification changes', () => {
+    const source = snapshot();
+    const original = assignedIssues(source, 'workspace-id', 'jack')[0];
+    const handled = { [original.key]: handledEntry(original, 'ack', null, 'acknowledged') };
+    source.issues[0].isGoal = true;
+    expect(assignedIssues(source, 'workspace-id', 'jack')).toEqual([]);
+    source.issues[0].isGoal = false;
+    expect(visibleAttention(assignedIssues(source, 'workspace-id', 'jack'), handled, Date.now())).toEqual([]);
+  });
 });
 
 describe('anchorPanel', () => {

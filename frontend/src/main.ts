@@ -1515,6 +1515,11 @@ function registerIpc(): void {
   });
   ipcMain.handle('workspaces:issue', (_event, workspaceId: string, issueNumber: number) =>
     backendJson(`${backendBase()}/api/workspaces/${encodeURIComponent(workspaceId)}/issues/${encodeURIComponent(issueNumber)}`));
+  ipcMain.handle('workspaces:issues:attention', (_event, workspaceId: string) =>
+    backendJson(`${backendBase()}/api/workspaces/${encodeURIComponent(workspaceId)}/issues/attention`));
+  ipcMain.handle('workspaces:issues:goal', (_event, workspaceId: string, issueNumber: number, isGoal: boolean) =>
+    backendJson(`${backendBase()}/api/workspaces/${encodeURIComponent(workspaceId)}/issues/${encodeURIComponent(issueNumber)}/goal`,
+      jsonInit('PATCH', { isGoal })));
   ipcMain.handle('workspaces:issues:refresh', (_event, workspaceId: string) =>
     backendJson(`${backendBase()}/api/workspaces/${encodeURIComponent(workspaceId)}/issues/refresh`, {
       method: 'POST',

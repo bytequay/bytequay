@@ -102,6 +102,8 @@ const bridge: Bridge = {
   getWorkspaceMetadata: workspaceId => ipcRenderer.invoke('workspaces:metadata', workspaceId),
   fetchWorkspaceIssues: (workspaceId, page, pageSize) => ipcRenderer.invoke('workspaces:issues', workspaceId, page, pageSize),
   fetchWorkspaceIssue: (workspaceId, issueNumber) => ipcRenderer.invoke('workspaces:issue', workspaceId, issueNumber),
+  fetchWorkspaceIssueAttention: workspaceId => ipcRenderer.invoke('workspaces:issues:attention', workspaceId),
+  setWorkspaceIssueGoal: (workspaceId, issueNumber, isGoal) => ipcRenderer.invoke('workspaces:issues:goal', workspaceId, issueNumber, isGoal),
   refreshWorkspaceIssues: workspaceId => ipcRenderer.invoke('workspaces:issues:refresh', workspaceId),
   fetchWorkspaceIssueDetail: (workspaceId, issueNumber) =>
     ipcRenderer.invoke('workspaces:issues:detail', workspaceId, issueNumber),

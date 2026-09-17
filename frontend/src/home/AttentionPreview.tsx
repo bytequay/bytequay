@@ -13,7 +13,7 @@
  */
 import { useEffect, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { ArrowUpRight, Check, Clock3 } from 'lucide-react';
+import { ArrowUpRight, Check, Clock3, Play } from 'lucide-react';
 import Avatar from '../Avatar';
 import { getCached, setCached } from '../dataCache';
 import MarkdownBody from '../pulls/MarkdownBody';
@@ -31,6 +31,7 @@ type Props = {
   onRelease: () => void;
   onOpen: () => void;
   onAck: () => void;
+  onStartIssue?: () => void;
   onSnooze: (button: HTMLElement) => void;
 };
 
@@ -69,7 +70,7 @@ function byline(item: AttentionItem): string {
 }
 
 export default function AttentionPreview({
-  item, anchor, onHold, onRelease, onOpen, onAck, onSnooze,
+  item, anchor, onHold, onRelease, onOpen, onAck, onSnooze, onStartIssue,
 }: Props) {
   const detail = useDetail(item);
   const kind = ATTENTION_KINDS[item.kind];
@@ -130,6 +131,11 @@ export default function AttentionPreview({
             <span className="atn-preview__tag" key={label}>{label}</span>
           ))}
           <div className="atn-preview__spacer" />
+          {item.type === 'issue' && onStartIssue && (
+            <button className="bq-button bq-button--primary" type="button" onClick={onStartIssue}>
+              <Play aria-hidden="true" /> Start development
+            </button>
+          )}
           <button className="bq-button bq-button--ghost" type="button" onClick={onAck}>
             <Check aria-hidden="true" /> Ack
           </button>

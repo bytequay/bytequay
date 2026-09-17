@@ -41,11 +41,13 @@ import com.bytequay.agent.spi.CodeGraphBridge;
 import com.bytequay.agent.spi.DevelopmentResultBridge;
 import com.bytequay.agent.spi.DevelopmentResultBridgeResolver;
 import com.bytequay.agent.spi.DraftPullRequestPublisher;
+import com.bytequay.agent.spi.IssueContextBridge;
 import com.bytequay.agent.spi.LocalReviewBridge;
 import com.bytequay.agent.spi.LocalReviewBridgeResolver;
 import com.bytequay.agent.spi.ProviderAgentEvent;
 import com.bytequay.agent.spi.ProviderApprovalDecision;
 import com.bytequay.agent.spi.PullRequestCiBridge;
+import com.bytequay.agent.spi.PullRequestCiBridgeResolver;
 import com.bytequay.agent.spi.ReviewBridge;
 import com.bytequay.agent.spi.ReviewBridgeResolver;
 import com.bytequay.agent.spi.ReviewTool;
@@ -902,6 +904,31 @@ class TestClaudeCliDriver
 
         supervisor.turns().getFirst().verifyNextStop();
         session.close();
+        driver.close();
+    }
+
+    @Test
+    void issueContextToolIsAllowedAndInstructedOnOpenAndResumeWithoutRestrictingDelegation()
+            throws Exception
+    {
+        ScriptedProcessSupervisor supervisor = new ScriptedProcessSupervisor();
+        IssueContextBridge issue = new IssueContextBridge(() -> "Accepted issue context", IssueContextBridge.INSTRUCTION);
+        PermissionBroker broker = new PermissionBroker(
+                () -> URI.create("http://127.0.0.1:9000/internal/agent/claude/mcp"), objectMapper, (taskId, query) -> "memory",
+                ReviewBridgeResolver.NONE, DevelopmentResultBridgeResolver.NONE, DraftPullRequestPublisher.NONE, LocalReviewBridgeResolver.NONE,
+                PullRequestCiBridgeResolver.NONE, taskId -> Optional.of(issue));
+        ClaudeCliDriver driver = new ClaudeCliDriver("/fake/claude", objectMapper, broker, supervisor, ImmutableMap.of());
+        Optional<AgentSessionRef> reference = Optional.empty();
+        for (int index = 0; index < 2; index++) {
+            try (AgentSession session = driver.open(context(reference), event -> {})) {
+                assertThat(await(session.start(command("issue-info"))).state()).isEqualTo(AgentTurnResult.State.COMPLETED);
+                reference = Optional.of(session.reference());
+                List<String> argv = supervisor.turns().getLast().spec().argv();
+                assertThat(argv).doesNotContain("--disable-slash-commands", "--tools");
+                assertThat(argv.get(argv.indexOf("--allowedTools") + 1)).contains("mcp__bytequay__" + IssueContextBridge.TOOL_NAME);
+                assertThat(argv.get(argv.indexOf("--append-system-prompt") + 1)).contains(IssueContextBridge.INSTRUCTION);
+            }
+        }
         driver.close();
     }
 

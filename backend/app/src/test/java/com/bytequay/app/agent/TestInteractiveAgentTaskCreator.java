@@ -238,6 +238,9 @@ class TestInteractiveAgentTaskCreator
         verify(settings, times(1)).developmentAutomation();
         verify(tasks, times(1)).createInteractive(any());
         assertThatThrownBy(() -> creator.create(taskId, "workspace-1", "Task", AgentLaneId.CODEX_CLI,
+                defaults(), "create-key", Optional.empty(), Optional.of(DevelopmentAutomation.LOCAL_ONLY), Optional.of("github.com:70"), Optional.empty()))
+                .isInstanceOf(AgentConflictException.class).hasMessageContaining("creation request changed");
+        assertThatThrownBy(() -> creator.create(taskId, "workspace-1", "Task", AgentLaneId.CODEX_CLI,
                 defaults(), "create-key", Optional.empty(), Optional.of(DevelopmentAutomation.DEFAULT)))
                 .isInstanceOf(AgentConflictException.class)
                 .hasMessageContaining("creation request changed");

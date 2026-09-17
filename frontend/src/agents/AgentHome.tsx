@@ -18,6 +18,7 @@ import { INTERACTIVE_LANE_ID } from '../settings/model';
 import RepoAvatar from '../RepoAvatar';
 import { getCached, setCached } from '../dataCache';
 import AttentionList from '../home/AttentionList';
+import { ISSUE_DEVELOPMENT_CHANGED } from '../workspaces/issueDevelopment';
 import {
   ATTENTION_SEED,
   assignedIssues,
@@ -39,7 +40,7 @@ const SUGGESTIONS: { icon: LucideIcon; title: string; prompt: string }[] = [
   { icon: ListChecks, title: 'Review code and suggest changes', prompt: 'Review recent changes and suggest safe improvements.' },
 ];
 
-/** Home shows at most this many attention rows; the workspace's Pull requests tab has the rest. */
+/** Home shows at most this many attention rows; each source tab has the rest. */
 const HOME_MAX_ROWS = 3;
 
 /** Windows the user put away, per workspace. Renderer-local: the task itself is untouched. */
@@ -69,6 +70,7 @@ function useWorkspaceAttention(workspaceId: string, repository: string): {
   candidates: AttentionItem[];
   handled: Handled;
   applyHandled: (handled: Handled) => void;
+  error: string | null;
 } {
   // Every tab switch remounts this page; the last reads any Home made paint the first frame, and
   // the mount still re-reads them.
@@ -77,6 +79,7 @@ function useWorkspaceAttention(workspaceId: string, repository: string): {
   const [issues, setIssues] = useState<AttentionItem[]>(
     () => (getCached<AttentionItem[]>(ATTENTION_SEED.issues) ?? []).filter(item => item.workspaceId === workspaceId));
   const [handled, setHandled] = useState<Handled>(loadHandled);
+  const [error, setError] = useState<string | null>(null);
   useEffect(() => {
     let active = true;
     const apply = (rows: PullRequestDto[]) => {
@@ -95,12 +98,6 @@ function useWorkspaceAttention(workspaceId: string, repository: string): {
       .then(profile => {
         setCached(ATTENTION_SEED.profile, profile);
         if (active) setLogin(profile.login);
-        return window.bridge.fetchWorkspaceIssues(workspaceId, 0, 100).then(snapshot => {
-          const assigned = assignedIssues(snapshot, workspaceId, profile.login);
-          setCached(ATTENTION_SEED.issues, (getCached<AttentionItem[]>(ATTENTION_SEED.issues) ?? [])
-            .filter(item => item.workspaceId !== workspaceId).concat(assigned));
-          if (active) setIssues(assigned);
-        });
       })
       .catch(() => {});
     return () => {
@@ -111,6 +108,33 @@ function useWorkspaceAttention(workspaceId: string, repository: string): {
       window.removeEventListener('bytequay:attention-handled-changed', handledChanged);
     };
   }, [workspaceId]);
+  useEffect(() => {
+    if (!login) return;
+    let active = true;
+    let request = 0;
+    const reload = () => {
+      const current = ++request;
+      void window.bridge.fetchWorkspaceIssueAttention(workspaceId).then(snapshot => {
+        if (!active || current !== request) return;
+        const assigned = assignedIssues(snapshot, workspaceId, login);
+        setCached(ATTENTION_SEED.issues, (getCached<AttentionItem[]>(ATTENTION_SEED.issues) ?? [])
+          .filter(item => item.workspaceId !== workspaceId).concat(assigned));
+        setIssues(assigned);
+        setError(null);
+      }).catch(() => {
+        if (active && current === request) setError('Work items could not be loaded. Open Issues to retry.');
+      });
+    };
+    const changed = () => { setIssues([]); reload(); };
+    reload();
+    window.addEventListener(ISSUE_DEVELOPMENT_CHANGED, changed);
+    window.addEventListener('bytequay:pr-attention-updated', reload);
+    return () => {
+      active = false;
+      window.removeEventListener(ISSUE_DEVELOPMENT_CHANGED, changed);
+      window.removeEventListener('bytequay:pr-attention-updated', reload);
+    };
+  }, [login, workspaceId]);
   const candidates = useMemo(() => attentionCandidates(
     prs.filter(pr => pr.repo.toLowerCase() === repository.toLowerCase()), issues, login), [issues, login, prs, repository]);
   // The same store as Home, so acknowledging here clears the row there too.
@@ -118,7 +142,7 @@ function useWorkspaceAttention(workspaceId: string, repository: string): {
     setHandled(next);
     saveHandled(next);
   }, []);
-  return { candidates, handled, applyHandled };
+  return { candidates, handled, applyHandled, error };
 }
 
 interface AgentHomeProps {
@@ -134,11 +158,13 @@ interface AgentHomeProps {
   onOpenPullRequests?: () => void;
   onOpenPullRequest?: (number: number) => void;
   onOpenIssue?: (number: number) => void;
+  onStartIssue?: (number: number) => void;
+  onOpenIssues?: () => void;
   laneId?: string;
 }
 
 export default function AgentHome({
-  workspaceId, headerAction, repository, bridge: explicitBridge, onOpenTask, onOpenSettings, onShowAll, onOpenPullRequests, onOpenPullRequest, onOpenIssue,
+  workspaceId, headerAction, repository, bridge: explicitBridge, onOpenTask, onOpenSettings, onShowAll, onOpenPullRequests, onOpenPullRequest, onOpenIssue, onStartIssue, onOpenIssues,
   laneId = INTERACTIVE_LANE_ID,
 }: AgentHomeProps): React.JSX.Element {
   const live = useCallback((): AgentBridgePort => explicitBridge ?? window.bridge, [explicitBridge]);
@@ -179,6 +205,9 @@ export default function AgentHome({
       onHandledChange={attention.applyHandled}
       onOpenAttention={openAttention}
       onSeeAllAttention={onOpenPullRequests ?? (() => {})}
+      onStartIssue={onStartIssue ? item => onStartIssue(item.number) : undefined}
+      onOpenIssues={onOpenIssues}
+      attentionError={attention.error}
       models={creation.models}
       selection={creation.selection}
       draft={creation.draft}
@@ -207,6 +236,7 @@ export function AgentHomeView({
   onDraftChange, onSelectProvider, onSelectModel, onCreate, onOpenTask, onOpenSettings, onShowAll,
   hiddenTaskIds, onHideTask, onRevealTask,
   attention = [], handled = {}, onHandledChange = () => {}, onOpenAttention = () => {}, onSeeAllAttention = () => {},
+  onStartIssue, onOpenIssues, attentionError,
   images = [], busy = false, startup = null, attaching = false, onAttach, onPasteImages, onRemoveImage, error = null, automation,
 }: {
   repository: string;
@@ -224,6 +254,9 @@ export function AgentHomeView({
   onHandledChange?: (handled: Handled) => void;
   onOpenAttention?: (item: AttentionItem) => void;
   onSeeAllAttention?: () => void;
+  onStartIssue?: (item: AttentionItem) => void;
+  onOpenIssues?: () => void;
+  attentionError?: string | null;
   models: ModelOptionDto[];
   selection: TaskModelSelection | null;
   draft: string;
@@ -293,6 +326,7 @@ export function AgentHomeView({
             );
           })}
         </div>
+        {attentionError && <div className="ws-error" role="alert">{attentionError}</div>}
         <AttentionList
           variant="workspace"
           maxRows={HOME_MAX_ROWS}
@@ -301,6 +335,10 @@ export function AgentHomeView({
           onHandledChange={onHandledChange}
           onOpen={onOpenAttention}
           onSeeAll={onSeeAllAttention}
+          onStartIssue={onStartIssue}
+          issueNavigation={onOpenIssues && (
+            <button className="atn-head__link" type="button" onClick={onOpenIssues}>All issues</button>
+          )}
         />
         <section className="agt-open-tasks" aria-label="Open tasks">
           <div className="agt-open-tasks__head">

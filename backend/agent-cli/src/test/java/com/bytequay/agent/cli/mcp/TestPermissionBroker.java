@@ -21,10 +21,13 @@ import com.bytequay.agent.spi.CodeGraphBridge;
 import com.bytequay.agent.spi.DevelopmentResultBridge;
 import com.bytequay.agent.spi.DevelopmentResultBridgeResolver;
 import com.bytequay.agent.spi.DraftPullRequestPublisher;
+import com.bytequay.agent.spi.IssueContextBridge;
 import com.bytequay.agent.spi.LocalReviewBridge;
+import com.bytequay.agent.spi.LocalReviewBridgeResolver;
 import com.bytequay.agent.spi.ProviderApprovalDecision;
 import com.bytequay.agent.spi.ProviderApprovalRequest;
 import com.bytequay.agent.spi.PullRequestCiBridge;
+import com.bytequay.agent.spi.PullRequestCiBridgeResolver;
 import com.bytequay.agent.spi.ReviewBridge;
 import com.bytequay.agent.spi.ReviewBridgeResolver;
 import com.bytequay.agent.spi.ReviewTool;
@@ -112,6 +115,88 @@ class TestPermissionBroker
                     }
                 }
             }
+        }
+    }
+
+    @Test
+    void issueContextIsTaskBoundReadOnlyAndRevalidatedForBothProvidersWithoutCodeGraph()
+            throws Exception
+    {
+        AtomicInteger reads = new AtomicInteger();
+        AtomicReference<Optional<IssueContextBridge>> current = new AtomicReference<>(Optional.of(new IssueContextBridge(
+                () -> {
+                    reads.incrementAndGet();
+                    return "Accepted source known-secret";
+                }, IssueContextBridge.INSTRUCTION)));
+        PermissionBroker broker = new PermissionBroker(
+                () -> URI.create("http://127.0.0.1:9000/internal/agent/claude/mcp"), objectMapper,
+                (taskId, query) -> "memory", ReviewBridgeResolver.NONE, DevelopmentResultBridgeResolver.NONE,
+                DraftPullRequestPublisher.NONE, LocalReviewBridgeResolver.NONE, PullRequestCiBridgeResolver.NONE,
+                taskId -> taskId.equals("task-1") ? current.get() : Optional.empty());
+        SecretRedactor redactor = SecretRedactor.fromEnvironment(ImmutableMap.of("OPENAI_API_KEY", "known-secret"));
+        AgentApprovalHandler approvals = (request, timeout) -> CompletableFuture.completedFuture(ProviderApprovalDecision.deny());
+        String codexToken;
+        String claudeToken;
+        try (CodeGraphRegistration codex = broker.registerTools(
+                "task-1", temporaryDirectory, AgentPermissionPolicy.AUTO, approvals, redactor, Optional.empty()).orElseThrow();
+                McpConfigRegistration claude = broker.register(
+                        "task-1", temporaryDirectory, temporaryDirectory, temporaryDirectory, AgentPermissionPolicy.AUTO,
+                        false, approvals, redactor, Optional.empty())) {
+            codexToken = codex.token();
+            claudeToken = claude.token();
+            assertThat(codex.instruction()).isEqualTo(IssueContextBridge.INSTRUCTION);
+            assertThat(claude.instruction()).contains(IssueContextBridge.INSTRUCTION);
+            assertThat(claude.toolNames()).containsExactly(IssueContextBridge.TOOL_NAME);
+            assertThat(reads).hasValue(0);
+            for (String token : ImmutableList.of(codexToken, claudeToken)) {
+                JsonNode listed = broker.handle(token, objectMapper.readTree("""
+                        {"jsonrpc":"2.0","id":1,"method":"tools/list","params":{}}
+                        """)).body().orElseThrow();
+                assertThat(listed.at("/result/tools").findValuesAsText("name")).contains(IssueContextBridge.TOOL_NAME);
+                JsonNode definition = listed.at("/result/tools").findParents("name").stream()
+                        .filter(tool -> tool.path("name").asText().equals(IssueContextBridge.TOOL_NAME)).findFirst().orElseThrow();
+                assertThat(definition.at("/inputSchema/properties").isEmpty()).isTrue();
+                assertThat(definition.at("/inputSchema/additionalProperties").booleanValue()).isFalse();
+                for (String invalid : ImmutableList.of("[]", "{\"taskId\":\"task-2\"}", "{\"issueId\":42}", "{\"repo\":\"other/repo\"}", "{\"refresh\":true}")) {
+                    assertThat(localReviewCall(broker, token, IssueContextBridge.TOOL_NAME, invalid).at("/error/code").intValue()).isEqualTo(-32602);
+                }
+                for (String missingArguments : ImmutableList.of("", ",\"arguments\":null")) {
+                    JsonNode invalid = broker.handle(token, objectMapper.readTree("""
+                            {"jsonrpc":"2.0","id":5,"method":"tools/call","params":{"name":"read_issue_context"%s}}
+                            """.formatted(missingArguments))).body().orElseThrow();
+                    assertThat(invalid.path("error").path("code").intValue()).isIn(-32600, -32602);
+                }
+                JsonNode result = localReviewCall(broker, token, IssueContextBridge.TOOL_NAME, "{}");
+                assertThat(result.at("/result/isError").booleanValue()).isFalse();
+                assertThat(result.at("/result/content/0/text").textValue()).isEqualTo("Accepted source [REDACTED]");
+            }
+            assertThat(reads).hasValue(2);
+            current.set(Optional.of(new IssueContextBridge(() -> "Updated local observations", IssueContextBridge.INSTRUCTION)));
+            assertThat(localReviewCall(broker, codexToken, IssueContextBridge.TOOL_NAME, "{}").at("/result/content/0/text").textValue())
+                    .isEqualTo("Updated local observations");
+            current.set(Optional.empty());
+            for (String token : ImmutableList.of(codexToken, claudeToken)) {
+                JsonNode missing = localReviewCall(broker, token, IssueContextBridge.TOOL_NAME, "{}");
+                assertThat(missing.at("/result/isError").booleanValue()).isTrue();
+                assertThat(missing.at("/result/content/0/text").textValue()).contains("no longer available");
+            }
+        }
+        assertThat(broker.handle(codexToken, objectMapper.readTree("{}")).status()).isEqualTo(401);
+        assertThat(broker.handle(claudeToken, objectMapper.readTree("{}")).status()).isEqualTo(401);
+        current.set(Optional.of(new IssueContextBridge(() -> "bound", IssueContextBridge.INSTRUCTION)));
+        assertThat(broker.registerTools("task-2", temporaryDirectory, AgentPermissionPolicy.AUTO, approvals, redactor, Optional.empty())).isEmpty();
+        try (McpConfigRegistration unbound = broker.register(
+                "task-2", temporaryDirectory, temporaryDirectory, temporaryDirectory, AgentPermissionPolicy.AUTO,
+                false, approvals, redactor, Optional.empty())) {
+            assertThat(unbound.toolNames()).isEmpty();
+            assertThat(localReviewCall(broker, unbound.token(), IssueContextBridge.TOOL_NAME, "{}").at("/error/code").intValue()).isEqualTo(-32602);
+        }
+        try (McpConfigRegistration helper = broker.register(
+                "task-1", temporaryDirectory, temporaryDirectory, temporaryDirectory, AgentPermissionPolicy.AUTO,
+                true, approvals, redactor, Optional.empty())) {
+            assertThat(helper.toolNames()).isEmpty();
+            assertThat(helper.instruction()).isEmpty();
+            assertThat(localReviewCall(broker, helper.token(), IssueContextBridge.TOOL_NAME, "{}").at("/error/code").intValue()).isEqualTo(-32602);
         }
     }
 

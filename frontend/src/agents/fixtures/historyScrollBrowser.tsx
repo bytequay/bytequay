@@ -326,8 +326,8 @@ async function sentMessageGlidesToTop(): Promise<void> {
     assert(container.scrollTop === before && turn.getBoundingClientRect().top - viewport.top > viewport.height / 3,
       `The sent message should start at the bottom, not jump to the top: it sits ${turn.getBoundingClientRect().top - viewport.top}px down`);
     await settle();
-    for (let step = 0; container.scrollHeight - container.scrollTop - container.clientHeight > 1 && step < 60; step++) await settle();
     const offset = (): number => turn.getBoundingClientRect().top - viewport.top;
+    for (let step = 0; (container.scrollHeight - container.scrollTop - container.clientHeight > 1 || Math.abs(offset() - padding) > 1) && step < 60; step++) await settle();
     assert(container.scrollHeight - container.scrollTop - container.clientHeight <= 1 && Math.abs(offset() - padding) <= 1,
       `The sent message should glide to the top of the transcript, not stop ${offset()}px down`);
 

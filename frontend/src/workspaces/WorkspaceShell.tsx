@@ -26,6 +26,8 @@ import { settingsRoute } from '../settings/routes';
 import WorkspaceIssuesScreen from './WorkspaceIssuesScreen';
 import type { CherryPickExecution, WorkspaceDto } from '../types';
 import {
+  workspaceAgentTaskRoute,
+  workspaceIssueTaskRoute,
   workspaceHasReadableCode,
   workspaceIsUpdating,
   workspaceReviewTaskRoute,
@@ -33,13 +35,14 @@ import {
 } from './model';
 import '../css/workspaces.css';
 
-export default function WorkspaceShell({ workspace, tab, onSelectTab, onWorkspaceChanged, initialPullRequestNumber, initialIssueNumber, initialAgentTaskId, initialAgentReviewId = null, browserOpen = false, onSelectAgentTask, onSelectPullRequest, onPreviewPullRequest, onSelectIssue }: {
+export default function WorkspaceShell({ workspace, tab, onSelectTab, onWorkspaceChanged, initialPullRequestNumber, initialIssueNumber, sourceIssueNumber = null, initialAgentTaskId, initialAgentReviewId = null, browserOpen = false, onSelectAgentTask, onSelectPullRequest, onPreviewPullRequest, onSelectIssue }: {
   workspace: WorkspaceDto;
   tab: WorkspaceTab;
   onSelectTab: (tab: WorkspaceTab) => void;
   onWorkspaceChanged: (workspace: WorkspaceDto) => void;
   initialPullRequestNumber: number | null;
   initialIssueNumber: number | null;
+  sourceIssueNumber?: number | null;
   /** Route-owned: which agent task is open, so a reload reopens the same one. */
   initialAgentTaskId: string | null;
   initialAgentReviewId?: string | null;
@@ -174,6 +177,8 @@ export default function WorkspaceShell({ workspace, tab, onSelectTab, onWorkspac
       repository={`${workspace.monitoredOwner}/${workspace.monitoredRepo}`}
       initialIssueNumber={initialIssueNumber}
       onSelectIssue={onSelectIssue}
+      onStartDevelopment={number => { window.location.hash = workspaceIssueTaskRoute(workspace.id, number); }}
+      onViewTask={link => { window.location.hash = workspaceAgentTaskRoute(link.workspaceId, link.taskId); }}
     />;
   }
   if (tab === 'tasks') {
@@ -221,7 +226,10 @@ export default function WorkspaceShell({ workspace, tab, onSelectTab, onWorkspac
     // The agent view owns the page: its composer stays anchored under both task sections.
     return stage(
       <AgentTasksView
+        key={sourceIssueNumber ?? 'new-task'}
         workspaceId={workspace.id}
+        sourceIssueNumber={sourceIssueNumber}
+        onOpenCreatedTask={task => { window.location.hash = workspaceAgentTaskRoute(task.workspaceId, task.id); }}
         headerAction={overviewOpen ? undefined : overviewToggle}
         onOpenReview={(review) => setOpenReview({ id: review.id, repo: review.repo, number: review.number })}
         onOpenReviewWorkspace={openReviewWorkspace}
@@ -244,6 +252,8 @@ export default function WorkspaceShell({ workspace, tab, onSelectTab, onWorkspac
       onOpenPullRequests={() => onSelectTab('prs')}
       onOpenPullRequest={onPreviewPullRequest}
       onOpenIssue={(number) => onSelectIssue(number, 'push')}
+      onOpenIssues={() => onSelectTab('issues')}
+      onStartIssue={number => { window.location.hash = workspaceIssueTaskRoute(workspace.id, number); }}
     />,
   );
 }

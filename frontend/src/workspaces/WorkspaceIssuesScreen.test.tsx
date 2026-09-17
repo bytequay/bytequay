@@ -16,7 +16,7 @@ import { resolve } from 'node:path';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { describe, expect, it, vi } from 'vitest';
 import type { PullTimelinePayloadDto, RepositoryMetadataDto, WorkspaceIssueDetailDto, WorkspaceIssueTimelineEventDto } from '../types';
-import { appendIssuePage, IssueOverview, issueAssigneeOptions, issueParticipants, loadWorkspaceIssueDetail } from './WorkspaceIssuesScreen';
+import { appendIssuePage, IssueDevelopmentActions, IssueOverview, issueAssigneeOptions, issueParticipants, loadWorkspaceIssueDetail } from './WorkspaceIssuesScreen';
 
 const payload: PullTimelinePayloadDto = {
   actorAvatarUrl: null,
@@ -85,6 +85,17 @@ const metadata: RepositoryMetadataDto = {
 };
 
 describe('WorkspaceIssuesScreen', () => {
+  it('keeps View task available for a Goal with previous development and prevents another launch', () => {
+    const actions = (value: typeof issue & { isGoal?: boolean; developmentTask?: { taskId: string; workspaceId: string } }) => renderToStaticMarkup(
+      <IssueDevelopmentActions issue={value} onStart={() => {}} onViewTask={() => {}} onToggleGoal={() => {}} />);
+    expect(actions(issue)).toContain('Start development');
+    expect(actions({ ...issue, isGoal: true })).not.toContain('Start development');
+    const linked = actions({ ...issue, isGoal: true, developmentTask: { taskId: 'completed-task', workspaceId: 'fork-workspace' } });
+    expect(linked).toContain('View task');
+    expect(linked).toContain('Unmark as Goal');
+    expect(linked).not.toContain('Start development');
+  });
+
   it('refreshes a missing local detail snapshot before displaying its type', async () => {
     const local: WorkspaceIssueDetailDto = {
       repositoryId: 1,

@@ -1,5 +1,31 @@
 # Agent Service Design
 
+## Starting development from a GitHub issue
+
+[Issue-backed Development](issue-development-plan.md) extends canonical
+interactive task creation with an optional accepted issue source. Local Goal
+classification prevents new launches. A durable source association is saved
+with the task before its initial turn; replay reuses the task and accepted
+context. Source identity spans workspaces, while execution retains its explicit
+workspace. This adds no planning lifecycle or separate executor and does not
+change task completion or GitHub issue closure.
+
+Issue development uses a fixed, read-only `read_issue_context` capability in the
+existing provider tool bridge. Its session binding selects the task's durable
+source; agents cannot supply another task, repository, URL or issue identity.
+The result contains the accepted source snapshot and available ByteQuay-cached
+metadata and discussion, with missing/truncated data identified. Reading it
+never fetches GitHub. Both providers receive instructions to use this local
+context on initial and resumed turns. ByteQuay's existing source freshness
+validation before launch remains an application responsibility.
+
+The first user turn stores the user's development instruction, separate from
+generated provider guidance. Durable initial-request identity and source facts
+allow the UI to render a conversation card without parsing the prompt or
+relying on provider history. The existing task and first-turn replay rules
+still govern admission; no additional agent lifecycle is introduced.
+
+
 ## Local review comments
 
 Interactive development and PR-owned review tasks own private **Local review

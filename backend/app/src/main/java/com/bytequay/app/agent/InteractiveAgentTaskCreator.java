@@ -45,6 +45,7 @@ import java.security.NoSuchAlgorithmException;
 import java.util.HexFormat;
 import java.util.Optional;
 import java.util.concurrent.locks.Lock;
+import java.util.function.Consumer;
 
 import static com.bytequay.agent.spi.AgentChecks.checkNotBlank;
 import static com.bytequay.app.agent.WorkflowAgentTasks.repositoryIdentity;
@@ -124,13 +125,30 @@ public final class InteractiveAgentTaskCreator
             Optional<String> attachmentDigest,
             Optional<DevelopmentAutomation> initialAutomation)
     {
+        return create(taskId, workspaceId, message, laneId, defaults, idempotencyKey, attachmentDigest, initialAutomation, Optional.empty(), Optional.empty());
+    }
+
+    public AgentTask create(
+            TaskId taskId,
+            String workspaceId,
+            String message,
+            AgentLaneId laneId,
+            AgentTaskDefaults defaults,
+            String idempotencyKey,
+            Optional<String> attachmentDigest,
+            Optional<DevelopmentAutomation> initialAutomation,
+            Optional<String> issueIdentity,
+            Optional<Consumer<AgentTask>> persistTask)
+    {
         requireNonNull(taskId, "taskId is null");
+        requireNonNull(persistTask, "persistTask is null");
+        requireNonNull(issueIdentity, "issueIdentity is null");
         requireNonNull(initialAutomation, "initialAutomation is null");
         requireNonNull(attachmentDigest, "attachmentDigest is null");
         Lock lock = creationLocks.get(taskId);
         lock.lock();
         try {
-            return createLocked(taskId, workspaceId, message, laneId, defaults, idempotencyKey, attachmentDigest, initialAutomation);
+            return createLocked(taskId, workspaceId, message, laneId, defaults, idempotencyKey, attachmentDigest, initialAutomation, issueIdentity, persistTask);
         }
         finally {
             lock.unlock();
@@ -145,14 +163,16 @@ public final class InteractiveAgentTaskCreator
             AgentTaskDefaults defaults,
             String idempotencyKey,
             Optional<String> attachmentDigest,
-            Optional<DevelopmentAutomation> initialAutomation)
+            Optional<DevelopmentAutomation> initialAutomation,
+            Optional<String> issueIdentity,
+            Optional<Consumer<AgentTask>> persistTask)
     {
         checkNotBlank(workspaceId, "workspaceId");
         checkNotBlank(message, "message");
         requireNonNull(laneId, "laneId is null");
         requireNonNull(defaults, "defaults is null");
         checkNotBlank(idempotencyKey, "idempotencyKey");
-        String fingerprint = fingerprint(workspaceId, message, laneId, defaults, idempotencyKey, attachmentDigest, initialAutomation);
+        String fingerprint = fingerprint(workspaceId, message, laneId, defaults, idempotencyKey, attachmentDigest, initialAutomation, issueIdentity);
         Optional<AgentTask> replay = interactiveTask(workspaceId, taskId);
         if (replay.isPresent()) {
             AgentTask task = requireReplay(replay.orElseThrow(), fingerprint);
@@ -184,7 +204,7 @@ public final class InteractiveAgentTaskCreator
         }
         progress.record(taskId, Phase.WORKTREE);
         try {
-            return tasks.createInteractive(new CreateInteractiveAgentTaskCommand(
+            CreateInteractiveAgentTaskCommand command = new CreateInteractiveAgentTaskCommand(
                     taskId,
                     workspace.workspaceId(),
                     laneId,
@@ -193,7 +213,8 @@ public final class InteractiveAgentTaskCreator
                     TaskBranches.generate(taskId, credentials.resolveGitHubCredential().profile().login(), message),
                     message,
                     defaults.withDevelopmentAutomation(automation),
-                    fingerprint));
+                    fingerprint);
+            return persistTask.map(writer -> tasks.createInteractive(command, writer)).orElseGet(() -> tasks.createInteractive(command));
         }
         catch (AgentConflictException conflict) {
             return interactiveTask(workspaceId, taskId)
@@ -227,7 +248,8 @@ public final class InteractiveAgentTaskCreator
             AgentTaskDefaults defaults,
             String idempotencyKey,
             Optional<String> attachmentDigest,
-            Optional<DevelopmentAutomation> initialAutomation)
+            Optional<DevelopmentAutomation> initialAutomation,
+            Optional<String> issueIdentity)
     {
         MessageDigest digest;
         try {
@@ -245,6 +267,7 @@ public final class InteractiveAgentTaskCreator
         add(digest, defaults.permissionPolicy().name());
         defaults.developmentAutomation().ifPresent(value -> add(digest, "defaults.automation=" + value));
         initialAutomation.ifPresent(value -> add(digest, "initial.automation=" + value));
+        issueIdentity.ifPresent(value -> add(digest, "issueSource=" + value));
         add(digest, idempotencyKey);
         attachmentDigest.ifPresent(value -> add(digest, value));
         return HexFormat.of().formatHex(digest.digest());

@@ -133,4 +133,11 @@ public class RepositoryIssueEntity
         this.labels = ImmutableList.copyOf(labels);
         this.updatedAt = updatedAt;
     }
+
+    public void updateContent(String title, String body, Instant updatedAt)
+    {
+        this.title = title;
+        this.body = body;
+        this.updatedAt = updatedAt;
+    }
 }

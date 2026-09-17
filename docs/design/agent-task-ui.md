@@ -1,5 +1,27 @@
 # Agent Task UI Design
 
+## Issue development entry points
+
+The approved [issue development scope](issue-development-plan.md) adds Goal
+marking and Start development to existing issue cards. Launch opens this
+composer with source context and current model/Automation controls. After
+creation, View task opens the existing task in its workspace's Tasks tab,
+including completed tasks; View issue links back to the source. Both existing
+Needs attention views use the same launch path for eligible assigned issues.
+
+The source is a compact card directly above the shared composer, rather than a
+banner above the transcript. Hover or keyboard focus reveals a readable Markdown
+preview; pointer/focus can move into it to inspect the source. The pre-launch
+composer offers source refresh without losing additional instructions. Completed
+tasks retain source navigation. The initial development message uses the compact
+draft-PR request-row style: an issue icon, **Start development**, and repository
+and issue number. Raw prompts and source payloads stay hidden; uploaded images
+remain visible below the row. Durable initial-turn identity selects it. If an
+older response lacks that identity, only the first root request in a confirmed
+complete history prefix may use the row. A partial history page or later turn
+never qualifies. Later messages retain their ordinary presentation.
+
+
 ## Development delivery presentation
 
 [Development Task Delivery](development-delivery.md#7-task-presentation)

@@ -56,6 +56,9 @@ export type AttentionItem = {
   commentCount: number;
   /** Issues open inside their workspace. */
   workspaceId: string | null;
+  workspaceName?: string;
+  /** Stable upstream identity, independent of which workspace supplied this issue. */
+  sourceKey?: string;
 };
 
 /** Authored and explicitly monitored PRs follow all activity; review work follows its relationship to you. */
@@ -114,9 +117,11 @@ export function assignedIssues(
   const repo = `${snapshot.repository.owner}/${snapshot.repository.repo}`;
   const me = login.toLowerCase();
   return snapshot.issues
-    .filter(issue => issue.assignees.some(assignee => assignee.toLowerCase() === me))
+    .filter(issue => !issue.isGoal && issue.developmentTask == null
+      && issue.assignees.some(assignee => assignee.toLowerCase() === me))
     .map(issue => ({
       key: `${repo}#${issue.number}`,
+      sourceKey: `github.com:issue:${issue.id}`,
       type: 'issue' as const,
       kind: 'assigned' as const,
       repo,
@@ -146,11 +151,18 @@ export function attentionCandidates(
   issues: AttentionItem[] = [],
   viewerLogin?: string | null,
 ): AttentionItem[] {
+  // The same upstream can be watched through multiple forks. Keep one stable, explicit route.
+  const bySource = new Map<string, AttentionItem>();
+  for (const issue of issues) {
+    const key = issue.sourceKey ?? issue.key.toLowerCase();
+    const previous = bySource.get(key);
+    if (!previous || (issue.workspaceId ?? '').localeCompare(previous.workspaceId ?? '') < 0) bySource.set(key, issue);
+  }
   const items = prs
     .map(pr => ({ pr, kind: attentionKind(pr, viewerLogin) }))
     .filter((row): row is { pr: PullRequestDto; kind: AttentionKind } => row.kind !== null)
     .map(row => pullRequestItem(row.pr, row.kind))
-    .concat(issues);
+    .concat([...bySource.values()]);
   return items.sort((left, right) =>
     PRIORITY.indexOf(left.kind) - PRIORITY.indexOf(right.kind)
     || Date.parse(attentionActivity(right).timestamp) - Date.parse(attentionActivity(left).timestamp));

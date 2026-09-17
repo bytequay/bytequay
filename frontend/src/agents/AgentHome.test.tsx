@@ -26,7 +26,7 @@ import { TaskWindows } from './TaskCard';
 
 function home(workspaceId: string): string {
   return renderToStaticMarkup(
-    <AgentHome workspaceId={workspaceId} repository="octo/app" bridge={createPreviewBridge(workspaceId)} onOpenTask={() => {}} onShowAll={() => {}} />);
+    <AgentHome workspaceId={workspaceId} repository="octo/app" bridge={createPreviewBridge(workspaceId)} onOpenTask={() => {}} onShowAll={() => {}} onStartIssue={() => {}} onOpenIssues={() => {}} />);
 }
 
 describe('agent home on a return visit', () => {
@@ -46,6 +46,9 @@ describe('agent home on a return visit', () => {
     expect(seeded).toContain('Retry flaky upload');
     expect(seeded).toContain('Reviewer named by login');
     expect(seeded).toContain('Assigned in this workspace');
+    expect(seeded).toContain('Start development for #3');
+    expect(seeded).toContain('All issues');
+    expect(seeded).toContain('All pull requests');
     expect(seeded).not.toContain('Elsewhere');
     expect(seeded).not.toContain('Assigned in another workspace');
   });

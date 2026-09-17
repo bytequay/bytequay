@@ -13,6 +13,7 @@
  */
 package com.bytequay.app.repository.github;
 
+import com.bytequay.agent.core.AgentConflictException;
 import com.bytequay.core.domain.RepoRef;
 import com.bytequay.core.domain.RepositoryContributor;
 import com.bytequay.core.domain.RepositoryLabel;
@@ -39,6 +40,33 @@ import static org.springframework.test.web.client.response.MockRestResponseCreat
 class TestGitHubRepoClient
 {
     private static final RepoRef REPOSITORY = RepoRef.of("owner", "repo");
+
+    @Test
+    void fetchesFreshIssueSourceAndRefusesClosedOrPullRequestSources()
+    {
+        Fixture fixture = fixture();
+        fixture.server().expect(requestTo("https://api.github.test/repos/owner/repo/issues/7"))
+                .andRespond(withSuccess("""
+                        {"id":70,"number":7,"state":"open","title":"Fix selection","body":"Description","updated_at":"2026-09-16T00:00:00Z"}
+                        """, MediaType.APPLICATION_JSON));
+        assertThat(fixture.client().fetchOpenIssueSource("pat", REPOSITORY, 7)).satisfies(source -> {
+            assertThat(source.issueId()).isEqualTo(70);
+            assertThat(source.body()).isEqualTo("Description");
+            assertThat(source.url()).isEqualTo("https://github.com/owner/repo/issues/7");
+        });
+        fixture.server().verify();
+        fixture = fixture();
+        fixture.server().expect(requestTo("https://api.github.test/repos/owner/repo/issues/7"))
+                .andRespond(withSuccess("{\"id\":70,\"number\":7,\"state\":\"closed\"}", MediaType.APPLICATION_JSON));
+        GitHubRepoClient client = fixture.client();
+        assertThatThrownBy(() -> client.fetchOpenIssueSource("pat", REPOSITORY, 7)).isInstanceOf(AgentConflictException.class);
+        fixture.server().verify();
+        Fixture pull = fixture();
+        pull.server().expect(requestTo("https://api.github.test/repos/owner/repo/issues/7"))
+                .andRespond(withSuccess("{\"id\":70,\"number\":7,\"state\":\"open\",\"pull_request\":{\"url\":\"pull\"}}", MediaType.APPLICATION_JSON));
+        assertThatThrownBy(() -> pull.client().fetchOpenIssueSource("pat", REPOSITORY, 7)).isInstanceOf(AgentConflictException.class);
+        pull.server().verify();
+    }
 
     @Test
     void fetchesContributorLabelAndOverviewProjections()

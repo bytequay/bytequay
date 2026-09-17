@@ -629,6 +629,21 @@ describe('steering and queueing', () => {
       .toMatchObject({ taskId: 'intent-5', idempotencyKey: 'intent-6' });
   });
 
+  it('keeps accepted issue provenance stable on replay and separates different source revisions', () => {
+    let next = 0;
+    const submissions = createTaskCreationTracker(() => `intent-${++next}`);
+    const defaults = { model: 'm', effort: 'high', permissionPolicy: 'AUTO' };
+    const source = { issueId: 123, number: 7, updatedAt: 'source-v1' };
+    const first = submissions.requestFor('fork-workspace', 'Implement it', 'codex', defaults, [], undefined, source);
+    expect(submissions.requestFor('fork-workspace', 'Implement it', 'codex', defaults, [], undefined, { ...source })).toBe(first);
+    source.updatedAt = 'source-v2';
+    expect(first.issueSource?.updatedAt).toBe('source-v1');
+    const changed = submissions.requestFor('fork-workspace', 'Implement it', 'codex', defaults, [], undefined, source);
+    expect(changed.taskId).not.toBe(first.taskId);
+    expect(changed.idempotencyKey).not.toBe(first.idempotencyKey);
+    expect(submissions.requestFor('fork-workspace', 'Implement it', 'codex', defaults).issueSource).toBeUndefined();
+  });
+
   it('retains initial image drafts on replay and changes creation identity when images or Fast change', () => {
     let next = 0;
     const submissions = createTaskCreationTracker(() => `intent-${++next}`);

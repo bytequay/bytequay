@@ -30,6 +30,7 @@ import type {
   AgentTurnSettingsDto,
   Bridge,
   CreateAgentTaskRequest,
+  IssueTaskSourceRequest,
   ModelOptionDto,
 } from '../types';
 
@@ -42,6 +43,7 @@ export type AgentBridgePort = Pick<Bridge,
   | 'retryLocalReviewComment'
   | 'listAgentTasks'
   | 'createAgentTask'
+  | 'fetchWorkspaceIssue'
   | 'getAgentTask'
   | 'getAgentTaskStartup'
   | 'readAgentEvents'
@@ -608,6 +610,7 @@ export type TaskCreationTracker = {
     defaults: AgentTaskDefaultsDto,
     draftAttachmentIds?: string[],
     developmentAutomation?: DevelopmentAutomationDto,
+    issueSource?: IssueTaskSourceRequest,
   ) => CreateAgentTaskRequest;
   settled: (taskId: string) => void;
 };
@@ -616,7 +619,7 @@ export type TaskCreationTracker = {
 export function createTaskCreationTracker(createKey: () => string = () => globalThis.crypto.randomUUID()): TaskCreationTracker {
   let retained: { signature: string; request: CreateAgentTaskRequest } | null = null;
   return {
-    requestFor(workspaceId, message, laneId, defaults, draftAttachmentIds = [], developmentAutomation) {
+    requestFor(workspaceId, message, laneId, defaults, draftAttachmentIds = [], developmentAutomation, issueSource) {
       const signature = JSON.stringify([
         workspaceId,
         message.trim(),
@@ -628,6 +631,7 @@ export function createTaskCreationTracker(createKey: () => string = () => global
         defaults.developmentAutomation ?? null,
         developmentAutomation ?? null,
         draftAttachmentIds,
+        issueSource ?? null,
       ]);
       if (retained?.signature !== signature) {
         retained = {
@@ -638,6 +642,7 @@ export function createTaskCreationTracker(createKey: () => string = () => global
             message: message.trim(),
             laneId,
             defaults,
+            ...(issueSource === undefined ? {} : { issueSource: { ...issueSource } }),
             ...(developmentAutomation === undefined ? {} : { developmentAutomation }),
             ...(draftAttachmentIds.length === 0 ? {} : { draftAttachmentIds: [...draftAttachmentIds] }),
             idempotencyKey: createKey(),

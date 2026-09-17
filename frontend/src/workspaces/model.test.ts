@@ -19,6 +19,7 @@ import {
   workspaceCodeState,
   workspaceHasReadableCode,
   workspaceIssueRoute,
+  workspaceIssueTaskRoute,
   workspaceLocationFromRoute,
   workspaceMetadataState,
   workspacePullRequestRoute,
@@ -29,6 +30,17 @@ import {
 } from './model';
 
 describe('workspace model', () => {
+  it('routes an issue to the existing composer without inventing an execution task', () => {
+    const route = workspaceIssueTaskRoute('fork/workspace', 42);
+    expect(route).toBe('#/workspaces/fork%2Fworkspace/tasks/issue/42');
+    expect(workspaceLocationFromRoute(route)).toEqual({
+      workspaceId: 'fork/workspace', tab: 'tasks', pullRequestNumber: null, issueNumber: null,
+      agentTaskId: null, sourceIssueNumber: 42,
+    });
+    expect(workspaceLocationFromRoute('#/workspaces/w/prs/issue/42')).toBeNull();
+    expect(workspaceLocationFromRoute('#/workspaces/w/tasks/issue/0')).toBeNull();
+  });
+
   it('walks a new workspace from queued through cloning to ready', () => {
     const queued = dto('DIRECT');
     const cloning = { ...queued, lastMetadataSyncAt: '2026-08-21T00:00:00Z' };

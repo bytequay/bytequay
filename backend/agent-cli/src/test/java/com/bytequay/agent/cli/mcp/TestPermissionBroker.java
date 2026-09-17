@@ -72,7 +72,8 @@ class TestPermissionBroker
                 DraftPullRequestPublisher.NONE,
                 taskId -> taskId.equals("development") ? Optional.of(local) : Optional.empty(),
                 taskId -> taskId.equals("development")
-                        ? Optional.of(new PullRequestCiBridge(jobId -> "checks", (logId, offset) -> "raw", PullRequestCiBridge.INSTRUCTION)) : Optional.empty());
+                        ? Optional.of(new PullRequestCiBridge(jobId -> "checks", (logId, offset) -> "raw",
+                                PullRequestCiBridge.INSTRUCTION, Optional.empty(), Optional.empty())) : Optional.empty());
         for (String taskId : ImmutableList.of("plain", "review", "development", "graph", "ci")) {
             AgentPermissionPolicy policy = taskId.equals("ci") ? AgentPermissionPolicy.CI_AUTOFIX : AgentPermissionPolicy.AUTO;
             Optional<CodeGraphBridge> graph = taskId.equals("graph") ? Optional.of(new CodeGraphBridge(query -> "graph", "Use the graph")) : Optional.empty();

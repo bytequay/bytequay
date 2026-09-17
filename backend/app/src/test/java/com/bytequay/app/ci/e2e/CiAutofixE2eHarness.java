@@ -217,6 +217,10 @@ final class CiAutofixE2eHarness
     void scriptRerunCi(Fixture fixture, int attempt, boolean passing)
     {
         gitHub.setSnapshot(rerunSnapshot(fixture, attempt, passing));
+        if (!passing) {
+            gitHub.setLog(fixture.repository().pullRequest(), fixture.workflowRunId(), attempt, fixture.jobId(), attempt,
+                    "Compile failed again", ImmutableList.of("Compile failed again"));
+        }
     }
 
     void scriptTestFailure(Fixture fixture, String headSha)

@@ -179,6 +179,9 @@ public final class CiAutofixHttpModels
             return "PREPARING_AGENT";
         }
         CiAutofixAttempt attempt = run.attempts().getLast();
+        if (attempt.descriptionChange().isPresent() && attempt.gitResult().isEmpty()) {
+            return attempt.descriptionChange().orElseThrow().appliedAt().isPresent() ? "WATCHING_CI" : "FIXING";
+        }
         if (attempt.gitResult().isEmpty()) {
             return "INSPECTING_GIT";
         }

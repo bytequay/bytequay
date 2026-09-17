@@ -19,6 +19,7 @@ import com.bytequay.agent.spi.AgentApprovalHandler;
 import com.bytequay.agent.spi.AgentCommandPolicy;
 import com.bytequay.agent.spi.AgentPermissionPolicy;
 import com.bytequay.agent.spi.AgentUnavailableException;
+import com.bytequay.agent.spi.CiDescriptionProposal;
 import com.bytequay.agent.spi.CodeGraphBridge;
 import com.bytequay.agent.spi.DevelopmentResultBridge;
 import com.bytequay.agent.spi.DevelopmentResultBridgeResolver;
@@ -375,10 +376,63 @@ public final class PermissionBroker
             case CodeGraphBridge.TOOL_NAME -> codeGraphExplore(request.id(), params.arguments(), context);
             case DevelopmentResultBridge.TOOL_NAME -> developmentResult(request.id(), params.arguments(), context);
             case DevelopmentResultBridge.PUBLISH_TOOL_NAME -> createDraftPullRequest(request.id(), params.arguments(), context);
+            case CiDescriptionProposal.TOOL_NAME -> proposeCiDescription(request.id(), params.arguments(), context);
+            case PullRequestCiBridge.RERUN_TOOL_NAME -> requestCiRerun(request.id(), params.arguments(), context);
             case PullRequestCiBridge.TOOL_NAME, PullRequestCiBridge.RAW_TOOL_NAME -> pullRequestCi(request.id(), params.name(), params.arguments(), context);
             case LocalReviewBridge.LIST_TOOL, LocalReviewBridge.REPLY_TOOL, LocalReviewBridge.RESOLVE_TOOL -> localReviewTool(request.id(), params, context);
             default -> reviewTool(request.id(), params, context);
         };
+    }
+
+    private McpHttpResponse proposeCiDescription(JsonNode id, JsonNode arguments, PermissionContext context)
+    {
+        var proposer = context.pullRequestCi().flatMap(PullRequestCiBridge::proposeDescription);
+        if (context.permissionPolicy() != AgentPermissionPolicy.CI_AUTOFIX || proposer.isEmpty()) {
+            return error(id, -32602, "Unknown tool");
+        }
+        CiDescriptionProposal proposal;
+        try {
+            checkArgument(arguments != null && arguments.isObject() && arguments.size() == 3, "Only jobId, expectedBody and body may be supplied");
+            checkArgument(arguments.path("jobId").isIntegralNumber() && arguments.path("jobId").canConvertToLong(), "jobId must be a positive integer");
+            checkArgument(arguments.path("expectedBody").isTextual() && arguments.path("body").isTextual(), "expectedBody and body must be strings");
+            proposal = new CiDescriptionProposal(arguments.path("jobId").longValue(), arguments.path("expectedBody").textValue(), arguments.path("body").textValue());
+        }
+        catch (IllegalArgumentException failure) {
+            return error(id, -32602, failure.getMessage());
+        }
+        try {
+            String text = proposer.orElseThrow().apply(proposal);
+            return response(id, new ToolResult(ImmutableList.of(new TextContent("text", context.redactor().redact(text))), false));
+        }
+        catch (RuntimeException failure) {
+            return response(id, new ToolResult(ImmutableList.of(new TextContent("text",
+                    "Description proposal was not accepted. Read current CI and description before trying again.")), true));
+        }
+    }
+
+    private McpHttpResponse requestCiRerun(JsonNode id, JsonNode arguments, PermissionContext context)
+    {
+        var requester = context.pullRequestCi().flatMap(PullRequestCiBridge::requestRerun);
+        if (context.permissionPolicy() != AgentPermissionPolicy.CI_AUTOFIX || requester.isEmpty()) {
+            return error(id, -32602, "Unknown tool");
+        }
+        try {
+            checkArgument(arguments != null && arguments.isObject() && arguments.size() == 2, "Only jobId and reason may be supplied");
+            checkArgument(arguments.path("jobId").isIntegralNumber() && arguments.path("jobId").canConvertToLong()
+                    && arguments.path("jobId").longValue() > 0, "jobId must be a positive integer");
+            checkArgument(arguments.path("reason").isTextual() && !arguments.path("reason").textValue().isBlank()
+                    && arguments.path("reason").textValue().length() <= 4000, "reason must contain 1 to 4000 characters");
+        }
+        catch (IllegalArgumentException failure) {
+            return error(id, -32602, failure.getMessage());
+        }
+        try {
+            String text = requester.orElseThrow().apply(arguments.path("jobId").longValue(), arguments.path("reason").textValue());
+            return response(id, new ToolResult(ImmutableList.of(new TextContent("text", context.redactor().redact(text))), false));
+        }
+        catch (RuntimeException failure) {
+            return response(id, new ToolResult(ImmutableList.of(new TextContent("text", "Rerun request was not accepted. Read current CI before trying again.")), true));
+        }
     }
 
     private McpHttpResponse pullRequestCi(JsonNode id, String tool, JsonNode arguments, PermissionContext context)
@@ -767,6 +821,25 @@ public final class PermissionBroker
                             "required", ImmutableList.of("logId"),
                             "additionalProperties", false)));
         });
+        if (context.permissionPolicy() == AgentPermissionPolicy.CI_AUTOFIX && context.pullRequestCi().flatMap(PullRequestCiBridge::proposeDescription).isPresent()) {
+            tools.add(new ToolDefinition(CiDescriptionProposal.TOOL_NAME,
+                    "Propose a minimal PR-description repair for a current failed job. Read the complete description first. " +
+                            "ByteQuay applies it after the turn and verifies a new check",
+                    ImmutableMap.of("type", "object", "properties", ImmutableMap.of(
+                            "jobId", ImmutableMap.of("type", "integer", "minimum", 1, "maximum", Long.MAX_VALUE),
+                            "expectedBody", ImmutableMap.of("type", "string", "maxLength", 60_000),
+                            "body", ImmutableMap.of("type", "string", "minLength", 1, "maxLength", 60_000)),
+                            "required", ImmutableList.of("jobId", "expectedBody", "body"), "additionalProperties", false)));
+        }
+        if (context.permissionPolicy() == AgentPermissionPolicy.CI_AUTOFIX && context.pullRequestCi().flatMap(PullRequestCiBridge::requestRerun).isPresent()) {
+            tools.add(new ToolDefinition(PullRequestCiBridge.RERUN_TOOL_NAME,
+                    "Request one failed-job rerun only after diagnosing evidence of a flaky test or transient infrastructure failure. " +
+                            "Give the current failed jobId and an evidence-based reason; repair deterministic failures instead",
+                    ImmutableMap.of("type", "object", "properties", ImmutableMap.of(
+                            "jobId", ImmutableMap.of("type", "integer", "minimum", 1, "maximum", Long.MAX_VALUE),
+                            "reason", ImmutableMap.of("type", "string", "minLength", 1, "maxLength", 4000)),
+                            "required", ImmutableList.of("jobId", "reason"), "additionalProperties", false)));
+        }
         context.localReview().ifPresent(ignored -> {
             Map<String, Object> identifier = ImmutableMap.of("type", "string", "minLength", 1, "maxLength", LocalReviewBridge.MAXIMUM_ID_LENGTH);
             tools.add(new ToolDefinition(

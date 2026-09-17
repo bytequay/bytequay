@@ -15,6 +15,7 @@ package com.bytequay.agent.cli.mcp;
 
 import com.bytequay.agent.cli.process.SecretRedactor;
 import com.bytequay.agent.spi.AgentPermissionPolicy;
+import com.bytequay.agent.spi.CiDescriptionProposal;
 import com.bytequay.agent.spi.DevelopmentResultBridgeResolver;
 import com.bytequay.agent.spi.DraftPullRequestPublisher;
 import com.bytequay.agent.spi.LocalReviewBridgeResolver;
@@ -26,6 +27,7 @@ import com.bytequay.agent.spi.ReviewBridgeResolver;
 import com.bytequay.agent.spi.ReviewTool;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.databind.node.ObjectNode;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import org.junit.jupiter.api.Test;
@@ -57,7 +59,7 @@ class TestPullRequestCiTool
         AtomicReference<Optional<PullRequestCiBridge>> current = new AtomicReference<>(Optional.of(new PullRequestCiBridge(jobId -> {
             reads.add(jobId);
             return jobId.isPresent() ? "failed log known-secret" : "No pull request associated yet";
-        }, (logId, offset) -> "raw", PullRequestCiBridge.INSTRUCTION)));
+        }, (logId, offset) -> "raw", PullRequestCiBridge.INSTRUCTION, Optional.empty(), Optional.empty())));
         PermissionBroker broker = broker(taskId -> taskId.equals("task-1") ? current.get() : Optional.empty(), ReviewBridgeResolver.NONE);
         String expiredToken;
         try (CodeGraphRegistration codex = broker.registerTools(
@@ -77,7 +79,8 @@ class TestPullRequestCiTool
                 assertThat(text(call(broker, token, "{\"jobId\":7}"))).contains("failed log [REDACTED]").doesNotContain("known-secret");
             }
             assertThat(reads).containsExactly(Optional.empty(), Optional.of(7L), Optional.empty(), Optional.of(7L));
-            current.set(Optional.of(new PullRequestCiBridge(jobId -> "Current head changed", (logId, offset) -> "raw", PullRequestCiBridge.INSTRUCTION)));
+            current.set(Optional.of(new PullRequestCiBridge(jobId -> "Current head changed", (logId, offset) -> "raw",
+                                PullRequestCiBridge.INSTRUCTION, Optional.empty(), Optional.empty())));
             assertThat(text(call(broker, codex.token(), "{}"))).isEqualTo("Current head changed");
             current.set(Optional.empty());
             JsonNode unavailable = call(broker, claude.token(), "{}");
@@ -98,7 +101,7 @@ class TestPullRequestCiTool
         PermissionBroker broker = broker(taskId -> Optional.of(new PullRequestCiBridge(jobId -> "error excerpt", (id, offset) -> {
             reads.add(id + ":" + offset);
             return "complete raw page known-secret";
-        }, PullRequestCiBridge.INSTRUCTION)), ReviewBridgeResolver.NONE);
+        }, PullRequestCiBridge.INSTRUCTION, Optional.empty(), Optional.empty())), ReviewBridgeResolver.NONE);
         try (CodeGraphRegistration codex = broker.registerTools(
                 "ci-task", temporaryDirectory, AgentPermissionPolicy.CI_AUTOFIX,
                 (request, timeout) -> CompletableFuture.completedFuture(ProviderApprovalDecision.deny()), redactor, Optional.empty()).orElseThrow();
@@ -126,7 +129,7 @@ class TestPullRequestCiTool
     {
         PermissionBroker broker = broker(taskId -> Optional.of(new PullRequestCiBridge(jobId -> {
             throw new AssertionError("Invalid tool arguments reached the CI reader");
-        }, (logId, offset) -> "raw", PullRequestCiBridge.INSTRUCTION)), ReviewBridgeResolver.NONE);
+        }, (logId, offset) -> "raw", PullRequestCiBridge.INSTRUCTION, Optional.empty(), Optional.empty())), ReviewBridgeResolver.NONE);
         try (CodeGraphRegistration registration = broker.registerTools(
                 "task-1", temporaryDirectory, AgentPermissionPolicy.AUTO,
                 (request, timeout) -> CompletableFuture.completedFuture(ProviderApprovalDecision.deny()), redactor, Optional.empty()).orElseThrow()) {
@@ -188,7 +191,7 @@ class TestPullRequestCiTool
     {
         PermissionBroker broker = broker(taskId -> Optional.of(new PullRequestCiBridge(jobId -> {
             throw new IllegalStateException("known-secret " + "x".repeat(PullRequestCiBridge.MAXIMUM_OUTPUT_LENGTH));
-        }, (logId, offset) -> "raw", PullRequestCiBridge.INSTRUCTION)), ReviewBridgeResolver.NONE);
+        }, (logId, offset) -> "raw", PullRequestCiBridge.INSTRUCTION, Optional.empty(), Optional.empty())), ReviewBridgeResolver.NONE);
         try (CodeGraphRegistration registration = broker.registerTools(
                 "task-1", temporaryDirectory, AgentPermissionPolicy.AUTO,
                 (request, timeout) -> CompletableFuture.completedFuture(ProviderApprovalDecision.deny()), redactor, Optional.empty()).orElseThrow()) {
@@ -196,6 +199,77 @@ class TestPullRequestCiTool
             assertThat(response.at("/result/isError").booleanValue()).isTrue();
             assertThat(text(response)).contains("no partial log was returned").doesNotContain("known-secret");
         }
+    }
+
+    @Test
+    void onlyCiSessionsCanProposeDescriptionsAndBothProvidersValidateTheExactPayload()
+            throws Exception
+    {
+        List<CiDescriptionProposal> proposals = new ArrayList<>();
+        PermissionBroker broker = broker(taskId -> Optional.of(new PullRequestCiBridge(jobId -> "checks", (logId, offset) -> "raw",
+                PullRequestCiBridge.INSTRUCTION, Optional.of(proposal -> {
+                    proposals.add(proposal);
+                    return "Saved";
+                }), Optional.empty())), ReviewBridgeResolver.NONE);
+        for (AgentPermissionPolicy policy : ImmutableList.of(AgentPermissionPolicy.AUTO, AgentPermissionPolicy.CI_AUTOFIX)) {
+            try (CodeGraphRegistration codex = broker.registerTools("task-1", temporaryDirectory, policy,
+                    (request, timeout) -> CompletableFuture.completedFuture(ProviderApprovalDecision.deny()), redactor, Optional.empty()).orElseThrow();
+                    McpConfigRegistration claude = broker.register("task-1", temporaryDirectory, temporaryDirectory, temporaryDirectory, policy,
+                            false, (request, timeout) -> CompletableFuture.completedFuture(ProviderApprovalDecision.deny()), redactor, Optional.empty())) {
+                for (String token : ImmutableList.of(codex.token(), claude.token())) {
+                    JsonNode request = objectMapper.readTree("""
+                            {"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"propose_ci_description",
+                              "arguments":{"jobId":7,"expectedBody":"Fixes #1.","body":"- Fixes #1."}}}
+                            """);
+                    if (policy == AgentPermissionPolicy.AUTO) {
+                        assertThat(list(broker, token).at("/result/tools").findValuesAsText("name")).doesNotContain(CiDescriptionProposal.TOOL_NAME);
+                        assertThat(broker.handle(token, request).body().orElseThrow().at("/error/code").intValue()).isEqualTo(-32602);
+                        continue;
+                    }
+                    assertThat(list(broker, token).at("/result/tools").findValuesAsText("name")).contains(CiDescriptionProposal.TOOL_NAME);
+                    assertThat(text(broker.handle(token, request).body().orElseThrow())).isEqualTo("Saved");
+                    ((ObjectNode) request.at("/params/arguments")).put("repo", "other/repo");
+                    assertThat(broker.handle(token, request).body().orElseThrow().at("/error/code").intValue()).isEqualTo(-32602);
+                }
+            }
+        }
+        assertThat(proposals).containsExactly(new CiDescriptionProposal(7, "Fixes #1.", "- Fixes #1."), new CiDescriptionProposal(7, "Fixes #1.", "- Fixes #1."));
+    }
+
+    @Test
+    void bothProvidersRequireAnExplicitBoundedRerunAssessmentFromACiSession()
+            throws Exception
+    {
+        List<Long> requests = new ArrayList<>();
+        PermissionBroker broker = broker(taskId -> Optional.of(new PullRequestCiBridge(jobId -> "checks", (logId, offset) -> "raw",
+                PullRequestCiBridge.INSTRUCTION, Optional.empty(), Optional.of((jobId, reason) -> {
+                    requests.add(jobId);
+                    return "Assessment saved";
+                }))), ReviewBridgeResolver.NONE);
+        for (AgentPermissionPolicy policy : ImmutableList.of(AgentPermissionPolicy.AUTO, AgentPermissionPolicy.CI_AUTOFIX)) {
+            try (CodeGraphRegistration codex = broker.registerTools("task-1", temporaryDirectory, policy,
+                    (request, timeout) -> CompletableFuture.completedFuture(ProviderApprovalDecision.deny()), redactor, Optional.empty()).orElseThrow();
+                    McpConfigRegistration claude = broker.register("task-1", temporaryDirectory, temporaryDirectory, temporaryDirectory, policy,
+                            false, (request, timeout) -> CompletableFuture.completedFuture(ProviderApprovalDecision.deny()), redactor, Optional.empty())) {
+                for (String token : ImmutableList.of(codex.token(), claude.token())) {
+                    JsonNode request = objectMapper.readTree("""
+                            {"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"request_ci_rerun",
+                              "arguments":{"jobId":7,"reason":"Runner lost connection before tests started"}}}
+                            """);
+                    if (policy == AgentPermissionPolicy.AUTO) {
+                        assertThat(list(broker, token).at("/result/tools").findValuesAsText("name")).doesNotContain(PullRequestCiBridge.RERUN_TOOL_NAME);
+                        assertThat(broker.handle(token, request).body().orElseThrow().at("/error/code").intValue()).isEqualTo(-32602);
+                        continue;
+                    }
+                    assertThat(text(broker.handle(token, request).body().orElseThrow())).isEqualTo("Assessment saved");
+                    ((ObjectNode) request.at("/params/arguments")).put("reason", " ");
+                    assertThat(broker.handle(token, request).body().orElseThrow().at("/error/code").intValue()).isEqualTo(-32602);
+                    ((ObjectNode) request.at("/params/arguments")).put("reason", "Network failure").put("repo", "other/repo");
+                    assertThat(broker.handle(token, request).body().orElseThrow().at("/error/code").intValue()).isEqualTo(-32602);
+                }
+            }
+        }
+        assertThat(requests).containsExactly(7L, 7L);
     }
 
     private PermissionBroker broker(PullRequestCiBridgeResolver ci, ReviewBridgeResolver review)

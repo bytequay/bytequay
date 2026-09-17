@@ -18,11 +18,14 @@ import com.bytequay.agent.core.TaskId;
 import com.bytequay.agent.core.TaskState;
 import com.bytequay.agent.core.TaskWorktree;
 import com.bytequay.agent.core.store.AgentTaskStore;
+import com.bytequay.agent.core.store.AgentTurnStore;
 import com.bytequay.agent.core.store.TaskLogStore;
 import com.bytequay.agent.spi.AgentPermissionPolicy;
+import com.bytequay.agent.spi.CiDescriptionProposal;
 import com.bytequay.agent.spi.PullRequestCiBridge;
 import com.bytequay.agent.spi.PullRequestCiBridgeResolver;
 import com.bytequay.app.ci.BoundedCiLog;
+import com.bytequay.app.ci.CiAutofixService;
 import com.bytequay.app.ci.CiHeadSnapshot;
 import com.bytequay.app.ci.CiJob;
 import com.bytequay.app.ci.CiLogExcerpt;
@@ -49,6 +52,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ArrayNode;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 import com.google.common.collect.ImmutableList;
+import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.stereotype.Component;
 
 import java.nio.charset.StandardCharsets;
@@ -56,6 +60,7 @@ import java.time.Instant;
 import java.util.Comparator;
 import java.util.List;
 import java.util.Optional;
+import java.util.function.Function;
 import java.util.stream.Stream;
 
 import static com.google.common.collect.ImmutableList.toImmutableList;
@@ -81,11 +86,14 @@ public class PullRequestCiBridgeResolverImpl
     private final ObjectMapper objectMapper;
     private final CiRawLogStore rawLogs;
     private final CiAutofixStore ciRuns;
+    private final AgentTurnStore turns;
+    private final ObjectProvider<CiAutofixService> ci;
 
     public PullRequestCiBridgeResolverImpl(
             AgentTaskStore tasks, WorkspaceStore workspaces, ManagedWorktreeService worktrees,
             PullRequestStore pullRequests, PullRequestService pullRequestCatalog, PrDetailStore details,
-            GitHubActionsClient actions, TaskLogStore logs, ObjectMapper objectMapper, CiRawLogStore rawLogs, CiAutofixStore ciRuns)
+            GitHubActionsClient actions, TaskLogStore logs, ObjectMapper objectMapper, CiRawLogStore rawLogs, CiAutofixStore ciRuns,
+            AgentTurnStore turns, ObjectProvider<CiAutofixService> ci)
     {
         this.tasks = requireNonNull(tasks, "tasks is null");
         this.workspaces = requireNonNull(workspaces, "workspaces is null");
@@ -98,13 +106,26 @@ public class PullRequestCiBridgeResolverImpl
         this.objectMapper = requireNonNull(objectMapper, "objectMapper is null");
         this.rawLogs = requireNonNull(rawLogs, "rawLogs is null");
         this.ciRuns = requireNonNull(ciRuns, "ciRuns is null");
+        this.turns = requireNonNull(turns, "turns is null");
+        this.ci = requireNonNull(ci, "ci is null");
     }
 
     @Override
     public Optional<PullRequestCiBridge> resolve(String taskId)
     {
         TaskId id = TaskId.valueOf(taskId);
-        return eligibleTask(id).map(task -> new PullRequestCiBridge(jobId -> read(id, jobId), (logId, offset) -> readRaw(id, logId, offset), PullRequestCiBridge.INSTRUCTION));
+        return eligibleTask(id).map(task -> {
+            Optional<Function<CiDescriptionProposal, String>> propose = task.permissionPolicy() == AgentPermissionPolicy.CI_AUTOFIX
+                    ? turns.findActive(id).map(turn -> proposal -> {
+                        ci.getObject().proposeDescription(id, turn.id(), proposal);
+                        return "Description proposal saved. ByteQuay will apply and verify it after this turn completes; this tool has not changed GitHub.";
+                    }) : Optional.empty();
+            return new PullRequestCiBridge(jobId -> read(id, jobId), (logId, offset) -> readRaw(id, logId, offset), PullRequestCiBridge.INSTRUCTION, propose,
+                    task.permissionPolicy() == AgentPermissionPolicy.CI_AUTOFIX ? turns.findActive(id).map(turn -> (jobId, reason) -> {
+                        ci.getObject().requestRerun(id, turn.id(), jobId, reason);
+                        return "Rerun assessment saved. ByteQuay will consider one failed-job rerun after this turn; this tool has not rerun GitHub Actions.";
+                    }) : Optional.empty());
+        });
     }
 
     private Optional<AgentTask> eligibleTask(TaskId taskId)
@@ -236,6 +257,10 @@ public class PullRequestCiBridgeResolverImpl
         ci.put("workflowsOmitted", head.workflowRuns().size() - workflows.size());
         ci.put("jobsOmitted", head.jobs().size() - includedJobs);
         cachedChecks(result, candidate);
+        if (scope.pullRequest().isPresent()) {
+            String description = actions.readDescription(head.pullRequest());
+            text(result, "description", description, 60_000);
+        }
         if (!scope(taskId).filter(scope::equals).isPresent()) {
             return message("unavailable", "The task or worktree changed while reading its CI evidence.");
         }

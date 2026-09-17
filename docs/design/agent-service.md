@@ -104,6 +104,21 @@ See [development delivery](development-delivery.md#2-settings-and-scope).
 
 ## Development-agent CI evidence
 
+CI Autofix sessions additionally expose `propose_ci_description` through the
+existing `PullRequestCiBridge`. It saves an exact, bounded body proposal for the
+current failed job and active turn; it does not perform a remote write. The
+application verifies and applies it after provider completion under the existing
+CI owner and deadline, then watches the replacement workflow. Interactive,
+review, and helper sessions never receive this proposal capability. The
+[CI Autofix design](ci-autofix-service.md#pr-description-repairs) owns its write
+and freshness checks. Provider command/network permissions stay unchanged.
+
+CI sessions also expose `request_ci_rerun(jobId, reason)`. The active turn must
+explicitly diagnose evidence of a flaky test or transient infrastructure failure;
+the application validates the failed job and stores the assessment on its attempt.
+An unchanged worktree or untrusted final-response prose never authorizes a rerun.
+One assessment permits one failed-job rerun, whose failure returns to diagnosis.
+
 Interactive development and CI Autofix agents receive the fixed
 `read_pull_request_ci` and `read_ci_raw_log` tools through `PullRequestCiBridge`,
 independently of CodeGraph and delivery settings. Both Codex and Claude receive

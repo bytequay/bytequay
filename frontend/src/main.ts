@@ -564,6 +564,18 @@ function registerIpc(): void {
     { method: refresh === true ? 'POST' : 'GET', headers: agentHeaders() }));
   ipcMain.handle('ci-autofix:get', (_event, runId: string) =>
     backendJson(`${backendBase()}/api/ci-autofix/runs/${encodeURIComponent(runId)}`, { headers: agentHeaders() }).then(parseCiAutofixRun));
+  ipcMain.handle('ci-autofix:list', () =>
+    backendJson<unknown[]>(`${backendBase()}/api/ci-autofix/runs?limit=200`, { headers: agentHeaders() })
+      .then(runs => runs.map(parseCiAutofixRun)));
+  ipcMain.handle('ci-autofix:start', (_event, workspaceId: string, pullRequestNumber: number, laneId: string, idempotencyKey: string) =>
+    backendJson(`${backendBase()}/api/ci-autofix/runs`, {
+      ...jsonInit('POST', { workspaceId, pullRequestNumber, laneId, maxAttempts: 3,
+        allowFailedJobReruns: true, allowHistoryRewrites: true, allowExactLeasePush: true }, { ...agentHeaders(), 'Idempotency-Key': idempotencyKey }),
+      signal: AbortSignal.timeout(15 * 60_000),
+    }).then(parseCiAutofixRun));
+  ipcMain.handle('ci-autofix:cancel', (_event, runId: string) =>
+    backendJson(`${backendBase()}/api/ci-autofix/runs/${encodeURIComponent(runId)}/cancel`,
+      { method: 'POST', headers: agentHeaders(), signal: AbortSignal.timeout(90_000) }).then(parseCiAutofixRun));
   ipcMain.handle('ci-autofix:message', (_event, runId: string, message: string, idempotencyKey: string) =>
     backendJson(`${backendBase()}/api/ci-autofix/runs/${encodeURIComponent(runId)}/messages`,
       jsonInit('POST', { message }, { ...agentHeaders(), 'Idempotency-Key': idempotencyKey })).then(parseCiAutofixRun));

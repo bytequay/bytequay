@@ -70,6 +70,15 @@ run's derived `canMessage` permission for an eligible paused run. The mention
 does not expand write authority, start a run, or revive a finished run. The
 source task keeps its existing polling so message availability stays current.
 There is no separate CI status/log block, transcript panel, or history action.
+After a task's delivery CI run ends, a compact recovery control shows its
+repair/rerun counts and whether automatic rechecking has stopped. **Restart CI
+fix** explicitly starts a new standalone run for the same PR and workspace,
+using the task's selected CI provider and the existing three-repair,
+three-rerun-per-head, eight-hour authorization. It can repair the PR description
+or code and push the PR branch. It does not revive the old delivery owner or
+perform delivery's ready-for-review promotion. The existing branch reservation
+rejects overlapping source work. The control finds the latest matching run on
+reopen, polls its status, and offers Stop; app restart alone never starts a run.
 A general existing-PR UI entry remains separate. The shared
 `green()` predicate requires every observed workflow to be completed and passing
 with nonempty passing jobs; a queued workflow cannot hide behind another passing
@@ -77,6 +86,35 @@ job. The development coordinator rechecks Actions and required checks/statuses
 after GREEN, synchronizes the source, and owns any permitted ready promotion.
 Generic CI `GREEN` does not change draft state. Unsupported check evidence waits
 or fails visibly as specified in the delivery design.
+
+## PR-description repairs
+
+Enabling CI Autofix authorizes minimal PR-description corrections required by
+failing checks as well as code repairs. The agent remains unable to write to
+GitHub directly. Its task/turn-bound `propose_ci_description` tool accepts a
+current failed `jobId`, the exact `expectedBody`, and the complete replacement
+`body` (at most 60,000 characters each). The CI overview includes the current
+body and an explicit truncation flag. Never propose a body from truncated input.
+Other tasks and expired session callbacks cannot use this proposal capability.
+
+The proposal is stored on the existing attempt. After the turn completes,
+ByteQuay verifies author, PR/head/base identity, live ownership, deadline, local
+Git state, and the unchanged expected body. It journals the write before using
+the existing description-update client. A later read must equal the proposed
+body; a lost response can be reconciled from that exact value without another
+PATCH. Concurrent edits or an uncertain outcome pause instead of overwriting
+text or blindly retrying. Valid committed code in the same attempt retains the
+existing inspected-Git and exact-lease push path.
+
+The run then watches for a new run of the affected workflow, with a newer run
+ID than the failed event. Re-running that old event does not validate a changed
+PR body. Missing replacement evidence pauses after the existing two-minute
+observation window; queued/running replacement checks keep watching. Inspection
+selects the newest run per workflow and trigger on the current head, so a superseded
+failure cannot poison a passing replacement. Green still requires all current
+workflows and jobs to pass; unrelated pending CI keeps the run active. A failed
+replacement uses another bounded repair attempt. These repairs use the same
+three-attempt and eight-hour limits and never revive a finished run.
 
 ## 1. Decision
 
@@ -173,7 +211,7 @@ The agent may edit, commit, amend, squash, and reorder fixups only inside the
 generated task worktree. During a program-owned target rebase it may edit and stage the
 current conflict, but only the program may continue, skip, or abort. It never
 receives a GitHub credential or a GitHub write tool, and its runtime policy
-denies network writes. Only the program may push or rerun GitHub Actions.
+denies network writes. Only the program may update the authorized PR description, push, or rerun GitHub Actions.
 
 Codex repairs use the same watch, fix, validate, push, rerun, and completion
 loop. The adapter uses `never` approval policy, reviewer `user`, disabled native
@@ -572,7 +610,7 @@ public interface CiAutofixStore
 
 Every automatic CI-fix turn receives the current head/base SHAs, failed job
 summaries, diagnostic log excerpts, `read_pull_request_ci`, `read_ci_raw_log`,
-`read_ci_memory`, and this instruction:
+`read_ci_memory`, `propose_ci_description`, `request_ci_rerun`, and this instruction:
 
 ```text
 Fix the current GitHub Actions failures for this authored pull request.
@@ -593,6 +631,17 @@ failures. Inspect the repository's workflow files, instructions, README,
 scripts, manifests, and checked-in wrappers to choose useful local checks. Run
 those checks when possible. If a check finds a code problem, fix it. If a check
 cannot run because of the environment, continue and explain that to the user.
+
+For description failures, read the complete current body with read_pull_request_ci
+and submit the corrected full body through propose_ci_description with its
+expectedBody and failed jobId. ByteQuay applies it after this turn and watches
+the new check event. Do not rerun the old event. Preserve change details and
+release notes; keep local execution details in the task conversation.
+
+A clean worktree does not establish flakiness. Only request_ci_rerun with a
+current failed jobId and evidence of a flaky or transient failure permits one
+rerun. Repair deterministic failures; if repair is blocked, explain why.
+After a failed rerun, diagnose the new evidence before choosing another action.
 
 ByteQuay has synchronized and prepared the local PR branch on the exact target
 SHA shown above. Do not rebase onto, fetch, or update the target branch in this
@@ -619,8 +668,9 @@ The agent may produce any response or none. Program control uses only:
 - stored consent, attempt counts, and exact SHAs;
 - GitHub head/base/check facts;
 - durable `AgentTurn.state`;
-- actual local Git state; and
-- push-journal facts.
+- actual local Git state;
+- validated description proposals and explicit rerun assessments; and
+- remote-write journal facts.
 
 It never uses assistant messages, JSON-looking output, test claims, summaries,
 or claimed targets.
@@ -638,7 +688,8 @@ flowchart TD
     GIT{"Program inspects actual Git"}
     PUSH["Program pushes with exact lease"]
     CI{"Program monitors GitHub Actions"}
-    RERUN["Program reruns failed jobs for unchanged head"]
+    RERUN["Program reruns the workflow selected by the agent's flaky/transient assessment"]
+    DESCRIPTION["Program applies description proposal and watches the new check event"]
     FINAL{"Program checks fixup positions once"}
     PAUSE["Program pauses"]
     DONE["Program completes task"]
@@ -649,7 +700,9 @@ flowchart TD
     LIFE -->|"failed / interrupted"| PAUSE
     LIFE -->|"completed"| GIT
     GIT -->|"committed clean head"| PUSH --> CI
-    GIT -->|"no new commit"| RERUN --> CI
+    GIT -->|"description proposal"| DESCRIPTION --> CI
+    GIT -->|"no new commit, explicit rerun assessment"| RERUN --> CI
+    GIT -->|"no repair or rerun assessment"| PAUSE
     GIT -->|"dirty / conflict / invalid"| PAUSE
     CI -->|"failed and attempts remain"| WATCH
     CI -->|"green"| FINAL
@@ -667,6 +720,8 @@ The operations are:
 | Fix, test, commit, and position fixup | Agent | Local Git mutations only; response is display-only |
 | Decide turn ended | Agent service | Durable lifecycle from provider/process protocol |
 | Accept local result | Program | Clean Git state and committed local head |
+| Repair description | Agent proposes, program writes | Current full body, failed job, author consent, and unchanged PR scope |
+| Request rerun | Agent diagnoses, program executes | Stored flaky/transient assessment for a current failed job |
 | Push | Program | Exact expected remote SHA and local fingerprint |
 | Decide CI result | Program | GitHub checks for pushed SHA |
 | Check all fixup positions | Program, once after green | Actual commit subjects/order |
@@ -709,7 +764,9 @@ before the first fix turn or inspection of a completed fix:
 if a completed turn has not been inspected:
     inspect actual Git
     if committed and clean: journal and push the local head
-    if unchanged: rerun eligible failed jobs, up to three times for this head
+    if a description was proposed: apply and verify it, then watch its replacement workflow
+    if unchanged with an explicit flaky/transient assessment: rerun the selected failed workflow once
+    if unchanged without an assessment or description proposal: pause with the blocker
     otherwise: pause with Git diagnostics
 if the watched head is green, including before any fix attempt:
     run checkFixupPositions once
@@ -732,9 +789,15 @@ failure log already exists.
 ### 5.2 Empty result
 
 If a completed turn leaves no new commit and a clean worktree, the program does
-not interpret the agent's explanation. It reruns eligible failed jobs and
-monitors them. This is limited to three reruns for the unchanged head. If a
-rerun is unavailable or still fails after the limit, the run pauses.
+not interpret the agent's explanation. A typed description proposal follows
+the description-repair path above. Otherwise the active agent must call `request_ci_rerun` with a current failed
+job ID and an evidence-based flaky/transient assessment. The controller persists
+that assessment and reruns only that workflow’s failed jobs once. An empty Git
+result alone never authorizes a rerun; without a repair or assessment the run
+pauses with a clear blocker. A failed rerun consumes a new repair attempt with
+current evidence rather than rerunning the same empty result again. The total
+remains limited to three reruns per unchanged head and three repair turns.
+Unavailable reruns pause; exhausted repair attempts finish `MAX_ATTEMPTS`.
 
 ### 5.3 Invalid result
 
@@ -949,7 +1012,7 @@ These files use the agent task's existing seven-day retention policy.
 - attempt ID/number and input SHA;
 - failure signatures, normalized failure summaries, workflow/job attempt
   references, and diagnostic-log blob references;
-- agent turn ID;
+- agent turn ID and optional exact description proposal/write/verification facts;
 - inspected local head, fingerprint, actual changed paths, and commit subjects;
 - expected remote SHA, pushed SHA, and push time; and
 - observed CI result and timeline event key.
@@ -989,7 +1052,7 @@ POST /api/ci-autofix/runs/{runId}/cancel
 ```
 
 The start request contains `workspaceId`, repository, PR number, agent lane,
-`maxAttempts`, and explicit permission for failed-job reruns, local history
+`maxAttempts`, and consent for description repairs, failed-job reruns, local history
 rewrites, and exact-lease branch pushes. It requires an `Idempotency-Key`.
 
 The response contains status, derived activity, authorization expiry, current
@@ -1029,7 +1092,8 @@ remain in the existing event stream and are labeled display-only.
    prompt and memory tool. Restart and concurrent-start recovery reuse that
    preassigned ID.
 4. Inspect the committed agent result and lease-push it.
-5. Monitor CI, handle bounded empty-result reruns, and repeat failed heads.
+5. Monitor CI, apply description proposals, execute bounded agent-requested
+   reruns, and return failed results to diagnosis.
 6. Run the one final fixup-position check, record the local timeline event,
    complete the task when CI is green, persist the run's `FINISHED` result, and
    only then remove its verified clean worktree while retaining the generated
@@ -1226,8 +1290,9 @@ does not reproduce MCP or CLI protocols.
 | Early actionable failure | A failed compile job starts fixing while an unrelated slow job remains pending |
 | Multiple-attempt green | Raw logs become task files; the agent reads prior CI memory when useful; fixups are positioned/folded; exact-lease pushes occur; a different later failure is fixed; CI becomes green; the final position check runs once; the task, metrics, summary, events, and timeline persist |
 | Target branch moved | The program synchronizes and rebases the exact target SHA; an agent only stages a stopped conflict resolution; the program continues and later lease-pushes the clean, linear, correctly positioned result |
-| Empty agent result | No Git change causes a failed-job rerun, not a push; a later green snapshot finishes the run |
-| Empty-result bound | One empty result may consume at most three failed-job reruns for the unchanged head, then pauses without a fourth rerun |
+| Explicit flaky/transient assessment | No Git change plus a validated agent rerun request reruns the selected workflow once; a later green snapshot finishes the run |
+| Empty agent result | No repair and no rerun assessment pauses without any GitHub write; agent prose does not authorize a rerun |
+| Empty-result bound | Each failed rerun returns to diagnosis; three unsuccessful repairs finish without a fourth rerun |
 | Invalid Git recovery | An invalid result pauses immediately with no push; a user HTTP message may start a repair turn on the same task; another invalid result remains paused |
 | Stale PR head | An external head update before push finishes `STALE_HEAD` and preserves the external commit |
 | User message | A paused run accepts an idempotent HTTP message on the same task and can continue to green |

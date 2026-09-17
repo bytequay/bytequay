@@ -15,6 +15,8 @@ package com.bytequay.persistence.sqlite.entity;
 
 import com.bytequay.core.ci.CiAutofixAttempt.FailureEvidence;
 import com.bytequay.core.ci.CiAutofixRun.Warning;
+import com.bytequay.core.ci.CiDescriptionChange;
+import com.bytequay.core.ci.CiRerunAssessment;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.google.common.collect.ImmutableList;
@@ -53,6 +55,26 @@ final class CiAutofixJson
     public static List<FailureEvidence> decodeFailures(String json)
     {
         return CI_AUTOFIX.guard("Cannot deserialize CI Autofix failures", () -> ImmutableList.copyOf(MAPPER.readValue(json, FAILURE_VALUES)));
+    }
+
+    public static String encodeDescriptionChange(CiDescriptionChange change)
+    {
+        return encode(change, "CI description change");
+    }
+
+    public static CiDescriptionChange decodeDescriptionChange(String json)
+    {
+        return CI_AUTOFIX.guard("Cannot deserialize CI description change", () -> MAPPER.readValue(json, CiDescriptionChange.class));
+    }
+
+    public static String encodeRerunAssessment(CiRerunAssessment assessment)
+    {
+        return encode(assessment, "CI rerun assessment");
+    }
+
+    public static CiRerunAssessment decodeRerunAssessment(String json)
+    {
+        return CI_AUTOFIX.guard("Cannot deserialize CI rerun assessment", () -> MAPPER.readValue(json, CiRerunAssessment.class));
     }
 
     private static String encode(Object value, String label)

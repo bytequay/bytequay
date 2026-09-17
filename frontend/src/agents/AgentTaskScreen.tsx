@@ -57,6 +57,7 @@ PullRequestDto,
 WorkspaceDto
 } from '../types';
 import TaskPaneDivider, { useTaskPane } from './TaskPaneDivider';
+import CiAutofixRecovery from './CiAutofixRecovery';
 import { AgentConversation,BlockView,clock,codeGraphText,ConversationComposer,ConversationQueue,Glyph,modelName,PlanSteps,serviceTierName,shortDate,Spinner,stateClass,useConversationHistory,useOutputWheel,type AttachmentPreview } from './AgentConversation';
 import { type CommitRange, type DiffAgentComment } from '../pulls/PullChanges';
 import { useLocalReviewThreads } from '../pulls/local-review/useLocalReviewThreads';
@@ -939,12 +940,14 @@ export function AgentTaskBody({
   onFollowHistory = () => {},
   pendingApprovals = null,
   automation,
+  ciRecovery,
   headerAction,
   submissionBlocked = false,
   onAskAgent, onAskAgentDisabled, localReview, learning, reviewFocus, onOpenReview,
 }: {
   state: AgentTaskState;
   automation?: React.ReactNode;
+  ciRecovery?: React.ReactNode;
   headerAction?: React.ReactNode;
   submissionBlocked?: boolean;
   onAskAgent?: (comment: DiffAgentComment) => Promise<void>;
@@ -1212,6 +1215,7 @@ export function AgentTaskBody({
         </div>
       )}
       {state.notice !== null && <div className="agt-notice" role="alert">{state.notice}</div>}
+      {ciRecovery}
       {localReviewActive ? <div className="agt-local-review" role="status">
         <span>Local review · changes stay uncommitted</span>
         {onSyncLocalReview !== undefined && <button type="button" className="agt-action"
@@ -1463,6 +1467,7 @@ export default function AgentTaskScreen({
   headerAction,
 }: AgentTaskScreenProps): React.JSX.Element {
   const [state, dispatch] = useReducer(agentTaskReducer, undefined, initialAgentTaskState);
+  const [ciRecoveryRunning, setCiRecoveryRunning] = useState(false);
   const [models, setModels] = useState<ModelOptionDto[]>([]);
   const [provider, setProvider] = useState('');
   const [providerStatus, setProviderStatus] = useState<AgentProviderStatus | null>(null);
@@ -1933,7 +1938,7 @@ export default function AgentTaskScreen({
       }
       return;
     }
-    if (attachmentPendingRef.current || automationBlocked || !canSend(stateRef.current)) return;
+    if (attachmentPendingRef.current || automationBlocked || ciRecoveryRunning || !canSend(stateRef.current)) return;
     const message = state.composer.trim();
     if (state.task?.localReviewHead == null && ciMessage(message) !== null) return;
     const task = state.task;
@@ -1958,7 +1963,7 @@ export default function AgentTaskScreen({
       dispatch({ type: 'attachments/added', attachments: state.attachments });
       throw failure;
     }
-  }), [automationBlocked, ciPollingError, confirmation, confirming, live, refreshProjection, run, startTurn, state.attachments, state.composer, state.latestTurnId, state.task, submissionAutomation, submissions, taskId, workspaceId]);
+  }), [automationBlocked, ciPollingError, ciRecoveryRunning, confirmation, confirming, live, refreshProjection, run, startTurn, state.attachments, state.composer, state.latestTurnId, state.task, submissionAutomation, submissions, taskId, workspaceId]);
 
   const taskCommentDisabled = state.task?.state !== 'OPEN' ? 'This task is closed.'
     : state.task?.developmentContinuationUnfinished ? 'Wait for the current follow-up to finish.'
@@ -2050,7 +2055,7 @@ export default function AgentTaskScreen({
   }), [live, run, state.attachments, state.composer, state.task, state.turn, submissions, taskId]);
 
   const queueNext = useCallback(() => run(async () => {
-    if (attachmentPendingRef.current || automationBlocked || !canQueue(stateRef.current)) return;
+    if (attachmentPendingRef.current || automationBlocked || ciRecoveryRunning || !canQueue(stateRef.current)) return;
     const message = state.composer.trim();
     if (state.task?.localReviewHead == null && ciMessage(message) !== null) return;
     const task = state.task;
@@ -2078,7 +2083,7 @@ export default function AgentTaskScreen({
     finally {
       dispatch({ type: 'composer/sending', sending: false });
     }
-  }), [applyQueuedInput, automationBlocked, live, refreshProjection, run, state.attachments, state.composer, state.latestTurnId, state.task, submissionAutomation, submissions, taskId, workspaceId]);
+  }), [applyQueuedInput, automationBlocked, ciRecoveryRunning, live, refreshProjection, run, state.attachments, state.composer, state.latestTurnId, state.task, submissionAutomation, submissions, taskId, workspaceId]);
 
   const removeQueued = useCallback((queuedInputId: string) => run(async () => {
     await live().removeAgentQueuedInput(taskId, workspaceId, queuedInputId);
@@ -2365,7 +2370,12 @@ export default function AgentTaskScreen({
     <AgentTaskBody
       state={state}
       headerAction={headerAction}
-      submissionBlocked={automationBlocked}
+      submissionBlocked={automationBlocked || ciRecoveryRunning}
+      ciRecovery={state.task?.developmentCi?.status === 'FINISHED' && !state.task.developmentContinuationUnfinished && state.task.state === 'OPEN'
+        ? <CiAutofixRecovery key={`${taskId}:${state.task.developmentCi.runId}`} previous={state.task.developmentCi} workspaceId={workspaceId}
+          laneId={state.task.defaults.developmentAutomation?.ciLaneId ?? state.task.laneId}
+          disabled={state.connection !== 'open' || runtimeStatus(state) !== 'idle' || state.sending || state.gap || automationBlocked}
+          bridge={live()} onRunningChange={setCiRecoveryRunning} /> : undefined}
       onAskAgent={state.task?.interactive === true ? sendAgentComment : undefined}
       onAskAgentDisabled={agentCommentDisabled}
       localReview={localReview}

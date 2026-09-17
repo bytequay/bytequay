@@ -79,6 +79,12 @@ public class CiAutofixAttemptEntity
     @Column(columnDefinition = "TEXT")
     private String untrustedAgentNote;
 
+    @Column(columnDefinition = "TEXT")
+    private String descriptionChangeJson;
+
+    @Column(columnDefinition = "TEXT")
+    private String rerunAssessmentJson;
+
     private String inspectedLocalHead;
 
     private String localFingerprint;
@@ -135,6 +141,8 @@ public class CiAutofixAttemptEntity
         failuresJson = CiAutofixJson.encodeFailures(attempt.failures());
         agentTurnId = attempt.agentTurnId().orElse(null);
         untrustedAgentNote = attempt.untrustedAgentNote().orElse(null);
+        descriptionChangeJson = attempt.descriptionChange().map(CiAutofixJson::encodeDescriptionChange).orElse(null);
+        rerunAssessmentJson = attempt.rerunAssessment().map(CiAutofixJson::encodeRerunAssessment).orElse(null);
         inspectedLocalHead = attempt.gitResult().map(GitResult::localHead).orElse(null);
         localFingerprint = attempt.gitResult().map(GitResult::fingerprint).orElse(null);
         changedPaths = attempt.gitResult().map(GitResult::changedPaths).orElse(ImmutableList.of());
@@ -165,6 +173,8 @@ public class CiAutofixAttemptEntity
                 Optional.ofNullable(agentTurnId),
                 Optional.ofNullable(untrustedAgentNote),
                 gitResult,
+                Optional.ofNullable(descriptionChangeJson).map(CiAutofixJson::decodeDescriptionChange),
+                Optional.ofNullable(rerunAssessmentJson).map(CiAutofixJson::decodeRerunAssessment),
                 Optional.ofNullable(expectedRemoteSha),
                 Optional.ofNullable(pushedSha),
                 Optional.ofNullable(pushedAt),

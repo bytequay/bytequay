@@ -44,6 +44,24 @@ final class CiAutofixPromptBuilder
             those checks when possible. If a check finds a code problem, fix it. If a check
             cannot run because of the environment, continue and explain that to the user.
 
+            If the failure is in the PR description, call read_pull_request_ci without arguments
+            for its complete description. If descriptionTruncated is true, do not propose a partial body.
+            Call propose_ci_description with the failed jobId, the exact description as expectedBody,
+            and the complete corrected body. Change only what the check requires; preserve other text,
+            release notes, and user restrictions. This stores a proposal for ByteQuay to apply after
+            your turn. It grants no shell/API write access. Do not rerun the old event yourself.
+            Never include local execution details in the description: commands, test runs or counts,
+            pass/fail results, build or validation outcomes, logs, or environment limitations.
+            Omit these even if the previous description included them; preserve the other change details.
+            Report those only in the ByteQuay task conversation, including when fixing a test-plan section.
+            After a failed rerun, diagnose the new evidence and repair the cause rather than assuming a flake.
+            A clean worktree or inability to reproduce a failure does not establish flakiness.
+            Reruns require request_ci_rerun with a current failed jobId and a reason citing evidence
+            of a flaky test or transient infrastructure failure. Do not request reruns for deterministic
+            failures such as description validation, compilation, or reproducible assertions: repair
+            their cause. Each request allows one rerun of that workflow's failed jobs after your turn;
+            a failed rerun returns to diagnosis. If you cannot repair the cause, explain the blocker.
+
             ByteQuay already synchronized and prepared this local branch on the exact base
             SHA shown above. Do not fetch, update, or rebase onto the target branch in this
             turn. Commit the repair as "fixup! <target subject>" and place it immediately

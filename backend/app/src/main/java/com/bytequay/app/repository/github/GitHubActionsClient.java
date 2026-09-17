@@ -298,6 +298,12 @@ public class GitHubActionsClient
     }
 
     @Override
+    public String readDescription(PullRequestRef pullRequest)
+    {
+        return Optional.ofNullable(fetchPullRequest(token(), pullRequest).body()).orElse("");
+    }
+
+    @Override
     public CiHeadSnapshot inspect(InspectCiHeadQuery query)
     {
         requireNonNull(query, "query is null");
@@ -470,7 +476,7 @@ public class GitHubActionsClient
             WorkflowRunsResponse response = fetchWorkflowRunPage(pat, pullRequest, headSha, page);
             List<WorkflowRunResponse> rows = response.workflowRuns();
             for (WorkflowRunResponse row : rows) {
-                if (row == null || row.id() <= 0 || !headSha.equals(row.headSha())) {
+                if (row == null || row.id() <= 0 || row.workflowId() <= 0 || !headSha.equals(row.headSha())) {
                     throw badGateway("GitHub returned an invalid current-head workflow run");
                 }
                 if (!observedAttempts.add(row.id() + ":" + positiveOrOne(row.runAttempt()))) {
@@ -490,7 +496,11 @@ public class GitHubActionsClient
         if (!complete) {
             throw badGateway("GitHub workflow runs exceed the complete inspection limit");
         }
-        return latest.values().stream()
+        Map<WorkflowKey, WorkflowRunResponse> workflows = new LinkedHashMap<>();
+        // A description edit replaces its PR-event run, but must not hide another trigger's failure.
+        latest.values().forEach(run -> workflows.merge(new WorkflowKey(run.workflowId(), Optional.ofNullable(run.event())), run,
+                (first, second) -> first.id() > second.id() ? first : second));
+        return workflows.values().stream()
                 .map(run -> toWorkflowRun(pat, pullRequest, run))
                 .sorted(Comparator.comparing(CiWorkflowRun::name).thenComparingLong(CiWorkflowRun::id))
                 .collect(toImmutableList());
@@ -832,6 +842,7 @@ public class GitHubActionsClient
     @JsonIgnoreProperties(ignoreUnknown = true)
     private record PullRequestResponse(
             String state,
+            String body,
             UserResponse user,
             BranchResponse head,
             BranchResponse base,
@@ -851,10 +862,13 @@ public class GitHubActionsClient
             @JsonProperty("total_count") Integer totalCount,
             @JsonProperty("workflow_runs") List<WorkflowRunResponse> workflowRuns) {}
 
+    private record WorkflowKey(long workflowId, Optional<String> event) {}
+
     @JsonIgnoreProperties(ignoreUnknown = true)
     private record WorkflowRunResponse(
             long id,
             @JsonProperty("workflow_id") long workflowId,
+            String event,
             String name,
             @JsonProperty("display_title") String displayTitle,
             @JsonProperty("run_attempt") int runAttempt,

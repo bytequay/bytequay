@@ -67,6 +67,7 @@ final class ScriptedAgentDriver
     static final AgentLaneId LANE = new AgentLaneId("ci-e2e");
 
     private final Map<String, AgentScript> scripts = new HashMap<>();
+    private final Map<String, CompletableFuture<AgentTurnResult>> pendingTurns = new HashMap<>();
     private final List<TurnCall> turns = new ArrayList<>();
     private final List<MemoryRead> memoryReads = new ArrayList<>();
     private final List<GitAction> gitActions = new ArrayList<>();
@@ -88,6 +89,7 @@ final class ScriptedAgentDriver
     synchronized void reset()
     {
         scripts.clear();
+        pendingTurns.clear();
         turns.clear();
         memoryReads.clear();
         gitActions.clear();
@@ -104,6 +106,16 @@ final class ScriptedAgentDriver
     {
         AgentScript script = requireScript(pullRequest);
         script.actions().add(AgentAction.blockedAction());
+    }
+
+    void complete(String turnId, String finalResponse)
+    {
+        CompletableFuture<AgentTurnResult> completion;
+        synchronized (this) {
+            completion = pendingTurns.remove(turnId);
+        }
+        checkState(completion != null, "No pending turn " + turnId);
+        completion.complete(new AgentTurnResult(AgentTurnResult.State.COMPLETED, Optional.of(finalResponse), Optional.empty(), Duration.ZERO));
     }
 
     synchronized void enqueueCompleted(
@@ -402,6 +414,11 @@ final class ScriptedAgentDriver
             CompletableFuture<AgentTurnResult> completion = action.waitsForCancellation()
                     ? new CompletableFuture<>()
                     : CompletableFuture.completedFuture(action.result());
+            if (action.waitsForCancellation()) {
+                synchronized (ScriptedAgentDriver.this) {
+                    pendingTurns.put(command.turnId(), completion);
+                }
+            }
             return new ScriptedRunningTurn(call, completion);
         }
 

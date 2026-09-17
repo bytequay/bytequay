@@ -27,6 +27,7 @@ import com.bytequay.agent.core.RepositoryIdentity;
 import com.bytequay.agent.core.StartAgentTurnCommand;
 import com.bytequay.agent.core.TaskId;
 import com.bytequay.agent.core.TaskState;
+import com.bytequay.agent.core.TurnId;
 import com.bytequay.agent.core.TurnState;
 import com.bytequay.agent.core.store.AgentTurnStore;
 import com.bytequay.agent.core.store.TaskLogStore;
@@ -598,21 +599,27 @@ class TestCiAutofixEndToEnd
         assertThat(details.find(fixture.prId()).orElseThrow().timeline()).isEmpty();
     }
 
+    private void requestFlakyRerun(CiAutofixE2eHarness.Fixture fixture)
+    {
+        CiAutofixRun run = service.list(200).stream().filter(value -> value.scope().pullRequest().equals(fixture.repository().pullRequest())).findFirst().orElseThrow();
+        service.requestRerun(TaskId.valueOf(run.agentTaskId().orElseThrow()), TurnId.valueOf(run.currentTurnId().orElseThrow()),
+                run.attempts().getLast().failures().getFirst().jobId(), "The runner lost its network connection before tests started");
+        agent.complete(run.currentTurnId().orElseThrow(), "Transient runner connection failure; requesting one rerun.");
+    }
+
     @Test
-    void rerunsFailedJobsAfterAnEmptyAgentResultAndFinishesFromGitHubGreen()
+    void rerunsOnlyAfterTheAgentRequestsItAndFinishesFromGitHubGreen()
             throws Exception
     {
         CiAutofixE2eHarness.Fixture fixture = harness.createFixture("empty-green");
         E2eGitRepository repository = fixture.repository();
         harness.scriptFailingCi(fixture, false);
-        agent.enqueueCompleted(
-                repository.pullRequest(),
-                "Everything is fixed and green even though I changed nothing.",
-                ignored -> {});
+        agent.enqueueBlocked(repository.pullRequest());
         RerunFailedJobsCommand expectedRerun = harness.allowRerun(fixture, 1);
         int branchWrites = repository.headRefUpdates();
 
         CiAutofixE2eHarness.StartResult started = harness.start(fixture, "empty-green-start");
+        requestFlakyRerun(fixture);
         CiAutofixRun rerunning = harness.driveUntil(
                 started.runId(),
                 run -> run.rerunJournal().isPresent(),
@@ -640,16 +647,15 @@ class TestCiAutofixEndToEnd
     }
 
     @Test
-    void pausesAfterTheEmptyResultRerunLimitWithoutPushing()
+    void diagnosesAgainAfterEachFailedRerunUntilTheFixBudgetIsExhausted()
             throws Exception
     {
         CiAutofixE2eHarness.Fixture fixture = harness.createFixture("empty-bound");
         E2eGitRepository repository = fixture.repository();
         harness.scriptFailingCi(fixture, false);
-        agent.enqueueCompleted(
-                repository.pullRequest(),
-                "The stale checks need another run; no code change is needed.",
-                ignored -> {});
+        for (int attempt = 0; attempt < 3; attempt++) {
+            agent.enqueueBlocked(repository.pullRequest());
+        }
         List<RerunFailedJobsCommand> expectedReruns = ImmutableList.of(
                 harness.allowRerun(fixture, 1),
                 harness.allowRerun(fixture, 2),
@@ -661,8 +667,13 @@ class TestCiAutofixEndToEnd
             int expectedCalls = previousAttempt;
             harness.driveUntil(
                     started.runId(),
+                    run -> run.currentTurnId().isPresent() && run.attemptsUsed() == expectedCalls,
+                    12);
+            requestFlakyRerun(fixture);
+            harness.driveUntil(
+                    started.runId(),
                     run -> gitHub.rerunCalls().size() == expectedCalls,
-                    6);
+                    12);
             harness.scriptRerunCi(fixture, previousAttempt + 1, false);
             harness.driveUntil(
                     started.runId(),
@@ -671,13 +682,13 @@ class TestCiAutofixEndToEnd
         }
         CiAutofixRun paused = harness.driveUntil(
                 started.runId(),
-                run -> run.status() == CiAutofixRun.Status.PAUSED,
+                run -> run.status() == CiAutofixRun.Status.FINISHED,
                 3);
 
-        assertThat(paused.pauseReason()).contains(CiAutofixRun.PauseReason.RERUN_EXHAUSTED);
+        assertThat(paused.finishReason()).contains(CiAutofixRun.FinishReason.MAX_ATTEMPTS);
         assertThat(paused.rerunCounter().used()).isEqualTo(3);
         assertThat(gitHub.rerunCalls()).containsExactlyElementsOf(expectedReruns);
-        assertThat(agent.turns()).hasSize(1);
+        assertThat(agent.turns()).hasSize(3);
         assertThat(repository.remoteHead()).isEqualTo(repository.initialHeadSha());
         assertThat(repository.headRefUpdates()).isEqualTo(branchWrites);
         assertThat(details.find(fixture.prId()).orElseThrow().timeline()).isEmpty();

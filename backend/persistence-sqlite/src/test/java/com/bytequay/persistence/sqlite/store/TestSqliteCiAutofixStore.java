@@ -33,6 +33,8 @@ import com.bytequay.core.ci.CiAutofixRun.Scope;
 import com.bytequay.core.ci.CiAutofixRun.Warning;
 import com.bytequay.core.ci.CiAutofixRunId;
 import com.bytequay.core.ci.CiAutofixStorageException;
+import com.bytequay.core.ci.CiDescriptionChange;
+import com.bytequay.core.ci.CiRerunAssessment;
 import com.bytequay.core.domain.PullRequestRef;
 import com.bytequay.core.domain.RepoRef;
 import com.bytequay.core.domain.Workspace;
@@ -102,6 +104,21 @@ class TestSqliteCiAutofixStore
     }
 
     @Test
+    void preservesTheExplicitRerunAssessmentAcrossPersistenceAndAttemptUpdates()
+    {
+        CiAutofixRun run = newRun("rerun-assessment", "feature", NOW).assignAgentTask("task-rerun", NOW);
+        CiAutofixAttempt attempt = newAttempt(run, 1, NOW)
+                .withRerunAssessment(new CiRerunAssessment(123, "Runner lost its connection before tests started"), NOW)
+                .withAgentNote("Requested one retry", NOW)
+                .withCiResult(CiResult.PENDING, NOW);
+        run = run.addAttempt(attempt, NOW).linkAttemptTurn(attempt.id(), "turn-rerun", NOW);
+        store.insert(run);
+        entityManager.flush();
+        entityManager.clear();
+        assertThat(store.find(run.id()).orElseThrow().attempts().getFirst().rerunAssessment()).isEqualTo(attempt.rerunAssessment());
+    }
+
+    @Test
     void roundTripsCompleteRunAttemptJournalsAndWarnings()
     {
         CiAutofixRun run = newRun("round-trip", "feature", NOW)
@@ -113,6 +130,8 @@ class TestSqliteCiAutofixStore
 
         CiAutofixAttempt completed = run.attempts().getFirst()
                 .withAgentNote("Untrusted explanation", NOW.plusSeconds(5))
+                .withDescriptionChange(new CiDescriptionChange("Fixes #1.", "- Fixes #1.", 80, 900,
+                        Optional.of(NOW.plusSeconds(5)), Optional.of(NOW.plusSeconds(5))), NOW.plusSeconds(5))
                 .withGitResult(
                         new GitResult(
                                 FIXED_HEAD,

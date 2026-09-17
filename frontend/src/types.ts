@@ -1576,6 +1576,9 @@ export type Bridge = {
   /** Reads every listed task's live checkout at once, by task id; a checkout that cannot be read is absent. */
   listAgentTaskChanges: (workspaceId: string) => Promise<Record<string, AgentTaskChangesDto>>;
   getCiAutofixRun: (runId: string) => Promise<CiAutofixRunDto>;
+  listCiAutofixRuns: () => Promise<CiAutofixRunDto[]>;
+  startCiAutofixRun: (workspaceId: string, pullRequestNumber: number, laneId: string, idempotencyKey: string) => Promise<CiAutofixRunDto>;
+  cancelCiAutofixRun: (runId: string) => Promise<CiAutofixRunDto>;
   sendCiAutofixMessage: (runId: string, message: string, idempotencyKey: string) => Promise<CiAutofixRunDto>;
   /** What the next turn on this task would be given, derived from what starting one snapshots. */
   getEffectiveTurnSettings: (taskId: string, workspaceId: string) => Promise<AgentTurnSettingsDto>;

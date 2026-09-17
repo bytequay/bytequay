@@ -46,7 +46,7 @@ Finished development work is always committed locally; there is no Auto commit t
 | Setting | Meaning |
 | --- | --- |
 | Auto draft PR | Ask the agent to push committed work and create a draft if the task has no matching PR. Update the same open PR on later revisions. |
-| Auto CI fix | Attach existing CI Autofix and mark this task's draft ready after verified green. |
+| Auto CI fix | Repair code or PR-description checks through CI Autofix and mark this task's draft ready after verified green. |
 
 Store defaults in the existing `AppSettingsStore`. Copy them into a new task,
 which may override them until it starts; a started task's choices cannot

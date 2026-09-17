@@ -13,8 +13,13 @@
  */
 package com.bytequay.app.ci;
 
+import com.bytequay.core.domain.PullRequestRef;
+
 public interface GitHubActionsClient
 {
+    /** Reads the complete current description; an empty body is returned as an empty string. */
+    String readDescription(PullRequestRef pullRequest);
+
     /**
      * Reads the current PR head, target branch, and latest check attempts.
      *

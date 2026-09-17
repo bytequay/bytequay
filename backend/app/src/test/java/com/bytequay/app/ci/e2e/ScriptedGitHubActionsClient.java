@@ -106,6 +106,12 @@ final class ScriptedGitHubActionsClient
     }
 
     @Override
+    public String readDescription(PullRequestRef pullRequest)
+    {
+        return "";
+    }
+
+    @Override
     public synchronized CiHeadSnapshot inspect(InspectCiHeadQuery query)
     {
         requireNonNull(query, "query is null");

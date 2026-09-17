@@ -39,6 +39,8 @@ public record CiAutofixAttempt(
         Optional<String> agentTurnId,
         Optional<String> untrustedAgentNote,
         Optional<GitResult> gitResult,
+        Optional<CiDescriptionChange> descriptionChange,
+        Optional<CiRerunAssessment> rerunAssessment,
         Optional<String> expectedRemoteSha,
         Optional<String> pushedSha,
         Optional<Instant> pushedAt,
@@ -63,6 +65,8 @@ public record CiAutofixAttempt(
         checkOptionalText(agentTurnId, "agentTurnId", 128);
         checkOptionalText(untrustedAgentNote, "untrustedAgentNote", 16 * 1024);
         requireNonNull(gitResult, "gitResult is null");
+        requireNonNull(descriptionChange, "descriptionChange is null");
+        requireNonNull(rerunAssessment, "rerunAssessment is null");
         requireNonNull(expectedRemoteSha, "expectedRemoteSha is null");
         expectedRemoteSha.ifPresent(sha -> checkSha(sha, "expectedRemoteSha"));
         requireNonNull(pushedSha, "pushedSha is null");
@@ -94,6 +98,8 @@ public record CiAutofixAttempt(
                 number,
                 inputSha,
                 failures,
+                Optional.empty(),
+                Optional.empty(),
                 Optional.empty(),
                 Optional.empty(),
                 Optional.empty(),
@@ -140,6 +146,8 @@ public record CiAutofixAttempt(
                 agentTurnId,
                 untrustedAgentNote,
                 gitResult,
+                descriptionChange,
+                rerunAssessment,
                 expectedRemoteSha,
                 pushedSha,
                 pushedAt,
@@ -147,6 +155,20 @@ public record CiAutofixAttempt(
                 timelineEventKey,
                 createdAt,
                 now);
+    }
+
+    public CiAutofixAttempt withDescriptionChange(CiDescriptionChange change, Instant now)
+    {
+        requireUpdateTime(now);
+        return new CiAutofixAttempt(id, runId, number, inputSha, failures, agentTurnId, untrustedAgentNote,
+                gitResult, Optional.of(change), rerunAssessment, expectedRemoteSha, pushedSha, pushedAt, observedCiResult, timelineEventKey, createdAt, now);
+    }
+
+    public CiAutofixAttempt withRerunAssessment(CiRerunAssessment assessment, Instant now)
+    {
+        requireUpdateTime(now);
+        return new CiAutofixAttempt(id, runId, number, inputSha, failures, agentTurnId, untrustedAgentNote,
+                gitResult, descriptionChange, Optional.of(assessment), expectedRemoteSha, pushedSha, pushedAt, observedCiResult, timelineEventKey, createdAt, now);
     }
 
     public CiAutofixAttempt withAgentNote(String note, Instant now)
@@ -251,6 +273,8 @@ public record CiAutofixAttempt(
                 updatedAgentTurnId,
                 updatedAgentNote,
                 updatedGitResult,
+                descriptionChange,
+                rerunAssessment,
                 updatedExpectedRemoteSha,
                 updatedPushedSha,
                 updatedPushedAt,

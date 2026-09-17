@@ -15,6 +15,7 @@ package com.bytequay.app.ci;
 
 import com.bytequay.agent.core.TaskId;
 import com.bytequay.agent.core.TurnId;
+import com.bytequay.agent.spi.CiDescriptionProposal;
 import com.bytequay.app.repository.github.GitHubPullRequestIdentity;
 import com.bytequay.core.ci.CiAutofixRun;
 import com.bytequay.core.ci.CiAutofixRunId;
@@ -24,6 +25,12 @@ import java.util.List;
 
 public interface CiAutofixService
 {
+    /** Stores one exact description repair from this run's active turn; does not write to GitHub. */
+    void proposeDescription(TaskId taskId, TurnId turnId, CiDescriptionProposal proposal);
+
+    /** Records why the active repair turn considers one failed job worth retrying without changes. */
+    void requestRerun(TaskId taskId, TurnId turnId, long jobId, String reason);
+
     /**
      * Starts CI Autofix after direct user consent.
      *

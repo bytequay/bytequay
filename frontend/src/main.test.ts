@@ -80,6 +80,25 @@ it('routes CI detail reads and replies to the authenticated CI API', async () =>
   expect(fetch).toHaveBeenCalledTimes(2);
 });
 
+it('starts a bounded CI repair through the desktop session and reads or stops it', async () => {
+  await import('./main');
+  await expect(desktop.listeners.get('ready')?.()).rejects.toThrow('End test startup');
+  const fetch = vi.fn(async () => new Response(JSON.stringify(CI_RUN), { headers: { 'Content-Type': 'application/json' } }));
+  vi.stubGlobal('fetch', fetch);
+  await expect(desktop.handlers.get('ci-autofix:start')?.({}, 'workspace-1', 17, 'codex', 'repair-key')).resolves.toEqual(CI_RUN);
+  expect(fetch).toHaveBeenLastCalledWith('http://127.0.0.1:9527/api/ci-autofix/runs', expect.objectContaining({
+    method: 'POST', body: JSON.stringify({ workspaceId: 'workspace-1', pullRequestNumber: 17, laneId: 'codex', maxAttempts: 3,
+      allowFailedJobReruns: true, allowHistoryRewrites: true, allowExactLeasePush: true }),
+    headers: { 'Content-Type': 'application/json', 'X-ByteQuay-Session': 'test-session', 'Idempotency-Key': 'repair-key' },
+  }));
+  await expect(desktop.handlers.get('ci-autofix:cancel')?.({}, 'run/one')).resolves.toEqual(CI_RUN);
+  expect(fetch).toHaveBeenLastCalledWith('http://127.0.0.1:9527/api/ci-autofix/runs/run%2Fone/cancel', expect.objectContaining({
+    method: 'POST', headers: { 'X-ByteQuay-Session': 'test-session' },
+  }));
+  fetch.mockImplementationOnce(async () => new Response(JSON.stringify([CI_RUN])));
+  await expect(desktop.handlers.get('ci-autofix:list')?.({})).resolves.toEqual([CI_RUN]);
+});
+
 it('sends versioned local review actions and preserves the returned private review boundary', async () => {
   await import('./main');
   await expect(desktop.listeners.get('ready')?.()).rejects.toThrow('End test startup');

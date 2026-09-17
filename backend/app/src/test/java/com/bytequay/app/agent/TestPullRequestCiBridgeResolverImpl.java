@@ -22,6 +22,7 @@ import com.bytequay.agent.core.TaskWorktree;
 import com.bytequay.agent.core.TitleSource;
 import com.bytequay.agent.core.WorktreeSnapshot;
 import com.bytequay.agent.core.store.AgentTaskStore;
+import com.bytequay.agent.core.store.AgentTurnStore;
 import com.bytequay.agent.core.store.TaskLogStore;
 import com.bytequay.agent.spi.AgentLaneId;
 import com.bytequay.agent.spi.AgentPermissionPolicy;
@@ -61,6 +62,7 @@ import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.ValueSource;
 import org.mockito.ArgumentCaptor;
 import org.mockito.MockMakers;
+import org.springframework.beans.factory.ObjectProvider;
 
 import java.nio.ByteBuffer;
 import java.nio.file.Path;
@@ -117,7 +119,7 @@ class TestPullRequestCiBridgeResolverImpl
     private final CiAutofixStore ciRuns = mock(CiAutofixStore.class);
     private final ObjectMapper mapper = new ObjectMapper().findAndRegisterModules();
     private final PullRequestCiBridgeResolverImpl resolver = new PullRequestCiBridgeResolverImpl(
-            tasks, workspaces, worktrees, pullRequests, catalog, details, actions, logs, mapper, rawLogs, ciRuns);
+            tasks, workspaces, worktrees, pullRequests, catalog, details, actions, logs, mapper, rawLogs, ciRuns, mock(AgentTurnStore.class), mock(ObjectProvider.class));
     private final TaskId taskId = TaskId.random();
     private final TaskWorktree worktree = new TaskWorktree(taskId, "workspace", RepositoryIdentity.valueOf(FORK.fullName()),
             Path.of("/tmp", taskId.toString()), "bytequay/task/" + taskId, BASE);

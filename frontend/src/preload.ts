@@ -270,10 +270,6 @@ const bridge: Bridge = {
     ipcRenderer.invoke('agent:task:pull-requests', taskId, workspaceId, refresh),
   listAgentTaskChanges: workspaceId => ipcRenderer.invoke('agent:tasks:changes', workspaceId),
   getCiAutofixRun: runId => ipcRenderer.invoke('ci-autofix:get', runId),
-  listCiAutofixRuns: () => ipcRenderer.invoke('ci-autofix:list'),
-  startCiAutofixRun: (workspaceId, pullRequestNumber, laneId, idempotencyKey) =>
-    ipcRenderer.invoke('ci-autofix:start', workspaceId, pullRequestNumber, laneId, idempotencyKey),
-  cancelCiAutofixRun: runId => ipcRenderer.invoke('ci-autofix:cancel', runId),
   sendCiAutofixMessage: (runId, message, idempotencyKey) => ipcRenderer.invoke('ci-autofix:message', runId, message, idempotencyKey),
   renameAgentTask: (taskId, workspaceId, expectedVersion, title) =>
     ipcRenderer.invoke('agent:task:rename', taskId, workspaceId, expectedVersion, title),

@@ -283,7 +283,7 @@ public record AgentTask(
         requireNonNull(completedSummary, "completedSummary is null");
         requireNonNull(completedAt, "completedAt is null");
         requireNonNull(deletionDeadline, "deletionDeadline is null");
-        return copy(
+        return withLocalReviewHead(Optional.empty(), completedAt).copy(
                 TaskState.COMPLETED,
                 Optional.empty(),
                 version,

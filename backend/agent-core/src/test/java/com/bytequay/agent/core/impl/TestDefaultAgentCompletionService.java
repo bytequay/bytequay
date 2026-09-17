@@ -110,18 +110,22 @@ class TestDefaultAgentCompletionService
     }
 
     @Test
-    void privateReviewMustFinishBeforeTaskCompletion()
+    void privateReviewCompletesNormallyOnlyAfterExperimentsAreClean()
     {
         AgentTask original = stores.find(taskId).orElseThrow();
         AgentTask reviewing = AgentTask.created(taskId, true, original.title(), original.titleSource(), original.laneId(),
                 original.taskWorktree().orElseThrow(), original.defaults(), NOW).withLocalReviewHead(Optional.of("a".repeat(40)), NOW);
         stores.update(reviewing);
+        worktrees.uncommitted = true;
 
         assertThatThrownBy(() -> service(Clock.fixed(NOW, ZoneOffset.UTC)).complete(new CompleteAgentTaskCommand(taskId, Optional.empty())))
-                .isInstanceOf(AgentConflictException.class).hasMessageContaining("Finish local review");
+                .isInstanceOf(AgentConflictException.class).hasMessageContaining("not clean");
         assertThat(stores.find(taskId).orElseThrow().state()).isEqualTo(TaskState.OPEN);
         assertThat(stores.find(taskId).orElseThrow().localReviewHead()).contains("a".repeat(40));
-        assertThat(worktrees.inspected).isEmpty();
+        worktrees.uncommitted = false;
+        service(Clock.fixed(NOW, ZoneOffset.UTC)).complete(new CompleteAgentTaskCommand(taskId, Optional.empty()));
+        assertThat(stores.find(taskId).orElseThrow().state()).isEqualTo(TaskState.COMPLETED);
+        assertThat(stores.find(taskId).orElseThrow().localReviewHead()).isEmpty();
     }
 
     @Test

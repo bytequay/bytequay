@@ -71,10 +71,11 @@ Provider approval and authentication checks still apply. Generated text is
 not itself a user authorization. Existing tasks do not auto-publish on app
 startup or page load; their next explicit submission carries the selection.
 
-**Review locally** begins private review of the task's existing open PR. The
-checkout must be clean and its exact HEAD must match both the remote branch and
-PR. A private line or learning discussion enters the same mode before sending
-its first message; a busy development task must finish before entry.
+A private line or learning discussion automatically begins private review of
+the task's existing open PR before sending its first message. The checkout must
+be clean and its exact HEAD must match both the remote branch and PR; a busy
+development task must finish before entry. The conversation has no separate
+local-review or CI recovery toolbar.
 
 One durable optional `AgentTask.localReviewHead` records that baseline. While it
 is present, every message, including the main composer and queued inputs,
@@ -85,11 +86,10 @@ composer does not route `@ci` messages to the repair agent. A policy-only
 `ReviewBridge` activates the existing provider review restrictions without
 inventing reporting tools. The local discussion tools remain available.
 
-**Sync PR head** is an explicit user action available while the task is idle.
-Before the click, explain that local experiments are restored when possible and
-all private experiments are discarded if they conflict with the updated code.
-ByteQuay rereads the open
-PR and remote branch, saves tracked and untracked experiments in a task-tagged
+The explicit local-review synchronization API requires an idle task and
+authorization to discard conflicting experiments. It is not called by page
+loads or background polling. ByteQuay rereads the open PR and remote branch,
+saves tracked and untracked experiments in a task-tagged
 Git stash, and updates the same checkout to that verified commit. It then applies
 the exact stash with staging preserved and drops that entry after restoration
 or the disclosed conflict discard. There is at most one temporary stash per task,
@@ -104,14 +104,16 @@ There are no conflict markers or user recovery steps. A failed head move restore
 experiments at the old head when safe; native failures surface as ordinary
 errors. No agent conflict-resolution turn or reconciliation commit is needed.
 
-**Finish local review** explicitly confirms discarding all uncommitted review
-experiments, including manually edited files. ByteQuay verifies that HEAD has
+The explicit local-review finish API requires confirmation to discard all
+uncommitted review experiments, including manually edited files. ByteQuay verifies that HEAD has
 not changed, that no Git operation or writer is active, and discards tracked and
 untracked experiments directly without creating a stash. Ignored build
 outputs and unrelated stashes are preserved. A failed cleanup retains review
 mode until a later explicit retry finishes it. Only a
 successful clean finish clears the marker and permits development commits again.
-Completing or publishing the development task is unavailable during local review.
+The normal Complete action also finishes private review when the checkout is
+clean. Uncommitted experiments prevent completion and remain intact; no separate
+finish action is needed. Publishing remains unavailable during private review.
 Entry, sync, and finish use existing task locking and mutation ownership; this adds no
 new workflow lifecycle or separate checkout/index.
 

@@ -141,7 +141,7 @@ async function localReviewExperiments(reloadPrivate = false): Promise<{ name: st
   const event = bridge.events[0];
   assert(event.turnId !== null, 'Fixture must identify a turn');
   let task: AgentTaskDto = { ...await bridge.getAgentTask(event.taskId, 'workspace-1'), interactive: true, mutationClaim: null,
-    developmentContinuationUnfinished: false, localReviewHead: reloadPrivate ? 'a'.repeat(40) : null };
+    developmentContinuationUnfinished: false, localReviewHead: 'a'.repeat(40) };
   const turn: AgentTurnDto = { ...await bridge.getAgentTurn(event.turnId), id: event.turnId, state: 'COMPLETED', endedAt: '2026-01-01T12:00:00Z' };
   const pr: PullRequestDto = {
     id: 1, repo: 'acme/demo', number: 1, title: 'Development result', author: 'alice', htmlUrl: 'https://github.com/acme/demo/pull/1',
@@ -158,65 +158,32 @@ async function localReviewExperiments(reloadPrivate = false): Promise<{ name: st
     listener({ subscriptionId: 'local-review', taskId, kind: 'state', state: 'open' });
     return () => {};
   };
-  const start = bridge.startAgentLocalReview;
-  bridge.startAgentLocalReview = async (...args) => {
-    await start(...args);
-    task = { ...task, version: task.version + 1, localReviewHead: 'a'.repeat(40) };
-    return task;
-  };
-  const finish = bridge.finishAgentLocalReview;
-  bridge.finishAgentLocalReview = async (...args) => {
-    await finish(...args);
-    task = { ...task, version: task.version + 1, localReviewHead: null };
-    return task;
-  };
-  const sync = bridge.syncAgentLocalReview;
-  const syncWarning = 'Updated to the latest PR head. All local experiments were discarded because they conflicted with the update.';
-  bridge.syncAgentLocalReview = async (...args) => {
-    await sync(...args);
-    task = { ...task, version: task.version + 1, localReviewHead: 'b'.repeat(40) };
-    return { task, warning: reloadPrivate ? syncWarning : null };
+  const complete = bridge.completeAgentTask;
+  bridge.completeAgentTask = async (...args) => {
+    const result = await complete(...args);
+    task = { ...task, state: 'COMPLETED', localReviewHead: null, version: task.version + 1 };
+    return result;
   };
   const host = document.createElement('div');
   document.body.append(host);
   const root = createRoot(host);
   flushSync(() => root.render(<AgentTaskScreen workspaceId="workspace-1" taskId={task.id} bridge={bridge} onBack={() => {}} />));
-  const button = (text: string): HTMLButtonElement => {
-    const found = Array.from(document.querySelectorAll('button')).find(candidate => candidate.textContent === text);
-    assert(found !== undefined, `Missing ${text} button; screen: ${host.textContent}`);
-    return found;
-  };
   try {
     await settle();
-    if (!reloadPrivate) {
-      button('Review locally').click();
-      await settle();
-    }
-    assert(host.textContent?.includes('Local review · changes stay uncommitted') === true, 'Review mode must remain visible');
+    assert(!host.textContent?.includes('Local review · changes stay uncommitted')
+      && !host.textContent?.includes('Sync PR head') && !host.textContent?.includes('Finish local review')
+      && !host.textContent?.includes('Review locally'), 'Private review must not add a manual housekeeping panel');
     assert(host.querySelector('.agt-automation') === null, 'Private review must hide development publication controls');
-    assert(host.querySelector<HTMLButtonElement>('button[aria-label="Mark it complete"]')?.disabled === true,
-      'Completion must wait until private experiments are finalized');
+    const completeButton = host.querySelector<HTMLButtonElement>('button[aria-label="Mark it complete"]');
+    assert(completeButton !== null && !completeButton.disabled, 'Private review uses the normal completion action');
     const input = host.querySelector<HTMLTextAreaElement>('textarea');
     assert(input !== null && !input.disabled, 'Review mode keeps the normal composer available for experiments');
     const experimentRequest = reloadPrivate ? '@ci Add another private test' : 'Add another private test';
     Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value')?.set?.call(input, experimentRequest);
     input.dispatchEvent(new Event('input', { bubbles: true }));
     await settle();
-    assert(!bridge.commands.some(command => command.name === 'syncAgentLocalReview'), 'Reading private review must not sync the checkout');
-    assert(host.textContent?.includes('Local experiments are restored when possible. If they conflict, all local experiments are discarded.') === true,
-      'Sync must disclose conflict-driven experiment discard before the user clicks');
-    const syncVersion = task.version;
-    button('Sync PR head').click();
-    await settle();
-    assert(task.localReviewHead === 'b'.repeat(40) && host.textContent?.includes('Local review · changes stay uncommitted') === true,
-      'Sync must advance the reviewed head without leaving private mode');
-    const synced = bridge.commands.filter(command => command.name === 'syncAgentLocalReview');
-    assert(synced.length === 1 && synced[0].args[2] === syncVersion, 'Sync must use the visible task version exactly once');
-    assert(input.value === experimentRequest && !bridge.commands.some(command => command.name === 'startAgentTurn' || command.name === 'sendCiAutofixMessage'),
-      'Sync must preserve the unsent draft without publishing or starting development');
-    if (reloadPrivate) assert(host.querySelector('[role="alert"]')?.textContent?.includes(syncWarning) === true,
-      'Discarded conflicting experiments must be reported while private review remains usable');
-    assert(!host.textContent?.includes('Ask the agent to restore'), 'Conflicting experiments must not require a recovery step');
+    assert(!bridge.commands.some(command => command.name === 'syncAgentLocalReview' || command.name === 'finishAgentLocalReview'),
+      'Reading private review must not move the checkout or discard experiments');
     assert(host.querySelector<HTMLButtonElement>('button[aria-label="Send message"]')?.disabled === false, 'An experiment request can use the normal composer');
     if (reloadPrivate) {
       assert(automationReads === 0, 'Private review must not depend on unavailable development automation settings');
@@ -229,20 +196,12 @@ async function localReviewExperiments(reloadPrivate = false): Promise<{ name: st
         && !bridge.commands.some(command => command.name === 'sendCiAutofixMessage'), 'Private review must send @ci text to its reviewer without routing a remote-writing CI task');
       return [{ name: 'Reloaded private review submits experiments without reading development automation settings' }];
     }
-    button('Finish local review').click();
+    completeButton.click();
     await settle();
-    assert(document.body.textContent?.includes('including tests and edits made by you or the agent') === true, 'Finishing must explain exactly which work is discarded');
-    button('Cancel').click();
-    await settle();
-    assert(!bridge.commands.some(command => command.name === 'finishAgentLocalReview'), 'Cancel must preserve the experiment');
-    button('Finish local review').click();
-    await settle();
-    button('Discard experiments and finish').click();
-    await settle();
-    assert(!host.textContent?.includes('Local review · changes stay uncommitted'), 'Successful finish must restore development mode');
-    assert(bridge.commands.filter(command => command.name === 'finishAgentLocalReview').length === 1, 'Confirmed finish must run once');
-    assert(input.value === 'Add another private test', 'Changing mode must preserve unsent composer text');
-    return [{ name: 'Local review preserves the composer and requires explicit confirmation before discarding experiments' }];
+    assert(bridge.commands.filter(command => command.name === 'completeAgentTask').length === 1,
+      'Clean private review must complete through the ordinary action');
+    assert(!bridge.commands.some(command => command.name === 'finishAgentLocalReview'), 'Completion must not discard experiments');
+    return [{ name: 'Private review completes normally without a housekeeping panel or discard action' }];
   }
   catch (error) { return [{ name: 'Local review experiments', error: error instanceof Error ? error.message : String(error) }]; }
   finally {

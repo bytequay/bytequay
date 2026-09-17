@@ -3535,9 +3535,6 @@
 .agt-issue-request > .agt-user__files { justify-content: flex-end; margin: 8px 0 0; }
 
 .agt-local-review { margin: 16px 0; min-width: 0; }
-.agt-ci-recovery { margin: 12px 24px; padding: 12px; border: 1px solid var(--border-color, #d0d7de); border-radius: 8px; font-size: 13px; }
-.agt-ci-recovery [role="status"] { display: flex; flex-wrap: wrap; gap: 6px 12px; margin-bottom: 8px; }
-.agt-ci-recovery p { margin: 8px 0 0; }
 .agt-local-review .pr-thread { width: 100%; min-width: 0; }
 
 /* Review actions use the same green header as their private destination cards. */

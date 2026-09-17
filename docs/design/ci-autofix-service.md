@@ -70,15 +70,6 @@ run's derived `canMessage` permission for an eligible paused run. The mention
 does not expand write authority, start a run, or revive a finished run. The
 source task keeps its existing polling so message availability stays current.
 There is no separate CI status/log block, transcript panel, or history action.
-After a task's delivery CI run ends, a compact recovery control shows its
-repair/rerun counts and whether automatic rechecking has stopped. **Restart CI
-fix** explicitly starts a new standalone run for the same PR and workspace,
-using the task's selected CI provider and the existing three-repair,
-three-rerun-per-head, eight-hour authorization. It can repair the PR description
-or code and push the PR branch. It does not revive the old delivery owner or
-perform delivery's ready-for-review promotion. The existing branch reservation
-rejects overlapping source work. The control finds the latest matching run on
-reopen, polls its status, and offers Stop; app restart alone never starts a run.
 A general existing-PR UI entry remains separate. The shared
 `green()` predicate requires every observed workflow to be completed and passing
 with nonempty passing jobs; a queued workflow cannot hide behind another passing

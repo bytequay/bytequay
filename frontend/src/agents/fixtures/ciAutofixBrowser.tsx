@@ -17,7 +17,6 @@ import { createRoot } from 'react-dom/client';
 import type { AgentStreamMessage, AgentTaskDto, AgentTurnDto, CiAutofixRunDto } from '../../types';
 import { AgentTaskList } from '../AgentTasksView';
 import AgentTaskScreen from '../AgentTaskScreen';
-import CiAutofixRecovery from '../CiAutofixRecovery';
 import { CI_PROJECTION, CI_RUN } from './ciAutofix';
 import { createPreviewBridge } from './previewBridge';
 
@@ -184,57 +183,7 @@ async function sourcePolling(): Promise<{ name: string; error?: string }> {
 }
 
 export async function runCiAutofixScenarios(): Promise<{ name: string; error?: string }[]> {
-  return [await ciReplyAndOwnership(), await sourcePolling(), await laterRunAndRecovery(), await deleteReferences(), await finishedCiRouting(), await restartCiRepair()];
-}
-
-async function restartCiRepair(): Promise<{ name: string; error?: string }> {
-  const original: CiAutofixRunDto = { ...CI_RUN, status: 'FINISHED', finishReason: 'CANCELLED', canMessage: false, attemptsUsed: 1, rerunsUsed: 3 };
-  let latest: CiAutofixRunDto = original;
-  const keys: string[] = [];
-  const timers = ciTimers();
-  const bridge = createPreviewBridge('workspace-1');
-  bridge.getCiAutofixRun = async id => id === original.id ? original : latest;
-  bridge.listCiAutofixRuns = async () => [latest, original];
-  bridge.startCiAutofixRun = async (workspaceId, pr, laneId, key) => {
-    assert(workspaceId === 'workspace-1' && pr === 17 && laneId === 'codex', 'Restart must preserve the task PR and selected CI provider');
-    keys.push(key);
-    latest = { ...original, id: 'fresh-run', parentTaskId: null, status: 'ACTIVE', activity: 'FIXING', finishReason: null, attemptsUsed: 1, rerunsUsed: 0 };
-    if (keys.length === 1) throw new Error('Start response was lost');
-    return latest;
-  };
-  bridge.cancelCiAutofixRun = async id => {
-    assert(id === 'fresh-run', 'Stop must target the new run, not the cancelled delivery');
-    latest = { ...latest, status: 'FINISHED', finishReason: 'CANCELLED' };
-    return latest;
-  };
-  const host = document.createElement('div');
-  document.body.append(host);
-  let root = createRoot(host);
-  const previous = { ...CI_PROJECTION, status: 'FINISHED' as const, finishReason: 'CANCELLED' };
-  const props = { previous, workspaceId: 'workspace-1', laneId: 'codex', disabled: false, bridge, onRunningChange: () => {} };
-  const button = (name: string) => Array.from(host.querySelectorAll('button')).find(candidate => candidate.textContent === name);
-  try {
-    flushSync(() => root.render(<CiAutofixRecovery {...props} />));
-    await settle();
-    assert(keys.length === 0 && host.textContent?.includes('1/3 repairs · 3/3 reruns') === true, 'Loading an ended run must show its exhausted reruns without restarting it');
-    button('Restart CI fix')?.click();
-    await settle();
-    assert(host.textContent?.includes('Start response was lost') === true, 'An uncertain start must remain visible');
-    button('Restart CI fix')?.click();
-    await settle();
-    assert(Number(keys.length) === 2 && keys[0] === keys[1], 'Retry must reuse the accepted start identity');
-    assert(host.textContent?.includes('Fixing CI 1/3') === true && button('Stop CI fix') !== undefined, 'The new run must show active repair and a stop action');
-    flushSync(() => root.unmount());
-    root = createRoot(host);
-    flushSync(() => root.render(<CiAutofixRecovery {...props} />));
-    await settle();
-    assert(Number(keys.length) === 2 && button('Stop CI fix') !== undefined, 'Reopening must find the new run without creating another one');
-    button('Stop CI fix')?.click();
-    await settle();
-    assert(button('Restart CI fix') !== undefined, 'An explicitly stopped run can start a fresh bounded repair');
-    return { name: 'CI restart is explicit, idempotent, visible after reopening, and stoppable' };
-  } catch (failure) { return { name: 'CI restart recovery', error: failure instanceof Error ? failure.message : String(failure) }; }
-  finally { flushSync(() => root.unmount()); host.remove(); timers.restore(); }
+  return [await ciReplyAndOwnership(), await sourcePolling(), await laterRunAndRecovery(), await deleteReferences(), await finishedCiRouting()];
 }
 
 async function finishedCiRouting(): Promise<{ name: string; error?: string }> {
@@ -250,7 +199,8 @@ async function finishedCiRouting(): Promise<{ name: string; error?: string }> {
   bridge.readAgentHistory = async () => ({ events: [event], beforeCursor: null, afterCursor: null, latestSequence: event.sequence });
   bridge.readAgentPendingApprovals = async () => [];
   bridge.subscribeAgentTask = async (id, _after, notify) => { notify({ subscriptionId: id, taskId: id, kind: 'state', state: 'open' }); return () => {}; };
-  bridge.getCiAutofixRun = async () => ({ ...CI_RUN, status: 'FINISHED', finishReason: 'CANCELLED', canMessage: false });
+  let runReads = 0;
+  bridge.getCiAutofixRun = async () => { runReads++; throw new Error('Finished CI must not start recovery polling'); };
   const replies: string[] = [];
   bridge.sendCiAutofixMessage = async runId => { replies.push(runId); return CI_RUN; };
   const host = document.createElement('div');
@@ -259,7 +209,8 @@ async function finishedCiRouting(): Promise<{ name: string; error?: string }> {
   flushSync(() => root.render(<AgentTaskScreen workspaceId="workspace-1" taskId={task.id} bridge={bridge} onBack={() => {}} />));
   try {
     await settle();
-    assert(host.querySelector('.agt-ci-panel, .agt-ci-history, .agt-ci-checks') === null, 'The task must not render the removed CI log or panel');
+    assert(host.querySelector('.agt-ci-panel, .agt-ci-history, .agt-ci-checks, .agt-ci-recovery') === null, 'The task must not render a CI log or recovery panel');
+    assert(runReads === 0, 'Finished CI must not start another recovery poll');
     assert(!host.textContent?.includes('View CI Autofix history') && !host.textContent?.includes('Previous CI Autofix run'), 'Finished CI must not add history controls or summaries');
     assert(!host.textContent?.includes(task.developmentCi?.summary ?? 'missing summary'), 'The removed CI run summary must not remain above the composer');
     const input = host.querySelector<HTMLTextAreaElement>('textarea[aria-label="Message the agent"]');

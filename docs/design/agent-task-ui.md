@@ -56,13 +56,6 @@ progress. Questions retain display precedence. Shared conversation components
 remain the implementation boundary; no stored workflow stages or Resume delivery
 control are introduced.
 
-An ended CI run has a compact recovery control showing repairs used, reruns used,
-and whether automatic rechecking is active, paused, or stopped. Restart CI fix
-starts a new standalone run through the existing CI service for that PR; it never
-resumes delivery. The control preserves an uncertain start's request identity,
-finds the latest matching run when reopened, and offers Stop CI fix. The source
-composer and local-review mutations stay blocked while that run owns the branch.
-
 Development tasks offer `@ci` as the default recipient suggestion as soon as
 `@` is typed. Click, Enter, or Tab inserts the mention; Escape dismisses it.
 A standalone `@ci` token sends the remaining text through the existing CI

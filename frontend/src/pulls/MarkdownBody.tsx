@@ -76,6 +76,59 @@ function closesFence(line: string, fence: Fence) {
   return match?.[1][0] === fence.marker && match[1].length >= fence.length;
 }
 
+const CODE_INDENT = /^(?: {4}| {0,3}\t)/;
+
+/** Flags the lines GitHub renders as indented code: 4+ columns in after a blank line, outside fences and list items. */
+function indentedCodeLines(lines: string[]) {
+  const code = lines.map(() => false);
+  let fence: Fence | null = null;
+  let blank = true;
+  let listItem = false;
+  let lastCode = -1;
+  for (let index = 0; index < lines.length; index++) {
+    const line = lines[index];
+    if (fence) {
+      if (closesFence(line, fence)) fence = null;
+    }
+    else if (!line.trim()) {
+      blank = true;
+      continue;
+    }
+    else if (CODE_INDENT.test(line) && (lastCode >= 0 || (blank && !listItem))) {
+      code.fill(true, lastCode >= 0 ? lastCode + 1 : index, index + 1);
+      lastCode = index;
+    }
+    else {
+      lastCode = -1;
+      fence = openingFence(line);
+      if (/^\s*(?:[-*+]|\d{1,9}[.)])(?:\s|$)/.test(line)) listItem = true;
+      else if (blank && !/^\s/.test(line)) listItem = false;
+    }
+    blank = false;
+  }
+  return code;
+}
+
+/** Rewrites indented code as fenced code, which the rest of the pipeline already keeps verbatim. */
+function fenceIndentedCode(markdown: string) {
+  const lines = markdown.split(/\r\n|\r|\n/);
+  const code = indentedCodeLines(lines);
+  const output: string[] = [];
+  for (let start = 0; start < lines.length; start++) {
+    if (!code[start]) {
+      output.push(lines[start]);
+      continue;
+    }
+    let end = start;
+    while (code[end + 1]) end++;
+    const content = lines.slice(start, end + 1).map(line => line.replace(/^(?: {0,3}\t| {1,4})/, ''));
+    const fence = '`'.repeat(Math.max(3, ...content.map(line => (line.match(/^ {0,3}(`+)/)?.[1].length ?? 0) + 1)));
+    output.push(fence, ...content, fence);
+    start = end;
+  }
+  return output.join('\n');
+}
+
 function withoutHtmlComments(line: string, insideComment: boolean) {
   let visible = '';
   let cursor = 0;
@@ -144,6 +197,7 @@ function extractHttpLinkDefinitions(markdown: string) {
 export function toggleMarkdownTask(markdown: string, taskIndex: number, checked: boolean) {
   if (!Number.isSafeInteger(taskIndex) || taskIndex < 0) return markdown;
   const sourceParts = markdown.split(/(\r\n|\r|\n)/);
+  const indentedCode = indentedCodeLines(sourceParts.filter((_part, index) => index % 2 === 0));
   let fence: Fence | null = null;
   let insideComment = false;
   let quote = false;
@@ -152,6 +206,7 @@ export function toggleMarkdownTask(markdown: string, taskIndex: number, checked:
 
   for (let index = 0; index < sourceParts.length; index += 2) {
     const sourceLine = sourceParts[index];
+    if (indentedCode[index / 2]) continue;
     if (fence) {
       if (closesFence(sourceLine, fence)) fence = null;
       continue;
@@ -867,7 +922,7 @@ export default function MarkdownBody({ body, className = '', repository, suggest
     const taskIndex = tasks.indexOf(event.target);
     if (taskIndex >= 0) onTaskToggle(taskIndex, event.target.checked);
   };
-  const document = extractHttpLinkDefinitions(body);
+  const document = extractHttpLinkDefinitions(fenceIndentedCode(body));
   return <MarkdownBodyContent body={document.body} definitions={document.definitions} className={className} repository={repository}
     suggestion={suggestion} tasksInteractive={onTaskToggle !== undefined} tasksDisabled={tasksDisabled} onTaskChange={toggleTask} />;
 }
@@ -952,7 +1007,7 @@ function MarkdownBlocks({ markdown, definitions, repository, suggestion, tasksIn
           </div>
         );
         if (block.kind === 'quote') return (
-          <blockquote key={key}><MarkdownBlocks markdown={block.text} definitions={definitions} repository={repository}
+          <blockquote key={key}><MarkdownBlocks markdown={fenceIndentedCode(block.text)} definitions={definitions} repository={repository}
             tasksInteractive={false} tasksDisabled={tasksDisabled} /></blockquote>
         );
         if (block.kind === 'rule') return <hr key={key} />;

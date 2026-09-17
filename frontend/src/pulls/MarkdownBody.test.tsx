@@ -152,6 +152,56 @@ describe('MarkdownBody', () => {
     ]);
   });
 
+  it('renders the reported description with indented code', () => {
+    const body = '## Description\r\n\r\n'
+      + 'With `optimize_metadata_queries=true`, filtering on a hidden column fails to plan\r\n'
+      + 'on any identity-partitioned table:\r\n\r\n'
+      + '    SET SESSION optimize_metadata_queries = true;\r\n'
+      + '    SELECT DISTINCT b, c FROM t WHERE "$path" IS NOT NULL;\r\n'
+      + '    -- IllegalArgumentException: Constraint on an unexpected column 2147483646:$path:varchar\r\n\r\n'
+      + '`getTableProperties` passes the raw enforced predicate to `toIcebergExpression`\r\n'
+      + 'when building the `DiscretePredicates` scan.\r\n\r\n'
+      + '## Iceberg\r\n'
+      + '* Fix query failure when `optimize_metadata_queries` is enabled and the query\r\n'
+      + '  filters on `$path`.';
+
+    const html = renderToStaticMarkup(<MarkdownBody body={body} />);
+
+    expect(html).toContain('<p>With <code>optimize_metadata_queries=true</code>, filtering on a hidden column fails to plan on any identity-partitioned table:</p>'
+      + '<div class="md-code-block"><span>Plain text</span>');
+    expect(html.match(/<pre>[^]*<\/pre>/)?.[0].replace(/<[^>]+>/g, '')).toBe(renderToStaticMarkup(<>{
+      'SET SESSION optimize_metadata_queries = true;\n'
+      + 'SELECT DISTINCT b, c FROM t WHERE "$path" IS NOT NULL;\n'
+      + '-- IllegalArgumentException: Constraint on an unexpected column 2147483646:$path:varchar'
+    }</>));
+    expect(html).toContain('</div><p><code>getTableProperties</code> passes the raw enforced predicate to <code>toIcebergExpression</code> when building');
+    expect(html).not.toContain('<em>');
+  });
+
+  it('renders indented code inside a quote', () => {
+    const html = renderToStaticMarkup(<MarkdownBody body={'> It collapses them:\n> \n>     SELECT (SELECT 1),\n>            (SELECT 1)\n> \n> returns two equal counts.'} />);
+
+    expect(html).toContain('<blockquote><p>It collapses them:</p><div class="md-code-block">');
+    expect(html.match(/<pre>[^]*<\/pre>/)?.[0].replace(/<[^>]+>/g, '')).toBe('SELECT (SELECT 1),\n       (SELECT 1)');
+    expect(html).toContain('</div><p>returns two equal counts.</p></blockquote>');
+  });
+
+  it('keeps indented lines inside list items and fences out of indented code', () => {
+    const fenced = '```java\nclass A {\n\n    void run() {}\n}\n```';
+    const listed = renderToStaticMarkup(<MarkdownBody body={'- Item\n\n    More about the item'} />);
+
+    expect(listed).not.toContain('md-code-block');
+    expect(listed).toContain('<p>More about the item</p>');
+    expect(renderToStaticMarkup(<MarkdownBody body={fenced} />).match(/md-code-block/g)).toHaveLength(1);
+  });
+
+  it('does not count a task inside indented code', () => {
+    const body = 'Template:\n\n    - [ ] Example\n\n- [ ] Real';
+
+    expect(renderToStaticMarkup(<MarkdownBody body={body} onTaskToggle={() => {}} />).match(/data-markdown-task=""/g)).toHaveLength(1);
+    expect(toggleMarkdownTask(body, 0, true)).toBe('Template:\n\n    - [ ] Example\n\n- [x] Real');
+  });
+
   it('renders an encoded checkmark as a checked task', () => {
     const html = renderToStaticMarkup(<MarkdownBody body="(&#x2713;) Release notes are required." />);
 

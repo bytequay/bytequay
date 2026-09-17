@@ -146,13 +146,13 @@ describe('MarkdownBody', () => {
       + 'stays a paragraph';
 
     expect(markdownBlocks(body)).toEqual([
-      { kind: 'list', ordered: false, items: ["Add `$spec_id` hidden column with the partition specification id of each row's file, and allow `optimize` with a lazy line."] },
-      { kind: 'task', checked: false, text: 'Wrapped task' },
-      { kind: 'paragraph', text: 'After the list stays a paragraph' },
+      { kind: 'list', ordered: false, items: ["Add `$spec_id` hidden column with the partition specification id of each\nrow's file, and allow `optimize`\nwith a lazy line."] },
+      { kind: 'task', checked: false, text: 'Wrapped\ntask' },
+      { kind: 'paragraph', text: 'After the list\nstays a paragraph' },
     ]);
   });
 
-  it('renders the reported description with indented code', () => {
+  it('renders the reported description with indented code and GitHub line breaks', () => {
     const body = '## Description\r\n\r\n'
       + 'With `optimize_metadata_queries=true`, filtering on a hidden column fails to plan\r\n'
       + 'on any identity-partitioned table:\r\n\r\n'
@@ -167,14 +167,15 @@ describe('MarkdownBody', () => {
 
     const html = renderToStaticMarkup(<MarkdownBody body={body} />);
 
-    expect(html).toContain('<p>With <code>optimize_metadata_queries=true</code>, filtering on a hidden column fails to plan on any identity-partitioned table:</p>'
+    expect(html).toContain('<p>With <code>optimize_metadata_queries=true</code>, filtering on a hidden column fails to plan<br/>on any identity-partitioned table:</p>'
       + '<div class="md-code-block"><span>Plain text</span>');
     expect(html.match(/<pre>[^]*<\/pre>/)?.[0].replace(/<[^>]+>/g, '')).toBe(renderToStaticMarkup(<>{
       'SET SESSION optimize_metadata_queries = true;\n'
       + 'SELECT DISTINCT b, c FROM t WHERE "$path" IS NOT NULL;\n'
       + '-- IllegalArgumentException: Constraint on an unexpected column 2147483646:$path:varchar'
     }</>));
-    expect(html).toContain('</div><p><code>getTableProperties</code> passes the raw enforced predicate to <code>toIcebergExpression</code> when building');
+    expect(html).toContain('</div><p><code>getTableProperties</code> passes the raw enforced predicate to <code>toIcebergExpression</code><br/>when building');
+    expect(html).toContain('<li>Fix query failure when <code>optimize_metadata_queries</code> is enabled and the query<br/>filters on <code>$path</code>.</li>');
     expect(html).not.toContain('<em>');
   });
 
@@ -466,7 +467,7 @@ describe('MarkdownBody', () => {
     const html = renderToStaticMarkup(<MarkdownBody body={body} />);
 
     expect(html.match(/<blockquote>/g)).toHaveLength(2);
-    expect(html).toContain('<blockquote><p>I read the execution flow:</p><blockquote><p>The coordinator aggregates deletion vectors — this is necessary because multiple workers may process the same file. CopyOnWriteFileRewriter writes the surviving rows.</p></blockquote><p>I suspect the rewriting is happening on the coordinator.</p></blockquote>');
+    expect(html).toContain('<blockquote><p>I read the execution flow:</p><blockquote><p>The coordinator aggregates deletion vectors —<br/>this is necessary because multiple workers may process the same file.<br/>CopyOnWriteFileRewriter writes the surviving rows.</p></blockquote><p>I suspect the rewriting is happening on the coordinator.</p></blockquote>');
     expect(html).not.toContain('&gt; The coordinator');
   });
 });

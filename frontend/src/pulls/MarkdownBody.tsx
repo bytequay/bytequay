@@ -377,7 +377,7 @@ export function markdownBlocks(markdown: string, repository?: string): Block[] {
 
   const flushParagraph = () => {
     if (paragraph.length === 0) return;
-    const text = paragraph.join(' ');
+    const text = paragraph.join('\n');
     let cursor = 0;
     for (const match of text.matchAll(INLINE_TOKEN)) {
       const start = match.index ?? 0;
@@ -483,7 +483,7 @@ export function markdownBlocks(markdown: string, repository?: string): Block[] {
       while (index + 1 < lines.length && lines[index + 1].startsWith('>')) {
         content.push(lines[++index].replace(/^>\s?/, ''));
       }
-      blocks.push({ kind: 'alert', label: alert[1], text: content.join(' ') });
+      blocks.push({ kind: 'alert', label: alert[1], text: content.join('\n') });
       continue;
     }
     const quote = line.match(/^>\s?(.*)$/);
@@ -506,8 +506,8 @@ export function markdownBlocks(markdown: string, repository?: string): Block[] {
     }
     // Like GitHub, a line that starts no block of its own continues the list item or task above it.
     const previous = blocks.at(-1);
-    if (list) list.items[list.items.length - 1] += ` ${line.trim()}`;
-    else if (previous?.kind === 'task' && paragraph.length === 0 && lines[index - 1].trim()) previous.text += ` ${line.trim()}`;
+    if (list) list.items[list.items.length - 1] += `\n${line.trim()}`;
+    else if (previous?.kind === 'task' && paragraph.length === 0 && lines[index - 1].trim()) previous.text += `\n${line.trim()}`;
     else paragraph.push(line.trim());
   }
   if (code) blocks.push({ kind: 'code', language: code.fence.language, text: code.lines.join('\n') });
@@ -581,7 +581,10 @@ function inline(text: string, keyPrefix: string, definitions: ReadonlyMap<string
       </a>
     );
     if (part.startsWith('@') || /^#[0-9]+$/.test(part)) return <span className="md-link" key={key}>{part}</span>;
-    return <Fragment key={key}>{part}</Fragment>;
+    // Unlike Markdown files, GitHub descriptions and comments keep every source line break.
+    return <Fragment key={key}>{part.split('\n').map((line, lineIndex) => (
+      <Fragment key={lineIndex}>{lineIndex > 0 && <br />}{line}</Fragment>
+    ))}</Fragment>;
   });
 }
 

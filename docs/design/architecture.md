@@ -50,6 +50,11 @@ The existing owner also drains admitted program actions before Stop/shutdown
 cleanup. Existing turn reports and task lifecycle events carry gates and progress;
 there is no overall delivery state machine or restart recovery.
 
+CI description repair reuses the fixed CI tool bridge in `agent-spi` and
+`agent-cli`; application CI orchestration owns validation and remote writes.
+The existing attempt stores the exact proposal and write/verification facts in
+`core` and `persistence-sqlite`. It adds no module or independent workflow engine.
+
 ## 1. Architecture decision
 
 The backend is a small six-module Maven reactor. Every listed module contains

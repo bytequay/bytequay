@@ -407,6 +407,27 @@ public final class PermissionBroker
         };
     }
 
+    private McpHttpResponse readIssueContext(JsonNode id, JsonNode arguments, PermissionContext context)
+    {
+        if (context.issueContext().isEmpty()) {
+            return error(id, -32602, "Unknown tool");
+        }
+        if (!arguments.isObject() || !arguments.isEmpty()) {
+            return error(id, -32602, "read_issue_context accepts no arguments");
+        }
+        try {
+            IssueContextBridge bridge = issueContexts.resolve(context.taskId())
+                    .orElseThrow(() -> new IllegalStateException("Issue context is no longer available for this task"));
+            String text = context.redactor().redact(bridge.read().get());
+            return response(id, new ToolResult(ImmutableList.of(new TextContent("text", text)), false));
+        }
+        catch (RuntimeException failure) {
+            String reason = Optional.ofNullable(failure.getMessage()).orElse(failure.getClass().getSimpleName());
+            return response(id, new ToolResult(
+                    ImmutableList.of(new TextContent("text", "Unable to read local issue context: " + context.redactor().redact(reason))), true));
+        }
+    }
+
     private McpHttpResponse proposeCiDescription(JsonNode id, JsonNode arguments, PermissionContext context)
     {
         var proposer = context.pullRequestCi().flatMap(PullRequestCiBridge::proposeDescription);
@@ -455,27 +476,6 @@ public final class PermissionBroker
         }
         catch (RuntimeException failure) {
             return response(id, new ToolResult(ImmutableList.of(new TextContent("text", "Rerun request was not accepted. Read current CI before trying again.")), true));
-        }
-    }
-
-    private McpHttpResponse readIssueContext(JsonNode id, JsonNode arguments, PermissionContext context)
-    {
-        if (context.issueContext().isEmpty()) {
-            return error(id, -32602, "Unknown tool");
-        }
-        if (!arguments.isObject() || !arguments.isEmpty()) {
-            return error(id, -32602, "read_issue_context accepts no arguments");
-        }
-        try {
-            IssueContextBridge bridge = issueContexts.resolve(context.taskId())
-                    .orElseThrow(() -> new IllegalStateException("Issue context is no longer available for this task"));
-            String text = context.redactor().redact(bridge.read().get());
-            return response(id, new ToolResult(ImmutableList.of(new TextContent("text", text)), false));
-        }
-        catch (RuntimeException failure) {
-            String reason = Optional.ofNullable(failure.getMessage()).orElse(failure.getClass().getSimpleName());
-            return response(id, new ToolResult(
-                    ImmutableList.of(new TextContent("text", "Unable to read local issue context: " + context.redactor().redact(reason))), true));
         }
     }
 

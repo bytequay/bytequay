@@ -20,7 +20,7 @@ export const DEFAULT_DEVELOPMENT_AUTOMATION: DevelopmentAutomationDto = {
 
 export const AUTOMATION_OPTIONS = [
   { key: 'autoDraftPr', title: 'Auto draft PR', description: 'Push commits and create or update this task’s PR.' },
-  { key: 'autoCiFix', title: 'Auto CI fix', description: 'Repair failing CI and mark the draft ready when checks pass.' },
+  { key: 'autoCiFix', title: 'Auto CI fix', description: 'Repair code or PR-description checks, rerun CI, and mark the draft ready when checks pass.' },
 ] as const;
 
 export function automationForSubmission(settings: DevelopmentAutomationDto, localOnly: boolean): DevelopmentAutomationDto {

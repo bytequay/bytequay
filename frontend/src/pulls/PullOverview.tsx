@@ -1654,7 +1654,11 @@ export function DiscussionComposer({
   const close = async () => {
     if (!onClose) return;
     setClosing(true);
-    try { await onClose(); }
+    // A draft goes out first, as GitHub's "Close with comment" does; a failed post leaves it open.
+    try {
+      await submit();
+      await onClose();
+    }
     finally { setClosing(false); }
   };
   return (
@@ -1718,7 +1722,7 @@ export function DiscussionComposer({
           disabled={preview || posting || closing}
           onError={failure => setBetterWordsError(failure === null ? null : remoteErrorMessage(failure))} />}
         {onClose && <button className="pr-composer__close" type="button" disabled={posting || closing}
-          onClick={() => { void close(); }}>{closing ? 'Closing…' : closeLabel}</button>}
+          onClick={() => { void close(); }}>{closing ? 'Closing…' : body.trim() ? 'Close with comment' : closeLabel}</button>}
         <button type="button" disabled={posting || closing || !body.trim()} onClick={() => { void submit(); }}>
           {posting ? 'Posting…' : 'Comment'}
         </button>

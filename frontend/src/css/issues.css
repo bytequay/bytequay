@@ -21,6 +21,7 @@
 .issue-overview { max-width: 1240px; }
 .issue-overview .pr-overview__branches strong { color: #24292f; font-weight: 500; }
 .issue-overview .pr-state svg { width: 15px; height: 15px; }
+.issue-overview .pr-state.is-closed { background: #8250df; }
 .issue-conversation { min-width: 0; }
 .issue-comment .pr-reactions { padding-top: 0; }
 .issue-event .pr-bot { margin-left: 5px; }

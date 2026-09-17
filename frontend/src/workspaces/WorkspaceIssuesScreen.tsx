@@ -20,7 +20,7 @@ import {
   type UIEvent as ReactUIEvent,
 } from 'react';
 import Avatar from '../Avatar';
-import { CircleDot, User } from 'lucide-react';
+import { CircleCheck, CircleDot, User } from 'lucide-react';
 import type { NavigationMode } from '../navigationHistory';
 import MarkdownBody, { GitHubReferenceLink } from '../pulls/MarkdownBody';
 import {
@@ -93,6 +93,7 @@ export default function WorkspaceIssuesScreen({ workspaceId, repository, initial
   const [error, setError] = useState<string | null>(null);
   const [detailError, setDetailError] = useState<string | null>(null);
   const [mutationError, setMutationError] = useState<string | null>(null);
+  const [closedIssueId, setClosedIssueId] = useState<number | null>(null);
   const detailRequest = useRef(0);
   const loadingMoreRequest = useRef(false);
   const openedInitialIssue = useRef<number | null>(null);
@@ -168,16 +169,17 @@ export default function WorkspaceIssuesScreen({ workspaceId, repository, initial
     }
   }, [workspaceId]);
 
-  const closeIssue = useCallback(async (issueNumber: number) => {
+  const closeIssue = useCallback(async (issue: Issue) => {
     setMutationError(null);
     try {
-      await window.bridge.closeWorkspaceIssue(workspaceId, issueNumber);
-      apply(await window.bridge.fetchWorkspaceIssues(workspaceId, 0, PAGE_SIZE));
+      await window.bridge.closeWorkspaceIssue(workspaceId, issue.number);
+      // The store has already dropped the issue, so reloading the list here would swap the issue being read.
+      setClosedIssueId(issue.id);
     }
     catch (failure) {
       setMutationError(remoteErrorMessage(failure));
     }
-  }, [apply, workspaceId]);
+  }, [workspaceId]);
 
   const refreshIssues = useCallback(async () => {
     setLoading(true);
@@ -268,6 +270,16 @@ export default function WorkspaceIssuesScreen({ workspaceId, repository, initial
 
   const selected = snapshot?.issues.find(issue => issue.id === selectedId) ?? null;
   const selectedNumber = selected?.number ?? null;
+
+  useEffect(() => {
+    if (closedIssueId === null || closedIssueId === selectedId) return;
+    setClosedIssueId(null);
+    setSnapshot(current => current?.issues.some(issue => issue.id === closedIssueId) ? {
+      ...current,
+      issues: current.issues.filter(issue => issue.id !== closedIssueId),
+      totalIssues: current.totalIssues - 1,
+    } : current);
+  }, [closedIssueId, selectedId]);
 
   useEffect(() => {
     if (selectedNumber === null) return;
@@ -397,11 +409,11 @@ export default function WorkspaceIssuesScreen({ workspaceId, repository, initial
           )}
           {mutationError && <div className="pull-detail__error" role="alert">Could not update issue. {mutationError}</div>}
           <div className="pull-detail__body">
-            <IssueOverview issue={selected} metadata={metadata} timeline={timeline} issueType={issueType}
+            <IssueOverview key={selected.id} issue={selected} closed={selected.id === closedIssueId} metadata={metadata} timeline={timeline} issueType={issueType}
               repository={repository} workspaceId={workspaceId}
               timelineLoading={detailLoading} onTypeChange={type => updateIssueType(selected.number, type)}
               onMetadataChange={(assignees, labels) => updateIssueMetadata(selected.number, assignees, labels)}
-              onClose={() => closeIssue(selected.number)}
+              onClose={() => closeIssue(selected)}
               onComment={async body => {
                 await window.bridge.commentWorkspaceIssue(workspaceId, selected.number, body);
                 await loadDetail(selected.number);
@@ -463,6 +475,7 @@ type IssueMetadataPickerKind = 'participants' | 'assignees' | 'labels';
 
 export function IssueOverview({
   issue,
+  closed = false,
   metadata,
   timeline,
   issueType,
@@ -475,6 +488,7 @@ export function IssueOverview({
   onComment,
 }: {
   issue: Issue;
+  closed?: boolean;
   metadata: RepositoryMetadataDto | null;
   timeline: WorkspaceIssueTimelineEventDto[];
   issueType: WorkspaceIssueTypeDto | null;
@@ -515,11 +529,6 @@ export function IssueOverview({
       document.removeEventListener('keydown', escape);
     };
   }, [open]);
-
-  useEffect(() => {
-    setOpen(null);
-    setPickerError(null);
-  }, [issue.number]);
 
   const togglePicker = (kind: IssueMetadataPickerKind) => {
     setQuery('');
@@ -583,7 +592,9 @@ export function IssueOverview({
           <CopyLinkButton value={issue.htmlUrl} label="issue link" />
         </div>
         <div className="pr-overview__branches">
-          <span className="pr-state"><IssueIcon /> Open</span>
+          {closed
+            ? <span className="pr-state is-closed"><CircleCheck size={16} strokeWidth={1.6} aria-hidden="true" /> Closed</span>
+            : <span className="pr-state"><IssueIcon /> Open</span>}
           <span>opened by <strong>{issue.author}</strong> {relativeTime(issue.createdAt)}</span>
           <span>· updated {relativeTime(issue.updatedAt)}</span>
         </div>
@@ -660,7 +671,7 @@ export function IssueOverview({
         </section>
         <DiscussionComposer betterWords workspaceId={workspaceId}
           candidates={candidates} repository={repository} quotedReply={quotedReply} closeLabel="Close issue"
-          onClose={onClose} onSubmit={onComment} />
+          onClose={closed ? undefined : onClose} onSubmit={onComment} />
       </main>
     </div>
   );

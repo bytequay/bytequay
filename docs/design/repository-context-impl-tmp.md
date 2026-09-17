@@ -30,7 +30,9 @@ or completed investigation brief with immutable collection supplements. Exact
 input bindings are retained before submission; the display derives delivery
 status from existing provider receipts. Standalone Learn/Refresh task and UI are
 implemented and pass backend/frontend automated gates, focused process-test
-cleanup verification and desktop packaging. Live provider, performance
+cleanup verification and desktop packaging. Explicit scope/document suggestions
+and bounded resolved-history discovery also pass backend/frontend and package
+gates. Live provider, performance
 and On/Off judgment acceptance remain pending. Unchecked items remain pending
 even when related infrastructure already exists.
 
@@ -48,14 +50,14 @@ even when related infrastructure already exists.
 | Review-owned shared preparation and source/input reuse | Implemented; protected READY/EMPTY/FAILED with atomic replay |
 | Historical PR/issue sources feeding shared generated knowledge | H1 finished; source admission, retention and reuse verified |
 | Standalone Learn / Refresh knowledge lifecycle and UI | H2 implemented; backend/frontend, focused process and package gates passed |
-| Scope/root discovery and bounded resolved-history discovery | H3: follows the explicit builder; not implemented |
+| Scope/root discovery and bounded resolved-history discovery | H3 finished; language-neutral traversal passed backend verification and desktop packaging |
 | Automatic context delivery and investigation report integration | Implemented; frozen bootstrap, brief/supplements and old-run discussion binding; new discussion-source capture remains pending |
 | Notebook/settings UI, Save lesson and context delivery display | Implemented, including Learn task activity, preparation outcomes and receipt-derived delivery state; citation navigation/folded activity remain pending |
 | On/Off quality comparison, performance and live provider acceptance | Pending; required before enablement |
 
-The standalone cold-start lifecycle is implemented and its automated/package
-gates pass. Continue with H3 below; H1 supplies their verified
-historical-source foundation. Existing CP sections
+The H1–H3 cold-start work is implemented and its automated/package gates pass.
+Fresh discussion-source supplements and selected deferred-note exact-version
+reads are next. Existing CP sections
 retain the detailed foundation and verification checklist; their numbering does
 not override this priority order. Earlier “Next” notes are historical evidence.
 
@@ -148,17 +150,59 @@ controls and current task services. No GitHub publication authority.
 
 ### H3 — Bounded scope, source and resolved-history discovery
 
-Follows the explicit builder; manual scopes and explicit sources remain usable
-without this automation.
+Implemented after the explicit builder; manual scopes and explicit sources
+remain usable without discovery. Backend/frontend and desktop package gates
+passed; the evidence entry below records the completed checks.
 
-- [ ] Propose component scopes and documentation roots only from captured
-  repository/module evidence; validate and save before preparation admission.
-- [ ] Discover a bounded relevant selection of merged PRs and resolved issues,
+The approved flow is Find suggestions -> select IDs -> Use selected suggestions
+-> backend rederivation -> append configuration -> Start Learn. Discovery uses an existing local repository
+and one frozen monitored baseline; no clone, Git fetch, provider/task allocation,
+saved proposal lifecycle or scheduler is introduced. Optional remote history
+search permits only bounded history queries. Acceptance rejects moved baseline,
+changed routing, stale notebook revision and active shared preparation.
+Preview/apply require repositoryFingerprint over routing and lastCodeSyncAt;
+capture and final comparison use the workspace lock. One final bounded local
+rev-parse also runs under that lock before notebook registration, with a
+two-second/no-lazy-fetch limit and no notebook transaction or task monitor.
+Candidate source reads and network/model work remain outside the lock. This
+fences a sync completing while Apply waits, a failed sync that moved its ref
+without updating lastCodeSyncAt, and an upstream sharing the preview commit.
+Bounded local history uses GitBrowseService.localLog with a two-second timeout,
+256 KiB output and no lazy fetch or replacement objects. Repository source reads
+share `bytequay.repository-context.discovery-timeout=30s`: one Stopwatch supplies
+the remaining budget to Guava SimpleTimeLimiter on the existing ioExecutor.
+Only the caller mutates Scan; timeout retains completed suggestions and an
+incomplete-coverage gap, while late results cannot merge. Interruption restores
+the request's flag and aborts before history or configuration saving. This adds
+no scheduler. Git command limits and history budgets stay separate; thirty
+seconds is neither a whole-HTTP guarantee nor measured performance.
+The subsequent traversal refinement uses bounded breadth-first inspection of
+eligible directories at any depth, including below manifests. Queries prioritize
+children and filter scope proposals without pruning nonmatching ancestors. The
+same eight manifest names, 24-directory/24-file caps, first 100 entries per
+directory and hidden/generated/vendor exclusions remain; symlinks and submodules
+are not followed. There is no Maven module parser, other workspace parser or build
+execution. Verification for this refinement is recorded separately below.
+
+ContextScope and RegisteredContextSource now have server-owned optional
+discoveryEvidenceRef fields pointing to exact captured RepositoryFile excerpts in
+the existing notebook sourceEvidence list. Configuration references retain those
+excerpts before notes exist and through preparation/reset. Unchanged defining
+fields preserve provenance; manual match/source changes clear it and prune only
+unreferenced evidence. The package-private registerDiscovered appends new identities
+without overwriting/re-enabling existing configuration. BEGIN never registers
+proposals or expands its accepted source assignment.
+
+- [x] Propose component scopes and documentation roots only from captured
+  frozen repository/module evidence. Require literal links for documentation
+  proposals; never broaden a page into a root. Present evidence and accept only
+  selected IDs rederived by the backend before saving configuration and Start Learn.
+- [x] Discover a bounded relevant selection of merged PRs and resolved issues,
   reusing repository identity, local caches, path history and explicit search
   limits. Distinguish resolved from merely closed and retain actual outcome facts.
-- [ ] Keep closed-issue discovery separate from the current open-issue projection;
+- [x] Keep closed-issue discovery separate from the current open-issue projection;
   avoid silently dropping resolution sources or claiming exhaustive history.
-- [ ] Expose why each historical item/scope matched, counts/limits and unavailable
+- [x] Expose why each historical item/scope matched, counts/limits and unavailable
   sources. Selected hydration must not become a repository-wide or website crawl.
 
 Gate: explicit source inputs still work when discovery is empty/unavailable;
@@ -168,7 +212,7 @@ provenance are tested. Discovery alone performs no generation or memory promotio
 ### After cold start
 
 Fresh discussion-source supplements and selected deferred-note exact-version
-reads follow H1–H3. Citation navigation and folded activity remain ordinary UI
+reads are next after the completed H1–H3 work. Citation navigation and folded activity remain ordinary UI
 work. CP6's live provider, performance, poisoned-note and On/Off quality gates,
 and CP7's required repository checks/enablement rules remain unchanged. Offline
 fixtures or a working builder do not prove improved review judgments.
@@ -285,8 +329,8 @@ runtime-retention and workspace-deletion behavior. Use current schema ownership.
   come from the retained run. Do not infer verified/final revision ranges.
 - [x] Register validated user documentation roots/pages with provenance through
   the existing notebook configuration API.
-- [ ] H3: register repository-proposed roots from captured README/module evidence
-  together with preparation admission; do not accept model-selected URLs alone.
+- [x] H3: explicitly accept repository-proposed roots from captured README/module
+  evidence before Start Learn; rederive selected IDs and reject model-selected URLs.
 - [x] Capture selected registered pages through the bounded reader and retain
   exact returned excerpts in existing review evidence.
 - [x] Check every redirect and actual resolved destination, unsupported formats,
@@ -307,7 +351,8 @@ redirect/size/failure regressions. No whole-site or whole-history fetch.
 - [x] Admit one review-owned generation owner per workspace and return immediate
   JOINED for matching active inputs; DEFERRED/gaps for competing missing inputs.
 - [x] Resolve identical review admission replay before expected-revision comparison.
-  Scope/root proposal registration and its revision behavior remain pending.
+  Scope/root acceptance is a separate explicit pre-Learn operation with its own
+  revision, repository-identity and frozen-baseline guards.
 - [x] Persist accepted task/turn ownership and input fencing before generation.
   Derive execution status from existing tasks instead of a parallel job engine.
 - [x] Implement READY, EMPTY, FAILED and negative-result reuse. A source failure
@@ -1194,3 +1239,123 @@ Required checks below describe the current increment, not full feature acceptanc
   H3 bounded scope/root and resolved-history discovery is next. Live provider,
   measured performance and small-PR On/Off judgment acceptance remain separate
   pending gates; automated checks do not establish those claims.
+
+### Explicit scope, documentation and history suggestions
+
+- Implemented Find suggestions and Use selected suggestions in the existing
+  notebook UI. Candidate configuration comes from bounded frozen repository
+  reads and literal documentation links. Selected history stays optional for
+  Learn; preview and acceptance never start an agent or automatically save memory.
+- Added server-owned discoveryEvidenceRef provenance, append-only acceptance,
+  revision/routing checks and selected-ID rederivation. Exact configuration
+  evidence remains in the notebook before any generated note exists and survives
+  preparation/reset; manual defining-data edits clear obsolete references.
+  Acceptance rechecks routing/sync metadata and the final bounded local Git ref
+  under the workspace lock before notebook registration, including failed-sync
+  ref movement without a recorded sync-time change. The final full backend run
+  includes that regression and passed.
+- Local history uses GitBrowseService.localLog with a two-second timeout,
+  256 KiB bound and no lazy fetch or replacement objects. This increment's
+  scheduling-only scan deadline was superseded by the configurable read budget
+  recorded in the review-polish entry below. No measured latency claim is made.
+- Focused backend verification passed 282 tests:
+  `/private/tmp/bytequay-context-discovery-focused.log`.
+- Final frontend lint, TypeScript and all 84 files / 935 tests passed. Logs:
+  `/private/tmp/bytequay-context-discovery-frontend-{lint,types,tests}.log`.
+  Wide and narrow suggestion/task displays were visually inspected in
+  `/private/tmp/bytequay-context-discovery-ui/`.
+- The initial full backend run executed 2,768 tests with two failures in
+  TestReviewTools documentation listing:
+  `/private/tmp/bytequay-context-discovery-backend-verify.log`.
+  The new optional discoveryEvidenceRef exposed an existing putPOJO path whose
+  JsonNode.toString used an unconfigured mapper. Listing now converts sources
+  with the injected ObjectMapper.valueToTree; all 96 TestReviewTools tests passed:
+  `/private/tmp/bytequay-context-discovery-review-tools.log`.
+- Final full backend verification passed 233 suites / 2,768 tests with zero
+  failures, errors or skips in 03:04:
+  `/private/tmp/bytequay-context-discovery-backend-verify-final.log`.
+- Desktop packaging passed for darwin arm64:
+  `/private/tmp/bytequay-context-discovery-package.log`.
+  The verified `backend/app/target/bytequay-backend.jar` and bundled
+  `frontend/out/ByteQuay-darwin-arm64/ByteQuay.app/Contents/Resources/bytequay-backend.jar`
+  share SHA-256 `d4126bbd840fbe2d8e5daa2609a1bc22f29394e51dcde96adc1322e76917a471`.
+- H3 implementation and automated/package gates are complete. Fresh
+  discussion-source supplements and selected deferred-note exact-version reads
+  are next. Existing real
+  dirty-worktree, live-provider, performance and On/Off judgment acceptance gates
+  remain open.
+
+### Discovery timeout and scan review polish
+
+- Replaced the unmeasured eight-second scheduling deadline with the configurable
+  `bytequay.repository-context.discovery-timeout=30s` source-read budget.
+  One Stopwatch supplies remaining time to Guava SimpleTimeLimiter on the existing
+  ioExecutor. No scheduler or durable lifecycle was added.
+- Only the request mutates Scan; each worker returns source data. Timeout retains
+  already completed suggestions with an explicit coverage gap, and late worker
+  results cannot merge. Interruption restores the flag and aborts before history
+  discovery or notebook configuration saving.
+- Split the scan into source-reading, directory/file inspection, child-queue and
+  limit-reporting helpers to make reads and caller-owned mutation explicit.
+  Existing source/count bounds, two-second Git command limits and the
+  separate history budget remain. No thirty-second whole-HTTP or measured
+  performance guarantee is claimed.
+- Four added regression cases cover retained partial suggestions and rejection
+  of a late worker result after timeout; interrupted discovery preserving the
+  interrupt flag and aborting before history; interrupted acceptance aborting
+  before configuration saving; and zero/negative timeouts rejected before reads.
+- Focused verification passed all 22 tests: 12 discovery, three Git and seven
+  SQLite tests. Log:
+  `/private/tmp/bytequay-context-discovery-polish-focused-final.log`.
+  An initial Spring test startup failed because test resources replace production
+  application.properties; the test properties now include the discovery timeout.
+- Full backend verification passed 233 suites / 2,772 tests with zero failures,
+  errors or skips in 02:55:
+  `/private/tmp/bytequay-context-discovery-polish-backend-final.log`.
+  The initial sandboxed full run could not inspect macOS process groups because
+  sysctl access was denied. The rerun passed with the required local process and
+  socket access; no test or production behavior was weakened to bypass that gate.
+- Frontend code is unchanged since the preceding lint, TypeScript and 935-test
+  pass. Its earlier evidence still applies; this polish adds no frontend behavior.
+- Desktop packaging passed for darwin arm64:
+  `/private/tmp/bytequay-context-discovery-polish-package.log`.
+  The verified `backend/app/target/bytequay-backend.jar` and bundled
+  `frontend/out/ByteQuay-darwin-arm64/ByteQuay.app/Contents/Resources/bytequay-backend.jar`
+  share SHA-256 `53bf0bfc56c34b162e33968152208836bdd6e21af288ff5f77303a02cc693269`.
+  This completes the automated/package gates for the polish. Live-provider,
+  performance and review-quality acceptance remain separate open gates.
+
+### Language-neutral bounded directory discovery
+
+- Replaced the Maven module regex/priority queue and shallow traversal stopping at
+  manifest boundaries with generic bounded breadth-first traversal. Eligible
+  directories can be inspected at any depth, including beneath an existing
+  manifest, within the same total bounds.
+- Queries prioritize child traversal and filter component scope proposals;
+  nonmatching ancestors remain eligible so they can lead to matching descendants.
+  The same eight manifest names remain recognized. No workspace-format parser,
+  build execution or new dependency is added.
+- Retained the 24-directory/24-file caps, first 100 entries per directory and
+  configurable thirty-second shared source-read budget. Hidden/generated/vendor
+  exclusions and safe-path checks remain; symlinks and submodules are not followed.
+  Partial coverage stays explicit. All proposals require captured evidence and
+  user acceptance before configuration changes or Learn.
+- Three added regression cases cover mixed-language/deep manifests and
+  documentation, query matches beneath nonmatching ancestors, and bounded deep
+  and wide traversal. Existing cases also exercise the retained exclusions and
+  Maven directories without module declarations.
+- Focused verification passed all 48 tests: 15 discovery and 33 baseline-reader
+  tests. Log: `/private/tmp/bytequay-context-discovery-language-focused.log`.
+- Full backend verification passed 233 suites / 2,775 tests with zero failures,
+  errors or skips in 03:02:
+  `/private/tmp/bytequay-context-discovery-language-backend.log`.
+- Frontend code is unchanged since the preceding lint, TypeScript and 935-test
+  pass. This refinement adds no frontend behavior.
+- Desktop packaging passed for darwin arm64:
+  `/private/tmp/bytequay-context-discovery-language-package.log`.
+  The verified `backend/app/target/bytequay-backend.jar` and bundled
+  `frontend/out/ByteQuay-darwin-arm64/ByteQuay.app/Contents/Resources/bytequay-backend.jar`
+  share SHA-256 `22116506b3bf4222c108f71ba257f5b2e5c6dba2f6e2896657c5e724c198148e`.
+  This completes the automated/package gates for the traversal refinement.
+  Live-provider, performance and review-quality acceptance remain separate open
+  gates.

@@ -544,7 +544,7 @@ class TestRepositoryContextReader
     private static RepositoryNotebook componentNotebook()
     {
         ContextScope scope = new ContextScope("iceberg", "Iceberg",
-                new ContextMatch.Selected(ImmutableList.of("plugin/iceberg/"), ImmutableList.of("Iceberg")), true, Optional.empty());
+                new ContextMatch.Selected(ImmutableList.of("plugin/iceberg/"), ImmutableList.of("Iceberg")), true, Optional.empty(), Optional.empty());
         return new RepositoryNotebook(1, 0, true, ImmutableList.of(), ImmutableList.of(ContextScope.project(), scope),
                 ImmutableList.of(), ImmutableList.of(), ImmutableList.of(), Optional.empty());
     }

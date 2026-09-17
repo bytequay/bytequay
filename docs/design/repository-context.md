@@ -242,11 +242,43 @@ existing transcript and Stop action. There is no separate build-job engine or
 background learning scheduler. Opening the app, workspace or settings, startup
 recovery, and source synchronization never start or resume a learning task.
 
-The cold-start sequence is selected history-source learning first, this explicit
-builder second, then repository-derived scope/root proposals and bounded discovery
-of relevant merged PRs/resolved issues. New discussion-source supplements and
-selected deferred-note exact-version reads follow that cold-start path. Provider,
+The cold-start work is implemented: selected history-source learning, this explicit
+builder, repository-derived scope/root proposals and bounded discovery of relevant
+merged PRs/resolved issues. New discussion-source supplements and selected
+deferred-note exact-version reads are next. Provider,
 performance and On/Off review-quality acceptance retain their final gates.
+
+**Find suggestions** is an explicit settings action before Learn. It previews bounded
+component scopes, literal documentation links and relevant historical candidates;
+it does not start an agent or change the notebook. Repository inspection uses
+one captured monitored baseline in an already provisioned local repository, with
+no clone, Git fetch or implicit synchronization. Unavailable local data remains
+a visible gap. Optional remote history search authorizes only bounded history
+queries; it does not authorize fetching documentation or launching learning.
+
+The user selects proposed scope/source IDs and chooses **Use selected suggestions**. The
+backend rederives those IDs and their evidence from the frozen baseline outside
+mutation locks, rejects moved baseline or changed routing/synchronization, then checks the
+displayed notebook revision and appends the approved configuration. Existing
+identities, disabled settings, notes and removal suppression remain unchanged;
+active shared preparation blocks acceptance. There is no saved proposal job or
+discovery scheduler. The user then starts Learn with the resulting configuration.
+Discovery and acceptance are implemented. The implementation checklist records
+completed gates and the latest review refinements; live provider, performance
+and review-quality acceptance remain separate.
+
+Preview and Apply both require repositoryFingerprint, a server-created SHA-256
+over the WorkspaceRepositoryContext routing and recorded lastCodeSyncAt. Metadata
+is captured under the existing workspace lock. Apply compares the preview's
+fingerprint before inspection and rechecks the same metadata under that lock at
+save time, so a synchronization while acceptance waits or an upstream change at
+the same commit cannot silently transfer a preview. A final bounded rev-parse
+also runs under the workspace lock immediately before notebook registration:
+a failed synchronization can move the ref without updating lastCodeSyncAt.
+Only this local two-second/no-lazy-fetch ref check is inside that lock; candidate
+file/history reads, network/model work and database transactions are outside it.
+No notebook transaction or task monitor is held for the ref check. The fingerprint
+is a stale-input guard, not source evidence or a caller-selected repository identity.
 
 ### 2.4 Exact trigger matrix
 
@@ -258,6 +290,8 @@ performance and On/Off review-quality acceptance retain their final gates.
 | Start a new run with matching existing notes | Check selected source fingerprints; reuse or prepare | Capture a new bootstrap and run snapshot |
 | Git/commit synchronization | None by itself | Source data becomes available; no model execution |
 | Worktree HEAD changes | None by itself | No generation merely because HEAD moved |
+| Find suggestions button | None | Bounded explicit source/scope preview; no agent, clone or Git fetch |
+| Use selected suggestions button | Append selected revalidated configuration and provenance at the displayed revision, if any | Fill Learn's selected scopes/history; no agent starts |
 | Learn/Refresh button | Prepare selected generated scopes | Visible, stoppable task reads repository files/structure/documentation and registered docs by default, plus optional selected history |
 | User edits/disables/removes a note | New notebook content revision | No review restart |
 | User saves a lesson | New user-owned MEMORY entry | No review restart |
@@ -528,12 +562,14 @@ formats explicitly. Retain selected/cited excerpts, not full sites.
 Documentation roots initially come from user links or explicit links in the
 repository's checked README/docs. Save the roots and their provenance in the
 notebook before using the fixed reader. User changes use the settings editor.
-During cold start, begin may register backend-validated scope/root proposals
-from captured module/README evidence before claiming its revision. Registration
-and admission are one short mutation. Do not edit source configuration inside
-an already admitted attempt: a newly discovered root waits for a later explicit
-preparation, or remains agent-reported evidence for this run. Repository-suggested
-roots still pass the same destination checks and grant no extra authority.
+Find suggestions proposes scopes and roots from bounded frozen module/README evidence.
+Only literal captured HTTPS links can become documentation proposals; an exact
+page link must not be broadened to its parent root. The user accepts selected
+IDs, which the backend rederives before appending configuration and provenance.
+Acceptance precedes Start Learn and preparation BEGIN; BEGIN never registers
+proposals or changes its frozen documentation assignment. A new source waits for
+a later explicit preparation. Repository-suggested roots still pass the same
+destination checks and grant no extra authority.
 
 The implemented selected reader is exposed through the existing
 `review_get_context` operation with `kind=document`. With no sourceId it lists
@@ -734,7 +770,7 @@ limitations rather than an invented successful empty extraction.
 This path writes generated KNOWLEDGE through the existing fenced preparation
 report. It never creates MEMORY automatically. Save lesson remains the user's
 explicit action. The standalone Learn task and scope/history selection UI are
-implemented. Scope/root and bounded resolved-history discovery follow in H3.
+implemented, including explicit scope/root and bounded resolved-history discovery.
 The Learn assignment always includes
 repository and documentation sources.
 
@@ -756,13 +792,15 @@ does not maintain authoring or inspection dates.
       "id": "docs-trino",
       "kind": "DOCUMENTATION_ROOT",
       "url": "https://trino.io/docs/current/",
-      "origin": "USER"
+      "origin": "USER",
+      "discoveryEvidenceRef": null
     },
     {
       "id": "docs-iceberg",
       "kind": "DOCUMENTATION_ROOT",
       "url": "https://iceberg.apache.org/docs/latest/",
-      "origin": "USER"
+      "origin": "USER",
+      "discoveryEvidenceRef": null
     }
   ],
   "scopes": [
@@ -771,7 +809,8 @@ does not maintain authoring or inspection dates.
       "title": "Project overview",
       "match": {"kind": "REPOSITORY"},
       "enabled": true,
-      "preparation": null
+      "preparation": null,
+      "discoveryEvidenceRef": null
     },
     {
       "id": "path:plugin/trino-iceberg/",
@@ -794,7 +833,8 @@ does not maintain authoring or inspection dates.
         "noteIds": ["knowledge:path:plugin/trino-iceberg/"],
         "checkedReads": ["<full typed source read receipts; see Section 4.3>"],
         "explanation": "Prepared connector overview from the recorded sources."
-      }
+      },
+      "discoveryEvidenceRef": null
     }
   ],
   "entries": [
@@ -860,8 +900,18 @@ Field rules:
   retries independently of notebook content revision, including EMPTY results.
 - Scope IDs are stable. The project scope is fixed. Generated component scopes
   use a validated normalized repository-relative directory, not a model's
-  changing display title. An agent can propose a component boundary from
-  module files; ByteQuay validates and records it before claiming preparation.
+  changing display title. Find suggestions proposes a component boundary from captured
+  module files; the user accepts the revalidated proposal before starting Learn.
+- ContextScope and RegisteredContextSource each carry optional
+  discoveryEvidenceRef. The server assigns this reference to retained
+  sourceEvidence with BYTEQUAY_READ capture and a RepositoryFile reference to
+  the monitored repository. It is configuration provenance, not a knowledge
+  claim. Discovery registration checks current repository identity under the
+  workspace mutation lock; source inspection runs outside it.
+  Keep this evidence even before a Knowledge note exists and through preparation,
+  reset and disable. An unchanged scope ID/match or source ID/kind/URL preserves
+  its reference; changing defining data clears it. Source edits become USER.
+  Settings request bodies cannot author preparation or discovery metadata.
 - match is either REPOSITORY or SELECTED. Empty SELECTED lists are invalid.
   No accidental repository-wide memory is inferred from missing metadata.
 - claims is a short list of important assertions, not a forced sentence-level
@@ -1456,12 +1506,12 @@ acceptance measurements.
 Use one notebook-mutation lock keyed by workspace for short local mutation:
 
 1. Read current content. Resolve identical admitted request/normalized-plan
-   replay first; compare expected revision only for a new admission. The first
-   admission's own scope/root additions must not break its identical retry.
-2. Validate any pre-admission scope/root additions from captured local evidence,
-   save them, then capture their resulting content revision, stable attempt ID
-   and owning accepted task/turn key. Save activePreparation in the same mutation.
-   Same request/inputs returns its existing attempt.
+   replay first; compare expected revision only for a new admission.
+2. Admit only already configured scopes and sources. Explicit discovery acceptance
+   revalidates selected IDs and appends configuration before Learn starts; an active
+   preparation rejects that configuration mutation. Capture the existing content
+   revision, stable attempt ID and owning accepted task/turn key, then save
+   activePreparation. Same request/inputs returns its existing attempt.
 3. Release the lock/connection before Git inspection, network reads, or model work.
 4. Validate a generated batch outside the transaction.
 5. Reacquire the lock, require the same attempt and unchanged content revision,
@@ -1845,6 +1895,14 @@ public record RepositoryNotebook(
         List<ContextSourceEvidence> sourceEvidence,
         Optional<ActiveContextPreparation> activePreparation) {}
 
+/** A stable topic; discovery provenance is server-owned and retained independently of notes. */
+public record ContextScope(String id, String title, ContextMatch match, boolean enabled,
+        Optional<ContextPreparationResult> preparation, Optional<String> discoveryEvidenceRef) {}
+
+/** Configured location; a discovery reference cites the frozen repository excerpt that proposed it. */
+public record RegisteredContextSource(String id, Kind kind, String url,
+        ContextEntryOrigin origin, Optional<String> discoveryEvidenceRef) {}
+
 /**
  * One reusable note. Scope is explicit and source IDs resolve within the
  * notebook. USER content and disabled/suppressed IDs are never regenerated.
@@ -1987,7 +2045,10 @@ public interface RepositoryContextService
      * No fetch or generation occurs. Existing scope IDs stay stable; disable
      * a populated scope rather than deleting its identity. Retain cited source
      * evidence when removing a configured root. This endpoint is user-owned;
-     * begin permits only narrowly validated new repository-derived proposals.
+     * discovery acceptance is a separate append-only action before preparation.
+     * Existing discovery references survive unchanged defining fields; changed
+     * scope matches or source identities clear them. Caller-supplied references
+     * and preparation metadata cannot establish provenance or ownership.
      * A preference change affects new runs, preserves notes/history, and
      * neither starts nor cancels an agent. Models cannot change the preference.
      */
@@ -2079,6 +2140,35 @@ public interface RepositoryContextService
      */
     void deleteWorkspaceData(String workspaceId);
 }
+~~~
+
+The concrete RepositoryContextService also owns this package-private acceptance
+boundary. Only the application discovery service calls it after rederiving the
+selected proposals; it is never a model tool or a renderer-authored provenance API.
+
+~~~java
+/**
+ * Appends explicitly accepted repository-derived configuration and exact evidence.
+ * @param workspaceId owning retained workspace
+ * @param expectedRevision notebook content revision displayed with the preview
+ * @param scopes new path-stable scopes, with no preparation and a discovery evidence reference
+ * @param sources new GENERATED documentation registrations with discovery evidence references
+ * @param evidence exact repository excerpts rederived outside all mutation locks
+ * @return notebook with one content revision increment and all prior user content preserved
+ * @throws ContextConflictException if the displayed revision is stale
+ * @throws IllegalArgumentException for an active preparation, duplicate identities,
+ *         missing or non-application repository evidence, changed monitored repository,
+ *         evidence identity conflicts or notebook byte/count limits
+ *
+ * Hold only the existing workspace mutation lock. Check captured repository ID/name
+ * against the current workspace inside that lock; do no Git, remote or model work.
+ * Retain configuration evidence even without a knowledge note. Existing scopes,
+ * sources, notes, disabled settings and suppression are never replaced or re-enabled.
+ * The caller separately rejects moved baseline/routing and validates exact candidate IDs.
+ */
+RepositoryNotebook registerDiscovered(String workspaceId, long expectedRevision,
+        List<ContextScope> scopes, List<RegisteredContextSource> sources,
+        List<ContextSourceEvidence> evidence);
 ~~~
 
 ### 10.3 Selection and fixed source reads
@@ -2268,8 +2358,9 @@ public class ContextHistoryReader
 
 The concrete application service below is shared by review investigations and
 explicit learning tasks. It operates only on existing configured scopes and
-registered sources. Scope/root proposals and selected deferred-note exact-version
-reads remain pending; standalone Learn/Refresh is implemented. Review
+registered sources. Implemented scope/root discovery acceptance occurs before
+Learn; selected deferred-note exact-version reads remain pending. Standalone
+Learn/Refresh is implemented. Review
 tools construct the trusted execution from a frozen run; learning tools construct
 it from their saved ContextBuild and accepted task/turn. Neither callers nor
 models can supply a different owner through report arguments.
@@ -2392,10 +2483,11 @@ Settings displays last completed READY/EMPTY/FAILED distinctly from no completed
 result, plus retained owner details when present. This is extraction metadata,
 not a claim of current applicability, live execution or model comprehension.
 
-Repository-derived scope/root proposals remain pending. They must validate
-captured repository evidence and save approved configuration before shared
-preparation admission; they do not require another preparation lifecycle or
-provider runner. The same concrete service owns generated-note validation and
+Repository-derived scope/root discovery is a stateless explicit preview and
+acceptance flow. It validates captured repository
+evidence and appends user-selected configuration before Start Learn; preparation
+BEGIN does not register proposals. No new preparation lifecycle or provider
+runner is required. The same concrete service owns generated-note validation and
 protected notebook replacement for both existing review and Learn tool bridges.
 
 Review startup uses the concrete app ReviewContextService.prepareRun to retain
@@ -2617,6 +2709,84 @@ research policy to that identity, with the existing restricted/no-child profile
 and Global-only user skills. Interactive development ownership, delivery tools,
 PR reporting and publication are not inferred from AUTO or the task title.
 
+### 10.7 Explicit discovery and acceptance
+
+The concrete ContextDiscoveryService is stateless. POST discovery accepts
+expectedRevision, enabled scopeIds for history matching, query and an explicit
+includeRemote boolean. Its preview returns workspaceId, notebookRevision,
+baselineSha, repositoryFingerprint, query, scope/source proposals with exact
+evidence and reasons, historical candidates, gaps and inspected counts. Apply
+accepts expectedRevision, baselineSha, repositoryFingerprint, query and selected
+scopeIds/sourceIds; it returns the updated notebook. Neither request accepts a
+proposed URL, excerpt, source origin or agent identity.
+
+The repository scan uses bounded breadth-first traversal of safe eligible
+directories at any depth, including descendants of a directory containing a
+manifest. The query prioritizes child traversal and filters scope proposals;
+it does not prune nonmatching ancestors that may contain matching descendants.
+The eight recognized manifest names remain pom.xml, build.gradle,
+build.gradle.kts, package.json, Cargo.toml, go.mod, pyproject.toml and CMakeLists.txt.
+Traversal does not parse Maven module declarations or other workspace membership,
+execute build tools, or follow symlinks/submodules. Hidden directories and the
+existing generated/vendor directory exclusions remain excluded. Candidates still
+require captured repository evidence and explicit user acceptance.
+
+The scan schedules at most 24 directory and 24 file reads and inspects only the
+first 100 entries of each directory. These are coverage bounds, not a claim of
+exhaustive component discovery.
+`bytequay.repository-context.discovery-timeout=30s` configures its shared read
+budget. One Stopwatch supplies the remaining budget to Guava SimpleTimeLimiter
+for each source read on the existing ioExecutor; there is no new scheduler.
+Only the calling request mutates Scan. A timeout returns completed suggestions
+with an incomplete-coverage gap, and a worker that finishes late cannot merge
+its result. An interrupted request restores its interrupt flag and aborts before
+history discovery or configuration saving.
+
+Per-command Git limits remain separate. Local history uses
+GitBrowseService.localLog against the frozen commit, with a two-second command
+timeout, 256 KiB output limit, literal paths, no lazy fetch and Git replacement
+objects disabled. History has its own budget. These bounds do not guarantee
+that the whole HTTP request finishes in thirty seconds, and do not establish
+measured performance. Failures and omitted coverage remain explicit gaps.
+
+~~~java
+/**
+ * Previews bounded local configuration proposals and optionally remote history.
+ * @param workspaceId retained workspace with an already provisioned local repository
+ * @param request displayed revision, selected history scopes, plain query and remote-search choice
+ * @return immutable proposals/evidence with the frozen baseline, repository fingerprint and coverage gaps
+ * @throws ContextConflictException if the notebook revision changed
+ * @throws IllegalArgumentException for invalid selectors or an unavailable local baseline
+ * @throws IllegalStateException if the request was interrupted; retain its interrupt flag
+ *
+ * Capture routing and lastCodeSyncAt under the existing workspace lock, then release
+ * it before Git/history reads. Do not clone, fetch Git, fetch documentation, mutate
+ * configuration or allocate an agent task. Only includeRemote permits bounded GitHub search.
+ * Repository source reads share the configured timeout; completed proposals survive timeout
+ * with an explicit gap. Abort interrupted requests before starting history discovery.
+ */
+public Preview discover(String workspaceId, Request request);
+
+/**
+ * Revalidates selected proposal IDs and appends their server-derived configuration.
+ * @param workspaceId owning workspace, never supplied inside the proposal data
+ * @param request preview revision/baseline/fingerprint/query and selected scope/source IDs
+ * @return updated notebook with retained discovery provenance and existing content preserved
+ * @throws ContextConflictException for a stale notebook revision
+ * @throws IllegalArgumentException for changed routing/sync state/baseline, unavailable
+ *         proposals, active preparation, duplicate identities or invalid evidence
+ * @throws IllegalStateException if the request was interrupted; retain its interrupt flag
+ *
+ * Recompute candidates outside mutation locks, without history search or document fetch.
+ * Recheck repositoryFingerprint metadata and perform one bounded local rev-parse under
+ * the workspace lock immediately before registerDiscovered. This final two-second ref
+ * check holds no notebook transaction or task monitor; all file/network/model work
+ * remains outside that lock. Abort interrupted requests before saving configuration.
+ * No agent starts and no BEGIN is admitted.
+ */
+public RepositoryNotebook apply(String workspaceId, ApplyRequest request);
+~~~
+
 ## 11. Fixed tool and HTTP boundary
 
 The implemented review boundary reuses the existing task MCP broker:
@@ -2641,8 +2811,9 @@ original report contract. No separate acknowledgment tool or turn is added.
 The learning bridge is purpose-bound and exposes only its two fixed context
 tools. Its default assignment requires root-directory and repository-file work
 and an attempt for every frozen registered documentation source before BEGIN or
-reuse; failures remain explicit gaps. Source/root proposals and selected notebook
-exact-version reads remain pending. The Learn bridge has no PR reporting authority.
+reuse; failures remain explicit gaps. Scope/root discovery acceptance happens
+before Start Learn and grants no additional tool. Selected notebook exact-version
+reads remain pending. The Learn bridge has no PR reporting authority.
 
 repository_context_read has the closed kinds SELECTION, TREE, FILE, DOCUMENT and
 HISTORY. TREE pages start at zero; document pages start at one and use captureId
@@ -2673,6 +2844,8 @@ Use the current authenticated Electron transport:
 | POST /api/workspaces/{workspaceId}/repository-context/lessons | Explicit edited Save lesson |
 | PUT /api/workspaces/{workspaceId}/repository-context/configuration | Edit useInReviews and/or registered source roots/scopes with expectedRevision |
 | POST /api/workspaces/{workspaceId}/repository-context/reset | Explicit selected suppression reset with expectedRevision |
+| POST /api/workspaces/{workspaceId}/repository-context/discovery | Explicit preview with expectedRevision, scopeIds, query and includeRemote |
+| POST /api/workspaces/{workspaceId}/repository-context/discovery/apply | Append rederived selected scopeIds/sourceIds with expectedRevision, baselineSha, repositoryFingerprint and query |
 | GET /api/workspaces/{workspaceId}/repository-context/build | Latest learning view; may reconcile existing terminal work but never starts learning |
 | POST /api/workspaces/{workspaceId}/repository-context/build | Explicit Learn/Refresh request with requestKey, expectedRevision, expectedBuildSequence, scopeIds and history |
 | POST /api/workspaces/{workspaceId}/repository-context/build/stop | Request current task cancellation with taskId |

@@ -31,6 +31,7 @@ import org.springframework.web.client.RestClientException;
 import org.springframework.web.client.RestClientResponseException;
 import org.springframework.web.server.ResponseStatusException;
 
+import java.util.Arrays;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
@@ -43,7 +44,9 @@ import static com.bytequay.app.repository.github.GitHubApiSupport.requireBody;
 import static com.bytequay.app.repository.github.GitHubApiSupport.translating;
 import static com.google.common.base.Preconditions.checkArgument;
 import static com.google.common.collect.ImmutableList.toImmutableList;
+import static java.nio.charset.StandardCharsets.UTF_8;
 import static java.util.Objects.requireNonNull;
+import static java.util.stream.Collectors.joining;
 
 @Component
 public class GitHubRepoClient
@@ -206,6 +209,22 @@ public class GitHubRepoClient
                     issue.state(),
                     issue.pullRequest() != null);
         });
+    }
+
+    /** One explicit bounded search; fixed repository/state qualifiers cannot be replaced by caller search syntax. */
+    public GitHubSearchResponse searchHistory(String pat, RepoRef repo, boolean pullRequests, String plainTerms)
+    {
+        checkArgument(pat != null && !pat.isBlank(), "GitHub credential is required");
+        requireNonNull(repo, "repo is null");
+        requireNonNull(plainTerms, "plainTerms is null");
+        checkArgument(plainTerms.getBytes(UTF_8).length <= 200 && plainTerms.matches("[\\p{L}\\p{N} _./-]*"),
+                "History query must contain at most 200 UTF-8 bytes of plain words");
+        String words = Arrays.stream(plainTerms.strip().split(" +")).filter(word -> !word.isEmpty()).map(word -> "\"" + word + "\"").collect(joining(" "));
+        String query = "repo:" + repo.fullName() + (pullRequests ? " is:pr is:merged" : " is:issue is:closed") + " in:title,body"
+                + (words.isEmpty() ? "" : " " + words);
+        return translating(() -> requireBody(get(gitHubRestClient, pat, uri -> uri.path("/search/issues").queryParam("q", "{query}")
+                        .queryParam("sort", "updated").queryParam("order", "desc").queryParam("per_page", 20).queryParam("page", 1).build(query))
+                .retrieve().body(GitHubSearchResponse.class), "Missing history search response from GitHub"));
     }
 
     private static List<String> issueLabels(IssueResponse issue)

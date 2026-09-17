@@ -112,7 +112,7 @@ class TestRepositoryContextService
     void configurationIsAtomicAndPreservesUnspecifiedFields()
     {
         ContextScope iceberg = new ContextScope("path:plugin/iceberg/", "Iceberg",
-                new ContextMatch.Selected(ImmutableList.of("plugin/iceberg/"), ImmutableList.of("iceberg")), true, Optional.empty());
+                new ContextMatch.Selected(ImmutableList.of("plugin/iceberg/"), ImmutableList.of("iceberg")), true, Optional.empty(), Optional.empty());
         EditContextConfiguration.Source source = new EditContextConfiguration.Source("docs", RegisteredContextSource.Kind.DOCUMENTATION_ROOT, "https://example.com/docs/");
         RepositoryNotebook first = service.configure(WORKSPACE, 0, new EditContextConfiguration(
                 Optional.of(false), Optional.of(ImmutableList.of(source)), Optional.of(ImmutableList.of(ContextScope.project(), iceberg))));
@@ -136,7 +136,7 @@ class TestRepositoryContextService
         RepositoryNotebook initial = seedPreparation(ContextPreparationResult.Outcome.EMPTY);
         ContextPreparationResult forged = new ContextPreparationResult("forged", initial.scopes().getFirst().preparation().orElseThrow().inputFingerprint(),
                 ContextPreparationResult.Outcome.FAILED, ImmutableList.of(), ImmutableList.of(), "Caller-provided preparation");
-        ContextScope edited = new ContextScope("project", "Edited project title", new ContextMatch.Repository(), false, Optional.of(forged));
+        ContextScope edited = new ContextScope("project", "Edited project title", new ContextMatch.Repository(), false, Optional.of(forged), Optional.empty());
         RepositoryNotebook updated = service.configure(WORKSPACE, 1,
                 new EditContextConfiguration(Optional.empty(), Optional.empty(), Optional.of(ImmutableList.of(edited))));
 
@@ -147,6 +147,110 @@ class TestRepositoryContextService
         assertThat(updated.activePreparation()).isEqualTo(initial.activePreparation());
         assertThat(updated.sourceEvidence()).isEqualTo(initial.sourceEvidence());
         assertThat(service.getNotebook(WORKSPACE)).isEqualTo(updated);
+    }
+
+    @Test
+    void discoveredConfigurationRetainsEvidenceBeforeKnowledgeAndPreservesUserContent()
+    {
+        ContextScope project = new ContextScope("project", "My project", new ContextMatch.Repository(), false, Optional.empty(), Optional.empty());
+        service.configure(WORKSPACE, 0, new EditContextConfiguration(Optional.of(false), Optional.empty(), Optional.of(ImmutableList.of(project))));
+        RepositoryNotebook before = service.editEntry(WORKSPACE, 1, edit("User correction"));
+        ContextSourceEvidence module = discoveryEvidence("module", "component/pom.xml", "<project/>");
+        ContextSourceEvidence readme = discoveryEvidence("readme", "README.md", "Documentation: https://example.com/docs/");
+        ContextScope scope = discoveredScope(module.id());
+        RegisteredContextSource source = discoveredSource(readme.id());
+
+        RepositoryNotebook saved = service.registerDiscovered(WORKSPACE, before.revision(), ImmutableList.of(scope), ImmutableList.of(source), ImmutableList.of(module, readme));
+
+        assertThat(saved.revision()).isEqualTo(3);
+        assertThat(saved.useInReviews()).isFalse();
+        assertThat(saved.entries()).isEqualTo(before.entries());
+        assertThat(saved.scopes()).containsExactly(project, scope);
+        assertThat(saved.sources()).containsExactly(source);
+        assertThat(saved.sourceEvidence()).containsExactly(module, readme);
+        assertThat(new RepositoryContextService(settings, mapper, workspaces, reviews).getNotebook(WORKSPACE)).isEqualTo(saved);
+        assertThatThrownBy(() -> service.registerDiscovered(WORKSPACE, before.revision(), ImmutableList.of(scope), ImmutableList.of(), ImmutableList.of()))
+                .isInstanceOf(ContextConflictException.class);
+        assertThatThrownBy(() -> service.registerDiscovered(WORKSPACE, saved.revision(), ImmutableList.of(scope), ImmutableList.of(), ImmutableList.of()))
+                .isInstanceOf(IllegalArgumentException.class).hasMessageContaining("scope identity already exists");
+        assertThatThrownBy(() -> service.registerDiscovered(WORKSPACE, saved.revision(), ImmutableList.of(), ImmutableList.of(source), ImmutableList.of()))
+                .isInstanceOf(IllegalArgumentException.class).hasMessageContaining("source identity already exists");
+        assertThat(service.getNotebook(WORKSPACE)).isEqualTo(saved);
+        verifyNoInteractions(reviews);
+    }
+
+    @Test
+    void configurationKeepsOnlyServerEvidenceUntilDefiningFieldsChange()
+    {
+        ContextSourceEvidence module = discoveryEvidence("module", "component/pom.xml", "<project/>");
+        ContextSourceEvidence readme = discoveryEvidence("readme", "README.md", "Documentation: https://example.com/docs/");
+        RepositoryNotebook initial = service.registerDiscovered(WORKSPACE, 0, ImmutableList.of(discoveredScope(module.id())),
+                ImmutableList.of(discoveredSource(readme.id())), ImmutableList.of(module, readme));
+        ContextScope renamed = new ContextScope("path:component/", "User title", discoveredScope(module.id()).match(), false, Optional.empty(), Optional.of("forged"));
+        EditContextConfiguration.Source unchanged = new EditContextConfiguration.Source("docs", RegisteredContextSource.Kind.DOCUMENTATION_ROOT, "https://example.com/docs/");
+
+        RepositoryNotebook edited = service.configure(WORKSPACE, initial.revision(), new EditContextConfiguration(Optional.empty(), Optional.of(ImmutableList.of(unchanged)),
+                Optional.of(ImmutableList.of(ContextScope.project(), renamed))));
+
+        assertThat(edited.scopes().get(1).discoveryEvidenceRef()).contains(module.id());
+        assertThat(edited.scopes().get(1).enabled()).isFalse();
+        assertThat(edited.sources()).isEqualTo(initial.sources());
+        assertThat(edited.sourceEvidence()).containsExactly(module, readme);
+        RepositoryNotebook reset = service.resetSuppression(WORKSPACE, edited.revision(), ImmutableList.of("path:component/"));
+        assertThat(reset.scopes().get(1).discoveryEvidenceRef()).contains(module.id());
+        assertThat(reset.sourceEvidence()).containsExactly(module, readme);
+
+        ContextScope changed = new ContextScope(renamed.id(), renamed.title(),
+                new ContextMatch.Selected(ImmutableList.of("component/"), ImmutableList.of("new term")), false, Optional.empty(), Optional.of(module.id()));
+        EditContextConfiguration.Source moved = new EditContextConfiguration.Source("docs", RegisteredContextSource.Kind.DOCUMENTATION_ROOT, "https://example.com/new-docs/");
+        RepositoryNotebook cleared = service.configure(WORKSPACE, reset.revision(), new EditContextConfiguration(Optional.empty(), Optional.of(ImmutableList.of(moved)),
+                Optional.of(ImmutableList.of(ContextScope.project(), changed))));
+
+        assertThat(cleared.scopes().get(1).discoveryEvidenceRef()).isEmpty();
+        assertThat(cleared.sources().getFirst().discoveryEvidenceRef()).isEmpty();
+        assertThat(cleared.sources().getFirst().origin()).isEqualTo(USER);
+        assertThat(cleared.sourceEvidence()).isEmpty();
+    }
+
+    @Test
+    void discoveryRejectsMissingEvidenceAndActivePreparationWithoutChangingNotebook()
+            throws Exception
+    {
+        assertThatThrownBy(() -> service.registerDiscovered(WORKSPACE, 0, ImmutableList.of(discoveredScope("missing")), ImmutableList.of(), ImmutableList.of()))
+                .isInstanceOf(IllegalArgumentException.class).hasMessageContaining("Discovery evidence is missing");
+        assertThat(settings.get(KEY)).isEmpty();
+        RepositoryNotebook active = seedPreparation(ContextPreparationResult.Outcome.EMPTY);
+        ContextSourceEvidence module = discoveryEvidence("module", "component/pom.xml", "<project/>");
+
+        assertThatThrownBy(() -> service.registerDiscovered(WORKSPACE, active.revision(), ImmutableList.of(discoveredScope(module.id())),
+                ImmutableList.of(), ImmutableList.of(module))).isInstanceOf(IllegalArgumentException.class).hasMessageContaining("active preparation");
+
+        assertThat(service.getNotebook(WORKSPACE)).isEqualTo(active);
+    }
+
+    @Test
+    void manualNewScopeCannotInventDiscoveryEvidence()
+    {
+        ContextScope forged = discoveredScope("invented");
+        RepositoryNotebook saved = service.configure(WORKSPACE, 0, new EditContextConfiguration(Optional.empty(), Optional.empty(),
+                Optional.of(ImmutableList.of(ContextScope.project(), forged))));
+
+        assertThat(saved.scopes().get(1).discoveryEvidenceRef()).isEmpty();
+        assertThat(saved.sourceEvidence()).isEmpty();
+    }
+
+    @Test
+    void discoveryChecksCurrentMonitoredRepositoryBeforeSaving()
+    {
+        for (ContextReference.RepositoryFile reference : ImmutableList.of(
+                new ContextReference.RepositoryFile(2, RepoRef.of("example", "repository"), "component/pom.xml", HEAD),
+                new ContextReference.RepositoryFile(1, RepoRef.of("other", "repository"), "component/pom.xml", HEAD))) {
+            ContextSourceEvidence wrong = new ContextSourceEvidence("module", reference, "Captured module", "<project/>",
+                    ContextSourceEvidence.Capture.BYTEQUAY_READ, Optional.of(Instant.EPOCH), Optional.of(HEAD), Optional.of(HEAD), false);
+            assertThatThrownBy(() -> service.registerDiscovered(WORKSPACE, 0, ImmutableList.of(discoveredScope(wrong.id())), ImmutableList.of(), ImmutableList.of(wrong)))
+                    .isInstanceOf(IllegalArgumentException.class).hasMessageContaining("another monitored repository");
+            assertThat(settings.get(KEY)).isEmpty();
+        }
     }
 
     @ParameterizedTest
@@ -311,7 +415,7 @@ class TestRepositoryContextService
         ContextEntry generated = new ContextEntry("knowledge:project", KNOWLEDGE, "project", "Project", "Summary", "Generated body",
                 ImmutableList.of(new ContextClaim("Contract", ContextClaim.Basis.DOCUMENTED, ImmutableList.of("source"))), ImmutableList.of("source"), GENERATED, true, 1);
         RepositoryNotebook notebook = new RepositoryNotebook(1, 1, true,
-                ImmutableList.of(new RegisteredContextSource("docs", RegisteredContextSource.Kind.DOCUMENTATION_ROOT, "https://example.com/docs/", USER)),
+                ImmutableList.of(new RegisteredContextSource("docs", RegisteredContextSource.Kind.DOCUMENTATION_ROOT, "https://example.com/docs/", USER, Optional.empty())),
                 ImmutableList.of(ContextScope.project()), ImmutableList.of(generated), ImmutableList.of(), ImmutableList.of(source), Optional.empty());
         settings.put(KEY, mapper.writeValueAsString(notebook));
     }
@@ -327,7 +431,7 @@ class TestRepositoryContextService
         ContextInputFingerprint input = ContextInputFingerprint.create("project", ImmutableMap.of("git:README.md", "100644 blob " + HEAD), ImmutableList.of());
         ContextPreparationResult result = new ContextPreparationResult("completed", input, outcome,
                 outcome == ContextPreparationResult.Outcome.READY ? ImmutableList.of("knowledge:project") : ImmutableList.of(), ImmutableList.of(read), "Checked baseline source");
-        ContextScope scope = new ContextScope("project", "Project", new ContextMatch.Repository(), true, Optional.of(result));
+        ContextScope scope = new ContextScope("project", "Project", new ContextMatch.Repository(), true, Optional.of(result), Optional.empty());
         ContextEntry generated = new ContextEntry("knowledge:project", KNOWLEDGE, "project", "Project", "Summary", "Generated body",
                 ImmutableList.of(), ImmutableList.of(id), GENERATED, true, 1);
         ActiveContextPreparation active = new ActiveContextPreparation("active", "request", "sha256:" + "a".repeat(64),
@@ -342,6 +446,24 @@ class TestRepositoryContextService
     private static EditContextEntry edit(String body, String... sources)
     {
         return new EditContextEntry("knowledge:project", "project", "Project", "Summary", body, ImmutableList.of(), ImmutableList.copyOf(sources));
+    }
+
+    private static ContextScope discoveredScope(String evidenceRef)
+    {
+        return new ContextScope("path:component/", "Component", new ContextMatch.Selected(ImmutableList.of("component/"), ImmutableList.of()),
+                true, Optional.empty(), Optional.of(evidenceRef));
+    }
+
+    private static RegisteredContextSource discoveredSource(String evidenceRef)
+    {
+        return new RegisteredContextSource("docs", RegisteredContextSource.Kind.DOCUMENTATION_ROOT, "https://example.com/docs/", GENERATED, Optional.of(evidenceRef));
+    }
+
+    private static ContextSourceEvidence discoveryEvidence(String id, String path, String excerpt)
+    {
+        return new ContextSourceEvidence(id, new ContextReference.RepositoryFile(1, RepoRef.of("example", "repository"), path, HEAD),
+                "Captured repository configuration evidence", excerpt, ContextSourceEvidence.Capture.BYTEQUAY_READ,
+                Optional.of(Instant.EPOCH), Optional.of(HEAD), Optional.of(HEAD), false);
     }
 
     private static SaveContextLesson lesson(String review, String run, String evidence)

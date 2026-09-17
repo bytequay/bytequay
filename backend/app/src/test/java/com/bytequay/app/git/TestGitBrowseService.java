@@ -27,6 +27,7 @@ import java.io.UncheckedIOException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.time.Duration;
 import java.util.List;
 import java.util.stream.IntStream;
 
@@ -167,6 +168,61 @@ class TestGitBrowseService
                 .isInstanceOf(IllegalArgumentException.class).hasMessageContaining("truncated");
         assertThatThrownBy(() -> bounded.log(repository, "main", ImmutableList.of("src/"), 10))
                 .isInstanceOf(IllegalArgumentException.class).hasMessageContaining("Unknown captured ref");
+    }
+
+    @Test
+    void localLogUsesFrozenObjectsAndLiteralPathsDespiteReplacementObjects()
+    {
+        write("docs/[draft]*/guide.md", "original\n");
+        commit("Original historical decision");
+        String frozen = head();
+        write("docs/draft-copy/guide.md", "neighbor\n");
+        commit("Replacement decision");
+        git(repository, "replace", frozen, head());
+
+        assertThat(service.localLog(repository, frozen, ImmutableList.of(), 50))
+                .extracting(Commit::title).containsExactly("Original historical decision");
+        assertThat(service.localLog(repository, frozen, ImmutableList.of("docs/[draft]*/"), 50))
+                .extracting(Commit::title).containsExactly("Original historical decision");
+        assertThat(service.localLog(repository, frozen, ImmutableList.of("docs/draft-copy/"), 50)).isEmpty();
+    }
+
+    @Test
+    void localLogDisablesLazyFetchingAndReplacementsInTheExecutedProcess()
+            throws IOException
+    {
+        Path executable = temporaryDirectory.resolve("history-git");
+        Files.writeString(executable, """
+                #!/bin/sh
+                printf '%s\\n' "$GIT_NO_LAZY_FETCH" "$GIT_NO_REPLACE_OBJECTS" "$GIT_TERMINAL_PROMPT" "$@" > "$0.arguments"
+                """);
+        assertThat(executable.toFile().setExecutable(true)).isTrue();
+        GitBrowseService local = new GitBrowseService(new GitCommandRunner(executable.toString()));
+
+        assertThat(local.localLog(repository, "a".repeat(40), ImmutableList.of(":(exclude)docs/"), 7)).isEmpty();
+
+        List<String> arguments = Files.readAllLines(temporaryDirectory.resolve("history-git.arguments"));
+        assertThat(arguments).startsWith("1", "1", "0", "-C", repository.toString(), "--literal-pathspecs", "log", "--no-show-signature");
+        assertThat(arguments).endsWith("-n", "7", "a".repeat(40), "--", ":(exclude)docs/");
+    }
+
+    @Test
+    void localLogRejectsUnfrozenUnboundedFailedAndTruncatedReads()
+    {
+        GitCommandRunner runner = mock(GitCommandRunner.class);
+        GitBrowseService local = new GitBrowseService(runner);
+        String frozen = "a".repeat(40);
+        assertThatThrownBy(() -> local.localLog(repository, "HEAD", ImmutableList.of(), 50)).isInstanceOf(IllegalArgumentException.class);
+        assertThatThrownBy(() -> local.localLog(repository, frozen, ImmutableList.of(), 51)).isInstanceOf(IllegalArgumentException.class);
+        assertThatThrownBy(() -> local.localLog(repository, frozen, ImmutableList.of("../outside"), 50)).isInstanceOf(IllegalArgumentException.class);
+        verifyNoInteractions(runner);
+        when(runner.runLocalBounded(eq(repository), eq(Duration.ofSeconds(2)), eq(256 * 1024), anyList())).thenReturn(
+                new GitCommandRunner.Result(0, "Incomplete commit body", true),
+                new GitCommandRunner.Result(128, "Object is unavailable locally", false));
+        assertThatThrownBy(() -> local.localLog(repository, frozen, ImmutableList.of(), 50))
+                .isInstanceOf(IllegalArgumentException.class).hasMessageContaining("truncated");
+        assertThatThrownBy(() -> local.localLog(repository, frozen, ImmutableList.of(), 50))
+                .isInstanceOf(IllegalArgumentException.class).hasMessageContaining("unavailable locally");
     }
 
     @Test

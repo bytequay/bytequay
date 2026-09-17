@@ -27,6 +27,7 @@ import com.bytequay.core.context.ContextSourceEvidence;
 import com.bytequay.core.context.ContextSourceRead;
 import com.bytequay.core.context.RegisteredContextSource;
 import com.bytequay.core.context.RepositoryNotebook;
+import com.bytequay.core.domain.Workspace;
 import com.bytequay.core.review.AgentReview;
 import com.bytequay.core.review.AgentReviewStore;
 import com.bytequay.core.review.ReviewEvidence;
@@ -45,7 +46,9 @@ import org.springframework.stereotype.Service;
 
 import java.time.Instant;
 import java.util.ArrayList;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
@@ -54,6 +57,7 @@ import java.util.stream.Stream;
 
 import static com.bytequay.core.context.ContextEntryKind.KNOWLEDGE;
 import static com.bytequay.core.context.ContextEntryKind.MEMORY;
+import static com.bytequay.core.context.ContextEntryOrigin.GENERATED;
 import static com.bytequay.core.context.ContextEntryOrigin.USER;
 import static com.bytequay.core.domain.Checks.checkText;
 import static com.google.common.base.Preconditions.checkArgument;
@@ -123,18 +127,79 @@ public class RepositoryContextService
         return mutate(workspaceId, expectedRevision, current -> {
             List<ContextScope> scopes = edit.scopes().<List<ContextScope>>map(values -> values.stream().map(scope -> new ContextScope(
                     scope.id(), scope.title(), scope.match(), scope.enabled(), current.scopes().stream()
-                            .filter(existing -> existing.id().equals(scope.id())).findFirst().flatMap(ContextScope::preparation))).collect(toImmutableList()))
+                            .filter(existing -> existing.id().equals(scope.id())).findFirst().flatMap(ContextScope::preparation), current.scopes().stream()
+                            .filter(existing -> existing.id().equals(scope.id()) && existing.match().equals(scope.match())).findFirst()
+                            .flatMap(ContextScope::discoveryEvidenceRef))).collect(toImmutableList()))
                     .orElse(current.scopes());
             Set<String> scopeIds = scopes.stream().map(ContextScope::id).collect(toSet());
             checkArgument(current.scopes().stream().allMatch(scope -> scopeIds.contains(scope.id())), "Disable existing scopes instead of removing their identity");
             List<RegisteredContextSource> sources = edit.sources().<List<RegisteredContextSource>>map(values -> values.stream().map(value -> {
-                RegisteredContextSource updated = new RegisteredContextSource(value.id(), value.kind(), value.url(), USER);
+                RegisteredContextSource updated = new RegisteredContextSource(value.id(), value.kind(), value.url(), USER, Optional.empty());
                 return current.sources().stream()
                         .filter(source -> source.id().equals(value.id()) && source.kind() == value.kind() && source.url().equals(value.url()))
                         .findFirst().orElse(updated);
             }).collect(toImmutableList())).orElse(current.sources());
             return content(current, edit.useInReviews().orElse(current.useInReviews()), sources, scopes,
                     current.entries(), current.suppressedKnowledgeIds(), current.sourceEvidence());
+        });
+    }
+
+    /**
+     * Appends only explicitly accepted, repository-derived configuration and its retained evidence.
+     *
+     * @param workspaceId owning retained workspace
+     * @param expectedRevision notebook revision displayed with the discovered proposals
+     * @param scopes new path-stable scopes with server-validated discovery evidence references
+     * @param sources new generated documentation registrations with server-validated discovery evidence references
+     * @param evidence exact captured repository excerpts rederived by the caller outside mutation locks
+     * @return notebook with one content revision increment and all prior user content preserved
+     * @throws ContextConflictException when the notebook changed after discovery
+     * @throws IllegalArgumentException for active preparation, duplicate identities, invalid provenance or notebook limits
+     *
+     * No Git, remote fetch or model work runs here. Existing configuration is never replaced or re-enabled.
+     * The caller validates repository routing, frozen baseline and proposal identity before this bounded mutation.
+     */
+    RepositoryNotebook registerDiscovered(String workspaceId, long expectedRevision, List<ContextScope> scopes,
+            List<RegisteredContextSource> sources, List<ContextSourceEvidence> evidence)
+    {
+        List<ContextScope> additions = ImmutableList.copyOf(scopes);
+        List<RegisteredContextSource> registrations = ImmutableList.copyOf(sources);
+        List<ContextSourceEvidence> captures = ImmutableList.copyOf(evidence);
+        checkArgument(!additions.isEmpty() || !registrations.isEmpty(), "Select discovered scopes or documentation sources");
+        ContextLimits.unique(additions.stream().map(ContextScope::id).toList(), "discovered scopes", 100);
+        ContextLimits.unique(registrations.stream().map(RegisteredContextSource::id).toList(), "discovered sources", 100);
+        ContextLimits.unique(captures.stream().map(ContextSourceEvidence::id).toList(), "discovery evidence", 800);
+        additions.forEach(scope -> checkArgument(scope.id().startsWith("path:") && scope.preparation().isEmpty() && scope.discoveryEvidenceRef().isPresent(),
+                "Discovered scope needs a stable path and captured evidence, without preparation metadata"));
+        registrations.forEach(source -> checkArgument(source.origin() == GENERATED && source.discoveryEvidenceRef().isPresent(),
+                "Discovered source needs generated origin and captured evidence"));
+        return mutate(workspaceId, expectedRevision, current -> {
+            checkArgument(current.activePreparation().isEmpty(), "Configuration discovery cannot be accepted during active preparation");
+            checkArgument(additions.stream().noneMatch(scope -> current.scopes().stream().anyMatch(existing -> existing.id().equals(scope.id()))),
+                    "Discovered scope identity already exists");
+            checkArgument(registrations.stream().noneMatch(source -> current.sources().stream().anyMatch(existing -> existing.id().equals(source.id()))),
+                    "Discovered source identity already exists");
+            Map<String, ContextSourceEvidence> retained = new LinkedHashMap<>();
+            current.sourceEvidence().forEach(source -> retained.put(source.id(), source));
+            captures.forEach(source -> {
+                ContextSourceEvidence previous = retained.putIfAbsent(source.id(), source);
+                checkArgument(previous == null || previous.equals(source), "Discovery evidence identity was reused with different content");
+            });
+            Workspace workspace = requireWorkspace(workspaceId);
+            Stream.concat(additions.stream().flatMap(scope -> scope.discoveryEvidenceRef().stream()),
+                    registrations.stream().flatMap(source -> source.discoveryEvidenceRef().stream())).forEach(ref -> {
+                        ContextSourceEvidence source = Optional.ofNullable(retained.get(ref))
+                                .orElseThrow(() -> new IllegalArgumentException("Discovery evidence is missing"));
+                        checkArgument(source.capture() == ContextSourceEvidence.Capture.BYTEQUAY_READ
+                                && source.reference() instanceof ContextReference.RepositoryFile, "Discovery evidence must be a captured repository file");
+                        ContextReference.RepositoryFile file = (ContextReference.RepositoryFile) source.reference();
+                        checkArgument(file.repositoryId() == workspace.monitoredRepositoryId()
+                                && file.repository().fullName().equalsIgnoreCase(workspace.monitoredRepository().fullName()),
+                                "Discovery evidence belongs to another monitored repository");
+                    });
+            return content(current, current.useInReviews(), ImmutableList.<RegisteredContextSource>builder().addAll(current.sources()).addAll(registrations).build(),
+                    ImmutableList.<ContextScope>builder().addAll(current.scopes()).addAll(additions).build(), current.entries(), current.suppressedKnowledgeIds(),
+                    ImmutableList.copyOf(retained.values()));
         });
     }
 
@@ -212,7 +277,8 @@ public class RepositoryContextService
             Set<String> ids = selected.stream().map(ContextEntry::knowledgeId).collect(toSet());
             List<ContextScope> scopes = current.scopes().stream().map(scope -> selected.contains(scope.id())
                     && current.entries().stream().noneMatch(entry -> entry.id().equals(ContextEntry.knowledgeId(scope.id())))
-                    ? new ContextScope(scope.id(), scope.title(), scope.match(), scope.enabled(), Optional.empty()) : scope).collect(toImmutableList());
+                    ? new ContextScope(scope.id(), scope.title(), scope.match(), scope.enabled(), Optional.empty(), scope.discoveryEvidenceRef()) : scope)
+                    .collect(toImmutableList());
             return content(current, current.useInReviews(), current.sources(), scopes, current.entries(),
                     current.suppressedKnowledgeIds().stream().filter(id -> !ids.contains(id)).collect(toImmutableList()), current.sourceEvidence());
         });
@@ -301,15 +367,18 @@ public class RepositoryContextService
     private static RepositoryNotebook content(RepositoryNotebook current, boolean useInReviews, List<RegisteredContextSource> sources, List<ContextScope> scopes,
             List<ContextEntry> entries, List<String> suppression, List<ContextSourceEvidence> evidence)
     {
-        Set<String> retained = retainedSources(scopes, entries);
+        Set<String> retained = retainedSources(sources, scopes, entries);
         return new RepositoryNotebook(1, current.revision(), useInReviews, sources, scopes, entries, suppression,
                 evidence.stream().filter(source -> retained.contains(source.id())).collect(toImmutableList()), current.activePreparation());
     }
 
-    static Set<String> retainedSources(List<ContextScope> scopes, List<ContextEntry> entries)
+    static Set<String> retainedSources(List<RegisteredContextSource> sources, List<ContextScope> scopes, List<ContextEntry> entries)
     {
-        return Stream.concat(entries.stream().flatMap(entry -> entry.sourceIds().stream()), scopes.stream().flatMap(scope -> scope.preparation().stream())
-                .flatMap(result -> result.checkedReads().stream()).flatMap(read -> read.evidenceRef().stream())).collect(toSet());
+        return Stream.of(entries.stream().flatMap(entry -> entry.sourceIds().stream()),
+                        scopes.stream().flatMap(scope -> scope.preparation().stream()).flatMap(result -> result.checkedReads().stream())
+                                .flatMap(read -> read.evidenceRef().stream()),
+                        scopes.stream().flatMap(scope -> scope.discoveryEvidenceRef().stream()), sources.stream().flatMap(source -> source.discoveryEvidenceRef().stream()))
+                .flatMap(stream -> stream).collect(toSet());
     }
 
     /** Writes fenced preparation metadata/content; the caller's SQLite unit of work also journals the review result. */
@@ -340,10 +409,10 @@ public class RepositoryContextService
         return notebook.entries().stream().filter(entry -> entry.id().equals(id)).findFirst().orElseThrow(() -> new ContextNotFoundException("Notebook entry not found"));
     }
 
-    private void requireWorkspace(String workspaceId)
+    private Workspace requireWorkspace(String workspaceId)
     {
         checkText(workspaceId, "workspaceId", 200);
-        workspaces.findById(workspaceId).orElseThrow(() -> new ContextNotFoundException("Workspace not found"));
+        return workspaces.findById(workspaceId).orElseThrow(() -> new ContextNotFoundException("Workspace not found"));
     }
 
     private RepositoryNotebook decode(String json)

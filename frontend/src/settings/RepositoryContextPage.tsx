@@ -14,7 +14,7 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react';
 import type { WorkspaceDto } from '../types';
 import ContextEntryEditor, { ContextDialog, type ContextEntryDraft } from '../repository-context/ContextEntryEditor';
-import type { ContextClaimDto, ContextEntryDto, ContextScopeConfigurationDto, ContextScopeDto, ContextSourceDto, RepositoryNotebookDto } from '../repository-context/contracts';
+import type { ContextClaimDto, ContextEntryDto, ContextScopeConfigurationDto, ContextScopeDto, ContextSourceConfigurationDto, ContextSourceDto, RepositoryNotebookDto } from '../repository-context/contracts';
 import { Badge, SettingsCard, SettingsRow, Toggle } from './primitives';
 import RepositoryContextBuild from './RepositoryContextBuild';
 
@@ -83,6 +83,12 @@ export default function RepositoryContextPage({ workspace }: { workspace: Worksp
   const availableScopes = notebook?.scopes.filter(scope => !notebook.entries.some(entry => entry.id === 'knowledge:' + scope.id)
     && !notebook.suppressedKnowledgeIds.includes('knowledge:' + scope.id)) ?? [];
   const disabled = busy || needsReload;
+  const discoveryEvidence = (reference: string | null) => {
+    if (reference === null) return null;
+    const evidence = notebook?.sourceEvidence.find(source => source.id === reference);
+    return <details><summary>Why this was suggested</summary>{evidence === undefined ? <p>Saved discovery evidence is unavailable.</p>
+      : <><p>{evidence.provenance}</p><pre className="rc-saved-version">{evidence.excerpt}</pre>{evidence.truncated && <p>Evidence excerpt is incomplete.</p>}</>}</details>;
+  };
   const currentEntry = editor?.kind === 'entry' && editor.entry !== null ? notebook?.entries.find(entry => entry.id === editor.entry?.id) : undefined;
   const sourceLinksChanged = editor?.kind === 'entry' && editor.entry !== null && currentEntry !== undefined
     && JSON.stringify([currentEntry.sourceIds, currentEntry.claims.map(claim => [claim.basis, claim.sourceIds])])
@@ -138,6 +144,7 @@ export default function RepositoryContextPage({ workspace }: { workspace: Worksp
       <p className="rc-muted">Scopes choose where knowledge and lessons apply. Project overview is a scope; its saved note appears under Knowledge.</p>
       <SettingsCard>{notebook.scopes.map(scope => <SettingsRow key={scope.id} title={scope.title} badge={!scope.enabled ? <Badge>Disabled</Badge> : undefined}
         subtitle={<>{scope.match.kind === 'REPOSITORY' ? 'Applies across this repository' : [...scope.match.pathPrefixes, ...scope.match.terms].join(' · ')}
+          {discoveryEvidence(scope.discoveryEvidenceRef)}
           {!notebook.entries.some(entry => entry.kind === 'KNOWLEDGE' && entry.scopeId === scope.id) && <div>No saved knowledge note for this scope.</div>}
           {scope.preparation === null ? <div>No completed preparation recorded.</div> : <details><summary>Last preparation: {{ READY: 'Note prepared', EMPTY: 'No useful note found', FAILED: 'Failed' }[scope.preparation.outcome]}</summary>
             <p>{scope.preparation.explanation}</p><p>{scope.preparation.checkedReads.length} source reads retained. This result applies to the checked inputs; it does not verify the note against a new review.</p>
@@ -148,7 +155,8 @@ export default function RepositoryContextPage({ workspace }: { workspace: Worksp
       </SettingsRow>)}</SettingsCard>
       <div className="setw-section"><span className="setw-section-title">Documentation sources</span><button className="rc-button" disabled={disabled} onClick={() => setEditor({ kind: 'source', source: null })}>Add source</button></div>
       <SettingsCard>{notebook.sources.length === 0 && <div className="setw-row-empty">Add a documentation website or page. Saving a link does not fetch it.</div>}
-        {notebook.sources.map(source => <SettingsRow key={source.id} title={source.kind === 'DOCUMENTATION_ROOT' ? 'Documentation website' : 'Single page'} subtitle={source.url}>
+        {notebook.sources.map(source => <SettingsRow key={source.id} title={source.kind === 'DOCUMENTATION_ROOT' ? 'Documentation website' : 'Single page'}
+          subtitle={<>{source.url}{discoveryEvidence(source.discoveryEvidenceRef)}</>}>
           <button className="rc-button" disabled={disabled} onClick={() => setEditor({ kind: 'source', source })}>Edit</button>
           <button className="rc-button is-danger" disabled={disabled} onClick={() => void mutate(revision => window.bridge.configureRepositoryContext(workspace.id,
             { expectedRevision: revision, sources: notebook.sources.filter(value => value.id !== source.id).map(({ id, kind, url }) => ({ id, kind, url })) }), 'Documentation source removed. Captured review evidence is kept.')}>Remove</button>
@@ -197,7 +205,7 @@ export default function RepositoryContextPage({ workspace }: { workspace: Worksp
 type ConfigurationEditorProps = { busy: boolean; error: string | null; needsReload: boolean; onCancel: () => void; reloadControl: ReactNode };
 
 function SourceEditor({ source, busy, error, needsReload, onCancel, reloadControl, onSave }: ConfigurationEditorProps & {
-  source: ContextSourceDto | null; onSave: (source: Omit<ContextSourceDto, 'origin'>) => void;
+  source: ContextSourceDto | null; onSave: (source: ContextSourceConfigurationDto) => void;
 }) {
   const [id] = useState(() => source?.id ?? 'docs:' + crypto.randomUUID());
   const [url, setUrl] = useState(source?.url ?? '');

@@ -60,7 +60,7 @@ class TestContextPreparation
         ContextRepositoryRead truncated = new ContextRepositoryRead("context-read:truncated", REFERENCE, SHA, Instant.EPOCH, 1, 1, 1, 6, true,
                 Optional.of("context-read:truncated"));
         RegisteredContextSource source = new RegisteredContextSource("docs", RegisteredContextSource.Kind.DOCUMENTATION_PAGE,
-                "https://example.com/docs/page", ContextEntryOrigin.USER);
+                "https://example.com/docs/page", ContextEntryOrigin.USER, Optional.empty());
         ContextDocumentRead refreshFailed = new ContextDocumentRead("context-read:document", new ContextReference.Document("docs", source.url()), source,
                 0, UUID.randomUUID().toString(), "b".repeat(64), Instant.EPOCH, 1, 1, 0, true, false, true, Optional.empty());
 
@@ -96,7 +96,7 @@ class TestContextPreparation
     {
         ContextPreparationResult failed = result(FAILED, ImmutableList.of(), ImmutableList.of());
         assertThatThrownBy(() -> new ContextScope("component", "Component", new ContextMatch.Selected(ImmutableList.of("plugin/"), ImmutableList.of()),
-                true, Optional.of(failed))).isInstanceOf(IllegalArgumentException.class).hasMessageContaining("another scope");
+                true, Optional.of(failed), Optional.empty())).isInstanceOf(IllegalArgumentException.class).hasMessageContaining("another scope");
         ActiveContextPreparation active = active(ImmutableList.of(input("missing")), 0);
         assertThatThrownBy(() -> new RepositoryNotebook(1, 0, true, ImmutableList.of(), ImmutableList.of(ContextScope.project()),
                 ImmutableList.of(), ImmutableList.of(), ImmutableList.of(), Optional.of(active)))
@@ -104,6 +104,31 @@ class TestContextPreparation
         assertThatThrownBy(() -> new RepositoryNotebook(1, 0, true, ImmutableList.of(), ImmutableList.of(ContextScope.project()),
                 ImmutableList.of(), ImmutableList.of(), ImmutableList.of(), Optional.of(active(ImmutableList.of(input("project")), 1))))
                 .isInstanceOf(IllegalArgumentException.class).hasMessageContaining("newer than notebook");
+    }
+
+    @Test
+    void discoveryProvenanceRequiresApplicationCapturedRepositoryEvidence()
+    {
+        ContextScope scope = new ContextScope("path:component/", "Component", new ContextMatch.Selected(ImmutableList.of("component/"), ImmutableList.of()),
+                true, Optional.empty(), Optional.of("proof"));
+        RegisteredContextSource source = new RegisteredContextSource("docs", RegisteredContextSource.Kind.DOCUMENTATION_ROOT,
+                "https://example.com/docs/", ContextEntryOrigin.GENERATED, Optional.of("proof"));
+        ContextSourceEvidence captured = new ContextSourceEvidence("proof", REFERENCE, "Captured README", "Documentation link",
+                ContextSourceEvidence.Capture.BYTEQUAY_READ, Optional.of(Instant.EPOCH), Optional.of(SHA), Optional.of(SHA), false);
+        assertThat(new RepositoryNotebook(1, 0, true, ImmutableList.of(source), ImmutableList.of(ContextScope.project(), scope),
+                ImmutableList.of(), ImmutableList.of(), ImmutableList.of(captured), Optional.empty()).sourceEvidence()).containsExactly(captured);
+        assertThatThrownBy(() -> new RepositoryNotebook(1, 0, true, ImmutableList.of(source), ImmutableList.of(ContextScope.project(), scope),
+                ImmutableList.of(), ImmutableList.of(), ImmutableList.of(), Optional.empty()))
+                .isInstanceOf(IllegalArgumentException.class).hasMessageContaining("Discovery evidence is missing");
+        ContextSourceEvidence reported = new ContextSourceEvidence("proof", REFERENCE, "Model assertion", "Documentation link",
+                ContextSourceEvidence.Capture.AGENT_REPORTED, Optional.empty(), Optional.empty(), Optional.empty(), false);
+        ContextSourceEvidence document = new ContextSourceEvidence("proof", new ContextReference.Document("docs", source.url()), "Captured page", "Documentation link",
+                ContextSourceEvidence.Capture.BYTEQUAY_READ, Optional.of(Instant.EPOCH), Optional.of(SHA), Optional.empty(), false);
+        for (ContextSourceEvidence invalid : ImmutableList.of(reported, document)) {
+            assertThatThrownBy(() -> new RepositoryNotebook(1, 0, true, ImmutableList.of(source), ImmutableList.of(ContextScope.project(), scope),
+                    ImmutableList.of(), ImmutableList.of(), ImmutableList.of(invalid), Optional.empty()))
+                    .isInstanceOf(IllegalArgumentException.class).hasMessageContaining("captured repository file");
+        }
     }
 
     @Test
@@ -166,7 +191,7 @@ class TestContextPreparation
 
     private static RepositoryNotebook notebook(ContextPreparationResult result, List<ContextSourceEvidence> sources)
     {
-        ContextScope project = new ContextScope("project", "Project", new ContextMatch.Repository(), true, Optional.of(result));
+        ContextScope project = new ContextScope("project", "Project", new ContextMatch.Repository(), true, Optional.of(result), Optional.empty());
         return new RepositoryNotebook(1, 0, true, ImmutableList.of(), ImmutableList.of(project), ImmutableList.of(), ImmutableList.of(), sources, Optional.empty());
     }
 }

@@ -43,8 +43,11 @@ import {
 import { parseLocalReviewThread, parseLocalReviewThreads, type CreateDevelopmentLearningCommentRequest, type CreateLocalReviewRequest, type LocalReviewQuery, type ReplyLocalReviewRequest, type ResolveLocalReviewRequest, type RetryLocalReviewRequest } from './pulls/local-review/contracts';
 import { parseAgentEventSequence, parseAgentHistoryPage, parseAgentPendingApprovals } from './agents/events';
 import {
+  parseApplyContextDiscoveryRequest,
   parseConfigureRepositoryContextRequest,
   parseContextBuildView,
+  parseContextDiscovery,
+  parseDiscoverRepositoryContextRequest,
   parseEditRepositoryContextEntryRequest,
   parseRemoveRepositoryContextEntryRequest,
   parseRepositoryNotebook,
@@ -1180,6 +1183,12 @@ function registerIpc(): void {
     backendJson(`${backendBase()}/api/workspaces/${encodeURIComponent(workspaceId)}/settings`));
   ipcMain.handle('repository-context:get', (_event, workspaceId: string) =>
     backendJson(`${backendBase()}/api/workspaces/${encodeURIComponent(workspaceId)}/repository-context`, { headers: agentHeaders() }).then(parseRepositoryNotebook));
+  ipcMain.handle('repository-context:discover', (_event, workspaceId: string, request: unknown) =>
+    backendJson(`${backendBase()}/api/workspaces/${encodeURIComponent(workspaceId)}/repository-context/discovery`,
+      jsonInit('POST', parseDiscoverRepositoryContextRequest(request), agentHeaders())).then(value => parseContextDiscovery(value, workspaceId)));
+  ipcMain.handle('repository-context:discovery:apply', (_event, workspaceId: string, request: unknown) =>
+    backendJson(`${backendBase()}/api/workspaces/${encodeURIComponent(workspaceId)}/repository-context/discovery/apply`,
+      jsonInit('POST', parseApplyContextDiscoveryRequest(request), agentHeaders())).then(parseRepositoryNotebook));
   const contextBuildUrl = (workspaceId: string) => `${backendBase()}/api/workspaces/${encodeURIComponent(workspaceId)}/repository-context/build`;
   ipcMain.handle('repository-context:build:get', (_event, workspaceId: string) =>
     backendJson(contextBuildUrl(workspaceId), { headers: agentHeaders() }).then(value => parseContextBuildView(value, workspaceId)));

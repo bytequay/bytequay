@@ -375,9 +375,9 @@ History-backed READY requires nonblank captured monitored-baseline evidence too,
 and history cannot prove EMPTY. Generated notes retain conditional claims and
 source limitations; a merge or closure never creates an automatic saved lesson.
 
-Cold-start priorities are this history-source learning path, then explicit Learn
-and Refresh knowledge, then scope/root proposals and bounded resolved-history
-discovery. The standalone Learn task/UI are implemented. Learn starts
+Cold-start implementation includes this history-source learning path, explicit
+Learn and Refresh knowledge, scope/root proposals and bounded resolved-history
+discovery. Learn starts
 a visible, stoppable ordinary task and includes repository files, directory
 structure, repository documentation and registered docs by default, including
 the first run. The user selects scopes and may add optional merged-PR/closed-issue
@@ -390,8 +390,34 @@ review/run IDs, without manufacturing PR reporting authority. Its lifecycle and
 cleanup remain with the ordinary task services. Live provider, performance and
 On/Off judgment acceptance remain pending.
 Project overview starts as a matching
-scope; its note appears under Knowledge only when created. Deferred-note
-exact-version reads and fresh discussion-source supplements follow cold start.
+scope; its note appears under Knowledge only when created. Fresh discussion-source
+supplements and selected deferred-note exact-version reads are next.
+
+Find suggestions and Use selected suggestions provide explicit pre-Learn
+scope/source preview and acceptance. Verification is recorded in the implementation
+checklist. Discovery
+reads frozen local repository evidence, and only
+literal captured links can propose documentation locations. Accepted IDs are
+rederived before append-only, revision-checked configuration saving; active
+preparation rejects acceptance. Optional history search stays bounded. Discovery
+starts no review or agent, does not clone or Git-fetch, and never registers new
+sources inside BEGIN or changes a frozen review/learning assignment.
+Repository traversal is bounded breadth-first at any depth, including below a
+manifest directory. A query prioritizes children and filters scope proposals,
+while nonmatching ancestors remain eligible. The same eight manifest names,
+24-directory/24-file caps, first 100 directory entries and safety exclusions apply;
+no workspace parser or build execution is involved. Suggestions remain captured
+evidence for explicit user acceptance, not automatic scope changes.
+Acceptance also carries the preview's repositoryFingerprint for routing and
+recorded code-sync state; its metadata is rechecked under the workspace lock.
+A final two-second/no-lazy-fetch rev-parse shares that lock before registration
+to catch ref changes from failed synchronization. It holds no notebook transaction
+or task monitor; candidate source reads stay outside the workspace lock.
+Repository source reads share the configurable discovery timeout, defaulting to
+thirty seconds, on the existing I/O executor. Timeout keeps completed suggestions
+with a coverage gap; late results cannot change the preview. Interruption aborts
+before history discovery or configuration saving. Separate history and Git limits
+mean this is not a whole-request latency guarantee.
 
 For enabled snapshots, review_save_investigation requires contextBrief,
 contextPreparationRefs and contextLimitations, alongside existing

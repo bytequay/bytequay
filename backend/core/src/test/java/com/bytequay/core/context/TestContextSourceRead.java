@@ -31,7 +31,7 @@ class TestContextSourceRead
     private static final String SHA = "1".repeat(40);
     private static final String CAPTURE = UUID.randomUUID().toString();
     private static final RegisteredContextSource ROOT = new RegisteredContextSource(
-            "docs", RegisteredContextSource.Kind.DOCUMENTATION_ROOT, "https://example.com/docs/", ContextEntryOrigin.USER);
+            "docs", RegisteredContextSource.Kind.DOCUMENTATION_ROOT, "https://example.com/docs/", ContextEntryOrigin.USER, Optional.empty());
 
     @Test
     void requiresCompleteRepositoryIdentityAndValidNonemptyOrEmptyLineRanges()
@@ -79,7 +79,7 @@ class TestContextSourceRead
         assertThatThrownBy(() -> document(ROOT, "docs", "https://example.com/docs-other/page", 1, 1, 4, false, Optional.of("evidence")))
                 .isInstanceOf(IllegalArgumentException.class);
         RegisteredContextSource exact = new RegisteredContextSource("docs", RegisteredContextSource.Kind.DOCUMENTATION_PAGE,
-                "https://example.com/docs/page", ContextEntryOrigin.USER);
+                "https://example.com/docs/page", ContextEntryOrigin.USER, Optional.empty());
         assertThat(document(exact, "docs", exact.url(), 1, 1, 4, false, Optional.of("evidence")).registration()).isEqualTo(exact);
         assertThatThrownBy(() -> document(exact, "docs", exact.url() + "/child", 1, 1, 4, false, Optional.of("evidence")))
                 .isInstanceOf(IllegalArgumentException.class);

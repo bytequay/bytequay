@@ -239,16 +239,16 @@ class TestContextInputReader
         GitCommandRunner local = emptyGit();
         ContextInputReader reader = new ContextInputReader(local);
         RegisteredContextSource first = new RegisteredContextSource("docs", RegisteredContextSource.Kind.DOCUMENTATION_ROOT,
-                "https://example.com/" + "x".repeat(2000) + "/", ContextEntryOrigin.USER);
+                "https://example.com/" + "x".repeat(2000) + "/", ContextEntryOrigin.USER, Optional.empty());
         RegisteredContextSource second = new RegisteredContextSource("other", RegisteredContextSource.Kind.DOCUMENTATION_PAGE,
-                "https://example.com/other", ContextEntryOrigin.USER);
+                "https://example.com/other", ContextEntryOrigin.USER, Optional.empty());
         RepositoryNotebook initial = notebook(ImmutableList.of(first, second), ImmutableList.of());
         List<ContextInputFingerprint> before = reader.capture(workspace(), Optional.of(SHA), initial, initial.scopes());
         RepositoryNotebook reordered = notebook(ImmutableList.of(second, first), ImmutableList.of());
         assertThat(reader.capture(workspace(), Optional.of("b".repeat(40)), reordered, reordered.scopes())).isEqualTo(before);
         RepositoryNotebook changed = notebook(ImmutableList.of(first), ImmutableList.of());
         assertThat(reader.capture(workspace(), Optional.of(SHA), changed, changed.scopes()).getLast().digest()).isNotEqualTo(before.getLast().digest());
-        ContextScope renamed = new ContextScope(COMPONENT.id(), "Different title", COMPONENT.match(), true, Optional.empty());
+        ContextScope renamed = new ContextScope(COMPONENT.id(), "Different title", COMPONENT.match(), true, Optional.empty(), Optional.empty());
         RepositoryNotebook renamedNotebook = notebook(renamed, initial.sources(), ImmutableList.of());
         assertThat(reader.capture(workspace(), Optional.of(SHA), renamedNotebook, renamedNotebook.scopes()).getLast().digest()).isNotEqualTo(before.getLast().digest());
     }
@@ -259,7 +259,7 @@ class TestContextInputReader
         GitCommandRunner local = emptyGit();
         ContextInputReader reader = new ContextInputReader(local);
         RegisteredContextSource configured = new RegisteredContextSource("docs", RegisteredContextSource.Kind.DOCUMENTATION_ROOT,
-                "https://example.com/docs/", ContextEntryOrigin.USER);
+                "https://example.com/docs/", ContextEntryOrigin.USER, Optional.empty());
         ContextSourceEvidence original = documentSource("content-one", "v1", ContextSourceEvidence.Capture.BYTEQUAY_READ, false);
         RepositoryNotebook notebook = notebook(ImmutableList.of(configured), ImmutableList.of(original));
         ContextInputFingerprint before = reader.capture(workspace(), Optional.of(SHA), notebook, notebook.scopes()).getLast();
@@ -330,7 +330,7 @@ class TestContextInputReader
         write("plugin/iceberg/Metadata.java", "Implementation");
         String baseline = commit();
         RegisteredContextSource configured = new RegisteredContextSource("docs", RegisteredContextSource.Kind.DOCUMENTATION_ROOT,
-                "https://example.com/docs/", ContextEntryOrigin.USER);
+                "https://example.com/docs/", ContextEntryOrigin.USER, Optional.empty());
         RepositoryNotebook initial = notebook(ImmutableList.of(configured), ImmutableList.of());
         ContextInputFingerprint admitted = capture(baseline, initial).getLast();
         ContextDocumentRead blank = new ContextDocumentRead("context-read:blank-document", new ContextReference.Document("docs", configured.url() + "concepts"), configured,
@@ -345,7 +345,7 @@ class TestContextInputReader
         assertThat(acceptedInput.digest()).isPresent().isNotEqualTo(admitted.digest());
         assertThat(capture(baseline, saved).getLast()).isEqualTo(acceptedInput);
         assertThat(saved.sourceEvidence()).isEmpty();
-        RegisteredContextSource changed = new RegisteredContextSource("docs", configured.kind(), "https://example.com/new-docs/", configured.origin());
+        RegisteredContextSource changed = new RegisteredContextSource("docs", configured.kind(), "https://example.com/new-docs/", configured.origin(), Optional.empty());
         ContextInputFingerprint after = capture(baseline, preparedNotebook(accepted, ImmutableList.of(changed))).getLast();
         assertThat(after.digest()).isEmpty();
         assertThat(after.gaps()).anySatisfy(gap -> assertThat(gap).contains("registration changed"));
@@ -451,7 +451,8 @@ class TestContextInputReader
     void termOnlyAndUnsupportedRetainedSourcesCannotClaimCompleteFreshness()
     {
         GitCommandRunner local = emptyGit();
-        ContextScope termOnly = new ContextScope("iceberg", "Iceberg", new ContextMatch.Selected(ImmutableList.of(), ImmutableList.of("Iceberg")), true, Optional.empty());
+        ContextScope termOnly = new ContextScope("iceberg", "Iceberg", new ContextMatch.Selected(ImmutableList.of(), ImmutableList.of("Iceberg")),
+                true, Optional.empty(), Optional.empty());
         ContextSourceEvidence source = source(new ContextReference.Issue(7, MONITORED, 12, Optional.empty()));
         RepositoryNotebook notebook = notebook(termOnly, ImmutableList.of(), ImmutableList.of(source));
 
@@ -482,7 +483,8 @@ class TestContextInputReader
 
     private static ContextScope scope(String directory)
     {
-        return new ContextScope("path:" + directory + "/", "Component", new ContextMatch.Selected(ImmutableList.of(directory + "/"), ImmutableList.of()), true, Optional.empty());
+        return new ContextScope("path:" + directory + "/", "Component", new ContextMatch.Selected(ImmutableList.of(directory + "/"), ImmutableList.of()),
+                true, Optional.empty(), Optional.empty());
     }
 
     private static RepositoryNotebook notebook(List<RegisteredContextSource> catalog, List<ContextSourceEvidence> sources)
@@ -492,7 +494,7 @@ class TestContextInputReader
 
     private static RepositoryNotebook preparedNotebook(ContextPreparationResult result, List<RegisteredContextSource> catalog)
     {
-        ContextScope scope = new ContextScope(COMPONENT.id(), COMPONENT.title(), COMPONENT.match(), COMPONENT.enabled(), Optional.of(result));
+        ContextScope scope = new ContextScope(COMPONENT.id(), COMPONENT.title(), COMPONENT.match(), COMPONENT.enabled(), Optional.of(result), Optional.empty());
         return notebook(scope, catalog, ImmutableList.of());
     }
 

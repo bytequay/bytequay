@@ -14,8 +14,9 @@
 export type ContextOrigin = 'USER' | 'GENERATED';
 export type ContextMatchDto = { kind: 'REPOSITORY' } | { kind: 'SELECTED'; pathPrefixes: string[]; terms: string[] };
 export type ContextScopeConfigurationDto = { id: string; title: string; match: ContextMatchDto; enabled: boolean };
-export type ContextScopeDto = ContextScopeConfigurationDto & { preparation: ContextPreparationResultDto | null };
-export type ContextSourceDto = { id: string; kind: 'DOCUMENTATION_ROOT' | 'DOCUMENTATION_PAGE'; url: string; origin: ContextOrigin };
+export type ContextScopeDto = ContextScopeConfigurationDto & { preparation: ContextPreparationResultDto | null; discoveryEvidenceRef: string | null };
+export type ContextSourceDto = { id: string; kind: 'DOCUMENTATION_ROOT' | 'DOCUMENTATION_PAGE'; url: string; origin: ContextOrigin; discoveryEvidenceRef: string | null };
+export type ContextSourceConfigurationDto = Pick<ContextSourceDto, 'id' | 'kind' | 'url'>;
 export type ContextClaimDto = {
   text: string;
   basis: 'DOCUMENTED' | 'RECORDED_DECISION' | 'INFERENCE' | 'QUESTION' | 'USER_LESSON';
@@ -69,6 +70,15 @@ export type ActiveContextPreparationDto = {
   reviewId: string | null; runId: string | null; baseContentRevision: number; inputs: ContextInputFingerprintDto[];
 };
 export type ContextBuildHistoryDto = { kind: 'PR' | 'ISSUE'; number: number };
+export type DiscoverRepositoryContextRequest = { expectedRevision: number; scopeIds: string[]; query: string; includeRemote: boolean };
+export type ApplyContextDiscoveryRequest = { expectedRevision: number; baselineSha: string; repositoryFingerprint: string; query: string; scopeIds: string[]; sourceIds: string[] };
+export type ContextDiscoveryDto = {
+  workspaceId: string; notebookRevision: number; baselineSha: string; repositoryFingerprint: string; query: string;
+  scopes: Array<{ scope: ContextScopeDto; evidence: ContextSourceEvidenceDto; reasons: string[] }>;
+  sources: Array<{ source: ContextSourceDto; evidence: ContextSourceEvidenceDto; reasons: string[] }>;
+  history: Array<ContextBuildHistoryDto & { title: string; url: string; state: string; outcome: string; updatedAt: string; reasons: string[]; provenance: string }>;
+  gaps: string[]; inspected: { directories: number; files: number; pullRequests: number; issues: number };
+};
 export type StartContextBuildRequest = {
   requestKey: string; expectedRevision: number; expectedBuildSequence: number; scopeIds: string[]; history: ContextBuildHistoryDto[];
 };
@@ -100,7 +110,7 @@ export type ReviewContextSnapshotDto = {
 };
 
 export type ConfigureRepositoryContextRequest = {
-  expectedRevision: number; useInReviews?: boolean; sources?: Omit<ContextSourceDto, 'origin'>[]; scopes?: ContextScopeConfigurationDto[];
+  expectedRevision: number; useInReviews?: boolean; sources?: ContextSourceConfigurationDto[]; scopes?: ContextScopeConfigurationDto[];
 };
 export type EditRepositoryContextEntryRequest = {
   expectedRevision: number; id: string; scopeId: string; title: string; summary: string; body: string; claims: ContextClaimDto[]; sourceIds: string[];
@@ -147,7 +157,8 @@ function stringMap(value: unknown, field: string): Record<string, string> {
 function source(value: unknown): ContextSourceDto {
   const item = object(value, 'source');
   return { id: text(item.id, 'source id'), kind: oneOf(item.kind, ['DOCUMENTATION_ROOT', 'DOCUMENTATION_PAGE'], 'source kind'),
-    url: text(item.url, 'source URL'), origin: oneOf(item.origin, ['USER', 'GENERATED'], 'source origin') };
+    url: text(item.url, 'source URL'), origin: oneOf(item.origin, ['USER', 'GENERATED'], 'source origin'),
+    discoveryEvidenceRef: item.discoveryEvidenceRef === null ? null : text(item.discoveryEvidenceRef, 'source discovery evidence') };
 }
 function scopeConfiguration(value: unknown): ContextScopeConfigurationDto {
   const item = object(value, 'scope');
@@ -158,7 +169,8 @@ function scopeConfiguration(value: unknown): ContextScopeConfigurationDto {
 }
 function scope(value: unknown): ContextScopeDto {
   const item = object(value, 'scope');
-  return { ...scopeConfiguration(item), preparation: item.preparation == null ? null : preparationResult(item.preparation) };
+  return { ...scopeConfiguration(item), preparation: item.preparation == null ? null : preparationResult(item.preparation),
+    discoveryEvidenceRef: item.discoveryEvidenceRef === null ? null : text(item.discoveryEvidenceRef, 'scope discovery evidence') };
 }
 function claim(value: unknown): ContextClaimDto {
   const item = object(value, 'claim');
@@ -353,6 +365,38 @@ export function parseContextBuildView(value: unknown, workspaceId: string): Cont
     gaps: strings(build.gaps, 'build limitations') };
   if (result.build.task !== null && (result.build.task.id !== result.build.taskId || result.build.task.workspaceId !== workspaceId)) malformed('build task ownership');
   return result;
+}
+export function parseDiscoverRepositoryContextRequest(value: unknown): DiscoverRepositoryContextRequest {
+  const item = request(value, ['expectedRevision', 'scopeIds', 'query', 'includeRemote']);
+  return { expectedRevision: count(item.expectedRevision, 'expected revision'), scopeIds: strings(item.scopeIds, 'discovery scopes'),
+    query: text(item.query, 'discovery query'), includeRemote: flag(item.includeRemote, 'remote discovery') };
+}
+export function parseApplyContextDiscoveryRequest(value: unknown): ApplyContextDiscoveryRequest {
+  const item = request(value, ['expectedRevision', 'baselineSha', 'repositoryFingerprint', 'query', 'scopeIds', 'sourceIds']);
+  if (typeof item.repositoryFingerprint !== 'string' || !/^[a-f0-9]{64}$/.test(item.repositoryFingerprint)) malformed('repository fingerprint');
+  return { expectedRevision: count(item.expectedRevision, 'expected revision'), baselineSha: text(item.baselineSha, 'discovery baseline'),
+    repositoryFingerprint: item.repositoryFingerprint, query: text(item.query, 'discovery query'),
+    scopeIds: strings(item.scopeIds, 'selected scope suggestions'), sourceIds: strings(item.sourceIds, 'selected source suggestions') };
+}
+export function parseContextDiscovery(value: unknown, workspaceId: string): ContextDiscoveryDto {
+  const item = object(value, 'discovery');
+  if (item.workspaceId !== workspaceId) malformed('discovery workspace');
+  if (typeof item.repositoryFingerprint !== 'string' || !/^[a-f0-9]{64}$/.test(item.repositoryFingerprint)) malformed('repository fingerprint');
+  const inspected = object(item.inspected, 'inspected sources');
+  return { workspaceId, notebookRevision: count(item.notebookRevision, 'discovery revision'), baselineSha: text(item.baselineSha, 'discovery baseline'),
+    repositoryFingerprint: item.repositoryFingerprint, query: text(item.query, 'discovery query'), scopes: array(item.scopes, 'scope suggestions', value => {
+      const suggestion = object(value, 'scope suggestion');
+      return { scope: scope(suggestion.scope), evidence: evidence(suggestion.evidence), reasons: strings(suggestion.reasons, 'scope reasons') };
+    }), sources: array(item.sources, 'source suggestions', value => {
+      const suggestion = object(value, 'source suggestion');
+      return { source: source(suggestion.source), evidence: evidence(suggestion.evidence), reasons: strings(suggestion.reasons, 'source reasons') };
+    }), history: array(item.history, 'history suggestions', value => {
+      const suggestion = object(value, 'history suggestion');
+      return { ...buildHistory({ kind: suggestion.kind, number: suggestion.number }), title: text(suggestion.title, 'history title'), url: text(suggestion.url, 'history URL'),
+        state: text(suggestion.state, 'history state'), outcome: text(suggestion.outcome, 'history outcome'), updatedAt: text(suggestion.updatedAt, 'history update'),
+        reasons: strings(suggestion.reasons, 'history reasons'), provenance: text(suggestion.provenance, 'history provenance') };
+    }), gaps: strings(item.gaps, 'discovery gaps'), inspected: { directories: count(inspected.directories, 'inspected directories'), files: count(inspected.files, 'inspected files'),
+      pullRequests: count(inspected.pullRequests, 'inspected PRs'), issues: count(inspected.issues, 'inspected issues') } };
 }
 export function parseConfigureRepositoryContextRequest(value: unknown): ConfigureRepositoryContextRequest {
   const item = request(value, ['expectedRevision', 'useInReviews', 'sources', 'scopes']);

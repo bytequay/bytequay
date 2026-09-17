@@ -38,7 +38,7 @@ const run = { ...base.runs[0], evidence: [{ ref: 'E1', source: 'Original run sou
 const message = { ...base.messages[0], id: 'saved-discussion', runId: run.id, body: 'Keep field IDs scoped to their parent struct.' };
 const review = { ...base, runs: [run, { ...run, id: 'newer-run', ordinal: 2 }], messages: [message] };
 const empty: RepositoryNotebookDto = { schemaVersion: 1, revision: 4, useInReviews: false, sources: [], activePreparation: null,
-  scopes: [{ id: 'project', title: 'Project', match: { kind: 'REPOSITORY' }, enabled: true, preparation: null }], entries: [], suppressedKnowledgeIds: [], sourceEvidence: [] };
+  scopes: [{ id: 'project', title: 'Project', match: { kind: 'REPOSITORY' }, enabled: true, preparation: null, discoveryEvidenceRef: null }], entries: [], suppressedKnowledgeIds: [], sourceEvidence: [] };
 const brief = { investigationStep: 1, text: 'Keep field IDs scoped to their parent struct.\n<script>Reference text stays inert.</script>',
   evidenceRefs: ['E1'], preparationRefs: ['prepared:project'], limitations: ['Dependency version applicability is unverified.'] };
 const delivery = { turnId: 'validation-turn', packetDigest: `sha256:${'c'.repeat(64)}`, utf8Bytes: 420, contributionCount: 1,

@@ -177,7 +177,7 @@ class TestReviewContextService
     void givesTopicMatchedLessonBudgetBeforeScopeOnlyLessonAndFreezesTheReasons()
     {
         ContextScope iceberg = new ContextScope("iceberg", "Iceberg",
-                new ContextMatch.Selected(ImmutableList.of("plugin/iceberg/"), ImmutableList.of()), true, Optional.empty());
+                new ContextMatch.Selected(ImmutableList.of("plugin/iceberg/"), ImmutableList.of()), true, Optional.empty(), Optional.empty());
         ContextEntry configuration = new ContextEntry("lesson:configuration", MEMORY, iceberg.id(), "Configuration validation", "Catalog configuration",
                 "Configuration guidance. ".repeat(250), ImmutableList.of(), ImmutableList.of(SOURCE.id()), USER, true, 1);
         ContextEntry snapshot = new ContextEntry("lesson:snapshot", MEMORY, iceberg.id(), "Snapshot isolation", "Validate the snapshot isolation contract",
@@ -407,7 +407,7 @@ class TestReviewContextService
 
     private static RepositoryNotebook notebook(boolean enabled, List<ContextEntry> entries, List<ContextSourceEvidence> sources)
     {
-        ContextScope extra = new ContextScope("extra", "Extra", new ContextMatch.Selected(ImmutableList.of(), ImmutableList.of("extra")), true, Optional.empty());
+        ContextScope extra = new ContextScope("extra", "Extra", new ContextMatch.Selected(ImmutableList.of(), ImmutableList.of("extra")), true, Optional.empty(), Optional.empty());
         return new RepositoryNotebook(1, 4, enabled, ImmutableList.of(), ImmutableList.of(ContextScope.project(), extra), entries, ImmutableList.of(), sources, Optional.empty());
     }
 

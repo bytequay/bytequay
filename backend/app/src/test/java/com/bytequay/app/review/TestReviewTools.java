@@ -147,7 +147,7 @@ class TestReviewTools
     private static final String DIFF_VERSION = "abcdef01".repeat(8);
     private static final String DOCUMENT_CAPTURE = "da8f7890-3814-4479-ac90-d6a105542e19";
     private static final RegisteredContextSource DOCUMENT_SOURCE = new RegisteredContextSource(
-            "docs", RegisteredContextSource.Kind.DOCUMENTATION_ROOT, "https://docs.example.com/current/", ContextEntryOrigin.USER);
+            "docs", RegisteredContextSource.Kind.DOCUMENTATION_ROOT, "https://docs.example.com/current/", ContextEntryOrigin.USER, Optional.empty());
     private static final String DIFF_PATH = "src/main/java/Widget.java";
     private static final String CANDIDATE = "The new input might bypass validation";
     private static final String PATCH = "@@ -1,2 +1,3 @@\n alpha\n+beta\n gamma\n";
@@ -267,7 +267,7 @@ class TestReviewTools
         preparationContext();
         List<ContextScope> scopes = ImmutableList.<ContextScope>builder().add(ContextScope.project())
                 .addAll(IntStream.range(0, 12).mapToObj(index -> new ContextScope("path:module" + index + "/", "Module " + index,
-                        new ContextMatch.Selected(ImmutableList.of("module" + index + "/"), ImmutableList.of()), true, Optional.empty())).iterator()).build();
+                        new ContextMatch.Selected(ImmutableList.of("module" + index + "/"), ImmutableList.of()), true, Optional.empty(), Optional.empty())).iterator()).build();
         when(selectedDocumentation.notebook(WORKSPACE_ID)).thenReturn(new RepositoryNotebook(1, 9, true, ImmutableList.of(), scopes,
                 ImmutableList.of(), ImmutableList.of(), ImmutableList.of(), Optional.empty()));
 
@@ -1604,6 +1604,7 @@ class TestReviewTools
         assertThat(result.at("/sources/0/id").asText()).isEqualTo("docs");
         assertThat(result.at("/sources/0/url").asText()).isEqualTo(DOCUMENT_SOURCE.url());
         assertThat(result.at("/sources/0/origin").asText()).isEqualTo("USER");
+        assertThat(result.at("/sources/0/discoveryEvidenceRef").isNull()).isTrue();
         assertThat(result.path("note").asText()).contains("did not retrieve a document");
         assertThat(result.has("capture")).isFalse();
         assertThat(result.has("evidenceRef")).isFalse();
@@ -1618,7 +1619,7 @@ class TestReviewTools
         documentContext(true);
         int writes = store.runUpdates;
         List<RegisteredContextSource> sources = IntStream.range(0, 12).mapToObj(index -> new RegisteredContextSource(
-                "docs-" + index, DOCUMENT_SOURCE.kind(), DOCUMENT_SOURCE.url() + "root-" + index + "/", DOCUMENT_SOURCE.origin())).collect(toImmutableList());
+                "docs-" + index, DOCUMENT_SOURCE.kind(), DOCUMENT_SOURCE.url() + "root-" + index + "/", DOCUMENT_SOURCE.origin(), Optional.empty())).collect(toImmutableList());
         RepositoryNotebook notebook = new RepositoryNotebook(1, 9, true, sources, ImmutableList.of(ContextScope.project()),
                 ImmutableList.of(), ImmutableList.of(), ImmutableList.of(), Optional.empty());
         when(selectedDocumentation.notebook(WORKSPACE_ID)).thenReturn(notebook);

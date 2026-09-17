@@ -48,7 +48,7 @@ import static org.mockito.Mockito.when;
 class TestSelectedDocumentationReader
 {
     private static final String WORKSPACE = "workspace-1";
-    private static final RegisteredContextSource SOURCE = new RegisteredContextSource("docs", DOCUMENTATION_ROOT, "https://docs.example.com/current/", USER);
+    private static final RegisteredContextSource SOURCE = new RegisteredContextSource("docs", DOCUMENTATION_ROOT, "https://docs.example.com/current/", USER, Optional.empty());
     private static final Optional<String> RELATIVE_PAGE = Optional.of("concepts.html");
     private static final Instant READ_AT = Instant.parse("2026-01-01T00:00:00Z");
 
@@ -180,7 +180,7 @@ class TestSelectedDocumentationReader
     void reconfiguredSourceCannotUseEarlierCapture()
     {
         SelectedDocumentationReader.Page captured = first(false);
-        RegisteredContextSource changed = new RegisteredContextSource(SOURCE.id(), DOCUMENTATION_ROOT, "https://docs.example.com/older/", USER);
+        RegisteredContextSource changed = new RegisteredContextSource(SOURCE.id(), DOCUMENTATION_ROOT, "https://docs.example.com/older/", USER, Optional.empty());
         when(notebooks.getNotebook(WORKSPACE)).thenReturn(notebook(changed));
         assertThatThrownBy(() -> read(captured.captureId(), 1)).isInstanceOf(ResponseStatusException.class).hasMessageContaining("409");
         verify(http).read(SOURCE, RELATIVE_PAGE);

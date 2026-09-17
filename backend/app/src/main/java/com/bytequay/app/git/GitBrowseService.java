@@ -143,6 +143,33 @@ public class GitBrowseService
         return parseCommits(result.output());
     }
 
+    /**
+     * Reads frozen history without replacement objects or on-demand fetching, within two seconds and 256 KiB.
+     *
+     * @param repository verified managed repository
+     * @param frozenSha full captured commit object ID
+     * @param paths up to twenty distinct literal relative paths; empty selects repository-wide history
+     * @param limit one to fifty commits
+     * @return bounded matching commit facts; renames are not followed
+     * @throws IllegalArgumentException for invalid inputs, unavailable local objects or truncated output
+     */
+    public List<Commit> localLog(Path repository, String frozenSha, List<String> paths, int limit)
+    {
+        checkArgument(frozenSha != null && frozenSha.matches("[0-9a-f]{40}|[0-9a-f]{64}"), "A frozen history commit is required");
+        checkArgument(limit > 0 && limit <= MAXIMUM_PATH_HISTORY_COMMITS, "History limit must be between 1 and %s", MAXIMUM_PATH_HISTORY_COMMITS);
+        List<String> literalPaths = ImmutableList.copyOf(paths);
+        ContextLimits.unique(literalPaths, "history paths", MAXIMUM_HISTORY_PATHS);
+        literalPaths.forEach(path -> ContextLimits.pathPrefix(path.endsWith("/") ? path : path + "/"));
+        List<String> arguments = ImmutableList.<String>builder()
+                .add("--literal-pathspecs", "log", "--no-show-signature", LOG_FORMAT)
+                .add("-n", String.valueOf(limit), frozenSha, "--")
+                .addAll(literalPaths).build();
+        Result result = git.runLocalBounded(repository, Duration.ofSeconds(2), 256 * 1024, arguments);
+        checkArgument(result.successful(), "Git failed: %s", result.output().strip());
+        checkArgument(!result.truncated(), "Git history output was truncated");
+        return parseCommits(result.output());
+    }
+
     private static List<Commit> parseCommits(String output)
     {
         ImmutableList.Builder<Commit> commits = ImmutableList.builder();

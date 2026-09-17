@@ -36,7 +36,7 @@ const context: ReviewContextSnapshotDto = {
       repository: { owner: 'trino', repo: 'trino' }, path: 'README.md', commit: 'a'.repeat(40) }, blobId: 'b'.repeat(40), readAt: '2026-01-01T00:00:00Z',
       startLine: 1, endLine: 2, totalLines: 8, utf8Bytes: 12, truncated: true, evidenceRef: 'E1' },
     { kind: 'DOCUMENT', id: 'context-read:document', reference: { kind: 'DOCUMENT', sourceId: 'docs', url: 'https://example.com/docs/concepts' },
-      registration: { id: 'docs', kind: 'DOCUMENTATION_ROOT', url: 'https://example.com/docs/', origin: 'USER' }, notebookRevision: 4,
+      registration: { id: 'docs', kind: 'DOCUMENTATION_ROOT', url: 'https://example.com/docs/', origin: 'USER', discoveryEvidenceRef: null }, notebookRevision: 4,
       captureId: 'capture-1', contentHash: 'c'.repeat(64), readAt: '2026-01-02T00:00:00Z', page: 1, totalPages: 2, utf8Bytes: 0,
       blank: true, truncated: false, refreshFailed: true, evidenceRef: null },
   ], gaps: ['Selected notes have not been verified for this PR.'], contributions: [], deliveries: [],

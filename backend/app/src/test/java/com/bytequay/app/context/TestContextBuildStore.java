@@ -63,7 +63,7 @@ class TestContextBuildStore
     void reloadsTypedEvidenceAndExactOperationReceiptsFromExistingSettings()
     {
         RegisteredContextSource registration = new RegisteredContextSource("docs", RegisteredContextSource.Kind.DOCUMENTATION_PAGE,
-                "https://example.com/docs/page", ContextEntryOrigin.USER);
+                "https://example.com/docs/page", ContextEntryOrigin.USER, Optional.empty());
         var file = new ContextRepositoryRead("context-read:file", new ContextReference.RepositoryFile(1, REPOSITORY, "README.md", SHA), SHA,
                 Instant.EPOCH, 1, 1, 1, 6, false, Optional.of("file"));
         var document = new ContextDocumentRead("context-read:doc", new ContextReference.Document("docs", registration.url()), registration, 0,

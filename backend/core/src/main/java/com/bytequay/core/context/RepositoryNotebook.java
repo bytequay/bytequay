@@ -20,6 +20,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
+import java.util.stream.Stream;
 
 import static com.google.common.base.Preconditions.checkArgument;
 import static com.google.common.collect.ImmutableMap.toImmutableMap;
@@ -70,6 +71,13 @@ public record RepositoryNotebook(
         checkArgument(results.stream().mapToLong(result -> result.inputFingerprint().inputBytes()).sum() <= ReviewContextSnapshot.MAXIMUM_INPUT_BYTES,
                 "Retained preparation inputs exceed UTF-8 budget");
         Map<String, ContextSourceEvidence> sourcesById = sourceEvidence.stream().collect(toImmutableMap(ContextSourceEvidence::id, source -> source));
+        Stream.concat(scopes.stream().flatMap(scope -> scope.discoveryEvidenceRef().stream()),
+                sources.stream().flatMap(source -> source.discoveryEvidenceRef().stream())).forEach(ref -> {
+                    ContextSourceEvidence evidence = Optional.ofNullable(sourcesById.get(ref))
+                            .orElseThrow(() -> new IllegalArgumentException("Discovery evidence is missing"));
+                    checkArgument(evidence.capture() == ContextSourceEvidence.Capture.BYTEQUAY_READ
+                            && evidence.reference() instanceof ContextReference.RepositoryFile, "Discovery evidence must be a captured repository file");
+                });
         results.stream().flatMap(result -> result.checkedReads().stream()).forEach(read -> read.evidenceRef().ifPresent(ref -> {
             checkArgument(ref.equals(read.id()), "Checked source evidence must use its globally unique read identity");
             ContextSourceEvidence source = Optional.ofNullable(sourcesById.get(ref))

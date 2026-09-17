@@ -17,7 +17,7 @@ import AppSidebar from '../../AppSidebar';
 import type { AgentPendingApprovalDto, Bridge, WorkspaceDto } from '../../types';
 import type { AgentEventEnvelope } from '../../agents/events';
 import { createPreviewBridge } from '../../agents/fixtures/previewBridge';
-import type { ContextBuildViewDto, ContextEntryDto, ContextScopeDto, RepositoryNotebookDto, StartContextBuildRequest } from '../../repository-context/contracts';
+import type { ApplyContextDiscoveryRequest, ContextBuildViewDto, ContextDiscoveryDto, ContextEntryDto, ContextScopeDto, ContextSourceDto, DiscoverRepositoryContextRequest, RepositoryNotebookDto, StartContextBuildRequest } from '../../repository-context/contracts';
 import SettingsWindow from '../SettingsWindow';
 import '../../css/base.css';
 import '../../css/settings-window.css';
@@ -34,11 +34,11 @@ const eventSource: AgentPendingApprovalDto['source'] = { providerThreadId: null,
 function notebook(second = false): RepositoryNotebookDto {
   return {
     schemaVersion: 1, revision: 7, useInReviews: true, activePreparation: null,
-    sources: [{ id: 'docs-trino', kind: 'DOCUMENTATION_ROOT', url: 'https://trino.io/docs/current/', origin: 'USER' }],
+    sources: [{ id: 'docs-trino', kind: 'DOCUMENTATION_ROOT', url: 'https://trino.io/docs/current/', origin: 'USER', discoveryEvidenceRef: null }],
     scopes: [
-      { id: 'project', title: 'Project overview', match: { kind: 'REPOSITORY' }, enabled: true, preparation: null },
+      { id: 'project', title: 'Project overview', match: { kind: 'REPOSITORY' }, enabled: true, preparation: null, discoveryEvidenceRef: null },
       { id: 'path:plugin/trino-iceberg/', title: 'Iceberg connector',
-        match: { kind: 'SELECTED', pathPrefixes: ['plugin/trino-iceberg/'], terms: ['Iceberg'] }, enabled: true, preparation: null },
+        match: { kind: 'SELECTED', pathPrefixes: ['plugin/trino-iceberg/'], terms: ['Iceberg'] }, enabled: true, preparation: null, discoveryEvidenceRef: null },
     ],
     entries: [
       { id: 'knowledge:project', kind: 'KNOWLEDGE', scopeId: 'project', title: second ? 'Second workspace notes' : 'Project architecture',
@@ -65,6 +65,22 @@ function notebook(second = false): RepositoryNotebookDto {
 }
 
 type Mutation = { action: string; workspaceId: string; request: { expectedRevision: number } };
+function discovery(workspaceId: string, revision: number): ContextDiscoveryDto {
+  const evidence: ContextDiscoveryDto['scopes'][number]['evidence'] = { id: 'discovered-readme', reference: { kind: 'REPOSITORY_FILE', repositoryId: 42,
+    repository: { owner: 'trinodb', repo: 'trino' }, path: 'plugin/trino-hive/README.md', commit: 'a'.repeat(40) }, capture: 'BYTEQUAY_READ',
+    excerpt: 'Hive connector. Documentation: https://hive.apache.org/docs/', provenance: 'Repository README at the frozen baseline',
+    retrievedAt: '2026-09-01T00:00:00Z', contentHash: 'b'.repeat(64), version: 'a'.repeat(40), truncated: false };
+  return { workspaceId, notebookRevision: revision, baselineSha: 'a'.repeat(40), repositoryFingerprint: 'c'.repeat(64), query: 'Hive',
+    scopes: [{ scope: { id: 'path:plugin/trino-hive/', title: 'Hive connector', match: { kind: 'SELECTED', pathPrefixes: ['plugin/trino-hive/'], terms: ['Hive'] },
+      enabled: true, preparation: null, discoveryEvidenceRef: evidence.id }, evidence, reasons: ['Module directory with a README'] }],
+    sources: [{ source: { id: 'docs-hive', kind: 'DOCUMENTATION_ROOT', url: 'https://hive.apache.org/docs/', origin: 'GENERATED', discoveryEvidenceRef: evidence.id },
+      evidence, reasons: ['Explicit HTTPS documentation link in the README'] }],
+    history: [{ kind: 'PR', number: 88, title: 'Fix Hive partition lookup', url: 'https://github.com/trinodb/trino/pull/88', state: 'MERGED', outcome: 'merged',
+      updatedAt: '2026-09-01T00:00:00Z', reasons: ['Hive title matches selected focus'], provenance: 'Saved PR data; detail has not been refreshed' },
+    { kind: 'ISSUE', number: 89, title: 'Hive partition edge case', url: 'https://github.com/trinodb/trino/issues/89', state: 'CLOSED', outcome: 'not_planned',
+      updatedAt: '2026-09-01T00:00:00Z', reasons: ['Hive title matches selected focus'], provenance: 'Bounded GitHub issue search result' }],
+    inspected: { directories: 12, files: 4, pullRequests: 20, issues: 5 }, gaps: ['Only a bounded selection was checked; older history may be absent.'] };
+}
 function backend() {
   sessionStorage.clear();
   const saved = new Map(workspaces.map(workspace => [workspace.id, notebook(workspace.id === 'ws-2')]));
@@ -74,8 +90,11 @@ function backend() {
   const controls: Array<{ action: string; taskId: string; generation?: string }> = [];
   const reads: string[] = [];
   const writes: Mutation[] = [];
+  const discoveries: DiscoverRepositoryContextRequest[] = [];
+  const applications: ApplyContextDiscoveryRequest[] = [];
   const delayed = new Map<string, (notebook: RepositoryNotebookDto) => void>();
-  const state = { saved, reads, writes, delayed, builds, starts, controls, readFailure: false, holdWorkspace: '', unavailable: false,
+  const state = { saved, reads, writes, delayed, builds, starts, controls, discoveries, applications, discoveryFailure: false, emptyDiscovery: false,
+    loseApply: false, readFailure: false, holdWorkspace: '', unavailable: false,
     loseStartBefore: false, loseStartAfter: false, approvals: [] as AgentPendingApprovalDto[], events: [] as AgentEventEnvelope[] };
   const mutate = <T extends { expectedRevision: number }>(action: string, workspaceId: string, request: T,
     change: (current: RepositoryNotebookDto) => RepositoryNotebookDto): Promise<RepositoryNotebookDto> => {
@@ -103,6 +122,28 @@ function backend() {
       const catalog = await createPreviewBridge('ws-1').getModelSettings();
       return { ...catalog, providers: catalog.providers.map(provider => ({ ...provider,
         readiness: state.unavailable ? 'AUTHENTICATION_REQUIRED' as const : provider.readiness })) };
+    },
+    discoverRepositoryContext: async (workspaceId, request) => {
+      discoveries.push(structuredClone(request));
+      if (state.discoveryFailure) throw new Error('Sync this workspace before finding suggestions.');
+      const current = saved.get(workspaceId); assert(current !== undefined, 'Notebook exists');
+      const preview = discovery(workspaceId, current.revision);
+      return { ...preview, query: request.query, ...(state.emptyDiscovery ? { scopes: [], sources: [], history: [] } : {}) };
+    },
+    applyRepositoryContextDiscovery: async (workspaceId, request) => {
+      applications.push(structuredClone(request));
+      const current = saved.get(workspaceId); assert(current !== undefined, 'Notebook exists');
+      if (request.expectedRevision !== current.revision) throw new Error('Notebook changed; reload before applying.');
+      const preview = discovery(workspaceId, current.revision);
+      const chosenScopes = preview.scopes.filter(item => request.scopeIds.includes(item.scope.id));
+      const chosenSources = preview.sources.filter(item => request.sourceIds.includes(item.source.id));
+      const updated: RepositoryNotebookDto = { ...current, revision: current.revision + 1, scopes: [...current.scopes, ...chosenScopes.map(item => item.scope)],
+        sources: [...current.sources, ...chosenSources.map(item => item.source)], sourceEvidence: [...current.sourceEvidence,
+          ...new Map([...chosenScopes, ...chosenSources].map(item => [item.evidence.id, item.evidence])).values()] };
+      saved.set(workspaceId, updated);
+      const build = builds.get(workspaceId); assert(build !== undefined, 'Builder exists'); builds.set(workspaceId, { ...build, notebookRevision: updated.revision });
+      if (state.loseApply) { state.loseApply = false; throw new Error('Apply response was lost'); }
+      return structuredClone(updated);
     },
     getRepositoryContextBuild: async (workspaceId: string) => {
       const value = builds.get(workspaceId); assert(value !== undefined, 'Builder belongs to workspace'); return structuredClone(value);
@@ -152,8 +193,8 @@ function backend() {
     },
     configureRepositoryContext: (workspaceId, request) => mutate('configure', workspaceId, request, current => ({
       ...current, useInReviews: request.useInReviews ?? current.useInReviews,
-      scopes: request.scopes?.map(scope => ({ ...scope, preparation: current.scopes.find(value => value.id === scope.id)?.preparation ?? null })) ?? current.scopes,
-      sources: request.sources?.map(source => ({ ...source, origin: 'USER' as const })) ?? current.sources,
+      scopes: request.scopes?.map((scope): ContextScopeDto => ({ ...scope, preparation: current.scopes.find(value => value.id === scope.id)?.preparation ?? null, discoveryEvidenceRef: null })) ?? current.scopes,
+      sources: request.sources?.map((source): ContextSourceDto => ({ ...source, origin: 'USER', discoveryEvidenceRef: null })) ?? current.sources,
     })),
     editRepositoryContextEntry: (workspaceId, request) => mutate('edit', workspaceId, request, current => {
       const previous = current.entries.find(entry => entry.id === request.id);
@@ -176,7 +217,8 @@ function backend() {
   } satisfies Pick<Bridge, 'getAppVersion' | 'getAppPreferences' | 'getWorkspaceSettings' | 'getRepositoryContext' | 'configureRepositoryContext'
     | 'editRepositoryContextEntry' | 'setRepositoryContextEntryEnabled' | 'removeRepositoryContextEntry' | 'resetRepositoryContext' | 'getModelSettings'
     | 'getRepositoryContextBuild' | 'startRepositoryContextBuild' | 'stopRepositoryContextBuild' | 'getRepositoryContextBuildStopImpact'
-    | 'stopRepositoryContextBuildRuntime' | 'readAgentHistory' | 'readAgentPendingApprovals' | 'getAgentTurn' | 'resolveAgentApproval'>;
+    | 'stopRepositoryContextBuildRuntime' | 'readAgentHistory' | 'readAgentPendingApprovals' | 'getAgentTurn' | 'resolveAgentApproval'
+    | 'discoverRepositoryContext' | 'applyRepositoryContextDiscovery'>;
   Object.defineProperty(window, 'bridge', { configurable: true, value: bridge });
   return state;
 }
@@ -198,6 +240,11 @@ async function fill(scope: Element, label: string, value: string) {
   Object.getOwnPropertyDescriptor(prototype, 'value')?.set?.call(input, value);
   input.dispatchEvent(new Event('input', { bubbles: true }));
   await settle();
+}
+async function choose(scope: Element, label: string) {
+  const control = [...scope.querySelectorAll('label')].find(item => item.textContent?.trim() === label)?.querySelector('input[type=checkbox]');
+  assert(control instanceof HTMLInputElement && !control.disabled, `Missing available choice: ${label}`);
+  control.click(); await settle();
 }
 function fixture(state: ReturnType<typeof backend>) {
   const host = document.createElement('div');
@@ -286,7 +333,7 @@ export async function run(): Promise<Array<{ name: string; error?: string }>> {
     const dialog = view.dialog();
     assert(dialog.textContent?.includes('Repository files, directory structure, repository documentation and registered documentation are always included.') === true,
       'Essential inputs must be visible and always included');
-    const choices = [...dialog.querySelectorAll<HTMLInputElement>('input[type=checkbox]')];
+    const choices = [...dialog.querySelectorAll<HTMLInputElement>('fieldset input[type=checkbox]')];
     assert(choices.length === 2 && choices[0].checked && !choices[1].checked, 'Only scope choices exist, with Project overview selected');
     assert(view.state.starts.length === 0, 'Opening the dialog does not launch an agent');
     await fill(dialog, 'Merged PR numbers (optional)', '#123, 456');
@@ -313,6 +360,76 @@ export async function run(): Promise<Array<{ name: string; error?: string }>> {
     assert(view.text().includes('Repository learning · Completed') && view.text().includes('Worktree cleaned up'), 'Completed task and cleanup facts remain visible');
     assert(Number(view.state.starts.length) === 1, 'Inspecting terminal state never starts another task');
   });
+
+  await check('Suggestion discovery and use are explicit and preserve manual learning inputs', async view => {
+    await view.click('Learn / Refresh');
+    assert(view.state.discoveries.length === 0 && view.state.applications.length === 0 && view.state.starts.length === 0, 'Opening cannot discover, apply or learn');
+    const dialog = view.dialog();
+    await fill(dialog, 'Merged PR numbers (optional)', '17, 88');
+    await fill(dialog, 'Suggestion focus (optional)', 'Hive');
+    await view.click('Find suggestions', dialog);
+    assert(view.state.discoveries[0].includeRemote === false && view.state.discoveries[0].scopeIds.join() === 'project', 'Default discovery is local with current configured scope');
+    const preview = dialog.querySelector('.rc-discovery-preview'); assert(preview !== null, 'Preview is visible');
+    assert([...preview.querySelectorAll<HTMLInputElement>('input')].every(input => !input.checked), 'Suggestions must begin unselected');
+    assert(preview.textContent?.includes('12 directories, 4 files, 20 PRs and 5 issues') && preview.textContent?.includes('Only a bounded selection'), 'Counts and gaps stay visible');
+    await choose(preview, 'Hive connector'); await choose(preview, 'https://hive.apache.org/docs/'); await choose(preview, 'PR #88: Fix Hive partition lookup');
+    assert(button(dialog, 'Start learning').disabled, 'Unapplied suggestion choices cannot silently be omitted by Start');
+    await view.click('Use selected suggestions', dialog);
+    assert(Number(view.state.applications.length) === 1 && view.state.applications[0].sourceIds.join() === 'docs-hive', 'Only chosen configuration is sent for server validation');
+    assert(view.state.applications[0].repositoryFingerprint === 'c'.repeat(64), 'Apply echoes the exact server-observed repository fingerprint');
+    assert(field(dialog, 'Merged PR numbers (optional)').value === '17, 88', 'Manual history is preserved and suggested history deduplicated');
+    assert(view.state.starts.length === 0 && view.text().includes('Why this was suggested'), 'Applying saves provenance but never starts learning');
+    const choices = [...dialog.querySelectorAll('fieldset label')];
+    assert(choices.some(label => label.textContent?.includes('Hive connector') && label.querySelector<HTMLInputElement>('input')?.checked), 'Applied scope joins existing selected scope');
+    await view.click('Start learning', dialog);
+    assert(view.state.starts[0].request.expectedRevision === 8 && view.state.starts[0].request.scopeIds.join() === 'project,path:plugin/trino-hive/', 'Learning uses saved revision and selected scopes');
+  });
+
+  await check('History-only suggestions require no notebook write and GitHub search is explicit', async view => {
+    await view.click('Learn / Refresh'); const dialog = view.dialog();
+    await choose(dialog, 'Include GitHub search'); await view.click('Find suggestions', dialog);
+    assert(view.state.discoveries[0].includeRemote, 'GitHub search is explicit');
+    assert(dialog.textContent?.includes('Not planned') && dialog.textContent?.includes('does not prove'), 'Closed issue outcome remains qualified');
+    await choose(dialog, 'ISSUE #89: Hive partition edge case'); await view.click('Use selected suggestions', dialog);
+    assert(view.state.applications.length === 0 && view.state.writes.length === 0 && view.state.starts.length === 0, 'History selection does not configure or start');
+    assert(field(dialog, 'Closed issue numbers (optional)').value === '89', 'Chosen history enters the existing input');
+  });
+
+  await check('Suggestions enforce the combined history bound and show empty coverage honestly', async view => {
+    await view.click('Learn / Refresh'); const dialog = view.dialog();
+    await fill(dialog, 'Merged PR numbers (optional)', '1 2 3 4 5 6 7 8 9 10'); await view.click('Find suggestions', dialog);
+    await choose(dialog, 'PR #88: Fix Hive partition lookup');
+    assert(button(dialog, 'Use selected suggestions').disabled && dialog.textContent?.includes('including manual numbers'), 'Manual and suggested references share the limit');
+    view.state.emptyDiscovery = true; await view.click('Find suggestions', dialog);
+    assert(dialog.textContent?.includes('No suggestions found in the checked sources.') && dialog.textContent?.includes('Only a bounded selection'), 'Empty search is qualified by coverage');
+    assert(view.state.starts.length === 0, 'Finding suggestions never starts learning');
+  });
+
+  await check('Lost apply responses require an explicit reload instead of retrying the mutation', async view => {
+    await view.click('Learn / Refresh'); const dialog = view.dialog(); await view.click('Find suggestions', dialog);
+    await choose(dialog, 'Hive connector'); view.state.loseApply = true; await view.click('Use selected suggestions', dialog);
+    assert(button(dialog, 'Start learning').disabled && button(dialog, 'Use selected suggestions').disabled, 'Unconfirmed apply blocks a blind retry and learning');
+    await view.click('Reload saved notebook', dialog);
+    assert(view.state.applications.length === 1 && view.state.starts.length === 0, 'Reload inspects only');
+    assert(dialog.textContent?.includes('Hive connector') && dialog.querySelector('.rc-discovery-preview') === null, 'Saved configuration is available and stale suggestions are discarded');
+  });
+
+  await check('A stale suggestion apply preserves the notebook and requires a fresh preview', async view => {
+    await view.click('Learn / Refresh'); const dialog = view.dialog(); await view.click('Find suggestions', dialog); await choose(dialog, 'Hive connector');
+    const saved = view.state.saved.get('ws-1'); assert(saved !== undefined, 'Notebook exists'); view.state.saved.set('ws-1', { ...saved, revision: 8 });
+    await view.click('Use selected suggestions', dialog);
+    assert(dialog.textContent?.includes('Notebook changed') && view.state.saved.get('ws-1')?.scopes.length === 2, 'Stale apply cannot overwrite existing config');
+    await view.click('Reload saved notebook', dialog);
+    assert(view.state.applications.length === 1 && view.state.starts.length === 0, 'Conflict does not automatically retry or start');
+  });
+
+  await check('Discovery failures do not fabricate results or launch learning', async view => {
+    await view.click('Learn / Refresh'); await fill(view.dialog(), 'Suggestion focus (optional)', 'repo:unrelated');
+    assert(button(view.dialog(), 'Find suggestions').disabled && view.state.discoveries.length === 0, 'Query cannot inject GitHub search operators');
+    await fill(view.dialog(), 'Suggestion focus (optional)', 'Hive'); await view.click('Find suggestions', view.dialog());
+    assert(view.dialog().textContent?.includes('Sync this workspace') && view.dialog().querySelector('.rc-discovery-preview') === null, 'Provisioning errors remain explicit');
+    assert(view.state.applications.length === 0 && view.state.starts.length === 0, 'Failure has no implicit apply or start');
+  }, state => { state.discoveryFailure = true; });
 
   await check('Readiness and history limits block submission without starting a task', async view => {
     await view.click('Learn / Refresh');
@@ -357,7 +474,7 @@ export async function run(): Promise<Array<{ name: string; error?: string }>> {
 
   await check('Removed and user-managed notes cannot be overwritten by learning', async view => {
     await view.click('Learn / Refresh');
-    const choices = [...view.dialog().querySelectorAll<HTMLInputElement>('input[type=checkbox]')];
+    const choices = [...view.dialog().querySelectorAll<HTMLInputElement>('fieldset input[type=checkbox]')];
     assert(choices.every(choice => choice.disabled && !choice.checked), 'Protected scopes are unavailable');
     assert(view.dialog().textContent?.includes('User-managed note is preserved') === true && button(view.dialog(), 'Start learning').disabled, 'Protected scope reason is explicit');
     assert(view.state.starts.length === 0, 'Protected notes never trigger an agent');

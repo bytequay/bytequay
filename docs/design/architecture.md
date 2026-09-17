@@ -107,9 +107,45 @@ History-backed generated knowledge also needs nonblank captured monitored-baseli
 evidence. History cannot prove EMPTY or automatically become user-owned memory.
 Closed-issue discovery remains separate from selected reads and the open cache.
 
-Cold-start work proceeds from this historical-source path to standalone Learn
-and Refresh knowledge, then scope/root proposals and bounded resolved-history
-discovery. The Learn task/UI are implemented. The user starts a visible,
+The implemented Find suggestions and Use selected suggestions actions precede
+Learn. The implementation checklist records verification. Discovery inspects a
+frozen monitored baseline only in an existing
+local repository; it does not provision, clone, Git-fetch or start an agent.
+Optional remote history search remains bounded and separate. Acceptance rederives
+selected proposal IDs outside locks, rejects moved baseline/routing, then appends
+configuration under the existing revision/owner guard. Scope and source
+discoveryEvidenceRef values point to application-captured RepositoryFile excerpts
+in notebook sourceEvidence, retained even before notes exist. BEGIN does not
+register proposals or expand the accepted Learn source assignment.
+Repository traversal is bounded breadth-first across eligible directories at any
+depth, including below manifest directories. Queries prioritize children and
+filter scope proposals without pruning nonmatching ancestors. The existing eight
+manifest names, 24-directory/24-file caps, first-100-entry directory pages and
+safe-path/hidden/generated/vendor exclusions remain. Symlinks and submodules are
+not followed. No workspace parser, build execution or dependency is added;
+discovered configuration still requires captured evidence and user acceptance.
+Preview/apply carry a required repositoryFingerprint over routing and
+lastCodeSyncAt. Metadata is captured and rechecked under the workspace lock,
+alongside a final bounded local rev-parse before notebook registration. That
+two-second/no-lazy-fetch ref check catches a failed sync that moved the ref
+without recording lastCodeSyncAt; it holds no notebook transaction or task
+monitor. Candidate Git reads and all network/model work stay outside that lock.
+These guards reject preview transfer to another upstream at the same commit
+and synchronization completed while acceptance awaited the lock.
+Local history uses bounded GitBrowseService.localLog with no lazy fetch or
+replacement objects. Repository source reads share the configurable
+`bytequay.repository-context.discovery-timeout=30s` budget: one Stopwatch supplies
+remaining time to Guava SimpleTimeLimiter on the existing ioExecutor. Only the
+caller mutates the scan; timeout preserves completed suggestions with a gap,
+and late worker results are not merged. Interruption restores the flag and aborts
+before history or configuration saving. No scheduler is added. Git command limits
+and history budgets remain separate; this is not a thirty-second HTTP latency
+or measured-performance guarantee.
+
+Cold-start implementation includes this historical-source path, standalone Learn
+and Refresh knowledge, scope/root proposals and bounded resolved-history
+discovery. Fresh discussion-source supplements and selected deferred-note
+exact-version reads are next. The user starts a visible,
 stoppable ordinary task with selected scopes; it reads repository files, directory
 structure, repository documentation and registered docs by default, including
 the first run. Those sources are part of the assignment, not optional switches.

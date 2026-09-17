@@ -378,13 +378,13 @@ public class RepositoryContextPreparation
     private static List<ContextScope> withResults(List<ContextScope> scopes, Map<String, ContextPreparationResult> results)
     {
         return scopes.stream().map(scope -> new ContextScope(scope.id(), scope.title(), scope.match(), scope.enabled(),
-                Optional.ofNullable(results.get(scope.id())).or(scope::preparation))).collect(toImmutableList());
+                Optional.ofNullable(results.get(scope.id())).or(scope::preparation), scope.discoveryEvidenceRef())).collect(toImmutableList());
     }
 
     private static RepositoryNotebook copy(RepositoryNotebook current, long revision, List<ContextScope> scopes, List<ContextEntry> entries,
             List<ContextSourceEvidence> evidence, Optional<ActiveContextPreparation> active)
     {
-        Set<String> retained = RepositoryContextService.retainedSources(scopes, entries);
+        Set<String> retained = RepositoryContextService.retainedSources(current.sources(), scopes, entries);
         return new RepositoryNotebook(1, revision, current.useInReviews(), current.sources(), scopes, entries, current.suppressedKnowledgeIds(),
                 evidence.stream().filter(source -> retained.contains(source.id())).collect(toImmutableList()), active);
     }

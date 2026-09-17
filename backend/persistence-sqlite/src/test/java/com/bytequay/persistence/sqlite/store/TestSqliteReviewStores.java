@@ -185,7 +185,7 @@ class TestSqliteReviewStores
         ContextRepositoryRead emptyFile = new ContextRepositoryRead("context-read:empty-file",
                 new ContextReference.RepositoryFile(42, file.repository(), "empty.md", BASE_SHA), BASE_SHA, NOW, 1, 0, 0, 0, false, Optional.empty());
         RegisteredContextSource registration = new RegisteredContextSource(
-                "docs", RegisteredContextSource.Kind.DOCUMENTATION_ROOT, "https://example.com/docs/", ContextEntryOrigin.USER);
+                "docs", RegisteredContextSource.Kind.DOCUMENTATION_ROOT, "https://example.com/docs/", ContextEntryOrigin.USER, Optional.empty());
         ContextDocumentRead documentRead = new ContextDocumentRead("context-read:document",
                 new ContextReference.Document("docs", "https://example.com/docs/page"), registration, 7, UUID.randomUUID().toString(), "a".repeat(64),
                 NOW.minusSeconds(60), 1, 2, 2, false, true, true, Optional.of("document-evidence"));

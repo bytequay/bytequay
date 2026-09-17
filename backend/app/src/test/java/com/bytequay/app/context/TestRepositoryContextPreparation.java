@@ -23,12 +23,15 @@ import com.bytequay.app.workspace.WorkspaceRepositoryContext;
 import com.bytequay.app.workspace.WorkspaceRepositoryService;
 import com.bytequay.core.context.ContextClaim;
 import com.bytequay.core.context.ContextDocumentRead;
+import com.bytequay.core.context.ContextEntryOrigin;
 import com.bytequay.core.context.ContextHistoryRead;
 import com.bytequay.core.context.ContextInputFingerprint;
+import com.bytequay.core.context.ContextMatch;
 import com.bytequay.core.context.ContextPacket;
 import com.bytequay.core.context.ContextReference;
 import com.bytequay.core.context.ContextRepositoryRead;
 import com.bytequay.core.context.ContextScope;
+import com.bytequay.core.context.ContextSourceEvidence;
 import com.bytequay.core.context.ContextSourceRead;
 import com.bytequay.core.context.RegisteredContextSource;
 import com.bytequay.core.context.RepositoryNotebook;
@@ -123,6 +126,28 @@ class TestRepositoryContextPreparation
         assertThat(saved.useInReviews()).isFalse();
         assertThat(saved.entries()).singleElement().satisfies(entry -> assertThat(entry.body()).isEqualTo("Useful generated body"));
         assertThat(saved.activePreparation()).isEmpty();
+    }
+
+    @Test
+    void preparationRetainsDiscoveryEvidenceForUnbuiltScopesAndSources()
+    {
+        ContextSourceEvidence proof = new ContextSourceEvidence("discovery:module", new ContextReference.RepositoryFile(1, REPOSITORY, "component/pom.xml", SHA),
+                "Captured module metadata", "<project/>", ContextSourceEvidence.Capture.BYTEQUAY_READ, Optional.of(Instant.EPOCH), Optional.of(SHA), Optional.of(SHA), false);
+        ContextScope component = new ContextScope("path:component/", "Component", new ContextMatch.Selected(ImmutableList.of("component/"), ImmutableList.of()),
+                false, Optional.empty(), Optional.of(proof.id()));
+        RegisteredContextSource source = new RegisteredContextSource("docs", RegisteredContextSource.Kind.DOCUMENTATION_ROOT,
+                "https://example.com/docs/", ContextEntryOrigin.GENERATED, Optional.of(proof.id()));
+        notebooks.registerDiscovered("workspace", 0, ImmutableList.of(component), ImmutableList.of(source), ImmutableList.of(proof));
+        Execution owner = execution("turn", false, SHA);
+
+        var admitted = begin(owner);
+        preparation.complete(owner, preparation.prepareCompletion(owner, admitted.attempt().orElseThrow().attemptId(), readyReport(READ_ID)));
+
+        RepositoryNotebook saved = notebooks.getNotebook("workspace");
+        assertThat(saved.scopes()).contains(component);
+        assertThat(saved.sources()).containsExactly(source);
+        assertThat(saved.sourceEvidence()).contains(proof);
+        assertThat(saved.entries()).singleElement().satisfies(entry -> assertThat(entry.scopeId()).isEqualTo("project"));
     }
 
     @Test

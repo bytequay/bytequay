@@ -232,6 +232,8 @@ const bridge: Bridge = {
 
   getWorkspaceSettings: workspaceId => ipcRenderer.invoke('workspaces:settings', workspaceId),
   getRepositoryContext: workspaceId => ipcRenderer.invoke('repository-context:get', workspaceId),
+  discoverRepositoryContext: (workspaceId, request) => ipcRenderer.invoke('repository-context:discover', workspaceId, request),
+  applyRepositoryContextDiscovery: (workspaceId, request) => ipcRenderer.invoke('repository-context:discovery:apply', workspaceId, request),
   getRepositoryContextBuild: workspaceId => ipcRenderer.invoke('repository-context:build:get', workspaceId),
   startRepositoryContextBuild: (workspaceId, request) => ipcRenderer.invoke('repository-context:build:start', workspaceId, request),
   stopRepositoryContextBuild: (workspaceId, taskId) => ipcRenderer.invoke('repository-context:build:stop', workspaceId, taskId),

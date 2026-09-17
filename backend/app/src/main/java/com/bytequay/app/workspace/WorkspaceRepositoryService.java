@@ -94,6 +94,15 @@ public interface WorkspaceRepositoryService
     WorkspaceRepositoryContext requireReadableRepository(String workspaceId);
 
     /**
+     * Resolves an already provisioned checkout without synchronizing, cloning or fetching.
+     *
+     * @param workspaceId ByteQuay workspace identifier
+     * @return the existing managed path and monitored repository routing
+     * @throws WorkspaceException when the workspace has never completed code synchronization
+     */
+    WorkspaceRepositoryContext requireLocalRepository(String workspaceId);
+
+    /**
      * Requests code and metadata synchronization without creating another workspace.
      *
      * @param workspaceId ByteQuay workspace identifier

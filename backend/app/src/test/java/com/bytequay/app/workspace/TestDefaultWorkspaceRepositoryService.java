@@ -286,6 +286,24 @@ class TestDefaultWorkspaceRepositoryService
     }
 
     @Test
+    void localRepositoryResolutionNeverStartsSynchronization()
+    {
+        InMemoryWorkspaceStore store = new InMemoryWorkspaceStore();
+        GitHubAccountClient gitHub = mock(GitHubAccountClient.class);
+        when(gitHub.fetchRepository("token", 100L)).thenReturn(Optional.of(direct(100, "owner")));
+        WorkspaceProvisioningService provisioning = mock(WorkspaceProvisioningService.class);
+        DefaultWorkspaceRepositoryService service = service(store, gitHub, provisioning);
+        Workspace unsynced = watch(service, 100);
+        reset(provisioning, gitHub);
+
+        assertThatThrownBy(() -> service.requireLocalRepository(unsynced.id())).isInstanceOf(WorkspaceException.class);
+        Workspace synced = store.save(unsynced.withCodeSyncAt(Optional.of(NOW), NOW));
+        assertThat(service.requireLocalRepository(synced.id()).repository())
+                .isEqualTo(Path.of("/tmp/bytequay-workspaces", synced.id(), "repository"));
+        verifyNoInteractions(provisioning, gitHub);
+    }
+
+    @Test
     void usesTheLastSuccessfulCodeSyncForReadyAndReadableRepositories()
     {
         InMemoryWorkspaceStore store = new InMemoryWorkspaceStore();

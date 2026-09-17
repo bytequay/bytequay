@@ -85,7 +85,7 @@ class TestContextBuildTools
     private static final String SHA = "a".repeat(40);
     private static final RepoRef REPO = RepoRef.of("owner", "repository");
     private static final RegisteredContextSource DOC = new RegisteredContextSource("docs", RegisteredContextSource.Kind.DOCUMENTATION_PAGE,
-            "https://example.com/guide", ContextEntryOrigin.USER);
+            "https://example.com/guide", ContextEntryOrigin.USER, Optional.empty());
     private static final String BEGIN = "{\"operation\":\"BEGIN\",\"requestKey\":\"plan\",\"expectedRevision\":0,\"scopeIds\":[\"project\"]}";
     private final ObjectMapper mapper = new ObjectMapper().registerModule(new Jdk8Module()).registerModule(new JavaTimeModule());
     private final AgentTaskStore tasks = mock(AgentTaskStore.class);
@@ -312,7 +312,7 @@ class TestContextBuildTools
         ContextPreparationResult reused = new ContextPreparationResult("previous", ContextInputFingerprint.create("component", ImmutableMap.of("README.md", SHA),
                 ImmutableList.of()), ContextPreparationResult.Outcome.EMPTY, ImmutableList.of(), ImmutableList.of(blank), "Previously inspected complete inputs");
         ContextScope component = new ContextScope("component", "Component", new ContextMatch.Selected(ImmutableList.of("component/"), ImmutableList.of()),
-                true, Optional.of(reused));
+                true, Optional.of(reused), Optional.empty());
         RepositoryNotebook notebook = new RepositoryNotebook(1, 0, true, ImmutableList.of(), ImmutableList.of(ContextScope.project(), component),
                 ImmutableList.of(), ImmutableList.of(), ImmutableList.of(), Optional.empty());
         ContextBuild before = current();

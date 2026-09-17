@@ -125,7 +125,7 @@ public class RepositoryContextController
 
         ContextScope toScope()
         {
-            return new ContextScope(id, title, match.toMatch(), enabled, Optional.empty());
+            return new ContextScope(id, title, match.toMatch(), enabled, Optional.empty(), Optional.empty());
         }
     }
 

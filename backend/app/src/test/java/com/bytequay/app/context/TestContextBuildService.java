@@ -224,7 +224,7 @@ class TestContextBuildService
         assertThat(bound.baselineSha()).isEqualTo(SHA);
         assertThat(bound.history()).isEqualTo(request.history());
         assertThat(bound.documentationSources()).containsExactly(new RegisteredContextSource("docs", RegisteredContextSource.Kind.DOCUMENTATION_PAGE,
-                "https://example.com/docs", ContextEntryOrigin.USER));
+                "https://example.com/docs", ContextEntryOrigin.USER, Optional.empty()));
         AgentTask task = savedTasks.get(TaskId.valueOf(bound.taskId()));
         assertThat(task.interactive()).isFalse();
         assertThat(task.permissionPolicy()).isEqualTo(AgentPermissionPolicy.AUTO);

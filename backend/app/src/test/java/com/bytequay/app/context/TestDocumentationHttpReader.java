@@ -72,8 +72,8 @@ import static org.mockito.Mockito.when;
 @Isolated("Temporarily changes the JVM proxy selector")
 class TestDocumentationHttpReader
 {
-    private static final RegisteredContextSource ROOT = new RegisteredContextSource("docs", DOCUMENTATION_ROOT, "https://docs.example.com/manual/", USER);
-    private static final RegisteredContextSource PAGE = new RegisteredContextSource("page", DOCUMENTATION_PAGE, "https://docs.example.com/manual/concepts.html", USER);
+    private static final RegisteredContextSource ROOT = new RegisteredContextSource("docs", DOCUMENTATION_ROOT, "https://docs.example.com/manual/", USER, Optional.empty());
+    private static final RegisteredContextSource PAGE = new RegisteredContextSource("page", DOCUMENTATION_PAGE, "https://docs.example.com/manual/concepts.html", USER, Optional.empty());
     private static final Clock CLOCK = Clock.fixed(Instant.parse("2026-01-01T00:00:00Z"), ZoneOffset.UTC);
 
     private final CloseableHttpClient client = mock(CloseableHttpClient.class);

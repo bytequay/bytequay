@@ -96,10 +96,36 @@ class TestRepositoryContextSqlite
     }
 
     @Test
+    void discoveryProvenanceRoundTripsWithoutKnowledgeAndSurvivesUnwatch()
+    {
+        Workspace workspace = workspaces.findById(workspaceId).orElseThrow();
+        String sha = "a".repeat(40);
+        ContextSourceEvidence proof = new ContextSourceEvidence("discovery:readme",
+                new ContextReference.RepositoryFile(workspace.monitoredRepositoryId(), workspace.monitoredRepository(), "component/README.md", sha),
+                "Captured component README", "See https://example.com/docs/", ContextSourceEvidence.Capture.BYTEQUAY_READ,
+                Optional.of(Instant.EPOCH), Optional.of(sha), Optional.of(sha), false);
+        ContextScope scope = new ContextScope("path:component/", "Component", new ContextMatch.Selected(ImmutableList.of("component/"), ImmutableList.of()),
+                true, Optional.empty(), Optional.of(proof.id()));
+        RegisteredContextSource source = new RegisteredContextSource("docs", RegisteredContextSource.Kind.DOCUMENTATION_ROOT,
+                "https://example.com/docs/", ContextEntryOrigin.GENERATED, Optional.of(proof.id()));
+
+        RepositoryNotebook saved = context.registerDiscovered(workspaceId, 0, ImmutableList.of(scope), ImmutableList.of(source), ImmutableList.of(proof));
+        workspaces.setWatched(workspaceId, false);
+        RepositoryContextService recreated = new RepositoryContextService(settings, mapper, workspaces, reviews);
+
+        assertThat(recreated.getNotebook(workspaceId)).isEqualTo(saved);
+        RepositoryNotebook disabled = recreated.setUseInReviews(workspaceId, saved.revision(), false);
+        assertThat(disabled.entries()).isEmpty();
+        assertThat(disabled.sources()).containsExactly(source);
+        assertThat(disabled.scopes()).containsExactly(ContextScope.project(), scope);
+        assertThat(disabled.sourceEvidence()).containsExactly(proof);
+    }
+
+    @Test
     void notebookSurvivesServiceRecreationAndUnwatchWithOptimisticEdits()
     {
         ContextScope scope = new ContextScope("path:plugin/iceberg/", "Iceberg",
-                new ContextMatch.Selected(ImmutableList.of("plugin/iceberg/"), ImmutableList.of("iceberg")), true, Optional.empty());
+                new ContextMatch.Selected(ImmutableList.of("plugin/iceberg/"), ImmutableList.of("iceberg")), true, Optional.empty(), Optional.empty());
         context.configure(workspaceId, 0, new EditContextConfiguration(
                 Optional.of(false),
                 Optional.of(ImmutableList.of(new EditContextConfiguration.Source(
@@ -130,13 +156,13 @@ class TestRepositoryContextSqlite
         ContextSourceEvidence evidence = new ContextSourceEvidence(readId, reference, "Captured baseline source", "source", ContextSourceEvidence.Capture.BYTEQUAY_READ,
                 Optional.of(Instant.EPOCH), Optional.of(sha), Optional.empty(), false);
         RegisteredContextSource documentation = new RegisteredContextSource("docs", RegisteredContextSource.Kind.DOCUMENTATION_PAGE,
-                "https://example.com/docs/page", ContextEntryOrigin.USER);
+                "https://example.com/docs/page", ContextEntryOrigin.USER, Optional.empty());
         ContextDocumentRead blank = new ContextDocumentRead("context-read:" + UUID.randomUUID(), new ContextReference.Document("docs", documentation.url()),
                 documentation, 0, UUID.randomUUID().toString(), "b".repeat(64), Instant.EPOCH, 1, 1, 0, true, false, false, Optional.empty());
         ContextInputFingerprint input = ContextInputFingerprint.create("project", ImmutableMap.of("git:README.md", "100644 blob " + sha), ImmutableList.of());
         ContextPreparationResult result = new ContextPreparationResult("completed-attempt", input, ContextPreparationResult.Outcome.EMPTY, ImmutableList.of(),
                 ImmutableList.of(read, blank), "The inspected sources did not establish a useful note");
-        ContextScope scope = new ContextScope("project", "Project", new ContextMatch.Repository(), true, Optional.of(result));
+        ContextScope scope = new ContextScope("project", "Project", new ContextMatch.Repository(), true, Optional.of(result), Optional.empty());
         ActiveContextPreparation active = new ActiveContextPreparation("active-attempt", "request", "sha256:" + "a".repeat(64),
                 "task", "turn", "turn-key", Optional.of("review"), Optional.of("run"), 0, ImmutableList.of(input));
         RepositoryNotebook notebook = new RepositoryNotebook(1, 0, true, ImmutableList.of(documentation), ImmutableList.of(scope), ImmutableList.of(),

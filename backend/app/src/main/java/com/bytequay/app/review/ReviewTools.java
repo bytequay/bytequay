@@ -1275,10 +1275,11 @@ public class ReviewTools
                 int from = (int) Math.min(total, (long) (page - 1) * DOCUMENT_SOURCES_PAGE);
                 int to = Math.min(total, from + DOCUMENT_SOURCES_PAGE);
                 int pages = Math.max(1, (total + DOCUMENT_SOURCES_PAGE - 1) / DOCUMENT_SOURCES_PAGE);
-                return objectMapper.createObjectNode().put("source", "registered-documentation-sources").put("notebookRevision", notebook.revision())
+                ObjectNode result = objectMapper.createObjectNode().put("source", "registered-documentation-sources").put("notebookRevision", notebook.revision())
                         .put("page", page).put("pages", pages).put("totalSources", total).put("nextPage", page < pages ? page + 1 : null)
-                        .putPOJO("sources", notebook.sources().subList(from, to))
                         .put("note", "Configured locations only; this listing did not retrieve a document. Select sourceId and optionally a relativePage beneath a root.");
+                result.set("sources", objectMapper.valueToTree(notebook.sources().subList(from, to)));
+                return result;
             }
             catch (ContextNotFoundException | ContextStorageException failure) {
                 throw new ReviewInvalidRequestException("document: the workspace's registered sources are unavailable; no document was read");

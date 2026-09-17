@@ -20,6 +20,7 @@ import { parseStartContextBuildRequest, type ContextBuildHistoryDto, type Contex
 import type { AgentApprovalDecision, AgentHistoryPageDto, AgentPendingApprovalDto, AgentRuntimeStopImpactDto, AgentTurnDto, ModelSettingsDto } from '../types';
 import { providerAvailable, providerRemedy } from './model';
 import { settingsRoute } from './routes';
+import RepositoryContextDiscovery from './RepositoryContextDiscovery';
 
 type Build = NonNullable<ContextBuildViewDto['build']>;
 const failureText = (failure: unknown) => failure instanceof Error ? failure.message : String(failure);
@@ -69,6 +70,9 @@ export default function RepositoryContextBuild({ workspaceId, notebook, onNotebo
   const [issues, setIssues] = useState('');
   const [models, setModels] = useState<ModelSettingsDto | null>(null);
   const [checking, setChecking] = useState(false);
+  const [discovering, setDiscovering] = useState(false);
+  const [discoveryReload, setDiscoveryReload] = useState(false);
+  const [unappliedSuggestions, setUnappliedSuggestions] = useState(false);
   const [activity, setActivity] = useState(false);
   const [impact, setImpact] = useState<AgentRuntimeStopImpactDto | null>(null);
   const mounted = useRef(true);
@@ -204,18 +208,25 @@ export default function RepositoryContextBuild({ workspaceId, notebook, onNotebo
         <p>{build.task?.worktreeRemovedAt === null ? 'Worktree is retained.' : build.task?.worktreeRemovedAt
           ? 'Worktree cleaned up; its generated branch is retained.' : 'Task worktree has not been reported.'}</p></details>
     </article>}
-    {form && <ContextDialog title="Learn / Refresh repository context" busy={busy} onCancel={() => setForm(false)}>
-      <form onSubmit={event => { event.preventDefault(); if (!selectionValid || historyError !== null || !modelReady || view === null || pending !== null) return;
+    {form && <ContextDialog title="Learn / Refresh repository context" busy={busy || discovering} onCancel={() => setForm(false)}>
+      <form onSubmit={event => { event.preventDefault(); if (!selectionValid || historyError !== null || !modelReady || view === null || pending !== null || discovering || discoveryReload || unappliedSuggestions) return;
         void perform(() => start({ requestKey: crypto.randomUUID(), expectedRevision: notebook.revision,
           expectedBuildSequence: view.buildRequestSequence, scopeIds: selected, history })); }}>
         <div className="rc-dialog-body"><p className="rc-muted">Repository files, directory structure, repository documentation and registered documentation are always included. Learning starts only when you click Start learning.</p>
           {error !== null && <div className="rc-error" role="alert">{error}</div>}
-          <fieldset disabled={busy || pending !== null}><legend>Knowledge scopes</legend>{notebook.scopes.map(scope => <label key={scope.id}>
+          <RepositoryContextDiscovery workspaceId={workspaceId} notebook={notebook} scopeIds={selected} history={historyError === null ? history : null}
+            disabled={busy || pending !== null} requiresReload={discoveryReload} onBusy={setDiscovering} onSelectionChange={setUnappliedSuggestions} onRequiresReload={setDiscoveryReload}
+            onNotebookChange={onNotebookChange} onUse={(scopes, mergedHistory) => {
+              setSelected(value => [...new Set([...value, ...scopes])]);
+              setPrs(mergedHistory.filter(item => item.kind === 'PR').map(item => item.number).join(', '));
+              setIssues(mergedHistory.filter(item => item.kind === 'ISSUE').map(item => item.number).join(', '));
+            }} />
+          <fieldset disabled={busy || discovering || pending !== null}><legend>Knowledge scopes</legend>{notebook.scopes.map(scope => <label key={scope.id}>
             <input type="checkbox" checked={selected.includes(scope.id)} disabled={scopeReason(scope.id) !== null}
               onChange={event => setSelected(event.target.checked ? [...selected, scope.id] : selected.filter(id => id !== scope.id))} />
             {scope.title}{scopeReason(scope.id) !== null && <span className="rc-muted"> · {scopeReason(scope.id)}</span>}</label>)}</fieldset>
-          <label>Merged PR numbers (optional)<input value={prs} disabled={busy || pending !== null} placeholder="123, 456" onChange={event => setPrs(event.target.value)} /></label>
-          <label>Closed issue numbers (optional)<input value={issues} disabled={busy || pending !== null} placeholder="789" onChange={event => setIssues(event.target.value)} /></label>
+          <label>Merged PR numbers (optional)<input value={prs} disabled={busy || discovering || pending !== null} placeholder="123, 456" onChange={event => setPrs(event.target.value)} /></label>
+          <label>Closed issue numbers (optional)<input value={issues} disabled={busy || discovering || pending !== null} placeholder="789" onChange={event => setIssues(event.target.value)} /></label>
           <p className="rc-muted">Up to 10 from this repository. Merge or closure alone does not prove a fix. No history or website crawl is started.</p>
           {historyError !== null && <p className="rc-error" role="alert">{historyError}</p>}
           <p>Review model: {reviewModel === undefined ? 'Loading…' : `${reviewModel.label} · ${reviewModel.modelLabel}${reviewModel.effort ? ' · ' + reviewModel.effort : ''}`}</p>
@@ -223,8 +234,8 @@ export default function RepositoryContextBuild({ workspaceId, notebook, onNotebo
           <div className="rc-actions"><button type="button" className="rc-button" disabled={checking || busy} onClick={() => void checkModel()}>Check provider</button>
             <a href={settingsRoute('ws-agents', workspaceId)}>Workspace agent settings</a></div>
           <p className="rc-muted">Runs as a visible task you can stop. User-managed notes and removed or disabled knowledge are preserved. Review use can remain off.</p>
-        </div><footer><button type="button" className="rc-button" disabled={busy} onClick={() => setForm(false)}>Cancel</button>
-          <button type="submit" className="rc-button is-primary" disabled={busy || checking || !selectionValid || historyError !== null || !modelReady || pending !== null}>
+        </div><footer><button type="button" className="rc-button" disabled={busy || discovering} onClick={() => setForm(false)}>Cancel</button>
+          <button type="submit" className="rc-button is-primary" disabled={busy || discovering || discoveryReload || unappliedSuggestions || checking || !selectionValid || historyError !== null || !modelReady || pending !== null}>
             {busy ? 'Starting…' : 'Start learning'}</button></footer>
       </form>
     </ContextDialog>}

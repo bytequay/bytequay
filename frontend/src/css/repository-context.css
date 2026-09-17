@@ -65,6 +65,12 @@
 .rc-build-result code, .rc-build-result li { overflow-wrap: anywhere; }
 .rc-build fieldset { border: 1px solid #e0e0e5; border-radius: 7px; padding: 8px 12px; }
 .rc-build legend { padding: 0 4px; font-size: 13px; }
+.rc-discovery { border-block: 1px solid #e0e0e5; margin: 16px 0; padding: 0 0 16px; }
+.rc-discovery h3 { font-size: 14px; margin: 16px 0 8px; }
+.rc-discovery p, .rc-discovery li { font-size: 13px; line-height: 1.5; overflow-wrap: anywhere; }
+.rc-discovery fieldset { margin: 12px 0; min-width: 0; }
+.rc-discovery fieldset > div + div { border-top: 1px solid #e0e0e5; margin-top: 12px; }
+.rc-discovery label, .rc-discovery code { overflow-wrap: anywhere; }
 .rc-build-transcript { display: flex; flex-direction: column; height: 540px; min-height: 250px; min-width: 0; margin-top: 10px; border: 1px solid #e0e0e5; border-radius: 8px; overflow: hidden; }
 .rc-build-transcript .agt-conversation { min-height: 0; flex: 1; }
 .rc-build-transcript .agt-transcript { padding: 14px; }

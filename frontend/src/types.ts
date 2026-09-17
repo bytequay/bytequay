@@ -16,8 +16,11 @@ import { AgentEventEnvelope } from './agents/events';
 import type { CreateDevelopmentLearningCommentRequest, CreateLocalReviewRequest, LocalReviewQuery, ReplyLocalReviewRequest, ResolveLocalReviewRequest, RetryLocalReviewRequest } from './pulls/local-review/contracts';
 import type { LocalReviewThreadDto } from './pulls/local-review/types';
 import type {
+  ApplyContextDiscoveryRequest,
   ConfigureRepositoryContextRequest,
   ContextBuildViewDto,
+  ContextDiscoveryDto,
+  DiscoverRepositoryContextRequest,
   EditRepositoryContextEntryRequest,
   RemoveRepositoryContextEntryRequest,
   RepositoryNotebookDto,
@@ -1540,6 +1543,8 @@ export type Bridge = {
 
   getWorkspaceSettings: (workspaceId: string) => Promise<WorkspaceSettingsDto>;
   getRepositoryContext: (workspaceId: string) => Promise<RepositoryNotebookDto>;
+  discoverRepositoryContext: (workspaceId: string, request: DiscoverRepositoryContextRequest) => Promise<ContextDiscoveryDto>;
+  applyRepositoryContextDiscovery: (workspaceId: string, request: ApplyContextDiscoveryRequest) => Promise<RepositoryNotebookDto>;
   getRepositoryContextBuild: (workspaceId: string) => Promise<ContextBuildViewDto>;
   startRepositoryContextBuild: (workspaceId: string, request: StartContextBuildRequest) => Promise<ContextBuildViewDto>;
   stopRepositoryContextBuild: (workspaceId: string, taskId: string) => Promise<ContextBuildViewDto>;

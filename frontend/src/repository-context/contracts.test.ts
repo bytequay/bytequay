@@ -15,8 +15,11 @@ import { describe, expect, it } from 'vitest';
 import { parseAgentReview, type ContextDeliveryStateDto } from '../pulls/agent-review/contracts';
 import { reviewFixture } from '../pulls/agent-review/fixtures/review';
 import {
+  parseApplyContextDiscoveryRequest,
   parseConfigureRepositoryContextRequest,
   parseContextBuildView,
+  parseContextDiscovery,
+  parseDiscoverRepositoryContextRequest,
   parseEditRepositoryContextEntryRequest,
   parseRepositoryNotebook,
   parseReviewContextSnapshot,
@@ -24,6 +27,7 @@ import {
   parseStartContextBuildRequest,
   type ActiveContextPreparationDto,
   type ContextBuildViewDto,
+  type ContextDiscoveryDto,
   type ContextDeliveryDto,
   type ContextHistoryReadDto,
   type ContextPreparationResultDto,
@@ -32,10 +36,10 @@ import {
   type ReviewContextSnapshotDto,
 } from './contracts';
 
-const source: ContextSourceDto = { id: 'docs', kind: 'DOCUMENTATION_ROOT', url: 'https://example.com/docs/', origin: 'USER' };
+const source: ContextSourceDto = { id: 'docs', kind: 'DOCUMENTATION_ROOT', url: 'https://example.com/docs/', origin: 'USER', discoveryEvidenceRef: null };
 const notebook: RepositoryNotebookDto = {
   schemaVersion: 1, revision: 7, useInReviews: true, sources: [source], activePreparation: null,
-  scopes: [{ id: 'project', title: 'Project', match: { kind: 'REPOSITORY' }, enabled: true, preparation: null }],
+  scopes: [{ id: 'project', title: 'Project', match: { kind: 'REPOSITORY' }, enabled: true, preparation: null, discoveryEvidenceRef: null }],
   entries: [{ id: 'knowledge:project', kind: 'KNOWLEDGE', scopeId: 'project', title: 'Project', summary: 'Summary', body: 'Keep the condition.',
     claims: [{ text: 'Conditional claim', basis: 'INFERENCE', sourceIds: ['source'] }], sourceIds: ['source'], origin: 'GENERATED', enabled: false, version: 2 }],
   suppressedKnowledgeIds: [], sourceEvidence: [{ id: 'source', reference: { kind: 'DOCUMENT', sourceId: 'docs', url: 'https://example.com/docs/page' },
@@ -71,6 +75,52 @@ describe('repository context contracts', () => {
   it('retains ownership, disabled notes, conditional claims and incomplete source provenance', () => {
     expect(parseRepositoryNotebook(notebook)).toEqual(notebook);
     expect(parseRepositoryNotebook({ ...notebook, useInReviews: false }).useInReviews).toBe(false);
+  });
+
+  it('requires nullable discovery provenance on stored scopes and registered sources', () => {
+    const malformed: unknown[] = [{ ...notebook, scopes: [{ ...notebook.scopes[0], discoveryEvidenceRef: undefined }] },
+      { ...notebook, sources: [{ ...source, discoveryEvidenceRef: undefined }] }, { ...notebook, sources: [{ ...source, discoveryEvidenceRef: false }] }];
+    for (const value of malformed) {
+      expect(() => parseRepositoryNotebook(value)).toThrow('Malformed repository context');
+    }
+    const retained = { ...notebook, scopes: [{ ...notebook.scopes[0], discoveryEvidenceRef: 'source' }], sources: [{ ...source, discoveryEvidenceRef: 'source' }] };
+    expect(parseRepositoryNotebook(retained)).toEqual(retained);
+  });
+
+  it('parses bounded discovery facts without inventing outcomes and validates workspace ownership', () => {
+    const found: ContextDiscoveryDto = { workspaceId: 'workspace', notebookRevision: 7, baselineSha: 'a'.repeat(40), repositoryFingerprint: 'c'.repeat(64), query: 'Iceberg',
+      scopes: [{ scope: notebook.scopes[0], evidence: notebook.sourceEvidence[0], reasons: ['Repository module'] }],
+      sources: [{ source, evidence: notebook.sourceEvidence[0], reasons: ['Explicit documentation link'] }],
+      history: [{ kind: 'ISSUE', number: 9, title: 'Issue', url: 'https://github.com/example/repo/issues/9', state: 'closed', outcome: 'not_planned',
+        updatedAt: '2026-09-01T00:00:00Z', reasons: ['Title matches'], provenance: 'Bounded result; not proof of fix' }],
+      gaps: ['Older pages excluded'], inspected: { directories: 3, files: 4, pullRequests: 20, issues: 5 } };
+    expect(parseContextDiscovery(found, 'workspace')).toEqual(found);
+    for (const value of [{ ...found, workspaceId: 'other' }, { ...found, history: null }, { ...found, inspected: { ...found.inspected, files: -1 } },
+      { ...found, scopes: [{ ...found.scopes[0], evidence: null }] }, { ...found, history: [{ ...found.history[0], outcome: null }] }]) {
+      expect(() => parseContextDiscovery(value, 'workspace')).toThrow('Malformed repository context');
+    }
+    expect(parseContextDiscovery({ ...found, history: [{ ...found.history[0], outcome: 'future_reason' }] }, 'workspace').history[0].outcome).toBe('future_reason');
+    for (const repositoryFingerprint of [undefined, null, '', 'a'.repeat(63), 'A'.repeat(64), 'z'.repeat(64)]) {
+      expect(() => parseContextDiscovery({ ...found, repositoryFingerprint }, 'workspace')).toThrow('repository fingerprint');
+    }
+  });
+
+  it('accepts only explicit discovery selectors and chosen configuration identities', () => {
+    const find = { expectedRevision: 7, scopeIds: ['project'], query: '', includeRemote: false };
+    const apply = { expectedRevision: 7, baselineSha: 'a'.repeat(40), repositoryFingerprint: 'c'.repeat(64), query: '', scopeIds: ['component'], sourceIds: ['docs'] };
+    expect(parseDiscoverRepositoryContextRequest(find)).toEqual(find);
+    expect(parseApplyContextDiscoveryRequest(apply)).toEqual(apply);
+    for (const value of [{ ...find, includeRemote: 'false' }, { ...find, prompt: 'launch' }, { ...find, expectedRevision: -1 }]) {
+      expect(() => parseDiscoverRepositoryContextRequest(value)).toThrow('Malformed repository context');
+    }
+    const invalidApply: unknown[] = [{ ...apply, sources: [source] }, { ...apply, sourceEvidence: [] }, { ...apply, scopeIds: null }];
+    for (const value of invalidApply) {
+      expect(() => parseApplyContextDiscoveryRequest(value)).toThrow('Malformed repository context');
+    }
+    for (const repositoryFingerprint of [undefined, null, '', 'a'.repeat(63), 'A'.repeat(64), 'z'.repeat(64)]) {
+      expect(() => parseApplyContextDiscoveryRequest({ ...apply, repositoryFingerprint })).toThrow('repository fingerprint');
+    }
+    expect(() => parseDiscoverRepositoryContextRequest({ ...find, repositoryFingerprint: 'a'.repeat(64) })).toThrow('unsupported request field');
   });
 
   it('rejects malformed saved content instead of rendering an empty notebook or coercing preferences', () => {

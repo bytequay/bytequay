@@ -110,7 +110,7 @@ class TestRepositoryContextMatcher
     void explicitSelectionCannotReviveDisabledScopesNotesOrSuppression()
     {
         ContextScope disabledScope = new ContextScope("disabled-scope", "Disabled",
-                new ContextMatch.Selected(ImmutableList.of("plugin/"), ImmutableList.of()), false, Optional.empty());
+                new ContextMatch.Selected(ImmutableList.of("plugin/"), ImmutableList.of()), false, Optional.empty(), Optional.empty());
         ContextScope disabledNote = selected("disabled-note", ImmutableList.of("plugin/"), ImmutableList.of());
         ContextScope suppressed = selected("suppressed", ImmutableList.of("plugin/"), ImmutableList.of());
         ContextScope missing = selected("missing", ImmutableList.of("plugin/"), ImmutableList.of());
@@ -198,7 +198,7 @@ class TestRepositoryContextMatcher
         ContextScope iceberg = selected("iceberg", ImmutableList.of("plugin/iceberg/"), ImmutableList.of());
         ContextScope hive = selected("hive", ImmutableList.of("plugin/hive/"), ImmutableList.of());
         ContextScope disabled = new ContextScope("disabled", "Disabled",
-                new ContextMatch.Selected(ImmutableList.of(), ImmutableList.of("snapshot isolation")), false, Optional.empty());
+                new ContextMatch.Selected(ImmutableList.of(), ImmutableList.of("snapshot isolation")), false, Optional.empty(), Optional.empty());
         ContextEntry eligible = lesson("eligible", iceberg, "Snapshot isolation", "Snapshot isolation", "Body", true);
         ContextEntry unrelated = lesson("unrelated", hive, "Snapshot isolation", "Snapshot isolation", "Body", true);
         ContextEntry hidden = lesson("hidden", iceberg, "Snapshot isolation", "Snapshot isolation", "Body", false);
@@ -250,7 +250,7 @@ class TestRepositoryContextMatcher
 
     private static ContextScope selected(String id, List<String> paths, List<String> terms)
     {
-        return new ContextScope(id, id, new ContextMatch.Selected(paths, terms), true, Optional.empty());
+        return new ContextScope(id, id, new ContextMatch.Selected(paths, terms), true, Optional.empty(), Optional.empty());
     }
 
     private static ContextEntry note(ContextScope scope, boolean enabled)

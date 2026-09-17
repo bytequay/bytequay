@@ -113,6 +113,39 @@ Save lesson. The task is visible with its transcript, Stop and existing recovery
 Task details use the required TaskView.worktreePath string to display its actual
 managed worktree, including a retained tree that still needs explicit cleanup.
 
+The implemented Find suggestions / Use selected suggestions flow precedes Learn
+and has no task lifecycle. The implementation checklist records completed gates
+and current refinements; live provider, performance and review-quality acceptance
+remain separate.
+It previews bounded scopes and literal documentation links from one frozen local
+repository baseline, with optional bounded history search. It never provisions a
+repository, clones, Git-fetches or starts/resumes an agent. Acceptance rederives
+selected IDs outside mutation locks, then appends configuration and captured
+provenance under the notebook revision guard; active preparation blocks it.
+Discovery evidence stays in notebook sourceEvidence through server-owned scope
+and source discoveryEvidenceRef fields. BEGIN remains
+limited to the accepted task's already configured scope/document assignment.
+Local discovery uses bounded breadth-first traversal at any depth and below
+manifest directories. Queries prioritize child traversal and filter scope
+proposals without dropping nonmatching ancestors. The same eight manifest names,
+24-directory/24-file caps, first 100 entries per directory and hidden/generated/
+vendor exclusions apply; symlinks and submodules are not followed. No build tool
+or workspace parser runs, and no additional dependency or task authority is added.
+Preview and Apply require repositoryFingerprint, derived from routing and the
+recorded lastCodeSyncAt. The service rechecks that metadata under the workspace
+lock before saving, with one final two-second/no-lazy-fetch rev-parse to catch a
+failed sync that moved the ref without updating its timestamp. This narrow guard
+precedes notebook registration and holds no notebook transaction or task monitor.
+Other Git inspection and all file/network/model work remain outside that lock.
+Repository source reads use Guava SimpleTimeLimiter on the existing ioExecutor
+with one Stopwatch and the configurable
+`bytequay.repository-context.discovery-timeout=30s` shared budget. This adds no
+scheduler or durable job. Only the request mutates its scan; timed-out late results
+are discarded, while completed suggestions retain an explicit coverage gap.
+Interruption restores the request's flag and aborts before history or configuration
+saving. Per-command Git and history limits are separate; the setting is not a
+thirty-second end-to-end HTTP performance guarantee.
+
 ContextBuildService checks the configured Review provider/model before allocation,
 freezes the local monitored baseline, and stores a reserved task ID plus accepted
 source selection in ContextBuild before creating a noninteractive AUTO task and

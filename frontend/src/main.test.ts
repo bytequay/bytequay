@@ -16,7 +16,7 @@ import { afterEach, expect, it, vi } from 'vitest';
 import { CI_RUN } from './agents/fixtures/ciAutofix';
 import contracts from './agents/fixtures/agent-contracts-v1.json';
 import { parseAgentTask } from './agents/contracts';
-import type { ContextBuildViewDto, RepositoryNotebookDto } from './repository-context/contracts';
+import type { ContextBuildViewDto, ContextDiscoveryDto, RepositoryNotebookDto } from './repository-context/contracts';
 import type { AgentRuntimeStopImpactDto } from './types';
 
 const desktop = vi.hoisted(() => ({
@@ -85,7 +85,7 @@ it('sends versioned local review actions and preserves the returned private revi
 });
 
 const emptyNotebook: RepositoryNotebookDto = { schemaVersion: 1, revision: 7, useInReviews: true, sources: [], activePreparation: null,
-  scopes: [{ id: 'project', title: 'Project', match: { kind: 'REPOSITORY' }, enabled: true, preparation: null }],
+  scopes: [{ id: 'project', title: 'Project', match: { kind: 'REPOSITORY' }, enabled: true, preparation: null, discoveryEvidenceRef: null }],
   entries: [], suppressedKnowledgeIds: [], sourceEvidence: [] };
 
 it('routes notebook actions through authenticated workspace-scoped endpoints with exact revision and lesson bindings', async () => {
@@ -162,4 +162,25 @@ it('routes explicit learning and recovery through the authenticated purpose-boun
   fetch.mockClear();
   expect(() => desktop.handlers.get('repository-context:build:start')?.({}, 'workspace/one', { ...request, prompt: 'forged' })).toThrow('unsupported request field');
   expect(fetch).not.toHaveBeenCalled();
+});
+
+it('routes explicit discovery and chosen suggestions without learning or forwarding configuration evidence', async () => {
+  await import('./main');
+  await expect(desktop.listeners.get('ready')?.()).rejects.toThrow('End test startup');
+  const found: ContextDiscoveryDto = { workspaceId: 'workspace/one', notebookRevision: 7, baselineSha: 'a'.repeat(40), repositoryFingerprint: 'c'.repeat(64), query: 'Iceberg', scopes: [], sources: [], history: [], gaps: [],
+    inspected: { directories: 0, files: 0, pullRequests: 0, issues: 0 } };
+  const fetch = vi.fn(async () => new Response(JSON.stringify(found))); vi.stubGlobal('fetch', fetch);
+  const base = 'http://127.0.0.1:9527/api/workspaces/workspace%2Fone/repository-context/discovery';
+  const request = { expectedRevision: 7, scopeIds: ['project'], query: 'Iceberg', includeRemote: false };
+  await expect(desktop.handlers.get('repository-context:discover')?.({}, 'workspace/one', request)).resolves.toEqual(found);
+  expect(fetch).toHaveBeenLastCalledWith(base, expect.objectContaining({ method: 'POST', body: JSON.stringify(request),
+    headers: { 'Content-Type': 'application/json', 'X-ByteQuay-Session': 'test-session' } }));
+  fetch.mockImplementation(async () => new Response(JSON.stringify(emptyNotebook)));
+  const apply = { expectedRevision: 7, baselineSha: found.baselineSha, repositoryFingerprint: found.repositoryFingerprint, query: 'Iceberg', scopeIds: ['component'], sourceIds: ['docs'] };
+  await expect(desktop.handlers.get('repository-context:discovery:apply')?.({}, 'workspace/one', apply)).resolves.toEqual(emptyNotebook);
+  expect(fetch).toHaveBeenLastCalledWith(base + '/apply', expect.objectContaining({ method: 'POST', body: JSON.stringify(apply),
+    headers: { 'Content-Type': 'application/json', 'X-ByteQuay-Session': 'test-session' } }));
+  expect(fetch).toHaveBeenCalledTimes(2);
+  expect(() => desktop.handlers.get('repository-context:discovery:apply')?.({}, 'workspace/one', { ...apply, sourceEvidence: [] })).toThrow('unsupported request field');
+  expect(fetch).toHaveBeenCalledTimes(2);
 });

@@ -15,6 +15,7 @@ package com.bytequay.app.agent.codegraph;
 
 import com.bytequay.agent.core.CodeGraphException;
 import com.bytequay.agent.core.CodeGraphService;
+import com.bytequay.agent.core.CodeSymbolResult;
 import com.bytequay.agent.core.RepositoryIdentity;
 import com.bytequay.agent.core.TaskResources;
 import com.bytequay.agent.core.TaskWorktree;
@@ -33,6 +34,10 @@ public final class FakeCodeGraphService
     public final List<RepositoryIdentity> deletedBaselines = new ArrayList<>();
     public boolean available = true;
     public boolean failRefresh;
+    /** What both symbol reads answer. */
+    public CodeSymbolResult symbols = CodeSymbolResult.UNAVAILABLE;
+    /** Each symbol read as {@code search:<query>:<limit>} or {@code file:<path>}. */
+    public final List<String> symbolReads = new ArrayList<>();
 
     @Override
     public boolean available()
@@ -56,6 +61,20 @@ public final class FakeCodeGraphService
     public String explore(TaskWorktree worktree, TaskResources resources, String query)
     {
         return "";
+    }
+
+    @Override
+    public CodeSymbolResult searchSymbols(TaskWorktree worktree, TaskResources resources, String query, int limit)
+    {
+        symbolReads.add("search:" + query + ":" + limit);
+        return symbols;
+    }
+
+    @Override
+    public CodeSymbolResult fileSymbols(TaskWorktree worktree, TaskResources resources, String path)
+    {
+        symbolReads.add("file:" + path);
+        return symbols;
     }
 
     @Override

@@ -211,7 +211,8 @@ public sealed interface ProviderAgentEvent
             ProviderAgentEventSource source,
             Optional<String> cwd,
             Optional<Duration> duration,
-            List<CommandAction> actions)
+            List<CommandAction> actions,
+            boolean background)
             implements ProviderAgentEvent
     {
         public Command(
@@ -240,6 +241,23 @@ public sealed interface ProviderAgentEvent
         {
             this(providerEventId, providerTimestamp, commandId, state, argv, output, exitCode, truncated, source,
                     Optional.empty(), Optional.empty(), ImmutableList.of());
+        }
+
+        public Command(
+                Optional<String> providerEventId,
+                Optional<Instant> providerTimestamp,
+                String commandId,
+                ActivityState state,
+                List<String> argv,
+                Optional<String> output,
+                Optional<Integer> exitCode,
+                boolean truncated,
+                ProviderAgentEventSource source,
+                Optional<String> cwd,
+                Optional<Duration> duration,
+                List<CommandAction> actions)
+        {
+            this(providerEventId, providerTimestamp, commandId, state, argv, output, exitCode, truncated, source, cwd, duration, actions, false);
         }
 
         public Command

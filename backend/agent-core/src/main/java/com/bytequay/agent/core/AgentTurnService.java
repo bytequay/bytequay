@@ -73,6 +73,17 @@ public interface AgentTurnService
     /** Holds the task's mutation ownership throughout a synchronous worktree update, excluding turns and queued input. */
     void synchronizeWorktree(TaskId taskId, long expectedVersion, Consumer<AgentTask> action);
 
+    /**
+     * Holds the idle task's worktree for one user-requested local run, excluding turns, queued input and other writers.
+     *
+     * @return the task carrying the {@code LOCAL_RUN} claim owned by the run
+     * @throws AgentConflictException when a turn, queued input or another claim holds the task
+     */
+    AgentTask claimLocalRun(TaskId taskId, String runId);
+
+    /** Releases the run's claim once its processes are verified stopped; a no-op when that run holds no claim. */
+    void releaseLocalRun(TaskId taskId, String runId);
+
     /** Gives previously accepted FIFO user input the task atomically and ends this continuation. */
     boolean handoffDevelopmentContinuationToQueue(TaskId taskId, TurnId sourceTurnId);
 

@@ -348,6 +348,7 @@ public final class AgentStartupRecovery
         return switch (owner.kind()) {
             case APP_SERVER -> parseTaskId(owner.id());
             case CLAUDE_TURN -> parseTurnTask(owner.id());
+            case LOCAL_RUN -> parseRunTask(owner.id());
             case TASK_EXEC_SERVER, CLI_PROBE -> Optional.empty();
         };
     }
@@ -357,6 +358,7 @@ public final class AgentStartupRecovery
         return switch (launch.ownerKind()) {
             case APP_SERVER -> parseTaskId(launch.ownerId());
             case CLAUDE_TURN -> parseTurnTask(launch.ownerId());
+            case LOCAL_RUN -> parseRunTask(launch.ownerId());
             case TASK_EXEC_SERVER, CLI_PROBE -> Optional.empty();
         };
     }
@@ -371,6 +373,13 @@ public final class AgentStartupRecovery
             // Every other malformed owner stays unattributable and therefore fails closed.
             return Optional.empty();
         }
+    }
+
+    /** A local run launch is owned by {@code <taskId>/<runId>}. */
+    private Optional<TaskId> parseRunTask(String ownerId)
+    {
+        int separator = ownerId.indexOf('/');
+        return separator < 0 ? Optional.empty() : parseTaskId(ownerId.substring(0, separator));
     }
 
     private Optional<TaskId> parseTurnTask(String ownerId)

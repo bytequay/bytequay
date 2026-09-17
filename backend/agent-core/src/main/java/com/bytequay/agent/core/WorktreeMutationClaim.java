@@ -50,10 +50,23 @@ public record WorktreeMutationClaim(Kind kind, String ownerId, Instant acquiredA
         return new WorktreeMutationClaim(Kind.RECOVERY, launchId, acquiredAt);
     }
 
+    /** Holds a task's worktree while a user-requested command runs in it; the owner is the run. */
+    public static WorktreeMutationClaim localRun(String runId, Instant acquiredAt)
+    {
+        return new WorktreeMutationClaim(Kind.LOCAL_RUN, runId, acquiredAt);
+    }
+
+    /** What a refused writer reports while this claim holds the worktree. */
+    public String conflictMessage()
+    {
+        return kind == Kind.LOCAL_RUN ? "A run is using this working copy" : "Task worktree is claimed by " + kind;
+    }
+
     public enum Kind
     {
         TURN,
         COMPLETION,
-        RECOVERY
+        RECOVERY,
+        LOCAL_RUN
     }
 }

@@ -131,6 +131,9 @@ export default function AgentReviewTab({
   useReviewCardFocus(cardsRef, focusReviewCard, mode === 'cards' && review !== null);
   const running = review !== null && reviewRunning(review);
   const recovery = review !== null && reviewRecoveryRequired(review);
+  // A Code & Tests run holds the working copy; agent work and head moves wait for it.
+  const localRun = review?.state === 'OPEN' && review.task.mutationClaim === 'LOCAL_RUN';
+  const localRunReason = localRun ? 'A run is using this working copy' : undefined;
   // The wait is a durable task fact; the fetched list only fills in the card, and a slow read
   // must not make a blocked run look like it is still working.
   const waiting = (review?.pendingApprovals ?? 0) > 0 || approvals.length > 0;
@@ -466,18 +469,18 @@ export default function AgentReviewTab({
             onClick={() => { void run_(async () => onReviewChange(await window.bridge.stopAgentReview(review.id))); }}>Stop</button>
         )}
         {!running && review.state === 'OPEN' && status?.status === 'stopped' && (
-          <button type="button" className="agr-action" disabled={busy || recovery}
+          <button type="button" className="agr-action" disabled={busy || recovery || localRun} title={localRunReason}
             onClick={() => { void run_(async () => onReviewChange(await window.bridge.resumeAgentReview(review.id)), 'resume'); }}>
             {resuming ? 'Starting…' : 'Resume'}
           </button>
         )}
         {!running && review.state === 'OPEN' && (
-          <button type="button" className="agr-action" disabled={busy || recovery}
+          <button type="button" className="agr-action" disabled={busy || recovery || localRun} title={localRunReason}
             onClick={() => { void run_(async () => onReviewChange(await window.bridge.updateAgentReview(review.id))); }}>Update review</button>
         )}
         {!running && review.state === 'OPEN' && (
-          <button type="button" className="agr-action is-quiet" disabled={busy || recovery}
-            title="Completes the task and cleans the worktree; the summary, findings and discussion stay"
+          <button type="button" className="agr-action is-quiet" disabled={busy || recovery || localRun}
+            title={localRunReason ?? 'Completes the task and cleans the worktree; the summary, findings and discussion stay'}
             onClick={() => { void run_(async () => onReviewChange(await window.bridge.endAgentReview(review.id))); }}>End review</button>
         )}
       </div>
@@ -528,7 +531,7 @@ export default function AgentReviewTab({
                 Commits were pushed since this review ({shortSha(run?.headSha ?? '')} → {shortSha(review.observedHeadSha ?? '')}).
                 Findings below refer to the reviewed version.
               </div>
-              <button type="button" className="agr-action is-primary" disabled={busy || recovery}
+              <button type="button" className="agr-action is-primary" disabled={busy || recovery || localRun} title={localRunReason}
                 onClick={() => { void run_(async () => onReviewChange(await window.bridge.updateAgentReview(review.id))); }}>Update review</button>
             </div>
           )}
@@ -668,7 +671,8 @@ export default function AgentReviewTab({
 }
 
 function scrollToFinding(findingId: string) {
-  const element = document.getElementById(`agent-review-finding-${findingId}`);
+  // Code & Tests keeps a hidden copy of a finding card earlier in the page, so look only inside this tab.
+  const element = document.querySelector(`.agr-summary [data-finding-id="${CSS.escape(findingId)}"]`);
   const card = element?.querySelector('details');
   if (card !== null && card !== undefined) card.open = true;
   element?.scrollIntoView({ behavior: 'smooth', block: 'center' });

@@ -29,8 +29,8 @@ export type FindingActions = {
   onAddToReview: (finding: ReviewFindingDto) => Promise<void>;
   onPostNow: (finding: ReviewFindingDto, body: string) => Promise<void>;
   onEditDraft: (finding: ReviewFindingDto, body: string) => Promise<void>;
-  /** Opens the finding at its diff location, or returns to its card from Changes. */
-  onNavigate: (finding: ReviewFindingDto) => void;
+  /** Opens the finding at its diff location, or returns to its card from Changes; absent when there is nowhere to go. */
+  onNavigate?: (finding: ReviewFindingDto) => void;
 };
 
 function severityTone(severity: string | null): string {
@@ -157,9 +157,11 @@ export default function ReviewFindingCard({
                 <button type="button" className="agr-action" disabled={busy}
                   onClick={() => openComposer('resolve', '')}>Resolve locally</button>
               )}
-              <button type="button" className="agr-action" onClick={() => actions.onNavigate(finding)}>
-                {projection === 'review' ? 'View in Changes' : 'Open in Review & Learning'}
-              </button>
+              {actions.onNavigate !== undefined && (
+                <button type="button" className="agr-action" onClick={() => actions.onNavigate?.(finding)}>
+                  {projection === 'review' ? 'View in Changes' : 'Open in Review & Learning'}
+                </button>
+              )}
               <span className="agr-spacer" />
               {publication.kind === 'publishable' && (
                 <>

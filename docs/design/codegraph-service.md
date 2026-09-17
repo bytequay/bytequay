@@ -39,6 +39,8 @@ processes, interpret graph results, or expose graph tools.
 - preparing one graph for a verified `TaskWorktree` from that baseline and
   synchronizing it before every query;
 - running bounded structural queries;
+- answering read-only symbol queries for a renderer-facing code view, which
+  never build or rebuild an index on the request thread;
 - serializing refresh, preparation, and query work for the same repository
   or task;
 - deleting the derived task index after successful worktree cleanup and the
@@ -52,7 +54,9 @@ resource, not the Java service instance.
 
 The service receives trusted `TaskWorktree` and task-resource values from the
 application. Agent-facing tools never accept a task ID, repository path,
-worktree path, commit ID, or graph database path.
+worktree path, commit ID, or graph database path. The one caller-supplied path
+is `fileSymbols`'s repository-relative file, which the application validates
+before calling the port.
 
 The graph subsystem knows nothing about pull requests, diffs, anchors, review
 findings, GitHub comments, or workflow-specific policy. Those may consume the
@@ -131,6 +135,10 @@ public interface CodeGraphService
 
     String explore(TaskWorktree worktree, TaskResources resources, String query);
 
+    CodeSymbolResult searchSymbols(TaskWorktree worktree, TaskResources resources, String query, int limit);
+
+    CodeSymbolResult fileSymbols(TaskWorktree worktree, TaskResources resources, String path);
+
     void deleteIndex(TaskResources resources);
 
     void deleteBaseline(RepositoryIdentity repository);
@@ -164,6 +172,25 @@ synchronizes or rebuilds the task index by the size rule, runs the bounded
 query, and returns capped text with an explicit truncation marker. Because
 every query synchronizes first, the agent never refreshes anything.
 
+`searchSymbols` (`query --json --limit N`) and `fileSymbols` (the patched
+`node --file=<path> --symbols-only --json`) are read-only queries for the
+renderer-facing Code & Tests view. The adapter parses their JSON into top-level
+`CodeSymbol` records inside a `CodeSymbolResult` whose status is `READY`,
+`BUSY`, `UPDATING`, or `UNAVAILABLE`; only `READY` carries symbols, and an
+expected failure is a status, never an exception. Their JSON bypasses the
+agent tool's 16 KB text cap. Unlike `explore`, they take the task's graph lock
+with a short `tryLock` and never run `init` or `index` on the request thread or
+discard the index: a usable index at the worktree HEAD gets a plain `sync` and
+the query, and anything else queues `prepare` and reports `UPDATING`. The read
+contract is specified in [Code & Tests](code-tests.md#42-codegraph) §4.2.
+`fileSymbols` takes a repository-relative path that `ReviewCodeService` has
+already validated.
+
+CodeGraph 1.6.0 does not store Java annotations on nodes; `@Test` survives only
+as an unresolved reference. Symbols therefore carry no test marker, and
+`ReviewCodeService` detects test methods for the UI by scanning each method's
+source text.
+
 The size rule is the one place git is consulted, and only to choose between
 two correct operations: the index directory records the commit it was last
 synchronized to, and `git diff --name-only <last> HEAD` plus
@@ -185,7 +212,8 @@ in-memory handle cache only if measurement shows reopening is material; any
 such cache remains reconstructable and is never durable ownership state.
 
 Expected operational failures use one narrow `CodeGraphException`.
-`refreshBaseline` and `explore` throw it, and their callers catch it at the
+`refreshBaseline` and `explore` throw it, symbol reads report a status
+instead, and the callers of the first two catch it at the
 optional-capability boundary: the fetch hook logs a failed refresh, and the
 tool wrapper turns a failed query into tool text. `prepare` and `deleteIndex` are best-effort inside the adapter, which logs and
 swallows their expected failures, because `agent-core` has no logging facility by design.
@@ -204,7 +232,7 @@ module or general-purpose tool framework.
 
 The first adapter targets the pinned, audited 1.6.0 release of
 [colbymchenry/codegraph](https://github.com/colbymchenry/codegraph) with the
-five-line external-index patch recorded in Section 13. Its
+external-index and file-symbols patches recorded in Section 13. Its
 CLI, storage, and result types remain behind this port so ByteQuay can
 replace it without changing agent or worktree contracts.
 
@@ -257,6 +285,18 @@ normally; the agent may retry or use current source tools.
 There is no pre-turn refresh and no post-turn refresh: the synchronization
 inside every query covers completed, failed, cancelled, interrupted, and
 resumed turns alike.
+
+### UI symbol reads
+
+An Agent review's Code & Tests tab reads the same task index, whether or not a
+turn is running. It follows the task's `codegraph` stamp (Section 12): a task
+stamped without the graph shows the graph off and never builds an index for
+the UI. Reads take only the graph lock under the Section 4 read contract, so
+they report busy or updating rather than wait long for an agent query, a
+`prepare`, or a rebuild. A read that finds the index missing or its recorded
+commit different from HEAD, as after Update review, queues the ordinary
+`prepare`; it never refreshes the baseline. `ReviewCodeService` refuses reads
+once the task records `worktreeRemovedAt`.
 
 ### Task and worktree cleanup
 
@@ -503,7 +543,8 @@ The first version has no:
 - baseline staleness sweep; the baseline is deleted with its workspace;
 - persistent graph lifecycle/state table;
 - renderer-facing graph management UI; the read-only counters of Section 12
-  are the only renderer surface;
+  and the read-only Code & Tests symbol queries of Section 4 are the only
+  renderer surfaces;
 - automatic graph-context injection;
 - review-specific evidence or anchor contract;
 - multi-repository graph query;
@@ -543,7 +584,9 @@ insufficient.
 11. An absent helper or a task without the graph starts the provider turn
     with the graph tool and the graph managed instruction omitted.
 12. Completion owns the task-local execution boundary across worktree cleanup
-    and best-effort graph deletion, so no graph query races worktree removal.
+    and best-effort graph deletion, so no agent graph query races worktree
+    removal. A UI symbol read takes only the graph lock, never builds on the
+    request thread, and is refused once the task records worktree removal.
 13. Task-index deletion failure is observable but does not fail already-successful
     agent or worktree behavior or add graph-specific retry state. Workspace Delete preserves
     its record for retry when baseline deletion fails.
@@ -584,6 +627,7 @@ is stamped false whatever the setting says, so the stamp records what the
 task actually had. Every turn of a task, including resumed turns, offers the
 tool bridge and managed instruction only when the stamp is true; a task
 without the graph uses the existing omission path and never builds an index.
+Code & Tests symbol reads follow the same stamp, not the current setting.
 Changing the setting affects new tasks only, except that `off` also idles the
 scheduled baseline job.
 
@@ -622,7 +666,8 @@ graph and records whether the produced change passes the repository's tests
 is not built; only such a benchmark would support a claim in documentation.
 
 This section narrows the Section 10 exclusion of renderer-facing graph UI to
-management UI; the read-only readout is permitted.
+management UI; the read-only readout and the Code & Tests symbol reads are
+permitted.
 
 Deliberately not included: statistical tests, agent self-assessment,
 per-model or per-effort breakdown, a benefit badge, live per-turn charts, and
@@ -811,8 +856,11 @@ staleness sweep is not part of the first version.
   `@colbymchenry/codegraph-<platform>@1.6.0` from the npm registry by its
   recorded sha512 integrity, for darwin-arm64 and darwin-x64, into the
   gitignored `frontend/vendor/codegraph/`, refuses on mismatch, applies the
-  patch below with an assertion that the original text is present, and
-  writes a marker so reruns are no-ops. `dev.sh` and the forge
+  two patches below, each refusing unless its anchor text occurs exactly
+  once, and writes a marker stamp of platform, version, integrity, and
+  `patches=<revision>`. A rerun with a matching stamp is a no-op; raising the
+  patch revision makes an already vendored bundle fetch and patch again.
+  `dev.sh` and the forge
   `generateAssets` hook run it, and `extraResource` ships the bundle to
   `Contents/Resources/codegraph` beside the backend jar; the backend locates
   it through `bytequay.codegraph.home`, and an absent or invalid home means
@@ -858,6 +906,15 @@ in the bundle derives from one function, `getCodeGraphDir(projectRoot)` in
 With the variable set, `isInitialized(anyPath)` is true for every path, so
 the adapter always passes the worktree path explicitly and never relies on
 the cwd walk-up.
+
+### The file-symbols patch
+
+Upstream file mode prints a file's symbols only as markdown. The second patch,
+in `lib/dist/bin/codegraph.js`, adds a `--json` option to `node` and, when
+`--file`, `--symbols-only`, and `--json` are all given, prints the library's
+existing `getNodesInFile(file)` as a JSON array and exits before the markdown
+handler runs. It adds no query logic. File mode also returns `file`,
+`namespace`, and `import` nodes, which the renderer drops.
 
 ### Reconciled
 

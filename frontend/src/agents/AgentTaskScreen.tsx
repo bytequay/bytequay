@@ -17,6 +17,7 @@ Archive,
 ArchiveRestore,
 Bot,
 CircleCheck,
+Code,
 CircleX,
 FileDiff,
 GitPullRequest,
@@ -31,7 +32,8 @@ import { ConfirmDialog } from '../ConfirmDialog';
 import '../css/agents.css';
 import { relativeTime } from '../relativeTime';
 import { remoteErrorMessage } from '../pulls/PullOverview';
-import { PullDetailHeader } from '../pulls/PullsScreen';
+import { canSubmitReview, PullDetailHeader } from '../pulls/PullsScreen';
+import CodeTestsTab from '../pulls/code-tests/CodeTestsTab';
 import {
 laneLabel,
 providerAvailable,
@@ -131,7 +133,7 @@ type TaskPullRequestDetail
 } from './TaskPullRequestPanel';
 export { TurnView,type AttachmentPreview } from './AgentConversation';
 
-type PanelTab = 'pr' | 'changes' | 'review' | 'agents';
+type PanelTab = 'pr' | 'changes' | 'review' | 'code' | 'agents';
 
 interface AgentTaskScreenProps {
   workspaceId: string;
@@ -517,20 +519,27 @@ function PanelTabs({ tab, agentTab, onSelect }: {
  * The diff brings its own toolbar and scroller, so it mounts flush and fills the frame instead
  * of sitting inside a second scroller with its own padding.
  */
-function PanelFrame({ label, tabs, width, flush = false, overview = false, children }: {
+function PanelFrame({ label, tabs, width, flush = false, overview = false, kept = null, keptShown = false, children }: {
   label: string;
   tabs: React.JSX.Element;
   width: number;
   flush?: boolean;
   overview?: boolean;
-  children: React.ReactNode;
+  /**
+   * A body kept mounted once visited (Code & Tests, so its open files and drafts survive tab switches). It sits in the same
+   * frame after the one header, so switching tabs never remounts the header or the frame the resize divider measures.
+   */
+  kept?: React.ReactNode;
+  keptShown?: boolean;
+  children?: React.ReactNode;
 }): React.JSX.Element {
   const scrollRef = useRef<HTMLDivElement>(null);
   useOutputWheel(scrollRef);
   return (
     <aside className="agt-panel" aria-label={label} style={{ width }}>
       {tabs}
-      {flush
+      {kept !== null && <div className="agt-panel__flush" hidden={!keptShown}>{kept}</div>}
+      {keptShown ? null : flush
         ? <div className="agt-panel__flush">{children}</div>
         : <div className={overview ? 'pull-detail__body' : 'agt-panel__scroll'} ref={scrollRef}>{children}</div>}
     </aside>
@@ -546,12 +555,12 @@ function PanelFrame({ label, tabs, width, flush = false, overview = false, child
  * from the task's kept summary, and opening it says its activity expired rather than inventing it.
  */
 function SidePanel({
-  agents, openAgent, expiredChildren, deleteAfter, transcript, now, tab, pullRequest,
+  agents, openAgent, expiredChildren, deleteAfter, transcript, now, tab: requestedTab, task = null, pullRequest,
   pullRequestError, pullRequestLoading, onRefreshPullRequests,
   pullRequestDetail, pullRequestChanges, pullRequestCommitRange, pullRequestPendingComments,
   onPullRequestCommitRangeChange, onPullRequestPendingCommentsChange, workspaceId, branch, repository,
   activityChoice, onOpenAgent, onCloseAgent, onToggleActivity, onDecide, onSelectTab, onOpenPullRequest,
-  onCreatePullRequest, createPullRequestBlocked = null, onAskAgent, onAskAgentDisabled, localReview, learning, reviewFocus,
+  onCreatePullRequest, createPullRequestBlocked = null, onAskAgent, onAskAgentDisabled, localReview, learning, reviewFocus, onCodeUnsavedChange,
   width, showAgents, logChoice = null, onToggleLog = () => {}, historyUnloaded = false, onLoadEarlier = () => {}, historyLoading = false,
 }: {
   agents: AgentNode[];
@@ -564,6 +573,8 @@ function SidePanel({
   transcript: TranscriptTurn[];
   now: number;
   tab: PanelTab;
+  /** The task whose worktree Code & Tests reads; the tab needs an interactive task that still has its worktree. */
+  task?: AgentTaskDto | null;
   /** The pull request on this task's branch, or null while the branch has none. */
   pullRequest: PullRequestDto | null;
   pullRequestError: string | null;
@@ -593,12 +604,19 @@ function SidePanel({
   localReview?: LocalReviewThreads;
   learning?: React.ReactNode;
   reviewFocus?: ReviewCardFocus | null;
+  /** How many files hold unsaved Code & Tests drafts, so the screen can confirm before they are dropped. */
+  onCodeUnsavedChange?: (count: number) => void;
   width: number;
   showAgents: boolean;
   /** The agent whose log the user opened, or "!thread" for one they folded; live agents open by default. */
   logChoice?: string | null;
   onToggleLog?: (choice: string) => void;
 }): React.JSX.Element {
+  const codeAvailable = pullRequest !== null && workspaceId !== undefined && task !== null && task.interactive && task.checkoutRemovedAt === null;
+  const tab = requestedTab === 'code' && !codeAvailable ? 'pr' : requestedTab;
+  // Mounted on first visit and then kept, like the PR page's Code & Tests tab.
+  const [codeVisited, setCodeVisited] = useState(false);
+  if (tab === 'code' && !codeVisited) setCodeVisited(true);
   const reviewContainer = useRef<HTMLDivElement>(null);
   useReviewCardFocus(reviewContainer, reviewFocus, tab === 'review');
   const [review, setReview] = useState<AgentReviewDto | null>(null);
@@ -650,18 +668,27 @@ function SidePanel({
   const done = agents.filter((agent) => agent.status !== 'running');
   const labels = Object.fromEntries(agents.map((agent) => [agent.threadId, agent.label]));
   const agentCount = agents.length + expiredChildren.length;
-  const agentTab = showAgents ? (
-    <button type="button" className={tab === 'agents' ? 'is-active' : ''} aria-pressed={tab === 'agents'} onClick={() => onSelectTab('agents')}>
-      <Bot aria-hidden="true" /> Subagents
-      {agentCount > 0 && <span className="agt-chip">{agentCount}</span>}
-    </button>
-  ) : null;
+  const agentTab = (
+    <>
+      {codeAvailable && (
+        <button type="button" className={tab === 'code' ? 'is-active' : ''} aria-pressed={tab === 'code'} onClick={() => onSelectTab('code')}>
+          <Code aria-hidden="true" /> Code &amp; Tests
+        </button>
+      )}
+      {showAgents && (
+        <button type="button" className={tab === 'agents' ? 'is-active' : ''} aria-pressed={tab === 'agents'} onClick={() => onSelectTab('agents')}>
+          <Bot aria-hidden="true" /> Subagents
+          {agentCount > 0 && <span className="agt-chip">{agentCount}</span>}
+        </button>
+      )}
+    </>
+  );
   const tabs = pullRequest === null
     ? <PanelTabs tab={tab} agentTab={agentTab} onSelect={onSelectTab} />
     : <PullDetailHeader
       pr={pullRequest}
       detail={pullRequestDetail.detail}
-      tab={tab === 'pr' ? 'overview' : tab === 'agents' ? null : tab}
+      tab={tab === 'pr' ? 'overview' : tab === 'agents' || tab === 'code' ? null : tab}
       review={review}
       onReviewChange={setReview}
       agentTab={agentTab}
@@ -688,9 +715,49 @@ function SidePanel({
     : pullRequest === null && pullRequestLoading
       ? <div className="agt-muted agt-panel__empty" role="status">Checking for a pull request…</div>
       : null;
+  const detail = pullRequestDetail.detail;
+  const codeBody = codeAvailable && (codeVisited || tab === 'code') ? (
+    <>
+      {detail === null ? <div className="agt-muted agt-panel__empty" role="status">Loading pull request…</div> : (
+        <div className="pull-detail__code">
+          <CodeTestsTab
+            detail={detail}
+            workspaceId={workspaceId}
+            review={null}
+            task={task}
+            onReviewChange={() => {}}
+            active={tab === 'code'}
+            ownReviewStream={false}
+            onUnsavedChange={onCodeUnsavedChange}
+            comments={{
+              repo: pullRequest.repo,
+              number: pullRequest.number,
+              workspaceId,
+              canReview: canSubmitReview(pullRequest, detail),
+              viewer: null,
+              pending: pullRequestPendingComments,
+              onPendingChange: onPullRequestPendingCommentsChange,
+              threads: {
+                activities: detail.recentActivity,
+                pr: pullRequest,
+                workspaceId,
+                unavailable: detail.unavailableSections.includes('reviewThreads'),
+                onRefresh: pullRequestDetail.refresh,
+                onDetailUpdate: pullRequestDetail.update,
+              },
+              onDetailChange: pullRequestDetail.replace,
+              localReview: localThreads,
+              onAskAgent: onAskAgentDisabled == null ? onAskAgent : undefined,
+            }} />
+        </div>
+      )}
+    </>
+  ) : null;
+  const code = { kept: codeBody, keptShown: tab === 'code' };
+  if (tab === 'code') return <PanelFrame label="Code & Tests" tabs={tabs} width={width} flush {...code} />;
   if (tab === 'pr') {
     return (
-      <PanelFrame label={pullRequest === null ? 'Pull request' : `Pull request #${pullRequest.number}`} tabs={tabs} width={width} overview={pullRequest !== null}>
+      <PanelFrame label={pullRequest === null ? 'Pull request' : `Pull request #${pullRequest.number}`} tabs={tabs} width={width} overview={pullRequest !== null} {...code}>
         {pullRequestNotice}
         {pullRequest === null
           ? pullRequestNotice === null && <NoPullRequestView branch={branch} repository={repository} onCreate={onCreatePullRequest} createBlocked={createPullRequestBlocked} />
@@ -710,7 +777,7 @@ function SidePanel({
       </PanelFrame>
     );
   }
-  if (tab === 'review') return <PanelFrame label="Review & Learning" tabs={tabs} width={width} flush>
+  if (tab === 'review') return <PanelFrame label="Review & Learning" tabs={tabs} width={width} flush {...code}>
     <div className="agr-development-learning" ref={reviewContainer}>
     {learning ?? <p className="agr-card__empty">After a turn changes code or commits, the agent will refine the summary here automatically.</p>}
     {localThreads.threads.length > 0 && <section className="agr-local-comments" aria-label="Local review comments">
@@ -729,7 +796,7 @@ function SidePanel({
   </PanelFrame>;
   if (tab === 'changes') {
     return (
-      <PanelFrame label="Changes" tabs={tabs} width={width} flush={pullRequest !== null}>
+      <PanelFrame label="Changes" tabs={tabs} width={width} flush={pullRequest !== null} {...code}>
         {pullRequestNotice}
         {(pullRequest !== null || pullRequestNotice === null) && <TaskChangesView
           pr={pullRequest}
@@ -768,7 +835,7 @@ function SidePanel({
     // A live agent's log is what the user came to watch; a finished one folds to its result.
     const logOpen = logChoice === openAgent ? true : logChoice === `!${openAgent}` ? false : running;
     return (
-      <PanelFrame label={`Agent: ${label}`} tabs={tabs} width={width}>
+      <PanelFrame label={`Agent: ${label}`} tabs={tabs} width={width} {...code}>
         <div className="agt-panel__head">
           <button type="button" className="agt-back" onClick={onCloseAgent} aria-label="Back to all subagents">‹</button>
           <AgentMark name={label} muted={agent === undefined} />
@@ -842,7 +909,7 @@ function SidePanel({
     );
   }
   return (
-    <PanelFrame label="Subagents" tabs={tabs} width={width}>
+    <PanelFrame label="Subagents" tabs={tabs} width={width} {...code}>
       {historyUnloaded && <div className="agt-note">Showing subagents in loaded activity. Earlier or newer pages may contain others.</div>}
       <div className="agt-label agt-panel__section">{historyUnloaded ? 'Active in this window' : 'Active'} · {active.length}</div>
       {active.length === 0
@@ -923,6 +990,7 @@ export function AgentTaskBody({
   attaching = false,
   onRemoveAttachment = () => {},
   onTogglePanel = () => {},
+  onCodeUnsavedChange,
   onOpenAgent = () => {},
   onCloseAgent = () => {},
   onSelectPanelTab = () => {},
@@ -1000,6 +1068,7 @@ export function AgentTaskBody({
   attaching?: boolean;
   onRemoveAttachment?: (attachmentId: string) => void;
   onTogglePanel?: () => void;
+  onCodeUnsavedChange?: (count: number) => void;
   onOpenAgent?: (threadId: string) => void;
   onCloseAgent?: () => void;
   /** Which side-panel tab is showing, and the pull requests found on the task's branch. */
@@ -1197,6 +1266,7 @@ export function AgentTaskBody({
         {headerAction}
       </div>
 
+
       {/* A healthy connection is just the header dot; the strip is for states needing attention. */}
       {((state.connection !== 'open' && state.connection !== 'connecting') || state.gap) && (
         <div className={`agt-conn is-${stateClass(state.connection)}`}>
@@ -1332,6 +1402,7 @@ export function AgentTaskBody({
             historyLoading={historyLoading}
             now={now}
             tab={visiblePanelTab}
+            task={state.task}
             pullRequest={taskPr}
             pullRequestError={pullRequestError}
             pullRequestLoading={pullRequestLoading}
@@ -1356,6 +1427,7 @@ export function AgentTaskBody({
             onToggleActivity={onToggleActivity}
             onDecide={onDecide}
             onSelectTab={onSelectPanelTab}
+            onCodeUnsavedChange={onCodeUnsavedChange}
             onOpenPullRequest={onOpenPullRequest}
             onCreatePullRequest={onCreatePullRequest}
             createPullRequestBlocked={localReviewActive ? 'Private review keeps changes local'
@@ -1466,6 +1538,11 @@ export default function AgentTaskScreen({
   const [turnChoice, setTurnChoice] = useState<Record<string, boolean>>({});
   const [planOpen, setPlanOpen] = useState(true);
   const [panelChoice, setPanelChoice] = useState<boolean | null>(null);
+  // Unsaved Code & Tests drafts in the side panel are dropped when the panel closes or the task screen is left.
+  const codeUnsaved = useRef(0);
+  const trackCodeUnsaved = useCallback((count: number) => { codeUnsaved.current = count; }, []);
+  const keepCodeDrafts = () => codeUnsaved.current === 0
+    || window.confirm(`Discard unsaved changes to ${codeUnsaved.current} ${codeUnsaved.current === 1 ? 'file' : 'files'}?`);
   const [ciPollingError, setCiPollingError] = useState<string | null>(null);
   const [openAgent, setOpenAgent] = useState<string | null>(null);
   const [panelTab, setPanelTab] = useState<PanelTab>('pr');
@@ -2330,7 +2407,7 @@ export default function AgentTaskScreen({
       providerStatusFresh={authenticationTurnId !== null && providerStatusTurnId === authenticationTurnId}
       providerChecking={providerChecking}
       composerRef={composerRef}
-      onBack={onBack}
+      onBack={() => { if (keepCodeDrafts()) onBack(); }}
       onSend={() => { void send(); }}
       onCancel={() => { void cancel(); }}
       onComplete={() => { void complete(); }}
@@ -2389,7 +2466,11 @@ export default function AgentTaskScreen({
         ? current
         : { key: reviewKey, pendingComments })}
       repository={workspace === undefined ? null : `${workspace.monitoredOwner}/${workspace.monitoredRepo}`}
-      onTogglePanel={() => { setPanelChoice(!panelOpen); }}
+      onTogglePanel={() => {
+        if (panelOpen && !keepCodeDrafts()) return;
+        setPanelChoice(!panelOpen);
+      }}
+      onCodeUnsavedChange={trackCodeUnsaved}
       onOpenAgent={(threadId) => { setPanelChoice(true); setPanelTab('agents'); setOpenAgent(threadId); }}
       onCloseAgent={() => setOpenAgent(null)}
       onSelectPanelTab={(tab) => { setPanelTab(tab); setOpenAgent(null); }}

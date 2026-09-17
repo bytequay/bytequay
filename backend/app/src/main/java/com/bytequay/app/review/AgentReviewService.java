@@ -19,6 +19,7 @@ import com.bytequay.core.review.ReviewMessage;
 
 import java.util.List;
 import java.util.Optional;
+import java.util.function.Function;
 
 /**
  * The one application service that owns private pull-request reviews: their agent task, runs,
@@ -62,6 +63,16 @@ public interface AgentReviewService
 
     /** The task a review owns, for the review-scoped activity routes. */
     AgentTask task(String reviewId);
+
+    /**
+     * Applies a user's edit to the review's working copy under the review lock and the task's worktree claim, so it
+     * cannot land between review steps, or after Stop before the cancellation settles.
+     *
+     * @param mutation receives the claimed task, whose worktree is present
+     * @return the mutation's result
+     * @throws com.bytequay.core.review.ReviewConflictException when the review has ended, its working copy is gone, or the agent, a run, an update or queued input holds it
+     */
+    <T> T mutateWorkingCopy(String reviewId, Function<AgentTask, T> mutation);
 
     /** Idempotent progression of the current run from durable task facts: acceptance, completion repair, and pause. */
     void reconcile(String reviewId);

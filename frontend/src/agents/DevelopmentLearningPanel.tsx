@@ -52,7 +52,7 @@ function LearningCard({ card, turn, repository, disabledReason, onAsk }: {
     <ReviewThreadCard resolved={false} privateLabel="Private"
       location={<span className="pr-local-review__location agr-learning-card__title">{card.id === 'purpose' ? card.title : 'Review & discussion'}</span>}
       controls={<footer className={composing ? 'agr-learning-card__reply' : undefined}>
-        {composing ? <ReviewComposer repository={repository} value={body} autoFocus busy={busy || disabledReason !== null}
+        {composing ? <ReviewComposer repository={repository} value={body} autoFocus busy={busy} disabledReason={disabledReason}
           ariaLabel={`Ask the agent about ${card.title.toLowerCase()}`} placeholder="Ask for an explanation or confirmation…"
           primaryLabel="Ask agent" onChange={setBody} onSubmit={() => { void send(); }} onCancel={close} />
           : <button type="button" className="pr-thread-reply__open" disabled={disabledReason !== null} title={disabledReason ?? undefined}

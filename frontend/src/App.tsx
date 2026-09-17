@@ -268,7 +268,8 @@ export default function App() {
     if (status !== 'ready' || browserOpen) return;
     const handleKeyDown = (event: KeyboardEvent) => {
       const direction = navigationShortcutDirection(event);
-      if (direction === 0) return;
+      // Inside a code editor or terminal these keys belong to it (indent, outdent).
+      if (direction === 0 || (event.target instanceof Element && event.target.closest('.cm-editor, .xterm') !== null)) return;
       event.preventDefault();
       if (direction < 0 && canGoBack(navigationRef.current)) window.history.back();
       if (direction > 0 && canGoForward(navigationRef.current)) window.history.forward();

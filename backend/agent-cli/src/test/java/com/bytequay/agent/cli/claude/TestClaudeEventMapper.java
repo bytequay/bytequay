@@ -227,6 +227,7 @@ class TestClaudeEventMapper
                 """, ProviderAgentEvent.Command.class);
         assertThat(completed.state()).isEqualTo(ProviderAgentEvent.ActivityState.COMPLETED);
         assertThat(completed.output()).contains("[REDACTED] output");
+        assertThat(ImmutableList.of(started, progress, completed)).noneMatch(ProviderAgentEvent.Command::background);
 
         ProviderAgentEvent.Tool hook = only("""
                 {"type":"system","subtype":"hook_response","hook_id":"hook-1",
@@ -479,6 +480,21 @@ class TestClaudeEventMapper
                 {"type":"system","subtype":"init","session_id":"session-1","uuid":"root-follow-up"}
                 """);
         assertThat(mapper.hasFinishedWork()).isFalse();
+    }
+
+    @Test
+    void marksEveryEventOfABackgroundBashCall()
+    {
+        ProviderAgentEvent.Command started = only("""
+                {"type":"assistant","message":{"role":"assistant","content":[{"type":"tool_use","id":"background-1","name":"Bash",
+                "input":{"command":"./mvnw test","run_in_background":true}}]},"session_id":"session-1","uuid":"background-start"}
+                """, ProviderAgentEvent.Command.class);
+        assertThat(started.background()).isTrue();
+        ProviderAgentEvent.Command launched = only("""
+                {"type":"user","message":{"role":"user","content":[{"type":"tool_result","tool_use_id":"background-1",
+                "content":"Command running in background with ID: shell-1"}]},"session_id":"session-1","uuid":"background-launched"}
+                """, ProviderAgentEvent.Command.class);
+        assertThat(launched.background()).isTrue();
     }
 
     @Test

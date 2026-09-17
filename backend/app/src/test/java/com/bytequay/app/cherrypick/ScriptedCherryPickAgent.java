@@ -155,6 +155,18 @@ final class ScriptedCherryPickAgent
     }
 
     @Override
+    public AgentTask claimLocalRun(TaskId taskId, String runId)
+    {
+        throw new UnsupportedOperationException();
+    }
+
+    @Override
+    public void releaseLocalRun(TaskId taskId, String runId)
+    {
+        throw new UnsupportedOperationException();
+    }
+
+    @Override
     public AgentTask createInteractive(CreateInteractiveAgentTaskCommand command)
     {
         throw new UnsupportedOperationException("interactive creation is not used by cherry-pick tests");

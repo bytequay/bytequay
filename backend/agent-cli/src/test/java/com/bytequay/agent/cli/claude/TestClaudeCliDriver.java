@@ -676,6 +676,35 @@ class TestClaudeCliDriver
     }
 
     @Test
+    void inheritsTheFirstJavaHomeWithAnExecutableJava()
+            throws IOException
+    {
+        String configured = javaHome("configured");
+        String running = javaHome("running");
+        String withoutJava = Files.createDirectories(worktree.resolve("without-java")).toString();
+        Map<String, String> allowlisted = ImmutableMap.of("PATH", "/usr/bin:/bin", "HOME", "/Users/test", "GH_TOKEN", "github-sentinel");
+
+        assertThat(ClaudeCliDriver.inheritedEnvironment(
+                ImmutableMap.<String, String>builder().putAll(allowlisted).put("JAVA_HOME", configured).put("UNLISTED", "value").buildOrThrow(),
+                Optional.of(running)))
+                .isEqualTo(ImmutableMap.<String, String>builder().putAll(allowlisted).put("JAVA_HOME", configured).buildOrThrow());
+        assertThat(ClaudeCliDriver.inheritedEnvironment(allowlisted, Optional.of(running))).containsEntry("JAVA_HOME", running);
+        assertThat(ClaudeCliDriver.inheritedEnvironment(ImmutableMap.of("JAVA_HOME", withoutJava), Optional.of(running))).isEqualTo(ImmutableMap.of("JAVA_HOME", running));
+        assertThat(ClaudeCliDriver.inheritedEnvironment(ImmutableMap.of("JAVA_HOME", withoutJava), Optional.of(withoutJava))).isEmpty();
+        assertThat(ClaudeCliDriver.inheritedEnvironment(allowlisted, Optional.empty())).isEqualTo(allowlisted);
+    }
+
+    private String javaHome(String name)
+            throws IOException
+    {
+        Path home = worktree.resolve(name);
+        Path java = Files.createDirectories(home.resolve("bin")).resolve("java");
+        Files.writeString(java, "#!/bin/sh\n");
+        Files.setPosixFilePermissions(java, PosixFilePermissions.fromString("rwx------"));
+        return home.toString();
+    }
+
+    @Test
     void redactsTheRuntimeTaskTokenFromTranscriptAndDiagnostics()
             throws Exception
     {

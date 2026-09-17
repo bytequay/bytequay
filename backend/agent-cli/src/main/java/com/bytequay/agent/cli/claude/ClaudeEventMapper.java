@@ -413,7 +413,8 @@ final class ClaudeEventMapper
                     source(call.parentToolUseId(), Optional.of(toolUseId)),
                     Optional.empty(),
                     Optional.of(Duration.ofMillis(Math.max(0, Math.round(progress.elapsedTimeSeconds() * 1000)))),
-                    ImmutableList.of()));
+                    ImmutableList.of(),
+                    call.background()));
         }
         return ImmutableList.of(new ProviderAgentEvent.Tool(
                 progress.uuid(),
@@ -442,7 +443,11 @@ final class ClaudeEventMapper
                     Optional.empty(),
                     Optional.empty(),
                     false,
-                    source(call.parentToolUseId(), Optional.of(toolUseId)));
+                    source(call.parentToolUseId(), Optional.of(toolUseId)),
+                    Optional.empty(),
+                    Optional.empty(),
+                    ImmutableList.of(),
+                    call.background());
         }
         return new ProviderAgentEvent.Tool(
                 eventId,
@@ -474,7 +479,11 @@ final class ClaudeEventMapper
                     Optional.of(bounded(result.text())),
                     Optional.empty(),
                     result.text().length() > MAX_OUTPUT_CHARACTERS,
-                    source(call.parentToolUseId(), Optional.of(result.toolUseId())));
+                    source(call.parentToolUseId(), Optional.of(result.toolUseId())),
+                    Optional.empty(),
+                    Optional.empty(),
+                    ImmutableList.of(),
+                    call.background());
         }
         return new ProviderAgentEvent.Tool(
                 eventId,
@@ -754,6 +763,12 @@ final class ClaudeEventMapper
         private boolean isCommand()
         {
             return name.equalsIgnoreCase("Bash");
+        }
+
+        /** A background Bash call's result arrives at launch and carries no outcome. */
+        private boolean background()
+        {
+            return input.runInBackground().orElse(false);
         }
 
         private boolean isAgent()

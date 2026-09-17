@@ -39,6 +39,8 @@ it('renders persistent private review cards and safe diff anchors in Chromium', 
         window.webContents.session.webRequest.onBeforeRequest({ urls: ['http://*/*', 'https://*/*'] }, (_details, callback) => callback({ cancel: true }));
         try {
           await window.loadFile(${JSON.stringify(join(directory, 'index.html'))});
+          window.webContents.debugger.attach('1.3');
+          await window.webContents.debugger.sendCommand('Emulation.setFocusEmulationEnabled', { enabled: true });
           const results = await window.webContents.executeJavaScript('LocalReviewTests.run()');
           process.stdout.write(JSON.stringify(results) + '\\n');
           app.exit(0);

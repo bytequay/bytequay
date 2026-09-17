@@ -32,6 +32,7 @@ import com.bytequay.agent.core.QueuedInputId;
 import com.bytequay.agent.core.RepositoryIdentity;
 import com.bytequay.agent.core.StartAgentTurnCommand;
 import com.bytequay.agent.core.TaskId;
+import com.bytequay.agent.core.TaskSummary;
 import com.bytequay.agent.core.TaskWorktree;
 import com.bytequay.agent.core.TitleSource;
 import com.bytequay.agent.core.TurnId;
@@ -108,7 +109,9 @@ import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.function.Consumer;
+import java.util.function.Function;
 
 import static com.google.common.collect.ImmutableList.toImmutableList;
 import static org.assertj.core.api.Assertions.assertThat;
@@ -1427,6 +1430,87 @@ class TestDefaultAgentReviewService
         order.verify(fixture.completions).complete(new CompleteAgentTaskCommand(TASK_ID, Optional.of("Agent review ended by the user")));
         order.verify(fixture.store).updateReview(argThat(review -> review.state() == AgentReview.State.CLOSED));
         order.verify(fixture.completions).cleanupWorktree(TASK_ID);
+    }
+
+    @Test
+    void updateResumeAndEndRefuseWhileARunHoldsTheWorkingCopy()
+    {
+        Fixture fixture = new Fixture();
+        String reviewId = fixture.service.start(WORKSPACE, REPO, NUMBER).review().id();
+        when(fixture.tasks.get(TASK_ID)).thenReturn(idleTask().claimWorktreeMutation(WorktreeMutationClaim.localRun("run-1", NOW), NOW));
+
+        assertThatThrownBy(() -> fixture.service.update(reviewId)).isInstanceOf(ReviewConflictException.class).hasMessage("A run is using this working copy");
+        assertThatThrownBy(() -> fixture.service.resume(reviewId)).isInstanceOf(ReviewConflictException.class).hasMessage("A run is using this working copy");
+        assertThatThrownBy(() -> fixture.service.end(reviewId)).isInstanceOf(ReviewConflictException.class).hasMessage("A run is using this working copy");
+
+        verify(fixture.refresh, never()).refreshAllDetail(REPO, NUMBER);
+        verify(fixture.observer, never()).unwatch(reviewId);
+        verify(fixture.completions, never()).complete(any());
+        assertThat(fixture.store.findReview(reviewId).orElseThrow().state()).isEqualTo(AgentReview.State.OPEN);
+    }
+
+    @Test
+    void workingCopyEditsRunUnderTheClaimOnlyWhileNothingElseHoldsTheWorkingCopy()
+    {
+        Fixture fixture = new Fixture();
+        String reviewId = fixture.service.start(WORKSPACE, REPO, NUMBER).review().id();
+        AtomicInteger mutations = new AtomicInteger();
+        Function<AgentTask, String> mutation = claimed -> "saved " + claimed.id() + " " + mutations.incrementAndGet();
+
+        // A running review owns the working copy even between steps, when its task holds no claim.
+        assertWorkingCopyBusy(fixture, reviewId, mutation, "The review agent is working");
+        fixture.service.stop(reviewId);
+        when(fixture.tasks.get(TASK_ID)).thenReturn(idleTask().claimWorktreeMutation(WorktreeMutationClaim.localRun("run-1", NOW), NOW));
+        assertWorkingCopyBusy(fixture, reviewId, mutation, "A run is using this working copy");
+        when(fixture.tasks.get(TASK_ID)).thenReturn(busyTask());
+        when(fixture.turns.get(TURN_ONE)).thenReturn(AgentTurn.accepted(TURN_ONE, TASK_ID, "review-run", SETTINGS, NOW));
+        assertWorkingCopyBusy(fixture, reviewId, mutation, "The review agent is working");
+        when(fixture.tasks.get(TASK_ID)).thenReturn(idleTask().claimWorktreeMutation(new WorktreeMutationClaim(WorktreeMutationClaim.Kind.COMPLETION, "update", NOW), NOW));
+        assertWorkingCopyBusy(fixture, reviewId, mutation, "The working copy is being updated");
+        when(fixture.tasks.get(TASK_ID)).thenReturn(idleTask());
+        when(fixture.turns.queued(TASK_ID)).thenReturn(ImmutableList.of(queuedInput()));
+        assertWorkingCopyBusy(fixture, reviewId, mutation, "Remove or resume the queued question");
+        when(fixture.turns.queued(TASK_ID)).thenReturn(ImmutableList.of());
+        verify(fixture.turns, never()).synchronizeWorktree(eq(TASK_ID), anyLong(), any());
+
+        assertThat(fixture.service.mutateWorkingCopy(reviewId, mutation)).isEqualTo("saved " + TASK_ID + " 1");
+        verify(fixture.turns).synchronizeWorktree(eq(TASK_ID), eq(idleTask().version()), any());
+
+        AgentTask completed = idleTask().complete(new TaskSummary("done", Optional.empty(), AgentMetrics.empty(), Optional.empty()), NOW, NOW.plusSeconds(60));
+        when(fixture.tasks.get(TASK_ID)).thenReturn(completed.withWorktreeRemovedAt(NOW));
+        assertWorkingCopyBusy(fixture, reviewId, mutation, "The working copy is gone");
+        when(fixture.tasks.get(TASK_ID)).thenReturn(idleTask());
+        fixture.service.end(reviewId);
+        assertWorkingCopyBusy(fixture, reviewId, mutation, "The review has ended");
+        assertThat(mutations).hasValue(1);
+    }
+
+    private static void assertWorkingCopyBusy(Fixture fixture, String reviewId, Function<AgentTask, String> mutation, String message)
+    {
+        assertThatThrownBy(() -> fixture.service.mutateWorkingCopy(reviewId, mutation)).isInstanceOf(ReviewConflictException.class).hasMessage(message);
+    }
+
+    @Test
+    void endRefusesSavedEditsBeforeItStopsObservingTheReview()
+    {
+        Fixture fixture = new Fixture();
+        String reviewId = fixture.service.start(WORKSPACE, REPO, NUMBER).review().id();
+        when(fixture.worktrees.inspect(taskWorktree())).thenReturn(new WorktreeSnapshot(taskWorktree(), HEAD, true, false, true));
+
+        assertThatThrownBy(() -> fixture.service.end(reviewId)).isInstanceOf(ReviewConflictException.class).hasMessage("Discard saved edits before ending the review");
+
+        // Completion refuses an open Git operation too, so End refuses it while it still observes the review.
+        when(fixture.worktrees.inspect(taskWorktree())).thenReturn(new WorktreeSnapshot(taskWorktree(), HEAD, false, true, false));
+        assertThatThrownBy(() -> fixture.service.end(reviewId)).isInstanceOf(ReviewConflictException.class)
+                .hasMessage("Finish the open Git operation in the working copy before ending the review");
+
+        verify(fixture.observer, never()).unwatch(reviewId);
+        verify(fixture.completions, never()).complete(any());
+        assertThat(fixture.store.findReview(reviewId).orElseThrow().state()).isEqualTo(AgentReview.State.OPEN);
+
+        // Ignored build output alone is not a saved edit.
+        when(fixture.worktrees.inspect(taskWorktree())).thenReturn(new WorktreeSnapshot(taskWorktree(), HEAD, true, false, false));
+        assertThat(fixture.service.end(reviewId).review().state()).isEqualTo(AgentReview.State.CLOSED);
     }
 
     @Test

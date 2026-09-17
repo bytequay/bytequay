@@ -84,7 +84,9 @@ import java.util.Locale;
 import java.util.Optional;
 import java.util.OptionalLong;
 import java.util.UUID;
+import java.util.concurrent.atomic.AtomicReference;
 import java.util.concurrent.locks.Lock;
+import java.util.function.Function;
 import java.util.function.Supplier;
 
 import static com.bytequay.agent.spi.AgentProviderStatus.Readiness.TEMPORARILY_UNAVAILABLE;
@@ -259,6 +261,7 @@ public class DefaultAgentReviewService
     {
         return locked(reviewId, () -> {
             AgentReview review = requireOpen(reviewId);
+            requireNoLocalRun(tasks.get(TaskId.valueOf(review.taskId())));
             Optional<ReviewRun> active = latestRun(reviewId).filter(ReviewRun::active);
             if (active.isPresent()) {
                 review = settle(review, active.orElseThrow(), tasks.get(TaskId.valueOf(review.taskId())));
@@ -279,6 +282,7 @@ public class DefaultAgentReviewService
     public AgentReviewProjection update(String reviewId)
     {
         AgentReview review = requireOpen(reviewId);
+        requireNoLocalRun(tasks.get(TaskId.valueOf(review.taskId())));
         refresh.refreshAllDetail(review.repo(), review.number());
         String head = pullRequests.findHeadSha(review.repo(), review.number())
                 .orElseThrow(() -> new ReviewConflictException("The pull request head is unknown after refresh"));
@@ -295,8 +299,20 @@ public class DefaultAgentReviewService
             AgentReview review = requireOpen(reviewId);
             TaskId taskId = TaskId.valueOf(review.taskId());
             AgentTask task = tasks.get(taskId);
+            requireNoLocalRun(task);
             if (activeTurn(task).isPresent()) {
                 throw new ReviewConflictException("Stop the running turn before ending the review");
+            }
+            // Completion refuses uncommitted work, and refusing only after unwatching would leave an open review nobody observes.
+            Optional<TaskWorktree> worktree = task.taskWorktree().filter(ignored -> task.state() == TaskState.OPEN && task.worktreeRemovedAt().isEmpty());
+            if (worktree.isPresent()) {
+                WorktreeSnapshot snapshot = worktrees.inspect(worktree.orElseThrow());
+                if (snapshot.gitOperationInProgress()) {
+                    throw new ReviewConflictException("Finish the open Git operation in the working copy before ending the review");
+                }
+                if (snapshot.uncommitted()) {
+                    throw new ReviewConflictException("Discard saved edits before ending the review");
+                }
             }
             observer.unwatch(reviewId);
             if (task.state() == TaskState.OPEN) {
@@ -431,6 +447,24 @@ public class DefaultAgentReviewService
     public AgentTask task(String reviewId)
     {
         return tasks.get(TaskId.valueOf(requireReview(reviewId).taskId()));
+    }
+
+    @Override
+    public <T> T mutateWorkingCopy(String reviewId, Function<AgentTask, T> mutation)
+    {
+        requireNonNull(mutation, "mutation is null");
+        return locked(reviewId, () -> {
+            AgentReview review = requireOpen(reviewId);
+            AgentTask task = tasks.get(TaskId.valueOf(review.taskId()));
+            if (task.taskWorktree().isEmpty() || task.worktreeRemovedAt().isPresent()) {
+                throw new ReviewConflictException("The working copy is gone");
+            }
+            // An unpaused running review owns the working copy even between its steps, when the task holds no claim.
+            LocalRunService.requireIdle(turns, store.listRuns(reviewId), review, task);
+            AtomicReference<T> result = new AtomicReference<>();
+            turns.synchronizeWorktree(task.id(), task.version(), claimed -> result.set(mutation.apply(claimed)));
+            return result.get();
+        });
     }
 
     @Override
@@ -975,6 +1009,13 @@ public class DefaultAgentReviewService
                 .filter(claim -> claim.kind() == WorktreeMutationClaim.Kind.TURN)
                 .map(claim -> turns.get(TurnId.valueOf(claim.ownerId())))
                 .filter(turn -> turn.state().active());
+    }
+
+    private static void requireNoLocalRun(AgentTask task)
+    {
+        if (task.worktreeMutationClaim().filter(claim -> claim.kind() == WorktreeMutationClaim.Kind.LOCAL_RUN).isPresent()) {
+            throw new ReviewConflictException("A run is using this working copy");
+        }
     }
 
     private boolean idle(AgentTask task)

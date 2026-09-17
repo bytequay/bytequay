@@ -218,4 +218,23 @@ class TestPullRequestTaskService
         verify(tasks, times(1)).createInteractive(any());
         verify(turns, times(1)).startContextTurn(any());
     }
+
+    @Test
+    void findsATaskByItsRenamedBranchOnlyForTheUsersOwnLiveCheckout()
+    {
+        AgentTask task = service.assign("workspace", "upstream/repo", 7);
+        when(assignments.find(anyString(), anyString(), eq(7))).thenReturn(Optional.empty());
+        PullRequest row = mock(PullRequest.class, withSettings().mockMaker(MockMakers.INLINE));
+        when(row.headRef()).thenReturn("patch-1");
+        when(rows.findIdByRepoAndNumber("upstream/repo", 7)).thenReturn(Optional.of(7L));
+        when(rows.findById(7L)).thenReturn(Optional.of(row));
+        when(taskStore.listByWorkspace("workspace")).thenReturn(ImmutableList.of(task));
+        when(worktrees.currentBranch(task.taskWorktree().orElseThrow())).thenReturn(Optional.of("patch-1"));
+
+        when(row.origin()).thenReturn(PullRequest.Origin.AUTHORED);
+        assertThat(service.find("workspace", "upstream/repo", 7)).contains(task);
+        // A fork's pull request on a common branch name is not the user's task.
+        when(row.origin()).thenReturn(PullRequest.Origin.OTHER);
+        assertThat(service.find("workspace", "upstream/repo", 7)).isEmpty();
+    }
 }

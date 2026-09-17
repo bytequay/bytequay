@@ -366,9 +366,10 @@ workspace-write sandbox rooted at the generated task worktree, ordinary `/tmp`
 and `$TMPDIR` allowances, and the native `auto_review` approval reviewer.
 The pinned native policy reviews routine task prerequisites by risk, including
 build/test cache, lock, and temporary writes. A task request authorizes those
-normal prerequisites without making the user name each cache path. Cache
-directories such as `~/.m2` still require native review; they are not unrestricted
-writable roots. GitHub writes continue to require direct explicit user
+normal prerequisites without making the user name each cache path. The user's
+Maven local repository (`~/.m2/repository`) is also a writable root, so offline builds and tests can
+use and update it without review; other cache directories still require native
+review. GitHub writes continue to require direct explicit user
 authorization, and native denials and the prohibition on persistent or blanket
 future grants remain. **Auto** does not guarantee that every test command will
 be approved. Normal tasks also enable Codex's native

@@ -13,9 +13,10 @@ obtain that worktree through one `WorktreeService`. Branch Rebase borrows its
 caller's task worktree and never creates or removes another one.
 
 The service is synchronous and stateless. It creates a worktree, verifies an
-existing worktree, or removes a verified clean worktree. A successful method
-return is the result; there is no worktree lifecycle enum, recovery endpoint,
-allocation table, cleanup disposition, or cleanup authority model.
+existing worktree, removes a verified clean worktree, or destroys a deleted
+task's worktree and branch. A successful method return is the result; there is
+no worktree lifecycle enum, recovery endpoint, allocation table, cleanup
+disposition, or cleanup authority model.
 
 The owning task may record when removal succeeds so its workflow monitor can
 retry an interrupted cleanup. That timestamp is a durable operation fact in
@@ -65,7 +66,8 @@ The service replaced both:
   lifecycle.
 
 The service does not fetch, push, choose a base, interpret agent messages,
-decide a workflow result, delete a branch, or expose a path to the renderer.
+decide a workflow result, delete a branch of a task that still exists, or
+expose a path to the renderer.
 Each caller first resolves and fetches its exact commit using its existing
 workflow rules. Non-repository helpers that do not create a durable agent task
 or mutate Git, such as the Better Words text rewrite, keep their isolated
@@ -86,6 +88,9 @@ public interface WorktreeService
 
     /** Removes one verified clean worktree without deleting its branch. */
     void cleanup(TaskWorktree worktree);
+
+    /** Destroys a task's checkout and generated branch; task deletion is its only caller. */
+    void delete(TaskWorktree worktree);
 }
 ```
 
@@ -242,10 +247,12 @@ or retry. A repeated call may succeed for an already-absent exact worktree only
 when Git no longer registers the path and the generated result branch still
 exists.
 
-Deleting uncommitted work, a generated branch, or a branch after remote
-handoff is outside this contract. Add a separate explicit operation and its
-concrete user/handoff authority only when the product actually needs that
-destructive behavior.
+Cleanup's contract never deletes uncommitted work, a generated branch, or a
+branch after remote handoff. The destructive operations are separate and each
+has its own direct user authority: `delete(...)` destroys a task's checkout and
+branch only when the user deletes that task, and discarding an Agent review
+working copy's experiments reuses `ReviewExperiments.discard` outside this
+service ([Code & Tests](code-tests.md) §4.1).
 
 ## 5. Caller ownership
 
@@ -324,7 +331,12 @@ until the full top-level workflow has settled.
 - A task is published only after `provision(...)` returns a verified clean
   worktree at the exact starting commit.
 - Provider readiness failure creates no task worktree.
-- Renderer and HTTP values never contain a worktree or repository path.
+- Renderer and HTTP values never contain a worktree or repository path, with
+  one exception: the session-authenticated response of an Agent review's
+  `POST /api/agent-review/{reviewId}/code/terminal`, or of a development task's
+  `POST /agent/tasks/{taskId}/code/terminal`, carries the worktree path to
+  Electron main, which uses it as the terminal's working directory and never
+  forwards it to the renderer ([Code & Tests](code-tests.md) §7, §11).
 - Every operation re-resolves the workspace and revalidates path containment,
   symlink safety, common Git directory, origin, and generated branch.
 - Worktree add/remove operations are serialized per managed repository; work

@@ -420,7 +420,9 @@ class TestAgentHttpApi
         run("git", "-C", worktree.canonicalWorktree().toString(), "branch", "-m", branch);
         pullRequests.saveRepositorySyncPage(
                 REPOSITORY,
-                ImmutableList.of(fetchedPullRequest(484, worktree.generatedBranch()), fetchedPullRequest(485, branch), fetchedPullRequest(486, "unrelated")),
+                ImmutableList.of(fetchedPullRequest(484, worktree.generatedBranch()), fetchedPullRequest(485, branch), fetchedPullRequest(486, "unrelated"),
+                        // Another author's fork on the same renamed branch name is not the task's pull request.
+                        fetchedPullRequest(487, branch).withOrigin(PullRequest.Origin.OTHER)),
                 "renamed-task");
 
         JsonNode listed = get("/agent/tasks/" + taskId + "/pull-requests?workspaceId=" + workspaceId).getBody();
@@ -496,8 +498,9 @@ class TestAgentHttpApi
         assertThat(cached.get(0).get("number").asInt()).isEqualTo(31022);
         when(credentials.resolveGitHubCredential()).thenReturn(
                 new GitHubCredential("pat", new UserProfile("chenjian2664", "Chen", "", "", 0, 0, 0, "", "", "", "")));
+        // The user's own fork branch: its pull request is theirs, which a renamed-branch match requires.
         when(gitHub.fetchPullRequestsByHead("pat", upstream, "chenjian2664:" + branch))
-                .thenReturn(ImmutableList.of(fetchedPullRequest(upstream.fullName(), 31023, branch)));
+                .thenReturn(ImmutableList.of(fetchedPullRequest(upstream.fullName(), 31023, branch, "chenjian2664")));
 
         JsonNode refreshed = post(path + "/sync?workspaceId=" + workspaceId, ImmutableMap.of(), null).getBody();
 
@@ -516,13 +519,18 @@ class TestAgentHttpApi
 
     private static FetchedPullRequest fetchedPullRequest(String repository, int number, String headRef)
     {
+        return fetchedPullRequest(repository, number, headRef, "alice");
+    }
+
+    private static FetchedPullRequest fetchedPullRequest(String repository, int number, String headRef, String author)
+    {
         Instant at = Instant.parse("2026-09-01T00:00:00Z");
         return new FetchedPullRequest(
                 (long) number,
                 repository,
                 number,
                 "PR " + number,
-                "alice",
+                author,
                 "https://github.com/" + repository + "/pull/" + number,
                 at,
                 at,

@@ -1396,7 +1396,8 @@ public class PullRequestService
                 .orElseThrow(() -> localSnapshotMissing("Pull request"));
     }
 
-    private Optional<PullRequestDetail> findPullRequestDetail(String repo, int number)
+    /** Returns persisted detail without contacting GitHub or dating the viewer's last look. */
+    public Optional<PullRequestDetail> findPullRequestDetail(String repo, int number)
     {
         return store.findIdByRepoAndNumber(repo, number)
                 .flatMap(prId -> snapshots.findDetail(repo, number, prId));

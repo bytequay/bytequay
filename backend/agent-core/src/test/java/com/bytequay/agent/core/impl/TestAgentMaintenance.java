@@ -403,6 +403,27 @@ class TestAgentMaintenance
     }
 
     @Test
+    void releasesALocalRunClaimAtStartupAndReservesTheWorktreeAgainForItsUnverifiableLaunch()
+    {
+        InMemoryAgentStores stores = new InMemoryAgentStores();
+        TaskId verified = TaskId.random();
+        TaskId unverifiable = TaskId.random();
+        stores.insert(managedTask(verified).claimWorktreeMutation(WorktreeMutationClaim.localRun("run-1", NOW), NOW));
+        stores.insert(managedTask(unverifiable).claimWorktreeMutation(WorktreeMutationClaim.localRun("run-2", NOW), NOW));
+        AgentMaintenance maintenance = maintenance(stores, new RecordingApprovals(), new RecordingCompletion(), NOW.plusSeconds(10));
+
+        maintenance.recover();
+
+        assertThat(stores.find(verified).orElseThrow().worktreeMutationClaim()).isEmpty();
+        assertThat(stores.find(unverifiable).orElseThrow().worktreeMutationClaim()).isEmpty();
+
+        maintenance.settleAfterProcessRecovery(ImmutableMap.of(unverifiable, "launch-2"), ImmutableSet.of("launch-1"), true);
+
+        assertThat(stores.find(verified).orElseThrow().worktreeMutationClaim()).isEmpty();
+        assertThat(stores.find(unverifiable).orElseThrow().worktreeMutationClaim()).contains(WorktreeMutationClaim.recovery("launch-2", NOW.plusSeconds(10)));
+    }
+
+    @Test
     void retainsTerminalTurnClaimUntilProviderQuiescenceIsProved()
     {
         InMemoryAgentStores stores = new InMemoryAgentStores();

@@ -31,6 +31,7 @@ import com.bytequay.core.domain.Workspace;
 import com.bytequay.core.domain.Workspace.Topology;
 import com.bytequay.core.rebase.BranchRebase;
 import com.bytequay.core.rebase.BranchRebaseId;
+import com.bytequay.core.review.LocalRun;
 import com.bytequay.persistence.sqlite.entity.BranchRebaseEntity;
 import com.bytequay.persistence.sqlite.entity.CiAutofixAttemptEntity;
 import com.bytequay.persistence.sqlite.entity.CiAutofixRunEntity;
@@ -51,6 +52,8 @@ import java.sql.DriverManager;
 import java.sql.SQLException;
 import java.time.Instant;
 import java.util.Optional;
+import java.util.OptionalInt;
+import java.util.OptionalLong;
 import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -84,6 +87,9 @@ class TestSqliteWorkspaceStore
 
     @Autowired
     private SqliteAppSettingsStore settings;
+
+    @Autowired
+    private SqliteLocalRunStore localRuns;
 
     @DynamicPropertySource
     static void configureDatabase(DynamicPropertyRegistry registry)
@@ -184,6 +190,23 @@ class TestSqliteWorkspaceStore
 
         store.delete(workspace.id());
         assertThat(settings.get(key)).isEmpty();
+    }
+
+    @Test
+    void deletePurgesTheWorkspaceLocalRunsWithoutAReview()
+    {
+        Workspace removed = store.createOrGet(direct("runs-removed", 100, 0));
+        Workspace retained = store.createOrGet(direct("runs-retained", 101, 1));
+        for (Workspace workspace : ImmutableList.of(removed, retained)) {
+            LocalRun run = localRuns.insert(LocalRun.started("run-" + workspace.id(), "task-" + workspace.id(), workspace.id(), 1, "src/test/java/TestCode.java", "TestCode",
+                    Optional.empty(), Optional.empty(), "./mvnw -B -Dtest=TestCode test", "a".repeat(40), ImmutableList.of(), "fingerprint", "launch", NOW));
+            localRuns.update(run.finished(LocalRun.Status.STOPPED, NOW, OptionalInt.empty(), Optional.empty(), ImmutableList.of(), false, OptionalLong.empty()), "output");
+        }
+
+        store.delete(removed.id());
+
+        assertThat(jdbc.queryForList("SELECT id FROM local_run", String.class)).containsExactly("run-" + retained.id());
+        assertThat(jdbc.queryForList("SELECT run_id FROM local_run_output", String.class)).containsExactly("run-" + retained.id());
     }
 
     @Test

@@ -86,6 +86,7 @@ public class StoredLaunchIntentRecorder
             case TASK_EXEC_SERVER -> LaunchOwnerKind.TASK_EXEC_SERVER;
             case CLAUDE_TURN -> LaunchOwnerKind.CLAUDE_TURN;
             case CLI_PROBE -> LaunchOwnerKind.CLI_PROBE;
+            case LOCAL_RUN -> LaunchOwnerKind.LOCAL_RUN;
         };
     }
 }

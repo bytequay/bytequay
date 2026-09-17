@@ -3589,3 +3589,8 @@
 .agt-issue-preview__head .agt-action { display: inline-flex; align-items: center; gap: 4px; flex: none; }
 .agt-issue-preview__title { display: block; margin-bottom: 12px; color: #1f2328; font-size: 15px; overflow-wrap: anywhere; }
 .agt-issue-preview .markdown-body { padding: 0; font-size: 13px; }
+
+/* The kept Code & Tests body in the task side panel; its flex display would otherwise override the hidden attribute. */
+.agt-panel > [hidden] {
+  display: none;
+}

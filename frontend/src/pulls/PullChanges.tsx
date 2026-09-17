@@ -11,7 +11,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-import { Fragment, type CSSProperties, useEffect, useId, useMemo, useRef, useState } from 'react';
+import { Fragment, type CSSProperties, type MouseEvent as ReactMouseEvent, type RefObject, useEffect, useId, useMemo, useReducer, useRef, useState } from 'react';
 import { Check, ChevronRight, FileDiff, Folder, GitCommitHorizontal, PanelLeft } from 'lucide-react';
 import Avatar from '../Avatar';
 import { parseUnifiedDiff, type DiffRow } from '../diffParse';
@@ -26,16 +26,19 @@ import type {
   UserProfileDto,
 } from '../types';
 import { useResizablePane } from '../useResizablePane';
+import { buildFileTree, type FileTreeItem } from './fileTree';
 import BetterWordsButton from './BetterWordsButton';
 import MarkdownBody, { type SuggestionBase } from './MarkdownBody';
+import MarkdownEditor from './MarkdownEditor';
 import { CopyLinkButton, remoteErrorMessage, ReviewThread, useViewer, type PullDetailUpdater } from './PullOverview';
 import type { ReviewNavigationTarget } from './agent-review/AgentReviewTab';
-import type { AgentReviewDto } from './agent-review/contracts';
+import type { AgentReviewDto, ReviewSide } from './agent-review/contracts';
 import ReviewFindingCard from './agent-review/ReviewFindingCard';
 import { useFindingActions } from './agent-review/useFindingActions';
 import { relativeTime } from '../relativeTime';
 import LocalReviewThreadCard, { localReviewMatchesRevision } from './local-review/LocalReviewThreadCard';
 import type { LocalReviewThreadDto, LocalReviewThreads } from './local-review/types';
+import { inlineReviewComment, NO_RANGE_SELECTION, rangeHeading, rangeSelectionReducer } from './lineRangeSelection';
 
 export type CommitRange = { start: number; end: number } | null;
 
@@ -63,7 +66,7 @@ export type AgentReviewProjection = {
 
 const SINGLE_FILE_MODE_THRESHOLD = 20;
 
-type ReviewThreads = {
+export type ReviewThreads = {
   activities: PullRequestDetailDto['recentActivity'];
   pr: PullRequestDto;
   workspaceId?: string;
@@ -189,7 +192,7 @@ export function DiffViewer({
   const scrollRef = useRef<HTMLDivElement>(null);
   const fileTreeId = useId();
   const filePane = useResizablePane(260, 160, 480);
-  const treeItems = useMemo(() => buildFileTree(files), [files]);
+  const treeItems = useMemo(() => buildFileTree(files, file => file.filename), [files]);
   const singleFileMode = files.length > SINGLE_FILE_MODE_THRESHOLD;
   const totals = useMemo(() => files.reduce((sum, file) => ({
     additions: sum.additions + file.additions,
@@ -373,68 +376,8 @@ export function DiffViewer({
   );
 }
 
-type FileTreeDirectory = {
-  kind: 'directory';
-  name: string;
-  path: string;
-  children: FileTreeItem[];
-};
-
-type FileTreeFile = {
-  kind: 'file';
-  name: string;
-  path: string;
-  file: DiffFileDto;
-};
-
-type FileTreeItem = FileTreeDirectory | FileTreeFile;
-
-export function buildFileTree(files: DiffFileDto[]): FileTreeItem[] {
-  const root: FileTreeItem[] = [];
-
-  files.forEach(file => {
-    const segments = file.filename.split('/');
-    const name = segments.pop() ?? file.filename;
-    let path = '';
-    let children = root;
-
-    segments.forEach(segment => {
-      path = path ? `${path}/${segment}` : segment;
-      let directory = children.find((item): item is FileTreeDirectory =>
-        item.kind === 'directory' && item.name === segment);
-      if (directory === undefined) {
-        directory = { kind: 'directory', name: segment, path, children: [] };
-        children.push(directory);
-      }
-      children = directory.children;
-    });
-
-    children.push({ kind: 'file', name, path: file.filename, file });
-  });
-
-  return compactFileTree(root);
-}
-
-function compactFileTree(items: FileTreeItem[]): FileTreeItem[] {
-  return items.map(item => {
-    if (item.kind === 'file') return item;
-
-    let name = item.name;
-    let path = item.path;
-    let children = compactFileTree(item.children);
-    while (children.length === 1) {
-      const child = children[0];
-      if (child.kind !== 'directory') break;
-      name = `${name}/${child.name}`;
-      path = child.path;
-      children = child.children;
-    }
-    return { kind: 'directory', name, path, children };
-  });
-}
-
 function FileTreeItems({ items, selected, onPick, depth = 0 }: {
-  items: FileTreeItem[];
+  items: FileTreeItem<DiffFileDto>[];
   selected: string | null;
   onPick: (filename: string) => void;
   depth?: number;
@@ -463,7 +406,7 @@ function FileTreeItems({ items, selected, onPick, depth = 0 }: {
             type="button"
             className={`pull-file-tree__file${selected === item.path ? ' is-active' : ''}`}
             aria-current={selected === item.path ? 'true' : undefined}
-            aria-label={`${item.path}, ${fileStatusBadge(item.file.status).title}`}
+            aria-label={`${item.path}, ${fileStatusBadge(item.entry.status).title}`}
             onClick={() => onPick(item.path)}
             onMouseEnter={event => {
               const label = event.currentTarget.querySelector<HTMLElement>('.pull-file-tree__label');
@@ -475,7 +418,7 @@ function FileTreeItems({ items, selected, onPick, depth = 0 }: {
             style={rowStyle}
           >
             <span className="pull-file-tree__spacer" aria-hidden="true" />
-            <FileDiff className={`pull-file-tree__file-icon is-${fileStatusBadge(item.file.status).kind}`} size={16} strokeWidth={1.5} aria-hidden="true" />
+            <FileDiff className={`pull-file-tree__file-icon is-${fileStatusBadge(item.entry.status).kind}`} size={16} strokeWidth={1.5} aria-hidden="true" />
             <span className="pull-file-tree__label">{item.name}</span>
           </button>
         </li>
@@ -614,84 +557,6 @@ export function nextCommitRange(range: CommitRange, index: number, commitCount: 
     : { start: range.start, end: index - 1 };
 }
 
-export type MarkdownCommand =
-  | 'heading' | 'bold' | 'italic' | 'quote' | 'code' | 'link' | 'bullet' | 'number' | 'task';
-
-const MARKDOWN_PREFIXES: Partial<Record<MarkdownCommand, string>> = {
-  heading: '### ',
-  quote: '> ',
-  bullet: '- ',
-  number: '1. ',
-  task: '- [ ] ',
-};
-
-const MARKDOWN_WRAPS: Partial<Record<MarkdownCommand, string>> = {
-  bold: '**',
-  italic: '_',
-  code: '`',
-};
-
-/**
- * Applies a toolbar command to `value` over the [start, end) selection and
- * returns the text plus the selection to restore. Insert-only: clicking Bold
- * twice nests markers rather than toggling them off, which is the cheap
- * behaviour the textarea's own undo already covers.
- */
-export function applyMarkdownCommand(value: string, start: number, end: number, command: MarkdownCommand):
-  { value: string; start: number; end: number } {
-  const prefix = MARKDOWN_PREFIXES[command];
-  if (prefix !== undefined) {
-    const lineStart = value.lastIndexOf('\n', start - 1) + 1;
-    const lineBreak = value.indexOf('\n', end);
-    const lineEnd = lineBreak === -1 ? value.length : lineBreak;
-    const block = value.slice(lineStart, lineEnd).split('\n')
-      .map((line, index) => (command === 'number' ? `${index + 1}. ` : prefix) + line)
-      .join('\n');
-    return {
-      value: value.slice(0, lineStart) + block + value.slice(lineEnd),
-      start: lineStart,
-      end: lineStart + block.length,
-    };
-  }
-  const selected = value.slice(start, end);
-  if (command === 'link') {
-    const urlStart = start + selected.length + 3;
-    return {
-      value: `${value.slice(0, start)}[${selected}](url)${value.slice(end)}`,
-      start: urlStart,
-      end: urlStart + 3,
-    };
-  }
-  // A fenced block is the only thing that renders a multi-line code selection.
-  const fenced = command === 'code' && selected.includes('\n');
-  const open = fenced ? '```\n' : MARKDOWN_WRAPS[command] ?? '';
-  const close = fenced ? '\n```' : open;
-  return {
-    value: value.slice(0, start) + open + selected + close + value.slice(end),
-    start: start + open.length,
-    end: end + open.length,
-  };
-}
-
-/**
- * Replaces the [start, end) selection with a ```suggestion block holding `lines`, with the caret
- * at the end of the last suggested line. The fence outgrows any backtick run inside the lines.
- */
-export function insertSuggestion(value: string, start: number, end: number, lines: string[]):
-  { value: string; start: number; end: number } {
-  const before = value.slice(0, start);
-  const after = value.slice(end);
-  const longestRun = Math.max(0, ...(lines.join('\n').match(/`+/g) ?? []).map(run => run.length));
-  const fence = '`'.repeat(Math.max(3, longestRun + 1));
-  const opening = `${before && !before.endsWith('\n') ? '\n' : ''}${fence}suggestion\n${lines.join('\n')}`;
-  const caret = before.length + opening.length;
-  return {
-    value: `${before}${opening}\n${fence}${after && !after.startsWith('\n') ? '\n' : ''}${after}`,
-    start: caret,
-    end: caret,
-  };
-}
-
 /** Head-side text of new lines start..end from the diff rows, else the loaded head file; null if any line is unknown. */
 export function headLines(hunks: Array<{ rows: DiffRow[] }>, newLines: string[], start: number, end: number): string[] | null {
   return diffSideLines(hunks, newLines, 'RIGHT', start, end);
@@ -720,88 +585,98 @@ function revealedGap(hidden: number, expansions: number, edge: 'leading' | 'betw
   return { top, bottom: shown - top };
 }
 
-const SUGGESTION_ICON = [
-  'M9.5 2H4.2A1.2 1.2 0 0 0 3 3.2v9.6A1.2 1.2 0 0 0 4.2 14h7.6a1.2 1.2 0 0 0 1.2-1.2V5.5z',
-  'M9.5 2v3.5H13',
-  'M8 6v3',
-  'M6.5 7.5h3',
-  'M6.5 11.3h3',
-];
-
-function ToolbarIcon({ paths }: { paths: string[] }) {
-  return (
-    <svg viewBox="0 0 16 16" width="15" height="15" fill="none" stroke="currentColor"
-      strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-      {paths.map((path, index) => <path d={path} key={index} />)}
-    </svg>
-  );
-}
-
-const MARKDOWN_ICONS: Record<MarkdownCommand, string[]> = {
-  heading: ['M4 3v10', 'M12 3v10', 'M4 8h8'],
-  bold: ['M5.5 3h3.2a2.4 2.4 0 0 1 0 4.8H5.5z', 'M5.5 7.8h3.8a2.6 2.6 0 0 1 0 5.2H5.5z'],
-  italic: ['M6.5 3h4.5', 'M5 13h4.5', 'M9.5 3 7 13'],
-  quote: ['M3.2 3.5v9', 'M6.5 5h6.3', 'M6.5 8h6.3', 'M6.5 11h4'],
-  code: ['m5.8 4.8-3 3.2 3 3.2', 'm10.2 4.8 3 3.2-3 3.2'],
-  link: [
-    'M6.6 9.4 9.4 6.6',
-    'M8.6 5.4 10 4a2.6 2.6 0 0 1 3.7 3.7L12.3 9.1',
-    'M7.4 10.6 6 12a2.6 2.6 0 0 1-3.7-3.7L3.7 6.9',
-  ],
-  bullet: ['M3 4.4h.01', 'M3 8h.01', 'M3 11.6h.01', 'M6.2 4.4h7', 'M6.2 8h7', 'M6.2 11.6h7'],
-  number: ['M2.3 3.7 3.4 3v3.4', 'M2.2 10.2h1.9L2.2 12.6h2', 'M6.2 4.4h7', 'M6.2 8h7', 'M6.2 11.6h7'],
-  task: ['m2 4.3 1.2 1.3L5.6 3', 'm2 10.8 1.2 1.3L5.6 9.5', 'M8 4.4h5.4', 'M8 10.9h5.4'],
+export type ReviewLineComposerProps = {
+  heading: string;
+  viewer?: UserProfileDto | null;
+  review?: { repo: string; workspaceId?: string };
+  canReview: boolean;
+  /** Why Add to review and Post now are unavailable on this range, given instead of letting GitHub refuse it. */
+  reviewDisabledReason?: string | null;
+  body: string;
+  onBodyChange: (body: string) => void;
+  preview: boolean;
+  onPreviewChange: (preview: boolean) => void;
+  error: string | null;
+  onError: (error: string | null) => void;
+  bodyRef: RefObject<HTMLTextAreaElement>;
+  suggestion?: SuggestionBase;
+  submitting: boolean;
+  posting: boolean;
+  askAgent?: { sending: boolean; disabledReason?: string | null; onSend: () => void };
+  onCancel: () => void;
+  onAddPending: () => void;
+  onPostNow: () => void;
 };
 
-const MARKDOWN_GROUPS: Array<Array<{ command: MarkdownCommand; label: string }>> = [
-  [
-    { command: 'heading', label: 'Heading' },
-    { command: 'bold', label: 'Bold' },
-    { command: 'italic', label: 'Italic' },
-  ],
-  [
-    { command: 'quote', label: 'Quote' },
-    { command: 'code', label: 'Code' },
-    { command: 'link', label: 'Link' },
-  ],
-  [
-    { command: 'bullet', label: 'Bulleted list' },
-    { command: 'number', label: 'Numbered list' },
-    { command: 'task', label: 'Task list' },
-  ],
-];
-
-export function MarkdownToolbar({ onCommand, onSuggest, disabled = false }: {
-  onCommand: (command: MarkdownCommand) => void;
-  onSuggest?: () => void;
-  disabled?: boolean;
-}) {
+/** The line review-comment card; its state is owned by the caller so a host can keep a half-written comment. */
+export function ReviewLineComposer({
+  heading,
+  viewer,
+  review,
+  canReview,
+  reviewDisabledReason = null,
+  body,
+  onBodyChange,
+  preview,
+  onPreviewChange,
+  error,
+  onError,
+  bodyRef,
+  suggestion,
+  submitting,
+  posting,
+  askAgent,
+  onCancel,
+  onAddPending,
+  onPostNow,
+}: ReviewLineComposerProps) {
   return (
-    <div className="pull-diff-review__toolbar">
-      {onSuggest && <>
-        <button type="button" title="Add a suggestion" aria-label="Add a suggestion"
-          disabled={disabled}
-          onMouseDown={event => event.preventDefault()}
-          onClick={onSuggest}>
-          <ToolbarIcon paths={SUGGESTION_ICON} />
-        </button>
-        <span className="pull-diff-review__divider" aria-hidden="true" />
+    <MarkdownEditor
+      value={body}
+      onChange={onBodyChange}
+      ariaLabel={heading}
+      placeholder={canReview ? 'Leave a review comment…' : 'Ask about this implementation…'}
+      repository={review?.repo}
+      suggestion={suggestion}
+      canSuggest
+      preview={preview}
+      onPreviewChange={onPreviewChange}
+      textareaRef={bodyRef}
+      header={<header className="pull-diff-review__header">
+        <Avatar login={viewer?.login ?? ''} avatarUrl={viewer?.avatarUrl} size={22}
+          allowGitHubFallback={false} />
+        <strong>{heading}</strong>
+      </header>}
+      isPrivate={askAgent !== undefined && !canReview}
+      statusMessage={[askAgent?.sending ? null : askAgent?.disabledReason, canReview ? reviewDisabledReason : null].filter(Boolean).join(' ')}
+      error={error}
+      busy={submitting}
+      autoFocus
+      onSubmit={() => {
+        if (!body.trim()) return;
+        if (canReview) {
+          if (reviewDisabledReason === null) onPostNow();
+        }
+        else if (askAgent && !askAgent.disabledReason) askAgent.onSend();
+      }}
+      // Escape must not throw away a half-written comment.
+      onCancel={() => { if (!body.trim()) onCancel(); }}>
+      {review && <BetterWordsButton text={body} textareaRef={bodyRef} repository={review.repo}
+        workspaceId={review.workspaceId}
+        disabled={preview || submitting}
+        onError={failure => onError(failure === null ? null : remoteErrorMessage(failure))} />}
+      <button type="button" disabled={submitting} onClick={onCancel}>Cancel</button>
+      {askAgent && <button type="button" className={canReview ? '' : 'is-primary'}
+        disabled={!body.trim() || submitting || Boolean(askAgent.disabledReason)}
+        title={askAgent.disabledReason ?? undefined}
+        onClick={askAgent.onSend}>{askAgent.sending ? 'Sending…' : 'Send to agent'}</button>}
+      {canReview && <>
+        <button type="button" disabled={!body.trim() || submitting || reviewDisabledReason !== null} title={reviewDisabledReason ?? undefined}
+          onClick={onAddPending}>Add to review</button>
+        <button className="is-primary" type="button" disabled={!body.trim() || submitting || reviewDisabledReason !== null}
+          title={reviewDisabledReason ?? undefined} onClick={onPostNow}>{posting ? 'Posting…' : 'Post now'}</button>
       </>}
-      {MARKDOWN_GROUPS.map((group, groupIndex) => (
-        <Fragment key={groupIndex}>
-          {groupIndex > 0 && <span className="pull-diff-review__divider" aria-hidden="true" />}
-          {group.map(({ command, label }) => (
-            <button type="button" key={command} title={label} aria-label={label}
-              disabled={disabled}
-              // The textarea keeps its selection because the button never takes focus.
-              onMouseDown={event => event.preventDefault()}
-              onClick={() => onCommand(command)}>
-              <ToolbarIcon paths={MARKDOWN_ICONS[command]} />
-            </button>
-          ))}
-        </Fragment>
-      ))}
-    </div>
+    </MarkdownEditor>
   );
 }
 
@@ -845,9 +720,17 @@ function DiffFileCard({
   const [contentLoading, setContentLoading] = useState(false);
   const [contentError, setContentError] = useState<string | null>(null);
   const [expansions, setExpansions] = useState<ReadonlyMap<string, number>>(new Map());
-  const [selection, setSelection] = useState<LineSelection | null>(null);
-  const [selectingRange, setSelectingRange] = useState(false);
-  const dragAnchor = useRef<DragAnchor | null>(null);
+  const [range, dispatchRange] = useReducer(rangeSelectionReducer, NO_RANGE_SELECTION);
+  const selection = range.selection;
+  const selectingRange = range.anchor !== null;
+  // The press can collapse the composer above it, moving rows under a still pointer; only real movement drags.
+  const pressPoint = useRef<{ x: number; y: number } | null>(null);
+  const dragOverRow = (oldLine: number | null, newLine: number | null, row: number) => (event: ReactMouseEvent) => {
+    const press = pressPoint.current;
+    if (press !== null && Math.hypot(event.clientX - press.x, event.clientY - press.y) <= 3) return;
+    pressPoint.current = null;
+    dispatchRange({ type: 'drag', oldLine, newLine, row });
+  };
   const [reviewBody, setReviewBody] = useState('');
   const [reviewError, setReviewError] = useState<string | null>(null);
   const [preview, setPreview] = useState(false);
@@ -883,15 +766,20 @@ function DiffFileCard({
 
   useEffect(() => {
     if (!selectingRange) return;
-    const finishSelection = () => {
-      dragAnchor.current = null;
-      setSelectingRange(false);
+    const finishSelection = () => dispatchRange({ type: 'finish' });
+    const cancelSelection = (event: KeyboardEvent) => {
+      if (event.key !== 'Escape') return;
+      // Captured and handled first, so the screen's own Escape does not also exit zoom or close the pull request.
+      event.preventDefault();
+      dispatchRange({ type: 'clear' });
     };
     window.addEventListener('mouseup', finishSelection);
     window.addEventListener('blur', finishSelection);
+    window.addEventListener('keydown', cancelSelection, true);
     return () => {
       window.removeEventListener('mouseup', finishSelection);
       window.removeEventListener('blur', finishSelection);
+      window.removeEventListener('keydown', cancelSelection, true);
     };
   }, [selectingRange]);
 
@@ -923,65 +811,31 @@ function DiffFileCard({
   const selectLine = (side: ReviewSide, line: number, extend: boolean, row: number) => {
     if (submitting) return;
     setReviewError(null);
-    setSelection(previous => nextLineSelection(previous, side, line, extend, row));
+    dispatchRange({ type: 'select', side, line, extend, row });
   };
 
   const startLineSelection = (
     side: ReviewSide,
     line: number,
-    extend: boolean,
+    press: Pick<MouseEvent, 'shiftKey' | 'clientX' | 'clientY'>,
     oldLine: number | null,
     newLine: number | null,
     row: number,
   ) => {
     if (submitting) return;
-    dragAnchor.current = { side, line, oldLine, newLine, row };
-    setSelectingRange(true);
-    selectLine(side, line, extend, row);
+    setReviewError(null);
+    pressPoint.current = { x: press.clientX, y: press.clientY };
+    dispatchRange({ type: 'start', side, line, extend: press.shiftKey, oldLine, newLine, row });
   };
 
-  const extendLineSelection = (oldLine: number | null, newLine: number | null, row: number) => {
-    const anchor = dragAnchor.current;
-    const next = draggedLineSelection(anchor, oldLine, newLine, row);
-    if (next === null || anchor === null) return;
-    if (next.side !== anchor.side) {
-      const migratedLine = next.side === 'LEFT' ? anchor.oldLine : anchor.newLine;
-      if (migratedLine !== null) dragAnchor.current = { ...anchor, side: next.side, line: migratedLine };
-    }
-    setSelection(next);
-  };
-
-  const comment = (): InlineReviewCommentDto | null => {
-    if (selection === null || !reviewBody.trim()) return null;
-    return {
-      path: file.filename,
-      body: reviewBody.trim(),
-      line: selection.end,
-      side: selection.side,
-      startLine: selection.start === selection.end ? null : selection.start,
-      startSide: selection.start === selection.end ? null : selection.side,
-      commitId: headSha ?? null,
-    };
-  };
+  const comment = () => selection === null ? null : inlineReviewComment(file.filename, reviewBody, selection, headSha ?? null);
 
   // Suggestions change the head file, so deleted (LEFT) lines cannot be suggested.
   const suggestionLines = selection?.side === 'RIGHT' ? headLines(hunks, newLines, selection.start, selection.end) : null;
 
-  const editReviewBody = (edit: (value: string, start: number, end: number) => { value: string; start: number; end: number }) => {
-    if (submitting) return;
-    const textarea = bodyRef.current;
-    if (textarea === null) return;
-    const next = edit(textarea.value, textarea.selectionStart, textarea.selectionEnd);
-    setReviewBody(next.value);
-    requestAnimationFrame(() => {
-      textarea.focus();
-      textarea.setSelectionRange(next.start, next.end);
-    });
-  };
-
   const closeComposer = () => {
     setReviewBody('');
-    setSelection(null);
+    dispatchRange({ type: 'clear' });
     setPreview(false);
   };
 
@@ -1044,7 +898,6 @@ function DiffFileCard({
     const target = reviewTarget(oldLine, newLine);
     const rowSelected = selection !== null && row >= selection.rowStart && row <= selection.rowEnd;
     const composerAfter = selection?.rowEnd === row;
-    const selectionPrefix = selection?.side === 'RIGHT' ? 'R' : 'L';
     const rowComments = pendingReviewCommentsForLine(
       review?.pendingComments ?? [], file.filename, oldLine, newLine);
     const rowSide: ReviewSide | null = newLine !== null ? 'RIGHT' : oldLine !== null ? 'LEFT' : null;
@@ -1072,7 +925,9 @@ function DiffFileCard({
         <tr
           className={`is-${displayRow.kind}${rowSelected ? ' is-selected' : ''}${inNavigatedRange ? ' is-review-target' : ''}`}
           data-diff-row={rowSide === null || rowLine === null ? undefined : `${file.filename}:${rowSide}:${rowLine}`}
-          onMouseEnter={() => extendLineSelection(oldLine, newLine, row)}>
+          // Moves count too: an enter dropped inside the 3px press slop fires only once, so the row would otherwise stay unselected.
+          onMouseEnter={selectingRange ? dragOverRow(oldLine, newLine, row) : undefined}
+          onMouseMove={selectingRange ? dragOverRow(oldLine, newLine, row) : undefined}>
           <td className="is-line">
             {oldLine !== null && canComment && (
               <button type="button"
@@ -1081,7 +936,7 @@ function DiffFileCard({
                 onMouseDown={event => {
                   if (event.button !== 0) return;
                   event.preventDefault();
-                  startLineSelection('LEFT', oldLine, event.shiftKey, oldLine, newLine, row);
+                  startLineSelection('LEFT', oldLine, event, oldLine, newLine, row);
                 }}
                 onKeyDown={event => {
                   if (event.key !== 'Enter' && event.key !== ' ') return;
@@ -1099,7 +954,7 @@ function DiffFileCard({
                 onMouseDown={event => {
                   if (event.button !== 0) return;
                   event.preventDefault();
-                  startLineSelection('RIGHT', newLine, event.shiftKey, oldLine, newLine, row);
+                  startLineSelection('RIGHT', newLine, event, oldLine, newLine, row);
                 }}
                 onKeyDown={event => {
                   if (event.key !== 'Enter' && event.key !== ' ') return;
@@ -1117,7 +972,7 @@ function DiffFileCard({
                 onMouseDown={event => {
                   if (event.button !== 0) return;
                   event.preventDefault();
-                  startLineSelection(target.side, target.line, event.shiftKey, oldLine, newLine, row);
+                  startLineSelection(target.side, target.line, event, oldLine, newLine, row);
                 }}
                 onClick={event => {
                   if (event.detail === 0) selectLine(target.side, target.line, event.shiftKey, row);
@@ -1178,60 +1033,29 @@ function DiffFileCard({
         ))}
         {composerAfter && !selectingRange && (
           <tr className={`is-review-composer is-${displayRow.kind}`}><td colSpan={3}>
-            <div className="pull-diff-review">
-              <header className="pull-diff-review__header">
-                <Avatar login={viewer?.login ?? ''} avatarUrl={viewer?.avatarUrl} size={22}
-                  allowGitHubFallback={false} />
-                <strong>{selection.start === selection.end
-                  ? `Add a comment on line ${selectionPrefix}${selection.start}`
-                  : `Add a comment on lines ${selectionPrefix}${selection.start} to ${selectionPrefix}${selection.end}`}</strong>
-              </header>
-              <div className="pull-diff-review__bar">
-                <div className="pull-diff-review__tabs" role="tablist">
-                  <button type="button" role="tab" aria-selected={!preview}
-                    className={preview ? '' : 'is-active'} onClick={() => {
-                      setPreview(false);
-                      requestAnimationFrame(() => bodyRef.current?.focus());
-                    }}>Write</button>
-                  <button type="button" role="tab" aria-selected={preview}
-                    className={preview ? 'is-active' : ''} onClick={() => setPreview(true)}>Preview</button>
-                </div>
-                {!preview && <MarkdownToolbar
-                  disabled={submitting}
-                  onCommand={command => editReviewBody((value, start, end) => applyMarkdownCommand(value, start, end, command))}
-                  onSuggest={suggestionLines === null
-                    ? undefined
-                    : () => editReviewBody((value, start, end) => insertSuggestion(value, start, end, suggestionLines))} />}
-              </div>
-              {preview && <div className="pull-diff-review__preview">
-                {reviewBody.trim()
-                  ? <MarkdownBody body={reviewBody} repository={review?.repo}
-                    suggestion={selection.side === 'RIGHT' ? { startLine: selection.start, lines: suggestionLines } : undefined} />
-                  : <p className="pull-diff-review__nothing">Nothing to preview</p>}
-              </div>}
-              <textarea ref={bodyRef} value={reviewBody} autoFocus hidden={preview} disabled={submitting}
-                placeholder={canReview ? 'Leave a review comment…' : 'Ask about this implementation…'}
-                onChange={event => setReviewBody(event.target.value)} />
-              {reviewError && <span role="alert">{reviewError}</span>}
-              {onAskAgent && <p className="pull-diff-review__nothing">Private — only you and the agent. Questions and replies stay in this thread.</p>}
-              {onAskAgent && onAskAgentDisabled && !sendingToAgent && <p className="pull-diff-review__nothing" role="status">{onAskAgentDisabled}</p>}
-              <footer>
-                {review && <BetterWordsButton text={reviewBody} textareaRef={bodyRef} repository={review.repo}
-                  workspaceId={review.workspaceId}
-                  disabled={preview || submitting}
-                  onError={failure => setReviewError(failure === null ? null : remoteErrorMessage(failure))} />}
-                <button type="button" disabled={submitting} onClick={closeComposer}>Cancel</button>
-                {onAskAgent && <button type="button" className={canReview ? '' : 'is-primary'}
-                  disabled={!reviewBody.trim() || submitting || Boolean(onAskAgentDisabled)}
-                  title={onAskAgentDisabled ?? undefined}
-                  onClick={() => { void askAgent(); }}>{sendingToAgent ? 'Sending…' : 'Send to agent'}</button>}
-                {canReview && <>
-                  <button type="button" disabled={!reviewBody.trim() || submitting} onClick={addPending}>Add to review</button>
-                  <button className="is-primary" type="button" disabled={!reviewBody.trim() || submitting}
-                    onClick={() => { void postNow(); }}>{posting ? 'Posting…' : 'Post now'}</button>
-                </>}
-              </footer>
-            </div>
+            <ReviewLineComposer
+              heading={rangeHeading(selection)}
+              viewer={viewer}
+              review={review}
+              canReview={canReview}
+              body={reviewBody}
+              onBodyChange={setReviewBody}
+              preview={preview}
+              onPreviewChange={setPreview}
+              error={reviewError}
+              onError={setReviewError}
+              bodyRef={bodyRef}
+              suggestion={selection.side === 'RIGHT' ? { startLine: selection.start, lines: suggestionLines } : undefined}
+              submitting={submitting}
+              posting={posting}
+              askAgent={onAskAgent === undefined ? undefined : {
+                sending: sendingToAgent,
+                disabledReason: onAskAgentDisabled,
+                onSend: () => { void askAgent(); },
+              }}
+              onCancel={closeComposer}
+              onAddPending={addPending}
+              onPostNow={() => { void postNow(); }} />
           </td></tr>
         )}
       </Fragment>
@@ -1289,10 +1113,7 @@ function DiffFileCard({
       {open && hunks.length > 0 && (
         <div className="pull-diff-file__code-scroll">
           {contentError && <p className="pull-diff-file__content-error" role="alert">{contentError}</p>}
-          <table className="pull-diff-code" onMouseUp={() => {
-            dragAnchor.current = null;
-            setSelectingRange(false);
-          }}>
+          <table className="pull-diff-code">
             <colgroup>
               <col className="pull-diff-code__line-column" />
               <col className="pull-diff-code__line-column" />
@@ -1377,9 +1198,8 @@ function UnplacedReviewThreads({ reviewThreads, viewerLogin, activities, label }
   </section>;
 }
 
-export function PendingReviewCommentRow({ comment, rowKind, viewer, repository, suggestion, editBody, onEdit, onSave, onDiscard }: {
+type PendingReviewCardProps = {
   comment: InlineReviewCommentDto;
-  rowKind: DisplayRow['kind'];
   viewer?: UserProfileDto | null;
   repository: string;
   suggestion?: SuggestionBase;
@@ -1387,42 +1207,50 @@ export function PendingReviewCommentRow({ comment, rowKind, viewer, repository, 
   onEdit: (body: string | null) => void;
   onSave: () => void;
   onDiscard: () => void;
-}) {
+};
+
+export function PendingReviewCommentRow({ rowKind, ...card }: PendingReviewCardProps & { rowKind: DisplayRow['kind'] }) {
+  return (
+    <tr className={`is-pending-review is-${rowKind}`}>
+      <td colSpan={3}>
+        <PendingReviewCard {...card} />
+      </td>
+    </tr>
+  );
+}
+
+export function PendingReviewCard({ comment, viewer, repository, suggestion, editBody, onEdit, onSave, onDiscard }: PendingReviewCardProps) {
   const endLabel = `${comment.side === 'RIGHT' ? 'R' : 'L'}${comment.line}`;
   const isRange = comment.startLine !== null && comment.startLine !== comment.line;
   const startSide = comment.startSide ?? comment.side;
   const startLabel = `${startSide === 'RIGHT' ? 'R' : 'L'}${comment.startLine ?? comment.line}`;
 
   return (
-    <tr className={`is-pending-review is-${rowKind}`}>
-      <td colSpan={3}>
-        <details className="pull-diff-pending" open>
-          <summary>
-            <span className="pull-diff-pending__chevron" aria-hidden="true">›</span>
-            <Avatar login={viewer?.login ?? ''} avatarUrl={viewer?.avatarUrl} size={22} allowGitHubFallback={false} />
-            <span>Comment on {isRange ? 'lines' : 'line'} <strong>{isRange ? `${startLabel}–${endLabel}` : endLabel}</strong></span>
-            <span className="pull-diff-pending__badge">Pending</span>
-          </summary>
-          {editBody === null ? <>
-            <div className="pull-diff-pending__body"><MarkdownBody body={comment.body} repository={repository} suggestion={suggestion} /></div>
-            <footer className="pull-diff-pending__actions">
-              <button type="button" onClick={() => onEdit(comment.body)}>Edit</button>
-              <button type="button" className="is-destructive" onClick={onDiscard}>Discard</button>
-            </footer>
-          </> : <form className="pull-diff-review pull-diff-pending__editor" onSubmit={event => {
-            event.preventDefault();
-            if (editBody.trim()) onSave();
-          }}>
-            <textarea autoFocus aria-label="Edit pending review comment" value={editBody}
-              onChange={event => onEdit(event.target.value)} />
-            <footer>
-              <button type="button" onClick={() => onEdit(null)}>Cancel</button>
-              <button type="submit" className="is-primary" disabled={!editBody.trim()}>Save</button>
-            </footer>
-          </form>}
-        </details>
-      </td>
-    </tr>
+    <details className="pull-diff-pending" open>
+      <summary>
+        <span className="pull-diff-pending__chevron" aria-hidden="true">›</span>
+        <Avatar login={viewer?.login ?? ''} avatarUrl={viewer?.avatarUrl} size={22} allowGitHubFallback={false} />
+        <span>Comment on {isRange ? 'lines' : 'line'} <strong>{isRange ? `${startLabel}–${endLabel}` : endLabel}</strong></span>
+        <span className="pull-diff-pending__badge">Pending</span>
+      </summary>
+      {editBody === null ? <>
+        <div className="pull-diff-pending__body"><MarkdownBody body={comment.body} repository={repository} suggestion={suggestion} /></div>
+        <footer className="pull-diff-pending__actions">
+          <button type="button" onClick={() => onEdit(comment.body)}>Edit</button>
+          <button type="button" className="is-destructive" onClick={onDiscard}>Discard</button>
+        </footer>
+      </> : <form className="pull-diff-review pull-diff-pending__editor" onSubmit={event => {
+        event.preventDefault();
+        if (editBody.trim()) onSave();
+      }}>
+        <textarea autoFocus aria-label="Edit pending review comment" value={editBody}
+          onChange={event => onEdit(event.target.value)} />
+        <footer>
+          <button type="button" onClick={() => onEdit(null)}>Cancel</button>
+          <button type="submit" className="is-primary" disabled={!editBody.trim()}>Save</button>
+        </footer>
+      </form>}
+    </details>
   );
 }
 
@@ -1446,19 +1274,9 @@ export async function submitInlineReviewComment(
   onDetailChange(await bridge.postPrReviewComment(repo, number, comment));
 }
 
-type ReviewSide = 'LEFT' | 'RIGHT';
-
 /** Stands in while a file card has no review; its actions are unreachable without one. */
-const PLACEHOLDER_REVIEW = { id: '', repo: '', number: 0, draft: null } as unknown as AgentReviewDto;
-type LineSelection = { side: ReviewSide; start: number; end: number; rowStart: number; rowEnd: number };
+export const PLACEHOLDER_REVIEW = { id: '', repo: '', number: 0, draft: null } as unknown as AgentReviewDto;
 type ReviewTarget = { side: ReviewSide; line: number };
-type DragAnchor = {
-  side: ReviewSide;
-  line: number;
-  oldLine: number | null;
-  newLine: number | null;
-  row: number;
-};
 type DisplayRow = DiffRow & { key: string };
 
 export function reviewTarget(oldLine: number | null, newLine: number | null): ReviewTarget | null {
@@ -1475,54 +1293,6 @@ function pendingReviewCommentsForLine(
 ) {
   return comments.filter(comment => comment.path === path
     && (comment.side === 'LEFT' ? comment.line === oldLine : comment.line === newLine));
-}
-
-export function nextLineSelection(
-  previous: LineSelection | null,
-  side: ReviewSide,
-  line: number,
-  extend: boolean,
-  row: number,
-): LineSelection {
-  if (!extend || previous === null || previous.side !== side) return { side, start: line, end: line, rowStart: row, rowEnd: row };
-  return {
-    side,
-    start: Math.min(previous.start, line),
-    end: Math.max(previous.end, line),
-    rowStart: Math.min(previous.rowStart, row),
-    rowEnd: Math.max(previous.rowEnd, row),
-  };
-}
-
-export function draggedLineSelection(
-  anchor: DragAnchor | null,
-  oldLine: number | null,
-  newLine: number | null,
-  row: number,
-): LineSelection | null {
-  if (anchor === null) return null;
-  const line = anchor.side === 'LEFT' ? oldLine : newLine;
-  if (line !== null) {
-    return {
-      side: anchor.side,
-      start: Math.min(anchor.line, line),
-      end: Math.max(anchor.line, line),
-      rowStart: Math.min(anchor.row, row),
-      rowEnd: Math.max(anchor.row, row),
-    };
-  }
-
-  const otherSide = anchor.side === 'LEFT' ? 'RIGHT' : 'LEFT';
-  const otherAnchorLine = otherSide === 'LEFT' ? anchor.oldLine : anchor.newLine;
-  const otherLine = otherSide === 'LEFT' ? oldLine : newLine;
-  if (otherAnchorLine === null || otherLine === null) return null;
-  return {
-    side: otherSide,
-    start: Math.min(otherAnchorLine, otherLine),
-    end: Math.max(otherAnchorLine, otherLine),
-    rowStart: Math.min(anchor.row, row),
-    rowEnd: Math.max(anchor.row, row),
-  };
 }
 
 function sourceLines(content: string | null | undefined) {

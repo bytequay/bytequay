@@ -653,14 +653,31 @@ public final class ClaudeCliDriver
 
     private static Map<String, String> inheritedEnvironment()
     {
+        return inheritedEnvironment(System.getenv(), Optional.ofNullable(System.getProperty("java.home")));
+    }
+
+    static Map<String, String> inheritedEnvironment(Map<String, String> processEnvironment, Optional<String> javaHome)
+    {
         ImmutableMap.Builder<String, String> environment = ImmutableMap.builder();
         for (String name : ImmutableSet.<String>builder().addAll(INHERITED_ENVIRONMENT).addAll(GitCliEnvironment.variables()).build()) {
-            String value = System.getenv(name);
+            String value = processEnvironment.get(name);
             if (value != null) {
                 environment.put(name, value);
             }
         }
+        // Claude Code's macOS sandbox limits sysctl reads, which breaks /usr/libexec/java_home and the /usr/bin/java stub.
+        Stream.of(Optional.ofNullable(processEnvironment.get("JAVA_HOME")), javaHome)
+                .flatMap(Optional::stream)
+                .filter(ClaudeCliDriver::hasJava)
+                .findFirst()
+                .ifPresent(home -> environment.put("JAVA_HOME", home));
         return environment.buildOrThrow();
+    }
+
+    private static boolean hasJava(String home)
+    {
+        Path java = Path.of(home, "bin", "java");
+        return java.isAbsolute() && Files.isRegularFile(java) && Files.isExecutable(java);
     }
 
     private record CommandResult(

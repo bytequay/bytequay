@@ -106,6 +106,7 @@ class TestCodexCliDriver
     {
         ScriptedProcessSupervisor supervisor = new ScriptedProcessSupervisor(objectMapper);
         CodexCliDriver driver = driver(supervisor);
+        Path mavenRepository = Files.createDirectories(worktree.resolve(".m2/repository")).toRealPath();
         List<ProviderAgentEvent> events = new CopyOnWriteArrayList<>();
         AtomicReference<ProviderApprovalRequest> approval = new AtomicReference<>();
 
@@ -145,9 +146,8 @@ class TestCodexCliDriver
         assertThat(startedTurn.path("approvalsReviewer").asText()).isEqualTo("auto_review");
         assertThat(Path.of(startedTurn.path("cwd").asText())).isEqualTo(worktree.toRealPath());
         assertThat(startedTurn.path("sandboxPolicy").path("type").asText()).isEqualTo("workspaceWrite");
-        assertThat(startedTurn.path("sandboxPolicy").path("writableRoots")).hasSize(1);
-        assertThat(startedTurn.path("sandboxPolicy").path("writableRoots").get(0).asText())
-                .isEqualTo(worktree.toRealPath().toString());
+        assertThat(startedTurn.path("sandboxPolicy").path("writableRoots"))
+                .isEqualTo(objectMapper.valueToTree(ImmutableList.of(worktree.toRealPath().toString(), mavenRepository.toString())));
         assertThat(startedTurn.path("sandboxPolicy").path("networkAccess").asBoolean()).isFalse();
         assertThat(startedTurn.path("sandboxPolicy").path("excludeTmpdirEnvVar").booleanValue()).isFalse();
         assertThat(startedTurn.path("sandboxPolicy").path("excludeSlashTmp").booleanValue()).isFalse();
@@ -200,6 +200,8 @@ class TestCodexCliDriver
     {
         ScriptedProcessSupervisor supervisor = ciSupervisor();
         CodexCliDriver driver = driver(supervisor);
+        // CI keeps its exact pinned roots even when the user has a Maven repository.
+        Files.createDirectories(worktree.resolve(".m2/repository"));
         Optional<AgentSessionRef> reference = Optional.empty();
         for (int attempt = 0; attempt < 2; attempt++) {
             AgentSessionContext context = ciContext(reference);
@@ -379,6 +381,7 @@ class TestCodexCliDriver
     {
         ScriptedProcessSupervisor supervisor = new ScriptedProcessSupervisor(objectMapper);
         CodexCliDriver driver = driver(supervisor);
+        Files.createDirectories(worktree.resolve(".m2/repository"));
         AgentSessionContext plain = context(Optional.empty(), new AtomicReference<>());
         AgentSessionContext textOnly = new AgentSessionContext(
                 plain.taskId(),
@@ -418,6 +421,7 @@ class TestCodexCliDriver
         assertThat(request.path("approvalPolicy").asText()).isEqualTo("never");
         assertThat(request.path("approvalsReviewer").asText()).isEqualTo("user");
         assertThat(request.path("sandboxPolicy").path("type").asText()).isEqualTo("readOnly");
+        assertThat(request.path("sandboxPolicy").has("writableRoots")).isFalse();
         assertThat(request.path("sandboxPolicy").path("networkAccess").asBoolean()).isFalse();
         supervisor.server().completeTurnWithSummary("[{\"type\":\"agentMessage\",\"id\":\"title\","
                 + "\"text\":\"Find refactoring opportunities\",\"phase\":\"final_answer\"}]");
@@ -2632,6 +2636,7 @@ class TestCodexCliDriver
         PermissionBroker broker = new PermissionBroker(
                 () -> URI.create(MCP_ENDPOINT), objectMapper, (taskId, query) -> "", taskId -> Optional.of(review));
         CodexHome.prepare(codexHome());
+        Path mavenRepository = Files.createDirectories(worktree.resolve(".m2/repository")).toRealPath();
         CodexCliDriver driver = new CodexCliDriver("/fake/codex", "0.153.4", objectMapper, supervisor,
                 ImmutableMap.of("HOME", worktree.toString(), "GH_TOKEN", "github-sentinel"), codexHome(), broker, Duration.ofSeconds(30));
         Optional<AgentSessionRef> reference = Optional.empty();
@@ -2673,6 +2678,8 @@ class TestCodexCliDriver
                 session.start(command("private review"));
                 assertThat(server.turnRequests().getFirst().path("approvalsReviewer").asText()).isEqualTo("auto_review");
                 assertThat(server.turnRequests().getFirst().path("sandboxPolicy").path("type").asText()).isEqualTo("workspaceWrite");
+                assertThat(server.turnRequests().getFirst().path("sandboxPolicy").path("writableRoots"))
+                        .isEqualTo(objectMapper.valueToTree(ImmutableList.of(worktree.toRealPath().toString(), mavenRepository.toString())));
                 List<String> deniedCommands = ImmutableList.of("git commit -am experiment", "git update-ref refs/heads/topic HEAD", "git push origin HEAD");
                 for (String shellCommand : deniedCommands) {
                     approval.set(null);

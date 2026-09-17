@@ -18,7 +18,7 @@ import { VitePlugin } from '@electron-forge/plugin-vite';
 import { FusesPlugin } from '@electron-forge/plugin-fuses';
 import { FuseV1Options, FuseVersion } from '@electron/fuses';
 import { execSync } from 'node:child_process';
-import { existsSync } from 'node:fs';
+import { chmodSync, cpSync, existsSync } from 'node:fs';
 import { join } from 'node:path';
 
 // Path to the Spring Boot uber-jar produced by `mvn package`. Bundled
@@ -32,7 +32,8 @@ const CODEGRAPH_BUNDLE = join(__dirname, 'vendor', 'codegraph');
 
 const config: ForgeConfig = {
   packagerConfig: {
-    asar: true,
+    // node-pty execs spawn-helper beside pty.node, which cannot run from inside the archive.
+    asar: { unpack: '**/node_modules/node-pty/**' },
     // Product name shown in Finder, the menu bar, About box, and the
     // dock — without this Electron defaults to its own name.
     name: 'ByteQuay',
@@ -45,6 +46,17 @@ const config: ForgeConfig = {
     extraResource: [BACKEND_JAR, CODEGRAPH_BUNDLE],
   },
   hooks: {
+    // The Vite plugin ships only its bundles, so the one runtime native module is copied in: its JS, license and
+    // this platform's N-API prebuild, without sources or other platforms.
+    packageAfterCopy: async (_config, buildPath, _electronVersion, platform, arch) => {
+      const source = join(__dirname, 'node_modules', 'node-pty');
+      const target = join(buildPath, 'node_modules', 'node-pty');
+      const prebuild = join('prebuilds', `${platform}-${arch}`);
+      for (const entry of ['package.json', 'LICENSE', 'lib', prebuild]) {
+        cpSync(join(source, entry), join(target, entry), { recursive: true });
+      }
+      chmodSync(join(target, prebuild, 'spawn-helper'), 0o755);
+    },
     // Build the Spring Boot JAR before Forge tries to copy it via
     // extraResource. Skips Maven's gates here (`-DskipTests`) because
     // CI already runs the full `mvn verify` — this hook just produces
@@ -66,7 +78,8 @@ const config: ForgeConfig = {
       });
     },
   },
-  rebuildConfig: {},
+  // N-API prebuilds load in any Electron, so nothing is rebuilt against its headers.
+  rebuildConfig: { ignoreModules: ['node-pty'] },
   makers: [
     new MakerZIP({}, ['darwin']),
     // Native macOS installer disk image. ULFO is the modern read-only

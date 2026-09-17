@@ -13,6 +13,7 @@
  */
 package com.bytequay.agent.cli.process.impl;
 
+import com.bytequay.agent.cli.process.ExecutionProfile;
 import com.bytequay.agent.cli.process.LaunchPhase;
 import com.bytequay.agent.cli.process.ManagedProcess;
 import com.bytequay.agent.cli.process.OwnedProcessRecovery;
@@ -40,6 +41,7 @@ import java.nio.ByteBuffer;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.nio.file.attribute.PosixFilePermissions;
 import java.time.Duration;
 import java.util.EnumMap;
 import java.util.Map;
@@ -725,6 +727,35 @@ class TestDefaultProcessSupervisor
             launcher.descendants().forEach(ProcessHandle::destroyForcibly);
             launcher.destroyForcibly();
         }
+    }
+
+    @Test
+    void runsALocalRunBehindANonExecLeaderThatKeepsTheWrapperExitCode()
+            throws Exception
+    {
+        Path wrapper = worktree.resolve("mvnw");
+        Files.writeString(wrapper, "#!/bin/sh\nprintf '%s|' \"$@\" > args\nexec /bin/sh -c 'exit 3'\n");
+        Files.setPosixFilePermissions(wrapper, PosixFilePermissions.fromString("rwx------"));
+        ProcessOwner owner = new ProcessOwner(ProcessOwner.Kind.LOCAL_RUN, "task-1/run-1");
+        PreparedProcess prepared = supervisor.prepare(new ProcessSpec(
+                owner,
+                ImmutableList.of("/bin/bash", "-c", "\"$0\" \"$@\"; exit $?", wrapper.toString(), "-B", "-Dtest=demo.TestCode#fails", "test"),
+                worktree,
+                ImmutableMap.of("PATH", "/usr/bin:/bin"),
+                OptionalInt.empty(),
+                64 * 1024,
+                Duration.ofSeconds(10),
+                Duration.ofMillis(100)));
+
+        ProcessExit exit = prepared.start((stream, bytes) -> {}).exit().toCompletableFuture().get(10, TimeUnit.SECONDS);
+
+        assertThat(exit.exitCode()).isEqualTo(3);
+        assertThat(exit.treeTermination()).isEqualTo(ProcessExit.TreeTermination.VERIFIED_STOPPED);
+        assertThat(Files.readString(worktree.resolve("args"))).isEqualTo("-B|-Dtest=demo.TestCode#fails|test|");
+        LaunchMarker marker = new LaunchMarkerStore(launches).read(prepared.launchId()).orElseThrow();
+        assertThat(marker.owner()).isEqualTo(owner);
+        assertThat(marker.profile()).isEqualTo(ExecutionProfile.LOCAL_COMMAND);
+        assertThat(marker.executable()).isEqualTo("/bin/bash");
     }
 
     @Test

@@ -14,6 +14,7 @@
 package com.bytequay.agent.core.impl;
 
 import com.bytequay.agent.core.CodeGraphService;
+import com.bytequay.agent.core.CodeSymbolResult;
 import com.bytequay.agent.core.RepositoryIdentity;
 import com.bytequay.agent.core.TaskResources;
 import com.bytequay.agent.core.TaskWorktree;
@@ -52,6 +53,18 @@ final class RecordingCodeGraphService
     public String explore(TaskWorktree worktree, TaskResources resources, String query)
     {
         return "graph:" + query;
+    }
+
+    @Override
+    public CodeSymbolResult searchSymbols(TaskWorktree worktree, TaskResources resources, String query, int limit)
+    {
+        return CodeSymbolResult.UNAVAILABLE;
+    }
+
+    @Override
+    public CodeSymbolResult fileSymbols(TaskWorktree worktree, TaskResources resources, String path)
+    {
+        return CodeSymbolResult.UNAVAILABLE;
     }
 
     @Override

@@ -61,6 +61,7 @@ import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.Optional;
+import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -462,6 +463,54 @@ class TestAgentStartupRecovery
         // The marker is kept for inspection, so the block survives another restart.
         verify(supervisor).acknowledge("clean");
         verify(supervisor, never()).acknowledge("leaked");
+    }
+
+    @ParameterizedTest
+    @ValueSource(booleans = {true, false})
+    void resolvesAnUnverifiableLocalRunToTheTaskInItsOwner(boolean markerSurvived)
+    {
+        AgentEventOutboxStore outboxStore = mock(AgentEventOutboxStore.class);
+        AgentTurnStore turnStore = mock(AgentTurnStore.class);
+        AgentTaskStore taskStore = mock(AgentTaskStore.class);
+        AgentServingGate servingGate = new AgentServingGate();
+        when(outboxStore.listPending(100)).thenReturn(ImmutableList.of());
+        TaskId taskId = TaskId.random();
+        when(taskStore.find(taskId)).thenReturn(Optional.of(openTask(taskId)));
+        String owner = taskId + "/" + UUID.randomUUID();
+        ProcessSupervisor supervisor = mock(ProcessSupervisor.class);
+        when(supervisor.recoverOwnedProcesses()).thenReturn(ImmutableList.of(markerSurvived
+                ? unverifiableForOwner("run-leaked", ProcessOwner.Kind.LOCAL_RUN, owner)
+                : unverifiable("run-leaked")));
+
+        new AgentStartupRecovery(
+                outboxStore, mock(AgentEventService.class), maintenance(taskStore, turnStore), supervisor, servingGate,
+                launchStore(launch("run-leaked", LaunchOwnerKind.LOCAL_RUN, owner)), taskStore, turnStore, mock(AgentTurnService.class))
+                .afterSingletonsInstantiated();
+
+        // A run executes in its task's worktree, so it blocks that task only and is never treated as control-only.
+        assertThat(servingGate.isReady()).isTrue();
+        ArgumentCaptor<AgentTask> held = ArgumentCaptor.forClass(AgentTask.class);
+        verify(taskStore).update(held.capture());
+        assertThat(held.getValue().worktreeMutationClaim()).contains(WorktreeMutationClaim.recovery("run-leaked", held.getValue().updatedAt()));
+        verify(supervisor, never()).acknowledge("run-leaked");
+    }
+
+    @Test
+    void keepsTheGateClosedForALocalRunOwnerThatNamesNoTask()
+    {
+        AgentEventOutboxStore outboxStore = mock(AgentEventOutboxStore.class);
+        AgentServingGate servingGate = new AgentServingGate();
+        when(outboxStore.listPending(100)).thenReturn(ImmutableList.of());
+        ProcessSupervisor supervisor = mock(ProcessSupervisor.class);
+        when(supervisor.recoverOwnedProcesses()).thenReturn(ImmutableList.of(unverifiableForOwner("run-leaked", ProcessOwner.Kind.LOCAL_RUN, "not-a-task")));
+        AgentTaskStore taskStore = mock(AgentTaskStore.class);
+        AgentTurnStore turnStore = mock(AgentTurnStore.class);
+
+        new AgentStartupRecovery(outboxStore, mock(AgentEventService.class), maintenance(taskStore, turnStore), supervisor, servingGate,
+                launchStore(), taskStore, turnStore, mock(AgentTurnService.class))
+                .afterSingletonsInstantiated();
+
+        assertThat(servingGate.isReady()).isFalse();
     }
 
     @Test

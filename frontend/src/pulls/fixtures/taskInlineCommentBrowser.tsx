@@ -251,6 +251,9 @@ async function scenario(mode: 'idle' | 'queued' | 'unsent'): Promise<void> {
       button(localCard, 'Reply').click(); await settle();
       const input = localCard.querySelector<HTMLTextAreaElement>('[aria-label="Reply to local review"]');
       assert(input !== null, 'Local card must allow a follow-up');
+      assert(localCard.querySelector<HTMLButtonElement>('.pull-diff-review__bar .pull-diff-review__private')?.disabled === true
+        && localCard.textContent?.includes('Private — only you and the agent') === false,
+      'A task reply must show the Private label instead of a help text');
       changeInput(input, 'Please explain the simpler version'); await settle();
       button(localCard, 'Reply to agent').click(); await settle();
       assert(saved.get(request.id)?.messages.length === 3 && localCard.textContent?.includes('The implementation is simpler now.') === true,

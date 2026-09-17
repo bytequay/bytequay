@@ -39,6 +39,7 @@ import com.bytequay.app.workspace.ManagedWorktreeService;
 import com.bytequay.app.workspace.WorkspaceOperationLocks;
 import com.bytequay.app.workspace.WorkspaceRepositoryContext;
 import com.bytequay.app.workspace.WorkspaceRepositoryService;
+import com.bytequay.core.domain.PullRequest;
 import com.bytequay.core.domain.PullRequestDetail;
 import com.bytequay.core.domain.PullRequestTask;
 import com.bytequay.core.store.PullRequestStore;
@@ -106,13 +107,15 @@ public class PullRequestTaskService
         if (assigned.isPresent()) {
             return assigned;
         }
-        return rows.findIdByRepoAndNumber(repo, number).flatMap(rows::findById).flatMap(pr -> Optional.ofNullable(pr.headRef()))
-                .flatMap(branch -> taskStore.listByWorkspace(workspaceId).stream()
+        return rows.findIdByRepoAndNumber(repo, number).flatMap(rows::findById).filter(pr -> pr.headRef() != null)
+                .flatMap(pr -> taskStore.listByWorkspace(workspaceId).stream()
                         .filter(AgentTask::interactive)
                         .sorted(Comparator.comparing((AgentTask task) -> task.state() == TaskState.OPEN).reversed()
                                 .thenComparing(AgentTask::updatedAt, Comparator.reverseOrder()))
-                        .filter(task -> task.taskWorktree().filter(worktree -> worktree.generatedBranch().equals(branch)
-                                || (task.worktreeRemovedAt().isEmpty() && worktrees.currentBranch(worktree).filter(branch::equals).isPresent())).isPresent())
+                        // A renamed branch can share a common name with another author's fork, so only the user's own pull request matches it.
+                        .filter(task -> task.taskWorktree().filter(worktree -> worktree.generatedBranch().equals(pr.headRef())
+                                || (pr.origin() == PullRequest.Origin.AUTHORED && task.worktreeRemovedAt().isEmpty()
+                                && worktrees.currentBranch(worktree).filter(pr.headRef()::equals).isPresent())).isPresent())
                         .findFirst());
     }
 

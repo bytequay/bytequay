@@ -197,7 +197,7 @@ class TestCodeGraphBaselines
         Task task = repository.task(temp, repository.head());
 
         PinnedCodeGraphService impatient = new PinnedCodeGraphService(
-                cli, git, temp.resolve("baselines"), PinnedCodeGraphService.DEFAULT_RESULT_LIMIT_BYTES, LONG, LONG, Duration.ofMillis(50));
+                cli, git, temp.resolve("baselines"), PinnedCodeGraphService.DEFAULT_RESULT_LIMIT_BYTES, LONG, LONG, Duration.ofMillis(50), LONG, Runnable::run);
         CompletableFuture<Void> prepare = CompletableFuture.runAsync(() -> impatient.prepare(task.worktree, task.resources));
         assertThat(buildStarted.await(30, TimeUnit.SECONDS)).isTrue();
         assertThatThrownBy(() -> impatient.explore(task.worktree, task.resources, "alphaOne"))
@@ -304,7 +304,7 @@ class TestCodeGraphBaselines
 
     private PinnedCodeGraphService service(CodeGraphCli cli, Path temp)
     {
-        return new PinnedCodeGraphService(cli, git, temp.resolve("baselines"), PinnedCodeGraphService.DEFAULT_RESULT_LIMIT_BYTES, LONG, LONG, LONG);
+        return new PinnedCodeGraphService(cli, git, temp.resolve("baselines"), PinnedCodeGraphService.DEFAULT_RESULT_LIMIT_BYTES, LONG, LONG, LONG, LONG, Runnable::run);
     }
 
     private static void assumeBundle()

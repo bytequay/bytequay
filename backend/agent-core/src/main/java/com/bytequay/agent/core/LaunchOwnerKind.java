@@ -25,5 +25,6 @@ public enum LaunchOwnerKind
     APP_SERVER,
     TASK_EXEC_SERVER,
     CLAUDE_TURN,
-    CLI_PROBE
+    CLI_PROBE,
+    LOCAL_RUN
 }

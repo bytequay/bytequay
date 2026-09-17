@@ -150,7 +150,7 @@ public final class DefaultAgentCompletionService
                 throw new AgentConflictException("Task has an active turn: " + turn.id());
             });
             task.worktreeMutationClaim().ifPresent(owner -> {
-                throw new AgentConflictException("Task worktree is claimed by " + owner.kind());
+                throw new AgentConflictException(owner.conflictMessage());
             });
             List<QueuedAgentInput> queue = queueStore.listQueued(task.id());
             queue.stream().filter(input -> input.state().live()).findFirst().ifPresent(input -> {

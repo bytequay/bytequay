@@ -25,5 +25,7 @@ public enum ExecutionProfile
     /** Long-lived Codex App Server or one Claude control process; claims no network allowlist. */
     PROVIDER_CONTROL,
     /** One loopback Codex executor and its built-in sandbox helpers. */
-    TASK_EXEC_SERVER
+    TASK_EXEC_SERVER,
+    /** A user-requested command in the review working copy, with the login-shell environment and no provider sandbox. */
+    LOCAL_COMMAND
 }

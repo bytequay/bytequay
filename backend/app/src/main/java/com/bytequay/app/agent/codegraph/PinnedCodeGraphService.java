@@ -15,11 +15,16 @@ package com.bytequay.app.agent.codegraph;
 
 import com.bytequay.agent.core.CodeGraphException;
 import com.bytequay.agent.core.CodeGraphService;
+import com.bytequay.agent.core.CodeSymbol;
+import com.bytequay.agent.core.CodeSymbolResult;
 import com.bytequay.agent.core.RepositoryIdentity;
 import com.bytequay.agent.core.TaskResources;
 import com.bytequay.agent.core.TaskWorktree;
 import com.bytequay.app.git.GitCommandRunner;
 import com.bytequay.app.git.GitCommandRunner.Result;
+import com.fasterxml.jackson.core.JacksonException;
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import com.google.common.collect.ImmutableList;
 import com.google.common.io.MoreFiles;
 import com.google.common.io.RecursiveDeleteOption;
@@ -32,9 +37,11 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.Duration;
 import java.time.Instant;
+import java.util.List;
 import java.util.Optional;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
+import java.util.concurrent.Executor;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.locks.ReentrantLock;
 import java.util.stream.Stream;
@@ -54,6 +61,10 @@ import static java.util.Objects.requireNonNull;
  * an unscoped sync or a full rebuild is cheaper, which the changed-file count answers. Locks are
  * taken task first, then repository, and a refresh takes only the repository lock, so a prepare
  * waits for a running refresh and an explore waits for a running prepare.
+ *
+ * <p>The symbol reads serve the UI instead: they only try the task lock briefly, run a plain sync
+ * whatever the size rule says, and hand a missing index or a moved HEAD to a background prepare
+ * rather than build on the request thread.
  */
 public final class PinnedCodeGraphService
         implements CodeGraphService
@@ -63,6 +74,7 @@ public final class PinnedCodeGraphService
     static final String STILL_PREPARING = "CodeGraph index is still being prepared; retry shortly";
     static final int DEFAULT_RESULT_LIMIT_BYTES = 16 * 1024;
     static final int MAXIMUM_QUERY_LENGTH = 2000;
+    static final int MAXIMUM_SYMBOL_LIMIT = 200;
     // Above roughly five percent of the tracked files an unscoped sync
     // costs more than a full rebuild (Trino: 924 changed files synced in 47 s, rebuilt in 42 s).
     static final double REBUILD_FRACTION = 0.05;
@@ -71,6 +83,7 @@ public final class PinnedCodeGraphService
     private static final Duration BUILD_TIMEOUT = Duration.ofMinutes(10);
     private static final Duration QUERY_TIMEOUT = Duration.ofMinutes(1);
     private static final Duration PREPARE_WAIT = Duration.ofSeconds(60);
+    private static final Duration READ_WAIT = Duration.ofSeconds(2);
     private static final Duration COPY_TIMEOUT = Duration.ofMinutes(5);
     private static final String TASK_HEAD_FILE = "codegraph.head";
     private static final String SCRATCH_HOME = "codegraph-home";
@@ -78,6 +91,7 @@ public final class PinnedCodeGraphService
     private static final String NEXT_DIRECTORY = "codegraph.next";
     private static final String OLD_DIRECTORY = "codegraph.old";
     private static final String CHECKOUT_DIRECTORY = "checkout";
+    private static final ObjectMapper JSON = new ObjectMapper();
 
     private final CodeGraphCli cli;
     private final GitCommandRunner git;
@@ -86,13 +100,16 @@ public final class PinnedCodeGraphService
     private final Duration buildTimeout;
     private final Duration queryTimeout;
     private final Duration prepareWait;
+    private final Duration readWait;
+    private final Executor prepareExecutor;
     // ponytail: one lock per task index and per repository, never evicted; both sets are small.
     private final ConcurrentMap<Path, ReentrantLock> taskLocks = new ConcurrentHashMap<>();
     private final ConcurrentMap<RepositoryIdentity, ReentrantLock> repositoryLocks = new ConcurrentHashMap<>();
 
     public PinnedCodeGraphService(CodeGraphCli cli, GitCommandRunner git, Path baselineRoot)
     {
-        this(cli, git, baselineRoot, DEFAULT_RESULT_LIMIT_BYTES, BUILD_TIMEOUT, QUERY_TIMEOUT, PREPARE_WAIT);
+        this(cli, git, baselineRoot, DEFAULT_RESULT_LIMIT_BYTES, BUILD_TIMEOUT, QUERY_TIMEOUT, PREPARE_WAIT, READ_WAIT,
+                command -> Thread.ofVirtual().name("bytequay-codegraph-prepare").start(command));
     }
 
     PinnedCodeGraphService(
@@ -102,7 +119,9 @@ public final class PinnedCodeGraphService
             int resultLimitBytes,
             Duration buildTimeout,
             Duration queryTimeout,
-            Duration prepareWait)
+            Duration prepareWait,
+            Duration readWait,
+            Executor prepareExecutor)
     {
         this.cli = requireNonNull(cli, "cli is null");
         this.git = requireNonNull(git, "git is null");
@@ -112,6 +131,8 @@ public final class PinnedCodeGraphService
         this.buildTimeout = requireNonNull(buildTimeout, "buildTimeout is null");
         this.queryTimeout = requireNonNull(queryTimeout, "queryTimeout is null");
         this.prepareWait = requireNonNull(prepareWait, "prepareWait is null");
+        this.readWait = requireNonNull(readWait, "readWait is null");
+        this.prepareExecutor = requireNonNull(prepareExecutor, "prepareExecutor is null");
     }
 
     @Override
@@ -219,6 +240,25 @@ public final class PinnedCodeGraphService
         finally {
             lock.unlock();
         }
+    }
+
+    @Override
+    public CodeSymbolResult searchSymbols(TaskWorktree worktree, TaskResources resources, String query, int limit)
+    {
+        requireNonNull(query, "query is null");
+        checkArgument(!query.isBlank(), "query is blank");
+        checkArgument(query.length() <= MAXIMUM_QUERY_LENGTH, "query is longer than %s characters", MAXIMUM_QUERY_LENGTH);
+        checkArgument(limit >= 1 && limit <= MAXIMUM_SYMBOL_LIMIT, "limit must be between 1 and %s", MAXIMUM_SYMBOL_LIMIT);
+        // "--" keeps a query that starts with a dash from parsing as an option.
+        return read(worktree, resources, ImmutableList.of("query", "--json", "--limit", Integer.toString(limit), "--", query), true);
+    }
+
+    @Override
+    public CodeSymbolResult fileSymbols(TaskWorktree worktree, TaskResources resources, String path)
+    {
+        requireNonNull(path, "path is null");
+        checkArgument(!path.isBlank(), "path is blank");
+        return read(worktree, resources, ImmutableList.of("node", "--file=" + path, "--symbols-only", "--json"), false);
     }
 
     @Override
@@ -341,24 +381,118 @@ public final class PinnedCodeGraphService
         }
     }
 
+    /**
+     * One UI read. It never waits long for the task lock, never builds, rebuilds, or discards the index
+     * on the caller's thread, and reports expected failures as a status instead of throwing.
+     */
+    private CodeSymbolResult read(TaskWorktree worktree, TaskResources resources, List<String> arguments, boolean searchHits)
+    {
+        requireNonNull(worktree, "worktree is null");
+        requireNonNull(resources, "resources is null");
+        if (!cli.available()) {
+            return CodeSymbolResult.UNAVAILABLE;
+        }
+        Path source = worktree.canonicalWorktree();
+        ReentrantLock lock = lockFor(resources);
+        try {
+            if (!tryLock(lock, readWait)) {
+                return CodeSymbolResult.BUSY;
+            }
+        }
+        catch (CodeGraphException interrupted) {
+            return CodeSymbolResult.UNAVAILABLE;
+        }
+        try {
+            Path index = indexDirectory(resources);
+            // Only a missing index or a moved HEAD needs prepare. Uncommitted changes above the size rule would
+            // pick a rebuild, which leaves them uncommitted, so every later read would queue another rebuild.
+            if (!usable(index, headFile(resources)) || !readHead(headFile(resources)).equals(Optional.of(revParseHead(source)))) {
+                prepareExecutor.execute(() -> prepare(worktree, resources));
+                return CodeSymbolResult.UPDATING;
+            }
+            Result synced = cli.run(source, index, scratchHome(resources), buildTimeout, Update.SYNC.arguments(source));
+            if (!synced.successful()) {
+                LOG.warn("CodeGraph index for task {} was not synchronized for a symbol read: {}", worktree.taskId(), summary(synced.output()));
+                return CodeSymbolResult.UNAVAILABLE;
+            }
+            Result result = cli.run(source, index, scratchHome(resources), queryTimeout, arguments);
+            if (!result.successful() || result.truncated()) {
+                LOG.warn("CodeGraph symbol read for task {} failed: {}", worktree.taskId(), result.truncated() ? "output truncated" : summary(result.output()));
+                return CodeSymbolResult.UNAVAILABLE;
+            }
+            try {
+                return CodeSymbolResult.ready(parseSymbols(result.output(), searchHits));
+            }
+            catch (JacksonException | IllegalArgumentException e) {
+                LOG.warn("CodeGraph symbol read for task {} printed unreadable output: {}", worktree.taskId(), e.getMessage());
+                return CodeSymbolResult.UNAVAILABLE;
+            }
+        }
+        catch (CodeGraphException e) {
+            LOG.warn("CodeGraph symbol read for task {} failed: {}", worktree.taskId(), e.getMessage());
+            return CodeSymbolResult.UNAVAILABLE;
+        }
+        finally {
+            lock.unlock();
+        }
+    }
+
+    /**
+     * Maps {@code query --json} hits ({@code [{node, score}]}) or the patched file mode's bare node
+     * array to symbols, ignoring every other field.
+     *
+     * @throws IllegalArgumentException when the output is not that shape
+     */
+    private static List<CodeSymbol> parseSymbols(String output, boolean searchHits)
+            throws JacksonException
+    {
+        JsonNode root = JSON.readTree(output);
+        checkArgument(root.isArray(), "CodeGraph output is not a JSON array");
+        ImmutableList.Builder<CodeSymbol> symbols = ImmutableList.builder();
+        for (JsonNode entry : root) {
+            JsonNode node = searchHits ? entry.required("node") : entry;
+            symbols.add(new CodeSymbol(
+                    text(node, "name"),
+                    text(node, "kind"),
+                    optionalText(node, "qualifiedName"),
+                    text(node, "filePath"),
+                    number(node, "startLine"),
+                    number(node, "startColumn"),
+                    number(node, "endLine"),
+                    optionalText(node, "signature")));
+        }
+        return symbols.build();
+    }
+
+    private static String text(JsonNode node, String field)
+    {
+        JsonNode value = node.required(field);
+        checkArgument(value.isTextual(), "CodeGraph field %s is not text", field);
+        return value.textValue();
+    }
+
+    private static Optional<String> optionalText(JsonNode node, String field)
+    {
+        return Optional.ofNullable(node.get(field)).filter(JsonNode::isTextual).map(JsonNode::textValue);
+    }
+
+    private static int number(JsonNode node, String field)
+    {
+        JsonNode value = node.required(field);
+        checkArgument(value.canConvertToInt() && value.isIntegralNumber(), "CodeGraph field %s is not an integer", field);
+        return value.intValue();
+    }
+
     private void synchronize(Path source, TaskResources resources)
     {
         Path index = indexDirectory(resources);
         Path head = headFile(resources);
-        Path scratch = scratchHome(resources);
         String current = revParseHead(source);
-        Optional<String> last = readHead(head);
-        Result result;
-        if (!usable(index, head)) {
+        Update update = update(source, resources);
+        if (update == Update.INIT) {
             discard(index, head);
-            result = cli.run(source, index, scratch, buildTimeout, ImmutableList.of("init", source.toString(), "--yes"));
         }
-        else if (rebuildNeeded(changedFiles(source, last.orElseThrow()), trackedFiles(source))) {
-            result = cli.run(source, index, scratch, buildTimeout, ImmutableList.of("index", source.toString(), "--quiet"));
-        }
-        else {
-            result = cli.run(source, index, scratch, buildTimeout, ImmutableList.of("sync", source.toString(), "--quiet"));
-        }
+        Result result = cli.run(source, index, scratchHome(resources), buildTimeout, update.arguments(source));
         if (!result.successful()) {
             discard(index, head);
             throw unavailable("synchronization", result);
@@ -366,11 +500,22 @@ public final class PinnedCodeGraphService
         writeHead(head, current);
     }
 
+    /** Builds a missing or unusable index, rebuilds when the size rule says a sync costs more, and otherwise syncs. */
+    private Update update(Path source, TaskResources resources)
+    {
+        Path head = headFile(resources);
+        if (!usable(indexDirectory(resources), head)) {
+            return Update.INIT;
+        }
+        return rebuildNeeded(changedFiles(source, readHead(head).orElseThrow()), trackedFiles(source)) ? Update.INDEX : Update.SYNC;
+    }
+
     /** Files changed since the recorded commit, or -1 when git cannot compare, which forces a rebuild. */
     private long changedFiles(Path source, String last)
     {
         Result committed = git.run(source, "diff", "--name-only", last, "HEAD");
-        Result pending = git.run(source, "status", "--porcelain");
+        // Without --no-optional-locks, status refreshes the index under index.lock and can fail a concurrent commit, stash or merge.
+        Result pending = git.run(source, "--no-optional-locks", "status", "--porcelain");
         if (!committed.successful() || !pending.successful()) {
             return -1;
         }
@@ -577,5 +722,26 @@ public final class PinnedCodeGraphService
     private static long lines(String output)
     {
         return output.lines().filter(line -> !line.isBlank()).count();
+    }
+
+    private enum Update
+    {
+        INIT("init", "--yes"),
+        INDEX("index", "--quiet"),
+        SYNC("sync", "--quiet");
+
+        private final String command;
+        private final String flag;
+
+        Update(String command, String flag)
+        {
+            this.command = command;
+            this.flag = flag;
+        }
+
+        List<String> arguments(Path source)
+        {
+            return ImmutableList.of(command, source.toString(), flag);
+        }
     }
 }

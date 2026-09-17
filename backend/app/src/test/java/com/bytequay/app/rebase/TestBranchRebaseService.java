@@ -719,6 +719,18 @@ class TestBranchRebaseService
         }
 
         @Override
+        public AgentTask claimLocalRun(TaskId taskId, String runId)
+        {
+            throw new UnsupportedOperationException("Rebase tasks run no local tests");
+        }
+
+        @Override
+        public void releaseLocalRun(TaskId taskId, String runId)
+        {
+            throw new UnsupportedOperationException("Rebase tasks run no local tests");
+        }
+
+        @Override
         public CompletionStage<DevelopmentTurnCompletion> startGeneratedTurn(TaskId taskId, DevelopmentTurnOrigin origin, String message)
         {
             throw new UnsupportedOperationException("Rebase tasks do not generate development follow-ups");

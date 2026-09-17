@@ -16,11 +16,14 @@ import { resolve } from 'node:path';
 import { createElement } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { describe, expect, it, vi } from 'vitest';
+import { parseAgentTask } from '../agents/contracts';
+import contracts from '../agents/fixtures/agent-contracts-v1.json';
 import type { Bridge, WorkspaceDto } from '../types';
 import { reviewFixture } from './agent-review/fixtures/review';
 import { PULL_TABS, type PullTab } from './model';
 import {
   compactToolbar,
+  findCodeTask,
   loadAgentReviewContext,
   mergePullRequestDetailStatus,
   PullFilterTabs,
@@ -173,6 +176,32 @@ describe('loadAgentReviewContext', () => {
     await expect(loadAgentReviewContext(bridge, 'trinodb/trino', 30304)).rejects.toBe(failure);
     expect(bridge.findAgentReview).not.toHaveBeenCalled();
     await expect(loadAgentReviewContext(bridge, 'trinodb/trino', 30304)).rejects.toBe(failure);
+  });
+});
+
+describe('findCodeTask', () => {
+  function bridge(task: ReturnType<typeof parseAgentTask> | null) {
+    return {
+      findPullRequestTask: vi.fn<Parameters<Bridge['findPullRequestTask']>, ReturnType<Bridge['findPullRequestTask']>>()
+        .mockResolvedValue(task === null ? null : { workspaceId: 'workspace-1', taskId: task.id }),
+      getAgentTask: vi.fn<Parameters<Bridge['getAgentTask']>, ReturnType<Bridge['getAgentTask']>>().mockResolvedValue(task ?? parseAgentTask(contracts.task)),
+    };
+  }
+  const task = { ...parseAgentTask(contracts.task), interactive: true };
+
+  it('binds Code & Tests to the owning interactive task while its worktree is present', async () => {
+    const ports = bridge(task);
+    await expect(findCodeTask(ports, 'workspace-1', 'trinodb/trino', 30304)).resolves.toEqual(task);
+    expect(ports.findPullRequestTask).toHaveBeenCalledWith('workspace-1', 'trinodb/trino', 30304);
+    expect(ports.getAgentTask).toHaveBeenCalledWith(task.id, 'workspace-1');
+  });
+
+  it('ignores a pull request without a task, a removed worktree and a non-interactive task', async () => {
+    const none = bridge(null);
+    await expect(findCodeTask(none, 'workspace-1', 'trinodb/trino', 30304)).resolves.toBeNull();
+    expect(none.getAgentTask).not.toHaveBeenCalled();
+    await expect(findCodeTask(bridge({ ...task, checkoutRemovedAt: '2026-09-17T00:00:00Z' }), 'workspace-1', 'trinodb/trino', 30304)).resolves.toBeNull();
+    await expect(findCodeTask(bridge({ ...task, interactive: false }), 'workspace-1', 'trinodb/trino', 30304)).resolves.toBeNull();
   });
 });
 

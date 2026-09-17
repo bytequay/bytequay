@@ -23,6 +23,7 @@ import { DiffViewer } from '../../PullChanges';
 import ReviewSummaryCard from '../../agent-review/ReviewSummaryCard';
 import ReviewComposer from '../../agent-review/ReviewComposer';
 import '../../../css/base.css';
+import '../../../css/markdown-editor.css';
 import '../../../css/pulls.css';
 import '../../../css/agent-review.css';
 import { reviewFixture } from '../../agent-review/fixtures/review';
@@ -59,7 +60,8 @@ async function replyAndResolve(): Promise<void> {
   let thread = initialThread();
   let replies = 0;
   let resolutions = 0;
-  const render = () => flushSync(() => root.render(<LocalReviewThreadCard thread={thread}
+  let disabledReason: string | null = null;
+  const render = () => flushSync(() => root.render(<LocalReviewThreadCard thread={thread} disabledReason={disabledReason}
     onRetry={async () => { throw new Error('No failed message to retry'); }}
     onReply={async (id, body) => {
       assert(id === thread.id && body === 'Please keep the validation', 'Reply must target the saved private thread');
@@ -82,9 +84,45 @@ async function replyAndResolve(): Promise<void> {
       'User and agent messages must share normal comment rows');
     button(host, 'Reply').click();
     await settle();
-    const input = host.querySelector<HTMLTextAreaElement>('textarea[aria-label="Reply to local review"]');
+    let input = host.querySelector<HTMLTextAreaElement>('textarea[aria-label="Reply to local review"]');
     assert(input !== null, 'Reply must open the normal inline editor');
+    input.focus();
+    assert(getComputedStyle(input).borderTopColor === 'rgb(9, 105, 218)', 'A focused reply must draw the editor’s blue border');
+    const cancel = button(host, 'Cancel');
+    cancel.focus();
+    assert(cancel.matches(':focus-visible') && getComputedStyle(cancel).outlineStyle === 'solid' && getComputedStyle(cancel).outlineWidth === '2px',
+      'A keyboard-focused footer button must show the editor’s focus ring');
+    host.className = 'agr-pane';
+    input.focus();
+    assert(getComputedStyle(input).borderTopColor === 'rgb(9, 105, 218)' && getComputedStyle(input).outlineStyle === 'none',
+      'The review pane’s focus ring must not draw over the reply editor');
+    assert(host.querySelector<HTMLButtonElement>('.pull-diff-review__bar .pull-diff-review__private')?.disabled === true
+      && host.textContent?.includes('Private — only you and the agent') === false, 'A private reply must show the Private label instead of a help text');
+    input.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true }));
+    await settle();
+    assert(host.querySelector('textarea') === null, 'Escape must close an empty reply');
+    button(host, 'Reply').click();
+    await settle();
+    input = host.querySelector<HTMLTextAreaElement>('textarea[aria-label="Reply to local review"]');
+    assert(input !== null, 'Reply must reopen the inline editor');
     changeInput(input, 'Please keep the validation');
+    await settle();
+    input.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true }));
+    await settle();
+    assert(input.isConnected && input.value === 'Please keep the validation', 'Escape must not discard a written reply');
+    disabledReason = 'A run is using this working copy.';
+    render();
+    await settle();
+    const blocked = button(host, 'Reply to agent');
+    assert(blocked.disabled && blocked.title === disabledReason && !input.disabled && !button(host, 'Cancel').disabled
+      && host.querySelector('.pull-diff-review .sr-only[role="status"]')?.textContent === disabledReason
+      && host.querySelector('.pr-local-review__note') === null,
+    'A blocked reply must keep editing available and carry its reason as a title and a hidden status');
+    input.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', metaKey: true, bubbles: true, cancelable: true }));
+    await settle();
+    assert(replies === 0, 'Cmd+Enter must not reply while blocked');
+    disabledReason = null;
+    render();
     await settle();
     button(host, 'Preview').click();
     await settle();
@@ -302,6 +340,7 @@ async function developmentLearningRefresh(): Promise<void> {
   let savedTurn: AgentTurnDto | null = null;
   let savedThreads: LocalReviewThreadDto[] = [];
   let refreshKey = 0;
+  let learningDisabled: string | null = null;
   let reads = 0;
   let questions = 0;
   const commitId = `commit:${summary.commits[0].sha}`;
@@ -342,7 +381,7 @@ async function developmentLearningRefresh(): Promise<void> {
   function LearningHarness() {
     const localReview = useLocalReviewThreads({ taskId: task.id, workspaceId: task.workspaceId }, { bridge });
     return <DevelopmentLearningPanel task={task} repository="owner/repo" refreshKey={refreshKey} refining={savedTurn === null}
-      disabledReason={null} localReview={localReview} bridge={bridge} />;
+      disabledReason={learningDisabled} localReview={localReview} bridge={bridge} />;
   }
   const render = () => flushSync(() => root.render(<LearningHarness />));
   const card = (id: string) => {
@@ -366,6 +405,23 @@ async function developmentLearningRefresh(): Promise<void> {
     assert(host.querySelectorAll('[data-learning-card]').length === 3 && !host.textContent?.includes('Start review')
       && host.querySelector('[data-learning-card="evidence"], [data-learning-card="combined-result"], [data-learning-card="limitations"]') === null,
       'The report must contain only its intention and two implementation cards, without a separate review launcher');
+    button(card(commitId), 'Ask agent').click();
+    await settle();
+    const blockedInput = card(commitId).querySelector<HTMLTextAreaElement>('textarea');
+    assert(blockedInput !== null, 'Each implementation card must open a question editor');
+    learningDisabled = 'The agent is reconnecting.';
+    render();
+    await settle();
+    const blockedAsk = button(card(commitId), 'Ask agent');
+    assert(!blockedInput.disabled && !button(card(commitId), 'Cancel').disabled && blockedAsk.disabled && blockedAsk.title === learningDisabled
+      && card(commitId).querySelector('.sr-only[role="status"]')?.textContent === learningDisabled,
+    'A blocked question must keep editing and Cancel available and carry its reason as a title and a hidden status');
+    blockedInput.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true }));
+    await settle();
+    assert(card(commitId).querySelector('textarea') === null, 'Escape must still close a blocked question');
+    learningDisabled = null;
+    render();
+    await settle();
     button(card(commitId), 'Ask agent').click();
     await settle();
     const input = card(commitId).querySelector<HTMLTextAreaElement>('textarea');
@@ -408,7 +464,7 @@ async function developmentLearningRefresh(): Promise<void> {
 }
 
 async function sharedReviewEditor(): Promise<void> {
-  for (const width of [760, 320]) {
+  for (const width of [760, 320, 240]) {
     const host = document.createElement('div');
     host.style.width = `${width}px`;
     document.body.append(host);
@@ -446,12 +502,18 @@ async function sharedReviewEditor(): Promise<void> {
       assert(properties.every((property, index) => reviewStyle[property] === expectedStyle[index]),
         'The review textarea must use the code-diff editor’s actual focused appearance');
       assert(editor.scrollWidth <= editor.clientWidth + 1, 'The editor and wrapped toolbar must fit a narrow card');
-      assert(editor.querySelector<HTMLButtonElement>('.pull-diff-review__bar .agr-composer__private')?.disabled === true
+      assert(editor.querySelector<HTMLButtonElement>('.pull-diff-review__bar .pull-diff-review__private')?.disabled === true
         && editor.textContent?.includes('Private — only you and the agent') === false, 'Private questions must show a disabled Private label in the editor bar');
+      const previewTab = button(editor, 'Preview');
+      previewTab.scrollIntoView({ block: 'center' });
+      const previewBounds = previewTab.getBoundingClientRect();
+      assert([previewBounds.left + 2, previewBounds.left + previewBounds.width / 2, previewBounds.right - 2]
+        .every(x => document.elementFromPoint(x, previewBounds.top + previewBounds.height / 2) === previewTab),
+      `The private label must not cover the Preview tab at ${width}px`);
       const privateBounds = button(editor, 'Private').getBoundingClientRect();
       const editorBounds = editor.getBoundingClientRect();
-      assert(Math.abs(privateBounds.left + privateBounds.width / 2 - editorBounds.left - editorBounds.width / 2) < 1
-        && button(editor, 'Preview').getBoundingClientRect().right <= privateBounds.left,
+      assert(width === 240 || Math.abs(privateBounds.left + privateBounds.width / 2 - editorBounds.left - editorBounds.width / 2) < 1
+        && previewBounds.right <= privateBounds.left,
       'The private label must stay centered without overlapping the tabs');
       changeInput(input, 'Review this snapshot');
       input.setSelectionRange(12, 20);

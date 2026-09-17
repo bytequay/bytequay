@@ -338,6 +338,29 @@ const bridge: Bridge = {
   resumeAgentReview: reviewId => ipcRenderer.invoke('review:resume', reviewId),
   updateAgentReview: reviewId => ipcRenderer.invoke('review:update', reviewId),
   endAgentReview: reviewId => ipcRenderer.invoke('review:end', reviewId),
+  listCodeFiles: host => ipcRenderer.invoke('code:files', host),
+  readCodeFile: (host, path) => ipcRenderer.invoke('code:file', host, path),
+  searchCodeSymbols: (host, query, limit) => ipcRenderer.invoke('code:symbols', host, query, limit),
+  readCodeOutline: (host, path) => ipcRenderer.invoke('code:outline', host, path),
+  listCodeRuns: host => ipcRenderer.invoke('code:runs:list', host),
+  startCodeRun: (host, path, method) => ipcRenderer.invoke('code:runs:start', host, path, method),
+  stopCodeRun: (host, runId) => ipcRenderer.invoke('code:runs:stop', host, runId),
+  readCodeRunOutput: (host, runId, after) => ipcRenderer.invoke('code:runs:output', host, runId, after),
+  saveCodeFile: (host, path, content, expectedHash) => ipcRenderer.invoke('code:save', host, path, content, expectedHash),
+  discardReviewCodeChanges: (reviewId, expectedHead) => ipcRenderer.invoke('review:code:discard', reviewId, expectedHead),
+  openCodeTerminal: (host, cols, rows) => ipcRenderer.invoke('terminal:open', host, cols, rows),
+  writeReviewTerminal: (terminalId, data) => ipcRenderer.send('terminal:write', terminalId, data),
+  resizeReviewTerminal: (terminalId, cols, rows) => ipcRenderer.send('terminal:resize', terminalId, cols, rows),
+  onReviewTerminalEvent: listener => {
+    const data = (_event: unknown, message: { terminalId: string; data: string }) => listener({ terminalId: message.terminalId, data: message.data });
+    const exit = (_event: unknown, message: { terminalId: string; exitCode: number }) => listener({ terminalId: message.terminalId, exitCode: message.exitCode });
+    ipcRenderer.on('terminal:data', data);
+    ipcRenderer.on('terminal:exit', exit);
+    return () => {
+      ipcRenderer.removeListener('terminal:data', data);
+      ipcRenderer.removeListener('terminal:exit', exit);
+    };
+  },
   askAgentReview: (reviewId, findingId, targetRevision, message, cardId) =>
     ipcRenderer.invoke('review:ask', reviewId, findingId, targetRevision, message, cardId),
   messageAgentReview: (reviewId, message, delivery, idempotencyKey) =>

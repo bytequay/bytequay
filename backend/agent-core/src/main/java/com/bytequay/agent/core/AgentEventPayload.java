@@ -127,9 +127,24 @@ public sealed interface AgentEventPayload
             boolean truncated,
             Optional<String> cwd,
             Optional<Long> durationMs,
-            List<CommandAction> actions)
+            List<CommandAction> actions,
+            boolean background)
             implements AgentEventPayload
     {
+        /** A command that runs in the foreground; a stored row written before the flag existed reads the same way. */
+        public CommandActivity(
+                ActivityState state,
+                List<String> argv,
+                Optional<String> output,
+                Optional<Integer> exitCode,
+                boolean truncated,
+                Optional<String> cwd,
+                Optional<Long> durationMs,
+                List<CommandAction> actions)
+        {
+            this(state, argv, output, exitCode, truncated, cwd, durationMs, actions, false);
+        }
+
         /** The shape stored before the working directory, duration, and parsed actions were carried. */
         public CommandActivity(
                 ActivityState state,

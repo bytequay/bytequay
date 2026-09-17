@@ -44,6 +44,7 @@ import com.bytequay.agent.spi.DevelopmentLearningSummary;
 import com.bytequay.agent.spi.DevelopmentResultReport;
 import com.bytequay.agent.spi.ProviderTurnRef;
 import com.bytequay.app.agent.LocalReviewSessionService;
+import com.bytequay.app.agent.TaskPullRequestOwnership;
 import com.bytequay.app.git.GitCommandRunner;
 import com.bytequay.app.review.AgentReviewService;
 import com.bytequay.app.web.GlobalExceptionHandler;
@@ -152,8 +153,8 @@ class TestLocalReviewService
         turn = AgentTurn.accepted(TurnId.random(), taskId, "turn", settings, Instant.EPOCH)
                 .markDeliveryStarted(Instant.EPOCH).running(new ProviderTurnRef("provider"), Optional.empty());
         ManagedWorktreeService worktrees = new ManagedWorktreeService(paths, workspaces, new GitCommandRunner());
-        service = new LocalReviewService(store, tasks, turns, turnStore, queueStore, workspaces, pullRequests, worktrees,
-                reviews, reviewTasks, sessions, mock(PullRequestTaskStore.class), clock);
+        service = new LocalReviewService(store, tasks, turns, turnStore, queueStore, reviews, reviewTasks, sessions,
+                new TaskPullRequestOwnership(workspaces, mock(PullRequestTaskStore.class), pullRequests, worktrees), clock);
         when(store.find(anyString())).thenAnswer(call -> Optional.ofNullable(stored.get(call.getArgument(0))));
         when(store.listByTask(anyString())).thenAnswer(call -> stored.values().stream()
                 .filter(value -> value.taskId().equals(call.getArgument(0))).collect(toImmutableList()));

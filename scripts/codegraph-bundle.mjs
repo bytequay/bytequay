@@ -17,22 +17,64 @@ const INTEGRITY = {
   'darwin-arm64': 'sha512-usYVM30d7kH2Fm3ZPkiE84J8bWAicPsw/3Kh8LjbwvHkBkU3IlEYRQFkTDAf+HSRLLs8h5w/5WHkx/FvNKRZ/g==',
   'darwin-x64': 'sha512-MMYFseqAmytsj47ZsGZI+0OVDTYsEktHg6x42tB6y+8MWUjvH1ivz5Yk6RtX6iFAnNJeMSlV+SJepfP7pvbNbQ==',
 };
-// Upstream refuses an absolute CODEGRAPH_DIR, so its index can never leave the
-// source root. This five-line patch honors an absolute CODEGRAPH_DATA_DIR so
-// the index lives under the task runtime and never dirties a worktree. Every
-// index path in the bundle derives from this one function.
-const PATCH_FILE = 'lib/dist/directory.js';
-const PATCH_FROM = 'function getCodeGraphDir(projectRoot) {\n    return path.join(projectRoot, codeGraphDirName());\n}';
-const PATCH_TO = [
-  'function getCodeGraphDir(projectRoot) {',
-  '    // ByteQuay patch: an absolute CODEGRAPH_DATA_DIR keeps the index outside the source root.',
-  '    const external = process.env.CODEGRAPH_DATA_DIR?.trim();',
-  '    if (external && path.isAbsolute(external)) {',
-  '        return external;',
-  '    }',
-  '    return path.join(projectRoot, codeGraphDirName());',
-  '}',
-].join('\n');
+// Each patch replaces text that must occur exactly once, so an unknown build is
+// refused rather than half-patched. PATCH_REVISION is part of the marker: raise
+// it with every patch change so an already-vendored bundle is fetched and
+// patched again.
+const PATCH_REVISION = 2;
+const PATCHES = [
+  // Upstream refuses an absolute CODEGRAPH_DIR, so its index can never leave the
+  // source root. This honors an absolute CODEGRAPH_DATA_DIR so the index lives
+  // under the task runtime and never dirties a worktree. Every index path in
+  // the bundle derives from this one function.
+  {
+    file: 'lib/dist/directory.js',
+    from: 'function getCodeGraphDir(projectRoot) {\n    return path.join(projectRoot, codeGraphDirName());\n}',
+    to: [
+      'function getCodeGraphDir(projectRoot) {',
+      '    // ByteQuay patch: an absolute CODEGRAPH_DATA_DIR keeps the index outside the source root.',
+      '    const external = process.env.CODEGRAPH_DATA_DIR?.trim();',
+      '    if (external && path.isAbsolute(external)) {',
+      '        return external;',
+      '    }',
+      '    return path.join(projectRoot, codeGraphDirName());',
+      '}',
+    ].join('\n'),
+  },
+  // Upstream prints a file's symbols only as markdown. `node -f <file>
+  // --symbols-only --json` prints the library's own getNodesInFile(file) as a
+  // JSON array instead, for the Code & Tests outline.
+  {
+    file: 'lib/dist/bin/codegraph.js',
+    from: "        .option('--symbols-only', 'File mode: just the symbol map + dependents')\n",
+    to: [
+      "        .option('--symbols-only', 'File mode: just the symbol map + dependents')",
+      "        .option('-j, --json', 'File mode with --symbols-only: print the file nodes as JSON (ByteQuay patch)')",
+      '',
+    ].join('\n'),
+  },
+  {
+    file: 'lib/dist/bin/codegraph.js',
+    from: [
+      '            const cg = await CodeGraph.open(projectPath);',
+      "            const { ToolHandler } = await Promise.resolve().then(() => __importStar(require('../mcp/tools')));",
+      '            const handler = new ToolHandler(cg);',
+      '            // A name with a path separator is a file read;',
+    ].join('\n'),
+    to: [
+      '            const cg = await CodeGraph.open(projectPath);',
+      '            // ByteQuay patch: print the file nodes as JSON.',
+      '            if (options.file && options.symbolsOnly && options.json) {',
+      '                console.log(JSON.stringify(cg.getNodesInFile(options.file)));',
+      '                cg.destroy();',
+      '                return;',
+      '            }',
+      "            const { ToolHandler } = await Promise.resolve().then(() => __importStar(require('../mcp/tools')));",
+      '            const handler = new ToolHandler(cg);',
+      '            // A name with a path separator is a file read;',
+    ].join('\n'),
+  },
+];
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..');
 const platform = process.argv[2] ?? `${process.platform}-${process.arch}`;
@@ -43,7 +85,7 @@ if (!integrity) {
 }
 const target = join(root, 'frontend', 'vendor', 'codegraph');
 const marker = join(target, 'BYTEQUAY_BUNDLE');
-const stamp = `${platform} ${VERSION} ${integrity}\n`;
+const stamp = `${platform} ${VERSION} ${integrity} patches=${PATCH_REVISION}\n`;
 if (existsSync(marker) && readFileSync(marker, 'utf8') === stamp) {
   process.exit(0);
 }
@@ -68,13 +110,15 @@ const tarball = join(work, 'bundle.tgz');
 writeFileSync(tarball, bytes);
 execFileSync('tar', ['-xzf', tarball, '-C', work, '--strip-components=1'], { stdio: 'inherit' });
 rmSync(tarball);
-const patched = join(work, PATCH_FILE);
-const source = readFileSync(patched, 'utf8');
-if (source.split(PATCH_FROM).length !== 2) {
-  console.error('codegraph-bundle: patch anchor not found once; refusing to vendor an unknown build');
-  process.exit(1);
+for (const patch of PATCHES) {
+  const patched = join(work, patch.file);
+  const source = readFileSync(patched, 'utf8');
+  if (source.split(patch.from).length !== 2) {
+    console.error(`codegraph-bundle: patch anchor in ${patch.file} not found once; refusing to vendor an unknown build`);
+    process.exit(1);
+  }
+  writeFileSync(patched, source.replace(patch.from, () => patch.to));
 }
-writeFileSync(patched, source.replace(PATCH_FROM, PATCH_TO));
 rmSync(target, { recursive: true, force: true });
 renameSync(work, target);
 writeFileSync(marker, stamp);

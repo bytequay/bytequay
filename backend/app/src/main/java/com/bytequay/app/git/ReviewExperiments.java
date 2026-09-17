@@ -119,6 +119,12 @@ public class ReviewExperiments
         }
     }
 
+    /** Whether a failed update left this review's experiments stashed. Listing the stash reflog takes no index lock, so a poll cannot fail an update. */
+    public boolean hasSavedExperiment(TaskWorktree worktree)
+    {
+        return !ownedStashes(worktree).isEmpty();
+    }
+
     private Lock repositoryLock(TaskWorktree worktree)
     {
         worktrees.inspect(worktree);
@@ -216,7 +222,7 @@ public class ReviewExperiments
 
     private static void requireNoOperation(WorktreeSnapshot snapshot)
     {
-        checkState(!snapshot.gitOperationInProgress(), "Finish the open Git operation before updating the review; experiments were preserved");
+        checkState(!snapshot.gitOperationInProgress(), "Finish the open Git operation in the working copy; experiments were preserved");
     }
 
     private static String prefix(TaskWorktree worktree)

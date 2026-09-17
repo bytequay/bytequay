@@ -623,6 +623,19 @@ describe('agent task side panel', () => {
     capabilities: CAPABILITIES,
   };
 
+  it('offers Code & Tests on the task\'s pull request only while the task keeps its worktree', () => {
+    const render = (extra: Partial<AgentTaskDto>) => renderToStaticMarkup(
+      <AgentTaskBody
+        state={{ ...state, task: { ...state.task, interactive: true, checkoutRemovedAt: null, ...extra } }}
+        panelOpen
+        pullRequests={[pullRequest(482, 'Fix preview output limit')]}
+        {...props}
+      />);
+    expect(render({})).toMatch(/<button[^>]*aria-pressed="false"[^>]*>[^]*?Code &amp; Tests/);
+    expect(render({ checkoutRemovedAt: '2026-08-21T10:00:00Z' })).not.toContain('Code &amp; Tests');
+    expect(render({ interactive: false })).not.toContain('Code &amp; Tests');
+  });
+
   it('opens on the authored pull request with Changes and Subagents beside it', () => {
     const markup = renderToStaticMarkup(
       <AgentTaskBody

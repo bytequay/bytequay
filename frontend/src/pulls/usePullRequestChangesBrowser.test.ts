@@ -44,6 +44,8 @@ it('loads selected PR commits and rejects stale comparison responses in Chromium
         window.webContents.session.webRequest.onBeforeRequest({ urls: ['http://*/*', 'https://*/*'] }, (_details, callback) => callback({ cancel: true }));
         try {
           await window.loadFile(${JSON.stringify(join(directory, 'index.html'))});
+          window.webContents.debugger.attach('1.3');
+          await window.webContents.debugger.sendCommand('Emulation.setFocusEmulationEnabled', { enabled: true });
           const results = await window.webContents.executeJavaScript('PullChangesTests.run()');
           process.stdout.write(JSON.stringify(results) + '\\n');
           app.exit(0);

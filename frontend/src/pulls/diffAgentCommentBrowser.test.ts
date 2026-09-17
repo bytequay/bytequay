@@ -37,8 +37,13 @@ it('sends private comments through shared diff and task controls in Chromium', a
       app.whenReady().then(async () => {
         const window = new BrowserWindow({ show: false, webPreferences: { backgroundThrottling: false } });
         window.webContents.session.webRequest.onBeforeRequest({ urls: ['http://*/*', 'https://*/*'] }, (_details, callback) => callback({ cancel: true }));
+        window.webContents.on('console-message', details => {
+          if (details.message.startsWith('input:')) window.webContents.sendInputEvent(JSON.parse(details.message.slice('input:'.length)));
+        });
         try {
           await window.loadFile(${JSON.stringify(join(directory, 'index.html'))});
+          window.webContents.debugger.attach('1.3');
+          await window.webContents.debugger.sendCommand('Emulation.setFocusEmulationEnabled', { enabled: true });
           const results = await window.webContents.executeJavaScript('DiffAgentCommentTests.run()');
           process.stdout.write(JSON.stringify(results) + '\\n');
           app.exit(0);
@@ -52,7 +57,7 @@ it('sends private comments through shared diff and task controls in Chromium', a
     const command = process.platform === 'linux' && !process.env.DISPLAY ? 'xvfb-run' : executable;
     const result = await promisify(execFile)(command, command === executable ? args : ['-a', executable, ...args], { env: environment, timeout: 20_000 });
     const results = JSON.parse(result.stdout.trim()) as { name: string; error?: string }[];
-    expect(results).toHaveLength(11);
+    expect(results).toHaveLength(20);
     expect(results.filter(result => result.error !== undefined)).toEqual([]);
   }
   finally { await rm(directory, { recursive: true, force: true }); }

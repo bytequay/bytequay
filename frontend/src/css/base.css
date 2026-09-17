@@ -57,6 +57,7 @@
   --diff-add-num: #aceebb;
   --diff-del: #ffebe9;
   --diff-del-num: #ffd7d5;
+  --diff-selected: #fff8c5;
 
   --code-border: rgba(0, 0, 0, 0.1);
   --code-bg-warm: #f6f8fa;

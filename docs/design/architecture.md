@@ -634,9 +634,11 @@ renderer crashes detach the native surface and expose a reload action.
 - A task's process working directory is its explicit sandbox root. Attended
   Codex `AUTO` keeps ordinary `/tmp` and `$TMPDIR` allowances by setting both
   temporary-directory exclusions to false; other policies retain the exclusions.
-  Cache directories such as `~/.m2` are not unrestricted writable roots;
-  native review handles those escalations. No separate execution environment
-  is registered and no loopback listener is opened. Initialization declares
+  Attended Codex development and review turns also make `~/.m2/repository`, the user's Maven local
+  repository, a writable root, with network still off; other cache directories
+  are not writable roots, and native review handles those escalations. No
+  separate execution environment is registered and no loopback listener is
+  opened. Initialization declares
   `experimentalApi: true` for parent-filtered
   child listing and background-terminal list/terminate methods; ByteQuay calls no
   experimental environment method.

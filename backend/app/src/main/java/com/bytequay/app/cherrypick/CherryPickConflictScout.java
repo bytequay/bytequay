@@ -35,7 +35,7 @@ import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
 
-import static com.bytequay.app.cherrypick.MavenModules.findModule;
+import static com.bytequay.app.utils.MavenModules.findModule;
 import static com.google.common.collect.ImmutableList.toImmutableList;
 import static java.util.Objects.requireNonNull;
 

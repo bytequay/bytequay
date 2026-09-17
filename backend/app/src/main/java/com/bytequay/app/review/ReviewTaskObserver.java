@@ -17,6 +17,7 @@ import com.bytequay.agent.core.AgentEventEnvelope;
 import com.bytequay.agent.core.AgentEventPayload;
 import com.bytequay.agent.core.AgentEventService;
 import com.bytequay.agent.core.TaskId;
+import com.bytequay.agent.spi.ProviderAgentEvent.ActivityState;
 import com.bytequay.app.service.pr.PullRequestRefreshService;
 import com.bytequay.core.review.AgentReview;
 import com.bytequay.core.review.AgentReviewStore;
@@ -58,11 +59,16 @@ public class ReviewTaskObserver
             AgentEventPayload.LifecyclePhase.TASK_FAILED,
             AgentEventPayload.LifecyclePhase.QUEUED_INPUT_STARTED,
             AgentEventPayload.LifecyclePhase.QUEUED_INPUT_PAUSED);
+    private static final Set<ActivityState> MIRRORED_STATES = EnumSet.of(
+            ActivityState.STARTED,
+            ActivityState.COMPLETED,
+            ActivityState.FAILED);
 
     private final AgentEventService events;
     private final AgentReviewStore store;
     private final ObjectProvider<AgentReviewService> reviews;
     private final ObjectProvider<PullRequestRefreshService> refresh;
+    private final ObjectProvider<LocalRunService> localRuns;
     private final Map<String, Flow.Subscription> subscriptions = new ConcurrentHashMap<>();
     private final ExecutorService executor = Executors.newSingleThreadExecutor(Thread.ofVirtual().name("review-reconcile-", 0).factory());
 
@@ -70,12 +76,14 @@ public class ReviewTaskObserver
             AgentEventService events,
             AgentReviewStore store,
             ObjectProvider<AgentReviewService> reviews,
-            ObjectProvider<PullRequestRefreshService> refresh)
+            ObjectProvider<PullRequestRefreshService> refresh,
+            ObjectProvider<LocalRunService> localRuns)
     {
         this.events = requireNonNull(events, "events is null");
         this.store = requireNonNull(store, "store is null");
         this.reviews = requireNonNull(reviews, "reviews is null");
         this.refresh = requireNonNull(refresh, "refresh is null");
+        this.localRuns = requireNonNull(localRuns, "localRuns is null");
     }
 
     @EventListener(ApplicationReadyEvent.class)
@@ -159,6 +167,39 @@ public class ReviewTaskObserver
         });
     }
 
+    /** Only filters, and never throws: an exception from {@code onNext} would cancel the subscription without {@code onError}. */
+    static boolean mirrorsAgentCommand(AgentEventEnvelope item)
+    {
+        try {
+            return item.payload() instanceof AgentEventPayload.CommandActivity command
+                    && MIRRORED_STATES.contains(command.state())
+                    && !command.background()
+                    && MavenCommands.detect(command.argv()).isPresent();
+        }
+        catch (RuntimeException failure) {
+            log.debug("Command event {} could not be checked for mirroring: {}", item.eventId(), failure.toString());
+            return false;
+        }
+    }
+
+    private void mirrorLater(String reviewId, AgentEventEnvelope item)
+    {
+        try {
+            executor.execute(() -> {
+                try {
+                    // Reports are parsed here, off the stream, and the row is one short insert.
+                    localRuns.getObject().recordAgentCommand(reviewId, item);
+                }
+                catch (RuntimeException failure) {
+                    log.warn("Review {} could not mirror an agent command: {}", reviewId, failure.toString());
+                }
+            });
+        }
+        catch (RuntimeException rejected) {
+            log.debug("Review {} is closing; an agent command is not mirrored: {}", reviewId, rejected.toString());
+        }
+    }
+
     @PreDestroy
     public void close()
     {
@@ -189,6 +230,9 @@ public class ReviewTaskObserver
         {
             if (item.payload() instanceof AgentEventPayload.Lifecycle lifecycle && SETTLING.contains(lifecycle.phase())) {
                 reconcileLater(reviewId);
+            }
+            else if (mirrorsAgentCommand(item)) {
+                mirrorLater(reviewId, item);
             }
             Flow.Subscription subscription = subscriptions.get(reviewId);
             if (subscription != null) {

@@ -76,6 +76,21 @@ class TestGitCommandRunner
         assertThat(GIT.gitPaths(plain, ImmutableList.of("MERGE_HEAD"))).isEmpty();
     }
 
+    @Test
+    void stdoutRunKeepsWarningsOutOfTheOutputAndReportsThemOnFailure()
+    {
+        String bothStreams = "alias.both=!printf 'out\\0'; echo 'warning: noise' 1>&2";
+        assertThat(GIT.run(repository, "-c", bothStreams, "both").output()).contains("warning: noise").contains("out\0");
+
+        GitCommandRunner.Result success = GIT.runStdout(repository, "-c", bothStreams, "both");
+        assertThat(success.successful()).isTrue();
+        assertThat(success.output()).isEqualTo("out\0");
+
+        GitCommandRunner.Result failure = GIT.runStdout(repository, "-c", bothStreams + "; exit 3", "both");
+        assertThat(failure.exitCode()).isEqualTo(3);
+        assertThat(failure.output()).isEqualTo("warning: noise\n");
+    }
+
     private static void git(Path directory, String... arguments)
     {
         GitCommandRunner.Result result = GIT.run(directory, arguments);

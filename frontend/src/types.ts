@@ -23,6 +23,7 @@ import type {
   ReviewPublishResultDto,
   ReviewSide,
 } from './pulls/agent-review/contracts';
+import type { CodeHostRef, LocalRunDto, LocalRunOutputDto, ReviewCodeFileDto, ReviewCodeFilesDto, ReviewCodeSymbolsDto, RunRefusalDto, SaveConflictDto } from './pulls/code-tests/contracts';
 
 type CiStatus = 'PASSING' | 'FAILING' | 'PENDING' | 'NONE';
 export type PullRequestDto = {
@@ -1671,6 +1672,27 @@ export type Bridge = {
   updateAgentReview: (reviewId: string) => Promise<AgentReviewDto>;
   /** Completes the task, closes the review, then cleans the worktree. */
   endAgentReview: (reviewId: string) => Promise<AgentReviewDto>;
+  /** Every file of the host's working copy, or of a review's reviewed revision once its working copy is gone. */
+  listCodeFiles: (host: CodeHostRef) => Promise<ReviewCodeFilesDto>;
+  readCodeFile: (host: CodeHostRef, path: string) => Promise<ReviewCodeFileDto>;
+  /** CodeGraph symbols by name in the host's working copy; the status says when the index cannot answer. */
+  searchCodeSymbols: (host: CodeHostRef, query: string, limit: number) => Promise<ReviewCodeSymbolsDto>;
+  readCodeOutline: (host: CodeHostRef, path: string) => Promise<ReviewCodeSymbolsDto>;
+  /** Test runs of the host's task, newest first; a review's include its agent's mirrored runs. */
+  listCodeRuns: (host: CodeHostRef) => Promise<LocalRunDto[]>;
+  /** Runs a test class, or one method, from its source path; a refused preflight returns why instead of a run. */
+  startCodeRun: (host: CodeHostRef, path: string, method: string | null) => Promise<{ run: LocalRunDto } | { refusal: RunRefusalDto }>;
+  stopCodeRun: (host: CodeHostRef, runId: string) => Promise<LocalRunDto>;
+  readCodeRunOutput: (host: CodeHostRef, runId: string, after: number) => Promise<LocalRunOutputDto>;
+  /** Writes an editable file of the working copy only if it still has the hash the edit started from. */
+  saveCodeFile: (host: CodeHostRef, path: string, content: string, expectedHash: string) => Promise<{ file: ReviewCodeFileDto } | { conflict: SaveConflictDto }>;
+  /** Resets the working copy to its HEAD, removing untracked files and the review's saved experiments; ignored files stay. */
+  discardReviewCodeChanges: (reviewId: string, expectedHead: string) => Promise<ReviewCodeFilesDto>;
+  /** Attaches to the host's login shell in its working copy, starting one if none is alive; replays its recent output. */
+  openCodeTerminal: (host: CodeHostRef, cols: number, rows: number) => Promise<{ terminalId: string; scrollback: string }>;
+  writeReviewTerminal: (terminalId: string, data: string) => void;
+  resizeReviewTerminal: (terminalId: string, cols: number, rows: number) => void;
+  onReviewTerminalEvent: (listener: (event: { terminalId: string; data: string } | { terminalId: string; exitCode: number }) => void) => () => void;
   /** A private question on the summary or one finding; it queues visibly while the agent is busy. */
   askAgentReview: (
     reviewId: string,

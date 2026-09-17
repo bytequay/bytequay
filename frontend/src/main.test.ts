@@ -30,7 +30,7 @@ vi.mock('electron', () => ({
     on: (event: string, listener: () => Promise<void>) => desktop.listeners.set(event, listener),
     getAppPath: () => process.cwd(), getVersion: () => 'test', setAboutPanelOptions: vi.fn(),
   },
-  ipcMain: { handle: (channel: string, handler: (...args: unknown[]) => Promise<unknown>) => desktop.handlers.set(channel, handler) },
+  ipcMain: { handle: (channel: string, handler: (...args: unknown[]) => Promise<unknown>) => desktop.handlers.set(channel, handler), on: vi.fn() },
   Menu: { setApplicationMenu: vi.fn(), buildFromTemplate: vi.fn() },
 }));
 
@@ -145,4 +145,47 @@ it('still reports a refused review update without retrying it', async () => {
 
   await expect(desktop.handlers.get('review:update')?.({}, 'review-1')).rejects.toThrow('The review task is busy');
   expect(fetch).toHaveBeenCalledTimes(1);
+});
+
+it('routes Code & Tests reads and writes to the review or the development task that hosts the working copy', async () => {
+  await import('./main');
+  await expect(desktop.listeners.get('ready')?.()).rejects.toThrow('End test startup');
+  const task = { kind: 'task', taskId: 'task/one', workspaceId: 'workspace/one', repo: 'trinodb/trino', number: 30304 };
+  const review = { kind: 'review', reviewId: 'review/one' };
+  const json = (body: unknown, status = 200) => new Response(JSON.stringify(body), { status, headers: { 'Content-Type': 'application/json' } });
+  const output = { text: 'ok', nextOffset: 2, skippedBytes: 0, complete: true };
+  const fetch = vi.fn(async (_url: string, _init?: RequestInit) => json(output));
+  vi.stubGlobal('fetch', fetch);
+  const handler = (channel: string) => {
+    const found = desktop.handlers.get(channel);
+    expect(found).toBeDefined();
+    // Electron turns a handler's synchronous throw into a rejected invoke, as this async wrapper does.
+    return async (...args: unknown[]) => found?.({}, ...args);
+  };
+
+  await expect(handler('code:runs:output')(task, 'run/1', 12.7)).resolves.toEqual(output);
+  expect(fetch).toHaveBeenLastCalledWith(
+    'http://127.0.0.1:9527/agent/tasks/task%2Fone/code/runs/run%2F1/output?workspaceId=workspace%2Fone&repo=trinodb%2Ftrino&number=30304&after=12',
+    expect.objectContaining({ headers: { 'X-ByteQuay-Session': 'test-session' } }));
+  await expect(handler('code:runs:output')(review, 'run/1', 0)).resolves.toEqual(output);
+  expect(fetch).toHaveBeenLastCalledWith('http://127.0.0.1:9527/api/agent-review/review%2Fone/code/runs/run%2F1/output?after=0', expect.any(Object));
+
+  fetch.mockResolvedValueOnce(json({ reason: 'No Maven wrapper (mvnw) in this working copy', action: 'OPEN_TERMINAL' }, 422));
+  await expect(handler('code:runs:start')(task, 'core/src/test/java/io/x/TestAccess.java', null))
+    .resolves.toEqual({ refusal: { reason: 'No Maven wrapper (mvnw) in this working copy', action: 'OPEN_TERMINAL' } });
+  expect(fetch).toHaveBeenLastCalledWith('http://127.0.0.1:9527/agent/tasks/task%2Fone/code/runs?workspaceId=workspace%2Fone&repo=trinodb%2Ftrino&number=30304',
+    expect.objectContaining({ method: 'POST', body: JSON.stringify({ path: 'core/src/test/java/io/x/TestAccess.java', method: null }) }));
+
+  fetch.mockResolvedValueOnce(json({ currentHash: 'h2', currentContent: 'disk' }, 409));
+  await expect(handler('code:save')(task, 'core/src/main/java/io/x/Access.java', 'draft', 'h1'))
+    .resolves.toEqual({ conflict: { currentHash: 'h2', currentContent: 'disk' } });
+  expect(fetch).toHaveBeenLastCalledWith('http://127.0.0.1:9527/agent/tasks/task%2Fone/code/file?workspaceId=workspace%2Fone&repo=trinodb%2Ftrino&number=30304',
+    expect.objectContaining({ method: 'PUT', body: JSON.stringify({ path: 'core/src/main/java/io/x/Access.java', content: 'draft', expectedHash: 'h1' }) }));
+
+  fetch.mockResolvedValueOnce(json({ message: "The task's worktree was removed" }, 409));
+  await expect(handler('code:save')(task, 'a.java', 'draft', 'h1')).rejects.toThrow("The task's worktree was removed");
+
+  const calls = fetch.mock.calls.length;
+  await expect(handler('code:files')({ kind: 'task', taskId: 'task/one' })).rejects.toThrow('Malformed Code & Tests host');
+  expect(fetch).toHaveBeenCalledTimes(calls);
 });

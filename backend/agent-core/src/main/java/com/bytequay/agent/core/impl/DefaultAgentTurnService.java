@@ -360,6 +360,33 @@ public final class DefaultAgentTurnService
         });
     }
 
+    @Override
+    public AgentTask claimLocalRun(TaskId taskId, String runId)
+    {
+        requireNonNull(taskId, "taskId is null");
+        synchronized (runtimeRegistry.taskLock(taskId)) {
+            AgentTask task = requireStartableTaskWithoutReadiness(taskId);
+            if (queueStore.listQueued(taskId).stream().anyMatch(input -> !input.state().historical())) {
+                throw new AgentConflictException("Remove or resume the queued question");
+            }
+            Instant now = Instant.now(clock);
+            return taskStore.update(task.claimWorktreeMutation(WorktreeMutationClaim.localRun(runId, now), now));
+        }
+    }
+
+    @Override
+    public void releaseLocalRun(TaskId taskId, String runId)
+    {
+        requireNonNull(taskId, "taskId is null");
+        requireNonNull(runId, "runId is null");
+        synchronized (runtimeRegistry.taskLock(taskId)) {
+            AgentTask task = requireTask(taskId);
+            task.worktreeMutationClaim()
+                    .filter(claim -> claim.kind() == WorktreeMutationClaim.Kind.LOCAL_RUN && claim.ownerId().equals(runId))
+                    .ifPresent(claim -> taskStore.update(task.releaseWorktreeMutation(claim, Instant.now(clock))));
+        }
+    }
+
     private AgentTask updateIdleWorktree(TaskId taskId, long expectedVersion, boolean requireInteractive, Function<AgentTask, Optional<String>> action)
     {
         requireNonNull(taskId, "taskId is null");
@@ -1111,7 +1138,7 @@ public final class DefaultAgentTurnService
                     .isPresent();
             if (!ownTurnRunning) {
                 throw new AgentConflictException(claim.isPresent()
-                        ? "Task worktree is claimed by " + claim.orElseThrow().kind()
+                        ? claim.orElseThrow().conflictMessage()
                         : "Task has no active turn to queue behind: " + task.id());
             }
             Instant queuedAt = Instant.now(clock);
@@ -1428,7 +1455,7 @@ public final class DefaultAgentTurnService
             throw new AgentConflictException("Task already has an active turn: " + active.id());
         });
         task.worktreeMutationClaim().ifPresent(claim -> {
-            throw new AgentConflictException("Task worktree is claimed by " + claim.kind());
+            throw new AgentConflictException(claim.conflictMessage());
         });
         runtimeRegistry.unverifiedClose(task.id()).ifPresent(failure -> {
             throw new AgentConflictException("Task provider process is not verified stopped: " + failureMessage(failure));

@@ -159,7 +159,8 @@ public final class AgentMaintenance
                 }
                 if (current.worktreeMutationClaim().isPresent()) {
                     WorktreeMutationClaim claim = current.worktreeMutationClaim().orElseThrow();
-                    if (claim.kind() == WorktreeMutationClaim.Kind.COMPLETION) {
+                    // A run's launch is classified by process recovery next, which reserves the worktree again if it is unverifiable.
+                    if (claim.kind() == WorktreeMutationClaim.Kind.COMPLETION || claim.kind() == WorktreeMutationClaim.Kind.LOCAL_RUN) {
                         taskStore.update(current.releaseWorktreeMutation(claim, Instant.now(clock)));
                     }
                     return;

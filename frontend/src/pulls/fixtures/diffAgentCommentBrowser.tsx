@@ -16,6 +16,7 @@ import { createRoot } from 'react-dom/client';
 import type { DiffCommitDto, DiffFileDto, PullRequestDto } from '../../types';
 import { DiffViewer, type DiffAgentComment, type DiffViewerProps } from '../PullChanges';
 import { runTaskInlineCommentScenarios } from './taskInlineCommentBrowser';
+import { centre, realClick, runCodeCommentRangeScenarios } from '../code-tests/fixtures/codeCommentRangeBrowser';
 import { resolveFinding } from '../agent-review/fixtures/resolveFindingBrowser';
 
 const settle = () => new Promise<void>(resolve => requestAnimationFrame(() => requestAnimationFrame(() => resolve())));
@@ -182,10 +183,12 @@ async function asynchronousSubmission(): Promise<void> {
     await selectLine(host, 'old', 2);
     await selectLine(host, 'old', 3, true);
     await writeComment(host, 'Please explain this removal');
-    assert(button(host, 'Send to agent').disabled && host.querySelector('[role="status"]')?.textContent === 'The agent is reconnecting.',
-      'Unavailable private submission must stay visible with its reason');
-    assert(host.textContent?.includes('Private — only you and the agent. Questions and replies stay in this thread.') === true,
-      'Private submission must identify its local discussion without promising GitHub writes');
+    assert(button(host, 'Send to agent').disabled && button(host, 'Send to agent').title === 'The agent is reconnecting.'
+      && host.querySelector('.pull-diff-review .sr-only[role="status"]')?.textContent === 'The agent is reconnecting.',
+    'Unavailable private submission must give its reason as the action title and to assistive technology');
+    assert(host.querySelector<HTMLButtonElement>('.pull-diff-review__bar .pull-diff-review__private')?.disabled === true
+      && host.textContent?.includes('Private — only you and the agent') === false,
+    'Private submission must show the Private label instead of a help text');
     button(host, 'Send to agent').click();
     assert(requests.length === 0, 'A disabled private action must not submit');
     render(null);
@@ -218,6 +221,125 @@ async function asynchronousSubmission(): Promise<void> {
   finally { flushSync(() => root.unmount()); host.remove(); }
 }
 
+async function dragSelection(): Promise<void> {
+  const host = document.createElement('div');
+  document.body.append(host);
+  const root = createRoot(host);
+  flushSync(() => root.render(<DiffViewer files={[file]} commits={commits} commitRange={{ start: 1, end: 1 }} onAskAgent={async () => {}} />));
+  const press = async (line: number, shiftKey = false) => {
+    const target = host.querySelector(`[aria-label="Select new line ${line}"]`);
+    assert(target !== null, `Missing new line ${line} gutter`);
+    target.dispatchEvent(new MouseEvent('mousedown', { button: 0, shiftKey, bubbles: true, cancelable: true, ...centre(target) }));
+    await settle();
+  };
+  // React reports a mouseover without a relatedTarget as entering every row ancestor.
+  const hover = async (line: number) => {
+    const row = host.querySelector(`[data-diff-row="${file.filename}:RIGHT:${line}"]`);
+    assert(row !== null, `Missing new line ${line} row`);
+    row.dispatchEvent(new MouseEvent('mouseover', { bubbles: true, ...centre(row) }));
+    await settle();
+  };
+  const release = async () => {
+    window.dispatchEvent(new MouseEvent('mouseup'));
+    await settle();
+  };
+  const heading = () => host.querySelector('.pull-diff-review__header strong')?.textContent;
+  try {
+    await press(1);
+    await hover(2);
+    assert(host.querySelectorAll('tr.is-selected').length === 4 && host.querySelector('.pull-diff-review') === null,
+      'Dragging must select every row between its ends and hide the composer until release');
+    await release();
+    assert(heading() === 'Add a comment on lines R1 to R2', 'Releasing a drag must open the composer on the dragged range');
+    await press(3, true);
+    await hover(2);
+    await release();
+    assert(heading() === 'Add a comment on lines R1 to R2', 'A Shift-drag must keep the existing range start as its anchor');
+    await press(3, true);
+    await release();
+    assert(heading() === 'Add a comment on lines R1 to R3', 'A Shift-click must still extend the range');
+    await press(1);
+    await hover(2);
+    const escape = new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true });
+    document.body.dispatchEvent(escape);
+    await settle();
+    assert(escape.defaultPrevented, 'Escape that cancels a drag must be handled so the screen does not also close');
+    await hover(3);
+    await release();
+    assert(host.querySelector('tr.is-selected') === null && host.querySelector('.pull-diff-review') === null,
+      'Escape must cancel a drag in progress');
+  }
+  finally { flushSync(() => root.unmount()); host.remove(); }
+}
+
+async function pressBelowComposer(): Promise<void> {
+  const host = document.createElement('div');
+  document.body.append(host);
+  const root = createRoot(host);
+  const context = Array.from({ length: 30 }, (_, index) => ` line ${index + 1}`).join('\n');
+  flushSync(() => root.render(<DiffViewer files={[{ ...file, additions: 0, deletions: 0, patch: `@@ -1,30 +1,30 @@\n${context}` }]}
+    onAskAgent={async () => {}} />));
+  const heading = () => host.querySelector('.pull-diff-review__header strong')?.textContent;
+  try {
+    for (const shift of [true, false]) {
+      await selectLine(host, 'new', 1);
+      assert(heading() === 'Add a comment on line R1', 'Selecting line 1 must open its composer');
+      const target = host.querySelector('[aria-label="Select new line 3"]');
+      assert(target !== null, 'Missing new line 3 gutter');
+      await realClick(target, shift);
+      assert(heading() === (shift ? 'Add a comment on lines R1 to R3' : 'Add a comment on line R3')
+        && host.querySelectorAll('tr.is-selected').length === (shift ? 3 : 1),
+      `A ${shift ? 'Shift-click' : 'click'} below an open composer must not drag onto the rows that move under the pointer`);
+      button(host, 'Cancel').click();
+      await settle();
+    }
+  }
+  finally { flushSync(() => root.unmount()); host.remove(); }
+}
+
+async function keyboardShortcuts(): Promise<void> {
+  const host = document.createElement('div');
+  document.body.append(host);
+  const root = createRoot(host);
+  const sent: DiffAgentComment[] = [];
+  let posts = 0;
+  const originalBridge = window.bridge;
+  Object.defineProperty(window, 'bridge', { configurable: true, value: { ...originalBridge, postPrReviewComment: async () => { posts++; return {}; } } });
+  const render = (canReview: boolean, reason: string | null = null) => flushSync(() => root.render(<DiffViewer files={[file]} commits={commits}
+    commitRange={{ start: 1, end: 1 }} onAskAgent={async comment => { sent.push(comment); }} onAskAgentDisabled={reason}
+    review={canReview ? { repo: pr.repo, number: pr.number, canReview, pendingComments: [], onPendingCommentsChange: () => {}, onDetailChange: () => {} } : undefined} />));
+  const input = () => host.querySelector<HTMLTextAreaElement>('.pull-diff-review textarea');
+  const press = async (init: KeyboardEventInit) => {
+    input()?.dispatchEvent(new KeyboardEvent('keydown', { bubbles: true, cancelable: true, ...init }));
+    await settle();
+  };
+  try {
+    render(true);
+    await selectLine(host, 'new', 1);
+    await press({ key: 'Escape' });
+    assert(input() === null, 'Escape must close an empty composer');
+    await selectLine(host, 'new', 1);
+    await writeComment(host, 'Keep this comment');
+    await press({ key: 'Escape' });
+    assert(input()?.value === 'Keep this comment', 'Escape must not discard a written comment');
+    await press({ key: 'Enter', metaKey: true });
+    assert(posts === 1 && sent.length === 0 && input() === null, 'Cmd+Enter must post now when the viewer can review');
+    render(false, 'The agent is reconnecting.');
+    await selectLine(host, 'new', 1);
+    await writeComment(host, 'Ask the agent');
+    await press({ key: 'Enter', ctrlKey: true });
+    assert(sent.length === 0 && input()?.value === 'Ask the agent', 'Ctrl+Enter must do nothing while the primary action is disabled');
+    render(false);
+    await press({ key: 'Enter', ctrlKey: true });
+    assert(Number(sent.length) === 1 && posts === 1, 'Ctrl+Enter must send to the agent when that is the only action');
+  }
+  finally {
+    flushSync(() => root.unmount());
+    host.remove();
+    Object.defineProperty(window, 'bridge', { configurable: true, value: originalBridge });
+  }
+}
+
 export async function run(): Promise<{ name: string; error?: string }[]> {
   let githubWrites = 0;
   const originalBridge = window.bridge;
@@ -230,6 +352,9 @@ export async function run(): Promise<{ name: string; error?: string }[]> {
     ['Unchanged context preserves full and selected revision pairs', unchangedContent],
     ['Unchanged context expands at most 200 lines per click', incrementalContext],
     ['Private submission preserves failed and in-flight feedback', asynchronousSubmission],
+    ['Dragging and Shift-dragging line numbers select a range', dragSelection],
+    ['Clicking below an open composer does not drag', pressBelowComposer],
+    ['Line composer keys post, send and close only an empty comment', keyboardShortcuts],
     ...(['review', 'changes'] as const).map(projection => [`Resolve finding in ${projection}`, () => resolveFinding(projection)] as [string, () => Promise<void>]),
   ];
   try {
@@ -238,7 +363,7 @@ export async function run(): Promise<{ name: string; error?: string }[]> {
       try { await scenario(); assert(githubWrites === 0, 'Private comment action wrote to GitHub'); results.push({ name }); }
       catch (error) { results.push({ name, error: error instanceof Error ? error.message : String(error) }); }
     }
-    return [...results, ...await runTaskInlineCommentScenarios()];
+    return [...results, ...await runTaskInlineCommentScenarios(), ...await runCodeCommentRangeScenarios()];
   }
   finally { Object.defineProperty(window, 'bridge', { configurable: true, value: originalBridge }); }
 }

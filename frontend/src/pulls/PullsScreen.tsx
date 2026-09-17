@@ -17,7 +17,7 @@ import type { LucideIcon } from 'lucide-react';
 import { isFindShortcut } from '../FindBar';
 import type { NavigationMode } from '../navigationHistory';
 import Toast from '../Toast';
-import type { Bridge, DiffCommitDto, DiffFileDto, InlineReviewCommentDto, PullRequestDetailDto, PullRequestDto, PullRequestPageDto, UserProfileDto } from '../types';
+import type { AgentTaskDto, Bridge, DiffCommitDto, DiffFileDto, InlineReviewCommentDto, PullRequestDetailDto, PullRequestDto, PullRequestPageDto, UserProfileDto } from '../types';
 import AgentReviewTab, { type ReviewNavigationTarget } from './agent-review/AgentReviewTab';
 import CodeTestsTab from './code-tests/CodeTestsTab';
 import PullRequestTaskActions from './PullRequestTaskActions';
@@ -97,6 +97,17 @@ export async function loadAgentReviewContext(
     if (review !== null) return { workspaceId: workspace.id, review };
   }
   return { workspaceId: workspaces[0]?.id, review: null };
+}
+
+/**
+ * The development task whose worktree Code & Tests reads instead of any review: the interactive task that owns the pull
+ * request and still has its worktree. Both reads are local.
+ */
+export async function findCodeTask(bridge: Pick<Bridge, 'findPullRequestTask' | 'getAgentTask'>, workspaceId: string, repo: string, number: number) {
+  const link = await bridge.findPullRequestTask(workspaceId, repo, number);
+  if (link === null) return null;
+  const task = await bridge.getAgentTask(link.taskId, link.workspaceId);
+  return task.interactive === true && task.checkoutRemovedAt === null ? task : null;
 }
 
 const DETAIL_MIN = 680;
@@ -314,6 +325,8 @@ export default function PullsScreen({
   const [viewer, setViewer] = useState<UserProfileDto | null>(null);
   /** The open review of the selected pull request, loaded once per selection and kept live by its tab. */
   const [reviewContext, setReviewContext] = useState<(AgentReviewContext & { key: string; error: string | null }) | null>(null);
+  // Looked up apart from the review, so a slow or failed task lookup never holds up Review & Learning.
+  const [codeTaskLookup, setCodeTaskLookup] = useState<{ key: string; task: AgentTaskDto | null } | null>(null);
   const [reviewReload, setReviewReload] = useState(0);
   /** Where Changes should scroll, set when a finding asks to be shown at its diff location. */
   const [reviewNavigation, setReviewNavigation] = useState<ReviewNavigationTarget | null>(null);
@@ -325,6 +338,13 @@ export default function PullsScreen({
   const [detailTab, setDetailTab] = useState<DetailTab>(initialReviewId === undefined ? 'overview' : 'review');
   // Code & Tests stays mounted after its first visit so drafts, open files and runs survive tab switches.
   const [codeTabKey, setCodeTabKey] = useState<string | null>(null);
+  // Unsaved Code & Tests drafts live only in that tab; leaving the PR or closing the pane asks first.
+  const codeUnsaved = useRef(0);
+  const keepCodeDrafts = useCallback(() => codeUnsaved.current === 0
+    || window.confirm(`Discard unsaved changes to ${codeUnsaved.current} ${codeUnsaved.current === 1 ? 'file' : 'files'}?`), []);
+  const closePane = useMemo(() => onClose === undefined ? undefined : () => {
+    if (keepCodeDrafts()) onClose();
+  }, [keepCodeDrafts, onClose]);
   const [pendingReviewComments, setPendingReviewComments] = useState<InlineReviewCommentDto[]>([]);
   const [paneOpen, setPaneOpen] = useState(true);
   const [detailZoomed, setDetailZoomed] = useState(false);
@@ -467,12 +487,12 @@ export default function PullsScreen({
       if (event.defaultPrevented || event.key !== 'Escape') return;
       if (event.target instanceof Element && event.target.closest('.cm-editor, .xterm') !== null) return;
       event.preventDefault();
-      if (onClose) onClose();
+      if (closePane) closePane();
       else setDetailZoomed(false);
     };
     window.addEventListener('keydown', exitFullScreen);
     return () => window.removeEventListener('keydown', exitFullScreen);
-  }, [browserOpen, detailZoomed, onClose, overlay]);
+  }, [browserOpen, closePane, detailZoomed, overlay]);
 
   useEffect(() => {
     if (singlePullRequest) return;
@@ -521,6 +541,7 @@ export default function PullsScreen({
   useEffect(() => {
     if (singlePullRequest || browserOpen) return;
     const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.target instanceof Element && event.target.closest('.cm-editor, .xterm') !== null) return;
       if (isFindShortcut(event)) {
         event.preventDefault();
         event.stopPropagation();
@@ -707,12 +728,22 @@ export default function PullsScreen({
     ? null
     : `${scopedWorkspaceId ?? ''}:${selectedPrRepo.toLowerCase()}#${selectedPrNumber}:${requestedReviewId ?? ''}`;
   const currentReviewContext = reviewContext?.key === reviewKey ? reviewContext : null;
+  // The selection can change without pick() (history, Recent, a route); an open Code & Tests follows it to the new PR.
+  if (detailTab === 'code' && codeTabKey !== reviewKey) setCodeTabKey(reviewKey);
   const workspaceId = currentReviewContext?.workspaceId;
   const review = currentReviewContext?.review ?? null;
   const reviewLoading = reviewKey !== null && currentReviewContext === null;
   const reviewError = currentReviewContext?.error ?? null;
   const authored = viewerLogin ? (detail?.author ?? selectedPr?.author)?.toLowerCase() === viewerLogin.toLowerCase() : selectedPr?.origin === 'AUTHORED';
   if (authored && detailTab === 'review' && reviewWorkspace === undefined) setDetailTab('overview');
+  const codeTaskKey = reviewKey === null || workspaceId === undefined ? null : `${reviewKey}@${workspaceId}`;
+  const codeTask = codeTaskLookup !== null && codeTaskLookup.key === codeTaskKey ? codeTaskLookup.task : null;
+  const codeTaskLoading = codeTaskKey !== null && codeTaskLookup?.key !== codeTaskKey;
+  // The user's own pull request has Code & Tests only while a development task or a review holds a worktree for it.
+  const codeTabShown = !authored || codeTask !== null || review !== null;
+  if (!codeTabShown && detailTab === 'code' && currentReviewContext !== null && currentReviewContext.error === null && !codeTaskLoading) {
+    setDetailTab('overview');
+  }
 
   useEffect(() => {
     setReviewContext(null);
@@ -732,6 +763,19 @@ export default function PullsScreen({
     return () => { cancelled = true; };
   }, [scopedWorkspaceId, selectedPrRepo, selectedPrNumber, reviewKey, reviewReload, requestedReviewId, authored]);
 
+  // The worktree is what Code & Tests binds to, so a development task wins however the pull request was opened.
+  useEffect(() => {
+    if (codeTaskKey === null || workspaceId === undefined || selectedPrRepo === undefined || selectedPrNumber === undefined) return;
+    let cancelled = false;
+    void findCodeTask(window.bridge, workspaceId, selectedPrRepo, selectedPrNumber)
+      // A failed lookup falls back to the review host; the task window still offers the task's own Code & Tests.
+      .catch((): null => null)
+      .then(task => {
+        if (!cancelled) setCodeTaskLookup({ key: codeTaskKey, task });
+      });
+    return () => { cancelled = true; };
+  }, [codeTaskKey, workspaceId, selectedPrRepo, selectedPrNumber, reviewReload]);
+
   const updateReview = useCallback((updated: AgentReviewDto) => {
     setReviewContext(current => current !== null && current.key === reviewKey
       && current.workspaceId === updated.workspaceId
@@ -741,6 +785,7 @@ export default function PullsScreen({
   }, [reviewKey, selectedPrRepo, selectedPrNumber]);
 
   const pick = (row: PullRow) => {
+    if (!keepCodeDrafts()) return;
     onSelectPullRequest?.({ repo: row.repo, number: row.num }, 'push');
     setSelected(row.id);
     setDetailTab('overview');
@@ -1015,7 +1060,7 @@ export default function PullsScreen({
             review={review}
             showReview={!authored}
             onReviewChange={updateReview}
-            agentTab={(
+            agentTab={codeTabShown || detailTab === 'code' ? (
               <button className={detailTab === 'code' ? 'is-active' : ''} type="button" aria-pressed={detailTab === 'code'}
                 onClick={() => {
                   setCodeTabKey(reviewKey);
@@ -1023,7 +1068,7 @@ export default function PullsScreen({
                 }}>
                 <Code size={14} strokeWidth={1.8} aria-hidden="true" /> Code &amp; Tests
               </button>
-            )}
+            ) : undefined}
             onTab={next => {
               if (next === 'changes' && detailTab !== 'changes') recordDiffOpened();
               setDetailTab(next);
@@ -1036,7 +1081,7 @@ export default function PullsScreen({
             onPendingCommentsChange={setPendingReviewComments}
             zoomed={detailZoomed || overlay}
             onZoom={() => setDetailZoomed(value => !value)}
-            onClose={onClose}
+            onClose={closePane}
           />
           {displayedDetailError && <div className="pull-detail__error">{displayedDetailError}</div>}
           {showBlockingDetailLoading(detailLoading, detail !== null) ? (
@@ -1052,18 +1097,61 @@ export default function PullsScreen({
                 </div>
               )}
             </div>
+          ) : detailTab === 'code' && codeTaskLoading ? (
+            // Waiting keeps Code & Tests from opening the review and then switching to the task's worktree.
+            <div className="pull-detail__body pull-detail__review">
+              <div className="hp-loading" role="status">Loading working copy…</div>
+            </div>
           ) : (
             <>
             {localReview.error !== null && <div className="agr-error" role="alert">Local review comments: {localReview.error}</div>}
             {codeTabKey !== null && codeTabKey === reviewKey && (
               <div className="pull-detail__code" hidden={detailTab !== 'code'}>
                 <CodeTestsTab
+                  key={codeTabKey}
                   detail={detail}
                   workspaceId={workspaceId}
                   review={review}
+                  task={codeTask}
                   onReviewChange={updateReview}
                   active={detailTab === 'code'}
-                  ownReviewStream={reviewWorkspace === undefined} />
+                  ownReviewStream={reviewWorkspace === undefined}
+                  onUnsavedChange={count => { codeUnsaved.current = count; }}
+                  comments={{
+                    repo: detail.repo,
+                    number: detail.number,
+                    workspaceId: repositoryScope?.workspaceId,
+                    canReview: canSubmitReview(selectedPr, detail),
+                    viewer,
+                    pending: pendingReviewComments,
+                    onPendingChange: setPendingReviewComments,
+                    threads: {
+                      activities: detail.recentActivity,
+                      pr: selectedPr,
+                      workspaceId: repositoryScope?.workspaceId,
+                      unavailable: detail.unavailableSections.includes('reviewThreads'),
+                      onRefresh: refresh,
+                      onDetailUpdate: updateSelectedDetail,
+                    },
+                    onDetailChange: value => applyPostedDetail(value, 'review'),
+                    localReview,
+                    onAskAgent: codeTask !== null ? async comment => {
+                      const current = await window.bridge.getAgentTask(codeTask.id, codeTask.workspaceId);
+                      await localReview.create(comment, { taskId: current.id, workspaceId: current.workspaceId,
+                        repo: detail.repo, number: detail.number, expectedTaskVersion: current.version });
+                    } : review?.state !== 'OPEN' ? undefined : async comment => {
+                      const current = await window.bridge.getAgentReview(review.id);
+                      await localReview.create(comment, { taskId: current.task.id, workspaceId: current.workspaceId,
+                        repo: current.repo, number: current.number, expectedTaskVersion: current.task.version });
+                      updateReview(await window.bridge.getAgentReview(review.id));
+                    },
+                    // The user's own pull request hides Review & Learning outside a review workspace, so there is nowhere to open.
+                    onOpenFindingInReview: authored && reviewWorkspace === undefined ? undefined : findingId => {
+                      setFocusFindingId(findingId);
+                      setReviewCardFocus(null);
+                      setDetailTab('review');
+                    },
+                  }} />
               </div>
             )}
             {detailTab !== 'code' && <DetailBody
@@ -1077,6 +1165,7 @@ export default function PullsScreen({
                 workspaceId={workspaceId} loading={reviewLoading} contextError={reviewError} review={review}
                 onRetryContext={() => setReviewReload(value => value + 1)}
                 onNavigate={route => {
+                  if (!keepCodeDrafts()) return;
                   onClose?.();
                   window.location.hash = route;
                 }} /> : undefined}
@@ -1841,6 +1930,7 @@ function DetailBody({
     return <div className="pull-detail__body pull-detail__changes"><PullChanges
       localReview={localReview}
       onAskAgent={onAskAgent}
+      onAskAgentDisabled={review?.task.mutationClaim === 'LOCAL_RUN' ? 'A run is using this working copy' : null}
       repo={detail.repo}
       number={detail.number}
       workspaceId={contributorsWorkspaceId}

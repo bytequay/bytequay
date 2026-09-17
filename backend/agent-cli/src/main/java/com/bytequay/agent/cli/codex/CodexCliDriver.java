@@ -738,6 +738,7 @@ public final class CodexCliDriver
         private final ModelProfile modelProfile;
         private final CodexLaunchProfile.ChildProfile childProfile;
         private final List<String> ciWritableRoots;
+        private final boolean mavenRepositoryRoot;
         private final boolean allowGitHubCommands;
         /** Every thread this task's process has shown us, root and subagents alike. */
         private final Set<String> observedThreads = ConcurrentHashMap.newKeySet();
@@ -805,6 +806,8 @@ public final class CodexCliDriver
             client.listen(this);
             client.start();
             Path worktree = canonicalWorktree();
+            // Sent only as a turn root: a launch-time writable root is what selects the CI profile.
+            this.mavenRepositoryRoot = context.permissionPolicy() == AgentPermissionPolicy.AUTO && !context.textOnly();
             verifyCiWorktree(worktree);
             isolation.verify(worktree);
             String threadId = openThread(context, worktree);
@@ -971,7 +974,12 @@ public final class CodexCliDriver
             }
             return ImmutableMap.of(
                     "type", "workspaceWrite",
-                    "writableRoots", ciWritableRoots.isEmpty() ? ImmutableList.of(worktree.toString()) : ciWritableRoots,
+                    "writableRoots", ciWritableRoots.isEmpty()
+                            // Checked on every turn, so a repository replaced by a link during the session is dropped.
+                            ? Stream.concat(Stream.of(worktree), mavenRepositoryRoot ? CodexMavenRepository.resolve(environment).stream() : Stream.<Path>empty())
+                                    .map(Path::toString)
+                                    .collect(toImmutableList())
+                            : ciWritableRoots,
                     "networkAccess", false,
                     "excludeTmpdirEnvVar", context.permissionPolicy().unattended(),
                     "excludeSlashTmp", context.permissionPolicy().unattended());

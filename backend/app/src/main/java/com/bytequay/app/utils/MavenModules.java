@@ -11,17 +11,17 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-package com.bytequay.app.cherrypick;
+package com.bytequay.app.utils;
 
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.Optional;
 
-final class MavenModules
+public final class MavenModules
 {
     private MavenModules() {}
 
-    static Optional<String> findModule(Path worktree, String path)
+    public static Optional<String> findModule(Path worktree, String path)
     {
         Path directory = worktree.resolve(path).getParent();
         while (directory != null && directory.startsWith(worktree) && !directory.equals(worktree)) {

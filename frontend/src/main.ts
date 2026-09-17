@@ -13,6 +13,8 @@
  */
 import { app, BrowserWindow, clipboard, dialog, ipcMain, Menu, nativeImage, Notification, shell } from 'electron';
 import fs from 'node:fs';
+import os from 'node:os';
+import { spawn as spawnPty } from 'node-pty';
 import { BrowserTabs, registerBrowserTabIpc } from './browserTabs';
 import { randomUUID } from 'node:crypto';
 import path from 'node:path';
@@ -50,7 +52,9 @@ import {
   parseReviewIneligible,
   parseReviewPublishResult,
 } from './pulls/agent-review/contracts';
+import { codeHostKey, parseCodeHost, parseLocalRun, parseLocalRunOutput, parseLocalRuns, parseReviewCodeFile, parseReviewCodeFiles, parseReviewCodeSymbols } from './pulls/code-tests/contracts';
 import { AgentSubscriptions } from './agents/subscriptions';
+import { CodeTerminals, terminalEnvironment } from './terminals';
 import { clipboardImagePng, MAX_ATTACHMENT_BYTES } from './agents/clipboardImage';
 import type {
   AgentApprovalDecision,
@@ -451,6 +455,11 @@ const reviewSubscriptions = new AgentSubscriptions(
   'review:stream:message',
 );
 
+// An interactive login shell rebuilds the user's own PATH, which a Finder-launched app does not inherit.
+const codeTerminals = new CodeTerminals((cwd, cols, rows) => spawnPty(os.userInfo().shell ?? '/bin/zsh', ['-l'], {
+  name: 'xterm-256color', cwd, cols, rows, env: terminalEnvironment(process.env),
+}));
+
 const agentSubscriptions = new AgentSubscriptions((taskId, after, signal) => fetch(
   `${backendBase()}/agent/tasks/${encodeURIComponent(taskId)}/stream`
     + `?${new URLSearchParams({ after: String(after) })}`,
@@ -602,7 +611,9 @@ function registerIpc(): void {
       + `?${new URLSearchParams({ workspaceId })}`,
     jsonInit('PATCH', { expectedVersion, archived }, agentHeaders()))
       .then((task) => parseAgentTask(task)));
+  // Deleting removes the shells' working directory, so they go first.
   ipcMain.handle('agent:task:delete', (_event, taskId: string, workspaceId: string) => {
+    codeTerminals.close(`task:${taskId}`);
     const url = new URL(`${backendBase()}/agent/tasks/${encodeURIComponent(taskId)}`);
     url.searchParams.set('workspaceId', workspaceId);
     return backendVoid(url, { method: 'DELETE', headers: agentHeaders() });
@@ -821,22 +832,29 @@ function registerIpc(): void {
       forTask: decision === 'ALLOW_FOR_TASK',
       scopedPermission: scopedPermission ?? null,
     }, agentHeaders())).then((approval) => parseAgentApproval(approval)));
-  ipcMain.handle('agent:tasks:complete', (_event, taskId: string, workspaceId: string, notes?: string) =>
-    backendJson(`${backendBase()}/agent/tasks/${encodeURIComponent(taskId)}/complete`
+  ipcMain.handle('agent:tasks:complete', (_event, taskId: string, workspaceId: string, notes?: string) => {
+    // Completing removes the worktree a Code & Tests shell runs in, as review:end does for a review.
+    codeTerminals.close(`task:${taskId}`);
+    return backendJson(`${backendBase()}/agent/tasks/${encodeURIComponent(taskId)}/complete`
       + `?${new URLSearchParams({ workspaceId })}`,
     jsonInit('POST', { notes: notes ?? null }, agentHeaders()))
-      .then((completion) => parseAgentCompletion(completion)));
-  ipcMain.handle('agent:task:cleanup', (_event, taskId: string, workspaceId: string) =>
-    backendJson(`${backendBase()}/agent/tasks/${encodeURIComponent(taskId)}/cleanup`
+      .then((completion) => parseAgentCompletion(completion));
+  });
+  ipcMain.handle('agent:task:cleanup', (_event, taskId: string, workspaceId: string) => {
+    codeTerminals.close(`task:${taskId}`);
+    return backendJson(`${backendBase()}/agent/tasks/${encodeURIComponent(taskId)}/cleanup`
       + `?${new URLSearchParams({ workspaceId })}`, {
       method: 'POST',
       headers: agentHeaders(),
-    }).then((task) => parseAgentTask(task)));
-  ipcMain.handle('agent:task:mark-failed', (_event, taskId: string, workspaceId: string, reason: string) =>
-    backendJson(`${backendBase()}/agent/tasks/${encodeURIComponent(taskId)}/mark-failed`
+    }).then((task) => parseAgentTask(task));
+  });
+  ipcMain.handle('agent:task:mark-failed', (_event, taskId: string, workspaceId: string, reason: string) => {
+    codeTerminals.close(`task:${taskId}`);
+    return backendJson(`${backendBase()}/agent/tasks/${encodeURIComponent(taskId)}/mark-failed`
       + `?${new URLSearchParams({ workspaceId })}`,
     jsonInit('POST', { reason }, agentHeaders()))
-      .then((task) => parseAgentTask(task)));
+      .then((task) => parseAgentTask(task));
+  });
   ipcMain.handle('agent:task:stop-impact', (_event, taskId: string, workspaceId: string) =>
     backendJson(`${backendBase()}/agent/tasks/${encodeURIComponent(taskId)}/runtime/stop-impact`
       + `?${new URLSearchParams({ workspaceId })}`, { headers: agentHeaders() })
@@ -890,7 +908,73 @@ function registerIpc(): void {
     review(`/${encodeURIComponent(reviewId)}/resume`, {}, { method: 'POST', signal: AbortSignal.timeout(15 * 60_000) }));
   ipcMain.handle('review:update', (_event, reviewId: string) =>
     review(`/${encodeURIComponent(reviewId)}/update`, {}, { method: 'POST', signal: AbortSignal.timeout(15 * 60_000) }));
-  ipcMain.handle('review:end', (_event, reviewId: string) => review(`/${encodeURIComponent(reviewId)}/end`, {}, { method: 'POST' }));
+  // Ending removes the shells' working directory, so they go first.
+  ipcMain.handle('review:end', (_event, reviewId: string) => {
+    codeTerminals.close(`review:${reviewId}`);
+    return review(`/${encodeURIComponent(reviewId)}/end`, {}, { method: 'POST' });
+  });
+  // Code & Tests reads a review's working copy through its review, and a development task's through the task and its PR.
+  const codeUrl = (value: unknown, path: string, query: Record<string, string> = {}): string => {
+    const host = parseCodeHost(value);
+    if (host.kind === 'review') return reviewUrl(`/${encodeURIComponent(host.reviewId)}/code${path}`, query);
+    const url = new URL(`${backendBase()}/agent/tasks/${encodeURIComponent(host.taskId)}/code${path}`);
+    Object.entries({ workspaceId: host.workspaceId, repo: host.repo, number: String(host.number), ...query })
+      .forEach(([key, value]) => url.searchParams.set(key, value));
+    return url.toString();
+  };
+  ipcMain.handle('terminal:open', (event, host: unknown, cols: number, rows: number) =>
+    codeTerminals.open(event.sender, codeHostKey(parseCodeHost(host)), cols, rows, async () => {
+      const body = await backendJson<{ workingDirectory?: unknown }>(codeUrl(host, '/terminal'), {
+        method: 'POST', headers: agentHeaders(),
+      });
+      if (typeof body.workingDirectory !== 'string') throw new Error('Malformed terminal response');
+      return body.workingDirectory;
+    }));
+  ipcMain.on('terminal:write', (event, terminalId: string, data: string) => codeTerminals.write(event.sender, terminalId, data));
+  ipcMain.on('terminal:resize', (event, terminalId: string, cols: number, rows: number) => codeTerminals.resize(event.sender, terminalId, cols, rows));
+  ipcMain.handle('code:files', (_event, host: unknown) =>
+    backendJson(codeUrl(host, '/files'), { headers: agentHeaders() }).then(parseReviewCodeFiles));
+  ipcMain.handle('code:file', (_event, host: unknown, path: string) =>
+    backendJson(codeUrl(host, '/file', { path }), { headers: agentHeaders() }).then(parseReviewCodeFile));
+  ipcMain.handle('code:symbols', (_event, host: unknown, query: string, limit: number) =>
+    backendJson(codeUrl(host, '/symbols', { query, limit: String(limit) }), { headers: agentHeaders() })
+      .then(parseReviewCodeSymbols));
+  ipcMain.handle('code:outline', (_event, host: unknown, path: string) =>
+    backendJson(codeUrl(host, '/outline', { path }), { headers: agentHeaders() }).then(parseReviewCodeSymbols));
+  ipcMain.handle('code:runs:list', (_event, host: unknown) =>
+    backendJson(codeUrl(host, '/runs'), { headers: agentHeaders() }).then(parseLocalRuns));
+  // A refused preflight (no Maven wrapper, no JDK) is an answer for the run panel, not an error.
+  ipcMain.handle('code:runs:start', async (_event, host: unknown, path: string, method: string | null) => {
+    const response = await fetch(codeUrl(host, '/runs'), jsonInit('POST', { path, method }, agentHeaders(true)));
+    const body = await response.text();
+    if (response.status === 422) {
+      const refusal = JSON.parse(body) as { reason?: unknown; action?: unknown };
+      return { refusal: { reason: typeof refusal.reason === 'string' ? refusal.reason : 'This run cannot start', action: refusal.action === 'OPEN_TERMINAL' ? 'OPEN_TERMINAL' : null } };
+    }
+    if (!response.ok) throw new Error(extractMessage(body) || `Starting the run returned ${response.status}`);
+    return { run: parseLocalRun(JSON.parse(body)) };
+  });
+  ipcMain.handle('code:runs:stop', (_event, host: unknown, runId: string) =>
+    backendJson(codeUrl(host, `/runs/${encodeURIComponent(runId)}/stop`), { method: 'POST', headers: agentHeaders() }).then(parseLocalRun));
+  // A stale draft is a conflict the editor resolves with the user, not an error.
+  ipcMain.handle('code:save', async (_event, host: unknown, path: string, content: string, expectedHash: string) => {
+    const response = await fetch(codeUrl(host, '/file'), jsonInit('PUT', { path, content, expectedHash }, agentHeaders(true)));
+    const body = await response.text();
+    if (response.status === 409) {
+      const parsed = JSON.parse(body) as { currentHash?: unknown; currentContent?: unknown };
+      if ('currentHash' in parsed) {
+        return { conflict: { currentHash: typeof parsed.currentHash === 'string' ? parsed.currentHash : null,
+          currentContent: typeof parsed.currentContent === 'string' ? parsed.currentContent : null } };
+      }
+    }
+    if (!response.ok) throw new Error(extractMessage(body) || `Saving the file returned ${response.status}`);
+    return { file: parseReviewCodeFile(JSON.parse(body)) };
+  });
+  ipcMain.handle('review:code:discard', (_event, reviewId: string, expectedHead: string) =>
+    backendJson(reviewUrl(`/${encodeURIComponent(reviewId)}/code/discard`), jsonInit('POST', { expectedHead }, agentHeaders(true))).then(parseReviewCodeFiles));
+  ipcMain.handle('code:runs:output', (_event, host: unknown, runId: string, after: number) =>
+    backendJson(codeUrl(host, `/runs/${encodeURIComponent(runId)}/output`, { after: String(Math.max(0, Math.floor(after))) }), { headers: agentHeaders() })
+      .then(parseLocalRunOutput));
   ipcMain.handle('review:ask', (_event, reviewId: string, findingId: string | null, targetRevision: number, message: string, cardId?: string) =>
     review(`/${encodeURIComponent(reviewId)}/questions`, {}, {
       method: 'POST',
@@ -1652,6 +1736,7 @@ app.on('before-quit', () => {
   clearInterval(prNotificationTimer);
   // Streams read from the backend, so they stop before it does.
   agentSubscriptions.stopAll();
+  codeTerminals.stopAll();
   killBackend();
 });
 app.on('activate', () => {

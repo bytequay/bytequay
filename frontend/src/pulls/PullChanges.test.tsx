@@ -15,18 +15,11 @@ import { renderToStaticMarkup } from 'react-dom/server';
 import { describe, expect, it, vi } from 'vitest';
 import type { DiffCommitDto, DiffFileDto, InlineReviewCommentDto, PullRequestDetailDto, PullRequestDto, PullTimelinePayloadDto, UserProfileDto } from '../types';
 import { parseUnifiedDiff } from '../diffParse';
-import MarkdownBody from './MarkdownBody';
 import {
-  applyMarkdownCommand,
-  buildFileTree,
   DiffViewer,
-  draggedLineSelection,
   filenameTooltip,
   headLines,
-  insertSuggestion,
-  MarkdownToolbar,
   nextCommitRange,
-  nextLineSelection,
   PendingReviewCommentRow,
   reviewTarget,
   submitInlineReviewComment,
@@ -352,41 +345,11 @@ describe('DiffViewer', () => {
     expect(html).not.toContain('Why the first commit exists.');
   });
 
-  it('selects a consecutive range on one side of the diff', () => {
-    const first = nextLineSelection(null, 'LEFT', 48, false, 2);
-
-    expect(nextLineSelection(first, 'LEFT', 59, true, 4)).toEqual({ side: 'LEFT', start: 48, end: 59, rowStart: 2, rowEnd: 4 });
-    expect(nextLineSelection(first, 'RIGHT', 60, true, 5)).toEqual({ side: 'RIGHT', start: 60, end: 60, rowStart: 5, rowEnd: 5 });
-  });
-
   it('targets the new side when available and the old side for deleted lines', () => {
     expect(reviewTarget(95, 95)).toEqual({ side: 'RIGHT', line: 95 });
     expect(reviewTarget(null, 96)).toEqual({ side: 'RIGHT', line: 96 });
     expect(reviewTarget(96, null)).toEqual({ side: 'LEFT', line: 96 });
     expect(reviewTarget(null, null)).toBeNull();
-  });
-
-  it('keeps extending a drag from anywhere on each diff row', () => {
-    const anchor = { side: 'LEFT' as const, line: 48, oldLine: 48, newLine: 48, row: 2 };
-
-    expect(draggedLineSelection(anchor, 59, null, 4)).toEqual({ side: 'LEFT', start: 48, end: 59, rowStart: 2, rowEnd: 4 });
-    expect(draggedLineSelection({ ...anchor, newLine: null }, null, 60, 5)).toBeNull();
-  });
-
-  it('continues a downward drag from context into added lines', () => {
-    const anchor = { side: 'LEFT' as const, line: 303, oldLine: 303, newLine: 303, row: 6 };
-
-    expect(draggedLineSelection(anchor, null, 316, 9)).toEqual({ side: 'RIGHT', start: 303, end: 316, rowStart: 6, rowEnd: 9 });
-    expect(draggedLineSelection({ ...anchor, oldLine: 303, newLine: null }, null, 316, 9)).toBeNull();
-  });
-
-  it('keeps every visible row between same-side drag endpoints selected', () => {
-    const anchor = { side: 'RIGHT' as const, line: 144, oldLine: null as number | null, newLine: 144, row: 0 };
-
-    expect(draggedLineSelection(anchor, 144, null, 3)).toBeNull();
-    expect(draggedLineSelection(anchor, null, 147, 4)).toEqual({
-      side: 'RIGHT', start: 144, end: 147, rowStart: 0, rowEnd: 4,
-    });
   });
 
   it('applies the successful inline-comment response without refreshing files', async () => {
@@ -470,36 +433,6 @@ describe('filenameTooltip', () => {
   });
 });
 
-describe('buildFileTree', () => {
-  it('compacts directory chains without crossing branches or direct files', () => {
-    const tree = buildFileTree([
-      changedFile('core/trino-main/src/main/java/io/trino/connector/Connector.java'),
-      changedFile('core/trino-main/src/main/java/io/trino/connector/system/SystemPageSource.java'),
-      changedFile('core/trino-main/src/main/java/io/trino/operator/TableScanOperator.java'),
-      changedFile('core/trino-main/src/test/java/io/trino/execution/TestPageSource.java'),
-      changedFile('core/trino-spi/pom.xml'),
-      changedFile('LICENSE'),
-      changedFile('legacy', 'removed'),
-      changedFile('legacy/new.txt', 'added'),
-    ]);
-
-    expect(tree.map(item => item.name)).toEqual(['core', 'LICENSE', 'legacy', 'legacy']);
-    const core = tree[0];
-    if (core.kind !== 'directory') throw new Error('core should be a directory');
-    expect(core.children.map(item => item.name)).toEqual(['trino-main/src', 'trino-spi']);
-    const trinoMain = core.children[0];
-    if (trinoMain.kind !== 'directory') throw new Error('trino-main/src should be a directory');
-    expect(trinoMain.children.map(item => item.name)).toEqual(['main/java/io/trino', 'test/java/io/trino/execution']);
-    const main = trinoMain.children[0];
-    if (main.kind !== 'directory') throw new Error('main/java/io/trino should be a directory');
-    expect(main.children.map(item => item.name)).toEqual(['connector', 'operator']);
-    const connector = main.children[0];
-    if (connector.kind !== 'directory') throw new Error('connector should be a directory');
-    expect(connector.children.map(item => item.name)).toEqual(['Connector.java', 'system']);
-    expect(tree.filter(item => item.path === 'legacy').map(item => item.kind)).toEqual(['file', 'directory']);
-  });
-});
-
 describe('nextCommitRange', () => {
   it('starts a range and expands it through every commit between its endpoints', () => {
     expect(nextCommitRange(null, 2, 5)).toEqual({ start: 2, end: 2 });
@@ -525,69 +458,7 @@ describe('nextCommitRange', () => {
   });
 });
 
-describe('applyMarkdownCommand', () => {
-  it('wraps the selection and keeps it selected', () => {
-    expect(applyMarkdownCommand('a bold word', 2, 6, 'bold'))
-      .toEqual({ value: 'a **bold** word', start: 4, end: 8 });
-  });
-
-  it('parks the caret between the markers when nothing is selected', () => {
-    expect(applyMarkdownCommand('', 0, 0, 'italic')).toEqual({ value: '__', start: 1, end: 1 });
-  });
-
-  it('fences a multi-line code selection', () => {
-    expect(applyMarkdownCommand('one\ntwo', 0, 7, 'code'))
-      .toEqual({ value: '```\none\ntwo\n```', start: 4, end: 11 });
-  });
-
-  it('selects the placeholder of an inserted link', () => {
-    expect(applyMarkdownCommand('see docs', 4, 8, 'link'))
-      .toEqual({ value: 'see [docs](url)', start: 11, end: 14 });
-  });
-
-  it('prefixes every line the selection touches', () => {
-    expect(applyMarkdownCommand('one\ntwo\nthree', 5, 5, 'quote'))
-      .toEqual({ value: 'one\n> two\nthree', start: 4, end: 9 });
-    expect(applyMarkdownCommand('one\ntwo', 0, 7, 'number'))
-      .toEqual({ value: '1. one\n2. two', start: 0, end: 13 });
-  });
-});
-
 describe('suggestions', () => {
-  it('offers a leading suggestion button only when a suggestion is possible', () => {
-    const plain = renderToStaticMarkup(<MarkdownToolbar onCommand={() => {}} />);
-    const suggesting = renderToStaticMarkup(<MarkdownToolbar onCommand={() => {}} onSuggest={() => {}} />);
-
-    expect(plain).not.toContain('Add a suggestion');
-    expect(suggesting).toContain('<div class="pull-diff-review__toolbar"><button type="button" title="Add a suggestion" aria-label="Add a suggestion">');
-    expect(suggesting.replace(/<button type="button" title="Add a suggestion"[^]*?<\/button><span class="pull-diff-review__divider" aria-hidden="true"><\/span>/, ''))
-      .toBe(plain);
-  });
-
-  it('fences the lines into an empty draft and parks the caret after the last one', () => {
-    expect(insertSuggestion('', 0, 0, ['int a = 1;', 'int b = 2;'])).toEqual({
-      value: '```suggestion\nint a = 1;\nint b = 2;\n```',
-      start: 35,
-      end: 35,
-    });
-  });
-
-  it('keeps the fence on its own lines around surrounding text', () => {
-    expect(insertSuggestion('Consider', 8, 8, ['x'])).toEqual({ value: 'Consider\n```suggestion\nx\n```', start: 24, end: 24 });
-    expect(insertSuggestion('before\nafter', 7, 7, ['x'])).toEqual({ value: 'before\n```suggestion\nx\n```\nafter', start: 22, end: 22 });
-    expect(insertSuggestion('keep DROP tail', 5, 9, ['x'])).toEqual({ value: 'keep \n```suggestion\nx\n```\n tail', start: 21, end: 21 });
-  });
-
-  it('grows the fence past backtick runs in the lines so the block still renders', () => {
-    const line = 'String fence = "```";';
-    const inserted = insertSuggestion('', 0, 0, [line]);
-
-    expect(inserted.value).toBe(`\`\`\`\`suggestion\n${line}\n\`\`\`\``);
-    expect(inserted.start).toBe(15 + line.length);
-    expect(renderToStaticMarkup(<MarkdownBody body={inserted.value} suggestion={{ startLine: 4, lines: ['String fence = null;'] }} />))
-      .toContain('<span>+</span>String fence = <mark>&quot;```&quot;</mark>;</td>');
-  });
-
   it('reads head lines from diff rows, falls back to the loaded file, and gives up on unknown lines', () => {
     const hunks = parseUnifiedDiff(file.patch);
     const newLines = Array.from({ length: 98 }, (_, index) => `file line ${index + 1}`);

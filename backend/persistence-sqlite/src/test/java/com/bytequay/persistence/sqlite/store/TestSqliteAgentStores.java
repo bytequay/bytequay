@@ -29,6 +29,7 @@ import com.bytequay.agent.core.AgentTurnSettings;
 import com.bytequay.agent.core.BlobRef;
 import com.bytequay.agent.core.CleanupState;
 import com.bytequay.agent.core.CodeGraphService;
+import com.bytequay.agent.core.CodeSymbolResult;
 import com.bytequay.agent.core.DevelopmentAutomation;
 import com.bytequay.agent.core.DevelopmentTurnOrigin;
 import com.bytequay.agent.core.EventId;
@@ -784,10 +785,19 @@ class TestSqliteAgentStores
         assertThat(pullRequestTasks.findByTaskId(task.id().toString())).contains(assignment);
         assertThat(pullRequestTasks.find("another-workspace", "owner/repo", 7)).isEmpty();
 
+        // A development task's local runs go with it; a review task's runs stay with the review.
+        insertLocalRun("run-task", task.id().toString());
+        insertLocalRun("run-review", other.id().toString());
+        jdbc.update("""
+                INSERT INTO agent_review (id, workspace_id, repo, number, task_id, state, follow_up_paused, version, created_at, updated_at)
+                VALUES ('review-other', 'workspace', 'owner/repo', 8, ?, 'OPEN', 0, 0, '2026-08-16T00:00:00Z', '2026-08-16T00:00:00Z')
+                """, other.id().toString());
 
         taskStore.delete(task.id());
         entityManager.clear();
 
+        assertThat(jdbc.queryForList("SELECT id FROM local_run", String.class)).containsExactly("run-review");
+        assertThat(jdbc.queryForList("SELECT run_id FROM local_run_output", String.class)).containsExactly("run-review");
         assertThat(taskStore.find(task.id())).isEmpty();
         assertThat(pullRequestTasks.findByTaskId(task.id().toString())).isEmpty();
         assertThat(turnStore.find(turn.id())).isEmpty();
@@ -800,6 +810,20 @@ class TestSqliteAgentStores
 
         taskStore.delete(task.id());
         assertThat(taskStore.find(other.id())).isPresent();
+
+        taskStore.delete(other.id());
+        assertThat(jdbc.queryForList("SELECT id FROM local_run", String.class)).containsExactly("run-review");
+        assertThat(jdbc.queryForList("SELECT run_id FROM local_run_output", String.class)).containsExactly("run-review");
+    }
+
+    private void insertLocalRun(String id, String taskId)
+    {
+        jdbc.update("""
+                INSERT INTO local_run (id, command, initiator, local_paths_json, ordinal, output_truncated, results_json, scope, started_at, status, task_id,
+                    tree_unverified, version, workspace_id)
+                VALUES (?, './mvnw test', 'USER', '[]', 1, 0, '[]', 'CLASS', '2026-08-16T00:00:00Z', 'PASSED', ?, 0, 0, 'workspace')
+                """, id, taskId);
+        jdbc.update("INSERT INTO local_run_output (run_id, output) VALUES (?, 'output')", id);
     }
 
     @Test
@@ -1112,6 +1136,18 @@ class TestSqliteAgentStores
         public String explore(TaskWorktree worktree, TaskResources resources, String query)
         {
             return "";
+        }
+
+        @Override
+        public CodeSymbolResult searchSymbols(TaskWorktree worktree, TaskResources resources, String query, int limit)
+        {
+            return CodeSymbolResult.UNAVAILABLE;
+        }
+
+        @Override
+        public CodeSymbolResult fileSymbols(TaskWorktree worktree, TaskResources resources, String path)
+        {
+            return CodeSymbolResult.UNAVAILABLE;
         }
 
         @Override

@@ -887,7 +887,7 @@ class TestPermissionBroker
         assertThat(settings.at("/sandbox/network/allowedDomains"))
                 .isEqualTo(objectMapper.valueToTree(ImmutableList.of("*")));
         assertThat(settings.at("/sandbox/network/allowUnixSockets").isMissingNode()).isTrue();
-        assertThat(settings.at("/sandbox/filesystem/allowWrite").toString()).contains("~/.m2", "/var/tmp");
+        assertThat(settings.at("/sandbox/filesystem/allowWrite").toString()).contains("~/.m2/repository", "~/.m2/wrapper", "/var/tmp").doesNotContain("\"~/.m2\"");
         assertThat(settings.at("/permissions/allow").isMissingNode()).isTrue();
         assertThat(settings.at("/permissions/deny")).isEmpty();
         assertThat(settings.at("/sandbox/filesystem/denyRead")).isEmpty();
@@ -957,7 +957,7 @@ class TestPermissionBroker
                                 if (reviewSession) {
                                     assertThat(settings.at("/sandbox/autoAllowBashIfSandboxed").asBoolean()).isFalse();
                                     assertThat(settings.at("/sandbox/filesystem/allowWrite"))
-                                            .isEqualTo(objectMapper.valueToTree(ImmutableList.of("~/.m2", "~/.gradle", "~/.npm", "/var/tmp")));
+                                            .isEqualTo(objectMapper.valueToTree(ImmutableList.of("~/.m2/repository", "~/.m2/wrapper", "~/.gradle", "~/.npm", "/var/tmp")));
                                     assertThat(settings.at("/permissions/deny").toString()).contains("Bash(git commit:*)", "Bash(git update-ref:*)")
                                             .doesNotContain("Bash(git add", "Bash(git write-tree", "Bash(git update-index", "Bash(git symbolic-ref", "Bash(git reset");
                                     assertThat(settings.at("/autoMode/classifyAllShell").asBoolean()).isTrue();

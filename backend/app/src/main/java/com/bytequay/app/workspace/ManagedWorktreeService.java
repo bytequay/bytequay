@@ -227,6 +227,15 @@ public final class ManagedWorktreeService
         return ImmutableMap.copyOf(changes);
     }
 
+    /** The task's checkout root for lock-free reads, after the same ownership checks as {@link #changes}. */
+    public Path ownedCheckout(TaskWorktree worktree)
+    {
+        requireNonNull(worktree, "worktree is null");
+        Workspace workspace = requireWorkspace(worktree.workspaceId());
+        verifyPhysicalRepository(workspace, worktree.physicalRepository());
+        return verifyOwnedWorktree(workspace, verifyManagedRepository(workspace), worktree);
+    }
+
     private Optional<WorktreeChanges> readChanges(Workspace workspace, Path repository, TaskWorktree worktree)
     {
         try {

@@ -512,6 +512,54 @@ class TestDefaultAgentTurnService
     }
 
     @Test
+    void localRunClaimExcludesTurnsQueuedInputAndOtherWritersUntilItsOwnerReleasesIt()
+    {
+        AgentTask claimed = service.claimLocalRun(task.id(), "run-1");
+        assertThat(claimed.worktreeMutationClaim()).contains(WorktreeMutationClaim.localRun("run-1", NOW));
+        assertThat(stores.find(task.id()).orElseThrow().worktreeMutationClaim()).isEqualTo(claimed.worktreeMutationClaim());
+
+        assertThatThrownBy(() -> service.start(command("While running", "local-run-start")))
+                .isInstanceOf(AgentConflictException.class).hasMessage("A run is using this working copy");
+        assertThatThrownBy(() -> service.enqueue(new QueueAgentInputCommand(task.id(), claimed.version(), "Later", ImmutableList.of(), "local-run-queue")))
+                .isInstanceOf(AgentConflictException.class).hasMessage("A run is using this working copy");
+        assertThatThrownBy(() -> service.synchronizeWorktree(task.id(), claimed.version(), ignored -> {}))
+                .isInstanceOf(AgentConflictException.class).hasMessage("A run is using this working copy");
+        assertThatThrownBy(() -> service.claimLocalRun(task.id(), "run-2"))
+                .isInstanceOf(AgentConflictException.class).hasMessage("A run is using this working copy");
+
+        // Only the run that holds the claim releases it, and releasing twice is harmless.
+        service.releaseLocalRun(task.id(), "run-2");
+        assertThat(taskService.get(task.id()).worktreeMutationClaim()).isEqualTo(claimed.worktreeMutationClaim());
+        service.releaseLocalRun(task.id(), "run-1");
+        service.releaseLocalRun(task.id(), "run-1");
+        assertThat(taskService.get(task.id()).worktreeMutationClaim()).isEmpty();
+    }
+
+    @Test
+    void localRunClaimFollowsTheTurnStartRulesWithoutProviderReadiness()
+    {
+        service.start(command("Run review", "local-run-active"));
+        assertThatThrownBy(() -> service.claimLocalRun(task.id(), "run-1"))
+                .isInstanceOf(AgentConflictException.class).hasMessageContaining("active turn");
+        service.enqueue(new QueueAgentInputCommand(task.id(), taskService.get(task.id()).version(), "Queued review", ImmutableList.of(), "local-run-queued"));
+        driver.fail("Stopped review", AgentTurnFailureKind.AUTHENTICATION_REQUIRED);
+        assertThatThrownBy(() -> service.claimLocalRun(task.id(), "run-1"))
+                .isInstanceOf(AgentConflictException.class).hasMessage("Remove or resume the queued question");
+        service.removeQueued(task.id(), service.queued(task.id()).getFirst().id());
+        WorktreeMutationClaim completion = new WorktreeMutationClaim(WorktreeMutationClaim.Kind.COMPLETION, "other-owner", NOW);
+        AgentTask held = stores.update(taskService.get(task.id()).claimWorktreeMutation(completion, NOW));
+        assertThatThrownBy(() -> service.claimLocalRun(task.id(), "run-1"))
+                .isInstanceOf(AgentConflictException.class).hasMessage("Task worktree is claimed by COMPLETION");
+        // A LOCAL_RUN release never touches another kind of claim.
+        service.releaseLocalRun(task.id(), "other-owner");
+        assertThat(taskService.get(task.id()).worktreeMutationClaim()).contains(completion);
+        stores.update(held.releaseWorktreeMutation(completion, NOW));
+
+        driver.failProbe(new IllegalStateException("A local run never probes the provider"));
+        assertThat(service.claimLocalRun(task.id(), "run-1").worktreeMutationClaim().map(WorktreeMutationClaim::kind)).contains(WorktreeMutationClaim.Kind.LOCAL_RUN);
+    }
+
+    @Test
     void worktreeSynchronizationReleasesClaimOnSuccessAndFailureWithoutChangingPrivateReviewOwnership()
     {
         service.synchronizeWorktree(task.id(), task.version(), ignored -> {});

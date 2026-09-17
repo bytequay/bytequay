@@ -20,7 +20,8 @@ import java.nio.file.Path;
  *
  * <p>Every task index is derived cache under the task runtime, cloned from a per-repository
  * baseline that holds the index of the remote default branch. Every operation binds to persisted
- * facts; nothing here accepts a model- or renderer-supplied path.
+ * facts. The only caller-supplied path is {@link #fileSymbols}'s repository-relative file, which the
+ * caller has already validated; nothing here accepts a model-supplied path.
  */
 public interface CodeGraphService
 {
@@ -58,6 +59,28 @@ public interface CodeGraphService
      *         or the index cannot be brought current
      */
     String explore(TaskWorktree worktree, TaskResources resources, String query);
+
+    /**
+     * Searches the task index for symbols by name, for a read-only UI.
+     *
+     * <p>Read contract, unlike {@link #explore}: the task's graph lock is tried for a short bounded
+     * time and {@link CodeSymbolResult.Status#BUSY} is returned when it is held. The index is never
+     * built, rebuilt, or deleted on the caller's thread. When it is usable and records the worktree
+     * HEAD, a plain sync runs first so saved edits appear, whatever their size; a failed sync
+     * leaves the index alone and reports {@link CodeSymbolResult.Status#UNAVAILABLE}. A missing
+     * index or a moved HEAD queues {@link #prepare} in the background and returns
+     * {@link CodeSymbolResult.Status#UPDATING}. Expected failures never throw.
+     *
+     * @param limit maximum symbols, 1 to 200
+     */
+    CodeSymbolResult searchSymbols(TaskWorktree worktree, TaskResources resources, String query, int limit);
+
+    /**
+     * Lists the symbols the task index records for one file, under the {@link #searchSymbols} read contract.
+     *
+     * @param path repository-relative file path the caller already validated
+     */
+    CodeSymbolResult fileSymbols(TaskWorktree worktree, TaskResources resources, String path);
 
     /** Deletes the task's derived index. Best-effort: a missing index is not an error and a failure is logged, since retention removes leftovers. */
     void deleteIndex(TaskResources resources);

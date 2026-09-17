@@ -105,6 +105,10 @@ final class SqliteWorkspacePurge
         sql.update("DELETE FROM ci_autofix_attempt WHERE run_id IN (SELECT id FROM ci_autofix_run WHERE " + CI_WORKSPACE + ")", parameters);
         sql.update("DELETE FROM ci_autofix_run WHERE " + CI_WORKSPACE, parameters);
         sql.update("DELETE FROM cherry_pick_execution WHERE workspace_id = :workspaceId", parameters);
+        if (hasMappedEntity("LocalRunEntity")) {
+            sql.update("DELETE FROM local_run_output WHERE run_id IN (SELECT id FROM local_run WHERE workspace_id = :workspaceId)", parameters);
+            sql.update("DELETE FROM local_run WHERE workspace_id = :workspaceId", parameters);
+        }
         if (hasReviewData()) {
             for (String table : ImmutableList.of("agent_review_finding", "agent_review_message", "agent_review_run")) {
                 sql.update("DELETE FROM " + table + " WHERE review_id IN (SELECT id FROM agent_review WHERE workspace_id = :workspaceId)", parameters);

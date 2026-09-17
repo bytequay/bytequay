@@ -53,6 +53,10 @@ historical checkpoint evidence and explicitly deferred future work.
   user-saved lessons, and source-linked input for the existing review flow.
   Start with its overall flow; its [temporary checklist](repository-context-impl-tmp.md)
   tracks design review and future implementation/enablement gates.
+- [Code & Tests](code-tests.md) specifies the PR detail tab for reading whole
+  files, following symbols, running tests, editing test source, and a terminal
+  in the Agent review working copy. Its [implementation checklist](code-tests-impl-tmp.md)
+  tracks the phased delivery.
 - [CI Autofix Service](ci-autofix-service.md) specifies a user-started,
   bounded watch/fix/commit/push loop for pending or failing GitHub Actions checks. Review
   comment triage is intentionally outside that service and will be designed
@@ -122,6 +126,11 @@ repository builds.
   text-only sessions retain narrower profiles. Provider login versus API-key
   authentication does not change permissions. See
   [the shared command policy](agent-service.md#shared-development-command-policy).
+- A project-aware command, such as running one test, needs a validation profile:
+  a preflight that names what is missing and an argv builder from a validated
+  selector, never a typed command line. Code & Tests hard-wires the Maven
+  wrapper as the first profile; its run records carry scope and selector text,
+  so another runner adds only its own preflight and builder.
 - Treat proposed designs as implementation guidance, not compatibility
   requirements for deleted systems.
 

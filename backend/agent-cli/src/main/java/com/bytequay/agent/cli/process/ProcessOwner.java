@@ -55,7 +55,9 @@ public record ProcessOwner(Kind kind, String id)
         /** One Claude turn process. */
         CLAUDE_TURN(ExecutionProfile.PROVIDER_CONTROL),
         /** One short-lived provider control command or isolated text-only helper. */
-        CLI_PROBE(ExecutionProfile.PROVIDER_CONTROL);
+        CLI_PROBE(ExecutionProfile.PROVIDER_CONTROL),
+        /** One user-requested test run in a review working copy, owned by {@code <taskId>/<runId>}. */
+        LOCAL_RUN(ExecutionProfile.LOCAL_COMMAND);
 
         private final ExecutionProfile profile;
 

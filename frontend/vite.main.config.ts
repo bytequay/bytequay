@@ -14,4 +14,7 @@
 import { defineConfig } from 'vite';
 
 // https://vitejs.dev/config
-export default defineConfig({});
+export default defineConfig({
+  // A native module loads from node_modules at runtime; bundling it would lose its prebuilds.
+  build: { rollupOptions: { external: ['node-pty'] } },
+});

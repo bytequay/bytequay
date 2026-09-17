@@ -15,6 +15,7 @@ import { useRef, useState } from 'react';
 import Avatar from '../../Avatar';
 import BetterWordsButton from '../BetterWordsButton';
 import MarkdownBody from '../MarkdownBody';
+import MarkdownEditor from '../MarkdownEditor';
 import { ReviewThreadCard, ReviewThreadMessage } from '../ReviewThreadCard';
 import type { LocalReviewThreadActions, LocalReviewThreadDto } from './types';
 
@@ -50,28 +51,19 @@ export default function LocalReviewThreadCard({ thread, onReply, onResolve, onRe
     if (!body.trim() || disabledReason) return;
     void mutate('reply', () => onReply(thread.id, body.trim()));
   };
-  const controls = replying ? <footer className="pr-thread-reply">
-    <div className="pr-thread-reply__tabs" role="group" aria-label="Reply editor mode">
-      <button type="button" className={preview ? '' : 'is-active'} aria-pressed={!preview}
-        onClick={() => { setPreview(false); requestAnimationFrame(() => textareaRef.current?.focus()); }}>Write</button>
-      <button type="button" className={preview ? 'is-active' : ''} aria-pressed={preview} onClick={() => setPreview(true)}>Preview</button>
-    </div>
-    {preview && <MarkdownBody body={body || 'Nothing to preview.'} repository={thread.repo} />}
-    <textarea ref={textareaRef} autoFocus hidden={preview} aria-label="Reply to local review" value={body} rows={4}
-      placeholder="Reply privately to this thread…" disabled={busy} onChange={event => setBody(event.target.value)}
-      onKeyDown={event => {
-        if ((event.metaKey || event.ctrlKey) && event.key === 'Enter') { event.preventDefault(); reply(); }
-      }} />
-    <p className="pr-local-review__note">Private — only you and the agent. Questions and replies stay in this thread.</p>
-    {error && <span className="pr-thread-reply__error" role="alert">{error}</span>}
-    {disabledReason && <p className="pr-local-review__note" role="status">{disabledReason}</p>}
-    <div className="pr-thread-reply__actions">
+  const controls = replying ? <footer>
+    <MarkdownEditor value={body} onChange={setBody} ariaLabel="Reply to local review" placeholder="Reply privately to this thread…"
+      repository={thread.repo} preview={preview} onPreviewChange={setPreview} textareaRef={textareaRef} isPrivate
+      statusMessage={disabledReason}
+      error={error} busy={busy} autoFocus onSubmit={reply}
+      // Escape must not throw away a half-written reply.
+      onCancel={() => { if (!body.trim()) close(); }}>
       <BetterWordsButton text={body} textareaRef={textareaRef} repository={thread.repo} workspaceId={thread.workspaceId}
         disabled={preview || busy} onError={cause => setError(cause === null ? null : cause instanceof Error ? cause.message : 'Could not improve the reply.')} />
       <button type="button" disabled={busy} onClick={close}>Cancel</button>
-      <button className="is-primary" type="button" disabled={busy || !body.trim() || Boolean(disabledReason)}
+      <button className="is-primary" type="button" disabled={busy || !body.trim() || Boolean(disabledReason)} title={disabledReason ?? undefined}
         onClick={reply}>{pending === 'reply' ? 'Replying…' : 'Reply to agent'}</button>
-    </div>
+    </MarkdownEditor>
   </footer> : <footer>
     <button className="pr-thread-reply__open" type="button" disabled={busy || Boolean(disabledReason)} title={disabledReason ?? undefined}
       onClick={() => { setError(null); setPreview(false); setReplying(true); }}>Reply</button>

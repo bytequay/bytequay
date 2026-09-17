@@ -160,6 +160,16 @@ pull request's title, state and draft flag; it is absent until ByteQuay has
 stored that pull request, and nothing fetches it to fill the gap. Supplying `repo` and `number` retains the existing
 single-PR lookup; `GET /api/agent-review/{reviewId}` opens an exact retained review.
 
+In PR browsing, a **Code & Tests** tab beside Review & Learning reads whole
+files, follows symbols, runs tests, edits test source and opens a terminal in
+the open review's working copy. Its routes under
+`/api/agent-review/{reviewId}/code` (`files`, `file`, `symbols`, `outline`,
+`runs`, `terminal`, and saving or discarding test edits) are a read/run surface
+of that review's worktree. They validate review ownership like the other review
+routes, never start agent work, and never write to GitHub. An ended review's
+source and run history stay readable there. Their contract is in
+[Code & Tests](code-tests.md) §4–§7.
+
 ### Visual contract
 
 The checked-in PR page is the styling source of truth. Reuse its actual
@@ -227,6 +237,7 @@ this is not a second task engine:
 | Finding | Stable ID, source run, immutable anchor mapping, title/body, evidence references, current revision, local resolution/withdrawal and reason, revalidation result for later runs |
 | Discussion message | Stable ID, review and summary-card/finding target, author, body, target revision/run, correlated task input/turn or reply, delivery outcome |
 | Outgoing draft/publication | PR/account-owned draft usable without Agent Review; stable item ID, MANUAL or AGENT_FINDING source, optional finding ID/revision, frozen location, user-editable body/version, inclusion, review body/event, exact publication attempt/payload and returned remote identities |
+| Local run | Task (a review's runs are its task's runs), ordinal, USER or AGENT initiator, class/method/command scope and selector, source head/local paths/fingerprint at start, status from runner facts only, bounded output and per-test results |
 
 These are logical records, not a mandate for one table per row. Reuse existing
 draft and publication mechanisms where they satisfy durability and identity.
@@ -243,6 +254,14 @@ bounded evidence excerpts needed to retain a finding's meaning, not another
 copy of the entire transcript. Runtime retention must not erase these records.
 PR cache eviction must not delete or orphan an active review or unpublished
 local work; retain its logical PR identity and required snapshot data.
+
+Local runs are the review-owned test history shown in Code & Tests. They are
+not evidence cards, never publish anything, and outlive End review and runtime
+retention. A user run starts only from a direct user action. The agent keeps
+running tests in its own sandbox with unchanged tools; the review task observer
+mirrors each completed agent Maven command into the same run history as an
+`AGENT` local run, read from its command event and Surefire reports. Status and
+mirroring rules are in [Code & Tests](code-tests.md#5-backend-local-runs).
 
 Derive Reviewing, Running, Waiting for approval, Finished, Stopped, Could not finish, and New
 commits from existing task/turn facts and review result facts. Do not add
@@ -301,8 +320,20 @@ It excludes direct and queued starts throughout stash, move, and restoration,
 and releases ownership before launching the next review turn. A review mutex
 alone is insufficient because the core queue can start without it. Native
 stash operations also hold a repository lock across linked worktrees.
-`WorktreeService` itself stays provision/inspect/cleanup and gains no review
-lifecycle or generic lock registry.
+`WorktreeService` itself gains no review lifecycle, discard mode or generic
+lock registry.
+
+Code & Tests saves and discards test edits through
+`AgentReviewService.mutateWorkingCopy`. It holds the review lock, refuses a
+review that is not open or whose latest run is running and not paused, and then
+uses the same `synchronizeWorktree` callback. Discard reuses
+`ReviewExperiments.discard` at the revision the tab last read. A user local run
+takes the task's `LOCAL_RUN` mutation claim under the review lock and keeps it
+until its processes are verified stopped. Turn start, enqueue and
+synchronization already refuse a held claim. Update review, Resume and End
+review also refuse it explicitly with "A run is using this working copy", and
+Review & Learning disables those controls, Run review again and Send to agent
+with that reason.
 
 For an ordinary descendant head, update the verified generated branch with a
 guarded fast-forward and verify the resulting HEAD. Unknown local commits are
@@ -336,9 +367,14 @@ has completed.
 **Stop** cancels the current run, pauses queued/new-head execution, and keeps
 the review open for discussion or explicit resume. **End review** closes the
 ongoing workflow once execution is quiescent and pending input is handled.
-It completes the task, durably closes the review, then requests normal clean
-worktree cleanup. Preserve dirty work; retain the generated branch. A PR
-being merged/closed does not itself authorize destructive cleanup.
+Task completion refuses uncommitted work, so End checks the working copy before
+it stops observing the review task (`observer.unwatch`). Uncommitted changes,
+untracked files included, refuse with 409 "Discard saved edits before ending
+the review" and leave the review open and observed; ignored build output does
+not. End then completes the task, durably closes the review, and requests
+normal clean worktree cleanup. A worktree that still holds ignored output is
+kept for inspection; the generated branch is always retained. A PR being
+merged/closed does not itself authorize destructive cleanup.
 
 When the last turn has ended but provider cleanup remains unverified, expose
 **Recover runtime**. Its review-scoped impact/read and stop endpoints delegate
@@ -356,11 +392,12 @@ was accepted, complete a full pass to establish the successful reviewed-head
 cursor. Later compatible PR heads use the existing incremental-review rules.
 
 Use CodeGraph exactly as specified by [its service design](codegraph-service.md):
-one derived index per worktree, optional agent-led queries, synchronization
-inside queries, and best-effort index deletion after successful worktree
-cleanup. No review-specific graph lifecycle, forced graph use, or extra
-refresh tool. Graph failure never fails review execution or invalidates an
-otherwise complete review.
+one derived index per worktree, optional agent-led queries, read-only UI symbol
+queries through the review `/code` routes, synchronization inside queries, and
+best-effort index deletion after successful worktree cleanup. No
+review-specific graph lifecycle, forced graph use, or extra refresh tool. Graph
+failure never fails review execution or invalidates an otherwise complete
+review.
 
 ## 5. Context, anchors, and evidence
 
@@ -571,7 +608,8 @@ removed sections.
 Every saved card and finding describes the pull request. Scope omissions remain run metadata; outgoing findings do not contain
 agent autobiography or tool/environment commentary. Review commands have no network access, so the agent builds
 and runs the tests that exercise the change offline against the local
-dependency caches; only a failed offline build shows a dependency is missing.
+dependency caches; both providers may write `~/.m2/repository`.
+Only a failed offline build shows a dependency is missing.
 
 Validate commit/finding references against the run. Incremental review
 updates the overall explanation and identifies what the new commits changed;

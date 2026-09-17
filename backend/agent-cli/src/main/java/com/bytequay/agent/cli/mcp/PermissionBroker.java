@@ -1045,7 +1045,9 @@ public final class PermissionBroker
                         // The sandbox otherwise permits only the worktree and TMPDIR, so a build
                         // cannot populate its dependency cache.
                         // ponytail: add a root here when a task toolchain needs one.
-                        "allowWrite", ImmutableList.of("~/.m2", "~/.gradle", "~/.npm", "/var/tmp"),
+                        // Only Maven's repository and wrapper, never ~/.m2/settings.xml, which names the repository for every build and would
+                        // let one session choose where the next session's Maven writes.
+                        "allowWrite", ImmutableList.of("~/.m2/repository", "~/.m2/wrapper", "~/.gradle", "~/.npm", "/var/tmp"),
                         "denyRead", denyRead.build(),
                         // The task runtime directory holds the CI logs, the event log, and this
                         // settings file. The agent reads its attachments from there and must not

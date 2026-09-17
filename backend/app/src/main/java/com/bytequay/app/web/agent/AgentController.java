@@ -442,7 +442,7 @@ public class AgentController
     {
         AgentTask task = taskService.getInteractive(workspaceId, TaskId.valueOf(taskId));
         return assignedPullRequests(task).orElseGet(() -> task.taskWorktree()
-                .map(worktree -> taskPullRequests(taskPullRequestRepository(workspaceId), taskBranches(worktree)))
+                .map(worktree -> taskPullRequests(taskPullRequestRepository(workspaceId), worktree, taskBranches(worktree)))
                 .orElse(ImmutableList.of()));
     }
 
@@ -477,7 +477,7 @@ public class AgentController
                 List<String> branches = taskBranches(worktree);
                 RepoRef repository = taskPullRequestRepository(workspaceId);
                 branches.forEach(branch -> pullRequestCatalog.syncRepositoryBranch(repository, worktree.physicalRepository().owner(), branch));
-                return taskPullRequests(repository, branches);
+                return taskPullRequests(repository, worktree, branches);
             }).orElse(ImmutableList.of());
         }
         finally {
@@ -506,10 +506,12 @@ public class AgentController
                 .monitoredRepository();
     }
 
-    private List<PullRequest> taskPullRequests(RepoRef repository, List<String> branches)
+    /** A renamed branch can share a common name with another author's fork, so a current-branch match counts only for the user's own pull request. */
+    private List<PullRequest> taskPullRequests(RepoRef repository, TaskWorktree worktree, List<String> branches)
     {
         return branches.stream()
-                .flatMap(branch -> pullRequests.findByHeadRef(repository.fullName(), branch).stream())
+                .flatMap(branch -> pullRequests.findByHeadRef(repository.fullName(), branch).stream()
+                        .filter(pr -> branch.equals(worktree.generatedBranch()) || pr.origin() == PullRequest.Origin.AUTHORED))
                 .sorted(comparingInt(PullRequest::number).reversed())
                 .collect(toImmutableList());
     }

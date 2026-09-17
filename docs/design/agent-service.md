@@ -612,7 +612,7 @@ amount.
 | `AgentInputDelivery` | Durable steer send attempt and known or uncertain outcome; direct start uses `AgentTurn` |
 | `QueuedAgentInput` | FIFO input snapshot waiting to become one turn |
 | `ApprovalRequest` / `ApprovalResponse` | Matching tagged interaction variants and product-permitted available decisions |
-| `WorktreeMutationClaim` | Durable task-local claim owned by one turn or completion operation |
+| `WorktreeMutationClaim` | Durable task-local claim owned by one turn, completion operation, or review local run |
 | `AgentTurnResult` | Provider/process terminal lifecycle, operational diagnostics, and a bounded optional final response for direct text-only consumers |
 | `AgentTask` | Durable workspace, lifecycle state, lane, worktree, defaults, timestamps, totals, summary, and optional successful worktree-removal time |
 | `AgentTurn` | Durable per-turn state, provider references, effective settings, timing, and metrics |
@@ -644,6 +644,7 @@ Queued input: QUEUED -> STARTING -> STARTED
 Worktree mutation claim:
   NONE -> TURN -> NONE
   NONE -> COMPLETION -> RELEASED
+  NONE -> LOCAL_RUN -> NONE
 
 Input delivery: ACCEPTED -> SENDING -> DELIVERED
                 |              |-> FAILED
@@ -656,8 +657,9 @@ Input delivery: ACCEPTED -> SENDING -> DELIVERED
 and recovery required are derived projections, not durable task states. An
 `OPEN` task is idle and sendable only when it has no nonterminal turn, no
 worktree-mutation claim, and provider quiescence has been proved. A live turn
-projects running, a `COMPLETION` claim projects closing, and an unsettled turn
-or retained `TURN` claim projects recovery required. No projection transition
+projects running, a `COMPLETION` claim projects closing, a `LOCAL_RUN` claim
+projects a working copy busy with a local run, and an unsettled turn or
+retained `TURN` claim projects recovery required. No projection transition
 changes `TaskState`.
 
 A provider terminal, failed, cancelled, or interrupted status alone does not
@@ -705,7 +707,7 @@ The implementation must enforce these invariants:
   task stores the immutable `TaskWorktree` returned by provisioning; there is
   no separate allocation state or startup worktree reconciliation.
 - Within that worktree, one durable worktree-mutation claim serializes turn
-  acceptance/queue claims and completion.
+  acceptance/queue claims, review local runs, and completion.
 - A turn's claim covers its root run and every discovered descendant. Root
   `turn/completed` does not release it or start queued work. The driver first
   verifies each current-run agent is terminal, its tools have stopped, and all
@@ -1858,13 +1860,21 @@ than arbitrary sandbox text:
 
 - `PROVIDER_CONTROL` owns one task's App Server or one Claude turn process and
   does not claim an endpoint-level network allowlist;
+- `LOCAL_COMMAND` owns one user-requested command in a review task's or
+  development task's working copy ([Code & Tests](code-tests.md) §11), selected
+  only by `ProcessOwner.Kind.LOCAL_RUN`. ByteQuay builds its
+  argv: a fixed `/bin/bash -c` wrapper around the worktree's Maven wrapper,
+  with the test selector as positional arguments. It runs with the user's
+  login-shell environment minus every `BYTEQUAY_*` variable, and under no
+  provider sandbox or approval ([Code & Tests](code-tests.md) §5.3);
 - `TASK_EXEC_SERVER` is retained only to recover markers written by the
   superseded loopback-executor design; no current launch selects it.
 
 Within `PROVIDER_CONTROL`, `CLI_PROBE` identifies short-lived provider control
 commands and validated text-only helpers. The exact
 `APP_SERVER/codex-model-catalog` owner is also control-only. Every other
-`APP_SERVER` owner and every `CLAUDE_TURN` owner is task-worktree-capable.
+`APP_SERVER` owner, every `CLAUDE_TURN` owner, and every `LOCAL_RUN` owner is
+task-worktree-capable.
 Keeping this classification on existing owner values preserves durable marker
 and SQLite compatibility without adding a lifecycle state.
 
@@ -1941,8 +1951,9 @@ first commits the turn terminal fact and tree proof, then calls
 `acknowledge(launchId)`. Probes and text-only helpers acknowledge after verified
 close. A crash on either side replays the terminal receipt or deletes an
 already-acknowledged marker idempotently. Task App Server markers name their
-task and Claude turn markers name their turn; model-catalog, probe, and helper
-markers instead carry their closed control owner.
+task, Claude turn markers name their turn, and local-run markers name
+`<taskId>/<runId>`; model-catalog, probe, and helper markers instead carry
+their closed control owner.
 Markers contain no credentials, prompt
 text, or core-domain objects. A missing/incomplete marker for a
 launch intent that had reached `ATTEMPTING` is unverifiable: recovery keeps the
@@ -2045,8 +2056,9 @@ directory. This defines the provider's filesystem scope, not a process-lifetime
 containment guarantee. Under `sandbox: workspace-write`
 App Server's default environment is rooted at its own working directory.
 Attended `AUTO` also permits the provider's ordinary `/tmp` and `$TMPDIR`
-writes; other policies retain their temporary-directory exclusions. Writes
-outside those permitted roots require provider approval. Measured against codex-cli
+writes and, for development and review turns, the user's Maven local repository
+(section 8.1); other policies retain their temporary-directory exclusions.
+Writes outside those permitted roots require provider approval. Measured against codex-cli
 0.151.0 with no environment registered: an in-worktree write landed with zero
 approvals, and a write to a path under `$HOME` produced an approval request and
 never landed.
@@ -2199,6 +2211,24 @@ interrupted once the previous backend's processes are classified. A verified
 stop releases the turn's claim; an unverifiable launch swaps it for a
 `RECOVERY` claim keyed by that launch, and a later startup that verifies the
 launch stopped is what releases it.
+
+A Code & Tests local run ([Code & Tests](code-tests.md) §5.3) is the one
+supervised process in a task worktree that no provider turn owns.
+`AgentTurnService.claimLocalRun(taskId, runId)` takes a `LOCAL_RUN` claim under
+the agent serving gate and the same start rules as a turn, so turn start,
+enqueue, `synchronizeWorktree`, and completion refuse while it is held. Its
+launch is `ProcessOwner.Kind.LOCAL_RUN` with owner id `<taskId>/<runId>`,
+persisted as `LaunchOwnerKind.LOCAL_RUN`; startup recovery
+(`AgentStartupRecovery.ownerTask`) attributes that launch to its task.
+`releaseLocalRun` runs only after the run's process tree is
+`VERIFIED_STOPPED` and before the launch is acknowledged; an unverifiable run
+keeps both. At startup `AgentMaintenance.recover` releases a `LOCAL_RUN` claim
+as it does a stale `COMPLETION` claim, which is safe because the serving gate
+stays closed until process recovery settles. `settleAfterProcessRecovery` then
+gives a task whose run launch is unverifiable a `RECOVERY` claim keyed by that
+launch, so only that task is blocked. The existing runtime Stop for a recovery
+claim (`AgentStartupRecovery.stopRecoveredRuntime`) retries verification of
+every launch attributable to the task, run launches included.
 
 Release compatibility tests run reference-version sandbox and lifecycle
 fixtures: ordinary built-in tool execution must stay inside the task worktree,
@@ -3307,13 +3337,27 @@ The connection and task sequence is:
    turn's snapshotted model, reasoning effort, service tier, `approvalPolicy`,
    `approvalsReviewer: "auto_review"`, canonical `cwd`, and structured
    `sandboxPolicy` with `type: "workspaceWrite"` and
-   `writableRoots: [canonicalWorktree]`, with tool network disabled. Attended
+   `writableRoots: [canonicalWorktree]` (plus the Maven root below), with tool
+   network disabled. Attended
    `AUTO` sets `excludeTmpdirEnvVar: false` and `excludeSlashTmp: false` to
    retain the provider's ordinary temporary-directory allowances. Other policies
-   keep both exclusions enabled. Build caches such as `~/.m2` are not additional
-   writable roots; access outside the permitted roots still goes through native
-   review. The thread's persisted
-   `selectedCapabilityRoots` remains empty. Store the returned `turn.id` as the
+   keep both exclusions enabled. Attended `AUTO` development and review turns
+   also add the user's Maven local repository as a writable root, checked on
+   every turn: exactly `$HOME/.m2/repository`, and only when it is a directory
+   and neither `.m2` nor `repository` is a symbolic link. A missing or linked
+   directory adds no root. `~/.m2/settings.xml`, `MAVEN_OPTS` and the worktree's
+   `.mvn` files never choose the root, because agent sandboxes or pull-request
+   authors can write them; Claude's sandbox may not write `settings.xml` for the
+   same reason (section 8.2). A custom `<localRepository>` therefore gets no
+   root and its writes keep going through native review. Tool network stays
+   disabled, so builds resolve cached dependencies offline. Code the agent runs,
+   including a pull request's tests, can therefore write the shared Maven
+   repository without approval, as Claude sessions already can, and the user's
+   later builds use the artifacts it writes. The root is sent only per turn,
+   because a launch-time `sandbox_workspace_write.writable_roots` flag selects
+   the CI profile; `CI_AUTOFIX` and text-only turns never receive it. Other
+   access outside the permitted roots still goes through native review. The
+   thread's persisted `selectedCapabilityRoots` remains empty. Store the returned `turn.id` as the
    `ProviderTurnRef`. Never add
    `.git`, a worktree pointer target, or the resolved Git directory as an extra
    writable root.
@@ -3471,9 +3515,9 @@ moves and remote writes, including when a development task enters local review.
 That exact scope is verified at launch and before each turn; resuming cannot
 reuse the broader development policy.
 Routine task-required actions use native risk-based review, including build and
-test commands that need bounded cache, lock, or temporary-file writes outside
-the worktree. The user's task request authorizes its normal prerequisites;
-the user need not separately name Maven's cache or temporary paths. The reviewer
+test commands that need other bounded cache, lock, or temporary-file writes
+outside the permitted roots. The user's task request authorizes its normal
+prerequisites; the user need not separately name cache or temporary paths. The reviewer
 still evaluates the complete action and its side effects, so `AUTO` does not
 promise that every build or test command will be approved.
 
@@ -3503,7 +3547,7 @@ approval requests still use the existing ByteQuay request/decision boundary.
 Text-only title/Better Words helpers keep `never`, reviewer `user`, read-only
 sandbox, disabled tools, and disabled web search. Shell networking remains
 disabled in the sandbox; only attended `AUTO` receives the ordinary temporary
-directory allowances described above.
+directory allowances and the Maven local repository root described above.
 
 The approved CI Autofix lane uses the existing `AgentDriver` interface and
 `AgentPermissionPolicy.CI_AUTOFIX`. `CodexCliDriver` pins `never` and reviewer
@@ -3840,7 +3884,7 @@ The driver normalizes at least these message classes:
 | `system/init` | Session reference, CLI/model/tool capability facts |
 | `stream_event` text deltas | Partial assistant `COMMENTARY` |
 | `assistant` content blocks | Completed `COMMENTARY` plus `tool_use` starts |
-| `user` content containing `tool_result` | Tool result and bounded command output |
+| `user` content containing `tool_result` | Tool result and bounded command output; a Bash call with `run_in_background` is a `background` command |
 | Successful native `TodoWrite` tool result | Structured plan from the matching validated todo input; failed or malformed writes do not change it |
 | `tool_progress` | Running-tool elapsed-time update; a tracked Bash call remains a typed `Command` with the same item identity |
 | `system/hook_started`, `hook_progress`, and `hook_response` | Hook lifecycle and bounded output |
@@ -3908,7 +3952,15 @@ a session that set `dangerouslyDisableSandbox` wrote outside its worktree with n
 escalation. With the option off that request is refused and the write fails, so
 no session can waive its own confinement. The sandbox otherwise permits only the
 worktree and `TMPDIR`, which no build can populate a dependency cache from, so
-`filesystem.allowWrite` names the ordinary toolchain caches. Interactive
+`filesystem.allowWrite` names the ordinary toolchain caches: `~/.m2/repository`,
+`~/.m2/wrapper`, `~/.gradle`, `~/.npm` and `/var/tmp`. It names Maven's
+repository rather than all of `~/.m2`, so no session can rewrite
+`settings.xml`, which picks where every later build writes. The process
+environment carries `JAVA_HOME`, the backend's own value when it has an
+executable `bin/java` and otherwise its JVM's `java.home`, and none when neither
+does: Claude Code's macOS sandbox limits `sysctl` reads, which
+breaks the `/usr/libexec/java_home` lookup and `/usr/bin/java` stub that builds
+otherwise use to locate Java. Interactive
 development explicitly sets `sandbox.network.allowedDomains` to `["*"]`,
 alongside the optional SSH-agent socket. An omitted domain list is empty and
 triggers a separate proxy approval, so merely allowing the Git command and its
@@ -4045,7 +4097,9 @@ Required payload families are:
   free-form Plan-mode text;
 - commands, file changes, built-in tool activity, web searches, and image views
   with typed lifecycle, bounded arguments/results, working directory, and
-  duration when supplied;
+  duration when supplied; `CommandActivity.background` marks a command the
+  provider started in the background, whose launch-time result carries no
+  command outcome;
 - approval requested, resolved, and expired events with kind, requested scope,
   decision, source child, and resolution time;
 - subagent discovered, completed, and failed events with direct parent and
@@ -4173,6 +4227,11 @@ schema must round-trip development results without a payload-kind enum check.
 An already-created stale constraint needs an explicit data-preserving local
 repair; changing the mapping alone does not rewrite that table. This does not
 introduce a shipped migration framework or automatic development-data reset.
+
+The closed `agent_task.mutation_claim_kind` and `agent_process_launch.owner_kind`
+columns do use `@Enumerated`, so a new constant such as `LOCAL_RUN` is rejected
+by an existing database's CHECK list until both tables are rebuilt once with
+the widened list or local data is reset with `./dev.sh --reset-data`.
 
 `agent_task` stores:
 
@@ -4403,9 +4462,9 @@ requires a separate explicit user action and design decision.
   and their event outbox row are transactional. A successful terminal turn may
   claim the FIFO head once; every other terminal state requires a direct user
   resume action.
-- Turn start, a queue claim, and completion all acquire the same task-local
-  worktree-mutation claim by optimistic compare-and-set; completion rejects a
-  nonterminal claim.
+- Turn start, a queue claim, a review local run, and completion all acquire the
+  same task-local worktree-mutation claim by optimistic compare-and-set;
+  completion rejects a nonterminal claim.
 - Git worktree provisioning and cleanup are serialized per managed repository.
   Normal cleanup refuses a dirty worktree or open sequencer and preserves the
   generated branch. The shared service has no force-removal or branch-deletion

@@ -11,9 +11,8 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-import { useRef, useState } from 'react';
-import MarkdownBody, { type SuggestionBase } from '../MarkdownBody';
-import { applyMarkdownCommand, MarkdownToolbar, type MarkdownCommand } from '../PullChanges';
+import type { SuggestionBase } from '../MarkdownBody';
+import MarkdownEditor from '../MarkdownEditor';
 
 /** The same editor writes private questions and outgoing comments, so its destination stays visible. */
 export default function ReviewComposer({
@@ -25,6 +24,7 @@ export default function ReviewComposer({
   outgoing = null,
   suggestion,
   busy = false,
+  disabledReason = null,
   autoFocus = false,
   allowEmpty = false,
   onChange,
@@ -40,75 +40,36 @@ export default function ReviewComposer({
   outgoing?: string | null;
   suggestion?: SuggestionBase;
   busy?: boolean;
+  /** Blocks only the primary action; editing and cancelling stay available. */
+  disabledReason?: string | null;
   autoFocus?: boolean;
   allowEmpty?: boolean;
   onChange: (value: string) => void;
   onSubmit: () => void;
   onCancel: () => void;
 }) {
-  const [preview, setPreview] = useState(false);
-  const bodyRef = useRef<HTMLTextAreaElement>(null);
-  const ready = (allowEmpty || value.trim() !== '') && !busy;
-
-  const runCommand = (command: MarkdownCommand) => {
-    const textarea = bodyRef.current;
-    if (textarea === null) return;
-    const next = applyMarkdownCommand(textarea.value, textarea.selectionStart, textarea.selectionEnd, command);
-    onChange(next.value);
-    requestAnimationFrame(() => {
-      textarea.focus();
-      textarea.setSelectionRange(next.start, next.end);
-    });
-  };
+  const ready = (allowEmpty || value.trim() !== '') && !busy && disabledReason === null;
 
   return (
-    <div className="pull-diff-review agr-composer">
-      <div className={`pull-diff-review__bar${outgoing === null ? ' agr-composer__bar--private' : ''}`}>
-        <div className="pull-diff-review__tabs" role="tablist">
-          <button type="button" role="tab" aria-selected={!preview} className={preview ? '' : 'is-active'}
-            onClick={() => {
-              setPreview(false);
-              requestAnimationFrame(() => bodyRef.current?.focus());
-            }}>Write</button>
-          <button type="button" role="tab" aria-selected={preview} className={preview ? 'is-active' : ''}
-            onClick={() => setPreview(true)}>Preview</button>
-        </div>
-        {outgoing === null && <button type="button" className="agr-composer__private" disabled>Private</button>}
-        {!preview && <MarkdownToolbar onCommand={runCommand} disabled={busy} />}
-      </div>
-      {preview && <div className="pull-diff-review__preview">
-        {value.trim()
-          ? <MarkdownBody body={value} repository={repository} suggestion={suggestion} />
-          : <p className="pull-diff-review__nothing">Nothing to preview</p>}
-      </div>}
-      <textarea
-        ref={bodyRef}
-        value={value}
-        rows={4}
-        hidden={preview}
-        disabled={busy}
-        autoFocus={autoFocus}
-        aria-label={ariaLabel}
-        placeholder={placeholder}
-        onChange={event => onChange(event.target.value)}
-        onKeyDown={event => {
-          if (busy) return;
-          if (event.key === 'Escape') {
-            event.preventDefault();
-            onCancel();
-          }
-          if ((event.metaKey || event.ctrlKey) && event.key === 'Enter') {
-            event.preventDefault();
-            if (ready) onSubmit();
-          }
-        }} />
-      {outgoing !== null && <p className="pull-diff-review__nothing agr-composer__outgoing">{outgoing}</p>}
-      <footer>
-        <button type="button" disabled={busy} onClick={onCancel}>Cancel</button>
-        <button type="button" className="is-primary" disabled={!ready} onClick={onSubmit}>
-          {primaryLabel}
-        </button>
-      </footer>
-    </div>
+    <MarkdownEditor
+      className="agr-composer"
+      value={value}
+      onChange={onChange}
+      ariaLabel={ariaLabel}
+      placeholder={placeholder}
+      repository={repository}
+      suggestion={suggestion}
+      isPrivate={outgoing === null}
+      note={outgoing !== null && <p className="pull-diff-review__nothing agr-composer__outgoing">{outgoing}</p>}
+      statusMessage={disabledReason}
+      busy={busy}
+      autoFocus={autoFocus}
+      onSubmit={() => { if (ready) onSubmit(); }}
+      onCancel={onCancel}>
+      <button type="button" disabled={busy} onClick={onCancel}>Cancel</button>
+      <button type="button" className="is-primary" disabled={!ready} title={disabledReason ?? undefined} onClick={onSubmit}>
+        {primaryLabel}
+      </button>
+    </MarkdownEditor>
   );
 }

@@ -222,6 +222,10 @@ public class SqliteAgentTaskStore
         jdbc.update("DELETE FROM recent_touch WHERE item_key = ?", "task:" + id);
         jdbc.update("DELETE FROM recent_text WHERE item_key = ?", "task:" + id);
         jdbc.update("DELETE FROM local_review_thread WHERE task_id = ?", id);
+        // A development task's local runs go with it; an Agent review's runs outlive its task, like the review's other records.
+        jdbc.update("DELETE FROM local_run_output WHERE run_id IN (SELECT id FROM local_run WHERE task_id = ?)"
+                + " AND NOT EXISTS (SELECT 1 FROM agent_review WHERE task_id = ?)", id, id);
+        jdbc.update("DELETE FROM local_run WHERE task_id = ? AND NOT EXISTS (SELECT 1 FROM agent_review WHERE task_id = ?)", id, id);
         jdbc.update("DELETE FROM pull_request_task WHERE id = ?", id);
         jdbc.update("DELETE FROM issue_task WHERE id = ?", id);
         // A launch names its owner, the task or one of its turns; nothing else ties it to the task.

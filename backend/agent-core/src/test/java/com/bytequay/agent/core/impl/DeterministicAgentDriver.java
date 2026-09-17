@@ -82,6 +82,7 @@ final class DeterministicAgentDriver
     private boolean failNextCloseVerification;
     private ProviderUsageSample usageOnOpen;
     private Runnable beforeStart = () -> {};
+    private Runnable afterStart = () -> {};
     private Runnable beforeSteer = () -> {};
     private Runnable beforeCancel = () -> {};
 
@@ -185,6 +186,11 @@ final class DeterministicAgentDriver
     synchronized void beforeStart(Runnable action)
     {
         beforeStart = action;
+    }
+
+    synchronized void afterStart(Runnable action)
+    {
+        afterStart = action;
     }
 
     synchronized void beforeCancel(Runnable action)
@@ -318,6 +324,7 @@ final class DeterministicAgentDriver
                         Optional.empty(),
                         ProviderAgentEvent.LifecyclePhase.TURN_STARTED,
                         "turn started"));
+                afterStart.run();
                 if (completeNextStart) {
                     completeNextStart = false;
                     running.complete("immediate response");

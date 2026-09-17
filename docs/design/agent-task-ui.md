@@ -390,8 +390,9 @@ not provider-name conditionals. It includes structured plans, tool and
 incremental activity, hooks, subagents, approvals, usage, steering, supported
 interactive permission policies, and attachment media types. Image attachment
 controls require both a provider-supported image media type and the selected
-model's image input modality. A missing capability is false; Claude therefore
-does not acquire a synthetic checklist, image input, or steering control.
+model's image input modality. A missing capability is false. Structured plans
+come from Codex plan updates or successfully completed Claude native todo writes;
+ordinary prose never grants a structured-plan capability or changes plan state.
 
 ### 2.3 Transcript and live activity
 
@@ -423,6 +424,14 @@ The transcript displays:
 - pending and resolved approval cards;
 - context compaction, retries, errors, cancellation, and turn completion;
 - turn duration, token usage, status icons, and a live turn elapsed clock.
+
+One structured Plan card updates in place per turn. The live root plan above the
+composer uses the turn's durable latest-plan snapshot, so paging or reopening a
+long conversation cannot lose it. A new turn starts without a plan; an explicit
+empty update clears it. Child-agent plans stay in their own transcript and do not
+replace the root snapshot. Plain Markdown checklists display disabled checkboxes
+without becoming plan state. The footer calls commands, tools and file changes
+**activities**, reserving **steps** for the structured plan.
 
 Contiguous low-level activity is grouped into one expandable block. While any
 member is running, the group stays visibly active. After the group finishes,
@@ -1084,7 +1093,7 @@ One React reducer owns the open screen state; no new state library is needed.
 | Transcript blocks | Message, plan, activity, approval, and lifecycle events ordered by task sequence |
 | Active turn | Durable turn response plus turn lifecycle events |
 | Activity groups | Contiguous typed items and their start/completion state |
-| Current plan | Latest structured plan update for the selected agent thread |
+| Current plan | Durable root-plan snapshot for the active turn; thread-scoped plan events in each transcript |
 | Pending approvals | Approval requests minus matching resolution events |
 | Agent tree | Child relationship and lifecycle events keyed by agent thread ID, plus the task summary's kept child index once the transcript is cleaned up |
 | Queue | Durable queue responses and queue-change events |

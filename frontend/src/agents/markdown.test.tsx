@@ -51,4 +51,14 @@ describe('agent markdown', () => {
   it('leaves plain prose alone, including asterisks that mark nothing', () => {
     expect(html('2 * 3 = 6 and a_b_c stays')).toBe('<div class="agt-md"><p>2 * 3 = 6 and a_b_c stays</p></div>');
   });
+
+  it('renders commentary checklists as read-only boxes without creating a structured plan', () => {
+    const out = html('- [x] Inspect **planner**\n- [ ] Implement fix\n- Ordinary note\n\n```\n- [ ] example\n```');
+    expect(out).toContain('type="checkbox" disabled="" aria-label="Inspect **planner**" checked=""');
+    expect(out).toContain('type="checkbox" disabled="" aria-label="Implement fix"');
+    expect(out).toContain('<strong>planner</strong>');
+    expect(out).toContain('<li>Ordinary note</li>');
+    expect(out).toContain('<pre class="agt-code">- [ ] example</pre>');
+    expect(out).not.toContain('agt-plan');
+  });
 });

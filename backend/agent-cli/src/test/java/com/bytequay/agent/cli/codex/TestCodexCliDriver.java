@@ -401,6 +401,7 @@ class TestCodexCliDriver
         assertThat(supervisor.server().approvalPolicies()).containsExactly("never");
         assertThat(supervisor.server().sandboxes()).containsExactly("read-only");
         JsonNode thread = supervisor.server().threadRequests().getFirst();
+        assertThat(thread.path("developerInstructions").asText()).doesNotContain("update_plan");
         assertThat(thread.path("approvalsReviewer").asText()).isEqualTo("user");
         assertThat(thread.path("config").path("web_search").asText()).isEqualTo("disabled");
         assertThat(thread.path("config").has("auto_review")).isFalse();
@@ -2639,7 +2640,8 @@ class TestCodexCliDriver
             try (AgentSession session = driver.open(context(reference, approval), event -> {})) {
                 AppServerProcess server = supervisor.servers().getLast();
                 JsonNode thread = server.threadRequests().getFirst();
-                assertThat(thread.path("developerInstructions").asText()).isEqualTo(AgentCommandPolicy.reviewInstructions() + "\n\n" + review.instruction());
+                assertThat(thread.path("developerInstructions").asText())
+                        .startsWith(AgentCommandPolicy.reviewInstructions()).contains("native update_plan").endsWith(review.instruction());
                 assertThat(thread.path("approvalsReviewer").asText()).isEqualTo("auto_review");
                 assertThat(thread.path("config").path("auto_review").path("policy").asText()).isEqualTo(CodexApprovalPolicy.policy(true));
                 assertThat(supervisor.serverArgv().getLast())
@@ -2845,7 +2847,7 @@ class TestCodexCliDriver
         // The thread leaves the MCP map to the launch flags instead of emptying it.
         assertThat(supervisor.server().threadRequests().getFirst().path("config").has("mcp_servers")).isFalse();
         assertThat(supervisor.server().threadRequests().getFirst().path("developerInstructions").asText())
-                .isEqualTo(AgentCommandPolicy.instructions() + "\n\nKeep explanations concise\n\nuse the graph");
+                .startsWith(AgentCommandPolicy.instructions()).contains("native update_plan").endsWith("Keep explanations concise\n\nuse the graph");
         // Opening ran the isolation guard against the effective config, which exposes exactly this server.
         session.close();
     }
@@ -2866,7 +2868,15 @@ class TestCodexCliDriver
             JsonNode request = server.threadRequests().getFirst();
             assertThat(request.has("developerInstructions")).isTrue();
             assertThat(request.path("developerInstructions").asText())
-                    .isEqualTo(AgentCommandPolicy.instructions() + (instruction.isEmpty() ? "" : "\n\n" + instruction));
+                    .startsWith(AgentCommandPolicy.instructions()).contains("native update_plan", "Do not repeat the checklist");
+            if (!instruction.isEmpty()) {
+                assertThat(request.path("developerInstructions").asText()).endsWith(instruction);
+            }
+            for (String previous : ImmutableList.of("Keep explanations concise", "Lead with the next action")) {
+                if (!previous.equals(instruction)) {
+                    assertThat(request.path("developerInstructions").asText()).doesNotContain(previous);
+                }
+            }
             assertThat(request.path("config").path("mcp_servers")).isEmpty();
             assertThat(supervisor.serverArgv().getLast()).noneMatch(argument -> argument.startsWith("mcp_servers"));
             assertThat(server.resumeCount()).isEqualTo(reference.isPresent() ? 1 : 0);

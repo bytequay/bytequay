@@ -364,7 +364,8 @@ final class ClaudeProtocol
             @JsonProperty("file_path") Optional<String> filePath,
             Optional<String> prompt,
             @JsonProperty("subagent_type") Optional<String> subagentType,
-            @JsonProperty("run_in_background") Optional<Boolean> runInBackground)
+            @JsonProperty("run_in_background") Optional<Boolean> runInBackground,
+            Optional<JsonNode> todos)
     {
         ToolInput
         {
@@ -374,6 +375,7 @@ final class ClaudeProtocol
             requireNonNull(prompt, "prompt is null");
             requireNonNull(subagentType, "subagentType is null");
             requireNonNull(runInBackground, "runInBackground is null");
+            requireNonNull(todos, "todos is null");
         }
     }
 

@@ -3806,6 +3806,7 @@ The driver normalizes at least these message classes:
 | `stream_event` text deltas | Partial assistant `COMMENTARY` |
 | `assistant` content blocks | Completed `COMMENTARY` plus `tool_use` starts |
 | `user` content containing `tool_result` | Tool result and bounded command output |
+| Successful native `TodoWrite` tool result | Structured plan from the matching validated todo input; failed or malformed writes do not change it |
 | `tool_progress` | Running-tool elapsed-time update; a tracked Bash call remains a typed `Command` with the same item identity |
 | `system/hook_started`, `hook_progress`, and `hook_response` | Hook lifecycle and bounded output |
 | `system/task_started`, `task_progress`, and `task_notification` | Subagent/background-task progress |
@@ -3950,7 +3951,7 @@ process exit.
 | Model catalog | `model/list`, mapped through existing settings models | Provider catalog when available, otherwise seeded settings models |
 | Session resume | `thread/resume` with stored thread ID | New process with `--resume <session-id>` |
 | Partial assistant text | Native `item/agentMessage/delta` | `stream_event` text deltas with `--include-partial-messages` |
-| Structured checklist | Native `turn/plan/updated` steps/status | No guaranteed dedicated checklist; render provider messages/tool activity only |
+| Structured checklist | Native `turn/plan/updated` steps/status | Validated native `TodoWrite` items after a successful matching tool result |
 | Free-form Plan-mode text | `item/plan/delta` plus authoritative completed `plan` | Provider messages when available, not synthesized as a checklist |
 | Tool lifecycle | Typed item start/completion plus tool-specific records | `tool_use`, `tool_result`, and `tool_progress` messages |
 | Incremental command output | Native `item/commandExecution/outputDelta` when emitted; missing deltas and a null terminal aggregate produce no invented log | Not guaranteed for Bash; terminal tool results are authoritative |
@@ -3968,6 +3969,11 @@ process exit.
 Capabilities also describe supported attachment types and capability-gated event
 classes. The UI must render missing capabilities honestly rather than
 synthesize data.
+
+Provider guidance directs multistep work to the native plan tool (`update_plan`
+for Codex, `TodoWrite` for Claude), with commentary describing changes and blockers
+instead of copying the checklist. Guidance is reapplied on resume and omitted
+from text-only helpers. Plans are provider facts, never extracted from prose.
 
 ## 9. Event and frontend contract
 
@@ -4156,7 +4162,11 @@ introduce a shipped migration framework or automatic development-data reset.
   permission policy, and attachment references submitted for that turn;
 - start/end timestamps and elapsed time;
 - token usage, cost, terminal reason, and the optional typed `failureKind` for
-  a failed turn.
+  a failed turn;
+- the latest root structured-plan items, committed with their plan event through
+  the existing outbox. Absence means no plan; an empty list explicitly clears it.
+  Child plans remain thread-scoped transcript events. Turn reads return the
+  snapshot without scanning history; a new turn never inherits an old plan.
 
 `agent_queued_input` stores the queue ID, task ID, FIFO insertion sequence,
 state, idempotency key, effective settings, attachment references, payload blob

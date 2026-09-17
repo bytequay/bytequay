@@ -43,6 +43,24 @@ import type { AgentHistoryPageDto, AgentQueuedInputDto, AgentTaskDto, AgentTurnD
 
 const all = parseAgentEventSequence(fixture.events);
 
+it('refreshes the durable root plan on updates without promoting child plans or replay', () => {
+  const plan: AgentEventEnvelope = { ...all[0], type: 'plan_updated', sequence: 1,
+    payload: { items: [{ text: 'Verify fix', state: 'IN_PROGRESS' }] } };
+  let state = agentTaskReducer(initialAgentTaskState(), { type: 'events/observed', events: [plan] });
+  expect(state.lifecycleEpoch).toBe(1);
+  state = agentTaskReducer(state, { type: 'events/observed', events: [plan] });
+  expect(state.lifecycleEpoch).toBe(1);
+  const child = { ...plan, sequence: 2, source: { ...plan.source, parentProviderThreadId: 'root' } };
+  state = agentTaskReducer(state, { type: 'events/observed', events: [child] });
+  expect(state.lifecycleEpoch).toBe(1);
+  expect(agentTaskReducer(initialAgentTaskState(), { type: 'events/applied', events: [plan] }).lifecycleEpoch).toBe(1);
+  for (const logicalAgentPath of ['/', 'root']) {
+    const namedRoot = { ...plan, source: { ...plan.source, logicalAgentPath } };
+    expect(agentTaskReducer(initialAgentTaskState(), { type: 'events/observed', events: [namedRoot] }).lifecycleEpoch).toBe(1);
+    expect(agentTaskReducer(initialAgentTaskState(), { type: 'events/applied', events: [namedRoot] }).lifecycleEpoch).toBe(1);
+  }
+});
+
 it('retains the newest development progress across offscreen history, watermarks and replay', () => {
   const progress: AgentEventEnvelope = { ...all[0], type: 'lifecycle', turnId: null, sequence: 50,
     payload: { phase: 'DEVELOPMENT_AUTOMATION_UPDATED', message: 'Waiting for PR checks: required external build is pending' } };
@@ -246,8 +264,8 @@ describe('tracking the turn from events', () => {
     const settled = apply(started, stream(4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14));
 
     expect(settled.latestTurnSettled).toBe(true);
-    // Two lifecycle events in the fixture, each a reason to re-read the durable facts.
-    expect(settled.lifecycleEpoch).toBe(2);
+    // Two lifecycle events and one root-plan update refresh the durable facts.
+    expect(settled.lifecycleEpoch).toBe(3);
   });
 
   it('does not let a late error from an older steer replace its successor turn', () => {

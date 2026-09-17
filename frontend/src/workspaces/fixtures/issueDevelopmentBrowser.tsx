@@ -17,12 +17,13 @@ import { createRoot } from 'react-dom/client';
 import AgentTasksView from '../../agents/AgentTasksView';
 import { AgentTaskBody } from '../../agents/AgentTaskScreen';
 import { createPreviewBridge, previewTask } from '../../agents/fixtures/previewBridge';
+import { NO_AGENT_CAPABILITIES } from '../../agents/capabilities';
 import { parseAgentEventSequence } from '../../agents/events';
 import eventFixture from '../../agents/fixtures/agent-events-v2.json';
 import { initialAgentTaskState } from '../../agents/model';
 import { getCached, setCached } from '../../dataCache';
 import { runAttentionActions } from '../../home/fixtures/attentionBrowser';
-import type { AgentTaskDto, Bridge, CreateAgentTaskRequest, RepositoryIssueSnapshotDto, WorkspaceIssueDetailDto } from '../../types';
+import type { AgentTaskDto, AgentTurnDto, Bridge, CreateAgentTaskRequest, RepositoryIssueSnapshotDto, WorkspaceIssueDetailDto } from '../../types';
 import WorkspaceIssuesScreen from '../WorkspaceIssuesScreen';
 import type { DevelopmentIssue } from '../issueDevelopment';
 import { workspaceAgentTaskRoute, workspaceIssueTaskRoute, workspaceLocationFromRoute } from '../model';
@@ -190,7 +191,7 @@ let conversationHost: HTMLDivElement | null = null;
 let conversationRoot: ReturnType<typeof createRoot> | null = null;
 
 /** Kept mounted while the Chromium harness exercises actual pointer and keyboard focus. */
-export async function mountIssueConversation(): Promise<{ x: number; y: number }> {
+export async function mountIssueConversation(running = false): Promise<{ x: number; y: number }> {
   const f = fixture();
   conversationHost = document.createElement('div');
   conversationHost.style.height = '100vh';
@@ -198,15 +199,25 @@ export async function mountIssueConversation(): Promise<{ x: number; y: number }
   conversationRoot = createRoot(conversationHost);
   const opening = parseAgentEventSequence(eventFixture.events)[0];
   assert(opening.type === 'user_message', 'Fixture opening event is a message');
+  const currentTurn: AgentTurnDto | null = running ? {
+    ...await f.bridge.getAgentTurn(opening.turnId ?? 'initial-turn'), state: 'RUNNING', endedAt: null,
+    plan: [{ text: 'Inspect planner', state: 'COMPLETED' }, { text: 'Verify fix', state: 'IN_PROGRESS' }, { text: 'Commit', state: 'PENDING' }],
+  } : null;
+  const conversationEvents = [
+    { ...opening, payload: { ...opening.payload, text: 'INTERNAL GENERATED PROVIDER PROMPT' } },
+    ...(running ? [{ ...opening, eventId: 'recent-prose', sequence: opening.sequence + 1, type: 'assistant_message' as const,
+      payload: { messageKind: 'COMMENTARY' as const, phase: 'FINAL' as const, text: 'The fix is ready for validation.\n\n- [x] Inspect planner\n- [ ] Verify fix' } }] : []),
+  ];
   const task: AgentTaskDto = { ...previewTask(f.workspaceId, 'issue-conversation'), title: 'Fix upload timeout', issueSource: {
     host: 'github.com', repo: 'upstream/app', issueId: f.issue.id, number: 7, title: f.issue.title,
     body: '## Acceptance criteria\n\nPreserve the **existing upload API**.\n\n- Keep existing retries.\n- Add a regression test.\n\n```ts\nawait upload(file)\n```',
     url: f.issue.htmlUrl, updatedAt: f.issue.updatedAt, initialTurnId: null,
     instructions: 'Keep the **public API** stable.\n\nCover cancellation.',
   } };
-  flushSync(() => conversationRoot?.render(<AgentTaskBody state={{ ...initialAgentTaskState(), task, connection: 'open', events: [
-    { ...opening, payload: { ...opening.payload, text: 'INTERNAL GENERATED PROVIDER PROMPT' } },
-  ] }} models={[]} onSelectModel={() => {}} onBack={() => {}} onSend={() => {}} onCancel={() => {}}
+  flushSync(() => conversationRoot?.render(<AgentTaskBody state={{ ...initialAgentTaskState(), task, connection: 'open', events: conversationEvents,
+    turn: currentTurn, turns: currentTurn === null ? {} : { [currentTurn.id]: currentTurn },
+    capabilities: { ...NO_AGENT_CAPABILITIES, structuredPlans: true },
+  }} models={[]} onSelectModel={() => {}} onBack={() => {}} onSend={() => {}} onCancel={() => {}}
     onComplete={() => {}} onDecide={() => {}} onCompose={() => {}} onStopServer={() => {}} onMarkFailed={() => {}} />));
   await settle();
   const source = conversationHost.querySelector<HTMLElement>('.agt-issue-attachment');
@@ -227,6 +238,19 @@ export async function mountIssueConversation(): Promise<{ x: number; y: number }
   assert(reference !== null && reference.clientWidth >= reference.scrollWidth,
     'The issue reference must remain readable at normal and narrow widths');
   assert(conversationHost.querySelector('.agt-review-request') === null, 'Issue request must not offer prompt disclosure');
+  if (running) {
+    const plan = conversationHost.querySelector<HTMLElement>('.agt-todos');
+    const transcript = conversationHost.querySelector<HTMLElement>('.agt-transcript');
+    assert(plan !== null && transcript !== null && plan.querySelectorAll('.agt-plan__step').length === 3,
+      'Running turn snapshot must show the plan even without a plan event in loaded history');
+    assert(plan.textContent?.includes('1 completed · 1 in progress · 1 pending') === true,
+      'Plan summary must show the snapshot states');
+    assert(transcript.getBoundingClientRect().bottom <= plan.getBoundingClientRect().top && plan.getBoundingClientRect().bottom <= sourceBox.top,
+      'Plan dock must not overlap the transcript or attached issue');
+    const checks = [...transcript.querySelectorAll<HTMLInputElement>('.agt-md input[type="checkbox"]')];
+    assert(checks.length === 2 && checks.every(check => check.disabled) && checks[0].checked && !checks[1].checked,
+      'Commentary checkboxes must render checked state and remain read-only');
+  }
   const buttonBox = button(conversationHost, 'Preview issue: upstream/app#7').getBoundingClientRect();
   return { x: buttonBox.left + buttonBox.width / 2, y: buttonBox.top + buttonBox.height / 2 };
 }

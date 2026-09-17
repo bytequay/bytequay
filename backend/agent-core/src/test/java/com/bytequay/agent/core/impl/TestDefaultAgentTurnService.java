@@ -649,6 +649,75 @@ class TestDefaultAgentTurnService
     }
 
     @Test
+    void acceptsRootPlanBeforeProviderStartAcknowledgement()
+    {
+        List<ProviderAgentEvent.PlanItem> items = ImmutableList.of(new ProviderAgentEvent.PlanItem("Implement", ProviderAgentEvent.PlanItemState.IN_PROGRESS));
+        driver.afterStart(() -> {
+            AgentTurn accepted = stores.findActive(task.id()).orElseThrow();
+            assertThat(accepted.providerTurnReference()).isEmpty();
+            ProviderAgentEventSource source = new ProviderAgentEventSource(
+                    Optional.of("root-thread"), Optional.empty(), Optional.of("/"), Optional.of("turn-" + accepted.id()), Optional.empty());
+            driver.emit(new ProviderAgentEvent.Plan(Optional.empty(), Optional.empty(), items, source));
+        });
+        AgentTurn running = service.start(command("Implement", "early-plan"));
+        assertThat(running.state()).isEqualTo(TurnState.RUNNING);
+        assertThat(running.plan()).contains(items);
+        driver.complete("Finished");
+    }
+
+    @Test
+    void persistsRootPlanProgressAtomicallyAndStartsTheNextTurnWithoutAPlan()
+    {
+        AgentTurn running = service.start(command("Implement and verify", "plan-1"));
+        List<ProviderAgentEvent.PlanItem> initial = ImmutableList.of(new ProviderAgentEvent.PlanItem("Implement", ProviderAgentEvent.PlanItemState.IN_PROGRESS));
+        ProviderAgentEventSource source = new ProviderAgentEventSource(
+                Optional.of("root-thread"), Optional.empty(), Optional.of("/"), running.providerTurnReference().map(ProviderTurnRef::value), Optional.empty());
+        ProviderAgentEvent.Plan update = new ProviderAgentEvent.Plan(Optional.of("plan"), Optional.empty(), initial, source);
+        stores.failOutboxInsert(AgentEventPayload.Kind.PLAN_UPDATED, new AgentStorageException("blocked plan outbox"));
+        assertThatThrownBy(() -> driver.emit(update)).isInstanceOf(AgentStorageException.class).hasMessage("blocked plan outbox");
+        assertThat(stores.find(running.id()).orElseThrow().plan()).isEmpty();
+        assertThat(events.readAfter(task.id(), 0, 100)).filteredOn(event -> event.type() == AgentEventPayload.Kind.PLAN_UPDATED).isEmpty();
+
+        driver.emit(update);
+        assertThat(stores.find(running.id()).orElseThrow().plan()).contains(initial);
+        List<ProviderAgentEvent.PlanItem> completed = ImmutableList.of(new ProviderAgentEvent.PlanItem("Implement", ProviderAgentEvent.PlanItemState.COMPLETED));
+        driver.emit(new ProviderAgentEvent.Plan(Optional.of("plan"), Optional.empty(), completed, source));
+        assertThat(stores.find(running.id()).orElseThrow().plan()).contains(completed);
+        driver.emit(new ProviderAgentEvent.Plan(Optional.of("plan"), Optional.empty(), ImmutableList.of(), source));
+        assertThat(stores.find(running.id()).orElseThrow().plan()).contains(ImmutableList.of());
+        assertThat(events.readAfter(task.id(), 0, 100)).filteredOn(event -> event.type() == AgentEventPayload.Kind.PLAN_UPDATED).hasSize(3);
+        driver.complete("Finished");
+        assertThat(stores.find(running.id()).orElseThrow().plan()).contains(ImmutableList.of());
+        AgentTurn next = service.start(command("Next request", "plan-2"));
+        assertThat(next.plan()).isEmpty();
+        driver.complete("Finished");
+    }
+
+    @Test
+    void childPlansRemainScopedEventsAndStaleRootPlansCannotOverwriteTheSnapshot()
+    {
+        AgentTurn running = service.start(command("Implement and verify", "plan-scope"));
+        List<ProviderAgentEvent.PlanItem> rootItems = ImmutableList.of(new ProviderAgentEvent.PlanItem("Implement", ProviderAgentEvent.PlanItemState.IN_PROGRESS));
+        // Claude does not provide a provider turn id; the sink remains bound to the accepted application turn.
+        driver.emit(new ProviderAgentEvent.Plan(Optional.empty(), Optional.empty(), rootItems));
+        ProviderAgentEventSource child = new ProviderAgentEventSource(
+                Optional.of("child-thread"), Optional.of("root-thread"), Optional.of("/reviewer"), Optional.of("child-turn"), Optional.empty());
+        List<ProviderAgentEvent.PlanItem> childItems = ImmutableList.of(new ProviderAgentEvent.PlanItem("Review", ProviderAgentEvent.PlanItemState.PENDING));
+        driver.emit(new ProviderAgentEvent.Plan(Optional.empty(), Optional.empty(), childItems, child));
+        assertThat(stores.find(running.id()).orElseThrow().plan()).contains(rootItems);
+        assertThat(events.readAfter(task.id(), 0, 100)).filteredOn(event -> event.type() == AgentEventPayload.Kind.PLAN_UPDATED)
+                .anySatisfy(event -> assertThat(event.source().parentProviderThreadId()).contains("root-thread"));
+
+        ProviderAgentEventSource stale = new ProviderAgentEventSource(
+                Optional.of("root-thread"), Optional.empty(), Optional.of("/"), Optional.of("older-turn"), Optional.empty());
+        assertThatThrownBy(() -> driver.emit(new ProviderAgentEvent.Plan(Optional.empty(), Optional.empty(), childItems, stale)))
+                .isInstanceOf(IllegalArgumentException.class).hasMessageContaining("another provider turn");
+        assertThat(stores.find(running.id()).orElseThrow().plan()).contains(rootItems);
+        driver.complete("Finished");
+        assertThat(stores.find(running.id()).orElseThrow().plan()).contains(rootItems);
+    }
+
+    @Test
     void commitsDevelopmentReadinessWithItsEventAndIgnoresAnOlderDuplicate()
     {
         AgentTask development = interactiveTask("Development");

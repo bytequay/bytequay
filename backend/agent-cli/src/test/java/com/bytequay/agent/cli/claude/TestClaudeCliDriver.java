@@ -271,7 +271,7 @@ class TestClaudeCliDriver
                 assertThat(receipt.path("treeTermination").asText()).isEqualTo("VERIFIED_STOPPED");
             }
             assertThat(turnSpecs.getLast().argv()).containsSequence("--resume", session.reference().providerValue());
-            assertThat(turnSpecs.getLast().argv()).containsSequence("--append-system-prompt", review.instruction());
+            assertThat(turnSpecs.getLast().argv()).containsSequence("--append-system-prompt", ClaudeCliDriver.PLAN_INSTRUCTION + "\n\n" + review.instruction());
             assertThat(events).filteredOn(event -> event instanceof ProviderAgentEvent.Command command
                             && command.state() == ProviderAgentEvent.ActivityState.COMPLETED)
                     .hasSize(2);
@@ -305,7 +305,7 @@ class TestClaudeCliDriver
         AgentSession session = driver.open(bridged, event -> {});
         await(session.start(command("first")));
         ProcessSpec spec = supervisor.turns().getFirst().spec();
-        assertThat(spec.argv()).containsSequence("--append-system-prompt", AgentCommandPolicy.instructions() + "\n\nuse the graph");
+        assertThat(spec.argv()).containsSequence("--append-system-prompt", AgentCommandPolicy.instructions() + "\n\n" + ClaudeCliDriver.PLAN_INSTRUCTION + "\n\nuse the graph");
         int allowed = spec.argv().indexOf("--allowedTools");
         assertThat(allowed).isPositive();
         assertThat(spec.argv().get(allowed + 1)).contains("mcp__bytequay__codegraph_explore");
@@ -314,7 +314,7 @@ class TestClaudeCliDriver
         AgentSession unbridged = driver.open(plain, event -> {});
         await(unbridged.start(command("second")));
         ProcessSpec plainSpec = supervisor.turns().get(1).spec();
-        assertThat(plainSpec.argv()).containsSequence("--append-system-prompt", AgentCommandPolicy.instructions());
+        assertThat(plainSpec.argv()).containsSequence("--append-system-prompt", AgentCommandPolicy.instructions() + "\n\n" + ClaudeCliDriver.PLAN_INSTRUCTION);
         assertThat(plainSpec.argv()).noneMatch(argument -> argument.contains("codegraph_explore"));
         unbridged.close();
     }
@@ -330,7 +330,7 @@ class TestClaudeCliDriver
             AgentSession session = driver.open(context(reference, instruction), event -> {});
             await(session.start(command("configured")));
             List<String> arguments = supervisor.turns().getLast().spec().argv();
-            String expected = AgentCommandPolicy.instructions() + (instruction.isEmpty() ? "" : "\n\n" + instruction);
+            String expected = AgentCommandPolicy.instructions() + "\n\n" + ClaudeCliDriver.PLAN_INSTRUCTION + (instruction.isEmpty() ? "" : "\n\n" + instruction);
             assertThat(arguments).containsSequence("--append-system-prompt", expected);
             assertThat(arguments.stream().filter(argument -> argument.startsWith("--append-system-prompt"))).hasSize(1);
             assertThat(arguments).noneMatch(argument -> argument.contains("codegraph_explore") || argument.contains("review_finish"));
@@ -353,6 +353,7 @@ class TestClaudeCliDriver
         assertThat(driver.capabilities().permissionPolicies())
                 .containsExactlyInAnyOrder(AgentPermissionPolicy.values());
         assertThat(driver.capabilities().nestedAgentActivity()).isTrue();
+        assertThat(driver.capabilities().structuredPlans()).isTrue();
         assertThat(driver.capabilities().attachmentMediaTypes())
                 .contains("text/plain; charset=utf-8");
         AgentSession session = driver.open(context(Optional.empty()), events::add);
@@ -494,6 +495,7 @@ class TestClaudeCliDriver
         assertThat(textSpec.owner()).isEqualTo(new ProcessOwner(ProcessOwner.Kind.CLI_PROBE, "task-1"));
         assertThat(textSpec.workingDirectory().normalize().startsWith(runtimeDirectory().normalize())).isTrue();
         assertThat(textSpec.argv()).contains("--tools=");
+        assertThat(textSpec.argv()).noneMatch(argument -> argument.contains("TodoWrite"));
         assertThat(textSpec.argv()).contains("--disable-slash-commands", "--no-session-persistence");
         assertThat(textSpec.argv()).containsSequence("--model", "sonnet");
         assertThat(textSpec.argv()).containsSequence("--effort", "xhigh");
@@ -1008,7 +1010,7 @@ class TestClaudeCliDriver
                 List<String> argv = supervisor.turns().getLast().spec().argv();
                 assertThat(argv).contains("--disable-slash-commands");
                 assertThat(argv).containsSequence("--permission-mode", "auto");
-                assertThat(argv).containsSequence("--append-system-prompt", review.instruction());
+                assertThat(argv).containsSequence("--append-system-prompt", ClaudeCliDriver.PLAN_INSTRUCTION + "\n\n" + review.instruction());
                 assertThat(argv).doesNotContain("--allowedTools");
                 assertThat(argv.get(argv.indexOf("--tools") + 1).split(","))
                         .contains("Bash", "Read", "Edit", "Write")
@@ -1038,7 +1040,7 @@ class TestClaudeCliDriver
             List<String> argv = turn.spec().argv();
             assertThat(argv).contains("--disable-slash-commands");
             assertThat(argv).containsSequence("--permission-mode", "auto");
-            assertThat(argv).containsSequence("--append-system-prompt", "Keep explanations concise\n\nReview this PR");
+            assertThat(argv).containsSequence("--append-system-prompt", ClaudeCliDriver.PLAN_INSTRUCTION + "\n\nKeep explanations concise\n\nReview this PR");
             assertThat(argv.stream().filter("--append-system-prompt"::equals)).hasSize(1);
             String nativeTools = argv.get(argv.indexOf("--tools") + 1);
             assertThat(nativeTools.split(",")).contains("Bash", "Read", "TaskOutput", "TaskStop")

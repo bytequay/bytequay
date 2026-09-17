@@ -305,6 +305,15 @@ describe('attachment contract', () => {
   });
 });
 
+it('reads durable plan snapshots and distinguishes a clear from no plan', () => {
+  const plan = [{ text: 'Inspect planner', state: 'COMPLETED' }, { text: 'Verify fix', state: 'IN_PROGRESS' }];
+  expect(parseAgentTurn({ ...fixture.turn, plan }).plan).toEqual(plan);
+  expect(parseAgentTurn({ ...fixture.turn, plan: [] }).plan).toEqual([]);
+  expect(parseAgentTurn({ ...fixture.turn, plan: null }).plan).toBeNull();
+  expect(parseAgentTurn({ ...fixture.turn, plan: undefined }).plan).toBeNull();
+  expect(() => parseAgentTurn({ ...fixture.turn, plan: [{ text: 'Fix', state: 'UNKNOWN' }] })).toThrow(/plan\[0\]\.state/);
+});
+
 describe('queue and steer contract parsing', () => {
   const queued: Record<string, unknown> = {
     id: 'q-1',

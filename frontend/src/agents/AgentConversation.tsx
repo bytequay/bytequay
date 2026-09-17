@@ -393,7 +393,7 @@ export function BlockView({ block, activityChoice, agentLabels, onToggleActivity
   onToggleActivity: (id: string, open: boolean) => void;
   onDecide?: (approvalId: string, decision: AgentApprovalDecision) => void;
   onOpenAgent?: (threadId: string) => void;
-}): React.JSX.Element {
+}): React.JSX.Element | null {
   switch (block.kind) {
     case 'text':
       if (block.role === 'reasoning') {
@@ -409,6 +409,7 @@ export function BlockView({ block, activityChoice, agentLabels, onToggleActivity
       }
       return <div className="agt-text">{renderMarkdown(block.text)}{!block.complete && !block.historical && <span className="agt-cursor" aria-hidden="true" />}</div>;
     case 'plan':
+      if (block.steps.length === 0) return null;
       return (
         <div className="agt-plan">
           <div className="agt-plan__head">

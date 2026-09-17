@@ -272,7 +272,8 @@ final class ClaudeEventMapper
                 ToolCall call = tools.get(result.toolUseId());
                 if (call == null) {
                     call = new ToolCall("tool", new ClaudeProtocol.ToolInput(
-                            Optional.empty(), Optional.empty(), Optional.empty(), Optional.empty(), Optional.empty(), Optional.empty()), message.parentToolUseId());
+                            Optional.empty(), Optional.empty(), Optional.empty(), Optional.empty(), Optional.empty(), Optional.empty(), Optional.empty()),
+                            message.parentToolUseId());
                 }
                 activeTools.remove(result.toolUseId());
                 events.add(completedTool(
@@ -281,6 +282,17 @@ final class ClaudeEventMapper
                         result,
                         call));
                 completeInvocation(message, result, call, events);
+                if (call.name().equals("TodoWrite")) {
+                    tools.remove(result.toolUseId());
+                    // A result may only replace the plan of the agent that made the accepted call.
+                    if (!result.error() && call.parentToolUseId().equals(message.parentToolUseId())
+                            && call.parentToolUseId().map(agents::containsKey).orElse(true)) {
+                        ToolCall completed = call;
+                        todoPlan(call.input().todos()).ifPresent(items -> events.add(new ProviderAgentEvent.Plan(
+                                Optional.of(result.toolUseId() + ":plan"), timestamp, items,
+                                source(completed.parentToolUseId(), Optional.of(result.toolUseId())))));
+                    }
+                }
                 if (call.name().equals("mcp__bytequay__" + DevelopmentResultBridge.TOOL_NAME)) {
                     tools.remove(result.toolUseId());
                     if (!result.error() && call.parentToolUseId().isEmpty() && message.parentToolUseId().isEmpty()) {
@@ -295,6 +307,32 @@ final class ClaudeEventMapper
             index++;
         }
         return events.build();
+    }
+
+    private Optional<List<ProviderAgentEvent.PlanItem>> todoPlan(Optional<JsonNode> todos)
+    {
+        if (todos.isEmpty() || !todos.orElseThrow().isArray()) {
+            return Optional.empty();
+        }
+        ImmutableList.Builder<ProviderAgentEvent.PlanItem> items = ImmutableList.builder();
+        for (JsonNode todo : todos.orElseThrow()) {
+            JsonNode content = todo.path("content");
+            JsonNode status = todo.path("status");
+            if (!content.isTextual() || content.textValue().isBlank() || !status.isTextual()) {
+                return Optional.empty();
+            }
+            Optional<ProviderAgentEvent.PlanItemState> state = switch (status.textValue()) {
+                case "pending" -> Optional.of(ProviderAgentEvent.PlanItemState.PENDING);
+                case "in_progress" -> Optional.of(ProviderAgentEvent.PlanItemState.IN_PROGRESS);
+                case "completed" -> Optional.of(ProviderAgentEvent.PlanItemState.COMPLETED);
+                default -> Optional.empty();
+            };
+            if (state.isEmpty()) {
+                return Optional.empty();
+            }
+            items.add(new ProviderAgentEvent.PlanItem(bounded(content.textValue().strip()), state.orElseThrow()));
+        }
+        return Optional.of(items.build());
     }
 
     private List<ProviderAgentEvent> mapResult(ClaudeProtocol.ResultMessage result)

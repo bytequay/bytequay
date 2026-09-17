@@ -409,6 +409,11 @@ export function parseAgentTurn(value: unknown, path = 'turn'): AgentTurnDto {
   const source = object(value, path);
   const origin = source.developmentOrigin === null || source.developmentOrigin === undefined ? null : object(source.developmentOrigin, `${path}.developmentOrigin`);
   return {
+    plan: source.plan === null || source.plan === undefined ? null : list(source.plan, `${path}.plan`).map((value, index) => {
+      const itemPath = `${path}.plan[${index}]`;
+      const item = object(value, itemPath);
+      return { text: text(item.text, `${itemPath}.text`), state: enumText(item.state, ['PENDING', 'IN_PROGRESS', 'COMPLETED'] as const, `${itemPath}.state`) };
+    }),
     id: text(source.id, `${path}.id`),
     taskId: text(source.taskId, `${path}.taskId`),
     developmentOrigin: origin === null ? null : {

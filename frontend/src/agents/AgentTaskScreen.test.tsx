@@ -999,6 +999,23 @@ describe('agent task detail', () => {
     expect(markup).toContain('Ran 1 command, edited 1 file, and used 1 tool');
   });
 
+  it('keeps the running root plan after its event leaves the loaded history window', () => {
+    const plan = [{ text: 'Inspect planner', state: 'COMPLETED' as const }, { text: 'Verify fix', state: 'IN_PROGRESS' as const }];
+    const recent: AgentEventEnvelope = { ...events[0], type: 'assistant_message', sequence: 4000, turnId: 'turn-1',
+      payload: { messageKind: 'COMMENTARY', phase: 'FINAL', text: 'Tests are running.' } };
+    const state: Partial<AgentTaskState> = { task: task('t-1', 'OPEN', 'Fix planner'), turn: turn('RUNNING', { plan }),
+      latestTurnId: 'turn-1', latestTurnSettled: false, events: [recent], connection: 'open',
+      historyPages: [{ events: [recent], beforeCursor: '3000', afterCursor: null, latestSequence: 4000 }] };
+    const markup = body(state);
+    expect(markup).toContain('class="agt-todos"');
+    expect(markup).toContain('Inspect planner');
+    expect(markup).toContain('Verify fix');
+    expect(markup).toContain('1 completed · 1 in progress');
+    expect(body({ ...state, turn: turn('RUNNING', { plan: [] }) })).not.toContain('class="agt-todos"');
+    expect(body({ ...state, latestTurnId: 'next-turn' })).not.toContain('class="agt-todos"');
+    expect(body({ ...state, capabilities: { ...CAPABILITIES, structuredPlans: false } })).not.toContain('class="agt-todos"');
+  });
+
   it('uses semantic Lucide icons for activity and keeps state icons for outcomes', () => {
     const openActivity = { '00000000-0000-4000-8000-000000000005': true };
     const markup = body({ task: task('t-1', 'OPEN', 'Rename the widget'), events, connection: 'open' }, openActivity);
@@ -1364,7 +1381,7 @@ describe('agent task detail', () => {
     expect(markup).toContain('class="agt-answer"');
     expect(markup).toContain('I found one authentication regression.');
     expect(markup).not.toContain('agt-usage__tokens');
-    expect(markup).toMatch(/class="agt-compose__stats"[^>]*><span>\d+ turns? · \d+ steps?<\/span><span class="agt-compose__sep"/);
+    expect(markup).toMatch(/class="agt-compose__stats"[^>]*><span>\d+ turns? · \d+ activit(?:y|ies)<\/span><span class="agt-compose__sep"/);
     expect(markup).toMatch(/Input \d[\d.]*[kM]? tok · Cached \d[\d.]*[kM]? tok · Output \d[\d.]*[kM]? tok/);
   });
 

@@ -1122,8 +1122,10 @@ export function AgentTaskBody({
   const statusText = state.turn === null
     ? statusLabel
     : `${statusLabel} · turn ${state.turn.state.toLowerCase()}`;
+  const planTurnId = state.task?.mutationClaim?.kind === 'TURN' ? state.task.mutationClaim.ownerId : state.latestTurnId ?? state.turn?.id ?? null;
   const plan = status === 'running' && after === null && state.capabilities?.structuredPlans === true
-    ? currentPlan(state.historyPages.length === 0 ? turns : turns.filter((turn) => turn.turnId === state.turn?.id)) : null;
+    ? state.turn?.id === planTurnId && state.turn.plan != null ? { steps: state.turn.plan }
+      : currentPlan(planTurnId === null ? turns : turns.filter((turn) => turn.turnId === planTurnId)) : null;
   const nextImagesAccepted = acceptsImages(models, state.task?.defaults.model, state.capabilities);
   const activeImagesAccepted = acceptsImages(models, state.turn?.settings?.model, state.capabilities);
   const imagesAccepted = status === 'running'
@@ -1260,7 +1262,7 @@ export function AgentTaskBody({
         {state.developmentProgress?.message || 'Automation is running.'} Your next message stays in the composer until it finishes.
       </div>}
 
-      {!terminal && plan !== null && <PlanCard steps={plan.steps} open={planOpen} onToggle={onTogglePlan} />}
+      {!terminal && plan !== null && plan.steps.length > 0 && <PlanCard steps={plan.steps} open={planOpen} onToggle={onTogglePlan} />}
 
       {!terminal && (
         <ConversationQueue
@@ -1406,11 +1408,11 @@ function tokens(count: number): string {
 /** The line under the composer: what the task has done so far and what it has used, from the task's totals. */
 function TaskStats({ task, turns, now }: { task: AgentTaskDto | null; turns: TranscriptTurn[]; now: number }): React.JSX.Element | null {
   if (task === null || turns.length === 0) return null;
-  const steps = turns.flatMap((turn) => turn.blocks).reduce((total, block) => total + (block.kind === 'activity' ? block.members.length : 0), 0);
+  const activities = turns.flatMap((turn) => turn.blocks).reduce((total, block) => total + (block.kind === 'activity' ? block.members.length : 0), 0);
   const worked = turns.reduce((total, turn) => total + (turnElapsedMs(turn, now) ?? 0), 0);
   const { inputTokens, cachedInputTokens, outputTokens, cost } = task.metrics;
   const groups = [
-    `${turns.length} ${turns.length === 1 ? 'turn' : 'turns'} · ${steps} ${steps === 1 ? 'step' : 'steps'}`,
+    `${turns.length} ${turns.length === 1 ? 'turn' : 'turns'} · ${activities} ${activities === 1 ? 'activity' : 'activities'}`,
     `Worked ${formatDuration(worked)}`,
   ];
   if (inputTokens > 0) groups.push(`Cache hit ${Math.round((cachedInputTokens / inputTokens) * 100)}%`);
@@ -1683,8 +1685,8 @@ export default function AgentTaskScreen({
     return () => { active = false; };
   }, [live, unloaded]);
 
-  // Every lifecycle event changes durable task or turn facts the events themselves do not carry
-  // (the claim, the terminal state), so each one triggers a re-read of both.
+  // Lifecycle and root-plan updates change durable task/turn facts, including the plan retained
+  // beyond the transcript window, so each triggers a re-read.
   const { lifecycleEpoch } = state;
   const latestTurnId = state.task?.mutationClaim?.kind === 'TURN' ? state.task.mutationClaim.ownerId : state.latestTurnId;
   useEffect(() => {

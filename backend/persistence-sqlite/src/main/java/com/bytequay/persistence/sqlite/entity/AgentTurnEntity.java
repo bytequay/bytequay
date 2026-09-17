@@ -130,6 +130,9 @@ public class AgentTurnEntity
     @Convert(converter = DevelopmentResultReportConverter.class)
     private DevelopmentResultReport developmentResult;
 
+    @Column(columnDefinition = "TEXT")
+    private String planJson;
+
     @Enumerated(EnumType.STRING)
     private DevelopmentTurnOrigin.Kind developmentOriginKind;
 
@@ -209,6 +212,7 @@ public class AgentTurnEntity
                 .orElse(null);
         terminalReason = turn.terminalReason().orElse(null);
         developmentResult = turn.developmentResult().orElse(null);
+        planJson = turn.plan().map(AgentPlanJson::encode).orElse(null);
         Optional<DevelopmentTurnOrigin> deliveryOrigin = turn.developmentOrigin().filter(origin -> origin.kind() != DevelopmentTurnOrigin.Kind.REFINE_SUMMARY);
         developmentOriginKind = deliveryOrigin.map(DevelopmentTurnOrigin::kind).orElse(null);
         parentUserTurnId = deliveryOrigin.map(DevelopmentTurnOrigin::parentUserTurnId).map(TurnId::toString).orElse(null);
@@ -262,7 +266,8 @@ public class AgentTurnEntity
                         Duration.ofMillis(elapsedMillis),
                         counters()),
                 Optional.ofNullable(developmentResult),
-                developmentOrigin());
+                developmentOrigin(),
+                Optional.ofNullable(planJson).map(AgentPlanJson::decode));
     }
 
     private Optional<DevelopmentTurnOrigin> developmentOrigin()

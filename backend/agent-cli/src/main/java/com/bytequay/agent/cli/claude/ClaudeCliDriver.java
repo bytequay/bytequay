@@ -122,6 +122,11 @@ public final class ClaudeCliDriver
             "--strict-mcp-config",
             "--tools",
             "--verbose");
+    static final String PLAN_INSTRUCTION = """
+            For work with multiple steps, use the native TodoWrite tool to create and maintain the task's structured plan.
+            Keep todo statuses current as work moves from pending to in_progress to completed. Update the existing plan as the work changes.
+            """;
+
     private static final Set<String> INHERITED_ENVIRONMENT = ImmutableSet.of(
             "ALL_PROXY",
             "ANTHROPIC_API_KEY",
@@ -217,7 +222,7 @@ public final class ClaudeCliDriver
         return new AgentCapabilities(
                 true,
                 true,
-                false,
+                true,
                 true,
                 false,
                 true,
@@ -434,6 +439,7 @@ public final class ClaudeCliDriver
         registration.toolNames().forEach(name -> allowedTools.add("mcp__bytequay__" + name));
         String instruction = Stream.of(
                         permissionPolicy.allowsGitHubCommands(textOnly, registration.review().isPresent()) ? AgentCommandPolicy.instructions() : "",
+                        textOnly ? "" : PLAN_INSTRUCTION,
                         managedInstructions,
                         registration.instruction().orElse(""))
                 .filter(value -> !value.isBlank())

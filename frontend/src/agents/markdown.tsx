@@ -56,7 +56,10 @@ export function renderMarkdown(text: string): React.ReactNode {
       const items: React.ReactNode[] = [];
       const ordered = numbered;
       while (index < lines.length && (ordered ? /^\s*\d+[.)]\s+/ : /^\s*[-*+]\s+/).test(lines[index])) {
-        items.push(<li key={items.length}>{inline(lines[index].replace(ordered ? /^\s*\d+[.)]\s+/ : /^\s*[-*+]\s+/, ''))}</li>);
+        const text = lines[index].replace(ordered ? /^\s*\d+[.)]\s+/ : /^\s*[-*+]\s+/, '');
+        const task = !ordered ? /^\[([ xX])\]\s+(.*)$/.exec(text) : null;
+        items.push(task === null ? <li key={items.length}>{inline(text)}</li>
+          : <li className="agt-md__task" key={items.length}><input type="checkbox" checked={task[1].toLowerCase() === 'x'} disabled aria-label={task[2]} /><span>{inline(task[2])}</span></li>);
         index++;
       }
       index--;

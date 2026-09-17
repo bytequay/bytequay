@@ -28,6 +28,7 @@ import com.bytequay.agent.spi.AgentLaneId;
 import com.bytequay.agent.spi.AgentPermissionPolicy;
 import com.bytequay.agent.spi.AgentTurnFailureKind;
 import com.bytequay.agent.spi.DevelopmentResultReport;
+import com.bytequay.agent.spi.ProviderAgentEvent;
 import com.bytequay.agent.spi.ProviderTurnRef;
 import com.bytequay.core.domain.GitHubIssueSource;
 import com.bytequay.core.domain.PullRequest;
@@ -56,6 +57,19 @@ class TestInteractiveAgentHttpContract
 
     @TempDir
     private Path temporaryDirectory;
+
+    @Test
+    void projectsPlanAbsenceAndExplicitClearSeparately()
+    {
+        AgentTurn turn = AgentTurn.accepted(TurnId.random(), TaskId.random(), "plan",
+                new AgentTurnSettings(Optional.empty(), Optional.empty(), AgentPermissionPolicy.AUTO, Duration.ofMinutes(5), ImmutableList.of()), Instant.EPOCH);
+        assertThat(objectMapper.valueToTree(InteractiveAgentHttpContract.turn(turn)).get("plan").isNull()).isTrue();
+        AgentTurn planned = turn.withPlan(ImmutableList.of(new ProviderAgentEvent.PlanItem("Verify", ProviderAgentEvent.PlanItemState.IN_PROGRESS)));
+        JsonNode plan = objectMapper.valueToTree(InteractiveAgentHttpContract.turn(planned)).path("plan");
+        assertThat(plan.get(0).path("text").asText()).isEqualTo("Verify");
+        assertThat(plan.get(0).path("state").asText()).isEqualTo("IN_PROGRESS");
+        assertThat(objectMapper.valueToTree(InteractiveAgentHttpContract.turn(planned.withPlan(ImmutableList.of()))).path("plan").isEmpty()).isTrue();
+    }
 
     @Test
     void createRequestCannotCarryRendererSelectedPathsOrAttachments()
@@ -149,7 +163,8 @@ class TestInteractiveAgentHttpContract
                         "failureKind",
                         "metrics",
                         "developmentResult",
-                        "developmentOrigin");
+                        "developmentOrigin",
+                        "plan");
         assertThat(InteractiveAgentHttpContract.TaskSummaryResponse.class.getRecordComponents())
                 .extracting(component -> component.getName())
                 .containsExactly(

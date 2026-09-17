@@ -28,6 +28,7 @@ import com.bytequay.agent.spi.AgentLaneId;
 import com.bytequay.agent.spi.AgentPermissionPolicy;
 import com.bytequay.agent.spi.AgentTurnFailureKind;
 import com.bytequay.agent.spi.DevelopmentResultReport;
+import com.bytequay.agent.spi.ProviderAgentEvent.PlanItem;
 import com.bytequay.app.agent.IssueSourceInput;
 import com.bytequay.app.web.DevelopmentAutomationDto;
 import com.bytequay.app.web.ci.CiAutofixHttpModels;
@@ -149,7 +150,8 @@ final class InteractiveAgentHttpContract
                 turn.failureKind(),
                 turn.metrics(),
                 turn.developmentResult(),
-                turn.developmentOrigin().map(origin -> new DevelopmentOrigin(origin.kind().name(), origin.parentUserTurnId().toString())));
+                turn.developmentOrigin().map(origin -> new DevelopmentOrigin(origin.kind().name(), origin.parentUserTurnId().toString())),
+                turn.plan());
     }
 
     static QueuedInputResponse queuedInput(QueuedAgentInput input)
@@ -412,7 +414,8 @@ final class InteractiveAgentHttpContract
             Optional<AgentTurnFailureKind> failureKind,
             AgentMetrics metrics,
             Optional<DevelopmentResultReport> developmentResult,
-            Optional<DevelopmentOrigin> developmentOrigin) {}
+            Optional<DevelopmentOrigin> developmentOrigin,
+            Optional<List<PlanItem>> plan) {}
 
     record DevelopmentOrigin(String kind, String parentUserTurnId) {}
 

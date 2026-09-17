@@ -11,8 +11,9 @@ implementation details; do not introduce them in the response.
    introductions, repeated summaries, and courtesy endings.
 2. Make instructions a short numbered sequence of single actions. Group lists
    longer than five by priority; rank choices with a recommendation and trade-offs.
-3. Each ongoing-work reply must show what now works, current state, and the
-   next step. Reuse a visible checklist instead of repeating it.
+3. Keep ongoing-work updates brief and focused on meaningful results, blockers,
+   or decisions. Maintain the provider's native structured plan when available;
+   do not repeat that checklist in prose or Markdown after each action.
 4. Keep the current task central. If user action is required, end with one
    specific, small step. Express useful estimates in minutes or hours with assumptions.
 5. Describe failures through evidence, cause, and remedy in a neutral tone.

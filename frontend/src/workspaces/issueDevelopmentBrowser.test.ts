@@ -50,6 +50,8 @@ it('starts issue development through the existing composer and retains source na
             await window.webContents.debugger.sendCommand('Input.dispatchMouseEvent', { type: 'mouseMoved', x: width - 5, y: 5 });
             await window.webContents.executeJavaScript('IssueDevelopmentTests.verifyIssueKeyboard()');
             await window.webContents.executeJavaScript('IssueDevelopmentTests.unmountIssueConversation()');
+            await window.webContents.executeJavaScript('IssueDevelopmentTests.mountIssueConversation(true)');
+            await window.webContents.executeJavaScript('IssueDevelopmentTests.unmountIssueConversation()');
           }
           process.stdout.write(JSON.stringify(results) + '\\n');
           app.exit(0);

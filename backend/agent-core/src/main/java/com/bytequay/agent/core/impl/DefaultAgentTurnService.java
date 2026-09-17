@@ -1843,6 +1843,22 @@ public final class DefaultAgentTurnService
             }
             return;
         }
+        if (event instanceof ProviderAgentEvent.Plan plan
+                && plan.source().parentProviderThreadId().isEmpty()
+                && plan.source().logicalAgentPath().map(path -> path.equals("/") || path.equals("root")).orElse(true)) {
+            synchronized (runtimeRegistry.taskLock(taskId)) {
+                AgentTurn turn = requireActiveTurn(taskId);
+                checkArgument(turn.id().equals(boundTurnId), "Plan belongs to another turn");
+                checkArgument(turn.providerTurnReference().isEmpty() || plan.source().providerTurnId().isEmpty()
+                                || plan.source().providerTurnId().equals(turn.providerTurnReference().map(ProviderTurnRef::value)),
+                        "Plan belongs to another provider turn");
+                ProviderAgentEventAdapter.CanonicalEvent update = ProviderAgentEventAdapter.adapt(plan);
+                eventCommitter.commitIfAbsent(
+                        pendingInline(EventId.random(), taskId, Optional.of(turn.id()), update.source(), update.payload(), Instant.now(clock)),
+                        () -> turnStore.update(turn.withPlan(plan.items())));
+            }
+            return;
+        }
         if (event instanceof ProviderAgentEvent.DevelopmentResult result) {
             synchronized (runtimeRegistry.taskLock(taskId)) {
                 AgentTurn turn = requireActiveTurn(taskId);

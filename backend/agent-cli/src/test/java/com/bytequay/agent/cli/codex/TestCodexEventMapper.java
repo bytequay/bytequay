@@ -293,6 +293,36 @@ class TestCodexEventMapper
     }
 
     @Test
+    void mapsStructuredPlanProgressAndAnExplicitEmptyPlan()
+    {
+        ProviderAgentEvent.Plan initial = only("""
+                {"method":"turn/plan/updated","params":{"threadId":"thread-1","turnId":"turn-1","plan":[
+                {"step":"Reproduce","status":"inProgress"},{"step":"Fix","status":"pending"}]}}
+                """, ProviderAgentEvent.Plan.class);
+        assertThat(initial.items()).containsExactly(
+                new ProviderAgentEvent.PlanItem("Reproduce", ProviderAgentEvent.PlanItemState.IN_PROGRESS),
+                new ProviderAgentEvent.PlanItem("Fix", ProviderAgentEvent.PlanItemState.PENDING));
+        ProviderAgentEvent.Plan updated = only("""
+                {"method":"turn/plan/updated","params":{"threadId":"thread-1","turnId":"turn-1","plan":[
+                {"step":"Reproduce","status":"completed"},{"step":"Fix","status":"inProgress"}]}}
+                """, ProviderAgentEvent.Plan.class);
+        assertThat(updated.items()).containsExactly(
+                new ProviderAgentEvent.PlanItem("Reproduce", ProviderAgentEvent.PlanItemState.COMPLETED),
+                new ProviderAgentEvent.PlanItem("Fix", ProviderAgentEvent.PlanItemState.IN_PROGRESS));
+        assertThat(updated.source()).isEqualTo(initial.source());
+        assertThat(initial.source().providerThreadId()).contains("thread-1");
+        assertThat(initial.source().providerTurnId()).contains("turn-1");
+        ProviderAgentEvent.Plan cleared = only("""
+                {"method":"turn/plan/updated","params":{"threadId":"thread-1","turnId":"turn-1","plan":[]}}
+                """, ProviderAgentEvent.Plan.class);
+        assertThat(cleared.items()).isEmpty();
+        assertThat(mapper.map(codec.decodeNotification("""
+                {"method":"turn/plan/updated","params":{"threadId":"thread-1","turnId":"turn-1","plan":[
+                {"step":" ","status":"pending"}]}}
+                """), true)).isEmpty();
+    }
+
+    @Test
     void mapsCommandFactsAndBuiltInToolsIntoActivity()
     {
         CodexEventMapper worktreeMapper = new CodexEventMapper(

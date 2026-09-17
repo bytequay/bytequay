@@ -1591,6 +1591,9 @@
   font-weight: 600;
 }
 
+.agt-md li.agt-md__task { display: flex; align-items: baseline; gap: 7px; list-style: none; }
+.agt-md__task > input { flex: none; margin: 0; accent-color: #27845d; }
+
 .agt-answer {
   margin-top: 16px;
 }

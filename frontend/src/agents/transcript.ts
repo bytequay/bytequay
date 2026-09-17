@@ -745,11 +745,7 @@ export function planSummary(steps: PlanStep[]): string {
 
 /** The current plan is the newest turn's; an older turn's plan is history. */
 export function currentPlan(turns: TranscriptTurn[]): PlanBlock | null {
-  for (let index = turns.length - 1; index >= 0; index--) {
-    const plan = turns[index].blocks.find((block): block is PlanBlock => block.kind === 'plan');
-    if (plan !== undefined) return plan;
-  }
-  return null;
+  return turns.at(-1)?.blocks.find((block): block is PlanBlock => block.kind === 'plan') ?? null;
 }
 
 /** Whether an activity group is shown open: always while running, otherwise as the user last chose. */

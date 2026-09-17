@@ -522,13 +522,14 @@ final class CodexEventMapper
             }
         }
         List<ProviderAgentEvent.PlanItem> plan = items.build();
-        return plan.isEmpty()
-                ? ImmutableList.of()
-                : ImmutableList.of(new ProviderAgentEvent.Plan(
-                        Optional.of(params.turnId() + ":plan"),
-                        timestamp,
-                        plan,
-                        source));
+        if (!params.plan().isEmpty() && plan.isEmpty()) {
+            return ImmutableList.of();
+        }
+        return ImmutableList.of(new ProviderAgentEvent.Plan(
+                Optional.of(params.turnId() + ":plan"),
+                timestamp,
+                plan,
+                source));
     }
 
     private static List<ProviderAgentEvent> mapUsage(

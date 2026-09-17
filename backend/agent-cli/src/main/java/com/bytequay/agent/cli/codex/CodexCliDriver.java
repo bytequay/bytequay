@@ -133,6 +133,12 @@ public final class CodexCliDriver
     private static final Logger log = LoggerFactory.getLogger(CodexCliDriver.class);
     private static final AgentLaneId LANE_ID = new AgentLaneId("codex");
     private static final int CONTRACT_VERSION = 1;
+    private static final String PLAN_INSTRUCTION = """
+            For work with multiple meaningful steps, use the native update_plan tool to maintain one concise plan.
+            Update its step statuses as work progresses and revise it when the approach changes. ByteQuay displays
+            these updates in its Plan panel. Do not repeat the checklist in assistant messages; use brief progress
+            messages only for meaningful results, blockers, or decisions. Skip a plan for a simple one-step request.
+            """;
     private static final Pattern VERSION = Pattern.compile("([0-9]+\\.[0-9]+\\.[0-9]+)(-[0-9A-Za-z-]+(?:\\.[0-9A-Za-z-]+)*)?(?:\\+[0-9A-Za-z-]+(?:\\.[0-9A-Za-z-]+)*)?");
     private static final Duration REQUEST_TIMEOUT = Duration.ofSeconds(30);
     private static final Duration PROBE_TIMEOUT = Duration.ofSeconds(10);
@@ -825,6 +831,7 @@ public final class CodexCliDriver
             String developerInstructions = Stream.of(
                             codeGraph.flatMap(CodeGraphRegistration::review).isPresent() ? AgentCommandPolicy.reviewInstructions()
                                     : allowGitHubCommands ? AgentCommandPolicy.instructions() : "",
+                            context.textOnly() ? "" : PLAN_INSTRUCTION,
                             context.managedInstructions(),
                             codeGraph.map(CodeGraphRegistration::instruction).orElse(""))
                     .filter(instruction -> !instruction.isBlank())

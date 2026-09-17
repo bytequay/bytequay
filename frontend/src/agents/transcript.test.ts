@@ -273,6 +273,14 @@ describe('projecting the transcript', () => {
     expect(planChip([{ text: 'a', state: 'COMPLETED' }])).toBe('Completed');
   });
 
+  it('clears a plan and never presents a previous turn as the current plan', () => {
+    const planned = event('plan_updated', { items: [{ text: 'Reproduce', state: 'IN_PROGRESS' }] });
+    expect(currentPlan(projectTranscript([planned, event('plan_updated', { items: [] })]))?.steps).toEqual([]);
+    const turns = projectTranscript([planned, event('user_message', { text: 'Explain the fix', attachments: [], deliveryKind: 'TURN' }, { turnId: 'turn-2' })]);
+    expect(currentPlan(turns)).toBeNull();
+    expect(turns[0].blocks.some(block => block.kind === 'plan')).toBe(true);
+  });
+
   it('runs the live clock only until the turn ends', () => {
     const running = projectTranscript([
       event('lifecycle', { phase: 'TURN_STARTED', message: 'started' }, { at: '2026-08-20T10:00:00Z' }),

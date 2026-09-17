@@ -116,6 +116,89 @@ class TestClaudeEventMapper
     }
 
     @Test
+    void publishesTodoWritePlanOnlyAfterSuccessAndPreservesProgressAndClearing()
+    {
+        assertThat(todoWrite("todos-1", "null", """
+                [{"content":"Read known-secret context","status":"completed","activeForm":"Reading context"},
+                 {"content":"Implement fix","status":"in_progress"},{"content":"Run tests","status":"pending"}]
+                """)).singleElement().isInstanceOf(ProviderAgentEvent.Tool.class);
+        ProviderAgentEvent.Plan plan = todoResult("todos-1", "null", false).stream()
+                .filter(ProviderAgentEvent.Plan.class::isInstance).map(ProviderAgentEvent.Plan.class::cast).findFirst().orElseThrow();
+        assertThat(plan.items()).extracting(ProviderAgentEvent.PlanItem::text, ProviderAgentEvent.PlanItem::state).containsExactly(
+                tuple("Read [REDACTED] context", ProviderAgentEvent.PlanItemState.COMPLETED),
+                tuple("Implement fix", ProviderAgentEvent.PlanItemState.IN_PROGRESS),
+                tuple("Run tests", ProviderAgentEvent.PlanItemState.PENDING));
+        assertThat(plan.providerEventId()).contains("todos-1:plan");
+        assertThat(plan.source().providerThreadId()).contains("session-1");
+        assertThat(plan.source().providerItemId()).contains("todos-1");
+        assertThat(plan.source().parentProviderThreadId()).isEmpty();
+        assertThat(todoResult("todos-1", "null", false)).noneMatch(ProviderAgentEvent.Plan.class::isInstance);
+
+        todoWrite("todos-2", "null", """
+                [{"content":"Implement fix","status":"completed"},{"content":"Run tests","status":"in_progress"}]
+                """);
+        assertThat(todoResult("todos-2", "null", false)).filteredOn(ProviderAgentEvent.Plan.class::isInstance)
+                .singleElement().satisfies(event -> assertThat(((ProviderAgentEvent.Plan) event).items())
+                        .extracting(ProviderAgentEvent.PlanItem::state)
+                        .containsExactly(ProviderAgentEvent.PlanItemState.COMPLETED, ProviderAgentEvent.PlanItemState.IN_PROGRESS));
+        todoWrite("todos-clear", "null", "[]");
+        assertThat(todoResult("todos-clear", "null", false)).filteredOn(ProviderAgentEvent.Plan.class::isInstance)
+                .singleElement().satisfies(event -> assertThat(((ProviderAgentEvent.Plan) event).items()).isEmpty());
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {
+            "null", "{}", "[null]", "[{}]", "[{\"content\":\" \",\"status\":\"pending\"}]",
+            "[{\"content\":3,\"status\":\"pending\"}]", "[{\"content\":\"Step\",\"status\":3}]",
+            "[{\"content\":\"Step\",\"status\":\"unknown\"}]",
+            "[{\"content\":\"Valid\",\"status\":\"completed\"},{\"content\":\"Missing status\"}]"})
+    void ignoresAnInvalidOrIncompleteTodoListWithoutGuessingAPlan(String todos)
+    {
+        assertThat(todoWrite("todos-invalid", "null", todos)).noneMatch(ProviderAgentEvent.Plan.class::isInstance);
+        assertThat(todoResult("todos-invalid", "null", false)).singleElement().isInstanceOf(ProviderAgentEvent.Tool.class);
+    }
+
+    @Test
+    void failedUnmatchedAndMisownedTodoCallsCannotReplaceAPlan()
+    {
+        String todos = "[{\"content\":\"Implement\",\"status\":\"in_progress\"}]";
+        todoWrite("failed", "null", todos);
+        assertThat(todoResult("failed", "null", true)).noneMatch(ProviderAgentEvent.Plan.class::isInstance);
+        assertThat(todoResult("unknown", "null", false)).noneMatch(ProviderAgentEvent.Plan.class::isInstance);
+        todoWrite("orphan", "\"unknown-parent\"", todos);
+        assertThat(todoResult("orphan", "\"unknown-parent\"", false)).noneMatch(ProviderAgentEvent.Plan.class::isInstance);
+        startAgent("Agent", false);
+        todoWrite("misowned", "\"spawn-1\"", todos);
+        assertThat(todoResult("misowned", "null", false)).noneMatch(ProviderAgentEvent.Plan.class::isInstance);
+        todoWrite("child", "\"spawn-1\"", todos);
+        assertThat(todoResult("child", "\"spawn-1\"", false)).filteredOn(ProviderAgentEvent.Plan.class::isInstance)
+                .singleElement().satisfies(event -> {
+                    assertThat(event.source().providerThreadId()).contains("claude-agent:spawn-1");
+                    assertThat(event.source().parentProviderThreadId()).contains("session-1");
+                });
+        assertThat(map("""
+                {"type":"assistant","message":{"role":"assistant","content":[{"type":"text","text":"- [ ] Implement"}]},
+                "session_id":"session-1","uuid":"prose-plan"}
+                """)).noneMatch(ProviderAgentEvent.Plan.class::isInstance);
+    }
+
+    private List<ProviderAgentEvent> todoWrite(String toolId, String parent, String todos)
+    {
+        return map("""
+                {"type":"assistant","message":{"role":"assistant","content":[{"type":"tool_use","id":"%s","name":"TodoWrite","input":{"todos":%s}}]},
+                "session_id":"session-1","parent_tool_use_id":%s,"uuid":"%s-start"}
+                """.formatted(toolId, todos, parent, toolId));
+    }
+
+    private List<ProviderAgentEvent> todoResult(String toolId, String parent, boolean failed)
+    {
+        return map("""
+                {"type":"user","message":{"role":"user","content":[{"type":"tool_result","tool_use_id":"%s","content":"Todo update","is_error":%s}]},
+                "session_id":"session-1","parent_tool_use_id":%s,"uuid":"%s-result"}
+                """.formatted(toolId, failed, parent, toolId));
+    }
+
+    @Test
     void mapsTypedCommandsToolsHooksAndNestedTasksWithRedaction()
     {
         ProviderAgentEvent.Command started = only("""

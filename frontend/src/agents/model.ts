@@ -119,7 +119,7 @@ export interface AgentTaskState {
   /** The turn the newest applied events belong to, and whether its lifecycle has ended. */
   latestTurnId: string | null;
   latestTurnSettled: boolean;
-  /** Bumped by every lifecycle event, so the screen re-reads the turn and task facts it changed. */
+  /** Bumped by lifecycle and root-plan updates, so the screen re-reads durable turn/task facts. */
   lifecycleEpoch: number;
   /** Latest coordinator observation, independent of the transcript page being inspected. */
   developmentProgress: { sequence: number; message: string } | null;
@@ -273,6 +273,8 @@ function observeEvents(state: AgentTaskState, events: AgentEventEnvelope[]): Age
       latestTurnId = event.turnId;
       latestTurnSettled = false;
     }
+    if (event.type === 'plan_updated' && event.source.parentProviderThreadId === null
+      && (event.source.logicalAgentPath === null || event.source.logicalAgentPath === '/' || event.source.logicalAgentPath === 'root')) lifecycleEpoch++;
     if (event.type === 'lifecycle') {
       lifecycleEpoch++;
       if (event.turnId === latestTurnId && ['TURN_COMPLETED', 'INTERRUPTED'].includes(event.payload.phase)) latestTurnSettled = true;
@@ -358,6 +360,8 @@ function applyEvents(state: AgentTaskState, incoming: AgentEventEnvelope[]): Age
       latestTurnId = event.turnId;
       latestTurnSettled = false;
     }
+    if (event.type === 'plan_updated' && event.source.parentProviderThreadId === null
+      && (event.source.logicalAgentPath === null || event.source.logicalAgentPath === '/' || event.source.logicalAgentPath === 'root')) lifecycleEpoch++;
     if (event.type === 'lifecycle') {
       lifecycleEpoch++;
       const phase = event.payload.phase;

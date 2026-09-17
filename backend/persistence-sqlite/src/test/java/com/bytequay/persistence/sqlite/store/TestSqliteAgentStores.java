@@ -70,6 +70,7 @@ import com.bytequay.agent.spi.AgentTurnCommand;
 import com.bytequay.agent.spi.AgentTurnFailureKind;
 import com.bytequay.agent.spi.AgentTurnResult;
 import com.bytequay.agent.spi.DevelopmentResultReport;
+import com.bytequay.agent.spi.ProviderAgentEvent;
 import com.bytequay.agent.spi.ProviderTurnRef;
 import com.bytequay.agent.spi.RunningTurn;
 import com.google.common.collect.ImmutableList;
@@ -555,6 +556,33 @@ class TestSqliteAgentStores
         taskStore.update(restored.withLocalReviewHead(Optional.empty(), now.plusSeconds(2)));
         entityManager.clear();
         assertThat(taskStore.find(task.id()).orElseThrow().localReviewHead()).isEmpty();
+    }
+
+    @Test
+    void persistsTurnPlanSnapshotsIncludingExplicitClearAndPreservesThemThroughCompletion()
+    {
+        Instant now = Instant.parse("2026-08-16T00:00:00Z");
+        AgentTask task = newTask(now);
+        taskStore.insert(task);
+        AgentTurnSettings settings = new AgentTurnSettings(
+                Optional.of("model"), Optional.empty(), AgentPermissionPolicy.AUTO, Duration.ofMinutes(5), ImmutableList.of());
+        AgentTurn turn = AgentTurn.accepted(TurnId.random(), task.id(), "plan", settings, now);
+        turnStore.insert(turn);
+        entityManager.clear();
+        assertThat(turnStore.find(turn.id()).orElseThrow().plan()).isEmpty();
+
+        List<ProviderAgentEvent.PlanItem> items = ImmutableList.of(new ProviderAgentEvent.PlanItem("Verify", ProviderAgentEvent.PlanItemState.IN_PROGRESS));
+        AgentTurn running = turnStore.update(turnStore.find(turn.id()).orElseThrow().markDeliveryStarted(now)
+                .running(new ProviderTurnRef("provider-plan"), Optional.of("model")).withPlan(items));
+        entityManager.clear();
+        assertThat(turnStore.find(turn.id()).orElseThrow().plan()).contains(items);
+        AgentTurn cleared = turnStore.update(running.withPlan(ImmutableList.of()));
+        entityManager.clear();
+        assertThat(turnStore.find(turn.id()).orElseThrow().plan()).contains(ImmutableList.of());
+        turnStore.update(cleared.withPlan(items).finish(TurnState.COMPLETED, AgentMetrics.empty(), Optional.empty(), now.plusSeconds(1)));
+        entityManager.clear();
+        assertThat(turnStore.find(turn.id()).orElseThrow().plan()).contains(items);
+        assertThat(turnStore.find(turn.id()).orElseThrow().withVersion(99).plan()).contains(items);
     }
 
     @Test

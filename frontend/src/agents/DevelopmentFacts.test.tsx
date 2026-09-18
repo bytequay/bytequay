@@ -88,7 +88,7 @@ it('shows the create-PR request as the action and the branches it names, never a
   expect(draftPullRequestRequest(undefined, said(publication()), branch)).toBeNull();
 
   const html = renderToStaticMarkup(<TurnView
-    turn={{ turnId: generated.id, ordinal: 1, blocks: [], answer: null, startedAt: null, endedAt: null, outcome: null, usage: null,
+    turn={{ turnId: generated.id, ordinal: 1, blocks: [], answer: null, startedAt: null, endedAt: null, outcome: null,
       users: [{ id: 'request', text: publication(), attachments: [], delivery: 'TURN', at: '2026-01-01T12:00:00Z' }] }}
     first={false} open={false} now={0} models={[]} durableTurns={{ [generated.id]: generated }} activityChoice={{}} previews={{}} agentLabels={{}} generatedBranch={branch}
     onToggle={() => {}} onToggleActivity={() => {}} />);

@@ -31,7 +31,7 @@ const actions = { onReply: async () => {}, onResolve: async () => {}, onRetry: a
 const turn: TranscriptTurn = {
   turnId: 'turn-1', ordinal: 1,
   users: [{ id: 'event-1', text: 'PRIVATE INTERNAL CONTEXT PROMPT', attachments: [], delivery: 'TURN', at: thread.createdAt }],
-  blocks: [], answer: null, startedAt: null, endedAt: null, outcome: null, usage: null,
+  blocks: [], answer: null, startedAt: null, endedAt: null, outcome: null,
 };
 function render(value: TranscriptTurn, review: LocalReviewThreads): string {
   return renderToStaticMarkup(<TurnView turn={value} first={false} open now={0} models={[]} durableTurns={{}} activityChoice={{}}

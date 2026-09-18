@@ -133,13 +133,6 @@ type UserBlock = {
   at: string;
 };
 
-type UsageFacts = {
-  inputTokens: number;
-  cachedInputTokens: number;
-  outputTokens: number;
-  cost: number | null;
-};
-
 export type TranscriptTurn = {
   turnId: string | null;
   ordinal: number;
@@ -149,7 +142,6 @@ export type TranscriptTurn = {
   startedAt: string | null;
   endedAt: string | null;
   outcome: 'completed' | 'interrupted' | null;
-  usage: UsageFacts | null;
 };
 
 type Message = AgentEventEnvelope & { type: 'assistant_message' };
@@ -307,7 +299,6 @@ class TurnBuilder {
       startedAt: null,
       endedAt: null,
       outcome: null,
-      usage: null,
     };
   }
 
@@ -405,14 +396,6 @@ class TurnBuilder {
         }
         break;
       }
-      case 'usage':
-        this.turn.usage = {
-          inputTokens: event.payload.inputTokens,
-          cachedInputTokens: event.payload.cachedInputTokens,
-          outputTokens: event.payload.outputTokens,
-          cost: event.payload.cost,
-        };
-        break;
       case 'lifecycle':
         this.lifecycle(event);
         break;

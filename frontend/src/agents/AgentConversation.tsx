@@ -812,7 +812,7 @@ export function useConversationHistory(events: AgentEventEnvelope[], endedAt: st
 /** A sent message as the newest turn, until its durable event replaces it. */
 function pendingTurn(message: PendingMessage, now: number): TranscriptTurn {
   return {
-    turnId: null, ordinal: 0, blocks: [], answer: null, startedAt: null, endedAt: null, outcome: null, usage: null,
+    turnId: null, ordinal: 0, blocks: [], answer: null, startedAt: null, endedAt: null, outcome: null,
     users: [{ id: 'pending-message', text: message.text, attachments: message.attachments, delivery: 'TURN', at: new Date(now).toISOString() }],
   };
 }

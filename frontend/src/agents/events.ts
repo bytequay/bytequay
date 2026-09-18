@@ -39,7 +39,6 @@ const PLAN_ITEM_STATES = ['PENDING', 'IN_PROGRESS', 'COMPLETED'] as const;
 const APPROVAL_KINDS = ['COMMAND', 'FILE_CHANGE', 'OTHER'] as const;
 const APPROVAL_OPTIONS = ['ALLOW_ONCE', 'ALLOW_FOR_TASK', 'DENY'] as const;
 const APPROVAL_OUTCOMES = ['ALLOWED', 'DENIED', 'EXPIRED', 'CANCELLED'] as const;
-const USAGE_SEMANTICS = ['CUMULATIVE', 'DELTA', 'FINAL_FOR_INVOCATION'] as const;
 const COMMAND_ACTION_KINDS = ['READ', 'LIST_FILES', 'SEARCH', 'OTHER'] as const;
 const LIFECYCLE_PHASES = [
   'SESSION_OPENED',
@@ -138,13 +137,7 @@ export type AgentEventEnvelope =
     /** Whether the allow covers the task's later commands too. False on events stored before it existed. */
     forTask: boolean;
   }>
-  | AgentEvent<'usage', {
-    semantics: typeof USAGE_SEMANTICS[number];
-    inputTokens: number;
-    cachedInputTokens: number;
-    outputTokens: number;
-    cost: number | null;
-  }>
+  | AgentEvent<'usage', Record<string, never>>
   | AgentEvent<'development_result', {
     readyForDelivery: boolean;
     message: string | null;
@@ -337,13 +330,6 @@ function validatePayload(type: typeof EVENT_TYPES[number], value: unknown, index
       if (payload.forTask === undefined) payload.forTask = false;
       booleanValue(payload.forTask, 'approvalResolved.forTask');
       break;
-    case 'usage':
-      enumValue(payload.semantics, USAGE_SEMANTICS, 'usage.semantics');
-      integerValue(payload.inputTokens, 'usage.inputTokens');
-      integerValue(payload.cachedInputTokens, 'usage.cachedInputTokens');
-      integerValue(payload.outputTokens, 'usage.outputTokens');
-      nullableNumber(payload.cost, 'usage.cost');
-      break;
     case 'development_result':
       booleanValue(payload.readyForDelivery, 'developmentResult.readyForDelivery');
       nullableString(payload.message, 'developmentResult.message');
@@ -393,14 +379,6 @@ function integerValue(value: unknown, field: string): number {
 
 function nullableInteger(value: unknown, field: string): number | null {
   return value === null ? null : integerValue(value, field);
-}
-
-function nullableNumber(value: unknown, field: string): number | null {
-  if (value === null) return null;
-  if (typeof value !== 'number' || !Number.isFinite(value)) {
-    throw new Error(`${field} must be a number or null`);
-  }
-  return value;
 }
 
 function literalValue<T extends string | number>(value: unknown, expected: T, field: string): T {

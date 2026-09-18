@@ -496,14 +496,6 @@ function AgentRow({ agent, now, onOpen }: { agent: AgentNode; now: number; onOpe
   );
 }
 
-/**
- * The subagents this task delegated to, and one agent's own transcript when it is opened.
- *
- * Opening an agent filters the task's existing events by its thread; it is not another route and
- * not a second subscription. Once retention has removed the transcript the agent is still listed
- * from the task's kept summary, and opening it says its activity expired rather than inventing it.
- */
-
 /** The same tab styling before the task's branch has a pull request. */
 function PanelTabs({ tab, agentTab, onSelect }: {
   tab: PanelTab;

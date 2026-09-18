@@ -71,7 +71,6 @@ const STATE_LABELS: Record<string, string> = {
   FAILED: 'Failed',
 };
 
-/** The pill for one task: a reserved checkout is worth calling out over plain "open". */
 /**
  * The list knows the durable task, not its events: a turn's claim on the checkout is what says a
  * task is running, and a completed task reads as done in grey, as the design draws it.

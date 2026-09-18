@@ -518,7 +518,6 @@ class TurnBuilder {
   }
 }
 
-/** Groups the applied events into turns, in the order the turns first appeared. */
 /**
  * Groups the applied events into turns, in the order the turns first appeared.
  *

@@ -275,13 +275,6 @@ export function createPreviewBridge(
         ...event.payload, taskId, turnId, source: event.source, occurredAt: event.occurredAt,
       }]);
     },
-    readAgentEvents: async (taskId, after = 0, limit) => {
-      record('readAgentEvents', taskId, after, limit);
-      const page = FIXTURE_EVENTS.filter(
-        (event) => event.sequence > after && event.sequence <= replayThrough,
-      );
-      return limit === undefined ? page : page.slice(0, limit);
-    },
     startAgentTurn: async (request) => {
       record('startAgentTurn', request);
       turnState = 'RUNNING';
@@ -377,18 +370,6 @@ export function createPreviewBridge(
         completedAt: '2026-08-20T10:05:00Z',
         deleteAfter: '2026-08-27T10:05:00Z',
       };
-    },
-    startAgentLocalReview: async (taskId, id, expectedVersion) => {
-      record('startAgentLocalReview', taskId, id, expectedVersion);
-      return { ...previewTask(id, taskId), version: expectedVersion + 1, localReviewHead: 'a'.repeat(40) };
-    },
-    syncAgentLocalReview: async (taskId, id, expectedVersion) => {
-      record('syncAgentLocalReview', taskId, id, expectedVersion);
-      return { task: { ...previewTask(id, taskId), version: expectedVersion + 1, localReviewHead: 'b'.repeat(40) }, warning: null };
-    },
-    finishAgentLocalReview: async (taskId, id, expectedVersion) => {
-      record('finishAgentLocalReview', taskId, id, expectedVersion);
-      return { ...previewTask(id, taskId), version: expectedVersion + 1, localReviewHead: null };
     },
     cleanupAgentTaskWorktree: async (taskId, id) => {
       record('cleanupAgentTaskWorktree', taskId, id);

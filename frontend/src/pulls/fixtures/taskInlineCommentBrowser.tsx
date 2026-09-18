@@ -96,7 +96,6 @@ async function scenario(mode: 'idle' | 'queued' | 'unsent'): Promise<void> {
       combinedResult: 'Simpler validation.', evidence: 'The offline build was unavailable.', limitations: [] },
   } } : null;
   bridge.readAgentHistory = async () => ({ events: [...history], beforeCursor: null, afterCursor: null, latestSequence: history.at(-1)?.sequence ?? 0 });
-  bridge.readAgentEvents = async () => [...history];
   bridge.readAgentPendingApprovals = async () => [];
   bridge.listAgentQueue = async () => [...queue];
   bridge.listAgentTaskPullRequests = async () => [remotePullRequest(detail, 'alice')];

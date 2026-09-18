@@ -24,7 +24,6 @@ import type {
   AgentDevelopmentCiDto,
   CiAutofixRunDto,
   AgentInputDeliveryDto,
-  AgentLocalReviewSyncDto,
   AgentMetricsDto,
   AgentMutationClaimDto,
   AgentProviderReadiness,
@@ -297,11 +296,6 @@ export function parseAgentTask(value: unknown, path = 'task'): AgentTaskDto {
     codegraph: flag(source.codegraph, `${path}.codegraph`),
     archivedAt: optionalText(source.archivedAt, `${path}.archivedAt`),
   };
-}
-
-export function parseAgentLocalReviewSync(value: unknown): AgentLocalReviewSyncDto {
-  const source = object(value, 'localReviewSync');
-  return { task: parseAgentTask(source.task, 'localReviewSync.task'), warning: optionalText(source.warning, 'localReviewSync.warning') };
 }
 
 function taskPullRequest(value: unknown, path: string): AgentTaskPullRequestDto {

@@ -89,7 +89,6 @@ async function retryLocalTurn(): Promise<{ name: string; error?: string }[]> {
   bridge.getAgentTask = async () => task;
   bridge.getAgentTurn = async () => turn;
   bridge.readAgentHistory = async () => ({ events: [userEvent], beforeCursor: null, afterCursor: null, latestSequence: userEvent.sequence });
-  bridge.readAgentEvents = async () => [userEvent];
   bridge.subscribeAgentTask = async (taskId, _after, listener) => {
     listener({ subscriptionId: 'retry', taskId, kind: 'state', state: 'open' });
     return () => {};
@@ -153,7 +152,6 @@ async function localReviewExperiments(reloadPrivate = false): Promise<{ name: st
   bridge.getAgentTurn = async () => turn;
   bridge.listAgentTaskPullRequests = async () => [pr];
   bridge.readAgentHistory = async () => ({ events: [event], beforeCursor: null, afterCursor: null, latestSequence: event.sequence });
-  bridge.readAgentEvents = async () => [event];
   bridge.subscribeAgentTask = async (taskId, _after, listener) => {
     listener({ subscriptionId: 'local-review', taskId, kind: 'state', state: 'open' });
     return () => {};
@@ -224,7 +222,6 @@ async function stopPreservesTask(): Promise<{ name: string; error?: string }[]> 
   bridge.getAgentTask = async () => task;
   bridge.getAgentTurn = async () => turn;
   bridge.readAgentHistory = async () => ({ events: [...history], beforeCursor: null, afterCursor: null, latestSequence: history.at(-1)?.sequence ?? 0 });
-  bridge.readAgentEvents = async () => [...history];
   bridge.readAgentPendingApprovals = async () => [];
   bridge.subscribeAgentTask = async (taskId, _after, listener) => {
     notify = listener;
@@ -302,7 +299,6 @@ async function continuationAdmission(): Promise<{ name: string; error?: string }
   bridge.getAgentTask = async () => task;
   bridge.getAgentTurn = async () => turn;
   bridge.readAgentHistory = async () => ({ events: [event], beforeCursor: null, afterCursor: null, latestSequence: event.sequence });
-  bridge.readAgentEvents = async () => [event];
   let notify: (message: AgentStreamMessage) => void = () => {};
   bridge.subscribeAgentTask = async (taskId, _after, listener) => {
     notify = listener;
@@ -361,7 +357,6 @@ async function pullRequestLookupPolicy(): Promise<{ name: string; error?: string
   bridge.getAgentTask = async () => task;
   bridge.getAgentTurn = async () => turn;
   bridge.readAgentHistory = async () => ({ events: [event], beforeCursor: null, afterCursor: null, latestSequence: event.sequence });
-  bridge.readAgentEvents = async () => [event];
   let notify: (message: AgentStreamMessage) => void = () => {};
   bridge.subscribeAgentTask = async (taskId, _after, listener) => {
     notify = listener;

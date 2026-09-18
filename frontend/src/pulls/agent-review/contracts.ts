@@ -215,7 +215,6 @@ export type ReviewPublishResultDto = {
   uncertainReason: string | null;
 };
 
-export type ReviewIneligibleDto = { itemId: string; reason: string };
 
 function object(value: unknown, what: string): Record<string, unknown> {
   if (typeof value !== 'object' || value === null || Array.isArray(value)) {
@@ -527,11 +526,4 @@ export function parseReviewPublishResult(value: unknown): ReviewPublishResultDto
     publishedItemIds: strings(result.publishedItemIds),
     uncertainReason: optionalText(result.uncertainReason),
   };
-}
-
-export function parseReviewIneligible(value: unknown): ReviewIneligibleDto[] {
-  return list(value).map(item => {
-    const entry = object(item, 'ineligible comment');
-    return { itemId: text(entry.itemId, 'comment id'), reason: text(entry.reason, 'reason') };
-  });
 }

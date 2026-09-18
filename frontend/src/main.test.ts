@@ -14,8 +14,6 @@
 
 import { afterEach, expect, it, vi } from 'vitest';
 import { CI_RUN } from './agents/fixtures/ciAutofix';
-import contracts from './agents/fixtures/agent-contracts-v1.json';
-import { parseAgentTask } from './agents/contracts';
 import { parseAgentReview } from './pulls/agent-review/contracts';
 import { runningReviewFixture } from './pulls/agent-review/fixtures/review';
 
@@ -80,30 +78,10 @@ it('routes CI detail reads and replies to the authenticated CI API', async () =>
   expect(fetch).toHaveBeenCalledTimes(2);
 });
 
-it('sends versioned local review actions and preserves the returned private review boundary', async () => {
-  await import('./main');
-  await expect(desktop.listeners.get('ready')?.()).rejects.toThrow('End test startup');
-  for (const action of ['start', 'sync', 'finish']) {
-    const task = { ...contracts.task, localReviewHead: action === 'finish' ? null : 'a'.repeat(40) };
-    const warning = 'Updated to the latest PR head. All local experiments were discarded because they conflicted with the update.';
-    const response = action === 'sync' ? { task, warning } : task;
-    const fetch = vi.fn(async () => new Response(JSON.stringify(response), { headers: { 'Content-Type': 'application/json' } }));
-    vi.stubGlobal('fetch', fetch);
-    const handler = desktop.handlers.get(`agent:task:local-review:${action}`);
-    expect(handler).toBeDefined();
-    await expect(handler?.({}, 'task/one', 'workspace/one', 7)).resolves.toEqual(action === 'sync' ? { task: parseAgentTask(task), warning } : parseAgentTask(task));
-    expect(fetch).toHaveBeenCalledTimes(1);
-    expect(fetch).toHaveBeenCalledWith(`http://127.0.0.1:9527/agent/tasks/task%2Fone/local-review/${action}?workspaceId=workspace%2Fone`,
-      expect.objectContaining({ method: 'POST', body: JSON.stringify({ expectedVersion: 7 }),
-        headers: { 'Content-Type': 'application/json', 'X-ByteQuay-Session': 'test-session' } }));
-  }
-});
-
 it.each([
   { channel: 'review:start', args: ['workspace-1', 'trinodb/trino', 31102] },
   { channel: 'review:resume', args: ['review-1'] },
   { channel: 'review:update', args: ['review-1'] },
-  { channel: 'agent:task:local-review:sync', args: ['task-1', 'workspace-1', 7] },
 ])('allows a slow Git synchronization to finish through $channel without retrying it', async ({ channel, args }) => {
   await import('./main');
   await expect(desktop.listeners.get('ready')?.()).rejects.toThrow('End test startup');
@@ -115,11 +93,9 @@ it.each([
     return controller.signal;
   });
   const review = runningReviewFixture();
-  const local = { task: { ...contracts.task, localReviewHead: 'a'.repeat(40) }, warning: 'Local experiments were discarded because they conflicted with the update.' };
-  const isLocal = channel === 'agent:task:local-review:sync';
   const fetch = vi.fn((_url: string, init?: RequestInit) => new Promise<Response>((resolve, reject) => {
     init?.signal?.addEventListener('abort', () => reject(init.signal?.reason), { once: true });
-    setTimeout(() => resolve(new Response(JSON.stringify(isLocal ? local : review), {
+    setTimeout(() => resolve(new Response(JSON.stringify(review), {
       headers: { 'Content-Type': 'application/json' },
     })), 65_000);
   }));
@@ -130,7 +106,7 @@ it.each([
 
   await vi.advanceTimersByTimeAsync(65_000);
 
-  expect(await result).toEqual({ value: isLocal ? { task: parseAgentTask(local.task), warning: local.warning } : parseAgentReview(review) });
+  expect(await result).toEqual({ value: parseAgentReview(review) });
   expect(fetch).toHaveBeenCalledTimes(1);
   expect(fetch).toHaveBeenCalledWith(expect.any(String), expect.objectContaining({ method: 'POST' }));
 });

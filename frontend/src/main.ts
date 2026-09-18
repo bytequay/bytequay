@@ -25,7 +25,6 @@ import {
   parseAgentCompletion,
   parseCiAutofixRun,
   parseAgentInputDelivery,
-  parseAgentLocalReviewSync,
   parseAgentProviderStatuses,
   parseAgentProviderUnavailable,
   parseAgentQueue,
@@ -44,12 +43,11 @@ import {
   parseModelSettings,
 } from './agents/contracts';
 import { parseLocalReviewThread, parseLocalReviewThreads, type CreateDevelopmentLearningCommentRequest, type CreateLocalReviewRequest, type LocalReviewQuery, type ReplyLocalReviewRequest, type ResolveLocalReviewRequest, type RetryLocalReviewRequest } from './pulls/local-review/contracts';
-import { parseAgentEventSequence, parseAgentHistoryPage, parseAgentPendingApprovals } from './agents/events';
+import { parseAgentHistoryPage, parseAgentPendingApprovals } from './agents/events';
 import {
   parseAgentReview,
   parseAgentReviews,
   parseReviewDraft,
-  parseReviewIneligible,
   parseReviewPublishResult,
 } from './pulls/agent-review/contracts';
 import { codeHostKey, parseCodeHost, parseLocalRun, parseLocalRunOutput, parseLocalRuns, parseReviewCodeFile, parseReviewCodeFiles, parseReviewCodeSymbols } from './pulls/code-tests/contracts';
@@ -622,17 +620,6 @@ function registerIpc(): void {
     backendJson(`${backendBase()}/agent/tasks/${encodeURIComponent(taskId)}/effective-settings`
       + `?${new URLSearchParams({ workspaceId })}`, { headers: agentHeaders() })
       .then((settings) => parseAgentTurnSettings(settings)));
-  ipcMain.handle('agent:events:read', async (_event, taskId: string, after?: number, limit?: number) => {
-    const query = new URLSearchParams();
-    if (after !== undefined) query.set('after', String(after));
-    if (limit !== undefined) query.set('limit', String(limit));
-    const page = await backendJson<unknown>(
-      `${backendBase()}/agent/tasks/${encodeURIComponent(taskId)}/events?${query}`,
-      { headers: agentHeaders() },
-    );
-    // Validated in main so a payload the renderer cannot represent never reaches it.
-    return parseAgentEventSequence(page, after ?? 0);
-  });
   ipcMain.handle('agent:history:read', async (_event, taskId: string, before?: string, after?: string) => {
     const query = new URLSearchParams();
     if (before !== undefined) query.set('before', before);
@@ -701,16 +688,6 @@ function registerIpc(): void {
         attachments: request.attachments ?? [],
       }),
     }).then((turn) => parseAgentTurn(turn)));
-  for (const action of ['start', 'finish']) {
-    ipcMain.handle(`agent:task:local-review:${action}`, async (_event, taskId: string, workspaceId: string, expectedVersion: number) =>
-      parseAgentTask(await backendJson(`${backendBase()}/agent/tasks/${encodeURIComponent(taskId)}/local-review/${action}`
-        + `?${new URLSearchParams({ workspaceId })}`, jsonInit('POST', { expectedVersion }, agentHeaders(true)))));
-  }
-  ipcMain.handle('agent:task:local-review:sync', async (_event, taskId: string, workspaceId: string, expectedVersion: number) =>
-    parseAgentLocalReviewSync(await backendJson(`${backendBase()}/agent/tasks/${encodeURIComponent(taskId)}/local-review/sync`
-      + `?${new URLSearchParams({ workspaceId })}`, {
-      ...jsonInit('POST', { expectedVersion }, agentHeaders(true)), signal: AbortSignal.timeout(15 * 60_000),
-    })));
   ipcMain.handle('agent:turns:steer', (_event, request: SteerAgentTurnRequest) =>
     backendJson(`${backendBase()}/agent/turns/${encodeURIComponent(request.turnId)}/steer`, {
       method: 'POST',
@@ -998,13 +975,6 @@ function registerIpc(): void {
       method: 'POST',
       body: JSON.stringify({ expectedVersion }),
     }));
-  ipcMain.handle('review:events:read', async (_event, reviewId: string, after?: number, limit?: number) => {
-    const query: Record<string, string> = {};
-    if (after !== undefined) query.after = String(after);
-    if (limit !== undefined) query.limit = String(limit);
-    const page = await backendJson<unknown>(reviewUrl(`/${encodeURIComponent(reviewId)}/events`, query), { headers: agentHeaders() });
-    return parseAgentEventSequence(page, after ?? 0);
-  });
   ipcMain.handle('review:history:read', async (_event, reviewId: string, taskId: string, before?: string, after?: string) => {
     const query: Record<string, string> = {};
     if (before !== undefined) query.before = String(before);
@@ -1026,8 +996,6 @@ function registerIpc(): void {
     reviewSubscriptions.stop(subscriptionId);
   });
 
-  ipcMain.handle('review:draft:get', (_event, repo: string, number: number) =>
-    draft('/drafts', { repo, number: String(number) }));
   ipcMain.handle('review:draft:add-comment', (_event, repo: string, number: number, expectedVersion: number, comment: unknown) =>
     draft('/drafts/items', { repo, number: String(number) }, {
       method: 'POST',
@@ -1045,11 +1013,6 @@ function registerIpc(): void {
     }));
   ipcMain.handle('review:draft:remove', (_event, repo: string, number: number, expectedVersion: number, itemId: string) =>
     draft(`/drafts/items/${encodeURIComponent(itemId)}`, { repo, number: String(number), expectedVersion: String(expectedVersion) }, { method: 'DELETE' }));
-  ipcMain.handle('review:draft:save', (_event, repo: string, number: number, expectedVersion: number, body: string, event: string) =>
-    draft('/drafts/review', { repo, number: String(number) }, {
-      method: 'PUT',
-      body: JSON.stringify({ expectedVersion, body, event }),
-    }));
   ipcMain.handle('review:draft:publish', (_event, repo: string, number: number, expectedVersion: number, itemId: string) =>
     backendJson(reviewUrl(`/drafts/items/${encodeURIComponent(itemId)}/publish`, { repo, number: String(number), expectedVersion: String(expectedVersion) }), {
       method: 'POST',
@@ -1059,9 +1022,6 @@ function registerIpc(): void {
     backendJson(reviewUrl('/drafts/submit', { repo, number: String(number) }),
       jsonInit('POST', { expectedVersion, body, event }, agentHeaders()))
       .then(parseReviewPublishResult));
-  ipcMain.handle('review:draft:ineligible', (_event, repo: string, number: number) =>
-    backendJson(reviewUrl('/drafts/ineligible', { repo, number: String(number) }), { headers: agentHeaders() })
-      .then(parseReviewIneligible));
   ipcMain.handle('agent:providers:refresh', () =>
     backendJson(`${backendBase()}/agent/providers/status`, {
       headers: { 'X-ByteQuay-Session': sessionToken() },

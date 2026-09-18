@@ -278,7 +278,6 @@ const bridge: Bridge = {
   deleteAgentTask: (taskId, workspaceId) => ipcRenderer.invoke('agent:task:delete', taskId, workspaceId),
   getEffectiveTurnSettings: (taskId, workspaceId) =>
     ipcRenderer.invoke('agent:task:effective-settings', taskId, workspaceId),
-  readAgentEvents: (taskId, after, limit) => ipcRenderer.invoke('agent:events:read', taskId, after, limit),
   readAgentHistory: (taskId, before, after) => ipcRenderer.invoke('agent:history:read', taskId, before, after),
   readAgentPendingApprovals: (taskId, turnId) => ipcRenderer.invoke('agent:approvals:pending', taskId, turnId),
   listLocalReviewComments: query => ipcRenderer.invoke('agent:local-review:list', query),
@@ -303,12 +302,6 @@ const bridge: Bridge = {
     ipcRenderer.invoke('agent:approvals:resolve', approvalId, decision, scopedPermission),
   completeAgentTask: (taskId, workspaceId, notes) =>
     ipcRenderer.invoke('agent:tasks:complete', taskId, workspaceId, notes),
-  startAgentLocalReview: (taskId, workspaceId, expectedVersion) =>
-    ipcRenderer.invoke('agent:task:local-review:start', taskId, workspaceId, expectedVersion),
-  syncAgentLocalReview: (taskId, workspaceId, expectedVersion) =>
-    ipcRenderer.invoke('agent:task:local-review:sync', taskId, workspaceId, expectedVersion),
-  finishAgentLocalReview: (taskId, workspaceId, expectedVersion) =>
-    ipcRenderer.invoke('agent:task:local-review:finish', taskId, workspaceId, expectedVersion),
   cleanupAgentTaskWorktree: (taskId, workspaceId) =>
     ipcRenderer.invoke('agent:task:cleanup', taskId, workspaceId),
   pickAgentDraftAttachments: () => ipcRenderer.invoke('agent:attachments:pick-drafts'),
@@ -370,7 +363,6 @@ const bridge: Bridge = {
     ipcRenderer.invoke('review:finding:resolve', reviewId, findingId, expectedVersion, reason),
   reopenAgentReviewFinding: (reviewId, findingId, expectedVersion) =>
     ipcRenderer.invoke('review:finding:reopen', reviewId, findingId, expectedVersion),
-  readAgentReviewEvents: (reviewId, after, limit) => ipcRenderer.invoke('review:events:read', reviewId, after, limit),
   readAgentReviewHistory: (reviewId, taskId, before, after) => ipcRenderer.invoke('review:history:read', reviewId, taskId, before, after),
   readAgentReviewApprovals: (reviewId, taskId, turnId) => ipcRenderer.invoke('review:approvals:pending', reviewId, taskId, turnId),
   resolveAgentReviewApproval: (reviewId, approvalId, decision) =>
@@ -396,7 +388,6 @@ const bridge: Bridge = {
     };
   },
 
-  fetchReviewDraft: (repo, number) => ipcRenderer.invoke('review:draft:get', repo, number),
   addReviewDraftComment: (repo, number, expectedVersion, comment) =>
     ipcRenderer.invoke('review:draft:add-comment', repo, number, expectedVersion, comment),
   addReviewDraftFinding: (repo, number, expectedVersion, reviewId, findingId) =>
@@ -405,13 +396,10 @@ const bridge: Bridge = {
     ipcRenderer.invoke('review:draft:edit', repo, number, expectedVersion, itemId, body, included),
   removeReviewDraftComment: (repo, number, expectedVersion, itemId) =>
     ipcRenderer.invoke('review:draft:remove', repo, number, expectedVersion, itemId),
-  saveReviewDraft: (repo, number, expectedVersion, body, event) =>
-    ipcRenderer.invoke('review:draft:save', repo, number, expectedVersion, body, event),
   publishReviewDraftComment: (repo, number, expectedVersion, itemId) =>
     ipcRenderer.invoke('review:draft:publish', repo, number, expectedVersion, itemId),
   submitReviewDraft: (repo, number, expectedVersion, body, event) =>
     ipcRenderer.invoke('review:draft:submit', repo, number, expectedVersion, body, event),
-  fetchReviewDraftIneligible: (repo, number) => ipcRenderer.invoke('review:draft:ineligible', repo, number),
 
   subscribeAgentTask: async (taskId, after, listener, statusOnly) => {
     // Main pushes every task on one channel, so each listener keeps only what it asked for.

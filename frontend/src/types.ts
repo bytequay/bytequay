@@ -19,7 +19,6 @@ import type {
   AgentReviewDto,
   ReviewDraftDto,
   ReviewEvent,
-  ReviewIneligibleDto,
   ReviewPublishResultDto,
   ReviewSide,
 } from './pulls/agent-review/contracts';
@@ -663,7 +662,6 @@ export type AgentTaskDto = {
   archivedAt: string | null;
 };
 
-export type AgentLocalReviewSyncDto = { task: AgentTaskDto; warning: string | null };
 
 /** An image the turn ran with, as the backend names it: an opaque id, its name and type, never bytes or a path. */
 export type AgentAttachmentReferenceDto = {
@@ -1601,7 +1599,6 @@ export type Bridge = {
   sendCiAutofixMessage: (runId: string, message: string, idempotencyKey: string) => Promise<CiAutofixRunDto>;
   /** What the next turn on this task would be given, derived from what starting one snapshots. */
   getEffectiveTurnSettings: (taskId: string, workspaceId: string) => Promise<AgentTurnSettingsDto>;
-  readAgentEvents: (taskId: string, after?: number, limit?: number) => Promise<AgentEventEnvelope[]>;
   readAgentHistory: (taskId: string, before?: string, after?: string) => Promise<AgentHistoryPageDto>;
   readAgentPendingApprovals: (taskId: string, turnId: string) => Promise<AgentPendingApprovalDto[]>;
   listLocalReviewComments: (query: LocalReviewQuery) => Promise<LocalReviewThreadDto[]>;
@@ -1633,9 +1630,6 @@ export type Bridge = {
     scopedPermission?: string,
   ) => Promise<AgentApprovalDto>;
   completeAgentTask: (taskId: string, workspaceId: string, notes?: string) => Promise<AgentCompletionDto>;
-  startAgentLocalReview: (taskId: string, workspaceId: string, expectedVersion: number) => Promise<AgentTaskDto>;
-  syncAgentLocalReview: (taskId: string, workspaceId: string, expectedVersion: number) => Promise<AgentLocalReviewSyncDto>;
-  finishAgentLocalReview: (taskId: string, workspaceId: string, expectedVersion: number) => Promise<AgentTaskDto>;
   /** Retries immediate removal of a terminal task's verified clean checkout. */
   cleanupAgentTaskWorktree: (taskId: string, workspaceId: string) => Promise<AgentTaskDto>;
   /** Fails a task whose provider could not be shown quiet; its checkout is kept unless clean. */
@@ -1714,7 +1708,6 @@ export type Bridge = {
     reason: string,
   ) => Promise<AgentReviewDto>;
   reopenAgentReviewFinding: (reviewId: string, findingId: string, expectedVersion: number) => Promise<AgentReviewDto>;
-  readAgentReviewEvents: (reviewId: string, after?: number, limit?: number) => Promise<AgentEventEnvelope[]>;
   readAgentReviewHistory: (reviewId: string, taskId: string, before?: string, after?: string) => Promise<AgentHistoryPageDto>;
   readAgentReviewApprovals: (reviewId: string, taskId: string, turnId: string) => Promise<AgentPendingApprovalDto[]>;
   resolveAgentReviewApproval: (
@@ -1731,7 +1724,6 @@ export type Bridge = {
   ) => Promise<() => void>;
 
   /** The user's local pending review for one pull request; it exists without any agent review. */
-  fetchReviewDraft: (repo: string, number: number) => Promise<ReviewDraftDto>;
   addReviewDraftComment: (
     repo: string,
     number: number,
@@ -1754,12 +1746,10 @@ export type Bridge = {
     included: boolean,
   ) => Promise<ReviewDraftDto>;
   removeReviewDraftComment: (repo: string, number: number, expectedVersion: number, itemId: string) => Promise<ReviewDraftDto>;
-  saveReviewDraft: (repo: string, number: number, expectedVersion: number, body: string, event: ReviewEvent) => Promise<ReviewDraftDto>;
   /** Publishes one previewed comment; the backend revalidates the head and payload first. */
   publishReviewDraftComment: (repo: string, number: number, expectedVersion: number, itemId: string) => Promise<ReviewPublishResultDto>;
   submitReviewDraft: (repo: string, number: number, expectedVersion: number, body: string, event: ReviewEvent) => Promise<ReviewPublishResultDto>;
   /** Why each pending comment cannot be sent right now; an eligible one is absent. */
-  fetchReviewDraftIneligible: (repo: string, number: number) => Promise<ReviewIneligibleDto[]>;
 
   /** Streams one task's events; the returned function stops the subscription. */
   subscribeAgentTask: (

@@ -166,9 +166,7 @@ export function CommitsBrowser({ workspace, settings, initialExecutionId, initia
   const [targetBranches, setTargetBranches] = useState<string[]>([]);
   const [targetBranchQuery, setTargetBranchQuery] = useState('');
   const [upBranch, setUpBranch] = useState(workspace.upstreamDefaultBranch ?? workspace.defaultBranch);
-  const [branchMenu, setBranchMenu] = useState(false);
-  const [sourceMenu, setSourceMenu] = useState(false);
-  const [sourceBranchMenu, setSourceBranchMenu] = useState(false);
+  const [menu, setMenu] = useState<'branch' | 'source' | 'sourceBranch' | null>(null);
   const [upBranchQuery, setUpBranchQuery] = useState('');
   const [upBranches, setUpBranches] = useState<string[]>([]);
   /** The user chose this source's branch themselves; stop steering to its default. */
@@ -269,15 +267,11 @@ export function CommitsBrowser({ workspace, settings, initialExecutionId, initia
 
   // Menus close on any outside press; the chip wrappers stop propagation.
   useEffect(() => {
-    if (!branchMenu && !sourceMenu && !sourceBranchMenu) return;
-    const close = () => {
-      setBranchMenu(false);
-      setSourceMenu(false);
-      setSourceBranchMenu(false);
-    };
+    if (menu === null) return;
+    const close = () => setMenu(null);
     window.addEventListener('mousedown', close);
     return () => window.removeEventListener('mousedown', close);
-  }, [branchMenu, sourceMenu, sourceBranchMenu]);
+  }, [menu]);
 
   useEffect(() => {
     if (isRemote || targetUpstream) return;
@@ -419,48 +413,37 @@ export function CommitsBrowser({ workspace, settings, initialExecutionId, initia
       setScreen('commits');
       setViewingSource(false);
       setCommitsView('history');
-      setBranchMenu(false);
-      setSourceMenu(false);
-      setSourceBranchMenu(false);
+      setMenu(null);
       return;
     }
-    setBranchMenu(open => !open);
-    setSourceMenu(false);
-    setSourceBranchMenu(false);
+    setMenu(open => (open === 'branch' ? null : 'branch'));
   };
 
   const activateSource = () => {
     if (source === null) {
-      setSourceMenu(true);
+      setMenu('source');
+      return;
     }
-    else {
-      setScreen('commits');
-      setCommitsView('history');
-      setViewingSource(true);
-    }
-    setBranchMenu(false);
-    setSourceBranchMenu(false);
+    setScreen('commits');
+    setCommitsView('history');
+    setViewingSource(true);
+    setMenu(open => (open === 'source' ? open : null));
   };
 
   const sourceChipClick = () => {
-    setSourceMenu(open => !open);
-    setBranchMenu(false);
-    setSourceBranchMenu(false);
+    setMenu(open => (open === 'source' ? null : 'source'));
   };
 
   const sourceBranchChipClick = () => {
     setScreen('commits');
     setCommitsView('history');
     setViewingSource(true);
-    setSourceBranchMenu(open => !open);
-    setBranchMenu(false);
-    setSourceMenu(false);
+    setMenu(open => (open === 'sourceBranch' ? null : 'sourceBranch'));
   };
 
   const pickSource = (name: string) => {
     setScreen('commits');
-    setSourceMenu(false);
-    setSourceBranchMenu(false);
+    setMenu(null);
     setSource(name);
     setViewingSource(true);
     setCommitsView('history');
@@ -539,7 +522,7 @@ export function CommitsBrowser({ workspace, settings, initialExecutionId, initia
               <span className="cmt-repo-chip__label cmt-mono">{targetLabel}</span>
               <ChevronDown className="cmt-caret" size={14} strokeWidth={1.7} aria-hidden="true" />
             </button>
-            {branchMenu && (
+            {menu === 'branch' && (
               <div className="cmt-menu">
                 <div className="cmt-menu-label">CHERRY-PICK TARGET · {target.remote}</div>
                 <div className="cmt-menu-search">
@@ -554,7 +537,7 @@ export function CommitsBrowser({ workspace, settings, initialExecutionId, initia
                     className={`cmt-menu-item${name === branch ? ' is-current' : ''}`}
                     onClick={() => {
                       setBranch(name);
-                      setBranchMenu(false);
+                      setMenu(null);
                       setTargetBranchQuery('');
                       setCheckedWs(new Set());
                       setCheckedUp(new Set());
@@ -607,7 +590,7 @@ export function CommitsBrowser({ workspace, settings, initialExecutionId, initia
                 </button>
               )}
             </div>
-            {sourceMenu && (
+            {menu === 'source' && (
               <div className="cmt-menu is-wide">
                 <div className="cmt-menu-label">
                   REMOTE SOURCE — HISTORY &amp; CHERRY-PICK READ FROM HERE
@@ -634,7 +617,7 @@ export function CommitsBrowser({ workspace, settings, initialExecutionId, initia
                   type="button"
                   className="cmt-menu-item cmt-source-item"
                   onClick={() => {
-                    setSourceMenu(false);
+                    setMenu(null);
                     onOpenSettings();
                   }}
                 >
@@ -643,7 +626,7 @@ export function CommitsBrowser({ workspace, settings, initialExecutionId, initia
                 </button>
               </div>
             )}
-            {sourceBranchMenu && (
+            {menu === 'sourceBranch' && (
               <div className="cmt-menu is-wide">
                 <div className="cmt-menu-label">SWITCH BRANCH — {sourceLabel}</div>
                 <div className="cmt-menu-search">
@@ -662,7 +645,7 @@ export function CommitsBrowser({ workspace, settings, initialExecutionId, initia
                     onClick={() => {
                       setUpBranch(name);
                       setUpBranchPicked(true);
-                      setSourceBranchMenu(false);
+                      setMenu(null);
                       setUpBranchQuery('');
                       setCheckedUp(new Set());
                     }}
@@ -729,7 +712,7 @@ export function CommitsBrowser({ workspace, settings, initialExecutionId, initia
               if (!canEditTarget) return;
               setScreen('commits');
               setCommitsView('changes');
-              setBranchMenu(false);
+              setMenu(null);
             }}
           >
             Changes
@@ -743,7 +726,7 @@ export function CommitsBrowser({ workspace, settings, initialExecutionId, initia
             onClick={() => {
               setScreen('commits');
               setCommitsView('history');
-              setBranchMenu(false);
+              setMenu(null);
             }}
           >
             History
@@ -751,7 +734,7 @@ export function CommitsBrowser({ workspace, settings, initialExecutionId, initia
           <button
             type="button"
             className={`cmt-tab${screen === 'tasks' || screen === 'flow' ? ' is-active' : ''}`}
-            onClick={() => { setScreen('tasks'); setBranchMenu(false); setSourceMenu(false); setSourceBranchMenu(false); }}
+            onClick={() => { setScreen('tasks'); setMenu(null); setMenu(null); setMenu(null); }}
           >
             Cherry pick
           </button>

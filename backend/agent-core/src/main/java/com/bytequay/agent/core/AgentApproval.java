@@ -55,7 +55,8 @@ public record AgentApproval(
         return new AgentApproval(request, Optional.of(decision), Optional.of(outcome));
     }
 
-    private static boolean matches(
+    /** Whether a decision and the outcome recorded for it describe the same resolution. */
+    public static boolean matches(
             ApprovalDecision decision,
             AgentEventPayload.ApprovalOutcome outcome)
     {

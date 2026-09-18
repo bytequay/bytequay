@@ -73,7 +73,7 @@ public class SqliteAgentApprovalStore
         requireNonNull(decision, "decision is null");
         requireNonNull(outcome, "outcome is null");
         checkArgument(decision.approvalId().equals(approvalId), "decision belongs to another approval");
-        checkArgument(matches(decision, outcome), "decision and outcome do not match");
+        checkArgument(AgentApproval.matches(decision, outcome), "decision and outcome do not match");
         try {
             return repository.resolvePending(
                     approvalId.toString(),
@@ -118,16 +118,5 @@ public class SqliteAgentApprovalStore
         return repository.findByTaskIdAndDecisionAndForTask(taskId.toString(), ApprovalDecision.Decision.ALLOW, true).stream()
                 .map(AgentApprovalEntity::toDomain)
                 .anyMatch(approval -> approval.request().providerRequest().taskScope().equals(Optional.of(taskScope)));
-    }
-
-    private static boolean matches(
-            ApprovalDecision decision,
-            AgentEventPayload.ApprovalOutcome outcome)
-    {
-        return switch (outcome) {
-            case ALLOWED -> decision.decision() == ApprovalDecision.Decision.ALLOW && !decision.timedOut();
-            case DENIED, CANCELLED -> decision.decision() == ApprovalDecision.Decision.DENY && !decision.timedOut();
-            case EXPIRED -> decision.decision() == ApprovalDecision.Decision.DENY && decision.timedOut();
-        };
     }
 }

@@ -202,7 +202,7 @@ function retainDraftImages(images: Omit<AgentDraftAttachmentDto, 'id'>[]): Agent
 
 async function uploadAgentImage(taskId: string, workspaceId: string, name: string, mediaType: string, bytes: Buffer): Promise<AgentAttachmentDto> {
   if (bytes.length > MAX_ATTACHMENT_BYTES) throw new Error(`${name} is larger than 10 MiB`);
-  const url = new URL(`${backendBase()}/agent/tasks/${encodeURIComponent(taskId)}/attachments`);
+  const url = new URL(taskUrl(taskId, '/attachments'));
   url.searchParams.set('workspaceId', workspaceId);
   return parseAgentAttachment(await backendJson(url, {
     method: 'POST',
@@ -428,6 +428,12 @@ async function backendVoid(input: string | URL, init?: RequestInit): Promise<voi
 }
 
 /** The session secret never leaves main; the renderer only ever sees parsed results. */
+/** The backend URL for one agent task. `path` is appended verbatim; `query` becomes the search string. */
+function taskUrl(taskId: string, path = '', query?: Record<string, string>): string {
+  const base = `${backendBase()}/agent/tasks/${encodeURIComponent(taskId)}${path}`;
+  return query === undefined ? base : `${base}?${new URLSearchParams(query)}`;
+}
+
 function agentHeaders(json = false): Record<string, string> {
   const headers: Record<string, string> = { 'X-ByteQuay-Session': sessionToken() };
   if (json) headers['Content-Type'] = 'application/json';
@@ -458,7 +464,7 @@ const codeTerminals = new CodeTerminals((cwd, cols, rows) => spawnPty(os.userInf
 }));
 
 const agentSubscriptions = new AgentSubscriptions((taskId, after, signal) => fetch(
-  `${backendBase()}/agent/tasks/${encodeURIComponent(taskId)}/stream`
+  taskUrl(taskId, '/stream')
     + `?${new URLSearchParams({ after: String(after) })}`,
   { headers: { ...agentHeaders(), Accept: 'text/event-stream' }, signal },
 ));
@@ -557,11 +563,10 @@ function registerIpc(): void {
     }));
   });
   ipcMain.handle('agent:tasks:get', (_event, taskId: string, workspaceId: string) =>
-    backendJson(`${backendBase()}/agent/tasks/${encodeURIComponent(taskId)}`
-      + `?${new URLSearchParams({ workspaceId })}`, { headers: agentHeaders() })
+    backendJson(taskUrl(taskId, '', { workspaceId }), { headers: agentHeaders() })
       .then((task) => parseAgentTask(task)));
   ipcMain.handle('agent:tasks:startup', (_event, taskId: string) =>
-    backendJson(`${backendBase()}/agent/tasks/${encodeURIComponent(taskId)}/startup`, { headers: agentHeaders() })
+    backendJson(taskUrl(taskId, '/startup'), { headers: agentHeaders() })
       .then((progress) => parseAgentTaskStartup(progress)));
   ipcMain.handle('agent:task:defaults', (
     _event,
@@ -570,15 +575,14 @@ function registerIpc(): void {
     expectedVersion: number,
     defaults: unknown,
   ) =>
-    backendJson(`${backendBase()}/agent/tasks/${encodeURIComponent(taskId)}/defaults`
-      + `?${new URLSearchParams({ workspaceId })}`,
+    backendJson(taskUrl(taskId, '/defaults', { workspaceId }),
     jsonInit('PUT', { expectedVersion, defaults }, agentHeaders()))
       .then((task) => parseAgentTask(task)));
   ipcMain.handle('agent:tasks:changes', (_event, workspaceId: string) =>
     backendJson(`${backendBase()}/agent/tasks/changes?${new URLSearchParams({ workspaceId })}`, { headers: agentHeaders() })
       .then(parseAgentTaskChanges));
   ipcMain.handle('agent:task:pull-requests', (_event, taskId: string, workspaceId: string, refresh?: boolean) =>
-    backendJson(`${backendBase()}/agent/tasks/${encodeURIComponent(taskId)}/pull-requests`
+    backendJson(taskUrl(taskId, '/pull-requests')
       + `${refresh === true ? '/sync' : ''}?${new URLSearchParams({ workspaceId })}`,
     { method: refresh === true ? 'POST' : 'GET', headers: agentHeaders() }));
   ipcMain.handle('ci-autofix:get', (_event, runId: string) =>
@@ -593,8 +597,7 @@ function registerIpc(): void {
     expectedVersion: number,
     title: string,
   ) =>
-    backendJson(`${backendBase()}/agent/tasks/${encodeURIComponent(taskId)}`
-      + `?${new URLSearchParams({ workspaceId })}`,
+    backendJson(taskUrl(taskId, '', { workspaceId }),
     jsonInit('PATCH', { expectedVersion, title }, agentHeaders()))
       .then((task) => parseAgentTask(task)));
   ipcMain.handle('agent:task:archive', (
@@ -604,42 +607,40 @@ function registerIpc(): void {
     expectedVersion: number,
     archived: boolean,
   ) =>
-    backendJson(`${backendBase()}/agent/tasks/${encodeURIComponent(taskId)}`
-      + `?${new URLSearchParams({ workspaceId })}`,
+    backendJson(taskUrl(taskId, '', { workspaceId }),
     jsonInit('PATCH', { expectedVersion, archived }, agentHeaders()))
       .then((task) => parseAgentTask(task)));
   // Deleting removes the shells' working directory, so they go first.
   ipcMain.handle('agent:task:delete', (_event, taskId: string, workspaceId: string) => {
     codeTerminals.close(`task:${taskId}`);
-    const url = new URL(`${backendBase()}/agent/tasks/${encodeURIComponent(taskId)}`);
+    const url = new URL(taskUrl(taskId));
     url.searchParams.set('workspaceId', workspaceId);
     return backendVoid(url, { method: 'DELETE', headers: agentHeaders() });
   });
   ipcMain.handle('agent:task:effective-settings', (_event, taskId: string, workspaceId: string) =>
-    backendJson(`${backendBase()}/agent/tasks/${encodeURIComponent(taskId)}/effective-settings`
-      + `?${new URLSearchParams({ workspaceId })}`, { headers: agentHeaders() })
+    backendJson(taskUrl(taskId, '/effective-settings', { workspaceId }), { headers: agentHeaders() })
       .then((settings) => parseAgentTurnSettings(settings)));
   ipcMain.handle('agent:history:read', async (_event, taskId: string, before?: string, after?: string) => {
     const query = new URLSearchParams();
     if (before !== undefined) query.set('before', before);
     if (after !== undefined) query.set('after', after);
     const page = await backendJson<unknown>(
-      `${backendBase()}/agent/tasks/${encodeURIComponent(taskId)}/history?${query}`,
+      `${taskUrl(taskId, '/history')}?${query}`,
       { headers: agentHeaders() },
     );
     return parseAgentHistoryPage(page, taskId);
   });
   ipcMain.handle('agent:approvals:pending', async (_event, taskId: string, turnId: string) => {
     const approvals = await backendJson<unknown>(
-      `${backendBase()}/agent/tasks/${encodeURIComponent(taskId)}/pending-approvals?${new URLSearchParams({ turnId })}`,
+      taskUrl(taskId, '/pending-approvals', { turnId }),
       { headers: agentHeaders() },
     );
     return parseAgentPendingApprovals(approvals, taskId, turnId);
   });
   const localReviewUrl = (taskId: string, workspaceId: string, suffix = ''): string =>
-    `${backendBase()}/agent/tasks/${encodeURIComponent(taskId)}/local-review-comments${suffix}?${new URLSearchParams({ workspaceId })}`;
+    taskUrl(taskId, `/local-review-comments${suffix}`, { workspaceId });
   const learningUrl = (taskId: string, workspaceId: string, suffix = ''): string =>
-    `${backendBase()}/agent/tasks/${encodeURIComponent(taskId)}/learning${suffix}?${new URLSearchParams({ workspaceId })}`;
+    taskUrl(taskId, `/learning${suffix}`, { workspaceId });
   ipcMain.handle('agent:learning:get', async (_event, taskId: string, workspaceId: string) => {
     const turn = await backendJson(learningUrl(taskId, workspaceId), { headers: agentHeaders() });
     return turn === null ? null : parseAgentTurn(turn);
@@ -677,7 +678,7 @@ function registerIpc(): void {
       `/${encodeURIComponent(threadId)}/messages/${encodeURIComponent(messageId)}/retry`), jsonInit('POST', body, agentHeaders(true))));
   });
   ipcMain.handle('agent:turns:start', (_event, request: StartAgentTurnRequest) =>
-    backendJson(`${backendBase()}/agent/tasks/${encodeURIComponent(request.taskId)}/turns`, {
+    backendJson(taskUrl(request.taskId, '/turns'), {
       method: 'POST',
       headers: { ...agentHeaders(true), 'Idempotency-Key': request.idempotencyKey },
       body: JSON.stringify({
@@ -694,8 +695,7 @@ function registerIpc(): void {
       body: JSON.stringify({ message: request.message, attachments: request.attachments ?? [] }),
     }).then((delivery) => parseAgentInputDelivery(delivery)));
   ipcMain.handle('agent:queue:add', (_event, request: QueueAgentInputRequest) =>
-    backendJson(`${backendBase()}/agent/tasks/${encodeURIComponent(request.taskId)}/queue`
-      + `?${new URLSearchParams({ workspaceId: request.workspaceId })}`, {
+    backendJson(taskUrl(request.taskId, '/queue', { workspaceId: request.workspaceId }), {
       method: 'POST',
       headers: { ...agentHeaders(true), 'Idempotency-Key': request.idempotencyKey },
       body: JSON.stringify({
@@ -706,21 +706,18 @@ function registerIpc(): void {
       }),
     }).then((queued) => parseAgentQueuedInput(queued)));
   ipcMain.handle('agent:queue:list', (_event, taskId: string, workspaceId: string) =>
-    backendJson(`${backendBase()}/agent/tasks/${encodeURIComponent(taskId)}/queue`
-      + `?${new URLSearchParams({ workspaceId })}`, { headers: agentHeaders() })
+    backendJson(taskUrl(taskId, '/queue', { workspaceId }), { headers: agentHeaders() })
       .then((queue) => parseAgentQueue(queue)));
   ipcMain.handle('agent:queue:remove', (_event, taskId: string, workspaceId: string, queuedInputId: string) =>
-    backendJson(`${backendBase()}/agent/tasks/${encodeURIComponent(taskId)}/queue/${encodeURIComponent(queuedInputId)}`
-      + `?${new URLSearchParams({ workspaceId })}`, { method: 'DELETE', headers: agentHeaders() })
+    backendJson(taskUrl(taskId, `/queue/${encodeURIComponent(queuedInputId)}`, { workspaceId }), { method: 'DELETE', headers: agentHeaders() })
       .then((queued) => parseAgentQueuedInput(queued)));
   ipcMain.handle('agent:queue:resume', (_event, taskId: string, workspaceId: string) =>
-    backendJson(`${backendBase()}/agent/tasks/${encodeURIComponent(taskId)}/queue/resume`
-      + `?${new URLSearchParams({ workspaceId })}`, { method: 'POST', headers: agentHeaders() })
+    backendJson(taskUrl(taskId, '/queue/resume', { workspaceId }), { method: 'POST', headers: agentHeaders() })
       .then((turn) => parseAgentTurn(turn)));
   ipcMain.handle('agent:pull-requests:draft', (
     _event, taskId: string, workspaceId: string, expectedVersion: number, idempotencyKey: string,
   ) =>
-    backendJson(`${backendBase()}/agent/tasks/${encodeURIComponent(taskId)}/pull-requests/draft`
+    backendJson(taskUrl(taskId, '/pull-requests/draft')
       + `?${new URLSearchParams({ workspaceId, expectedVersion: String(expectedVersion) })}`,
       { method: 'POST', headers: { ...agentHeaders(), 'Idempotency-Key': idempotencyKey } })
       .then((turn) => parseAgentTurn(turn)));
@@ -773,7 +770,7 @@ function registerIpc(): void {
     return stored;
   });
   ipcMain.handle('agent:attachments:read', async (_event, taskId: string, workspaceId: string, attachmentId: string) => {
-    const url = new URL(`${backendBase()}/agent/tasks/${encodeURIComponent(taskId)}/attachments/${encodeURIComponent(attachmentId)}`);
+    const url = new URL(taskUrl(taskId, `/attachments/${encodeURIComponent(attachmentId)}`));
     url.searchParams.set('workspaceId', workspaceId);
     const response = await fetch(url, { headers: agentHeaders(), signal: AbortSignal.timeout(60_000) });
     if (!response.ok) {
@@ -785,7 +782,7 @@ function registerIpc(): void {
     };
   });
   ipcMain.handle('agent:attachments:remove', (_event, taskId: string, workspaceId: string, attachmentId: string) => {
-    const url = new URL(`${backendBase()}/agent/tasks/${encodeURIComponent(taskId)}/attachments/${encodeURIComponent(attachmentId)}`);
+    const url = new URL(taskUrl(taskId, `/attachments/${encodeURIComponent(attachmentId)}`));
     url.searchParams.set('workspaceId', workspaceId);
     return backendVoid(url, { method: 'DELETE', headers: agentHeaders() });
   });
@@ -811,33 +808,28 @@ function registerIpc(): void {
   ipcMain.handle('agent:tasks:complete', (_event, taskId: string, workspaceId: string, notes?: string) => {
     // Completing removes the worktree a Code & Tests shell runs in, as review:end does for a review.
     codeTerminals.close(`task:${taskId}`);
-    return backendJson(`${backendBase()}/agent/tasks/${encodeURIComponent(taskId)}/complete`
-      + `?${new URLSearchParams({ workspaceId })}`,
+    return backendJson(taskUrl(taskId, '/complete', { workspaceId }),
     jsonInit('POST', { notes: notes ?? null }, agentHeaders()))
       .then((completion) => parseAgentCompletion(completion));
   });
   ipcMain.handle('agent:task:cleanup', (_event, taskId: string, workspaceId: string) => {
     codeTerminals.close(`task:${taskId}`);
-    return backendJson(`${backendBase()}/agent/tasks/${encodeURIComponent(taskId)}/cleanup`
-      + `?${new URLSearchParams({ workspaceId })}`, {
+    return backendJson(taskUrl(taskId, '/cleanup', { workspaceId }), {
       method: 'POST',
       headers: agentHeaders(),
     }).then((task) => parseAgentTask(task));
   });
   ipcMain.handle('agent:task:mark-failed', (_event, taskId: string, workspaceId: string, reason: string) => {
     codeTerminals.close(`task:${taskId}`);
-    return backendJson(`${backendBase()}/agent/tasks/${encodeURIComponent(taskId)}/mark-failed`
-      + `?${new URLSearchParams({ workspaceId })}`,
+    return backendJson(taskUrl(taskId, '/mark-failed', { workspaceId }),
     jsonInit('POST', { reason }, agentHeaders()))
       .then((task) => parseAgentTask(task));
   });
   ipcMain.handle('agent:task:stop-impact', (_event, taskId: string, workspaceId: string) =>
-    backendJson(`${backendBase()}/agent/tasks/${encodeURIComponent(taskId)}/runtime/stop-impact`
-      + `?${new URLSearchParams({ workspaceId })}`, { headers: agentHeaders() })
+    backendJson(taskUrl(taskId, '/runtime/stop-impact', { workspaceId }), { headers: agentHeaders() })
       .then((impact) => parseAgentRuntimeStopImpact(impact)));
   ipcMain.handle('agent:task:stop', (_event, taskId: string, workspaceId: string, generation: string) =>
-    backendJson(`${backendBase()}/agent/tasks/${encodeURIComponent(taskId)}/runtime/stop`
-      + `?${new URLSearchParams({ workspaceId })}`, {
+    backendJson(taskUrl(taskId, '/runtime/stop', { workspaceId }), {
       ...jsonInit('POST', { generation }, agentHeaders()),
       // Stopping waits for the process tree to be verified gone, which can take a while.
       signal: AbortSignal.timeout(90_000),
@@ -893,7 +885,7 @@ function registerIpc(): void {
   const codeUrl = (value: unknown, path: string, query: Record<string, string> = {}): string => {
     const host = parseCodeHost(value);
     if (host.kind === 'review') return reviewUrl(`/${encodeURIComponent(host.reviewId)}/code${path}`, query);
-    const url = new URL(`${backendBase()}/agent/tasks/${encodeURIComponent(host.taskId)}/code${path}`);
+    const url = new URL(taskUrl(host.taskId, `/code${path}`));
     Object.entries({ workspaceId: host.workspaceId, repo: host.repo, number: String(host.number), ...query })
       .forEach(([key, value]) => url.searchParams.set(key, value));
     return url.toString();

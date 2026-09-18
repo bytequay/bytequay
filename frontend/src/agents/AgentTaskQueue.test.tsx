@@ -17,7 +17,7 @@ import { AgentTaskBody } from './AgentTaskScreen';
 import fixture from './fixtures/agent-events-v2.json';
 import { parseAgentEventSequence } from './events';
 import { initialAgentTaskState, type AgentTaskState } from './model';
-import { previewTask, TASK_BODY_NOOPS } from './fixtures/previewBridge';
+import { agentTurn, previewTask, TASK_BODY_NOOPS } from './fixtures/previewBridge';
 import { NO_AGENT_CAPABILITIES } from './capabilities';
 import type { AgentProviderStatus, AgentQueuedInputDto, AgentTurnDto, ModelOptionDto } from '../types';
 
@@ -28,23 +28,8 @@ const MODELS: ModelOptionDto[] = [
   { id: 'gpt-5.6-codex', name: '5.6 Terra', description: 'Balanced', efforts: ['medium', 'high'], defaultEffort: 'high', inputModalities: ['text', 'image'] },
 ];
 
-function turn(state: string): AgentTurnDto {
-  return {
-    id: 'turn-1',
-    taskId: 't-1',
-    state,
-    version: 1,
-    createdAt: '2026-08-20T10:00:00Z',
-    startedAt: '2026-08-20T10:00:01Z',
-    endedAt: state === 'RUNNING' ? null : '2026-08-20T10:00:09Z',
-    cancellationRequestedAt: null,
-    delivered: true,
-    knownUnsent: false,
-    settings: null,
-    terminalReason: null,
-    metrics: { inputTokens: 0, cachedInputTokens: 0, outputTokens: 0, cost: null, elapsed: 'PT0S' },
-  };
-}
+const turn = (state: string): AgentTurnDto =>
+  agentTurn(state, { endedAt: state === 'RUNNING' ? null : '2026-08-20T10:00:09Z' });
 
 function queued(id: string, state: string, preview: string, extra: Partial<AgentQueuedInputDto> = {}): AgentQueuedInputDto {
   return {

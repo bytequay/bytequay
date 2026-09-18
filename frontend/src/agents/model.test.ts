@@ -40,6 +40,7 @@ import {
 import { projectTranscript, type ApprovalBlock } from './transcript';
 import { NO_AGENT_CAPABILITIES } from './capabilities';
 import type { AgentHistoryPageDto, AgentQueuedInputDto, AgentTaskDto, AgentTurnDto, ModelOptionDto } from '../types';
+import { agentTurn } from './fixtures/previewBridge';
 
 const all = parseAgentEventSequence(fixture.events);
 
@@ -131,30 +132,8 @@ function stream(...sequences: number[]): AgentEventEnvelope[] {
   });
 }
 
-function turn(state: string, extra: Partial<AgentTurnDto> = {}): AgentTurnDto {
-  return {
-    id: 'turn-1',
-    taskId: 'task-1',
-    state,
-    version: 1,
-    createdAt: '2026-08-20T10:00:00Z',
-    startedAt: null,
-    endedAt: null,
-    cancellationRequestedAt: null,
-    delivered: true,
-    knownUnsent: false,
-    settings: null,
-    terminalReason: null,
-    ...extra,
-    metrics: {
-      inputTokens: 0,
-      cachedInputTokens: 0,
-      outputTokens: 0,
-      cost: null,
-      elapsed: 'PT0S',
-    },
-  };
-}
+const turn = (state: string, extra: Partial<AgentTurnDto> = {}): AgentTurnDto =>
+  agentTurn(state, { taskId: 'task-1', startedAt: null, ...extra });
 
 /** An open task with only the facts the status derivation reads. */
 function openTask(claim: AgentTaskDto['mutationClaim'] = null): AgentTaskDto {

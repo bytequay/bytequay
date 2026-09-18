@@ -90,6 +90,26 @@ export const TASK_BODY_NOOPS = {
   onMarkFailed: () => {},
 };
 
+/** A turn at rest. Each suite overrides the few fields its own fixtures need. */
+export function agentTurn(state: string, extra: Partial<AgentTurnDto> = {}): AgentTurnDto {
+  return {
+    id: 'turn-1',
+    taskId: 't-1',
+    state,
+    version: 1,
+    createdAt: '2026-08-20T10:00:00Z',
+    startedAt: '2026-08-20T10:00:01Z',
+    endedAt: null,
+    cancellationRequestedAt: null,
+    delivered: true,
+    knownUnsent: false,
+    settings: null,
+    terminalReason: null,
+    metrics: { inputTokens: 0, cachedInputTokens: 0, outputTokens: 0, cost: null, elapsed: 'PT0S' },
+    ...extra,
+  };
+}
+
 export function previewTask(workspaceId: string, taskId: string): AgentTaskDto {
   return {
     ...(contracts.task as AgentTaskDto),

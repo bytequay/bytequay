@@ -25,7 +25,7 @@ import { samePullRequest, taskPullRequest, type TaskPullRequestChanges } from '.
 import { displayModelName } from '../settings/model';
 import { projectTranscript } from './transcript';
 import { EMPTY_TIMELINE_PAYLOAD } from '../pulls/model';
-import { previewTask, TASK_BODY_NOOPS } from './fixtures/previewBridge';
+import { agentTurn as turn, previewTask, TASK_BODY_NOOPS } from './fixtures/previewBridge';
 import { NO_AGENT_CAPABILITIES } from './capabilities';
 import type {
   AgentCapabilitiesDto,
@@ -34,7 +34,6 @@ import type {
   AgentProviderStatus,
   AgentProviderUnavailableDto,
   AgentTaskDto,
-  AgentTurnDto,
   ModelOptionDto,
   ModelSettingsDto,
   PullRequestDto,
@@ -111,24 +110,6 @@ function task(id: string, state: string, title: string): AgentTaskDto {
   return { ...previewTask('workspace-1', id), state, title };
 }
 
-function turn(state: string, extra: Partial<AgentTurnDto> = {}): AgentTurnDto {
-  return {
-    id: 'turn-1',
-    taskId: 't-1',
-    state,
-    version: 1,
-    createdAt: '2026-08-20T10:00:00Z',
-    startedAt: '2026-08-20T10:00:01Z',
-    endedAt: null,
-    cancellationRequestedAt: null,
-    delivered: true,
-    knownUnsent: false,
-    settings: null,
-    terminalReason: null,
-    metrics: { inputTokens: 0, cachedInputTokens: 0, outputTokens: 0, cost: null, elapsed: 'PT0S' },
-    ...extra,
-  };
-}
 
 /** Explicit open choices for tests inspecting a finished turn's log. */
 function allTurnsOpen(state: Partial<AgentTaskState>): Record<string, boolean> {

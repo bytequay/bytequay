@@ -528,8 +528,7 @@ public class GitHubPullRequestReadClient
                         .retrieve()
                         .body(GitHubSearchResponse.class));
         if (response == null || response.items() == null) {
-            return new PullRequestHistoryPage(
-                    ImmutableList.of(), safePage, safePerPage, 0, false);
+            return new PullRequestHistoryPage(ImmutableList.of(), false);
         }
         PullRequest.Origin origin =
                 query.contains("review-requested") ? REVIEW_REQUESTED : AUTHORED;
@@ -544,8 +543,7 @@ public class GitHubPullRequestReadClient
                 items.size() == safePerPage
                         && loadedSoFar < response.totalCount()
                         && loadedSoFar < 1000;
-        return new PullRequestHistoryPage(
-                items, safePage, safePerPage, response.totalCount(), hasMore);
+        return new PullRequestHistoryPage(items, hasMore);
     }
 
     // ── Pull request detail ───────────────────────────────────────────────────

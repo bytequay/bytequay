@@ -222,11 +222,6 @@ public record CherryPickItem(
             checkOptionalText(module, "module", 1000);
             stages = ImmutableList.copyOf(requireNonNull(stages, "stages is null"));
         }
-
-        public ConflictPath(String path, ConflictType type, Optional<String> module)
-        {
-            this(path, type, module, ImmutableList.of());
-        }
     }
 
     /** One immutable index side captured before the conflict is committed. */
@@ -246,9 +241,6 @@ public record CherryPickItem(
         CONTENT,
         ADD_ADD,
         MODIFY_DELETE,
-        RENAME,
-        BINARY,
-        SUBMODULE,
-        UNKNOWN
+        SUBMODULE
     }
 }

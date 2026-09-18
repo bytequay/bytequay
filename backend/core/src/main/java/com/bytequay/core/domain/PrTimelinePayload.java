@@ -62,11 +62,6 @@ public record PrTimelinePayload(
         return builder().build();
     }
 
-    public static PrTimelinePayload withReactions(List<PrReaction> reactions)
-    {
-        return builder().reactions(reactions).build();
-    }
-
     public static Builder builder()
     {
         return new Builder();

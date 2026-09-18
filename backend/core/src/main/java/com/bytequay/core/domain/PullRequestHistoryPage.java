@@ -21,16 +21,10 @@ import static java.util.Objects.requireNonNull;
 
 /**
  * One page of historic (closed/merged) pull requests served by
- * {@code GET /prs/history}. Driven by GitHub search, so {@code totalCount}
- * is the server-reported total (capped at 1000 by GitHub) and
- * {@code hasMore} signals whether the next page is worth fetching.
+ * {@code GET /prs/history}. Driven by GitHub search, so {@code hasMore}
+ * signals whether the next page is worth fetching.
  */
-public record PullRequestHistoryPage(
-        List<FetchedPullRequest> items,
-        int page,
-        int perPage,
-        int totalCount,
-        boolean hasMore)
+public record PullRequestHistoryPage(List<FetchedPullRequest> items, boolean hasMore)
 {
     public PullRequestHistoryPage
     {

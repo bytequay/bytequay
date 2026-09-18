@@ -80,18 +80,7 @@ public record PullRequestDetail(
             Instant timestamp,
             String body,
             Long githubId,
-            PrTimelinePayload payload)
-    {
-        public ActivityItem(
-                String actor,
-                String eventType,
-                Instant timestamp,
-                String body,
-                Long githubId)
-        {
-            this(actor, eventType, timestamp, body, githubId, PrTimelinePayload.empty());
-        }
-    }
+            PrTimelinePayload payload) {}
 
     public record Label(String name, String color) {}
 

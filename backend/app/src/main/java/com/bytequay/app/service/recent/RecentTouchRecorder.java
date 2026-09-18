@@ -19,7 +19,6 @@ import com.bytequay.core.domain.RecentReason;
 import com.bytequay.core.domain.RecentText;
 import com.bytequay.core.domain.RecentTextKind;
 import com.bytequay.core.domain.RecentTouch;
-import com.bytequay.core.domain.RecordRecentTouch;
 import com.bytequay.core.domain.RepositoryIssue;
 import com.bytequay.core.domain.StoredPrDetail;
 import com.bytequay.core.domain.Workspace;
@@ -246,7 +245,7 @@ public class RecentTouchRecorder
         String author = detail.map(stored -> stored.raw().author()).orElse(null);
         return Optional.of(new Item(
                 RecentItemType.PULL_REQUEST,
-                RecordRecentTouch.itemKey(RecentItemType.PULL_REQUEST, repo, number),
+                RecentItemType.PULL_REQUEST.itemKey(repo, number),
                 number,
                 title,
                 repo,
@@ -274,7 +273,7 @@ public class RecentTouchRecorder
                 .orElse(false);
         return Optional.of(new Item(
                 RecentItemType.ISSUE,
-                RecordRecentTouch.itemKey(RecentItemType.ISSUE, repo, number),
+                RecentItemType.ISSUE.itemKey(repo, number),
                 number,
                 issue.map(RepositoryIssue::title).orElseGet(() -> repo + " #" + number),
                 repo,

@@ -70,7 +70,7 @@ class TestSqliteLocalReviewStore
                 Optional.empty(), Optional.empty(), Optional.of("turn"), Optional.empty());
         LocalReviewThread thread = new LocalReviewThread("thread", "task", "workspace", "owner/repo", 7, "src/Example.java", "LEFT", 3, 4,
                 Optional.of("a".repeat(40)), Optional.of("b".repeat(40)), "old code\nsecond line", false, 0, Instant.EPOCH, Instant.EPOCH,
-                ImmutableList.of(question, answer), ImmutableMap.of("operation", "fingerprint"));
+                ImmutableList.of(question, answer), ImmutableMap.of("operation", "fingerprint"), Optional.empty());
         LocalReviewThread stored = store.insert(thread);
         entityManager.clear();
         assertThat(store.find("thread")).contains(stored);
@@ -113,9 +113,9 @@ class TestSqliteLocalReviewStore
         tasks.insert(AgentTask.created(taskId, Optional.of("workspace"), true, "Task", AgentLaneId.CODEX_CLI,
                 new RepositoryIdentity("owner", "repo"), Path.of("/tmp/worktree"), AgentTaskDefaults.forPermission(AgentPermissionPolicy.AUTO), Instant.EPOCH));
         LocalReviewThread thread = new LocalReviewThread("thread", taskId.toString(), "workspace", "owner/repo", 7, "Example.java", "RIGHT", 1, 1,
-                Optional.empty(), Optional.empty(), "code", false, 0, Instant.EPOCH, Instant.EPOCH, ImmutableList.of(), ImmutableMap.of());
+                Optional.empty(), Optional.empty(), "code", false, 0, Instant.EPOCH, Instant.EPOCH, ImmutableList.of(), ImmutableMap.of(), Optional.empty());
         LocalReviewThread other = new LocalReviewThread("other", TaskId.random().toString(), "workspace", "owner/repo", 7, "Example.java", "RIGHT", 1, 1,
-                Optional.empty(), Optional.empty(), "code", false, 0, Instant.EPOCH, Instant.EPOCH, ImmutableList.of(), ImmutableMap.of());
+                Optional.empty(), Optional.empty(), "code", false, 0, Instant.EPOCH, Instant.EPOCH, ImmutableList.of(), ImmutableMap.of(), Optional.empty());
         store.insert(thread);
         store.insert(other);
         entityManager.clear();

@@ -13,6 +13,8 @@
  */
 package com.bytequay.core.domain;
 
+import static java.util.Objects.requireNonNull;
+
 /** The kinds of thing a Recent touch can point at. */
 public enum RecentItemType
 {
@@ -30,5 +32,12 @@ public enum RecentItemType
             case TASK -> "task";
             case COMMIT -> "commit";
         };
+    }
+
+    /** Cross-type item key for an item GitHub identifies by repository and number. */
+    public String itemKey(String repo, int number)
+    {
+        requireNonNull(repo, "repo is null");
+        return prefix() + ":" + repo + "#" + number;
     }
 }

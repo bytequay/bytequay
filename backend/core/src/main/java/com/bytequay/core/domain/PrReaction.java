@@ -18,11 +18,6 @@ import static java.util.Objects.requireNonNull;
 /** Aggregate reaction count and optional viewer state returned by GitHub for a reactable item. */
 public record PrReaction(String content, int count, Boolean viewerHasReacted)
 {
-    public PrReaction(String content, int count)
-    {
-        this(content, count, null);
-    }
-
     public PrReaction
     {
         requireNonNull(content, "content is null");

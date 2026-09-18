@@ -30,14 +30,6 @@ public record LocalReviewThread(String id, String taskId, String workspaceId, St
         boolean resolved, long version, Instant createdAt, Instant updatedAt, List<LocalReviewMessage> messages, Map<String, String> operations,
         Optional<LocalReviewLearningAnchor> learningAnchor)
 {
-    public LocalReviewThread(String id, String taskId, String workspaceId, String repo, int number,
-            String path, String side, int startLine, int line, Optional<String> baseSha, Optional<String> headSha, String code,
-            boolean resolved, long version, Instant createdAt, Instant updatedAt, List<LocalReviewMessage> messages, Map<String, String> operations)
-    {
-        this(id, taskId, workspaceId, repo, number, path, side, startLine, line, baseSha, headSha, code,
-                resolved, version, createdAt, updatedAt, messages, operations, Optional.empty());
-    }
-
     public LocalReviewThread
     {
         requireNonNull(id, "id is null");

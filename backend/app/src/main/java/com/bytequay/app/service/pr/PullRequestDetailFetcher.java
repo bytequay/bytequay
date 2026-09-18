@@ -220,7 +220,7 @@ class PullRequestDetailFetcher
                     null,
                     null,
                     null,
-                    PrTimelinePayload.withReactions(descriptionReactions),
+                    PrTimelinePayload.builder().reactions(descriptionReactions).build(),
                     java.util.Optional.empty())));
         }
         return events

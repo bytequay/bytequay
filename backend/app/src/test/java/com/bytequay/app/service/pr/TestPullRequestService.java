@@ -316,7 +316,7 @@ class TestPullRequestService
     void scheduledDashboardSyncRefreshesRetainedPrsMissingFromSearch()
     {
         when(gitHub.searchPullRequestsPaged(anyString(), anyString(), anyInt(), anyInt(), anyString(), anyString()))
-                .thenReturn(new PullRequestHistoryPage(ImmutableList.of(), 1, 100, 0, false));
+                .thenReturn(new PullRequestHistoryPage(ImmutableList.of(), false));
         when(store.findAttentionCandidates()).thenReturn(ImmutableList.of(storedPullRequest()));
         PullRequestService monitoredService = spy(service);
         doReturn(new PullRequestService.DetailRefresh(false, PullRequestDetailMapper.toPullRequestDetail(12L, "owner/repo", 7, stored(), false)))
@@ -524,7 +524,7 @@ class TestPullRequestService
         when(gitHub.searchPullRequestsPaged(
                 eq("pat"), org.mockito.ArgumentMatchers.contains("repo:owner/repo"), anyInt(), anyInt(),
                 eq("updated"), eq("desc")))
-                .thenReturn(new PullRequestHistoryPage(ImmutableList.of(), 1, 100, 0, false));
+                .thenReturn(new PullRequestHistoryPage(ImmutableList.of(), false));
 
         service.syncRepository(repository);
 
@@ -566,7 +566,7 @@ class TestPullRequestService
         Instant currentUpdatedAt = pullRequest().updatedAt();
         when(gitHub.searchPullRequestsPaged(
                 eq("pat"), anyString(), anyInt(), anyInt(), eq("updated"), eq("desc")))
-                .thenReturn(new PullRequestHistoryPage(ImmutableList.of(pullRequest()), 1, 100, 1, false));
+                .thenReturn(new PullRequestHistoryPage(ImmutableList.of(pullRequest()), false));
         when(store.findIdByRepoAndNumber("owner/repo", 7)).thenReturn(Optional.of(12L));
         when(store.findUpdatedAtByIds(ImmutableSet.of(12L)))
                 .thenReturn(ImmutableMap.of(12L, currentUpdatedAt));
@@ -626,7 +626,7 @@ class TestPullRequestService
         when(gitHub.searchPullRequestsPaged(
                 eq("pat"), org.mockito.ArgumentMatchers.contains("repo:owner/repo"), anyInt(), anyInt(),
                 eq("updated"), eq("desc")))
-                .thenReturn(new PullRequestHistoryPage(ImmutableList.of(), 1, 100, 0, false));
+                .thenReturn(new PullRequestHistoryPage(ImmutableList.of(), false));
         when(store.findRepositoryRowsMissingSync(eq("owner/repo"), anyString()))
                 .thenReturn(ImmutableList.of(stored));
         when(gitHub.getPullRequest("pat", PullRequestRef.of("owner", "repo", 7)))

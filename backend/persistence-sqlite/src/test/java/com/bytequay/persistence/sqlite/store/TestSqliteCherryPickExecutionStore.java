@@ -129,7 +129,7 @@ class TestSqliteCherryPickExecutionStore
                         ImmutableList.of(new ConflictPath(
                                 "core/trino-main/src/Main.java",
                                 ConflictType.MODIFY_DELETE,
-                                Optional.of("core/trino-main"))),
+                                Optional.of("core/trino-main"), ImmutableList.of())),
                         NOW.plusSeconds(2))
                 .withStep(Step.RESOLVING, NOW.plusSeconds(3)));
 

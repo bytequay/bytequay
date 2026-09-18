@@ -920,6 +920,27 @@ function DiffFileCard({
     rowThreads.forEach(activity => placedThreads.add(activity));
     const rowLocalThreads = anchoredLocalThreads.filter(thread => thread.line === (thread.side === 'LEFT' ? oldLine : newLine));
     rowLocalThreads.forEach(thread => placedLocalThreads.add(thread.id));
+    /** One gutter cell. The selection call takes both line numbers whichever side was clicked. */
+    const lineCell = (side: ReviewSide, line: number | null) => (
+      <td className="is-line">
+        {line !== null && canComment && (
+          <button type="button"
+            disabled={submitting}
+            aria-label={`Select ${side === 'LEFT' ? 'old' : 'new'} line ${line}`}
+            onMouseDown={event => {
+              if (event.button !== 0) return;
+              event.preventDefault();
+              startLineSelection(side, line, event, oldLine, newLine, row);
+            }}
+            onKeyDown={event => {
+              if (event.key !== 'Enter' && event.key !== ' ') return;
+              event.preventDefault();
+              selectLine(side, line, event.shiftKey, row);
+            }}>{line}</button>
+        )}
+        {line !== null && !canComment && line}
+      </td>
+    );
     return (
       <Fragment key={displayRow.key}>
         <tr
@@ -928,42 +949,8 @@ function DiffFileCard({
           // Moves count too: an enter dropped inside the 3px press slop fires only once, so the row would otherwise stay unselected.
           onMouseEnter={selectingRange ? dragOverRow(oldLine, newLine, row) : undefined}
           onMouseMove={selectingRange ? dragOverRow(oldLine, newLine, row) : undefined}>
-          <td className="is-line">
-            {oldLine !== null && canComment && (
-              <button type="button"
-                disabled={submitting}
-                aria-label={`Select old line ${oldLine}`}
-                onMouseDown={event => {
-                  if (event.button !== 0) return;
-                  event.preventDefault();
-                  startLineSelection('LEFT', oldLine, event, oldLine, newLine, row);
-                }}
-                onKeyDown={event => {
-                  if (event.key !== 'Enter' && event.key !== ' ') return;
-                  event.preventDefault();
-                  selectLine('LEFT', oldLine, event.shiftKey, row);
-                }}>{oldLine}</button>
-            )}
-            {oldLine !== null && !canComment && oldLine}
-          </td>
-          <td className="is-line">
-            {newLine !== null && canComment && (
-              <button type="button"
-                disabled={submitting}
-                aria-label={`Select new line ${newLine}`}
-                onMouseDown={event => {
-                  if (event.button !== 0) return;
-                  event.preventDefault();
-                  startLineSelection('RIGHT', newLine, event, oldLine, newLine, row);
-                }}
-                onKeyDown={event => {
-                  if (event.key !== 'Enter' && event.key !== ' ') return;
-                  event.preventDefault();
-                  selectLine('RIGHT', newLine, event.shiftKey, row);
-                }}>{newLine}</button>
-            )}
-            {newLine !== null && !canComment && newLine}
-          </td>
+          {lineCell('LEFT', oldLine)}
+          {lineCell('RIGHT', newLine)}
           <td className="is-source">
             {canComment && target !== null && (
               <button type="button" className="pull-diff-code__add-comment"

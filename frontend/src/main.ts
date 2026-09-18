@@ -48,7 +48,6 @@ import {
   parseAgentReview,
   parseAgentReviews,
   parseReviewDraft,
-  parseReviewPublishResult,
 } from './pulls/agent-review/contracts';
 import { codeHostKey, parseCodeHost, parseLocalRun, parseLocalRunOutput, parseLocalRuns, parseReviewCodeFile, parseReviewCodeFiles, parseReviewCodeSymbols } from './pulls/code-tests/contracts';
 import { AgentSubscriptions } from './agents/subscriptions';
@@ -1017,11 +1016,11 @@ function registerIpc(): void {
     backendJson(reviewUrl(`/drafts/items/${encodeURIComponent(itemId)}/publish`, { repo, number: String(number), expectedVersion: String(expectedVersion) }), {
       method: 'POST',
       headers: agentHeaders(),
-    }).then(parseReviewPublishResult));
+    }));
   ipcMain.handle('review:draft:submit', (_event, repo: string, number: number, expectedVersion: number, body: string, event: string) =>
     backendJson(reviewUrl('/drafts/submit', { repo, number: String(number) }),
       jsonInit('POST', { expectedVersion, body, event }, agentHeaders()))
-      .then(parseReviewPublishResult));
+      );
   ipcMain.handle('agent:providers:refresh', () =>
     backendJson(`${backendBase()}/agent/providers/status`, {
       headers: { 'X-ByteQuay-Session': sessionToken() },

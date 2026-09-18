@@ -209,12 +209,6 @@ export type AgentReviewDto = {
   pullRequest: { title: string; state: string; draft: boolean } | null;
 };
 
-export type ReviewPublishResultDto = {
-  draft: ReviewDraftDto;
-  publishedItemIds: string[];
-  uncertainReason: string | null;
-};
-
 
 function object(value: unknown, what: string): Record<string, unknown> {
   if (typeof value !== 'object' || value === null || Array.isArray(value)) {
@@ -516,14 +510,5 @@ export function parseAgentReview(value: unknown): AgentReviewDto {
       state: text(pullRequest.state, 'pull request state'),
       draft: flag(pullRequest.draft),
     },
-  };
-}
-
-export function parseReviewPublishResult(value: unknown): ReviewPublishResultDto {
-  const result = object(value, 'publication result');
-  return {
-    draft: parseReviewDraft(result.draft),
-    publishedItemIds: strings(result.publishedItemIds),
-    uncertainReason: optionalText(result.uncertainReason),
   };
 }

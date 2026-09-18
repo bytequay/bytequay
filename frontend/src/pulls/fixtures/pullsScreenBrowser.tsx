@@ -353,7 +353,6 @@ export async function runReviewSheet(): Promise<string> {
     },
     submitReviewDraft: async (_repo, _number, version, body, event) => {
       calls.push(`draft v${version} ${event} "${body}"`);
-      return { draft, publishedItemIds: ['item-1'], uncertainReason: null };
     },
     submitReview: async () => { calls.push('plain'); return detail; },
     getAgentReview: async () => { calls.push('reload'); return review; },

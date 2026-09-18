@@ -19,7 +19,6 @@ import type {
   AgentReviewDto,
   ReviewDraftDto,
   ReviewEvent,
-  ReviewPublishResultDto,
   ReviewSide,
 } from './pulls/agent-review/contracts';
 import type { CodeHostRef, LocalRunDto, LocalRunOutputDto, ReviewCodeFileDto, ReviewCodeFilesDto, ReviewCodeSymbolsDto, RunRefusalDto, SaveConflictDto } from './pulls/code-tests/contracts';
@@ -1747,8 +1746,8 @@ export type Bridge = {
   ) => Promise<ReviewDraftDto>;
   removeReviewDraftComment: (repo: string, number: number, expectedVersion: number, itemId: string) => Promise<ReviewDraftDto>;
   /** Publishes one previewed comment; the backend revalidates the head and payload first. */
-  publishReviewDraftComment: (repo: string, number: number, expectedVersion: number, itemId: string) => Promise<ReviewPublishResultDto>;
-  submitReviewDraft: (repo: string, number: number, expectedVersion: number, body: string, event: ReviewEvent) => Promise<ReviewPublishResultDto>;
+  publishReviewDraftComment: (repo: string, number: number, expectedVersion: number, itemId: string) => Promise<void>;
+  submitReviewDraft: (repo: string, number: number, expectedVersion: number, body: string, event: ReviewEvent) => Promise<void>;
   /** Why each pending comment cannot be sent right now; an eligible one is absent. */
 
   /** Streams one task's events; the returned function stops the subscription. */

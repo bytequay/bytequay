@@ -12,7 +12,6 @@
  * limitations under the License.
  */
 import { describe, expect, it } from 'vitest';
-import type { PullRequestDto } from '../types';
 import {
   filterPullRequests,
   parsePullSearch,
@@ -23,38 +22,8 @@ import {
   tabForInitialPullRequest,
   visibleSelectedId,
 } from './model';
+import { pr } from './fixtures/pullRequest';
 
-function pr(overrides: Partial<PullRequestDto>): PullRequestDto {
-  return {
-    id: 1,
-    repo: 'bytequay/app',
-    number: 42,
-    title: 'Keep PR details',
-    author: 'jack',
-    htmlUrl: 'https://github.com/bytequay/app/pull/42',
-    createdAt: null,
-    updatedAt: '2026-08-15T00:00:00Z',
-    origin: 'AUTHORED',
-    labels: [],
-    labelColors: null,
-    draft: false,
-    viewedAt: null,
-    reviewedAt: null,
-    handledAction: null,
-    requestedReviewers: [],
-    ciStatus: 'PASSING',
-    additions: 1,
-    deletions: 0,
-    commentCount: 0,
-    attentionReason: null,
-    state: 'open',
-    mergeable: true,
-    mergeableState: 'clean',
-    headPushedAt: null,
-    headRef: 'feature',
-    ...overrides,
-  };
-}
 
 describe('rowsForTab', () => {
   it('keeps only actual review work in Needs review', () => {

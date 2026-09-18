@@ -658,12 +658,7 @@ export type AgentAttachmentReferenceDto = {
   mediaType: string;
 };
 
-export type AgentTurnSettingsDto = {
-  developmentAutomation?: DevelopmentAutomationDto | null;
-  model: string | null;
-  effort: string | null;
-  serviceTier?: string | null;
-  permissionPolicy: string;
+export type AgentTurnSettingsDto = AgentTaskDefaultsDto & {
   maximumRuntimeMillis: number;
   attachments: AgentAttachmentReferenceDto[];
 };

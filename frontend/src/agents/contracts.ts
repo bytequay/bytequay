@@ -366,11 +366,7 @@ export function parseCiAutofixRun(value: unknown): CiAutofixRunDto {
 export function parseAgentTurnSettings(value: unknown, path = 'effectiveSettings'): AgentTurnSettingsDto {
   const source = object(value, path);
   return {
-    model: optionalText(source.model, `${path}.model`),
-    effort: optionalText(source.effort, `${path}.effort`),
-    serviceTier: optionalText(source.serviceTier, `${path}.serviceTier`),
-    permissionPolicy: text(source.permissionPolicy, `${path}.permissionPolicy`),
-    ...automationField(source, path),
+    ...defaults(value, path),
     maximumRuntimeMillis: count(source.maximumRuntimeMillis, `${path}.maximumRuntimeMillis`),
     // Attachment contents and their paths stay in the backend; only their ids may cross.
     attachments: list(source.attachments ?? [], `${path}.attachments`).map((entry, index) => {

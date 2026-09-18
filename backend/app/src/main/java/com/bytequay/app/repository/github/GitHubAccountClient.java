@@ -332,16 +332,12 @@ public class GitHubAccountClient
             if (items == null || items.isEmpty()) {
                 break;
             }
-            items.stream().map(GitHubAccountClient::toUserRepo).forEach(all::add);
+            items.stream().map(GitHubAccountClient::toUserRepoFromSearch).forEach(all::add);
             if (items.size() < perPage) {
                 break;
             }
         }
         return ImmutableList.copyOf(all);
-    }
-
-    private static UserRepo toUserRepo(GitHubUserRepoItem item) {
-        return toUserRepoFromSearch(item);
     }
 
     public boolean fetchViewerCanWrite(String pat, RepoRef repo) {
@@ -474,7 +470,7 @@ public class GitHubAccountClient
                 .body(ImmutableMap.of("default_branch_only", false))
                 .retrieve()
                 .body(GitHubUserRepoItem.class)), "GitHub returned no repository after accepting the fork request. Retry watching to find it.");
-        UserRepo fork = toUserRepo(item);
+        UserRepo fork = toUserRepoFromSearch(item);
         if (!isForkOf(fork, upstream)) {
             throw new ResponseStatusException(HttpStatusCode.valueOf(502), "GitHub did not return a fork of the selected upstream repository");
         }

@@ -802,11 +802,6 @@ public class GitHubPullRequestReadClient
         }
     }
 
-    public List<DiffFile> fetchPrDiffFiles(String pat, PullRequestRef pr)
-    {
-        return fetchPrDiffFiles(pat, pr, ImmutableList.of(), Optional.empty()).orElse(ImmutableList.of());
-    }
-
     /**
      * Re-reads the default diff only when GitHub says it changed. {@code stored}
      * is the copy the caller already holds; its size decides whether the ETag
@@ -840,7 +835,7 @@ public class GitHubPullRequestReadClient
     {
         requirePat(pat);
         if (baseSha == null || baseSha.isBlank() || headSha == null || headSha.isBlank()) {
-            return fetchPrDiffFiles(pat, pr);
+            return fetchPrDiffFiles(pat, pr, ImmutableList.of(), Optional.empty()).orElse(ImmutableList.of());
         }
         GitHubCompareResponse response = translating(() -> get(gitHubRestClient, pat, "/repos/{owner}/{repo}/compare/{base}...{head}", pr.owner(), pr.repo(), baseSha, headSha)
                 .retrieve()
@@ -1317,7 +1312,7 @@ public class GitHubPullRequestReadClient
                         .sourceUrl(source == null ? null : source.htmlUrl())
                         .sourceNumber(source == null ? null : source.number())
                         .milestoneTitle(Optional.ofNullable(event.milestone()).map(GitHubTimelineEvent.Milestone::title).orElse(null))
-                        .reactions(toReactions(event.reactions()))
+                        .reactions(toReactions(event.reactions(), null))
                         .build(),
                 Optional.empty());
     }
@@ -1544,11 +1539,6 @@ public class GitHubPullRequestReadClient
                 comment.reviewId(),
                 comment.inReplyToId(),
                 toReactions(comment.reactions(), viewerReactions));
-    }
-
-    private static List<PrReaction> toReactions(GitHubReactions reactions)
-    {
-        return toReactions(reactions, null);
     }
 
     private static List<PrReaction> toReactions(

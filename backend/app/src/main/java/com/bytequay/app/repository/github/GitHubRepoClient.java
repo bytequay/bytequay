@@ -161,6 +161,7 @@ public class GitHubRepoClient
                 pat,
                 "/repos/{owner}/{repo}/issues",
                 new ParameterizedTypeReference<List<IssueResponse>>() {},
+                null,
                 page,
                 repo.owner(),
                 repo.repo());

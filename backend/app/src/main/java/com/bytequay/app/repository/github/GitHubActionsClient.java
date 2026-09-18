@@ -170,8 +170,8 @@ public class GitHubActionsClient
         // change past page one leaves page one byte-identical, and honouring the
         // ETag would report the stale result forever.
         Optional<String> safeCheckRunsEtag = fitsOnOnePage(existing) ? checkRunsEtag : Optional.empty();
-        ConditionalChecks checkRuns = fetchCheckRuns(pat, owner, repo, sha, safeCheckRunsEtag);
-        ConditionalChecks commitStatuses = fetchCommitStatuses(pat, owner, repo, sha, commitStatusesEtag);
+        ConditionalList<PrCheckRunState> checkRuns = fetchCheckRuns(pat, owner, repo, sha, safeCheckRunsEtag);
+        ConditionalList<PrCheckRunState> commitStatuses = fetchCommitStatuses(pat, owner, repo, sha, commitStatusesEtag);
         List<PrCheckRunState> result = new ArrayList<>();
         result.addAll(checkRuns.values().orElseGet(() -> checksFrom(existing, "check_run")));
         result.addAll(commitStatuses.values().orElseGet(() -> checksFrom(existing, "status")));
@@ -183,7 +183,7 @@ public class GitHubActionsClient
         return checkRuns.stream().filter(check -> "check_run".equals(check.source())).count() <= PAGE_SIZE;
     }
 
-    private ConditionalChecks fetchCheckRuns(
+    private ConditionalList<PrCheckRunState> fetchCheckRuns(
             String pat,
             String owner,
             String repo,
@@ -206,7 +206,7 @@ public class GitHubActionsClient
             if (currentPage == 1) {
                 responseEtag = Optional.ofNullable(entity.getHeaders().getETag()).or(() -> etag);
                 if (entity.getStatusCode() == HttpStatus.NOT_MODIFIED) {
-                    return new ConditionalChecks(Optional.empty(), responseEtag);
+                    return new ConditionalList<>(Optional.empty(), responseEtag);
                 }
             }
             GitHubCheckRunsResponse response = entity.getBody();
@@ -229,10 +229,10 @@ public class GitHubActionsClient
                 break;
             }
         }
-        return new ConditionalChecks(Optional.of(ImmutableList.copyOf(result)), responseEtag);
+        return new ConditionalList<>(Optional.of(ImmutableList.copyOf(result)), responseEtag);
     }
 
-    private ConditionalChecks fetchCommitStatuses(
+    private ConditionalList<PrCheckRunState> fetchCommitStatuses(
             String pat,
             String owner,
             String repo,
@@ -245,7 +245,7 @@ public class GitHubActionsClient
             ResponseEntity<GitHubCombinedStatusResponse> entity = request.retrieve().toEntity(GitHubCombinedStatusResponse.class);
             Optional<String> responseEtag = Optional.ofNullable(entity.getHeaders().getETag()).or(() -> etag);
             if (entity.getStatusCode() == HttpStatus.NOT_MODIFIED) {
-                return new ConditionalChecks(Optional.empty(), responseEtag);
+                return new ConditionalList<>(Optional.empty(), responseEtag);
             }
             List<PrCheckRunState> statuses = Optional.ofNullable(entity.getBody())
                     .map(GitHubCombinedStatusResponse::statuses)
@@ -266,7 +266,7 @@ public class GitHubActionsClient
                             "pending".equals(status.state()) ? status.updatedAt() : null,
                             "pending".equals(status.state()) ? null : status.updatedAt()))
                     .collect(toImmutableList());
-            return new ConditionalChecks(Optional.of(statuses), responseEtag);
+            return new ConditionalList<>(Optional.of(statuses), responseEtag);
         });
     }
 
@@ -285,15 +285,6 @@ public class GitHubActionsClient
             checkRuns = ImmutableList.copyOf(requireNonNull(checkRuns, "checkRuns is null"));
             requireNonNull(checkRunsEtag, "checkRunsEtag is null");
             requireNonNull(commitStatusesEtag, "commitStatusesEtag is null");
-        }
-    }
-
-    private record ConditionalChecks(Optional<List<PrCheckRunState>> values, Optional<String> etag)
-    {
-        private ConditionalChecks
-        {
-            requireNonNull(values, "values is null");
-            requireNonNull(etag, "etag is null");
         }
     }
 

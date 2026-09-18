@@ -381,13 +381,10 @@ public class GitHubPullRequestWriteClient
         checkText(base, "base");
         checkText(title, "title");
         requireNonNull(body, "body is null");
-        return translating(() -> {
-            GitHubCreatedPullRequest created = requireBody(send(gitHubRestClient, HttpMethod.POST, pat,
-                    ImmutableMap.of("title", title, "body", body, "head", head, "base", base, "draft", draft),
-                    "/repos/{owner}/{repo}/pulls", baseRepository.owner(), baseRepository.repo())
-                    .body(GitHubCreatedPullRequest.class), "Empty response from GitHub when creating pull request");
-            return new CreatedPullRequest(created.id(), created.number(), created.htmlUrl());
-        });
+        return translating(() -> requireBody(send(gitHubRestClient, HttpMethod.POST, pat,
+                ImmutableMap.of("title", title, "body", body, "head", head, "base", base, "draft", draft),
+                "/repos/{owner}/{repo}/pulls", baseRepository.owner(), baseRepository.repo())
+                .body(CreatedPullRequest.class), "Empty response from GitHub when creating pull request"));
     }
 
     @JsonIgnoreProperties(ignoreUnknown = true)

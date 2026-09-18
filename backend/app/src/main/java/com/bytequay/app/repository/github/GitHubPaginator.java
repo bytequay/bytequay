@@ -138,16 +138,6 @@ final class GitHubPaginator
             String pat,
             String pathTemplate,
             ParameterizedTypeReference<List<T>> typeRef,
-            int page,
-            Object... uriVariables)
-    {
-        return fetchPage(pat, pathTemplate, typeRef, null, page, uriVariables);
-    }
-
-    private <T> List<T> fetchPage(
-            String pat,
-            String pathTemplate,
-            ParameterizedTypeReference<List<T>> typeRef,
             Instant since,
             int page,
             Object... uriVariables)

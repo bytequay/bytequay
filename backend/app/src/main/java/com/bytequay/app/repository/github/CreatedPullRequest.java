@@ -13,11 +13,13 @@
  */
 package com.bytequay.app.repository.github;
 
+import com.fasterxml.jackson.annotation.JsonProperty;
+
 import static com.bytequay.core.domain.Checks.checkText;
 import static com.google.common.base.Preconditions.checkArgument;
 
 /** Stable identity returned by GitHub after pull-request creation. */
-public record CreatedPullRequest(long id, int number, String url)
+public record CreatedPullRequest(long id, int number, @JsonProperty("html_url") String url)
 {
     public CreatedPullRequest
     {

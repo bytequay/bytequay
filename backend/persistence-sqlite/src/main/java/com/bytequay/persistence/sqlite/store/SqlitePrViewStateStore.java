@@ -19,6 +19,7 @@ import com.bytequay.core.store.PrViewStateStore;
 import com.bytequay.persistence.sqlite.entity.PrViewStateEntity;
 import com.bytequay.persistence.sqlite.repository.PrViewStateJpaRepository;
 import org.springframework.stereotype.Repository;
+import org.springframework.transaction.annotation.Transactional;
 
 import java.time.Instant;
 import java.util.Map;
@@ -40,6 +41,7 @@ public class SqlitePrViewStateStore
 
     /** Returns only the requested view-state rows, keyed by PR id. */
     @Override
+    @Transactional(readOnly = true)
     public Map<Long, PrViewState> findByPrIds(Set<Long> prIds)
     {
         requireNonNull(prIds, "prIds is null");
@@ -52,6 +54,7 @@ public class SqlitePrViewStateStore
     }
 
     @Override
+    @Transactional
     public void markViewed(long prId)
     {
         PrViewStateEntity entity = jpaRepository.findById(prId).orElseGet(() -> newEntity(prId));
@@ -61,6 +64,7 @@ public class SqlitePrViewStateStore
 
     /** Records that the user handled this PR with the given action. */
     @Override
+    @Transactional
     public void markReviewed(long prId, HandledAction action, String headSha, Instant reviewedAt)
     {
         requireNonNull(action, "action is null");
@@ -76,6 +80,7 @@ public class SqlitePrViewStateStore
     }
 
     @Override
+    @Transactional
     public void markNeedsReview(long prId)
     {
         PrViewStateEntity entity = jpaRepository.findById(prId).orElse(null);

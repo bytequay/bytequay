@@ -171,10 +171,9 @@
 
 .cmt-sync button:disabled { cursor: default; }
 
-@keyframes cmt-spin { to { transform: rotate(360deg); } }
 @keyframes cmt-pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.3; } }
 
-.cmt-sync .is-spinning { display: inline-block; animation: cmt-spin 1s linear infinite; }
+.cmt-sync .is-spinning { display: inline-block; animation: bq-spin 1s linear infinite; }
 
 .cmt-tab-divider { width: 1px; height: 20px; background: #d0d7de; margin: 0 10px 10px; }
 
@@ -1607,7 +1606,7 @@
   border: 2px solid #d0d7de;
   border-top-color: #0969da;
   border-radius: 50%;
-  animation: cmt-spin 1s linear infinite;
+  animation: bq-spin 1s linear infinite;
 }
 
 .cmt-user-bubble-row { display: flex; justify-content: flex-end; margin: 8px 0; }

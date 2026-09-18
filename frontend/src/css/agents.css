@@ -1280,9 +1280,6 @@
   text-overflow: ellipsis;
 }
 
-@keyframes agt-spin {
-  to { transform: rotate(360deg); }
-}
 
 @keyframes agt-pulse {
   0%, 100% { opacity: 1; }
@@ -1314,7 +1311,7 @@
   color: #0969da;
   stroke-width: 1.75;
   transform-origin: center;
-  animation: agt-spin 0.9s linear infinite;
+  animation: bq-spin 0.9s linear infinite;
 }
 
 .agt-state .agt-spin {

@@ -130,8 +130,7 @@
 }
 
 .setw-row + .setw-row,
-.setw-row + .setw-card-foot,
-.setw-rows > * + * { border-top: 1px solid #ededf0; }
+.setw-row + .setw-card-foot { border-top: 1px solid #ededf0; }
 
 .setw-row-main { min-width: 0; flex: 1; }
 

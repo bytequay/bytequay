@@ -147,7 +147,6 @@
   background: #eceff2;
 }
 
-.modal-chip.is-watched { color: #0969da; background: #ddf4ff; }
 .modal-chip.is-fork { color: #9a6700; background: #fff8c5; }
 
 .modal-repo-row__pill {

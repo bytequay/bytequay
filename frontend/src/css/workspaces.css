@@ -269,7 +269,6 @@
 .ws-chip.is-stale { color: #9a6700; background: #fff8c5; }
 .ws-chip.is-failed { color: #cf222e; background: #ffebe9; }
 
-@keyframes ws-spin { to { transform: rotate(360deg); } }
 
 .ws-chip__spinner {
   width: 9px;
@@ -279,7 +278,7 @@
   border-top-color: #0969da;
   border-radius: 50%;
   display: inline-block;
-  animation: ws-spin 1s linear infinite;
+  animation: bq-spin 1s linear infinite;
 }
 
 .ws-card-foot {

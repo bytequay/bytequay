@@ -58,9 +58,8 @@
   border: 2px solid #b6d4f7;
   border-top-color: #0969da;
   border-radius: 50%;
-  animation: agr-spin 1s linear infinite;
+  animation: bq-spin 1s linear infinite;
 }
-@keyframes agr-spin { to { transform: rotate(360deg); } }
 @media (prefers-reduced-motion: reduce) { .agr-spinner { animation: none; } }
 
 .agr-action {

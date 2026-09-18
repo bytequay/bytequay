@@ -166,10 +166,8 @@
 }
 .rc-cal__day:disabled { color: #c4cad1; cursor: default; }
 .rc-cal__day.is-today { font-weight: 600; box-shadow: inset 0 0 0 1px rgba(9, 105, 218, 0.45); }
-.rc-cal__day.is-picked { background: #0969da; color: #ffffff; font-weight: 500; }
 .rc-cal__mark { width: 4px; height: 4px; margin-top: 2px; border-radius: 50%; }
 .rc-cal__day.has-activity .rc-cal__mark { background: #0969da; }
-.rc-cal__day.is-picked .rc-cal__mark { background: #ffffff; }
 
 .rc-filters {
   display: flex;
@@ -340,9 +338,8 @@
   border-top-color: #0969da;
   border-radius: 50%;
   display: inline-block;
-  animation: rc-spin 1s linear infinite;
+  animation: bq-spin 1s linear infinite;
 }
-@keyframes rc-spin { to { transform: rotate(360deg); } }
 
 .rc-empty {
   padding: 60px 20px;

@@ -11,6 +11,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
+import '../../../css/base.css';
 import { flushSync } from 'react-dom';
 import { createRoot } from 'react-dom/client';
 import type { PullRequestDto } from '../../../types';

@@ -289,9 +289,7 @@ export function parseAgentTask(value: unknown, path = 'task'): AgentTaskDto {
     summary: source.summary === null || source.summary === undefined
       ? null
       : summary(source.summary, `${path}.summary`),
-    cleanupState: text(source.cleanupState, `${path}.cleanupState`),
     deleteAfter: optionalText(source.deleteAfter, `${path}.deleteAfter`),
-    cleanupFailure: optionalText(source.cleanupFailure, `${path}.cleanupFailure`),
     checkoutRemovedAt: optionalText(source.checkoutRemovedAt, `${path}.checkoutRemovedAt`),
     codegraph: flag(source.codegraph, `${path}.codegraph`),
     archivedAt: optionalText(source.archivedAt, `${path}.archivedAt`),

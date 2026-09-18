@@ -27,9 +27,7 @@
       "elapsed": "<duration>"
     },
     "summary": null,
-    "cleanupState": "RETAINED",
     "deleteAfter": null,
-    "cleanupFailure": null,
     "checkoutRemovedAt": null,
     "codegraph": false,
     "archivedAt": null
@@ -118,9 +116,7 @@
       },
       "notes": "ready for review"
     },
-    "cleanupState": "RETAINED",
     "deleteAfter": "<timestamp>",
-    "cleanupFailure": null,
     "checkoutRemovedAt": "<timestamp>",
     "codegraph": false,
     "archivedAt": null

@@ -270,9 +270,7 @@ export type RepositorySearchResultDto = {
   visibility: string;
   fork: boolean;
   defaultBranch: string;
-  cloneUrl: string;
   upstream: RepoRefDto | null;
-  viewerCanPush: boolean;
   existingWorkspaceId: string | null;
 };
 
@@ -482,22 +480,15 @@ type CherryPickConflictFile = {
 export type CherryPickPreviewCommit = {
   position: number;
   sourceSha: string;
-  sourceParentSha: string;
   title: string;
   author: string;
   committedAt: string;
   changedPaths: string[];
-  originallyEmpty: boolean;
   /** Backed by ancestry or an exact `-x` line only, never a title or a guess. */
   alreadyOnTarget: boolean;
   targetMatchKind?: string;
-  targetMatchCommitSha?: string;
-  /** Advisory: such a commit is still selectable and never skipped for you. */
-  patchEquivalent: boolean;
   /** CLEAN | CONFLICT | NOT_ANALYZED */
   conflictStatus: string;
-  /** AFTER_CLEAN_PREFIX | AT_FROZEN_TARGET | ESTIMATE */
-  conflictBasis: string;
   conflictFiles: CherryPickConflictFile[];
   pullRequestNumber?: number;
   pullRequestTitle?: string;
@@ -651,9 +642,7 @@ export type AgentTaskDto = {
   terminalReason: string | null;
   metrics: AgentMetricsDto;
   summary: AgentTaskSummaryDto | null;
-  cleanupState: string;
   deleteAfter: string | null;
-  cleanupFailure: string | null;
   checkoutRemovedAt: string | null;
   /** Whether the task was created with the CodeGraph tool; a later settings change does not move it. */
   codegraph: boolean;

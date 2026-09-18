@@ -268,7 +268,8 @@ function WorkingCopy({ host, onReviewChange, onExit, onUnsavedChange, comments, 
   const [discardOpen, setDiscardOpen] = useState(false);
   const [discarding, setDiscarding] = useState(false);
   const [discardError, setDiscardError] = useState<string | null>(null);
-  const column = useResizablePane(262, 190, 420);
+  // 280 is the width the scope control needs whole; below it the labels ellipsize.
+  const column = useResizablePane(280, 190, 420);
   // The parent keys this component by host, so the reference bridge calls take never changes.
   const [hostRef] = useState<CodeHostRef>(() => host.kind === 'review' ? { kind: 'review', reviewId: host.review.id }
     : { kind: 'task', taskId: host.task.id, workspaceId: host.workspaceId, repo: host.repo, number: host.number });
@@ -696,12 +697,12 @@ function WorkingCopy({ host, onReviewChange, onExit, onUnsavedChange, comments, 
                     onClick={() => {
                       setScope('all');
                       setCollapsedDirectories(new Set());
-                    }}>All files</button>
+                    }}><span className="ct-scope__label">All files</span></button>
                   <button type="button" aria-pressed={scope === 'changed'} title="Only files this pull request or this working copy touched"
                     onClick={() => {
                       setScope('changed');
                       setCollapsedDirectories(new Set());
-                    }}>Changed in PR <span>{touchedCount(entries)}</span></button>
+                    }}><span className="ct-scope__label">Changed in PR</span><span className="ct-scope__count">{touchedCount(entries)}</span></button>
                   <button type="button" className="ct-scope__tests" aria-pressed={testsOnly} title="Show only test files" aria-label="Show only test files"
                     onClick={() => setTestsOnly(value => !value)}><TestTubeDiagonal size={14} strokeWidth={1.8} aria-hidden="true" /></button>
                 </div>

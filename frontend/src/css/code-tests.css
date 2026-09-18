@@ -30,12 +30,14 @@
 .ct-files { display: flex; min-width: 0; flex: none; flex-direction: column; background: #fbfbfc; }
 .ct-files__head { display: flex; align-items: center; gap: 5px; border-bottom: 1px solid #f0f1f3; padding: 4px 4px 4px 8px; }
 .ct-scope { display: flex; min-width: 0; flex: 1; gap: 5px; }
-.ct-scope button { border: 1px solid transparent; border-radius: 12px; background: transparent; color: #57606a; cursor: pointer; padding: 3px 10px; font-size: 13px; white-space: nowrap; }
-.ct-scope button.ct-scope__tests { display: inline-flex; align-items: center; justify-content: center; padding: 3px 8px; }
+.ct-scope button { display: inline-flex; min-width: 0; align-items: center; gap: 4px; border: 1px solid transparent; border-radius: 12px; background: transparent; color: #57606a; cursor: pointer; padding: 3px 10px; font-size: 13px; white-space: nowrap; }
+.ct-scope button.ct-scope__tests { flex: none; justify-content: center; padding: 3px 8px; }
+/* A narrow column truncates the labels rather than pushing the icons out of the column. */
+.ct-scope__label { overflow: hidden; text-overflow: ellipsis; }
 .ct-scope__tests svg { color: #1a7f37; }
 .ct-scope button:focus-visible { outline: 2px solid #0969da; outline-offset: 1px; }
 .ct-scope button[aria-pressed='true'] { border-color: #d6dce2; background: #eceff2; color: #1f2328; }
-.ct-scope button span { color: #8c959f; }
+.ct-scope__count { flex: none; color: #8c959f; }
 .ct-files__list { min-height: 0; flex: 1; overflow: auto; padding: 4px 0 12px; }
 .ct-files__note { color: #8c959f; padding: 20px 12px; font-size: 12px; text-align: center; }
 

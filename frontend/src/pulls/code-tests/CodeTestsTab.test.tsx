@@ -11,6 +11,8 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
+import { readFileSync } from 'node:fs';
+import { resolve } from 'node:path';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { describe, expect, it, vi } from 'vitest';
 import { parseAgentTask } from '../../agents/contracts';
@@ -67,10 +69,19 @@ describe('CodeTestsTab', () => {
     expect(html).not.toContain('>Tests</button>');
     expect(html).toContain('aria-pressed="false" title="Show only test files"');
     expect(html).toContain('aria-label="Back"');
-    expect(html).toContain('aria-pressed="false" title="Every file in the repository">All files');
-    expect(html).toContain('aria-pressed="true" title="Only files this pull request or this working copy touched">Changed in PR');
+    expect(html).toContain('aria-pressed="false" title="Every file in the repository"><span class="ct-scope__label">All files');
+    expect(html).toContain('title="Only files this pull request or this working copy touched"><span class="ct-scope__label">Changed in PR</span><span class="ct-scope__count">');
     expect(html).toContain('Loading files…');
     expect(html).toContain('Open a file from the tree to read it whole.');
+  });
+
+  it('truncates the scope labels in a narrow files column instead of pushing its icons out', () => {
+    const css = readFileSync(resolve(process.cwd(), 'src/css/code-tests.css'), 'utf8');
+    expect(css).toMatch(/\.ct-scope button \{[^}]*min-width: 0/);
+    expect(css).toMatch(/\.ct-scope__label \{[^}]*overflow: hidden;[^}]*text-overflow: ellipsis/);
+    expect(css).toMatch(/\.ct-scope button\.ct-scope__tests \{[^}]*flex: none/);
+    expect(css).toMatch(/\.ct-scope__count \{[^}]*flex: none/);
+    expect(css).toMatch(/\.ct-icon-button \{[^}]*flex: none/);
   });
 
   it('reads the owning development task\'s working copy instead of any review, with no Start review or Discard', () => {

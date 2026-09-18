@@ -191,10 +191,8 @@ export default function AgentHome({
   return (
     <AgentHomeView
       headerAction={headerAction}
-      automation={creation.automationControl}
+      {...creation.composer}
       repository={repository}
-      laneId={creation.laneId}
-      providers={creation.catalog?.providers ?? []}
       bridge={live}
       tasks={creation.tasks.filter((task) => task.state === 'OPEN' && !taskArchived(task))}
       hiddenTaskIds={hidden}
@@ -208,22 +206,8 @@ export default function AgentHome({
       onStartIssue={onStartIssue ? item => onStartIssue(item.number) : undefined}
       onOpenIssues={onOpenIssues}
       attentionError={attention.error}
-      models={creation.models}
-      selection={creation.selection}
-      draft={creation.draft}
-      blocker={creation.blocker}
       error={creation.error}
-      busy={creation.busy}
       startup={creation.startup}
-      attaching={creation.attaching}
-      images={creation.images}
-      onAttach={() => { void creation.attach(); }}
-      onPasteImages={() => { void creation.attach('clipboard'); }}
-      onRemoveImage={creation.removeImage}
-      onDraftChange={creation.setDraft}
-      onSelectProvider={creation.selectProvider}
-      onSelectModel={(model, effort, serviceTier) => creation.setSelection({ model, effort, serviceTier })}
-      onCreate={() => { void creation.create(); }}
       onOpenTask={onOpenTask}
       onOpenSettings={onOpenSettings}
       onShowAll={onShowAll}

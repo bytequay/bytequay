@@ -461,12 +461,31 @@ export function useAgentTaskCreation({ workspaceId, initialLaneId, bridge, onOpe
   }, [applyCatalog, automation, blocker, bridge, clearImages, draft, images, issue, laneId, localOnly, onOpenCreatedTask, onOpenTask, selection, submissions, workspaceId]);
 
   return {
+    /** Everything TaskComposer needs, so a screen spreads it instead of re-listing eighteen props. */
+    composer: {
+      laneId,
+      providers: catalog?.providers ?? [],
+      models,
+      selection,
+      draft,
+      blocker,
+      busy,
+      attaching: operation === 'attachment',
+      images,
+      automation: automation === null ? null : <AutomationControl value={automation} providers={catalog?.providers ?? []} disabled={busy}
+        localOnly={localOnly} onChange={setAutomation} onLocalOnlyChange={setLocalOnly} />,
+      onAttach: () => { void attach(); },
+      onPasteImages: () => { void attach('clipboard'); },
+      onRemoveImage: removeImage,
+      onDraftChange: setDraft,
+      onSelectProvider: selectProvider,
+      onSelectModel: (model: string, effort: string | null, serviceTier: string | null) => setSelection({ model, effort, serviceTier }),
+      onCreate: () => { void create(); },
+    },
     issueAttachment: issue === null ? null : <IssueAttachment source={{
       number: issue.number, title: issue.title, body: issue.body, url: issue.htmlUrl,
       repo: new URL(issue.htmlUrl).pathname.split('/').slice(1, 3).join('/'),
     }} onRefresh={() => { void refreshIssue(); }} refreshing={busy || sourceLoading} />,
-    automationControl: automation === null ? null : <AutomationControl value={automation} providers={catalog?.providers ?? []} disabled={busy}
-      localOnly={localOnly} onChange={setAutomation} onLocalOnlyChange={setLocalOnly} />,
     tasks,
     setTasks,
     loading,
@@ -634,29 +653,13 @@ export default function AgentTasksView({
   return (
     <AgentTaskList
       headerAction={headerAction}
-      automation={creation.automationControl}
+      {...creation.composer}
       issueAttachment={creation.issueAttachment}
       tasks={creation.tasks}
       changes={changes}
       loading={creation.loading}
       error={creation.error}
-      laneId={creation.laneId}
-      providers={creation.catalog?.providers ?? []}
-      models={creation.models}
-      selection={creation.selection}
-      draft={creation.draft}
-      blocker={creation.blocker}
-      busy={creation.busy}
       startup={creation.startup}
-      attaching={creation.attaching}
-      images={creation.images}
-      onAttach={() => { void creation.attach(); }}
-      onPasteImages={() => { void creation.attach('clipboard'); }}
-      onRemoveImage={creation.removeImage}
-      onDraftChange={creation.setDraft}
-      onSelectProvider={creation.selectProvider}
-      onSelectModel={(model, effort, serviceTier) => creation.setSelection({ model, effort, serviceTier })}
-      onCreate={() => { void creation.create(); }}
       onOpenTask={onOpenTask}
       onOpenSettings={onOpenSettings}
       onArchive={archive}

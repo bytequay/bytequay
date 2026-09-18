@@ -33,11 +33,7 @@ async function createLocalTask(): Promise<{ name: string; error?: string }[]> {
   function Harness() {
     const live = useCallback(() => bridge, []);
     const creation = useAgentTaskCreation({ workspaceId: 'workspace-1', initialLaneId: 'codex', bridge: live, onOpenTask: () => {} });
-    return <TaskComposer draft={creation.draft} blocker={creation.blocker} laneId={creation.laneId}
-      providers={creation.catalog?.providers ?? []} models={creation.models} selection={creation.selection}
-      automation={creation.automationControl} busy={creation.busy} onDraftChange={creation.setDraft}
-      onSelectProvider={creation.selectProvider} onSelectModel={(model, effort, serviceTier) => creation.setSelection({ model, effort, serviceTier })}
-      onCreate={() => { void creation.create(); }} />;
+    return <TaskComposer {...creation.composer} />;
   }
   flushSync(() => root.render(<Harness />));
   try {

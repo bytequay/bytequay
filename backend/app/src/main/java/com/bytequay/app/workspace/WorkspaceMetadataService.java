@@ -27,9 +27,8 @@ public interface WorkspaceMetadataService
      * resolves to its persisted upstream ID, and failures retain the last local snapshot.</p>
      *
      * @param workspaceId workspace whose monitored repository should be refreshed
-     * @return success, projection counts, and freshness timestamps
      */
-    WorkspaceMetadataSyncResult synchronize(String workspaceId);
+    void synchronize(String workspaceId);
 
     /**
      * Reads the latest local metadata without contacting GitHub.

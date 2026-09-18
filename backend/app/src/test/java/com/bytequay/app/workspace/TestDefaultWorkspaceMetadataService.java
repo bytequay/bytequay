@@ -183,10 +183,9 @@ class TestDefaultWorkspaceMetadataService
                         3, "alice", "https://avatars.example/alice", false)));
         when(avatarCache.cache("https://avatars.example/alice")).thenReturn(Optional.of("avatar-key"));
 
-        WorkspaceMetadataSyncResult result = service.synchronize("direct");
+        service.synchronize("direct");
 
-        assertThat(result.successful()).isTrue();
-        assertThat(result.contributorCount()).isEqualTo(1);
+        assertThat(service.getSnapshot("direct").contributors()).hasSize(1);
         assertThat(service.getSnapshot("direct").pickerUsers())
                 .containsExactly(new RepositoryPickerUser(3, "alice", Optional.of("avatar-key"), false));
         assertThat(workspaces.get("direct").lastCodeSyncAt()).contains(NOW);
@@ -237,9 +236,8 @@ class TestDefaultWorkspaceMetadataService
                 Optional.of(NOW),
                 Optional.of(NOW)));
 
-        WorkspaceMetadataSyncResult result = service.synchronize("direct");
+        service.synchronize("direct");
 
-        assertThat(result.successful()).isTrue();
         verify(workspaceStore, never()).save(org.mockito.ArgumentMatchers.any());
         verify(gitHub, never()).fetchContributors("token", DIRECT);
         verify(gitHub, never()).fetchLabels("token", DIRECT);
@@ -258,9 +256,8 @@ class TestDefaultWorkspaceMetadataService
                 Optional.of(NOW.minusSeconds(3601)), Optional.of(NOW), Optional.of(NOW), Optional.of(NOW)));
         when(gitHub.fetchOverview("token", UPSTREAM)).thenReturn(overview());
 
-        WorkspaceMetadataSyncResult result = service.synchronize(fork.id());
+        service.synchronize(fork.id());
 
-        assertThat(result.successful()).isTrue();
         assertThat(service.getSnapshot(fork.id()).description()).isEqualTo("Description");
         assertThat(service.getSnapshot(fork.id()).overviewSyncedAt()).contains(NOW);
         assertThat(service.getSnapshot(fork.id()).repositoryId()).isEqualTo(300);
@@ -288,7 +285,7 @@ class TestDefaultWorkspaceMetadataService
                 Optional.of(NOW), Optional.empty(), Optional.of(NOW), Optional.of(NOW)));
         when(gitHub.fetchContributors("token", UPSTREAM)).thenReturn(ImmutableList.of(upstreamContributor));
 
-        assertThat(service.synchronize(fork.id()).successful()).isTrue();
+        service.synchronize(fork.id());
 
         RepositoryMetadataSnapshot upstreamSnapshot = service.getSnapshot(fork.id());
         assertThat(upstreamSnapshot.repository()).isEqualTo(UPSTREAM);
@@ -327,9 +324,8 @@ class TestDefaultWorkspaceMetadataService
                         3, "alice", "https://avatars.example/alice", false)));
         when(avatarCache.cache("https://avatars.example/alice")).thenReturn(Optional.of("avatar-key"));
 
-        WorkspaceMetadataSyncResult result = service.synchronize("direct");
+        service.synchronize("direct");
 
-        assertThat(result.successful()).isTrue();
         assertThat(service.getSnapshot("direct").pickerUsers())
                 .containsExactly(new RepositoryPickerUser(3, "alice", Optional.of("avatar-key"), false));
         verify(pullRequests).fetchAssignableRepositoryUsers("token", DIRECT);
@@ -363,9 +359,8 @@ class TestDefaultWorkspaceMetadataService
                         3, "alice", "https://avatars.example/alice", false)));
         when(avatarCache.cache("https://avatars.example/alice")).thenReturn(Optional.empty());
 
-        WorkspaceMetadataSyncResult result = service.synchronize("direct");
+        service.synchronize("direct");
 
-        assertThat(result.successful()).isTrue();
         assertThat(service.getSnapshot("direct").pickerUsers())
                 .containsExactly(new RepositoryPickerUser(3, "alice", Optional.of("old-key"), false));
         verify(pullRequests).fetchAssignableRepositoryUsers("token", DIRECT);
@@ -396,9 +391,8 @@ class TestDefaultWorkspaceMetadataService
         when(gitHub.fetchContributors("token", DIRECT)).thenReturn(ImmutableList.of());
         when(gitHub.fetchLabels("token", DIRECT)).thenThrow(new IllegalStateException("provider down"));
 
-        WorkspaceMetadataSyncResult result = service.synchronize("direct");
+        service.synchronize("direct");
 
-        assertThat(result.successful()).isFalse();
         assertThat(service.getSnapshot("direct")).isEqualTo(previous);
         assertThat(workspaces.get("direct").lastCodeSyncAt()).contains(NOW);
         assertThat(workspaces.get("direct").lastMetadataSyncAt()).isEmpty();

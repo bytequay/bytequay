@@ -87,12 +87,12 @@ public final class DefaultWorkspaceMetadataService
     }
 
     @Override
-    public WorkspaceMetadataSyncResult synchronize(String workspaceId)
+    public void synchronize(String workspaceId)
     {
-        return WorkspaceOperationLocks.withLock(workspaceId, () -> synchronizeLocked(workspaceId));
+        WorkspaceOperationLocks.withLock(workspaceId, () -> synchronizeLocked(workspaceId));
     }
 
-    private WorkspaceMetadataSyncResult synchronizeLocked(String workspaceId)
+    private void synchronizeLocked(String workspaceId)
     {
         Workspace workspace = requireWorkspace(workspaceId);
         Lock lock = locks.get(workspace.monitoredRepositoryId());
@@ -105,18 +105,16 @@ public final class DefaultWorkspaceMetadataService
                     && !expired(current.contributorsSyncedAt(), now, CONTRIBUTOR_TTL)
                     && !expired(current.pickerUsersSyncedAt(), now, PICKER_USER_TTL)
                     && !expired(current.labelsTopicsSyncedAt(), now, LABEL_TOPIC_TTL)) {
-                return WorkspaceMetadataSyncResult.of(workspaceId, true, current);
+                return;
             }
             refreshExpired(workspace);
             now = clock.instant();
             Workspace latest = requireWorkspace(workspaceId);
             workspaces.save(latest.withMetadataSyncAt(Optional.of(now), now));
-            return WorkspaceMetadataSyncResult.of(workspaceId, true, snapshot(workspace));
         }
         catch (RuntimeException failure) {
             log.warn("Workspace {} metadata synchronization failed: {}",
                     workspaceId, failure.getMessage());
-            return WorkspaceMetadataSyncResult.of(workspaceId, false, snapshot(workspace));
         }
         finally {
             lock.unlock();

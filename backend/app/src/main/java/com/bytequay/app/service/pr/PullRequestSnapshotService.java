@@ -332,7 +332,7 @@ public class PullRequestSnapshotService
         }
     }
 
-    private static ResponseStatusException missing(String name)
+    static ResponseStatusException missing(String name)
     {
         return new ResponseStatusException(HttpStatus.NOT_FOUND, name + " has not been refreshed");
     }

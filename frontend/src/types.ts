@@ -1143,8 +1143,6 @@ export type ModelProviderDto = {
   /** The exact command that signs this lane in, when a generic login would land elsewhere. */
   signInCommand?: string | null;
   capabilities: AgentCapabilitiesDto;
-  /** Whether a running turn on this lane accepts more input; absent on catalogs recorded before it was carried. */
-  steering?: boolean;
   models: ModelOptionDto[];
   selectedModel: string;
   selectedEffort: string;

@@ -66,7 +66,6 @@ const PREVIEW_CATALOG: ModelSettingsDto = {
     version: '0.151.0',
     diagnostic: '',
     capabilities: PREVIEW_CAPABILITIES,
-    steering: true,
     models: [
       { id: 'gpt-5.6-codex', name: '5.6 Terra', description: 'Balanced', efforts: ['medium', 'high'], defaultEffort: 'high' },
       { id: 'gpt-5.6-codex-mini', name: '5.6 Sol', description: 'Faster', efforts: ['medium'], defaultEffort: 'medium' },

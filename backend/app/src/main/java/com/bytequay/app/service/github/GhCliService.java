@@ -86,11 +86,6 @@ public class GhCliService
                 .map(Path::toString);
     }
 
-    public boolean isAvailable()
-    {
-        return findBinary().isPresent();
-    }
-
     /**
      * Reads {@code gh}'s current token and login. Throws 503 when {@code gh}
      * isn't installed, or 502 when it is installed but not logged in.

@@ -524,7 +524,6 @@ function modelProvider(value: unknown, path: string): ModelProviderDto {
     diagnostic: text(source.diagnostic, `${path}.diagnostic`),
     signInCommand: optionalText(source.signInCommand, `${path}.signInCommand`),
     capabilities: parseAgentCapabilities(source.capabilities, `${path}.capabilities`),
-    steering: source.steering === undefined ? undefined : flag(source.steering, `${path}.steering`),
     models: list(source.models, `${path}.models`).map((model, index) => modelOption(model, `${path}.models[${index}]`)),
     selectedModel: text(source.selectedModel, `${path}.selectedModel`),
     selectedEffort: text(source.selectedEffort, `${path}.selectedEffort`),

@@ -156,7 +156,6 @@ class TestModelSettingsService
         var provider = service.get().providers().getFirst();
 
         assertThat(provider.capabilities()).isEqualTo(capabilities);
-        assertThat(provider.steering()).isTrue();
         var json = new ObjectMapper().findAndRegisterModules().valueToTree(provider);
         assertThat(json.at("/capabilities/structuredPlans").asBoolean()).isTrue();
         assertThat(json.at("/capabilities/nestedAgentActivity").asBoolean()).isTrue();

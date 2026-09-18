@@ -403,7 +403,7 @@ public class ModelSettingsService
 
     private Optional<StoredOverride> readAgentModel(String key)
     {
-        return settings.get(key).flatMap(this::readOverride);
+        return settings.get(key).flatMap(value -> readJson(value, StoredOverride.class));
     }
 
     /**
@@ -435,7 +435,6 @@ public class ModelSettingsService
                 status.diagnostic(),
                 status.signInCommand(),
                 status.capabilities(),
-                status.capabilities().steering(),
                 catalog.models(),
                 selection.model(),
                 selection.effort() == null ? "" : selection.effort());
@@ -459,7 +458,7 @@ public class ModelSettingsService
     private Selection selection(String configId, Catalog catalog)
     {
         Optional<Selection> stored = settings.get(SELECTION_PREFIX + configId)
-                .flatMap(this::readSelection)
+                .flatMap(value -> readJson(value, Selection.class))
                 .filter(value -> catalog.model(value.model()).isPresent());
         if (stored.isEmpty()) {
             return new Selection(
@@ -536,30 +535,14 @@ public class ModelSettingsService
 
     private Optional<StoredCatalog> storedCatalog(String laneId)
     {
-        return settings.get(CATALOG_PREFIX + laneId).flatMap(value -> {
-            try {
-                return Optional.of(mapper.readValue(value, StoredCatalog.class));
-            }
-            catch (JsonProcessingException corrupt) {
-                return Optional.empty();
-            }
-        });
+        return settings.get(CATALOG_PREFIX + laneId).flatMap(value -> readJson(value, StoredCatalog.class));
     }
 
-    private Optional<Selection> readSelection(String value)
+    /** A corrupt row reads as absent so one bad setting cannot fail every surface that asks. */
+    private <T> Optional<T> readJson(String value, Class<T> type)
     {
         try {
-            return Optional.of(mapper.readValue(value, Selection.class));
-        }
-        catch (JsonProcessingException corrupt) {
-            return Optional.empty();
-        }
-    }
-
-    private Optional<StoredOverride> readOverride(String value)
-    {
-        try {
-            return Optional.of(mapper.readValue(value, StoredOverride.class));
+            return Optional.of(mapper.readValue(value, type));
         }
         catch (JsonProcessingException corrupt) {
             return Optional.empty();
@@ -590,8 +573,6 @@ public class ModelSettingsService
             String diagnostic,
             Optional<String> signInCommand,
             AgentCapabilities capabilities,
-            /** Whether a running turn on this lane accepts more input. */
-            boolean steering,
             List<ModelOption> models,
             String selectedModel,
             String selectedEffort) {}

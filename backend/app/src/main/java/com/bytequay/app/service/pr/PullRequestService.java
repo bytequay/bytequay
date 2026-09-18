@@ -454,7 +454,7 @@ public class PullRequestService
     public PullRequestDetail openPullRequestDetail(long prId)
     {
         PullRequestRef ref = store.findRefById(prId)
-                .orElseThrow(() -> localSnapshotMissing("Pull request"));
+                .orElseThrow(() -> PullRequestSnapshotService.missing("Pull request"));
         return openPullRequestDetail(ref.repoFullName(), ref.number());
     }
 
@@ -1393,7 +1393,7 @@ public class PullRequestService
     private long storedPullRequestId(String repo, int number)
     {
         return store.findIdByRepoAndNumber(repo, number)
-                .orElseThrow(() -> localSnapshotMissing("Pull request"));
+                .orElseThrow(() -> PullRequestSnapshotService.missing("Pull request"));
     }
 
     /** Returns persisted detail without contacting GitHub or dating the viewer's last look. */
@@ -1401,12 +1401,6 @@ public class PullRequestService
     {
         return store.findIdByRepoAndNumber(repo, number)
                 .flatMap(prId -> snapshots.findDetail(repo, number, prId));
-    }
-
-    private static ResponseStatusException localSnapshotMissing(String name)
-    {
-        return new ResponseStatusException(
-                HttpStatus.NOT_FOUND, name + " has not been refreshed");
     }
 
     private void updateListState(long prId, StoredPrDetail detail)

@@ -227,7 +227,7 @@ public class CredentialService
 
     public boolean isGitHubCliAvailable()
     {
-        return ghCli.isAvailable();
+        return ghCli.findBinary().isPresent();
     }
 
     private Optional<String> liveGhCliToken()

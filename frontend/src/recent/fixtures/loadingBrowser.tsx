@@ -18,16 +18,13 @@ import type { RecentFilterQuery, RecentRowDto } from '../../types';
 import RecentPage from '../RecentPage';
 import { isoDay, parseDay, shiftDay } from '../model';
 import { recentItemRoute } from '../routes';
+import { assert, settle } from '../../fixtures/harness';
 
 type DayPage = Awaited<ReturnType<Window['bridge']['fetchRecent']>>;
 type Pending = { query: RecentFilterQuery; resolve: (page: DayPage) => void; reject: (error: Error) => void };
 
-const settle = () => new Promise<void>(resolve => requestAnimationFrame(() => requestAnimationFrame(() => resolve())));
 const delay = (milliseconds: number) => new Promise<void>(resolve => window.setTimeout(resolve, milliseconds));
 
-function assert(condition: boolean, message: string): asserts condition {
-  if (!condition) throw new Error(message);
-}
 
 function dayPage(day: string, count = 20, nextCursor: string | null = null): DayPage {
   const rows = Array.from({ length: count }, (_, index): RecentRowDto => ({

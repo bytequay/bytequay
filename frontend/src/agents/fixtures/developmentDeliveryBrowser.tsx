@@ -20,13 +20,8 @@ import { DEFAULT_DEVELOPMENT_AUTOMATION } from '../developmentAutomation';
 import type { AgentEventEnvelope } from '../events';
 import { CI_PROJECTION } from './ciAutofix';
 import { createPreviewBridge } from './previewBridge';
+import { assert, changeInput, settle } from '../../fixtures/harness';
 
-const settle = () => new Promise<void>(resolve => requestAnimationFrame(() => requestAnimationFrame(() => resolve())));
-function assert(condition: boolean, message: string): asserts condition { if (!condition) throw new Error(message); }
-function changeInput(input: HTMLTextAreaElement, value: string) {
-  Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value')?.set?.call(input, value);
-  input.dispatchEvent(new Event('input', { bubbles: true }));
-}
 
 /** The published pull request's detail, which the opened panel reads through the window bridge. */
 function publishedDetail(draft: boolean): PullRequestDetailDto {

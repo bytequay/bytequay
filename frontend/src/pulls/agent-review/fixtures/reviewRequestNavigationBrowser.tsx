@@ -25,9 +25,8 @@ import { reviewFixture } from './review';
 import '../../../css/base.css';
 import '../../../css/agents.css';
 import '../../../css/agent-review.css';
+import { assert, settle } from '../../../fixtures/harness';
 
-const settle = () => new Promise<void>(resolve => requestAnimationFrame(() => requestAnimationFrame(() => resolve())));
-function assert(condition: boolean, message: string): asserts condition { if (!condition) throw new Error(message); }
 const internal = 'Review frozen scope. Use review_get_context and review_save_summary, review_save_finding and review_finish. Reply privately with review_reply. Selected card: internal context.';
 const base = reviewFixture();
 const original = base.runs[0];

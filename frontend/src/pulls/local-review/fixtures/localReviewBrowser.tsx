@@ -31,17 +31,12 @@ import type { ReviewMessageDto } from '../../agent-review/contracts';
 import LocalReviewThreadCard from '../LocalReviewThreadCard';
 import type { LocalReviewThreadDto, LocalReviewThreads } from '../types';
 import { useLocalReviewThreads, type LocalReviewBridgePort } from '../useLocalReviewThreads';
+import { assert, changeInput, settle } from '../../../fixtures/harness';
 
-const settle = () => new Promise<void>(resolve => requestAnimationFrame(() => requestAnimationFrame(() => resolve())));
-function assert(condition: boolean, message: string): asserts condition { if (!condition) throw new Error(message); }
 function button(host: HTMLElement, text: string) {
   const value = [...host.querySelectorAll<HTMLButtonElement>('button')].find(candidate => candidate.textContent === text);
   assert(value !== undefined, `Missing ${text} button`);
   return value;
-}
-function changeInput(input: HTMLTextAreaElement, value: string) {
-  Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value')?.set?.call(input, value);
-  input.dispatchEvent(new Event('input', { bubbles: true }));
 }
 function initialThread(): LocalReviewThreadDto {
   return { id: 'local-1', taskId: 'task-1', taskVersion: 1, workspaceId: 'workspace-1', repo: 'owner/repo', number: 17,

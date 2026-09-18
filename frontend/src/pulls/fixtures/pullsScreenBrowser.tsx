@@ -24,9 +24,8 @@ import { createPreviewBridge } from '../../agents/fixtures/previewBridge';
 import type { AgentReviewDto, ReviewDraftDto } from '../agent-review/contracts';
 import { reviewFixture } from '../agent-review/fixtures/review';
 import '../../css/base.css';
+import { assert, settle } from '../../fixtures/harness';
 
-const settle = () => new Promise<void>(resolve => requestAnimationFrame(() => requestAnimationFrame(() => resolve())));
-function assert(condition: boolean, message: string): asserts condition { if (!condition) throw new Error(message); }
 const payload: PullTimelinePayloadDto = {
   actorAvatarUrl: null, actorBot: false, state: null, htmlUrl: null, label: null, labelColor: null,
   renameFrom: null, renameTo: null, commitSha: null, commitMessage: null, sourceTitle: null, sourceUrl: null,

@@ -19,12 +19,10 @@ import type { WorkspaceDto, WorkspaceSettingsDto } from '../../types';
 import SettingsWindow from '../SettingsWindow';
 import '../../css/base.css';
 import '../../css/settings-window.css';
+import { assert } from '../../fixtures/harness';
 
 const settle = () => new Promise<void>(resolve => setTimeout(() => requestAnimationFrame(() => resolve()), 0));
 
-function assert(condition: boolean, message: string): asserts condition {
-  if (!condition) throw new Error(message);
-}
 
 function workspace(id: string, owner: string, repo: string) {
   return {

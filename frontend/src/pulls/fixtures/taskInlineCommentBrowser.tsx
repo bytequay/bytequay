@@ -20,13 +20,8 @@ import type { AgentQueuedInputDto, AgentStreamMessage, AgentTaskDto, AgentTurnDt
 import { remotePullRequest } from '../PullsScreen';
 import type { CreateLocalReviewRequest } from '../local-review/contracts';
 import type { LocalReviewMessageDto, LocalReviewThreadDto } from '../local-review/types';
+import { assert, changeInput, settle } from '../../fixtures/harness';
 
-const settle = () => new Promise<void>(resolve => requestAnimationFrame(() => requestAnimationFrame(() => resolve())));
-function assert(condition: boolean, message: string): asserts condition { if (!condition) throw new Error(message); }
-function changeInput(input: HTMLTextAreaElement, value: string) {
-  Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value')?.set?.call(input, value);
-  input.dispatchEvent(new Event('input', { bubbles: true }));
-}
 function button(host: HTMLElement, text: string): HTMLButtonElement {
   const result = [...host.querySelectorAll<HTMLButtonElement>('button')].find(candidate => candidate.textContent?.trim() === text);
   assert(result !== undefined, `Missing ${text} button`);

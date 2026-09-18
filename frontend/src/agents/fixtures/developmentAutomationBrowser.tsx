@@ -22,9 +22,8 @@ import AgentTaskScreen from '../AgentTaskScreen';
 import { runCiAutofixScenarios } from './ciAutofixBrowser';
 import { runDevelopmentDeliveryScenarios } from './developmentDeliveryBrowser';
 import { automationForSubmission, DEFAULT_DEVELOPMENT_AUTOMATION } from '../developmentAutomation';
+import { assert, settle } from '../../fixtures/harness';
 
-const settle = () => new Promise<void>(resolve => requestAnimationFrame(() => requestAnimationFrame(() => resolve())));
-function assert(condition: boolean, message: string): asserts condition { if (!condition) throw new Error(message); }
 
 async function createLocalTask(): Promise<{ name: string; error?: string }[]> {
   const bridge = createPreviewBridge('workspace-1');

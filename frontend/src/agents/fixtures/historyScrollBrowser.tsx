@@ -22,6 +22,7 @@ import type { AgentEventEnvelope } from '../events';
 import { agentTaskReducer, historyAfter, historyBefore, initialAgentTaskState } from '../model';
 import { projectTranscript } from '../transcript';
 import { previewTask, TASK_BODY_NOOPS } from './previewBridge';
+import { assert, settle } from '../../fixtures/harness';
 
 declare global {
   interface Window {
@@ -53,13 +54,6 @@ const page = (first: number, last: number): AgentEventEnvelope[] => Array.from({
   payload: { messageKind: 'COMMENTARY', phase: 'FINAL', text: `Message ${first + offset}` },
 }));
 
-const settle = async (): Promise<void> => {
-  await new Promise<void>(resolve => requestAnimationFrame(() => requestAnimationFrame(() => resolve())));
-};
-
-function assert(condition: boolean, message: string): asserts condition {
-  if (!condition) throw new Error(message);
-}
 
 function fixture(initial: Partial<Frame> = {}) {
   let frame: Frame = { events: page(31, 60), before: 'older', after: null, loading: false, endedAt: null, ...initial };

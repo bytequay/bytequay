@@ -16,11 +16,10 @@ import { flushSync } from 'react-dom';
 import { createRoot } from 'react-dom/client';
 import type { Bridge, RepositoryIssueSnapshotDto, RepositoryMetadataDto, WorkspaceIssueDetailDto } from '../../types';
 import WorkspaceIssuesScreen from '../WorkspaceIssuesScreen';
+import { assert, settle } from '../../fixtures/harness';
 
 type Issue = RepositoryIssueSnapshotDto['issues'][number];
 
-const settle = () => new Promise<void>(resolve => requestAnimationFrame(() => requestAnimationFrame(() => resolve())));
-function assert(condition: boolean, message: string): asserts condition { if (!condition) throw new Error(message); }
 
 async function closeKeepsIssue(): Promise<void> {
   const writes: string[] = [];

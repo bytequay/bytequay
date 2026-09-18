@@ -18,13 +18,8 @@ import { DiffViewer, type DiffAgentComment, type DiffViewerProps } from '../Pull
 import { runTaskInlineCommentScenarios } from './taskInlineCommentBrowser';
 import { centre, realClick, runCodeCommentRangeScenarios } from '../code-tests/fixtures/codeCommentRangeBrowser';
 import { resolveFinding } from '../agent-review/fixtures/resolveFindingBrowser';
+import { assert, changeInput, settle } from '../../fixtures/harness';
 
-const settle = () => new Promise<void>(resolve => requestAnimationFrame(() => requestAnimationFrame(() => resolve())));
-function assert(condition: boolean, message: string): asserts condition { if (!condition) throw new Error(message); }
-function changeInput(input: HTMLTextAreaElement, value: string) {
-  Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value')?.set?.call(input, value);
-  input.dispatchEvent(new Event('input', { bubbles: true }));
-}
 function button(host: HTMLElement, text: string) {
   const result = [...host.querySelectorAll<HTMLButtonElement>('button')].find(item => item.textContent === text);
   assert(result !== undefined, `Missing ${text} button`);

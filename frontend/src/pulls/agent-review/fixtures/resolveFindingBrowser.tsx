@@ -19,9 +19,8 @@ import { DiffViewer } from '../../PullChanges';
 import AgentReviewTab from '../AgentReviewTab';
 import type { AgentReviewDto } from '../contracts';
 import { reviewFixture } from './review';
+import { assert, settle } from '../../../fixtures/harness';
 
-const settle = () => new Promise<void>(resolve => requestAnimationFrame(() => requestAnimationFrame(() => resolve())));
-function assert(condition: boolean, message: string): asserts condition { if (!condition) throw new Error(message); }
 
 export async function resolveFinding(projection: 'review' | 'changes'): Promise<void> {
   const finding = { ...reviewFixture().findings[0], path: 'src/Example.java', startLine: 2, endLine: 2, range: 'R2', excerpt: ['new code'] };

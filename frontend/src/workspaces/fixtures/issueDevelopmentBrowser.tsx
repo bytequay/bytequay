@@ -32,9 +32,8 @@ import '../../css/agents.css';
 import '../../css/issues.css';
 import '../../css/home.css';
 import '../../css/pulls.css';
+import { assert, settle } from '../../fixtures/harness';
 
-const settle = () => new Promise<void>(resolve => requestAnimationFrame(() => requestAnimationFrame(() => resolve())));
-function assert(condition: boolean, message: string): asserts condition { if (!condition) throw new Error(message); }
 function button(host: HTMLElement, label: string): HTMLButtonElement {
   const found = [...host.querySelectorAll<HTMLButtonElement>('button')]
     .find(candidate => candidate.textContent?.trim() === label || candidate.getAttribute('aria-label') === label);

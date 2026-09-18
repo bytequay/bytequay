@@ -16,13 +16,12 @@ import { createRoot } from 'react-dom/client';
 import { ReviewRequestCard } from '../ReviewRequestCard';
 import '../../css/base.css';
 import '../../css/agents.css';
+import { assert, settle } from '../../fixtures/harness';
 
 const question = "Please provide the Maven command that you used. Why did you compile the tests directly rather than building the Snowflake module first?";
 const body = question + '\n\n' + 'Keep this complete question available when I open the card. '.repeat(12)
   + '\n' + 'module/'.repeat(36) + 'SnowflakeCatalogConfig.java';
 const detail = 'Limitations · revision 1 · reviewed head 79e7210';
-const settle = () => new Promise<void>(resolve => requestAnimationFrame(() => requestAnimationFrame(() => resolve())));
-function assert(condition: boolean, message: string): asserts condition { if (!condition) throw new Error(message); }
 
 const host = document.createElement('main');
 host.style.padding = '24px';

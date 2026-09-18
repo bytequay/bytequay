@@ -17,12 +17,9 @@ import { createRoot } from 'react-dom/client';
 import { parseAgentSkillInput } from '../../agents/contracts';
 import type { AgentSkillDto, AgentSkillInput, AgentSkillScope } from '../../types';
 import SkillsPage from '../SkillsPage';
+import { assert, settle } from '../../fixtures/harness';
 
-const settle = () => new Promise<void>(resolve => requestAnimationFrame(() => requestAnimationFrame(() => resolve())));
 
-function assert(condition: boolean, message: string): asserts condition {
-  if (!condition) throw new Error(message);
-}
 
 const SCOPE_LABELS: Record<AgentSkillScope, string> = {
   GLOBAL: 'Global',

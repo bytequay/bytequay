@@ -16,9 +16,8 @@ import { createRoot } from 'react-dom/client';
 import type { PullRequestDto } from '../../../types';
 import CodeView from '../CodeView';
 import { useCodeComments, type CodeCommentsOptions, type CommentContext } from '../useCodeComments';
+import { assert, settle } from '../../../fixtures/harness';
 
-const settle = () => new Promise<void>(resolve => requestAnimationFrame(() => requestAnimationFrame(() => resolve())));
-function assert(condition: boolean, message: string): asserts condition { if (!condition) throw new Error(message); }
 
 const text = Array.from({ length: 20 }, (_, index) => `line ${index + 1}`).join('\n');
 const hunk = (from: number, to: number) => `@@ -${from},${to - from + 1} +${from},${to - from + 1} @@\n`

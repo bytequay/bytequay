@@ -34,6 +34,7 @@ import java.util.Optional;
 @Getter
 @Setter
 public class CommitEnrichmentEntity
+        extends AssignedIdEntity<CommitEnrichmentEntity.Key>
 {
     @EmbeddedId
     private Key id;

@@ -13,6 +13,8 @@
  */
 /** Wire shapes for the Code & Tests tab, parsed in main before they reach the renderer. */
 
+import { count, object, oneOf, optionalCount, optionalText, text } from '../wireParse';
+
 /** The worktree Code & Tests reads: an Agent review's, or the development task's that owns the pull request. */
 export type CodeHostRef =
   | { kind: 'review'; reviewId: string }
@@ -114,21 +116,8 @@ function lineChanges(value: unknown): LineChangeDto[] {
   });
 }
 
-function object(value: unknown, what: string): Record<string, unknown> {
-  if (typeof value !== 'object' || value === null || Array.isArray(value)) {
-    throw new Error(`Malformed ${what} from the review code service`);
-  }
-  return value as Record<string, unknown>;
-}
 
-function text(value: unknown, what: string): string {
-  if (typeof value !== 'string') throw new Error(`Malformed ${what} from the review code service`);
-  return value;
-}
 
-function optionalText(value: unknown): string | null {
-  return typeof value === 'string' ? value : null;
-}
 
 export function parseReviewCodeFiles(value: unknown): ReviewCodeFilesDto {
   const source = object(value, 'file list');
@@ -170,10 +159,6 @@ export function parseReviewCodeFile(value: unknown): ReviewCodeFileDto {
   };
 }
 
-function count(value: unknown, what: string): number {
-  if (typeof value !== 'number' || !Number.isFinite(value)) throw new Error(`Malformed ${what} from the review code service`);
-  return value;
-}
 
 const SYMBOL_STATUSES: readonly CodeSymbolStatus[] = ['READY', 'BUSY', 'UPDATING', 'UNAVAILABLE'];
 
@@ -264,15 +249,7 @@ const RUN_STATUSES: readonly LocalRunStatus[] = [
   'RUNNING', 'PASSED', 'FAILED_ASSERTION', 'BUILD_FAILED', 'NO_TESTS_RAN', 'STOPPED', 'TIMED_OUT', 'RESULTS_UNAVAILABLE', 'INTERRUPTED',
 ];
 
-function optionalCount(value: unknown): number | null {
-  return typeof value === 'number' && Number.isFinite(value) ? value : null;
-}
 
-function oneOf<T extends string>(value: unknown, allowed: readonly T[], what: string): T {
-  const found = allowed.find(candidate => candidate === value);
-  if (found === undefined) throw new Error(`Malformed ${what} from the review code service`);
-  return found;
-}
 
 export function parseLocalRun(value: unknown): LocalRunDto {
   const source = object(value, 'run');

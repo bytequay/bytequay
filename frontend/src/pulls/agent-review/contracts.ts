@@ -13,6 +13,8 @@
  */
 /** Wire shapes for the Agent review tab. Parsed once, so a malformed field never reaches a card. */
 
+import { count, object, oneOf, optionalCount, optionalText, text } from '../wireParse';
+
 type ReviewRunState = 'RUNNING' | 'ACCEPTED' | 'INCOMPLETE' | 'STOPPED' | 'FAILED';
 type ReviewFindingState = 'OPEN' | 'RESOLVED' | 'WITHDRAWN';
 export type ReviewEvent = 'COMMENT' | 'APPROVE' | 'REQUEST_CHANGES';
@@ -210,30 +212,10 @@ export type AgentReviewDto = {
 };
 
 
-function object(value: unknown, what: string): Record<string, unknown> {
-  if (typeof value !== 'object' || value === null || Array.isArray(value)) {
-    throw new Error(`Malformed ${what} from the review service`);
-  }
-  return value as Record<string, unknown>;
-}
 
-function text(value: unknown, what: string): string {
-  if (typeof value !== 'string') throw new Error(`Malformed ${what} from the review service`);
-  return value;
-}
 
-function optionalText(value: unknown): string | null {
-  return typeof value === 'string' ? value : null;
-}
 
-function count(value: unknown, what: string): number {
-  if (typeof value !== 'number' || !Number.isFinite(value)) throw new Error(`Malformed ${what} from the review service`);
-  return value;
-}
 
-function optionalCount(value: unknown): number | null {
-  return typeof value === 'number' && Number.isFinite(value) ? value : null;
-}
 
 function flag(value: unknown): boolean {
   return value === true;
@@ -248,11 +230,6 @@ function strings(value: unknown): string[] {
 }
 
 /** A closed set the UI switches on; an unknown value is a bug, not a state to render. */
-function oneOf<T extends string>(value: unknown, allowed: readonly T[], what: string): T {
-  const found = allowed.find(candidate => candidate === value);
-  if (found === undefined) throw new Error(`Malformed ${what} from the review service`);
-  return found;
-}
 
 function parseSummary(value: unknown): ReviewSummaryDto | null {
   if (value === null || value === undefined) return null;

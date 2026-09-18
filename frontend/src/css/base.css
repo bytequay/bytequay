@@ -5,62 +5,20 @@
 /* ── V3 design tokens ─────────────────────────────────────────
    The GitHub-light palette is the single app-wide visual system. */
 :root {
-  --bg: #ffffff;
-  --bg-elev: #ffffff;
-  --bg-sidebar: #f6f8fa;
-  --bg-code: #f6f8fa;
-  --bg-hover: rgba(0, 0, 0, 0.04);
-
-  --border-strong: rgba(0, 0, 0, 0.18);
-
-  --accent-soft: rgba(139, 92, 246, 0.1);
-  --accent-border: rgba(139, 92, 246, 0.22);
-  --accent-deep: #6d40d8;
-
-  --teal: #0d9488;
-  --teal-soft: rgba(13, 148, 136, 0.1);
-  --teal-border: rgba(13, 148, 136, 0.26);
-  --teal-deep: #0f766e;
-
-  --orange: #c2632a;
-  --orange-soft: rgba(194, 99, 42, 0.1);
-  --orange-border: rgba(194, 99, 42, 0.3);
-
-  --green: #16a34a;
-  --green-soft: rgba(34, 197, 94, 0.08);
-  --green-border: rgba(34, 197, 94, 0.3);
 
   --red: #dc2626;
   --red-soft: rgba(220, 38, 38, 0.06);
   --red-border: rgba(220, 38, 38, 0.26);
 
-  /* Stage-spine hues: Development blue + CI/gate amber. Additive to the
-     V3 palette (not a parallel color system) — the timeline spine needs a
-     distinct color per lifecycle stage. */
-  --blue: #2563eb;
-  --blue-soft: rgba(37, 99, 235, 0.09);
-  --blue-border: rgba(37, 99, 235, 0.26);
-  --blue-deep: #1d4ed8;
-
-  --amber: #b45309;
-  --amber-soft: rgba(245, 158, 11, 0.13);
-  --amber-border: rgba(245, 158, 11, 0.4);
-  --amber-deep: #92400e;
-
   /* GitHub-parity semantics (unified-pr-view.md U13) — the PR view's Merged
      state and diff-line tints; everything else reuses the tokens above. */
   --purple: #8250df;
-  --purple-soft: rgba(130, 80, 223, 0.1);
-  --purple-border: rgba(130, 80, 223, 0.28);
 
   --diff-add: #dafbe1;
   --diff-add-num: #aceebb;
   --diff-del: #ffebe9;
   --diff-del-num: #ffd7d5;
   --diff-selected: #fff8c5;
-
-  --code-border: rgba(0, 0, 0, 0.1);
-  --code-bg-warm: #f6f8fa;
 
   --font: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;
   --mono: ui-monospace, "SFMono-Regular", "SF Mono", Menlo, Monaco, Consolas,
@@ -78,37 +36,27 @@
   --bg-elevated: #ffffff;
   --bg-card: #ffffff;
   --bg-input: #ffffff;
-  --bg-panel: #ffffff;
-  --bg-btn-secondary: #f6f6f6;
   --bg: #ffffff;
   --bg-elev: #ffffff;
   --bg-sidebar: rgba(249, 249, 250, 0.82);
-  --bg-code: #f6f6f6;
   --bg-hover: rgba(0, 0, 0, 0.045);
 
   --text-1: #1f2328;
   --text-2: #45484c;
   --text-3: #77797b;
   --text-4: #afb1b3;
-  --text-warm: #77797b;
-  --text-code: #77797b;
 
   --accent: #0969da;
   --accent-dark: #0550ae;
   --accent-deep: #0550ae;
   --accent-a7: rgba(9, 105, 218, 0.07);
-  --accent-a4: rgba(9, 105, 218, 0.04);
   --accent-a10: rgba(9, 105, 218, 0.1);
   --accent-a40: rgba(9, 105, 218, 0.4);
   /* Keep the V3 soft/border accent tints in the same hue as the theme
      accent — the :root defaults are violet and clash with blue text. */
-  --accent-soft: rgba(9, 105, 218, 0.1);
   --accent-border: rgba(9, 105, 218, 0.22);
 
   --border: #efeff0;
-  --border-mid: #e7e7e8;
-  --border-light: #efeff0;
-  --border-hairline: #efeff0;
   --border-input: #e0e0e0;
   --border-strong: #dadadb;
 
@@ -123,11 +71,6 @@
 
   /* CTA palette — GitHub-flavored green that matches the rest of the
      light-theme palette without competing with the blue accent. */
-  --cta-from: #2da44e;
-  --cta-to: #1a7f37;
-  --cta-border: #1f883d;
-  --cta-shadow: rgba(31, 136, 61, 0.20);
-  --cta-shadow-hover: rgba(31, 136, 61, 0.35);
 
   --font-body: var(--font);
 
@@ -233,14 +176,10 @@
   --font-size-md:  13px; /* compact titles and glyphs */
   --font-size-lg:  14px; /* section headings */
   --font-size-xl:  18px; /* page titles */
-  --font-size-2xl: 24px; /* hero numbers (KPI cards) */
 
   /* One visual contract for every app left navigation. */
   --left-nav-font: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
   --left-nav-font-weight: 400;
-  --left-nav-font-size: 14px;
-  --left-nav-nested-font-size: 13px;
-  --left-nav-meta-font-size: 12px;
   --left-nav-row-padding: 6px 10px;
   --left-nav-row-gap: 10px;
   --left-nav-row-radius: 7px;
@@ -251,24 +190,20 @@
   --left-nav-active-bg: rgba(0, 0, 0, 0.06);
 
   /* Spacing scale — 4 px grid */
-  --space-0: 0;
   --space-1: 4px;
   --space-2: 8px;
   --space-3: 12px;
   --space-4: 16px;
   --space-5: 20px;
   --space-6: 24px;
-  --space-8: 32px;
 
   /* Radius scale */
   --radius-sm:   4px;
   --radius-md:   6px;
   --radius-lg:   10px;
-  --radius-pill: 999px;
 
   /* Subtle elevation — used sparingly per the Linear playbook. */
   --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.04);
-  --shadow-md: 0 2px 8px rgba(0, 0, 0, 0.06);
 
   /* Motion */
   --motion-fast: 80ms ease-out;

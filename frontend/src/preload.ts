@@ -15,6 +15,33 @@ import { contextBridge, ipcRenderer } from 'electron';
 import { createAgentStreamReceiver } from './agents/sse';
 import type { AgentStreamMessage, Bridge, FindResult, InAppBrowserState, PullRequestDto } from './types';
 
+/**
+ * One stream subscription over a channel family.
+ *
+ * Main pushes every stream on one channel per family, so each listener keeps only what it asked for.
+ */
+function streamSubscriber(prefix: 'agent' | 'review'): Bridge['subscribeAgentTask'] {
+  return async (id, after, listener, statusOnly) => {
+    const receiver = createAgentStreamReceiver(listener);
+    const receive = (_event: unknown, message: AgentStreamMessage): void => receiver.receive(message);
+    ipcRenderer.on(`${prefix}:stream:message`, receive);
+    let subscriptionId: string | null = null;
+    try {
+      subscriptionId = await ipcRenderer.invoke(`${prefix}:stream:subscribe`, id, after, statusOnly);
+      receiver.activate(subscriptionId);
+    }
+    catch (failure) {
+      ipcRenderer.removeListener(`${prefix}:stream:message`, receive);
+      if (subscriptionId !== null) void ipcRenderer.invoke(`${prefix}:stream:unsubscribe`, subscriptionId);
+      throw failure;
+    }
+    return () => {
+      ipcRenderer.removeListener(`${prefix}:stream:message`, receive);
+      void ipcRenderer.invoke(`${prefix}:stream:unsubscribe`, subscriptionId);
+    };
+  };
+}
+
 const bridge: Bridge = {
   savePat: pat => ipcRenderer.invoke('pat:save', pat),
   hasPat: () => ipcRenderer.invoke('pat:has'),
@@ -367,26 +394,7 @@ const bridge: Bridge = {
   readAgentReviewApprovals: (reviewId, taskId, turnId) => ipcRenderer.invoke('review:approvals:pending', reviewId, taskId, turnId),
   resolveAgentReviewApproval: (reviewId, approvalId, decision) =>
     ipcRenderer.invoke('review:approvals:resolve', reviewId, approvalId, decision),
-  subscribeAgentReview: async (reviewId, after, listener, statusOnly) => {
-    // Main pushes every review on one channel, so each listener keeps only what it asked for.
-    const receiver = createAgentStreamReceiver(listener);
-    const receive = (_event: unknown, message: AgentStreamMessage): void => receiver.receive(message);
-    ipcRenderer.on('review:stream:message', receive);
-    let subscriptionId: string | null = null;
-    try {
-      subscriptionId = await ipcRenderer.invoke('review:stream:subscribe', reviewId, after, statusOnly);
-      receiver.activate(subscriptionId);
-    }
-    catch (failure) {
-      ipcRenderer.removeListener('review:stream:message', receive);
-      if (subscriptionId !== null) void ipcRenderer.invoke('review:stream:unsubscribe', subscriptionId);
-      throw failure;
-    }
-    return () => {
-      ipcRenderer.removeListener('review:stream:message', receive);
-      void ipcRenderer.invoke('review:stream:unsubscribe', subscriptionId);
-    };
-  },
+  subscribeAgentReview: streamSubscriber('review'),
 
   addReviewDraftComment: (repo, number, expectedVersion, comment) =>
     ipcRenderer.invoke('review:draft:add-comment', repo, number, expectedVersion, comment),
@@ -401,26 +409,7 @@ const bridge: Bridge = {
   submitReviewDraft: (repo, number, expectedVersion, body, event) =>
     ipcRenderer.invoke('review:draft:submit', repo, number, expectedVersion, body, event),
 
-  subscribeAgentTask: async (taskId, after, listener, statusOnly) => {
-    // Main pushes every task on one channel, so each listener keeps only what it asked for.
-    const receiver = createAgentStreamReceiver(listener);
-    const receive = (_event: unknown, message: AgentStreamMessage): void => receiver.receive(message);
-    ipcRenderer.on('agent:stream:message', receive);
-    let subscriptionId: string | null = null;
-    try {
-      subscriptionId = await ipcRenderer.invoke('agent:stream:subscribe', taskId, after, statusOnly);
-      receiver.activate(subscriptionId);
-    }
-    catch (failure) {
-      ipcRenderer.removeListener('agent:stream:message', receive);
-      if (subscriptionId !== null) void ipcRenderer.invoke('agent:stream:unsubscribe', subscriptionId);
-      throw failure;
-    }
-    return () => {
-      ipcRenderer.removeListener('agent:stream:message', receive);
-      void ipcRenderer.invoke('agent:stream:unsubscribe', subscriptionId);
-    };
-  },
+  subscribeAgentTask: streamSubscriber('agent'),
 };
 
 contextBridge.exposeInMainWorld('bridge', bridge);

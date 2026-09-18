@@ -11,56 +11,17 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-import { execFile } from 'node:child_process';
-import { mkdtemp, rm, writeFile } from 'node:fs/promises';
-import { tmpdir } from 'node:os';
-import { join, resolve } from 'node:path';
-import { promisify } from 'node:util';
-import electron from 'electron';
-import { build } from 'vite';
+
 import { expect, it } from 'vitest';
+import { runBrowserFixture, type ScenarioResult } from '../fixtures/browserFixture';
 
 it('keeps a closed issue in view until the reader leaves it in Chromium', async () => {
-  const directory = await mkdtemp(join(tmpdir(), 'bytequay-issues-screen-'));
-  try {
-    await build({
-      configFile: false,
-      logLevel: 'silent',
-      define: { 'process.env.NODE_ENV': '"production"' },
-      esbuild: { jsx: 'automatic', jsxDev: false },
-      build: {
-        outDir: directory,
-        emptyOutDir: false,
-        lib: { entry: resolve('src/workspaces/fixtures/issuesScreenBrowser.tsx'), name: 'IssuesScreenTests', formats: ['iife'], fileName: () => 'renderer.js' },
-      },
-    });
-    await writeFile(
-      join(directory, 'index.html'),
-      '<!doctype html><link rel="stylesheet" href="style.css"><body><script src="renderer.js"></script>',
-    );
-    await writeFile(join(directory, 'main.cjs'), `
-      const { app, BrowserWindow } = require('electron');
-      app.setPath('userData', ${JSON.stringify(join(directory, 'profile'))});
-      app.whenReady().then(async () => {
-        const window = new BrowserWindow({ show: false, webPreferences: { backgroundThrottling: false } });
-        window.webContents.session.webRequest.onBeforeRequest({ urls: ['http://*/*', 'https://*/*'] }, (_details, callback) => callback({ cancel: true }));
-        try {
-          await window.loadFile(${JSON.stringify(join(directory, 'index.html'))});
-          const results = await window.webContents.executeJavaScript('IssuesScreenTests.run()');
-          process.stdout.write(JSON.stringify(results) + '\\n');
-          app.exit(0);
-        } catch (error) { console.error(error); app.exit(1); }
-      });
-    `);
-    const environment = { ...process.env };
-    delete environment.ELECTRON_RUN_AS_NODE;
-    const executable = electron as unknown as string;
-    const args = [join(directory, 'main.cjs')];
-    const command = process.platform === 'linux' && !process.env.DISPLAY ? 'xvfb-run' : executable;
-    const result = await promisify(execFile)(command, command === executable ? args : ['-a', executable, ...args], { env: environment, timeout: 20_000 });
-    const results = JSON.parse(result.stdout.trim()) as { name: string; error?: string }[];
-    expect(results).toHaveLength(1);
-    expect(results.filter(result => result.error !== undefined)).toEqual([]);
-  }
-  finally { await rm(directory, { recursive: true, force: true }); }
+  const results = await runBrowserFixture<ScenarioResult[]>({
+    prefix: 'bytequay-issues-screen-',
+    entry: 'src/workspaces/fixtures/issuesScreenBrowser.tsx',
+    global: 'IssuesScreenTests',
+    styles: true,
+  });
+  expect(results).toHaveLength(1);
+  expect(results.filter(result => result.error !== undefined)).toEqual([]);
 }, 30_000);

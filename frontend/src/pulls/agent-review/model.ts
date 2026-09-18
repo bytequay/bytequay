@@ -20,6 +20,7 @@ import type {
   ReviewMessageDto,
   ReviewRunDto,
 } from './contracts';
+import { formatDuration } from '../../agents/transcript';
 
 /**
  * What the review is doing, derived from task, turn and result facts. There is no stored review
@@ -169,9 +170,7 @@ export function reviewElapsed(review: AgentReviewDto, now: number): string | nul
   }
   const started = Date.parse(run.createdAt);
   if (Number.isNaN(started)) return null;
-  const seconds = Math.max(0, Math.floor((now - started) / 1000));
-  const minutes = Math.floor(seconds / 60);
-  return minutes === 0 ? `${seconds}s` : `${minutes}m ${String(seconds % 60).padStart(2, '0')}s`;
+  return formatDuration(Math.max(0, now - started));
 }
 
 export function shortSha(sha: string): string {

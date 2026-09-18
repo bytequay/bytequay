@@ -22,7 +22,7 @@ import AgentReviewTab, { type ReviewNavigationTarget } from './agent-review/Agen
 import CodeTestsTab from './code-tests/CodeTestsTab';
 import PullRequestTaskActions from './PullRequestTaskActions';
 import type { ReviewCardFocus } from '../agents/ReviewRequestCard';
-import type { AgentReviewDto, ReviewDraftItemDto } from './agent-review/contracts';
+import type { AgentReviewDto, ReviewDraftItemDto, ReviewEvent } from './agent-review/contracts';
 import { pendingDraftCount, reviewStatus } from './agent-review/model';
 import { useLocalReviewThreads } from './local-review/useLocalReviewThreads';
 import type { LocalReviewThreads } from './local-review/types';
@@ -1468,7 +1468,6 @@ export function mergeStatus(detail: PullRequestDetailDto) {
   return { pending, failing, successful, unresolved, checksReported: detail.checkRuns.length > 0, state };
 }
 
-type ReviewEvent = 'COMMENT' | 'APPROVE' | 'REQUEST_CHANGES';
 
 export function ReviewDialog({
   pr,

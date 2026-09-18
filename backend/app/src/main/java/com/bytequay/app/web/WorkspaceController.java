@@ -36,7 +36,6 @@ import com.bytequay.app.workspace.WorkspaceSummary;
 import com.bytequay.core.domain.PrTimelineEvent;
 import com.bytequay.core.domain.PullRequestPage;
 import com.bytequay.core.domain.RepoRef;
-import com.bytequay.core.domain.RepositoryContributor;
 import com.bytequay.core.domain.RepositoryIssueDetail;
 import com.bytequay.core.domain.RepositoryMetadataSnapshot;
 import com.google.common.collect.ImmutableMap;
@@ -164,12 +163,6 @@ public class WorkspaceController
     public RepositoryMetadataSnapshot metadata(@PathVariable String workspaceId)
     {
         return metadata.getSnapshot(workspaceId);
-    }
-
-    @GetMapping("/{workspaceId}/contributors")
-    public List<RepositoryContributor> contributors(@PathVariable String workspaceId)
-    {
-        return metadata.getSnapshot(workspaceId).contributors();
     }
 
     @GetMapping("/{workspaceId}/issues")

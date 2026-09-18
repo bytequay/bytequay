@@ -27,14 +27,6 @@ public record LocalReviewView(String id, String taskId, String workspaceId, Stri
         boolean resolved, long version, Instant createdAt, Instant updatedAt, long taskVersion, List<Message> messages,
         Optional<LocalReviewLearningAnchor> learningAnchor)
 {
-    public LocalReviewView(String id, String taskId, String workspaceId, String repo, int number,
-            String path, String side, int startLine, int line, Optional<String> baseSha, Optional<String> headSha, String code,
-            boolean resolved, long version, Instant createdAt, Instant updatedAt, long taskVersion, List<Message> messages)
-    {
-        this(id, taskId, workspaceId, repo, number, path, side, startLine, line, baseSha, headSha, code,
-                resolved, version, createdAt, updatedAt, taskVersion, messages, Optional.empty());
-    }
-
     public LocalReviewView
     {
         messages = ImmutableList.copyOf(messages);

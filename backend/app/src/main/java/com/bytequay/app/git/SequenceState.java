@@ -78,11 +78,6 @@ public record SequenceState(
             stages = ImmutableList.copyOf(requireNonNull(stages, "stages is null"));
         }
 
-        public ConflictedPath(String path, Type type)
-        {
-            this(path, type, ImmutableList.of());
-        }
-
         /** One immutable side recorded by {@code git ls-files -u}. */
         public record IndexStage(int stage, String mode, String blobSha)
         {

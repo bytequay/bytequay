@@ -302,12 +302,11 @@ final class ClaudeProtocol
     @JsonTypeInfo(use = JsonTypeInfo.Id.NAME, property = "type", defaultImpl = UnknownContentBlock.class)
     @JsonSubTypes({
             @JsonSubTypes.Type(name = "text", value = TextBlock.class),
-            @JsonSubTypes.Type(name = "thinking", value = ThinkingBlock.class),
             @JsonSubTypes.Type(name = "tool_use", value = ToolUseBlock.class),
             @JsonSubTypes.Type(name = "tool_result", value = ToolResultBlock.class),
     })
     sealed interface ContentBlock
-            permits TextBlock, ThinkingBlock, ToolUseBlock, ToolResultBlock, UnknownContentBlock {}
+            permits TextBlock, ToolUseBlock, ToolResultBlock, UnknownContentBlock {}
 
     record TextBlock(String text)
             implements ContentBlock
@@ -317,9 +316,6 @@ final class ClaudeProtocol
             requireNonNull(text, "text is null");
         }
     }
-
-    record ThinkingBlock()
-            implements ContentBlock {}
 
     record ToolUseBlock(String id, String name, ToolInput input)
             implements ContentBlock
@@ -415,12 +411,9 @@ final class ClaudeProtocol
     @JsonTypeInfo(use = JsonTypeInfo.Id.NAME, property = "type", defaultImpl = UnknownDelta.class)
     @JsonSubTypes({
             @JsonSubTypes.Type(name = "text_delta", value = TextDelta.class),
-            @JsonSubTypes.Type(name = "input_json_delta", value = InputJsonDelta.class),
-            @JsonSubTypes.Type(name = "thinking_delta", value = ThinkingDelta.class),
-            @JsonSubTypes.Type(name = "signature_delta", value = SignatureDelta.class),
     })
     sealed interface Delta
-            permits TextDelta, InputJsonDelta, ThinkingDelta, SignatureDelta, UnknownDelta {}
+            permits TextDelta, UnknownDelta {}
 
     record TextDelta(String text)
             implements Delta
@@ -430,21 +423,6 @@ final class ClaudeProtocol
             requireNonNull(text, "text is null");
         }
     }
-
-    record InputJsonDelta(@JsonProperty("partial_json") String partialJson)
-            implements Delta
-    {
-        InputJsonDelta
-        {
-            requireNonNull(partialJson, "partialJson is null");
-        }
-    }
-
-    record ThinkingDelta()
-            implements Delta {}
-
-    record SignatureDelta()
-            implements Delta {}
 
     record UnknownDelta()
             implements Delta {}

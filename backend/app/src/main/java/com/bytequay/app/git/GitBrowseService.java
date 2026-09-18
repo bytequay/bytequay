@@ -215,10 +215,7 @@ public class GitBrowseService
 
     public String reword(Path repository, String branch, String sha, String message)
     {
-        checkRewriteAllowed(repository, branch, sha, sha);
-        String replacement = replacementCommit(repository, sha, sha, message);
-        replay(repository, replacement, sha, branch);
-        return replacement;
+        return squash(repository, branch, sha, sha, message);
     }
 
     /**

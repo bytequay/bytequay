@@ -20,6 +20,7 @@ import com.bytequay.agent.core.TaskResources;
 import com.bytequay.agent.core.TaskWorktree;
 import com.bytequay.app.git.GitCommandRunner;
 import com.bytequay.app.git.GitCommandRunner.Result;
+import com.google.common.collect.ImmutableList;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
@@ -281,7 +282,7 @@ class TestCodeGraphBaselines
     void baselineDeletionRefusesSymlinkedDirectoriesAndPathEscape(@TempDir Path temp)
             throws IOException
     {
-        PinnedCodeGraphService service = service(new CodeGraphCli(Optional.empty(), git), temp);
+        PinnedCodeGraphService service = service(new CodeGraphCli(Optional.empty(), git, ImmutableList.of()), temp);
         Path base = service.baselineDirectory(REPOSITORY);
         Path external = Files.createDirectory(temp.resolve("outside"));
         Path preserved = Files.writeString(external.resolve("keep.txt"), "keep");
@@ -326,7 +327,7 @@ class TestCodeGraphBaselines
 
         RecordingCli(GitCommandRunner git, Consumer<String> hook)
         {
-            super(BUNDLE, git);
+            super(BUNDLE, git, ImmutableList.of());
             this.hook = hook;
         }
 

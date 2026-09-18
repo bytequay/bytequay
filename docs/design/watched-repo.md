@@ -671,7 +671,6 @@ GET    /api/workspaces/{workspaceId}/issues/{issueNumber}/detail
 POST   /api/workspaces/{workspaceId}/issues/{issueNumber}/detail/refresh
 GET    /api/workspaces/{workspaceId}/pull-requests
 POST   /api/workspaces/{workspaceId}/pull-requests/sync
-GET    /api/workspaces/{workspaceId}/contributors
 GET    /prs/users?repo={owner/repo}[&workspaceId={workspaceId}]
 
 GET    /api/workspaces/{workspaceId}/git/overview

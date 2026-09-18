@@ -61,11 +61,6 @@ public class CodeGraphCli
     private final GitCommandRunner runner;
     private final List<Path> protectedRoots;
 
-    public CodeGraphCli(Optional<Path> home, GitCommandRunner runner)
-    {
-        this(home, runner, ImmutableList.of());
-    }
-
     /**
      * @param protectedRoots directories the helper may not read except for the task's own source,
      *        index, and scratch beneath them: the agent runtime root and the workspace root

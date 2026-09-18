@@ -159,7 +159,7 @@ class TestPinnedCodeGraphService
         assumeBundle();
         Fixture fixture = Fixture.create(temp, git);
         PinnedCodeGraphService service = new PinnedCodeGraphService(
-                new CodeGraphCli(BUNDLE, git), git, baselines, PinnedCodeGraphService.DEFAULT_RESULT_LIMIT_BYTES, LONG, Duration.ofMillis(1), LONG, LONG, Runnable::run);
+                new CodeGraphCli(BUNDLE, git, ImmutableList.of()), git, baselines, PinnedCodeGraphService.DEFAULT_RESULT_LIMIT_BYTES, LONG, Duration.ofMillis(1), LONG, LONG, Runnable::run);
         assertThatThrownBy(() -> service.explore(fixture.worktree, fixture.resources, "alphaOne"))
                 .isInstanceOf(CodeGraphException.class)
                 .hasMessageContaining("timed out");
@@ -185,7 +185,7 @@ class TestPinnedCodeGraphService
             throws IOException
     {
         Fixture fixture = Fixture.create(temp, git);
-        CodeGraphCli cli = new CodeGraphCli(Optional.of(temp.resolve("no-bundle")), git);
+        CodeGraphCli cli = new CodeGraphCli(Optional.of(temp.resolve("no-bundle")), git, ImmutableList.of());
         assertThat(cli.available()).isFalse();
         PinnedCodeGraphService service = new PinnedCodeGraphService(cli, git, baselines);
         assertThatThrownBy(() -> service.explore(fixture.worktree, fixture.resources, "alphaOne"))
@@ -199,7 +199,7 @@ class TestPinnedCodeGraphService
             throws IOException
     {
         Fixture fixture = Fixture.create(temp, git);
-        PinnedCodeGraphService service = new PinnedCodeGraphService(new CodeGraphCli(Optional.empty(), git), git, baselines);
+        PinnedCodeGraphService service = new PinnedCodeGraphService(new CodeGraphCli(Optional.empty(), git, ImmutableList.of()), git, baselines);
         assertThatThrownBy(() -> service.explore(fixture.worktree, fixture.resources, " ")).isInstanceOf(IllegalArgumentException.class);
         String oversized = "x".repeat(PinnedCodeGraphService.MAXIMUM_QUERY_LENGTH + 1);
         assertThatThrownBy(() -> service.explore(fixture.worktree, fixture.resources, oversized)).isInstanceOf(IllegalArgumentException.class);
@@ -223,7 +223,7 @@ class TestPinnedCodeGraphService
         Fixture fixture = Fixture.create(temp, git);
         List<Runnable> queued = new ArrayList<>();
         PinnedCodeGraphService service = new PinnedCodeGraphService(
-                new CodeGraphCli(BUNDLE, git), git, baselines, PinnedCodeGraphService.DEFAULT_RESULT_LIMIT_BYTES, LONG, LONG, LONG, Duration.ofSeconds(5), queued::add);
+                new CodeGraphCli(BUNDLE, git, ImmutableList.of()), git, baselines, PinnedCodeGraphService.DEFAULT_RESULT_LIMIT_BYTES, LONG, LONG, LONG, Duration.ofSeconds(5), queued::add);
         assertThat(service.searchSymbols(fixture.worktree, fixture.resources, "alphaOne", 5)).isEqualTo(CodeSymbolResult.UPDATING);
         queued.forEach(Runnable::run);
 
@@ -403,7 +403,7 @@ class TestPinnedCodeGraphService
 
     private PinnedCodeGraphService service(int resultLimitBytes, Duration timeout)
     {
-        return new PinnedCodeGraphService(new CodeGraphCli(BUNDLE, git), git, baselines, resultLimitBytes, timeout, timeout, timeout, timeout, Runnable::run);
+        return new PinnedCodeGraphService(new CodeGraphCli(BUNDLE, git, ImmutableList.of()), git, baselines, resultLimitBytes, timeout, timeout, timeout, timeout, Runnable::run);
     }
 
     private static void assumeBundle()

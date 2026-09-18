@@ -457,15 +457,7 @@ public class ReviewController
         return value;
     }
 
-    private static int required(Integer value, String field)
-    {
-        if (value == null) {
-            throw new ReviewInvalidRequestException(field + " is required");
-        }
-        return value;
-    }
-
-    private static long required(Long value, String field)
+    private static <T extends Number> T required(T value, String field)
     {
         if (value == null) {
             throw new ReviewInvalidRequestException(field + " is required");

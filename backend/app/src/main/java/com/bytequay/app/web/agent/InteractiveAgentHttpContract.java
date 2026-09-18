@@ -253,13 +253,6 @@ final class InteractiveAgentHttpContract
             this(taskId, workspaceId, message, laneId, defaults, idempotencyKey, Optional.empty(), Optional.empty());
         }
 
-        CreateTaskRequest(
-                String taskId, String workspaceId, String message, String laneId, TaskDefaults defaults,
-                String idempotencyKey, Optional<DevelopmentAutomationDto> developmentAutomation)
-        {
-            this(taskId, workspaceId, message, laneId, defaults, idempotencyKey, developmentAutomation, Optional.empty());
-        }
-
         CreateTaskRequest
         {
             requireNonNull(issueSource, "issueSource is null");
@@ -319,11 +312,6 @@ final class InteractiveAgentHttpContract
         TaskDefaults(Optional<String> model, Optional<String> effort, String permissionPolicy)
         {
             this(model, effort, permissionPolicy, Optional.empty(), Optional.empty());
-        }
-
-        TaskDefaults(Optional<String> model, Optional<String> effort, String permissionPolicy, Optional<String> serviceTier)
-        {
-            this(model, effort, permissionPolicy, serviceTier, Optional.empty());
         }
 
         TaskDefaults
@@ -422,11 +410,6 @@ final class InteractiveAgentHttpContract
     /** Input for the running turn, or for the queue behind it; the version is the one the caller saw. */
     record InputRequest(String message, List<String> attachments, Long expectedVersion, Optional<DevelopmentAutomationDto> developmentAutomation)
     {
-        InputRequest(String message, List<String> attachments, Long expectedVersion)
-        {
-            this(message, attachments, expectedVersion, Optional.empty());
-        }
-
         InputRequest
         {
             requireNonNull(developmentAutomation, "developmentAutomation is null");

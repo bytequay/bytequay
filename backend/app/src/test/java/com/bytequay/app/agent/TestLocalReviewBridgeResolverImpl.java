@@ -47,7 +47,7 @@ class TestLocalReviewBridgeResolverImpl
         LocalReviewBridgeResolverImpl resolver = new LocalReviewBridgeResolverImpl(beans.getBeanProvider(LocalReviewService.class), mapper);
         LocalReviewView thread = new LocalReviewView("comment-1", "task-1", "workspace-1", "owner/repo", 7,
                 "Example.java", "RIGHT", 1, 2, Optional.of("base"), Optional.of("head"), "selected code", false, 1,
-                Instant.EPOCH, Instant.EPOCH, 0, ImmutableList.of());
+                Instant.EPOCH, Instant.EPOCH, 0, ImmutableList.of(), Optional.empty());
         when(service.availableForAgent("task-1")).thenReturn(true);
         when(service.listForAgent("task-1")).thenReturn(ImmutableList.of(thread));
         when(service.replyFromAgent("task-1", "comment-1", "Answer", "reply-1")).thenReturn(thread);
@@ -106,7 +106,7 @@ class TestLocalReviewBridgeResolverImpl
         List<LocalReviewView> threads = IntStream.range(0, 500)
                 .mapToObj(index -> new LocalReviewView("comment-" + index, "task-1", "workspace-1", "owner/repo", 7,
                         "\u0001".repeat(4096), "RIGHT", 1, 2, Optional.empty(), Optional.empty(), "\u0001".repeat(60_000),
-                        index != 499, 1, Instant.EPOCH, Instant.EPOCH, 0, messages))
+                        index != 499, 1, Instant.EPOCH, Instant.EPOCH, 0, messages, Optional.empty()))
                 .toList();
         when(service.availableForAgent("task-1")).thenReturn(true);
         when(service.listForAgent("task-1")).thenReturn(threads);

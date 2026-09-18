@@ -12,7 +12,6 @@
  * limitations under the License.
  */
 
-import React from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { expect, it } from 'vitest';
 import type { AgentTaskDto } from '../types';

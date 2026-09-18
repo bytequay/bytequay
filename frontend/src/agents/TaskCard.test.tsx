@@ -19,7 +19,7 @@ import { parseAgentEventSequence } from './events';
 import { AgentHomeView } from './AgentHome';
 import { createPreviewBridge, previewTask } from './fixtures/previewBridge';
 import { TaskComposer } from './AgentTasksView';
-import { gridColumnWidth, needsAttention, TaskCard } from './TaskCard';
+import { gridColumnWidth, TaskCard } from './TaskCard';
 import { TaskOverviewView } from './TaskOverview';
 import { NO_AGENT_CAPABILITIES } from './capabilities';
 import type { ModelOptionDto, ModelProviderDto } from '../types';
@@ -98,15 +98,6 @@ describe('task window', () => {
     expect(gridColumnWidth(900)).toBe(289);
     expect(gridColumnWidth(1400)).toBe(267);
     expect(gridColumnWidth(0)).toBe(250);
-  });
-
-  it('brings a hidden window back for recovery or an approval, and for nothing else', () => {
-    const idle = task('t-1', 'Audit storage');
-    expect(needsAttention(idle, [])).toBe(false);
-    expect(needsAttention({ ...idle, mutationClaim: { kind: 'RECOVERY', ownerId: 'launch-1', acquiredAt: '2026-08-20T10:00:00Z' } }, [])).toBe(true);
-    // The fixture leaves one approval open; without it nothing waits on the user.
-    expect(needsAttention(idle, events)).toBe(true);
-    expect(needsAttention(idle, events.filter((event) => event.type !== 'approval_requested'))).toBe(false);
   });
 
   it('marks the task behind the overview and offers to close idle tasks only', () => {

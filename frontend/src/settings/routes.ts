@@ -130,8 +130,6 @@ export function settingsRoute(section: SettingsSection, workspaceId?: string | n
     : `#/settings/workspace/${entry.slug}`;
 }
 
-export type SettingsLocation = { section: SettingsSection; workspaceId: string | null };
-
 /**
  * Reads a settings hash. Returns null for anything that is not a settings
  * route, and a null section for a bare `#/settings` so the caller can restore

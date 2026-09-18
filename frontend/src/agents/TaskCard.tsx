@@ -37,14 +37,6 @@ export function gridColumnWidth(containerWidth: number, min = HOME_WINDOW_MIN, g
   return Math.floor((containerWidth - gap * (columns - 1)) / columns);
 }
 
-/** Whether a put-away window must come back: the task is stuck, or waiting on the user. */
-export function needsAttention(task: AgentTaskDto, events: AgentEventEnvelope[]): boolean {
-  if (task.state === 'OPEN' && task.mutationClaim?.kind === 'RECOVERY') return true;
-  return projectTranscript(events).some((turn) => turn.blocks.some(
-    (block) => block.kind === 'approval' && block.actionable && block.outcome === null,
-  ));
-}
-
 /**
  * One task as the design's "task window": its own screen, scaled to fit, with a footer that names
  * it. Nothing inside the thumbnail is interactive — the thumbnail opens the task, and the footer

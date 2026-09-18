@@ -901,7 +901,7 @@ public class ReviewTools
             return call.run().diff().stream().map(DiffFile::filename).collect(toImmutableList());
         }
         // Reverted-to-base paths disappear from the publication diff; binary patches cannot establish content equality either.
-        GitCommandRunner.Result changed = git.run(workspaces.requireReadableRepository(call.review().workspaceId()).repository(),
+        GitCommandRunner.Result changed = git.run(workspaces.requireReadyRepository(call.review().workspaceId()).repository(),
                 "diff", "--name-only", "--no-renames", "-z", previous.orElseThrow().headSha(), call.run().headSha(), "--");
         if (!changed.successful() || changed.truncated()) {
             throw new ReviewInvalidRequestException("coverage: the frozen incremental file list is unavailable; report incomplete coverage");
@@ -1024,7 +1024,7 @@ public class ReviewTools
             case "previous" -> call.run().priorHeadSha().orElseThrow(() -> new ReviewInvalidRequestException("revision: no previously reviewed head"));
             default -> throw new ReviewInvalidRequestException("revision: use head, base (merge base), or previous");
         };
-        GitCommandRunner.Result shown = git.run(workspaces.requireReadableRepository(call.review().workspaceId()).repository(), "show", sha + ":" + path);
+        GitCommandRunner.Result shown = git.run(workspaces.requireReadyRepository(call.review().workspaceId()).repository(), "show", sha + ":" + path);
         if (!shown.successful()) {
             throw new ReviewInvalidRequestException("path: " + path + " does not exist at the selected frozen revision");
         }

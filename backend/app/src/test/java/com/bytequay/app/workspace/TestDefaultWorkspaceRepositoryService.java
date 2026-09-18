@@ -138,9 +138,6 @@ class TestDefaultWorkspaceRepositoryService
         assertThatThrownBy(() -> service.requireReadyRepository(pending.id()))
                 .isInstanceOfSatisfying(WorkspaceException.class,
                         failure -> assertThat(failure.code()).isEqualTo("WORKSPACE_CODE_NOT_READY"));
-        assertThatThrownBy(() -> service.requireReadableRepository(pending.id()))
-                .isInstanceOfSatisfying(WorkspaceException.class,
-                        failure -> assertThat(failure.code()).isEqualTo("WORKSPACE_CODE_NOT_READY"));
     }
 
     @Test
@@ -280,13 +277,11 @@ class TestDefaultWorkspaceRepositoryService
 
         assertThat(service.requireReadyRepository(unsynced.id()).repository())
                 .isEqualTo(Path.of("/tmp/bytequay-workspaces", unsynced.id(), "repository"));
-        assertThat(service.requireReadableRepository(unsynced.id()).repository())
-                .isEqualTo(Path.of("/tmp/bytequay-workspaces", unsynced.id(), "repository"));
         verify(provisioning).synchronizeCode(unsynced.id());
     }
 
     @Test
-    void usesTheLastSuccessfulCodeSyncForReadyAndReadableRepositories()
+    void usesTheLastSuccessfulCodeSyncForAReadyRepository()
     {
         InMemoryWorkspaceStore store = new InMemoryWorkspaceStore();
         GitHubAccountClient gitHub = mock(GitHubAccountClient.class);
@@ -296,8 +291,6 @@ class TestDefaultWorkspaceRepositoryService
         Workspace synced = store.save(watch(service, 100)
                 .withCodeSyncAt(Optional.of(NOW), NOW));
 
-        assertThat(service.requireReadableRepository(synced.id()).repository())
-                .isEqualTo(Path.of("/tmp/bytequay-workspaces", synced.id(), "repository"));
         assertThat(service.requireReadyRepository(synced.id()).repository())
                 .isEqualTo(Path.of("/tmp/bytequay-workspaces", synced.id(), "repository"));
     }

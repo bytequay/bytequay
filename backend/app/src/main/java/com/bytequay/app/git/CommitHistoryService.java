@@ -70,7 +70,7 @@ public class CommitHistoryService
     {
         requireNonNull(ref, "ref is null");
         checkArgument(limit > 0, "limit must be positive");
-        WorkspaceRepositoryContext context = workspaces.requireReadableRepository(workspaceId);
+        WorkspaceRepositoryContext context = workspaces.requireReadyRepository(workspaceId);
         ResolvedCommitHistoryRef resolved = CommitHistoryRouting.resolve(context, ref);
         // Refresh metadata is committed after enrichment. Reading its token
         // first guarantees a concurrent completion causes one later reload.

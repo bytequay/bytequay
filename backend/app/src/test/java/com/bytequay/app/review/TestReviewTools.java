@@ -122,7 +122,7 @@ class TestReviewTools
         tools = new ReviewTools(store, pullRequests, repositories, events, workspaces, git, objectMapper,
                 new ReviewLocks(), assignments, Clock.fixed(NOW, ZoneOffset.UTC));
 
-        when(workspaces.requireReadableRepository(WORKSPACE_ID)).thenReturn(workspaceRepository());
+        when(workspaces.requireReadyRepository(WORKSPACE_ID)).thenReturn(workspaceRepository());
         when(git.run(repository, "show", HEAD_SHA + ":" + DIFF_PATH)).thenReturn(new GitCommandRunner.Result(0, "alpha\nbeta\ngamma\n", false));
 
         bridge = tools.bridge(TASK_ID).orElseThrow();

@@ -183,7 +183,7 @@ class TestReviewCodeService
         when(store.findReview(REVIEW_ID)).thenReturn(Optional.of(review(AgentReview.State.OPEN)));
         when(store.listRuns(REVIEW_ID)).thenReturn(ImmutableList.of(run(head)));
         when(reviews.task(REVIEW_ID)).thenReturn(openTask());
-        when(workspaces.requireReadableRepository(WORKSPACE_ID)).thenReturn(new WorkspaceRepositoryContext(
+        when(workspaces.requireReadyRepository(WORKSPACE_ID)).thenReturn(new WorkspaceRepositoryContext(
                 WORKSPACE_ID, repository, 1, REPOSITORY, OptionalLong.empty(), REPOSITORY, "origin", "origin", "main", ImmutableList.of()));
         Path runtime = directory.resolve("runtime").toAbsolutePath();
         when(resources.require(taskId)).thenReturn(new TaskResources(runtime, runtime.resolve("events.jsonl"), runtime.resolve("blobs"), runtime.resolve("provider")));

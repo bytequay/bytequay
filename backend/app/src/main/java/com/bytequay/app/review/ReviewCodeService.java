@@ -636,7 +636,7 @@ public class ReviewCodeService
         if (baseRef.isEmpty()) {
             return Optional.empty();
         }
-        WorkspaceRepositoryContext workspace = workspaces.requireReadableRepository(host.workspaceId());
+        WorkspaceRepositoryContext workspace = workspaces.requireReadyRepository(host.workspaceId());
         // The remote assigning a pull request to a task, and starting a review, fetch the base branch into.
         String remote = workspace.selectedRepository().equals(workspace.monitoredRepository()) ? "origin" : workspace.sourceRemote();
         Result base = git.runStdout(checkout, "merge-base", "HEAD", "refs/remotes/" + remote + "/" + baseRef.orElseThrow());
@@ -655,8 +655,8 @@ public class ReviewCodeService
 
     private Path repository(AgentTask task)
     {
-        // Both workspace accessors synchronize only a never-synchronized workspace, which a task with a worktree cannot have.
-        return workspaces.requireReadableRepository(task.workspaceId().orElseThrow()).repository();
+        // The workspace accessor synchronizes only a never-synchronized workspace, which a task with a worktree cannot have.
+        return workspaces.requireReadyRepository(task.workspaceId().orElseThrow()).repository();
     }
 
     /** Reads up to one byte past the size cap, refusing a path whose real location leaves the working copy. */

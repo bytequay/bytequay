@@ -206,12 +206,6 @@ public class DefaultWorkspaceRepositoryService
         return repositoryContext(requireSynchronizedWorkspace(workspaceId));
     }
 
-    @Override
-    public WorkspaceRepositoryContext requireReadableRepository(String workspaceId)
-    {
-        return repositoryContext(requireSynchronizedWorkspace(workspaceId));
-    }
-
     private Workspace requireSynchronizedWorkspace(String workspaceId)
     {
         Workspace workspace = requireWorkspace(workspaceId);

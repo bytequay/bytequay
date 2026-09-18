@@ -25,6 +25,7 @@ import WorkflowPage from '../settings/WorkflowPage';
 import { entryFor, matchesSearch, settingsLocationFromRoute, settingsRoute } from '../settings/routes';
 import type { AgentQueuedInputDto, AgentTaskDto, AgentTaskDefaultsDto, AgentTurnDto, ModelProviderDto } from '../types';
 import { NO_AGENT_CAPABILITIES } from './capabilities';
+import { TASK_BODY_NOOPS } from './fixtures/previewBridge';
 import { AgentTaskBody } from './AgentTaskScreen';
 
 const defaults = DEFAULT_DEVELOPMENT_AUTOMATION;
@@ -105,8 +106,7 @@ describe('waiting for the user', () => {
       turns: { [turn.id]: { ...turn, developmentResult: { readyForDelivery: true, message: null } }, [commitQuestion.id]: commitQuestion } })).toBe('Which files should be committed?');
   });
   it('renders the question before the composer without claiming publication', () => {
-    const html = renderToStaticMarkup(<AgentTaskBody state={state} models={[]} onBack={() => {}} onSend={() => {}} onCancel={() => {}}
-      onComplete={() => {}} onDecide={() => {}} onCompose={() => {}} onSelectModel={() => {}} onStopServer={() => {}} onMarkFailed={() => {}} />);
+    const html = renderToStaticMarkup(<AgentTaskBody state={state} models={[]} {...TASK_BODY_NOOPS} />);
     expect(html).toContain('Waiting for your answer');
     expect(html).toContain(report.message);
     expect(html.indexOf(report.message)).toBeLessThan(html.indexOf('agt-compose__input'));
@@ -115,9 +115,7 @@ describe('waiting for the user', () => {
   it('holds earlier queued work while allowing the user to answer normally', () => {
     const input: AgentQueuedInputDto = { id: 'queued', taskId: task.id, position: 1, state: 'PAUSED', preview: 'Earlier request',
       settings: { ...contracts.turn.settings }, turnId: null, pauseReason: 'Waiting for a user answer', createdAt: '', updatedAt: '' };
-    const html = renderToStaticMarkup(<AgentTaskBody state={{ ...state, composer: 'Use the smaller change', queue: [input] }} models={[]}
-      onBack={() => {}} onSend={() => {}} onCancel={() => {}} onComplete={() => {}} onDecide={() => {}} onCompose={() => {}}
-      onSelectModel={() => {}} onStopServer={() => {}} onMarkFailed={() => {}} onResumeQueue={() => {}} />);
+    const html = renderToStaticMarkup(<AgentTaskBody state={{ ...state, composer: 'Use the smaller change', queue: [input] }} models={[]} {...TASK_BODY_NOOPS} onResumeQueue={() => {}} />);
     expect(html).toMatch(/<button[^>]*disabled[^>]*>Resume queue<\/button>/);
     expect(html).toContain('Answer the agent’s question before resuming earlier queued messages');
     expect(html).toMatch(/<button[^>]*aria-label="Send message"(?![^>]*disabled)[^>]*>/);
@@ -133,8 +131,7 @@ it('blocks competing actions during a continuation without inventing a running p
   const executing = { ...owned, turn: { ...turn, state: 'RUNNING' }, capabilities: { ...NO_AGENT_CAPABILITIES, steering: true } };
   expect(canSteer(executing)).toBe(false);
   expect(canQueue(executing)).toBe(false);
-  const html = renderToStaticMarkup(<AgentTaskBody state={owned} models={[]} onBack={() => {}} onSend={() => {}} onCancel={() => {}}
-    onComplete={() => {}} onDecide={() => {}} onCompose={() => {}} onSelectModel={() => {}} onStopServer={() => {}} onMarkFailed={() => {}} />);
+  const html = renderToStaticMarkup(<AgentTaskBody state={owned} models={[]} {...TASK_BODY_NOOPS} />);
   expect(html).toContain('Automation running');
   expect(html).toContain('aria-label="Stop automation"');
   expect(html).toContain('Keep this draft</textarea>');

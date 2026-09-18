@@ -20,7 +20,7 @@ import { parseAgentDevelopmentCi, parseAgentTask, parseCiAutofixRun } from './co
 import { AgentTaskBody } from './AgentTaskScreen';
 import { initialAgentTaskState, type AgentTaskState } from './model';
 import { CI_PROJECTION, CI_RUN } from './fixtures/ciAutofix';
-import { previewTask } from './fixtures/previewBridge';
+import { previewTask, TASK_BODY_NOOPS } from './fixtures/previewBridge';
 import contracts from './fixtures/agent-contracts-v1.json';
 
 it('narrows CI projections and requires explicit current permission for child messages', () => {
@@ -63,8 +63,7 @@ it('requires current paused CI authority and a bounded text message', () => {
 
 it('keeps CI activity in the task header and routes the composer without a status or history panel', () => {
   expect(ciActivity(CI_PROJECTION)).toBe('CI needs your input');
-  const render = (state: AgentTaskState = paused) => renderToStaticMarkup(<AgentTaskBody state={state} models={[]} onBack={() => {}} onSend={() => {}} onCancel={() => {}}
-    onComplete={() => {}} onDecide={() => {}} onCompose={() => {}} onSelectModel={() => {}} onStopServer={() => {}} onMarkFailed={() => {}} />);
+  const render = (state: AgentTaskState = paused) => renderToStaticMarkup(<AgentTaskBody state={state} models={[]} {...TASK_BODY_NOOPS} />);
   const html = render();
   expect(html).toContain('CI needs your input');
   expect(html).toContain('aria-label="Send to CI agent"');

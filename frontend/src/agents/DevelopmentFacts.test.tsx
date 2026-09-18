@@ -23,7 +23,7 @@ import { initialAgentTaskState } from './model';
 import { parseAgentEventSequence } from './events';
 import contracts from './fixtures/agent-contracts-v1.json';
 import events from './fixtures/agent-events-v2.json';
-import { previewTask } from './fixtures/previewBridge';
+import { previewTask, TASK_BODY_NOOPS } from './fixtures/previewBridge';
 import type { AgentTaskDto, AgentTurnDto } from '../types';
 
 const baseTurn = parseAgentTurn(contracts.turn);
@@ -31,9 +31,7 @@ function taskHtml(turn: AgentTurnDto, approvals = false): string {
   const task: AgentTaskDto = { ...previewTask('workspace-1', turn.taskId), interactive: true, mutationClaim: null };
   const state = { ...initialAgentTaskState(), task, turn, latestTurnId: turn.id, turns: { [turn.id]: turn },
     events: parseAgentEventSequence(events.events).filter(event => approvals || !event.type.startsWith('approval')).map(event => ({ ...event, taskId: task.id, turnId: turn.id })), connection: 'open' as const };
-  return renderToStaticMarkup(<AgentTaskBody state={state} models={[]}
-    onBack={() => {}} onSend={() => {}} onCancel={() => {}} onComplete={() => {}} onDecide={() => {}} onCompose={() => {}}
-    onSelectModel={() => {}} onStopServer={() => {}} onMarkFailed={() => {}} />);
+  return renderToStaticMarkup(<AgentTaskBody state={state} models={[]} {...TASK_BODY_NOOPS} />);
 }
 
 it('keeps the durable question ahead of the composer', () => {

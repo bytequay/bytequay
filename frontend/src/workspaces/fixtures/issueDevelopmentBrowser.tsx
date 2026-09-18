@@ -16,7 +16,7 @@ import { flushSync } from 'react-dom';
 import { createRoot } from 'react-dom/client';
 import AgentTasksView from '../../agents/AgentTasksView';
 import { AgentTaskBody } from '../../agents/AgentTaskScreen';
-import { createPreviewBridge, previewTask } from '../../agents/fixtures/previewBridge';
+import { createPreviewBridge, previewTask, TASK_BODY_NOOPS } from '../../agents/fixtures/previewBridge';
 import { NO_AGENT_CAPABILITIES } from '../../agents/capabilities';
 import { parseAgentEventSequence } from '../../agents/events';
 import eventFixture from '../../agents/fixtures/agent-events-v2.json';
@@ -179,8 +179,7 @@ async function retainedSource(): Promise<void> {
   f.bridge.fetchWorkspaceIssue = async () => { throw new Error('Open issue cache row removed'); };
   try {
     flushSync(() => root.render(<AgentTaskBody state={{ ...initialAgentTaskState(), task, connection: 'open' }}
-      models={[]} onSelectModel={() => {}} onBack={() => {}} onSend={() => {}} onCancel={() => {}}
-      onComplete={() => {}} onDecide={() => {}} onCompose={() => {}} onStopServer={() => {}} onMarkFailed={() => {}} />));
+      models={[]} {...TASK_BODY_NOOPS} />));
     button(host, 'View issue: upstream/app#7').click();
     assert(f.opened[0] === f.issue.htmlUrl, 'Completed task must open retained source URL without a cache lookup');
   }
@@ -217,8 +216,7 @@ export async function mountIssueConversation(running = false): Promise<{ x: numb
   flushSync(() => conversationRoot?.render(<AgentTaskBody state={{ ...initialAgentTaskState(), task, connection: 'open', events: conversationEvents,
     turn: currentTurn, turns: currentTurn === null ? {} : { [currentTurn.id]: currentTurn },
     capabilities: { ...NO_AGENT_CAPABILITIES, structuredPlans: true },
-  }} models={[]} onSelectModel={() => {}} onBack={() => {}} onSend={() => {}} onCancel={() => {}}
-    onComplete={() => {}} onDecide={() => {}} onCompose={() => {}} onStopServer={() => {}} onMarkFailed={() => {}} />));
+  }} models={[]} {...TASK_BODY_NOOPS} />));
   await settle();
   const source = conversationHost.querySelector<HTMLElement>('.agt-issue-attachment');
   const composer = conversationHost.querySelector<HTMLElement>('.agt-compose');

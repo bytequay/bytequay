@@ -21,7 +21,7 @@ import type { AgentHistoryPageDto, AgentTurnDto } from '../../types';
 import type { AgentEventEnvelope } from '../events';
 import { agentTaskReducer, historyAfter, historyBefore, initialAgentTaskState } from '../model';
 import { projectTranscript } from '../transcript';
-import { previewTask } from './previewBridge';
+import { previewTask, TASK_BODY_NOOPS } from './previewBridge';
 
 declare global {
   interface Window {
@@ -166,9 +166,7 @@ async function longCommandConversation(): Promise<void> {
         const end = direction === 'older' ? Number(historyBefore(state))
           : direction === 'newer' ? Math.min(events.length, Number(historyAfter(state)) + 1000) : events.length;
         respond = () => { dispatch({ type: 'history/loaded', page: read(end), direction }); setLoading(false); };
-      }}
-      onSelectModel={() => {}} onBack={() => {}} onSend={() => {}} onCancel={() => {}} onComplete={() => {}}
-      onDecide={() => {}} onCompose={() => {}} onStopServer={() => {}} onMarkFailed={() => {}}
+      }} {...TASK_BODY_NOOPS}
     />;
   }
   try {
@@ -257,9 +255,7 @@ async function latestRequestAtTop(): Promise<void> {
     const [state, dispatch] = useReducer(agentTaskReducer, initial);
     append = events => dispatch({ type: 'history/loaded', page: latest(events), direction: 'latest' });
     return <AgentTaskBody
-      state={state} models={[]} historyLoading={false} turnChoice={{ earlier: true, latest: true }} onLoadHistory={() => {}}
-      onSelectModel={() => {}} onBack={() => {}} onSend={() => {}} onCancel={() => {}} onComplete={() => {}}
-      onDecide={() => {}} onCompose={() => {}} onStopServer={() => {}} onMarkFailed={() => {}}
+      state={state} models={[]} historyLoading={false} turnChoice={{ earlier: true, latest: true }} onLoadHistory={() => {}} {...TASK_BODY_NOOPS}
     />;
   }
   try {

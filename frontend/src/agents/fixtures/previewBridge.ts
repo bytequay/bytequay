@@ -77,6 +77,19 @@ const PREVIEW_CATALOG: ModelSettingsDto = {
   keyProviders: [],
 };
 
+/** The AgentTaskBody callbacks a render-only fixture never drives. Spread first, then override the one under test. */
+export const TASK_BODY_NOOPS = {
+  onSelectModel: () => {},
+  onBack: () => {},
+  onSend: () => {},
+  onCancel: () => {},
+  onComplete: () => {},
+  onDecide: () => {},
+  onCompose: () => {},
+  onStopServer: () => {},
+  onMarkFailed: () => {},
+};
+
 export function previewTask(workspaceId: string, taskId: string): AgentTaskDto {
   return {
     ...(contracts.task as AgentTaskDto),

@@ -18,7 +18,7 @@ import type { AgentTurnDto } from '../types';
 import { AgentTaskBody } from './AgentTaskScreen';
 import { parseAgentEventSequence, type AgentEventEnvelope } from './events';
 import fixture from './fixtures/agent-events-v2.json';
-import { previewTask } from './fixtures/previewBridge';
+import { previewTask, TASK_BODY_NOOPS } from './fixtures/previewBridge';
 import { initialAgentTaskState } from './model';
 
 const source = parseAgentEventSequence(fixture.events)[0].source;
@@ -53,15 +53,7 @@ function markup(completed: boolean, afterCursor: string | null): string {
     models={[]}
     turnChoice={{ turn: true }}
     activityChoice={{ 'progress-command': true }}
-    onSelectModel={() => {}}
-    onBack={() => {}}
-    onSend={() => {}}
-    onCancel={() => {}}
-    onComplete={() => {}}
-    onDecide={() => {}}
-    onCompose={() => {}}
-    onStopServer={() => {}}
-    onMarkFailed={() => {}}
+    {...TASK_BODY_NOOPS}
   />);
 }
 

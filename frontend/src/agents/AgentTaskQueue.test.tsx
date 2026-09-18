@@ -17,7 +17,7 @@ import { AgentTaskBody } from './AgentTaskScreen';
 import fixture from './fixtures/agent-events-v2.json';
 import { parseAgentEventSequence } from './events';
 import { initialAgentTaskState, type AgentTaskState } from './model';
-import { previewTask } from './fixtures/previewBridge';
+import { previewTask, TASK_BODY_NOOPS } from './fixtures/previewBridge';
 import { NO_AGENT_CAPABILITIES } from './capabilities';
 import type { AgentProviderStatus, AgentQueuedInputDto, AgentTurnDto, ModelOptionDto } from '../types';
 
@@ -68,15 +68,7 @@ function body(state: Partial<AgentTaskState>, providerStatus: AgentProviderStatu
       state={{ ...initialAgentTaskState(), task: { ...previewTask('workspace-1', 't-1'), state: 'OPEN' }, connection: 'open', ...state }}
       models={MODELS}
       providerStatus={providerStatus}
-      onSelectModel={() => {}}
-      onBack={() => {}}
-      onSend={() => {}}
-      onCancel={() => {}}
-      onComplete={() => {}}
-      onDecide={() => {}}
-      onCompose={() => {}}
-      onStopServer={() => {}}
-      onMarkFailed={() => {}}
+      {...TASK_BODY_NOOPS}
     />);
 }
 

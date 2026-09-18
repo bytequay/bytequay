@@ -24,7 +24,7 @@ import { initialAgentTaskState, type AgentTaskState } from './model';
 import { samePullRequest, taskPullRequest, type TaskPullRequestChanges } from './TaskPullRequestPanel';
 import { displayModelName } from '../settings/model';
 import { projectTranscript } from './transcript';
-import { previewTask } from './fixtures/previewBridge';
+import { previewTask, TASK_BODY_NOOPS } from './fixtures/previewBridge';
 import { NO_AGENT_CAPABILITIES } from './capabilities';
 import type {
   AgentCapabilitiesDto,
@@ -147,15 +147,7 @@ function body(
       turnChoice={turnChoice}
       previews={previews}
       models={MODELS}
-      onSelectModel={() => {}}
-      onBack={() => {}}
-      onSend={() => {}}
-      onCancel={() => {}}
-      onComplete={() => {}}
-      onDecide={() => {}}
-      onCompose={() => {}}
-      onStopServer={() => {}}
-      onMarkFailed={() => {}}
+      {...TASK_BODY_NOOPS}
     />);
 }
 
@@ -327,7 +319,7 @@ describe('agent task layout', () => {
     const codex = { ...task('t-1', 'OPEN', 'x'), defaults: { model: 'gpt-5.6-sol', effort: 'low', permissionPolicy: 'AUTO' } };
     const models: ModelOptionDto[] = [{ id: 'gpt-5.6-sol', name: 'GPT-5.6-Sol', description: 'Reliable.', efforts: ['low'], defaultEffort: 'low', inputModalities: ['text'] }];
     const markup = renderToStaticMarkup(
-      <AgentTaskBody state={{ ...initialAgentTaskState(), task: codex, connection: 'open' }} models={models} onSelectModel={() => {}} onBack={() => {}} onSend={() => {}} onCancel={() => {}} onComplete={() => {}} onDecide={() => {}} onCompose={() => {}} onStopServer={() => {}} onMarkFailed={() => {}} />);
+      <AgentTaskBody state={{ ...initialAgentTaskState(), task: codex, connection: 'open' }} models={models} {...TASK_BODY_NOOPS} />);
     expect(markup).toContain('5.6 Sol');
     expect(markup).not.toContain('GPT-5.6-Sol');
   });
@@ -963,15 +955,7 @@ describe('agent task detail', () => {
         state={{ ...initialAgentTaskState(), task: provisional }}
         models={MODELS}
         onRename={() => {}}
-        onSelectModel={() => {}}
-        onBack={() => {}}
-        onSend={() => {}}
-        onCancel={() => {}}
-        onComplete={() => {}}
-        onDecide={() => {}}
-        onCompose={() => {}}
-        onStopServer={() => {}}
-        onMarkFailed={() => {}}
+        {...TASK_BODY_NOOPS}
       />);
     expect(renamable).toMatch(/<button[^>]*class="agt-title is-provisional"[^>]*>Investigate the flaky preview</);
     expect(renamable).toContain('while a short name is generated');
@@ -1159,15 +1143,7 @@ describe('agent task detail', () => {
         provider="Codex"
         providerStatus={ready}
         providerStatusFresh={fresh}
-        onSelectModel={() => {}}
-        onBack={() => {}}
-        onSend={() => {}}
-        onCancel={() => {}}
-        onComplete={() => {}}
-        onDecide={() => {}}
-        onCompose={() => {}}
-        onStopServer={() => {}}
-        onMarkFailed={() => {}}
+        {...TASK_BODY_NOOPS}
       />);
 
     const stale = renderAuth(false);
@@ -1207,15 +1183,7 @@ describe('agent task detail', () => {
         provider="Claude"
         providerStatus={providerStatus(readiness)}
         onOpenSettings={() => {}}
-        onSelectModel={() => {}}
-        onBack={() => {}}
-        onSend={() => {}}
-        onCancel={() => {}}
-        onComplete={() => {}}
-        onDecide={() => {}}
-        onCompose={() => {}}
-        onStopServer={() => {}}
-        onMarkFailed={() => {}}
+        {...TASK_BODY_NOOPS}
       />);
 
     expect(markup).toContain(heading);
@@ -1548,15 +1516,7 @@ describe('agent task detail', () => {
         state={state}
         attaching={attaching}
         models={MODELS}
-        onSelectModel={() => {}}
-        onBack={() => {}}
-        onSend={() => {}}
-        onCancel={() => {}}
-        onComplete={() => {}}
-        onDecide={() => {}}
-        onCompose={() => {}}
-        onStopServer={() => {}}
-        onMarkFailed={() => {}}
+        {...TASK_BODY_NOOPS}
       />);
     const loadingImage = render(true);
     expect(loadingImage).not.toMatch(/<textarea[^>]*disabled/);
@@ -1632,15 +1592,7 @@ describe('agent task detail', () => {
         state={{ ...initialAgentTaskState(), task: vision, events, connection: 'open' }}
         previews={{ 'attachment-1': { status: 'ready', url: 'blob:preview' } }}
         models={MODELS}
-        onSelectModel={() => {}}
-        onBack={() => {}}
-        onSend={() => {}}
-        onCancel={() => {}}
-        onComplete={() => {}}
-        onDecide={() => {}}
-        onCompose={() => {}}
-        onStopServer={() => {}}
-        onMarkFailed={() => {}}
+        {...TASK_BODY_NOOPS}
       />);
     expect(ready).toContain('<img class="agt-image" src="blob:preview" alt="flow.png"');
     expect(ready).toMatch(/<button[^>]*aria-label="Preview image flow.png"/);
@@ -1650,15 +1602,7 @@ describe('agent task detail', () => {
         state={{ ...initialAgentTaskState(), task: vision, events, connection: 'open' }}
         previews={{ 'attachment-1': { status: 'unavailable' } }}
         models={MODELS}
-        onSelectModel={() => {}}
-        onBack={() => {}}
-        onSend={() => {}}
-        onCancel={() => {}}
-        onComplete={() => {}}
-        onDecide={() => {}}
-        onCompose={() => {}}
-        onStopServer={() => {}}
-        onMarkFailed={() => {}}
+        {...TASK_BODY_NOOPS}
       />);
     expect(gone).toContain('flow.png · unavailable');
   });
@@ -1710,15 +1654,7 @@ describe('agent task detail', () => {
         panelOpen
         panelTab="agents"
         models={MODELS}
-        onSelectModel={() => {}}
-        onBack={() => {}}
-        onSend={() => {}}
-        onCancel={() => {}}
-        onComplete={() => {}}
-        onDecide={() => {}}
-        onCompose={() => {}}
-        onStopServer={() => {}}
-        onMarkFailed={() => {}}
+        {...TASK_BODY_NOOPS}
       />);
     expect(panel).toContain('aria-label="Subagents"');
     expect(panel).toContain('Active · 2');
@@ -1731,15 +1667,7 @@ describe('agent task detail', () => {
         panelTab="agents"
         openAgent="child-1"
         models={MODELS}
-        onSelectModel={() => {}}
-        onBack={() => {}}
-        onSend={() => {}}
-        onCancel={() => {}}
-        onComplete={() => {}}
-        onDecide={() => {}}
-        onCompose={() => {}}
-        onStopServer={() => {}}
-        onMarkFailed={() => {}}
+        {...TASK_BODY_NOOPS}
       />);
     // The child's own answer is inspectable, and getting there is a filter, not a route.
     expect(opened).toContain('aria-label="Agent: History tests"');
@@ -1956,15 +1884,7 @@ describe('task list tabs, day groups and row actions', () => {
       <AgentTaskBody
         state={{ ...initialAgentTaskState(), capabilities: CAPABILITIES, task: open, connection: 'open' }}
         models={MODELS}
-        onSelectModel={() => {}}
-        onBack={() => {}}
-        onSend={() => {}}
-        onCancel={() => {}}
-        onComplete={() => {}}
-        onDecide={() => {}}
-        onCompose={() => {}}
-        onStopServer={() => {}}
-        onMarkFailed={() => {}}
+        {...TASK_BODY_NOOPS}
         onArchive={() => {}}
       />);
 

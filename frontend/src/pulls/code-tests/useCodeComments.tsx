@@ -12,6 +12,7 @@
  * limitations under the License.
  */
 import { useReducer, useRef, useState, type ReactNode } from 'react';
+import { ChevronRight } from 'lucide-react';
 import type { InlineReviewCommentDto, PullRequestDetailDto, UserProfileDto } from '../../types';
 import type { AgentReviewDto, ReviewFindingDto } from '../agent-review/contracts';
 import ReviewFindingCard, { type FindingActions } from '../agent-review/ReviewFindingCard';
@@ -275,8 +276,10 @@ export function useCodeComments(options: CodeCommentsOptions | undefined, contex
   const unplacedCount = unplacedThreads.length + unplacedLocal.length + unplacedPending.length + unplacedFindings.length;
   const unplaced = unplacedCount === 0 ? null : (
     <details className="ct-unplaced">
-      <summary>{unplacedCount} {unplacedCount === 1 ? 'comment is' : 'comments are'} not placed on these lines</summary>
-      <p>They belong to another revision or to lines this view cannot show as the reviewed code.</p>
+      <summary>
+        <ChevronRight className="ct-unplaced__chevron" size={12} strokeWidth={2} aria-hidden="true" />
+        {unplacedCount} {unplacedCount === 1 ? 'comment is' : 'comments are'} not placed on these lines
+      </summary>
       {unplacedFindings.map(finding => <div key={finding.id} className="ct-unplaced__card">{findingCard(finding)}</div>)}
       {unplacedPending.map((item, index) => (
         <div key={`pending:${index}`} className="ct-unplaced__card">

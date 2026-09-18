@@ -325,9 +325,14 @@ button.ct-run__mode:focus-visible { outline: 2px solid #0969da; outline-offset: 
 .ct-code.is-commentable .cm-lineNumbers .cm-gutterElement:hover::before { position: absolute; left: 1px; color: #0969da; content: '+'; font-weight: 600; }
 .ct-code .cm-line.ct-code__selected { background: var(--diff-selected); }
 .ct-code .cm-gutterElement.ct-code__selected { background: var(--diff-selected); color: #1f2328; }
-.ct-inline-card { margin: 5px 16px 7px 4px; font-family: var(--font); font-size: 13px; line-height: 1.45; white-space: normal; }
+/* Both wrappers hand a review card the same type, so it inherits neither the code view's monospace nor this list's meta size. */
+.ct-inline-card, .ct-unplaced__card { font-family: var(--font); font-size: 13px; line-height: 1.45; white-space: normal; }
+.ct-inline-card { margin: 5px 16px 7px 4px; }
 .ct-inline-card .pull-diff-review { margin: 0; }
 .ct-unplaced { flex: none; max-height: 40%; overflow: auto; border-top: 1px solid #e8eaed; background: #fbfbfc; padding: 6px 12px; font-size: 12px; }
-.ct-unplaced summary { color: #57606a; cursor: pointer; }
-.ct-unplaced p { margin: 4px 0 6px; color: #8c959f; font-size: 11.5px; }
+/* Direct child only: a review card in the list brings its own <summary>. */
+.ct-unplaced > summary { display: flex; align-items: center; gap: 4px; color: #57606a; cursor: pointer; list-style: none; }
+.ct-unplaced > summary::-webkit-details-marker { display: none; }
+.ct-unplaced__chevron { flex: none; color: #8c959f; transition: transform 120ms ease; }
+.ct-unplaced[open] > summary .ct-unplaced__chevron { transform: rotate(90deg); }
 .ct-unplaced__card { margin-bottom: 6px; }

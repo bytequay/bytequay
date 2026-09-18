@@ -84,6 +84,14 @@ describe('CodeTestsTab', () => {
     expect(css).toMatch(/\.ct-icon-button \{[^}]*flex: none/);
   });
 
+  it('styles an unplaced review card like one placed in the code', () => {
+    const css = readFileSync(resolve(process.cwd(), 'src/css/code-tests.css'), 'utf8');
+    // A descendant selector here reached into the card and restyled its own summary and comment body.
+    expect(css).not.toMatch(/\.ct-unplaced (summary|p) \{/);
+    expect(css).toMatch(/\.ct-unplaced > summary \{[^}]*list-style: none/);
+    expect(css).toMatch(/\.ct-inline-card, \.ct-unplaced__card \{[^}]*font-size: 13px/);
+  });
+
   it('reads the owning development task\'s working copy instead of any review, with no Start review or Discard', () => {
     const task = { ...parseAgentTask(contracts.task), interactive: true };
     const html = renderToStaticMarkup(<CodeTestsTab detail={detail} workspaceId="workspace-1" review={reviewFixture()} task={task}

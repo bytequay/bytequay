@@ -91,10 +91,6 @@
   font-size: var(--font-size-sm);
   overflow-wrap: anywhere;
 }
-.inapp-browser__loading {
-  color: var(--text-3);
-  font-size: var(--font-size-lg);
-}
 .inapp-browser__back-to-app {
   gap: 6px;
   appearance: none;

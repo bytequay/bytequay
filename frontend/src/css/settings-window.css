@@ -13,23 +13,8 @@
  */
 
 /* One window: category sidebar on the left, one scrolling pane on the right. */
-/* Sits where .app-content sits — a flex child of .app-shell — so it needs that element's
-   sizing too. Without flex:1 it shrinks to its content and strands the rest of the window. */
-.setw {
-  display: flex;
-  flex: 1;
-  min-width: 0;
-  height: 100%;
-  min-height: 0;
-  background: #fff;
-}
 
 /* ── Workspace picker ─────────────────────────────────────────────────────── */
-
-.setw-ws {
-  position: relative;
-  padding: 0 0 2px;
-}
 
 .setw-ws-button {
   display: flex;

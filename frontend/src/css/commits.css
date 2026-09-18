@@ -686,8 +686,6 @@
 
 .cmt-commit-btn { flex: none; margin: 0; }
 
-.cmt-changes-right { min-width: 0; overflow: auto; display: flex; flex-direction: column; }
-
 /* ── Tasks list ──────────────────────────────────────────── */
 
 .cmt-tasks { flex: 1; overflow: auto; }

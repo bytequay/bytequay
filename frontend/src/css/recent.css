@@ -492,5 +492,3 @@
 .rc-palette__empty { padding: 26px 12px; text-align: center; font-size: 12.5px; color: var(--text-3); }
 
 /* ── Settings › Recent ────────────────────────────────────────────── */
-
-.rc-settings-note { font-size: 12.5px; color: var(--text-2); line-height: 1.6; }

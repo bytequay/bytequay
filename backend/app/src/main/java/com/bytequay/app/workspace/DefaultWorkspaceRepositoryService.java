@@ -163,16 +163,11 @@ public class DefaultWorkspaceRepositoryService
         }
         if (existing.isPresent()) {
             Workspace workspace = existing.orElseThrow();
-            Lock lock = WorkspaceOperationLocks.get(workspace.id());
-            lock.lock();
-            try {
+            return WorkspaceOperationLocks.withLock(workspace.id(), () -> {
                 setUpstream(workspace.id(), routing.upstream().map(UserRepo::id));
                 store.setWatched(workspace.id(), true);
                 return requestSyncAfterConfigurationChange(workspace.id());
-            }
-            finally {
-                lock.unlock();
-            }
+            });
         }
         return createWorkspace(pushRepository, routing.upstream(), command.name());
     }

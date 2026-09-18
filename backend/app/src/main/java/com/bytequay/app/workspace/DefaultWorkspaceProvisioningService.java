@@ -28,7 +28,6 @@ import java.time.Clock;
 import java.time.Instant;
 import java.util.Optional;
 import java.util.Set;
-import java.util.concurrent.locks.Lock;
 
 import static java.util.Objects.requireNonNull;
 
@@ -63,9 +62,7 @@ public final class DefaultWorkspaceProvisioningService
     @Override
     public WorkspaceProvisioningResult provision(String workspaceId)
     {
-        Lock lock = WorkspaceOperationLocks.get(workspaceId);
-        lock.lock();
-        try {
+        return WorkspaceOperationLocks.withLock(workspaceId, () -> {
             Workspace workspace = requireWorkspace(workspaceId);
             try {
                 boolean alreadyReady = workspace.lastCodeSyncAt().isPresent();
@@ -87,18 +84,13 @@ public final class DefaultWorkspaceProvisioningService
                 logFailure(workspace, failure);
                 return WorkspaceProvisioningResult.failure(requireWorkspace(workspaceId));
             }
-        }
-        finally {
-            lock.unlock();
-        }
+        });
     }
 
     @Override
     public WorkspaceCodeSyncResult synchronizeCode(String workspaceId)
     {
-        Lock lock = WorkspaceOperationLocks.get(workspaceId);
-        lock.lock();
-        try {
+        return WorkspaceOperationLocks.withLock(workspaceId, () -> {
             Workspace workspace = requireWorkspace(workspaceId);
             if (workspace.lastCodeSyncAt().isEmpty()) {
                 WorkspaceProvisioningResult result = provision(workspaceId);
@@ -121,10 +113,7 @@ public final class DefaultWorkspaceProvisioningService
                 logFailure(workspace, failure);
                 return WorkspaceCodeSyncResult.failure(requireWorkspace(workspaceId));
             }
-        }
-        finally {
-            lock.unlock();
-        }
+        });
     }
 
     private Workspace refreshRouting(Workspace workspace)

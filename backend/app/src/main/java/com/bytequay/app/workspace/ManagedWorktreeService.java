@@ -42,7 +42,6 @@ import java.util.Optional;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
-import java.util.concurrent.locks.Lock;
 
 import static java.util.Objects.requireNonNull;
 
@@ -80,82 +79,79 @@ public final class ManagedWorktreeService
     public TaskWorktree provision(ProvisionWorktreeCommand command)
     {
         requireNonNull(command, "command is null");
-        Lock lock = WorkspaceOperationLocks.get(command.workspaceId());
-        lock.lock();
-        try {
-            Workspace workspace = requireWorkspace(command.workspaceId());
-            verifyPhysicalRepository(workspace, command.physicalRepository());
-            Path repository = verifyManagedRepository(workspace);
-            requireExactCommit(repository, command.startCommit(), "start commit");
-            prepareWorktreeParent(workspace);
-
-            Path requestedPath = paths.canonicalTaskWorktree(
-                    command.workspaceId(), command.taskId().toString());
-            String branch = command.generatedBranch();
-            if (Files.exists(requestedPath, LinkOption.NOFOLLOW_LINKS)) {
-                if (Files.isSymbolicLink(requestedPath)
-                        || !Files.isDirectory(requestedPath, LinkOption.NOFOLLOW_LINKS)) {
-                    throw conflict("The generated task worktree path is occupied");
-                }
-                TaskWorktree existing = recordedWorktree(command, requestedPath.toRealPath(), branch);
-                WorktreeSnapshot snapshot;
-                try {
-                    snapshot = inspectVerified(workspace, repository, existing);
-                }
-                catch (InvalidAgentRequestException | AgentStorageException failure) {
-                    throw new AgentConflictException(
-                            "The generated task worktree path contains a mismatched or incomplete worktree",
-                            failure);
-                }
-                if (!snapshot.head().equals(command.startCommit())
-                        || snapshot.dirty()
-                        || snapshot.gitOperationInProgress()) {
-                    throw conflict("The existing task worktree does not match the original clean start commit");
-                }
-                return existing;
-            }
-            if (!Files.notExists(requestedPath, LinkOption.NOFOLLOW_LINKS)) {
-                throw new AgentStorageException("Cannot determine whether the generated task worktree path exists");
-            }
-            if (registeredWorktreePaths(repository).contains(requestedPath.toAbsolutePath().normalize())) {
-                throw conflict("Git still registers the task worktree path");
-            }
-            if (branchExists(repository, branch)) {
-                throw conflict("The generated task branch already exists");
-            }
-
-            Result created = git.run(repository, ImmutableList.of(
-                    "worktree",
-                    "add",
-                    "--quiet",
-                    "-b",
-                    branch,
-                    requestedPath.toString(),
-                    command.startCommit()));
-            if (!created.successful()) {
-                throw new AgentStorageException("Cannot create task worktree: " + diagnostic(created));
-            }
-
+        return WorkspaceOperationLocks.withLock(command.workspaceId(), () -> {
             try {
-                TaskWorktree worktree = recordedWorktree(command, requestedPath.toRealPath(), branch);
-                WorktreeSnapshot snapshot = inspectVerified(workspace, repository, worktree);
-                if (!snapshot.head().equals(command.startCommit())
-                        || snapshot.dirty()
-                        || snapshot.gitOperationInProgress()) {
-                    throw conflict("The created task worktree did not verify at the clean start commit");
+                Workspace workspace = requireWorkspace(command.workspaceId());
+                verifyPhysicalRepository(workspace, command.physicalRepository());
+                Path repository = verifyManagedRepository(workspace);
+                requireExactCommit(repository, command.startCommit(), "start commit");
+                prepareWorktreeParent(workspace);
+
+                Path requestedPath = paths.canonicalTaskWorktree(
+                        command.workspaceId(), command.taskId().toString());
+                String branch = command.generatedBranch();
+                if (Files.exists(requestedPath, LinkOption.NOFOLLOW_LINKS)) {
+                    if (Files.isSymbolicLink(requestedPath)
+                            || !Files.isDirectory(requestedPath, LinkOption.NOFOLLOW_LINKS)) {
+                        throw conflict("The generated task worktree path is occupied");
+                    }
+                    TaskWorktree existing = recordedWorktree(command, requestedPath.toRealPath(), branch);
+                    WorktreeSnapshot snapshot;
+                    try {
+                        snapshot = inspectVerified(workspace, repository, existing);
+                    }
+                    catch (InvalidAgentRequestException | AgentStorageException failure) {
+                        throw new AgentConflictException(
+                                "The generated task worktree path contains a mismatched or incomplete worktree",
+                                failure);
+                    }
+                    if (!snapshot.head().equals(command.startCommit())
+                            || snapshot.dirty()
+                            || snapshot.gitOperationInProgress()) {
+                        throw conflict("The existing task worktree does not match the original clean start commit");
+                    }
+                    return existing;
                 }
-                return worktree;
+                if (!Files.notExists(requestedPath, LinkOption.NOFOLLOW_LINKS)) {
+                    throw new AgentStorageException("Cannot determine whether the generated task worktree path exists");
+                }
+                if (registeredWorktreePaths(repository).contains(requestedPath.toAbsolutePath().normalize())) {
+                    throw conflict("Git still registers the task worktree path");
+                }
+                if (branchExists(repository, branch)) {
+                    throw conflict("The generated task branch already exists");
+                }
+
+                Result created = git.run(repository, ImmutableList.of(
+                        "worktree",
+                        "add",
+                        "--quiet",
+                        "-b",
+                        branch,
+                        requestedPath.toString(),
+                        command.startCommit()));
+                if (!created.successful()) {
+                    throw new AgentStorageException("Cannot create task worktree: " + diagnostic(created));
+                }
+
+                try {
+                    TaskWorktree worktree = recordedWorktree(command, requestedPath.toRealPath(), branch);
+                    WorktreeSnapshot snapshot = inspectVerified(workspace, repository, worktree);
+                    if (!snapshot.head().equals(command.startCommit())
+                            || snapshot.dirty()
+                            || snapshot.gitOperationInProgress()) {
+                        throw conflict("The created task worktree did not verify at the clean start commit");
+                    }
+                    return worktree;
+                }
+                catch (IOException failure) {
+                    throw new AgentStorageException("Cannot resolve the created task worktree", failure);
+                }
             }
             catch (IOException failure) {
-                throw new AgentStorageException("Cannot resolve the created task worktree", failure);
+                throw new InvalidAgentRequestException("Cannot resolve the existing task worktree", failure);
             }
-        }
-        catch (IOException failure) {
-            throw new InvalidAgentRequestException("Cannot resolve the existing task worktree", failure);
-        }
-        finally {
-            lock.unlock();
-        }
+        });
     }
 
     @Override
@@ -171,9 +167,7 @@ public final class ManagedWorktreeService
     public Optional<String> currentBranch(TaskWorktree worktree)
     {
         requireNonNull(worktree, "worktree is null");
-        Lock lock = WorkspaceOperationLocks.get(worktree.workspaceId());
-        lock.lock();
-        try {
+        return WorkspaceOperationLocks.withLock(worktree.workspaceId(), () -> {
             verifyDerivedPath(worktree);
             if (Files.notExists(worktree.canonicalWorktree(), LinkOption.NOFOLLOW_LINKS)) {
                 return Optional.empty();
@@ -194,10 +188,7 @@ public final class ManagedWorktreeService
                 throw invalid("Task worktree HEAD does not name a local branch");
             }
             return Optional.of(reference.substring("refs/heads/".length()));
-        }
-        finally {
-            lock.unlock();
-        }
+        });
     }
 
     /**
@@ -258,9 +249,7 @@ public final class ManagedWorktreeService
     public void cleanup(TaskWorktree worktree)
     {
         requireNonNull(worktree, "worktree is null");
-        Lock lock = WorkspaceOperationLocks.get(worktree.workspaceId());
-        lock.lock();
-        try {
+        WorkspaceOperationLocks.withLock(worktree.workspaceId(), () -> {
             Workspace workspace = requireWorkspace(worktree.workspaceId());
             verifyPhysicalRepository(workspace, worktree.physicalRepository());
             Path repository = verifyManagedRepository(workspace);
@@ -300,19 +289,14 @@ public final class ManagedWorktreeService
                 throw new AgentStorageException("Git did not fully remove the task worktree");
             }
             requireBranch(repository, worktree.generatedBranch());
-        }
-        finally {
-            lock.unlock();
-        }
+        });
     }
 
     @Override
     public void delete(TaskWorktree worktree)
     {
         requireNonNull(worktree, "worktree is null");
-        Lock lock = WorkspaceOperationLocks.get(worktree.workspaceId());
-        lock.lock();
-        try {
+        WorkspaceOperationLocks.withLock(worktree.workspaceId(), () -> {
             Workspace workspace = requireWorkspace(worktree.workspaceId());
             verifyPhysicalRepository(workspace, worktree.physicalRepository());
             Path repository = verifyManagedRepository(workspace);
@@ -342,10 +326,7 @@ public final class ManagedWorktreeService
                     throw new AgentStorageException("Cannot delete task branch: " + diagnostic(deleted));
                 }
             }
-        }
-        finally {
-            lock.unlock();
-        }
+        });
     }
 
     /** The task's checkout, once every recorded ownership fact has been checked against the disk and Git. */

@@ -39,3 +39,19 @@ export function getCachedFresh<T>(key: string, maxAgeMs: number): T | undefined 
 export function setCached<T>(key: string, value: T): void {
   cache.set(key, { value, storedAt: Date.now() });
 }
+
+/**
+ * Shares one in-flight request per key, and forgets a failed one so the next caller retries.
+ *
+ * The caller owns the map, so two callers with the same key never collide.
+ */
+export function once<T>(pending: Map<string, Promise<T | null>>, key: string, load: () => Promise<T | null>): Promise<T | null> {
+  const existing = pending.get(key);
+  if (existing) return existing;
+  const request = load().catch((): null => null);
+  pending.set(key, request);
+  void request.then(value => {
+    if (value === null) pending.delete(key);
+  });
+  return request;
+}

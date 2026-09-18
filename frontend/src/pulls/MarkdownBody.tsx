@@ -24,6 +24,7 @@ import {
 } from '../githubReference';
 import { relativeTime } from '../relativeTime';
 import type { GitHubCodeSnippetDto } from '../types';
+import { once } from '../dataCache';
 
 type GitHubCodePermalink = {
   href: string;
@@ -593,21 +594,14 @@ function inline(text: string, keyPrefix: string, definitions: ReadonlyMap<string
 const codeSnippetRequests = new Map<string, Promise<GitHubCodeSnippetDto | null>>();
 
 function loadCodeSnippet(reference: GitHubCodePermalink) {
-  const existing = codeSnippetRequests.get(reference.href);
-  if (existing) return existing;
-  const request = window.bridge.fetchGitHubCodeSnippet({
+  return once(codeSnippetRequests, reference.href, () => window.bridge.fetchGitHubCodeSnippet({
     owner: reference.owner,
     repo: reference.repo,
     commit: reference.commit,
     path: reference.path,
     startLine: reference.startLine,
     endLine: reference.endLine,
-  }).then(value => value.lines.length > 0 ? value : null).catch((): null => null);
-  codeSnippetRequests.set(reference.href, request);
-  void request.then(value => {
-    if (value === null) codeSnippetRequests.delete(reference.href);
-  });
-  return request;
+  }).then(value => value.lines.length > 0 ? value : null));
 }
 
 function CodeReferenceBlock({ reference }: { reference: GitHubCodePermalink }) {
@@ -687,14 +681,7 @@ export function GitHubReferenceLink({ href, children }: { href: string | null; c
 
 function loadPreview(reference: GitHubReference): Promise<ReferencePreview | null> {
   const key = `${reference.kind}:${reference.owner}/${reference.repo}#${reference.number}`.toLowerCase();
-  const existing = previewRequests.get(key);
-  if (existing) return existing;
-  const request = resolveGitHubReference(reference).catch((): null => null);
-  previewRequests.set(key, request);
-  void request.then(value => {
-    if (value === null) previewRequests.delete(key);
-  });
-  return request;
+  return once(previewRequests, key, () => resolveGitHubReference(reference));
 }
 
 export function ReferenceLink({ reference, showTitle = false, children }: {

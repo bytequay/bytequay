@@ -15,6 +15,7 @@ import { useEffect, useId, useRef, useState, type CSSProperties } from 'react';
 import { createPortal } from 'react-dom';
 import Avatar from './Avatar';
 import type { UserProfileDto } from './types';
+import { once } from './dataCache';
 
 const HOVER_DELAY_MS = 1_000;
 const CARD_WIDTH = 320;
@@ -29,15 +30,7 @@ type Props = {
 };
 
 function loadProfile(login: string): Promise<UserProfileDto | null> {
-  const key = login.toLowerCase();
-  const existing = profileRequests.get(key);
-  if (existing) return existing;
-  const request = window.bridge.getGitHubUserProfile(login).catch((): null => null);
-  profileRequests.set(key, request);
-  void request.then(profile => {
-    if (profile === null) profileRequests.delete(key);
-  });
-  return request;
+  return once(profileRequests, login.toLowerCase(), () => window.bridge.getGitHubUserProfile(login));
 }
 
 export function userCardPosition(rect: Pick<DOMRect, 'left' | 'top' | 'bottom'>): CSSProperties {

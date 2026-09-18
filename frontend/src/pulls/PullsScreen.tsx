@@ -11,7 +11,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-import { useCallback, useEffect, useId, useMemo, useRef, useState, type KeyboardEvent as ReactKeyboardEvent, type MouseEvent as ReactMouseEvent, type ReactNode } from 'react';
+import { useCallback, useEffect, useId, useMemo, useRef, useState, type KeyboardEvent as ReactKeyboardEvent, type ReactNode } from 'react';
 import { Bell, Check, CircleSlash, Code, Diff, Ellipsis, Eye, GitPullRequest, Maximize, MessageCircle, Minimize, PanelRight, RefreshCw, UserRound, X } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
 import { isFindShortcut } from '../FindBar';
@@ -37,6 +37,7 @@ import { pullRequestDiffRevision, usePullRequestChanges } from './usePullRequest
 import { useRecentTouch } from '../recent/useRecentTouch';
 import { workspaceReviewTaskRoute } from '../workspaces/model';
 import TaskPaneDivider, { useTaskPane } from '../agents/TaskPaneDivider';
+import { useResizablePane } from '../useResizablePane';
 import '../css/review-tasks.css';
 import {
   filterPullRequests,
@@ -348,7 +349,7 @@ export default function PullsScreen({
   const [pendingReviewComments, setPendingReviewComments] = useState<InlineReviewCommentDto[]>([]);
   const [paneOpen, setPaneOpen] = useState(true);
   const [detailZoomed, setDetailZoomed] = useState(false);
-  const [detailWidth, setDetailWidth] = useState(DETAIL_DEFAULT);
+  const detailPane = useResizablePane(DETAIL_DEFAULT, DETAIL_MIN, DETAIL_MAX, 'start');
   const [loading, setLoading] = useState(!singlePullRequest);
   const [syncing, setSyncing] = useState(false);
   const [loadingMore, setLoadingMore] = useState(false);
@@ -878,27 +879,6 @@ export default function PullsScreen({
     if (returned) void refresh();
   }, [browserOpen, refresh]);
 
-  const resizeDetail = (event: ReactMouseEvent) => {
-    event.preventDefault();
-    const startX = event.clientX;
-    const startWidth = event.currentTarget.parentElement?.getBoundingClientRect().width ?? detailWidth;
-    const move = (next: globalThis.MouseEvent) => {
-      setDetailWidth(Math.max(DETAIL_MIN, Math.min(
-        DETAIL_MAX,
-        startWidth + startX - next.clientX,
-      )));
-    };
-    const stop = () => {
-      window.removeEventListener('mousemove', move);
-      window.removeEventListener('mouseup', stop);
-      document.body.style.cursor = '';
-      document.body.style.userSelect = '';
-    };
-    document.body.style.cursor = 'col-resize';
-    document.body.style.userSelect = 'none';
-    window.addEventListener('mousemove', move);
-    window.addEventListener('mouseup', stop);
-  };
 
   // Recent records reading, not clicking: the dwell timer decides, and
   // opening the diff lands immediately because that is already intent.
@@ -1050,9 +1030,9 @@ export default function PullsScreen({
 
       {paneShown && selectedPr !== null && (
         <section className={`pull-detail${detailZoomed || overlay ? ' is-zoomed' : reviewWorkspace === undefined ? '' : ' agt-panel'}`}
-          style={detailZoomed || overlay ? undefined : { width: reviewWorkspace === undefined ? detailWidth : reviewPane.width }}>
+          style={detailZoomed || overlay ? undefined : { width: reviewWorkspace === undefined ? detailPane.width : reviewPane.width }}>
           {reviewWorkspace === undefined && <div className="pull-detail__resize" role="separator" aria-orientation="vertical"
-            aria-label="Resize pull request panes" onMouseDown={resizeDetail} title="Drag to resize" />}
+            aria-label="Resize pull request panes" onMouseDown={event => detailPane.startResize(event, event.currentTarget.parentElement?.getBoundingClientRect().width)} title="Drag to resize" />}
           <PullDetailHeader
             pr={selectedPr}
             detail={detail}

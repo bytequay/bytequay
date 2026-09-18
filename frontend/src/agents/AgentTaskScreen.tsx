@@ -170,20 +170,56 @@ const CONNECTION_TEXT: Record<string, string> = {
  * to drop. While the background naming request runs, the title is a compact first-message
  * fallback and reads as provisional.
  */
+/**
+ * The click-to-rename draft: its state, the double-commit guard, and the input's own props.
+ *
+ * Callers keep their own class name and their own non-editing presentation, which differ.
+ */
+export function useRenameDraft(current: string, onRename?: (title: string) => void) {
+  const [draft, setDraft] = useState<string | null>(null);
+  // Enter commits and then the input unmounts, which blurs it; the flag keeps that from committing twice.
+  const committed = useRef(false);
+  const commit = (): void => {
+    if (committed.current || draft === null) return;
+    committed.current = true;
+    const next = draft.trim();
+    setDraft(null);
+    if (next !== '' && next !== current) onRename?.(next);
+  };
+  return {
+    editing: draft !== null,
+    start: (): void => {
+      if (onRename === undefined) return;
+      committed.current = false;
+      setDraft(current);
+    },
+    inputProps: {
+      type: 'text',
+      'aria-label': 'Task name',
+      value: draft ?? '',
+      autoFocus: true,
+      onChange: (event: React.ChangeEvent<HTMLInputElement>) => setDraft(event.target.value),
+      onBlur: commit,
+      onKeyDown: (event: React.KeyboardEvent<HTMLInputElement>) => {
+        if (event.key === 'Enter') commit();
+        if (event.key === 'Escape') { committed.current = true; setDraft(null); }
+      },
+    },
+  } as const;
+}
+
 function TaskTitle({ title, provisional, onRename }: {
   title: string;
   provisional: boolean;
   onRename?: (title: string) => void;
 }): React.JSX.Element {
-  const [draft, setDraft] = useState<string | null>(null);
-  // Enter commits and then the input unmounts, which blurs it; the flag keeps that from committing twice.
-  const committed = useRef(false);
+  const rename = useRenameDraft(title, onRename);
   const className = `agt-title${provisional ? ' is-provisional' : ''}`;
   // Text, not a dead control, while there is nothing to rename yet.
   if (onRename === undefined) {
     return <strong className={className}>{title}</strong>;
   }
-  if (draft === null) {
+  if (!rename.editing) {
     return (
       <button
         type="button"
@@ -191,34 +227,13 @@ function TaskTitle({ title, provisional, onRename }: {
         title={provisional
           ? 'Using your first message while a short name is generated. Click to rename.'
           : 'Click to rename'}
-        onClick={() => { committed.current = false; setDraft(title); }}
+        onClick={rename.start}
       >
         {title}
       </button>
     );
   }
-  const commit = (): void => {
-    if (committed.current) return;
-    committed.current = true;
-    const next = draft.trim();
-    setDraft(null);
-    if (next !== '' && next !== title) onRename(next);
-  };
-  return (
-    <input
-      className="agt-title-edit"
-      type="text"
-      aria-label="Task name"
-      value={draft}
-      autoFocus
-      onChange={(event) => setDraft(event.target.value)}
-      onBlur={commit}
-      onKeyDown={(event) => {
-        if (event.key === 'Enter') commit();
-        if (event.key === 'Escape') { committed.current = true; setDraft(null); }
-      }}
-    />
-  );
+  return <input className="agt-title-edit" {...rename.inputProps} />;
 }
 
 function connectionText(state: AgentTaskState): string {

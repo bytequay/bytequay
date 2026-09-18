@@ -17,7 +17,7 @@ import { EyeOff, LoaderCircle, Pencil } from 'lucide-react';
 import { getCached, setCached } from '../dataCache';
 import { relativeTime } from '../relativeTime';
 import { displayModelName, laneLabel } from '../settings/model';
-import { TurnView } from './AgentTaskScreen';
+import { TurnView, useRenameDraft } from './AgentTaskScreen';
 import { taskStatePill } from './AgentTasksView';
 import type { AgentEventEnvelope } from './events';
 import { agentTaskReducer, initialAgentTaskState, pollAgentTask, type AgentBridgePort, type AgentTaskState } from './model';
@@ -70,21 +70,7 @@ export function TaskCard({ task, events, providers, width, active = false, now, 
   const model = displayModelName(models.find((option) => option.id === task.defaults.model)?.name ?? task.defaults.model ?? '');
   const providerName = provider?.label ?? laneLabel(task.laneId);
   const meta = `${providerName}${model === '' ? '' : ` · ${model}`}`;
-  const [draft, setDraft] = useState<string | null>(null);
-  // Enter commits and then the input unmounts, which blurs it; the flag keeps that from committing twice.
-  const committed = useRef(false);
-  const startRename = (): void => {
-    if (onRename === undefined) return;
-    committed.current = false;
-    setDraft(task.title);
-  };
-  const commit = (): void => {
-    if (committed.current || draft === null) return;
-    committed.current = true;
-    const next = draft.trim();
-    setDraft(null);
-    if (next !== '' && next !== task.title) onRename?.(next);
-  };
+  const rename = useRenameDraft(task.title, onRename);
   const pillNode = (
     <span className={`agt-state ${pill.className}`}>
       {pill.spinning && <LoaderCircle className="agt-spin" aria-hidden="true" />}
@@ -124,10 +110,10 @@ export function TaskCard({ task, events, providers, width, active = false, now, 
           </div>
         </div>
       </button>
-      {(onRename !== undefined || onHide !== undefined) && draft === null && (
+      {(onRename !== undefined || onHide !== undefined) && !rename.editing && (
         <div className="agt-card__tools">
           {onRename !== undefined && (
-            <button type="button" className="agt-card__tool" title="Rename" aria-label={`Rename task: ${task.title}`} onClick={startRename}>
+            <button type="button" className="agt-card__tool" title="Rename" aria-label={`Rename task: ${task.title}`} onClick={rename.start}>
               <Pencil size={14} aria-hidden="true" />
             </button>
           )}
@@ -139,24 +125,12 @@ export function TaskCard({ task, events, providers, width, active = false, now, 
         </div>
       )}
       <div className="agt-card__foot">
-        {draft === null ? (
-          <span className="agt-card__name" title={onRename === undefined ? undefined : 'Double-click to rename'} onDoubleClick={startRename}>
+        {!rename.editing ? (
+          <span className="agt-card__name" title={onRename === undefined ? undefined : 'Double-click to rename'} onDoubleClick={rename.start}>
             {task.title}
           </span>
         ) : (
-          <input
-            className="agt-card__rename"
-            type="text"
-            aria-label="Task name"
-            value={draft}
-            autoFocus
-            onChange={(event) => setDraft(event.target.value)}
-            onBlur={commit}
-            onKeyDown={(event) => {
-              if (event.key === 'Enter') commit();
-              if (event.key === 'Escape') { committed.current = true; setDraft(null); }
-            }}
-          />
+          <input className="agt-card__rename" {...rename.inputProps} />
         )}
         {pillNode}
       </div>

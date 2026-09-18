@@ -17,38 +17,11 @@ import type { ReactElement } from 'react';
 import { describe, expect, it, vi } from 'vitest';
 import type { InlineReviewCommentDto, PullRequestDetailDto, PullRequestDto, PullTimelinePayloadDto } from '../types';
 import MarkdownBody, { markdownBlocks } from './MarkdownBody';
+import { EMPTY_TIMELINE_PAYLOAD as emptyPayload } from './model';
 import PullOverview, { activeMention, appendQuotedReply, applyViewerReaction, canUpdateComment, CommentEditor, displayedMetadataPickerOptions, groupTimelineActivities, githubActionsJobId, isViewerComment, MAX_UNSELECTED_PEOPLE_PICKER_OPTIONS, mentionCandidates, mergePullRequestWriteDetail, MetadataPicker, nextViewerReaction, patchCommentLine, peoplePickerCandidates, remoteErrorMessage, replaceMention, reviewCommentLine, ReviewThread, reviewThreadSuggestion, submitPullReaction, submitPullRequestComment, updatePullReactionDetail, updateReviewThreadResolution } from './PullOverview';
 import { relativeTime } from '../relativeTime';
 import PullsScreen, { canSubmitReview, hasMergeConflicts, isReviewRequestedForViewer, MergeDialog, mergeActionLabel, mergeStatus, PullDetailHeader, remotePullRequest, ReviewDialog, unresolvedReviewCount } from './PullsScreen';
 
-const emptyPayload: PullTimelinePayloadDto = {
-  actorAvatarUrl: null,
-  actorBot: false,
-  state: null,
-  htmlUrl: null,
-  label: null,
-  labelColor: null,
-  renameFrom: null,
-  renameTo: null,
-  commitSha: null,
-  commitMessage: null,
-  sourceTitle: null,
-  sourceUrl: null,
-  sourceNumber: null,
-  milestoneTitle: null,
-  requestedReviewer: null,
-  path: null,
-  diffHunk: null,
-  line: null,
-  originalLine: null,
-  startLine: null,
-  originalStartLine: null,
-  side: null,
-  resolved: false,
-  outdated: false,
-  reactions: [],
-  comments: [],
-};
 
 describe('PullOverview', () => {
   it('places private local review cards among GitHub activity without changing remote comments', () => {

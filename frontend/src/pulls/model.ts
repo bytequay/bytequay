@@ -11,8 +11,38 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-import type { PullRequestDetailDto, PullRequestDto } from '../types';
+import type { PullRequestDetailDto, PullRequestDto, PullTimelinePayloadDto } from '../types';
 import { relativeTime } from '../relativeTime';
+
+/** A timeline payload with every field at rest, so a caller sets only what its event carries. */
+export const EMPTY_TIMELINE_PAYLOAD: PullTimelinePayloadDto = {
+  actorAvatarUrl: null,
+  actorBot: false,
+  state: null,
+  htmlUrl: null,
+  label: null,
+  labelColor: null,
+  renameFrom: null,
+  renameTo: null,
+  commitSha: null,
+  commitMessage: null,
+  sourceTitle: null,
+  sourceUrl: null,
+  sourceNumber: null,
+  milestoneTitle: null,
+  requestedReviewer: null,
+  path: null,
+  diffHunk: null,
+  line: null,
+  originalLine: null,
+  startLine: null,
+  originalStartLine: null,
+  side: null,
+  resolved: false,
+  outdated: false,
+  reactions: [],
+  comments: [],
+};
 
 export type PullTab = 'all' | 'active' | 'req' | 'monitored' | 'reviewed' | 'done';
 /**

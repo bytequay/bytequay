@@ -24,6 +24,7 @@ import { initialAgentTaskState, type AgentTaskState } from './model';
 import { samePullRequest, taskPullRequest, type TaskPullRequestChanges } from './TaskPullRequestPanel';
 import { displayModelName } from '../settings/model';
 import { projectTranscript } from './transcript';
+import { EMPTY_TIMELINE_PAYLOAD } from '../pulls/model';
 import { previewTask, TASK_BODY_NOOPS } from './fixtures/previewBridge';
 import { NO_AGENT_CAPABILITIES } from './capabilities';
 import type {
@@ -487,34 +488,7 @@ function reviewedDetail(): PullRequestDetailDto {
       timestamp: '2026-08-20T10:30:00Z',
       body: null,
       githubId: 9,
-      payload: {
-        actorAvatarUrl: null,
-        actorBot: false,
-        state: null,
-        htmlUrl: null,
-        label: null,
-        labelColor: null,
-        requestedReviewer: null,
-        renameFrom: null,
-        renameTo: null,
-        commitSha: null,
-        commitMessage: null,
-        sourceTitle: null,
-        sourceUrl: null,
-        sourceNumber: null,
-        milestoneTitle: null,
-        path: 'src/Example.java',
-        diffHunk: null,
-        line: 2,
-        originalLine: null,
-        startLine: null,
-        originalStartLine: null,
-        side: 'RIGHT',
-        resolved: false,
-        outdated: false,
-        reactions: [],
-        comments: [],
-      },
+      payload: { ...EMPTY_TIMELINE_PAYLOAD, path: 'src/Example.java', line: 2, side: 'RIGHT' },
     }],
     checkRuns: [],
     unavailableSections: [],

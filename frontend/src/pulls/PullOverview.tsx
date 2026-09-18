@@ -36,38 +36,11 @@ import type {
 } from '../types';
 import BetterWordsButton from './BetterWordsButton';
 import MarkdownBody, { GitHubReferenceLink, toggleMarkdownTask, type SuggestionBase } from './MarkdownBody';
+import { EMPTY_TIMELINE_PAYLOAD } from './model';
 import { PullRequestIcon } from './PullRowItem';
 import { ReviewThreadCard, ReviewThreadMessage } from './ReviewThreadCard';
 
 type Activity = PullRequestDetailDto['recentActivity'][number];
-const EMPTY_TIMELINE_PAYLOAD: PullTimelinePayloadDto = {
-  actorAvatarUrl: null,
-  actorBot: false,
-  state: null,
-  htmlUrl: null,
-  label: null,
-  labelColor: null,
-  renameFrom: null,
-  renameTo: null,
-  commitSha: null,
-  commitMessage: null,
-  sourceTitle: null,
-  sourceUrl: null,
-  sourceNumber: null,
-  milestoneTitle: null,
-  requestedReviewer: null,
-  path: null,
-  diffHunk: null,
-  line: null,
-  originalLine: null,
-  startLine: null,
-  originalStartLine: null,
-  side: null,
-  resolved: false,
-  outdated: false,
-  reactions: [],
-  comments: [],
-};
 const LABEL_EVENT_TYPES = new Set(['labeled', 'unlabeled']);
 const TIMELINE_EVENT_GROUP_WINDOW_MS = 5 * 60 * 1000;
 const HIDDEN_TIMELINE_EVENTS = new Set([

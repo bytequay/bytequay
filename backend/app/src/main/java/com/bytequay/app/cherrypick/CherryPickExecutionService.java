@@ -35,7 +35,6 @@ import com.bytequay.agent.spi.AgentPermissionPolicy;
 import com.bytequay.app.agent.WorkflowAgentTasks;
 import com.bytequay.app.git.GitCommandRunner;
 import com.bytequay.app.git.GitSequencerDriver;
-import com.bytequay.app.git.GitSequencerDriver.NormalizationResult;
 import com.bytequay.app.git.SequenceState;
 import com.bytequay.app.service.credentials.CredentialService;
 import com.bytequay.app.workspace.WorkspacePaths;
@@ -325,10 +324,6 @@ public class CherryPickExecutionService
         if (execution.journal().map(ActionJournal::type).filter(ActionType.FINALIZE_CONFLICT_PAIR::equals)
                 .isPresent()) {
             return finalizeConflictPair(execution);
-        }
-        if (execution.journal().map(ActionJournal::type).filter(ActionType.NORMALIZE_CONFLICT_PAIR::equals)
-                .isPresent()) {
-            return normalizeConflictPair(execution);
         }
         Path worktree = execution.workspace().worktree();
         String expectedHead = execution.currentTargetSha();
@@ -834,36 +829,6 @@ public class CherryPickExecutionService
                 .withStep(Step.APPLYING, clock.instant())
                 .withoutJournal(clock.instant()));
         return updated.pendingItems().isEmpty() ? complete(updated) : updated;
-    }
-
-    /** Finishes executions journaled by the former squashing implementation. */
-    private CherryPickExecution normalizeConflictPair(CherryPickExecution execution)
-    {
-        ActionJournal journal = execution.journal().orElseThrow();
-        Path worktree = execution.workspace().worktree();
-        String fixupCommit = journal.expectedHead();
-        String conflictCommit = parentOf(worktree, fixupCommit);
-        String originalHead = parentOf(worktree, conflictCommit);
-        if (!originalHead.equals(execution.currentTargetSha())) {
-            return pause(execution, PauseReason.RECONCILIATION_MISMATCH,
-                    "Conflict pair no longer follows the recorded target tip");
-        }
-        NormalizationResult result = sequencer.normalizeConflictPair(
-                worktree, originalHead, conflictCommit, fixupCommit);
-        return switch (result.kind()) {
-            case UNSAFE -> pause(execution, PauseReason.UNSAFE_GIT_STATE, result.diagnostics());
-            case APPLIED -> reconcile(
-                    execution.withStep(Step.APPLYING, clock.instant()),
-                    originalHead,
-                    sequencer.observe(worktree));
-            case EMPTY -> {
-                CherryPickExecution updated = store.save(execution
-                        .recordEmptySkipped(journal.sourceSha().orElseThrow(), clock.instant())
-                        .withStep(Step.APPLYING, clock.instant())
-                        .withoutJournal(clock.instant()));
-                yield updated.pendingItems().isEmpty() ? complete(updated) : updated;
-            }
-        };
     }
 
     /**

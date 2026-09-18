@@ -218,87 +218,6 @@ public final class GitSequencerDriver
         return observe(worktree).kind() == Kind.COMPLETED;
     }
 
-    /**
-     * Replaces a temporary conflict commit and its direct fixup with one final
-     * cherry-pick commit, or drops both when their final tree equals the parent.
-     */
-    public NormalizationResult normalizeConflictPair(
-            Path worktree,
-            String originalHead,
-            String conflictCommit,
-            String fixupCommit)
-    {
-        if (!parent(worktree, conflictCommit).equals(originalHead)
-                || !parent(worktree, fixupCommit).equals(conflictCommit)) {
-            return NormalizationResult.unsafe(head(worktree), "Conflict pair is not H0 -> C -> F");
-        }
-        String finalTree = tree(worktree, fixupCommit);
-        if (finalTree.isEmpty()) {
-            return NormalizationResult.unsafe(head(worktree), "Cannot read the final conflict tree");
-        }
-        SequenceState before = observe(worktree);
-        boolean empty = finalTree.equals(tree(worktree, originalHead));
-        if (before.kind() == Kind.COMPLETED && before.head().equals(originalHead) && empty) {
-            return new NormalizationResult(NormalizationResult.Kind.EMPTY, originalHead, "");
-        }
-        if (before.kind() == Kind.COMPLETED
-                && !before.head().equals(fixupCommit)
-                && parent(worktree, before.head()).equals(originalHead)
-                && tree(worktree, before.head()).equals(finalTree)
-                && message(worktree, before.head()).equals(message(worktree, conflictCommit))) {
-            return new NormalizationResult(NormalizationResult.Kind.APPLIED, before.head(), "");
-        }
-        if (before.kind() == Kind.COMPLETED && before.head().equals(fixupCommit) && empty) {
-            git.run(worktree, "reset", "--hard", originalHead);
-            SequenceState after = observe(worktree);
-            return after.kind() == Kind.COMPLETED && after.head().equals(originalHead)
-                    ? new NormalizationResult(NormalizationResult.Kind.EMPTY, originalHead, "")
-                    : NormalizationResult.unsafe(after.head(), "Empty conflict pair was not removed cleanly");
-        }
-        if (before.kind() == Kind.COMPLETED && before.head().equals(fixupCommit)) {
-            Result reset = git.run(worktree, "reset", "--soft", originalHead);
-            if (!reset.successful()) {
-                return NormalizationResult.unsafe(before.head(), "Cannot prepare conflict pair normalization");
-            }
-        }
-        else if (!normalizationIsPrepared(worktree, originalHead, finalTree)) {
-            return NormalizationResult.unsafe(before.head(), "Conflict pair is not at a recoverable normalization point");
-        }
-        return finishNormalizedCommit(worktree, originalHead, conflictCommit, finalTree);
-    }
-
-    private NormalizationResult finishNormalizedCommit(
-            Path worktree,
-            String originalHead,
-            String conflictCommit,
-            String finalTree)
-    {
-        Result committed = git.run(worktree, "commit", "--quiet", "--no-gpg-sign", "-C", conflictCommit);
-        SequenceState after = observe(worktree);
-        if (!committed.successful()
-                || after.kind() != Kind.COMPLETED
-                || !parent(worktree, after.head()).equals(originalHead)
-                || !tree(worktree, after.head()).equals(finalTree)
-                || !message(worktree, after.head()).equals(message(worktree, conflictCommit))) {
-            return NormalizationResult.unsafe(after.head(), "Conflict pair did not normalize to one equivalent commit");
-        }
-        return new NormalizationResult(NormalizationResult.Kind.APPLIED, after.head(), "");
-    }
-
-    private boolean normalizationIsPrepared(Path worktree, String originalHead, String expectedTree)
-    {
-        if (!head(worktree).equals(originalHead)) {
-            return false;
-        }
-        Result writtenTree = git.run(worktree, "write-tree");
-        String status = git.run(worktree, "status", "--porcelain=v1", "--untracked-files=all").output();
-        return writtenTree.successful()
-                && writtenTree.output().strip().equals(expectedTree)
-                && git.run(worktree, "diff", "--quiet").successful()
-                && git.run(worktree, "ls-files", "-u").output().isBlank()
-                && status.lines().noneMatch(line -> line.startsWith("??"));
-    }
-
     private Set<String> openMarkers(Path worktree)
     {
         List<String> markers = ImmutableList.<String>builder()
@@ -321,56 +240,9 @@ public final class GitSequencerDriver
         return open;
     }
 
-    private String parent(Path worktree, String commit)
-    {
-        Result result = git.run(worktree, "rev-parse", commit + "^");
-        return result.successful() ? result.output().strip() : "";
-    }
-
-    private String head(Path worktree)
-    {
-        Result result = git.run(worktree, "rev-parse", "HEAD");
-        return result.successful() ? result.output().strip() : "";
-    }
-
-    private String tree(Path worktree, String commit)
-    {
-        Result result = git.run(worktree, "rev-parse", commit + "^{tree}");
-        return result.successful() ? result.output().strip() : "";
-    }
-
-    private String message(Path worktree, String commit)
-    {
-        Result result = git.run(worktree, "log", "-1", "--format=%B", commit);
-        return result.successful() ? result.output() : "";
-    }
-
     private static SequenceState unsafe(String head, String diagnostics)
     {
         return new SequenceState(
                 Kind.UNSAFE, head, Optional.empty(), ImmutableList.of(), diagnostics);
-    }
-
-    /** Result of replacing temporary conflict history with its final answer. */
-    public record NormalizationResult(Kind kind, String head, String diagnostics)
-    {
-        public NormalizationResult
-        {
-            requireNonNull(kind, "kind is null");
-            requireNonNull(head, "head is null");
-            requireNonNull(diagnostics, "diagnostics is null");
-        }
-
-        private static NormalizationResult unsafe(String head, String diagnostics)
-        {
-            return new NormalizationResult(Kind.UNSAFE, head, diagnostics);
-        }
-
-        public enum Kind
-        {
-            APPLIED,
-            EMPTY,
-            UNSAFE
-        }
     }
 }

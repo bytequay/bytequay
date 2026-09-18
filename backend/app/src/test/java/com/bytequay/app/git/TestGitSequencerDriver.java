@@ -226,7 +226,7 @@ class TestGitSequencerDriver
     }
 
     @Test
-    void commitsTheConflictSnapshotThenSquashesItsFixup()
+    void commitsTheConflictSnapshotWithItsCherryPickOrigin()
     {
         write("file.txt", "base\n");
         commit("Base");
@@ -246,94 +246,8 @@ class TestGitSequencerDriver
         SequenceState snapshot = driver.commitConflictSnapshot(
                 repository, target, source, conflict.conflicts());
         assertThat(snapshot.kind()).isEqualTo(Kind.COMPLETED);
-        String conflictCommit = snapshot.head();
         assertThat(git(repository, "log", "-1", "--format=%B"))
                 .contains("(cherry picked from commit " + source + ")");
-
-        write("file.txt", "resolved\n");
-        git(repository, "add", "file.txt");
-        git(repository, "commit", "--quiet", "--fixup=" + conflictCommit);
-        String fixupCommit = head();
-        String finalTree = git(repository, "rev-parse", fixupCommit + "^{tree}");
-
-        GitSequencerDriver.NormalizationResult normalized = driver.normalizeConflictPair(
-                repository, target, conflictCommit, fixupCommit);
-
-        assertThat(normalized.kind()).isEqualTo(GitSequencerDriver.NormalizationResult.Kind.APPLIED);
-        assertThat(git(repository, "rev-list", "--count", target + "..HEAD")).isEqualTo("1");
-        assertThat(git(repository, "rev-parse", "HEAD^{tree}")).isEqualTo(finalTree);
-        assertThat(git(repository, "log", "-1", "--format=%B"))
-                .contains("(cherry picked from commit " + source + ")")
-                .doesNotContain("fixup!");
-    }
-
-    @Test
-    void dropsAConflictPairWhoseFinalTreeEqualsItsParent()
-    {
-        write("file.txt", "base\n");
-        commit("Base");
-        String base = head();
-
-        git(repository, "checkout", "--quiet", "-b", "source");
-        write("file.txt", "source\n");
-        commit("Conflicting change");
-        String source = head();
-
-        git(repository, "checkout", "--quiet", "-B", "main", base);
-        write("file.txt", "target\n");
-        commit("Target change");
-        String target = head();
-
-        SequenceState conflict = driver.beginCherryPick(repository, target, source);
-        SequenceState snapshot = driver.commitConflictSnapshot(
-                repository, target, source, conflict.conflicts());
-        String conflictCommit = snapshot.head();
-        write("file.txt", "target\n");
-        git(repository, "add", "file.txt");
-        git(repository, "commit", "--quiet", "--fixup=" + conflictCommit);
-
-        GitSequencerDriver.NormalizationResult normalized = driver.normalizeConflictPair(
-                repository, target, conflictCommit, head());
-
-        assertThat(normalized.kind()).isEqualTo(GitSequencerDriver.NormalizationResult.Kind.EMPTY);
-        assertThat(head()).isEqualTo(target);
-        assertThat(driver.observe(repository).kind()).isEqualTo(Kind.COMPLETED);
-    }
-
-    @Test
-    void resumesNormalizationAfterTheSoftResetAndAdoptsItsCompletedCommit()
-    {
-        write("file.txt", "base\n");
-        commit("Base");
-        String base = head();
-        git(repository, "checkout", "--quiet", "-b", "source");
-        write("file.txt", "source\n");
-        commit("Conflicting change");
-        String source = head();
-        git(repository, "checkout", "--quiet", "-B", "main", base);
-        write("file.txt", "target\n");
-        commit("Target change");
-        String target = head();
-
-        SequenceState conflict = driver.beginCherryPick(repository, target, source);
-        String conflictCommit = driver.commitConflictSnapshot(
-                repository, target, source, conflict.conflicts()).head();
-        write("file.txt", "resolved\n");
-        git(repository, "add", "file.txt");
-        git(repository, "commit", "--quiet", "--fixup=" + conflictCommit);
-        String fixupCommit = head();
-
-        git(repository, "reset", "--soft", target);
-        GitSequencerDriver.NormalizationResult recovered = driver.normalizeConflictPair(
-                repository, target, conflictCommit, fixupCommit);
-        assertThat(recovered.kind()).isEqualTo(GitSequencerDriver.NormalizationResult.Kind.APPLIED);
-        String normalized = head();
-
-        GitSequencerDriver.NormalizationResult adopted = driver.normalizeConflictPair(
-                repository, target, conflictCommit, fixupCommit);
-        assertThat(adopted.kind()).isEqualTo(GitSequencerDriver.NormalizationResult.Kind.APPLIED);
-        assertThat(adopted.head()).isEqualTo(normalized);
-        assertThat(git(repository, "rev-list", "--count", target + "..HEAD")).isEqualTo("1");
     }
 
     private String change(String name, String subject)

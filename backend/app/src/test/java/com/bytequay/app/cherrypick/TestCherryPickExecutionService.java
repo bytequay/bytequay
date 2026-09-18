@@ -1074,38 +1074,6 @@ class TestCherryPickExecutionService
     }
 
     @Test
-    void finishesALegacyJournalThatWasWaitingToNormalizeAConflictPair()
-    {
-        String base = head(upstream);
-        write(upstream, "seed.txt", "upstream edit\n");
-        commit(upstream, "Conflicting change");
-        String source = head(upstream);
-        write(fork, "seed.txt", "fork edit\n");
-        commit(fork, "Fork edit");
-
-        CherryPickExecution started = start(base, ImmutableList.of());
-        Path worktree = started.workspace().worktree();
-        agent.then(() -> resolveAndFixup(worktree, "seed.txt", "resolved\n"), TurnState.COMPLETED);
-        CherryPickExecution finalizing = reachFinalization(started);
-        ActionJournal journal = finalizing.journal().orElseThrow();
-        CherryPickExecution legacy = store.save(finalizing.withJournal(new ActionJournal(
-                ActionType.NORMALIZE_CONFLICT_PAIR,
-                journal.sourceSha(),
-                journal.expectedHead(),
-                journal.attempt(),
-                journal.idempotencyKey(),
-                journal.startedAt()), CLOCK.instant()));
-
-        CherryPickExecution finished = runToCompletion(legacy);
-
-        assertThat(finished.status()).isEqualTo(Status.FINISHED);
-        assertThat(item(finished, source).result()).isEqualTo(Result.APPLIED);
-        assertThat(git(clone, "rev-list", "--count",
-                started.currentTargetSha() + ".." + finished.workspace().workBranch()))
-                .isEqualTo("1");
-    }
-
-    @Test
     void retainsAnEmptyFixupPairForItsConflictAttribution()
     {
         String base = head(upstream);

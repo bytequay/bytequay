@@ -595,9 +595,7 @@ public record CherryPickExecution(
         COMMIT_CONFLICT_SNAPSHOT,
         AGENT_TURN,
         AGENT_REPAIR,
-        FINALIZE_CONFLICT_PAIR,
-        /** Read compatibility for executions journaled by the squashing implementation. */
-        NORMALIZE_CONFLICT_PAIR
+        FINALIZE_CONFLICT_PAIR
     }
 
     /** Human-readable {@code range-diff} output, and whether it was cut short. */

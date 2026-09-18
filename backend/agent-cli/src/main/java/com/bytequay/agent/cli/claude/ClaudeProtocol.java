@@ -43,11 +43,6 @@ final class ClaudeProtocol
             permits SystemMessage, StreamEventMessage, AssistantMessage, UserMessage,
             ToolProgressMessage, RateLimitMessage, ResultMessage, UnknownMessage
     {
-        default Optional<String> uuid()
-        {
-            return Optional.empty();
-        }
-
         default Optional<String> sessionId()
         {
             return Optional.empty();

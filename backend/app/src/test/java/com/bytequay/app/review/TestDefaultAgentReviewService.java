@@ -2219,16 +2219,6 @@ class TestDefaultAgentReviewService
         }
 
         @Override
-        public ReviewMessage updateMessage(ReviewMessage message)
-        {
-            ReviewMessage stored = messages.get(message.id());
-            checkUpdate(stored == null ? OptionalLong.empty() : OptionalLong.of(stored.version()), message.version(), "Review message", message.id());
-            ReviewMessage next = message.withVersion(message.version() + 1);
-            messages.put(next.id(), next);
-            return next;
-        }
-
-        @Override
         public List<ReviewMessage> listMessages(String reviewId)
         {
             return messages.values().stream()

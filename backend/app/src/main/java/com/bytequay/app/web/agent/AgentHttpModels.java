@@ -20,7 +20,6 @@ import com.bytequay.agent.core.AgentHistoryPage;
 import com.bytequay.agent.core.AgentRuntimeStopImpact;
 import com.bytequay.agent.core.ApprovalDecision;
 import com.bytequay.agent.core.ApprovalRequest;
-import com.bytequay.agent.core.CleanupResult;
 import com.bytequay.agent.core.StoredAgentAttachment;
 import com.bytequay.agent.core.TaskCompletion;
 import com.bytequay.agent.spi.AgentCapabilities;
@@ -124,15 +123,6 @@ public final class AgentHttpModels
                 impact.liveProcess());
     }
 
-    public static CleanupResponse cleanup(CleanupResult result)
-    {
-        return new CleanupResponse(
-                result.taskId().toString(),
-                result.state().name(),
-                result.deletedAt(),
-                result.failure());
-    }
-
     /** A stored attachment's facts; the blob itself is read through its own endpoint. */
     public record AttachmentResponse(String id, String name, String mediaType, long byteSize, int width, int height) {}
 
@@ -189,10 +179,4 @@ public final class AgentHttpModels
 
     /** The creation step an in-flight create request is in, or empty once that request has returned. */
     public record StartupProgressResponse(Optional<String> phase) {}
-
-    public record CleanupResponse(
-            String taskId,
-            String state,
-            Optional<Instant> deletedAt,
-            Optional<String> failure) {}
 }

@@ -15,7 +15,6 @@ package com.bytequay.core.domain;
 
 import java.time.Instant;
 import java.time.LocalDate;
-import java.util.Optional;
 
 import static com.google.common.base.Preconditions.checkArgument;
 import static java.util.Objects.requireNonNull;
@@ -61,11 +60,6 @@ public record RecentTouch(
         requireNonNull(reason, "reason is null");
         requireNonNull(title, "title is null");
         checkArgument(reasonCount >= 0, "reasonCount is negative: %s", reasonCount);
-    }
-
-    public Optional<String> workspace()
-    {
-        return Optional.ofNullable(workspaceId);
     }
 
     /**

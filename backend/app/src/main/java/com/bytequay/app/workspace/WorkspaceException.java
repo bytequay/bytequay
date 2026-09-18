@@ -37,13 +37,6 @@ public final class WorkspaceException
                 "Workspace not found: " + workspaceId, false);
     }
 
-    public static WorkspaceException repositoryNotFound(String owner, String repo)
-    {
-        return new WorkspaceException(
-                "REPOSITORY_NOT_FOUND", HttpStatus.NOT_FOUND,
-                "Repository is no longer visible: " + owner + "/" + repo, false);
-    }
-
     public static WorkspaceException repositoryNotFound(long repositoryId)
     {
         return new WorkspaceException(

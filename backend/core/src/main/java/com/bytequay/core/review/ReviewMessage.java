@@ -58,16 +58,6 @@ public record ReviewMessage(
         requireNonNull(createdAt, "createdAt is null");
     }
 
-    public ReviewMessage withVersion(long updatedVersion)
-    {
-        return new ReviewMessage(id, reviewId, findingId, cardId, author, body, targetRevision, runId, turnId, queuedInputId, updatedVersion, createdAt);
-    }
-
-    public ReviewMessage withTurn(String startedTurnId)
-    {
-        return new ReviewMessage(id, reviewId, findingId, cardId, author, body, targetRevision, runId, Optional.of(startedTurnId), queuedInputId, version, createdAt);
-    }
-
     public enum Author
     {
         USER,

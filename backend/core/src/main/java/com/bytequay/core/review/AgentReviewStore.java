@@ -62,7 +62,5 @@ public interface AgentReviewStore
 
     ReviewMessage insertMessage(ReviewMessage message);
 
-    ReviewMessage updateMessage(ReviewMessage message);
-
     List<ReviewMessage> listMessages(String reviewId);
 }

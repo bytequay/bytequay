@@ -211,20 +211,6 @@ public class SqliteAgentReviewStore
     }
 
     @Override
-    @Transactional
-    public ReviewMessage updateMessage(ReviewMessage message)
-    {
-        return update(
-                messages,
-                message.id(),
-                "Review message",
-                message.version(),
-                AgentReviewMessageEntity::getVersion,
-                entity -> entity.updateFrom(message),
-                AgentReviewMessageEntity::toDomain);
-    }
-
-    @Override
     @Transactional(readOnly = true)
     public List<ReviewMessage> listMessages(String reviewId)
     {

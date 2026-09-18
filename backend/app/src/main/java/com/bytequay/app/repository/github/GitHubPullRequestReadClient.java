@@ -107,10 +107,6 @@ public class GitHubPullRequestReadClient
             "commit_message_pattern", "commit_author_email_pattern", "committer_email_pattern", "branch_name_pattern", "tag_name_pattern",
             "file_path_restriction", "max_file_path_length", "file_extension_restriction", "max_file_size");
 
-    public List<FetchedPullRequest> searchPullRequests(String pat, String query) {
-        return searchPullRequestsPaged(pat, query, 1, PER_PAGE).items();
-    }
-
     /** The list endpoint supplies head refs immediately, without waiting for GitHub's search index. */
     public List<FetchedPullRequest> fetchPullRequestsByHead(String pat, RepoRef repository, String head)
     {
@@ -511,11 +507,6 @@ public class GitHubPullRequestReadClient
     }
 
     public PullRequestHistoryPage searchPullRequestsPaged(
-            String pat, String query, int page, int perPage) {
-        return searchPullRequestsPaged(pat, query, page, perPage, null, null);
-    }
-
-    public PullRequestHistoryPage searchPullRequestsPaged(
             String pat, String query, int page, int perPage, String sort, String order) {
         requirePat(pat);
         int safePage = Math.max(1, page);
@@ -857,11 +848,6 @@ public class GitHubPullRequestReadClient
                 .retrieve()
                 .body(GitHubCompareResponse.class));
         return response == null ? ImmutableList.of() : toDiffFiles(response.files());
-    }
-
-    public List<DiffCommit> fetchPrDiffCommits(String pat, PullRequestRef pr)
-    {
-        return fetchPrDiffCommits(pat, pr, ImmutableList.of(), Optional.empty()).orElse(ImmutableList.of());
     }
 
     public ConditionalList<DiffCommit> fetchPrDiffCommits(

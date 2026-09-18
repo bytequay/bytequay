@@ -61,50 +61,6 @@ final class CodexIsolationGuard
     private final boolean allowGitHubCommands;
     private final boolean review;
 
-    /**
-     * @param codexHome the isolated home ByteQuay assigned to this process
-     * @param childProfile the exact feature profile selected from the model catalog
-     */
-    CodexIsolationGuard(
-            CodexAppServerClient client,
-            Path codexHome,
-            CodexLaunchProfile.ChildProfile childProfile)
-    {
-        this(client, codexHome, childProfile, Optional.empty(), false);
-    }
-
-    /**
-     * @param codexHome the isolated home ByteQuay assigned to this process
-     * @param childProfile the exact feature profile selected from the model catalog
-     * @param codeGraphEndpoint the one MCP server this launch may expose, ByteQuay's own task
-     *        endpoint for the CodeGraph tool; every other MCP server is an isolation failure
-     */
-    CodexIsolationGuard(
-            CodexAppServerClient client,
-            Path codexHome,
-            CodexLaunchProfile.ChildProfile childProfile,
-            Optional<URI> codeGraphEndpoint)
-    {
-        this(client, codexHome, childProfile, codeGraphEndpoint, false);
-    }
-
-    /**
-     * @param codexHome the isolated home ByteQuay assigned to this process
-     * @param childProfile the exact feature profile selected from the model catalog
-     * @param codeGraphEndpoint the one MCP server this launch may expose, ByteQuay's own task
-     *        endpoint for the CodeGraph tool; every other MCP server is an isolation failure
-     * @param textOnly whether the process must also prove every execution feature disabled
-     */
-    CodexIsolationGuard(
-            CodexAppServerClient client,
-            Path codexHome,
-            CodexLaunchProfile.ChildProfile childProfile,
-            Optional<URI> codeGraphEndpoint,
-            boolean textOnly)
-    {
-        this(client, codexHome, childProfile, codeGraphEndpoint, textOnly, ImmutableList.of(), false, false);
-    }
-
     CodexIsolationGuard(
             CodexAppServerClient client,
             Path codexHome,

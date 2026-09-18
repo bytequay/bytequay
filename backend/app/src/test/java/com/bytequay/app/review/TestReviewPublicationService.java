@@ -537,9 +537,6 @@ class TestReviewPublicationService
         public ReviewMessage insertMessage(ReviewMessage message) { throw new UnsupportedOperationException(); }
 
         @Override
-        public ReviewMessage updateMessage(ReviewMessage message) { throw new UnsupportedOperationException(); }
-
-        @Override
         public List<ReviewMessage> listMessages(String reviewId) { throw new UnsupportedOperationException(); }
     }
 }

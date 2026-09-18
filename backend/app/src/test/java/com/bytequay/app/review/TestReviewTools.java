@@ -1146,14 +1146,6 @@ class TestReviewTools
         }
 
         @Override
-        public ReviewMessage updateMessage(ReviewMessage message)
-        {
-            ReviewMessage next = message.withVersion(message.version() + 1);
-            messages.put(next.id(), next);
-            return next;
-        }
-
-        @Override
         public List<ReviewMessage> listMessages(String reviewId)
         {
             return messages.values().stream().filter(message -> message.reviewId().equals(reviewId)).collect(toImmutableList());

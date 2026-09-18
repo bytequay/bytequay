@@ -238,11 +238,6 @@ final class CodexLaunchProfile
         return config.buildOrThrow();
     }
 
-    static Map<String, Boolean> expectedFeatures(ChildProfile childProfile)
-    {
-        return expectedFeatures(childProfile, false);
-    }
-
     static Map<String, Boolean> expectedFeatures(ChildProfile childProfile, boolean textOnly)
     {
         return expectedFeatures(childProfile, textOnly, false);

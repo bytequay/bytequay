@@ -84,8 +84,7 @@ final class InMemoryCiAutofixStore
         return run == null ? ImmutableList.of() : ImmutableList.of(run);
     }
 
-    @Override
-    public List<CiAutofixRun> listNonFinished(int limit)
+    private List<CiAutofixRun> nonFinished()
     {
         return run == null || run.status() == Status.FINISHED ? ImmutableList.of() : ImmutableList.of(run);
     }
@@ -93,7 +92,7 @@ final class InMemoryCiAutofixStore
     @Override
     public List<CiAutofixRun> listStandaloneNonFinished(int limit)
     {
-        return listNonFinished(limit).stream().filter(value -> value.scope().parentTaskId().isEmpty())
+        return nonFinished().stream().filter(value -> value.scope().parentTaskId().isEmpty())
                 .collect(toImmutableList());
     }
 

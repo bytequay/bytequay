@@ -35,7 +35,5 @@ public interface CiAutofixRunJpaRepository
 
     List<CiAutofixRunEntity> findAllByOrderByUpdatedAtDesc(Pageable pageable);
 
-    List<CiAutofixRunEntity> findByStatusInOrderByUpdatedAtAsc(Collection<Status> statuses, Pageable pageable);
-
     List<CiAutofixRunEntity> findByStatusInAndParentTaskIdIsNullOrderByUpdatedAtAsc(Collection<Status> statuses, Pageable pageable);
 }

@@ -206,14 +206,6 @@ final class InMemoryAgentStores
     }
 
     @Override
-    public synchronized boolean hasWorktreeReference(String workspaceId)
-    {
-        return tasks.values().stream()
-                .anyMatch(task -> task.taskWorktree().stream()
-                        .anyMatch(worktree -> worktree.workspaceId().equals(workspaceId)));
-    }
-
-    @Override
     public synchronized List<AgentTask> listLive()
     {
         return tasks.values().stream()

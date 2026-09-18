@@ -192,9 +192,6 @@ class TestGitSequencerDriver
         assertThat(driver.beginCherryPick(repository, target, source).kind())
                 .as("an operation is already open")
                 .isEqualTo(Kind.UNSAFE);
-
-        assertThat(driver.abort(repository, target).kind()).isEqualTo(Kind.COMPLETED);
-        assertThat(head()).isEqualTo(target);
     }
 
     @Test

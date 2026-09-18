@@ -22,6 +22,4 @@ public interface RemoteSourceJpaRepository
         extends JpaRepository<RemoteSourceEntity, String>
 {
     List<RemoteSourceEntity> findByWorkspaceIdOrderByNameAsc(String workspaceId);
-
-    void deleteByWorkspaceId(String workspaceId);
 }

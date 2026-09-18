@@ -348,7 +348,6 @@ class TestSqliteCiAutofixStore
         store.insert(finished);
 
         assertThat(store.listRecent(10)).containsExactly(finished, paused, oldest);
-        assertThat(store.listNonFinished(10)).containsExactly(oldest, paused);
         assertThatThrownBy(() -> store.listRecent(0)).isInstanceOf(IllegalArgumentException.class);
     }
 

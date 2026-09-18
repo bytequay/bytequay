@@ -26,6 +26,4 @@ public interface RemoteSourceStore
     void save(RemoteSource remoteSource);
 
     void delete(String workspaceId, String name);
-
-    void deleteByWorkspace(String workspaceId);
 }

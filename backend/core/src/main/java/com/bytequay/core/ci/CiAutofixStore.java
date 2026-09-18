@@ -72,16 +72,6 @@ public interface CiAutofixStore
      */
     List<CiAutofixRun> listRecent(int limit);
 
-    /**
-     * Lists active and paused runs in oldest-update-first monitor order.
-     *
-     * @param limit positive batch size
-     * @return at most {@code limit} non-finished run projections
-     * @throws IllegalArgumentException when limit is not positive
-     * @throws CiAutofixStorageException when persistence fails
-     */
-    List<CiAutofixRun> listNonFinished(int limit);
-
     /** Lists only independently scheduled runs; delivery-owned runs require their live parent. */
     List<CiAutofixRun> listStandaloneNonFinished(int limit);
 

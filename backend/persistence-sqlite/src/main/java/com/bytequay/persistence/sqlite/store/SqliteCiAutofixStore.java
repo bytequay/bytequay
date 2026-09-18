@@ -156,18 +156,6 @@ public class SqliteCiAutofixStore
 
     @Override
     @Transactional(readOnly = true)
-    public List<CiAutofixRun> listNonFinished(int limit)
-    {
-        checkLimit(limit);
-        return read("Cannot list non-finished CI Autofix runs",
-                () -> runRepository.findByStatusInOrderByUpdatedAtAsc(NON_FINISHED, PageRequest.of(0, limit)).stream()
-                        .map(this::toProjection)
-                        .collect(toImmutableList()),
-                CiAutofixStorageException::new);
-    }
-
-    @Override
-    @Transactional(readOnly = true)
     public List<CiAutofixRun> listStandaloneNonFinished(int limit)
     {
         checkLimit(limit);

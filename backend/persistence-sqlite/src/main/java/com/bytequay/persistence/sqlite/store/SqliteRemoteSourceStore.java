@@ -62,11 +62,4 @@ public class SqliteRemoteSourceStore
     {
         repository.deleteById(RemoteSourceEntity.idOf(workspaceId, name));
     }
-
-    @Override
-    @Transactional
-    public void deleteByWorkspace(String workspaceId)
-    {
-        repository.deleteByWorkspaceId(workspaceId);
-    }
 }

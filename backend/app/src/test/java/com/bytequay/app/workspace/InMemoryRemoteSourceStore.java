@@ -46,10 +46,4 @@ public final class InMemoryRemoteSourceStore
     {
         rows.remove(workspaceId + ":" + name);
     }
-
-    @Override
-    public void deleteByWorkspace(String workspaceId)
-    {
-        rows.values().removeIf(source -> source.workspaceId().equals(workspaceId));
-    }
 }

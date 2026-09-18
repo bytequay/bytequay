@@ -66,10 +66,6 @@ class TestSqliteSettingsStores
 
         remoteSources.delete("ws-1", "oss");
         assertThat(remoteSources.findByWorkspace("ws-1")).extracting(RemoteSource::name).containsExactly("myoss");
-
-        remoteSources.deleteByWorkspace("ws-1");
-        assertThat(remoteSources.findByWorkspace("ws-1")).isEmpty();
-        assertThat(remoteSources.findByWorkspace("ws-2")).hasSize(1);
     }
 
     @Test

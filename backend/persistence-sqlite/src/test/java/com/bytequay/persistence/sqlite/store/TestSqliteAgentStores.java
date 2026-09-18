@@ -408,7 +408,6 @@ class TestSqliteAgentStores
         assertThat(restored.interactive()).isFalse();
         assertThat(restored.taskWorktree()).isEmpty();
         assertThat(taskStore.listRecentInteractive("workspace-a", 10)).isEmpty();
-        assertThat(taskStore.hasWorktreeReference("workspace-a")).isFalse();
     }
 
     @Test
@@ -441,8 +440,6 @@ class TestSqliteAgentStores
         AgentTask restored = taskStore.find(taskId).orElseThrow();
         assertThat(restored.creationFingerprint()).contains("creation-fingerprint");
         assertThat(restored.taskWorktree()).contains(worktree);
-        assertThat(taskStore.hasWorktreeReference("workspace-a")).isTrue();
-        assertThat(taskStore.hasWorktreeReference("workspace-b")).isFalse();
     }
 
     @Test

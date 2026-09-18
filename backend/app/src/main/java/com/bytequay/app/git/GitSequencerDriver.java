@@ -146,23 +146,6 @@ public final class GitSequencerDriver
     }
 
     /**
-     * Aborts an open sequence and verifies the branch returned to where it was.
-     *
-     * @param worktree leased worktree
-     * @param expectedTip tip the abort must restore
-     * @return state after the abort
-     */
-    public SequenceState abort(Path worktree, String expectedTip)
-    {
-        git.run(worktree, ImmutableList.of("cherry-pick", "--abort"));
-        SequenceState after = observe(worktree);
-        if (!after.head().equals(expectedTip) || after.kind() != Kind.COMPLETED) {
-            return unsafe(after.head(), "Abort did not restore " + expectedTip);
-        }
-        return after;
-    }
-
-    /**
      * Reads the repository without changing it.
      *
      * @param worktree worktree to inspect

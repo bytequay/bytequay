@@ -109,42 +109,6 @@ public final class InteractiveAgentTaskCreator
             String message,
             AgentLaneId laneId,
             AgentTaskDefaults defaults,
-            String idempotencyKey)
-    {
-        return create(taskId, workspaceId, message, laneId, defaults, idempotencyKey, Optional.empty());
-    }
-
-    public AgentTask create(
-            TaskId taskId,
-            String workspaceId,
-            String message,
-            AgentLaneId laneId,
-            AgentTaskDefaults defaults,
-            String idempotencyKey,
-            Optional<String> attachmentDigest)
-    {
-        return create(taskId, workspaceId, message, laneId, defaults, idempotencyKey, attachmentDigest, Optional.empty());
-    }
-
-    public AgentTask create(
-            TaskId taskId,
-            String workspaceId,
-            String message,
-            AgentLaneId laneId,
-            AgentTaskDefaults defaults,
-            String idempotencyKey,
-            Optional<String> attachmentDigest,
-            Optional<DevelopmentAutomation> initialAutomation)
-    {
-        return create(taskId, workspaceId, message, laneId, defaults, idempotencyKey, attachmentDigest, initialAutomation, Optional.empty(), Optional.empty());
-    }
-
-    public AgentTask create(
-            TaskId taskId,
-            String workspaceId,
-            String message,
-            AgentLaneId laneId,
-            AgentTaskDefaults defaults,
             String idempotencyKey,
             Optional<String> attachmentDigest,
             Optional<DevelopmentAutomation> initialAutomation,

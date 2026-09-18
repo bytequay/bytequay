@@ -90,11 +90,6 @@ public final class CiAutofixHttpModels
                 canMessage);
     }
 
-    static RunResponse run(CiAutofixRun run, Optional<AgentMetrics> metrics)
-    {
-        return run(run, metrics, Optional.empty(), false);
-    }
-
     public static DevelopmentResponse development(CiAutofixRun run, boolean canMessage)
     {
         return new DevelopmentResponse(

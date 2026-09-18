@@ -235,7 +235,7 @@ class TestInteractiveAgentTaskCreator
         });
         TaskId taskId = TaskId.random();
         AgentTask created = creator.create(taskId, "workspace-1", "Task", AgentLaneId.CODEX_CLI,
-                defaults(), "create-key", Optional.empty(), Optional.of(DevelopmentAutomation.LOCAL_ONLY));
+                defaults(), "create-key", Optional.empty(), Optional.of(DevelopmentAutomation.LOCAL_ONLY), Optional.empty(), Optional.empty());
 
         assertThat(created.defaults().developmentAutomation()).contains(DevelopmentAutomation.DEFAULT);
         when(settings.developmentAutomation()).thenReturn(DevelopmentAutomation.LOCAL_ONLY);
@@ -243,7 +243,7 @@ class TestInteractiveAgentTaskCreator
         when(names.generate(any(), any(), any())).thenThrow(new IllegalStateException("Naming no longer available"));
 
         assertThat(creator.create(taskId, "workspace-1", "Task", AgentLaneId.CODEX_CLI,
-                defaults(), "create-key", Optional.empty(), Optional.of(DevelopmentAutomation.LOCAL_ONLY)))
+                defaults(), "create-key", Optional.empty(), Optional.of(DevelopmentAutomation.LOCAL_ONLY), Optional.empty(), Optional.empty()))
                 .isSameAs(created);
         verify(names, times(1)).generate(any(), any(), any());
         verify(settings, times(1)).developmentAutomation();
@@ -252,7 +252,7 @@ class TestInteractiveAgentTaskCreator
                 defaults(), "create-key", Optional.empty(), Optional.of(DevelopmentAutomation.LOCAL_ONLY), Optional.of(issue()), Optional.empty()))
                 .isInstanceOf(AgentConflictException.class).hasMessageContaining("creation request changed");
         assertThatThrownBy(() -> creator.create(taskId, "workspace-1", "Task", AgentLaneId.CODEX_CLI,
-                defaults(), "create-key", Optional.empty(), Optional.of(DevelopmentAutomation.DEFAULT)))
+                defaults(), "create-key", Optional.empty(), Optional.of(DevelopmentAutomation.DEFAULT), Optional.empty(), Optional.empty()))
                 .isInstanceOf(AgentConflictException.class)
                 .hasMessageContaining("creation request changed");
     }
@@ -403,7 +403,11 @@ class TestInteractiveAgentTaskCreator
                 "Review",
                 AgentLaneId.CODEX_CLI,
                 defaults,
-                "create-key");
+                "create-key",
+                Optional.empty(),
+                Optional.empty(),
+                Optional.empty(),
+                Optional.empty());
     }
 
     private static AgentTaskDefaults defaults()

@@ -105,11 +105,6 @@ final class CodexEventMapper
                         source(notification, Optional.of(tool.id()), ThreadLineage.NONE)));
     }
 
-    List<ProviderAgentEvent> map(CodexProtocol.Notification notification, boolean rootThread)
-    {
-        return map(notification, rootThread, ThreadLineage.NONE);
-    }
-
     List<ProviderAgentEvent> map(CodexProtocol.Notification notification, boolean rootThread, ThreadLineage lineage)
     {
         Optional<Instant> timestamp = notification.emittedAtMs().map(Instant::ofEpochMilli);

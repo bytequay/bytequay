@@ -43,7 +43,7 @@ class TestCodexDevelopmentResult
     {
         CodexProtocol.Notification notification = notification("item/completed", "native-turn", "completed", "null", bridge);
         assertThat(((CodexProtocol.McpToolCallItem) ((CodexProtocol.ItemCompletedNotification) notification).params().item()).error()).isEmpty();
-        assertThat(mapper.map(notification, true)).noneMatch(ProviderAgentEvent.DevelopmentResult.class::isInstance);
+        assertThat(mapper.map(notification, true, CodexEventMapper.ThreadLineage.NONE)).noneMatch(ProviderAgentEvent.DevelopmentResult.class::isInstance);
         assertThat(mapper.developmentResult(notification, true, "native-turn", Optional.of(bridge)))
                 .hasValueSatisfying(result -> {
                     assertThat(result.report().readyForDelivery()).isTrue();

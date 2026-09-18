@@ -37,7 +37,7 @@ class TestCiLogExcerpt
                 + "    at Client.connect(Client.java:28)\n"
                 + "##[error]Process completed with exit code 1.\n";
 
-        CiLogExcerpt excerpt = CiLogExcerpt.from(source, 32 * 1024);
+        CiLogExcerpt excerpt = CiLogExcerpt.from(source, 32 * 1024, 32 * 1024);
 
         assertThat(excerpt.compacted()).isTrue();
         assertThat(excerpt.text()).contains("Example.java:42", "required: String", "found: int",
@@ -53,7 +53,7 @@ class TestCiLogExcerpt
                 + IntStream.range(0, 100).mapToObj(index -> "context " + index + " " + "b".repeat(1000) + "\n").collect(joining())
                 + "fatal: final diagnostic " + "c".repeat(900) + "\nProcess exited";
 
-        CiLogExcerpt excerpt = CiLogExcerpt.from(source, 4096);
+        CiLogExcerpt excerpt = CiLogExcerpt.from(source, 4096, 4096);
 
         assertThat(excerpt.text()).contains("error: original cause", "fatal: final diagnostic", "Process exited");
         assertThat(excerpt.text().getBytes(UTF_8).length).isLessThanOrEqualTo(4096);
@@ -68,7 +68,7 @@ class TestCiLogExcerpt
                 + "2026-09-13T09:03:40.4Z downloading dependency\n"
                 + "2026-09-13T09:03:40.5Z     at Example.main(Example.java:17)\n";
 
-        CiLogExcerpt excerpt = CiLogExcerpt.from(source, 4096);
+        CiLogExcerpt excerpt = CiLogExcerpt.from(source, 4096, 4096);
 
         assertThat(excerpt.text()).isEqualTo(source);
         assertThat(excerpt.compacted()).isFalse();
@@ -79,7 +79,7 @@ class TestCiLogExcerpt
     {
         String source = "Run ./validate.sh\n" + "日志🙂".repeat(15000) + "\nExpected 42, got 41\nDone";
         for (int budget : new int[] {1, 8, 128, 256, 1024, 4096}) {
-            CiLogExcerpt excerpt = CiLogExcerpt.from(source, budget);
+            CiLogExcerpt excerpt = CiLogExcerpt.from(source, budget, budget);
 
             assertThat(excerpt.text().getBytes(UTF_8).length).isLessThanOrEqualTo(budget);
             assertThat(excerpt.text()).doesNotContain("\ufffd");
@@ -99,7 +99,7 @@ class TestCiLogExcerpt
         assertThat(excerpt.diagnosticsMatched()).isFalse();
         assertThat(excerpt.text()).isEqualTo(source.substring(source.length() - 32 * 1024));
         for (String diagnostic : new String[] {"    at Worker.call(Worker.java:1)\n", "    Suppressed: worker unavailable\n", "Caused by: timeout\n"}) {
-            CiLogExcerpt matched = CiLogExcerpt.from(diagnostic + "    at Worker.end(Worker.java:2)\n", 32 * 1024);
+            CiLogExcerpt matched = CiLogExcerpt.from(diagnostic + "    at Worker.end(Worker.java:2)\n", 32 * 1024, 32 * 1024);
             assertThat(matched.diagnosticsMatched()).isTrue();
             assertThat(matched.text()).startsWith(diagnostic);
         }
@@ -108,7 +108,7 @@ class TestCiLogExcerpt
     @Test
     void leavesAlreadyCompactEvidenceUntouched()
     {
-        CiLogExcerpt excerpt = CiLogExcerpt.from("error: invalid option\n  command: build --invalid", 4096);
+        CiLogExcerpt excerpt = CiLogExcerpt.from("error: invalid option\n  command: build --invalid", 4096, 4096);
 
         assertThat(excerpt.text()).isEqualTo("error: invalid option\n  command: build --invalid");
         assertThat(excerpt.compacted()).isFalse();
@@ -166,7 +166,7 @@ class TestCiLogExcerpt
                 + "    at Client.connect(Client.java:55)\n";
 
         for (String prefix : new String[] {"", "[INFO] starting\n"}) {
-            CiLogExcerpt excerpt = CiLogExcerpt.from(prefix + failure + "[INFO] finished\n", 4096);
+            CiLogExcerpt excerpt = CiLogExcerpt.from(prefix + failure + "[INFO] finished\n", 4096, 4096);
 
             assertThat(excerpt.text()).doesNotContain("ExampleTest", "Worker.repeat", "ConnectException", "Client.connect");
             assertThat(excerpt.text()).contains("log lines omitted", "[INFO] finished");

@@ -1346,7 +1346,11 @@ class TestAgentHttpApi
                 AgentLaneId.CODEX_CLI,
                 new AgentTaskDefaults(Optional.of("test-model"), Optional.of("high"), AgentPermissionPolicy.AUTO)
                         .withDevelopmentAutomation(DevelopmentAutomation.LOCAL_ONLY.forDevelopment()),
-                idempotencyKey);
+                idempotencyKey,
+                Optional.empty(),
+                Optional.empty(),
+                Optional.empty(),
+                Optional.empty());
         TaskResources existingResources = resources.require(taskId);
         long runtimeEntries = entryCount(existingResources.runtimeDirectory());
         long worktrees = entryCount(workspacePaths.worktrees(workspaceId));

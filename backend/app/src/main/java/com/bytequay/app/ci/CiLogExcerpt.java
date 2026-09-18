@@ -47,11 +47,6 @@ public record CiLogExcerpt(String text, boolean compacted, boolean diagnosticsMa
         requireNonNull(text, "text is null");
     }
 
-    public static CiLogExcerpt from(String text, int maximumBytes)
-    {
-        return from(text, maximumBytes, maximumBytes);
-    }
-
     /** The target may be exceeded to retain a whole block; the hard maximum never is. */
     public static CiLogExcerpt from(String text, int targetBytes, int maximumBytes)
     {

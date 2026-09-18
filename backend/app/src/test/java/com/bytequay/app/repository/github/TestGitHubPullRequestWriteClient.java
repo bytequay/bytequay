@@ -171,9 +171,9 @@ class TestGitHubPullRequestWriteClient
                 .andRespond(withStatus(HttpStatus.CREATED).contentType(MediaType.APPLICATION_JSON).body("{\"id\":902}"));
 
         PullRequestRef pullRequest = PullRequestRef.of("upstream", "project", 12);
-        assertThat(client.togglePullRequestReaction("pat", pullRequest, "heart")).isTrue();
-        assertThat(client.toggleIssueCommentReaction("pat", pullRequest, 41, "+1")).isTrue();
-        assertThat(client.toggleReviewCommentReaction("pat", pullRequest, 42, "eyes")).isTrue();
+        assertThat(client.togglePullRequestReaction("pat", pullRequest, "heart", null)).isTrue();
+        assertThat(client.toggleIssueCommentReaction("pat", pullRequest, 41, "+1", null)).isTrue();
+        assertThat(client.toggleReviewCommentReaction("pat", pullRequest, 42, "eyes", null)).isTrue();
 
         server.verify();
     }
@@ -221,9 +221,9 @@ class TestGitHubPullRequestWriteClient
                 .andRespond(withSuccess());
 
         PullRequestRef pullRequest = PullRequestRef.of("upstream", "project", 12);
-        assertThat(client.togglePullRequestReaction("pat", pullRequest, "heart")).isFalse();
-        assertThat(client.toggleIssueCommentReaction("pat", pullRequest, 41, "+1")).isFalse();
-        assertThat(client.toggleReviewCommentReaction("pat", pullRequest, 42, "eyes")).isFalse();
+        assertThat(client.togglePullRequestReaction("pat", pullRequest, "heart", null)).isFalse();
+        assertThat(client.toggleIssueCommentReaction("pat", pullRequest, 41, "+1", null)).isFalse();
+        assertThat(client.toggleReviewCommentReaction("pat", pullRequest, 42, "eyes", null)).isFalse();
 
         server.verify();
     }

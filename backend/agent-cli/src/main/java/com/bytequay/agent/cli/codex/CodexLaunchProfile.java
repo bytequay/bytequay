@@ -88,36 +88,11 @@ final class CodexLaunchProfile
     private CodexLaunchProfile() {}
 
     /**
-     * Returns the full argument vector for one App Server launch.
-     *
-     * @param executable resolved Codex executable
-     * @return argument vector including the executable itself
-     */
-    static List<String> arguments(String executable, ChildProfile childProfile)
-    {
-        return arguments(executable, childProfile, Optional.empty());
-    }
-
-    /**
      * Returns the full argument vector for one App Server launch, optionally pointing the process at
      * ByteQuay's task MCP endpoint for the CodeGraph tool. The bearer token is not on the command
      * line: it travels in {@link CodeGraphLaunch#TOKEN_VARIABLE} of the process environment, which
      * the shell policy above keeps away from the model-facing shell.
      */
-    static List<String> arguments(String executable, ChildProfile childProfile, Optional<CodeGraphLaunch> codeGraph)
-    {
-        return arguments(executable, childProfile, codeGraph, false);
-    }
-
-    static List<String> arguments(
-            String executable,
-            ChildProfile childProfile,
-            Optional<CodeGraphLaunch> codeGraph,
-            boolean textOnly)
-    {
-        return arguments(executable, childProfile, codeGraph, textOnly, ImmutableList.of(), false, false);
-    }
-
     static List<String> arguments(
             String executable,
             ChildProfile childProfile,
@@ -191,21 +166,6 @@ final class CodexLaunchProfile
      * CodeGraph launch already carries its one task-scoped endpoint as a process flag, so the thread
      * leaves that map alone rather than emptying it.
      */
-    static Map<String, Object> threadConfig(ChildProfile childProfile)
-    {
-        return threadConfig(childProfile, false);
-    }
-
-    static Map<String, Object> threadConfig(ChildProfile childProfile, boolean codeGraph)
-    {
-        return threadConfig(childProfile, codeGraph, false);
-    }
-
-    static Map<String, Object> threadConfig(ChildProfile childProfile, boolean codeGraph, boolean textOnly)
-    {
-        return threadConfig(childProfile, codeGraph, textOnly, ImmutableList.of(), false, false);
-    }
-
     static Map<String, Object> threadConfig(
             ChildProfile childProfile,
             boolean codeGraph,
@@ -236,11 +196,6 @@ final class CodexLaunchProfile
             config.put("agents", ImmutableMap.of("max_depth", MULTI_AGENT_MAX_DEPTH));
         }
         return config.buildOrThrow();
-    }
-
-    static Map<String, Boolean> expectedFeatures(ChildProfile childProfile, boolean textOnly)
-    {
-        return expectedFeatures(childProfile, textOnly, false);
     }
 
     static Map<String, Boolean> expectedFeatures(ChildProfile childProfile, boolean textOnly, boolean ci)

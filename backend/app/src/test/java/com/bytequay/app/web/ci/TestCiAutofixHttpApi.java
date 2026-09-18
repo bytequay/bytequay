@@ -249,7 +249,7 @@ class TestCiAutofixHttpApi
                 NOW.plusSeconds(2));
         source = source.updateAttempt(attempt, NOW.plusSeconds(2));
 
-        CiAutofixHttpModels.GitResponse git = CiAutofixHttpModels.run(source, Optional.empty())
+        CiAutofixHttpModels.GitResponse git = CiAutofixHttpModels.run(source, Optional.empty(), Optional.empty(), false)
                 .attempts().getFirst().git().orElseThrow();
 
         assertThat(git.changedPaths()).hasSize(200);
@@ -279,7 +279,7 @@ class TestCiAutofixHttpApi
                 .assignAgentTask("task-1", NOW.plusSeconds(1))
                 .linkBranchRebase("rebase-1", NOW.plusSeconds(2));
 
-        CiAutofixHttpModels.RunResponse response = CiAutofixHttpModels.run(rebasing, Optional.empty());
+        CiAutofixHttpModels.RunResponse response = CiAutofixHttpModels.run(rebasing, Optional.empty(), Optional.empty(), false);
 
         assertThat(response.activity()).isEqualTo("REBASING");
         assertThat(response.currentRebaseId()).contains("rebase-1");
@@ -291,7 +291,7 @@ class TestCiAutofixHttpApi
     {
         CiAutofixRun preparing = run().assignAgentTask("task-1", NOW.plusSeconds(1));
 
-        CiAutofixHttpModels.RunResponse response = CiAutofixHttpModels.run(preparing, Optional.empty());
+        CiAutofixHttpModels.RunResponse response = CiAutofixHttpModels.run(preparing, Optional.empty(), Optional.empty(), false);
 
         assertThat(response.activity()).isEqualTo("PREPARING_AGENT");
         assertThat(response.attempts()).isEmpty();

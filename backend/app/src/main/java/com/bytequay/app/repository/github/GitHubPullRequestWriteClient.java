@@ -75,11 +75,6 @@ public class GitHubPullRequestWriteClient
         });
     }
 
-    public boolean togglePullRequestReaction(String pat, PullRequestRef pr, String content)
-    {
-        return togglePullRequestReaction(pat, pr, content, null);
-    }
-
     public boolean togglePullRequestReaction(
             String pat,
             PullRequestRef pr,
@@ -94,11 +89,6 @@ public class GitHubPullRequestWriteClient
                 pr.owner(),
                 pr.repo(),
                 pr.number());
-    }
-
-    public boolean toggleIssueCommentReaction(String pat, PullRequestRef pr, long commentId, String content)
-    {
-        return toggleIssueCommentReaction(pat, pr, commentId, content, null);
     }
 
     public boolean toggleIssueCommentReaction(
@@ -116,11 +106,6 @@ public class GitHubPullRequestWriteClient
                 pr.owner(),
                 pr.repo(),
                 commentId);
-    }
-
-    public boolean toggleReviewCommentReaction(String pat, PullRequestRef pr, long commentId, String content)
-    {
-        return toggleReviewCommentReaction(pat, pr, commentId, content, null);
     }
 
     public boolean toggleReviewCommentReaction(

@@ -13,7 +13,10 @@
  */
 package com.bytequay.agent.cli.codex;
 
+import com.google.common.collect.ImmutableList;
 import org.junit.jupiter.api.Test;
+
+import java.util.Optional;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
@@ -31,7 +34,8 @@ class TestCodexReviewProfile
                     .as("a review configured for %s", configured)
                     .isEqualTo(CodexLaunchProfile.ChildProfile.NONE);
         }
-        assertThat(CodexLaunchProfile.arguments("codex", CodexLaunchProfile.ChildProfile.NONE))
+        assertThat(CodexLaunchProfile.arguments(
+                "codex", CodexLaunchProfile.ChildProfile.NONE, Optional.empty(), false, ImmutableList.of(), false, false))
                 .containsSequence("--disable", "multi_agent")
                 .containsSequence("--disable", "multi_agent_v2");
     }

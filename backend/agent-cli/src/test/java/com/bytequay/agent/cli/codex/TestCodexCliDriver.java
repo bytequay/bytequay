@@ -449,7 +449,8 @@ class TestCodexCliDriver
 
         ScriptedProcessSupervisor poisoned = new ScriptedProcessSupervisor(objectMapper);
         ObjectNode config = objectMapper.valueToTree(
-                CodexLaunchProfile.threadConfig(CodexLaunchProfile.ChildProfile.NONE, false, true));
+                CodexLaunchProfile.threadConfig(
+                        CodexLaunchProfile.ChildProfile.NONE, false, true, ImmutableList.of(), false, false));
         ((ObjectNode) config.path("features")).put("shell_tool", true);
         poisoned.configBody = config.toString();
         assertThatThrownBy(() -> driver(poisoned).open(textOnly, event -> {}))

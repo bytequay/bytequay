@@ -27,8 +27,7 @@ class TestCodexLaunchProfile
     void isolatesCatalogCapabilitiesWithoutSubagents()
     {
         List<String> arguments = CodexLaunchProfile.arguments(
-                "/usr/local/bin/codex",
-                CodexLaunchProfile.ChildProfile.NONE);
+                "/usr/local/bin/codex", CodexLaunchProfile.ChildProfile.NONE, Optional.empty(), false, ImmutableList.of(), false, false);
 
         assertCommonIsolation(arguments);
         assertThat(arguments).containsSequence("--disable", "multi_agent");
@@ -40,8 +39,7 @@ class TestCodexLaunchProfile
     void enablesOnlyV1AtRecursiveDepthTwo()
     {
         List<String> arguments = CodexLaunchProfile.arguments(
-                "/usr/local/bin/codex",
-                CodexLaunchProfile.ChildProfile.V1);
+                "/usr/local/bin/codex", CodexLaunchProfile.ChildProfile.V1, Optional.empty(), false, ImmutableList.of(), false, false);
 
         assertCommonIsolation(arguments);
         assertThat(arguments).containsSequence("--enable", "multi_agent");
@@ -53,8 +51,7 @@ class TestCodexLaunchProfile
     void enablesOnlyV2WithoutAV1DepthSetting()
     {
         List<String> arguments = CodexLaunchProfile.arguments(
-                "/usr/local/bin/codex",
-                CodexLaunchProfile.ChildProfile.V2);
+                "/usr/local/bin/codex", CodexLaunchProfile.ChildProfile.V2, Optional.empty(), false, ImmutableList.of(), false, false);
 
         assertCommonIsolation(arguments);
         assertThat(arguments).containsSequence("--disable", "multi_agent");
@@ -66,18 +63,15 @@ class TestCodexLaunchProfile
     void disablesAndReportsEveryExecutionFeatureForTextOnlyRequests()
     {
         List<String> arguments = CodexLaunchProfile.arguments(
-                "/usr/local/bin/codex",
-                CodexLaunchProfile.ChildProfile.NONE,
-                Optional.empty(),
-                true);
+                "/usr/local/bin/codex", CodexLaunchProfile.ChildProfile.NONE, Optional.empty(), true, ImmutableList.of(), false, false);
 
         assertThat(arguments).containsSequence("-c", "web_search=\"disabled\"");
         assertThat(arguments).containsSequence("--disable", "guardian_approval");
-        assertThat(CodexLaunchProfile.threadConfig(CodexLaunchProfile.ChildProfile.NONE, false, true))
+        assertThat(CodexLaunchProfile.threadConfig(CodexLaunchProfile.ChildProfile.NONE, false, true, ImmutableList.of(), false, false))
                 .containsEntry("web_search", "disabled");
         for (String feature : List.of("code_mode", "js_repl", "shell_snapshot", "shell_tool", "unified_exec")) {
             assertThat(arguments).containsSequence("--disable", feature);
-            assertThat(CodexLaunchProfile.expectedFeatures(CodexLaunchProfile.ChildProfile.NONE, true))
+            assertThat(CodexLaunchProfile.expectedFeatures(CodexLaunchProfile.ChildProfile.NONE, true, false))
                     .containsEntry(feature, false);
         }
     }
@@ -86,8 +80,10 @@ class TestCodexLaunchProfile
     void enablesLiveWebForEveryTaskThreadProfile()
     {
         for (CodexLaunchProfile.ChildProfile childProfile : CodexLaunchProfile.ChildProfile.values()) {
-            assertThat(CodexLaunchProfile.threadConfig(childProfile)).containsEntry("web_search", "live");
-            assertThat(CodexLaunchProfile.threadConfig(childProfile, true)).containsEntry("web_search", "live");
+            assertThat(CodexLaunchProfile.threadConfig(childProfile, false, false, ImmutableList.of(), false, false))
+                    .containsEntry("web_search", "live");
+            assertThat(CodexLaunchProfile.threadConfig(childProfile, true, false, ImmutableList.of(), false, false))
+                    .containsEntry("web_search", "live");
         }
     }
 

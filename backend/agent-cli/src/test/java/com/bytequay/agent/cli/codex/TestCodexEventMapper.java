@@ -120,13 +120,13 @@ class TestCodexEventMapper
                 "emittedAtMs":1786884871461,"extra":"ignored"}
                 """);
         assertThat(notification).isInstanceOf(CodexProtocol.UnknownNotification.class);
-        assertThat(mapper.map(notification, true)).isEmpty();
+        assertThat(mapper.map(notification, true, CodexEventMapper.ThreadLineage.NONE)).isEmpty();
 
         CodexProtocol.Notification item = codec.decodeNotification("""
                 {"method":"item/completed","params":{"item":{"type":"futureItem",
                 "id":"item-1","future":true},"threadId":"thread-1","turnId":"turn-1"}}
                 """);
-        assertThat(mapper.map(item, true)).isEmpty();
+        assertThat(mapper.map(item, true, CodexEventMapper.ThreadLineage.NONE)).isEmpty();
     }
 
     @Test
@@ -140,7 +140,7 @@ class TestCodexEventMapper
                     "turnId":"turn-1","reviewId":"review-1","targetItemId":"exec-1",
                     "review":{"status":"%s","riskLevel":"low","rationale":"Inspect known-secret"}}}
                     """.formatted(method, status));
-            ProviderAgentEvent.Tool tool = (ProviderAgentEvent.Tool) redacting.map(notification, true).getFirst();
+            ProviderAgentEvent.Tool tool = (ProviderAgentEvent.Tool) redacting.map(notification, true, CodexEventMapper.ThreadLineage.NONE).getFirst();
             assertThat(tool.name()).isEqualTo("Automatic approval");
             assertThat(tool.source().providerItemId()).contains("approval-review:review-1");
             assertThat(tool.source().providerTurnId()).contains("turn-1");
@@ -269,11 +269,11 @@ class TestCodexEventMapper
         assertThat(mapper.map(codec.decodeNotification("""
                 {"method":"item/started","params":{"item":{"type":"reasoning","id":"reasoning-2",
                 "summary":[],"content":["hidden"]},"threadId":"thread-1","turnId":"turn-1"}}
-                """), true)).isEmpty();
+                """), true, CodexEventMapper.ThreadLineage.NONE)).isEmpty();
         assertThat(mapper.map(codec.decodeNotification("""
                 {"method":"item/completed","params":{"item":{"type":"reasoning","id":"reasoning-2",
                 "content":["hidden"]},"threadId":"thread-1","turnId":"turn-1"}}
-                """), true)).isEmpty();
+                """), true, CodexEventMapper.ThreadLineage.NONE)).isEmpty();
 
         ProviderAgentEvent.Message planDelta = only("""
                 {"method":"item/plan/delta","params":{"threadId":"thread-1","turnId":"turn-1",
@@ -319,7 +319,7 @@ class TestCodexEventMapper
         assertThat(mapper.map(codec.decodeNotification("""
                 {"method":"turn/plan/updated","params":{"threadId":"thread-1","turnId":"turn-1","plan":[
                 {"step":" ","status":"pending"}]}}
-                """), true)).isEmpty();
+                """), true, CodexEventMapper.ThreadLineage.NONE)).isEmpty();
     }
 
     @Test
@@ -341,7 +341,7 @@ class TestCodexEventMapper
                   {"type":"somethingNew","command":"x"},
                   {"type":"read","command":"cat SKILL.md","name":"OpenAI Docs skill","path":"/elsewhere/skills/openai-docs/SKILL.md"}]},
                 "threadId":"thread-1","turnId":"turn-1"}}
-                """.formatted(cwd, file)), true);
+                """.formatted(cwd, file)), true, CodexEventMapper.ThreadLineage.NONE);
         assertThat(events).hasSize(1);
         ProviderAgentEvent.Command command = (ProviderAgentEvent.Command) events.getFirst();
         assertThat(command.cwd()).contains("backend");
@@ -372,7 +372,7 @@ class TestCodexEventMapper
         ProviderAgentEvent.Tool view = (ProviderAgentEvent.Tool) worktreeMapper.map(codec.decodeNotification("""
                 {"method":"item/started","params":{"item":{"type":"imageView","id":"view-1",
                 "path":"%s"},"threadId":"thread-1","turnId":"turn-1"}}
-                """.formatted(worktree.resolve("docs/shot.png"))), true).getFirst();
+                """.formatted(worktree.resolve("docs/shot.png"))), true, CodexEventMapper.ThreadLineage.NONE).getFirst();
         assertThat(view.name()).isEqualTo("Image view");
         assertThat(view.summary()).isEqualTo("docs/shot.png");
         assertThat(view.state()).isEqualTo(ProviderAgentEvent.ActivityState.STARTED);
@@ -405,7 +405,7 @@ class TestCodexEventMapper
                 {"path":"%s","kind":{"type":"add"},"diff":"+class Other {}"},
                 {"path":"/outside/secret","kind":{"type":"delete"},"diff":"-secret"}]},
                 "threadId":"thread-1","turnId":"turn-1"}}
-                """.formatted(file, worktree.resolve("src/Other.java"))), true);
+                """.formatted(file, worktree.resolve("src/Other.java"))), true, CodexEventMapper.ThreadLineage.NONE);
 
         assertThat(events).hasSize(2);
         assertThat(events)
@@ -431,7 +431,7 @@ class TestCodexEventMapper
                 "id":"exec-1","command":"echo known-secret","status":"completed",
                 "aggregatedOutput":"known-secret","exitCode":0},
                 "threadId":"thread-1","turnId":"turn-1"}}
-                """), true);
+                """), true, CodexEventMapper.ThreadLineage.NONE);
 
         ProviderAgentEvent.Command command = (ProviderAgentEvent.Command) events.getFirst();
         assertThat(command.argv()).containsExactly("echo [REDACTED]");
@@ -441,7 +441,7 @@ class TestCodexEventMapper
 
     private <T extends ProviderAgentEvent> T only(String json, Class<T> type)
     {
-        List<ProviderAgentEvent> events = mapper.map(codec.decodeNotification(json), true);
+        List<ProviderAgentEvent> events = mapper.map(codec.decodeNotification(json), true, CodexEventMapper.ThreadLineage.NONE);
         assertThat(events).hasSize(1);
         return type.cast(events.getFirst());
     }

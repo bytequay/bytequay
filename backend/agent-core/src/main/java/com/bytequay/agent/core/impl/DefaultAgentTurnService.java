@@ -147,7 +147,7 @@ public final class DefaultAgentTurnService
     private final Executor queueStarter;
     private final Predicate<AgentTask> developmentEligibility;
     private final BiConsumer<AgentTask, AgentTurn> developmentAccepted;
-    private final Optional<Consumer<DevelopmentTurnCompletion>> developmentCompletion;
+    private final Consumer<DevelopmentTurnCompletion> developmentCompletion;
     private final Consumer<TaskId> stopChildren;
 
     /** How long a closed process may take to report its turn interrupted before the stop is a failure. */
@@ -171,104 +171,10 @@ public final class DefaultAgentTurnService
             Function<AgentTask, String> managedInstructions,
             Clock clock,
             Duration maximumTurnRuntime,
-            Executor queueStarter)
-    {
-        this(
-                taskStore,
-                turnStore,
-                queueStore,
-                steerStore,
-                unitOfWork,
-                outboxStore,
-                logStore,
-                resourceService,
-                driverRegistry,
-                eventService,
-                metricsService,
-                approvalService,
-                runtimeRegistry,
-                codeGraph,
-                managedInstructions,
-                clock,
-                maximumTurnRuntime,
-                queueStarter,
-                task -> false,
-                (task, turn) -> {},
-                Optional.empty(),
-                ignored -> {});
-    }
-
-    public DefaultAgentTurnService(
-            AgentTaskStore taskStore,
-            AgentTurnStore turnStore,
-            QueuedInputStore queueStore,
-            SteerDeliveryStore steerStore,
-            AgentUnitOfWork unitOfWork,
-            AgentEventOutboxStore outboxStore,
-            TaskLogStore logStore,
-            AgentResourceService resourceService,
-            AgentDriverRegistry driverRegistry,
-            AgentEventService eventService,
-            AgentMetricsService metricsService,
-            AgentApprovalService approvalService,
-            AgentRuntimeRegistry runtimeRegistry,
-            CodeGraphService codeGraph,
-            Function<AgentTask, String> managedInstructions,
-            Clock clock,
-            Duration maximumTurnRuntime,
             Executor queueStarter,
             Predicate<AgentTask> developmentEligibility,
             BiConsumer<AgentTask, AgentTurn> developmentAccepted,
             Consumer<DevelopmentTurnCompletion> developmentCompletion,
-            Consumer<TaskId> stopChildren)
-    {
-        this(
-                taskStore,
-                turnStore,
-                queueStore,
-                steerStore,
-                unitOfWork,
-                outboxStore,
-                logStore,
-                resourceService,
-                driverRegistry,
-                eventService,
-                metricsService,
-                approvalService,
-                runtimeRegistry,
-                codeGraph,
-                managedInstructions,
-                clock,
-                maximumTurnRuntime,
-                queueStarter,
-                developmentEligibility,
-                developmentAccepted,
-                Optional.of(developmentCompletion),
-                stopChildren);
-    }
-
-    private DefaultAgentTurnService(
-            AgentTaskStore taskStore,
-            AgentTurnStore turnStore,
-            QueuedInputStore queueStore,
-            SteerDeliveryStore steerStore,
-            AgentUnitOfWork unitOfWork,
-            AgentEventOutboxStore outboxStore,
-            TaskLogStore logStore,
-            AgentResourceService resourceService,
-            AgentDriverRegistry driverRegistry,
-            AgentEventService eventService,
-            AgentMetricsService metricsService,
-            AgentApprovalService approvalService,
-            AgentRuntimeRegistry runtimeRegistry,
-            CodeGraphService codeGraph,
-            Function<AgentTask, String> managedInstructions,
-            Clock clock,
-            Duration maximumTurnRuntime,
-            Executor queueStarter,
-            Predicate<AgentTask> developmentEligibility,
-            BiConsumer<AgentTask, AgentTurn> developmentAccepted,
-            Optional<Consumer<DevelopmentTurnCompletion>> developmentCompletion,
             Consumer<TaskId> stopChildren)
     {
         this.taskStore = requireNonNull(taskStore, "taskStore is null");
@@ -2116,7 +2022,7 @@ public final class DefaultAgentTurnService
 
     private boolean developmentTurnEligible(AgentTask task, AgentTurn turn)
     {
-        return developmentCompletion.isPresent() && task.interactive() && task.localReviewHead().isEmpty()
+        return task.interactive() && task.localReviewHead().isEmpty()
                 && turn.settings().flatMap(AgentTurnSettings::developmentAutomation).filter(DevelopmentAutomation::enabled).isPresent()
                 && developmentEligibility.test(task);
     }
@@ -2140,7 +2046,7 @@ public final class DefaultAgentTurnService
             generated.orElseThrow().complete(outcome);
         }
         else if (sourceOwned) {
-            developmentCompletion.orElseThrow().accept(outcome);
+            developmentCompletion.accept(outcome);
         }
     }
 

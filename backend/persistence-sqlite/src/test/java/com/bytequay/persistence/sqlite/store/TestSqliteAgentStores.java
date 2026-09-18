@@ -1015,7 +1015,11 @@ class TestSqliteAgentStores
                 task -> "",
                 clock,
                 Duration.ofMinutes(5),
-                Runnable::run);
+                Runnable::run,
+                task -> false,
+                (task, turn) -> {},
+                outcome -> {},
+                ignored -> {});
     }
 
     private static QueuedAgentInput queuedInput(TaskId taskId, long position, String idempotencyKey, Instant now)

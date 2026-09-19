@@ -48,6 +48,13 @@ describe('agent markdown', () => {
     expect(out).not.toContain('target="_blank"');
   });
 
+  it('links a bare URL, as an in-app reference when it names a pull request or issue', () => {
+    const out = html('https://github.com/trinodb/trino/issues/31072 (opened 2026-09-10) and https://trino.io/docs.');
+    expect(out).toContain('<a class="md-reference is-issue" href="https://github.com/trinodb/trino/issues/31072"><svg');
+    expect(out).toContain('</svg>trinodb/trino <small>#31072</small></a> (opened 2026-09-10) and ');
+    expect(out).toContain('<a href="https://trino.io/docs" target="_blank" rel="noreferrer">https://trino.io/docs</a>.');
+  });
+
   it('leaves plain prose alone, including asterisks that mark nothing', () => {
     expect(html('2 * 3 = 6 and a_b_c stays')).toBe('<div class="agt-md"><p>2 * 3 = 6 and a_b_c stays</p></div>');
   });

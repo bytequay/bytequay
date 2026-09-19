@@ -83,7 +83,7 @@ export function renderMarkdown(text: string): React.ReactNode {
 }
 
 // Underscores only mark emphasis at word edges; a_b_c is an identifier, not italics.
-const INLINE = /(`[^`]+`)|(\*\*[^*]+\*\*)|(?<![\w])(__[^_]+__)(?![\w])|(\*[^*\s][^*]*\*)|(?<![\w])(_[^_\s][^_]*_)(?![\w])|(\[[^\]]+\]\([^)\s]+\))/;
+const INLINE = /(`[^`]+`)|(\*\*[^*]+\*\*)|(?<![\w])(__[^_]+__)(?![\w])|(\*[^*\s][^*]*\*)|(?<![\w])(_[^_\s][^_]*_)(?![\w])|(\[[^\]]+\]\([^)\s]+\))|(https?:\/\/[^\s<>()\]]*[^\s<>()\].,!?;:'"])/;
 
 /** Inline marks. A link to a file rather than a page is shown as its text; nothing opens a path. */
 function inline(text: string): React.ReactNode[] {
@@ -107,13 +107,16 @@ function inline(text: string): React.ReactNode[] {
     } else {
       const link = /^\[([^\]]+)\]\(([^)\s]+)\)$/.exec(token);
       const label = link?.[1] ?? token;
-      const url = link?.[2] ?? '';
+      const url = link?.[2] ?? token;
       const reference = parseGitHubReference(url);
       // A label that only names the item, like "PR #12" or its URL, reads as the title; any other label is kept.
+      const bare = /^https?:\/\//i.test(label);
       nodes.push(reference !== null
-        ? <ReferenceLink key={key++} reference={reference} showTitle={/^https?:\/\/|#\d+$/i.test(label)}>{inline(label)}</ReferenceLink>
+        ? <ReferenceLink key={key++} reference={reference} showTitle={bare || /#\d+$/.test(label)}>
+          {bare ? <>{reference.owner}/{reference.repo} <small>#{reference.number}</small></> : inline(label)}
+        </ReferenceLink>
         : /^https?:\/\//i.test(url)
-          ? <a key={key++} href={url} target="_blank" rel="noreferrer">{inline(label)}</a>
+          ? <a key={key++} href={url} target="_blank" rel="noreferrer">{link === null ? label : inline(label)}</a>
           : <code key={key++} title={url}>{label}</code>);
     }
     rest = rest.slice(match.index + token.length);

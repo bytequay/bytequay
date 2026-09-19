@@ -12,23 +12,17 @@
  * limitations under the License.
  */
 import { useEffect, useState } from 'react';
-import { createPortal } from 'react-dom';
 import { ArrowUpRight, Check, Clock3, Play } from 'lucide-react';
-import Avatar from '../Avatar';
 import { getCached, setCached } from '../dataCache';
 import MarkdownBody from '../pulls/MarkdownBody';
-import RepoAvatar from '../RepoAvatar';
+import ReferenceCard, { previewMarkdown, type HoverCard } from '../ReferenceCard';
+import { ago } from '../relativeTime';
 import type { PullRequestDetailDto } from '../types';
-import { ago, anchorPanel, ATTENTION_KINDS, previewMarkdown, type AttentionItem } from './attention';
-
-const CARD_WIDTH = 500;
-const CARD_HEIGHT = { pr: 400, issue: 460 };
+import { ATTENTION_KINDS, type AttentionItem } from './attention';
 
 type Props = {
   item: AttentionItem;
-  anchor: DOMRect;
-  onHold: () => void;
-  onRelease: () => void;
+  hover: HoverCard;
   onOpen: () => void;
   onAck: () => void;
   onStartIssue?: () => void;
@@ -69,89 +63,52 @@ function byline(item: AttentionItem): string {
   return `${author} · opened ${ago(item.createdAt)} · ${updated}`;
 }
 
-export default function AttentionPreview({
-  item, anchor, onHold, onRelease, onOpen, onAck, onSnooze, onStartIssue,
-}: Props) {
+export default function AttentionPreview({ item, hover, onOpen, onAck, onSnooze, onStartIssue }: Props) {
   const detail = useDetail(item);
   const kind = ATTENTION_KINDS[item.kind];
-  const [owner, repo] = item.repo.split('/');
   // A pull request body arrives with the detail; an issue already has it.
   const loading = item.type === 'pr' && detail === null;
   const body = previewMarkdown(item.type === 'issue' ? item.body : detail?.body);
-  const labels = item.labels.slice(0, 3);
-  const { top, left } = anchorPanel(anchor, CARD_WIDTH, CARD_HEIGHT[item.type], anchor.left + 40);
 
-  return createPortal(
-    <div
-      className="atn-preview"
-      style={{ top, left }}
-      onMouseEnter={onHold}
-      onMouseLeave={onRelease}
-    >
-      <div className="atn-preview__head">
-        <div className="atn-preview__ref">
-          <RepoAvatar owner={owner} repo={repo ?? ''} size={16} radius={4} />
-          <span className="atn-preview__meta">{item.repo} #{item.number}</span>
-          <span
-            className="atn-chip"
-            style={{ color: kind.color, background: kind.background }}
-          >
-            {kind.label}
-          </span>
-        </div>
-        <div className="atn-preview__title">{item.title}</div>
-        <div className="atn-preview__byline">
-          <Avatar login={item.author ?? ''} avatarUrl={item.authorAvatarUrl ?? detail?.authorAvatarUrl} size={19} />
-          <span>{byline(item)}</span>
-        </div>
-      </div>
-
-      {item.type === 'issue' && (
-        <div className="atn-preview__grid">
-          <div className="atn-preview__cell">
-            <div className="atn-preview__label">DISCUSSION</div>
-            <div className="atn-preview__value">
-              {item.commentCount} comment{item.commentCount === 1 ? '' : 's'}
-            </div>
-          </div>
-          <div className="atn-preview__cell">
-            <div className="atn-preview__label">ACTIVITY</div>
-            <div className="atn-preview__value">last reply {ago(item.updatedAt)}</div>
-          </div>
-        </div>
-      )}
-
-      <div className={`atn-preview__foot${item.type === 'pr' ? ' is-pr' : ''}`}>
-        {item.type === 'issue' && <div className="atn-preview__label">ISSUE DESCRIPTION</div>}
-        <div className={`atn-preview__body${body === '' && !loading ? ' is-empty' : ''}`}>
-          {loading ? null : body === '' ? 'No description.' : <MarkdownBody body={body} repository={item.repo} />}
-        </div>
-        <div className="atn-preview__actions" role="group" aria-label={`Actions for #${item.number}`}>
-          {labels.map(label => (
-            <span className="atn-preview__tag" key={label}>{label}</span>
-          ))}
-          <div className="atn-preview__spacer" />
-          {item.type === 'issue' && onStartIssue && (
-            <button className="bq-button bq-button--primary" type="button" onClick={onStartIssue}>
-              <Play aria-hidden="true" /> Start development
-            </button>
-          )}
-          <button className="bq-button bq-button--ghost" type="button" onClick={onAck}>
-            <Check aria-hidden="true" /> Ack
+  return (
+    <ReferenceCard
+      hover={hover}
+      item={{
+        type: item.type,
+        repo: item.repo,
+        number: item.number,
+        title: item.title,
+        author: item.author,
+        authorAvatarUrl: item.authorAvatarUrl ?? detail?.authorAvatarUrl,
+        createdAt: item.createdAt,
+        updatedAt: item.updatedAt,
+        labels: item.labels,
+        chip: { label: kind.label, color: kind.color, background: kind.background },
+        byline: byline(item),
+        facts: item.type === 'issue' ? [
+          { label: 'DISCUSSION', value: `${item.commentCount} comment${item.commentCount === 1 ? '' : 's'}` },
+          { label: 'ACTIVITY', value: `last reply ${ago(item.updatedAt)}` },
+        ] : undefined,
+      }}
+      body={loading ? null
+        : body === '' ? <span className="ref-card__muted">No description.</span>
+          : <MarkdownBody body={body} repository={item.repo} />}
+      actions={<>
+        {item.type === 'issue' && onStartIssue && (
+          <button className="bq-button bq-button--primary" type="button" onClick={onStartIssue}>
+            <Play aria-hidden="true" /> Start development
           </button>
-          <button
-            className="bq-button"
-            type="button"
-            onClick={event => onSnooze(event.currentTarget)}
-          >
-            <Clock3 aria-hidden="true" /> Snooze
-          </button>
-          <button className="bq-button" type="button" onClick={onOpen}>
-            Open <ArrowUpRight aria-hidden="true" />
-          </button>
-        </div>
-      </div>
-    </div>,
-    document.body,
+        )}
+        <button className="bq-button bq-button--ghost" type="button" onClick={onAck}>
+          <Check aria-hidden="true" /> Ack
+        </button>
+        <button className="bq-button" type="button" onClick={event => onSnooze(event.currentTarget)}>
+          <Clock3 aria-hidden="true" /> Snooze
+        </button>
+        <button className="bq-button" type="button" onClick={onOpen}>
+          Open <ArrowUpRight aria-hidden="true" />
+        </button>
+      </>}
+    />
   );
 }

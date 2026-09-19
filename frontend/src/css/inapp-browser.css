@@ -205,4 +205,4 @@
 .browser-rail__error svg { flex-shrink: 0; }
 
 /* These popovers portal outside the inert app surface. */
-body:has(.inapp-browser) :is(.atn-menu-catcher, .atn-preview, .md-reference-preview) { visibility: hidden; }
+body:has(.inapp-browser) :is(.atn-menu-catcher, .ref-card) { visibility: hidden; }

@@ -47,3 +47,10 @@ export function relativeTime(
   const formatter = (unit === 'month' || unit === 'year' ? counted : formatters)[style];
   return suffix ? formatter.format(-amount, unit) : amount === 0 ? short : `${amount}${short}`;
 }
+
+/** The same elapsed time as a phrase: "3d ago", "just now", or "" when there is no timestamp. */
+export function ago(value: string | number | null | undefined): string {
+  const elapsed = relativeTime(value, { suffix: false });
+  if (elapsed === '') return '';
+  return elapsed === 'now' ? 'just now' : `${elapsed} ago`;
+}

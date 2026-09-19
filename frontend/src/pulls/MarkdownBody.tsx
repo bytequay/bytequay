@@ -11,9 +11,8 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-import { Fragment, useEffect, useId, useRef, useState, type ChangeEvent, type CSSProperties, type MouseEvent, type ReactNode, type Ref } from 'react';
-import { CircleDot, GitPullRequest } from 'lucide-react';
-import { createPortal } from 'react-dom';
+import { Fragment, useEffect, useId, useState, type ChangeEvent, type MouseEvent, type ReactNode } from 'react';
+import { ArrowUpRight, CircleDot, GitPullRequest } from 'lucide-react';
 import hljs from 'highlight.js/lib/common';
 import {
   openGitHubReference,
@@ -22,7 +21,7 @@ import {
   type GitHubReferencePreview,
   resolveGitHubReference,
 } from '../githubReference';
-import { relativeTime } from '../relativeTime';
+import ReferenceCard, { previewMarkdown, stateChip, useHoverCard, type ReferenceCardItem } from '../ReferenceCard';
 import type { GitHubCodeSnippetDto } from '../types';
 import { once } from '../dataCache';
 
@@ -684,19 +683,22 @@ function loadPreview(reference: GitHubReference): Promise<ReferencePreview | nul
   return once(previewRequests, key, () => resolveGitHubReference(reference));
 }
 
-/** How far from the bottom right corner the browser's own resize grip takes a press. */
-const RESIZE_GRIP = 18;
-
-/** A dragged preview may leave at most half its width past the right edge and 30% of its height past the bottom. */
-export function clampPreviewOrigin(
-  left: number,
-  top: number,
-  card: { width: number; height: number },
-  view: { width: number; height: number },
-) {
+/** The card's fields, whichever half of the union GitHub answered a reference with. */
+export function referenceCardItem(reference: GitHubReference, preview: ReferencePreview | null | undefined): ReferenceCardItem {
+  const detail = preview?.kind === 'pull' ? preview.detail : null;
+  const issue = preview?.kind === 'issue' ? preview.issue : null;
+  const repo = `${reference.owner}/${reference.repo}`;
   return {
-    left: Math.max(0, Math.min(left, view.width - card.width / 2)),
-    top: Math.max(0, Math.min(top, view.height - card.height * 0.7)),
+    type: (preview?.kind ?? reference.kind) === 'pull' ? 'pr' : 'issue',
+    repo,
+    number: reference.number,
+    title: detail?.title ?? issue?.title ?? `${repo} #${reference.number}`,
+    author: detail?.author ?? issue?.author ?? null,
+    authorAvatarUrl: detail?.authorAvatarUrl,
+    createdAt: detail?.createdAt,
+    updatedAt: detail?.updatedAt ?? issue?.updatedAt,
+    labels: detail ? detail.labels.map(label => label.name) : issue?.labels ?? [],
+    chip: stateChip(detail?.mergedAt != null ? 'merged' : detail?.state ?? issue?.state, detail?.draft),
   };
 }
 
@@ -706,136 +708,40 @@ export function ReferenceLink({ reference, showTitle = false, children }: {
   children: ReactNode;
 }) {
   const previewId = useId();
-  const anchor = useRef<HTMLAnchorElement>(null);
-  const card = useRef<HTMLElement>(null);
-  const showTimer = useRef<number | null>(null);
-  const hideTimer = useRef<number | null>(null);
-  const [open, setOpen] = useState(false);
-  const [pinned, setPinned] = useState(false);
-  const [position, setPosition] = useState<CSSProperties>({});
+  const hover = useHoverCard();
   const [preview, setPreview] = useState<ReferencePreview | null | undefined>();
+  const { href, kind: referenceKind, number, owner, repo } = reference;
+  const open = hover.anchor !== null;
 
-  const clearTimer = (timer: typeof showTimer) => {
-    if (timer.current !== null) window.clearTimeout(timer.current);
-    timer.current = null;
-  };
-  const show = (delay: number) => {
-    clearTimer(hideTimer);
-    clearTimer(showTimer);
-    showTimer.current = window.setTimeout(() => {
-      const rect = anchor.current?.getBoundingClientRect();
-      if (!rect) return;
-      const below = window.innerHeight - rect.bottom >= 260 || rect.top < 300;
-      const available = below ? window.innerHeight - rect.bottom - 20 : rect.top - 20;
-      setPosition({
-        left: Math.max(12, Math.min(rect.left, window.innerWidth - 492)),
-        ...(below ? { top: rect.bottom + 8 } : { bottom: window.innerHeight - rect.top + 8 }),
-        maxHeight: Math.max(180, Math.min(440, available)),
-      });
-      setOpen(true);
-      if (preview == null) {
-        setPreview(undefined);
-        void loadPreview(reference).then(setPreview);
-      }
-    }, delay);
-  };
-  const close = () => {
-    clearTimer(showTimer);
-    clearTimer(hideTimer);
-    setPinned(false);
-    setOpen(false);
-  };
-  const hide = (delay = 140) => {
-    clearTimer(showTimer);
-    clearTimer(hideTimer);
-    // A card the reader moved or resized stays put until they dismiss it; the pointer has to leave it to reach what it covered.
-    if (pinned) return;
-    hideTimer.current = window.setTimeout(() => setOpen(false), delay);
-  };
-  const startDrag = (event: MouseEvent<HTMLElement>) => {
-    const rect = card.current?.getBoundingClientRect();
-    if (!rect || event.button !== 0) return;
-    event.preventDefault();
-    const grabX = event.clientX - rect.left;
-    const grabY = event.clientY - rect.top;
-    const move = (next: globalThis.MouseEvent) => setPosition(current => ({
-      ...current,
-      bottom: undefined,
-      ...clampPreviewOrigin(next.clientX - grabX, next.clientY - grabY, rect, {
-        width: window.innerWidth,
-        height: window.innerHeight,
-      }),
-    }));
-    const stop = () => {
-      window.removeEventListener('mousemove', move);
-      window.removeEventListener('mouseup', stop);
-      document.body.style.userSelect = '';
-    };
-    document.body.style.userSelect = 'none';
-    clearTimer(hideTimer);
-    setPinned(true);
-    window.addEventListener('mousemove', move);
-    window.addEventListener('mouseup', stop);
-  };
-  const startResize = (event: MouseEvent<HTMLElement>) => {
-    const box = event.currentTarget.getBoundingClientRect();
-    if (box.right - event.clientX > RESIZE_GRIP || box.bottom - event.clientY > RESIZE_GRIP) return;
-    clearTimer(hideTimer);
-    setPinned(true);
-    // The browser's own grip writes width and height from here, so the height that fitted the placement has to give way.
-    setPosition(current => ({ ...current, height: box.height, maxHeight: undefined }));
-  };
-
-  useEffect(() => () => {
-    clearTimer(showTimer);
-    clearTimer(hideTimer);
-  }, []);
-
+  // A reference the reader passed over is never fetched; the hover delay and the shown title are the two reasons to.
   useEffect(() => {
-    if (!pinned) return;
-    const dismiss = (event: KeyboardEvent | PointerEvent) => {
-      if (event instanceof KeyboardEvent ? event.key !== 'Escape' : card.current?.contains(event.target as Node)) return;
-      setPinned(false);
-      setOpen(false);
-    };
-    window.addEventListener('keydown', dismiss);
-    window.addEventListener('pointerdown', dismiss);
-    return () => {
-      window.removeEventListener('keydown', dismiss);
-      window.removeEventListener('pointerdown', dismiss);
-    };
-  }, [pinned]);
-
-  useEffect(() => {
-    if (!showTitle) return;
+    if (!open && !showTitle) return;
     let current = true;
-    void loadPreview({
-      href: reference.href,
-      kind: reference.kind,
-      number: reference.number,
-      owner: reference.owner,
-      repo: reference.repo,
-    }).then(value => {
+    void loadPreview({ href, kind: referenceKind, number, owner, repo }).then(value => {
       if (current) setPreview(value);
     });
     return () => { current = false; };
-  }, [reference.href, reference.kind, reference.number, reference.owner, reference.repo, showTitle]);
+  }, [href, number, open, owner, referenceKind, repo, showTitle]);
 
   const kind = preview?.kind ?? reference.kind;
   const title = preview?.kind === 'pull' ? preview.detail.title : preview?.kind === 'issue' ? preview.issue.title : null;
+  const body = preview?.kind === 'pull' ? preview.detail.body : preview?.kind === 'issue' ? preview.issue.body : null;
+  const openReference = () => {
+    hover.close();
+    void openGitHubReference({ ...reference, kind });
+  };
 
   return <>
     <a
-      ref={anchor}
       className={`md-reference is-${kind}`}
       href={reference.href}
       aria-describedby={open ? previewId : undefined}
-      onMouseEnter={() => show(350)}
-      onMouseLeave={() => hide()}
-      onFocus={() => show(0)}
-      onBlur={() => hide()}
+      onMouseEnter={event => hover.show(event.currentTarget)}
+      onMouseLeave={() => hover.hide()}
+      onFocus={event => hover.show(event.currentTarget, 0)}
+      onBlur={() => hover.hide()}
       onClick={event => {
-        close();
+        hover.close();
         // A surface that already took the click, like a task showing its own pull request in a panel, keeps it.
         if (event.defaultPrevented) return;
         event.preventDefault();
@@ -845,83 +751,23 @@ export function ReferenceLink({ reference, showTitle = false, children }: {
       <ReferenceIcon pull={kind === 'pull'} />
       {showTitle && title ? <>{title} <small>#{reference.number}</small></> : children}
     </a>
-    {open && createPortal(
-      <ReferencePreviewCard
-        id={previewId}
-        cardRef={card}
-        reference={reference}
-        preview={preview}
-        style={position}
-        onEnter={() => clearTimer(hideTimer)}
-        onLeave={() => hide()}
-        onDragStart={startDrag}
-        onResizeStart={startResize}
-      />,
-      document.body,
-    )}
+    <ReferenceCard
+      id={previewId}
+      hover={hover}
+      item={referenceCardItem(reference, preview)}
+      body={preview === undefined
+        ? <span className="ref-card__muted">Loading details…</span>
+        : preview === null
+          ? <span className="ref-card__muted">Details are unavailable. Click to open on GitHub.</span>
+          : <MarkdownBody
+              body={previewMarkdown(body) || 'No description provided.'}
+              repository={`${reference.owner}/${reference.repo}`}
+            />}
+      actions={<button className="bq-button" type="button" onClick={openReference}>
+        Open <ArrowUpRight aria-hidden="true" />
+      </button>}
+    />
   </>;
-}
-
-export function ReferencePreviewCard({ id, cardRef, reference, preview, style, onEnter, onLeave, onDragStart, onResizeStart }: {
-  id: string;
-  cardRef?: Ref<HTMLElement>;
-  reference: GitHubReference;
-  preview: ReferencePreview | null | undefined;
-  style: CSSProperties;
-  onEnter: () => void;
-  onLeave: () => void;
-  onDragStart?: (event: MouseEvent<HTMLElement>) => void;
-  onResizeStart?: (event: MouseEvent<HTMLElement>) => void;
-}) {
-  const item = preview?.kind === 'pull' ? preview.detail : preview?.kind === 'issue' ? preview.issue : null;
-  const body = preview?.kind === 'pull' ? preview.detail.body : preview?.kind === 'issue' ? preview.issue.body : null;
-  const labels = preview?.kind === 'pull' ? preview.detail.labels.map(label => label.name) : preview?.kind === 'issue' ? preview.issue.labels : [];
-  const author = preview?.kind === 'pull' ? preview.detail.author : preview?.kind === 'issue' ? preview.issue.author : null;
-  const updatedAt = preview?.kind === 'pull' ? preview.detail.updatedAt : preview?.kind === 'issue' ? preview.issue.updatedAt : null;
-  const kind = preview?.kind ?? reference.kind;
-  return (
-    <aside
-      ref={cardRef}
-      className={`md-reference-preview is-${kind}`}
-      id={id}
-      role="dialog"
-      aria-label={`${kind === 'pull' ? 'Pull request' : 'Issue'} preview`}
-      style={style}
-      tabIndex={0}
-      onMouseDown={onResizeStart}
-      onMouseEnter={onEnter}
-      onMouseLeave={onLeave}
-      onFocus={onEnter}
-      onBlur={onLeave}
-    >
-      <header onMouseDown={onDragStart}>
-        <span><ReferenceIcon pull={kind === 'pull'} /> {kind === 'pull' ? 'Pull request' : 'Issue'}</span>
-        <small>{reference.owner}/{reference.repo} #{reference.number}</small>
-      </header>
-      {preview === undefined && <div className="md-reference-preview__status">Loading details…</div>}
-      {preview === null && (
-        <div className="md-reference-preview__status">Details are unavailable. Click to open on GitHub.</div>
-      )}
-      {item && <>
-        <h3>{item.title ?? `${reference.owner}/${reference.repo} #${reference.number}`}</h3>
-        <div className="md-reference-preview__meta">
-          {author && <span>by <strong>{author}</strong></span>}
-          {updatedAt && <span>updated {relativeTime(updatedAt)}</span>}
-          {preview.kind === 'pull' && preview.detail.state && <span>{preview.detail.state.toLowerCase()}</span>}
-          {preview.kind === 'issue' && <span>{preview.issue.state}</span>}
-        </div>
-        {labels.length > 0 && <div className="md-reference-preview__labels">
-          {labels.map(label => <span key={label}>{label}</span>)}
-        </div>}
-        <div className="md-reference-preview__body">
-          <MarkdownBody
-            body={body || 'No description provided.'}
-            repository={`${reference.owner}/${reference.repo}`}
-          />
-        </div>
-      </>}
-    </aside>
-  );
 }
 
 function ReferenceIcon({ pull }: { pull: boolean }) {

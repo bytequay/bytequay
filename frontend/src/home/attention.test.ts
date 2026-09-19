@@ -14,14 +14,12 @@
 import { describe, expect, it } from 'vitest';
 import type { PullRequestDto, RepositoryIssueSnapshotDto } from '../types';
 import {
-  anchorPanel,
   assignedIssues,
   attentionCandidates,
   attentionActivity,
   attentionKind,
   handledEntry,
   handledSummary,
-  previewMarkdown,
   snoozeUntil,
   stillHandled,
   visibleAttention,
@@ -167,50 +165,6 @@ describe('attentionKind', () => {
     expect(assignedIssues(source, 'workspace-id', 'jack')).toEqual([]);
     source.issues[0].isGoal = false;
     expect(visibleAttention(assignedIssues(source, 'workspace-id', 'jack'), handled, Date.now())).toEqual([]);
-  });
-});
-
-describe('anchorPanel', () => {
-  const viewport = { width: 1000, height: 800 };
-  const row = (top: number) => ({ top, bottom: top + 44, left: 100, right: 620 });
-
-  it('opens below the anchor when there is room', () => {
-    expect(anchorPanel(row(200), 210, 160, 410, viewport)).toEqual({ top: 250, left: 410 });
-  });
-
-  it('flips above the anchor when the panel would fall off the bottom', () => {
-    expect(anchorPanel(row(700), 210, 160, 410, viewport)).toEqual({ top: 534, left: 410 });
-  });
-
-  it('clamps to both side edges', () => {
-    expect(anchorPanel(row(200), 428, 320, 900, viewport).left).toBe(560);
-    expect(anchorPanel(row(200), 428, 320, -40, viewport).left).toBe(12);
-  });
-
-  it('never pushes a panel taller than the viewport off the top', () => {
-    expect(anchorPanel(row(60), 210, 900, 410, viewport).top).toBe(10);
-  });
-});
-
-describe('previewMarkdown', () => {
-  it('keeps the Markdown but drops comments, images and blank runs', () => {
-    const body = [
-      '<!-- issue template, do not remove -->',
-      '',
-      '## Description',
-      '',
-      '',
-      '',
-      'Restores the **Kudu** connector, see [the issue](https://x/1).',
-      '',
-      '![build badge](https://img.shields.io/badge.svg)',
-      '<img src="https://x/logo.png">',
-    ].join('\n');
-
-    expect(previewMarkdown(body)).toBe(
-      '## Description\n\nRestores the **Kudu** connector, see [the issue](https://x/1).');
-    expect(previewMarkdown('')).toBe('');
-    expect(previewMarkdown(null)).toBe('');
   });
 });
 

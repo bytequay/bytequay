@@ -1,0 +1,190 @@
+/* ── Reference hover card ────────────────────────────────────────
+   One card for every issue and pull request preview: Home's attention
+   list, Markdown references, and the agent issue attachment. The head is
+   the drag handle and the browser's own grip resizes the card, so the
+   frame stays fixed while only the description scrolls. */
+
+.ref-card {
+  position: fixed;
+  z-index: 1200;
+  display: flex;
+  flex-direction: column;
+  width: 500px;
+  min-width: 280px;
+  max-width: calc(100vw - 24px);
+  min-height: 120px;
+  background: #ffffff;
+  border: 1px solid #d0d7de;
+  border-radius: 12px;
+  box-shadow: 0 14px 44px rgba(27, 31, 36, 0.22);
+  overflow: hidden;
+  resize: both;
+  animation: ref-card-pop 120ms ease-out;
+}
+
+@keyframes ref-card-pop {
+  from { opacity: 0; transform: translateY(-4px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+.ref-card__head {
+  flex: none;
+  padding: 12px 14px 11px;
+  cursor: grab;
+}
+
+.ref-card__ref {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+}
+
+.ref-card__meta {
+  font-family: var(--mono);
+  font-size: 11px;
+  color: #8c959f;
+}
+
+.ref-card__chip {
+  flex: none;
+  border-radius: 10px;
+  padding: 1px 8px;
+  font-size: 10.5px;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.ref-card__title {
+  display: -webkit-box;
+  margin-top: 6px;
+  overflow: hidden;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  font-size: 13.5px;
+  font-weight: 600;
+  line-height: 1.35;
+}
+
+.ref-card__byline {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  margin-top: 8px;
+  color: #57606a;
+  font-size: 12px;
+}
+
+.ref-card__grid {
+  display: grid;
+  flex: none;
+  grid-template-columns: 1fr 1fr;
+  gap: 1px;
+  border-top: 1px solid #eceff2;
+  border-bottom: 1px solid #eceff2;
+  background: #eceff2;
+}
+
+.ref-card__cell {
+  min-width: 0;
+  background: #ffffff;
+  padding: 9px 14px;
+}
+
+.ref-card__label {
+  color: #8c959f;
+  font-size: 10px;
+  letter-spacing: 0.4px;
+}
+
+.ref-card__value {
+  margin-top: 2px;
+  color: #57606a;
+  font-size: 12px;
+  font-weight: 600;
+}
+
+/* The description takes whatever height the card has left, so resizing the
+   card taller shows more of it rather than more empty space. */
+.ref-card__foot {
+  display: flex;
+  flex: 1 1 auto;
+  flex-direction: column;
+  min-height: 0;
+  padding: 0 14px 12px;
+}
+
+.ref-card__grid + .ref-card__foot { padding-top: 11px; }
+
+.ref-card__body {
+  flex: 1 1 auto;
+  min-height: 18px;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding-right: 6px;
+  color: #57606a;
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.ref-card__muted { color: #8c959f; }
+
+.ref-card__body .markdown-body {
+  padding: 0;
+  color: #57606a;
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.ref-card__body .markdown-body p,
+.ref-card__body .markdown-body ul,
+.ref-card__body .markdown-body ol,
+.ref-card__body .markdown-body blockquote,
+.ref-card__body .markdown-body pre,
+.ref-card__body .markdown-body table,
+.ref-card__body .markdown-body .md-code-block,
+.ref-card__body .markdown-body .md-code-reference,
+.ref-card__body .markdown-body .md-table-scroll,
+.ref-card__body .markdown-body .md-details,
+.ref-card__body .markdown-body .md-alert {
+  margin: 0 0 6px;
+}
+
+.ref-card__body .markdown-body h1,
+.ref-card__body .markdown-body h2,
+.ref-card__body .markdown-body h3,
+.ref-card__body .markdown-body h4,
+.ref-card__body .markdown-body h5,
+.ref-card__body .markdown-body h6 {
+  margin: 0 0 4px;
+  border: 0;
+  padding: 0;
+  color: #1f2328;
+  font-size: 12px;
+  font-weight: 600;
+  line-height: 1.5;
+}
+
+.ref-card__body .markdown-body ul,
+.ref-card__body .markdown-body ol { padding-left: 18px; }
+.ref-card__body .markdown-body li + li { margin-top: 0; }
+.ref-card__body .markdown-body hr { display: none; }
+
+.ref-card__actions {
+  display: flex;
+  flex: none;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  margin-top: 11px;
+}
+
+.ref-card__spacer { flex: 1; }
+
+.ref-card__tag {
+  border-radius: 10px;
+  background: #eceff2;
+  padding: 1px 8px;
+  color: #57606a;
+  font-size: 10.5px;
+  white-space: nowrap;
+}

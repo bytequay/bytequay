@@ -11,7 +11,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-import { useEffect, useRef, useState, type ReactNode } from 'react';
+import { useRef, useState, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';
 import {
   Check,
@@ -30,9 +30,9 @@ import Avatar from '../Avatar';
 import { relativeTime } from '../relativeTime';
 import RepoAvatar from '../RepoAvatar';
 import Toast from '../Toast';
+import { anchorPanel, useHoverCard } from '../ReferenceCard';
 import AttentionPreview from './AttentionPreview';
 import {
-  anchorPanel,
   ATTENTION_KINDS,
   attentionActivity,
   handledEntry,
@@ -88,35 +88,12 @@ type ToastState = { id: number; text: string; key: string };
 export default function AttentionList({
   candidates, handled, onHandledChange, onOpen, onSeeAll, onStartIssue, issueNavigation, maxRows = HOME_MAX_ROWS, variant = 'home',
 }: Props) {
-  const [hover, setHover] = useState<Anchored | null>(null);
+  const preview = useHoverCard(HOVER_IN_MS, HOVER_OUT_MS);
+  const [hovered, setHovered] = useState<AttentionItem | null>(null);
   const [snooze, setSnooze] = useState<Anchored | null>(null);
   const [toast, setToast] = useState<ToastState | null>(null);
   const [session, setSession] = useState<string[]>([]);
-  const enterTimer = useRef(0);
-  const leaveTimer = useRef(0);
   const toastId = useRef(0);
-
-  useEffect(() => () => {
-    window.clearTimeout(enterTimer.current);
-    window.clearTimeout(leaveTimer.current);
-  }, []);
-
-  // A card pinned to a stale rectangle is worse than no card — but scrolling
-  // the card's own description must not count as moving away from it.
-  useEffect(() => {
-    if (hover === null) return;
-    const close = (event: Event) => {
-      const target = event.target;
-      if (target instanceof Element && target.closest('.atn-preview')) return;
-      setHover(null);
-    };
-    window.addEventListener('scroll', close, true);
-    window.addEventListener('resize', close);
-    return () => {
-      window.removeEventListener('scroll', close, true);
-      window.removeEventListener('resize', close);
-    };
-  }, [hover]);
 
   const live = visibleAttention(candidates, handled, Date.now());
   const visible = live.slice(0, maxRows);
@@ -126,9 +103,8 @@ export default function AttentionList({
   const summary = handledSummary(sessionEntries);
 
   function closePreview() {
-    window.clearTimeout(enterTimer.current);
-    window.clearTimeout(leaveTimer.current);
-    setHover(null);
+    preview.close();
+    setHovered(null);
   }
 
   function handle(item: AttentionItem, entry: HandledEntry, text: string) {
@@ -166,15 +142,12 @@ export default function AttentionList({
   }
 
   function enterRow(item: AttentionItem, element: HTMLElement) {
-    window.clearTimeout(leaveTimer.current);
-    window.clearTimeout(enterTimer.current);
-    const anchor = element.getBoundingClientRect();
-    enterTimer.current = window.setTimeout(() => setHover({ item, anchor }), HOVER_IN_MS);
+    setHovered(item);
+    preview.show(element);
   }
 
   function leaveRow() {
-    window.clearTimeout(enterTimer.current);
-    leaveTimer.current = window.setTimeout(() => setHover(null), HOVER_OUT_MS);
+    preview.hide();
   }
 
   function openSnoozeMenu(item: AttentionItem, button: HTMLElement) {
@@ -305,18 +278,16 @@ export default function AttentionList({
         )}
       </div>
 
-      {hover && live.some(item => item.key === hover.item.key) && (
+      {preview.anchor && hovered && live.some(item => item.key === hovered.key) && (
         <AttentionPreview
-          key={hover.item.key}
-          item={hover.item}
-          anchor={hover.anchor}
-          onHold={() => window.clearTimeout(leaveTimer.current)}
-          onRelease={leaveRow}
-          onOpen={() => { closePreview(); onOpen(hover.item); }}
-          onStartIssue={hover.item.type === 'issue' && onStartIssue
-            ? () => { closePreview(); onStartIssue(hover.item); } : undefined}
-          onAck={() => acknowledge(hover.item)}
-          onSnooze={button => openSnoozeMenu(hover.item, button)}
+          key={hovered.key}
+          item={hovered}
+          hover={preview}
+          onOpen={() => { closePreview(); onOpen(hovered); }}
+          onStartIssue={hovered.type === 'issue' && onStartIssue
+            ? () => { closePreview(); onStartIssue(hovered); } : undefined}
+          onAck={() => acknowledge(hovered)}
+          onSnooze={button => openSnoozeMenu(hovered, button)}
         />
       )}
 

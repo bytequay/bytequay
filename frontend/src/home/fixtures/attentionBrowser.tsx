@@ -15,6 +15,7 @@ import { createRoot } from 'react-dom/client';
 import { flushSync } from 'react-dom';
 import AttentionList from '../AttentionList';
 import AttentionPreview from '../AttentionPreview';
+import type { HoverCard } from '../../ReferenceCard';
 import type { AttentionItem, Handled } from '../attention';
 
 function assert(condition: boolean, message: string): void {
@@ -22,6 +23,12 @@ function assert(condition: boolean, message: string): void {
 }
 
 /** Real DOM clicks keep launching separate from source navigation and acknowledgement. */
+/** The fixture drives the card straight, with no row of its own to hover. */
+const openCard = (anchor: DOMRect): HoverCard => ({
+  anchor, pinned: false,
+  show: () => {}, hide: () => {}, hold: () => {}, close: () => {}, pin: () => {}, restoreFocus: () => {},
+});
+
 export async function runAttentionActions(): Promise<void> {
   const host = document.createElement('div');
   document.body.append(host);
@@ -68,7 +75,7 @@ export async function runAttentionActions(): Promise<void> {
     assert(handled[issue.key]?.kind === 'ack' && !host.querySelector('.atn-row'), 'Ack must hide the suggestion');
     assert(started === 1 && opened === 1, 'Ack must not launch or navigate');
     flushSync(() => root.render(
-      <AttentionPreview item={issue} anchor={new DOMRect(20, 20, 500, 52)} onHold={() => {}} onRelease={() => {}}
+      <AttentionPreview item={issue} hover={openCard(new DOMRect(20, 20, 500, 52))}
         onOpen={() => { opened++; }} onStartIssue={() => start(issue)} onAck={() => {}} onSnooze={() => {}} />,
     ));
     button('Start development').click();

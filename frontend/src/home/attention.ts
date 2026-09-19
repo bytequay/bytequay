@@ -13,7 +13,6 @@
  */
 import type { PullRequestDto, RepositoryIssueSnapshotDto } from '../types';
 import { pullRequestIsMine } from '../pulls/model';
-import { relativeTime } from '../relativeTime';
 
 /** Why an item is on the "Needs attention" list, in priority order. */
 export type AttentionKind = 'review' | 'assigned' | 'changes' | 'blocked' | 'ci' | 'commits' | 'merge' | 'updated';
@@ -313,59 +312,4 @@ export function handledSummary(entries: HandledEntry[]): string {
     acknowledged > 0 ? `${acknowledged} acknowledged` : null,
     snoozed > 0 ? `${snoozed} snoozed` : null,
   ].filter(Boolean).join(' · ');
-}
-
-/* ── Preview copy ───────────────────────────────────────────────── */
-
-/** "56m ago", "3d ago", "just now" — matches the compact age column. */
-export function ago(value: string | number | null | undefined): string {
-  const elapsed = relativeTime(value, { suffix: false });
-  if (elapsed === '') return '';
-  return elapsed === 'now' ? 'just now' : `${elapsed} ago`;
-}
-
-/**
- * A body ready for the preview card: still Markdown, minus the parts that
- * don't belong in a few clamped lines. HTML comments carry issue-template
- * scaffolding the author never meant to publish, and images (badges, mostly)
- * would both eat the space and pull remote files on hover.
- */
-export function previewMarkdown(body: string | null | undefined): string {
-  if (!body) return '';
-  return body
-    .replace(/<!--[\s\S]*?-->/g, '')
-    .replace(/!\[[^\]]*\]\([^)]*\)/g, '')
-    .replace(/<img\b[^>]*>/gi, '')
-    .replace(/\n{3,}/g, '\n\n')
-    .trim();
-}
-
-/* ── Floating panels ────────────────────────────────────────────── */
-
-type PanelAnchor = { top: number; bottom: number; left: number; right: number };
-
-/**
- * Places a floating panel under its anchor, flipping it above and clamping it
- * inside the viewport when it would otherwise be cut off at an edge. Both the
- * hover preview and the snooze menu open from rows that can sit anywhere in a
- * scrolled list, so neither can assume there is room below.
- */
-export function anchorPanel(
-  anchor: PanelAnchor,
-  width: number,
-  height: number,
-  desiredLeft: number,
-  viewport: { width: number; height: number } = {
-    width: window.innerWidth,
-    height: window.innerHeight,
-  },
-): { top: number; left: number } {
-  const below = anchor.bottom + 6;
-  const top = below + height > viewport.height - 10
-    ? Math.max(10, anchor.top - height - 6)
-    : below;
-  return {
-    top,
-    left: Math.max(12, Math.min(desiredLeft, viewport.width - width - 12)),
-  };
 }

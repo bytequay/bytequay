@@ -32,6 +32,7 @@ import '../../css/agents.css';
 import '../../css/issues.css';
 import '../../css/home.css';
 import '../../css/pulls.css';
+import '../../css/reference-card.css';
 import { assert, settle } from '../../fixtures/harness';
 
 function button(host: HTMLElement, label: string): HTMLButtonElement {
@@ -122,7 +123,7 @@ async function issueToTask(): Promise<void> {
       onOpenCreatedTask={task => { window.location.hash = workspaceAgentTaskRoute(task.workspaceId, task.id); }} />));
     await settle();
     button(host, 'Preview issue: upstream/app#7').focus(); await settle();
-    assert(f.created.length === 0 && document.querySelector('.agt-issue-preview')?.textContent?.includes('Preserve the existing upload API.') === true, 'Opening composer must preview context without starting');
+    assert(f.created.length === 0 && document.querySelector('.ref-card')?.textContent?.includes('Preserve the existing upload API.') === true, 'Opening composer must preview context without starting');
     const input = host.querySelector<HTMLTextAreaElement>('textarea[aria-label="Describe a task"]');
     assert(input !== null && input.value === 'Implement Fix upload timeout', 'Existing composer must be prefilled');
     edit(input, 'Keep the public API stable'); await settle();
@@ -156,7 +157,7 @@ async function refreshAndCancel(): Promise<void> {
     f.issue = { ...f.issue, title: 'Updated issue title', body: 'Updated issue description', updatedAt: '2026-09-03T00:00:00Z' };
     button(host, 'Refresh issue').click(); await settle();
     button(host, 'Preview issue: upstream/app#7').focus(); await settle();
-    assert(input.value === 'Keep my additional instructions' && document.querySelector('.agt-issue-preview')?.textContent?.includes('Updated issue description') === true,
+    assert(input.value === 'Keep my additional instructions' && document.querySelector('.ref-card')?.textContent?.includes('Updated issue description') === true,
       'Source refresh must update the attachment without losing user instructions');
     f.issue = { ...f.issue, isGoal: true };
     button(host, 'Refresh issue').click(); await settle();
@@ -254,14 +255,15 @@ export async function mountIssueConversation(running = false): Promise<{ x: numb
 
 export async function verifyIssuePreview(): Promise<void> {
   await settle();
-  const preview = document.querySelector<HTMLElement>('.agt-issue-preview');
+  const preview = document.querySelector<HTMLElement>('.ref-card');
   assert(preview !== null, 'Hover must open source preview');
-  assert(preview.querySelector('h2')?.textContent === 'Acceptance criteria' && preview.querySelector('strong')?.textContent === 'Fix upload timeout',
+  assert(preview.querySelector('h2')?.textContent === 'Acceptance criteria' && preview.querySelector('.ref-card__title')?.textContent === 'Fix upload timeout',
     'Preview must show title and render Markdown headings');
   assert(preview.querySelector('ul li') !== null && preview.querySelector('pre code') !== null && preview.textContent?.includes('existing upload API') === true,
     'Preview must render lists, emphasis, and fenced code');
   const box = preview.getBoundingClientRect();
-  assert(box.left >= 0 && box.right <= innerWidth && box.top >= 0 && box.bottom <= innerHeight, 'Source preview must fit normal and narrow panes');
+  assert(box.left >= 0 && box.right <= innerWidth && box.top >= 0 && box.bottom <= innerHeight,
+    `Source preview must fit normal and narrow panes (${box.left},${box.top},${box.right},${box.bottom} in ${innerWidth}x${innerHeight})`);
 }
 
 export async function verifyIssueKeyboard(): Promise<void> {
@@ -271,12 +273,12 @@ export async function verifyIssueKeyboard(): Promise<void> {
   await verifyIssuePreview();
   source.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowDown', bubbles: true }));
   await settle();
-  assert(document.querySelector('.agt-issue-preview')?.contains(document.activeElement) === true, 'Down arrow must enter the rich preview');
+  assert(document.querySelector('.ref-card')?.contains(document.activeElement) === true, 'Down arrow must enter the rich preview');
   await new Promise(resolve => setTimeout(resolve, 150));
-  assert(document.querySelector('.agt-issue-preview')?.contains(document.activeElement) === true, 'Moving focus within preview must keep it open');
+  assert(document.querySelector('.ref-card')?.contains(document.activeElement) === true, 'Moving focus within preview must keep it open');
   document.activeElement?.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
   await settle();
-  assert(document.querySelector('.agt-issue-preview') === null && document.activeElement === source, 'Escape must close preview and return focus');
+  assert(document.querySelector('.ref-card') === null && document.activeElement === source, 'Escape must close preview and return focus');
   assert(!conversationHost.textContent?.includes('INTERNAL GENERATED') && conversationHost.querySelector('.agt-review-request') === null,
     'Source interaction never exposes provider prompt or adds request disclosure');
 }

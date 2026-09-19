@@ -13,7 +13,8 @@
  */
 import { renderToStaticMarkup } from 'react-dom/server';
 import { describe, expect, it } from 'vitest';
-import MarkdownBody, { changedSpan, clampPreviewOrigin, CodeReferenceCard, ReferencePreviewCard, markdownBlocks, parseGitHubCodePermalink, toggleMarkdownTask } from './MarkdownBody';
+import type { PullRequestDetailDto } from '../types';
+import MarkdownBody, { changedSpan, CodeReferenceCard, markdownBlocks, parseGitHubCodePermalink, referenceCardItem, toggleMarkdownTask } from './MarkdownBody';
 
 describe('suggested changes', () => {
   it('spans the differing middle between a shared prefix and a non-overlapping suffix', () => {
@@ -80,12 +81,20 @@ describe('suggested changes', () => {
   });
 });
 
+const pullRequestDetail: PullRequestDetailDto = {
+  id: 1, repo: 'trinodb/trino', number: 30611, title: 'Handle IPv6 zone ids in Web UI task URIs', htmlUrl: null,
+  state: 'open', draft: false, mergeable: null, mergeableState: null, author: 'wren-d', authorAvatarUrl: null,
+  createdAt: '2026-08-27T10:00:00Z', updatedAt: '2026-09-05T12:00:00Z', mergedAt: null, baseRef: 'master',
+  headRef: 'ipv6', body: 'Fixes the zone id.', labels: [], assignees: [], milestone: null, reviewers: [],
+  additions: 2, deletions: 1, changedFiles: 1, approvalCount: 0, ciStatus: null, recentActivity: [],
+  checkRuns: [], unavailableSections: [], viewerCanWrite: true,
+};
+
 describe('MarkdownBody', () => {
-  it.each(['open', 'closed'])('renders an %s issue preview with its details and actual state', state => {
-    const html = renderToStaticMarkup(<ReferencePreviewCard
-      id="issue-preview"
-      reference={{ kind: 'issue', owner: 'trinodb', repo: 'trino', number: 30611, href: 'https://github.com/trinodb/trino/issues/30611' }}
-      preview={{
+  it.each(['open', 'closed'])('maps an %s issue reference onto the shared card', state => {
+    const item = referenceCardItem(
+      { kind: 'issue', owner: 'trinodb', repo: 'trino', number: 30611, href: 'https://github.com/trinodb/trino/issues/30611' },
+      {
         kind: 'issue',
         workspaceId: null,
         issue: {
@@ -96,19 +105,33 @@ describe('MarkdownBody', () => {
           updatedAt: '2026-09-05T12:00:00Z',
           state,
         },
-      }}
-      style={{}}
-      onEnter={() => {}}
-      onLeave={() => {}}
-    />);
+      },
+    );
 
-    expect(html).toContain('aria-label="Issue preview"');
-    expect(html).toContain('<h3>Kerberos Hive container startup times out</h3>');
-    expect(html).toContain('<strong>octocat</strong>');
-    expect(html).toContain(`<span>${state}</span>`);
-    expect(html).toContain('<span>bug</span>');
-    expect(html).toContain('The <strong>container</strong> never starts.');
-    expect(html).not.toContain('Details are unavailable');
+    expect(item).toMatchObject({
+      type: 'issue',
+      repo: 'trinodb/trino',
+      number: 30611,
+      title: 'Kerberos Hive container startup times out',
+      author: 'octocat',
+      labels: ['bug'],
+    });
+    expect(item.chip?.label).toBe(state === 'open' ? 'Open' : 'Closed');
+  });
+
+  it('reads a pull request reference from the detail, merged state included', () => {
+    const reference = { kind: 'pull' as const, owner: 'trinodb', repo: 'trino', number: 30611, href: 'https://github.com/trinodb/trino/pull/30611' };
+    const detail = { ...pullRequestDetail, state: 'closed', mergedAt: '2026-09-06T09:00:00Z', labels: [{ name: 'iceberg', color: null as string | null }] };
+
+    expect(referenceCardItem(reference, { kind: 'pull', detail })).toMatchObject({
+      type: 'pr',
+      title: 'Handle IPv6 zone ids in Web UI task URIs',
+      author: 'wren-d',
+      labels: ['iceberg'],
+    });
+    expect(referenceCardItem(reference, { kind: 'pull', detail }).chip?.label).toBe('Merged');
+    expect(referenceCardItem(reference, { kind: 'pull', detail: { ...pullRequestDetail, draft: true } }).chip?.label).toBe('Draft');
+    expect(referenceCardItem(reference, undefined).title).toBe('trinodb/trino #30611');
   });
 
   it('renders checkbox and unordered-list markers', () => {
@@ -479,23 +502,5 @@ describe('MarkdownBody', () => {
     expect(html.match(/<blockquote>/g)).toHaveLength(2);
     expect(html).toContain('<blockquote><p>I read the execution flow:</p><blockquote><p>The coordinator aggregates deletion vectors —<br/>this is necessary because multiple workers may process the same file.<br/>CopyOnWriteFileRewriter writes the surviving rows.</p></blockquote><p>I suspect the rewriting is happening on the coordinator.</p></blockquote>');
     expect(html).not.toContain('&gt; The coordinator');
-  });
-});
-
-describe('clampPreviewOrigin', () => {
-  const card = { width: 480, height: 400 };
-  const view = { width: 1200, height: 800 };
-
-  it('keeps a dragged preview where it was dropped inside the window', () => {
-    expect(clampPreviewOrigin(300, 120, card, view)).toEqual({ left: 300, top: 120 });
-  });
-
-  it('lets half the width pass the right edge and 30% of the height pass the bottom', () => {
-    expect(clampPreviewOrigin(1190, 790, card, view)).toEqual({ left: 960, top: 520 });
-  });
-
-  it('holds the top left corner on screen', () => {
-    expect(clampPreviewOrigin(-40, -90, card, view)).toEqual({ left: 0, top: 0 });
-    expect(clampPreviewOrigin(10, 10, card, { width: 200, height: 200 })).toEqual({ left: 0, top: 0 });
   });
 });

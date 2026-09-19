@@ -304,18 +304,18 @@ describe('responsive tab slots', () => {
   });
 
   it('fills slots from the fixed order, so a tab never moves as the pane resizes', () => {
-    expect(visibleTabs('all', 300)).toEqual(['all', 'active']);
-    expect(visibleTabs('all', 352)).toEqual(['all', 'active', 'req']);
-    expect(visibleTabs('all', 640)).toEqual(['all', 'active', 'req', 'monitored']);
-    expect(tabLabels('all', 300)).toEqual(['Open', 'My work']);
-    expect(tabLabels('all', 640)).toEqual(['Open', 'My work', 'Review', 'Monitored']);
+    expect(visibleTabs('all', 300)).toEqual(['req', 'all']);
+    expect(visibleTabs('all', 352)).toEqual(['req', 'all', 'active']);
+    expect(visibleTabs('all', 640)).toEqual(['req', 'all', 'active', 'monitored']);
+    expect(tabLabels('all', 300)).toEqual(['Review', 'Open']);
+    expect(tabLabels('all', 640)).toEqual(['Review', 'Open', 'My work', 'Monitored']);
   });
 
   it('promotes a selected filter the order would hide into the last slot', () => {
-    expect(visibleTabs('monitored', 300)).toEqual(['all', 'monitored']);
-    expect(visibleTabs('done', 352)).toEqual(['all', 'active', 'done']);
-    expect(visibleTabs('reviewed', 640)).toEqual(['all', 'active', 'req', 'reviewed']);
-    expect(tabLabels('monitored', 300)).toEqual(['Open', 'Monitored']);
+    expect(visibleTabs('monitored', 300)).toEqual(['req', 'monitored']);
+    expect(visibleTabs('done', 352)).toEqual(['req', 'all', 'done']);
+    expect(visibleTabs('reviewed', 640)).toEqual(['req', 'all', 'active', 'reviewed']);
+    expect(tabLabels('monitored', 300)).toEqual(['Review', 'Monitored']);
     expect(tabsMarkup('monitored', 300)).toContain('aria-selected="true"');
   });
 
@@ -340,9 +340,9 @@ describe('overflow menu', () => {
     const overflow = (tab: PullTab, width: number) =>
       PULL_TABS.filter(item => !visibleTabs(tab, width).includes(item.key)).map(item => item.label);
 
-    expect(overflow('all', 300)).toEqual(['Review', 'Monitored', 'Reviewed', 'Closed']);
+    expect(overflow('all', 300)).toEqual(['My work', 'Monitored', 'Reviewed', 'Closed']);
     expect(overflow('all', 640)).toEqual(['Reviewed', 'Closed']);
-    expect(overflow('monitored', 300)).toEqual(['My work', 'Review', 'Reviewed', 'Closed']);
+    expect(overflow('monitored', 300)).toEqual(['Open', 'My work', 'Reviewed', 'Closed']);
   });
 
   it('never puts a count on a tab', () => {
@@ -420,7 +420,7 @@ describe('filter keyboard', () => {
   it('reaches every filter by Command digit, hidden ones included', () => {
     const press = { altKey: false, ctrlKey: false, metaKey: true };
     expect(PULL_TABS.map((_, index) => shortcutTab({ ...press, key: String(index + 1) })))
-      .toEqual(['all', 'active', 'req', 'monitored', 'reviewed', 'done']);
+      .toEqual(['req', 'all', 'active', 'monitored', 'reviewed', 'done']);
     expect(visibleTabs('reviewed', 300)).toContain('reviewed');
     expect(shortcutTab({ ...press, key: '7' })).toBeNull();
     expect(shortcutTab({ ...press, key: 'f' })).toBeNull();

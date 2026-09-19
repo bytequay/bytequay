@@ -297,7 +297,6 @@ export function PullFilterTabs({ tab, searching, counts, width, panelId, onSelec
 
 export default function PullsScreen({
   initialPr,
-  initialTab,
   initialReviewId,
   repositoryScope,
   browserOpen = false,
@@ -306,8 +305,6 @@ export default function PullsScreen({
   reviewWorkspace,
 }: {
   initialPr?: { repo: string; number: number };
-  /** Filter tab to open on (from the Home review card). */
-  initialTab?: PullTab;
   /** Opens an exact retained review from the workspace Tasks list. */
   initialReviewId?: string;
   repositoryScope?: { workspaceId: string; repository: string };
@@ -334,7 +331,7 @@ export default function PullsScreen({
   /** A finding the Changes tab sent back to Agent review, so its card opens and scrolls. */
   const [focusFindingId, setFocusFindingId] = useState<string | null>(null);
   const [reviewCardFocus, setReviewCardFocus] = useState<ReviewCardFocus | null>(null);
-  const [tab, setTab] = useState<PullTab>(initialTab ?? 'all');
+  const [tab, setTab] = useState<PullTab>(PULL_TABS[0].key);
   const [selected, setSelected] = useState<number | null>(null);
   const [detailTab, setDetailTab] = useState<DetailTab>(initialReviewId === undefined ? 'overview' : 'review');
   // Code & Tests stays mounted after its first visit so drafts, open files and runs survive tab switches.

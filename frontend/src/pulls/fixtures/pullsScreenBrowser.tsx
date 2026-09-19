@@ -47,9 +47,10 @@ export async function runMainScreen(): Promise<string> {
     id: 7, repo: 'owner/repo', number: 7, title: 'Implementation', htmlUrl: null, state: 'open', draft: true,
     mergeable: null, mergeableState: null, author: 'alice', authorAvatarUrl: null, createdAt: null, updatedAt: '2026-01-01T00:00:00Z',
     mergedAt: null, baseRef: 'main', headRef: 'feature', body: 'Original description', labels: [], assignees: [], milestone: null,
-    reviewers: [], additions: 1, deletions: 1, changedFiles: 1, approvalCount: 0, ciStatus: null, recentActivity: [],
-    checkRuns: [], unavailableSections: [], viewerCanWrite: false,
+    reviewers: [{ login: 'bob', avatarUrl: null, state: 'PENDING' }], additions: 1, deletions: 1, changedFiles: 1,
+    approvalCount: 0, ciStatus: null, recentActivity: [], checkRuns: [], unavailableSections: [], viewerCanWrite: false,
   };
+  // The list opens on Review, so the row has to be one bob is asked to review.
   const row = remotePullRequest(detail, 'bob');
   const comparisons: (string | undefined)[][] = [];
   let defaultReads = 0;
@@ -416,8 +417,9 @@ export async function runSelectionStability(): Promise<string> {
     id: number, repo: 'owner/repo', number, title, htmlUrl: null, state: 'open', draft: false,
     mergeable: null, mergeableState: null, author: 'alice', authorAvatarUrl: null, createdAt: null, updatedAt,
     mergedAt: null, baseRef: 'main', headRef: 'feature', body: '', labels: [], assignees: [], milestone: null,
-    reviewers: [], additions: 1, deletions: 1, changedFiles: 1, approvalCount: 0, ciStatus: null, recentActivity: [],
-    checkRuns: [], unavailableSections: [], viewerCanWrite: false,
+    // The list opens on Review, so every row has to be one bob is asked to review.
+    reviewers: [{ login: 'bob', avatarUrl: null, state: 'PENDING' }], additions: 1, deletions: 1, changedFiles: 1,
+    approvalCount: 0, ciStatus: null, recentActivity: [], checkRuns: [], unavailableSections: [], viewerCanWrite: false,
   });
   const newest = detailFor(3, 'Newest after sync', '2026-09-14T06:00:00Z');
   const first = detailFor(1, 'First on page zero', '2026-09-14T01:00:00Z');

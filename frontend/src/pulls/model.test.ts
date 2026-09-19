@@ -92,8 +92,8 @@ describe('rowsForTab', () => {
   });
 
   it('orders the filters the way the shortcuts and the tab slots read them', () => {
-    expect(PULL_TABS.map(tab => tab.key)).toEqual(['all', 'active', 'req', 'monitored', 'reviewed', 'done']);
-    expect(PULL_TABS.map(tab => tab.label)).toEqual(['Open', 'My work', 'Review', 'Monitored', 'Reviewed', 'Closed']);
+    expect(PULL_TABS.map(tab => tab.key)).toEqual(['req', 'all', 'active', 'monitored', 'reviewed', 'done']);
+    expect(PULL_TABS.map(tab => tab.label)).toEqual(['Review', 'Open', 'My work', 'Monitored', 'Reviewed', 'Closed']);
   });
 
   it('preserves monitoring state in pull request cards', () => {

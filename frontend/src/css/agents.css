@@ -2666,11 +2666,7 @@
   z-index: 45;
 }
 
-.agt-tasks-page > .agt-overview-toggle[aria-pressed="false"] {
-  top: 30px;
-}
-
-.agt-screen-head > .agt-overview-toggle {
+:is(.agt-screen-head, .agt-tasks-head) > .agt-overview-toggle {
   position: static;
 }
 
@@ -2779,8 +2775,6 @@
   align-items: center;
   flex-wrap: wrap;
   gap: 16px;
-  /* Keep the stage's pinned overview button clear of the task-list tabs. */
-  padding-right: 30px;
 }
 
 .agt-tabs {

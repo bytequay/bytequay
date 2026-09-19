@@ -1000,7 +1000,6 @@ export function AgentTaskList({
 
   return (
     <div className="agt-tasks-page">
-      {headerAction}
       <div className="agt-tasks-scroll">
         <div className="agt-tasks-head">
           <h1>Tasks</h1>
@@ -1019,6 +1018,7 @@ export function AgentTaskList({
               </button>
             ))}
           </div>
+          {headerAction}
         </div>
         {active && children}
         <section className="agt-section" aria-label={active ? 'Agent tasks' : 'Archived tasks'}>

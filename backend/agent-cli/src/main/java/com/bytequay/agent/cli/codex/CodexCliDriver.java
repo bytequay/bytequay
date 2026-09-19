@@ -209,19 +209,7 @@ public final class CodexCliDriver
      */
     public CodexCliDriver(String executable, String minimumVersion, ObjectMapper objectMapper, ProcessSupervisor supervisor, Path codexHome, PermissionBroker permissions)
     {
-        this(executable, minimumVersion, objectMapper, supervisor, inheritedEnvironment(), codexHome, permissions);
-    }
-
-    CodexCliDriver(
-            String executable,
-            String minimumVersion,
-            ObjectMapper objectMapper,
-            ProcessSupervisor supervisor,
-            Map<String, String> environment,
-            Path codexHome,
-            PermissionBroker permissions)
-    {
-        this(executable, minimumVersion, objectMapper, supervisor, environment, codexHome, permissions, DEFAULT_QUIESCENCE_TIMEOUT);
+        this(executable, minimumVersion, objectMapper, supervisor, inheritedEnvironment(), codexHome, permissions, DEFAULT_QUIESCENCE_TIMEOUT);
     }
 
     CodexCliDriver(

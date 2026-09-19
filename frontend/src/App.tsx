@@ -384,8 +384,12 @@ export default function App() {
   };
 
   const inWorkspace = page === 'workspaces' && workspace !== null;
+  // Only the tasks tab swaps its whole page for a route-owned task, so clicking that tab with
+  // one open returns to the task list instead of doing nothing.
+  const taskPageOpen = workspaceTab === 'tasks'
+    && (initialAgentTaskId !== null || initialAgentReviewId !== null || sourceIssueNumber !== null);
   const selectWorkspaceTab = (next: WorkspaceTab) => {
-    if (next === workspaceTab) return;
+    if (next === workspaceTab && !taskPageOpen) return;
     setWorkspaceTab(next);
     setInitialWorkspacePrNumber(null);
     setInitialIssueNumber(null);

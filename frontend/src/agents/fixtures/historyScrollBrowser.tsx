@@ -267,6 +267,13 @@ async function latestRequestAtTop(): Promise<void> {
     const live = turn.querySelector<HTMLElement>('.agt-live');
     assert(live !== null && live.getBoundingClientRect().top < viewport.top + 200, 'The live activity should sit under the request, not at the bottom');
 
+    flushSync(() => append([...earlier, request(33, 'latest', 'commit'), message(34, 'latest', 'Streaming progress. The commit is being prepared.')]));
+    await settle();
+    const streamed = turn.querySelector<HTMLElement>('.agt-live');
+    const trailing = streamed === null ? Number.NaN : viewport.bottom - streamed.getBoundingClientRect().bottom;
+    assert(trailing <= Number.parseFloat(getComputedStyle(container).paddingBottom) + 1,
+      `A short reply should end the reserve and leave its output against the composer, not ${Math.round(trailing)}px above it`);
+
     flushSync(() => append([...earlier, request(33, 'latest', 'commit'),
       ...Array.from({ length: 40 }, (_, index) => message(index + 34, 'latest', `Streaming progress ${index}. The commit is being prepared.`))]));
     await settle();

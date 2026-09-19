@@ -1436,8 +1436,10 @@
 }
 
 /*
- * The transcript's content height less the trailing notices: at the bottom this turn starts exactly at
- * the top padding. Without flex-shrink: 0 the percentage floor lets a long turn shrink and overflow.
+ * A request still waiting for its reply: the transcript's content height less the trailing notices, so
+ * at the bottom it starts exactly at the top padding. The reserve ends with the reply's first block,
+ * which keeps streamed output against the composer instead of a screen of blank beneath it. Without
+ * flex-shrink: 0 the percentage floor lets a turn of several requests shrink and overflow.
  */
 .agt-turn.is-latest {
   flex-shrink: 0;

@@ -895,14 +895,15 @@ export function AgentConversation({
           : turns.map((turn, index) => {
             const id = turn.turnId ?? `turn-${turn.ordinal}`;
             const open = turnChoice[id] ?? (turn.endedAt === null || turn.answer === null);
-            // At the live edge the latest turn reserves a viewport, so following the bottom puts a new
-            // request at the top with room for its reply beneath, and nothing jumps when it settles.
             const latest = scroll.after === null && pending === null && index === turns.length - 1;
+            // A request reserves a viewport only until its reply starts, so sending lifts it to the top.
+            // From the first block on the turn is its own height, so output stays just above the composer.
+            const reserve = latest && turn.blocks.length === 0 && turn.answer === null;
             return <TurnView key={id} turn={turn} first={index === 0} open={open} now={now}
               models={models} durableTurns={durableTurns} activityChoice={activityChoice}
               previews={previews} agentLabels={agentLabels} onToggle={() => onToggleTurn(id, !open)}
               onToggleActivity={onToggleActivity} onDecide={onDecide} onOpenAgent={onOpenAgent}
-              localReview={localReview} reviewRequests={reviewRequests} issueSource={issueSource} onOpenReview={onOpenReview} latest={latest}
+              localReview={localReview} reviewRequests={reviewRequests} issueSource={issueSource} onOpenReview={onOpenReview} latest={reserve}
               generatedRequest={turn.turnId !== null && generatedTurnIds?.has(turn.turnId)} generatedBranch={generatedBranch}>
               {latest && liveActivity}
             </TurnView>;

@@ -220,6 +220,13 @@ it('keeps popup navigation in its existing tab and denies unsafe or closed-page 
   expect(tabs.getState().tabs).toHaveLength(0);
 });
 
+it('shows the site icon for pages that declare none, until the page declares one', () => {
+  open('https://slack.example/client/T1');
+  expect(tabs.getState().tabs[0].favicon).toBe('https://slack.example/favicon.ico');
+  view(0).webContents.emit('page-favicon-updated', {}, ['https://cdn.example/icon.png']);
+  expect(tabs.getState().tabs[0].favicon).toBe('https://cdn.example/icon.png');
+});
+
 it('persists committed same-title URLs and restores only pins, lazily, with private file permissions', () => {
   const first = open('https://example.com/one');
   tabs.pin(first, true);

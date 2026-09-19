@@ -311,7 +311,11 @@ export class BrowserTabs {
     const committed = () => {
       if (!current() || contents.isDestroyed()) return;
       const url = contents.getURL();
-      if (/^https?:/i.test(url)) tab.committedUrl = url;
+      if (/^https?:/i.test(url)) {
+        tab.committedUrl = url;
+        // Pages that declare no icon link never raise page-favicon-updated, so ask for the site default.
+        tab.state.favicon ??= faviconUrl(new URL('/favicon.ico', url).href);
+      }
       update();
     };
     contents.on('did-navigate', committed);

@@ -11,7 +11,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-import type { ButtonHTMLAttributes, MouseEvent, ReactElement } from 'react';
+import { Children, isValidElement, type ButtonHTMLAttributes, type MouseEvent, type ReactElement, type ReactNode } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { describe, expect, it, vi } from 'vitest';
 import AppSidebar from '../AppSidebar';
@@ -295,6 +295,29 @@ describe('watched repository workspace UI', () => {
     expect(onSelectTab).toHaveBeenCalledWith('prs');
   });
 
+  /** Task screens ride in the zoom card over the task list, not as the stage's only child. */
+  function find<T>(node: ReactNode, has: (props: Record<string, unknown>) => boolean): ReactElement<T> | undefined {
+    if (!isValidElement(node)) return undefined;
+    const props = node.props as Record<string, unknown> & { children?: ReactNode };
+    if (has(props)) return node as ReactElement<T>;
+    return Children.toArray(props.children).map(child => find<T>(child, has)).find(found => found !== undefined);
+  }
+
+  const tasksTab = (overrides: Partial<Parameters<typeof WorkspaceShell>[0]> = {}) => WorkspaceShell({
+    workspace: workspace('FORK'),
+    tab: 'tasks',
+    onSelectTab: () => {},
+    onWorkspaceChanged: () => {},
+    initialPullRequestNumber: null,
+    initialIssueNumber: null,
+    initialAgentTaskId: null,
+    onSelectAgentTask: () => {},
+    onSelectPullRequest: () => {},
+    onPreviewPullRequest: () => {},
+    onSelectIssue: () => {},
+    ...overrides,
+  });
+
   it('opens a task PR full width over the task instead of the PR tab', () => {
     const onPreviewPullRequest = vi.fn();
     const onSelectPullRequest = vi.fn();
@@ -313,7 +336,7 @@ describe('watched repository workspace UI', () => {
         onPreviewPullRequest,
         onSelectIssue: () => {},
       });
-      task = view.props.children[0];
+      task = find(view, props => typeof props.taskId === 'string');
       return view;
     }
     renderToStaticMarkup(<CaptureTask />);
@@ -321,6 +344,34 @@ describe('watched repository workspace UI', () => {
     task?.props.onOpenPullRequest(42);
     expect(onPreviewPullRequest).toHaveBeenCalledWith(42);
     expect(onSelectPullRequest).not.toHaveBeenCalled();
+  });
+
+  it('zooms an open agent task over the task list it came from', () => {
+    function OpenTask() { return tasksTab({ initialAgentTaskId: 'task-1' }); }
+    const html = renderToStaticMarkup(<OpenTask />);
+
+    expect(html).toContain('class="zoom-scrim"');
+    expect(html).toContain('class="zoom-card"');
+    expect(html).toContain('aria-label="Close task"');
+    expect(html).toContain('aria-label="Enter full screen"');
+    // The list it came from stays behind the card.
+    expect(html).toContain('aria-label="Agent tasks"');
+    expect(html).toContain('Cherry-pick executions');
+  });
+
+  it('opens a cherry-pick execution without leaving the Tasks tab', () => {
+    const onSelectTab = vi.fn();
+    let cherryPicks: ReactElement<{ onOpenTask: (execution: { executionId: string }) => void }> | undefined;
+    function CaptureCherryPicks() {
+      const view = tasksTab({ onSelectTab });
+      cherryPicks = find(view, props => props.onNewCherryPick !== undefined);
+      return view;
+    }
+    renderToStaticMarkup(<CaptureCherryPicks />);
+
+    expect(cherryPicks).toBeDefined();
+    cherryPicks?.props.onOpenTask({ executionId: 'execution-1' });
+    expect(onSelectTab).not.toHaveBeenCalled();
   });
 
   it('loads the saved target before opening fork workspace commits', () => {

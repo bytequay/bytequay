@@ -333,31 +333,16 @@
   background: #fff;
 }
 
-.pull-detail.is-zoomed {
-  position: fixed;
-  z-index: 70;
-  inset: 0;
-  min-width: 0;
-  overflow: hidden;
-  border: 0;
-}
-
+/* A zoomed pane takes its geometry from the shared .zoom-card; this is what it adds. */
 .pull-detail.is-zoomed .pull-detail__resize { display: none; }
 
+/* The preview's dialog box; the backdrop is the layer's own scrim. */
 .pulls-page--overlay {
   position: fixed;
   z-index: 70;
   inset: 0;
-  background: rgb(31 35 40 / 30%);
+  background: none;
   outline: none;
-}
-
-.pulls-page--overlay .pull-detail.is-zoomed {
-  /* 90% of the window, so the page it opened from stays visible under the backdrop. */
-  inset: 5%;
-  border: 1px solid #d0d7de;
-  border-radius: 12px;
-  box-shadow: 0 16px 64px rgb(31 35 40 / 24%);
 }
 
 .pull-detail__resize {
@@ -1158,7 +1143,7 @@
 .pull-commit-picker > summary:hover,
 .pull-commit-picker[open] > summary { background: #e1e5e9; }
 .pull-commit-picker > summary:focus-visible { box-shadow: 0 0 0 2px #0969da; }
-.pull-detail.is-zoomed .pull-detail__tabs button { min-height: 40px; padding: 8px 14px; }
+.pull-detail.is-zoomed .pull-detail__tabs button { min-height: 34px; padding: 6px 12px; }
 .pull-detail.is-zoomed .pull-changes__toolbar { min-height: 54px; flex-basis: 54px; }
 .pull-detail.is-zoomed .pull-changes__files-toggle { height: 40px; padding: 0 12px; }
 .pull-detail.is-zoomed .pull-changes__bulk-toggle { height: 40px; padding: 0 12px; }

@@ -142,7 +142,27 @@ export async function runMainScreen(): Promise<string> {
     assert(host.querySelector('[aria-label="Select one: one"]') !== null
       && host.querySelector('[aria-label="Submit review, 1 pending review comment"]') === null,
     'Changed code must reset its obsolete range and staged line comments');
-    return 'Main PR page shares commit selection, timeline polling, row reconciliation, and draft invalidation';
+
+    const zoom = host.querySelector<HTMLButtonElement>('[aria-label="Zoom pull request details"]');
+    assert(zoom !== null, 'The list pane must offer the zoom action');
+    zoom.click();
+    await settle();
+    assert(host.querySelector('.pull-detail.zoom-card') !== null && host.querySelector('.pull-detail.is-full') === null
+      && host.querySelector('.zoom-scrim') !== null, 'Zoom must open a card over the list, not cover the window');
+    const full = host.querySelector<HTMLButtonElement>('[aria-label="Enter full screen"]');
+    assert(full !== null, 'The zoom layer must offer full screen');
+    full.click();
+    await settle();
+    assert(host.querySelector('.pull-detail.zoom-card.is-full') !== null && host.querySelector('.zoom-scrim') === null,
+      'Full screen must drop the card and its backdrop');
+    assert(host.querySelector('[aria-label="Exit full screen"]') !== null
+      && host.querySelector('[aria-label="Close pull request details"]') !== null,
+    'Full screen must keep both the way back to the card and the way out');
+    window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' }));
+    await settle();
+    assert(host.querySelector('.pull-detail.zoom-card') === null && host.querySelector('.pulls-list') !== null,
+      'Escape must leave the zoom layer for the list, even from full screen');
+    return 'Main PR page shares commit selection, timeline polling, row reconciliation, draft invalidation, and the zoom layer';
   }
   finally {
     flushSync(() => root.unmount());

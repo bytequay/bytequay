@@ -34,14 +34,6 @@ describe('workspace commits tab', () => {
     expect(html).not.toContain('Cherry pick');
   });
 
-  it('opens existing execution progress independently of default target settings', () => {
-    const html = renderToStaticMarkup(<CommitsTab workspace={workspace()} initialExecutionId="saved-execution"
-      onSourceSelectionChange={() => {}} onOpenPullRequest={() => {}} onOpenSettings={() => {}} />);
-
-    expect(html).not.toContain('Loading commits target…');
-    expect(html).toContain('Loading');
-  });
-
   it('keeps the workspace branch separate from the remote source switcher', () => {
     const html = renderToStaticMarkup(<CommitsBrowser
       workspace={workspace()}

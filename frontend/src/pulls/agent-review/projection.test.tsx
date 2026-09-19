@@ -74,13 +74,13 @@ const detail = {
 function header(
   tab: 'overview' | 'changes' | 'review' | null,
   review: AgentReviewDto | null,
-  options: Pick<ComponentProps<typeof PullDetailHeader>, 'agentTab' | 'onZoom' | 'zoomLabel'> = {},
+  options: Pick<ComponentProps<typeof PullDetailHeader>, 'agentTab' | 'onZoom'> = {},
 ): string {
   return renderToStaticMarkup(
     <PullDetailHeader
       pr={pr} detail={detail} tab={tab} review={review} onTab={() => {}}
       onRefresh={async () => {}} onReviewSubmitted={() => {}} refreshing={false}
-      pendingComments={[]} onPendingCommentsChange={() => {}} zoomed={false} onZoom={() => {}} {...options} />);
+      pendingComments={[]} onPendingCommentsChange={() => {}} onZoom={() => {}} {...options} />);
 }
 
 function changes(review: AgentReviewDto | null, navigation: { path: string; side: 'LEFT' | 'RIGHT'; startLine: number; endLine: number } | null = null): string {
@@ -118,22 +118,21 @@ describe('the pane tab row', () => {
   it('reuses the PR toolbar with a selected task Subagents tab', () => {
     const html = header(null, null, {
       agentTab: <button type="button" aria-pressed="true">Subagents 2</button>,
-      zoomLabel: 'Open this pull request full width',
     });
     expect(html).toContain('Subagents 2');
     expect(html).toContain('Review &amp; Learning');
     expect(html.match(/aria-pressed="true"/g)).toHaveLength(1);
-    expect(html).toContain('aria-label="Open this pull request full width"');
+    expect(html).toContain('aria-label="Zoom pull request details"');
     expect(html).toContain('aria-label="Refresh pull request"');
     expect(html).toContain('Submit review');
   });
 
-  it('keeps Review & Learning when the task supplies no Subagents tab or full-width action', () => {
+  it('keeps Review & Learning when the task supplies no Subagents tab or zoom action', () => {
     const html = header('overview', null, { agentTab: null, onZoom: undefined });
     expect(html).toContain('PR #30304');
     expect(html).toContain('Changes');
     expect(html).toContain('Review &amp; Learning');
-    expect(html).not.toContain('Enter full screen');
+    expect(html).not.toContain('Zoom pull request details');
     expect(html).toContain('aria-label="Refresh pull request"');
   });
 

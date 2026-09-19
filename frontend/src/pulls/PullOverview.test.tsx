@@ -1207,7 +1207,6 @@ describe('PullOverview', () => {
       onReviewSubmitted={() => {}}
       refreshing={false}
       pendingComments={[]}
-      zoomed={false}
       onZoom={() => {}}
       onPendingCommentsChange={() => {}} />);
 
@@ -1220,7 +1219,7 @@ describe('PullOverview', () => {
     expect(html).toContain('aria-pressed="true"');
     expect(html).toContain('class="pull-detail__change-count is-addition">+10</span>');
     expect(html).toContain('class="pull-detail__change-count is-deletion">−2</span>');
-    expect(html).toContain('aria-label="Enter full screen" aria-pressed="false"');
+    expect(html).toContain('aria-label="Zoom pull request details"');
     expect(html).toContain('aria-label="Refresh pull request"');
     expect(html).not.toContain('requested your review');
     expect(html).not.toContain('Open on GitHub');
@@ -1236,7 +1235,6 @@ describe('PullOverview', () => {
       onReviewSubmitted={() => {}}
       refreshing
       pendingComments={[]}
-      zoomed={false}
       onZoom={() => {}}
       onPendingCommentsChange={() => {}} />);
 
@@ -1259,7 +1257,6 @@ describe('PullOverview', () => {
       onReviewSubmitted={() => {}}
       refreshing={false}
       pendingComments={[]}
-      zoomed={false}
       onZoom={() => {}}
       onPendingCommentsChange={() => {}} />);
 
@@ -1288,7 +1285,6 @@ describe('PullOverview', () => {
       onReviewSubmitted={() => {}}
       refreshing={false}
       pendingComments={[pendingComment]}
-      zoomed={false}
       onZoom={() => {}}
       onPendingCommentsChange={() => {}} />);
 
@@ -1296,7 +1292,7 @@ describe('PullOverview', () => {
     expect(html).toContain('class="pull-detail__review-count" aria-hidden="true">1</span>');
   });
 
-  it('offers an exit control when pull request details are full screen', () => {
+  it('offers full screen and close controls inside the zoom layer', () => {
     const html = renderToStaticMarkup(<PullDetailHeader
       pr={pullRequest()}
       detail={detail()}
@@ -1306,12 +1302,12 @@ describe('PullOverview', () => {
       onReviewSubmitted={() => {}}
       refreshing={false}
       pendingComments={[]}
-      zoomed
-      onZoom={() => {}}
+      zoom={{ full: true, toggle: () => {}, close: () => {} }}
       onPendingCommentsChange={() => {}} />);
 
-    expect(html).toContain('title="Exit full screen (Esc)"');
     expect(html).toContain('aria-label="Exit full screen" aria-pressed="true"');
+    expect(html).toContain('aria-label="Close pull request details"');
+    expect(html).not.toContain('aria-label="Zoom pull request details"');
   });
 
   it('opens a dismissible details overlay while its PR is loading', () => {
@@ -1339,7 +1335,7 @@ describe('PullOverview', () => {
     expect(html).not.toContain('aria-modal="true"');
   });
 
-  it('offers close instead of resize controls in a PR preview header', () => {
+  it('offers full screen and close instead of zoom in a PR preview header', () => {
     const html = renderToStaticMarkup(<PullDetailHeader
       pr={pullRequest()}
       detail={detail()}
@@ -1349,14 +1345,12 @@ describe('PullOverview', () => {
       onReviewSubmitted={() => {}}
       refreshing={false}
       pendingComments={[]}
-      zoomed
-      onZoom={() => {}}
-      onClose={() => {}}
+      zoom={{ full: false, toggle: () => {}, close: () => {} }}
       onPendingCommentsChange={() => {}} />);
 
     expect(html).toContain('aria-label="Close pull request details"');
-    expect(html).not.toContain('aria-label="Exit full screen"');
-    expect(html).not.toContain('aria-label="Enter full screen"');
+    expect(html).toContain('aria-label="Enter full screen" aria-pressed="false"');
+    expect(html).not.toContain('aria-label="Zoom pull request details"');
     expect(html).toContain('aria-label="Refresh pull request"');
     expect(html).toContain('> Changes');
   });
@@ -1387,7 +1381,6 @@ describe('PullOverview', () => {
       onReviewSubmitted={() => {}}
       refreshing={false}
       pendingComments={[]}
-      zoomed={false}
       onZoom={() => {}}
       onPendingCommentsChange={() => {}} />);
 

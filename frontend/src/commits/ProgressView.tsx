@@ -58,6 +58,7 @@ export default function ProgressView({
   upstreamSlug,
   onBackToTasks,
   onStartAnotherRange,
+  headerAction,
 }: {
   executionId: string;
   workspaceId: string;
@@ -65,6 +66,7 @@ export default function ProgressView({
   upstreamSlug: string | null;
   onBackToTasks: () => void;
   onStartAnotherRange: () => void;
+  headerAction?: ReactNode;
 }) {
   const [execution, setExecution] = useState<CherryPickExecution | null>(null);
   const [selectedSha, setSelectedSha] = useState<string | null>(null);
@@ -336,6 +338,7 @@ export default function ProgressView({
           <span className="cmt-prog-step">{stepLabel}</span>
           <span className="cmt-prog-branch">{execution.workBranch}</span>
           <div className="cmt-tasks-spacer" />
+          {headerAction}
           {active && (
             <button
               type="button"

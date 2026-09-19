@@ -2663,7 +2663,7 @@
   position: absolute;
   top: 12px;
   right: 20px;
-  z-index: 45;
+  z-index: 85;
 }
 
 :is(.agt-screen-head, .agt-tasks-head) > .agt-overview-toggle {
@@ -2675,10 +2675,11 @@
   to { opacity: 1; transform: none; }
 }
 
+/* Above a zoomed task: every task as a window is what the overview is for. */
 .agt-overview {
   position: absolute;
   inset: 0;
-  z-index: 40;
+  z-index: 80;
   display: flex;
   flex-direction: column;
   background: rgba(238, 240, 243, 0.9);

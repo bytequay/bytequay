@@ -12,7 +12,7 @@
  * limitations under the License.
  */
 import { useCallback, useEffect, useId, useMemo, useRef, useState, type KeyboardEvent as ReactKeyboardEvent, type ReactNode } from 'react';
-import { Bell, Check, CircleSlash, Code, Diff, Ellipsis, Eye, GitPullRequest, Maximize, MessageCircle, Minimize, PanelRight, RefreshCw, UserRound, X } from 'lucide-react';
+import { Bell, Check, CircleSlash, Code, Diff, Ellipsis, Eye, GitPullRequest, Maximize, MessageCircle, PanelRight, RefreshCw, UserRound, X } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
 import { ConfirmDialog } from '../ConfirmDialog';
 import { isFindShortcut } from '../FindBar';
@@ -55,6 +55,7 @@ import {
   type PullTab,
 } from './model';
 import '../css/pulls.css';
+import { useZoom, ZoomActions, ZoomScrim, type ZoomControls } from '../Zoom';
 
 /** The tabs PullDetailHeader draws itself; hosts add their own through its `agentTab` slot. */
 type HeaderTab = 'overview' | 'changes' | 'review';
@@ -348,6 +349,14 @@ export default function PullsScreen({
   const [pendingReviewComments, setPendingReviewComments] = useState<InlineReviewCommentDto[]>([]);
   const [paneOpen, setPaneOpen] = useState(true);
   const [detailZoomed, setDetailZoomed] = useState(false);
+  // One layer for both hosts: the list zooms its own pane, a preview opens already zoomed.
+  const zoomLayer = detailZoomed || overlay;
+  const leaveZoom = useCallback(() => {
+    if (closePane === undefined) setDetailZoomed(false);
+    else closePane();
+  }, [closePane]);
+  const zoom = useZoom(leaveZoom, zoomLayer);
+  const zoomClass = zoomLayer ? ` is-zoomed ${zoom.cardClass}` : '';
   const detailPane = useResizablePane(DETAIL_DEFAULT, DETAIL_MIN, DETAIL_MAX, 'start');
   const [loading, setLoading] = useState(!singlePullRequest);
   const [syncing, setSyncing] = useState(false);
@@ -480,19 +489,6 @@ export default function PullsScreen({
       setSyncing(false);
     }
   }, [applyPage, repositoryScope?.workspaceId]);
-
-  useEffect(() => {
-    if ((!detailZoomed && !overlay) || browserOpen) return;
-    const exitFullScreen = (event: KeyboardEvent) => {
-      if (event.defaultPrevented || event.key !== 'Escape') return;
-      if (event.target instanceof Element && event.target.closest('.cm-editor, .xterm') !== null) return;
-      event.preventDefault();
-      if (closePane) closePane();
-      else setDetailZoomed(false);
-    };
-    window.addEventListener('keydown', exitFullScreen);
-    return () => window.removeEventListener('keydown', exitFullScreen);
-  }, [browserOpen, closePane, detailZoomed, overlay]);
 
   useEffect(() => {
     if (singlePullRequest) return;
@@ -895,8 +891,7 @@ export default function PullsScreen({
       role={overlay ? 'dialog' : undefined}
       aria-modal={overlay ? true : undefined}
       aria-label={overlay ? `Pull request ${initialPr?.repo} #${initialPr?.number}` : undefined}
-      tabIndex={overlay ? -1 : undefined}
-      onMouseDown={event => { if (overlay && event.target === event.currentTarget) onClose?.(); }}>
+      tabIndex={overlay ? -1 : undefined}>
       {!singlePullRequest && <section className="pulls-list">
         <header className="pulls-toolbar" ref={toolbar}>
           <PullFilterTabs
@@ -1007,14 +1002,16 @@ export default function PullsScreen({
 
       {reviewWorkspace !== undefined && <TaskPaneDivider pane={reviewPane} />}
 
+      {zoomLayer && !zoom.full && <ZoomScrim onClose={zoom.close} />}
+
       {singlePullRequest && selectedPr === null && (
-        <section className={`pull-detail${overlay ? ' is-zoomed' : ''}${reviewWorkspace === undefined ? '' : ' agt-panel'}`}
+        <section className={`pull-detail${overlay ? zoomClass : ''}${reviewWorkspace === undefined ? '' : ' agt-panel'}`}
           style={reviewWorkspace === undefined ? undefined : { width: reviewPane.width }}>
           <header className="pull-detail__header pull-detail__header--tabs">
             <div className="pull-detail__toolbar">
               <span>{initialPr?.repo} #{initialPr?.number}</span>
               <div className="pull-detail__header-actions">
-                <button className="pull-detail__icon-action" type="button" aria-label="Close pull request details" title="Close (Esc)" onClick={onClose}>
+                <button className="pull-detail__icon-action" type="button" aria-label="Close pull request details" title="Close (Esc)" onClick={zoom.close}>
                   <X size={16} aria-hidden="true" />
                 </button>
               </div>
@@ -1027,8 +1024,8 @@ export default function PullsScreen({
       )}
 
       {paneShown && selectedPr !== null && (
-        <section className={`pull-detail${detailZoomed || overlay ? ' is-zoomed' : reviewWorkspace === undefined ? '' : ' agt-panel'}`}
-          style={detailZoomed || overlay ? undefined : { width: reviewWorkspace === undefined ? detailPane.width : reviewPane.width }}>
+        <section className={`pull-detail${zoomLayer ? zoomClass : reviewWorkspace === undefined ? '' : ' agt-panel'}`}
+          style={zoomLayer ? undefined : { width: reviewWorkspace === undefined ? detailPane.width : reviewPane.width }}>
           {reviewWorkspace === undefined && <div className="pull-detail__resize" role="separator" aria-orientation="vertical"
             aria-label="Resize pull request panes" onMouseDown={event => detailPane.startResize(event, event.currentTarget.parentElement?.getBoundingClientRect().width)} title="Drag to resize" />}
           <PullDetailHeader
@@ -1057,9 +1054,8 @@ export default function PullsScreen({
             refreshing={detailLoading}
             pendingComments={pendingReviewComments}
             onPendingCommentsChange={setPendingReviewComments}
-            zoomed={detailZoomed || overlay}
-            onZoom={() => setDetailZoomed(value => !value)}
-            onClose={closePane}
+            zoom={zoomLayer ? zoom : undefined}
+            onZoom={zoomLayer ? undefined : () => setDetailZoomed(true)}
           />
           {displayedDetailError && <div className="pull-detail__error">{displayedDetailError}</div>}
           {showBlockingDetailLoading(detailLoading, detail !== null) ? (
@@ -1266,9 +1262,8 @@ export function PullDetailHeader({
   refreshing,
   pendingComments,
   onPendingCommentsChange,
-  zoomed,
   onZoom,
-  zoomLabel,
+  zoom,
   onClose,
 }: {
   pr: PullRequestDto;
@@ -1289,9 +1284,9 @@ export function PullDetailHeader({
   refreshing: boolean;
   pendingComments: InlineReviewCommentDto[];
   onPendingCommentsChange: (comments: InlineReviewCommentDto[]) => void;
-  zoomed: boolean;
+  /** Opens the zoom layer; inside the layer its own controls take over. */
   onZoom?: () => void;
-  zoomLabel?: string;
+  zoom?: ZoomControls;
   onClose?: () => void;
 }) {
   const [mergeQueue, setMergeQueue] = useState<boolean | null | undefined>(undefined);
@@ -1373,15 +1368,15 @@ export function PullDetailHeader({
           {agentTab}
         </nav>
         <div className="pull-detail__header-actions">
-          {onClose ? <button className="pull-detail__icon-action" type="button"
-            title="Close (Esc)" aria-label="Close pull request details" onClick={onClose}>
-            <X size={16} aria-hidden="true" />
-          </button> : onZoom && <button className="pull-detail__icon-action" type="button"
-            title={zoomLabel ?? (zoomed ? 'Exit full screen (Esc)' : 'Enter full screen')}
-            aria-label={zoomLabel ?? (zoomed ? 'Exit full screen' : 'Enter full screen')}
-            aria-pressed={zoomLabel ? undefined : zoomed} onClick={onZoom}>
-            <ZoomIcon zoomed={zoomed} />
-          </button>}
+          {zoom
+            ? <ZoomActions {...zoom} label="pull request details" className="pull-detail__icon-action" />
+            : onClose ? <button className="pull-detail__icon-action" type="button"
+              title="Close (Esc)" aria-label="Close pull request details" onClick={onClose}>
+              <X size={16} aria-hidden="true" />
+            </button> : onZoom && <button className="pull-detail__icon-action" type="button"
+              title="Zoom" aria-label="Zoom pull request details" onClick={onZoom}>
+              <Maximize size={15} strokeWidth={1.8} aria-hidden="true" />
+            </button>}
           <button className={`pull-detail__icon-action${refreshing ? ' is-refreshing' : ''}`} type="button"
             title={refreshing ? 'Refreshing pull request…' : 'Refresh'}
             aria-label="Refresh pull request"
@@ -1961,12 +1956,6 @@ function DetailBody({
 
 export function RefreshIcon() {
   return <RefreshCw size={15} strokeWidth={1.8} aria-hidden="true" />;
-}
-
-function ZoomIcon({ zoomed }: { zoomed: boolean }) {
-  return zoomed
-    ? <Minimize size={15} strokeWidth={1.8} aria-hidden="true" />
-    : <Maximize size={15} strokeWidth={1.8} aria-hidden="true" />;
 }
 
 export function PaneIcon() {

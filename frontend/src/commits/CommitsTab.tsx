@@ -95,8 +95,6 @@ export function availableCommitSource(
 
 type CommitsTabProps = {
   workspace: WorkspaceDto;
-  /** Jump straight to a task's progress page (from the shell's Tasks tab). */
-  initialExecutionId?: string | null;
   /** Open on the upstream commit browser (from the Home cherry-pick card). */
   initialRepo?: 'workspace' | 'upstream';
   initialSourceSelection?: CommitSourceSelection;
@@ -109,8 +107,6 @@ export default function CommitsTab(props: CommitsTabProps) {
   const [settings, setSettings] = useState<WorkspaceSettingsDto | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [retry, setRetry] = useState(0);
-  const [screen, setScreen] = useState<Screen>(props.initialExecutionId ? 'progress' : 'commits');
-  const [initialRepo, setInitialRepo] = useState(props.initialRepo);
   useEffect(() => {
     let cancelled = false;
     setError(null);
@@ -119,17 +115,6 @@ export default function CommitsTab(props: CommitsTabProps) {
       .catch(failure => { if (!cancelled) setError(failure instanceof Error ? failure.message : String(failure)); });
     return () => { cancelled = true; };
   }, [props.workspace.id, retry]);
-
-  if (screen === 'progress' && props.initialExecutionId) {
-    const { workspace } = props;
-    return <div className="cmt-root"><ProgressView
-      executionId={props.initialExecutionId}
-      workspaceId={workspace.id}
-      upstreamSlug={workspace.upstreamRepositoryId === null ? null : `${workspace.upstreamOwner}/${workspace.upstreamRepo}`}
-      onBackToTasks={() => setScreen('tasks')}
-      onStartAnotherRange={() => { setInitialRepo('upstream'); setScreen('commits'); }}
-    /></div>;
-  }
 
   // Do not read history or prepare a cherry-pick against a guessed target
   // while the saved workspace override is still unknown.
@@ -142,11 +127,11 @@ export default function CommitsTab(props: CommitsTabProps) {
       </div>}
     </div>;
   }
-  return <CommitsBrowser {...props} settings={settings} initialExecutionId={null} initialRepo={initialRepo} initialScreen={screen} />;
+  return <CommitsBrowser {...props} settings={settings} />;
 }
 
-export function CommitsBrowser({ workspace, settings, initialExecutionId, initialScreen = 'commits', initialRepo, initialSourceSelection, onSourceSelectionChange, onOpenPullRequest, onOpenSettings }:
-  CommitsTabProps & { settings: Pick<WorkspaceSettingsDto, 'commitsTarget' | 'remotes'>; initialScreen?: Screen }) {
+export function CommitsBrowser({ workspace, settings, initialRepo, initialSourceSelection, onSourceSelectionChange, onOpenPullRequest, onOpenSettings }:
+  CommitsTabProps & { settings: Pick<WorkspaceSettingsDto, 'commitsTarget' | 'remotes'> }) {
   const hasUpstream = workspace.upstreamRepositoryId !== null;
   const target = settings.commitsTarget;
   const targetUpstream = target.remote === 'upstream';
@@ -158,7 +143,7 @@ export function CommitsBrowser({ workspace, settings, initialExecutionId, initia
     : initialRepo === 'upstream' ? 'upstream' : null;
   const initialViewingSource = initialRepo === 'upstream';
   const [overview, setOverview] = useState<GitOverviewDto | null>(null);
-  const [screen, setScreen] = useState<Screen>(initialExecutionId ? 'progress' : initialScreen);
+  const [screen, setScreen] = useState<Screen>('commits');
   const [commitsView, setCommitsView] = useState<CommitsView>('history');
   const [source, setSource] = useState<string | null>(initialSource);
   const [viewingSource, setViewingSource] = useState(initialViewingSource);
@@ -180,7 +165,7 @@ export function CommitsBrowser({ workspace, settings, initialExecutionId, initia
   const [syncing, setSyncing] = useState(false);
   const [preview, setPreview] = useState<CherryPickPreview | null>(null);
   const [previewBusy, setPreviewBusy] = useState(false);
-  const [executionId, setExecutionId] = useState<string | null>(initialExecutionId ?? null);
+  const [executionId, setExecutionId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [logVersion, setLogVersion] = useState(0);
   const [rangeFrom, setRangeFrom] = useState('');

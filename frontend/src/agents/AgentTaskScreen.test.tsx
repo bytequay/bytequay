@@ -600,8 +600,8 @@ describe('agent task side panel', () => {
     expect(markup).toMatch(/<button[^>]*aria-pressed="false"[^>]*>[^]*?Subagents/);
     expect(markup).toContain('>+12<');
     expect(markup).toContain('>−3<');
-    // The panel uses the same PR toolbar, including refresh and full-width navigation.
-    expect(markup).toContain('aria-label="Open this pull request full width"');
+    // The panel uses the same PR toolbar, including refresh and the zoom action.
+    expect(markup).toContain('aria-label="Zoom pull request details"');
     expect(markup).toContain('aria-label="Refresh pull request"');
     expect(markup).not.toContain('aria-label="Hide the side panel"');
     expect(markup).not.toContain('Agent review');

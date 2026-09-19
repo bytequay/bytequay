@@ -706,8 +706,6 @@ function SidePanel({
       onDetailUpdate={pullRequestDetail.update}
       pendingComments={pullRequestPendingComments}
       onPendingCommentsChange={onPullRequestPendingCommentsChange}
-      zoomed={false}
-      zoomLabel="Open this pull request full width"
       onZoom={onOpenPullRequest === undefined
         ? undefined
         : () => onOpenPullRequest(pullRequest.number)}

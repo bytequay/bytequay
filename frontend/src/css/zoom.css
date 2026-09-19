@@ -1,0 +1,36 @@
+/*
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ */
+
+/* The doubled class outranks a zoomed screen's own single-class layout rules,
+   whichever order the bundler emits these files in. */
+.zoom-card.zoom-card {
+  position: fixed;
+  z-index: 70;
+  /* 90% of the window, so the page it opened from stays visible under the backdrop. */
+  inset: 5%;
+  min-width: 0;
+  overflow: hidden;
+  border: 1px solid #d0d7de;
+  border-radius: 12px;
+  background: #fff;
+  box-shadow: 0 16px 64px rgb(31 35 40 / 24%);
+}
+
+.zoom-card.zoom-card.is-full {
+  inset: 0;
+  border: 0;
+  border-radius: 0;
+  box-shadow: none;
+}
+
+.zoom-scrim {
+  position: fixed;
+  z-index: 70;
+  inset: 0;
+  background: rgb(31 35 40 / 30%);
+}

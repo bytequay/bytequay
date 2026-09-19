@@ -183,7 +183,7 @@
   margin: 0 0 4px;
   border: 0;
   padding: 0;
-  color: #1f2328;
+  color: var(--text-1);
   font-size: 12px;
   font-weight: 600;
   line-height: 1.5;

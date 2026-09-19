@@ -41,7 +41,7 @@
   height: 6px;
   border-radius: 50%;
 }
-.rc-dot.is-moved { background: #0969da; box-shadow: 0 0 0 3px rgba(9, 105, 218, 0.16); }
+.rc-dot.is-moved { background: var(--accent); box-shadow: 0 0 0 3px rgba(9, 105, 218, 0.16); }
 .rc-dot.is-wants { background: #bf8700; box-shadow: 0 0 0 3px rgba(191, 135, 0, 0.15); }
 
 /* ── The page ─────────────────────────────────────────────────────── */
@@ -115,7 +115,7 @@
   text-align: left;
 }
 .rc-menu > button:hover { background: var(--bg-hover); }
-.rc-menu > button.is-selected { background: #0969da; color: #ffffff; }
+.rc-menu > button.is-selected { background: var(--accent); color: #ffffff; }
 .rc-menu > button.is-selected:hover { background: #0860c4; }
 .rc-menu__check { display: flex; width: 12px; }
 .rc-menu__rule { height: 1px; background: rgba(15, 20, 25, 0.08); margin: 4px 0; }
@@ -167,7 +167,7 @@
 .rc-cal__day:disabled { color: #c4cad1; cursor: default; }
 .rc-cal__day.is-today { font-weight: 600; box-shadow: inset 0 0 0 1px rgba(9, 105, 218, 0.45); }
 .rc-cal__mark { width: 4px; height: 4px; margin-top: 2px; border-radius: 50%; }
-.rc-cal__day.has-activity .rc-cal__mark { background: #0969da; }
+.rc-cal__day.has-activity .rc-cal__mark { background: var(--accent); }
 
 .rc-filters {
   display: flex;
@@ -257,7 +257,7 @@
   color: var(--text-3);
   white-space: nowrap;
 }
-.rc-row__meta.is-changed { color: #0969da; }
+.rc-row__meta.is-changed { color: var(--accent); }
 /* Avatars sit in the metadata line, so they must never absorb the row's
    remaining width or push the reason badge around. */
 .rc-row__meta .avatar,
@@ -292,7 +292,7 @@
   white-space: nowrap;
   box-shadow: 0 1px 1px rgba(15, 20, 25, 0.05);
 }
-.rc-mini.is-plain { border-color: transparent; background: none; box-shadow: none; color: #0969da; }
+.rc-mini.is-plain { border-color: transparent; background: none; box-shadow: none; color: var(--accent); }
 
 .rc-wrote {
   margin: 3px 0 7px 81px;
@@ -335,7 +335,7 @@
   width: 12px;
   height: 12px;
   border: 2px solid rgba(15, 20, 25, 0.12);
-  border-top-color: #0969da;
+  border-top-color: var(--accent);
   border-radius: 50%;
   display: inline-block;
   animation: bq-spin 1s linear infinite;
@@ -435,7 +435,7 @@
   cursor: pointer;
 }
 .rc-item:hover { background: rgba(15, 20, 25, 0.035); }
-.rc-item.is-active { background: #e8f1fd; box-shadow: inset 2px 0 0 #0969da; }
+.rc-item.is-active { background: #e8f1fd; box-shadow: inset 2px 0 0 var(--accent); }
 
 .rc-item__line { display: flex; align-items: center; gap: 11px; }
 .rc-item__title {
@@ -464,12 +464,12 @@
   text-overflow: ellipsis;
 }
 .rc-item__meta code { font-family: ui-monospace, Menlo, monospace; }
-.rc-item__meta .rc-changed { color: #0969da; font-weight: 500; }
+.rc-item__meta .rc-changed { color: var(--accent); font-weight: 500; }
 
 /* Words mode inverts the hierarchy: the sentence is the headline. */
 .rc-word { display: block; width: 100%; border: none; background: none; padding: 10px 12px; border-radius: 8px; text-align: left; cursor: pointer; }
 .rc-word:hover { background: rgba(15, 20, 25, 0.035); }
-.rc-word.is-active { background: #e8f1fd; box-shadow: inset 2px 0 0 #0969da; }
+.rc-word.is-active { background: #e8f1fd; box-shadow: inset 2px 0 0 var(--accent); }
 .rc-word__sentence { font-size: 14px; color: var(--text-2); line-height: 1.6; letter-spacing: -0.1px; }
 .rc-word.is-active .rc-word__sentence { color: var(--text-1); }
 .rc-word__sentence mark { background: #fff2a8; color: inherit; padding: 0 2px; border-radius: 3px; }

@@ -226,11 +226,11 @@ describe('agent task layout', () => {
       'font-size: 13px',
       'font-weight: 400',
     ]));
-    expect(css).toMatch(/\.agt-compose\.is-new-task \.agt-compose__chip,[^}]*\.agt-compose\.is-new-task \.chev \{\s*font-size: 13px;\s*font-weight: 400;\s*color: #1f2328/s);
+    expect(css).toMatch(/\.agt-compose\.is-new-task \.agt-compose__chip,[^}]*\.agt-compose\.is-new-task \.chev \{\s*font-size: 13px;\s*font-weight: 400;\s*color: var\(--text-1\)/s);
     expect(css).toMatch(/\.agt-compose\.is-new-task \.agt-compose__chip,[^}]*\.agt-compose\.is-new-task \.agt-send \{\s*transform: translateY\(2px\)/s);
     expect(declarations('.agt-compose.is-new-task .agt-attach')).toEqual(expect.arrayContaining([
       'font: inherit',
-      'color: #1f2328',
+      'color: var(--text-1)',
       'font-size: 24px',
       'font-weight: 300',
       'transform: translateY(-2px)',
@@ -641,7 +641,7 @@ describe('agent task side panel', () => {
     // The pill keeps its own width and ring; the dock's flex column would otherwise stretch it.
     expect(declarations('.agt-pr-chip')).toContain('align-self: flex-start');
     expect(declarations('.agt-pr-chip')).toContain('border-radius: 999px');
-    expect(declarations('.agt-pr-chip:focus-visible')).toContain('outline: 2px solid #0969da');
+    expect(declarations('.agt-pr-chip:focus-visible')).toContain('outline: 2px solid var(--accent)');
   });
 
   it('keeps the subagent list unchanged under its own tab', () => {

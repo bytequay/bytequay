@@ -94,7 +94,7 @@
 }
 
 .agt-state.is-running {
-  color: #0969da;
+  color: var(--accent);
   background: #ddf4ff;
 }
 
@@ -174,7 +174,7 @@
   background: none;
   font: inherit;
   font-size: 12.5px;
-  color: #0969da;
+  color: var(--accent);
   padding: 0;
   cursor: pointer;
   white-space: nowrap;
@@ -335,7 +335,7 @@
   border: 1px solid #d0d7de;
   border-radius: 999px;
   background: #ffffff;
-  color: #1f2328;
+  color: var(--text-1);
   font: inherit;
   font-size: 13px;
   font-weight: 500;
@@ -347,7 +347,7 @@
 .agt-pr-chip__number { color: #59636e; font-weight: 400; }
 
 .agt-pr-chip:focus-visible {
-  outline: 2px solid #0969da;
+  outline: 2px solid var(--accent);
   outline-offset: 1px;
 }
 
@@ -437,7 +437,7 @@
   background: transparent;
   font: inherit;
   font-size: 13.5px;
-  color: #1f2328;
+  color: var(--text-1);
   padding: 12px 14px 4px;
   resize: none;
   /* Wrap onto new lines and grow with the draft, up to a cap that keeps the transcript visible. */
@@ -475,7 +475,7 @@
   border: 0;
   border-radius: 6px;
   background: #f0f6ff;
-  color: #1f2328;
+  color: var(--text-1);
   font: inherit;
   font-size: 13px;
   text-align: left;
@@ -525,7 +525,7 @@
 .agt-compose.is-new-task .chev {
   font-size: 13px;
   font-weight: 400;
-  color: #1f2328;
+  color: var(--text-1);
 }
 
 .agt-compose.is-new-task .agt-picker__chip:disabled,
@@ -542,7 +542,7 @@
 
 .agt-compose.is-new-task .agt-attach {
   font: inherit;
-  color: #1f2328;
+  color: var(--text-1);
   font-size: 24px;
   font-weight: 300;
   transform: translateY(-2px);
@@ -651,7 +651,7 @@
   font: inherit;
   font-size: 13.5px;
   font-weight: 500;
-  color: #1f2328;
+  color: var(--text-1);
   text-align: left;
   cursor: pointer;
 }
@@ -717,7 +717,7 @@
 
 .agt-picker__check {
   margin-left: auto;
-  color: #1f2328;
+  color: var(--text-1);
 }
 
 .agt-picker__heading {
@@ -737,7 +737,7 @@
   background: none;
   font: inherit;
   font-size: 13.5px;
-  color: #1f2328;
+  color: var(--text-1);
   text-align: left;
   cursor: pointer;
 }
@@ -901,7 +901,7 @@
   border: 1px solid #e3e3e6;
   border-radius: 8px;
   font-size: 12.5px;
-  color: #1f2328;
+  color: var(--text-1);
 }
 
 .agt-queue.is-attached .agt-queue__row {
@@ -1233,7 +1233,7 @@
   min-width: 240px;
   max-width: 420px;
   padding: 1px 6px;
-  border: 1px solid #0969da;
+  border: 1px solid var(--accent);
   border-radius: 6px;
 }
 
@@ -1309,7 +1309,7 @@
   width: 14px;
   height: 14px;
   flex: none;
-  color: #0969da;
+  color: var(--accent);
   stroke-width: 1.75;
   transform-origin: center;
   animation: bq-spin 0.9s linear infinite;
@@ -1364,7 +1364,7 @@
 }
 
 .agt-icon.is-running {
-  color: #0969da;
+  color: var(--accent);
 }
 
 .agt-icon.is-ok {
@@ -1572,7 +1572,7 @@
 }
 
 .agt-md a {
-  color: #0969da;
+  color: var(--accent);
   overflow-wrap: anywhere;
 }
 
@@ -1647,7 +1647,7 @@
 }
 
 .agt-plan__step.is-in-progress {
-  color: #1f2328;
+  color: var(--text-1);
   font-weight: 600;
 }
 
@@ -1685,7 +1685,7 @@
 
 .agt-act__title {
   font-weight: 700;
-  color: #0969da;
+  color: var(--accent);
 }
 
 .agt-act__fold {
@@ -1767,7 +1767,7 @@
 .agt-out > summary.agt-act__row {
   gap: 10px;
   font-size: 12.5px;
-  color: #1f2328;
+  color: var(--text-1);
 }
 
 .agt-out[open] > summary .chev {
@@ -1920,7 +1920,7 @@
 .agt-todos__title {
   font-size: 12.5px;
   font-weight: 600;
-  color: #1f2328;
+  color: var(--text-1);
 }
 
 /* Images share the same preview control in the composer and transcript. */
@@ -2031,7 +2031,7 @@
 .agt-image-button:focus-visible,
 .agt-draft__remove:focus-visible,
 .agt-image-viewer button:focus-visible {
-  outline: 2px solid #0969da;
+  outline: 2px solid var(--accent);
   outline-offset: 3px;
 }
 
@@ -2234,7 +2234,7 @@
 
 .agt-panel-resize:hover,
 .agt-panel-resize.is-resizing {
-  background: #0969da;
+  background: var(--accent);
   opacity: 0.4;
 }
 
@@ -2283,7 +2283,7 @@
 }
 
 .agt-panel :is(.pull-detail__tabs button, .pull-detail__header-actions button, .agt-panel__row, .agt-nopr__check):focus-visible {
-  outline: 2px solid #0969da;
+  outline: 2px solid var(--accent);
   outline-offset: 1px;
 }
 
@@ -2344,7 +2344,7 @@
 .agt-nopr__body code {
   font-family: ui-monospace, Menlo, 'Roboto Mono', monospace;
   font-size: 11.5px;
-  color: #0969da;
+  color: var(--accent);
 }
 
 .agt-nopr__check {
@@ -2478,7 +2478,7 @@
   display: block;
   font-size: 12.5px;
   font-weight: 600;
-  color: #1f2328;
+  color: var(--text-1);
 }
 
 .agt-panel__label.is-muted {
@@ -2566,7 +2566,7 @@
   padding: 0;
   font: inherit;
   font-size: 12px;
-  color: #0969da;
+  color: var(--accent);
   cursor: pointer;
   white-space: nowrap;
 }
@@ -2591,7 +2591,7 @@
 
 .agt-card__back {
   font-size: 12.5px;
-  color: #0969da;
+  color: var(--accent);
   white-space: nowrap;
 }
 
@@ -2645,7 +2645,7 @@
 
 .agt-card__close:hover {
   background: #ffffff;
-  color: #1f2328;
+  color: var(--text-1);
 }
 
 .agt-card__close:disabled {
@@ -2803,7 +2803,7 @@
 
 .agt-tab.is-active {
   background: #ffffff;
-  color: #1f2328;
+  color: var(--text-1);
   box-shadow: 0 1px 2px rgba(31, 35, 40, 0.12);
 }
 
@@ -2850,14 +2850,14 @@
 .agt-selbar__count {
   font-size: 12.5px;
   font-weight: 600;
-  color: #0969da;
+  color: var(--accent);
 }
 
 .agt-selbar__link {
   padding: 3px 6px;
   border: 0;
   background: transparent;
-  color: #0969da;
+  color: var(--accent);
   font: inherit;
   font-size: 12.5px;
   cursor: pointer;
@@ -2905,7 +2905,7 @@
   margin-bottom: 4px;
   font-size: 14px;
   font-weight: 600;
-  color: #1f2328;
+  color: var(--text-1);
 }
 
 /* Commits-style day groups: a bordered card per day with a grey header row. */
@@ -2970,7 +2970,7 @@
 }
 
 .agt-trow:focus-visible {
-  outline: 2px solid #0969da;
+  outline: 2px solid var(--accent);
   outline-offset: -2px;
 }
 
@@ -3020,8 +3020,8 @@
 }
 
 .agt-trow.is-selected .agt-trow__check {
-  border-color: #0969da;
-  background: #0969da;
+  border-color: var(--accent);
+  background: var(--accent);
 }
 
 .agt-trow.is-selected .agt-trow__check > svg {
@@ -3032,7 +3032,7 @@
   flex: 1;
   min-width: 0;
   font-size: 13.5px;
-  color: #1f2328;
+  color: var(--text-1);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -3120,7 +3120,7 @@
 
 .agt-trow__btn:hover:not(:disabled) {
   background: #e4e4e8;
-  color: #1f2328;
+  color: var(--text-1);
 }
 
 .agt-trow__btn.is-danger:hover:not(:disabled) {
@@ -3153,7 +3153,7 @@
   border-radius: 8px;
   overflow: hidden;
   font-size: 12.5px;
-  color: #1f2328;
+  color: var(--text-1);
 }
 
 .agt-del-list li {
@@ -3271,7 +3271,7 @@
 .agt-start__text {
   font-size: 12.5px;
   font-weight: 400;
-  color: #1f2328;
+  color: var(--text-1);
 }
 
 .agt-open-tasks {
@@ -3302,7 +3302,7 @@
   border-radius: 12px;
   overflow: hidden;
   background: #ffffff;
-  color: #1f2328;
+  color: var(--text-1);
   box-shadow: 0 1px 2px rgba(31, 35, 40, 0.05);
   transition: box-shadow 0.12s, border-color 0.12s;
 }
@@ -3317,7 +3317,7 @@
 }
 
 .agt-card.is-active {
-  box-shadow: 0 0 0 2px #0969da, 0 8px 22px rgba(140, 149, 159, 0.3);
+  box-shadow: 0 0 0 2px var(--accent), 0 8px 22px rgba(140, 149, 159, 0.3);
 }
 
 .agt-card__open {
@@ -3392,7 +3392,7 @@
 
 .agt-card__tool:hover {
   background: #e4e4e8;
-  color: #1f2328;
+  color: var(--text-1);
 }
 
 .agt-card__foot {
@@ -3418,12 +3418,12 @@
   flex: 1;
   min-width: 0;
   padding: 2px 6px;
-  border: 1px solid #0969da;
+  border: 1px solid var(--accent);
   border-radius: 6px;
   outline: none;
   background: #ffffff;
   box-shadow: 0 0 0 3px rgba(9, 105, 218, 0.15);
-  color: #1f2328;
+  color: var(--text-1);
   font: inherit;
   font-size: 12.5px;
   font-weight: 400;

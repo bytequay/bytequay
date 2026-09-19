@@ -648,7 +648,7 @@ samp {
 }
 
 .app-sidebar__resize:hover::after,
-.app-sidebar.is-resizing .app-sidebar__resize::after { background: #0969da; }
+.app-sidebar.is-resizing .app-sidebar__resize::after { background: var(--accent); }
 
 .app-sidebar.is-collapsed {
   width: 48px;

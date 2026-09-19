@@ -186,7 +186,7 @@
   background: transparent;
   font-size: 13px;
   font-weight: 500;
-  color: #0969da;
+  color: var(--accent);
   cursor: pointer;
   text-align: left;
   border-radius: 0 0 11px 11px;
@@ -252,7 +252,7 @@
   border: none;
   background: transparent;
   font-size: 12.5px;
-  color: #0969da;
+  color: var(--accent);
   cursor: pointer;
   padding: 4px;
 }
@@ -338,7 +338,7 @@
   flex: none;
 }
 
-.setw-toggle.is-on { background: #0969da; }
+.setw-toggle.is-on { background: var(--accent); }
 
 .setw-toggle-knob {
   position: absolute;
@@ -363,7 +363,7 @@
   background: #fff;
 }
 
-.setw-input:focus { border-color: #0969da; }
+.setw-input:focus { border-color: var(--accent); }
 
 /* One field whose leading segment is fixed: the remote ByteQuay picked, then the branch. */
 .setw-branch {
@@ -376,7 +376,7 @@
   overflow: hidden;
 }
 
-.setw-branch:focus-within { border-color: #0969da; }
+.setw-branch:focus-within { border-color: var(--accent); }
 
 .setw-branch > span {
   font-size: 12.5px;
@@ -479,7 +479,7 @@
 
 .setw-menu-tick {
   width: 12px;
-  color: #0969da;
+  color: var(--accent);
   font-size: 12px;
   flex: none;
 }
@@ -586,7 +586,7 @@
 }
 
 .setw-dialog-body textarea { line-height: 1.5; resize: vertical; padding: 9px 10px; }
-.setw-dialog-body input:focus, .setw-dialog-body textarea:focus { border-color: #0969da; }
+.setw-dialog-body input:focus, .setw-dialog-body textarea:focus { border-color: var(--accent); }
 .setw-dialog-body > * + .setw-field-label { margin-top: 14px; }
 
 .setw-dialog-hint {

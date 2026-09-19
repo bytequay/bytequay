@@ -67,11 +67,12 @@ export default function TaskOverview({
       onOpenTask={onOpenTask}
       onCloseTask={close}
       onNewTask={onNewTask}
+      onDismiss={onDismiss}
     />
   );
 }
 
-export function TaskOverviewView({ tasks, providers, bridge, notice, activeTaskId, onOpenTask, onCloseTask, onNewTask }: {
+export function TaskOverviewView({ tasks, providers, bridge, notice, activeTaskId, onOpenTask, onCloseTask, onNewTask, onDismiss }: {
   tasks: AgentTaskDto[];
   providers: ModelProviderDto[];
   bridge: () => AgentBridgePort;
@@ -80,10 +81,13 @@ export function TaskOverviewView({ tasks, providers, bridge, notice, activeTaskI
   onOpenTask: (taskId: string) => void;
   onCloseTask: (task: AgentTaskDto) => void;
   onNewTask: () => void;
+  onDismiss: () => void;
 }): React.JSX.Element {
   const running = tasks.filter((task) => task.mutationClaim?.kind === 'TURN').length;
+  // A click past the windows leaves the overlay, the same as Escape.
+  const dismissOnEmpty = (event: React.MouseEvent): void => { if (event.target === event.currentTarget) onDismiss(); };
   return (
-    <div className="agt-overview" role="dialog" aria-label="All tasks">
+    <div className="agt-overview" role="dialog" aria-label="All tasks" onClick={dismissOnEmpty}>
       <div className="agt-overview__head">
         <h1>Tasks</h1>
         <span className="agt-muted agt-overview__summary">
@@ -93,7 +97,7 @@ export function TaskOverviewView({ tasks, providers, bridge, notice, activeTaskI
         <button type="button" className="agt-action" onClick={onNewTask}><span aria-hidden="true">+ </span>New task</button>
       </div>
       {notice !== null && <div className="agt-notice agt-overview__notice" role="alert">{notice}</div>}
-      <div className="agt-overview__grid">
+      <div className="agt-overview__grid" onClick={dismissOnEmpty}>
         <TaskWindows tasks={tasks} providers={providers} width={294} bridge={bridge} activeTaskId={activeTaskId} onOpen={onOpenTask} onClose={onCloseTask} />
         <button type="button" className="agt-card-new" aria-label="New task" onClick={onNewTask}>
           <span className="agt-card-new__plus" aria-hidden="true">+</span>
@@ -102,7 +106,7 @@ export function TaskOverviewView({ tasks, providers, bridge, notice, activeTaskI
       </div>
       <div className="agt-overview__foot">
         <span><kbd className="agt-kbd">{'⇧⌘\\'}</kbd> toggle overview</span>
-        <span><kbd className="agt-kbd">esc</kbd> back to the current task</span>
+        <span><kbd className="agt-kbd">esc</kbd> or a click outside · back to the current task</span>
         <span>Click a window to open it · ✕ closes the task</span>
       </div>
     </div>

@@ -179,6 +179,7 @@ describe('agent home and overview', () => {
         onOpenTask={() => {}}
         onCloseTask={() => {}}
         onNewTask={() => {}}
+        onDismiss={() => {}}
       />);
 
     expect(markup).toContain('role="dialog"');

@@ -15,6 +15,7 @@ import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties, 
 import { createPortal } from 'react-dom';
 import { CircleDot, GitPullRequest } from 'lucide-react';
 import Avatar from './Avatar';
+import CopyLinkButton from './CopyLinkButton';
 import RepoAvatar from './RepoAvatar';
 import { ago } from './relativeTime';
 
@@ -50,6 +51,11 @@ const STATE_CHIPS: Record<string, ReferenceCardChip> = {
   merged: { label: 'Merged', color: '#8250df', background: '#fbefff' },
   closed: { label: 'Closed', color: '#cf222e', background: '#ffebe9' },
 };
+
+/** Where the reference lives on GitHub, which is the only host these cards ever describe. */
+export function referenceUrl(item: Pick<ReferenceCardItem, 'type' | 'repo' | 'number'>): string {
+  return `https://github.com/${item.repo}/${item.type === 'pr' ? 'pull' : 'issues'}/${item.number}`;
+}
 
 /** The chip for a card whose surface has no reason of its own to show, such as a Markdown reference. */
 export function stateChip(state: string | null | undefined, draft = false): ReferenceCardChip | null {
@@ -242,7 +248,8 @@ export default function ReferenceCard({ id, hover, item, body, actions }: {
 
   const startDrag = (event: MouseEvent<HTMLElement>) => {
     const rect = card.current?.getBoundingClientRect();
-    if (!rect || event.button !== 0) return;
+    // The head holds controls of its own; pressing one is a click on it, not a grab of the card.
+    if (!rect || event.button !== 0 || (event.target as Element).closest('button, a') !== null) return;
     event.preventDefault();
     const grabX = event.clientX - rect.left;
     const grabY = event.clientY - rect.top;
@@ -309,6 +316,7 @@ export default function ReferenceCard({ id, hover, item, body, actions }: {
               {item.chip.label}
             </span>
           )}
+          <CopyLinkButton value={referenceUrl(item)} label={item.type === 'pr' ? 'pull request link' : 'issue link'} />
         </div>
         <div className="ref-card__title">{item.title}</div>
         {byline !== '' && (

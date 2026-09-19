@@ -51,6 +51,25 @@
   color: #8c959f;
 }
 
+.ref-card__ref .pr-copy-button {
+  display: grid;
+  width: 22px;
+  height: 22px;
+  flex: none;
+  place-items: center;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  padding: 0;
+  color: #8c959f;
+  cursor: pointer;
+}
+
+.ref-card__ref .pr-copy-button svg { width: 14px; height: 14px; }
+
+.ref-card__ref .pr-copy-button:hover,
+.ref-card__ref .pr-copy-button.is-copied { background: #eceff2; color: #57606a; }
+
 .ref-card__chip {
   flex: none;
   border-radius: 10px;

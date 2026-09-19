@@ -1209,7 +1209,7 @@
 .agt-title {
   font: inherit;
   font-size: 14px;
-  font-weight: 700;
+  font-weight: 500;
   color: inherit;
   background: none;
   border: 0;
@@ -1224,13 +1224,12 @@
 /* Named after the first message until the agent proposes a name; reads as not yet settled. */
 .agt-title.is-provisional {
   color: #57606a;
-  font-weight: 600;
 }
 
 .agt-title-edit {
   font: inherit;
   font-size: 14px;
-  font-weight: 700;
+  font-weight: 500;
   min-width: 240px;
   max-width: 420px;
   padding: 1px 6px;

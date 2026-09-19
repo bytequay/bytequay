@@ -24,6 +24,9 @@ import { standardSQL } from '@codemirror/legacy-modes/mode/sql';
 import { xml } from '@codemirror/legacy-modes/mode/xml';
 import { yaml } from '@codemirror/legacy-modes/mode/yaml';
 import {
+  closeSearchPanel, findNext, findPrevious, getSearchQuery, openSearchPanel, search, searchPanelOpen, setSearchQuery,
+} from '@codemirror/search';
+import {
   Annotation, Compartment, EditorState, Prec, RangeSet, StateEffect, StateField, type Extension, type Range, type RangeValue,
 } from '@codemirror/state';
 import {
@@ -423,6 +426,17 @@ const changeGutter = gutter({
 
 const NO_LINE_CHANGES: readonly LineChangeDto[] = [];
 
+/**
+ * The find keys, rather than the package's own `searchKeymap`, which also binds Mod-d, Mod-Shift-l and Mod-Alt-g.
+ * A scoped Escape closes only an open panel; with none open it returns false, so the screen's own Escape still runs.
+ */
+const SEARCH_KEYS = [
+  { key: 'Mod-f', run: openSearchPanel, scope: 'editor search-panel' },
+  { key: 'Mod-g', run: findNext, shift: findPrevious, preventDefault: true },
+  { key: 'F3', run: findNext, shift: findPrevious, preventDefault: true },
+  { key: 'Escape', run: closeSearchPanel, scope: 'editor search-panel' },
+];
+
 function editable(allowed: boolean) {
   return EditorState.readOnly.of(!allowed);
 }
@@ -479,7 +493,10 @@ function stateFor(path: string, value: string, saved: string, allowed: boolean, 
       highlightActiveLineGutter(),
       editability.of(editable(allowed)),
       history(),
-      keymap.of([...defaultKeymap, ...historyKeymap]),
+      // CodeMirror renders only the lines in view, so Chromium's find-in-page can never see the rest of the file.
+      // The panel hides its replace controls by itself on read-only production source.
+      search({ top: true }),
+      keymap.of([...defaultKeymap, ...historyKeymap, ...SEARCH_KEYS]),
       LANGUAGES[languageFor(path)],
       syntaxHighlighting(highlightStyle),
       baseline.init(() => saved.split('\n')),
@@ -578,8 +595,14 @@ export default function CodeView({
     const current = view.current;
     if (current === null) return;
     if (shownPath.current !== path) {
-      // Another file: a fresh state, so undo history and language never leak between files.
+      // Another file: a fresh state, so undo history and language never leak between files. An open find carries
+      // over instead, because the window find bar it replaces kept its text across files.
+      const finding = searchPanelOpen(current.state) ? getSearchQuery(current.state) : null;
       current.setState(stateFor(path, value, saved, allowed, handlers.current));
+      if (finding !== null) {
+        openSearchPanel(current);
+        current.dispatch({ effects: setSearchQuery.of(finding) });
+      }
       shownPath.current = path;
       return;
     }

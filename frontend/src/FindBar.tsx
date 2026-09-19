@@ -69,7 +69,8 @@ export default function FindBar() {
   // search back to the top.
   useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent) => {
-      if (isFindShortcut(event)) {
+      // The code editor searches its own document, because find-in-page only sees the lines it has rendered.
+      if (isFindShortcut(event) && !event.defaultPrevented) {
         event.preventDefault();
         setOpen(true);
         inputRef.current?.select();

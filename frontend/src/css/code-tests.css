@@ -95,6 +95,23 @@
 .ct-code .cm-editor { height: 100%; }
 .ct-code .ct-code__destination { background: #fff8c5; }
 
+/* Find inside the open file: CodeMirror renders only the viewport, so find-in-page cannot reach the rest of the document. */
+.ct-code .cm-panels { border: 0; background: #f7f8f9; color: #1f2328; }
+.ct-code .cm-panels-top { border-bottom: 1px solid #e8eaed; }
+.ct-code .cm-panel.cm-search { display: flex; flex-wrap: wrap; align-items: center; padding: 5px 30px 5px 10px; font-family: var(--font); font-size: 12px; }
+.ct-code .cm-panel.cm-search input,
+.ct-code .cm-panel.cm-search button,
+.ct-code .cm-panel.cm-search label { margin: 2px 8px 2px 0; }
+.ct-code .cm-panel.cm-search .cm-textfield { border: 1px solid #d6dce2; border-radius: 6px; background: #fff; color: #1f2328; padding: 3px 7px; font-family: var(--mono); font-size: 12px; }
+.ct-code .cm-panel.cm-search .cm-textfield:focus-within { border-color: #0969da; }
+.ct-code .cm-panel.cm-search .cm-button { border: 1px solid #d6dce2; border-radius: 5px; background: #fff; background-image: none; color: #57606a; cursor: pointer; padding: 2px 8px; font-size: 11.5px; }
+.ct-code .cm-panel.cm-search .cm-button:hover { background: #f3f4f6; }
+.ct-code .cm-panel.cm-search label { color: #57606a; font-size: 11px; }
+.ct-code .cm-panel.cm-search input[type='checkbox'] { margin-right: 5px; }
+.ct-code .cm-panel.cm-search [name='close'] { top: 3px; right: 8px; color: #8c959f; cursor: pointer; font-size: 15px; }
+.ct-code .cm-searchMatch { background: #fff8c5; }
+.ct-code .cm-searchMatch-selected { background: #ffdf5d; }
+
 .ct-empty { margin: 40px auto; }
 .ct-ended { display: flex; max-width: 520px; flex-direction: column; margin: 18px auto 0; border: 1px solid #e1e4e8; border-radius: 9px; text-align: left; }
 .ct-ended__title { border-bottom: 1px solid #f0f1f3; color: #57606a; padding: 7px 12px; font-size: 12px; }
@@ -129,17 +146,22 @@
 .ct-breadcrumb button.ct-breadcrumb__file[aria-expanded='true'] { border-color: #e1e2e5; background: #f7f8f9; }
 .ct-breadcrumb__notice { overflow: hidden; color: #57606a; text-overflow: ellipsis; white-space: nowrap; }
 .ct-breadcrumb__count { flex: none; color: #8c959f; }
-.ct-outline { top: 26px; left: 0; width: 390px; max-height: 420px; overflow-y: auto; }
+.ct-outline { top: 26px; left: 0; display: flex; width: 390px; max-height: 420px; flex-direction: column; }
+.ct-outline ul { overflow-y: auto; }
+.ct-outline__filter { width: auto; border: 0; border-bottom: 1px solid #f2f3f5; border-radius: 0; flex: none; padding: 5px 10px; }
+.ct-outline__filter:focus-within { border-bottom-color: #0969da; }
+.ct-outline__filter input { font-size: 12px; }
 .ct-outline__row { display: flex; width: 100%; align-items: center; gap: 7px; border: 0; background: transparent; color: #1f2328; cursor: pointer; padding: 5px 10px; text-align: left; }
 .ct-outline__row:hover,
 .ct-outline__row.is-current { background: #f7f8f9; }
+.ct-outline__row.is-active { background: #f0f6fd; }
 .ct-outline__icon { flex: none; color: #57606a; }
 .ct-outline__icon.is-type { color: #953800; }
 .ct-outline__icon.is-test { color: #8250df; }
 .ct-outline__name { overflow: hidden; flex: 1; font-family: var(--mono); font-size: 11.5px; text-overflow: ellipsis; white-space: nowrap; }
 .ct-outline__line { flex: none; color: #8c959f; font-size: 10.5px; }
 
-.ct-chooser { position: fixed; width: 430px; box-shadow: 0 14px 34px rgba(27, 31, 36, .22); }
+.ct-chooser { position: fixed; display: flex; width: 430px; flex-direction: column; box-shadow: 0 14px 34px rgba(27, 31, 36, .22); }
 .ct-chooser__header { display: flex; align-items: center; gap: 8px; border-bottom: 1px solid #e8eaed; background: #f7f8f9; padding: 4px 6px 4px 11px; font-size: 12px; }
 .ct-chooser__header span { flex: 1; }
 .ct-chooser__caveat { margin: 0; border-bottom: 1px solid #f2f3f5; color: #57606a; padding: 6px 11px; font-size: 11.5px; line-height: 1.45; }
@@ -147,6 +169,10 @@
 .ct-chooser__row:hover { background: #f0f6fd; }
 .ct-chooser__signature { overflow: hidden; color: #0969da; font-family: var(--mono); font-size: 11.5px; text-overflow: ellipsis; white-space: nowrap; }
 .ct-chooser__where { color: #57606a; font-size: 11px; }
+/* Neither list was bounded: 48 definitions, or a long uncommitted set, ran past the window edge unreachably.
+   The chooser is placed by pointer, so its height comes from the space below the click; the discard popover is anchored in the toolbar. */
+.ct-chooser ul { overflow-y: auto; }
+.ct-discard ul { max-height: 46vh; overflow-y: auto; }
 
 .ct-code .ct-code__link { border-bottom: 1px solid #0969da; color: #0969da; cursor: pointer; }
 .ct-code .ct-code__link * { color: #0969da; }

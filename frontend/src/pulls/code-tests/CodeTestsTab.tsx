@@ -89,6 +89,9 @@ export type CodeTestsHost =
   | { kind: 'review'; review: AgentReviewDto }
   | { kind: 'task'; task: AgentTaskDto; workspaceId: string; repo: string; number: number };
 
+/** The backend's own ceiling. A ⌘-click asks for all of it, because a name like `addColumn` has dozens of declarations. */
+const DEFINITION_LOOKUP_LIMIT = 200;
+
 /** Each entry remembers the file-list generation it was read in, so a later list re-reads it in the background. */
 type FileState = { generation: number } & (
   | { status: 'loading' }
@@ -445,7 +448,7 @@ function WorkingCopy({ host, onReviewChange, onExit, onUnsavedChange, comments, 
     const lookup = ++navigationRequest.current;
     setChooser(null);
     setFollowNotice(`Finding ${request.name}…`);
-    void bridge.searchCodeSymbols(hostRef, request.name, 50)
+    void bridge.searchCodeSymbols(hostRef, request.name, DEFINITION_LOOKUP_LIMIT)
       .then(result => {
         if (lookup !== navigationRequest.current) return;
         if (result.status !== 'READY') {
@@ -457,7 +460,8 @@ function WorkingCopy({ host, onReviewChange, onExit, onUnsavedChange, comments, 
         else if (options.length === 1) open(options[0].path, options[0].startLine);
         else {
           setFollowNotice(null);
-          setChooser({ name: request.name, options, x: request.x, y: request.y });
+          // A name the search filled the limit with has more declarations than the chooser can claim to list.
+          setChooser({ name: request.name, options, truncated: result.symbols.length >= DEFINITION_LOOKUP_LIMIT, x: request.x, y: request.y });
         }
       })
       .catch(failure => {

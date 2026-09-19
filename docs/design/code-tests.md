@@ -230,7 +230,12 @@ No other origin label is shown, and none is guessed from a filename.
 
 - ⌘P opens the palette. It is unbound today.
 - App's ⌘[ / ⌘] route navigation and `PullsScreen`'s Esc and ⌘F / ⌘1…N
-  handlers ignore events whose target is inside `.cm-editor` or `.xterm`.
+  handlers ignore events whose target is inside `.cm-editor` or `.xterm`. The
+  find panel mounts inside `.cm-editor`, so those guards cover it too.
+- `FindBar` ignores a ⌘F the editor already handled, so the window find bar
+  never opens on top of the editor's panel.
+- The breadcrumb's outline popover filters its types and methods as you type;
+  Enter opens the first match.
 
 ### 3.3 Editor
 
@@ -240,12 +245,17 @@ code editor provides. This design proposes **CodeMirror 6**:
 
 - **Packages** (all MIT): `@codemirror/state`, `@codemirror/view`,
   `@codemirror/commands` (history, default keymap), `@codemirror/language`,
-  `@codemirror/lang-java`, `@codemirror/legacy-modes`.
+  `@codemirror/lang-java`, `@codemirror/legacy-modes`, `@codemirror/search`.
 - **Production source** uses `EditorState.readOnly`.
 - **Inline cards** mount through React portals and are fully controlled
   (section 3.2).
-- **In-file find** is out of scope, so `@codemirror/search` is not added; ⌘F
-  keeps its current meaning.
+- **In-file find** is the editor's, because CodeMirror renders only the lines in
+  view and `FindBar`'s Chromium find-in-page therefore searches roughly one
+  screen of a file. `search({top: true})` is always installed, and the keymap
+  binds ⌘F, ⌘G / F3 and a panel-scoped Escape — not the package's
+  `searchKeymap`, which also takes ⌘D, ⌘⇧L and ⌥⌘G. The panel drops its
+  replace controls by itself on read-only production source. An open find keeps
+  its query across a file switch, which the window find bar it replaces did.
 
 The alternative without a dependency is a highlight.js table for reading plus a
 transparent textarea overlay for test files, as in the prototype. Its inline
@@ -902,6 +912,9 @@ Each phase is runnable and reviewable on its own. Each runs the full gates
 7. **Dependencies:**
    - CodeMirror 6 packages (section 3.3; the no-dependency alternative is
      described there);
+   - `@codemirror/search`, approved after the fact: it adds one package, since
+     its only non-CodeMirror dependency, `crelt`, already arrives with
+     `@codemirror/view`;
    - `node-pty`;
    - `@xterm/xterm` and `@xterm/addon-fit`.
 
@@ -933,7 +946,17 @@ Each phase is runnable and reviewable on its own. Each runs the full gates
 - **CodeGraph limits.**
   - It indexes the working files, not the frozen head, so symbol lines can
     differ from the reviewed revision while edits exist.
-  - Name-based resolution needs the chooser for overloads.
+  - Name-based resolution needs the chooser for overloads. A name whose search
+    fills the limit is labelled "the first N", because the chooser cannot know
+    how many more declarations exist.
+  - **Java records are not indexed.** The vendored extractor's class types are
+    `class_declaration` alone, so a record type, its components and its
+    accessors carry no node: ⌘-click on them finds nothing, and a method inside
+    a record body is extracted as a free function with no owning type. This
+    repository declares 939 records across 1,011 Java files.
+  - **A field or constant's reference edges carry no line**, so the graph can
+    say a constant is referenced but never where. Together with the record gap,
+    this is why a usages or call-hierarchy view is not built on these edges.
   - A background rebuild after Update review holds the graph lock for about
     40 s on Trino-sized repositories. Meanwhile UI graph features show
     "updating", and an agent `codegraph_explore` waits up to 60 s.

@@ -12,7 +12,7 @@
  * limitations under the License.
  */
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { Braces, Code, X } from 'lucide-react';
+import { Braces, Code, Search, X } from 'lucide-react';
 import { fileName, navigableSymbols, symbolGroup, symbolLabel, testClassName } from './codeModel';
 import type { CodeGraphAvailability, LocalRunDto, ReviewCodeSymbolDto, ReviewCodeSymbolsDto } from './contracts';
 import RunButton, { type RunTarget } from './RunButton';
@@ -108,23 +108,40 @@ export function OutlinePopover({ path, outline, codeGraph, currentLine, onOpen, 
   onRun: (target: RunTarget) => void;
 }) {
   const host = usePopoverDismiss(onClose, true);
+  const [filter, setFilter] = useState('');
   const loaded = outline?.status === 'loaded' ? outline.result : null;
-  const members = loaded === null ? [] : navigableSymbols(loaded.symbols).filter(symbol => symbol.path === path);
+  const declared = loaded === null ? [] : navigableSymbols(loaded.symbols).filter(symbol => symbol.path === path);
+  const needle = filter.trim().toLowerCase();
+  const members = needle === '' ? declared : declared.filter(symbol => symbol.name.toLowerCase().includes(needle));
   const notice = graphNotice(codeGraph, loaded?.status ?? null);
   return (
     <div className="ct-popover ct-outline" ref={host} role="dialog" aria-label={`Outline of ${fileName(path)}`}>
+      {notice === null && loaded !== null && declared.length > 0 && (
+        // ponytail: Enter takes the first match; a filtered list is short enough to click through.
+        <label className="ct-search ct-outline__filter">
+          <Search size={12} strokeWidth={1.8} aria-hidden="true" />
+          <input type="search" autoFocus value={filter} placeholder="Filter types and methods"
+            aria-label={`Filter the types and methods of ${fileName(path)}`}
+            onChange={event => setFilter(event.target.value)}
+            onKeyDown={event => {
+              if (event.key !== 'Enter' || members.length === 0) return;
+              event.preventDefault();
+              onOpen(members[0].startLine);
+            }} />
+        </label>
+      )}
       {notice !== null
         ? <div className="ct-popover__empty">{notice}</div>
         : loaded === null
           ? <div className="ct-popover__empty" role="status">Reading the outline…</div>
           : members.length === 0
-            ? <div className="ct-popover__empty">No types or methods in this file.</div>
+            ? <div className="ct-popover__empty">{needle === '' ? 'No types or methods in this file.' : `No type or method matches “${filter.trim()}”`}</div>
             : (
               <ul>
-                {members.map(symbol => (
+                {members.map((symbol, index) => (
                   <li key={`${symbol.startLine}:${symbol.name}`} className="ct-outline__item">
                     {symbol.test && <RunButton target={{ path, className: testClassName(path), method: symbol.name }} runs={runs} gate={gate} onRun={onRun} />}
-                    <button type="button" className={`ct-outline__row${symbol.startLine === currentLine ? ' is-current' : ''}`}
+                    <button type="button" className={`ct-outline__row${symbol.startLine === currentLine ? ' is-current' : ''}${needle !== '' && index === 0 ? ' is-active' : ''}`}
                       onClick={() => onOpen(symbol.startLine)}>
                       {symbolGroup(symbol) === 'type'
                         ? <Braces className="ct-outline__icon is-type" size={12} strokeWidth={1.8} aria-hidden="true" />
@@ -140,7 +157,7 @@ export function OutlinePopover({ path, outline, codeGraph, currentLine, onOpen, 
   );
 }
 
-export type ChooserState = { name: string; options: ReviewCodeSymbolDto[]; x: number; y: number };
+export type ChooserState = { name: string; options: ReviewCodeSymbolDto[]; truncated: boolean; x: number; y: number };
 
 export function SymbolChooser({ chooser, changedPaths, onOpen, onClose }: {
   chooser: ChooserState;
@@ -149,11 +166,13 @@ export function SymbolChooser({ chooser, changedPaths, onOpen, onClose }: {
   onClose: () => void;
 }) {
   const host = usePopoverDismiss(onClose);
+  // A ⌘-click low in the window must still show rows: the popover keeps a usable height, stays inside the window, and scrolls its list.
+  const top = Math.max(8, Math.min(chooser.y + 14, window.innerHeight - 320));
   return (
     <div className="ct-popover ct-chooser" ref={host} role="dialog" aria-label={`Definitions of ${chooser.name}`}
-      style={{ left: Math.max(8, Math.min(chooser.x, window.innerWidth - 450)), top: chooser.y + 14 }}>
+      style={{ left: Math.max(8, Math.min(chooser.x, window.innerWidth - 450)), top, maxHeight: window.innerHeight - top - 12 }}>
       <header className="ct-chooser__header">
-        <span>{chooser.options.length} possible definitions for <code>{chooser.name}</code></span>
+        <span>{chooser.truncated && 'The first '}{chooser.options.length} possible definitions for <code>{chooser.name}</code></span>
         <button type="button" className="ct-icon-button" aria-label="Close" onClick={onClose}><X size={13} strokeWidth={1.8} aria-hidden="true" /></button>
       </header>
       <p className="ct-chooser__caveat">

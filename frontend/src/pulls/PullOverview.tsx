@@ -16,6 +16,7 @@ import type { LocalReviewThreads, LocalReviewThreadDto } from './local-review/ty
 import { useEffect, useId, useMemo, useRef, useState, type ReactNode } from 'react';
 import { Check, CircleCheck, CircleDot, CircleMinus, CircleSlash2, CircleX, Clock3, Copy, Ellipsis, ExternalLink, Eye, FileText, GitCommitHorizontal, Link, LoaderCircle, Pencil, Quote, RotateCw, SmilePlus, Tag, User } from 'lucide-react';
 import Avatar from '../Avatar';
+import CopyLinkButton from '../CopyLinkButton';
 import { parseUnifiedDiff } from '../diffParse';
 import RepoAvatar from '../RepoAvatar';
 import { relativeTime } from '../relativeTime';
@@ -2170,31 +2171,6 @@ export function reactionEmoji(content: string) {
 
 function CopyIcon() {
   return <Copy size={16} strokeWidth={1.5} aria-hidden="true" />;
-}
-
-export function CopyLinkButton({ value, label }: { value: string; label: string }) {
-  const [copied, setCopied] = useState(false);
-  const resetTimer = useRef<number | null>(null);
-
-  useEffect(() => () => {
-    if (resetTimer.current !== null) window.clearTimeout(resetTimer.current);
-  }, []);
-
-  const copy = async () => {
-    await navigator.clipboard.writeText(value);
-    setCopied(true);
-    if (resetTimer.current !== null) window.clearTimeout(resetTimer.current);
-    resetTimer.current = window.setTimeout(() => setCopied(false), 1500);
-  };
-
-  return (
-    <button type="button" className={`pr-copy-button${copied ? ' is-copied' : ''}`}
-      aria-label={copied ? `${label} copied` : `Copy ${label}`}
-      title={copied ? undefined : `Copy ${label}`} onClick={() => { void copy(); }}>
-      {copied ? <CheckIcon size={16} /> : <CopyIcon />}
-      {copied && <span className="pr-copy-button__message" role="status">Copied</span>}
-    </button>
-  );
 }
 
 function ReviewIcon() {

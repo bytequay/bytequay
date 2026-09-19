@@ -23,10 +23,10 @@ import Avatar from '../Avatar';
 import { CircleCheck, CircleDot, ExternalLink, Flag, ListTodo, Play, User } from 'lucide-react';
 import { issueDevelopmentAction, notifyIssueDevelopmentChanged } from './issueDevelopment';
 import type { NavigationMode } from '../navigationHistory';
+import CopyLinkButton from '../CopyLinkButton';
 import MarkdownBody, { GitHubReferenceLink } from '../pulls/MarkdownBody';
 import {
   CardHeader,
-  CopyLinkButton,
   DiscussionComposer,
   MetadataPicker,
   reactionEmoji,

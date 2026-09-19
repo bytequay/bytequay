@@ -682,8 +682,9 @@
 .pr-copy-button { position: relative; overflow: visible; }
 .pr-overview__title .pr-copy-button.is-copied { background: #eff2f4; }
 .pr-overview__number .pr-copy-button.is-copied { background: #eff2f4; }
-.pr-copy-button__message { position: absolute; z-index: 1; bottom: calc(100% + 7px); left: 50%; border-radius: 7px; background: #24292f; color: #fff; padding: 6px 9px; font-size: 12px; font-weight: 500; line-height: 1; pointer-events: none; transform: translateX(-50%); animation: pr-copy-message-in 120ms ease-out; white-space: nowrap; }
-@keyframes pr-copy-message-in { from { opacity: 0; transform: translate(-50%, 3px); } }
+/* Below the button: every surface hosting it clips its overflow within a few pixels above. */
+.pr-copy-button__message { position: absolute; z-index: 1; top: calc(100% + 7px); left: 50%; border-radius: 7px; background: #24292f; color: #fff; padding: 6px 9px; font-size: 12px; font-weight: 500; line-height: 1; pointer-events: none; transform: translateX(-50%); animation: pr-copy-message-in 120ms ease-out; white-space: nowrap; }
+@keyframes pr-copy-message-in { from { opacity: 0; transform: translate(-50%, -3px); } }
 .pr-overview__branches { display: flex; align-items: center; flex-wrap: wrap; gap: 9px; margin-top: 12px; color: #59636e; }
 .pull-request-overview .pr-overview__branches { margin-top: 18px; }
 .pr-overview__branches code { max-width: 440px; overflow: hidden; border-radius: 8px; background: #ddf4ff; color: #0969da; padding: 3px 9px; font-size: 12.5px; text-overflow: ellipsis; white-space: nowrap; }

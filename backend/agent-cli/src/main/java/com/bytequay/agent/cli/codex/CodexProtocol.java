@@ -28,6 +28,7 @@ import java.util.Optional;
 
 import static com.google.common.base.Preconditions.checkArgument;
 import static java.util.Objects.requireNonNull;
+import static java.util.stream.Collectors.joining;
 
 final class CodexProtocol
 {
@@ -1421,7 +1422,7 @@ final class CodexProtocol
             return content.stream()
                     .filter(TextInput.class::isInstance)
                     .map(input -> ((TextInput) input).text())
-                    .collect(java.util.stream.Collectors.joining("\n"));
+                    .collect(joining("\n"));
         }
     }
 

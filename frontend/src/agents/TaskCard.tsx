@@ -151,17 +151,26 @@ export function TaskCard({ task, events, providers, width, active = false, now, 
 }
 
 /**
+ * Whether a window the user put away asks to come back. Only attention that started after they put
+ * it away does, so hiding a task that already wants the user is not undone on the spot.
+ */
+export function wantsAttention(hiddenAt: number | null, recoveryAt: number | null, approvalAt: number | null): boolean {
+  return hiddenAt !== null && Math.max(recoveryAt ?? 0, approvalAt ?? 0) > hiddenAt;
+}
+
+/**
  * Each tick replaces the card's single recent history page and reads current task facts.
  * A superseded poll is discarded, so hidden cards never accumulate an unseen transcript.
  *
- * A hidden window keeps polling and draws nothing, so the task can ask to be shown again the
- * moment it needs the user.
+ * A hidden window keeps polling and draws nothing, so the task can ask to be shown again when
+ * attention starts after the user put it away.
  */
-function TaskWindow({ task: listed, tick, bridge, hidden = false, renamable = false, onAttention, onHide, ...card }: {
+function TaskWindow({ task: listed, tick, bridge, hiddenAt = null, renamable = false, onAttention, onHide, ...card }: {
   task: AgentTaskDto;
   tick: number;
   bridge: () => AgentBridgePort;
-  hidden?: boolean;
+  /** When the user put this window away, or null while it is shown. */
+  hiddenAt?: number | null;
   renamable?: boolean;
   onAttention?: () => void;
   onHide?: () => void;
@@ -177,7 +186,7 @@ function TaskWindow({ task: listed, tick, bridge, hidden = false, renamable = fa
   const seed = `task-window:${listed.id}`;
   const [state, dispatch] = useReducer(agentTaskReducer, seed, (key) => getCached<AgentTaskState>(key) ?? initialAgentTaskState());
   useEffect(() => { setCached(seed, state); }, [seed, state]);
-  const [pendingApprovalCount, setPendingApprovalCount] = useState(0);
+  const [approvalAt, setApprovalAt] = useState<number | null>(null);
   useEffect(() => {
     let active = true;
     void pollAgentTask(bridge(), listed.id, listed.workspaceId, dispatch, () => active).catch(() => {});
@@ -187,17 +196,19 @@ function TaskWindow({ task: listed, tick, bridge, hidden = false, renamable = fa
   const latestTurnId = task.mutationClaim?.kind === 'TURN' ? task.mutationClaim.ownerId : state.latestTurnId;
   useEffect(() => {
     let active = true;
-    if (latestTurnId === null || task.state !== 'OPEN') { setPendingApprovalCount(0); return; }
+    if (latestTurnId === null || task.state !== 'OPEN') { setApprovalAt(null); return; }
     void bridge().readAgentPendingApprovals(task.id, latestTurnId).then((pending) => {
-      if (active) setPendingApprovalCount(pending.length);
+      if (active) setApprovalAt(pending.length === 0 ? null : Math.max(...pending.map((approval) => Date.parse(approval.occurredAt))));
     }).catch(() => {});
     return () => { active = false; };
   }, [bridge, task.id, task.state, latestTurnId, tick]);
-  const attention = hidden && ((task.state === 'OPEN' && task.mutationClaim?.kind === 'RECOVERY') || pendingApprovalCount > 0);
+  const claim = task.mutationClaim;
+  const recoveryAt = task.state === 'OPEN' && claim?.kind === 'RECOVERY' ? Date.parse(claim.acquiredAt) : null;
+  const attention = wantsAttention(hiddenAt, recoveryAt, approvalAt);
   useEffect(() => {
     if (attention) onAttention?.();
   }, [attention, onAttention]);
-  if (hidden) return null;
+  if (hiddenAt !== null) return null;
   const rename = renamable
     ? (title: string) => {
       void bridge().renameAgentTask(task.id, task.workspaceId, task.version, title)
@@ -215,7 +226,7 @@ function TaskWindow({ task: listed, tick, bridge, hidden = false, renamable = fa
  * scale its screen to exactly the column, and `width` is the narrowest column allowed.
  */
 export function TaskWindows({
-  tasks, providers, width, bridge, activeTaskId = null, onOpen, onClose, fluid = false, renamable = false, hiddenTaskIds, onHide, onAttention,
+  tasks, providers, width, bridge, activeTaskId = null, onOpen, onClose, fluid = false, renamable = false, hiddenTasks, onHide, onAttention,
 }: {
   tasks: AgentTaskDto[];
   providers: ModelProviderDto[];
@@ -226,8 +237,8 @@ export function TaskWindows({
   onClose?: (task: AgentTaskDto) => void;
   fluid?: boolean;
   renamable?: boolean;
-  /** Windows put away by the user; they keep polling so a task can come back when it needs attention. */
-  hiddenTaskIds?: ReadonlySet<string>;
+  /** Windows put away by the user, each with when; they keep polling so a task can come back when it needs attention. */
+  hiddenTasks?: ReadonlyMap<string, number>;
   onHide?: (task: AgentTaskDto) => void;
   onAttention?: (task: AgentTaskDto) => void;
 }): React.JSX.Element {
@@ -259,7 +270,7 @@ export function TaskWindows({
       width={fluid ? columnWidth : width}
       active={task.id === activeTaskId}
       now={now}
-      hidden={hiddenTaskIds?.has(task.id) ?? false}
+      hiddenAt={hiddenTasks?.get(task.id) ?? null}
       renamable={renamable}
       onOpen={() => onOpen(task.id)}
       onClose={onClose === undefined ? undefined : () => onClose(task)}

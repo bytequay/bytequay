@@ -19,7 +19,7 @@ import { parseAgentEventSequence } from './events';
 import { AgentHomeView } from './AgentHome';
 import { createPreviewBridge, previewTask } from './fixtures/previewBridge';
 import { TaskComposer } from './AgentTasksView';
-import { gridColumnWidth, TaskCard } from './TaskCard';
+import { gridColumnWidth, TaskCard, wantsAttention } from './TaskCard';
 import { TaskOverviewView } from './TaskOverview';
 import { NO_AGENT_CAPABILITIES } from './capabilities';
 import type { ModelOptionDto, ModelProviderDto } from '../types';
@@ -98,6 +98,15 @@ describe('task window', () => {
     expect(gridColumnWidth(900)).toBe(289);
     expect(gridColumnWidth(1400)).toBe(267);
     expect(gridColumnWidth(0)).toBe(250);
+  });
+
+  it('brings a hidden window back only for attention that started after it was put away', () => {
+    const away = Date.parse('2026-08-20T10:05:00Z');
+    expect(wantsAttention(away, Date.parse('2026-08-20T10:00:00Z'), null)).toBe(false);
+    expect(wantsAttention(away, null, Date.parse('2026-08-20T10:04:59Z'))).toBe(false);
+    expect(wantsAttention(away, null, Date.parse('2026-08-20T10:06:00Z'))).toBe(true);
+    expect(wantsAttention(away, Date.parse('2026-08-20T10:06:00Z'), null)).toBe(true);
+    expect(wantsAttention(null, Date.parse('2026-08-20T10:06:00Z'), null)).toBe(false);
   });
 
   it('marks the task behind the overview and offers to close idle tasks only', () => {

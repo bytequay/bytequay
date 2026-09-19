@@ -43,24 +43,34 @@ const SUGGESTIONS: { icon: LucideIcon; title: string; prompt: string }[] = [
 /** Home shows at most this many attention rows; each source tab has the rest. */
 const HOME_MAX_ROWS = 3;
 
-/** Windows the user put away, per workspace. Renderer-local: the task itself is untouched. */
+/**
+ * Windows the user put away, per workspace, each with when. Renderer-local: the task itself is
+ * untouched. The time is what a window compares its attention against, so putting away a task that
+ * already wants the user keeps it away.
+ */
 function hiddenTasksKey(workspaceId: string): string {
   return `bq.home.hiddenTasks.${workspaceId}`;
 }
 
-function loadHiddenTasks(workspaceId: string): Set<string> {
+function loadHiddenTasks(workspaceId: string): Map<string, number> {
   try {
-    const parsed: unknown = JSON.parse(window.localStorage.getItem(hiddenTasksKey(workspaceId)) ?? '[]');
-    return new Set(Array.isArray(parsed) ? parsed.filter((value): value is string => typeof value === 'string') : []);
+    const parsed: unknown = JSON.parse(window.localStorage.getItem(hiddenTasksKey(workspaceId)) ?? '{}');
+    // An older store held bare ids with no time; they count as put away now.
+    if (Array.isArray(parsed)) {
+      const now = Date.now();
+      return new Map(parsed.filter((value): value is string => typeof value === 'string').map((id) => [id, now]));
+    }
+    if (typeof parsed !== 'object' || parsed === null) return new Map();
+    return new Map(Object.entries(parsed).filter((entry): entry is [string, number] => typeof entry[1] === 'number'));
   }
   catch {
-    return new Set();
+    return new Map();
   }
 }
 
-function saveHiddenTasks(workspaceId: string, hidden: ReadonlySet<string>): void {
+function saveHiddenTasks(workspaceId: string, hidden: ReadonlyMap<string, number>): void {
   try {
-    window.localStorage.setItem(hiddenTasksKey(workspaceId), JSON.stringify([...hidden]));
+    window.localStorage.setItem(hiddenTasksKey(workspaceId), JSON.stringify(Object.fromEntries(hidden)));
   }
   catch { /* A full or disabled store just means the window comes back next time. */ }
 }
@@ -172,14 +182,13 @@ export default function AgentHome({
   const attention = useWorkspaceAttention(workspaceId, repository);
   const [hidden, setHidden] = useState(() => loadHiddenTasks(workspaceId));
   const hide = useCallback((task: AgentTaskDto) => setHidden((previous) => {
-    const next = new Set(previous);
-    next.add(task.id);
+    const next = new Map(previous).set(task.id, Date.now());
     saveHiddenTasks(workspaceId, next);
     return next;
   }), [workspaceId]);
   const reveal = useCallback((task: AgentTaskDto) => setHidden((previous) => {
     if (!previous.has(task.id)) return previous;
-    const next = new Set(previous);
+    const next = new Map(previous);
     next.delete(task.id);
     saveHiddenTasks(workspaceId, next);
     return next;
@@ -195,7 +204,7 @@ export default function AgentHome({
       repository={repository}
       bridge={live}
       tasks={creation.tasks.filter((task) => task.state === 'OPEN' && !taskArchived(task))}
-      hiddenTaskIds={hidden}
+      hiddenTasks={hidden}
       onHideTask={hide}
       onRevealTask={reveal}
       attention={attention.candidates}
@@ -218,7 +227,7 @@ export default function AgentHome({
 export function AgentHomeView({
   repository, headerAction, laneId, providers, bridge, tasks, models, selection, draft, blocker,
   onDraftChange, onSelectProvider, onSelectModel, onCreate, onOpenTask, onOpenSettings, onShowAll,
-  hiddenTaskIds, onHideTask, onRevealTask,
+  hiddenTasks, onHideTask, onRevealTask,
   attention = [], handled = {}, onHandledChange = () => {}, onOpenAttention = () => {}, onSeeAllAttention = () => {},
   onStartIssue, onOpenIssues, attentionError,
   images = [], busy = false, startup = null, attaching = false, onAttach, onPasteImages, onRemoveImage, error = null, automation,
@@ -229,7 +238,8 @@ export function AgentHomeView({
   bridge: () => AgentBridgePort;
   /** The open tasks, drawn as windows under the composer. */
   tasks: AgentTaskDto[];
-  hiddenTaskIds?: ReadonlySet<string>;
+  /** Which windows the user put away, each with when. */
+  hiddenTasks?: ReadonlyMap<string, number>;
   onHideTask?: (task: AgentTaskDto) => void;
   onRevealTask?: (task: AgentTaskDto) => void;
   /** The repository's pull requests and issues that need the user, before ack and snooze are applied. */
@@ -339,7 +349,7 @@ export function AgentHomeView({
             providers={providers}
             width={HOME_WINDOW_MIN}
             bridge={bridge}
-            hiddenTaskIds={hiddenTaskIds}
+            hiddenTasks={hiddenTasks}
             onHide={onHideTask}
             onAttention={onRevealTask}
             onOpen={onOpenTask}

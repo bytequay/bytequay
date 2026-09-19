@@ -440,6 +440,9 @@
   color: #1f2328;
   padding: 12px 14px 4px;
   resize: none;
+  /* Wrap onto new lines and grow with the draft, up to a cap that keeps the transcript visible. */
+  field-sizing: content;
+  max-height: 40vh;
 }
 
 .agt-compose__row {

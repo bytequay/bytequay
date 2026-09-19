@@ -722,16 +722,20 @@ export function TaskComposer({
             ))}
           </div>
         )}
-        <input
+        <textarea
           className="agt-compose__input"
-          type="text"
+          rows={1}
           aria-label="Describe a task"
           placeholder="Let's ship..."
           value={draft}
           disabled={blocker !== null || (busy && !attaching)}
           onChange={(event) => onDraftChange(event.target.value)}
           onPaste={(event) => pasteImage(event, imagesAccepted && blocker === null && !busy, onPasteImages)}
-          onKeyDown={(event) => { if (event.key === 'Enter') onCreate(); }}
+          onKeyDown={(event) => {
+            if (event.key !== 'Enter' || event.shiftKey || event.nativeEvent.isComposing) return;
+            event.preventDefault();
+            onCreate();
+          }}
         />
         <div className="agt-compose__row">
           <button

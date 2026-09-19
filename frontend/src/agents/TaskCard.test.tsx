@@ -212,12 +212,12 @@ describe('new task image composer', () => {
     expect(busy).toMatch(/aria-label="Attach an image"[^>]*disabled/);
     expect(busy).toMatch(/aria-label="Remove image failure.png"[^>]*disabled/);
     expect(busy).toMatch(/aria-label="Send — creates the task"[^>]*disabled/);
-    expect(busy).toMatch(/<input[^>]*aria-label="Describe a task"[^>]*disabled/);
+    expect(busy).toMatch(/<textarea[^>]*aria-label="Describe a task"[^>]*disabled/);
   });
 
   it('keeps pasted text editable while its image loads and prevents sending before attachment finishes', () => {
     const markup = renderToStaticMarkup(<TaskComposer {...props} busy attaching />);
-    expect(markup).not.toMatch(/<input[^>]*aria-label="Describe a task"[^>]*disabled/);
+    expect(markup).not.toMatch(/<textarea[^>]*aria-label="Describe a task"[^>]*disabled/);
     expect(markup).toMatch(/aria-label="Attach an image"[^>]*disabled/);
     expect(markup).toMatch(/aria-label="Send — creates the task"[^>]*disabled/);
   });

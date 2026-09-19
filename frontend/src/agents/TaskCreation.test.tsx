@@ -96,8 +96,8 @@ describe.each(['Home', 'Tasks'])('first-message feedback on %s', (surface) => {
     const markup = render({ busy: true, attaching: true });
 
     expect(markup).toContain('aria-label="Describe a task"');
-    expect(markup).toContain('value="  Review this screenshot  "');
-    expect(markup).not.toMatch(/<input[^>]*disabled/);
+    expect(markup).toContain('>  Review this screenshot  </textarea>');
+    expect(markup).not.toMatch(/<textarea[^>]*disabled/);
     expect(markup).toMatch(/aria-label="Send — creates the task"[^>]*disabled/);
     expect(markup).not.toContain('Starting task…');
   });
@@ -106,9 +106,9 @@ describe.each(['Home', 'Tasks'])('first-message feedback on %s', (surface) => {
     const markup = render({ busy: false, error: 'Unable to create the agent task' });
 
     expect(markup).toContain('role="alert">Unable to create the agent task</div>');
-    expect(markup).toContain('value="  Review this screenshot  "');
+    expect(markup).toContain('>  Review this screenshot  </textarea>');
     expect(markup).toContain('src="blob:preview" alt="failure.png"');
-    expect(markup).not.toMatch(/<input[^>]*disabled/);
+    expect(markup).not.toMatch(/<textarea[^>]*disabled/);
     expect(markup).toContain('aria-label="Send — creates the task"');
     expect(markup).not.toMatch(/aria-label="Send — creates the task"[^>]*disabled/);
     expect(markup).toContain('aria-label="Remove image failure.png"');

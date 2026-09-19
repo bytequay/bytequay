@@ -40,8 +40,8 @@ function button(host: HTMLElement, label: string): HTMLButtonElement {
   assert(found !== undefined, `Missing button: ${label}`);
   return found;
 }
-function edit(input: HTMLInputElement, value: string): void {
-  Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')?.set?.call(input, value);
+function edit(input: HTMLTextAreaElement, value: string): void {
+  Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value')?.set?.call(input, value);
   input.dispatchEvent(new Event('input', { bubbles: true }));
 }
 function fixture() {
@@ -123,7 +123,7 @@ async function issueToTask(): Promise<void> {
     await settle();
     button(host, 'Preview issue: upstream/app#7').focus(); await settle();
     assert(f.created.length === 0 && document.querySelector('.agt-issue-preview')?.textContent?.includes('Preserve the existing upload API.') === true, 'Opening composer must preview context without starting');
-    const input = host.querySelector<HTMLInputElement>('input[aria-label="Describe a task"]');
+    const input = host.querySelector<HTMLTextAreaElement>('textarea[aria-label="Describe a task"]');
     assert(input !== null && input.value === 'Implement Fix upload timeout', 'Existing composer must be prefilled');
     edit(input, 'Keep the public API stable'); await settle();
     const send = button(host, 'Send — creates the task'); send.click(); send.click(); await settle();
@@ -150,7 +150,7 @@ async function refreshAndCancel(): Promise<void> {
     flushSync(() => root.render(<AgentTasksView workspaceId={f.workspaceId} sourceIssueNumber={7} bridge={f.bridge}
       onOpenTask={() => {}} onOpenReview={() => {}} />));
     await settle();
-    const input = host.querySelector<HTMLInputElement>('input[aria-label="Describe a task"]');
+    const input = host.querySelector<HTMLTextAreaElement>('textarea[aria-label="Describe a task"]');
     assert(input !== null, 'Composer input is available');
     edit(input, 'Keep my additional instructions'); await settle();
     f.issue = { ...f.issue, title: 'Updated issue title', body: 'Updated issue description', updatedAt: '2026-09-03T00:00:00Z' };

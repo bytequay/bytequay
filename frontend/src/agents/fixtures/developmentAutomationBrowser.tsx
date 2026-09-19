@@ -22,7 +22,9 @@ import AgentTaskScreen from '../AgentTaskScreen';
 import { runCiAutofixScenarios } from './ciAutofixBrowser';
 import { runDevelopmentDeliveryScenarios } from './developmentDeliveryBrowser';
 import { automationForSubmission, DEFAULT_DEVELOPMENT_AUTOMATION } from '../developmentAutomation';
-import { assert, settle } from '../../fixtures/harness';
+import { assert, changeInput, settle } from '../../fixtures/harness';
+import '../../css/base.css';
+import '../../css/agents.css';
 
 
 async function createLocalTask(): Promise<{ name: string; error?: string }[]> {
@@ -47,10 +49,9 @@ async function createLocalTask(): Promise<{ name: string; error?: string }[]> {
     assert(host.textContent?.includes('Keep commits local for this turn') === true, 'Local publication must explain that commits are still created');
     localOnly.click();
     await settle();
-    const input = host.querySelector<HTMLInputElement>('input[aria-label="Describe a task"]');
+    const input = host.querySelector<HTMLTextAreaElement>('textarea[aria-label="Describe a task"]');
     assert(input !== null, 'Task composer must exist');
-    Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')?.set?.call(input, 'Inspect the change locally');
-    input.dispatchEvent(new Event('input', { bubbles: true }));
+    changeInput(input, 'Inspect the change locally');
     await settle();
     const send = host.querySelector<HTMLButtonElement>('.agt-send');
     assert(send !== null && !send.disabled, 'Ready task with local publication selected must be sendable');
@@ -115,8 +116,46 @@ async function retryLocalTurn(): Promise<{ name: string; error?: string }[]> {
   finally { window.confirm = confirm; flushSync(() => root.unmount()); host.remove(); }
 }
 
+async function multilineDraft(): Promise<{ name: string; error?: string }[]> {
+  const bridge = createPreviewBridge('workspace-1');
+  const host = document.createElement('div');
+  document.body.append(host);
+  const root = createRoot(host);
+  function Harness() {
+    const live = useCallback(() => bridge, []);
+    const creation = useAgentTaskCreation({ workspaceId: 'workspace-1', initialLaneId: 'codex', bridge: live, onOpenTask: () => {} });
+    return <TaskComposer {...creation.composer} />;
+  }
+  flushSync(() => root.render(<Harness />));
+  try {
+    await settle();
+    const input = host.querySelector<HTMLTextAreaElement>('textarea[aria-label="Describe a task"]');
+    assert(input !== null, 'Task composer must exist');
+    const press = (shiftKey: boolean): void => {
+      input.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', shiftKey, bubbles: true, cancelable: true }));
+    };
+    changeInput(input, 'First line');
+    await settle();
+    const oneLine = input.clientHeight;
+    assert(input.scrollWidth <= input.clientWidth, 'A draft must wrap instead of scrolling sideways');
+    changeInput(input, 'First line\nSecond line\nThird line');
+    await settle();
+    assert(input.clientHeight > oneLine, `A multi-line draft must grow the composer, stayed at ${oneLine}px`);
+    assert(input.scrollHeight <= input.clientHeight + 1, 'A grown composer must show the whole draft');
+    press(true);
+    await settle();
+    assert(bridge.commands.filter(command => command.name === 'createAgentTask').length === 0, 'Shift+Enter must add a line rather than create the task');
+    press(false);
+    await settle();
+    assert(bridge.commands.filter(command => command.name === 'createAgentTask').length === 1, 'Enter must still create the task');
+    return [{ name: 'The task draft wraps onto new lines and grows the composer' }];
+  }
+  catch (error) { return [{ name: 'Multi-line task draft', error: error instanceof Error ? error.message : String(error) }]; }
+  finally { flushSync(() => root.unmount()); host.remove(); }
+}
+
 export async function run(): Promise<{ name: string; error?: string }[]> {
-  return [...await createLocalTask(), ...await retryLocalTurn(), ...await localReviewExperiments(), ...await localReviewExperiments(true), ...await continuationAdmission(), ...await stopPreservesTask(), ...await pullRequestLookupPolicy(), ...await runCiAutofixScenarios(), ...await runDevelopmentDeliveryScenarios()];
+  return [...await createLocalTask(), ...await multilineDraft(), ...await retryLocalTurn(), ...await localReviewExperiments(), ...await localReviewExperiments(true), ...await continuationAdmission(), ...await stopPreservesTask(), ...await pullRequestLookupPolicy(), ...await runCiAutofixScenarios(), ...await runDevelopmentDeliveryScenarios()];
 }
 
 async function localReviewExperiments(reloadPrivate = false): Promise<{ name: string; error?: string }[]> {

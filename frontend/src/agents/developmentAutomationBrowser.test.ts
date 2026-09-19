@@ -20,7 +20,8 @@ it('preserves accepted automation and continuation admission in Chromium', async
     prefix: 'bytequay-development-automation-',
     entry: 'src/agents/fixtures/developmentAutomationBrowser.tsx',
     global: 'DevelopmentAutomationTests',
+    styles: true,
   });
-  expect(results).toHaveLength(15);
+  expect(results).toHaveLength(16);
   expect(results.filter(result => result.error !== undefined)).toEqual([]);
 }, 30_000);

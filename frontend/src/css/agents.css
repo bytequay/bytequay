@@ -1579,6 +1579,15 @@
   font-weight: 600;
 }
 
+.agt-md__table { max-width: 100%; overflow-x: auto; margin: 10px 0 0; }
+/* Natural width for a short table; a wide one is capped at the column and wraps rather than scrolls. */
+.agt-md__table table { width: 100%; max-width: max-content; border-collapse: collapse; }
+.agt-md__table th,
+.agt-md__table td { border: 1px solid #d0d7de; padding: 5px 11px; vertical-align: top; }
+.agt-md__table th { font-weight: 600; }
+.agt-md__table tbody tr:nth-child(even) { background: #f6f8fa; }
+.agt-md__table + * { margin-top: 10px; }
+
 .agt-md li.agt-md__task { display: flex; align-items: baseline; gap: 7px; list-style: none; }
 .agt-md__task > input { flex: none; margin: 0; accent-color: #27845d; }
 

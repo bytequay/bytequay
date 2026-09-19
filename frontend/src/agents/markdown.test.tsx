@@ -59,6 +59,15 @@ describe('agent markdown', () => {
     expect(html('2 * 3 = 6 and a_b_c stays')).toBe('<div class="agt-md"><p>2 * 3 = 6 and a_b_c stays</p></div>');
   });
 
+  it('renders a table as a table rather than one run-on paragraph', () => {
+    const out = html('Commit order\n\n| Commit | Role |\n|---|:---:|\n| `60354c3a554` | Reattach the page source |\n| `07582ac4416` | Drop trivial overrides |\n\nDone.');
+    expect(out).toContain('<th style="text-align:left">Commit</th><th style="text-align:center">Role</th>');
+    expect(out).toContain('<td style="text-align:left"><code>60354c3a554</code></td><td style="text-align:center">Reattach the page source</td>');
+    expect(out).toContain('<td style="text-align:center">Drop trivial overrides</td>');
+    expect(out).toContain('<p>Done.</p>');
+    expect(out).not.toContain('|');
+  });
+
   it('renders commentary checklists as read-only boxes without creating a structured plan', () => {
     const out = html('- [x] Inspect **planner**\n- [ ] Implement fix\n- Ordinary note\n\n```\n- [ ] example\n```');
     expect(out).toContain('type="checkbox" disabled="" aria-label="Inspect **planner**" checked=""');

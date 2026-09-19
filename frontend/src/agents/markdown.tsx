@@ -14,11 +14,12 @@
 
 import React from 'react';
 import { parseGitHubReference } from '../githubReference';
-import { ReferenceLink } from '../pulls/MarkdownBody';
+import { ReferenceLink, tableAlignments, tableCells } from '../pulls/MarkdownBody';
 
 /**
  * The Markdown an agent's prose actually uses, rendered without a library: paragraphs, headings,
- * bullet and numbered lists, fenced code, block quotes, and inline bold, italics, code and links.
+ * bullet and numbered lists, fenced code, block quotes, tables, and inline bold, italics, code and
+ * links.
  * Anything else is left as the text it is; nothing here executes, and only a link to a GitHub pull
  * request or issue reads that item, for its title and preview.
  */
@@ -64,6 +65,29 @@ export function renderMarkdown(text: string): React.ReactNode {
       }
       index--;
       blocks.push(ordered ? <ol key={key++}>{items}</ol> : <ul key={key++}>{items}</ul>);
+      continue;
+    }
+    const headers = tableCells(line);
+    const aligns = index + 1 < lines.length ? tableAlignments(lines[index + 1]) : null;
+    if (headers !== null && aligns !== null && headers.length === aligns.length) {
+      flush();
+      const rows: string[][] = [];
+      index += 2;
+      for (; index < lines.length; index++) {
+        const cells = tableCells(lines[index]);
+        if (cells === null) break;
+        rows.push(headers.map((_header, cell) => cells[cell] ?? ''));
+      }
+      index--;
+      blocks.push(
+        <div className="agt-md__table" key={key++}>
+          <table>
+            <thead><tr>{headers.map((header, cell) => <th key={cell} style={{ textAlign: aligns[cell] }}>{inline(header)}</th>)}</tr></thead>
+            <tbody>{rows.map((row, rowIndex) => (
+              <tr key={rowIndex}>{row.map((cell, cellIndex) => <td key={cellIndex} style={{ textAlign: aligns[cellIndex] }}>{inline(cell)}</td>)}</tr>
+            ))}</tbody>
+          </table>
+        </div>);
       continue;
     }
     const quote = /^\s*>\s?(.*)$/.exec(line);

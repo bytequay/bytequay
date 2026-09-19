@@ -317,13 +317,13 @@ function decodeEntities(value: string) {
     .replaceAll('&amp;', '&');
 }
 
-function tableCells(line: string) {
+export function tableCells(line: string) {
   const trimmed = line.trim();
   if (!trimmed.includes('|')) return null;
   return trimmed.replace(/^\|/, '').replace(/\|$/, '').split('|').map(cell => cell.trim());
 }
 
-function tableAlignments(line: string) {
+export function tableAlignments(line: string) {
   const cells = tableCells(line);
   if (!cells?.length || cells.some(cell => !/^:?-{3,}:?$/.test(cell))) return null;
   return cells.map((cell): 'left' | 'center' | 'right' => {

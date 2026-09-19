@@ -1907,7 +1907,7 @@ public final class DefaultAgentTurnService
                     if (completionFailure == null) {
                         AgentTurnResult result = requireNonNull(providerResult, "providerResult is null");
                         TurnState terminalState = terminalState(result.state());
-                        persistTerminalTurn(turn, terminalState, result.terminalReason(), result.providerQuiescent(), result.failureKind());
+                        persistTerminalTurn(turn, terminalState, result.terminalReason(), result.providerQuiescent(), result.failureKind(), false);
                     }
                     else {
                         persistTerminalTurn(turn, TurnState.INTERRUPTED, Optional.of(failureMessage(completionFailure)), false);
@@ -2066,7 +2066,7 @@ public final class DefaultAgentTurnService
             AgentTurn turn = requireTurn(acceptedTurn.id());
             if (!turn.state().terminal()) {
                 Optional<String> reason = Optional.of(failureMessage(failure));
-                persistTerminalTurn(turn, TurnState.FAILED, reason, providerQuiescent, true);
+                persistTerminalTurn(turn, TurnState.FAILED, reason, providerQuiescent, Optional.empty(), true);
                 drainPending(outboxStore, eventService, turn.taskId());
             }
         });
@@ -2087,26 +2087,6 @@ public final class DefaultAgentTurnService
             boolean providerQuiescent)
     {
         persistTerminalTurn(turn, terminalState, reason, providerQuiescent, Optional.empty(), false);
-    }
-
-    private void persistTerminalTurn(
-            AgentTurn turn,
-            TurnState terminalState,
-            Optional<String> reason,
-            boolean providerQuiescent,
-            Optional<AgentTurnFailureKind> failureKind)
-    {
-        persistTerminalTurn(turn, terminalState, reason, providerQuiescent, failureKind, false);
-    }
-
-    private void persistTerminalTurn(
-            AgentTurn turn,
-            TurnState terminalState,
-            Optional<String> reason,
-            boolean providerQuiescent,
-            boolean knownUnsent)
-    {
-        persistTerminalTurn(turn, terminalState, reason, providerQuiescent, Optional.empty(), knownUnsent);
     }
 
     private void persistTerminalTurn(

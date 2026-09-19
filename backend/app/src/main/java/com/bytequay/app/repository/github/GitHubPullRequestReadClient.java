@@ -69,6 +69,7 @@ import static com.bytequay.app.repository.github.GitHubApiSupport.requireBody;
 import static com.bytequay.app.repository.github.GitHubApiSupport.requirePat;
 import static com.bytequay.app.repository.github.GitHubApiSupport.toReadableException;
 import static com.bytequay.app.repository.github.GitHubApiSupport.translating;
+import static com.bytequay.app.utils.StringInputUtil.requireNotBlank;
 import static com.bytequay.core.domain.PullRequest.Origin.AUTHORED;
 import static com.bytequay.core.domain.PullRequest.Origin.OTHER;
 import static com.bytequay.core.domain.PullRequest.Origin.REVIEW_REQUESTED;
@@ -883,9 +884,7 @@ public class GitHubPullRequestReadClient
     public DiffFileContent fetchPrDiffFileContent(String pat, PullRequestRef pr, String path)
     {
         requirePat(pat);
-        if (path == null || path.isBlank()) {
-            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "path must not be blank");
-        }
+        requireNotBlank(path, "path must not be blank");
         GitHubPullRequestDetailResponse detail = requireBody(fetchPullRequestDetailResponse(pat, pr), "Empty pull request response from GitHub");
         String baseSha = Optional.ofNullable(detail.base()).map(GitHubPullRequestDetailResponse.Base::sha).orElse(null);
         String headSha = Optional.ofNullable(detail.head()).map(GitHubPullRequestDetailResponse.Head::sha).orElse(null);
@@ -896,9 +895,7 @@ public class GitHubPullRequestReadClient
             String pat, PullRequestRef pr, String path, String baseSha, String headSha)
     {
         requirePat(pat);
-        if (path == null || path.isBlank()) {
-            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "path must not be blank");
-        }
+        requireNotBlank(path, "path must not be blank");
         return new DiffFileContent(
                 fetchRepositoryFile(pat, pr, path, baseSha),
                 fetchRepositoryFile(pat, pr, path, headSha));
@@ -916,12 +913,8 @@ public class GitHubPullRequestReadClient
     {
         requirePat(pat);
         requireNonNull(repository, "repository is null");
-        if (path == null || path.isBlank()) {
-            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "path must not be blank");
-        }
-        if (ref == null || ref.isBlank()) {
-            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "ref must not be blank");
-        }
+        requireNotBlank(path, "path must not be blank");
+        requireNotBlank(ref, "ref must not be blank");
         try {
             return Optional.ofNullable(get(gitHubRestClient, pat, repositoryFileUri(repository, path, ref))
                     .header("Accept", "application/vnd.github.raw+json")
@@ -957,12 +950,8 @@ public class GitHubPullRequestReadClient
     {
         requirePat(pat);
         requireNonNull(repository, "repository is null");
-        if (path == null || path.isBlank()) {
-            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "path must not be blank");
-        }
-        if (ref == null || ref.isBlank()) {
-            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "ref must not be blank");
-        }
+        requireNotBlank(path, "path must not be blank");
+        requireNotBlank(ref, "ref must not be blank");
         if (startLine <= 0 || endLine < startLine) {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "invalid code line range");
         }

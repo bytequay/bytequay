@@ -1302,7 +1302,11 @@ export function AgentTaskBody({
 
       {terminal && state.task !== null && <TerminalSummary task={state.task} onCleanup={onCleanup} />}
 
-      {!terminal && question !== null && <div className="agt-development-question" role="status"><strong>Waiting for your answer</strong>{question}</div>}
+      {/* The question stays open until the reader folds it; a new one arrives open again. */}
+      {!terminal && question !== null && <details key={question} className="agt-development-question" open>
+        <summary><Chevron />Waiting for your answer</summary>
+        <div role="status">{question}</div>
+      </details>}
 
       {automationActive && ciPollingError !== null && <div className="agt-notice" role="alert">{ciPollingError}</div>}
 

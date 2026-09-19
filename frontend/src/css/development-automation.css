@@ -14,4 +14,7 @@
 .agt-automation-ci select { max-width: 210px; padding: 5px 8px; border: 1px solid #dce0e5; border-radius: 7px; background: #fff; color: #414750; font: inherit; }
 .agt-automation-ci small { flex-basis: 100%; color: #7b828b; font-size: 11px; line-height: 1.4; margin-top: 3px; }
 .agt-development-question { margin: 12px 0; padding: 12px 16px; border-radius: 10px; background: #f7f8fa; color: #444b55; font-size: 13px; }
-.agt-development-question strong { display: block; margin-bottom: 5px; }
+.agt-development-question > summary { display: flex; align-items: center; gap: 6px; list-style: none; cursor: pointer; font-weight: 500; }
+.agt-development-question > summary::-webkit-details-marker { display: none; }
+.agt-development-question[open] > summary { margin-bottom: 5px; }
+.agt-development-question[open] > summary .chev { transform: rotate(90deg); }

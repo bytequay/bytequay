@@ -45,7 +45,7 @@ function streamSubscriber(prefix: 'agent' | 'review'): Bridge['subscribeAgentTas
 const bridge: Bridge = {
   savePat: pat => ipcRenderer.invoke('pat:save', pat),
   hasPat: () => ipcRenderer.invoke('pat:has'),
-  fetchPrs: (workspaceId, page, pageSize, search) => ipcRenderer.invoke('prs:list', workspaceId, page, pageSize, search),
+  fetchPrs: (workspaceId, page, pageSize) => ipcRenderer.invoke('prs:list', workspaceId, page, pageSize),
   fetchAttentionPrs: () => ipcRenderer.invoke('prs:attention'),
   setPrMonitored: (prId, monitored) => ipcRenderer.invoke('prs:monitor', prId, monitored),
   setPrAttentionHandled: handled => ipcRenderer.invoke('prs:attention:handled', handled),

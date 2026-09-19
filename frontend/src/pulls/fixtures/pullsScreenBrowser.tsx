@@ -411,6 +411,112 @@ export async function runReviewSheet(): Promise<string> {
   }
 }
 
+/**
+ * Searching narrows the open filter's already-loaded rows. It used to be sent to the backend as
+ * `?search=`, which emptied the list on every keystroke and left `#number` and `@author` terms
+ * matching nothing.
+ */
+export async function runListSearch(): Promise<string> {
+  const detailFor = (number: number, title: string, author: string, state: string): PullRequestDetailDto => ({
+    id: number, repo: 'owner/repo', number, title, htmlUrl: null, state, draft: false,
+    mergeable: null, mergeableState: null, author, authorAvatarUrl: null, createdAt: null,
+    updatedAt: `2026-09-1${number % 9}T00:00:00Z`,
+    mergedAt: null, baseRef: 'main', headRef: 'feature', body: '', labels: [], assignees: [], milestone: null,
+    reviewers: [{ login: 'bob', avatarUrl: null, state: 'PENDING' }], additions: 1, deletions: 1, changedFiles: 1,
+    approvalCount: 0, ciStatus: null, recentActivity: [], checkRuns: [], unavailableSections: [], viewerCanWrite: false,
+  });
+  // 30682 is bob's to review, 31206 is his own, and 31215 is closed: three tabs, one loaded page.
+  const page = [
+    detailFor(30682, 'Requested of bob', 'voonhous', 'open'),
+    detailFor(31206, 'Authored by bob', 'bob', 'open'),
+    detailFor(31215, 'Closed work', 'lukasz', 'closed'),
+  ];
+  let listReads = 0;
+  const originalBridge = window.bridge;
+  const bridge = {
+    getUserProfile: async () => ({ login: 'bob', name: null, avatarUrl: '', htmlUrl: '', publicRepos: 0, followers: 0,
+      following: 0, bio: null, location: null, company: null, email: null }),
+    fetchPrs: async () => {
+      listReads++;
+      return { pullRequests: page.map(detail => remotePullRequest(detail, 'bob')),
+        page: 0, pageSize: 50, totalPullRequests: page.length, openPullRequests: 2, hasMore: false };
+    },
+    onPullRequestsSynced: () => () => {},
+    listWorkspaces: async () => [],
+    fetchAttentionPrs: async () => [],
+    fetchPullRequestDetailByRef: async (_repo, number) => page.find(detail => detail.number === number) ?? page[0],
+    refreshPullRequestDetailByRef: async (_repo, number) =>
+      ({ full: true as const, detail: page.find(detail => detail.number === number) ?? page[0], status: null }),
+    refreshAllPullRequestDetailByRef: async (_repo, number) => page.find(detail => detail.number === number) ?? page[0],
+    recordRecentTouch: async () => {},
+  } satisfies Pick<Bridge, 'getUserProfile' | 'fetchPrs' | 'onPullRequestsSynced' | 'listWorkspaces' | 'fetchAttentionPrs'
+    | 'fetchPullRequestDetailByRef' | 'refreshPullRequestDetailByRef' | 'refreshAllPullRequestDetailByRef' | 'recordRecentTouch'>;
+  Object.assign(window, { bridge });
+  const host = document.createElement('div');
+  host.style.cssText = 'width: 1400px; height: 900px; display: flex';
+  document.body.append(host);
+  const root = createRoot(host);
+  // The title span carries the number too; the assertions read the title alone.
+  const titles = () => [...host.querySelectorAll('.pulls-list .pull-row__title')]
+    .map(row => (row.textContent ?? '').replace(/\s*#\d+$/, '').trim());
+  const until = async (condition: () => boolean) => {
+    for (let attempt = 0; attempt < 120 && !condition(); attempt++) await settle();
+  };
+  /** The strip shows as many filters as the measured pane fits; the rest live in the ⋯ menu. */
+  const pickTab = async (label: string) => {
+    const tab = [...host.querySelectorAll<HTMLButtonElement>('.pulls-tab')].find(entry => entry.textContent === label);
+    if (tab === undefined) {
+      host.querySelector<HTMLButtonElement>('.pulls-tab-more')?.click();
+      await settle();
+    }
+    const target = tab ?? [...host.querySelectorAll<HTMLButtonElement>('.pulls-filter-menu__item')]
+      .find(entry => entry.textContent?.includes(label));
+    assert(target !== undefined, `The filters must offer ${label}`);
+    target.click();
+    await settle();
+  };
+  const type = async (value: string) => {
+    const input = host.querySelector<HTMLInputElement>('.pulls-search input');
+    assert(input !== null, 'The list must offer a search box');
+    Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')?.set?.call(input, value);
+    input.dispatchEvent(new Event('input', { bubbles: true }));
+    // The box debounces for 250ms before the filter runs.
+    await new Promise(resolve => window.setTimeout(resolve, 320));
+    await settle();
+  };
+  try {
+    flushSync(() => root.render(<PullsScreen />));
+    await until(() => titles().length > 0);
+    assert(titles().join('|') === 'Requested of bob', `Review must open on the requested pull request, not ${titles().join('|')}`);
+    const reads = listReads;
+
+    await type('#30');
+    assert(titles().join('|') === 'Requested of bob', `A #number prefix must match 30682, not ${titles().join('|')}`);
+    await type('@voon');
+    assert(titles().join('|') === 'Requested of bob', `An @author prefix must match voonhous, not ${titles().join('|')}`);
+    await type('requested');
+    assert(titles().join('|') === 'Requested of bob', `A title term must still match, and found ${titles().join('|')}`);
+    // The search narrows the open filter; bob's own #31206 is My work, not Review.
+    await type('#312');
+    assert(titles().length === 0, `A search must stay inside the open filter, but found ${titles().join('|')}`);
+
+    await pickTab('My work');
+    await type('#312');
+    assert(titles().join('|') === 'Authored by bob', `My work must search its own rows, and found ${titles().join('|')}`);
+    assert(listReads === reads, `Searching must not reload the list, but it read ${listReads - reads} more pages`);
+
+    await type('');
+    await until(() => titles().length === 1);
+    assert(titles().join('|') === 'Authored by bob', 'Clearing the search must restore the selected filter');
+    return 'Search filters the open filter\'s loaded rows by number, author, and title without reloading the list';
+  }
+  finally {
+    flushSync(() => root.unmount());
+    host.remove();
+    Object.assign(window, { bridge: originalBridge });
+  }
+}
+
 /** Refreshes reload only the first list page; the open pull request may come from a later page or a link. */
 export async function runSelectionStability(): Promise<string> {
   const detailFor = (number: number, title: string, updatedAt: string): PullRequestDetailDto => ({

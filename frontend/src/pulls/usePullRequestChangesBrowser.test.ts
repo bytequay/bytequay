@@ -27,5 +27,5 @@ it('loads selected PR commits and rejects stale comparison responses in Chromium
       const results = await window.webContents.executeJavaScript('PullChangesTests.run()');
     `,
   });
-  expect(results).toHaveLength(13);
+  expect(results).toHaveLength(14);
 }, 30_000);

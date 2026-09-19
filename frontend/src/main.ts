@@ -1298,13 +1298,12 @@ function registerIpc(): void {
     backendVoid(`${backendBase()}/recent/draft`, jsonInit('POST', draft)));
   ipcMain.handle('recent:clear', () => backendVoid(`${backendBase()}/recent`, { method: 'DELETE' }));
 
-  ipcMain.handle('prs:list', (_event, workspaceId: string | undefined, page: number, pageSize: number, search?: string) => {
+  ipcMain.handle('prs:list', (_event, workspaceId: string | undefined, page: number, pageSize: number) => {
     const url = new URL(workspaceId
       ? `/api/workspaces/${encodeURIComponent(workspaceId)}/pull-requests`
       : '/prs', backendBase());
     url.searchParams.set('page', String(page));
     url.searchParams.set('size', String(pageSize));
-    if (search?.trim()) url.searchParams.set('search', search.trim());
     return backendJson(url);
   });
   ipcMain.handle('prs:attention', () => backendJson(`${backendBase()}/prs/attention`));

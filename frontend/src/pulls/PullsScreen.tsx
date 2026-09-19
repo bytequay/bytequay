@@ -359,7 +359,7 @@ export default function PullsScreen({
   const [toast, setToast] = useState<{ id: number; text: string } | null>(null);
   const [search, setSearch] = useState('');
   const [query, setQuery] = useState('');
-  /** The debounced query split into its author and text terms; the list filters what it has. */
+  /** The debounced query split into its author and text terms. Searching never reloads the list: it filters the loaded pages. */
   const searchTerms = useMemo(() => parsePullSearch(query), [query]);
   // The toolbar, not the window: it also renders inside the narrower split pane.
   const [toolbarWidth, setToolbarWidth] = useState(Number.POSITIVE_INFINITY);
@@ -377,11 +377,11 @@ export default function PullsScreen({
   const listRequest = useRef(0);
   const manualDetailRefreshRequest = useRef(0);
   const toastId = useRef(0);
-  const listContext = useRef({ workspaceId: repositoryScope?.workspaceId, query });
+  const listContext = useRef({ workspaceId: repositoryScope?.workspaceId });
   const browserWasOpen = useRef(browserOpen);
   const monitorRequests = useRef(new Set<number>());
   viewerLoginRef.current = viewerLogin;
-  listContext.current = { workspaceId: repositoryScope?.workspaceId, query };
+  listContext.current = { workspaceId: repositoryScope?.workspaceId };
 
   useEffect(() => {
     if (!overlay) return;
@@ -433,7 +433,7 @@ export default function PullsScreen({
     return window.bridge.onPullRequestsSynced(() => {
       const current = listContext.current;
       const request = ++listRequest.current;
-      void window.bridge.fetchPrs(current.workspaceId, 0, PAGE_SIZE, current.query)
+      void window.bridge.fetchPrs(current.workspaceId, 0, PAGE_SIZE)
         .then(result => { if (request === listRequest.current) applyPage(result); })
         .catch(() => {});
     });
@@ -459,7 +459,7 @@ export default function PullsScreen({
       const current = listContext.current;
       if (current.workspaceId !== workspaceId) return;
       request = ++listRequest.current;
-      const result = await window.bridge.fetchPrs(current.workspaceId, 0, PAGE_SIZE, current.query);
+      const result = await window.bridge.fetchPrs(current.workspaceId, 0, PAGE_SIZE);
       if (request === listRequest.current) applyPage(result);
     }
     catch (e) {
@@ -499,11 +499,11 @@ export default function PullsScreen({
     setError(null);
     setSyncError(null);
     setPrs([]);
-    // A new search or workspace lists different pull requests; don't let applyPage keep the old one before the next render.
+    // Another workspace lists different pull requests; don't let applyPage keep the old one before the next render.
     selectedPullRequest.current = null;
     setHasMore(false);
     setPage(0);
-    window.bridge.fetchPrs(repositoryScope?.workspaceId, 0, PAGE_SIZE, query)
+    window.bridge.fetchPrs(repositoryScope?.workspaceId, 0, PAGE_SIZE)
       .then(result => {
         if (request === listRequest.current) applyPage(result);
       })
@@ -513,7 +513,7 @@ export default function PullsScreen({
       .finally(() => {
         if (request === listRequest.current) setLoading(false);
       });
-  }, [applyPage, singlePullRequest, query, repositoryScope?.workspaceId]);
+  }, [applyPage, singlePullRequest, repositoryScope?.workspaceId]);
 
   useEffect(() => {
     const timeout = window.setTimeout(() => setQuery(search.trim()), 250);
@@ -561,7 +561,7 @@ export default function PullsScreen({
     loadingMoreRequest.current = true;
     setLoadingMore(true);
     try {
-      const result = await window.bridge.fetchPrs(repositoryScope?.workspaceId, page + 1, PAGE_SIZE, query);
+      const result = await window.bridge.fetchPrs(repositoryScope?.workspaceId, page + 1, PAGE_SIZE);
       if (request !== listRequest.current) return;
       setPrs(current => {
         const loaded = new Set(current.map(pr => pr.id));
@@ -577,7 +577,7 @@ export default function PullsScreen({
       loadingMoreRequest.current = false;
       setLoadingMore(false);
     }
-  }, [hasMore, page, query, repositoryScope?.workspaceId]);
+  }, [hasMore, page, repositoryScope?.workspaceId]);
 
   useEffect(() => {
     const marker = loadMoreMarker.current;
@@ -832,7 +832,7 @@ export default function PullsScreen({
     setPendingReviewComments([]);
     if (singlePullRequest || listVersion !== listRequest.current) return;
     try {
-      const result = await window.bridge.fetchPrs(repositoryScope?.workspaceId, 0, PAGE_SIZE, query);
+      const result = await window.bridge.fetchPrs(repositoryScope?.workspaceId, 0, PAGE_SIZE);
       if (request === manualDetailRefreshRequest.current
           && selectedPullRequest.current?.key === selectedKey
           && listVersion === listRequest.current
@@ -843,7 +843,7 @@ export default function PullsScreen({
           && selectedPullRequest.current?.key === selectedKey
           && listVersion === listRequest.current) setError(remoteErrorMessage(failure));
     }
-  }, [applyPage, detailLoading, singlePullRequest, query, refreshChanges, refreshDetail, repositoryScope?.workspaceId, selectedPr]);
+  }, [applyPage, detailLoading, singlePullRequest, refreshChanges, refreshDetail, repositoryScope?.workspaceId, selectedPr]);
 
   const applyPostedDetail = useCallback((value: PullRequestDetailDto, kind: 'discussion' | 'review') => {
     const current = selectedPullRequest.current;

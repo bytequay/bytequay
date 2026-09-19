@@ -60,6 +60,7 @@ import com.google.common.collect.ImmutableMap;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.EnumSource;
 import org.junit.jupiter.params.provider.ValueSource;
 
 import java.io.IOException;
@@ -2713,88 +2714,54 @@ class TestCodexCliDriver
         }
     }
 
-    @Test
-    void issueContextToolUsesTheTaskEndpointOnOpenAndResumeWithoutRestrictingChildren()
-            throws Exception
+    private enum TaskTool
     {
-        ScriptedProcessSupervisor supervisor = new ScriptedProcessSupervisor(objectMapper);
-        supervisor.reportModelVersion(Optional.of("v2"));
-        supervisor.configBody = "{\"mcp_servers\":{\"bytequay\":{\"url\":\"" + MCP_ENDPOINT + "\",\"default_tools_approval_mode\":\"approve\"}}}";
-        supervisor.mcpStatuses = "{\"data\":[{\"name\":\"bytequay\",\"pluginId\":null}],\"nextCursor\":null}";
-        IssueContextBridge issue = new IssueContextBridge(() -> "Accepted issue context", IssueContextBridge.INSTRUCTION);
-        PermissionBroker broker = new PermissionBroker(
-                () -> URI.create(MCP_ENDPOINT), objectMapper, (taskId, query) -> "",
-                ReviewBridgeResolver.NONE, DevelopmentResultBridgeResolver.NONE, DraftPullRequestPublisher.NONE, LocalReviewBridgeResolver.NONE,
-                PullRequestCiBridgeResolver.NONE, taskId -> Optional.of(issue));
-        CodexHome.prepare(codexHome());
-        CodexCliDriver driver = new CodexCliDriver("/fake/codex", "0.153.4", objectMapper, supervisor,
-                ImmutableMap.of("HOME", worktree.toString()), codexHome(), broker, Duration.ofSeconds(30));
-        Optional<AgentSessionRef> reference = Optional.empty();
-        for (int index = 0; index < 2; index++) {
-            AgentSession session = driver.open(context(reference, new AtomicReference<>()), event -> {});
-            List<String> arguments = supervisor.serverArgv().getLast();
-            assertThat(arguments).containsSequence("--enable", "multi_agent_v2");
-            assertThat(supervisor.servers().getLast().threadRequests().getFirst().path("developerInstructions").asText()).contains(IssueContextBridge.INSTRUCTION);
-            String token = supervisor.environments().stream().filter(environment -> environment.containsKey("BYTEQUAY_CODEGRAPH_TOKEN"))
-                    .reduce((previous, current) -> current).orElseThrow().get("BYTEQUAY_CODEGRAPH_TOKEN");
-            assertThat(arguments).noneMatch(argument -> argument.contains(token));
-            JsonNode listed = broker.handle(token, objectMapper.readTree("""
-                    {"jsonrpc":"2.0","id":1,"method":"tools/list","params":{}}
-                    """)).body().orElseThrow();
-            assertThat(listed.at("/result/tools").findValuesAsText("name")).containsExactly(IssueContextBridge.TOOL_NAME);
-            reference = Optional.of(session.reference());
-            session.close();
-            assertThat(broker.handle(token, objectMapper.readTree("{}")).status()).isEqualTo(401);
-        }
+        ISSUE_CONTEXT,
+        PULL_REQUEST_CI,
+        LOCAL_REVIEW,
     }
 
-    @Test
-    void pullRequestCiToolUsesTheTaskEndpointOnOpenAndResumeWithoutRestrictingChildren()
-            throws Exception
-    {
-        ScriptedProcessSupervisor supervisor = new ScriptedProcessSupervisor(objectMapper);
-        supervisor.reportModelVersion(Optional.of("v2"));
-        supervisor.configBody = "{\"mcp_servers\":{\"bytequay\":{\"url\":\"" + MCP_ENDPOINT + "\",\"default_tools_approval_mode\":\"approve\"}}}";
-        supervisor.mcpStatuses = "{\"data\":[{\"name\":\"bytequay\",\"pluginId\":null}],\"nextCursor\":null}";
-        PullRequestCiBridge ci = new PullRequestCiBridge(jobId -> "No pull request associated yet", (logId, offset) -> "raw", PullRequestCiBridge.INSTRUCTION, Optional.empty(), Optional.empty());
-        PermissionBroker broker = new PermissionBroker(
-                () -> URI.create(MCP_ENDPOINT), objectMapper, (taskId, query) -> "",
-                ReviewBridgeResolver.NONE, DevelopmentResultBridgeResolver.NONE, DraftPullRequestPublisher.NONE, LocalReviewBridgeResolver.NONE,
-                taskId -> Optional.of(ci));
-        CodexHome.prepare(codexHome());
-        CodexCliDriver driver = new CodexCliDriver("/fake/codex", "0.153.4", objectMapper, supervisor,
-                ImmutableMap.of("HOME", worktree.toString()), codexHome(), broker, Duration.ofSeconds(30));
-        Optional<AgentSessionRef> reference = Optional.empty();
-        for (int index = 0; index < 2; index++) {
-            AgentSession session = driver.open(context(reference, new AtomicReference<>()), event -> {});
-            List<String> arguments = supervisor.serverArgv().getLast();
-            assertThat(arguments).containsSequence("--enable", "multi_agent_v2");
-            assertThat(supervisor.servers().getLast().threadRequests().getFirst().path("developerInstructions").asText()).contains(PullRequestCiBridge.INSTRUCTION);
-            String token = supervisor.environments().stream().filter(environment -> environment.containsKey("BYTEQUAY_CODEGRAPH_TOKEN"))
-                    .reduce((previous, current) -> current).orElseThrow().get("BYTEQUAY_CODEGRAPH_TOKEN");
-            assertThat(arguments).noneMatch(argument -> argument.contains(token));
-            JsonNode listed = broker.handle(token, objectMapper.readTree("""
-                    {"jsonrpc":"2.0","id":1,"method":"tools/list","params":{}}
-                    """)).body().orElseThrow();
-            assertThat(listed.at("/result/tools").findValuesAsText("name")).containsExactly(PullRequestCiBridge.TOOL_NAME, PullRequestCiBridge.RAW_TOOL_NAME);
-            reference = Optional.of(session.reference());
-            session.close();
-            assertThat(broker.handle(token, objectMapper.readTree("{}")).status()).isEqualTo(401);
-        }
-    }
+    /** A task-scoped tool bridge: the broker serving it, the instruction it adds, and the tools it lists. */
+    private record BridgedTool(PermissionBroker broker, String instruction, List<String> toolNames) {}
 
-    @Test
-    void localReviewToolsUseTheTaskEndpointWithoutDisablingChildrenOnOpenOrResume()
+    @ParameterizedTest
+    @EnumSource(TaskTool.class)
+    void taskToolsUseTheTaskEndpointOnOpenAndResumeWithoutRestrictingChildren(TaskTool tool)
             throws Exception
     {
         ScriptedProcessSupervisor supervisor = new ScriptedProcessSupervisor(objectMapper);
         supervisor.reportModelVersion(Optional.of("v2"));
         supervisor.configBody = "{\"mcp_servers\":{\"bytequay\":{\"url\":\"" + MCP_ENDPOINT + "\",\"default_tools_approval_mode\":\"approve\"}}}";
         supervisor.mcpStatuses = "{\"data\":[{\"name\":\"bytequay\",\"pluginId\":null}],\"nextCursor\":null}";
-        LocalReviewBridge local = new LocalReviewBridge(commentId -> "[]", reply -> "{}", resolution -> "{}", LocalReviewBridge.INSTRUCTION);
-        PermissionBroker broker = new PermissionBroker(
-                () -> URI.create(MCP_ENDPOINT), objectMapper, (taskId, query) -> "",
-                ReviewBridgeResolver.NONE, DevelopmentResultBridgeResolver.NONE, DraftPullRequestPublisher.NONE, taskId -> Optional.of(local));
+        BridgedTool bridged = switch (tool) {
+            case ISSUE_CONTEXT -> {
+                IssueContextBridge issue = new IssueContextBridge(() -> "Accepted issue context", IssueContextBridge.INSTRUCTION);
+                yield new BridgedTool(
+                        new PermissionBroker(() -> URI.create(MCP_ENDPOINT), objectMapper, (taskId, query) -> "",
+                                ReviewBridgeResolver.NONE, DevelopmentResultBridgeResolver.NONE, DraftPullRequestPublisher.NONE, LocalReviewBridgeResolver.NONE,
+                                PullRequestCiBridgeResolver.NONE, taskId -> Optional.of(issue)),
+                        IssueContextBridge.INSTRUCTION,
+                        ImmutableList.of(IssueContextBridge.TOOL_NAME));
+            }
+            case PULL_REQUEST_CI -> {
+                PullRequestCiBridge ci = new PullRequestCiBridge(jobId -> "No pull request associated yet", (logId, offset) -> "raw", PullRequestCiBridge.INSTRUCTION, Optional.empty(), Optional.empty());
+                yield new BridgedTool(
+                        new PermissionBroker(() -> URI.create(MCP_ENDPOINT), objectMapper, (taskId, query) -> "",
+                                ReviewBridgeResolver.NONE, DevelopmentResultBridgeResolver.NONE, DraftPullRequestPublisher.NONE, LocalReviewBridgeResolver.NONE,
+                                taskId -> Optional.of(ci)),
+                        PullRequestCiBridge.INSTRUCTION,
+                        ImmutableList.of(PullRequestCiBridge.TOOL_NAME, PullRequestCiBridge.RAW_TOOL_NAME));
+            }
+            case LOCAL_REVIEW -> {
+                LocalReviewBridge local = new LocalReviewBridge(commentId -> "[]", reply -> "{}", resolution -> "{}", LocalReviewBridge.INSTRUCTION);
+                yield new BridgedTool(
+                        new PermissionBroker(() -> URI.create(MCP_ENDPOINT), objectMapper, (taskId, query) -> "",
+                                ReviewBridgeResolver.NONE, DevelopmentResultBridgeResolver.NONE, DraftPullRequestPublisher.NONE, taskId -> Optional.of(local)),
+                        LocalReviewBridge.INSTRUCTION,
+                        LocalReviewBridge.TOOL_NAMES);
+            }
+        };
+        PermissionBroker broker = bridged.broker();
         CodexHome.prepare(codexHome());
         CodexCliDriver driver = new CodexCliDriver("/fake/codex", "0.153.4", objectMapper, supervisor,
                 ImmutableMap.of("HOME", worktree.toString()), codexHome(), broker, Duration.ofSeconds(30));
@@ -2804,14 +2771,14 @@ class TestCodexCliDriver
             List<String> arguments = supervisor.serverArgv().getLast();
             assertThat(arguments).containsSequence("--enable", "multi_agent_v2");
             assertThat(arguments).containsSequence("-c", "mcp_servers.bytequay.url=\"" + MCP_ENDPOINT + "\"");
-            assertThat(supervisor.servers().getLast().threadRequests().getFirst().path("developerInstructions").asText()).contains(LocalReviewBridge.INSTRUCTION);
+            assertThat(supervisor.servers().getLast().threadRequests().getFirst().path("developerInstructions").asText()).contains(bridged.instruction());
             String token = supervisor.environments().stream().filter(environment -> environment.containsKey("BYTEQUAY_CODEGRAPH_TOKEN"))
                     .reduce((previous, current) -> current).orElseThrow().get("BYTEQUAY_CODEGRAPH_TOKEN");
             assertThat(arguments).noneMatch(argument -> argument.contains(token));
             JsonNode listed = broker.handle(token, objectMapper.readTree("""
                     {"jsonrpc":"2.0","id":1,"method":"tools/list","params":{}}
                     """)).body().orElseThrow();
-            assertThat(listed.at("/result/tools").findValuesAsText("name")).containsExactlyElementsOf(LocalReviewBridge.TOOL_NAMES);
+            assertThat(listed.at("/result/tools").findValuesAsText("name")).containsExactlyElementsOf(bridged.toolNames());
             reference = Optional.of(session.reference());
             session.close();
             assertThat(broker.handle(token, objectMapper.readTree("{}")).status()).isEqualTo(401);

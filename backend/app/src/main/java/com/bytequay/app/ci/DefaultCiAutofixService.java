@@ -91,6 +91,7 @@ import java.util.List;
 import java.util.Optional;
 import java.util.concurrent.locks.Lock;
 import java.util.function.BiConsumer;
+import java.util.function.Supplier;
 
 import static com.bytequay.app.agent.WorkflowAgentTasks.createOrGet;
 import static com.bytequay.app.agent.WorkflowAgentTasks.repositoryIdentity;
@@ -219,10 +220,8 @@ public class DefaultCiAutofixService
     private void updateRepairProposal(TaskId taskId, TurnId turnId, BiConsumer<CiAutofixRun, CiHeadSnapshot> update)
     {
         CiAutofixRun found = store.findByAgentTaskId(taskId.toString()).orElseThrow(() -> new CiAutofixConflictException("No CI run owns this task"));
-        Lock lock = advanceLocks.get(found.id());
-        lock.lock();
-        try {
-            ownership.execute(get(found.id()), () -> {
+        withRunLock(found.id(), () -> {
+            return ownership.execute(get(found.id()), () -> {
                 CiAutofixRun run = get(found.id());
                 repairToken(run);
                 checkState(run.status() == Status.ACTIVE && run.currentTurnId().filter(turnId.toString()::equals).isPresent(), "CI repair turn is no longer current");
@@ -234,10 +233,7 @@ public class DefaultCiAutofixService
                 update.accept(run, snapshot);
                 return null;
             });
-        }
-        finally {
-            lock.unlock();
-        }
+        });
     }
 
     @Override
@@ -380,6 +376,19 @@ public class DefaultCiAutofixService
         return store.find(runId).orElseThrow(() -> new CiAutofixNotFoundException(runId));
     }
 
+    /** Runs an action under the run's advance lock, which serializes every mutation of that run. */
+    private <T> T withRunLock(CiAutofixRunId runId, Supplier<T> action)
+    {
+        Lock lock = advanceLocks.get(runId);
+        lock.lock();
+        try {
+            return action.get();
+        }
+        finally {
+            lock.unlock();
+        }
+    }
+
     @Override
     public List<CiAutofixRun> list(int limit)
     {
@@ -393,14 +402,7 @@ public class DefaultCiAutofixService
         if (run.status() != Status.PAUSED) {
             return false;
         }
-        Lock lock = advanceLocks.get(run.id());
-        lock.lock();
-        try {
-            return canMessageLocked(get(run.id()));
-        }
-        finally {
-            lock.unlock();
-        }
+        return withRunLock(run.id(), () -> canMessageLocked(get(run.id())));
     }
 
     private boolean canMessageLocked(CiAutofixRun run)
@@ -517,14 +519,7 @@ public class DefaultCiAutofixService
     public CiAutofixRun sendMessage(SendCiAutofixMessageCommand command)
     {
         validateMessageCommand(command);
-        Lock lock = advanceLocks.get(command.runId());
-        lock.lock();
-        try {
-            return ownership.execute(get(command.runId()), () -> sendMessageLocked(command));
-        }
-        finally {
-            lock.unlock();
-        }
+        return withRunLock(command.runId(), () -> ownership.execute(get(command.runId()), () -> sendMessageLocked(command)));
     }
 
     private CiAutofixRun sendMessageLocked(SendCiAutofixMessageCommand command)
@@ -605,14 +600,7 @@ public class DefaultCiAutofixService
             }
             return get(runId);
         }
-        Lock lock = advanceLocks.get(runId);
-        lock.lock();
-        try {
-            return cancelLocked(runId);
-        }
-        finally {
-            lock.unlock();
-        }
+        return withRunLock(runId, () -> cancelLocked(runId));
     }
 
     private CiAutofixRun cancelLocked(CiAutofixRunId runId)
@@ -629,16 +617,11 @@ public class DefaultCiAutofixService
     public CiAutofixRun advance(CiAutofixRunId runId)
     {
         requireNonNull(runId, "runId is null");
-        Lock lock = advanceLocks.get(runId);
-        lock.lock();
-        try {
+        return withRunLock(runId, () -> {
             CiAutofixRun result = ownership.execute(get(runId), () -> advanceLocked(runId));
             ownership.forgetFinished(result);
             return result;
-        }
-        finally {
-            lock.unlock();
-        }
+        });
     }
 
     private CiAutofixRun advanceLocked(CiAutofixRunId runId)

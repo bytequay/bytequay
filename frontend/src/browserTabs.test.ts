@@ -142,10 +142,21 @@ it('minimizes pinned pages and fully closes them only after unpinning', () => {
   tabs.close(first);
   expect(view(0).webContents.close).toHaveBeenCalledOnce();
   expect(view(1).webContents.close).not.toHaveBeenCalled();
-  expect(tabs.getState().activeTabId).toBe(second);
+  expect(tabs.getState().activeTabId).toBeNull();
   expect(JSON.parse(fs.readFileSync(file, 'utf8'))).toEqual([]);
   tabs.close(second);
   expect(tabs.getState()).toEqual({ tabs: [], activeTabId: null });
+});
+
+it('returns to the app when the open page closes, leaving other pages alone', () => {
+  const pinned = open('https://slack.example/client/T1');
+  tabs.pin(pinned, true);
+  const opened = open('https://github.example/pull/30682');
+  tabs.mount(opened, bounds);
+  tabs.close(opened);
+  expect(tabs.getState()).toMatchObject({ activeTabId: null, tabs: [{ id: pinned }] });
+  expect(view(1).webContents.close).toHaveBeenCalledOnce();
+  expect(contentView.addChildView).toHaveBeenCalledOnce();
 });
 
 it('restores a minimized pin in a new app instance until explicitly unpinned', () => {

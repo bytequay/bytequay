@@ -110,20 +110,11 @@ export class BrowserTabs {
   close(id: string): void {
     const tab = this.tabs.get(id);
     if (!tab) return;
-    if (tab.state.pinned) {
-      if (this.activeTabId === id) this.hide();
-      return;
-    }
-    const ids = [...this.tabs.keys()];
-    const wasActive = this.activeTabId === id;
-    if (this.surface?.id === id) this.unmountSurface();
+    // Closing the open page returns to the app; the rail is a set of pages, not a tab strip.
+    if (this.activeTabId === id) this.hide();
+    if (tab.state.pinned) return;
     this.tabs.delete(id);
     if (tab.view && !tab.view.webContents.isDestroyed()) tab.view.webContents.close();
-    if (wasActive) {
-      this.activeTabId = null;
-      const next = ids[ids.indexOf(id) + 1] ?? ids[ids.indexOf(id) - 1];
-      if (next) this.select(next);
-    }
     this.emit();
   }
 

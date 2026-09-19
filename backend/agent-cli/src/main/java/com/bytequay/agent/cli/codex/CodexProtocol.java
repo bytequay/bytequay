@@ -87,10 +87,7 @@ final class CodexProtocol
      * instead of each wrapper reaching into its own params type.
      */
     sealed interface Params
-            permits TurnNotificationParams, ItemNotificationParams, ItemDeltaParams, PlanUpdatedParams,
-            TokenUsageParams, ErrorParams, ThreadStartedParams, UnknownParams, CommandApprovalParams,
-            AutoApprovalReviewParams,
-            FileChangeApprovalParams, PermissionsApprovalParams
+            permits TurnScopedParams, TurnNotificationParams, ThreadStartedParams, UnknownParams
     {
         String threadId();
 
@@ -98,6 +95,22 @@ final class CodexProtocol
         default Optional<String> owningTurnId()
         {
             return Optional.empty();
+        }
+    }
+
+    /** A payload the App Server scopes to one turn, which names that turn directly. */
+    sealed interface TurnScopedParams
+            extends Params
+            permits ItemNotificationParams, ItemDeltaParams, PlanUpdatedParams, TokenUsageParams,
+            ErrorParams, AutoApprovalReviewParams, CommandApprovalParams, FileChangeApprovalParams,
+            PermissionsApprovalParams
+    {
+        String turnId();
+
+        @Override
+        default Optional<String> owningTurnId()
+        {
+            return Optional.of(turnId());
         }
     }
 
@@ -172,7 +185,7 @@ final class CodexProtocol
     }
 
     record AutoApprovalReviewParams(String threadId, String turnId, String reviewId, AutoApprovalReview review)
-            implements Params
+            implements TurnScopedParams
     {
         AutoApprovalReviewParams
         {
@@ -180,12 +193,6 @@ final class CodexProtocol
             checkIdentifier(turnId, "turnId");
             checkIdentifier(reviewId, "reviewId");
             requireNonNull(review, "review is null");
-        }
-
-        @Override
-        public Optional<String> owningTurnId()
-        {
-            return Optional.of(turnId);
         }
     }
 
@@ -288,19 +295,13 @@ final class CodexProtocol
     }
 
     record ItemNotificationParams(ThreadItem item, String threadId, String turnId)
-            implements Params
+            implements TurnScopedParams
     {
         ItemNotificationParams
         {
             requireNonNull(item, "item is null");
             checkIdentifier(threadId, "threadId");
             checkIdentifier(turnId, "turnId");
-        }
-
-        @Override
-        public Optional<String> owningTurnId()
-        {
-            return Optional.of(turnId);
         }
     }
 
@@ -320,7 +321,7 @@ final class CodexProtocol
     }
 
     record ItemDeltaParams(String threadId, String turnId, String itemId, String delta)
-            implements Params
+            implements TurnScopedParams
     {
         ItemDeltaParams
         {
@@ -329,16 +330,10 @@ final class CodexProtocol
             checkIdentifier(itemId, "itemId");
             requireNonNull(delta, "delta is null");
         }
-
-        @Override
-        public Optional<String> owningTurnId()
-        {
-            return Optional.of(turnId);
-        }
     }
 
     record PlanUpdatedParams(List<PlanStep> plan, String threadId, String turnId)
-            implements Params
+            implements TurnScopedParams
     {
         PlanUpdatedParams
         {
@@ -346,16 +341,10 @@ final class CodexProtocol
             checkIdentifier(threadId, "threadId");
             checkIdentifier(turnId, "turnId");
         }
-
-        @Override
-        public Optional<String> owningTurnId()
-        {
-            return Optional.of(turnId);
-        }
     }
 
     record TokenUsageParams(String threadId, String turnId, ThreadTokenUsage tokenUsage)
-            implements Params
+            implements TurnScopedParams
     {
         TokenUsageParams
         {
@@ -363,16 +352,10 @@ final class CodexProtocol
             checkIdentifier(turnId, "turnId");
             requireNonNull(tokenUsage, "tokenUsage is null");
         }
-
-        @Override
-        public Optional<String> owningTurnId()
-        {
-            return Optional.of(turnId);
-        }
     }
 
     record ErrorParams(TurnError error, String threadId, String turnId, Boolean willRetry)
-            implements Params
+            implements TurnScopedParams
     {
         ErrorParams
         {
@@ -380,12 +363,6 @@ final class CodexProtocol
             checkIdentifier(threadId, "threadId");
             checkIdentifier(turnId, "turnId");
             requireNonNull(willRetry, "willRetry is null");
-        }
-
-        @Override
-        public Optional<String> owningTurnId()
-        {
-            return Optional.of(turnId);
         }
     }
 
@@ -911,7 +888,7 @@ final class CodexProtocol
             Long startedAtMs,
             String threadId,
             String turnId)
-            implements Params
+            implements TurnScopedParams
     {
         CommandApprovalParams
         {
@@ -934,12 +911,6 @@ final class CodexProtocol
             checkIdentifier(threadId, "threadId");
             checkIdentifier(turnId, "turnId");
         }
-
-        @Override
-        public Optional<String> owningTurnId()
-        {
-            return Optional.of(turnId);
-        }
     }
 
     record FileChangeApprovalParams(
@@ -949,7 +920,7 @@ final class CodexProtocol
             Long startedAtMs,
             String threadId,
             String turnId)
-            implements Params
+            implements TurnScopedParams
     {
         FileChangeApprovalParams
         {
@@ -959,12 +930,6 @@ final class CodexProtocol
             requireNonNull(startedAtMs, "startedAtMs is null");
             checkIdentifier(threadId, "threadId");
             checkIdentifier(turnId, "turnId");
-        }
-
-        @Override
-        public Optional<String> owningTurnId()
-        {
-            return Optional.of(turnId);
         }
     }
 
@@ -977,7 +942,7 @@ final class CodexProtocol
             Long startedAtMs,
             String threadId,
             String turnId)
-            implements Params
+            implements TurnScopedParams
     {
         PermissionsApprovalParams
         {
@@ -990,12 +955,6 @@ final class CodexProtocol
             requireNonNull(startedAtMs, "startedAtMs is null");
             checkIdentifier(threadId, "threadId");
             checkIdentifier(turnId, "turnId");
-        }
-
-        @Override
-        public Optional<String> owningTurnId()
-        {
-            return Optional.of(turnId);
         }
     }
 

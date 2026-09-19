@@ -407,9 +407,14 @@ public final class DefaultAgentCompletionService
         turnStore.findActive(taskId).ifPresent(turn -> {
             throw new AgentConflictException("Task has an active turn; stop it before deleting: " + turn.id());
         });
-        found.orElseThrow().worktreeMutationClaim().ifPresent(claim -> {
-            throw new AgentConflictException("Task worktree is claimed by " + claim.kind() + "; it cannot be deleted yet");
-        });
+        // A recovery claim is not a writer: it holds a worktree whose launch could not be shown
+        // stopped, and a task wearing one is otherwise stuck for good. Deleting closes the session
+        // and forces the checkout out, which is what the claim is waiting for.
+        found.orElseThrow().worktreeMutationClaim()
+                .filter(claim -> claim.kind() != WorktreeMutationClaim.Kind.RECOVERY)
+                .ifPresent(claim -> {
+                    throw new AgentConflictException("Task worktree is claimed by " + claim.kind() + "; it cannot be deleted yet");
+                });
         return true;
     }
 

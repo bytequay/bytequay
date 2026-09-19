@@ -102,9 +102,14 @@ export function taskArchived(task: Pick<AgentTaskDto, 'archivedAt'>): boolean {
   return task.archivedAt !== null && task.archivedAt !== undefined;
 }
 
-/** A task something may still be writing to; deleting waits for it to stop. */
+/**
+ * A task something may still be writing to; deleting waits for it to stop. A recovery claim is not
+ * one: it holds the worktree of a launch that could not be shown stopped, and deleting is how a
+ * task leaves that state.
+ */
 function taskBusy(task: AgentTaskDto): boolean {
-  return task.state === 'OPEN' && task.mutationClaim !== null && task.mutationClaim !== undefined;
+  const claim = task.mutationClaim ?? null;
+  return claim !== null && claim.kind !== 'RECOVERY';
 }
 
 type TaskGroup = { key: string; label: string; date: string; tasks: AgentTaskDto[] };

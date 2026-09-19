@@ -386,6 +386,21 @@ class TestDefaultAgentCompletionService
     }
 
     @Test
+    void deletesATaskStuckHoldingARecoveryClaim()
+    {
+        stores.update(stores.find(taskId).orElseThrow()
+                .claimWorktreeMutation(WorktreeMutationClaim.recovery("launch-1", NOW), NOW));
+        DefaultAgentCompletionService service = service(Clock.fixed(NOW, ZoneOffset.UTC));
+
+        // The claim holds a worktree nothing is known to be writing; refusing here left the task
+        // with no way out of recovery at all.
+        service.delete(taskId);
+
+        assertThat(worktrees.deleted).hasSize(1);
+        assertThat(stores.find(taskId)).isEmpty();
+    }
+
+    @Test
     void keepsTheTaskWhenItsCheckoutCannotBeDeleted()
     {
         worktrees.failDelete = true;

@@ -227,16 +227,15 @@ export function TaskChangesView({
 /**
  * The PR tab before the branch has one.
  *
- * Create draft PR is the only button in the panel, and the click is what authorizes ByteQuay to
- * push the task's committed work and open the draft. It commits nothing, so the backend refuses a
- * task that still has uncommitted changes.
+ * Check again is the only button in the panel: it re-reads the branch from GitHub, which is how a
+ * pull request opened outside this task reaches the panel between turns.
  */
-export function NoPullRequestView({ branch, repository, onCreate, createBlocked = null }: {
+export function NoPullRequestView({ branch, repository, onCheck, checking = false }: {
   branch: string | null;
   repository: string | null;
-  /** Absent in a static render. */
-  onCreate?: () => void;
-  createBlocked?: string | null;
+  /** Absent in a static render, and while the task is busy enough that a lookup would be stale. */
+  onCheck?: () => void;
+  checking?: boolean;
 }): React.JSX.Element {
   return (
     <div className="agt-nopr">
@@ -246,20 +245,18 @@ export function NoPullRequestView({ branch, repository, onCreate, createBlocked 
         This task&apos;s branch {branch !== null && <><code>{branch}</code> </>}
         has no open PR{repository !== null && <> on <strong>{repository}</strong></>}.
       </div>
-      {onCreate !== undefined && (
-        <button
-          type="button"
-          className="agt-nopr__create"
-          disabled={createBlocked !== null}
-          title={createBlocked ?? 'Asks ByteQuay to push this branch and open a draft pull request from the repository template'}
-          onClick={onCreate}
-        >
-          Create draft PR
-        </button>
-      )}
+      <button
+        type="button"
+        className="agt-nopr__check"
+        disabled={onCheck === undefined || checking}
+        title="Reads this branch's pull requests from GitHub again"
+        onClick={onCheck}
+      >
+        {checking ? 'Checking…' : 'Check again'}
+      </button>
       <div className="agt-nopr__note">
-        Asks ByteQuay to publish this task&apos;s committed work. It commits nothing; ByteQuay
-        pushes the branch and opens the draft.
+        ByteQuay reads this branch when the task opens and after every turn. A pull request opened
+        from the agent or on GitHub appears at the next check.
       </div>
     </div>
   );

@@ -51,7 +51,6 @@ import com.bytequay.agent.spi.AgentUnavailableException;
 import com.bytequay.app.agent.AgentServingGate;
 import com.bytequay.app.agent.AgentStartupRecovery;
 import com.bytequay.app.agent.AgentTaskStartupProgress;
-import com.bytequay.app.agent.DevelopmentFollowupCoordinator;
 import com.bytequay.app.agent.InteractiveAgentTaskCreator;
 import com.bytequay.app.agent.IssueDevelopmentService;
 import com.bytequay.app.agent.LocalReviewSessionService;
@@ -169,7 +168,6 @@ class TestAgentHttpErrors
                 ciRuns,
                 ci,
                 startupProgress,
-                mock(DevelopmentFollowupCoordinator.class),
                 localReviewSessions,
                 new AgentStreamRegistry(),
                 mock(IssueDevelopmentService.class));

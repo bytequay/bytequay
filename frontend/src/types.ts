@@ -1601,10 +1601,6 @@ export type Bridge = {
   removeAgentQueuedInput: (taskId: string, workspaceId: string, queuedInputId: string) => Promise<AgentQueuedInputDto>;
   /** Starts the paused queue head on an idle task. */
   resumeAgentQueue: (taskId: string, workspaceId: string) => Promise<AgentTurnDto>;
-  /** Asks ByteQuay to publish this task's committed work as a draft pull request. */
-  requestAgentDraftPullRequest: (
-    taskId: string, workspaceId: string, expectedVersion: number, idempotencyKey: string,
-  ) => Promise<AgentTurnDto>;
   getAgentTurn: (turnId: string) => Promise<AgentTurnDto>;
   cancelAgentTurn: (turnId: string) => Promise<AgentTurnDto>;
   resolveAgentApproval: (

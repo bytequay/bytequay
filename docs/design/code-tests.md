@@ -1006,8 +1006,8 @@ start rules already refuse an active turn, queued input, any held claim, an
 unfinished development continuation or in-memory development owner, and CI
 Autofix owning the branch. There is no review lock on this path. A saved edit
 is ordinary uncommitted work: a later development turn's "commit finished
-changes" step may commit it, and it blocks Create draft PR and Review locally
-until committed. Discard is not offered: `ReviewExperiments.discard` resets
+changes" step may commit it, and it blocks Review locally until
+committed. Discard is not offered: `ReviewExperiments.discard` resets
 and cleans the worktree, which on a development task would delete unfinished
 work (worktree-service.md: destructive operations need their own authority).
 

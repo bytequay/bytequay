@@ -54,7 +54,6 @@ export type AgentBridgePort = Pick<Bridge,
   | 'listAgentQueue'
   | 'removeAgentQueuedInput'
   | 'resumeAgentQueue'
-  | 'requestAgentDraftPullRequest'
   | 'getAgentTurn'
   | 'cancelAgentTurn'
   | 'resolveAgentApproval'

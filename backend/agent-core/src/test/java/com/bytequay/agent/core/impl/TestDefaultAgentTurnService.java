@@ -610,9 +610,6 @@ class TestDefaultAgentTurnService
         assertThat(taskService.get(development.id()).localReviewHead()).contains(head);
         assertThat(taskService.get(development.id()).developmentContinuationUnfinished()).isFalse();
         assertThat(driver.openedContexts().getLast().managedInstructions()).contains("NEVER commit, push, publish");
-        assertThatThrownBy(() -> service.startPublicationTurn(
-                new StartAgentTurnCommand(development.id(), "Publish", ImmutableList.of(), "private-publish"), first.id()))
-                .isInstanceOf(AgentConflictException.class).hasMessageContaining("Return to development");
         assertThatThrownBy(() -> service.startGeneratedTurn(development.id(),
                 new DevelopmentTurnOrigin(DevelopmentTurnOrigin.Kind.AUTO_COMMIT, first.id()), "Commit"))
                 .isInstanceOf(AgentConflictException.class).hasMessageContaining("Private review");

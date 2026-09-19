@@ -684,9 +684,10 @@ without a pull request, which is the state below.
 
 Without an open or merged pull request the PR tab reads **Pull request**,
 without a number, and renders a centred empty state: the title, the task's
-branch and the monitored repository, the **Create draft PR** action, and one
-line saying the action asks ByteQuay to publish the task's committed work, that
-it commits nothing, and that ByteQuay pushes the branch and opens the draft.
+branch and the monitored repository, the **Check again** action, and one line
+saying ByteQuay reads the branch when the task opens and after every turn, and
+that a pull request opened from the agent or on GitHub appears at the next
+check.
 
 Opening an idle task, ending any ordinary turn, or selecting the PR panel
 refreshes those branches through GitHub's head-filtered pull-request endpoint.
@@ -705,17 +706,12 @@ repository search indexing or search results, which omit head branches. No trans
 treated as authoritative association, and no separate durable task-to-PR link
 is introduced. Matching stored rows remains repository plus branch.
 
-Its **Create draft PR** action, offered while the task is idle and the branch
-has no open or merged pull request, asks ByteQuay to publish the task's
-committed work. The click is the authorization: ByteQuay verifies the branch,
-builds the same publication request the accepted Auto draft PR automation uses,
-and starts that turn itself. The agent reads the repository's pull request
-template, chooses a title and body, and calls the task's publish tool; ByteQuay
-performs the push and opens the draft against the monitored repository and its
-default branch. No session needs a remote write, a GitHub CLI, or a credential,
-and the action commits nothing — a task with uncommitted changes is refused
-until they are committed. Once that turn ends, the same branch refresh discovers
-the new draft without waiting for scheduled sync.
+Its **Check again** action runs that same lookup on demand. It writes nothing:
+a pull request is published by the accepted Auto draft PR automation, or by the
+agent, and this only asks GitHub about the branch again between turns. The
+button is offered whenever the branch has no open or merged pull request, and is
+disabled while the lookup runs or while the task is busy enough that its answer
+would be stale. ByteQuay does not open a pull request from this panel.
 
 ### 2.6 Queue and steering
 

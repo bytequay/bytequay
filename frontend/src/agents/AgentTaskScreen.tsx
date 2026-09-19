@@ -563,11 +563,11 @@ function PanelFrame({ label, tabs, width, flush = false, overview = false, kept 
  */
 function SidePanel({
   agents, openAgent, expiredChildren, deleteAfter, transcript, now, tab: requestedTab, task = null, pullRequest,
-  pullRequestError, pullRequestLoading, onRefreshPullRequests,
+  pullRequestError, pullRequestLoading, pullRequestChecked, onRefreshPullRequests,
   pullRequestDetail, pullRequestChanges, pullRequestCommitRange, pullRequestPendingComments,
   onPullRequestCommitRangeChange, onPullRequestPendingCommentsChange, workspaceId, branch, repository,
   activityChoice, onOpenAgent, onCloseAgent, onToggleActivity, onDecide, onSelectTab, onOpenPullRequest,
-  onCreatePullRequest, createPullRequestBlocked = null, onAskAgent, onAskAgentDisabled, localReview, learning, reviewFocus, onCodeUnsavedChange,
+  onAskAgent, onAskAgentDisabled, localReview, learning, reviewFocus, onCodeUnsavedChange,
   width, showAgents, logChoice = null, onToggleLog = () => {}, historyUnloaded = false, onLoadEarlier = () => {}, historyLoading = false,
 }: {
   agents: AgentNode[];
@@ -586,6 +586,8 @@ function SidePanel({
   pullRequest: PullRequestDto | null;
   pullRequestError: string | null;
   pullRequestLoading: boolean;
+  /** Whether a lookup has already answered, so a later one refreshes under the panel it filled. */
+  pullRequestChecked: boolean;
   onRefreshPullRequests?: () => void;
   pullRequestDetail: TaskPullRequestDetail;
   pullRequestChanges: TaskPullRequestChanges;
@@ -604,8 +606,6 @@ function SidePanel({
   onDecide: (approvalId: string, decision: AgentApprovalDecision) => void;
   onSelectTab: (tab: PanelTab) => void;
   onOpenPullRequest?: (number: number) => void;
-  onCreatePullRequest?: () => void;
-  createPullRequestBlocked?: string | null;
   onAskAgent?: (comment: DiffAgentComment) => Promise<void>;
   onAskAgentDisabled?: string | null;
   localReview?: LocalReviewThreads;
@@ -719,7 +719,7 @@ function SidePanel({
           type="button" className="agt-action" disabled={pullRequestLoading} onClick={onRefreshPullRequests}
         >{pullRequestLoading ? 'Retrying…' : 'Retry'}</button>}
       </div>
-    : pullRequest === null && pullRequestLoading
+    : pullRequest === null && pullRequestLoading && !pullRequestChecked
       ? <div className="agt-muted agt-panel__empty" role="status">Checking for a pull request…</div>
       : null;
   const detail = pullRequestDetail.detail;
@@ -767,7 +767,7 @@ function SidePanel({
       <PanelFrame label={pullRequest === null ? 'Pull request' : `Pull request #${pullRequest.number}`} tabs={tabs} width={width} overview={pullRequest !== null} {...code}>
         {pullRequestNotice}
         {pullRequest === null
-          ? pullRequestNotice === null && <NoPullRequestView branch={branch} repository={repository} onCreate={onCreatePullRequest} createBlocked={createPullRequestBlocked} />
+          ? pullRequestNotice === null && <NoPullRequestView branch={branch} repository={repository} onCheck={onRefreshPullRequests} checking={pullRequestLoading} />
           : (
             <TaskPullRequestView localReview={localThreads}
               key={`${pullRequest.repo.toLowerCase()}#${pullRequest.number}`}
@@ -977,6 +977,7 @@ export function AgentTaskBody({
   pullRequests = [],
   pullRequestError = null,
   pullRequestLoading = false,
+  pullRequestChecked = false,
   ciPollingError = null,
   ciSubmissionBlocked = false,
   onRefreshPullRequests,
@@ -1002,7 +1003,6 @@ export function AgentTaskBody({
   onCloseAgent = () => {},
   onSelectPanelTab = () => {},
   onOpenPullRequest,
-  onCreatePullRequest,
   onSteer: steer = () => {},
   onQueue = () => {},
   onRemoveQueued = () => {},
@@ -1083,6 +1083,7 @@ export function AgentTaskBody({
   pullRequests?: PullRequestDto[];
   pullRequestError?: string | null;
   pullRequestLoading?: boolean;
+  pullRequestChecked?: boolean;
   ciPollingError?: string | null;
   ciSubmissionBlocked?: boolean;
   onRefreshPullRequests?: () => void;
@@ -1098,7 +1099,6 @@ export function AgentTaskBody({
   onSelectPanelTab?: (tab: PanelTab) => void;
   onOpenPullRequest?: (number: number) => void;
   /** Asks ByteQuay to publish the task's committed work as a draft pull request; absent in a static render. */
-  onCreatePullRequest?: () => void;
   logChoice?: string | null;
   onToggleLog?: (choice: string) => void;
   /** Steer sends the draft into the running turn; Run next queues it behind that turn. */
@@ -1413,6 +1413,7 @@ export function AgentTaskBody({
             pullRequest={taskPr}
             pullRequestError={pullRequestError}
             pullRequestLoading={pullRequestLoading}
+            pullRequestChecked={pullRequestChecked}
             onRefreshPullRequests={onRefreshPullRequests}
             pullRequestDetail={pullRequestDetail}
             pullRequestChanges={pullRequestChanges}
@@ -1436,11 +1437,6 @@ export function AgentTaskBody({
             onSelectTab={onSelectPanelTab}
             onCodeUnsavedChange={onCodeUnsavedChange}
             onOpenPullRequest={onOpenPullRequest}
-            onCreatePullRequest={onCreatePullRequest}
-            createPullRequestBlocked={localReviewActive ? 'Private review keeps changes local'
-              : automationActive ? 'Available when automation finishes' : status !== 'idle' || state.sending || state.connection === 'failed'
-              ? 'Available once the agent is idle'
-              : null}
             width={sidePanel.width}
             showAgents={supportsNestedAgents}
             logChoice={logChoice}
@@ -1806,7 +1802,7 @@ export default function AgentTaskScreen({
       return;
     }
     let active = true;
-    setPullRequestLoading(!pullRequestChecked.current);
+    setPullRequestLoading(true);
     const lookup = async (): Promise<void> => {
       const cached = await live().listAgentTaskPullRequests(taskId, workspaceId);
       if (!active) return;
@@ -2070,22 +2066,6 @@ export default function AgentTaskScreen({
   }, [agentCommentDisabled, createLocalReview, recordProviderUnavailable, refreshProjection, taskId, taskPr, workspaceId]);
 
   /** One click, one publication: ByteQuay builds the request, starts the turn and owns the write. */
-  const createPullRequest = useCallback(() => run(async () => {
-    const current = stateRef.current;
-    const task = current.task;
-    if (task === null || task.localReviewHead != null || runtimeStatus(current) !== 'idle' || task.developmentContinuationUnfinished || current.sending) return;
-    const idempotencyKey = submissions.keyFor('send', taskId, taskId, `draft-pull-request:${task.version}`, [], task.defaults);
-    try {
-      const turn = await live().requestAgentDraftPullRequest(taskId, workspaceId, task.version, idempotencyKey);
-      applyTurn(turn);
-      await refreshProjection(turn.id);
-    }
-    catch (failure) {
-      recordProviderUnavailable(failure);
-      throw failure;
-    }
-  }), [applyTurn, live, recordProviderUnavailable, refreshProjection, run, submissions, taskId, workspaceId]);
-
   const steer = useCallback(() => run(async () => {
     if (attachmentPendingRef.current || !canSteer(stateRef.current)) return;
     const message = state.composer.trim();
@@ -2462,11 +2442,10 @@ export default function AgentTaskScreen({
       pullRequests={pullRequests}
       pullRequestError={pullRequestError}
       pullRequestLoading={pullRequestLoading}
+      pullRequestChecked={pullRequestChecked.current}
       ciPollingError={ciPollingError}
       ciSubmissionBlocked={confirmation !== null || confirming}
-      onRefreshPullRequests={canRefreshPullRequests
-        ? () => { pullRequestChecked.current = false; setPullRequestRefresh((revision) => revision + 1); }
-        : undefined}
+      onRefreshPullRequests={canRefreshPullRequests ? () => setPullRequestRefresh((revision) => revision + 1) : undefined}
       pullRequestDetail={pullRequestDetail}
       pullRequestChanges={pullRequestChanges}
       pullRequestCommitRange={pullRequestCommitRange}
@@ -2490,7 +2469,6 @@ export default function AgentTaskScreen({
       logChoice={logChoice}
       onToggleLog={setLogChoice}
       onOpenPullRequest={onOpenPullRequest}
-      onCreatePullRequest={() => { void createPullRequest(); }}
       onSteer={() => { void steer(); }}
       onQueue={() => { void queueNext(); }}
       onRemoveQueued={(queuedInputId) => { void removeQueued(queuedInputId); }}

@@ -49,22 +49,6 @@ public interface AgentTurnService
     CompletionStage<DevelopmentTurnCompletion> startGeneratedTurn(TaskId taskId, DevelopmentTurnOrigin origin, String message);
 
     /**
-     * Starts the draft-pull-request turn a user asked for from the task's own pull-request panel.
-     *
-     * <p>Unlike {@link #startGeneratedTurn}, this owns no development continuation and answers to no
-     * accepted automation: the click is the authority. The turn still carries a
-     * {@code CREATE_DRAFT_PR} origin so the conversation renders it as the publication request it is,
-     * and so its completion drives no automatic follow-up. Its settings grant only draft publication,
-     * which is what exposes ByteQuay's publish tool for the turn.
-     *
-     * @param command task, message, expected version, and idempotency key; attachments must be empty
-     * @param sourceTurnId the task's completed user turn this publication belongs to
-     * @return the accepted or already-started turn
-     * @throws AgentConflictException when another turn is active or automation owns the task
-     */
-    AgentTurn startPublicationTurn(StartAgentTurnCommand command, TurnId sourceTurnId);
-
-    /**
      * Changes private review ownership only while the task is idle and has no queued input.
      * The synchronous callback verifies or restores the worktree before the returned head is stored.
      */

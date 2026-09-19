@@ -737,12 +737,6 @@ class TestBranchRebaseService
         }
 
         @Override
-        public AgentTurn startPublicationTurn(StartAgentTurnCommand command, TurnId sourceTurnId)
-        {
-            throw new UnsupportedOperationException("Rebase tasks do not publish pull requests");
-        }
-
-        @Override
         public boolean handoffDevelopmentContinuationToQueue(TaskId taskId, TurnId sourceTurnId)
         {
             throw new UnsupportedOperationException("Rebase tasks do not own development continuations");

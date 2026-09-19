@@ -357,11 +357,6 @@ export function createPreviewBridge(
       turnState = 'RUNNING';
       return previewTurn(taskId, turnState);
     },
-    requestAgentDraftPullRequest: async (taskId, workspaceId, expectedVersion, idempotencyKey) => {
-      record('requestAgentDraftPullRequest', taskId, workspaceId, expectedVersion, idempotencyKey);
-      turnState = 'RUNNING';
-      return previewTurn(taskId, turnState);
-    },
     getAgentTurn: async (turnId) => {
       record('getAgentTurn', turnId);
       return previewTurn(FIXTURE_EVENTS[0].taskId, turnState);

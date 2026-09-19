@@ -684,32 +684,33 @@ describe('agent task side panel', () => {
     expect(markup).not.toContain('this task&#x27;s branch has no pull request');
   });
 
-  it.each(['pr', 'changes'] as const)('does not report an empty branch or offer to create a PR when lookup failed on %s', (panelTab) => {
+  it.each(['pr', 'changes'] as const)('does not report an empty branch when the lookup failed on %s', (panelTab) => {
     const pullRequestError = 'Could not refresh the branch pull request.';
     const markup = renderToStaticMarkup(
       <AgentTaskBody
         state={state} panelOpen panelTab={panelTab} pullRequests={[]}
         pullRequestError={pullRequestError} pullRequestLoading
-        onRefreshPullRequests={() => {}} onCreatePullRequest={() => {}}
+        onRefreshPullRequests={() => {}}
         {...props}
       />);
     expect(markup).toContain(pullRequestError);
     expect(markup).toMatch(/<button[^>]*disabled=""[^>]*>Retrying…<\/button>/);
     expect(markup).not.toContain('No pull request yet');
     expect(markup).not.toContain('this task&#x27;s branch has no pull request');
-    expect(markup).not.toContain('Create draft PR');
+    expect(markup).not.toContain('Check again');
     expect(markup).not.toContain('class="agt-notice"');
   });
 
-  it('waits for the first pull-request lookup before offering an empty-branch action', () => {
+  it('waits for the first pull-request lookup before reporting an empty branch', () => {
     const markup = renderToStaticMarkup(
-      <AgentTaskBody
-        state={state} panelOpen pullRequests={[]} pullRequestLoading
-        onCreatePullRequest={() => {}} {...props}
-      />);
+      <AgentTaskBody state={state} panelOpen pullRequests={[]} pullRequestLoading {...props} />);
     expect(markup).toContain('Checking for a pull request…');
     expect(markup).not.toContain('No pull request yet');
-    expect(markup).not.toContain('Create draft PR');
+    // A later lookup refreshes underneath the answer the panel already shows.
+    const rechecking = renderToStaticMarkup(
+      <AgentTaskBody state={state} panelOpen pullRequests={[]} pullRequestLoading pullRequestChecked {...props} />);
+    expect(rechecking).not.toContain('Checking for a pull request…');
+    expect(rechecking).toContain('No pull request yet');
   });
 
   it('hides the subagents tab when the lane does not advertise nested activity', () => {
@@ -841,34 +842,36 @@ describe('agent task side panel', () => {
         panelOpen
         pullRequests={[]}
         repository="trinodb/trino"
-        onCreatePullRequest={() => {}}
         {...props}
       />);
     expect(markup).toContain('No pull request yet');
     expect(markup).toContain('<code>reuse-resolved-field-index</code>');
     expect(markup).toContain('<strong>trinodb/trino</strong>');
-    expect(markup).toContain('It commits nothing; ByteQuay pushes the branch and opens the draft.');
+    expect(markup).toContain('A pull request opened from the agent or on GitHub appears at the next check.');
   });
 
-  it('offers a draft pull request only while the agent is idle and the branch has none open', () => {
-    const create = { panelOpen: true, onCreatePullRequest: () => {} };
-    const idle = renderToStaticMarkup(<AgentTaskBody state={state} pullRequests={[]} {...create} {...props} />);
-    expect(idle).toMatch(/<button type="button" class="agt-nopr__create" title="Asks ByteQuay[^"]*">Create draft PR<\/button>/);
-    const running = renderToStaticMarkup(
-      <AgentTaskBody state={{ ...state, turn: turn('RUNNING') }} pullRequests={[]} {...create} {...props} />);
-    expect(running).toMatch(/class="agt-nopr__create" disabled="" title="Available once the agent is idle"/);
-    // An open pull request replaces the empty state entirely, so there is nothing to draft.
+  it('offers a re-check only while the branch has no pull request of its own', () => {
+    const check = { panelOpen: true, onRefreshPullRequests: () => {} };
+    const idle = renderToStaticMarkup(<AgentTaskBody state={state} pullRequests={[]} {...check} {...props} />);
+    expect(idle).toMatch(/<button type="button" class="agt-nopr__check" title="[^"]*">Check again<\/button>/);
+    // Without a re-check to run — a busy task, or a static render — the button says so.
+    const busy = renderToStaticMarkup(<AgentTaskBody state={state} panelOpen pullRequests={[]} {...props} />);
+    expect(busy).toMatch(/class="agt-nopr__check" disabled=""/);
+    const checking = renderToStaticMarkup(
+      <AgentTaskBody state={state} pullRequests={[]} pullRequestLoading pullRequestChecked {...check} {...props} />);
+    expect(checking).toMatch(/class="agt-nopr__check" disabled=""[^>]*>Checking…<\/button>/);
+    // An open pull request replaces the empty state entirely.
     const opened = renderToStaticMarkup(
-      <AgentTaskBody state={state} pullRequests={[pullRequest(482, 'Fix preview output limit', 'open', true)]} {...create} {...props} />);
-    expect(opened).not.toContain('Create draft PR');
+      <AgentTaskBody state={state} pullRequests={[pullRequest(482, 'Fix preview output limit', 'open', true)]} {...check} {...props} />);
+    expect(opened).not.toContain('Check again');
     // A merged one is what the task delivered, so it replaces the empty state as well.
     const merged = renderToStaticMarkup(
-      <AgentTaskBody state={state} pullRequests={[pullRequest(480, 'Earlier attempt', 'merged')]} {...create} {...props} />);
-    expect(merged).not.toContain('Create draft PR');
-    // A closed, unmerged one does not stand in the way of a fresh draft.
+      <AgentTaskBody state={state} pullRequests={[pullRequest(480, 'Earlier attempt', 'merged')]} {...check} {...props} />);
+    expect(merged).not.toContain('Check again');
+    // A closed, unmerged one leaves the branch without one.
     const closed = renderToStaticMarkup(
-      <AgentTaskBody state={state} pullRequests={[pullRequest(480, 'Earlier attempt', 'closed')]} {...create} {...props} />);
-    expect(closed).toMatch(/<button type="button" class="agt-nopr__create" title="Asks ByteQuay/);
+      <AgentTaskBody state={state} pullRequests={[pullRequest(480, 'Earlier attempt', 'closed')]} {...check} {...props} />);
+    expect(closed).toMatch(/<button type="button" class="agt-nopr__check" title="/);
   });
 
   it('reads the branch pull request the task is working on, then the one it delivered', () => {

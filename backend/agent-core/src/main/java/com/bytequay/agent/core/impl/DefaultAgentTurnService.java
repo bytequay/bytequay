@@ -331,47 +331,6 @@ public final class DefaultAgentTurnService
     }
 
     @Override
-    public AgentTurn startPublicationTurn(StartAgentTurnCommand command, TurnId sourceTurnId)
-    {
-        requireNonNull(command, "command is null");
-        requireNonNull(sourceTurnId, "sourceTurnId is null");
-        checkArgument(command.attachments().isEmpty(), "A publication turn carries no attachments");
-        DevelopmentTurnOrigin origin = new DevelopmentTurnOrigin(DevelopmentTurnOrigin.Kind.CREATE_DRAFT_PR, sourceTurnId);
-        TurnAcceptance acceptance;
-        synchronized (runtimeRegistry.taskLock(command.taskId())) {
-            drainPending(outboxStore, eventService, command.taskId());
-            Optional<AgentTurn> repeated = turnStore.findByIdempotencyKey(command.taskId(), command.idempotencyKey());
-            if (repeated.isPresent()) {
-                return repeated.orElseThrow();
-            }
-            AgentTurn source = requireTurn(sourceTurnId);
-            checkArgument(source.taskId().equals(command.taskId()) && source.developmentOrigin().isEmpty(),
-                    "Invalid publication source turn");
-            checkArgument(source.state() == TurnState.COMPLETED && source.cancellationRequestedAt().isEmpty(),
-                    "The task's own work has not completed");
-            // No continuation owner is taken: automation reserves one for the chain it drives, and a
-            // publication the user asked for drives nothing after itself.
-            AgentTask task = requireReady(requireStartableTaskWithoutReadiness(command.taskId(), Optional.empty()));
-            if (task.localReviewHead().isPresent()) {
-                throw new AgentConflictException("Return to development before publishing this task");
-            }
-            command.expectedTaskVersion().ifPresent(expectedVersion -> {
-                if (task.version() != expectedVersion) {
-                    throw new AgentConflictException("Task version changed: " + task.id());
-                }
-            });
-            // Draft-only automation is what exposes the publish tool to this turn. It widens nothing
-            // else: the user's own accepted settings are untouched, and no later follow-up reads it.
-            AgentTurnSettings effective = turnSettings(task, ImmutableList.of());
-            AgentTurnSettings settings = new AgentTurnSettings(effective.model(), effective.effort(), effective.permissionPolicy(), effective.maximumRuntime(),
-                    effective.attachments(), effective.serviceTier(), Optional.of(new DevelopmentAutomation(false, true, false, Optional.empty())));
-            acceptance = acceptTurnLocked(task, command.idempotencyKey(), command.message(),
-                    ImmutableList.of(), settings, Optional.of(origin));
-        }
-        return launchAccepted(acceptance);
-    }
-
-    @Override
     public CompletionStage<DevelopmentTurnCompletion> startGeneratedTurn(TaskId taskId, DevelopmentTurnOrigin origin, String message)
     {
         requireNonNull(taskId, "taskId is null");

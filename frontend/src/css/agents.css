@@ -1573,6 +1573,7 @@
 
 .agt-md a {
   color: #0969da;
+  overflow-wrap: anywhere;
 }
 
 .agt-md strong {
@@ -2272,7 +2273,7 @@
   cursor: not-allowed;
 }
 
-.agt-panel :is(.pull-detail__tabs button, .pull-detail__header-actions button, .agt-panel__row, .agt-nopr__create):focus-visible {
+.agt-panel :is(.pull-detail__tabs button, .pull-detail__header-actions button, .agt-panel__row, .agt-nopr__check):focus-visible {
   outline: 2px solid #0969da;
   outline-offset: 1px;
 }
@@ -2337,7 +2338,7 @@
   color: #0969da;
 }
 
-.agt-nopr__create {
+.agt-nopr__check {
   height: 30px;
   margin-top: 16px;
   border: 1px solid rgba(31, 35, 40, 0.14);
@@ -2350,7 +2351,7 @@
   cursor: pointer;
 }
 
-.agt-nopr__create:disabled {
+.agt-nopr__check:disabled {
   background: #94d3a2;
   cursor: not-allowed;
 }

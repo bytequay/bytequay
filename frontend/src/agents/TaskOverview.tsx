@@ -13,6 +13,7 @@
  */
 
 import React, { useCallback, useEffect, useState } from 'react';
+import { ConfirmDialog } from '../ConfirmDialog';
 import { taskArchived } from './AgentTasksView';
 import { TaskWindows } from './TaskCard';
 import type { AgentBridgePort } from './model';
@@ -50,25 +51,33 @@ export default function TaskOverview({
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
   }, [onDismiss]);
+  const [closing, setClosing] = useState<AgentTaskDto | null>(null);
   const close = useCallback((task: AgentTaskDto) => {
-    // The card's ✕ is Complete: it closes the task and keeps its result branch, never a discard.
-    if (!window.confirm(`Close "${task.title}"? Its clean checkout is removed and the result branch is kept.`)) return;
+    setClosing(null);
     void live().completeAgentTask(task.id, workspaceId)
       .then(() => refresh())
       .catch((failure: unknown) => setNotice(failure instanceof Error ? failure.message : String(failure)));
   }, [live, refresh, workspaceId]);
   return (
-    <TaskOverviewView
-      tasks={tasks}
-      providers={providers}
-      bridge={live}
-      notice={notice}
-      activeTaskId={activeTaskId}
-      onOpenTask={onOpenTask}
-      onCloseTask={close}
-      onNewTask={onNewTask}
-      onDismiss={onDismiss}
-    />
+    <>
+      <TaskOverviewView
+        tasks={tasks}
+        providers={providers}
+        bridge={live}
+        notice={notice}
+        activeTaskId={activeTaskId}
+        onOpenTask={onOpenTask}
+        onCloseTask={setClosing}
+        onNewTask={onNewTask}
+        onDismiss={onDismiss}
+      />
+      {closing !== null && (
+        <ConfirmDialog title={`Close “${closing.title}”?`} confirmLabel="Close task" onConfirm={() => close(closing)} onCancel={() => setClosing(null)}>
+          {/* The card's ✕ is Complete: it closes the task and keeps its result branch, never a discard. */}
+          <p>Its clean checkout is removed and the result branch is kept.</p>
+        </ConfirmDialog>
+      )}
+    </>
   );
 }
 

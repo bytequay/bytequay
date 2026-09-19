@@ -692,10 +692,9 @@ export function canComplete(state: AgentTaskState): boolean {
   return isIdle(state) && !state.queue.some((input) => input.state === 'QUEUED' || input.state === 'PAUSED' || input.state === 'STARTING');
 }
 
-/** Confirms the one completion case that intentionally abandons a possibly delivered input. */
-export function confirmCompletion(queue: AgentQueuedInputDto[], confirm: (message: string) => boolean): boolean {
-  if (!queue.some((input) => input.state === 'UNCERTAIN')) return true;
-  return confirm('Complete this task with an uncertain queued message? It will be marked abandoned and will never be retried.');
+/** The one completion case that intentionally abandons a possibly delivered input, which is asked first. */
+export function abandonsUncertainInput(queue: AgentQueuedInputDto[]): boolean {
+  return queue.some((input) => input.state === 'UNCERTAIN');
 }
 
 /**

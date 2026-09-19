@@ -93,7 +93,7 @@ async function retryLocalTurn(): Promise<{ name: string; error?: string }[]> {
   document.body.append(host);
   const root = createRoot(host);
   const confirm = window.confirm;
-  window.confirm = () => true;
+  window.confirm = () => { throw new Error('The task screen must ask through its own dialog'); };
   flushSync(() => root.render(<AgentTaskScreen workspaceId="workspace-1" taskId={task.id} bridge={bridge} onBack={() => {}} />));
   try {
     await settle();
@@ -104,6 +104,11 @@ async function retryLocalTurn(): Promise<{ name: string; error?: string }[]> {
     const retry = Array.from(host.querySelectorAll('button')).find(button => button.textContent === 'Retry last message…');
     assert(retry !== undefined && !retry.disabled, 'Successful readiness check must enable explicit retry');
     retry.click();
+    await settle();
+    const confirmRetry = document.querySelector<HTMLButtonElement>('dialog.bq-confirm-dialog .bq-button--primary');
+    assert(confirmRetry?.textContent === 'Retry', 'Retry must be confirmed in the app dialog before it starts a turn');
+    assert(bridge.commands.every(command => command.name !== 'startAgentTurn'), 'An unanswered question must start no turn');
+    confirmRetry.click();
     await settle();
     const command = bridge.commands.find(command => command.name === 'startAgentTurn');
     assert(command !== undefined, 'Explicit retry must submit the durable input');

@@ -14,6 +14,7 @@
 import { useCallback, useEffect, useId, useMemo, useRef, useState, type KeyboardEvent as ReactKeyboardEvent, type ReactNode } from 'react';
 import { Bell, Check, CircleSlash, Code, Diff, Ellipsis, Eye, GitPullRequest, Maximize, MessageCircle, Minimize, PanelRight, RefreshCw, UserRound, X } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
+import { ConfirmDialog } from '../ConfirmDialog';
 import { isFindShortcut } from '../FindBar';
 import type { NavigationMode } from '../navigationHistory';
 import Toast from '../Toast';
@@ -338,11 +339,12 @@ export default function PullsScreen({
   const [codeTabKey, setCodeTabKey] = useState<string | null>(null);
   // Unsaved Code & Tests drafts live only in that tab; leaving the PR or closing the pane asks first.
   const codeUnsaved = useRef(0);
-  const keepCodeDrafts = useCallback(() => codeUnsaved.current === 0
-    || window.confirm(`Discard unsaved changes to ${codeUnsaved.current} ${codeUnsaved.current === 1 ? 'file' : 'files'}?`), []);
-  const closePane = useMemo(() => onClose === undefined ? undefined : () => {
-    if (keepCodeDrafts()) onClose();
-  }, [keepCodeDrafts, onClose]);
+  const [discardDrafts, setDiscardDrafts] = useState<{ files: number; act: () => void } | null>(null);
+  const withCodeDrafts = useCallback((act: () => void) => {
+    if (codeUnsaved.current === 0) act();
+    else setDiscardDrafts({ files: codeUnsaved.current, act });
+  }, []);
+  const closePane = useMemo(() => onClose === undefined ? undefined : () => withCodeDrafts(onClose), [withCodeDrafts, onClose]);
   const [pendingReviewComments, setPendingReviewComments] = useState<InlineReviewCommentDto[]>([]);
   const [paneOpen, setPaneOpen] = useState(true);
   const [detailZoomed, setDetailZoomed] = useState(false);
@@ -782,8 +784,7 @@ export default function PullsScreen({
       : current);
   }, [reviewKey, selectedPrRepo, selectedPrNumber]);
 
-  const pick = (row: PullRow) => {
-    if (!keepCodeDrafts()) return;
+  const pick = (row: PullRow) => withCodeDrafts(() => {
     onSelectPullRequest?.({ repo: row.repo, number: row.num }, 'push');
     setSelected(row.id);
     setDetailTab('overview');
@@ -791,7 +792,7 @@ export default function PullsScreen({
     setReviewNavigation(null);
     setFocusFindingId(null);
     setReviewCardFocus(null);
-  };
+  });
 
   const toggleMonitor = async (row: PullRow) => {
     if (monitorRequests.current.has(row.id)) return;
@@ -1141,11 +1142,10 @@ export default function PullsScreen({
                 authored={viewerLogin ? detail.author?.toLowerCase() === viewerLogin.toLowerCase() : selectedPr.origin === 'AUTHORED'}
                 workspaceId={workspaceId} loading={reviewLoading} contextError={reviewError} review={review}
                 onRetryContext={() => setReviewReload(value => value + 1)}
-                onNavigate={route => {
-                  if (!keepCodeDrafts()) return;
+                onNavigate={route => withCodeDrafts(() => {
                   onClose?.();
                   window.location.hash = route;
-                }} /> : undefined}
+                })} /> : undefined}
               pr={selectedPr}
               detail={detail}
               workspaceId={workspaceId}
@@ -1198,6 +1198,16 @@ export default function PullsScreen({
       )}
 
       {toast && <Toast key={toast.id} text={toast.text} onDismiss={() => setToast(null)} />}
+      {discardDrafts !== null && (
+        <ConfirmDialog
+          title={`Discard unsaved changes to ${discardDrafts.files} ${discardDrafts.files === 1 ? 'file' : 'files'}?`}
+          confirmLabel="Discard"
+          onConfirm={() => { const act = discardDrafts.act; setDiscardDrafts(null); act(); }}
+          onCancel={() => setDiscardDrafts(null)}
+        >
+          <p>Your edits in Code &amp; Tests were never saved to the worktree.</p>
+        </ConfirmDialog>
+      )}
     </div>
   );
 }

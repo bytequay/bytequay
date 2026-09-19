@@ -11,12 +11,13 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useState, type ReactNode } from 'react';
 import type {
   CherryPickExecution,
   CherryPickExecutionItem,
   WorkspaceDeliveryStatus,
 } from '../types';
+import { ConfirmDialog } from '../ConfirmDialog';
 import PullOverview from '../pulls/PullOverview';
 import { remotePullRequest } from '../pulls/PullsScreen';
 import { usePullRequestDetail } from '../pulls/usePullRequestDetail';
@@ -75,6 +76,7 @@ export default function ProgressView({
   const [error, setError] = useState<string | null>(null);
   const [delivery, setDelivery] = useState<WorkspaceDeliveryStatus | null>(null);
   const [deliveryBusy, setDeliveryBusy] = useState(false);
+  const [ask, setAsk] = useState<{ title: string; body: ReactNode; label: string; act: () => void } | null>(null);
   const leftPane = useResizablePane(260, 180, 420);
   const rightPane = useResizablePane(380, 280, 560, 'start');
   const [viewerLogin, setViewerLogin] = useState<string | null>(null);
@@ -161,7 +163,6 @@ export default function ProgressView({
 
   const cancel = async () => {
     if (!execution) return;
-    if (!window.confirm('Cancel this cherry-pick and remove its generated work branch?')) return;
     setBusy(true);
     try {
       setExecution(await window.bridge.cancelCherryPickExecution(workspaceId, execution.executionId));
@@ -179,9 +180,6 @@ export default function ProgressView({
 
   const push = async () => {
     if (!execution || !delivery) return;
-    if (!window.confirm(
-      `Push ${execution.workBranch} to origin? This writes a new remote branch and never force-pushes.`,
-    )) return;
     setDeliveryBusy(true);
     setError(null);
     try {
@@ -196,14 +194,6 @@ export default function ProgressView({
 
   const createPullRequest = async () => {
     if (!execution || !delivery) return;
-    const base = `${delivery.baseRepository.owner}/${delivery.baseRepository.repo}:${delivery.baseBranch}`;
-    const prompt = delivery.pullRequest
-      ? `Retry local setup and CI monitoring for pull request #${delivery.pullRequest.number}?`
-      : `Create a pull request from ${delivery.head} into ${base}? This is a separate GitHub write.`;
-    if (!window.confirm(
-      `${prompt} `
-      + 'For supported same-repository pull requests, ByteQuay will also monitor CI and may rerun failed jobs, rewrite fixup history, and force-push with an exact lease.',
-    )) return;
     setDeliveryBusy(true);
     setError(null);
     try {
@@ -219,6 +209,43 @@ export default function ProgressView({
     } finally {
       setDeliveryBusy(false);
     }
+  };
+
+  // Cancelling and every GitHub write is a deliberate step, so each one is asked first.
+  const askCancel = () => setAsk({
+    title: 'Cancel this cherry-pick?',
+    body: <p>Its generated work branch is removed.</p>,
+    label: 'Cancel execution',
+    act: () => { void cancel(); },
+  });
+
+  const askPush = () => {
+    if (!execution) return;
+    setAsk({
+      title: `Push ${execution.workBranch} to origin?`,
+      body: <p>This writes a new remote branch and never force-pushes.</p>,
+      label: 'Push branch',
+      act: () => { void push(); },
+    });
+  };
+
+  const askPullRequest = () => {
+    if (!delivery) return;
+    const base = `${delivery.baseRepository.owner}/${delivery.baseRepository.repo}:${delivery.baseBranch}`;
+    setAsk({
+      title: delivery.pullRequest
+        ? `Retry local setup and CI monitoring for pull request #${delivery.pullRequest.number}?`
+        : 'Create a pull request?',
+      body: <>
+        {!delivery.pullRequest && <p>From {delivery.head} into {base}. This is a separate GitHub write.</p>}
+        <p>
+          For supported same-repository pull requests, ByteQuay will also monitor CI and may rerun
+          failed jobs, rewrite fixup history, and force-push with an exact lease.
+        </p>
+      </>,
+      label: delivery.pullRequest ? 'Start CI monitor' : 'Create pull request',
+      act: () => { void createPullRequest(); },
+    });
   };
 
   const openPullRequest = async () => {
@@ -314,7 +341,7 @@ export default function ProgressView({
               type="button"
               className="cmt-btn-danger"
               disabled={busy}
-              onClick={() => { void cancel(); }}
+              onClick={askCancel}
             >
               Cancel execution
             </button>
@@ -370,7 +397,7 @@ export default function ProgressView({
                   type="button"
                   disabled={deliveryBusy || !delivery.pushWritable}
                   title={delivery.disabledReason ?? undefined}
-                  onClick={() => { void push(); }}
+                  onClick={askPush}
                 >
                   {deliveryBusy ? 'Pushing…' : 'Push branch'}
                 </button>
@@ -379,7 +406,7 @@ export default function ProgressView({
                 <button
                   type="button"
                   disabled={deliveryBusy}
-                  onClick={() => { void createPullRequest(); }}
+                  onClick={askPullRequest}
                 >
                   {deliveryBusy ? 'Creating…' : 'Create pull request'}
                 </button>
@@ -396,7 +423,7 @@ export default function ProgressView({
                 <button
                   type="button"
                   disabled={deliveryBusy}
-                  onClick={() => { void createPullRequest(); }}
+                  onClick={askPullRequest}
                 >
                   {deliveryBusy ? 'Starting…' : 'Start CI monitor'}
                 </button>
@@ -534,6 +561,17 @@ export default function ProgressView({
           viewerLogin={viewerLogin}
         />
       </div>
+
+      {ask !== null && (
+        <ConfirmDialog
+          title={ask.title}
+          confirmLabel={ask.label}
+          onConfirm={() => { const act = ask.act; setAsk(null); act(); }}
+          onCancel={() => setAsk(null)}
+        >
+          {ask.body}
+        </ConfirmDialog>
+      )}
     </div>
   );
 }

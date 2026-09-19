@@ -83,13 +83,13 @@ import { pasteImage } from './clipboard';
 import { agentProviderUnavailableFrom } from './contracts';
 import { renderMarkdown } from './markdown';
 import {
+abandonsUncertainInput,
 acceptsImages,
 agentTaskReducer,
 canComplete,
 canQueue,
 canSend,
 canSteer,
-confirmCompletion,
 createDraftSubmissionTracker,
 historyAfter,
 historyBefore,
@@ -1535,6 +1535,8 @@ export default function AgentTaskScreen({
   const [providerChecking, setProviderChecking] = useState(false);
   const [confirmation, setConfirmation] = useState<TaskConfirmation | null>(null);
   const [confirming, setConfirming] = useState(false);
+  /** A question the screen asks in its own dialog before running the action it holds. */
+  const [ask, setAsk] = useState<{ title: string; body: React.ReactNode; label: string; act: () => void } | null>(null);
   const confirmationPendingRef = useRef(false);
   const confirmationRequestRef = useRef(0);
   const composerRef = useRef<HTMLTextAreaElement>(null);
@@ -1548,8 +1550,15 @@ export default function AgentTaskScreen({
   // Unsaved Code & Tests drafts in the side panel are dropped when the panel closes or the task screen is left.
   const codeUnsaved = useRef(0);
   const trackCodeUnsaved = useCallback((count: number) => { codeUnsaved.current = count; }, []);
-  const keepCodeDrafts = () => codeUnsaved.current === 0
-    || window.confirm(`Discard unsaved changes to ${codeUnsaved.current} ${codeUnsaved.current === 1 ? 'file' : 'files'}?`);
+  const withCodeDrafts = (act: () => void): void => {
+    if (codeUnsaved.current === 0) { act(); return; }
+    setAsk({
+      title: `Discard unsaved changes to ${codeUnsaved.current} ${codeUnsaved.current === 1 ? 'file' : 'files'}?`,
+      body: <p>Your edits in Code &amp; Tests were never saved to the worktree.</p>,
+      label: 'Discard',
+      act,
+    });
+  };
   const [ciPollingError, setCiPollingError] = useState<string | null>(null);
   const [openAgent, setOpenAgent] = useState<string | null>(null);
   const [panelTab, setPanelTab] = useState<PanelTab>('pr');
@@ -2289,11 +2298,21 @@ export default function AgentTaskScreen({
     }
   }), [applyTurn, live, refreshProjection, run, state.turn]);
 
-  const complete = useCallback(() => run(async () => {
-    if (attachmentPendingRef.current || !canComplete(state) || !confirmCompletion(state.queue, (message) => window.confirm(message))) return;
+  const completeTask = useCallback(() => run(async () => {
     await live().completeAgentTask(taskId, workspaceId);
-    await refreshProjection(state.latestTurnId);
-  }), [live, refreshProjection, run, state, taskId, workspaceId]);
+    await refreshProjection(stateRef.current.latestTurnId);
+  }), [live, refreshProjection, run, taskId, workspaceId]);
+
+  const complete = useCallback(() => {
+    if (attachmentPendingRef.current || !canComplete(state)) return;
+    if (!abandonsUncertainInput(state.queue)) { void completeTask(); return; }
+    setAsk({
+      title: 'Complete this task with an uncertain queued message?',
+      body: <p>It will be marked abandoned and will never be retried.</p>,
+      label: 'Complete task',
+      act: () => { void completeTask(); },
+    });
+  }, [completeTask, state]);
 
   const cleanupWorktree = useCallback(() => run(async () => {
     applyTask(await live().cleanupAgentTaskWorktree(taskId, workspaceId));
@@ -2348,7 +2367,7 @@ export default function AgentTaskScreen({
     }
   }), [refreshProviderStatus, run]);
 
-  const retryAuthentication = useCallback(() => run(async () => {
+  const retryLastMessage = useCallback(() => run(async () => {
     const current = stateRef.current;
     const task = current.task;
     const input = retryableInput(current);
@@ -2358,7 +2377,6 @@ export default function AgentTaskScreen({
       || providerStatus === null
       || providerStatusTurnId !== current.turn.id
       || !providerAvailable(providerStatus.readiness)) return;
-    if (!window.confirm(`Retry the last message? This creates a new turn and may run commands again.\n\n${input.text}`)) return;
     const attachmentIds = input.attachments.map((attachment) => attachment.id);
     // Retrying the accepted input retains its publication choices, which may differ from the task defaults.
     const developmentAutomation = task.interactive && task.localReviewHead == null
@@ -2369,6 +2387,21 @@ export default function AgentTaskScreen({
     const idempotencyKey = submissions.keyFor('retry', task.id, taskId, input.text, attachmentIds, { ...task.defaults, developmentAutomation });
     await startTurn(input.text, attachmentIds, idempotencyKey, task.version, developmentAutomation);
   }), [providerStatus, providerStatusTurnId, run, startTurn, submissions, taskId]);
+
+  // The guards run again on confirmation, so a turn that starts while the question is open cannot be retried behind it.
+  const retryAuthentication = useCallback(() => {
+    const input = retryableInput(stateRef.current);
+    if (input === null) return;
+    setAsk({
+      title: 'Retry the last message?',
+      body: <>
+        <p>This creates a new turn and may run commands again.</p>
+        <p style={{ whiteSpace: 'pre-wrap' }}>{input.text}</p>
+      </>,
+      label: 'Retry',
+      act: () => { void retryLastMessage(); },
+    });
+  }, [retryLastMessage]);
 
   const decide = useCallback((approvalId: string, decision: AgentApprovalDecision) => run(async () => {
     await live().resolveAgentApproval(approvalId, decision);
@@ -2405,10 +2438,10 @@ export default function AgentTaskScreen({
       providerStatusFresh={authenticationTurnId !== null && providerStatusTurnId === authenticationTurnId}
       providerChecking={providerChecking}
       composerRef={composerRef}
-      onBack={() => { if (keepCodeDrafts()) onBack(); }}
+      onBack={() => withCodeDrafts(onBack)}
       onSend={() => { void send(); }}
       onCancel={() => { void cancel(); }}
-      onComplete={() => { void complete(); }}
+      onComplete={complete}
       onCleanup={() => { void cleanupWorktree(); }}
       onDecide={(approvalId, decision) => { void decide(approvalId, decision); }}
       onCompose={(text) => {
@@ -2420,7 +2453,7 @@ export default function AgentTaskScreen({
       onStopServer={() => { void stopServer(); }}
       onMarkFailed={() => { void markFailed(); }}
       onRefreshProvider={() => { void refreshProvider(); }}
-      onRetryAuthentication={() => { void retryAuthentication(); }}
+      onRetryAuthentication={retryAuthentication}
       onOpenSettings={onOpenSettings}
       onRename={(title) => { void rename(title); }}
       onArchive={(archived) => { void archive(archived); }}
@@ -2466,8 +2499,8 @@ export default function AgentTaskScreen({
         : { key: reviewKey, pendingComments })}
       repository={workspace === undefined ? null : `${workspace.monitoredOwner}/${workspace.monitoredRepo}`}
       onTogglePanel={() => {
-        if (panelOpen && !keepCodeDrafts()) return;
-        setPanelChoice(!panelOpen);
+        if (!panelOpen) setPanelChoice(true);
+        else withCodeDrafts(() => setPanelChoice(false));
       }}
       onCodeUnsavedChange={trackCodeUnsaved}
       onOpenAgent={(threadId) => { setPanelChoice(true); setPanelTab('agents'); setOpenAgent(threadId); }}
@@ -2509,6 +2542,16 @@ export default function AgentTaskScreen({
           <p>This ends the task. You won’t be able to send more messages here.</p>
           <p>Your conversation and any uncommitted changes are kept. ByteQuay may remove a clean checkout, but keeps its branch.</p>
         </>}
+      </ConfirmDialog>
+    )}
+    {ask !== null && (
+      <ConfirmDialog
+        title={ask.title}
+        confirmLabel={ask.label}
+        onConfirm={() => { const act = ask.act; setAsk(null); act(); }}
+        onCancel={() => setAsk(null)}
+      >
+        {ask.body}
       </ConfirmDialog>
     )}
   </>);

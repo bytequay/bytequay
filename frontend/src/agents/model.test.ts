@@ -16,6 +16,7 @@ import { describe, expect, it, vi } from 'vitest';
 import fixture from './fixtures/agent-events-v2.json';
 import { parseAgentEventSequence, type AgentEventEnvelope } from './events';
 import {
+  abandonsUncertainInput,
   acceptsImages,
   agentTaskReducer,
   approvalDecisions,
@@ -23,7 +24,6 @@ import {
   canQueue,
   canSend,
   canSteer,
-  confirmCompletion,
   createDraftSubmissionTracker,
   createTaskCreationTracker,
   deliveryUncertain,
@@ -716,13 +716,8 @@ describe('steering and queueing', () => {
 
     const uncertain = [queued('q-1', 'UNCERTAIN')];
     expect(canComplete({ ...idle, queue: uncertain })).toBe(true);
-    const reject = vi.fn(() => false);
-    expect(confirmCompletion(uncertain, reject)).toBe(false);
-    expect(reject).toHaveBeenCalledWith(expect.stringMatching(/abandoned.*never be retried/i));
-
-    const unnecessary = vi.fn(() => false);
-    expect(confirmCompletion([], unnecessary)).toBe(true);
-    expect(unnecessary).not.toHaveBeenCalled();
+    expect(abandonsUncertainInput(uncertain)).toBe(true);
+    expect(abandonsUncertainInput([])).toBe(false);
   });
 });
 

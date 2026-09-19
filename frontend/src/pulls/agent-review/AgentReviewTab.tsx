@@ -277,7 +277,7 @@ export default function AgentReviewTab({
       if (action.type === 'live/changed') void reload(action.turnId);
       if (action.type === 'events/observed') void reload(action.events.at(-1)?.turnId ?? null);
       if (action.type === 'connection/changed' && action.state === 'open') void reload(null);
-    }, () => live, () => followingHistory.current, reviewOpen);
+    }, () => live, () => historyAfter(conversationRef.current) === null, reviewOpen);
     session.catch(failure => { if (live) setError(remoteErrorMessage(failure)); });
     return () => {
       live = false;

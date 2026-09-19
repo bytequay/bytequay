@@ -1655,7 +1655,10 @@ export default function AgentTaskScreen({
   const taskLaneId = state.task?.laneId ?? null;
   useEffect(() => {
     let active = true;
-    const session = startAgentTaskSession(live(), taskId, workspaceId, dispatch, () => active, () => followingHistory.current);
+    // Streaming pauses only while an older page is on screen: reading earlier in the live page still
+    // gets the output, held in place by the transcript's reading anchor.
+    const session = startAgentTaskSession(live(), taskId, workspaceId, dispatch, () => active,
+      () => historyAfter(stateRef.current) === null);
     session.catch((failure: unknown) => {
       if (active) dispatch({ type: 'notice/changed', notice: failureText(failure) });
     });

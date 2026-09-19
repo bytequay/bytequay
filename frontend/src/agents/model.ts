@@ -433,13 +433,13 @@ export async function startAgentTaskSession(
   workspaceId: string,
   dispatch: (action: AgentTaskAction) => void,
   isActive: () => boolean = () => true,
-  isFollowing: () => boolean = () => true,
+  isLivePage: () => boolean = () => true,
 ): Promise<() => void> {
   const noop = (): void => {};
   const task = await bridge.getAgentTask(taskId, workspaceId);
   if (!isActive()) return noop;
   dispatch({ type: 'task/loaded', task });
-  return startAgentConversationSession(bridge, taskId, dispatch, isActive, isFollowing, task.state === 'OPEN');
+  return startAgentConversationSession(bridge, taskId, dispatch, isActive, isLivePage, task.state === 'OPEN');
 }
 
 /** Shared bounded history and live transport; each caller supplies its own authorized routes. */
@@ -448,7 +448,7 @@ export async function startAgentConversationSession(
   taskId: string,
   dispatch: (action: AgentTaskAction) => void,
   isActive: () => boolean = () => true,
-  isFollowing: () => boolean = () => true,
+  isLivePage: () => boolean = () => true,
   subscribe = true,
 ): Promise<() => void> {
   const noop = (): void => {};
@@ -465,12 +465,13 @@ export async function startAgentConversationSession(
   let stopped = false;
   const refresh = async (): Promise<void> => {
     timer = undefined;
-    if (stopped || !isActive() || !isFollowing() || reading) return;
+    // An older page is being read: replacing it with the latest window would yank it away.
+    if (stopped || !isActive() || !isLivePage() || reading) return;
     reading = true;
     dirty = false;
     try {
       const latest = await readRecentAgentHistory(bridge, taskId);
-      if (!stopped && isActive() && isFollowing()) dispatch({ type: 'history/loaded', ...latest, direction: 'latest' });
+      if (!stopped && isActive() && isLivePage()) dispatch({ type: 'history/loaded', ...latest, direction: 'latest' });
     }
     catch (failure) {
       if (!stopped && isActive()) dispatch({ type: 'notice/changed', notice: failure instanceof Error ? failure.message : String(failure) });
@@ -486,7 +487,7 @@ export async function startAgentConversationSession(
       if (message.kind === 'events') dispatch({ type: 'events/observed', events: message.events });
       else dispatch({ type: 'live/changed', sequence: message.sequence, turnId: message.turnId });
       dirty = true;
-      if (timer === undefined && !reading && isFollowing()) timer = setTimeout(() => { void refresh(); }, 200);
+      if (timer === undefined && !reading && isLivePage()) timer = setTimeout(() => { void refresh(); }, 200);
     }
     else dispatch({ type: 'connection/changed', state: message.state, detail: message.detail });
   }, true);

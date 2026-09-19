@@ -863,7 +863,8 @@ export function AgentConversation({
       : activeTurn?.cancellationRequestedAt != null ? 'Stopping…'
         : activeTurn?.state === 'ACCEPTED' ? 'Starting…'
           : liveTurn?.endedAt != null ? 'Finishing…' : currentActivityLabel(liveTurn);
-  const liveActivity = (running || pending !== null) && scroll.after === null && scroll.following
+  // Reading earlier in the live page must not hide what the agent is doing; only an older page can.
+  const liveActivity = (running || pending !== null) && scroll.after === null
     && <LiveActivity label={liveLabel} animated={!waiting && connection === 'open' && !gap} />;
   const tailRef = useRef<HTMLDivElement>(null);
   const transcriptRef = scroll.transcriptProps.ref;

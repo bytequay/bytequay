@@ -31,6 +31,6 @@ it('preserves task reading position in Chromium while paging and following', asy
       window.webContents.on('console-message', (_event, details) => { if (details.level === 'error') console.error(details.message); });
     `,
   });
-  expect(results).toHaveLength(11);
+  expect(results).toHaveLength(12);
   expect(results.filter(result => result.error !== undefined)).toEqual([]);
 }, 30_000);

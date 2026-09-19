@@ -285,6 +285,58 @@ async function latestRequestAtTop(): Promise<void> {
   finally { flushSync(() => root.unmount()); host.remove(); }
 }
 
+/** Someone reading earlier in the live page still gets streamed output, and keeps their place. */
+async function streamsWhileReadingEarlier(): Promise<void> {
+  const earlier = earlierTurn();
+  const running = durable('latest', 'RUNNING');
+  const opening = [...earlier, request(33, 'latest', 'commit'), message(34, 'latest', 'Reading the changed files.')];
+  const initial = agentTaskReducer({
+    ...initialAgentTaskState(), task: previewTask('workspace', 'scroll-fixture'), turn: running,
+    turns: { earlier: durable('earlier', 'COMPLETED'), latest: running }, connection: 'open',
+  }, { type: 'history/loaded', page: latest(opening), direction: 'latest' });
+  const host = document.createElement('div');
+  host.style.cssText = 'height: 560px; width: 760px; font: 14px -apple-system, sans-serif';
+  document.body.append(host);
+  const root = createRoot(host);
+  let append = (_events: AgentEventEnvelope[]): void => { throw new Error('The conversation is not mounted'); };
+  function Conversation() {
+    const [state, dispatch] = useReducer(agentTaskReducer, initial);
+    append = events => dispatch({ type: 'history/loaded', page: latest(events), direction: 'latest' });
+    return <AgentTaskBody
+      state={state} models={[]} historyLoading={false} turnChoice={{ earlier: true, latest: true }} onLoadHistory={() => {}} {...TASK_BODY_NOOPS}
+    />;
+  }
+  try {
+    flushSync(() => root.render(<Conversation />));
+    await settle();
+    const container = host.querySelector<HTMLElement>('.agt-transcript');
+    assert(container !== null && container.querySelector('.agt-live') !== null, 'A running task should show its live activity');
+    container.dispatchEvent(new WheelEvent('wheel', { deltaY: -120, bubbles: true }));
+    container.scrollTop -= 120;
+    container.dispatchEvent(new Event('scroll', { bubbles: true }));
+    await settle();
+    assert(container.querySelector('.agt-live') !== null, 'Reading earlier in the live page must not hide the live activity');
+    const passage = [...container.querySelectorAll<HTMLElement>('.agt-text p')]
+      .find(element => element.getBoundingClientRect().top >= container.getBoundingClientRect().top + 24);
+    assert(passage !== undefined, 'A readable passage should be in view after scrolling up');
+    const text = passage.textContent ?? '';
+    const top = passage.getBoundingClientRect().top;
+
+    // The live window slides as output streams, so the page loses its oldest events while it gains new ones.
+    flushSync(() => append([...opening.slice(18), message(35, 'latest', 'Rewriting the first file.'),
+      message(36, 'latest', 'The commit is prepared.')]));
+    await settle();
+    const streamed = [...container.querySelectorAll<HTMLElement>('.agt-text p')].map(element => element.textContent ?? '');
+    assert(streamed.some(line => line.startsWith('The commit is prepared')),
+      'Output that arrives while reading earlier should render instead of waiting for a scroll');
+    assert(container.querySelector('.agt-live') !== null, 'Streamed output must not drop the live activity');
+    const held = [...container.querySelectorAll<HTMLElement>('.agt-text p')].find(element => element.textContent === text);
+    const movement = held === undefined ? Number.NaN : held.getBoundingClientRect().top - top;
+    assert(Math.abs(movement) <= 1, `Streamed output moved the passage being read ${Math.round(movement)}px`);
+  }
+  finally { flushSync(() => root.unmount()); host.remove(); }
+}
+
 async function sentMessageGlidesToTop(): Promise<void> {
   const earlier = earlierTurn();
   const completed = durable('earlier', 'COMPLETED');
@@ -483,5 +535,6 @@ export async function run(): Promise<{ name: string; error?: string }[]> {
   await check('puts a new request at the top with room for its reply', latestRequestAtTop);
   await check('keeps a new request at the top while a trailing notice comes and goes', trailingNoticeKeepsRequestAtTop);
   await check('shows a sent message at once and glides it to the top', sentMessageGlidesToTop);
+  await check('streams output to someone reading earlier without moving them', streamsWhileReadingEarlier);
   return results;
 }

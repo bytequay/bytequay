@@ -443,6 +443,23 @@ async function pullRequestLookupPolicy(): Promise<{ name: string; error?: string
     await settle();
     assert(lookups() > afterTurn, 'Final automation settlement without another turn must refresh the task PR list');
     assert(input.value === 'Keep this draft', 'Lookups must preserve the composer draft');
+
+    const panel = host.querySelector<HTMLButtonElement>('[aria-label="Show or hide the side panel"]');
+    assert(panel !== null, 'The side panel toggle must exist');
+    const afterAutomation = lookups();
+    for (let click = 0; click < 3; click++) {
+      panel.click();
+      await settle();
+    }
+    assert(lookups() === afterAutomation, 'Showing and hiding the side panel must not re-read GitHub');
+
+    // The panel is open on its last click; a re-check must refresh under it, not blank it.
+    bridge.listAgentTaskPullRequests = () => new Promise<PullRequestDto[]>(() => {});
+    turn = { ...turn, id: 'later-development-turn', version: turn.version + 1, endedAt: '2026-01-01T12:02:00Z' };
+    emit('TURN_COMPLETED');
+    await settle();
+    assert(host.textContent?.includes('Checking for a pull request') !== true,
+      'A later lookup must leave the answered panel alone');
     return [{ name: 'Task pull requests are looked up only on settled turns and settled automation markers' }];
   }
   catch (error) { return [{ name: 'Task pull request lookup', error: error instanceof Error ? error.message : String(error) }]; }

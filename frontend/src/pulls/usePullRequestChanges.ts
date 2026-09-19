@@ -77,7 +77,9 @@ export function usePullRequestChanges(
   const commits = history?.scope === scope ? history.commits : NO_COMMITS;
 
   useEffect(() => {
-    if (!active || repo === null || number === null) return;
+    // Showing the tab again redraws what is already held; only a new pull request, head or commit
+    // range is worth another read.
+    if (!active || repo === null || number === null || result?.key === key) return;
     let live = true;
     const apply = (files: DiffFileDto[], error: string | null = null) => {
       if (live && currentKey.current === key) setResult({ key, files, error });
@@ -99,7 +101,7 @@ export function usePullRequestChanges(
       .then(files => apply(files))
       .catch((failure: unknown) => apply([], remoteErrorMessage(failure)));
     return () => { live = false; };
-  }, [active, key, number, repo, scope, selected]);
+  }, [active, key, number, repo, result, scope, selected]);
 
   const changeCommitRange = useCallback((range: CommitRange) => {
     if (range === null) {

@@ -1559,6 +1559,9 @@ export default function AgentTaskScreen({
   const [pullRequestError, setPullRequestError] = useState<string | null>(null);
   const [pullRequestLoading, setPullRequestLoading] = useState(false);
   const [pullRequestRefresh, setPullRequestRefresh] = useState(0);
+  // Whether a lookup has ever finished, so a later one refreshes under what is on screen instead
+  // of replacing it with "Checking for a pull request…" again.
+  const pullRequestChecked = useRef(false);
   const [now, setNow] = useState(() => Date.now());
   const [historyLoading, setHistoryLoading] = useState(false);
   const historyLoadingRef = useRef(false);
@@ -1775,7 +1778,6 @@ export default function AgentTaskScreen({
   // A task whose branch already has a pull request opens on it; from the first deliberate
   // open or close the panel is the user's, until they leave the task.
   const panelOpen = panelChoice ?? taskPr !== null;
-  const pullRequestPanelVisible = panelOpen && panelTab !== 'agents';
   const canRefreshPullRequests = taskLoaded && state.connection === 'open' && pullRequestTurnKnown && !running;
   const continuationUnfinished = state.task?.developmentContinuationUnfinished ?? false;
   const pollContinuation = continuationUnfinished && state.task?.state === 'OPEN';
@@ -1804,7 +1806,7 @@ export default function AgentTaskScreen({
       return;
     }
     let active = true;
-    setPullRequestLoading(true);
+    setPullRequestLoading(!pullRequestChecked.current);
     const lookup = async (): Promise<void> => {
       const cached = await live().listAgentTaskPullRequests(taskId, workspaceId);
       if (!active) return;
@@ -1820,10 +1822,12 @@ export default function AgentTaskScreen({
         if (active) setPullRequestError(remoteErrorMessage(failure));
       })
       .finally(() => {
-        if (active) setPullRequestLoading(false);
+        if (!active) return;
+        pullRequestChecked.current = true;
+        setPullRequestLoading(false);
       });
     return () => { active = false; };
-  }, [live, canRefreshPullRequests, pullRequestTurnId, pullRequestTurnEndedAt, pullRequestPanelVisible, pullRequestRefresh, taskId, workspaceId, continuationUnfinished]);
+  }, [live, canRefreshPullRequests, pullRequestTurnId, pullRequestTurnEndedAt, pullRequestRefresh, taskId, workspaceId, continuationUnfinished]);
 
   // The panel reads the pull request itself, so the detail and its diff are read here rather
   // than by the body, which stays a pure function of the state a test can hand it.
@@ -2460,7 +2464,9 @@ export default function AgentTaskScreen({
       pullRequestLoading={pullRequestLoading}
       ciPollingError={ciPollingError}
       ciSubmissionBlocked={confirmation !== null || confirming}
-      onRefreshPullRequests={canRefreshPullRequests ? () => setPullRequestRefresh((revision) => revision + 1) : undefined}
+      onRefreshPullRequests={canRefreshPullRequests
+        ? () => { pullRequestChecked.current = false; setPullRequestRefresh((revision) => revision + 1); }
+        : undefined}
       pullRequestDetail={pullRequestDetail}
       pullRequestChanges={pullRequestChanges}
       pullRequestCommitRange={pullRequestCommitRange}

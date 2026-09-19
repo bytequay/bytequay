@@ -135,6 +135,13 @@ async function runHook(): Promise<string[]> {
     render();
     await settle();
     assert(defaultReads === readsBeforeRefresh + 1 && current().files[0]?.filename === 'new-head', 'Activating changes must load the invalidated snapshot');
+    active = false;
+    render();
+    await settle();
+    active = true;
+    render();
+    await settle();
+    assert(defaultReads === readsBeforeRefresh + 1 && current().files[0]?.filename === 'new-head', 'Hiding and showing the tab must redraw the loaded diff, not read it again');
     completed.push('Defer hidden reads until activated');
     return completed;
   }

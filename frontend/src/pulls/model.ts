@@ -53,7 +53,7 @@ export type PullTab = 'all' | 'active' | 'req' | 'monitored' | 'reviewed' | 'don
  */
 export const PULL_TABS: { key: PullTab; label: string; empty: string }[] = [
   { key: 'all', label: 'Open', empty: 'open pull requests' },
-  { key: 'active', label: 'My work', empty: 'pull requests you authored' },
+  { key: 'active', label: 'My work', empty: 'open pull requests you authored' },
   { key: 'req', label: 'Review', empty: 'pull requests needing your review' },
   { key: 'monitored', label: 'Monitored', empty: 'monitored pull requests' },
   { key: 'reviewed', label: 'Reviewed', empty: 'pull requests you reviewed' },
@@ -115,13 +115,13 @@ export function rowsForTab(prs: PullRequestDto[], tab: PullTab, viewerLogin?: st
       const done = pullRequestKind(pr.state) !== 'open';
       const authored = pullRequestIsMine(pr, viewerLogin);
       const reviewed = !authored && pr.handledAction !== null;
-      if (tab === 'active') return authored;
       if (tab === 'done') return done;
       // Monitored is the set the user pinned, not a state the repository
       // derives. ponytail: a pinned pull request stays listed after it is
       // merged; whether merging should unpin it is still an open question.
       if (tab === 'monitored') return pr.monitoredAt != null;
       if (done) return false;
+      if (tab === 'active') return authored;
       if (tab === 'req') return pullRequestNeedsReview(pr);
       if (tab === 'reviewed') return reviewed;
       return true;

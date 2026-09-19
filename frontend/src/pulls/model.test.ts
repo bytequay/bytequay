@@ -63,13 +63,15 @@ describe('rowsForTab', () => {
     expect(tabForInitialPullRequest(closed, 'all')).toBe('done');
   });
 
-  it('keeps all authored work in My PRs regardless of state', () => {
+  it('leaves merged and closed work out of My work', () => {
     const open = pr({ id: 1, origin: 'AUTHORED', state: 'open' });
     const merged = pr({ id: 2, origin: 'AUTHORED', state: 'merged' });
     const closed = pr({ id: 3, origin: 'AUTHORED', state: 'closed' });
     const someoneElse = pr({ id: 4, author: 'someone-else', origin: 'OTHER', state: 'open' });
 
-    expect(rowsForTab([open, merged, closed, someoneElse], 'active', 'jack').map(row => row.id)).toEqual([1, 2, 3]);
+    expect(rowsForTab([open, merged, closed, someoneElse], 'active', 'jack').map(row => row.id)).toEqual([1]);
+    expect(rowsForTab([merged, closed], 'done', 'jack').map(row => row.id)).toEqual([2, 3]);
+    expect(tabForInitialPullRequest(merged, 'active', 'jack')).toBe('done');
   });
 
   it('uses the viewer login instead of a stale authored origin', () => {
@@ -144,7 +146,7 @@ describe('rowsForTab', () => {
     });
 
     expect(rowsForTab([updated], 'all')).toEqual([]);
-    expect(rowsForTab([updated], 'active')[0]?.kind).toBe('merged');
+    expect(rowsForTab([updated], 'active')).toEqual([]);
     expect(rowsForTab([updated], 'req')).toEqual([]);
     expect(rowsForTab([updated], 'reviewed')).toEqual([]);
     expect(rowsForTab([updated], 'done')[0]?.kind).toBe('merged');

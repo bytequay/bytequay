@@ -13,7 +13,7 @@
  */
 import { renderToStaticMarkup } from 'react-dom/server';
 import { describe, expect, it } from 'vitest';
-import MarkdownBody, { changedSpan, CodeReferenceCard, ReferencePreviewCard, markdownBlocks, parseGitHubCodePermalink, toggleMarkdownTask } from './MarkdownBody';
+import MarkdownBody, { changedSpan, clampPreviewOrigin, CodeReferenceCard, ReferencePreviewCard, markdownBlocks, parseGitHubCodePermalink, toggleMarkdownTask } from './MarkdownBody';
 
 describe('suggested changes', () => {
   it('spans the differing middle between a shared prefix and a non-overlapping suffix', () => {
@@ -479,5 +479,23 @@ describe('MarkdownBody', () => {
     expect(html.match(/<blockquote>/g)).toHaveLength(2);
     expect(html).toContain('<blockquote><p>I read the execution flow:</p><blockquote><p>The coordinator aggregates deletion vectors —<br/>this is necessary because multiple workers may process the same file.<br/>CopyOnWriteFileRewriter writes the surviving rows.</p></blockquote><p>I suspect the rewriting is happening on the coordinator.</p></blockquote>');
     expect(html).not.toContain('&gt; The coordinator');
+  });
+});
+
+describe('clampPreviewOrigin', () => {
+  const card = { width: 480, height: 400 };
+  const view = { width: 1200, height: 800 };
+
+  it('keeps a dragged preview where it was dropped inside the window', () => {
+    expect(clampPreviewOrigin(300, 120, card, view)).toEqual({ left: 300, top: 120 });
+  });
+
+  it('lets half the width pass the right edge and 30% of the height pass the bottom', () => {
+    expect(clampPreviewOrigin(1190, 790, card, view)).toEqual({ left: 960, top: 520 });
+  });
+
+  it('holds the top left corner on screen', () => {
+    expect(clampPreviewOrigin(-40, -90, card, view)).toEqual({ left: 0, top: 0 });
+    expect(clampPreviewOrigin(10, 10, card, { width: 200, height: 200 })).toEqual({ left: 0, top: 0 });
   });
 });

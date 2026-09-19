@@ -11,7 +11,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-import { Fragment, useEffect, useId, useRef, useState, type ChangeEvent, type CSSProperties, type MouseEvent, type ReactNode } from 'react';
+import { Fragment, useEffect, useId, useRef, useState, type ChangeEvent, type CSSProperties, type MouseEvent, type ReactNode, type Ref } from 'react';
 import { CircleDot, GitPullRequest } from 'lucide-react';
 import { createPortal } from 'react-dom';
 import hljs from 'highlight.js/lib/common';
@@ -684,6 +684,22 @@ function loadPreview(reference: GitHubReference): Promise<ReferencePreview | nul
   return once(previewRequests, key, () => resolveGitHubReference(reference));
 }
 
+/** How far from the bottom right corner the browser's own resize grip takes a press. */
+const RESIZE_GRIP = 18;
+
+/** A dragged preview may leave at most half its width past the right edge and 30% of its height past the bottom. */
+export function clampPreviewOrigin(
+  left: number,
+  top: number,
+  card: { width: number; height: number },
+  view: { width: number; height: number },
+) {
+  return {
+    left: Math.max(0, Math.min(left, view.width - card.width / 2)),
+    top: Math.max(0, Math.min(top, view.height - card.height * 0.7)),
+  };
+}
+
 export function ReferenceLink({ reference, showTitle = false, children }: {
   reference: GitHubReference;
   showTitle?: boolean;
@@ -691,9 +707,11 @@ export function ReferenceLink({ reference, showTitle = false, children }: {
 }) {
   const previewId = useId();
   const anchor = useRef<HTMLAnchorElement>(null);
+  const card = useRef<HTMLElement>(null);
   const showTimer = useRef<number | null>(null);
   const hideTimer = useRef<number | null>(null);
   const [open, setOpen] = useState(false);
+  const [pinned, setPinned] = useState(false);
   const [position, setPosition] = useState<CSSProperties>({});
   const [preview, setPreview] = useState<ReferencePreview | null | undefined>();
 
@@ -721,16 +739,72 @@ export function ReferenceLink({ reference, showTitle = false, children }: {
       }
     }, delay);
   };
+  const close = () => {
+    clearTimer(showTimer);
+    clearTimer(hideTimer);
+    setPinned(false);
+    setOpen(false);
+  };
   const hide = (delay = 140) => {
     clearTimer(showTimer);
     clearTimer(hideTimer);
+    // A card the reader moved or resized stays put until they dismiss it; the pointer has to leave it to reach what it covered.
+    if (pinned) return;
     hideTimer.current = window.setTimeout(() => setOpen(false), delay);
+  };
+  const startDrag = (event: MouseEvent<HTMLElement>) => {
+    const rect = card.current?.getBoundingClientRect();
+    if (!rect || event.button !== 0) return;
+    event.preventDefault();
+    const grabX = event.clientX - rect.left;
+    const grabY = event.clientY - rect.top;
+    const move = (next: globalThis.MouseEvent) => setPosition(current => ({
+      ...current,
+      bottom: undefined,
+      ...clampPreviewOrigin(next.clientX - grabX, next.clientY - grabY, rect, {
+        width: window.innerWidth,
+        height: window.innerHeight,
+      }),
+    }));
+    const stop = () => {
+      window.removeEventListener('mousemove', move);
+      window.removeEventListener('mouseup', stop);
+      document.body.style.userSelect = '';
+    };
+    document.body.style.userSelect = 'none';
+    clearTimer(hideTimer);
+    setPinned(true);
+    window.addEventListener('mousemove', move);
+    window.addEventListener('mouseup', stop);
+  };
+  const startResize = (event: MouseEvent<HTMLElement>) => {
+    const box = event.currentTarget.getBoundingClientRect();
+    if (box.right - event.clientX > RESIZE_GRIP || box.bottom - event.clientY > RESIZE_GRIP) return;
+    clearTimer(hideTimer);
+    setPinned(true);
+    // The browser's own grip writes width and height from here, so the height that fitted the placement has to give way.
+    setPosition(current => ({ ...current, height: box.height, maxHeight: undefined }));
   };
 
   useEffect(() => () => {
     clearTimer(showTimer);
     clearTimer(hideTimer);
   }, []);
+
+  useEffect(() => {
+    if (!pinned) return;
+    const dismiss = (event: KeyboardEvent | PointerEvent) => {
+      if (event instanceof KeyboardEvent ? event.key !== 'Escape' : card.current?.contains(event.target as Node)) return;
+      setPinned(false);
+      setOpen(false);
+    };
+    window.addEventListener('keydown', dismiss);
+    window.addEventListener('pointerdown', dismiss);
+    return () => {
+      window.removeEventListener('keydown', dismiss);
+      window.removeEventListener('pointerdown', dismiss);
+    };
+  }, [pinned]);
 
   useEffect(() => {
     if (!showTitle) return;
@@ -761,7 +835,7 @@ export function ReferenceLink({ reference, showTitle = false, children }: {
       onFocus={() => show(0)}
       onBlur={() => hide()}
       onClick={event => {
-        hide(0);
+        close();
         // A surface that already took the click, like a task showing its own pull request in a panel, keeps it.
         if (event.defaultPrevented) return;
         event.preventDefault();
@@ -774,24 +848,30 @@ export function ReferenceLink({ reference, showTitle = false, children }: {
     {open && createPortal(
       <ReferencePreviewCard
         id={previewId}
+        cardRef={card}
         reference={reference}
         preview={preview}
         style={position}
         onEnter={() => clearTimer(hideTimer)}
         onLeave={() => hide()}
+        onDragStart={startDrag}
+        onResizeStart={startResize}
       />,
       document.body,
     )}
   </>;
 }
 
-export function ReferencePreviewCard({ id, reference, preview, style, onEnter, onLeave }: {
+export function ReferencePreviewCard({ id, cardRef, reference, preview, style, onEnter, onLeave, onDragStart, onResizeStart }: {
   id: string;
+  cardRef?: Ref<HTMLElement>;
   reference: GitHubReference;
   preview: ReferencePreview | null | undefined;
   style: CSSProperties;
   onEnter: () => void;
   onLeave: () => void;
+  onDragStart?: (event: MouseEvent<HTMLElement>) => void;
+  onResizeStart?: (event: MouseEvent<HTMLElement>) => void;
 }) {
   const item = preview?.kind === 'pull' ? preview.detail : preview?.kind === 'issue' ? preview.issue : null;
   const body = preview?.kind === 'pull' ? preview.detail.body : preview?.kind === 'issue' ? preview.issue.body : null;
@@ -801,18 +881,20 @@ export function ReferencePreviewCard({ id, reference, preview, style, onEnter, o
   const kind = preview?.kind ?? reference.kind;
   return (
     <aside
+      ref={cardRef}
       className={`md-reference-preview is-${kind}`}
       id={id}
       role="dialog"
       aria-label={`${kind === 'pull' ? 'Pull request' : 'Issue'} preview`}
       style={style}
       tabIndex={0}
+      onMouseDown={onResizeStart}
       onMouseEnter={onEnter}
       onMouseLeave={onLeave}
       onFocus={onEnter}
       onBlur={onLeave}
     >
-      <header>
+      <header onMouseDown={onDragStart}>
         <span><ReferenceIcon pull={kind === 'pull'} /> {kind === 'pull' ? 'Pull request' : 'Issue'}</span>
         <small>{reference.owner}/{reference.repo} #{reference.number}</small>
       </header>

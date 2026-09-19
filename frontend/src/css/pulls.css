@@ -879,9 +879,9 @@
 .md-reference svg { margin-right: 4px; color: #59636e; vertical-align: -2px; }
 .md-reference.is-issue svg { color: #1a7f37; }
 .md-reference small { color: #59636e; font-size: inherit; }
-.md-reference-preview { position: fixed; z-index: 300; width: 480px; max-width: calc(100vw - 24px); overflow: auto; border: 1px solid #d0d7de; border-radius: 12px; background: #fff; color: #1f2328; box-shadow: 0 12px 36px rgba(31, 35, 40, 0.24); font-size: var(--ui-font-size); line-height: 1.45; }
+.md-reference-preview { position: fixed; z-index: 300; width: 480px; min-width: 280px; max-width: calc(100vw - 24px); min-height: 120px; max-height: calc(100vh - 24px); overflow: auto; resize: both; border: 1px solid #d0d7de; border-radius: 12px; background: #fff; color: #1f2328; box-shadow: 0 12px 36px rgba(31, 35, 40, 0.24); font-size: var(--ui-font-size); line-height: 1.45; }
 .md-reference-preview:focus { outline: 2px solid #0969da; outline-offset: 2px; }
-.md-reference-preview > header { position: sticky; z-index: 1; top: 0; display: flex; align-items: center; justify-content: space-between; gap: 12px; border-bottom: 1px solid #e1e7eb; background: #f6f8fa; padding: 9px 12px; }
+.md-reference-preview > header { position: sticky; z-index: 1; top: 0; display: flex; align-items: center; justify-content: space-between; gap: 12px; border-bottom: 1px solid #e1e7eb; background: #f6f8fa; padding: 9px 12px; cursor: grab; }
 .md-reference-preview > header span { display: inline-flex; align-items: center; color: #24292f; font-weight: 600; }
 .md-reference-preview > header svg { margin-right: 5px; color: #59636e; }
 .md-reference-preview.is-issue > header svg { color: #1a7f37; }

@@ -13,6 +13,7 @@
  */
 import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties, type MouseEvent, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';
+import { CircleDot, GitPullRequest } from 'lucide-react';
 import Avatar from './Avatar';
 import RepoAvatar from './RepoAvatar';
 import { ago } from './relativeTime';
@@ -271,6 +272,7 @@ export default function ReferenceCard({ id, hover, item, body, actions }: {
   };
 
   const [owner, repo] = item.repo.split('/');
+  const KindIcon = item.type === 'pr' ? GitPullRequest : CircleDot;
   const byline = item.byline ?? defaultByline(item);
   const style: CSSProperties = {
     maxHeight: Math.min(CARD_HEIGHT[item.type], window.innerHeight - 20),
@@ -293,6 +295,13 @@ export default function ReferenceCard({ id, hover, item, body, actions }: {
     >
       <div className="ref-card__head" onMouseDown={startDrag}>
         <div className="ref-card__ref">
+          <KindIcon
+            className="ref-card__kind"
+            size={15}
+            strokeWidth={1.7}
+            style={item.chip ? { color: item.chip.color } : undefined}
+            aria-hidden="true"
+          />
           <RepoAvatar owner={owner} repo={repo ?? ''} size={16} radius={4} />
           <span className="ref-card__meta">{item.repo} #{item.number}</span>
           {item.chip && (

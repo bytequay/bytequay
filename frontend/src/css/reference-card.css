@@ -39,6 +39,12 @@
   gap: 7px;
 }
 
+/* The kind reads before the repository: this card is an issue, or it is a pull request. */
+.ref-card__kind {
+  flex: none;
+  color: #59636e;
+}
+
 .ref-card__meta {
   font-family: var(--mono);
   font-size: 11px;

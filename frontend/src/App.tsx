@@ -409,7 +409,8 @@ export default function App() {
         onApp={backToApp}
         onNewPage={() => browserAction(window.bridge.hideInAppBrowser().then(() => setNewPageOpen(true)))}
         onSelect={id => { setNewPageOpen(false); browserAction(window.bridge.selectInAppBrowserTab(id)); }}
-        onClose={id => browserAction(window.bridge.closeInAppBrowserTab(id))} />
+        onClose={id => browserAction(window.bridge.closeInAppBrowserTab(id))}
+        onRename={(id, name) => browserAction(window.bridge.renameInAppBrowserTab(id, name))} />
       <div className="app-surfaces" inert={browserOpen}>
     <div className="app-shell" inert={previewPr !== null}>
         <AppSidebar

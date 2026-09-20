@@ -168,6 +168,7 @@ const bridge: Bridge = {
   getInAppBrowserState: () => ipcRenderer.invoke('inapp:state'),
   selectInAppBrowserTab: id => ipcRenderer.invoke('inapp:select', id),
   pinInAppBrowserTab: (id, pinned) => ipcRenderer.invoke('inapp:pin', id, pinned),
+  renameInAppBrowserTab: (id, name) => ipcRenderer.invoke('inapp:rename', id, name),
   closeInAppBrowserTab: id => ipcRenderer.invoke('inapp:close', id),
   hideInAppBrowser: () => ipcRenderer.invoke('inapp:hide'),
   mountInAppBrowser: (id, bounds) => ipcRenderer.invoke('inapp:mount', id, bounds),

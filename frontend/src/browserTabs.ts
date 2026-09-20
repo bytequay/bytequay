@@ -18,7 +18,7 @@ import type { InAppBrowserState, InAppBrowserTab } from './types';
 import { normalizeWebAddress } from './webAddress';
 
 type Tab = { state: InAppBrowserTab; view: WebContentsView | null; loadVersion: number; committedUrl: string };
-type PinnedTab = Pick<InAppBrowserTab, 'id' | 'url' | 'title' | 'favicon'>;
+type PinnedTab = Pick<InAppBrowserTab, 'id' | 'url' | 'title' | 'name' | 'favicon'>;
 
 function faviconUrl(value: unknown): string | null {
   if (typeof value !== 'string' || !/^https?:/i.test(value)) return null;
@@ -36,7 +36,8 @@ function restoredTabs(value: unknown): PinnedTab[] {
     try {
       const url = normalizeWebAddress(tab.url);
       ids.add(tab.id);
-      return [{ id: tab.id, url, title: tab.title, favicon: faviconUrl(tab.favicon) }];
+      const name = typeof tab.name === 'string' ? tab.name.trim() : '';
+      return [{ id: tab.id, url, title: tab.title, name: name === '' ? null : name, favicon: faviconUrl(tab.favicon) }];
     }
     catch { return []; }
   });
@@ -104,6 +105,18 @@ export class BrowserTabs {
     tab.state.pinned = pinned;
     try { this.save(); }
     catch (error) { tab.state.pinned = previous; throw error; }
+    this.emit();
+  }
+
+  /** A page keeps the name the user gave it while its own title changes underneath. */
+  rename(id: string, name: unknown): void {
+    if (typeof name !== 'string') throw new Error('Invalid page name.');
+    const next = name.trim();
+    const tab = this.requireTab(id);
+    const previous = tab.state.name;
+    tab.state.name = next === '' ? null : next;
+    try { this.save(); }
+    catch (error) { tab.state.name = previous; throw error; }
     this.emit();
   }
 
@@ -193,7 +206,7 @@ export class BrowserTabs {
 
   private addTab(url: string, background: boolean): void {
     const id = randomUUID();
-    const tab = this.tab({ id, url, title: '', favicon: null }, false);
+    const tab = this.tab({ id, url, title: '', name: null, favicon: null }, false);
     this.tabs.set(id, tab);
     if (background) {
       this.createView(tab);
@@ -218,7 +231,8 @@ export class BrowserTabs {
   }
 
   private save(): void {
-    const saved = [...this.tabs.values()].filter(tab => tab.state.pinned).map(({ state: { id, title, favicon }, committedUrl }) => ({ id, url: committedUrl, title, favicon }));
+    const saved = [...this.tabs.values()].filter(tab => tab.state.pinned)
+      .map(({ state: { id, title, name, favicon }, committedUrl }) => ({ id, url: committedUrl, title, name, favicon }));
     const file = this.storagePath();
     fs.writeFileSync(`${file}.tmp`, JSON.stringify(saved), { mode: 0o600 });
     fs.chmodSync(`${file}.tmp`, 0o600);
@@ -374,6 +388,7 @@ export function registerBrowserTabIpc(tabs: BrowserTabs, window: () => BrowserWi
   ipcMain.handle('inapp:open', (event, url: unknown) => { trusted(event); tabs.open(url); });
   ipcMain.handle('inapp:select', (event, id: string) => { trusted(event); tabs.select(id); });
   ipcMain.handle('inapp:pin', (event, id: string, pinned: boolean) => { trusted(event); tabs.pin(id, pinned); });
+  ipcMain.handle('inapp:rename', (event, id: string, name: unknown) => { trusted(event); tabs.rename(id, name); });
   ipcMain.handle('inapp:close', (event, id: string) => { trusted(event); tabs.close(id); });
   ipcMain.handle('inapp:hide', event => { trusted(event); tabs.hide(); });
   ipcMain.handle('inapp:mount', (event, id: string, target: unknown) => { trusted(event); tabs.mount(id, target); });

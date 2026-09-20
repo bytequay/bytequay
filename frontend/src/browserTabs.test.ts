@@ -266,6 +266,22 @@ it('persists committed same-title URLs and restores only pins, lazily, with priv
   expect(tabs.getState().tabs).toEqual([]);
 });
 
+it('keeps a renamed page named while its own title changes, and restores the name', () => {
+  const id = open('https://slack.example/client/T1');
+  tabs.pin(id, true);
+  tabs.rename(id, '  Slack dev  ');
+  view(0).webContents.title = 'dev (Channel) - apache';
+  view(0).webContents.emit('page-title-updated');
+  expect(tabs.getState().tabs[0]).toMatchObject({ name: 'Slack dev', title: 'dev (Channel) - apache' });
+  expect(() => tabs.rename(id, 7)).toThrow('Invalid page name');
+  tabs.releaseWindow();
+  tabs = new BrowserTabs(() => window, () => file);
+  expect(tabs.getState().tabs[0]).toMatchObject({ name: 'Slack dev', title: 'dev (Channel) - apache' });
+  tabs.rename(id, '   ');
+  expect(tabs.getState().tabs[0].name).toBeNull();
+  expect(JSON.parse(fs.readFileSync(file, 'utf8'))[0].name).toBeNull();
+});
+
 it('reports failures/crashes per tab, detaches errors and clears the error when retrying', () => {
   const first = open('https://example.com/one');
   tabs.mount(first, bounds);

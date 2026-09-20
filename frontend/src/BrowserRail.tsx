@@ -12,7 +12,8 @@
  * limitations under the License.
  */
 import { useState } from 'react';
-import { Globe, PanelLeftClose, PanelLeftOpen, Pin, Plus, Ship, TriangleAlert, X } from 'lucide-react';
+import { Globe, PanelLeftClose, PanelLeftOpen, Pencil, Pin, Plus, Ship, TriangleAlert, X } from 'lucide-react';
+import { useRenameDraft } from './renameDraft';
 import type { InAppBrowserState, InAppBrowserTab } from './types';
 
 type Props = {
@@ -25,6 +26,7 @@ type Props = {
   onNewPage: () => void;
   onSelect: (id: string) => void;
   onClose: (id: string) => void;
+  onRename: (id: string, name: string) => void;
 };
 
 function PageIcon({ tab }: { tab: InAppBrowserTab }) {
@@ -40,21 +42,43 @@ function PageIcon({ tab }: { tab: InAppBrowserTab }) {
   );
 }
 
-export default function BrowserRail({ state, expanded, newPageOpen, error, onToggle, onApp, onNewPage, onSelect, onClose }: Props) {
+function PageRow({ tab, active, expanded, onSelect, onClose, onRename }: {
+  tab: InAppBrowserTab;
+  active: boolean;
+  expanded: boolean;
+  onSelect: (id: string) => void;
+  onClose: (id: string) => void;
+  onRename: (id: string, name: string) => void;
+}) {
+  const label = tab.name ?? (tab.title || tab.url);
+  const rename = useRenameDraft(label, name => onRename(tab.id, name));
+  return (
+    <div className={`browser-rail__row${active ? ' is-active' : ''}`}>
+      {rename.editing
+        ? <span className="browser-rail__page"><PageIcon tab={tab} /><input className="browser-rail__rename" {...rename.inputProps} aria-label="Page name" /></span>
+        : <>
+          <button type="button" className="browser-rail__page" onClick={() => onSelect(tab.id)}
+            title={`${label}\n${tab.url}${tab.pinned ? '\nPinned' : ''}`}
+            aria-label={`${label}${tab.pinned ? ' (pinned)' : ''}`}
+            aria-current={active ? 'page' : undefined}>
+            <PageIcon tab={tab} />
+            {expanded && <span className="browser-rail__label">{label}</span>}
+          </button>
+          {expanded && <button type="button" className="browser-rail__tool" onClick={rename.start}
+            title="Rename this page" aria-label={`Rename ${label}`}><Pencil size={13} /></button>}
+          {expanded && <button type="button" className="browser-rail__tool browser-rail__close" onClick={() => onClose(tab.id)}
+            title={tab.pinned ? 'Minimize page and keep pin' : 'Close page'} aria-label={`${tab.pinned ? 'Minimize' : 'Close'} ${label}`}><X size={14} /></button>}
+        </>}
+    </div>
+  );
+}
+
+export default function BrowserRail({ state, expanded, newPageOpen, error, onToggle, onApp, onNewPage, onSelect, onClose, onRename }: Props) {
   const pinned = state.tabs.filter(tab => tab.pinned);
   const unpinned = state.tabs.filter(tab => !tab.pinned);
   const row = (tab: InAppBrowserTab) => (
-    <div className={`browser-rail__row${state.activeTabId === tab.id ? ' is-active' : ''}`} key={tab.id}>
-      <button type="button" className="browser-rail__page" onClick={() => onSelect(tab.id)}
-        title={`${tab.title || tab.url}\n${tab.url}${tab.pinned ? '\nPinned' : ''}`}
-        aria-label={`${tab.title || tab.url}${tab.pinned ? ' (pinned)' : ''}`}
-        aria-current={state.activeTabId === tab.id ? 'page' : undefined}>
-        <PageIcon tab={tab} />
-        {expanded && <span className="browser-rail__label">{tab.title || tab.url}</span>}
-      </button>
-      {expanded && <button type="button" className="browser-rail__close" onClick={() => onClose(tab.id)}
-        title={tab.pinned ? 'Minimize page and keep pin' : 'Close page'} aria-label={`${tab.pinned ? 'Minimize' : 'Close'} ${tab.title || tab.url}`}><X size={14} /></button>}
-    </div>
+    <PageRow key={tab.id} tab={tab} active={state.activeTabId === tab.id} expanded={expanded}
+      onSelect={onSelect} onClose={onClose} onRename={onRename} />
   );
   return (
     <nav id="browser-rail" className={`browser-rail${expanded ? ' is-expanded' : ''}`} aria-label="Web pages">

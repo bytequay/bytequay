@@ -452,6 +452,8 @@ export type InAppNavState = {
 export type InAppBrowserTab = InAppNavState & {
   id: string;
   pinned: boolean;
+  /** The name the user gave this page; null while it goes by the page's own title. */
+  name: string | null;
   favicon: string | null;
   error: string | null;
 };
@@ -1429,6 +1431,7 @@ export type Bridge = {
   closeInAppBrowserTab: (id: string) => Promise<void>;
   hideInAppBrowser: () => Promise<void>;
   mountInAppBrowser: (id: string, bounds: { x: number; y: number; width: number; height: number }) => Promise<void>;
+  renameInAppBrowserTab: (id: string, name: string) => Promise<void>;
   setInAppBrowserBounds: (id: string, bounds: { x: number; y: number; width: number; height: number }) => Promise<void>;
   unmountInAppBrowser: (id: string) => Promise<void>;
   inAppGoBack: (id: string) => Promise<void>;

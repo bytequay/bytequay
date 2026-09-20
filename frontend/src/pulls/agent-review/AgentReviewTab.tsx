@@ -448,15 +448,15 @@ export default function AgentReviewTab({
   });
 
   return (
-    <div className={`agr-pane${mode === 'conversation' ? ' agr-pane--conversation' : ''}`}>
-      <div className="agr-strip">
+    <div className="agr-pane">
+      {mode === 'cards' && <div className="agr-strip">
         <span className={`agr-strip__status is-${status?.tone ?? 'neutral'}`}>
           {status?.busy && <span className="agr-spinner" aria-hidden="true" />}
           <strong>{status?.label}</strong>
           <span className="agr-strip__detail">· {status?.detail}</span>
         </span>
         <span className="agr-spacer" />
-        {mode === 'cards' && onOpenWorkspace !== undefined && (
+        {onOpenWorkspace !== undefined && (
           <button type="button" className="agr-action" aria-label="View in workspace" title="View in workspace" onClick={onOpenWorkspace}>
             <PanelsTopLeft size={16} aria-hidden="true" />
           </button>
@@ -483,11 +483,8 @@ export default function AgentReviewTab({
             title={localRunReason ?? 'Completes the task and cleans the worktree; the summary, findings and discussion stay'}
             onClick={() => { void run_(async () => onReviewChange(await window.bridge.endAgentReview(review.id))); }}>End review</button>
         )}
-      </div>
-
-      {!running && review.state === 'OPEN' && <div className="agr-banner is-neutral">
-        Local experiments are restored when possible. If they conflict, all local experiments are discarded.
       </div>}
+
       {error !== null && <div className="agr-error" role="alert">{error}</div>}
       {findingActions.error !== null && <div className="agr-error" role="alert">{findingActions.error}</div>}
       {recovery && (

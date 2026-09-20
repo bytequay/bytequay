@@ -215,7 +215,6 @@
 :is(.agr-learning-card, .agr-finding) .pr-thread-comment__menu { flex-wrap: wrap; }
 .agr-card__refs { color: #8c959f; font-family: var(--font-mono); font-size: 11px; white-space: nowrap; }
 .agr-card__empty { margin: 0; padding: 18px 20px; color: #57606a; font-size: 13.5px; line-height: 1.55; }
-.agr-pane--conversation .agr-strip { min-height: 36px; gap: 6px; padding: 6px 12px; }
 
 .agr-critical { margin: 0; padding-left: 0; list-style: none; }
 .agr-critical li { display: flex; align-items: baseline; flex-wrap: wrap; gap: 8px; }

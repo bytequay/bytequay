@@ -116,7 +116,6 @@ describe('the status strip', () => {
   it('offers Update review and End review once the run has settled', () => {
     const html = tab(reviewFixture());
     expect(html).toContain('>Update review</button>');
-    expect(html).toContain('Local experiments are restored when possible. If they conflict, all local experiments are discarded.');
     expect(html).toContain('>End review</button>');
     expect(html).not.toContain('>Stop</button>');
     expect(html).not.toContain('>Recover runtime</button>');
@@ -207,7 +206,6 @@ describe('banners', () => {
     const html = tab(reviewFixture({ observedHeadSha: '5e17b02a1b2c3d4e' }));
     expect(html).toContain('New commits');
     expect(html).toContain('d9a0c41 → 5e17b02');
-    expect(html).toContain('Local experiments are restored when possible. If they conflict, all local experiments are discarded.');
   });
 
   it('says a stopped review keeps its discussion open', () => {

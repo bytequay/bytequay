@@ -426,6 +426,25 @@
 }
 
 .cmt-day-icon { flex: none; color: #8c959f; }
+.cmt-day-actions { display: flex; align-items: center; flex: none; gap: 2px; margin-left: -4px; }
+
+.cmt-day-action {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex: none;
+  width: 22px;
+  height: 22px;
+  border: 0;
+  border-radius: 5px;
+  background: transparent;
+  color: #8c959f;
+  cursor: pointer;
+  padding: 0;
+}
+
+.cmt-day-action:hover { background: #eaeef2; color: #24292f; }
+.cmt-day-action[aria-pressed='true'] { color: #1a7f37; }
 .cmt-day-count { margin-left: auto; font-size: 11px; font-weight: 400; color: #8c959f; }
 
 .cmt-commit-row {
@@ -460,9 +479,9 @@
 .cmt-commit-main { flex: 1; min-width: 0; }
 
 .cmt-commit-title {
-  padding-right: 76px;
+  padding-right: 96px;
   font-size: 13.5px;
-  font-weight: 400;
+  font-weight: 500;
   color: var(--text-1);
   white-space: nowrap;
   overflow: hidden;
@@ -508,37 +527,56 @@
   align-items: center;
   gap: 6px;
   overflow: hidden;
-  border: 0;
-  background: transparent;
   color: #57606a;
   font-size: 12px;
   margin-top: 3px;
-  padding: 0;
-  text-align: left;
-  cursor: pointer;
 }
 
-.cmt-commit-pr:hover .cmt-commit-pr-title { color: var(--accent); text-decoration: underline; }
-.cmt-commit-pr-title { overflow: hidden; font-size: 12px; color: #8c959f; text-overflow: ellipsis; white-space: nowrap; }
+.cmt-commit-pr .cmt-chip.is-pr {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  flex: none;
+  border: 0;
+  padding: 1px 7px;
+  cursor: pointer;
+  font-family: inherit;
+}
+
+.cmt-commit-pr-title {
+  overflow: hidden;
+  font-size: 12px;
+  color: var(--accent);
+  text-decoration: underline;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  /* It previews on hover and never navigates, so it is not a pointer target. */
+  cursor: default;
+}
 
 .cmt-commit-sha {
   position: absolute;
   top: 10px;
   right: 12px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
   appearance: none;
   flex: none;
   font-family: ui-monospace, Menlo, monospace;
   font-size: 11.5px;
-  color: var(--accent);
-  border: 1px solid #d0d7de;
+  color: #24292f;
+  border: 1px solid transparent;
   border-radius: 6px;
-  padding: 3px 9px;
-  background: #ffffff;
+  padding: 3px 7px;
+  background: transparent;
   cursor: copy;
 }
 
-.cmt-commit-row:hover .cmt-commit-sha { background: #f6f8fa; }
-.cmt-commit-sha:hover { border-color: var(--accent); }
+.cmt-commit-sha > svg { flex: none; color: #57606a; }
+/* Deliberately no hover state: the button only reacts once it has copied. */
+.cmt-commit-sha.is-copied,
+.cmt-commit-sha.is-copied > svg { color: #1a7f37; }
 .cmt-commit-sha:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 
 .cmt-inline-editor { padding: 10px 12px; background: #f6f8fa; border-top: 1px solid #d8dee4; }
@@ -621,12 +659,49 @@
 .cmt-view-head-main { flex: 1; min-width: 0; }
 
 .cmt-view-title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
   font-size: 14px;
   font-weight: 400;
   color: var(--text-1);
-  white-space: nowrap;
+}
+
+.cmt-view-title > span {
+  min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.cmt-view-body-toggle {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex: none;
+  height: 18px;
+  padding: 0 6px;
+  border: 0;
+  border-radius: 5px;
+  background: #eaeef2;
+  color: #57606a;
+  cursor: pointer;
+}
+
+.cmt-view-body-toggle:hover,
+.cmt-view-body-toggle[aria-expanded='true'] { background: #d8dee4; color: #24292f; }
+
+.cmt-view-body {
+  margin: 8px 0 0;
+  padding: 0;
+  max-height: 220px;
+  overflow: auto;
+  font-family: ui-monospace, Menlo, monospace;
+  font-size: 12.5px;
+  line-height: 1.55;
+  color: #24292f;
+  /* Bodies are authored to a column limit, so a wrapped line would read as two. */
+  white-space: pre;
 }
 
 .cmt-view-meta {
@@ -993,6 +1068,7 @@
   padding: 2px 8px;
 }
 
+
 .cmt-flow-frozen { font-size: 12px; color: #656d76; margin-top: 6px; }
 .cmt-flow-frozen code { font-family: ui-monospace, Menlo, monospace; }
 
@@ -1020,6 +1096,7 @@
 .cmt-count-chips .is-already { color: #9a6700; background: #fff8c5; }
 
 .cmt-flow-controls { display: flex; align-items: center; gap: 8px; margin: 12px 0 4px; }
+
 
 .cmt-flow-filter {
   width: 280px;

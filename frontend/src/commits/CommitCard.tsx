@@ -11,7 +11,12 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
+import { useEffect, useId, useMemo, useState } from 'react';
+import { Check, Copy, GitPullRequest } from 'lucide-react';
 import Avatar from '../Avatar';
+import ReferenceCard, { previewMarkdown, useHoverCard, type ReferenceCardItem } from '../ReferenceCard';
+import MarkdownBody, { loadPreview, referenceCardItem } from '../pulls/MarkdownBody';
+import type { GitHubReference, GitHubReferencePreview } from '../githubReference';
 import { relativeTime } from '../relativeTime';
 import type { GitCommitDto } from '../types';
 import { shortSha } from './model';
@@ -48,12 +53,90 @@ export function CommitByline({ commit }: { commit: GitCommitDto }) {
   );
 }
 
+/**
+ * The pull request's own title, which only previews. Jumping to the pull
+ * request is the number's job, so a reader can read the description without
+ * leaving the commit list.
+ */
+function PullRequestTitle({ repo, number, title }: { repo: string; number: number; title: string }) {
+  const previewId = useId();
+  const hover = useHoverCard();
+  const [preview, setPreview] = useState<GitHubReferencePreview | null | undefined>();
+  const open = hover.anchor !== null;
+  const [owner, name] = repo.split('/');
+  const reference: GitHubReference = useMemo(
+    () => ({ kind: 'pull', owner, repo: name, number, href: `https://github.com/${owner}/${name}/pull/${number}` }),
+    [name, number, owner],
+  );
+
+  // Nothing is fetched for a title the reader only passed over.
+  useEffect(() => {
+    if (!open) return;
+    let current = true;
+    void loadPreview(reference).then(value => { if (current) setPreview(value); });
+    return () => { current = false; };
+  }, [open, reference]);
+
+  const body = preview?.kind === 'pull' ? preview.detail.body : null;
+  const item: ReferenceCardItem = referenceCardItem(reference, preview);
+  return <>
+    <span
+      className="cmt-commit-pr-title"
+      aria-describedby={open ? previewId : undefined}
+      onMouseEnter={event => hover.show(event.currentTarget)}
+      onMouseLeave={() => hover.hide()}
+      onClick={event => event.stopPropagation()}
+    >
+      {title}
+    </span>
+    <ReferenceCard
+      id={previewId}
+      hover={hover}
+      item={item}
+      body={preview === undefined
+        ? <span className="ref-card__muted">Loading details…</span>
+        : preview === null
+          ? <span className="ref-card__muted">Details are unavailable.</span>
+          : <MarkdownBody body={previewMarkdown(body) || 'No description provided.'} repository={repo} />}
+    />
+  </>;
+}
+
+/** Copying is silent until it happens: no hover state, just a word once it has. */
+function CopySha({ sha }: { sha: string }) {
+  const [copied, setCopied] = useState(false);
+
+  useEffect(() => {
+    if (!copied) return;
+    const timer = window.setTimeout(() => setCopied(false), 1500);
+    return () => window.clearTimeout(timer);
+  }, [copied]);
+
+  return (
+    <button
+      type="button"
+      className={`cmt-commit-sha${copied ? ' is-copied' : ''}`}
+      aria-label={copied ? `Copied commit SHA ${sha}` : `Copy full commit SHA ${sha}`}
+      onClick={event => {
+        event.stopPropagation();
+        void navigator.clipboard.writeText(sha).then(() => setCopied(true)).catch(() => {});
+      }}
+    >
+      {copied
+        ? <><span>Copied</span><Check size={12} strokeWidth={2} aria-hidden="true" /></>
+        : <><span>{shortSha(sha)}</span><Copy size={12} strokeWidth={2} aria-hidden="true" /></>}
+    </button>
+  );
+}
+
 type CommitCardProps = {
   commit: GitCommitDto;
   selected: boolean;
   viewed?: boolean;
   /** Range-picker rows: tighter padding and no checkbox, since picking is by row. */
   dense?: boolean;
+  /** `owner/repo` the commit's pull requests live in; without it the title cannot preview. */
+  pullRequestRepo?: string | null;
   onSelect: () => void;
   onToggle?: () => void;
   onOpenPullRequest: (number: number) => void;
@@ -64,6 +147,7 @@ export default function CommitCard({
   selected,
   viewed = false,
   dense = false,
+  pullRequestRepo = null,
   onSelect,
   onToggle,
   onOpenPullRequest,
@@ -90,36 +174,26 @@ export default function CommitCard({
           <CommitByline commit={commit} />
         </div>
         {pullRequestNumber !== null && (
-          <button
-            type="button"
-            className="cmt-commit-pr"
-            title={pullRequestTitle
-              ? `Open PR #${pullRequestNumber}: ${pullRequestTitle}`
-              : `Open PR #${pullRequestNumber}`}
-            onClick={event => {
-              event.stopPropagation();
-              onOpenPullRequest(pullRequestNumber);
-            }}
-          >
-            <span className="cmt-chip is-pr">⑃ #{pullRequestNumber}</span>
-            <span className="cmt-commit-pr-title">
-              {pullRequestTitle ?? 'View pull request'}
-            </span>
-          </button>
+          <div className="cmt-commit-pr">
+            <button
+              type="button"
+              className="cmt-chip is-pr"
+              title={`Open pull request #${pullRequestNumber}`}
+              onClick={event => {
+                event.stopPropagation();
+                onOpenPullRequest(pullRequestNumber);
+              }}
+            >
+              <GitPullRequest size={12} strokeWidth={2} aria-hidden="true" />
+              #{pullRequestNumber}
+            </button>
+            {pullRequestTitle !== null && (pullRequestRepo
+              ? <PullRequestTitle repo={pullRequestRepo} number={pullRequestNumber} title={pullRequestTitle} />
+              : <span className="cmt-commit-pr-title">{pullRequestTitle}</span>)}
+          </div>
         )}
       </div>
-      <button
-        type="button"
-        className="cmt-commit-sha"
-        title="Copy full commit SHA"
-        aria-label={`Copy full commit SHA ${commit.sha}`}
-        onClick={event => {
-          event.stopPropagation();
-          void navigator.clipboard.writeText(commit.sha);
-        }}
-      >
-        {shortSha(commit.sha)}
-      </button>
+      <CopySha sha={commit.sha} />
     </div>
   );
 }

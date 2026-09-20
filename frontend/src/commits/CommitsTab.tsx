@@ -100,7 +100,7 @@ type CommitsTabProps = {
   initialRepo?: 'workspace' | 'upstream';
   initialSourceSelection?: CommitSourceSelection;
   onSourceSelectionChange: (selection: CommitSourceSelection) => void;
-  onOpenPullRequest: (number: number) => void;
+  onOpenPullRequest: (number: number, repo?: string) => void;
   onOpenSettings: () => void;
 };
 
@@ -451,6 +451,8 @@ export function CommitsBrowser({ workspace, settings, initialRepo, initialSource
   const targetRepoName = (targetUpstream ? workspace.upstreamRepo : workspace.selectedRepo) ?? workspace.name;
   const targetPillLabel = `${targetRepoName} · ${branch}`;
   const sourcePillLabel = source === null ? 'Select source' : `${sourceSlug ?? source} · ${upBranch}`;
+  const pullRequestRepo = isRemote ? sourceSlug : targetSlug;
+  const openPullRequest = (number: number) => onOpenPullRequest(number, pullRequestRepo ?? undefined);
   const selectedCount = commits.filter(commit => checked.has(commit.sha)).length;
   /** Commits the span covers that the reader never checked themselves. */
   const pulledIn = span === null ? 0 : span.hi - span.lo + 1 - selectedCount;
@@ -780,7 +782,8 @@ export function CommitsBrowser({ workspace, settings, initialRepo, initialSource
         <SelectRangeDialog
           commits={commits}
           scope={`${sourceSlug ?? activeRemote} · ${upBranch}`}
-          onOpenPullRequest={onOpenPullRequest}
+          pullRequestRepo={pullRequestRepo}
+          onOpenPullRequest={openPullRequest}
           onCancel={closeRange}
           onApply={anchors => {
             setCheckedUp(new Set(anchors));
@@ -800,6 +803,7 @@ export function CommitsBrowser({ workspace, settings, initialRepo, initialSource
       {screen === 'commits' && (commitsView === 'history' || isRemote) && (
         <HistoryView
           listHeader={listHeader}
+          pullRequestRepo={pullRequestRepo}
           workspaceId={workspace.id}
           branch={branch}
           readOnlyTarget={!isRemote && targetUpstream}
@@ -812,7 +816,7 @@ export function CommitsBrowser({ workspace, settings, initialRepo, initialSource
           filter={searchQuery}
           onChangeChecked={next => (isRemote ? setCheckedUp(next) : setCheckedWs(next))}
           onHistoryRewritten={() => setLogVersion(version => version + 1)}
-          onOpenPullRequest={onOpenPullRequest}
+          onOpenPullRequest={openPullRequest}
         />
       )}
       {screen === 'tasks' && (

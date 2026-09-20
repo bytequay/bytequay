@@ -51,7 +51,7 @@ export default function WorkspaceShell({ workspace, tab, onSelectTab, onWorkspac
   browserOpen?: boolean;
   onSelectAgentTask: (taskId: string | null, mode: NavigationMode) => void;
   onSelectPullRequest: (number: number, mode: NavigationMode) => void;
-  onPreviewPullRequest: (number: number) => void;
+  onPreviewPullRequest: (number: number, repo?: string) => void;
   onSelectIssue: (number: number, mode: NavigationMode) => void;
 }) {
   const [openCherryPick, setOpenCherryPick] = useState<string | null>(null);
@@ -159,9 +159,7 @@ export default function WorkspaceShell({ workspace, tab, onSelectTab, onWorkspac
         initialRepo={initialCommitsRepo ?? undefined}
         initialSourceSelection={commitSourceSelection}
         onSourceSelectionChange={setCommitSourceSelection}
-        onOpenPullRequest={number => {
-          onSelectPullRequest(number, 'push');
-        }}
+        onOpenPullRequest={onPreviewPullRequest}
         onOpenSettings={() => { window.location.hash = settingsRoute('ws-agents', workspace.id); }}
       />
     );

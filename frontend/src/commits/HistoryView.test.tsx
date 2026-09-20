@@ -133,6 +133,80 @@ describe('workspace commit history', () => {
     expect(html).not.toContain('Add to review');
   });
 
+  it('offers the message body only on a commit that has one', () => {
+    const render = (body: string) => renderToStaticMarkup(<HistoryView
+      workspaceId="workspace-id"
+      branch="main"
+      logRef="main"
+      isUpstream={false}
+      canRewrite={true}
+      commits={[{
+        sha: '0123456789abcdef',
+        title: 'Improve commit browsing',
+        body,
+        author: 'percy-r',
+        committer: 'percy-r',
+        authoredAt: '2026-09-20T10:00:00Z',
+        committedAt: '2026-09-20T10:00:00Z',
+      }]}
+      loading={false}
+      checked={new Set()}
+      onChangeChecked={() => {}}
+      onHistoryRewritten={() => {}}
+      onOpenPullRequest={() => {}}
+    />);
+
+    const withBody = render('Why this change\n\nBecause the old one was wrong.');
+    expect(withBody).toContain('class="cmt-view-body-toggle"');
+    expect(withBody).toContain('lucide-ellipsis');
+    // A body shows straight away; the chip is there to put it away again.
+    expect(withBody).toContain('aria-expanded="true"');
+    expect(withBody).toContain('Hide the commit message body');
+    expect(withBody).toContain('class="cmt-view-body"');
+    expect(withBody).toContain('Because the old one was wrong.');
+
+    // Whitespace-only counts as no body, so the icon never appears for nothing.
+    expect(render('')).not.toContain('cmt-view-body-toggle');
+    expect(render('   \n  ')).not.toContain('cmt-view-body-toggle');
+  });
+
+  it('offers select-all and fold on each day header', () => {
+    const html = renderToStaticMarkup(<HistoryView
+      workspaceId="workspace-id"
+      branch="main"
+      logRef="main"
+      isUpstream={false}
+      canRewrite={true}
+      commits={[{
+        sha: '0123456789abcdef',
+        title: 'Improve commit browsing',
+        body: '',
+        author: 'percy-r',
+        committer: 'percy-r',
+        authoredAt: '2026-09-20T10:00:00Z',
+        committedAt: '2026-09-20T10:00:00Z',
+      }]}
+      loading={false}
+      checked={new Set()}
+      onChangeChecked={() => {}}
+      onHistoryRewritten={() => {}}
+      onOpenPullRequest={() => {}}
+    />);
+
+    expect(html).toContain('class="cmt-day-actions"');
+    expect(html).toContain('Select all commits on this day');
+    expect(html).toContain('Hide the commits on this day');
+    // The header already reads "Commits on …", so the tooltips must not repeat it.
+    expect(html).not.toContain('on Commits on');
+    // Nothing is checked yet, so the day offers to fill rather than clear.
+    expect(html).toContain('lucide-square-check');
+    expect(html).not.toContain('lucide-square-minus');
+    // The day starts open, so the chevron points down and the rows are rendered.
+    expect(html).toContain('lucide-chevron-down');
+    expect(html).toContain('aria-expanded="true"');
+    expect(html).toContain('cmt-commit-row');
+  });
+
   it('shows pull-request context as a bottom-row link from the commit card', () => {
     const authorAvatarUrl = `http://127.0.0.1:48765/api/avatars/${'a'.repeat(64)}`;
     const committerAvatarUrl = `http://127.0.0.1:48765/api/avatars/${'b'.repeat(64)}`;
@@ -162,9 +236,11 @@ describe('workspace commit history', () => {
       onOpenPullRequest={() => {}}
     />);
 
-    expect(html).toContain('PR #42');
+    expect(html).toContain('#42');
     expect(html).toContain('Improve commit browsing');
-    expect(html).toContain('Open PR #42');
+    // The number is the only jump; the title just previews on hover.
+    expect(html).toContain('title="Open pull request #42"');
+    expect(html).toContain('lucide-git-pull-request');
     expect(html).toContain('class="cmt-commit-pr"');
     expect(html.indexOf('class="cmt-commit-pr"'))
       .toBeGreaterThan(html.indexOf('</div>', html.indexOf('class="cmt-commit-meta"')));

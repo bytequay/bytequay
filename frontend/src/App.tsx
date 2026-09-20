@@ -293,10 +293,12 @@ export default function App() {
     if (current) navigateTo(workspacePullRequestRoute(current.id, number), mode);
   }, [navigateTo]);
 
-  const previewWorkspacePullRequest = useCallback((number: number) => {
+  // Commits browsed from a remote source name their own repository; everything
+  // else previews the workspace's monitored one.
+  const previewWorkspacePullRequest = useCallback((number: number, repo?: string) => {
     const current = workspaceRef.current;
     if (current) setPreviewPr({
-      repo: `${current.monitoredOwner}/${current.monitoredRepo}`, number, workspaceId: current.id,
+      repo: repo ?? `${current.monitoredOwner}/${current.monitoredRepo}`, number, workspaceId: current.id,
     });
   }, []);
 

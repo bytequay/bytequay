@@ -23,6 +23,8 @@ type SelectRangeDialogProps = {
   commits: GitCommitDto[];
   /** Repo and branch the picker is searching, shown under the title. */
   scope: string;
+  /** `owner/repo` the listed commits' pull requests live in. */
+  pullRequestRepo?: string | null;
   onOpenPullRequest: (number: number) => void;
   onCancel: () => void;
   onApply: (anchors: [string, string]) => void;
@@ -31,6 +33,7 @@ type SelectRangeDialogProps = {
 export default function SelectRangeDialog({
   commits,
   scope,
+  pullRequestRepo = null,
   onOpenPullRequest,
   onCancel,
   onApply,
@@ -147,6 +150,7 @@ export default function SelectRangeDialog({
                 commit={commit}
                 selected={commit.sha === from || commit.sha === to}
                 dense
+                pullRequestRepo={pullRequestRepo}
                 onSelect={() => pick(commit.sha)}
                 onOpenPullRequest={onOpenPullRequest}
               />

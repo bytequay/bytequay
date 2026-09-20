@@ -136,7 +136,7 @@ describe('workspace commits tab', () => {
     // The sync state reads beside the button instead of only in its tooltip.
     expect(html).toContain('not synced yet</span>');
     // Every affordance in the bar and the strip is a Lucide icon, never a glyph.
-    expect(html).not.toMatch(/[⑂⇅⇲▾▼✓→]/);
+    expect(html).not.toMatch(/[⑂⑃⇅⇲▾▼✓→]/);
   });
 
   it.each([

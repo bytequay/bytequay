@@ -684,7 +684,8 @@ export function GitHubReferenceLink({ href, children }: { href: string | null; c
     : <span className="md-link">{children}</span>;
 }
 
-function loadPreview(reference: GitHubReference): Promise<ReferencePreview | null> {
+/** Shared with the commit card, so hovering the same reference twice makes one request. */
+export function loadPreview(reference: GitHubReference): Promise<ReferencePreview | null> {
   const key = `${reference.kind}:${reference.owner}/${reference.repo}#${reference.number}`.toLowerCase();
   return once(previewRequests, key, () => resolveGitHubReference(reference));
 }

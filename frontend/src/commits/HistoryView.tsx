@@ -12,7 +12,7 @@
  * limitations under the License.
  */
 import { useEffect, useMemo, useRef, useState, type ReactNode, type UIEvent as ReactUIEvent } from 'react';
-import { GitCommitHorizontal } from 'lucide-react';
+import { ChevronDown, ChevronRight, Ellipsis, GitCommitHorizontal, SquareCheck, SquareMinus } from 'lucide-react';
 import type { DiffFileDto, GitCommitDto, GitDiffFileDto } from '../types';
 import { DiffViewer } from '../pulls/PullChanges';
 import CommitCard, { CommitByline } from './CommitCard';
@@ -23,6 +23,7 @@ import {
   matchesCommitQuery,
   selectedSpan,
   shortSha,
+  toggledGroup,
   squashMessage,
 } from './model';
 
@@ -43,6 +44,7 @@ export function nextCommitRenderLimit(
 
 export default function HistoryView({
   listHeader,
+  pullRequestRepo,
   workspaceId,
   branch,
   readOnlyTarget = false,
@@ -59,6 +61,8 @@ export default function HistoryView({
 }: {
   /** Search and selection controls, which belong inside the commit column. */
   listHeader?: ReactNode;
+  /** `owner/repo` the listed commits' pull requests live in. */
+  pullRequestRepo?: string | null;
   workspaceId: string;
   branch: string;
   readOnlyTarget?: boolean;
@@ -98,6 +102,8 @@ export default function HistoryView({
   const multi = !isUpstream && !readOnlyTarget && spanCommits.length > 1;
   const viewedIndex = Math.max(0, commits.findIndex(commit => commit.sha === viewedSha));
   const viewed = commits[viewedIndex] ?? null;
+  /** Only a single commit has a message body to show; a range preview has none. */
+  const viewedBody = multi ? '' : (viewed?.body ?? '').trim();
   const dayGroups = useMemo(() => groupByDay(commits), [commits]);
   const query = filter.trim();
   const matchingGroups = useMemo(() => {
@@ -125,6 +131,8 @@ export default function HistoryView({
     [matchingGroups, requiredIndex],
   );
   const requiredCommitLimit = Math.max(visibleCommitLimit, requiredMatchingCommitCount);
+  const [collapsedDays, setCollapsedDays] = useState<ReadonlySet<string>>(new Set());
+  const [bodyOpen, setBodyOpen] = useState(true);
   const visibleGroups = useMemo(
     () => limitDayGroups(matchingGroups, requiredCommitLimit),
     [matchingGroups, requiredCommitLimit],
@@ -203,6 +211,24 @@ export default function HistoryView({
     setSquashDraft(null);
   }, [checked]);
 
+  /** The whole day, not just the rows rendered so far under the scroll limit. */
+  const dayShas = (label: string) =>
+    (matchingGroups.find(group => group.label === label)?.commits ?? []).map(entry => entry.commit.sha);
+
+  const toggleDay = (label: string) => {
+    onChangeChecked(toggledGroup(checked, dayShas(label)));
+    resetDrafts();
+  };
+
+  const toggleDayCollapsed = (label: string) => setCollapsedDays(open => {
+    const next = new Set(open);
+    if (!next.delete(label)) next.add(label);
+    return next;
+  });
+
+  // Each commit opens with its message shown; collapsing is per commit, not sticky.
+  useEffect(() => { setBodyOpen(true); }, [viewed?.sha]);
+
   const toggle = (sha: string) => {
     const next = new Set(checked);
     if (next.has(sha)) next.delete(sha);
@@ -280,16 +306,44 @@ export default function HistoryView({
           {!loading && commits.length > 0 && matchingGroups.length === 0 && (
             <div className="cmt-loading">No commits match “{query}”.</div>
           )}
-          {visibleGroups.map(group => (
+          {visibleGroups.map(group => {
+            const dayCollapsed = collapsedDays.has(group.label);
+            const dayShaList = dayShas(group.label);
+            const daySelected = dayShaList.length > 0 && dayShaList.every(sha => checked.has(sha));
+            return (
             <div className="cmt-day-card" key={group.commits[0].commit.sha}>
               <div className="cmt-day-head">
+                <div className="cmt-day-actions">
+                  <button
+                    type="button"
+                    className="cmt-day-action"
+                    title={dayCollapsed ? 'Show the commits on this day' : 'Hide the commits on this day'}
+                    aria-expanded={!dayCollapsed}
+                    onClick={() => toggleDayCollapsed(group.label)}
+                  >
+                    {dayCollapsed
+                      ? <ChevronRight size={14} strokeWidth={2} aria-hidden="true" />
+                      : <ChevronDown size={14} strokeWidth={2} aria-hidden="true" />}
+                  </button>
+                  <button
+                    type="button"
+                    className="cmt-day-action"
+                    title={daySelected ? 'Clear the selection on this day' : 'Select all commits on this day'}
+                    aria-pressed={daySelected}
+                    onClick={() => toggleDay(group.label)}
+                  >
+                    {daySelected
+                      ? <SquareMinus size={14} strokeWidth={2} aria-hidden="true" />
+                      : <SquareCheck size={14} strokeWidth={2} aria-hidden="true" />}
+                  </button>
+                </div>
                 <GitCommitHorizontal className="cmt-day-icon" size={15} strokeWidth={1.7} aria-hidden="true" />
                 <span>{group.label}</span>
                 <span className="cmt-day-count">
                   {group.totalCommits} {group.totalCommits === 1 ? 'commit' : 'commits'}
                 </span>
               </div>
-              {group.commits.map(({ commit, index }) => {
+              {!dayCollapsed && group.commits.map(({ commit, index }) => {
                 const inRange = span !== null && index >= span.lo && index <= span.hi;
                 const isViewed = viewed?.sha === commit.sha;
                 return (
@@ -298,6 +352,7 @@ export default function HistoryView({
                       commit={commit}
                       selected={inRange}
                       viewed={isViewed && !multi}
+                      pullRequestRepo={pullRequestRepo}
                       onSelect={() => setViewedSha(commit.sha)}
                       onToggle={() => toggle(commit.sha)}
                       onOpenPullRequest={onOpenPullRequest}
@@ -364,7 +419,8 @@ export default function HistoryView({
                 );
               })}
             </div>
-          ))}
+            );
+          })}
           {visibleCommitCount < matchingCommitCount && (
             <div className="cmt-commit-more">
               Showing {visibleCommitCount} of {matchingCommitCount} commits · scroll to load more
@@ -387,8 +443,23 @@ export default function HistoryView({
         <div className="cmt-view-head">
           <div className="cmt-view-head-main">
             <div className="cmt-view-title">
-              {multi ? `Range changes — ${spanCommits.length} commits` : viewed?.title ?? ''}
+              <span>{multi ? `Range changes — ${spanCommits.length} commits` : viewed?.title ?? ''}</span>
+              {viewedBody !== '' && (
+                <button
+                  type="button"
+                  className="cmt-view-body-toggle"
+                  title={bodyOpen ? 'Hide the commit message body' : 'Show the commit message body'}
+                  aria-expanded={bodyOpen}
+                  onClick={() => setBodyOpen(open => !open)}
+                >
+                  <Ellipsis size={14} strokeWidth={2} aria-hidden="true" />
+                </button>
+              )}
             </div>
+            {viewedBody !== '' && bodyOpen && (
+              // Authored line lengths carry meaning, so the body is never re-wrapped.
+              <pre className="cmt-view-body">{viewedBody}</pre>
+            )}
             <div className="cmt-view-meta">
               {multi && span
                 ? <span>{shortSha(commits[span.hi].sha)}…{shortSha(commits[span.lo].sha)} · squash preview</span>

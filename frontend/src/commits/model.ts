@@ -84,6 +84,14 @@ export function pastedRangePair(
   return 'anchors' in result ? result : null;
 }
 
+/** A day's select-all: every commit already checked clears the day, anything else fills it. */
+export function toggledGroup(checked: ReadonlySet<string>, shas: string[]): Set<string> {
+  const next = new Set(checked);
+  if (shas.length > 0 && shas.every(sha => next.has(sha))) shas.forEach(sha => next.delete(sha));
+  else shas.forEach(sha => next.add(sha));
+  return next;
+}
+
 type DayGroup = { label: string; commits: Array<{ commit: GitCommitDto; index: number }> };
 
 type LimitedDayGroup = DayGroup & { totalCommits: number };

@@ -25,6 +25,7 @@ import {
   selectedSpan,
   pastedRangePair,
   spanFromShas,
+  toggledGroup,
   squashMessage,
   taskState,
 } from './model';
@@ -114,6 +115,20 @@ describe('spanFromShas', () => {
   it('flags SHAs not on the branch', () => {
     expect(spanFromShas(COMMITS, 'aaaa', 'ffff')).toEqual({ error: true });
     expect(spanFromShas(COMMITS, '', 'aaaa')).toEqual({ error: true });
+  });
+});
+
+describe('toggledGroup', () => {
+  it('fills a day that is not fully checked, and clears one that is', () => {
+    expect([...toggledGroup(new Set(), ['a', 'b'])]).toEqual(['a', 'b']);
+    // A partly checked day fills rather than clears, so one stray tick cannot empty it.
+    expect([...toggledGroup(new Set(['a']), ['a', 'b'])]).toEqual(['a', 'b']);
+    expect([...toggledGroup(new Set(['a', 'b']), ['a', 'b'])]).toEqual([]);
+  });
+
+  it('leaves commits outside the day alone', () => {
+    expect([...toggledGroup(new Set(['z', 'a', 'b']), ['a', 'b'])]).toEqual(['z']);
+    expect([...toggledGroup(new Set(['z']), [])]).toEqual(['z']);
   });
 });
 

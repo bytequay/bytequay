@@ -31,6 +31,7 @@ import { Chevron } from '../Chevron';
 import { ConfirmDialog } from '../ConfirmDialog';
 import '../css/agents.css';
 import { relativeTime } from '../relativeTime';
+import { useRenameDraft } from '../renameDraft';
 import { remoteErrorMessage } from '../pulls/PullOverview';
 import { canSubmitReview, PullDetailHeader } from '../pulls/PullsScreen';
 import CodeTestsTab from '../pulls/code-tests/CodeTestsTab';
@@ -170,44 +171,6 @@ const CONNECTION_TEXT: Record<string, string> = {
  * to drop. While the background naming request runs, the title is a compact first-message
  * fallback and reads as provisional.
  */
-/**
- * The click-to-rename draft: its state, the double-commit guard, and the input's own props.
- *
- * Callers keep their own class name and their own non-editing presentation, which differ.
- */
-export function useRenameDraft(current: string, onRename?: (title: string) => void) {
-  const [draft, setDraft] = useState<string | null>(null);
-  // Enter commits and then the input unmounts, which blurs it; the flag keeps that from committing twice.
-  const committed = useRef(false);
-  const commit = (): void => {
-    if (committed.current || draft === null) return;
-    committed.current = true;
-    const next = draft.trim();
-    setDraft(null);
-    if (next !== '' && next !== current) onRename?.(next);
-  };
-  return {
-    editing: draft !== null,
-    start: (): void => {
-      if (onRename === undefined) return;
-      committed.current = false;
-      setDraft(current);
-    },
-    inputProps: {
-      type: 'text',
-      'aria-label': 'Task name',
-      value: draft ?? '',
-      autoFocus: true,
-      onChange: (event: React.ChangeEvent<HTMLInputElement>) => setDraft(event.target.value),
-      onBlur: commit,
-      onKeyDown: (event: React.KeyboardEvent<HTMLInputElement>) => {
-        if (event.key === 'Enter') commit();
-        if (event.key === 'Escape') { committed.current = true; setDraft(null); }
-      },
-    },
-  } as const;
-}
-
 function TaskTitle({ title, provisional, onRename }: {
   title: string;
   provisional: boolean;

@@ -12,7 +12,7 @@
  * limitations under the License.
  */
 
-import type { AgentProviderReadiness, AgentProviderStatus } from '../types';
+import type { AgentProviderReadiness, AgentProviderStatus, ModelOptionDto, ModelProviderDto } from '../types';
 
 /** Half-hour steps across the day, as minutes of day, for the quiet-hours pickers. */
 export const MINUTE_OPTIONS = Array.from({ length: 48 }, (_, index) => index * 30);
@@ -85,6 +85,23 @@ const LOGIN_COMMANDS: Record<string, string> = {
   codex: 'codex login',
   claude: 'claude auth login',
 };
+
+/** As in the composer's picker: keep the preferred effort when the model offers it, else take the model's default. */
+export function modelEffort(model: ModelOptionDto | undefined, preferred?: string | null): string {
+  const efforts = model?.efforts ?? [];
+  return [preferred, model?.defaultEffort].find(candidate => candidate != null && efforts.includes(candidate)) ?? efforts[0] ?? '';
+}
+
+/** What a lane would launch with: its configured model and effort, else the first it offers. */
+export function laneDefaults(providers: ModelProviderDto[], laneId: string): { model: string; effort: string } {
+  const provider = providers.find(candidate => candidate.id === laneId);
+  const model = provider?.models.find(option => option.id === provider.selectedModel) ?? provider?.models[0];
+  return { model: model?.id ?? '', effort: modelEffort(model, provider?.selectedEffort) };
+}
+
+export function laneModels(providers: ModelProviderDto[] | null, laneId: string): ModelOptionDto[] {
+  return providers?.find(candidate => candidate.id === laneId)?.models ?? [];
+}
 
 export function providerRemedy(readiness: AgentProviderReadiness, laneId = INTERACTIVE_LANE_ID): ProviderRemedy {
   switch (readiness) {

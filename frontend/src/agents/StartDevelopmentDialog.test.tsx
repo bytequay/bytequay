@@ -15,7 +15,8 @@
 import { renderToStaticMarkup } from 'react-dom/server';
 import { describe, expect, it } from 'vitest';
 import { NO_AGENT_CAPABILITIES } from './capabilities';
-import { StartDevelopmentChoice, defaultDevelopmentLane, laneDefaults, modelEffort } from './StartDevelopmentDialog';
+import { StartDevelopmentChoice, defaultDevelopmentLane } from './StartDevelopmentDialog';
+import { laneDefaults, modelEffort } from '../settings/model';
 import type { ModelProviderDto } from '../types';
 
 function provider(id: string, readiness: ModelProviderDto['readiness'], efforts: string[] = [], selectedEffort = ''): ModelProviderDto {

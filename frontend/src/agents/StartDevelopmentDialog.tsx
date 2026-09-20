@@ -13,32 +13,15 @@
  */
 import { useEffect, useState } from 'react';
 import { ConfirmDialog } from '../ConfirmDialog';
-import { displayModelName, effortLabel, laneLabel, providerAvailable, providerStatusLabel } from '../settings/model';
+import { displayModelName, effortLabel, laneDefaults, laneLabel, laneModels, modelEffort, providerAvailable, providerStatusLabel } from '../settings/model';
 import type { TaskLaunch } from './AgentTasksView';
-import type { ModelOptionDto, ModelProviderDto } from '../types';
+import type { ModelProviderDto } from '../types';
 
 /** The lane the composer would have seeded itself with: the Development agent, else the first ready provider. */
 export function defaultDevelopmentLane(providers: ModelProviderDto[], developmentLaneId?: string): string {
   const usable = providers.filter(provider => providerAvailable(provider.readiness));
   if (developmentLaneId !== undefined && usable.some(provider => provider.id === developmentLaneId)) return developmentLaneId;
   return usable[0]?.id ?? '';
-}
-
-/** As in the composer's picker: keep the preferred effort when the model offers it, else take the model's default. */
-export function modelEffort(model: ModelOptionDto | undefined, preferred?: string | null): string {
-  const efforts = model?.efforts ?? [];
-  return [preferred, model?.defaultEffort].find(candidate => candidate != null && efforts.includes(candidate)) ?? efforts[0] ?? '';
-}
-
-/** What a lane would launch with: its configured model and effort, else the first it offers. */
-export function laneDefaults(providers: ModelProviderDto[], laneId: string): { model: string; effort: string } {
-  const provider = providers.find(candidate => candidate.id === laneId);
-  const model = provider?.models.find(option => option.id === provider.selectedModel) ?? provider?.models[0];
-  return { model: model?.id ?? '', effort: modelEffort(model, provider?.selectedEffort) };
-}
-
-function laneModels(providers: ModelProviderDto[] | null, laneId: string): ModelOptionDto[] {
-  return providers?.find(candidate => candidate.id === laneId)?.models ?? [];
 }
 
 export default function StartDevelopmentDialog({ workspaceId, issueNumber, onConfirm, onCancel }: {

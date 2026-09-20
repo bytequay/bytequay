@@ -20,6 +20,7 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.google.common.collect.ImmutableList;
 
 import java.math.BigDecimal;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
 
@@ -342,7 +343,23 @@ final class ClaudeProtocol
 
         String text()
         {
-            return content.isTextual() ? content.textValue() : content.toString();
+            if (content.isTextual()) {
+                return content.textValue();
+            }
+            // An MCP result arrives as content parts; readers want the text, not the envelope around it.
+            if (content.isArray()) {
+                List<String> parts = new ArrayList<>();
+                for (JsonNode part : content) {
+                    JsonNode text = part.path("text");
+                    if (text.isTextual()) {
+                        parts.add(text.textValue());
+                    }
+                }
+                if (!parts.isEmpty()) {
+                    return String.join("\n", parts);
+                }
+            }
+            return content.toString();
         }
     }
 

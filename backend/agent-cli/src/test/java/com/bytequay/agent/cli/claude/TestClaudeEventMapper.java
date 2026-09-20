@@ -651,6 +651,22 @@ class TestClaudeEventMapper
         assertThat(mapper.hasFinishedWork()).isFalse();
     }
 
+    @Test
+    void readsMcpResultContentPartsAsTheirText()
+    {
+        map("""
+                {"type":"assistant","message":{"role":"assistant","content":[{"type":"tool_use","id":"mcp-1",
+                "name":"mcp__bytequay__review_get_context","input":{"kind":"assignment"}}]},"session_id":"session-1","uuid":"mcp-start"}
+                """);
+        ProviderAgentEvent.Tool completed = only("""
+                {"type":"user","message":{"role":"user","content":[{"type":"tool_result","tool_use_id":"mcp-1",
+                "content":[{"type":"text","text":"{\\"step\\":2,\\"kind\\":\\"VALIDATE\\"}"}]}]},
+                "session_id":"session-1","uuid":"mcp-end"}
+                """, ProviderAgentEvent.Tool.class);
+        assertThat(completed.name()).isEqualTo("mcp__bytequay__review_get_context");
+        assertThat(completed.summary()).isEqualTo("{\"step\":2,\"kind\":\"VALIDATE\"}");
+    }
+
     private List<ProviderAgentEvent> replay(String name)
             throws IOException
     {

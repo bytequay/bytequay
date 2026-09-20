@@ -23,6 +23,7 @@ import {
   pullRequestPanelRef,
   remoteBranchCorrection,
   selectedSpan,
+  pastedRangePair,
   spanFromShas,
   squashMessage,
   taskState,
@@ -113,6 +114,20 @@ describe('spanFromShas', () => {
   it('flags SHAs not on the branch', () => {
     expect(spanFromShas(COMMITS, 'aaaa', 'ffff')).toEqual({ error: true });
     expect(spanFromShas(COMMITS, '', 'aaaa')).toEqual({ error: true });
+  });
+});
+
+describe('pastedRangePair', () => {
+  it.each(['aaaa…dddd', 'aaaa..dddd', 'aaaa...dddd', '  aaaa … dddd  '])('reads a pasted pair: %s', value => {
+    expect(pastedRangePair(COMMITS, value)).toEqual({ anchors: ['aaaa111', 'dddd444'] });
+  });
+
+  it('leaves ordinary search text alone', () => {
+    // One term, three terms, and a pair naming a commit that is not here.
+    expect(pastedRangePair(COMMITS, 'aaaa')).toBeNull();
+    expect(pastedRangePair(COMMITS, 'aaaa..bbbb..cccc')).toBeNull();
+    expect(pastedRangePair(COMMITS, 'aaaa…ffff')).toBeNull();
+    expect(pastedRangePair(COMMITS, '')).toBeNull();
   });
 });
 

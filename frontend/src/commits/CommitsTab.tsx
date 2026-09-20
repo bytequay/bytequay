@@ -12,7 +12,8 @@
  * limitations under the License.
  */
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { ChevronDown, GitBranch, GitCompareArrows, ListChecks, RefreshCw, Search } from 'lucide-react';
+import { ArrowLeft, ArrowRight, Check, ChevronDown, GitBranch, GitFork, ListChecks, RefreshCw, Search, X } from 'lucide-react';
+import SelectRangeDialog from './SelectRangeDialog';
 import { relativeTime } from '../relativeTime';
 import type {
   CherryPickPreview,
@@ -31,7 +32,7 @@ import FlowView from './FlowView';
 import HistoryView from './HistoryView';
 import ProgressView from './ProgressView';
 import TasksView from './TasksView';
-import { remoteBranchCorrection, selectedSpan, shortSha, spanFromShas } from './model';
+import { remoteBranchCorrection, selectedSpan, shortSha } from './model';
 import '../css/commits.css';
 
 type Screen = 'commits' | 'flow' | 'tasks' | 'progress';
@@ -151,7 +152,7 @@ export function CommitsBrowser({ workspace, settings, initialRepo, initialSource
   const [targetBranches, setTargetBranches] = useState<string[]>([]);
   const [targetBranchQuery, setTargetBranchQuery] = useState('');
   const [upBranch, setUpBranch] = useState(workspace.upstreamDefaultBranch ?? workspace.defaultBranch);
-  const [menu, setMenu] = useState<'branch' | 'source' | 'sourceBranch' | null>(null);
+  const [menu, setMenu] = useState<'target' | 'source' | null>(null);
   const [upBranchQuery, setUpBranchQuery] = useState('');
   const [upBranches, setUpBranches] = useState<string[]>([]);
   /** The user chose this source's branch themselves; stop steering to its default. */
@@ -168,12 +169,11 @@ export function CommitsBrowser({ workspace, settings, initialRepo, initialSource
   const [executionId, setExecutionId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [logVersion, setLogVersion] = useState(0);
-  const [rangeFrom, setRangeFrom] = useState('');
-  const [rangeTo, setRangeTo] = useState('');
-  const [rangeError, setRangeError] = useState(false);
+  const [rangeOpen, setRangeOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
   /** The one ref an unreadable remote log already auto-synced for. */
   const autoSyncAttempt = useRef<string | null>(null);
+  const rangeButtonRef = useRef<HTMLButtonElement>(null);
 
   const observedRemoteSources = selectableCommitSources(overview?.remotes ?? [], 'origin');
   const persistedRemoteSources = settings.remotes.filter(remote => remote.role !== 'ORIGIN');
@@ -291,16 +291,10 @@ export function CommitsBrowser({ workspace, settings, initialRepo, initialSource
 
   const span = useMemo(() => selectedSpan(commits, checked), [commits, checked]);
 
-  const canApplyRange = rangeFrom.trim() !== '' && rangeTo.trim() !== '';
-  const applyRange = () => {
-    if (!canApplyRange) return;
-    const result = spanFromShas(commits, rangeFrom, rangeTo);
-    if ('error' in result) {
-      setRangeError(true);
-      return;
-    }
-    setRangeError(false);
-    (isRemote ? setCheckedUp : setCheckedWs)(new Set(result.anchors));
+  // Closing returns the reader to the control that opened the dialog.
+  const closeRange = () => {
+    setRangeOpen(false);
+    rangeButtonRef.current?.focus();
   };
 
   const sync = async () => {
@@ -393,7 +387,7 @@ export function CommitsBrowser({ workspace, settings, initialRepo, initialSource
     }
   };
 
-  const wsChipClick = () => {
+  const targetHalfClick = () => {
     if (screen !== 'commits' || isRemote) {
       setScreen('commits');
       setViewingSource(false);
@@ -401,29 +395,25 @@ export function CommitsBrowser({ workspace, settings, initialRepo, initialSource
       setMenu(null);
       return;
     }
-    setMenu(open => (open === 'branch' ? null : 'branch'));
+    setMenu(open => (open === 'target' ? null : 'target'));
   };
 
-  const activateSource = () => {
+  // The inactive half switches the list to that repo; the active half opens its
+  // branch menu. With no source configured there is nothing to switch to, so
+  // the menu opens straight away.
+  const sourceHalfClick = () => {
     if (source === null) {
-      setMenu('source');
+      setMenu(open => (open === 'source' ? null : 'source'));
       return;
     }
-    setScreen('commits');
-    setCommitsView('history');
-    setViewingSource(true);
-    setMenu(open => (open === 'source' ? open : null));
-  };
-
-  const sourceChipClick = () => {
+    if (screen !== 'commits' || !isRemote) {
+      setScreen('commits');
+      setCommitsView('history');
+      setViewingSource(true);
+      setMenu(null);
+      return;
+    }
     setMenu(open => (open === 'source' ? null : 'source'));
-  };
-
-  const sourceBranchChipClick = () => {
-    setScreen('commits');
-    setCommitsView('history');
-    setViewingSource(true);
-    setMenu(open => (open === 'sourceBranch' ? null : 'sourceBranch'));
   };
 
   const pickSource = (name: string) => {
@@ -448,17 +438,22 @@ export function CommitsBrowser({ workspace, settings, initialRepo, initialSource
     setCommitsView('history');
   };
 
-  const remoteDescription = (name: string, url: string) => {
-    const slug = githubSlug(url);
-    if (name === 'upstream' && hasUpstream) return `${slug ?? url} · linked upstream`;
-    return slug ?? url;
-  };
+  const remoteNote = (name: string) =>
+    (name === 'upstream' && hasUpstream ? 'linked upstream · read-only' : 'read-only');
 
-  const sourceLabel = source ?? 'Select source';
   const showTabBar = screen !== 'progress';
   const historyVisible = screen === 'commits' && (commitsView === 'history' || isRemote);
   const filteredUpBranches = upBranches.filter(name =>
     name.toLowerCase().includes(upBranchQuery.trim().toLowerCase()));
+  const filteredTargetBranches = targetBranches.filter(name =>
+    name.toLowerCase().includes(targetBranchQuery.trim().toLowerCase()));
+  const targetDefaultBranch = targetUpstream ? workspace.upstreamDefaultBranch : workspace.defaultBranch;
+  const targetRepoName = (targetUpstream ? workspace.upstreamRepo : workspace.selectedRepo) ?? workspace.name;
+  const targetPillLabel = `${targetRepoName} · ${branch}`;
+  const sourcePillLabel = source === null ? 'Select source' : `${sourceSlug ?? source} · ${upBranch}`;
+  const selectedCount = commits.filter(commit => checked.has(commit.sha)).length;
+  /** Commits the span covers that the reader never checked themselves. */
+  const pulledIn = span === null ? 0 : span.hi - span.lo + 1 - selectedCount;
 
   // Scheduled enrichment is written out-of-band. Poll only its SQLite-backed
   // status, then reload Git + enrichment once when a completed attempt changes.
@@ -491,203 +486,258 @@ export function CommitsBrowser({ workspace, settings, initialRepo, initialSource
     };
   }, [historyVisible, refreshStatus?.lastAttemptAt, syncing, workspace.id]);
 
+  const listHeader = (
+    <>
+      {/* The mock keeps search and selection inside the commit column. */}
+      <div className="cmt-search-row">
+        <div className="cmt-search">
+          <Search size={13} strokeWidth={2} aria-hidden="true" />
+          <input
+            value={searchQuery}
+            placeholder="Search title, SHA, PR title or #number"
+            aria-label="Search commits by pull request title, number, or SHA"
+            onChange={event => setSearchQuery(event.target.value)}
+          />
+        </div>
+      </div>
+
+      {!isRemote && (
+        <div className="cmt-strip">
+          <GitBranch className="cmt-strip-icon" size={13} strokeWidth={2} aria-hidden="true" />
+          <span className="cmt-strip-note">Ranges are picked on the source repo</span>
+          <div className="cmt-strip-gap" />
+          <button type="button" className="cmt-strip-btn" onClick={sourceHalfClick}>
+            Pick commits from source
+            <ArrowRight size={12} strokeWidth={2} aria-hidden="true" />
+          </button>
+        </div>
+      )}
+
+      {isRemote && (
+        <div className={`cmt-strip${span === null ? '' : ' has-selection'}`}>
+          <span className="cmt-strip-count">
+            {selectedCount === 0
+              ? 'No commits selected'
+              : `${selectedCount} commit${selectedCount === 1 ? '' : 's'} selected`}
+          </span>
+          {span !== null && (
+            <span className="cmt-strip-range cmt-mono">
+              {shortSha(commits[span.hi].sha)}…{shortSha(commits[span.lo].sha)}
+            </span>
+          )}
+          {pulledIn > 0 && <span className="cmt-strip-pulled">{pulledIn} pulled in by range</span>}
+          <div className="cmt-strip-gap" />
+          <button
+            type="button"
+            className="cmt-strip-btn"
+            ref={rangeButtonRef}
+            aria-haspopup="dialog"
+            onClick={() => setRangeOpen(true)}
+          >
+            <ListChecks size={12} strokeWidth={2} aria-hidden="true" />
+            Select range
+          </button>
+          {span !== null && (
+            <>
+              <button
+                type="button"
+                className="cmt-strip-btn is-clear"
+                onClick={() => setCheckedUp(new Set())}
+              >
+                <X size={12} strokeWidth={2} aria-hidden="true" />
+                Clear
+              </button>
+              <button
+                type="button"
+                className="cmt-strip-btn is-cherry"
+                disabled={previewBusy}
+                onClick={() => { void openFlow(); }}
+              >
+                {previewBusy ? 'Preparing preview…' : 'Cherry-pick'}
+                <ArrowRight size={12} strokeWidth={2} aria-hidden="true" />
+              </button>
+            </>
+          )}
+        </div>
+      )}
+    </>
+  );
+
   return (
     <div className="cmt-root">
       {showTabBar && (
         <div className="cmt-tab-bar">
-          <div className="cmt-chip-wrap" onMouseDown={event => event.stopPropagation()}>
+          <div className="cmt-switch" onMouseDown={event => event.stopPropagation()}>
             <button
               type="button"
-              className={`cmt-repo-chip${!isRemote ? ' is-active' : ''}`}
-              title={`Cherry-pick target: ${targetSlug} · ${targetLabel}`}
+              className={`cmt-switch__half${isRemote ? '' : ' is-active'}`}
+              title={`Cherry-pick target: ${targetSlug ?? workspace.name} · ${targetLabel}`}
               aria-pressed={!isRemote}
-              onClick={wsChipClick}
+              onClick={targetHalfClick}
             >
-              <GitBranch className="cmt-toolbar-icon" size={16} strokeWidth={1.7} aria-hidden="true" />
-              <span className="cmt-repo-chip__label cmt-mono">{targetLabel}</span>
-              <ChevronDown className="cmt-caret" size={14} strokeWidth={1.7} aria-hidden="true" />
+              <span className="cmt-switch__caption">CHERRY-PICK INTO</span>
+              <span className="cmt-switch__row">
+                <GitBranch size={13} strokeWidth={2} aria-hidden="true" />
+                <span className="cmt-switch__label cmt-mono">{targetPillLabel}</span>
+                <ChevronDown className="cmt-switch__caret" size={11} strokeWidth={2} aria-hidden="true" />
+              </span>
             </button>
-            {menu === 'branch' && (
-              <div className="cmt-menu">
-                <div className="cmt-menu-label">CHERRY-PICK TARGET · {target.remote}</div>
-                <div className="cmt-menu-search">
-                  <input value={targetBranchQuery} placeholder="Find a target branch…"
-                    aria-label="Find a target branch" onChange={event => setTargetBranchQuery(event.target.value)} />
+            <span className="cmt-switch__divider" aria-hidden="true">
+              <ArrowLeft size={14} strokeWidth={2} />
+            </span>
+            <button
+              type="button"
+              className={`cmt-switch__half${isRemote ? ' is-active' : ''}`}
+              title={source === null
+                ? 'Choose a remote source for history and cherry-pick'
+                : `Read history and cherry-pick from ${sourcePillLabel}`}
+              aria-pressed={isRemote}
+              onClick={sourceHalfClick}
+            >
+              <span className="cmt-switch__caption">SOURCE · READ-ONLY</span>
+              <span className="cmt-switch__row">
+                <GitFork size={13} strokeWidth={2} aria-hidden="true" />
+                <span className="cmt-switch__label cmt-mono">{sourcePillLabel}</span>
+                <ChevronDown className="cmt-switch__caret" size={11} strokeWidth={2} aria-hidden="true" />
+              </span>
+            </button>
+
+            {menu === 'target' && (
+              <div className="cmt-menu cmt-menu--target">
+                <div className="cmt-menu-head">
+                  <div className="cmt-menu-label">CHERRY-PICK DESTINATION</div>
+                  <div className="cmt-menu-sub cmt-mono">{targetSlug ?? workspace.name}</div>
                 </div>
-                {targetBranches.filter(name => name.toLowerCase().includes(targetBranchQuery.trim().toLowerCase())).slice(0, 30).map(name => (
-                  <button
-                    type="button"
-                    key={name}
-                    title={name}
-                    className={`cmt-menu-item${name === branch ? ' is-current' : ''}`}
-                    onClick={() => {
-                      setBranch(name);
-                      setMenu(null);
-                      setTargetBranchQuery('');
-                      setCheckedWs(new Set());
-                      setCheckedUp(new Set());
-                    }}
-                  >
-                    {name === branch ? '✓' : ' '} {targetUpstream ? `upstream/${name}` : name}
-                  </button>
-                ))}
-                {targetBranches.length === 0 && <div className="cmt-menu-label">No fetched target branches. Sync to refresh.</div>}
-                <div className="cmt-menu-divider" />
-                <button type="button" className="cmt-menu-item" onClick={onOpenSettings}>Set the default in Workspace settings…</button>
+                <div className="cmt-menu-search">
+                  <input
+                    value={targetBranchQuery}
+                    placeholder="Find a target branch…"
+                    aria-label="Find a target branch"
+                    onChange={event => setTargetBranchQuery(event.target.value)}
+                  />
+                </div>
+                <div className="cmt-menu-list">
+                  {filteredTargetBranches.slice(0, 30).map(name => (
+                    <button
+                      type="button"
+                      key={name}
+                      title={name}
+                      className={`cmt-menu-item${name === branch ? ' is-current' : ''}`}
+                      onClick={() => {
+                        setBranch(name);
+                        setMenu(null);
+                        setTargetBranchQuery('');
+                        setCheckedWs(new Set());
+                        setCheckedUp(new Set());
+                      }}
+                    >
+                      <span className="cmt-menu-check">
+                        {name === branch && <Check size={11} strokeWidth={2} aria-hidden="true" />}
+                      </span>
+                      <span className="cmt-menu-branch cmt-mono">{name}</span>
+                      {name === targetDefaultBranch && <span className="cmt-menu-tag">default</span>}
+                    </button>
+                  ))}
+                  {targetBranches.length === 0 && (
+                    <div className="cmt-menu-label">No fetched target branches. Sync to refresh.</div>
+                  )}
+                </div>
+                <button type="button" className="cmt-menu-foot" onClick={onOpenSettings}>
+                  Default target lives in Workspace settings
+                </button>
               </div>
             )}
-          </div>
 
-          <div className="cmt-chip-wrap" onMouseDown={event => event.stopPropagation()}>
-            <div className={`cmt-split-chip${isRemote ? ' is-active' : ''}`}>
-              <button
-                type="button"
-                className="cmt-split-chip__seg"
-                title={source === null
-                  ? 'Choose a remote source for history and cherry-pick'
-                  : 'View the selected remote source'}
-                aria-pressed={isRemote}
-                onClick={activateSource}
-              >
-                <GitCompareArrows className="cmt-toolbar-icon" size={16} strokeWidth={1.7} aria-hidden="true" />
-                <span className="cmt-repo-chip__label">Source: {sourceLabel}</span>
-                {isRemote && <span className="cmt-readonly">read-only</span>}
-              </button>
-              <button
-                type="button"
-                className="cmt-split-chip__seg cmt-split-chip__caret"
-                title="Choose remote source"
-                aria-label="Choose remote source"
-                onClick={sourceChipClick}
-              >
-                <ChevronDown className="cmt-caret" size={14} strokeWidth={1.7} aria-hidden="true" />
-              </button>
-              {source !== null && (
-                <button
-                  type="button"
-                  className="cmt-split-chip__seg"
-                  title="Branch of the selected source"
-                  onClick={sourceBranchChipClick}
-                >
-                  <GitBranch className="cmt-toolbar-icon" size={16} strokeWidth={1.7} aria-hidden="true" />
-                  <span className="cmt-repo-chip__label cmt-mono">{upBranch}</span>
-                  <ChevronDown className="cmt-caret" size={14} strokeWidth={1.7} aria-hidden="true" />
-                </button>
-              )}
-            </div>
             {menu === 'source' && (
-              <div className="cmt-menu is-wide">
-                <div className="cmt-menu-label">
-                  REMOTE SOURCE — HISTORY &amp; CHERRY-PICK READ FROM HERE
-                </div>
+              <div className="cmt-menu cmt-menu--source">
+                <div className="cmt-menu-label">HISTORY AND CHERRY-PICK READ FROM HERE</div>
                 {remoteSources.map(remote => (
                   <button
                     type="button"
                     key={remote.name}
                     title={remote.url}
-                    className={`cmt-menu-item cmt-source-item${source === remote.name ? ' is-current' : ''}`}
+                    className={`cmt-source-item${source === remote.name ? ' is-current' : ''}`}
                     onClick={() => pickSource(remote.name)}
                   >
-                    <span className="cmt-source-name cmt-mono">
-                      {source === remote.name ? '✓ ' : ''}{remote.name}
+                    <span className="cmt-source-head">
+                      <span className="cmt-menu-check">
+                        {source === remote.name && <Check size={12} strokeWidth={2} aria-hidden="true" />}
+                      </span>
+                      <span className="cmt-source-name">{remote.name}</span>
+                      <span className="cmt-source-note">{remoteNote(remote.name)}</span>
                     </span>
-                    <span className="cmt-source-desc">{remoteDescription(remote.name, remote.url)}</span>
+                    <span className="cmt-source-repo cmt-mono">{githubSlug(remote.url) ?? remote.url}</span>
                   </button>
                 ))}
                 {remoteSources.length === 0 && (
                   <div className="cmt-menu-label">No remote sources configured</div>
                 )}
-                <div className="cmt-menu-divider" />
+                {source !== null && (
+                  <>
+                    <div className="cmt-menu-search">
+                      <input
+                        value={upBranchQuery}
+                        placeholder="Find a branch…"
+                        aria-label="Find a source branch"
+                        onChange={event => setUpBranchQuery(event.target.value)}
+                      />
+                    </div>
+                    <div className="cmt-menu-list">
+                      {filteredUpBranches.slice(0, 30).map(name => (
+                        <button
+                          type="button"
+                          key={name}
+                          title={name}
+                          className={`cmt-menu-item${name === upBranch ? ' is-current' : ''}`}
+                          onClick={() => {
+                            setUpBranch(name);
+                            setUpBranchPicked(true);
+                            setMenu(null);
+                            setUpBranchQuery('');
+                            setCheckedUp(new Set());
+                          }}
+                        >
+                          <span className="cmt-menu-check">
+                            {name === upBranch && <Check size={11} strokeWidth={2} aria-hidden="true" />}
+                          </span>
+                          <span className="cmt-menu-branch cmt-mono">{name}</span>
+                        </button>
+                      ))}
+                      {upBranches.length === 0 && <div className="cmt-menu-label">Loading branches…</div>}
+                    </div>
+                  </>
+                )}
                 <button
                   type="button"
-                  className="cmt-menu-item cmt-source-item"
-                  onClick={() => {
-                    setMenu(null);
-                    onOpenSettings();
-                  }}
+                  className="cmt-menu-foot"
+                  onClick={() => { setMenu(null); onOpenSettings(); }}
                 >
-                  <span className="cmt-source-name">⚙ Manage remote sources…</span>
-                  <span className="cmt-source-desc">in Workspace settings</span>
+                  Manage remote sources in Workspace settings
                 </button>
               </div>
             )}
-            {menu === 'sourceBranch' && (
-              <div className="cmt-menu is-wide">
-                <div className="cmt-menu-label">SWITCH BRANCH — {sourceLabel}</div>
-                <div className="cmt-menu-search">
-                  <input
-                    value={upBranchQuery}
-                    placeholder="⌕ Find a branch…"
-                    onChange={event => setUpBranchQuery(event.target.value)}
-                  />
-                </div>
-                {filteredUpBranches.slice(0, 30).map(name => (
-                  <button
-                    type="button"
-                    key={name}
-                    title={name}
-                    className={`cmt-menu-item${name === upBranch ? ' is-current' : ''}`}
-                    onClick={() => {
-                      setUpBranch(name);
-                      setUpBranchPicked(true);
-                      setMenu(null);
-                      setUpBranchQuery('');
-                      setCheckedUp(new Set());
-                    }}
-                  >
-                    {name === upBranch ? '✓' : ' '} {name}
-                  </button>
-                ))}
-                {upBranches.length === 0 && <div className="cmt-menu-label">Loading branches…</div>}
-              </div>
-            )}
           </div>
 
-          {historyVisible && (
-            <div className="cmt-chip-wrap">
-              <details className="cmt-range">
-                <summary title="Select a commit range by SHA">
-                  <ListChecks size={16} strokeWidth={1.7} aria-hidden="true" />
-                  <span>select range</span>
-                </summary>
-                <div className="cmt-range-panel">
-                  <input
-                    value={rangeFrom}
-                    placeholder="from SHA"
-                    onChange={event => { setRangeFrom(event.target.value); setRangeError(false); }}
-                  />
-                  <span className="cmt-range-sep">…</span>
-                  <input
-                    value={rangeTo}
-                    placeholder="to SHA"
-                    onChange={event => { setRangeTo(event.target.value); setRangeError(false); }}
-                  />
-                  <button type="button" disabled={!canApplyRange} onClick={applyRange}>Select range</button>
-                  {rangeError && <span className="cmt-range-error">SHA not on this branch</span>}
-                </div>
-              </details>
-            </div>
-          )}
-          <div className="cmt-sync">
-            <button
-              type="button"
-              title={syncing
-                ? 'Syncing commit history'
-                : `Sync commit history · ${commitSyncLabel(refreshStatus)}`}
-              aria-label={syncing ? 'Syncing commit history' : 'Sync commit history'}
-              disabled={syncing}
-              onClick={() => { void sync(); }}
-            >
-              <RefreshCw
-                className={syncing ? 'is-spinning' : undefined}
-                size={18}
-                strokeWidth={1.8}
-                aria-hidden="true"
-              />
-            </button>
-          </div>
+          <button
+            type="button"
+            className="cmt-refresh"
+            title={syncing
+              ? 'Syncing commit history'
+              : `Sync commit history · ${commitSyncLabel(refreshStatus)}`}
+            aria-label={syncing ? 'Syncing commit history' : 'Sync commit history'}
+            disabled={syncing}
+            onClick={() => { void sync(); }}
+          >
+            <RefreshCw
+              className={syncing ? 'is-spinning' : undefined}
+              size={15}
+              strokeWidth={2}
+              aria-hidden="true"
+            />
+          </button>
+          <span className="cmt-sync-text">{syncing ? 'syncing…' : commitSyncLabel(refreshStatus)}</span>
 
-          <div className="cmt-tab-divider" />
+          <div className="cmt-tab-spacer" />
 
           <button
             type="button"
@@ -719,22 +769,24 @@ export function CommitsBrowser({ workspace, settings, initialRepo, initialSource
           <button
             type="button"
             className={`cmt-tab${screen === 'tasks' || screen === 'flow' ? ' is-active' : ''}`}
-            onClick={() => { setScreen('tasks'); setMenu(null); setMenu(null); setMenu(null); }}
+            onClick={() => { setScreen('tasks'); setMenu(null); }}
           >
             Cherry pick
           </button>
         </div>
       )}
 
-      {showTabBar && historyVisible && (
-        <div className="cmt-search">
-          <Search size={18} strokeWidth={1.8} aria-hidden="true" />
-          <input
-            value={searchQuery}
-            aria-label="Search commits by pull request title, number, or SHA"
-            onChange={event => setSearchQuery(event.target.value)}
-          />
-        </div>
+      {rangeOpen && isRemote && (
+        <SelectRangeDialog
+          commits={commits}
+          scope={`${sourceSlug ?? activeRemote} · ${upBranch}`}
+          onOpenPullRequest={onOpenPullRequest}
+          onCancel={closeRange}
+          onApply={anchors => {
+            setCheckedUp(new Set(anchors));
+            closeRange();
+          }}
+        />
       )}
 
       {error && screen === 'commits' && <div className="cmt-error" role="alert">{error}</div>}
@@ -747,6 +799,7 @@ export function CommitsBrowser({ workspace, settings, initialRepo, initialSource
       )}
       {screen === 'commits' && (commitsView === 'history' || isRemote) && (
         <HistoryView
+          listHeader={listHeader}
           workspaceId={workspace.id}
           branch={branch}
           readOnlyTarget={!isRemote && targetUpstream}
@@ -793,23 +846,6 @@ export function CommitsBrowser({ workspace, settings, initialRepo, initialSource
           onBackToTasks={() => setScreen('tasks')}
           onStartAnotherRange={startCherryPick}
         />
-      )}
-
-      {isRemote && screen === 'commits' && span !== null && (
-        <div className="cmt-action-bar">
-          <span className="cmt-action-count">{span.hi - span.lo + 1} commits selected</span>
-          <span className="cmt-action-range">
-            {shortSha(commits[span.hi].sha)}…{shortSha(commits[span.lo].sha)}
-          </span>
-          <span className="cmt-action-target">→ {targetSlug ?? workspace.name} · {targetLabel}</span>
-          <button
-            type="button"
-            disabled={previewBusy}
-            onClick={() => { void openFlow(); }}
-          >
-            {previewBusy ? 'Preparing preview…' : `Cherry-pick to ${targetLabel} →`}
-          </button>
-        </div>
       )}
     </div>
   );

@@ -11,6 +11,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
+import { readFileSync, readdirSync } from 'node:fs';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { describe, expect, it } from 'vitest';
 import type { CommitRefreshStatusDto, WorkspaceDto, WorkspaceSettingsDto } from '../types';
@@ -30,7 +31,7 @@ describe('workspace commits tab', () => {
       onSourceSelectionChange={() => {}} onOpenPullRequest={() => {}} onOpenSettings={() => {}} />);
 
     expect(html).toContain('Loading commits target…');
-    expect(html).not.toContain('cmt-repo-chip');
+    expect(html).not.toContain('cmt-switch');
     expect(html).not.toContain('Cherry pick');
   });
 
@@ -43,9 +44,9 @@ describe('workspace commits tab', () => {
       onOpenSettings={() => {}}
     />);
 
-    expect(html).toContain('Source: Select source');
+    expect(html).toContain('cmt-switch__label cmt-mono">Select source</span>');
     expect(html).toContain('Choose a remote source for history and cherry-pick');
-    expect(html).not.toContain('Source: origin');
+    expect(html).not.toContain('cmt-switch__label cmt-mono">origin');
     expect(html).not.toContain('No upstream linked');
   });
 
@@ -79,9 +80,8 @@ describe('workspace commits tab', () => {
       onOpenSettings={() => {}}
     />);
 
-    expect(html).toContain('Source: oss');
-    expect(html).toContain('title="Branch of the selected source"');
-    expect(html).not.toContain('cmt-split-chip is-active');
+    expect(html).toContain('cmt-switch__label cmt-mono">oss · ');
+    expect(html).toContain('class="cmt-switch__half" title="Read history and cherry-pick from oss · ');
     expect(html).not.toContain('read-only');
   });
 
@@ -103,12 +103,12 @@ describe('workspace commits tab', () => {
       onOpenSettings={() => {}}
     />);
 
-    expect(html).toMatch(new RegExp(`class="cmt-repo-chip is-active"[^>]*title="Cherry-pick target: upstream/project · upstream/${targetBranch}"[^>]*aria-pressed="true"`));
-    expect(html).not.toContain('cmt-split-chip is-active');
-    expect(html).toContain('title="View the selected remote source"');
-    expect(html).toContain('Source: upstream');
-    expect(html).toContain('title="Branch of the selected source"');
-    expect(html).toContain(`cmt-repo-chip__label cmt-mono">upstream/${targetBranch}</span>`);
+    expect(html).toMatch(new RegExp(`class="cmt-switch__half is-active"[^>]*title="Cherry-pick target: upstream/project · upstream/${targetBranch}"[^>]*aria-pressed="true"`));
+    expect(html).toContain('class="cmt-switch__half" title="Read history and cherry-pick from upstream · master"');
+    expect(html).toContain('cmt-switch__label cmt-mono">upstream · master</span>');
+    // The pill names the destination repo, so the branch needs no remote prefix.
+    expect(html).toContain(`cmt-switch__label cmt-mono">project · ${targetBranch}</span>`);
+    expect(html).toContain('Ranges are picked on the source repo');
     expect(html).not.toContain(`Target · upstream/${targetBranch}`);
     expect(html).not.toContain('Check out');
   });
@@ -125,14 +125,18 @@ describe('workspace commits tab', () => {
     expect(html).toContain('lucide-refresh-cw');
     expect(html).toContain('lucide-search');
     expect(html).toContain('lucide-git-branch');
-    expect(html).toContain('lucide-git-compare-arrows');
+    expect(html).toContain('lucide-git-fork');
+    expect(html).toContain('lucide-arrow-left');
+    expect(html).toContain('lucide-arrow-right');
     expect(html).toContain('lucide-chevron-down');
-    expect(html).toContain('lucide-list-checks');
     expect(html).toContain('aria-label="Sync commit history"');
     expect(html).toContain('aria-label="Search commits by pull request title, number, or SHA"');
+    expect(html).toContain('placeholder="Search title, SHA, PR title or #number"');
     expect(html).not.toContain('Search — PR title, #number, or SHA');
-    expect(html).not.toContain('not synced yet</span>');
-    expect(html).not.toMatch(/[⑂⇅⇲▾]/);
+    // The sync state reads beside the button instead of only in its tooltip.
+    expect(html).toContain('not synced yet</span>');
+    // Every affordance in the bar and the strip is a Lucide icon, never a glyph.
+    expect(html).not.toMatch(/[⑂⇅⇲▾▼✓→]/);
   });
 
   it.each([
@@ -149,9 +153,8 @@ describe('workspace commits tab', () => {
       onOpenSettings={() => {}}
     />);
 
-    expect(html).not.toContain('cmt-split-chip is-active');
     expect(html).not.toContain('read-only');
-    expect(html).toMatch(/class="cmt-repo-chip is-active"[^>]*aria-pressed="true"/);
+    expect(html).toMatch(/class="cmt-switch__half is-active"[^>]*aria-pressed="true"/);
   });
 
   it('uses the direct repository target branch without an upstream prefix', () => {
@@ -160,7 +163,7 @@ describe('workspace commits tab', () => {
       onSourceSelectionChange={() => {}} onOpenPullRequest={() => {}} onOpenSettings={() => {}} />);
 
     expect(html).toContain('title="Cherry-pick target: example/project · release/1"');
-    expect(html).toContain('cmt-repo-chip__label cmt-mono">release/1</span>');
+    expect(html).toContain('cmt-switch__label cmt-mono">project · release/1</span>');
     expect(html).not.toContain('upstream/');
   });
 
@@ -170,8 +173,12 @@ describe('workspace commits tab', () => {
       settings={{ ...directSettings, commitsTarget: { remote: 'upstream', branch: 'release/479', overridden: true } }}
       initialRepo="upstream" onSourceSelectionChange={() => {}} onOpenPullRequest={() => {}} onOpenSettings={() => {}} />);
 
-    expect(html).toContain('cmt-split-chip is-active');
-    expect(html).toContain('cmt-repo-chip__label cmt-mono">upstream/release/479</span>');
+    expect(html).toMatch(/class="cmt-switch__half is-active"[^>]*title="Read history and cherry-pick from upstream · /);
+    expect(html).toContain('cmt-switch__label cmt-mono">example/project · release/479</span>');
+    // Selection lives on the source side only, and starts empty.
+    expect(html).toContain('No commits selected');
+    expect(html).toContain('Select range');
+    expect(html).not.toContain('Ranges are picked on the source repo');
     expect(html).not.toContain('Upstream · read-only');
     expect(html).not.toContain('then cherry-pick the range into upstream/release/479');
   });
@@ -259,3 +266,20 @@ function workspace(): WorkspaceDto {
     displayOrder: 0,
   };
 }
+
+describe('commits stylesheet', () => {
+  // A dead-rule sweep once deleted the live `.cmt-search` block along with the
+  // popover rules next to it, and every markup assertion still passed.
+  it('styles every cmt- class the commits screens render', () => {
+    const styled = new Set(
+      [...readFileSync('src/css/commits.css', 'utf8').matchAll(/\.(cmt-[a-z0-9-]+)/g)].map(match => match[1]),
+    );
+    const unstyled = readdirSync('src/commits')
+      .filter(name => name.endsWith('.tsx') && !name.endsWith('.test.tsx'))
+      .flatMap(name => [...readFileSync(`src/commits/${name}`, 'utf8').matchAll(/cmt-[a-z0-9-]+/g)]
+        .map(match => `${name}: ${match[0]}`)
+        .filter(entry => !styled.has(entry.split(': ')[1])));
+
+    expect([...new Set(unstyled)]).toEqual([]);
+  });
+});

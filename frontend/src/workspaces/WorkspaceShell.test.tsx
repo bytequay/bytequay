@@ -390,7 +390,7 @@ describe('watched repository workspace UI', () => {
     />);
 
     expect(html).toContain('Loading commits target…');
-    expect(html).not.toContain('cmt-repo-chip');
+    expect(html).not.toContain('cmt-switch');
   });
 
 });

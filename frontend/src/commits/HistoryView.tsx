@@ -11,7 +11,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-import { useEffect, useMemo, useRef, useState, type UIEvent as ReactUIEvent } from 'react';
+import { useEffect, useMemo, useRef, useState, type ReactNode, type UIEvent as ReactUIEvent } from 'react';
 import { GitCommitHorizontal } from 'lucide-react';
 import type { DiffFileDto, GitCommitDto, GitDiffFileDto } from '../types';
 import { DiffViewer } from '../pulls/PullChanges';
@@ -42,6 +42,7 @@ export function nextCommitRenderLimit(
 }
 
 export default function HistoryView({
+  listHeader,
   workspaceId,
   branch,
   readOnlyTarget = false,
@@ -56,6 +57,8 @@ export default function HistoryView({
   onHistoryRewritten,
   onOpenPullRequest,
 }: {
+  /** Search and selection controls, which belong inside the commit column. */
+  listHeader?: ReactNode;
   workspaceId: string;
   branch: string;
   readOnlyTarget?: boolean;
@@ -263,6 +266,7 @@ export default function HistoryView({
         className="cmt-history-left"
         style={{ width: commitPane.width, flexBasis: commitPane.width }}
       >
+        {listHeader}
         {!isUpstream && !readOnlyTarget && spanCommits.length > 0 && !canRewrite && (
           <div className="cmt-range-bar">
             <div className="cmt-hint">

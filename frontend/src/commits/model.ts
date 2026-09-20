@@ -69,6 +69,21 @@ export function spanFromShas(
   return { anchors: [commits[first].sha, commits[second].sha] };
 }
 
+/**
+ * A pasted `8fd3d32…741339a` / `8fd3d32..741339a` pair, resolved to both ends.
+ * Anything else — including a prefix that names no commit — is ordinary search
+ * text, so the caller keeps treating it as a query.
+ */
+export function pastedRangePair(
+  commits: GitCommitDto[],
+  value: string,
+): { anchors: [string, string] } | null {
+  const parts = value.split(/\.\.\.?|…/).map(part => part.trim()).filter(part => part !== '');
+  if (parts.length !== 2) return null;
+  const result = spanFromShas(commits, parts[0], parts[1]);
+  return 'anchors' in result ? result : null;
+}
+
 type DayGroup = { label: string; commits: Array<{ commit: GitCommitDto; index: number }> };
 
 type LimitedDayGroup = DayGroup & { totalCommits: number };

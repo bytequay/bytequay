@@ -14,7 +14,7 @@
 import React, { useCallback, useEffect, useState } from 'react';
 import AgentHome from '../agents/AgentHome';
 import AgentTaskScreen from '../agents/AgentTaskScreen';
-import AgentTasksView from '../agents/AgentTasksView';
+import AgentTasksView, { type TaskLaunch } from '../agents/AgentTasksView';
 import ReviewTaskScreen from '../agents/ReviewTaskScreen';
 import TaskOverview from '../agents/TaskOverview';
 import CommitsTab, { type CommitSourceSelection } from '../commits/CommitsTab';
@@ -60,6 +60,8 @@ export default function WorkspaceShell({ workspace, tab, onSelectTab, onWorkspac
   // Every agent screen can show every task as a window; ⇧⌘\ toggles it, Escape puts it away.
   const [overviewOpen, setOverviewOpen] = useState(false);
   const [openReview, setOpenReview] = useState<Pick<AgentReviewDto, 'id' | 'repo' | 'number'> | null>(null);
+  // The launch chosen when development was started from an issue; the composer seeds itself with it.
+  const [startLaunch, setStartLaunch] = useState<TaskLaunch>();
   const agentScreens = tab === 'home' || tab === 'tasks';
   const taskDetail = tab === 'tasks' && (initialAgentTaskId !== null || initialAgentReviewId !== null);
   // Opening any task from the list zooms it over that list; the route still owns which agent task.
@@ -183,7 +185,7 @@ export default function WorkspaceShell({ workspace, tab, onSelectTab, onWorkspac
       repository={`${workspace.monitoredOwner}/${workspace.monitoredRepo}`}
       initialIssueNumber={initialIssueNumber}
       onSelectIssue={onSelectIssue}
-      onStartDevelopment={number => { window.location.hash = workspaceIssueTaskRoute(workspace.id, number); }}
+      onStartDevelopment={(number, launch) => { setStartLaunch(launch); window.location.hash = workspaceIssueTaskRoute(workspace.id, number); }}
       onViewTask={link => { window.location.hash = workspaceAgentTaskRoute(link.workspaceId, link.taskId); }}
     />;
   }
@@ -215,6 +217,7 @@ export default function WorkspaceShell({ workspace, tab, onSelectTab, onWorkspac
           key={sourceIssueNumber ?? 'new-task'}
           workspaceId={workspace.id}
           sourceIssueNumber={sourceIssueNumber}
+          launch={sourceIssueNumber === null ? undefined : startLaunch}
           onOpenCreatedTask={task => { window.location.hash = workspaceAgentTaskRoute(task.workspaceId, task.id); }}
           headerAction={overviewOpen || zoomedTask || zoomedCherryPick ? undefined : overviewToggle}
           onOpenReview={(review) => setOpenReview({ id: review.id, repo: review.repo, number: review.number })}

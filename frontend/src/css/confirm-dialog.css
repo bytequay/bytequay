@@ -59,3 +59,20 @@
 @media (prefers-reduced-motion: reduce) {
   .bq-confirm-dialog__spinner { animation: none; }
 }
+
+.bq-confirm-dialog__choice {
+  display: grid;
+  gap: 8px;
+  margin-bottom: var(--space-3);
+}
+
+.bq-confirm-dialog__choice select {
+  width: 100%;
+  box-sizing: border-box;
+  padding: 8px 10px;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-md);
+  background: var(--bg-elevated);
+  color: var(--text-1);
+  font: inherit;
+}

@@ -34,7 +34,7 @@ async function createLocalTask(): Promise<{ name: string; error?: string }[]> {
   const root = createRoot(host);
   function Harness() {
     const live = useCallback(() => bridge, []);
-    const creation = useAgentTaskCreation({ workspaceId: 'workspace-1', initialLaneId: 'codex', bridge: live, onOpenTask: () => {} });
+    const creation = useAgentTaskCreation({ workspaceId: 'workspace-1', bridge: live, onOpenTask: () => {} });
     return <TaskComposer {...creation.composer} />;
   }
   flushSync(() => root.render(<Harness />));
@@ -128,7 +128,7 @@ async function multilineDraft(): Promise<{ name: string; error?: string }[]> {
   const root = createRoot(host);
   function Harness() {
     const live = useCallback(() => bridge, []);
-    const creation = useAgentTaskCreation({ workspaceId: 'workspace-1', initialLaneId: 'codex', bridge: live, onOpenTask: () => {} });
+    const creation = useAgentTaskCreation({ workspaceId: 'workspace-1', bridge: live, onOpenTask: () => {} });
     return <TaskComposer {...creation.composer} />;
   }
   flushSync(() => root.render(<Harness />));

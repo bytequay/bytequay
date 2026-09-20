@@ -14,7 +14,6 @@
 
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { CircleDot, ListChecks, Search, type LucideIcon } from 'lucide-react';
-import { INTERACTIVE_LANE_ID } from '../settings/model';
 import RepoAvatar from '../RepoAvatar';
 import { getCached, setCached } from '../dataCache';
 import AttentionList from '../home/AttentionList';
@@ -170,15 +169,13 @@ interface AgentHomeProps {
   onOpenIssue?: (number: number) => void;
   onStartIssue?: (number: number) => void;
   onOpenIssues?: () => void;
-  laneId?: string;
 }
 
 export default function AgentHome({
   workspaceId, headerAction, repository, bridge: explicitBridge, onOpenTask, onOpenSettings, onShowAll, onOpenPullRequests, onOpenPullRequest, onOpenIssue, onStartIssue, onOpenIssues,
-  laneId = INTERACTIVE_LANE_ID,
 }: AgentHomeProps): React.JSX.Element {
   const live = useCallback((): AgentBridgePort => explicitBridge ?? window.bridge, [explicitBridge]);
-  const creation = useAgentTaskCreation({ workspaceId, initialLaneId: laneId, bridge: live, onOpenTask });
+  const creation = useAgentTaskCreation({ workspaceId, bridge: live, onOpenTask });
   const attention = useWorkspaceAttention(workspaceId, repository);
   const [hidden, setHidden] = useState(() => loadHiddenTasks(workspaceId));
   const hide = useCallback((task: AgentTaskDto) => setHidden((previous) => {

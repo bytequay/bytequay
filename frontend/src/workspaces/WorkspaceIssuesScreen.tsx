@@ -20,6 +20,8 @@ import {
   type UIEvent as ReactUIEvent,
 } from 'react';
 import Avatar from '../Avatar';
+import StartDevelopmentDialog from '../agents/StartDevelopmentDialog';
+import type { TaskLaunch } from '../agents/AgentTasksView';
 import { CircleCheck, CircleDot, ExternalLink, Flag, ListTodo, Play, User } from 'lucide-react';
 import { issueDevelopmentAction, notifyIssueDevelopmentChanged } from './issueDevelopment';
 import type { NavigationMode } from '../navigationHistory';
@@ -81,7 +83,7 @@ export default function WorkspaceIssuesScreen({ workspaceId, repository, initial
   repository: string;
   initialIssueNumber: number | null;
   onSelectIssue: (number: number, mode: NavigationMode) => void;
-  onStartDevelopment?: (number: number) => void;
+  onStartDevelopment?: (number: number, launch: TaskLaunch) => void;
   onViewTask?: (link: IssueDevelopmentTaskDto) => void;
 }) {
   const [snapshot, setSnapshot] = useState<RepositoryIssueSnapshotDto | null>(null);
@@ -99,6 +101,7 @@ export default function WorkspaceIssuesScreen({ workspaceId, repository, initial
   const [mutationError, setMutationError] = useState<string | null>(null);
   const [changingGoal, setChangingGoal] = useState<number | null>(null);
   const [closedIssueId, setClosedIssueId] = useState<number | null>(null);
+  const [startingIssue, setStartingIssue] = useState<number | null>(null);
   const detailRequest = useRef(0);
   const loadingMoreRequest = useRef(false);
   const openedInitialIssue = useRef<number | null>(null);
@@ -397,7 +400,7 @@ export default function WorkspaceIssuesScreen({ workspaceId, repository, initial
           {!loading && snapshot?.issues.length === 0 && <div className="hp-empty">No open issues for {repository}.</div>}
           {snapshot?.issues.map(issue => (
             <IssueRow key={issue.id} issue={issue} repository={repository} labelColors={labelColors}
-              actions={<IssueDevelopmentActions issue={issue} onStart={onStartDevelopment} onViewTask={onViewTask}
+              actions={<IssueDevelopmentActions issue={issue} onStart={onStartDevelopment === undefined ? undefined : setStartingIssue} onViewTask={onViewTask}
                 onToggleGoal={() => { void toggleGoal(issue); }} changingGoal={changingGoal !== null} />}
               selected={issue.id === selectedId} onPick={() => {
                 onSelectIssue(issue.number, 'push');
@@ -435,7 +438,7 @@ export default function WorkspaceIssuesScreen({ workspaceId, repository, initial
           <div className="pull-detail__body">
             <IssueOverview key={selected.id} issue={selected} closed={selected.id === closedIssueId} metadata={metadata} timeline={timeline} issueType={issueType}
               repository={repository} workspaceId={workspaceId}
-              actions={<IssueDevelopmentActions issue={selected} onStart={onStartDevelopment} onViewTask={onViewTask}
+              actions={<IssueDevelopmentActions issue={selected} onStart={onStartDevelopment === undefined ? undefined : setStartingIssue} onViewTask={onViewTask}
                 onToggleGoal={() => { void toggleGoal(selected); }} changingGoal={changingGoal !== null} />}
               timelineLoading={detailLoading} onTypeChange={type => updateIssueType(selected.number, type)}
               onMetadataChange={(assignees, labels) => updateIssueMetadata(selected.number, assignees, labels)}
@@ -446,6 +449,15 @@ export default function WorkspaceIssuesScreen({ workspaceId, repository, initial
               }} />
           </div>
         </section>
+      )}
+
+      {startingIssue !== null && onStartDevelopment !== undefined && (
+        <StartDevelopmentDialog
+          workspaceId={workspaceId}
+          issueNumber={startingIssue}
+          onCancel={() => setStartingIssue(null)}
+          onConfirm={launch => { setStartingIssue(null); onStartDevelopment(startingIssue, launch); }}
+        />
       )}
     </div>
   );

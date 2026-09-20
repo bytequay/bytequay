@@ -38,6 +38,9 @@ import type { AgentReviewDto } from '../pulls/agent-review/contracts';
 
 export type DraftImage = { id: string; name: string; url: string };
 export type TaskModelSelection = { model: string; effort: string | null; serviceTier?: string | null };
+
+/** A provider, model and effort chosen before the composer opened. */
+export type TaskLaunch = { laneId: string } & TaskModelSelection;
 type TaskTab = 'active' | 'archived';
 
 /** What the backend's sweep does to a completed task nobody came back to; the hint names it. */
@@ -60,8 +63,8 @@ interface AgentTasksViewProps {
   onOpenReviewWorkspace?: (review: AgentReviewDto) => void;
   /** Where a provider that is not ready gets fixed. */
   onOpenSettings?: () => void;
-  /** Initial provider selection; the person may change it until the first message creates a task. */
-  laneId?: string;
+  /** A launch chosen before the composer opened; the person may change it until the first message creates a task. */
+  launch?: TaskLaunch;
 }
 
 /** A task state reads as prose; the wire enum is never shown to the user. */
@@ -183,9 +186,10 @@ export function creationBlocker(
  * Everything creating a task needs: the list, the catalog, the chosen model, the draft, why
  * creation is blocked, and the create call itself — shared by the Tasks page and the Home hero.
  */
-export function useAgentTaskCreation({ workspaceId, initialLaneId, bridge, onOpenTask, sourceIssueNumber = null, onOpenCreatedTask }: {
+export function useAgentTaskCreation({ workspaceId, initialLaunch, bridge, onOpenTask, sourceIssueNumber = null, onOpenCreatedTask }: {
   workspaceId: string;
-  initialLaneId: string;
+  /** A launch the caller chose; without one the workspace's Development agent decides. */
+  initialLaunch?: TaskLaunch;
   bridge: () => AgentBridgePort;
   onOpenTask: (taskId: string) => void;
   sourceIssueNumber?: number | null;
@@ -198,7 +202,7 @@ export function useAgentTaskCreation({ workspaceId, initialLaneId, bridge, onOpe
   const [loading, setLoading] = useState(() => getCached(seed) === undefined);
   const [error, setError] = useState<string | null>(null);
   const [catalog, setCatalog] = useState<ModelSettingsDto | null>(null);
-  const [laneId, setLaneId] = useState(initialLaneId);
+  const [laneId, setLaneId] = useState(initialLaunch?.laneId ?? INTERACTIVE_LANE_ID);
   const [selection, setSelection] = useState<TaskModelSelection | null>(null);
   const [draft, setDraft] = useState('');
   const [issue, setIssue] = useState<DevelopmentIssue | null>(null);
@@ -233,11 +237,18 @@ export function useAgentTaskCreation({ workspaceId, initialLaneId, bridge, onOpe
 
   /**
    * Seeds the composer from the Development setting — the model this workspace's
-   * next task is meant to launch with — unless the caller names a lane, which
-   * happens when a blocked start is retried on the lane it failed on.
+   * next task is meant to launch with — unless a launch was chosen for it, or a
+   * blocked start is retried on the lane it failed on.
    */
-  const applyCatalog = useCallback((settings: ModelSettingsDto, preferredLaneId?: string) => {
+  const applyCatalog = useCallback((settings: ModelSettingsDto, preferredLaneId = initialLaunch?.laneId) => {
     setCatalog(settings);
+    // The caller's own choice is taken as made; a retry that lands on another lane takes that lane's own.
+    if (initialLaunch !== undefined && preferredLaneId === initialLaunch.laneId
+      && settings.providers.some((candidate) => candidate.id === initialLaunch.laneId)) {
+      setLaneId(initialLaunch.laneId);
+      setSelection({ model: initialLaunch.model, effort: initialLaunch.effort });
+      return;
+    }
     if (preferredLaneId !== undefined) {
       const named = settings.providers.find((candidate) => candidate.id === preferredLaneId);
       if (named !== undefined && named.selectedModel !== '') {
@@ -252,7 +263,7 @@ export function useAgentTaskCreation({ workspaceId, initialLaneId, bridge, onOpe
       setSelection({ model: development.model, effort: development.effort ?? null });
       return;
     }
-    const provider = settings.providers.find((candidate) => candidate.id === initialLaneId) ?? settings.providers[0];
+    const provider = settings.providers.find((candidate) => candidate.id === (initialLaunch?.laneId ?? INTERACTIVE_LANE_ID)) ?? settings.providers[0];
     if (provider !== undefined && provider.selectedModel !== '') {
       setLaneId(provider.id);
       setSelection({
@@ -260,7 +271,7 @@ export function useAgentTaskCreation({ workspaceId, initialLaneId, bridge, onOpe
         effort: provider.selectedEffort === '' ? null : provider.selectedEffort,
       });
     }
-  }, [initialLaneId]);
+  }, [initialLaunch]);
 
   useEffect(() => {
     let active = true;
@@ -615,11 +626,11 @@ export default function AgentTasksView({
   onOpenReview,
   onOpenReviewWorkspace,
   onOpenSettings,
-  laneId = INTERACTIVE_LANE_ID,
+  launch,
 }: AgentTasksViewProps): React.JSX.Element {
   // Resolved when used, not when rendered: a static render has no window to reach.
   const live = useCallback((): AgentBridgePort => explicitBridge ?? window.bridge, [explicitBridge]);
-  const creation = useAgentTaskCreation({ workspaceId, initialLaneId: laneId, bridge: live, onOpenTask, sourceIssueNumber, onOpenCreatedTask });
+  const creation = useAgentTaskCreation({ workspaceId, initialLaunch: launch, bridge: live, onOpenTask, sourceIssueNumber, onOpenCreatedTask });
   const { setTasks } = creation;
   const tasksRef = useRef(creation.tasks);
   tasksRef.current = creation.tasks;

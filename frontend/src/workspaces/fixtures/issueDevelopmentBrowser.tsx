@@ -14,7 +14,7 @@
 
 import { flushSync } from 'react-dom';
 import { createRoot } from 'react-dom/client';
-import AgentTasksView from '../../agents/AgentTasksView';
+import AgentTasksView, { type TaskLaunch } from '../../agents/AgentTasksView';
 import { AgentTaskBody } from '../../agents/AgentTaskScreen';
 import { createPreviewBridge, previewTask, TASK_BODY_NOOPS } from '../../agents/fixtures/previewBridge';
 import { NO_AGENT_CAPABILITIES } from '../../agents/capabilities';
@@ -41,6 +41,16 @@ function button(host: HTMLElement, label: string): HTMLButtonElement {
   assert(found !== undefined, `Missing button: ${label}`);
   return found;
 }
+function dialogSelect(host: HTMLElement, label: string): HTMLSelectElement {
+  const found = [...host.querySelectorAll<HTMLLabelElement>('.bq-confirm-dialog__choice')]
+    .find(candidate => candidate.textContent?.startsWith(label))?.querySelector('select');
+  assert(found != null, `Missing dialog choice: ${label}`);
+  return found;
+}
+function choose(select: HTMLSelectElement, value: string): void {
+  Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype, 'value')?.set?.call(select, value);
+  select.dispatchEvent(new Event('change', { bubbles: true }));
+}
 function edit(input: HTMLTextAreaElement, value: string): void {
   Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value')?.set?.call(input, value);
   input.dispatchEvent(new Event('input', { bubbles: true }));
@@ -65,6 +75,10 @@ function fixture() {
     ...preview,
     listAgentTasks: async () => [],
     listAgentReviews: async () => [],
+    getModelSettings: async (workspace?: string) => {
+      const settings = await preview.getModelSettings(workspace);
+      return { ...settings, providers: [...settings.providers, { ...settings.providers[0], id: 'claude', label: 'Claude' }] };
+    },
     fetchWorkspaceIssue: async (workspace: string, number: number) => {
       assert(workspace === workspaceId && number === issue.number, 'Source lookup must retain the chosen fork workspace and upstream number');
       return { ...issue };
@@ -92,8 +106,10 @@ async function issueToTask(): Promise<void> {
   const f = fixture();
   const host = document.createElement('div'); document.body.append(host);
   const root = createRoot(host);
+  let started: TaskLaunch | undefined;
   const showIssue = () => flushSync(() => root.render(<WorkspaceIssuesScreen key="issue" workspaceId={f.workspaceId} repository="upstream/app"
-    initialIssueNumber={7} onSelectIssue={() => {}} onStartDevelopment={number => { window.location.hash = workspaceIssueTaskRoute(f.workspaceId, number); }}
+    initialIssueNumber={7} onSelectIssue={() => {}}
+    onStartDevelopment={(number, launch) => { started = launch; window.location.hash = workspaceIssueTaskRoute(f.workspaceId, number); }}
     onViewTask={link => { window.location.hash = workspaceAgentTaskRoute(link.workspaceId, link.taskId); }} />));
   try {
     showIssue(); await settle();
@@ -104,9 +120,21 @@ async function issueToTask(): Promise<void> {
     assert((getCached<unknown[]>('home:issues') ?? []).length === 0, 'Goal invalidation must clear Home seeds');
     button(host, 'Unmark as Goal').click(); await settle();
     assert(Number(f.goalWrites) === 2, 'Unmark must use the same durable classification');
-    button(host, 'Start development').click();
+    button(host, 'Start development').click(); await settle();
+    assert(dialogSelect(host, 'Agent provider').value === 'codex' && dialogSelect(host, 'Model').value === 'gpt-5.6-codex' && dialogSelect(host, 'Effort').value === 'high',
+      'Launch must ask which provider, model and effort, offered on the workspace development agent');
+    assert(window.location.hash !== workspaceIssueTaskRoute(f.workspaceId, 7), 'Asking must not route before it is confirmed');
+    button(host, 'Cancel').click(); await settle();
+    assert(host.querySelector('.bq-confirm-dialog') === null && window.location.hash !== workspaceIssueTaskRoute(f.workspaceId, 7), 'Cancel must leave the issue as it was');
+    button(host, 'Start development').click(); await settle();
+    choose(dialogSelect(host, 'Agent provider'), 'claude'); await settle();
+    choose(dialogSelect(host, 'Model'), 'gpt-5.6-codex-mini'); await settle();
+    assert(dialogSelect(host, 'Effort').value === 'medium', 'A model that drops the chosen effort must fall back to its own');
+    button(host, 'Start').click(); await settle();
     const location = workspaceLocationFromRoute(window.location.hash);
     assert(location?.sourceIssueNumber === 7 && location.workspaceId === f.workspaceId, 'Card must route to its workspace issue composer');
+    assert(started?.laneId === 'claude' && started.model === 'gpt-5.6-codex-mini' && started.effort === 'medium',
+      'The confirmed provider, model and effort must reach the composer');
     f.bridge.createAgentTask = async request => {
       f.created.push(request);
       if (f.created.length === 1) throw new Error('Response lost');
@@ -119,6 +147,7 @@ async function issueToTask(): Promise<void> {
       return task;
     };
     flushSync(() => root.render(<AgentTasksView key="composer" workspaceId={f.workspaceId} sourceIssueNumber={7} bridge={f.bridge}
+      launch={started}
       onOpenTask={() => { throw new Error('Creation must use returned workspace'); }} onOpenReview={() => {}}
       onOpenCreatedTask={task => { window.location.hash = workspaceAgentTaskRoute(task.workspaceId, task.id); }} />));
     await settle();
@@ -131,7 +160,9 @@ async function issueToTask(): Promise<void> {
     assert(Number(f.created.length) === 2 && f.created[0] === f.created[1], 'Lost response and double click must replay the same accepted request');
     const request = f.created[0];
     assert(request.issueSource?.issueId === 7001 && request.workspaceId === f.workspaceId, 'Creation must retain upstream issue and fork workspace');
-    assert(request.message === 'Keep the public API stable' && request.defaults.model === 'gpt-5.6-codex', 'User instructions and model must survive');
+    assert(request.message === 'Keep the public API stable', 'User instructions must survive');
+    assert(request.laneId === 'claude' && request.defaults.model === 'gpt-5.6-codex-mini' && request.defaults.effort === 'medium',
+      'The task must launch on the confirmed provider, model and effort');
     assert(request.developmentAutomation?.autoDraftPr === true && request.developmentAutomation.autoCiFix === true, 'Automation defaults must survive');
     assert(window.location.hash === workspaceAgentTaskRoute('linked-workspace', request.taskId), 'Returned task workspace controls navigation');
     showIssue(); await settle();

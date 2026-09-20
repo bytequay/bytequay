@@ -820,6 +820,10 @@
 .markdown-body a:hover { text-decoration: underline; }
 .markdown-body .md-image-link { display: inline-block; text-decoration: none; }
 .markdown-body .md-image-link img { display: block; max-width: 100%; height: auto; }
+.markdown-body img.md-image { max-width: 100%; height: auto; vertical-align: middle; }
+/* ponytail: the app renders light only, so GitHub's dark-mode-only assets stay hidden. */
+.markdown-body [href$="#gh-dark-mode-only"],
+.markdown-body [src$="#gh-dark-mode-only"] { display: none; }
 .markdown-body hr { height: 1px; margin: 20px 0; border: 0; background: #d8dee4; }
 .md-details { margin: 11px 0; }
 .md-details > summary { color: #24292f; cursor: pointer; font-weight: 500; }

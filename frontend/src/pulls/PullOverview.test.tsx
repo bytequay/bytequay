@@ -926,6 +926,14 @@ describe('PullOverview', () => {
     expect(html).toContain('<strong>Merge Risk:</strong> <em>⚪ Minimal</em>');
   });
 
+  it('renders HTML image anchors as image links and drops dark-mode-only assets', () => {
+    const html = renderToStaticMarkup(<MarkdownBody body={'<a href="https://app.coderabbit.ai/stack#gh-light-mode-only"><img src="https://example.com/light.svg" alt="Review Change Stack" width="202"></a><a href="https://app.coderabbit.ai/stack#gh-dark-mode-only"><img src="https://example.com/dark.svg" alt="Review Change Stack"></a>\n\n<img src="https://example.com/shot.png" alt="Screenshot">'} />);
+
+    expect(html).toContain('<a class="md-image-link" href="https://app.coderabbit.ai/stack#gh-light-mode-only"><img src="https://example.com/light.svg" alt="Review Change Stack"/></a>');
+    expect(html).toContain('<img class="md-image" src="https://example.com/shot.png" alt="Screenshot"/>');
+    expect(html).not.toContain('[](');
+  });
+
   it('suppresses empty comment-review wrappers and keeps verdict-only reviews compact', () => {
     const value = detail();
     value.recentActivity = [

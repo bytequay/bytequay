@@ -297,6 +297,10 @@ function htmlToMarkdown(value: string) {
       code => code.replaceAll('<', '&lt;').replaceAll('>', '&gt;'))
     .replace(/<!--[^]*?-->/g, '')
     .replace(/<(https?:\/\/[^>\s]+)>/gi, '$1')
+    .replace(/<img\s[^>]*>/gi, tag => {
+      const source = tag.match(/\ssrc=["']([^"']+)["']/i)?.[1];
+      return source ? `![${tag.match(/\salt=["']([^"']*)["']/i)?.[1] ?? ''}](${source})` : '';
+    })
     .replace(/<a\s+[^>]*href=["']([^"']+)["'][^>]*>([\s\S]*?)<\/a>/gi,
       (_match, href: string, label: string) => `[${stripHtml(label)}](${href})`)
     .replace(/<br\s*\/?\s*>/gi, '\n')
@@ -334,7 +338,7 @@ export function tableAlignments(line: string) {
 
 // Like GitHub, `_` emphasis cannot open or close inside a word, so ICEBERG_FILESYSTEM_ERROR stays literal.
 // Its content admits only intraword underscores, which keeps an unclosed `_` from scanning the rest of the text.
-const INLINE_TOKEN = /(\\[\\`]|\[!\[[^\]]*\]\([^)]+\)\]\([^)]+\)|\*\*[^*]+\*\*|(?<=^|[\s\p{P}\p{S}])_(?!\s)(?:[^_]|(?<=[^\s\p{P}\p{S}])_(?=[^\s\p{P}\p{S}]))+?(?<!\s)_(?=$|[\s\p{P}\p{S}])|`[^`]+`|\[[^\]]+\]\([^)]+\)|\[[^\]]+\]\[[^\]]*\]|\[[^\]]+\]|https?:\/\/[^\s<>()\]]*[^\s<>()\].,!?;:'"]|@[A-Za-z0-9](?:[A-Za-z0-9-]*[A-Za-z0-9])?|#[0-9]+)/gu;
+const INLINE_TOKEN = /(\\[\\`]|\[!\[[^\]]*\]\([^)]+\)\]\([^)]+\)|!\[[^\]]*\]\([^)]+\)|\*\*[^*]+\*\*|(?<=^|[\s\p{P}\p{S}])_(?!\s)(?:[^_]|(?<=[^\s\p{P}\p{S}])_(?=[^\s\p{P}\p{S}]))+?(?<!\s)_(?=$|[\s\p{P}\p{S}])|`[^`]+`|\[[^\]]+\]\([^)]+\)|\[[^\]]+\]\[[^\]]*\]|\[[^\]]+\]|https?:\/\/[^\s<>()\]]*[^\s<>()\].,!?;:'"]|@[A-Za-z0-9](?:[A-Za-z0-9-]*[A-Za-z0-9])?|#[0-9]+)/gu;
 
 export function parseGitHubCodePermalink(value: string, repository?: string): GitHubCodePermalink | null {
   if (!repository) return null;
@@ -533,6 +537,8 @@ function inline(text: string, keyPrefix: string, definitions: ReadonlyMap<string
         <img src={linkedImage[2]} alt={linkedImage[1]} />
       </a>
     );
+    const image = part.match(/^!\[([^\]]*)\]\(([^)]+)\)$/);
+    if (image) return <img className="md-image" key={key} src={image[2]} alt={image[1]} />;
     if (part.startsWith('**') && part.endsWith('**')) return <strong key={key}>{inline(part.slice(2, -2), `${key}-strong`, definitions)}</strong>;
     if (part.startsWith('_') && part.endsWith('_')) return <em key={key}>{inline(part.slice(1, -1), `${key}-em`, definitions)}</em>;
     if (part.startsWith('`') && part.endsWith('`')) return <code key={key}>{part.slice(1, -1)}</code>;

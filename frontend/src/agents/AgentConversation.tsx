@@ -30,7 +30,7 @@ import { approvalDecisions, type PendingMessage } from './model';
 import { ModelPicker } from './ModelPicker';
 import { IssueRequestCard } from './IssueAttachment';
 import { ReviewRequestCard, type ReviewRequest, type ReviewRequestTarget } from './ReviewRequestCard';
-import { activityExpanded,activityPhrase,activityRunning,activitySummary,formatDuration,planChip,turnElapsedMs,turnLabel,type ActivityBlock,type ActivityMember,type ApprovalBlock,type CommandAction,type CommandMember,type PlanStep,type TranscriptTurn,type TurnBlock } from './transcript';
+import { activityExpanded,activityPhrase,activityRunning,activitySummary,formatDuration,planChip,turnElapsedMs,turnLabel,type ActivityBlock,type ActivityMember,type ApprovalBlock,type CommandAction,type CommandMember,type PlanStep,type ToolMember,type TranscriptTurn,type TurnBlock } from './transcript';
 
 /** What the screen knows about one attachment's image: still loading, an object URL, or gone. */
 export type AttachmentPreview = { status: 'notLoaded' } | { status: 'loading' } | { status: 'ready'; url: string; loadOriginal?: () => Promise<Blob> } | { status: 'unavailable' };
@@ -124,9 +124,26 @@ function currentActivityLabel(turn: TranscriptTurn | undefined): string {
     if (action?.kind === 'LIST_FILES') return `Listing ${action.name ?? action.path ?? 'files'}`;
     return member.command === '' ? 'Running command' : `Running ${member.command}`;
   }
-  if (member?.kind === 'tool') return member.name;
+  if (member?.kind === 'tool') return toolLabel(member.name);
   if (turn?.answer && !turn.answer.complete) return 'Writing response';
   return 'Thinking';
+}
+
+/** Providers namespace their MCP tools as `mcp__<server>__<tool>`; a row shows the tool. */
+function toolLabel(name: string): string {
+  return name.replace(/^mcp__.+?__/, '');
+}
+
+/** A tool payload is usually JSON; folded output reads it as a document rather than one line. */
+function toolDetail(text: string): string {
+  const trimmed = text.trim();
+  if (!trimmed.startsWith('{') && !trimmed.startsWith('[')) return text;
+  try {
+    return JSON.stringify(JSON.parse(trimmed), null, 2);
+  }
+  catch {
+    return text;
+  }
 }
 
 function LiveActivity({ label, animated = true }: { label: string; animated?: boolean }): React.JSX.Element {
@@ -232,6 +249,31 @@ function CommandCells({ member, chevron = false }: {
 
 const CHANGE_VERBS: Record<string, string> = { ADDED: 'Added', MODIFIED: 'Edited', DELETED: 'Deleted', RENAMED: 'Renamed' };
 
+/** A one-line result stays on the row; anything longer folds like a command's output. */
+function ToolRows({ member }: { member: ToolMember }): React.JSX.Element {
+  const label = toolLabel(member.name);
+  const summary = member.summary === member.name || member.summary === label ? '' : member.summary;
+  if (summary.length <= 80 && !summary.includes('\n')) {
+    return (
+      <div className="agt-act__row">
+        <ActivityIcon member={member} />
+        <span className="agt-muted">{label}</span>
+        {summary !== '' && <span className="agt-mono">{summary}</span>}
+      </div>
+    );
+  }
+  return (
+    <details className="agt-out">
+      <summary className="agt-act__row">
+        <ActivityIcon member={member} />
+        <span className="agt-muted">{label}</span>
+        <Chevron size={11} />
+      </summary>
+      <pre className="agt-pre">{toolDetail(summary)}</pre>
+    </details>
+  );
+}
+
 function MemberRows({ members, live }: { members: ActivityMember[]; live: boolean }): React.JSX.Element {
   return (
     <>
@@ -260,13 +302,7 @@ function MemberRows({ members, live }: { members: ActivityMember[]; live: boolea
             </React.Fragment>
           );
         }
-        return (
-          <div className="agt-act__row" key={member.id}>
-            <ActivityIcon member={member} />
-            <span className="agt-muted">{member.name}</span>
-            {member.summary !== '' && member.summary !== member.name && <span className="agt-mono">{member.summary}</span>}
-          </div>
-        );
+        return <ToolRows key={member.id} member={member} />;
       })}
     </>
   );

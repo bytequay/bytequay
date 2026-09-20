@@ -1763,7 +1763,7 @@
   display: none;
 }
 
-/* A command row that folds its output keeps the row's own type; only the marker is the app's. */
+/* A row that folds its output keeps the row's own type; only the marker is the app's. */
 .agt-out > summary.agt-act__row {
   gap: 10px;
   font-size: 12.5px;
@@ -1782,8 +1782,21 @@
   padding: 8px 12px;
   line-height: 1.6;
   color: #57606a;
-  max-height: 260px;
+  /* Whole lines only: 13 of them, plus the top padding and borders the window starts below. */
+  max-height: calc(20.8em + 10px);
   overflow: auto;
+}
+
+/* macOS hides an overlay scrollbar, which makes a capped output read as cut; this one stays visible. */
+.agt-out > .agt-pre::-webkit-scrollbar {
+  width: 9px;
+}
+
+.agt-out > .agt-pre::-webkit-scrollbar-thumb {
+  border: 2px solid transparent;
+  border-radius: 5px;
+  background: #d0d7de;
+  background-clip: content-box;
 }
 
 .agt-out__label {

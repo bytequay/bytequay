@@ -48,7 +48,7 @@ type FileMember = {
   removed: number;
 };
 
-type ToolMember = {
+export type ToolMember = {
   kind: 'tool';
   id: string;
   name: string;

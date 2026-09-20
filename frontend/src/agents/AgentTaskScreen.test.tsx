@@ -1421,6 +1421,27 @@ describe('agent task detail', () => {
     expect(markup).not.toMatch(/<summary[^>]*>(?:(?!<\/summary>)[^])*Loaded a tool/);
   });
 
+  it('names an MCP tool without its server prefix and folds a JSON result', () => {
+    const result = JSON.stringify({ step: 2, kind: 'VALIDATE', sealed: false, changeMap: 'Single commit e7dc4a0 on the review branch' });
+    const called = events.map((event): AgentEventEnvelope => event.type !== 'tool' ? event : ({
+      ...event,
+      payload: { ...event.payload, name: 'mcp__bytequay__review_get_context', summary: result },
+    }));
+    const markup = body({ task: task('t-1', 'OPEN', 'x'), events: called, connection: 'open' }, { '00000000-0000-4000-8000-000000000005': true });
+
+    expect(markup).not.toContain('mcp__bytequay__');
+    expect(markup).toMatch(/<summary class="agt-act__row">[^]*?review_get_context[^]*?<\/summary><pre class="agt-pre">/);
+    // The payload reads as an indented document instead of one clipped line.
+    expect(markup).toContain('&quot;kind&quot;: &quot;VALIDATE&quot;');
+
+    const short = events.map((event): AgentEventEnvelope => event.type !== 'tool' ? event : ({
+      ...event,
+      payload: { ...event.payload, name: 'mcp__bytequay__review_get_context', summary: 'ok' },
+    }));
+    const inline = body({ task: task('t-1', 'OPEN', 'x'), events: short, connection: 'open' }, { '00000000-0000-4000-8000-000000000005': true });
+    expect(inline).toMatch(/<div class="agt-act__row">[^]*?review_get_context[^]*?<span class="agt-mono">ok<\/span><\/div>/);
+  });
+
   it('keeps unnamed reads truthful and running results open without activity clocks', () => {
     const reading = events.filter((event) => event.type !== 'lifecycle' || event.payload.phase !== 'TURN_COMPLETED')
       .map((event): AgentEventEnvelope => event.type !== 'command' ? event : ({

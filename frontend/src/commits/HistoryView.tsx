@@ -13,10 +13,9 @@
  */
 import { useEffect, useMemo, useRef, useState, type UIEvent as ReactUIEvent } from 'react';
 import { GitCommitHorizontal } from 'lucide-react';
-import { relativeTime } from '../relativeTime';
 import type { DiffFileDto, GitCommitDto, GitDiffFileDto } from '../types';
-import Avatar from '../Avatar';
 import { DiffViewer } from '../pulls/PullChanges';
+import CommitCard, { CommitByline } from './CommitCard';
 import { useResizablePane } from '../useResizablePane';
 import {
   groupByDay,
@@ -40,38 +39,6 @@ export function nextCommitRenderLimit(
     return currentLimit;
   }
   return Math.min(totalCount, Math.max(currentLimit, visibleCount) + COMMIT_RENDER_BATCH);
-}
-
-function CommitByline({ commit }: { commit: GitCommitDto }) {
-  const sameActor = commit.author === commit.committer;
-  return (
-    <>
-      <span
-        aria-hidden="true"
-        className={`cmt-commit-avatars${sameActor ? '' : ' is-pair'}`}
-      >
-        <Avatar login={commit.author} avatarUrl={commit.authorAvatarUrl} size={20} allowGitHubFallback={false} />
-        {!sameActor && (
-          <Avatar
-            login={commit.committer}
-            avatarUrl={commit.committerAvatarUrl}
-            size={20}
-            allowGitHubFallback={false}
-          />
-        )}
-      </span>
-      <span className="cmt-commit-byline">
-        <strong>{commit.author}</strong>
-        {sameActor ? ' committed ' : <>{' authored and '}<strong>{commit.committer}</strong>{' committed '}</>}
-        <time
-          dateTime={commit.committedAt}
-          title={new Date(commit.committedAt).toLocaleString('en-US', { dateStyle: 'medium', timeStyle: 'long' })}
-        >
-          {relativeTime(commit.committedAt, { style: 'long' })}
-        </time>
-      </span>
-    </>
-  );
 }
 
 export default function HistoryView({
@@ -321,58 +288,16 @@ export default function HistoryView({
               {group.commits.map(({ commit, index }) => {
                 const inRange = span !== null && index >= span.lo && index <= span.hi;
                 const isViewed = viewed?.sha === commit.sha;
-                const pullRequestNumber = commit.pullRequestNumber ?? null;
-                const pullRequestTitle = commit.pullRequestTitle ?? null;
                 return (
                   <div key={commit.sha}>
-                    <div
-                      className={`cmt-commit-row${inRange ? ' is-selected' : ''}${isViewed && !multi ? ' is-viewed' : ''}`}
-                      onClick={() => setViewedSha(commit.sha)}
-                    >
-                      <input
-                        type="checkbox"
-                        checked={inRange}
-                        aria-label={`Select ${shortSha(commit.sha)}`}
-                        onClick={event => event.stopPropagation()}
-                        onChange={() => toggle(commit.sha)}
-                      />
-                      <div className="cmt-commit-main">
-                        <div className="cmt-commit-title">{commit.title}</div>
-                        <div className="cmt-commit-meta">
-                          <CommitByline commit={commit} />
-                        </div>
-                        {pullRequestNumber !== null && (
-                          <button
-                            type="button"
-                            className="cmt-commit-pr"
-                            title={pullRequestTitle
-                              ? `Open PR #${pullRequestNumber}: ${pullRequestTitle}`
-                              : `Open PR #${pullRequestNumber}`}
-                            onClick={event => {
-                              event.stopPropagation();
-                              onOpenPullRequest(pullRequestNumber);
-                            }}
-                          >
-                            <span className="cmt-chip is-pr">⑃ #{pullRequestNumber}</span>
-                            <span className="cmt-commit-pr-title">
-                              {pullRequestTitle ?? 'View pull request'}
-                            </span>
-                          </button>
-                        )}
-                      </div>
-                      <button
-                        type="button"
-                        className="cmt-commit-sha"
-                        title="Copy full commit SHA"
-                        aria-label={`Copy full commit SHA ${commit.sha}`}
-                        onClick={event => {
-                          event.stopPropagation();
-                          void navigator.clipboard.writeText(commit.sha);
-                        }}
-                      >
-                        {shortSha(commit.sha)}
-                      </button>
-                    </div>
+                    <CommitCard
+                      commit={commit}
+                      selected={inRange}
+                      viewed={isViewed && !multi}
+                      onSelect={() => setViewedSha(commit.sha)}
+                      onToggle={() => toggle(commit.sha)}
+                      onOpenPullRequest={onOpenPullRequest}
+                    />
 
                     {single !== null && single.sha === commit.sha && canRewrite && (
                       <div className="cmt-inline-editor">

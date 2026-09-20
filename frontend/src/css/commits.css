@@ -103,9 +103,6 @@
 .cmt-switch__caret { color: #a3aab3; }
 .cmt-switch__half.is-active .cmt-switch__caret { color: #0969da; }
 
-/* Also used by the range-confirm flow's disclosure rows. */
-.cmt-caret { flex: none; opacity: 0.7; }
-
 .cmt-switch__divider {
   display: flex;
   align-items: center;
@@ -1069,9 +1066,6 @@
 }
 
 
-.cmt-flow-frozen { font-size: 12px; color: #656d76; margin-top: 6px; }
-.cmt-flow-frozen code { font-family: ui-monospace, Menlo, monospace; }
-
 .cmt-flow-warning {
   margin-top: 10px;
   padding: 6px 12px;
@@ -1086,7 +1080,7 @@
 
 .cmt-count-chips span {
   font-size: 12px;
-  font-weight: 600;
+  font-weight: 400;
   border-radius: 12px;
   padding: 3px 10px;
 }
@@ -1097,6 +1091,9 @@
 
 .cmt-flow-controls { display: flex; align-items: center; gap: 8px; margin: 12px 0 4px; }
 
+/* Nothing in the confirm toolbar is emphasised; the same buttons stay bold elsewhere. */
+.cmt-flow-controls .cmt-btn-plain,
+.cmt-flow-controls .cmt-btn-green { font-weight: 400; }
 
 .cmt-flow-filter {
   width: 280px;
@@ -1119,7 +1116,7 @@
   border-radius: 6px;
   background: #f6f8fa;
   font-size: var(--ui-font-size);
-  font-weight: 600;
+  font-weight: 400;
   color: #24292f;
   cursor: pointer;
 }
@@ -1208,13 +1205,13 @@
   flex-direction: column;
   gap: 4px;
   font-size: var(--ui-font-size);
-  font-weight: 600;
+  font-weight: 400;
   color: #656d76;
 }
 
 .cmt-flow-settings input,
 .cmt-flow-settings select {
-  padding: 5px 9px;
+  padding: 5px 16px 5px 9px;
   border: 1px solid #d0d7de;
   border-radius: 6px;
   font-size: var(--ui-font-size);

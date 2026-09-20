@@ -834,6 +834,7 @@ export function CommitsBrowser({ workspace, settings, initialRepo, initialSource
           preview={preview}
           workspaceId={workspace.id}
           upstreamLabel={sourceSlug ?? activeRemote ?? upstreamSlug ?? 'upstream'}
+          onCancel={() => { setPreview(null); setScreen('commits'); }}
           onStarted={execution => {
             setExecutionId(execution.executionId);
             setPreview(null);

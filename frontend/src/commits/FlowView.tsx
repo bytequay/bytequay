@@ -13,12 +13,21 @@
  */
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { relativeTime } from '../relativeTime';
-import { providerAvailable } from '../settings/model';
+import {
+  displayModelName,
+  effortLabel,
+  laneDefaults,
+  laneLabel,
+  laneModels,
+  modelEffort,
+  providerAvailable,
+  providerStatusLabel,
+} from '../settings/model';
 import type {
-  AgentProviderStatus,
   CherryPickExecution,
   CherryPickPreview,
   CherryPickPreviewCommit,
+  ModelProviderDto,
 } from '../types';
 import { shortSha } from './model';
 
@@ -43,12 +52,15 @@ export default function FlowView({
   workspaceId,
   upstreamLabel,
   onStarted,
+  onCancel,
 }: {
   preview: CherryPickPreview;
   workspaceId: string;
   /** e.g. "trinodb/trino" */
   upstreamLabel: string;
   onStarted: (execution: CherryPickExecution) => void;
+  /** Leaves the confirm page without starting anything. */
+  onCancel: () => void;
 }) {
   const [filter, setFilter] = useState('');
   const [unchecked, setUnchecked] = useState<ReadonlySet<string>>(new Set());
@@ -58,26 +70,33 @@ export default function FlowView({
   const [dryRun, setDryRun] = useState(false);
   const [prTitle, setPrTitle] = useState<string | null>(null);
   const [prBody, setPrBody] = useState<string | null>(null);
-  const [providers, setProviders] = useState<AgentProviderStatus[]>([]);
+  const [providers, setProviders] = useState<ModelProviderDto[]>([]);
   const [laneId, setLaneId] = useState('');
+  const [model, setModel] = useState('');
+  const [effort, setEffort] = useState('');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const idempotencyKey = useRef<string | null>(null);
 
   useEffect(() => {
     let active = true;
-    window.bridge.refreshAgentProviderReadiness()
-      .then(statuses => {
+    window.bridge.getModelSettings(workspaceId)
+      .then(settings => {
         if (!active) return;
-        setProviders(statuses);
-        const preferred = statuses.find(status => providerAvailable(status.readiness)) ?? statuses[0];
-        setLaneId(current => current || preferred?.laneId || '');
+        const preferred = settings.providers.find(provider => providerAvailable(provider.readiness))
+          ?? settings.providers[0];
+        const lane = preferred?.id ?? '';
+        const defaults = laneDefaults(settings.providers, lane);
+        setProviders(settings.providers);
+        setLaneId(lane);
+        setModel(defaults.model);
+        setEffort(defaults.effort);
       })
       .catch(failure => {
         if (active) setError(failure instanceof Error ? failure.message : String(failure));
       });
     return () => { active = false; };
-  }, []);
+  }, [workspaceId]);
 
   useEffect(() => {
     if (!prPanel) return;
@@ -178,6 +197,8 @@ export default function FlowView({
         // PR-level skips travel as the commit SHAs they resolved to.
         userSkippedSourceShas: skipItems.map(item => item.commit.sourceSha),
         laneId,
+        model: model === '' ? null : model,
+        effort: effort === '' ? null : effort,
         idempotencyKey: idempotencyKey.current,
         pullRequestTitle: titleValue,
         pullRequestBody: bodyValue,
@@ -190,7 +211,9 @@ export default function FlowView({
     }
   };
 
-  const selectedProvider = providers.find(provider => provider.laneId === laneId);
+  const selectedProvider = providers.find(provider => provider.id === laneId);
+  const models = laneModels(providers, laneId);
+  const efforts = models.find(option => option.id === model)?.efforts ?? [];
   const canStart = applyItems.length > 0
     && selectedProvider !== undefined
     && providerAvailable(selectedProvider.readiness)
@@ -217,14 +240,6 @@ export default function FlowView({
         <h1 className="cmt-flow-title">
           Cherry-pick {items.length} commits → <span className="cmt-flow-branch">{preview.targetBranch}</span>
         </h1>
-        <div className="cmt-flow-frozen">
-          Frozen preview <code>{preview.previewId}</code>
-          {' · source '}<code>{shortSha(preview.sourceBaseSha)}…{shortSha(preview.sourceTipSha)}</code>
-          {' · target '}<code>{shortSha(preview.targetSha)}</code>
-          {' '}— if {preview.targetBranch} moves before start, this preview goes stale and must be
-          reviewed again.
-        </div>
-
         {preview.warnings.map(warning => (
           <div key={warning} className="cmt-flow-warning">{warning}</div>
         ))}
@@ -244,8 +259,7 @@ export default function FlowView({
           />
           <div className="cmt-pr-skip" onMouseDown={event => event.stopPropagation()}>
             <button type="button" onClick={() => setPrPanel(open => !open)}>
-              Skip by pull request <span className="cmt-pr-skip-count">{skippedPrs.size}</span>{' '}
-              <span className="cmt-caret">▾</span>
+              Skip by pull request <span className="cmt-pr-skip-count">{skippedPrs.size}</span>
             </button>
             {prPanel && (
               <div className="cmt-pr-panel">
@@ -287,21 +301,63 @@ export default function FlowView({
             )}
           </div>
           <div className="cmt-tasks-spacer" />
+          <button type="button" className="cmt-btn-plain" onClick={onCancel}>
+            Cancel
+          </button>
           <button type="button" className="cmt-btn-plain" onClick={() => { setDryRun(true); setPrPanel(false); }}>
             Dry run
           </button>
           {startButton}
         </div>
 
-        <div className="cmt-flow-settings">
+<div className="cmt-flow-settings">
           <label>
             Conflict resolver
-            <select value={laneId} onChange={event => setLaneId(event.target.value)}>
+            <select
+              value={laneId}
+              onChange={event => {
+                const lane = event.target.value;
+                const defaults = laneDefaults(providers, lane);
+                setLaneId(lane);
+                setModel(defaults.model);
+                setEffort(defaults.effort);
+              }}
+            >
               {providers.map(provider => (
-                <option key={provider.laneId} value={provider.laneId}>
-                  {provider.laneId}
-                  {!providerAvailable(provider.readiness) ? ' · unavailable' : ''}
+                <option key={provider.id} value={provider.id}>
+                  {provider.label || laneLabel(provider.id)}
+                  {providerAvailable(provider.readiness)
+                    ? ''
+                    : ` — ${providerStatusLabel(provider.readiness, false).label}`}
                 </option>
+              ))}
+            </select>
+          </label>
+          <label>
+            Model
+            <select
+              value={model}
+              disabled={models.length === 0}
+              onChange={event => {
+                const next = event.target.value;
+                setModel(next);
+                setEffort(current => modelEffort(models.find(option => option.id === next), current));
+              }}
+            >
+              {models.map(option => (
+                <option key={option.id} value={option.id}>{displayModelName(option.name)}</option>
+              ))}
+            </select>
+          </label>
+          <label>
+            Effort
+            <select
+              value={effort}
+              disabled={efforts.length === 0}
+              onChange={event => setEffort(event.target.value)}
+            >
+              {efforts.map(option => (
+                <option key={option} value={option}>{effortLabel(option)}</option>
               ))}
             </select>
           </label>
@@ -326,7 +382,11 @@ export default function FlowView({
           </div>
           <div className="cmt-pr-card-body">
             <input value={titleValue} onChange={event => setPrTitle(event.target.value)} />
-            <textarea rows={5} value={bodyValue} onChange={event => setPrBody(event.target.value)} />
+            <textarea
+              rows={Math.min(24, Math.max(6, bodyValue.split('\n').length + 1))}
+              value={bodyValue}
+              onChange={event => setPrBody(event.target.value)}
+            />
           </div>
         </div>
 

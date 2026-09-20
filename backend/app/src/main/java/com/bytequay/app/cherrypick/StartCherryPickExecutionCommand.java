@@ -18,7 +18,9 @@ import com.bytequay.core.cherrypick.CherryPickInvalidRequestException;
 import com.google.common.collect.ImmutableList;
 
 import java.util.List;
+import java.util.Optional;
 
+import static com.google.common.base.Preconditions.checkArgument;
 import static java.util.Objects.requireNonNull;
 
 /**
@@ -36,6 +38,8 @@ public record StartCherryPickExecutionCommand(
         String expectedTargetSha,
         List<String> userSkippedSourceShas,
         String laneId,
+        Optional<String> model,
+        Optional<String> effort,
         String idempotencyKey,
         PullRequestDraft pullRequestDraft)
 {
@@ -53,6 +57,9 @@ public record StartCherryPickExecutionCommand(
             throw new CherryPickInvalidRequestException("userSkippedSourceShas exceeds " + MAX_SKIPPED + " values");
         }
         requireNonNull(laneId, "laneId is null");
+        requireNonNull(model, "model is null");
+        requireNonNull(effort, "effort is null");
+        checkArgument(effort.isEmpty() || model.isPresent(), "effort requires a model");
         requireNonNull(idempotencyKey, "idempotencyKey is null");
         requireNonNull(pullRequestDraft, "pullRequestDraft is null");
         if (idempotencyKey.isBlank() || idempotencyKey.length() > 200) {

@@ -32,6 +32,7 @@ import org.springframework.web.bind.annotation.ResponseStatus;
 import org.springframework.web.bind.annotation.RestController;
 
 import java.util.List;
+import java.util.Optional;
 
 import static com.google.common.collect.ImmutableList.toImmutableList;
 import static java.util.Objects.requireNonNull;
@@ -66,6 +67,8 @@ public class CherryPickExecutionController
                         text(request.expectedTargetSha(), "expectedTargetSha"),
                         ImmutableList.copyOf(request.userSkippedSourceShas()),
                         text(request.laneId(), "laneId"),
+                        optionalText(request.model()),
+                        optionalText(request.effort()),
                         text(request.idempotencyKey(), "idempotencyKey"),
                         new PullRequestDraft(
                                 text(request.pullRequestTitle(), "pullRequestTitle"),
@@ -122,5 +125,11 @@ public class CherryPickExecutionController
             throw new CherryPickInvalidRequestException(name + " is blank");
         }
         return value;
+    }
+
+    /** An omitted or blank choice leaves the lane's own default in place. */
+    private static Optional<String> optionalText(String value)
+    {
+        return value == null || value.isBlank() ? Optional.empty() : Optional.of(value);
     }
 }

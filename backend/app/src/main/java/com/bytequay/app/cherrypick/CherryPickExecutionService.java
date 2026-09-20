@@ -217,7 +217,8 @@ public class CherryPickExecutionService
         CherryPickExecution execution = store.createOrGet(proposed);
         requireWorkspace(execution.workspace().workspaceId(), workspaceId);
         if (execution.status() != Status.FINISHED) {
-            ensureAgentTask(execution);
+            ensureAgentTask(execution, new AgentTaskDefaults(
+                    command.model(), command.effort(), AgentPermissionPolicy.CHERRY_PICK));
         }
         return execution;
     }
@@ -900,7 +901,8 @@ public class CherryPickExecutionService
             AgentLaneId laneId,
             RepositoryIdentity physicalRepository,
             String startCommit,
-            String generatedBranch)
+            String generatedBranch,
+            AgentTaskDefaults defaults)
     {
         return tasks.create(new CreateAgentTaskCommand(
                 taskId,
@@ -910,7 +912,7 @@ public class CherryPickExecutionService
                 startCommit,
                 generatedBranch,
                 "Cherry-pick task " + taskId,
-                AgentTaskDefaults.forPermission(AgentPermissionPolicy.CHERRY_PICK)));
+                defaults));
     }
 
     private Path plannedWorktree(String workspaceId, TaskId taskId)
@@ -924,6 +926,13 @@ public class CherryPickExecutionService
     }
 
     private AgentTask ensureAgentTask(CherryPickExecution execution)
+    {
+        // Only the start call knows what the reader chose; every other path is a
+        // recovery for a task that should already exist, so the lane's own default stands.
+        return ensureAgentTask(execution, AgentTaskDefaults.forPermission(AgentPermissionPolicy.CHERRY_PICK));
+    }
+
+    private AgentTask ensureAgentTask(CherryPickExecution execution, AgentTaskDefaults defaults)
     {
         TaskId taskId = TaskId.valueOf(execution.agentTaskId().orElseThrow());
         String workspaceId = requireWorkspaceId(execution);
@@ -946,7 +955,8 @@ public class CherryPickExecutionService
                     new AgentLaneId(execution.workspace().laneId()),
                     created,
                     execution.range().initialTargetSha(),
-                    execution.workspace().workBranch()));
+                    execution.workspace().workBranch(),
+                    defaults));
             return requireAgentTask(execution, task, repository);
         }
         requireSelectedRepository(selectedRepository, repository, CherryPickConflictException::new);

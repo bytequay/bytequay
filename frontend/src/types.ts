@@ -1010,6 +1010,9 @@ export type CherryPickExecutionRequest = {
   expectedTargetSha: string;
   userSkippedSourceShas: string[];
   laneId: string;
+  /** The conflict resolver's model and effort; null leaves the lane's own defaults. */
+  model: string | null;
+  effort: string | null;
   idempotencyKey: string;
   pullRequestTitle: string;
   pullRequestBody: string;

@@ -32,6 +32,8 @@ public record CherryPickExecutionRequest(
         String expectedTargetSha,
         List<String> userSkippedSourceShas,
         String laneId,
+        String model,
+        String effort,
         String idempotencyKey,
         String pullRequestTitle,
         String pullRequestBody)

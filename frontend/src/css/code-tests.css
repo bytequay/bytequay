@@ -352,7 +352,7 @@ button.ct-run__mode:focus-visible { outline: 2px solid var(--accent); outline-of
 .ct-code .cm-line.ct-code__selected { background: var(--diff-selected); }
 .ct-code .cm-gutterElement.ct-code__selected { background: var(--diff-selected); color: var(--text-1); }
 /* Both wrappers hand a review card the same type, so it inherits neither the code view's monospace nor this list's meta size. */
-.ct-inline-card, .ct-unplaced__card { font-family: var(--font); font-size: 13px; line-height: 1.45; white-space: normal; }
+.ct-inline-card, .ct-unplaced__card { font-family: var(--font); font-size: var(--ui-font-size); line-height: 1.4; white-space: normal; }
 .ct-inline-card { margin: 5px 16px 7px 4px; }
 .ct-inline-card .pull-diff-review { margin: 0; }
 .ct-unplaced { flex: none; max-height: 40%; overflow: auto; border-top: 1px solid #e8eaed; background: #fbfbfc; padding: 6px 12px; font-size: 12px; }

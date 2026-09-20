@@ -320,7 +320,6 @@
 
 /* the same finding card, mounted at its line in the diff */
 .pull-diff-code tr.is-review-finding > td { background: #fcfcfd; padding: 10px 12px 10px 84px; }
-.pull-diff-code tr.is-review-finding .agr-finding { max-width: 780px; font-family: var(--font-sans); line-height: 1.4; }
 .pull-diff-code tr.is-review-target .is-line,
 .pull-diff-code tr.is-review-target .is-source { background: #fff8c5; }
 

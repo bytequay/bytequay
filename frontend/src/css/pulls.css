@@ -1137,8 +1137,12 @@
 .pull-diff-pending__actions button { border: 1px solid #d0d7de; border-radius: 6px; background: #fff; color: #24292f; padding: 5px 9px; font: inherit; }
 .pull-diff-pending__actions button.is-destructive { color: #cf222e; }
 .pull-diff-pending__editor { border: 0; border-top: 1px solid #d8dee4; border-radius: 0; }
-.pull-diff-code .pr-inline-thread, .pull-diff-code .pr-thread-row,
-.pull-diff-threads .pr-inline-thread, .pull-diff-threads .pr-thread-row { max-width: 780px; margin: 0; font-family: var(--font-sans); line-height: 1.4; }
+/* Every review card hosted beside code — a diff row, the diff's thread list, or either Code & Tests host — gets the
+   same box and the same type, so a finding reads identically wherever it is placed. Each host sets a different
+   inherited font: the diff table is monospace at 12px, the Code & Tests hosts sit inside the editor. */
+:is(.pull-diff-code, .pull-diff-threads, .ct-inline-card, .ct-unplaced__card) :is(.pr-inline-thread, .pr-thread-row, .agr-finding) {
+  max-width: 780px; margin-left: 0; font-family: var(--font-sans); font-size: var(--ui-font-size); line-height: 1.4;
+}
 .pull-diff-threads { display: grid; gap: 10px; padding: 12px; background: #f6f8fa; }
 .pull-diff-threads > p { margin: 0; color: #59636e; font-size: var(--ui-font-size); }
 .pull-changes__loading { border: 1px solid #d5dbe1; border-radius: 8px; background: #fff; color: #59636e; padding: 14px; font-size: var(--ui-font-size); }

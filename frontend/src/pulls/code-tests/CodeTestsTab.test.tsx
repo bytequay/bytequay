@@ -89,7 +89,20 @@ describe('CodeTestsTab', () => {
     // A descendant selector here reached into the card and restyled its own summary and comment body.
     expect(css).not.toMatch(/\.ct-unplaced (summary|p) \{/);
     expect(css).toMatch(/\.ct-unplaced > summary \{[^}]*list-style: none/);
-    expect(css).toMatch(/\.ct-inline-card, \.ct-unplaced__card \{[^}]*font-size: 13px/);
+    expect(css).toMatch(/\.ct-inline-card, \.ct-unplaced__card \{[^}]*font-size: var\(--ui-font-size\)/);
+  });
+
+  it('sizes a review card beside code from the one rule the diff uses, not its own', () => {
+    const pulls = readFileSync(resolve(process.cwd(), 'src/css/pulls.css'), 'utf8');
+    const rule = /:is\(([^)]*)\) :is\(([^)]*)\) \{([^}]*)\}/.exec(pulls.slice(pulls.indexOf('.pull-diff-pending__editor')));
+    expect(rule).not.toBeNull();
+    // Both Code & Tests hosts size the card through the diff's rule; a second copy is what let them drift apart.
+    for (const host of ['.pull-diff-code', '.pull-diff-threads', '.ct-inline-card', '.ct-unplaced__card']) expect(rule?.[1]).toContain(host);
+    for (const card of ['.pr-inline-thread', '.pr-thread-row', '.agr-finding']) expect(rule?.[2]).toContain(card);
+    expect(rule?.[3]).toMatch(/max-width: 780px/);
+    expect(rule?.[3]).toMatch(/margin-left: 0/);
+    const agentReview = readFileSync(resolve(process.cwd(), 'src/css/agent-review.css'), 'utf8');
+    expect(agentReview).not.toMatch(/\.agr-finding \{[^}]*max-width/);
   });
 
   it('reads the owning development task\'s working copy instead of any review, with no Start review or Discard', () => {

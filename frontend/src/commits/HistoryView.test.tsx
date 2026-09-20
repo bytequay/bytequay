@@ -199,8 +199,10 @@ describe('workspace commit history', () => {
     // The header already reads "Commits on …", so the tooltips must not repeat it.
     expect(html).not.toContain('on Commits on');
     // Nothing is checked yet, so the day offers to fill rather than clear.
-    expect(html).toContain('lucide-square-check');
-    expect(html).not.toContain('lucide-square-minus');
+    // The day carries the same box as its rows, not an icon of one.
+    expect(html).toContain('class="cmt-day-check"');
+    expect(html).toContain('type="checkbox"');
+    expect(html).not.toContain('lucide-square');
     // The day starts open, so the chevron points down and the rows are rendered.
     expect(html).toContain('lucide-chevron-down');
     expect(html).toContain('aria-expanded="true"');

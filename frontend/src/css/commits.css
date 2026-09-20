@@ -441,7 +441,16 @@
 }
 
 .cmt-day-action:hover { background: #eaeef2; color: #24292f; }
-.cmt-day-action[aria-pressed='true'] { color: #1a7f37; }
+
+/* The same box the rows carry, so a day reads as one more thing to tick. */
+.cmt-day-check {
+  width: 15px;
+  height: 15px;
+  flex: none;
+  margin: 0 3px;
+  accent-color: var(--accent);
+  cursor: pointer;
+}
 .cmt-day-count { margin-left: auto; font-size: 11px; font-weight: 400; color: #8c959f; }
 
 .cmt-commit-row {

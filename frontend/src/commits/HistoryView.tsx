@@ -12,7 +12,7 @@
  * limitations under the License.
  */
 import { useEffect, useMemo, useRef, useState, type ReactNode, type UIEvent as ReactUIEvent } from 'react';
-import { ChevronDown, ChevronRight, Ellipsis, GitCommitHorizontal, SquareCheck, SquareMinus } from 'lucide-react';
+import { ChevronDown, ChevronRight, Ellipsis, GitCommitHorizontal } from 'lucide-react';
 import type { DiffFileDto, GitCommitDto, GitDiffFileDto } from '../types';
 import { DiffViewer } from '../pulls/PullChanges';
 import CommitCard, { CommitByline } from './CommitCard';
@@ -310,6 +310,7 @@ export default function HistoryView({
             const dayCollapsed = collapsedDays.has(group.label);
             const dayShaList = dayShas(group.label);
             const daySelected = dayShaList.length > 0 && dayShaList.every(sha => checked.has(sha));
+            const daySomeSelected = !daySelected && dayShaList.some(sha => checked.has(sha));
             return (
             <div className="cmt-day-card" key={group.commits[0].commit.sha}>
               <div className="cmt-day-head">
@@ -325,17 +326,16 @@ export default function HistoryView({
                       ? <ChevronRight size={14} strokeWidth={2} aria-hidden="true" />
                       : <ChevronDown size={14} strokeWidth={2} aria-hidden="true" />}
                   </button>
-                  <button
-                    type="button"
-                    className="cmt-day-action"
+                  <input
+                    type="checkbox"
+                    className="cmt-day-check"
                     title={daySelected ? 'Clear the selection on this day' : 'Select all commits on this day'}
-                    aria-pressed={daySelected}
-                    onClick={() => toggleDay(group.label)}
-                  >
-                    {daySelected
-                      ? <SquareMinus size={14} strokeWidth={2} aria-hidden="true" />
-                      : <SquareCheck size={14} strokeWidth={2} aria-hidden="true" />}
-                  </button>
+                    aria-label={daySelected ? 'Clear the selection on this day' : 'Select all commits on this day'}
+                    checked={daySelected}
+                    // A part-picked day reads as a native mixed box, like any select-all.
+                    ref={box => { if (box) box.indeterminate = daySomeSelected; }}
+                    onChange={() => toggleDay(group.label)}
+                  />
                 </div>
                 <GitCommitHorizontal className="cmt-day-icon" size={15} strokeWidth={1.7} aria-hidden="true" />
                 <span>{group.label}</span>

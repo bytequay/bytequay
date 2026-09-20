@@ -14,7 +14,7 @@
 import { useLayoutEffect, useRef, useState, type ReactNode } from 'react';
 import {
   Bot, ChevronDown, ChevronLeft, CircleDot, CircleUser, GitBranch, Globe, History, House, KeyRound,
-  LayoutGrid, ListChecks, Network, PanelLeft, Search, Settings, SquareCheck, SquareLibrary,
+  LayoutDashboard, LayoutGrid, ListChecks, Network, PanelLeft, Search, Settings, SquareCheck, SquareLibrary,
   Sparkles, Sun, Tags, TriangleAlert,
 } from 'lucide-react';
 import Avatar from './Avatar';
@@ -80,7 +80,7 @@ const APP_NAV_ITEMS: NavItem[] = [
 ];
 
 const WORKSPACE_TABS: Array<{ tab: WorkspaceTab; label: string; icon: ReactNode }> = [
-  { tab: 'home', label: 'Workspace home', icon: <HomeIcon /> },
+  { tab: 'home', label: 'Workspace home', icon: <LayoutDashboard size={16} strokeWidth={1.7} aria-hidden="true" /> },
   { tab: 'tasks', label: 'Tasks', icon: <SquareCheck size={16} strokeWidth={1.7} aria-hidden="true" /> },
   { tab: 'prs', label: 'Pull requests', icon: <PullsIcon /> },
   { tab: 'issues', label: 'Issues', icon: <CircleDot size={16} strokeWidth={1.7} aria-hidden="true" /> },

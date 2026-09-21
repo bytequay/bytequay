@@ -37,6 +37,7 @@ import {
   type MentionCandidate,
   type QuoteRequest,
 } from '../pulls/PullOverview';
+import { SkeletonTimeline } from '../pulls/DetailSkeleton';
 import { CommentIcon, PaneIcon, RefreshIcon } from '../pulls/PullsScreen';
 import { relativeTime } from '../relativeTime';
 import { useRecentTouch } from '../recent/useRecentTouch';
@@ -744,7 +745,10 @@ export function IssueOverview({
               onQuote={body => setQuotedReply(current => ({ id: (current?.id ?? 0) + 1, body }))}
               key={event.githubId ?? `comment-${index}`} />
             : <IssueEvent event={event} colors={colors} key={event.githubId ?? `${event.event}-${index}`} />)}
-          {timelineLoading && <div className="pr-event issues-activity-loading"><span className="issues-event-marker">…</span><span>Loading activity…</span></div>}
+          {timelineLoading && (timeline.length === 0
+            // A first read has no activity to append to, so the pane shows the shape it is about to fill.
+            ? <SkeletonTimeline label="Loading activity…" />
+            : <div className="pr-event issues-activity-loading"><span className="issues-event-marker">…</span><span>Loading activity…</span></div>)}
         </section>
         <DiscussionComposer betterWords workspaceId={workspaceId}
           candidates={candidates} repository={repository} quotedReply={quotedReply} closeLabel="Close issue"

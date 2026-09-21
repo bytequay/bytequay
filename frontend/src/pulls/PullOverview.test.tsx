@@ -1326,7 +1326,9 @@ describe('PullOverview', () => {
     expect(html).toContain('class="pulls-page pulls-page--overlay"');
     expect(html).toContain('role="dialog" aria-modal="true" aria-label="Pull request owner/repo #42"');
     expect(html).toContain('aria-label="Close pull request details"');
-    expect(html).toContain('role="status">Loading details…');
+    expect(html).toContain('role="status"><span class="pr-skeleton__label">Loading details…</span>');
+    // The wait wears the shape of the page it is about to show, not a line of text.
+    expect(html.match(/class="pr-card"/g)).toHaveLength(4);
     expect(html).not.toContain('class="pulls-list"');
     expect(html).not.toContain('Search pull requests');
   });

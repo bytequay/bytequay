@@ -1009,6 +1009,39 @@
   .pr-check__icon.is-running { animation: none; }
 }
 
+
+/* Loading: the detail pane wears the shape of the page it is about to show, in the
+   card palette above, so nothing moves when the real cards replace it. */
+.pr-skeleton { display: contents; }
+/* display: contents hands the cards to .pr-timeline's flex flow, so they must clear its rail themselves. */
+.pr-skeleton > .pr-card { position: relative; z-index: 1; }
+.pr-skeleton__label { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); }
+.pr-skeleton__bar,
+.pr-skeleton__avatar,
+.pr-skeleton__glyph,
+.pr-skeleton__button { flex: none; background: #dfe3e8; animation: bq-pulse 1.5s ease-in-out infinite; }
+.pr-skeleton__bar { height: 12px; border-radius: 6px; }
+.pr-skeleton__avatar { width: 24px; height: 24px; border-radius: 50%; }
+.pr-skeleton__glyph { width: 16px; height: 16px; border-radius: 5px; }
+.pr-skeleton__button { width: 96px; height: 28px; border-radius: 7px; }
+.pr-skeleton__bar.is-name { width: 132px; }
+.pr-skeleton__bar.is-time { width: 68px; }
+.pr-skeleton__bar.is-tag { width: 46px; height: 16px; }
+.pr-skeleton__bar.is-short { width: 32%; }
+.pr-skeleton__bar.is-full { width: 94%; }
+.pr-skeleton__bar.is-long { width: 76%; }
+.pr-skeleton__lines { display: flex; flex-direction: column; gap: 11px; padding: 18px; }
+.pr-skeleton__footer { display: flex; align-items: center; justify-content: space-between; border-top: 1px solid #e1e7eb; padding: 10px 16px; }
+/* The wave runs down the timeline, so the pane reads as one surface filling in. */
+.pr-timeline .pr-skeleton > :nth-child(3) :is(.pr-skeleton__bar, .pr-skeleton__avatar, .pr-skeleton__glyph, .pr-skeleton__button) { animation-delay: 0.12s; }
+.pr-timeline .pr-skeleton > :nth-child(4) :is(.pr-skeleton__bar, .pr-skeleton__avatar, .pr-skeleton__glyph, .pr-skeleton__button) { animation-delay: 0.24s; }
+@media (prefers-reduced-motion: reduce) {
+  .pr-skeleton__bar,
+  .pr-skeleton__avatar,
+  .pr-skeleton__glyph,
+  .pr-skeleton__button { animation: none; }
+}
+
 .pr-composer { margin-top: 22px; }
 .pr-composer > header { display: flex; min-height: 40px; align-items: center; border-bottom: 1px solid #e1e7eb; background: #f6f8fa; padding: 5px 9px; }
 .pr-composer > header button { border: 0; border-radius: 7px; background: transparent; color: #59636e; padding: 6px 10px; }

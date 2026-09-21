@@ -21,6 +21,7 @@ import Toast from '../Toast';
 import type { AgentTaskDto, Bridge, DiffCommitDto, DiffFileDto, InlineReviewCommentDto, PullRequestDetailDto, PullRequestDto, PullRequestPageDto, UserProfileDto } from '../types';
 import AgentReviewTab, { type ReviewNavigationTarget } from './agent-review/AgentReviewTab';
 import CodeTestsTab from './code-tests/CodeTestsTab';
+import DetailSkeleton from './DetailSkeleton';
 import PullRequestTaskActions from './PullRequestTaskActions';
 import type { ReviewCardFocus } from '../agents/ReviewRequestCard';
 import type { AgentReviewDto, ReviewDraftItemDto, ReviewEvent } from './agent-review/contracts';
@@ -1026,7 +1027,7 @@ export default function PullsScreen({
           </header>
           {error
             ? <div className="pull-detail__error" role="alert">{error}</div>
-            : <div className="pull-detail__loading" role="status">Loading details…</div>}
+            : <div className="pull-detail__body"><DetailSkeleton label="Loading details…" /></div>}
         </section>
       )}
 
@@ -1066,7 +1067,7 @@ export default function PullsScreen({
           />
           {displayedDetailError && <div className="pull-detail__error">{displayedDetailError}</div>}
           {showBlockingDetailLoading(detailLoading, detail !== null) ? (
-            <div className="pull-detail__loading">Loading details…</div>
+            <div className="pull-detail__body"><DetailSkeleton label="Loading details…" /></div>
           ) : detail === null ? (
             !displayedDetailError && <div className="pull-detail__loading">Select a pull request.</div>
           ) : (detailTab === 'review' || detailTab === 'code') && (reviewLoading || reviewError !== null) ? (

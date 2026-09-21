@@ -16,7 +16,8 @@
 import { renderToStaticMarkup } from 'react-dom/server';
 import { describe, expect, it } from 'vitest';
 
-import { DiscussableAnswer, blockOf } from './DiscussableAnswer';
+import { DiscussableAnswer, blockOf, markPassage } from './DiscussableAnswer';
+import { renderMarkdownBlocks } from '../markdown';
 import { DiscussionFooter, discussionLabel, replyCount } from './DiscussionFooter';
 import { DiscussionCard, DiscussionsPanel } from './DiscussionsPanel';
 import type { TaskDiscussionDto } from './contracts';
@@ -42,6 +43,17 @@ function discussion(over: Partial<TaskDiscussionDto> = {}): TaskDiscussionDto {
 }
 
 describe('placing a footer', () => {
+  it('matches a quote the reader selected across inline code and a link', () => {
+    // The reader sees no backticks, so the selection carries none; the block is still markdown.
+    const blocks = [
+      'The checkpoint builder keys both maps by the bare `path`.',
+      'Trino **reads** it that way, but the Delta protocol says identity is `(path, deletionVector.uniqueId)` — see [PROTOCOL.md](https://x/y).',
+    ];
+    expect(blockOf(blocks, ', but the Delta protocol says identity is (path, deletionVector.uniqueId)', 1)).toBe(1);
+    expect(blockOf(blocks, 'see PROTOCOL.md', 1)).toBe(1);
+    expect(blockOf(blocks, 'keys both maps by the bare path', 1)).toBe(0);
+  });
+
   it('anchors each appearance of a repeated quote to its own block', () => {
     const blocks = [
       'It throws INVALID_TABLE_PROPERTY with the joined path.',
@@ -77,6 +89,24 @@ describe('placing a footer', () => {
     // A passage spanning blocks belongs to none of them, so its row is last and says why.
     expect(markup.indexOf('data-discussion="second"')).toBeLessThan(markup.indexOf('data-discussion="adrift"'));
     expect(markup).toContain('This passage spans more than one block');
+  });
+
+  it('tints each quoted passage where it reads, and only that appearance', () => {
+    const markup = renderToStaticMarkup(
+      <DiscussableAnswer turnId="turn-10" text={ANSWER} discussions={[discussion({ id: 'second', occurrence: 2 })]} />);
+    const marks = [...markup.matchAll(/<button[^>]*agt-disc-mark[^>]*>([^<]*)<\/button>/g)];
+    expect(marks.map(mark => mark[1])).toEqual(['INVALID_TABLE_PROPERTY']);
+    // The second appearance is in the list, so the tint belongs after the paragraph that holds the first.
+    expect(markup.indexOf('Two follow-ups')).toBeLessThan(markup.indexOf('agt-disc-mark'));
+  });
+
+  it('tints a passage that crosses an inline mark, splitting the code span', () => {
+    const marked = renderToStaticMarkup(
+      <>{markPassage(renderMarkdownBlocks('Key both maps by the bare `path`, as `FileEntryKey` does.')[0].node,
+        'by the bare path, as FileEntryKey', 1, body => <mark>{body}</mark>)}</>);
+    // The run is tinted piece by piece, so the code spans keep their own element.
+    expect(marked).toBe('<p>Key both maps <mark>by the bare </mark><code><mark>path</mark></code>'
+      + '<mark>, as </mark><code><mark>FileEntryKey</mark></code> does.</p>');
   });
 });
 

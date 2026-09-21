@@ -82,12 +82,12 @@ export function DiscussableAnswer({ turnId, text, discussions, completed = false
   const [sized, setSized] = useState<CSSProperties>({});
   const blocks = renderMarkdownBlocks(text);
 
-  const placed = new Map<number, TaskDiscussionDto[]>();
+  const placed = new Map<number, { discussion: TaskDiscussionDto; nth: number }[]>();
   const adrift: TaskDiscussionDto[] = [];
   for (const discussion of discussions) {
-    const index = blockOf(blocks.map(block => block.text), discussion.quote, discussion.occurrence);
-    if (index === null) adrift.push(discussion);
-    else placed.set(index, [...placed.get(index) ?? [], discussion]);
+    const at = placeOf(blocks.map(block => block.text), discussion.quote, discussion.occurrence);
+    if (at === null) adrift.push(discussion);
+    else placed.set(at.index, [...placed.get(at.index) ?? [], { discussion, nth: at.nth }]);
   }
 
   const capture = useCallback(() => {
@@ -193,12 +193,26 @@ export function DiscussableAnswer({ turnId, text, discussions, completed = false
   return (
     <div className="agt-answer agt-disc" ref={shell}>
       <div className="agt-md" ref={answer}>
-        {blocks.map((block, index) => (
-          <React.Fragment key={index}>
-            {block.node}
-            <DiscussionFooter discussions={placed.get(index) ?? []} siblings={discussions} focused={focused} onOpen={onOpen} onHover={onHover} />
-          </React.Fragment>
-        ))}
+        {blocks.map((block, index) => {
+          const here = placed.get(index) ?? [];
+          // Each thread tints its own passage, so a block holding two is marked twice over.
+          const marked = here.reduce((node, { discussion, nth }) => markPassage(node, discussion.quote, nth, body => (
+            <button
+              type="button"
+              className={`agt-disc-mark${focused === discussion.id ? ' is-anchored' : ''}`}
+              title="Show this discussion"
+              onClick={() => onOpen?.(discussion.id)}
+              onMouseEnter={() => onHover?.(discussion.id)}
+              onMouseLeave={() => onHover?.(null)}
+            >{body}</button>
+          )), block.node);
+          return (
+            <React.Fragment key={index}>
+              {marked}
+              <DiscussionFooter discussions={here.map(item => item.discussion)} siblings={discussions} focused={focused} onOpen={onOpen} onHover={onHover} />
+            </React.Fragment>
+          );
+        })}
       </div>
       <DiscussionFooter discussions={adrift} siblings={discussions} focused={focused} unanchored onOpen={onOpen} onHover={onHover} />
       {offer !== null && (
@@ -274,9 +288,109 @@ function trim(container: HTMLElement | null, again: () => void): void {
   again();
 }
 
+const FENCE = /^(`{3,}|~{3,})/;
+const LEADING_MARKERS = /^(?:(?:#{1,6}|[>*+-]|\d+[.)])\s+)+/;
+const LINK = /\[([^\]]+)\]\([^)]*\)/g;
+const INLINE_MARKS = /[`*_~]/g;
+
+/**
+ * The renderer's twin of the backend's DiscussionQuotes.normalize: markdown source and the text a
+ * reader selects reduce to the same string. A block is matched by its source, so a quote crossing
+ * inline code or a link finds nothing until both sides lose their marks.
+ */
+function normalize(text: string): string {
+  return text.split(/\r\n|\r|\n/)
+    .map(line => line.trim())
+    .filter(line => !FENCE.test(line))
+    .map(line => line.replace(LEADING_MARKERS, '').replace(LINK, '$1').replace(INLINE_MARKS, ''))
+    .join(' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+/**
+ * The block holding the wanted appearance of a quote, and which appearance inside that block it is.
+ * The occurrence is counted over the whole answer, but a mark is placed within one block.
+ */
+export function placeOf(blocks: string[], quote: string, occurrence: number): { index: number; nth: number } | null {
+  const index = blockOf(blocks, quote, occurrence);
+  if (index === null) return null;
+  let before = 0;
+  for (let earlier = 0; earlier < index; earlier++) before += occurrencesIn(blocks[earlier], quote);
+  return { index, nth: Math.max(1, occurrence - before) };
+}
+
+/** The plain text a rendered node reads as, which is what the reader dragged over. */
+function nodeText(node: React.ReactNode): string {
+  if (typeof node === 'string') return node;
+  if (typeof node === 'number') return String(node);
+  if (Array.isArray(node)) return node.map(nodeText).join('');
+  if (React.isValidElement(node)) return nodeText((node.props as { children?: React.ReactNode }).children);
+  return '';
+}
+
+/**
+ * Where an appearance of a quote sits in rendered text, as offsets into that text. The reader's
+ * selection collapsed its whitespace, so the search does too and then maps back.
+ */
+function spanOf(text: string, quote: string, nth: number): [number, number] | null {
+  const wanted = quote.replace(/\s+/g, ' ').trim();
+  if (wanted === '') return null;
+  const origin: number[] = [];
+  let flat = '';
+  for (let index = 0; index < text.length; index++) {
+    if (/\s/.test(text[index])) {
+      if (flat === '' || flat.endsWith(' ')) continue;
+      flat += ' ';
+    }
+    else flat += text[index];
+    origin.push(index);
+  }
+  let at = flat.indexOf(wanted);
+  for (let seen = 1; at !== -1 && seen < nth; seen++) at = flat.indexOf(wanted, at + wanted.length);
+  if (at === -1) return null;
+  return [origin[at], origin[at + wanted.length - 1] + 1];
+}
+
+/** Rebuilds a rendered block with the text between two offsets wrapped, splitting inline marks. */
+function wrapSpan(node: React.ReactNode, start: number, end: number, at: number, wrap: (body: React.ReactNode) => React.ReactNode): [React.ReactNode, number] {
+  if (typeof node === 'string' || typeof node === 'number') {
+    const text = String(node);
+    const stop = at + text.length;
+    if (stop <= start || at >= end) return [node, stop];
+    const from = Math.max(0, start - at);
+    const to = Math.min(text.length, end - at);
+    return [<React.Fragment key={`mark-${at}`}>{text.slice(0, from)}{wrap(text.slice(from, to))}{text.slice(to)}</React.Fragment>, stop];
+  }
+  if (Array.isArray(node)) {
+    const out: React.ReactNode[] = [];
+    let cursor = at;
+    for (const child of node) {
+      const [next, moved] = wrapSpan(child, start, end, cursor, wrap);
+      out.push(next);
+      cursor = moved;
+    }
+    return [out, cursor];
+  }
+  if (React.isValidElement(node)) {
+    const children = (node.props as { children?: React.ReactNode }).children;
+    const stop = at + nodeText(node).length;
+    // A void element such as a task-list checkbox carries no text and cannot take children.
+    if (children === undefined || stop <= start || at >= end) return [node, stop];
+    return [React.cloneElement(node, {}, wrapSpan(children, start, end, at, wrap)[0]), stop];
+  }
+  return [node, at];
+}
+
+/** One rendered block with an appearance of a quote wrapped, or the block untouched if it is gone. */
+export function markPassage(node: React.ReactNode, quote: string, nth: number, wrap: (body: React.ReactNode) => React.ReactNode): React.ReactNode {
+  const span = spanOf(nodeText(node), quote, nth);
+  return span === null ? node : wrapSpan(node, span[0], span[1], 0, wrap)[0];
+}
+
 /** The block holding the wanted appearance of a quote, or null when no single block holds it. */
 export function blockOf(blocks: string[], quote: string, occurrence: number): number | null {
-  const wanted = quote.replace(/\s+/g, ' ').trim();
+  const wanted = normalize(quote);
   if (wanted === '') return null;
   let seen = 0;
   for (let index = 0; index < blocks.length; index++) {
@@ -293,12 +407,14 @@ export function blockOf(blocks: string[], quote: string, occurrence: number): nu
 }
 
 function occurrencesIn(haystack: string, needle: string): number {
-  const text = haystack.replace(/\s+/g, ' ');
+  const text = normalize(haystack);
+  const wanted = normalize(needle);
+  if (wanted === '') return 0;
   let count = 0;
-  let at = text.indexOf(needle);
+  let at = text.indexOf(wanted);
   while (at !== -1) {
     count++;
-    at = text.indexOf(needle, at + needle.length);
+    at = text.indexOf(wanted, at + wanted.length);
   }
   return count;
 }

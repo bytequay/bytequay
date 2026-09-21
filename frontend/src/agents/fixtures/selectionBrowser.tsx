@@ -162,5 +162,29 @@ export async function run(): Promise<{ name: string; error?: string }[]> {
     assert(Math.round(after.top - before.top) === 30, `Dragging moved it ${Math.round(after.top - before.top)}px down, not 30`);
   }, results);
 
+  await clear();
+  await scenario('tints an anchored passage and opens its thread when clicked', async () => {
+    const opened: string[] = [];
+    const marked = document.createElement('div');
+    document.body.append(marked);
+    flushSync(() => createRoot(marked).render(
+      <DiscussableAnswer turnId="turn-10" text={ANSWER} onOpen={id => opened.push(id)} discussions={[{
+        id: 'd1', taskId: 't1', turnId: 'turn-10', quote: 'descendant whose name matches the leaf', occurrence: 1,
+        resolved: false, pending: false, providerLane: 'claude', version: 0,
+        createdAt: '2026-09-22T00:00:00Z', updatedAt: '2026-09-22T00:00:00Z', messages: [],
+      }]} />));
+    await settle();
+    const mark = marked.querySelector('button.agt-disc-mark') as HTMLElement | null;
+    assert(mark !== null, 'The anchored passage is not marked');
+    assert(mark.textContent === 'descendant whose name matches the leaf', `The mark reads "${mark.textContent ?? ''}"`);
+    const style = getComputedStyle(mark);
+    assert(style.backgroundColor !== 'rgba(0, 0, 0, 0)', 'The mark has no tint');
+    assert(style.userSelect === 'text', `A drag cannot select the mark: user-select is ${style.userSelect}`);
+    mark.click();
+    await settle();
+    assert(opened.join() === 'd1', `Clicking the mark opened ${opened.join() || 'nothing'}`);
+    marked.remove();
+  }, results);
+
   return results;
 }

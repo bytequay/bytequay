@@ -27,6 +27,6 @@ it('offers to discuss a passage in Chromium whichever way it was selected', asyn
     blockNetwork: false,
     setup: `window.webContents.on('console-message', event => console.error(event.message + ' @ ' + event.lineNumber));`,
   });
-  expect(results).toHaveLength(5);
+  expect(results).toHaveLength(6);
   expect(results.filter(result => result.error !== undefined)).toEqual([]);
 }, 30_000);

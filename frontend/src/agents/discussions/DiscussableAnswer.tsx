@@ -22,6 +22,9 @@ import type { TaskDiscussionDto } from './contracts';
 /** Below this a selection is a stray click rather than a passage; the service refuses it too. */
 const MINIMUM_QUOTE = 3;
 
+/** How far above its passage the pill sits, when there is room for it there. */
+const PILL_HEIGHT = 34;
+
 export type SelectedPassage = { turnId: string; quote: string; occurrence: number };
 
 /**
@@ -77,17 +80,30 @@ export function DiscussableAnswer({ turnId, text, discussions, onSelect, onOpen 
     const occurrence = occurrencesIn(before.toString(), quote) + 1;
     const bounds = range.getBoundingClientRect();
     const frame = container.getBoundingClientRect();
-    setPill({ top: bounds.top - frame.top - 34, left: Math.max(0, bounds.left - frame.left), passage: { turnId, quote, occurrence } });
+    const above = bounds.top - frame.top - PILL_HEIGHT;
+    setPill({
+      top: above < 0 ? bounds.bottom - frame.top + 6 : above,
+      left: Math.max(0, bounds.left - frame.left),
+      passage: { turnId, quote, occurrence },
+    });
   }, [onSelect, turnId]);
 
   useEffect(() => {
     const dismiss = (event: KeyboardEvent): void => { if (event.key === 'Escape') setPill(null); };
+    // The pointer is released wherever the drag ended. Selecting backwards ends at the passage's
+    // start, which is commonly outside this answer, so an element-scoped listener never sees it.
+    // What decides the offer is where the selection is, which capture already checks.
+    const released = (): void => capture();
     document.addEventListener('keydown', dismiss);
-    return () => document.removeEventListener('keydown', dismiss);
-  }, []);
+    document.addEventListener('mouseup', released);
+    return () => {
+      document.removeEventListener('keydown', dismiss);
+      document.removeEventListener('mouseup', released);
+    };
+  }, [capture]);
 
   return (
-    <div className="agt-answer" onMouseUp={capture}>
+    <div className="agt-answer">
       <div className="agt-md" ref={answer}>
         {blocks.map((block, index) => (
           <React.Fragment key={index}>

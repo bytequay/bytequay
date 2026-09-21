@@ -25,6 +25,12 @@ public enum SessionAccess
     /** Reads and changes its worktree, under the session's permission policy. */
     FULL,
     /**
+     * Reads the repository it is rooted at and never changes it. The tool set withholds
+     * every editing tool and the provider sandbox denies writes to the worktree, so the
+     * boundary survives a tool that is auto-approved.
+     */
+    READ_ONLY,
+    /**
      * No tools at all. Such a session has nothing to read a repository with, so
      * {@link AgentSessionContext} confines its worktree to the runtime directory.
      */

@@ -62,6 +62,7 @@ import java.time.Duration;
 import java.time.Instant;
 import java.util.Optional;
 import java.util.UUID;
+import java.util.stream.Stream;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -313,6 +314,17 @@ class TestAgentStartupRecovery
         assertThat(servingGate.isReady()).isFalse();
         verify(supervisor).acknowledge("clean");
         verify(supervisor, never()).acknowledge("blocked");
+    }
+
+    @Test
+    void everyProcessOwnerKindHasAnIdenticallyNamedLaunchOwnerKind()
+    {
+        // ownerFactsAgree compares owner.kind().name() against launch.ownerKind().name(), so a
+        // spelling drift between the two enums makes every launch of that kind a marker/row
+        // conflict, which leaves the serving gate closed for every task.
+        assertThat(Stream.of(ProcessOwner.Kind.values()).map(Enum::name))
+                .containsExactlyInAnyOrderElementsOf(
+                        Stream.of(LaunchOwnerKind.values()).map(Enum::name).toList());
     }
 
     @Test

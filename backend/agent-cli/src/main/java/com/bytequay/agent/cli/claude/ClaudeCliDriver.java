@@ -45,6 +45,7 @@ import com.bytequay.agent.spi.ProviderApprovalDecision;
 import com.bytequay.agent.spi.ProviderApprovalRequest;
 import com.bytequay.agent.spi.ProviderTurnRef;
 import com.bytequay.agent.spi.RunningTurn;
+import com.bytequay.agent.spi.SessionAccess;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.google.common.collect.ImmutableList;
@@ -402,7 +403,7 @@ public final class ClaudeCliDriver
             AgentPermissionPolicy permissionPolicy,
             Optional<String> model,
             Optional<String> effort,
-            boolean textOnly,
+            SessionAccess access,
             String managedInstructions,
             String sessionId,
             boolean resume,
@@ -427,11 +428,16 @@ public final class ClaudeCliDriver
                 "--strict-mcp-config",
                 "--setting-sources=",
                 "--settings", registration.settingsFile().toString());
-        if (textOnly) {
+        if (access == SessionAccess.TEXT_ONLY) {
             argv.add(
                     "--tools=",
                     "--disable-slash-commands",
                     "--no-session-persistence");
+        }
+        else if (access == SessionAccess.READ_ONLY) {
+            // A read-only session reads the checkout and never edits it. Session persistence
+            // stays on: a discussion resumes its own conversation for every later question.
+            argv.add("--disable-slash-commands", "--tools", "Bash,Glob,Grep,Read");
         }
         else if (registration.review().isPresent()) {
             // Keep new provider workflow/delegation tools out of root-only review sessions.
@@ -452,8 +458,8 @@ public final class ClaudeCliDriver
         }
         registration.toolNames().forEach(name -> allowedTools.add("mcp__bytequay__" + name));
         String instruction = Stream.of(
-                        permissionPolicy.allowsGitHubCommands(textOnly, registration.review().isPresent()) ? AgentCommandPolicy.instructions() : "",
-                        textOnly ? "" : PLAN_INSTRUCTION,
+                        permissionPolicy.allowsGitHubCommands(access.restricted(), registration.review().isPresent()) ? AgentCommandPolicy.instructions() : "",
+                        access.restricted() ? "" : PLAN_INSTRUCTION,
                         managedInstructions,
                         registration.instruction().orElse(""))
                 .filter(value -> !value.isBlank())
@@ -474,6 +480,15 @@ public final class ClaudeCliDriver
                 "--permission-prompt-tool", "mcp__bytequay__permission_prompt",
                 resume ? "--resume" : "--session-id", sessionId);
         return argv.build();
+    }
+
+    private static ProcessOwner.Kind ownerKind(SessionAccess access)
+    {
+        return switch (access) {
+            case TEXT_ONLY -> ProcessOwner.Kind.CLI_PROBE;
+            case READ_ONLY -> ProcessOwner.Kind.DISCUSSION;
+            case FULL -> ProcessOwner.Kind.CLAUDE_TURN;
+        };
     }
 
     private static String effortArgument(String effort)
@@ -807,7 +822,7 @@ public final class ClaudeCliDriver
                     context.runtimeDirectory(),
                     context.providerDirectory(),
                     context.permissionPolicy(),
-                    context.textOnly(),
+                    context.access(),
                     this::requestApproval,
                     ClaudeCliDriver.this.redactor,
                     context.codeGraph(),
@@ -971,14 +986,14 @@ public final class ClaudeCliDriver
             List<AgentAttachment> attachments = attachments(session.context, command.attachments());
             ProcessSpec spec = processSpec(
                     new ProcessOwner(
-                            session.context.textOnly() ? ProcessOwner.Kind.CLI_PROBE : ProcessOwner.Kind.CLAUDE_TURN,
-                            session.context.textOnly() ? session.context.taskId() : command.turnId()),
+                            ownerKind(session.context.access()),
+                            session.context.restricted() ? session.context.taskId() : command.turnId()),
                     argv(
                             session.registration,
                             session.context.permissionPolicy(),
                             command.model().or(session.context::model),
                             command.effort().or(session.context::effort),
-                            session.context.textOnly(),
+                            session.context.access(),
                             session.context.managedInstructions(),
                             session.reference.providerValue(),
                             resume,
@@ -987,7 +1002,7 @@ public final class ClaudeCliDriver
                     command.maximumRuntime(),
                     OptionalInt.empty(),
                     MAX_STDERR_BYTES,
-                    session.context.permissionPolicy().allowsGitHubCommands(session.context.textOnly(), session.registration.review().isPresent()));
+                    session.context.permissionPolicy().allowsGitHubCommands(session.context.restricted(), session.registration.review().isPresent()));
             completeSubagentStream = spec.argv().contains("--forward-subagent-text");
             ManagedProcess started = supervisor.prepare(spec).start(this);
             this.process = started;

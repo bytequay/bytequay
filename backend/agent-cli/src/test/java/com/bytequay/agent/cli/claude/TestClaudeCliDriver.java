@@ -512,6 +512,22 @@ class TestClaudeCliDriver
                 .at("/sandbox/network/allowedDomains")).isEmpty();
         textSession.close();
         assertThat(settingsFile).doesNotExist();
+
+        AgentSession readOnlySession = driver.open(context(
+                Optional.empty(), AgentPermissionPolicy.AUTO, Optional.empty(), Optional.empty(), SessionAccess.READ_ONLY),
+                events::add);
+        assertThat(await(readOnlySession.start(command("explain"))).state()).isEqualTo(AgentTurnResult.State.COMPLETED);
+        ProcessSpec readOnlySpec = supervisor.turns().getLast().spec();
+        // Attributable to its task, unlike a text-only probe, because it reaches a real worktree.
+        assertThat(readOnlySpec.owner()).isEqualTo(new ProcessOwner(ProcessOwner.Kind.DISCUSSION, "task-1"));
+        assertThat(readOnlySpec.argv()).containsSequence("--tools", "Bash,Glob,Grep,Read");
+        assertThat(readOnlySpec.argv()).doesNotContain("--no-session-persistence");
+        assertThat(readOnlySpec.argv()).noneMatch(argument -> argument.contains("Edit") || argument.contains("Write"));
+        assertThat(readOnlySpec.environment()).doesNotContainKeys("GH_TOKEN", "GH_CONFIG_DIR");
+        assertThat(objectMapper.readTree(Files.readString(settingsFile)).at("/sandbox/filesystem/denyWrite").toString())
+                .contains(worktree.toRealPath().toString());
+        readOnlySession.close();
+        assertThat(settingsFile).doesNotExist();
         driver.close();
     }
 

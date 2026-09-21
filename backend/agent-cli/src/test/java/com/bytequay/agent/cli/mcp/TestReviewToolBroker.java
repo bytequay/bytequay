@@ -22,6 +22,7 @@ import com.bytequay.agent.spi.LocalReviewBridge;
 import com.bytequay.agent.spi.ProviderApprovalDecision;
 import com.bytequay.agent.spi.ReviewBridge;
 import com.bytequay.agent.spi.ReviewTool;
+import com.bytequay.agent.spi.SessionAccess;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.google.common.collect.ImmutableList;
@@ -91,7 +92,7 @@ class TestReviewToolBroker
         try (CodeGraphRegistration codex = broker.registerTools("development-task", temporaryDirectory, AgentPermissionPolicy.AUTO,
                 (request, timeout) -> CompletableFuture.completedFuture(ProviderApprovalDecision.deny()), redactor, Optional.empty()).orElseThrow();
                 McpConfigRegistration claude = broker.register("development-task", temporaryDirectory, temporaryDirectory, temporaryDirectory,
-                        AgentPermissionPolicy.AUTO, false,
+                        AgentPermissionPolicy.AUTO, SessionAccess.FULL,
                         (request, timeout) -> CompletableFuture.completedFuture(ProviderApprovalDecision.allow(Optional.empty())), redactor, Optional.empty())) {
             assertThat(codex.review()).contains(review);
             assertThat(claude.review()).contains(review);
@@ -141,7 +142,7 @@ class TestReviewToolBroker
             assertThat(reply.at("/result/content/0/text").asText()).isEqualTo("saved");
         }
         try (McpConfigRegistration registration = broker.register("review-task", temporaryDirectory, temporaryDirectory,
-                temporaryDirectory, AgentPermissionPolicy.AUTO, false,
+                temporaryDirectory, AgentPermissionPolicy.AUTO, SessionAccess.FULL,
                 (request, timeout) -> CompletableFuture.completedFuture(ProviderApprovalDecision.deny()), redactor, Optional.empty())) {
             assertThat(registration.review()).isPresent();
             assertThat(registration.localReview()).contains(local);
@@ -213,7 +214,7 @@ class TestReviewToolBroker
                 temporaryDirectory,
                 temporaryDirectory,
                 AgentPermissionPolicy.AUTO,
-                false,
+                SessionAccess.FULL,
                 (request, timeout) -> {
                     approvals.incrementAndGet();
                     return CompletableFuture.completedFuture(ProviderApprovalDecision.allow(Optional.empty()));

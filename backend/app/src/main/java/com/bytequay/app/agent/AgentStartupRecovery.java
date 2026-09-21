@@ -346,7 +346,7 @@ public final class AgentStartupRecovery
     private Optional<TaskId> ownerTask(ProcessOwner owner)
     {
         return switch (owner.kind()) {
-            case APP_SERVER -> parseTaskId(owner.id());
+            case APP_SERVER, DISCUSSION -> parseTaskId(owner.id());
             case CLAUDE_TURN -> parseTurnTask(owner.id());
             case LOCAL_RUN -> parseRunTask(owner.id());
             case TASK_EXEC_SERVER, CLI_PROBE -> Optional.empty();
@@ -356,7 +356,7 @@ public final class AgentStartupRecovery
     private Optional<TaskId> ownerTask(AgentProcessLaunch launch)
     {
         return switch (launch.ownerKind()) {
-            case APP_SERVER -> parseTaskId(launch.ownerId());
+            case APP_SERVER, DISCUSSION -> parseTaskId(launch.ownerId());
             case CLAUDE_TURN -> parseTurnTask(launch.ownerId());
             case LOCAL_RUN -> parseRunTask(launch.ownerId());
             case TASK_EXEC_SERVER, CLI_PROBE -> Optional.empty();

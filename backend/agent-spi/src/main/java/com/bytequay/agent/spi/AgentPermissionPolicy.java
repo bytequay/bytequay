@@ -33,9 +33,14 @@ public enum AgentPermissionPolicy
         return this != AUTO;
     }
 
-    /** Keeps authenticated Git and GitHub commands within attended development sessions. */
-    public boolean allowsGitHubCommands(boolean textOnly, boolean reviewSession)
+    /**
+     * Keeps authenticated Git and GitHub commands within attended development sessions.
+     *
+     * @param restricted whether the session withholds write capability, which is every
+     *         {@link SessionAccess} level but {@code FULL}
+     */
+    public boolean allowsGitHubCommands(boolean restricted, boolean reviewSession)
     {
-        return this == AUTO && !textOnly && !reviewSession;
+        return this == AUTO && !restricted && !reviewSession;
     }
 }

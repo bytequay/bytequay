@@ -48,6 +48,7 @@ import com.bytequay.agent.spi.ProviderServiceTier;
 import com.bytequay.agent.spi.ProviderTurnRef;
 import com.bytequay.agent.spi.ReviewBridge;
 import com.bytequay.agent.spi.RunningTurn;
+import com.bytequay.agent.spi.SessionAccess;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.TextNode;
@@ -251,9 +252,18 @@ public final class CodexCliDriver
      * Review tools are root-only by launch profile: without a proved per-caller identity on the
      * shared token, a review session runs with no child agents at all.
      */
-    static CodexLaunchProfile.ChildProfile childProfile(CodexLaunchProfile.ChildProfile configured, boolean textOnly, boolean review)
+    private static ProcessOwner.Kind ownerKind(SessionAccess access)
     {
-        return textOnly || review ? CodexLaunchProfile.ChildProfile.NONE : configured;
+        return switch (access) {
+            case TEXT_ONLY -> ProcessOwner.Kind.CLI_PROBE;
+            case READ_ONLY -> ProcessOwner.Kind.DISCUSSION;
+            case FULL -> ProcessOwner.Kind.APP_SERVER;
+        };
+    }
+
+    static CodexLaunchProfile.ChildProfile childProfile(CodexLaunchProfile.ChildProfile configured, boolean restricted, boolean review)
+    {
+        return restricted || review ? CodexLaunchProfile.ChildProfile.NONE : configured;
     }
 
     private CodexAppServerClient appServerClient(
@@ -261,7 +271,7 @@ public final class CodexCliDriver
             Path workingDirectory,
             CodexLaunchProfile.ChildProfile childProfile)
     {
-        return appServerClient(ownerId, workingDirectory, childProfile, Optional.empty(), Optional.empty(), false, ImmutableList.of(), false, false);
+        return appServerClient(ownerId, workingDirectory, childProfile, Optional.empty(), Optional.empty(), SessionAccess.FULL, ImmutableList.of(), false, false);
     }
 
     private CodexAppServerClient appServerClient(
@@ -270,7 +280,7 @@ public final class CodexCliDriver
             CodexLaunchProfile.ChildProfile childProfile,
             Optional<CodexLaunchProfile.CodeGraphLaunch> codeGraph,
             Optional<String> codeGraphToken,
-            boolean textOnly,
+            SessionAccess access,
             List<String> ciWritableRoots,
             boolean allowGitHubCommands,
             boolean review)
@@ -285,8 +295,10 @@ public final class CodexCliDriver
         return new CodexAppServerClient(
                 supervisor,
                 new ProcessSpec(
-                        new ProcessOwner(textOnly ? ProcessOwner.Kind.CLI_PROBE : ProcessOwner.Kind.APP_SERVER, ownerId),
-                        CodexLaunchProfile.arguments(executable, childProfile, codeGraph, textOnly, ciWritableRoots, allowGitHubCommands, review),
+                        new ProcessOwner(ownerKind(access), ownerId),
+                        // TEXT_ONLY alone strips the shell and code tools: a read-only session must
+                        // keep them to read the checkout at all, and is contained by its sandbox.
+                        CodexLaunchProfile.arguments(executable, childProfile, codeGraph, access == SessionAccess.TEXT_ONLY, ciWritableRoots, allowGitHubCommands, review),
                         workingDirectory,
                         processEnvironment,
                         OptionalInt.empty(),
@@ -486,13 +498,13 @@ public final class CodexCliDriver
                 : ImmutableList.of();
         // A task tool token lives exactly as long as this session; the App Server reaches the
         // ByteQuay task MCP endpoint with it and never learns the task's filesystem identity.
-        Optional<CodeGraphRegistration> codeGraph = context.textOnly() ? Optional.empty() : permissions.registerTools(
+        Optional<CodeGraphRegistration> codeGraph = context.restricted() ? Optional.empty() : permissions.registerTools(
                 context.taskId(), context.worktree(), context.permissionPolicy(), context.approvals(), redactor, context.codeGraph());
         boolean review = codeGraph.flatMap(CodeGraphRegistration::review).isPresent();
-        boolean allowGitHubCommands = context.permissionPolicy().allowsGitHubCommands(context.textOnly(), review);
+        boolean allowGitHubCommands = context.permissionPolicy().allowsGitHubCommands(context.restricted(), review);
         // CI runs the single-agent profile verified by the native sandbox probe.
         CodexLaunchProfile.ChildProfile childProfile = ciWritableRoots.isEmpty()
-                ? childProfile(modelProfile.childProfile(), context.textOnly(), review)
+                ? childProfile(modelProfile.childProfile(), context.restricted(), review)
                 : CodexLaunchProfile.ChildProfile.NONE;
         CodexAppServerClient client;
         try {
@@ -502,7 +514,7 @@ public final class CodexCliDriver
                     childProfile,
                     codeGraph.map(registration -> new CodexLaunchProfile.CodeGraphLaunch(registration.endpoint(), registration.instruction())),
                     codeGraph.map(CodeGraphRegistration::token),
-                    context.textOnly(),
+                    context.access(),
                     ciWritableRoots,
                     allowGitHubCommands,
                     review);
@@ -795,7 +807,7 @@ public final class CodexCliDriver
             client.start();
             Path worktree = canonicalWorktree();
             // Sent only as a turn root: a launch-time writable root is what selects the CI profile.
-            this.mavenRepositoryRoot = context.permissionPolicy() == AgentPermissionPolicy.AUTO && !context.textOnly();
+            this.mavenRepositoryRoot = context.permissionPolicy() == AgentPermissionPolicy.AUTO && !context.restricted();
             verifyCiWorktree(worktree);
             isolation.verify(worktree);
             String threadId = openThread(context, worktree);
@@ -817,12 +829,12 @@ public final class CodexCliDriver
         {
             Optional<AgentSessionRef> existing = context.sessionReference();
             String approvalPolicy = approvalPolicy();
-            String sandbox = context.textOnly() ? "read-only" : "workspace-write";
+            String sandbox = context.restricted() ? "read-only" : "workspace-write";
             // Explicitly replace saved guidance on resume, including an empty value after a skill is removed.
             String developerInstructions = Stream.of(
                             codeGraph.flatMap(CodeGraphRegistration::review).isPresent() ? AgentCommandPolicy.reviewInstructions()
                                     : allowGitHubCommands ? AgentCommandPolicy.instructions() : "",
-                            context.textOnly() ? "" : PLAN_INSTRUCTION,
+                            context.restricted() ? "" : PLAN_INSTRUCTION,
                             context.managedInstructions(),
                             codeGraph.map(CodeGraphRegistration::instruction).orElse(""))
                     .filter(instruction -> !instruction.isBlank())
@@ -945,17 +957,17 @@ public final class CodexCliDriver
 
         private String approvalPolicy()
         {
-            return context.textOnly() || !ciWritableRoots.isEmpty() ? "never" : "on-request";
+            return context.restricted() || !ciWritableRoots.isEmpty() ? "never" : "on-request";
         }
 
         private String approvalsReviewer()
         {
-            return context.textOnly() || !ciWritableRoots.isEmpty() ? "user" : "auto_review";
+            return context.restricted() || !ciWritableRoots.isEmpty() ? "user" : "auto_review";
         }
 
         private Map<String, Object> sandboxPolicy(Path worktree)
         {
-            if (context.textOnly()) {
+            if (context.restricted()) {
                 return ImmutableMap.of(
                         "type", "readOnly",
                         "networkAccess", false);

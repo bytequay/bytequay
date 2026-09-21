@@ -36,6 +36,7 @@ import com.bytequay.agent.spi.PullRequestCiBridgeResolver;
 import com.bytequay.agent.spi.ReviewBridge;
 import com.bytequay.agent.spi.ReviewBridgeResolver;
 import com.bytequay.agent.spi.ReviewTool;
+import com.bytequay.agent.spi.SessionAccess;
 import com.fasterxml.jackson.annotation.JsonProperty;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.DeserializationFeature;
@@ -207,7 +208,7 @@ public final class PermissionBroker
                 runtimeDirectory,
                 providerDirectory,
                 permissionPolicy,
-                false,
+                SessionAccess.FULL,
                 approvals,
                 redactor,
                 Optional.empty());
@@ -219,12 +220,12 @@ public final class PermissionBroker
             Path runtimeDirectory,
             Path providerDirectory,
             AgentPermissionPolicy permissionPolicy,
-            boolean textOnly,
+            SessionAccess access,
             AgentApprovalHandler approvals,
             SecretRedactor redactor,
             Optional<CodeGraphBridge> codeGraph)
     {
-        return register(taskId, worktree, runtimeDirectory, providerDirectory, permissionPolicy, textOnly, approvals, redactor, codeGraph, ImmutableMap.of());
+        return register(taskId, worktree, runtimeDirectory, providerDirectory, permissionPolicy, access, approvals, redactor, codeGraph, ImmutableMap.of());
     }
 
     public McpConfigRegistration register(
@@ -233,7 +234,7 @@ public final class PermissionBroker
             Path runtimeDirectory,
             Path providerDirectory,
             AgentPermissionPolicy permissionPolicy,
-            boolean textOnly,
+            SessionAccess access,
             AgentApprovalHandler approvals,
             SecretRedactor redactor,
             Optional<CodeGraphBridge> codeGraph,
@@ -251,7 +252,7 @@ public final class PermissionBroker
         Path configFile = providerDirectory.resolve("bytequay-mcp.json");
         Path settingsFile = providerDirectory.resolve("sandbox-settings.json");
         requireNonNull(codeGraph, "codeGraph is null");
-        PermissionContext context = resolveContext(taskId, worktree, permissionPolicy, approvals, redactor.withSecret(token), codeGraph, textOnly, true);
+        PermissionContext context = resolveContext(taskId, worktree, permissionPolicy, approvals, redactor.withSecret(token), codeGraph, access, true);
         contexts.put(token, context);
         try {
             Files.createDirectories(providerDirectory);
@@ -264,7 +265,8 @@ public final class PermissionBroker
                             ImmutableMap.of("Authorization", "Bearer " + token),
                             APPROVAL_TIMEOUT.plusSeconds(30).toMillis()))));
             writeOwnerOnly(configFile, json);
-            writeOwnerOnly(settingsFile, sandboxSettings(permissionPolicy, textOnly, context.review().isPresent(), runtimeDirectory.toRealPath(), environment));
+            writeOwnerOnly(settingsFile, sandboxSettings(
+                    permissionPolicy, access, context.review().isPresent(), runtimeDirectory.toRealPath(), worktree, environment));
             List<String> toolNames = tools(context).stream()
                     .map(ToolDefinition::name)
                     .filter(name -> !name.equals("permission_prompt"))
@@ -305,7 +307,7 @@ public final class PermissionBroker
         requireNonNull(redactor, "redactor is null");
         requireNonNull(codeGraph, "codeGraph is null");
         String token = token();
-        PermissionContext context = resolveContext(taskId, worktree, permissionPolicy, approvals, redactor.withSecret(token), codeGraph, false, false);
+        PermissionContext context = resolveContext(taskId, worktree, permissionPolicy, approvals, redactor.withSecret(token), codeGraph, SessionAccess.FULL, false);
         // A policy-only review still needs registration to select the provider's review execution profile.
         if (context.review().isEmpty() && tools(context).isEmpty()) {
             return Optional.empty();
@@ -323,16 +325,21 @@ public final class PermissionBroker
             AgentApprovalHandler approvals,
             SecretRedactor redactor,
             Optional<CodeGraphBridge> codeGraph,
-            boolean textOnly,
+            SessionAccess access,
             boolean permissionTools)
     {
-        Optional<ReviewBridge> review = reviews.resolve(taskId);
-        Optional<DevelopmentResultBridge> development = textOnly || review.isPresent() ? Optional.empty() : developments.resolve(taskId);
-        Optional<LocalReviewBridge> localReview = textOnly ? Optional.empty() : localReviews.resolve(taskId);
-        Optional<PullRequestCiBridge> pullRequestCi = !textOnly && (permissionPolicy == AgentPermissionPolicy.CI_AUTOFIX
+        boolean restricted = access.restricted();
+        // A restricted session may carry a real task id, so every bridge is withheld by access
+        // rather than by the caller having invented an id no bridge can resolve.
+        // Only the read-only axis withholds review: a text-only caller invents its own task id, and
+        // changing what it resolves is not this axis's business.
+        Optional<ReviewBridge> review = access == SessionAccess.READ_ONLY ? Optional.empty() : reviews.resolve(taskId);
+        Optional<DevelopmentResultBridge> development = restricted || review.isPresent() ? Optional.empty() : developments.resolve(taskId);
+        Optional<LocalReviewBridge> localReview = restricted ? Optional.empty() : localReviews.resolve(taskId);
+        Optional<PullRequestCiBridge> pullRequestCi = !restricted && (permissionPolicy == AgentPermissionPolicy.CI_AUTOFIX
                 || permissionPolicy.allowsGitHubCommands(false, review.isPresent()))
                 ? pullRequestChecks.resolve(taskId) : Optional.empty();
-        Optional<IssueContextBridge> issueContext = textOnly ? Optional.empty() : issueContexts.resolve(taskId);
+        Optional<IssueContextBridge> issueContext = restricted ? Optional.empty() : issueContexts.resolve(taskId);
         return new PermissionContext(
                 taskId, worktree, permissionPolicy, approvals, redactor, permissionTools, codeGraph, review, development, localReview, pullRequestCi, issueContext);
     }
@@ -1005,13 +1012,14 @@ public final class PermissionBroker
 
     private String sandboxSettings(
             AgentPermissionPolicy permissionPolicy,
-            boolean textOnly,
+            SessionAccess access,
             boolean reviewSession,
             Path runtimeDirectory,
+            Path worktree,
             Map<String, String> environment)
             throws IOException
     {
-        boolean gitHubCommands = permissionPolicy.allowsGitHubCommands(textOnly, reviewSession);
+        boolean gitHubCommands = permissionPolicy.allowsGitHubCommands(access.restricted(), reviewSession);
         ImmutableList.Builder<String> deny = ImmutableList.builder();
         ImmutableList.Builder<String> denyRead = ImmutableList.builder();
         if (!gitHubCommands) {
@@ -1052,8 +1060,14 @@ public final class PermissionBroker
                         // The task runtime directory holds the CI logs, the event log, and this
                         // settings file. The agent reads its attachments from there and must not
                         // be able to rewrite the evidence its own work is judged on.
-                        "denyWrite", ImmutableList.of(runtimeDirectory.toString())));
-        if (permissionPolicy.unattended() || textOnly) {
+                        // A read-only session is rooted at a real checkout and its Bash is
+                        // auto-approved, so denying the worktree here is the whole containment
+                        // boundary rather than a second line of defence. A text-only worktree is
+                        // already inside the runtime directory, and need not exist on disk.
+                        "denyWrite", access == SessionAccess.READ_ONLY
+                                ? ImmutableList.of(runtimeDirectory.toString(), worktree.toRealPath().toString())
+                                : ImmutableList.of(runtimeDirectory.toString())));
+        if (permissionPolicy.unattended() || access.restricted()) {
             deny.add("WebFetch", "WebSearch");
             sandbox.put("network", ImmutableMap.of("allowedDomains", ImmutableList.of()));
         }

@@ -56,6 +56,11 @@ public record ProcessOwner(Kind kind, String id)
         CLAUDE_TURN(ExecutionProfile.PROVIDER_CONTROL),
         /** One short-lived provider control command or isolated text-only helper. */
         CLI_PROBE(ExecutionProfile.PROVIDER_CONTROL),
+        /**
+         * One read-only discussion session, owned by its task. It reaches a real worktree, so
+         * unlike {@code CLI_PROBE} it stays attributable to that task at startup recovery.
+         */
+        DISCUSSION(ExecutionProfile.PROVIDER_CONTROL),
         /** One user-requested test run in a review working copy, owned by {@code <taskId>/<runId>}. */
         LOCAL_RUN(ExecutionProfile.LOCAL_COMMAND);
 

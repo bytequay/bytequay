@@ -110,4 +110,10 @@ public record AgentSessionContext(
     {
         return access == SessionAccess.TEXT_ONLY;
     }
+
+    /** Whether this session withholds the capability to change its worktree. */
+    public boolean restricted()
+    {
+        return access.restricted();
+    }
 }

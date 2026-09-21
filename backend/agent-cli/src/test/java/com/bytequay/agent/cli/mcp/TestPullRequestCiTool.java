@@ -25,6 +25,7 @@ import com.bytequay.agent.spi.PullRequestCiBridgeResolver;
 import com.bytequay.agent.spi.ReviewBridge;
 import com.bytequay.agent.spi.ReviewBridgeResolver;
 import com.bytequay.agent.spi.ReviewTool;
+import com.bytequay.agent.spi.SessionAccess;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ObjectNode;
@@ -67,7 +68,7 @@ class TestPullRequestCiTool
                 (request, timeout) -> CompletableFuture.completedFuture(ProviderApprovalDecision.deny()), redactor, Optional.empty()).orElseThrow();
                 McpConfigRegistration claude = broker.register(
                         "task-1", temporaryDirectory, temporaryDirectory, temporaryDirectory, AgentPermissionPolicy.AUTO,
-                        false, (request, timeout) -> CompletableFuture.completedFuture(ProviderApprovalDecision.deny()), redactor, Optional.empty())) {
+                        SessionAccess.FULL, (request, timeout) -> CompletableFuture.completedFuture(ProviderApprovalDecision.deny()), redactor, Optional.empty())) {
             expiredToken = codex.token();
             assertThat(codex.review()).isEmpty();
             assertThat(codex.development()).isEmpty();
@@ -106,7 +107,7 @@ class TestPullRequestCiTool
                 "ci-task", temporaryDirectory, AgentPermissionPolicy.CI_AUTOFIX,
                 (request, timeout) -> CompletableFuture.completedFuture(ProviderApprovalDecision.deny()), redactor, Optional.empty()).orElseThrow();
                 McpConfigRegistration claude = broker.register(
-                        "ci-task", temporaryDirectory, temporaryDirectory, temporaryDirectory, AgentPermissionPolicy.CI_AUTOFIX, false,
+                        "ci-task", temporaryDirectory, temporaryDirectory, temporaryDirectory, AgentPermissionPolicy.CI_AUTOFIX, SessionAccess.FULL,
                         (request, timeout) -> CompletableFuture.completedFuture(ProviderApprovalDecision.deny()), redactor, Optional.empty())) {
             for (String token : ImmutableList.of(codex.token(), claude.token())) {
                 assertThat(list(broker, token).at("/result/tools").findValuesAsText("name"))
@@ -152,7 +153,7 @@ class TestPullRequestCiTool
         PermissionBroker broker = broker(reader, ReviewBridgeResolver.NONE);
         for (AgentPermissionPolicy policy : ImmutableList.of(AgentPermissionPolicy.CHERRY_PICK)) {
             try (McpConfigRegistration claude = broker.register(
-                    "task-1", temporaryDirectory, temporaryDirectory, temporaryDirectory, policy, false,
+                    "task-1", temporaryDirectory, temporaryDirectory, temporaryDirectory, policy, SessionAccess.FULL,
                     (request, timeout) -> CompletableFuture.completedFuture(ProviderApprovalDecision.deny()), redactor, Optional.empty())) {
                 assertThat(list(broker, claude.token()).at("/result/tools").findValuesAsText("name")).doesNotContain(PullRequestCiBridge.TOOL_NAME);
                 assertThat(call(broker, claude.token(), "{}").at("/error/code").intValue()).isEqualTo(-32602);
@@ -167,7 +168,7 @@ class TestPullRequestCiTool
             }
         }
         try (McpConfigRegistration helper = broker.register(
-                "task-1", temporaryDirectory, temporaryDirectory, temporaryDirectory, AgentPermissionPolicy.AUTO, true,
+                "task-1", temporaryDirectory, temporaryDirectory, temporaryDirectory, AgentPermissionPolicy.AUTO, SessionAccess.TEXT_ONLY,
                 (request, timeout) -> CompletableFuture.completedFuture(ProviderApprovalDecision.deny()), redactor, Optional.empty())) {
             assertThat(helper.pullRequestCi()).isEmpty();
         }
@@ -178,7 +179,7 @@ class TestPullRequestCiTool
                 "task-1", temporaryDirectory, AgentPermissionPolicy.AUTO,
                 (request, timeout) -> CompletableFuture.completedFuture(ProviderApprovalDecision.deny()), redactor, Optional.empty()).orElseThrow();
                 McpConfigRegistration claude = reviewBroker.register(
-                        "task-1", temporaryDirectory, temporaryDirectory, temporaryDirectory, AgentPermissionPolicy.AUTO, false,
+                        "task-1", temporaryDirectory, temporaryDirectory, temporaryDirectory, AgentPermissionPolicy.AUTO, SessionAccess.FULL,
                         (request, timeout) -> CompletableFuture.completedFuture(ProviderApprovalDecision.deny()), redactor, Optional.empty())) {
             assertThat(list(reviewBroker, registration.token()).at("/result/tools").findValuesAsText("name")).containsExactly("review_context");
             assertThat(claude.pullRequestCi()).isEmpty();
@@ -215,7 +216,7 @@ class TestPullRequestCiTool
             try (CodeGraphRegistration codex = broker.registerTools("task-1", temporaryDirectory, policy,
                     (request, timeout) -> CompletableFuture.completedFuture(ProviderApprovalDecision.deny()), redactor, Optional.empty()).orElseThrow();
                     McpConfigRegistration claude = broker.register("task-1", temporaryDirectory, temporaryDirectory, temporaryDirectory, policy,
-                            false, (request, timeout) -> CompletableFuture.completedFuture(ProviderApprovalDecision.deny()), redactor, Optional.empty())) {
+                            SessionAccess.FULL, (request, timeout) -> CompletableFuture.completedFuture(ProviderApprovalDecision.deny()), redactor, Optional.empty())) {
                 for (String token : ImmutableList.of(codex.token(), claude.token())) {
                     JsonNode request = objectMapper.readTree("""
                             {"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"propose_ci_description",
@@ -250,7 +251,7 @@ class TestPullRequestCiTool
             try (CodeGraphRegistration codex = broker.registerTools("task-1", temporaryDirectory, policy,
                     (request, timeout) -> CompletableFuture.completedFuture(ProviderApprovalDecision.deny()), redactor, Optional.empty()).orElseThrow();
                     McpConfigRegistration claude = broker.register("task-1", temporaryDirectory, temporaryDirectory, temporaryDirectory, policy,
-                            false, (request, timeout) -> CompletableFuture.completedFuture(ProviderApprovalDecision.deny()), redactor, Optional.empty())) {
+                            SessionAccess.FULL, (request, timeout) -> CompletableFuture.completedFuture(ProviderApprovalDecision.deny()), redactor, Optional.empty())) {
                 for (String token : ImmutableList.of(codex.token(), claude.token())) {
                     JsonNode request = objectMapper.readTree("""
                             {"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"request_ci_rerun",

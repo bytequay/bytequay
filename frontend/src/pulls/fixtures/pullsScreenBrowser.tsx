@@ -149,6 +149,13 @@ export async function runMainScreen(): Promise<string> {
     await settle();
     assert(host.querySelector('.pull-detail.zoom-card') !== null && host.querySelector('.pull-detail.is-full') === null
       && host.querySelector('.zoom-scrim') !== null, 'Zoom must open a card over the list, not cover the window');
+    // The browser rail is fixed chrome painted above every layer, so a layer that reached under
+    // it would be covered by the web page list instead of the page it was opened from.
+    document.body.style.setProperty('--browser-rail-width', '220px');
+    const railed = (selector: string) => host.querySelector(selector)?.getBoundingClientRect().left ?? -1;
+    assert(railed('.pull-detail.zoom-card') >= 220 && railed('.zoom-scrim') >= 220,
+      'A zoom layer must start where the browser rail ends');
+    document.body.style.removeProperty('--browser-rail-width');
     const full = host.querySelector<HTMLButtonElement>('[aria-label="Enter full screen"]');
     assert(full !== null, 'The zoom layer must offer full screen');
     full.click();

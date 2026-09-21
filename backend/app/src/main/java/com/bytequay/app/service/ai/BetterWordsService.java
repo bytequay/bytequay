@@ -111,14 +111,10 @@ public class BetterWordsService
         this.deepSeek = requireNonNull(deepSeek, "deepSeek is null");
     }
 
-    public String improve(String text, String repository, Optional<String> workspaceId)
+    public String improve(String comment, String repository, Optional<String> workspaceId)
     {
         requireNonNull(workspaceId, "workspaceId is null");
-        if (text == null) {
-            throw new IllegalArgumentException("Write a comment before asking for better words.");
-        }
-        String comment = text;
-        if (comment.isBlank()) {
+        if (comment == null || comment.isBlank()) {
             throw new IllegalArgumentException("Write a comment before asking for better words.");
         }
         if (comment.length() > MAXIMUM_INPUT_CHARACTERS) {

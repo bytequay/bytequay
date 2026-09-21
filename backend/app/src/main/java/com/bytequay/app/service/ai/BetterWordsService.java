@@ -163,10 +163,6 @@ public class BetterWordsService
 
     private String improveWithCli(SelectedModel model, String comment, String managedInstructions)
     {
-        if (!model.configId().equals("claude")) {
-            throw new AgentUnavailableException(
-                    "Better words is not available with the selected CLI model. Choose Claude or an API-key model.");
-        }
         TaskId taskId = TaskId.random();
         boolean processMayBeRunning = false;
         AgentSession session = null;

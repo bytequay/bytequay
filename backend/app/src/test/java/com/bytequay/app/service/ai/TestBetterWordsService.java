@@ -353,7 +353,7 @@ class TestBetterWordsService
     }
 
     @Test
-    void rejectsInvalidInputAndCliLanesThatCannotDisableTools()
+    void rejectsInvalidInput()
     {
         ModelSettingsService settings = mock(ModelSettingsService.class);
         AgentResourceService resources = mock(AgentResourceService.class);
@@ -378,11 +378,6 @@ class TestBetterWordsService
         assertThatThrownBy(() -> service.improve("Please clarify this.", "  ", Optional.empty()))
                 .isInstanceOf(IllegalArgumentException.class)
                 .hasMessageContaining("repository");
-
-        when(settings.agentModel(eq(AgentModelType.REVIEW), any())).thenReturn(reviewModel("codex", "gpt-5.6-sol"));
-        assertThatThrownBy(() -> service.improve("Please make this clearer.", REPOSITORY, Optional.empty()))
-                .isInstanceOf(AgentUnavailableException.class)
-                .hasMessageContaining("selected CLI model");
         verify(resources, never()).allocate(any());
     }
 
@@ -414,6 +409,9 @@ class TestBetterWordsService
     {
         ModelSettingsService settings = mock(ModelSettingsService.class);
         when(settings.agentModel(eq(AgentModelType.REVIEW), any())).thenReturn(reviewModel("codex", "gpt-5.6-sol"));
+        AgentResourceService resources = mock(AgentResourceService.class);
+        // The monitored repository matched, so the rewrite runs; stop it at its first provider step.
+        when(resources.allocate(any())).thenThrow(new IllegalStateException("reached the provider"));
         BetterWordsService service = service(
                 settings,
                 linkedWorkspaceStore(
@@ -422,14 +420,14 @@ class TestBetterWordsService
                         RepoRef.of("owner", "repo")),
                 mock(ModelApiKeyStore.class),
                 mock(AgentDriverRegistry.class),
-                mock(AgentResourceService.class),
+                resources,
                 unusedClient(),
                 unusedClient());
 
         assertThatThrownBy(() -> service.improve(
                 "Please clarify this.", "OWNER/REPO", Optional.of("fork-workspace")))
-                .isInstanceOf(AgentUnavailableException.class)
-                .hasMessageContaining("selected CLI model");
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("reached the provider");
         assertThatThrownBy(() -> service.improve(
                 "Please clarify this.", "user/fork", Optional.of("fork-workspace")))
                 .isInstanceOf(IllegalArgumentException.class)

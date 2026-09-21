@@ -13,7 +13,7 @@
  */
 
 
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 
 import { discussionLabel, replyCount } from './DiscussionFooter';
 import { relativeTime } from '../../relativeTime';
@@ -203,14 +203,29 @@ export function DiscussionCard({ discussion, siblings, discussions, open, onTogg
  * <p>Groups run in transcript order and passages within a group in document order, not the order
  * the questions were asked, so the panel reads as a map of the answer rather than a log.
  */
-export function DiscussionsPanel({ discussions, turns, onJump, onHover }: {
+export function DiscussionsPanel({ discussions, turns, focus, onJump, onHover }: {
   discussions: TaskDiscussions;
   /** Turn ordinals and synopses for the answers on screen, for the sticky group headers. */
   turns?: { turnId: string; ordinal: number; synopsis: string }[];
+  /**
+   * The discussion a footer asked to see. It is a fresh object per request, so asking for the same
+   * one twice opens it again after the reader has folded it.
+   */
+  focus?: { id: string } | null;
   onJump?: (discussion: TaskDiscussionDto) => void;
   onHover?: (discussionId: string | null) => void;
 }): React.ReactElement {
-  const [openId, setOpenId] = useState<string | null>(null);
+  const [openId, setOpenId] = useState<string | null>(focus?.id ?? null);
+  const [asked, setAsked] = useState(focus);
+  if (focus !== asked) {
+    setAsked(focus);
+    if (focus != null) setOpenId(focus.id);
+  }
+  useEffect(() => {
+    if (openId === null) return;
+    // The card a footer points at is usually further down the list than the passage it hangs under.
+    document.querySelector(`.agt-disc-card[data-discussion="${CSS.escape(openId)}"]`)?.scrollIntoView({ block: 'nearest' });
+  }, [openId]);
   const rows = discussions.discussions;
   if (rows.length === 0) {
     return (

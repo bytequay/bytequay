@@ -160,6 +160,14 @@ describe('the panel', () => {
     expect(html).toContain('INVALID_TABLE_PROPERTY');
   });
 
+  it('opens the card a transcript footer asked to see', () => {
+    const shut = renderToStaticMarkup(<DiscussionsPanel discussions={stub(null)} />);
+    expect(shut).toContain('aria-expanded="false"');
+    const html = renderToStaticMarkup(<DiscussionsPanel discussions={stub(null)} focus={{ id: 'd1' }} />);
+    expect(html).toContain('aria-expanded="true"');
+    expect(html).toContain('why?');
+  });
+
   it('names the answer when the turn is on screen', () => {
     const turns = [{ turnId: 'turn-10', ordinal: 3, synopsis: 'It throws with the joined path.' }];
     const html = renderToStaticMarkup(<DiscussionsPanel discussions={stub(null)} turns={turns} />);

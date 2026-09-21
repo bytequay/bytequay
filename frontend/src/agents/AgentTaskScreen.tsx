@@ -543,7 +543,7 @@ function PanelFrame({ label, tabs, width, flush = false, overview = false, kept 
  * from the task's kept summary, and opening it says its activity expired rather than inventing it.
  */
 function SidePanel({
-  discussions, onJumpToPassage, onHoverDiscussion, discussionTurns,
+  discussions, onJumpToPassage, onHoverDiscussion, discussionTurns, discussionFocus,
   agents, openAgent, expiredChildren, deleteAfter, transcript, now, tab: requestedTab, task = null, pullRequest,
   pullRequestError, pullRequestLoading, pullRequestChecked, onRefreshPullRequests,
   pullRequestDetail, pullRequestChanges, pullRequestCommitRange, pullRequestPendingComments,
@@ -596,6 +596,8 @@ function SidePanel({
   onHoverDiscussion?: (discussionId: string | null) => void;
   /** The answers the loaded transcript holds, so a thread's card can name the one it hangs under. */
   discussionTurns?: { turnId: string; ordinal: number; synopsis: string }[];
+  /** The discussion a transcript footer asked to see, which opens its card. */
+  discussionFocus?: { id: string } | null;
   learning?: React.ReactNode;
   reviewFocus?: ReviewCardFocus | null;
   /** How many files hold unsaved Code & Tests drafts, so the screen can confirm before they are dropped. */
@@ -754,7 +756,8 @@ function SidePanel({
   const code = { kept: codeBody, keptShown: tab === 'code' };
   if (tab === 'discussions' && discussions !== undefined) {
     return <PanelFrame label="Discussions" tabs={tabs} width={width} {...code}>
-      <DiscussionsPanel discussions={discussions} turns={discussionTurns} onJump={onJumpToPassage} onHover={onHoverDiscussion} />
+      <DiscussionsPanel discussions={discussions} turns={discussionTurns} focus={discussionFocus}
+        onJump={onJumpToPassage} onHover={onHoverDiscussion} />
     </PanelFrame>;
   }
   if (tab === 'code') return <PanelFrame label="Code & Tests" tabs={tabs} width={width} flush {...code} />;
@@ -956,7 +959,7 @@ function SidePanel({
  */
 export function AgentTaskBody({
   state, models, onBack, onSend: send, onCancel, onComplete, onDecide, onCompose, onSelectModel,
-  discussions, onSelectPassage, onOpenDiscussion, onJumpToPassage, onHoverDiscussion,
+  discussions, onSelectPassage, onOpenDiscussion, onJumpToPassage, onHoverDiscussion, discussionFocus,
   onStopServer, onMarkFailed, onRename, onArchive, composerRef,
   provider = '',
   providerStatus = null,
@@ -1027,6 +1030,8 @@ export function AgentTaskBody({
   discussions?: TaskDiscussions;
   onSelectPassage?: (passage: SelectedPassage, question: string) => void;
   onOpenDiscussion?: (discussionId: string) => void;
+  /** The discussion a transcript footer asked to see, which opens its card in the panel. */
+  discussionFocus?: { id: string } | null;
   onJumpToPassage?: (discussion: TaskDiscussionDto) => void;
   onHoverDiscussion?: (discussionId: string | null) => void;
   learning?: React.ReactNode;
@@ -1420,6 +1425,7 @@ export function AgentTaskBody({
           <SidePanel
             discussions={discussions}
             discussionTurns={discussionTurns}
+            discussionFocus={discussionFocus}
             onJumpToPassage={onJumpToPassage}
             onHoverDiscussion={onHoverDiscussion}
             agents={agents}
@@ -1582,6 +1588,8 @@ export default function AgentTaskScreen({
   const [ciPollingError, setCiPollingError] = useState<string | null>(null);
   const [openAgent, setOpenAgent] = useState<string | null>(null);
   const [panelTab, setPanelTab] = useState<PanelTab>('pr');
+  // A fresh object per request: asking for the same discussion twice opens its card again.
+  const [discussionFocus, setDiscussionFocus] = useState<{ id: string } | null>(null);
   const [reviewFocus, setReviewFocus] = useState<ReviewCardFocus | null>(null);
   const [logChoice, setLogChoice] = useState<string | null>(null);
   const [pullRequests, setPullRequests] = useState<PullRequestDto[]>([]);
@@ -2463,7 +2471,8 @@ export default function AgentTaskScreen({
       onSelectPassage={(passage, question) => {
         void discussions.open({ ...passage, question }).then(() => { setPanelChoice(true); setPanelTab('discussions'); });
       }}
-      onOpenDiscussion={() => { setPanelChoice(true); setPanelTab('discussions'); }}
+      discussionFocus={discussionFocus}
+      onOpenDiscussion={id => { setPanelChoice(true); setPanelTab('discussions'); setDiscussionFocus({ id }); }}
       onJumpToPassage={discussion => {
         document.querySelector(`.agt-turn[data-history-anchor="${CSS.escape(discussion.turnId)}"]`)
           ?.scrollIntoView({ block: 'center' });

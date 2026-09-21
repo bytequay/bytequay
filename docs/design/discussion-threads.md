@@ -52,12 +52,12 @@ FIRST QUESTION
   reader highlights text inside a completed answer
         |
         v
-  POST /agent/tasks/{taskId}/discussions   { turnId, quote, question }
+  POST /agent/tasks/{taskId}/discussions   { turnId, quote, occurrence, question }
         |
         +-- verify the quote occurs in that turn's stored answer
         +-- resolve or create the discussion for (task, turn, quote)
         +-- render the seed: the task's user messages and final answers
-        |   through the selected turn, as plain text
+        |   through the selected turn, as the markdown they already are
         +-- record the question, return immediately
         |
         v   (virtual thread)
@@ -183,6 +183,10 @@ public record TaskDiscussion(
  * @param quote      the highlighted text as rendered, verified against that answer
  * @param occurrence which appearance of {@code quote} in that answer was highlighted,
  *                   1-based; the client knows it from the selection's position
+ * <p>No label is stored: the reader-facing label is presentation, derived in the
+ * renderer from {@code quote} and {@code occurrence}, for the same reason section
+ * 8.1 refuses to store a block ordinal.
+ *
  * @param quoteHash  {@code Hashing.sha256().hashString(
  *                   DiscussionQuotes.normalize(quote) + "#" + occurrence, UTF_8).toString()}
  */
@@ -267,28 +271,99 @@ public interface TaskDiscussionService
      *         already holds {@code MAX_DISCUSSIONS_PER_TASK} discussions
      * @throws InvalidAgentRequestException when the seed exceeds the context budget
      */
-    TaskDiscussion open(OpenDiscussionCommand command);
+    TaskDiscussionView open(OpenDiscussionCommand command);
 
     /**
      * Asks a follow-up in an existing discussion, resuming its provider conversation.
      * A resume that fails falls back to a re-seeded conversation carrying every
      * prior message, so a lost provider session costs context, not the thread.
      */
-    TaskDiscussion ask(AskDiscussionCommand command);
+    TaskDiscussionView ask(AskDiscussionCommand command);
+
+    /** Marks a discussion done, or reopens it. */
+    TaskDiscussionView resolve(String workspaceId, String taskId, String discussionId,
+            boolean resolved, long expectedVersion);
+
+    /**
+     * Re-runs a question whose answer failed, in place: the recorded question keeps its
+     * identity and its error is cleared, so a retry never appends a second copy of it.
+     */
+    TaskDiscussionView retry(String workspaceId, String taskId, String discussionId, String messageId);
 
     /** Every discussion on one task, for the transcript footers and the panel. */
     List<TaskDiscussionView> list(String workspaceId, String taskId);
 }
 
 /**
- * @param quote the exact highlighted text; the service verifies it and derives
- *              the anchor hash from its normalized form
+ * @param quote      the exact highlighted text; the service verifies it and derives
+ *                   the anchor hash from its normalized form
+ * @param occurrence which appearance of {@code quote} in that answer the reader
+ *                   highlighted, 1-based; refused below 1, so a body omitting the
+ *                   field cannot silently mean the first
  */
 public record OpenDiscussionCommand(
-        String taskId, String turnId, String quote, String question) {}
+        String taskId, String turnId, String quote, int occurrence, String question) {}
 
 public record AskDiscussionCommand(String discussionId, String question) {}
+
+/**
+ * Display projection of one discussion, and the only type the controller serializes.
+ *
+ * <p>The seed and the provider session reference are deliberately absent: the seed is
+ * bounded only by {@code MAX_SEED_CHARACTERS} and the session reference is a provider
+ * handle, and neither is drawn. The anchor is flattened to the three fields the renderer
+ * uses; {@code quoteHash} is not projected, because the client locates a footer by
+ * searching the rendered blocks for {@code quote} and taking the {@code occurrence}-th
+ * match, and never recomputes the hash.
+ *
+ * @param turnId      the completed turn whose final answer was quoted; the client maps it
+ *                    to a transcript turn while that turn is in the loaded window, and
+ *                    renders the thread from {@code quote} alone when it is not
+ * @param quote       the passage as the reader saw it, always rendered as text
+ * @param occurrence  which appearance of {@code quote} in that answer, 1-based; the footer
+ *                    places itself with it, and the panel tells apart two threads whose
+ *                    labels are otherwise byte-identical
+ * @param pending     a question is in flight, read from the service's in-memory set. It is
+ *                    the only way to tell a running question from one orphaned by a
+ *                    restart, which section 9 requires to render as unanswered: both are
+ *                    a trailing question with no answer and no error
+ * @param providerLane the lane fixed at creation, for the answer byline; it can differ
+ *                    from the task's current default, so it is not read from the task
+ * @param version     for the optimistic check on resolve
+ * @param updatedAt   when the last message was recorded, or when the thread was resolved
+ */
+public record TaskDiscussionView(
+        String id,
+        String taskId,
+        String turnId,
+        String quote,
+        int occurrence,
+        boolean resolved,
+        boolean pending,
+        String providerLane,
+        List<Message> messages,
+        long version,
+        Instant createdAt,
+        Instant updatedAt)
+{
+    /**
+     * One question or one answer, oldest first.
+     *
+     * @param error present only on a question whose answer failed, carrying the
+     *              reader-facing reason the card prints beside Retry; an answer never
+     *              has one
+     */
+    public record Message(String id, Author author, String body, Instant createdAt,
+            Optional<String> error) {}
+}
 ```
+
+Nothing else belongs on the view. `label` is presentation, derived in the renderer
+from `quote` and `occurrence`. A reply count is `messages.size()`. Askability is
+`AgentTaskDto.checkoutRemovedAt`, which the task screen already holds. The panel's
+group header reads `TranscriptTurn.ordinal` and the answer text for a loaded turn, and
+degrades for one whose answer has been evicted. A typed error cause buys nothing while
+Retry is the only action offered for every cause.
 
 Internal collaborators are concrete classes, not interfaces: a seed renderer
 and a session runner. Neither is a second agent harness — the runner opens the
@@ -407,9 +482,14 @@ they are compared and before the quote is hashed. It extends the pass
 - collapse every whitespace run to one space and strip.
 
 Verification is then: the normalized final answer of the anchored turn contains
-at least `anchor.occurrence` appearances of the normalized quote. A quote
-normalizing shorter than three characters is refused as a stray click; nothing
-else is refused.
+the normalized quote. A quote normalizing shorter than three characters is
+refused as a stray click; nothing else is refused.
+
+The occurrence index is **identity only**. It is inside the hash and is not
+verified, because the client counts it over rendered text while this check runs
+over normalized source, and image syntax, table pipes and separator rows make
+the two counts divergible. A divergent index costs placement, which section 8.1
+already degrades correctly, rather than an unactionable refusal.
 
 The anchor is **not** required to be unique, because in real answers it often is
 not. Measured over the 87 completed answers in this machine's retained task
@@ -546,8 +626,10 @@ this controller family, and no new event stream.
 
 ```
 GET  /agent/tasks/{taskId}/discussions?workspaceId=
-POST /agent/tasks/{taskId}/discussions?workspaceId=                   { turnId, quote, question }
+POST /agent/tasks/{taskId}/discussions?workspaceId=                   { turnId, quote, occurrence, question }
 POST /agent/tasks/{taskId}/discussions/{id}/messages?workspaceId=     { question }
+PATCH /agent/tasks/{taskId}/discussions/{id}?workspaceId=             { resolved, expectedVersion }
+POST /agent/tasks/{taskId}/discussions/{id}/messages/{messageId}/retry?workspaceId=
 ```
 
 Every route resolves the task through `taskService.getInteractive(workspaceId, id)`
@@ -556,6 +638,12 @@ other-workspace task. The commands carry no `taskId`; the path supplies it.
 
 Both writes record the question and return immediately. Clients poll the read
 route on the interval already used for local review threads.
+
+The read route also reports whether a question is in flight, from the in-memory
+set of section 7. Nothing about in-flight becomes persisted; it is only
+projected. Askability is read from `AgentTaskDto.checkoutRemovedAt`, which
+already exists and is the worktree fact sections 2 and 9 key on — not from the
+task's status, and not from a new flag.
 
 Refusals are explicit: the quote is not in that answer; the task has no live
 worktree; a question is already in flight; the seed exceeds the budget.
@@ -570,7 +658,10 @@ A reply-count footer sits directly under the **block** that contains the quoted
 passage — the paragraph, list item, or code block — not at the end of the whole
 answer. An answer with quotes in three paragraphs shows three footers, each
 against its own paragraph, and two quotes in one paragraph stack as two rows
-under that paragraph in creation order.
+under that paragraph in the document order of their passages, which is the order
+the panel's cards use; identical offsets break by creation time. The client
+already resolves every anchor to an offset in order to place the footer at all,
+so the ordering costs one comparator.
 
 Placement is derived in the renderer and needs no stored block field.
 `anchor.quote` is already the text as the reader saw it, so the client locates
@@ -603,6 +694,42 @@ time, and a resolved mark once the discussion is resolved. A discussion whose
 newest question has no answer yet reads as answering rather than showing a
 count.
 
+### 8.2 Decided client behaviour
+
+These are settled and recorded so they are not reopened. All are presentation;
+none changes a route or a stored field.
+
+- **Label ordinal.** A footer or card label is the quote, truncated. When a
+  sibling thread on the same turn carries an identical label, both gain a muted
+  mention ordinal — `INVALID_TABLE_PROPERTY · 2nd mention` — from `occurrence`
+  on the view. The transcript separates repeats by position, but only when they
+  fall in different blocks, and the panel has no position at all.
+- **Asking while a question is in flight.** The backend refusal stands. The
+  client disables Ask while the view reports `pending` and keeps the draft, so
+  the refusal is unreachable rather than displayed. No client-side queue: a
+  timer over a backend refusal misfires whenever a poll misses the transition.
+- **A quote spanning more than one block.** No block contains the whole passage,
+  so the footer falls back to the end of the answer, with a muted label and the
+  title `This passage spans more than one block`. It is an ordinary reading
+  gesture, not an exotic case, so it must read as deliberate rather than as a
+  placement bug. Selecting across two turns is refused at selection time; an
+  anchor names one turn.
+- **Refusals that cannot reach a card.** The three-character minimum is mirrored
+  client-side by withholding the Ask affordance, so that refusal is never
+  reached. The per-task cap and the over-budget seed surface in one error row on
+  the inline composer, printing the backend message verbatim, because their
+  remedies are instructions the reader must act on.
+- **Overlapping selections** create two threads, and that is accepted for now:
+  the labels are extended to the first differing word, which distinguishes them.
+  A pre-submit overlap check is possible later — the client already resolves
+  every anchor to an offset — but is not built.
+- **A thread whose turn has left the loaded window** joins one group headed
+  `Earlier in this task`, with its jump control disabled. No view field carries a
+  turn ordinal or an answer synopsis for it.
+- **No stale-premise caveat.** A thread anchored at an early turn is frozen at
+  that premise by design. Nothing in the card says so; revisit only if a
+  confidently out-of-date answer is actually reported.
+
 ## 9. Failure handling
 
 | Situation | Behavior |
@@ -612,11 +739,10 @@ count.
 | A question is already in flight | Refuse without losing the draft. |
 | The provider session cannot be resumed | Discard the reference, re-seed with every prior message, ask once. |
 | A question fails | Record the reason on that question; the discussion stays usable. |
-| The application restarts mid-question | The question has neither an answer nor an error and renders as unanswered; asking again is the remedy. The provider process is not closed by the registry, so the session runner closes it in a `finally` and, when it cannot, retains its scratch directory and logs that the process may still be running. |
+| The application restarts mid-question | The question has neither an answer nor an error, the read route reports the discussion as not pending, and it renders as unanswered; asking again is the remedy. The provider process is not closed by the registry, so the session runner closes it in a `finally` and, when it cannot, retains its scratch directory and logs that the process may still be running. |
 | The worktree has been removed | Asking is refused; every recorded message stays readable. |
 | The seed exceeds the budget | Refuse and name an earlier turn as the remedy. |
 | The quote is under three characters | Refuse as a stray selection. |
-| The answer holds fewer appearances than the recorded occurrence | Refuse; the anchor does not describe this answer. |
 | The task already holds 50 discussions | Refuse. Nothing is evicted automatically. |
 
 ## 10. Safety invariants
@@ -641,7 +767,7 @@ Each step compiles and passes the project gates on its own.
 2. **Persistence.** Domain records, the store port, the entity, repository and
    adapter. Nothing consumes them yet.
 3. **Seed, service, routes.** The seed renderer, the service and its
-   implementation, the controller.
+   implementation, the view projection, the controller.
 4. **Transcript and panel.** Selection affordance, reply-count footer,
    Discussions tab, the bridge methods and the polling hook.
 5. **Failure pass.** The table in section 9, exercised end to end.
@@ -673,11 +799,18 @@ Each step compiles and passes the project gates on its own.
 12. The first-question prompt and the re-seed prompt are produced by one
     renderer: given the same discussion, the re-seed output equals the original
     envelope with the intervening messages appended.
-13. Footers are placed against their own blocks: an answer with quotes in two
+13. Mark done and Reopen round-trip through the view, and a stale
+    `expectedVersion` is refused.
+14. A restart mid-question leaves the thread rendering as unanswered rather than
+    answering, and asking again succeeds.
+15. Retrying a failed question re-runs the recorded question in place rather than
+    appending a second copy of it.
+16. Footers are placed against their own blocks: an answer with quotes in two
     different paragraphs renders one footer under each, two quotes in one
-    paragraph render two rows under that paragraph, and a quote that cannot be
-    located falls back to the end of the answer rather than disappearing.
-14. The reply-count footer shows the right count after N replies, the composer
+    paragraph render two rows under that paragraph in document order of their
+    passages, and a quote that cannot be located falls back to the end of the
+    answer rather than disappearing.
+17. The reply-count footer shows the right count after N replies, the composer
     is disabled once asking is refused, and the Discussions tab renders a thread
     whose anchored answer has scrolled out of the loaded transcript window —
     each asserted in a Chromium fixture.

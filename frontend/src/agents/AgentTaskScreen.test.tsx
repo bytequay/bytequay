@@ -17,6 +17,7 @@ import { resolve } from 'node:path';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { describe, expect, it } from 'vitest';
 import { AgentTaskList, creationBlocker, groupTasksByDay } from './AgentTasksView';
+import type { TaskDiscussions } from './discussions/useTaskDiscussions';
 import { AgentTaskBody, providerStatusFromUnavailable, type AttachmentPreview } from './AgentTaskScreen';
 import fixture from './fixtures/agent-events-v2.json';
 import { parseAgentEventSequence, type AgentEventEnvelope } from './events';
@@ -581,6 +582,33 @@ describe('agent task side panel', () => {
     expect(render({})).toMatch(/<button[^>]*aria-pressed="false"[^>]*>[^]*?Code &amp; Tests/);
     expect(render({ checkoutRemovedAt: '2026-08-21T10:00:00Z' })).not.toContain('Code &amp; Tests');
     expect(render({ interactive: false })).not.toContain('Code &amp; Tests');
+  });
+
+  it('keeps Discussions beside the other tabs once the task has a pull request', () => {
+    const discussions: TaskDiscussions = {
+      discussions: [],
+      error: null,
+      disabledReason: null,
+      refresh: async () => undefined,
+      open: () => Promise.reject(new Error('This test never opens a discussion')),
+      ask: async () => undefined,
+      resolve: async () => undefined,
+      retry: async () => undefined,
+    };
+    // The panel header is replaced when a task has a pull request, so a tab registered in that
+    // header's own list would vanish here. This asserts it lives in the shared slot instead.
+    const withPullRequest = renderToStaticMarkup(
+      <AgentTaskBody state={state} panelOpen discussions={discussions}
+        pullRequests={[pullRequest(482, 'Fix preview output limit')]} {...props} />);
+    expect(withPullRequest).toMatch(/<button[^>]*aria-pressed="false"[^>]*>[^]*?Discussions/);
+
+    const withoutPullRequest = renderToStaticMarkup(
+      <AgentTaskBody state={state} panelOpen discussions={discussions} pullRequests={[]} {...props} />);
+    expect(withoutPullRequest).toMatch(/<button[^>]*aria-pressed="false"[^>]*>[^]*?Discussions/);
+
+    // No hook, no tab: a screen that never asked for discussions must not grow one.
+    expect(renderToStaticMarkup(<AgentTaskBody state={state} panelOpen pullRequests={[]} {...props} />))
+      .not.toContain('Discussions');
   });
 
   it('opens on the authored pull request with Changes and Subagents beside it', () => {

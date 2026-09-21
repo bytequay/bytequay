@@ -26,6 +26,8 @@ import type { AgentEventEnvelope } from './events';
 import { captureHistoryAnchors,restoreHistoryAnchor,type HistoryScrollAnchor } from './historyScroll';
 import { ImageAttachment } from './ImageAttachment';
 import { renderMarkdown } from './markdown';
+import { DiscussableAnswer, type SelectedPassage } from './discussions/DiscussableAnswer';
+import type { TaskDiscussionDto } from './discussions/contracts';
 import { approvalDecisions, type PendingMessage } from './model';
 import { ModelPicker } from './ModelPicker';
 import { IssueRequestCard } from './IssueAttachment';
@@ -526,8 +528,11 @@ function TurnFooter({ turn, durable, models }: {
   );
 }
 
-export function TurnView({ turn, first, open, now, models, durableTurns, activityChoice, previews, agentLabels, onToggle, onToggleActivity, onDecide, onOpenAgent, generatedRequest = false, generatedBranch = null, localReview, reviewRequests, issueSource, onOpenReview, latest = false, children }: {
+export function TurnView({ turn, first, open, now, models, durableTurns, activityChoice, previews, agentLabels, onToggle, onToggleActivity, onDecide, onOpenAgent, generatedRequest = false, generatedBranch = null, localReview, discussions, reviewRequests, issueSource, onOpenReview, onOpenDiscussion, onSelectPassage, latest = false, children }: {
   localReview?: LocalReviewThreads;
+  discussions?: TaskDiscussionDto[];
+  onOpenDiscussion?: (discussionId: string) => void;
+  onSelectPassage?: (passage: SelectedPassage) => void;
   reviewRequests?: readonly ReviewRequest[];
   issueSource?: AgentIssueSourceDto | null;
   onOpenReview?: (target: ReviewRequestTarget) => void;
@@ -634,7 +639,19 @@ export function TurnView({ turn, first, open, now, models, durableTurns, activit
         /></div>
       ))}
       {turn.answer !== null && (
-        <div className="agt-answer" data-history-anchor={turn.answer.anchorId ?? turn.answer.id}>{renderMarkdown(turn.answer.text)}{!turn.answer.complete && !turn.answer.historical && <span className="agt-cursor" aria-hidden="true" />}</div>
+        <div className="agt-answer" data-history-anchor={turn.answer.anchorId ?? turn.answer.id}>
+          {/* A passage is anchorable only once the answer is whole; a streaming one has no turn to name. */}
+          {turn.answer.complete && turn.turnId !== null
+            ? <DiscussableAnswer
+                turnId={turn.turnId}
+                text={turn.answer.text}
+                discussions={(discussions ?? []).filter(discussion => discussion.turnId === turn.turnId)}
+                onSelect={onSelectPassage}
+                onOpen={onOpenDiscussion}
+              />
+            : renderMarkdown(turn.answer.text)}
+          {!turn.answer.complete && !turn.answer.historical && <span className="agt-cursor" aria-hidden="true" />}
+        </div>
       )}
       {turn.endedAt !== null && <TurnFooter turn={turn} durable={turn.turnId === null ? undefined : durableTurns[turn.turnId]} models={models} />}
       {children}
@@ -857,7 +874,7 @@ export function AgentConversation({
   turns, durableTurns, models, now, scroll, connection, running, activeTurn, activeTurnId = activeTurn?.id, waiting, gap = false, pendingMessage = null,
   activityChoice, turnChoice, onToggleTurn, onToggleActivity, onDecide,
   previews = {}, agentLabels = {}, pendingApprovals = [], generatedTurnIds, generatedBranch,
-  onOpenAgent, children, transcriptFooter, localReview, reviewRequests, issueSource, onOpenReview, label = 'Task transcript',
+  onOpenAgent, children, transcriptFooter, localReview, discussions, reviewRequests, issueSource, onOpenReview, onOpenDiscussion, onSelectPassage, label = 'Task transcript',
 }: {
   turns: TranscriptTurn[];
   durableTurns: Record<string, AgentTurnDto>;
@@ -886,6 +903,9 @@ export function AgentConversation({
   children: React.ReactNode;
   transcriptFooter?: React.ReactNode;
   localReview?: LocalReviewThreads;
+  discussions?: TaskDiscussionDto[];
+  onOpenDiscussion?: (discussionId: string) => void;
+  onSelectPassage?: (passage: SelectedPassage) => void;
   reviewRequests?: readonly ReviewRequest[];
   issueSource?: AgentIssueSourceDto | null;
   onOpenReview?: (target: ReviewRequestTarget) => void;
@@ -940,7 +960,8 @@ export function AgentConversation({
               models={models} durableTurns={durableTurns} activityChoice={activityChoice}
               previews={previews} agentLabels={agentLabels} onToggle={() => onToggleTurn(id, !open)}
               onToggleActivity={onToggleActivity} onDecide={onDecide} onOpenAgent={onOpenAgent}
-              localReview={localReview} reviewRequests={reviewRequests} issueSource={issueSource} onOpenReview={onOpenReview} latest={reserve}
+              localReview={localReview} discussions={discussions} onOpenDiscussion={onOpenDiscussion} onSelectPassage={onSelectPassage}
+              reviewRequests={reviewRequests} issueSource={issueSource} onOpenReview={onOpenReview} latest={reserve}
               generatedRequest={turn.turnId !== null && generatedTurnIds?.has(turn.turnId)} generatedBranch={generatedBranch}>
               {latest && liveActivity}
             </TurnView>;

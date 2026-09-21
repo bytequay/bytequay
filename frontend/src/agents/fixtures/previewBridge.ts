@@ -235,6 +235,26 @@ export function createPreviewBridge(
       record('listAgentTaskChanges', id);
       return {};
     },
+    listTaskDiscussions: async query => {
+      record('listTaskDiscussions', query);
+      return [];
+    },
+    openTaskDiscussion: async request => {
+      record('openTaskDiscussion', request);
+      throw new Error('This preview has no discussions');
+    },
+    askTaskDiscussion: async request => {
+      record('askTaskDiscussion', request);
+      throw new Error('This preview has no discussions');
+    },
+    resolveTaskDiscussion: async request => {
+      record('resolveTaskDiscussion', request);
+      throw new Error('This preview has no discussions');
+    },
+    retryTaskDiscussion: async request => {
+      record('retryTaskDiscussion', request);
+      throw new Error('This preview has no discussions');
+    },
     listLocalReviewComments: async query => {
       record('listLocalReviewComments', query);
       return [];

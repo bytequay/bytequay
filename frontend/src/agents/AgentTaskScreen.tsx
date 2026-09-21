@@ -62,6 +62,9 @@ WorkspaceDto
 import TaskPaneDivider, { useTaskPane } from './TaskPaneDivider';
 import { AgentConversation,BlockView,clock,codeGraphText,ConversationComposer,ConversationQueue,Glyph,modelName,PlanSteps,serviceTierName,shortDate,Spinner,stateClass,useConversationHistory,useOutputWheel,type AttachmentPreview } from './AgentConversation';
 import { type CommitRange, type DiffAgentComment } from '../pulls/PullChanges';
+import { useTaskDiscussions, type TaskDiscussions } from './discussions/useTaskDiscussions';
+import type { SelectedPassage } from './discussions/DiscussableAnswer';
+import { DiscussionsPanel } from './discussions/DiscussionsPanel';
 import { useLocalReviewThreads } from '../pulls/local-review/useLocalReviewThreads';
 import type { LocalReviewThreadDto, LocalReviewThreads } from '../pulls/local-review/types';
 import AgentReviewTab, { type ReviewNavigationTarget } from '../pulls/agent-review/AgentReviewTab';
@@ -135,7 +138,7 @@ type TaskPullRequestDetail
 } from './TaskPullRequestPanel';
 export { TurnView,type AttachmentPreview } from './AgentConversation';
 
-type PanelTab = 'pr' | 'changes' | 'review' | 'code' | 'agents';
+type PanelTab = 'pr' | 'changes' | 'review' | 'code' | 'agents' | 'discussions';
 
 interface AgentTaskScreenProps {
   workspaceId: string;
@@ -539,6 +542,7 @@ function PanelFrame({ label, tabs, width, flush = false, overview = false, kept 
  * from the task's kept summary, and opening it says its activity expired rather than inventing it.
  */
 function SidePanel({
+  discussions, onJumpToPassage, pendingPassage, onPendingPassageDone,
   agents, openAgent, expiredChildren, deleteAfter, transcript, now, tab: requestedTab, task = null, pullRequest,
   pullRequestError, pullRequestLoading, pullRequestChecked, onRefreshPullRequests,
   pullRequestDetail, pullRequestChanges, pullRequestCommitRange, pullRequestPendingComments,
@@ -586,6 +590,10 @@ function SidePanel({
   onAskAgent?: (comment: DiffAgentComment) => Promise<void>;
   onAskAgentDisabled?: string | null;
   localReview?: LocalReviewThreads;
+  discussions?: TaskDiscussions;
+  onJumpToPassage?: (turnId: string) => void;
+  pendingPassage?: SelectedPassage | null;
+  onPendingPassageDone?: () => void;
   learning?: React.ReactNode;
   reviewFocus?: ReviewCardFocus | null;
   /** How many files hold unsaved Code & Tests drafts, so the screen can confirm before they are dropped. */
@@ -665,6 +673,12 @@ function SidePanel({
           {agentCount > 0 && <span className="agt-chip">{agentCount}</span>}
         </button>
       )}
+      {discussions !== undefined && (
+        <button type="button" className={tab === 'discussions' ? 'is-active' : ''} aria-pressed={tab === 'discussions'} onClick={() => onSelectTab('discussions')}>
+          <MessageCircle aria-hidden="true" /> Discussions
+          {discussions.discussions.length > 0 && <span className="agt-chip">{discussions.discussions.length}</span>}
+        </button>
+      )}
     </>
   );
   const tabs = pullRequest === null
@@ -672,7 +686,7 @@ function SidePanel({
     : <PullDetailHeader
       pr={pullRequest}
       detail={pullRequestDetail.detail}
-      tab={tab === 'pr' ? 'overview' : tab === 'agents' || tab === 'code' ? null : tab}
+      tab={tab === 'pr' ? 'overview' : tab === 'agents' || tab === 'code' || tab === 'discussions' ? null : tab}
       review={review}
       onReviewChange={setReview}
       agentTab={agentTab}
@@ -736,6 +750,11 @@ function SidePanel({
     </>
   ) : null;
   const code = { kept: codeBody, keptShown: tab === 'code' };
+  if (tab === 'discussions' && discussions !== undefined) {
+    return <PanelFrame label="Discussions" tabs={tabs} width={width} {...code}>
+      <DiscussionsPanel discussions={discussions} pending={pendingPassage} onPendingDone={onPendingPassageDone} onJump={onJumpToPassage} />
+    </PanelFrame>;
+  }
   if (tab === 'code') return <PanelFrame label="Code & Tests" tabs={tabs} width={width} flush {...code} />;
   if (tab === 'pr') {
     return (
@@ -933,6 +952,7 @@ function SidePanel({
  */
 export function AgentTaskBody({
   state, models, onBack, onSend: send, onCancel, onComplete, onDecide, onCompose, onSelectModel,
+  discussions, onSelectPassage, onOpenDiscussion, onJumpToPassage, pendingPassage, onPendingPassageDone,
   onStopServer, onMarkFailed, onRename, onArchive, composerRef,
   provider = '',
   providerStatus = null,
@@ -1000,6 +1020,12 @@ export function AgentTaskBody({
   onAskAgent?: (comment: DiffAgentComment) => Promise<void>;
   onAskAgentDisabled?: string | null;
   localReview?: LocalReviewThreads;
+  discussions?: TaskDiscussions;
+  onSelectPassage?: (passage: SelectedPassage) => void;
+  onOpenDiscussion?: (discussionId: string) => void;
+  onJumpToPassage?: (turnId: string) => void;
+  pendingPassage?: SelectedPassage | null;
+  onPendingPassageDone?: () => void;
   learning?: React.ReactNode;
   reviewFocus?: ReviewCardFocus | null;
   onOpenReview?: (target: ReviewRequestTarget) => void;
@@ -1264,6 +1290,7 @@ export function AgentTaskBody({
       <AgentConversation
         turns={turns} durableTurns={state.turns} models={models} now={now} scroll={scroll}
         localReview={localReview} onOpenReview={onOpenReview} issueSource={state.task?.issueSource}
+        discussions={discussions?.discussions} onSelectPassage={onSelectPassage} onOpenDiscussion={onOpenDiscussion}
         generatedBranch={state.task?.generatedBranch}
         connection={state.connection} running={status === 'running'} activeTurn={state.turn} activeTurnId={state.turn?.id ?? state.latestTurnId}
         waiting={waiting} gap={state.gap} pendingMessage={state.pendingMessage} activityChoice={activityChoice} turnChoice={turnChoice}
@@ -1382,6 +1409,10 @@ export function AgentTaskBody({
         <>
           <TaskPaneDivider pane={sidePanel} />
           <SidePanel
+            discussions={discussions}
+            onJumpToPassage={onJumpToPassage}
+            pendingPassage={pendingPassage}
+            onPendingPassageDone={onPendingPassageDone}
             agents={agents}
             openAgent={supportsNestedAgents ? openAgent : null}
             expiredChildren={expiredChildren}
@@ -1542,6 +1573,7 @@ export default function AgentTaskScreen({
   const [ciPollingError, setCiPollingError] = useState<string | null>(null);
   const [openAgent, setOpenAgent] = useState<string | null>(null);
   const [panelTab, setPanelTab] = useState<PanelTab>('pr');
+  const [pendingPassage, setPendingPassage] = useState<SelectedPassage | null>(null);
   const [reviewFocus, setReviewFocus] = useState<ReviewCardFocus | null>(null);
   const [logChoice, setLogChoice] = useState<string | null>(null);
   const [pullRequests, setPullRequests] = useState<PullRequestDto[]>([]);
@@ -2038,6 +2070,9 @@ export default function AgentTaskScreen({
     learningDisabledReason: taskCommentDisabled,
     onDispatch: () => refreshProjection(stateRef.current.latestTurnId),
   });
+  const discussions = useTaskDiscussions(
+    state.task?.interactive === true ? { taskId, workspaceId } : null,
+    { active: state.task?.interactive === true, bridge: explicitBridge, disabledReason: agentCommentDisabled });
   const createLocalReview = localReview.create;
   const sendAgentComment = useCallback(async (comment: DiffAgentComment) => {
     const task = stateRef.current.task;
@@ -2409,6 +2444,15 @@ export default function AgentTaskScreen({
       onAskAgent={state.task?.interactive === true ? sendAgentComment : undefined}
       onAskAgentDisabled={agentCommentDisabled}
       localReview={localReview}
+      discussions={discussions}
+      onSelectPassage={passage => { setPanelChoice(true); setPanelTab('discussions'); setPendingPassage(passage); }}
+      pendingPassage={pendingPassage}
+      onPendingPassageDone={() => setPendingPassage(null)}
+      onOpenDiscussion={() => { setPanelChoice(true); setPanelTab('discussions'); }}
+      onJumpToPassage={turnId => {
+        document.querySelector(`.agt-turn[data-history-anchor="${CSS.escape(turnId)}"]`)
+          ?.scrollIntoView({ block: 'center' });
+      }}
       learning={state.task === null ? undefined : <DevelopmentLearningPanel key={taskId} task={state.task} repository={workspace === undefined ? '' : `${workspace.monitoredOwner}/${workspace.monitoredRepo}`}
         refreshKey={state.lifecycleEpoch} refining={state.task.developmentContinuationUnfinished && state.turn?.developmentOrigin?.kind === 'REFINE_SUMMARY'}
         disabledReason={taskCommentDisabled}

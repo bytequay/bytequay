@@ -291,7 +291,9 @@ public class ReviewTools
                                 + "NEEDS_EVIDENCE requires a specific question, check, and resolving criterion; ByteQuay schedules the evidence turn. "
                                 + "SUPPORTED binds a saved findingId and findingRevision. Report the investigationStep from the assignment context. "
                                 + "complete=false and omissions are required for unsettled candidates or unreviewed scope. "
-                                + "Put unavailable tests caused by missing credentials, services, or dependencies in warnings. "
+                                + "Warnings are only for checks that were run and stopped by a limit the worktree cannot fix, such as missing credentials, "
+                                + "external services, or unobtainable third-party dependencies; each names the command, its error, and the recovery tried. "
+                                + "Caveats about evidence strength stay with the candidate they qualify. "
                                 + "Warnings do not prevent completion when all scope was reviewed and candidate conclusions have sufficient evidence.",
                         schema(ImmutableMap.of(
                                 "operationKey", ImmutableMap.of("type", "string", "minLength", 1, "maxLength", MAX_KEY),

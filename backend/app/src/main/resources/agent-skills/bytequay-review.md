@@ -78,9 +78,17 @@ discussions, resumed turns, and report repair.
    covering the complete selected RIGHT-side range, with no diff markers.
 8. Keep required commit explanations complete. Name unreviewed essential scope
    and unresolved candidates in review_finish omissions, with complete=false.
-   Tests unavailable because of missing credentials, services, dependencies, or
-   other environment limits belong in review_finish warnings. State which checks
-   could not run and why. If all required scope was reviewed and every candidate
+   First make an unavailable test runnable: a missing or outdated module of this
+   project is rebuilt from the worktree, not reported. Tests that remain
+   unavailable because of missing credentials, external services, unobtainable
+   third-party dependencies, or another limit the worktree cannot fix belong in
+   review_finish warnings. State which checks could not run, the command and
+   error that stopped each one, and what recovery was tried. A test that was
+   never attempted is not unavailable, and a green CI check does not replace one
+   that can run in the worktree. Warnings are only for checks that could not
+   run: a caveat about how strong a piece of evidence is, such as a rough timing
+   measurement, stays with the candidate conclusion or finding evidence it
+   qualifies. If all required scope was reviewed and every candidate
    is supported or rejected with sufficient evidence, finish with complete=true,
    omissions=[], and these warnings. Finishing a review does not claim every test
    ran or passed. If an unavailable check leaves a candidate unsupported, keep

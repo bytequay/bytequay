@@ -610,7 +610,11 @@ Evidence stays with the finding it supports, distinguishing executed checks
 from source inspection and reported CI results. `review_finish` still records
 machine coverage and omissions for the run status, plus optional `warnings` for
 unavailable verification. Warnings are stored with coverage and shown in the
-existing PR intention card; they do not create a separate card.
+existing PR intention card; they do not create a separate card. A warning
+reports only a check that could not run. A caveat about how strong a piece of
+evidence is, such as a rough timing measurement, stays with the candidate
+conclusion or finding evidence it qualifies, so the card never carries agent
+commentary about its own method.
 The summary tool requests only purpose and commit explanations. Retained stored
 fields and discussions are read without generating replacement prose for
 removed sections.
@@ -620,6 +624,18 @@ agent autobiography or tool/environment commentary. Review commands have no netw
 and runs the tests that exercise the change offline against the local
 dependency caches; both providers may write `~/.m2/repository`.
 Only a failed offline build shows a dependency is missing.
+The caches supply third-party dependencies only. The project's own modules come
+from the worktree, because a cached build of one, such as a Maven SNAPSHOT a
+different checkout installed, may hold other code under the same version. When
+a build or test compile fails on a missing or outdated project module, the
+agent builds that module from the worktree in the same invocation, without
+installing it into the shared cache, and retries before it narrows to a single
+test.
+The tests that exercise the change are the ones the pull request adds or
+changes and the existing tests that drive the changed code end to end, narrowed
+to the relevant classes or methods. A test counts as unavailable only after it
+was run and stopped by something the worktree cannot fix; a green CI check is
+reported evidence and does not replace a test that can run in the worktree.
 
 Validate commit/finding references against the run. Incremental review
 updates the overall explanation and identifies what the new commits changed;
@@ -674,7 +690,12 @@ coverage requires a complete distinct commit summary, every required changed
 file, and supported or rejected assessments for all candidates. The backend
 rechecks the investigation identity and supported finding revisions at run
 acceptance. Missing scope and unsettled hypotheses require complete=false and
-omissions. Unavailable tests alone use `warnings`; warnings do not prevent
+omissions. Tests that stay unavailable after the agent tried to make them
+runnable, because of missing
+credentials, external services, unobtainable third-party dependencies, native
+denials, or another limit the worktree cannot fix, use `warnings` that name
+the command that was run, the error that stopped it, and the recovery that was
+tried. Evidence-strength caveats are not warnings. Warnings do not prevent
 complete=true with empty omissions when every required file and candidate has
 been assessed. A warning cannot replace evidence needed to support or reject a
 candidate. A complete zero-finding result is explicit.

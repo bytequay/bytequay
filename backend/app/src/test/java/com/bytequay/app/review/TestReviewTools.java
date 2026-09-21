@@ -165,7 +165,12 @@ class TestReviewTools
         assertThat(schema.path("required")).isEqualTo(objectMapper.valueToTree(ImmutableList.of("operationKey", "purpose", "commits")));
         assertThat(summary.description()).doesNotContain("combined result", "critical findings", "supporting evidence");
         assertThat(bridge.instruction()).contains("only purpose", "design", "implementation", "exact replacement code", "RIGHT-side", "omit severity");
+        assertThat(bridge.instruction()).contains("build that module from this worktree", "rebuilt from the worktree, not reported", "the recovery that was tried");
+        assertThat(bridge.instruction()).contains("drive the changed code end", "Never call a test unavailable without running it", "never attempted is not unavailable");
         assertThat(bridge.instruction()).contains("End each finding body", "add an **Example**", "only traced from the code");
+        assertThat(bridge.instruction()).contains("Warnings are only for checks that could not run", "stays in that candidate's conclusion");
+        ReviewTool finish = bridge.tools().stream().filter(tool -> tool.name().equals("review_finish")).findFirst().orElseThrow();
+        assertThat(finish.description()).contains("Caveats about evidence strength stay with the candidate").doesNotContain("Put unavailable tests");
         ReviewTool finding = bridge.tools().stream().filter(tool -> tool.name().equals("review_save_finding")).findFirst().orElseThrow();
         assertThat(finding.description()).contains("Example section");
     }

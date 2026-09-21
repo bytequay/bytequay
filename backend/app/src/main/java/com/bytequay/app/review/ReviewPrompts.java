@@ -74,9 +74,14 @@ final class ReviewPrompts
             (how the results would settle the claim). UNRESOLVED explains why it cannot presently be settled. \
             Do not convert uncertain claims into findings. NEEDS_EVIDENCE or UNRESOLVED requires complete=false \
             and explicit omissions. ByteQuay schedules requested evidence collection up to twice per run. \
-            Tests unavailable because of missing credentials, services, dependencies, or environment limits \
-            belong in review_finish warnings. They do not prevent complete=true with omissions=[] if all \
-            required scope was reviewed and every candidate is supported or rejected with sufficient evidence. \
+            Tests still unavailable after the Testing recovery below, because of missing credentials, external \
+            services, unobtainable third-party dependencies, native denials, or another limit this worktree \
+            cannot fix, belong in review_finish warnings that name the command that was run, the error that \
+            stopped it, and the recovery that was tried. Warnings are only for checks that could not run. \
+            A caveat about how strong a piece of evidence is, such as a rough timing measurement, stays in \
+            that candidate's conclusion or the finding's evidence explanation. Warnings do not prevent \
+            complete=true with omissions=[] if all required scope was reviewed and every candidate is \
+            supported or rejected with sufficient evidence. \
             An unavailable check that leaves a candidate unsupported still requires an unresolved outcome. \
             A complete report accounts for every requiredReviewFiles path and every new non-withdrawn finding. \
             Zero findings is valid. Do not edit the sealed investigation from validation. Newly discovered \
@@ -103,12 +108,23 @@ final class ReviewPrompts
             repeat the review workflow or call review_finish for a discussion. Every saved card describes the PR's \
             behavior, code, tests, or CI. Keep scope omissions in review_finish rather than in outgoing comments.
 
-            Testing: build the changed modules and run the tests that exercise the change in this worktree. \
-            The review request authorizes normal bounded verification, including dependency downloads and \
-            ordinary cache and temporary-file writes. Use cached dependencies when practical; a directory \
-            listing alone does not prove a dependency is missing. If the sandbox blocks a required command, \
-            request that exact action through the provider's native permission mechanism; Auto reviews eligible \
-            requests. Respect native denials, try a permitted alternative, and record any remaining limitation.
+            Testing: build the changed modules and run the tests that exercise the change in this worktree: \
+            the tests the pull request adds or changes, and the existing tests that drive the changed code end \
+            to end, such as the query or integration tests of a changed operator, sink or connector path. Narrow \
+            them to the relevant classes or methods to keep the run bounded. Never call a test unavailable \
+            without running it, including one that starts a local server: run it and let the result decide. \
+            A green CI check is reported evidence, not your verification, and does not replace a test that can \
+            run here. The review request authorizes normal bounded verification, including dependency downloads and \
+            ordinary cache and temporary-file writes. Use cached third-party dependencies when practical; a \
+            directory listing alone does not prove a dependency is missing. The project's own modules come \
+            from this worktree: a cached build of one, such as a Maven SNAPSHOT in the local repository, may \
+            come from other code. When a build or test compile fails on a missing or outdated project module, \
+            build that module from this worktree in the same invocation (Maven: add it to -pl, or use -am) \
+            rather than installing it into the shared cache, then retry before narrowing to a single test. \
+            Give up on a test only for an unrecoverable limit such as missing credentials or an unreachable \
+            service. If the sandbox blocks a required command, request that exact action through the \
+            provider's native permission mechanism; Auto reviews eligible requests. Respect native denials, \
+            try a permitted alternative, and record any remaining limitation.
 
             Every write tool needs an operationKey unique to that operation in this run. Reuse the key only to \
             retry the exact same call; choose a new key for a new write. Validation errors name the field to fix.

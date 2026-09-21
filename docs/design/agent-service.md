@@ -2100,6 +2100,10 @@ variable is set on those processes alone, so the user's own Codex desktop and
 terminal sessions keep `~/.codex` untouched, and the model-facing shell still
 never sees `CODEX_HOME`.
 
+Codex writes one rollout transcript per thread under `sessions/YYYY/MM/DD` and
+never deletes it. The retention sweep described with the Claude home below
+bounds that tree.
+
 The home is signed in separately, once, with the exact command readiness
 reports, `CODEX_HOME="…/ByteQuay/codex-home" codex login`, which stores that
 login in ByteQuay's home only. ByteQuay never reads, copies, or links the user's
@@ -2140,8 +2144,21 @@ Claude needs no seeded config file: unlike Codex there is no user layer left to
 neutralize.
 
 Each task gets a fresh worktree and cleanup removes that worktree, so a
-transcript directory keyed to the dead path is never written to again. Those
-directories are now ByteQuay's to sweep; retention is not built here.
+transcript directory keyed to the dead path is never written to again. Nothing
+but age can retire one.
+
+Both homes are therefore swept by one retention job on the same rule: a
+transcript directory goes once every file in it has gone untouched for
+`bytequay.agent.session-retention-days` (30 by default). Only the shape of the
+tree differs — Codex's day partitions sit three levels under `sessions`, Claude's
+per-path directories one level under `projects` — so the walk is shared and each
+home names its own root and depth. File times decide and directory names never
+do, because a thread resumed long after it started still appends to the
+transcript it first opened; a thread ByteQuay may still resume therefore survives
+the sweep, while one idle past the window stops being resumable. That is why the
+window is set well past how long a task stays open. The sweep runs off the
+scheduler thread, an unreadable home does not stop the other from being swept,
+and neither the user's `~/.codex` nor their `~/.claude` is ever touched.
 
 ### 5.4 Turn quiescence
 

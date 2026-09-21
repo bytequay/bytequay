@@ -13,10 +13,13 @@
  */
 package com.bytequay.agent.cli.codex;
 
+import com.bytequay.agent.cli.ProviderSessions;
+
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.attribute.PosixFilePermissions;
+import java.time.Instant;
 
 import static java.util.Objects.requireNonNull;
 
@@ -30,6 +33,10 @@ import static java.util.Objects.requireNonNull;
  */
 public final class CodexHome
 {
+    /** Codex writes its rollout transcripts into {@code sessions/YYYY/MM/DD}. */
+    private static final String SESSIONS = "sessions";
+    private static final int DAY_DEPTH = 3;
+
     private CodexHome() {}
 
     /**
@@ -53,5 +60,20 @@ public final class CodexHome
             Files.setPosixFilePermissions(config, PosixFilePermissions.fromString("rw-------"));
         }
         return home;
+    }
+
+    /**
+     * Deletes the day partitions whose rollouts have all gone untouched since a cutoff.
+     *
+     * @param home the Codex home to prune
+     * @param deleteBefore the instant every rollout in a day must predate for that day to be deleted
+     * @return how many day directories were deleted
+     * @throws IOException when the sessions tree cannot be read or a day cannot be deleted
+     */
+    public static int pruneSessions(Path home, Instant deleteBefore)
+            throws IOException
+    {
+        requireNonNull(home, "home is null");
+        return ProviderSessions.prune(home.resolve(SESSIONS), DAY_DEPTH, deleteBefore);
     }
 }

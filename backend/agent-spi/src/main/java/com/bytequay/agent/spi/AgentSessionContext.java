@@ -30,7 +30,7 @@ public record AgentSessionContext(
         AgentApprovalHandler approvals,
         Optional<String> model,
         Optional<String> effort,
-        boolean textOnly,
+        SessionAccess access,
         Optional<CodeGraphBridge> codeGraph,
         String managedInstructions)
 {
@@ -53,7 +53,7 @@ public record AgentSessionContext(
                 approvals,
                 Optional.empty(),
                 Optional.empty(),
-                false);
+                SessionAccess.FULL);
     }
 
     public AgentSessionContext(
@@ -66,7 +66,7 @@ public record AgentSessionContext(
             AgentApprovalHandler approvals,
             Optional<String> model,
             Optional<String> effort,
-            boolean textOnly)
+            SessionAccess access)
     {
         this(
                 taskId,
@@ -78,7 +78,7 @@ public record AgentSessionContext(
                 approvals,
                 model,
                 effort,
-                textOnly,
+                access,
                 Optional.empty(),
                 "");
     }
@@ -94,12 +94,20 @@ public record AgentSessionContext(
         requireNonNull(approvals, "approvals is null");
         requireNonNull(model, "model is null").ifPresent(value -> checkNotBlank(value, "model"));
         requireNonNull(effort, "effort is null").ifPresent(value -> checkNotBlank(value, "effort"));
+        requireNonNull(access, "access is null");
         requireNonNull(codeGraph, "codeGraph is null");
         requireNonNull(managedInstructions, "managedInstructions is null");
         checkArgument(model.isPresent() || effort.isEmpty(), "effort requires a model");
         checkArgument(worktree.isAbsolute(), "worktree is not absolute");
         checkArgument(runtimeDirectory.isAbsolute() && providerDirectory.isAbsolute(), "runtime directories are not absolute");
         checkArgument(providerDirectory.toAbsolutePath().normalize().startsWith(runtimeDirectory.toAbsolutePath().normalize()), "providerDirectory escapes runtimeDirectory");
-        checkArgument(!textOnly || worktree.toAbsolutePath().normalize().startsWith(runtimeDirectory.toAbsolutePath().normalize()), "text-only worktree escapes runtimeDirectory");
+        checkArgument(access != SessionAccess.TEXT_ONLY || worktree.toAbsolutePath().normalize().startsWith(runtimeDirectory.toAbsolutePath().normalize()),
+                "text-only worktree escapes runtimeDirectory");
+    }
+
+    /** Whether this session has no tools at all. */
+    public boolean textOnly()
+    {
+        return access == SessionAccess.TEXT_ONLY;
     }
 }

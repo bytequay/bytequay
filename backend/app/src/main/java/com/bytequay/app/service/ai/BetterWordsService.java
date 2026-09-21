@@ -26,6 +26,7 @@ import com.bytequay.agent.spi.AgentTurnCommand;
 import com.bytequay.agent.spi.AgentTurnResult;
 import com.bytequay.agent.spi.AgentUnavailableException;
 import com.bytequay.agent.spi.ProviderApprovalDecision;
+import com.bytequay.agent.spi.SessionAccess;
 import com.bytequay.app.service.settings.AgentModelSetting;
 import com.bytequay.app.service.settings.AgentModelType;
 import com.bytequay.app.service.settings.AgentSkillService;
@@ -177,7 +178,7 @@ public class BetterWordsService
                             ProviderApprovalDecision.deny()),
                     Optional.of(model.model()),
                     model.effort(),
-                    true,
+                    SessionAccess.TEXT_ONLY,
                     Optional.empty(),
                     managedInstructions);
             processMayBeRunning = true;

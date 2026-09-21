@@ -88,6 +88,7 @@ import com.bytequay.agent.spi.ProviderApprovalDecision;
 import com.bytequay.agent.spi.ProviderApprovalRequest;
 import com.bytequay.agent.spi.ProviderTurnRef;
 import com.bytequay.agent.spi.RunningTurn;
+import com.bytequay.agent.spi.SessionAccess;
 import com.google.common.collect.ImmutableList;
 
 import java.nio.ByteBuffer;
@@ -1710,7 +1711,7 @@ public final class DefaultAgentTurnService
                         (request, timeout) -> requestApproval(task.id(), turnId, request, timeout),
                         settings.model(),
                         settings.effort(),
-                        false,
+                        SessionAccess.FULL,
                         codeGraphBridge(task, resources),
                         managedInstructions.apply(task) + developmentInstructions(settings)),
                 event -> routeEvent(task.id(), turnId, event)), "opened session is null");

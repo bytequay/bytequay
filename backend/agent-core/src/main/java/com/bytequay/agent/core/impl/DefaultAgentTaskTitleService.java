@@ -28,6 +28,7 @@ import com.bytequay.agent.spi.AgentTurnCommand;
 import com.bytequay.agent.spi.AgentTurnResult;
 import com.bytequay.agent.spi.ProviderApprovalDecision;
 import com.bytequay.agent.spi.RunningTurn;
+import com.bytequay.agent.spi.SessionAccess;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.google.common.collect.ImmutableList;
@@ -114,7 +115,7 @@ public final class DefaultAgentTaskTitleService
                     helperId.toString(), worktree, scratch.runtimeDirectory(), scratch.providerDirectory(),
                     AgentPermissionPolicy.AUTO, Optional.empty(),
                     (request, timeout) -> CompletableFuture.completedFuture(ProviderApprovalDecision.deny()),
-                    defaults.model(), defaults.effort(), true, Optional.empty(), managedInstructions.get());
+                    defaults.model(), defaults.effort(), SessionAccess.TEXT_ONLY, Optional.empty(), managedInstructions.get());
             processMayBeRunning = true;
             session = drivers.require(laneId).open(sessionContext, event -> {});
             RunningTurn running = session.start(new AgentTurnCommand(

@@ -52,6 +52,7 @@ import com.bytequay.agent.spi.ReviewBridge;
 import com.bytequay.agent.spi.ReviewBridgeResolver;
 import com.bytequay.agent.spi.ReviewTool;
 import com.bytequay.agent.spi.RunningTurn;
+import com.bytequay.agent.spi.SessionAccess;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.google.common.collect.ImmutableList;
@@ -299,7 +300,7 @@ class TestClaudeCliDriver
                 plain.approvals(),
                 plain.model(),
                 plain.effort(),
-                plain.textOnly(),
+                plain.access(),
                 Optional.of(new CodeGraphBridge(query -> "graph:" + query, "use the graph")),
                 "");
 
@@ -491,7 +492,7 @@ class TestClaudeCliDriver
         assertThat(settingsFile).doesNotExist();
 
         AgentSession textSession = driver.open(context(
-                Optional.empty(), AgentPermissionPolicy.AUTO, Optional.of("sonnet"), Optional.of("Extra"), true),
+                Optional.empty(), AgentPermissionPolicy.AUTO, Optional.of("sonnet"), Optional.of("Extra"), SessionAccess.TEXT_ONLY),
                 events::add);
         assertThat(await(textSession.start(command("rewrite"))).state()).isEqualTo(AgentTurnResult.State.COMPLETED);
         ProcessSpec textSpec = supervisor.turns().getLast().spec();
@@ -636,7 +637,7 @@ class TestClaudeCliDriver
                 AgentPermissionPolicy.AUTO,
                 Optional.of("opus"),
                 Optional.of("High"),
-                false), ignored -> {});
+                SessionAccess.FULL), ignored -> {});
 
         await(session.start(new AgentTurnCommand(
                 "turn-first",
@@ -1470,22 +1471,22 @@ class TestClaudeCliDriver
         AgentSessionContext plain = context(reference);
         return new AgentSessionContext(
                 plain.taskId(), plain.worktree(), plain.runtimeDirectory(), plain.providerDirectory(), plain.permissionPolicy(),
-                plain.sessionReference(), plain.approvals(), plain.model(), plain.effort(), plain.textOnly(), plain.codeGraph(), managedInstructions);
+                plain.sessionReference(), plain.approvals(), plain.model(), plain.effort(), plain.access(), plain.codeGraph(), managedInstructions);
     }
 
     private AgentSessionContext context(
             Optional<AgentSessionRef> reference,
             AgentPermissionPolicy permissionPolicy)
     {
-        return context(reference, permissionPolicy, false);
+        return context(reference, permissionPolicy, SessionAccess.FULL);
     }
 
     private AgentSessionContext context(
             Optional<AgentSessionRef> reference,
             AgentPermissionPolicy permissionPolicy,
-            boolean textOnly)
+            SessionAccess access)
     {
-        return context(reference, permissionPolicy, Optional.empty(), Optional.empty(), textOnly);
+        return context(reference, permissionPolicy, Optional.empty(), Optional.empty(), access);
     }
 
     private AgentSessionContext context(
@@ -1493,9 +1494,9 @@ class TestClaudeCliDriver
             AgentPermissionPolicy permissionPolicy,
             Optional<String> model,
             Optional<String> effort,
-            boolean textOnly)
+            SessionAccess access)
     {
-        Path sessionWorktree = textOnly ? runtimeDirectory().resolve("text-worktree") : worktree;
+        Path sessionWorktree = access == SessionAccess.TEXT_ONLY ? runtimeDirectory().resolve("text-worktree") : worktree;
         return new AgentSessionContext(
                 "task-1",
                 sessionWorktree,
@@ -1506,7 +1507,7 @@ class TestClaudeCliDriver
                 (request, timeout) -> CompletableFuture.completedFuture(ProviderApprovalDecision.deny()),
                 model,
                 effort,
-                textOnly);
+                access);
     }
 
     private Path runtimeDirectory()

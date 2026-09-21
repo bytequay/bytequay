@@ -51,6 +51,7 @@ import com.bytequay.agent.spi.PullRequestCiBridgeResolver;
 import com.bytequay.agent.spi.ReviewBridge;
 import com.bytequay.agent.spi.ReviewBridgeResolver;
 import com.bytequay.agent.spi.RunningTurn;
+import com.bytequay.agent.spi.SessionAccess;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ArrayNode;
@@ -394,7 +395,7 @@ class TestCodexCliDriver
                 plain.approvals(),
                 plain.model(),
                 plain.effort(),
-                true);
+                SessionAccess.TEXT_ONLY);
 
         AgentSession session = driver.open(textOnly, event -> {});
 
@@ -444,7 +445,7 @@ class TestCodexCliDriver
                 plain.approvals(),
                 plain.model(),
                 plain.effort(),
-                true))
+                SessionAccess.TEXT_ONLY))
                 .isInstanceOf(IllegalArgumentException.class)
                 .hasMessageContaining("text-only worktree escapes runtimeDirectory");
 
@@ -2803,7 +2804,7 @@ class TestCodexCliDriver
                 plain.approvals(),
                 plain.model(),
                 plain.effort(),
-                plain.textOnly(),
+                plain.access(),
                 Optional.of(new CodeGraphBridge(query -> "graph:" + query, "use the graph")),
                 "Keep explanations concise");
 
@@ -2837,7 +2838,7 @@ class TestCodexCliDriver
             AgentSessionContext plain = context(reference, new AtomicReference<>());
             AgentSessionContext configured = new AgentSessionContext(
                     plain.taskId(), plain.worktree(), plain.runtimeDirectory(), plain.providerDirectory(), plain.permissionPolicy(),
-                    plain.sessionReference(), plain.approvals(), plain.model(), plain.effort(), plain.textOnly(), plain.codeGraph(), instruction);
+                    plain.sessionReference(), plain.approvals(), plain.model(), plain.effort(), plain.access(), plain.codeGraph(), instruction);
             AgentSession session = driver.open(configured, event -> {});
             AppServerProcess server = supervisor.servers().getLast();
             JsonNode request = server.threadRequests().getFirst();
@@ -2923,7 +2924,7 @@ class TestCodexCliDriver
                 approvals,
                 model,
                 effort,
-                false);
+                SessionAccess.FULL);
     }
 
     private static AgentSessionContext context(

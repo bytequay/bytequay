@@ -165,6 +165,9 @@ class TestReviewTools
         assertThat(schema.path("required")).isEqualTo(objectMapper.valueToTree(ImmutableList.of("operationKey", "purpose", "commits")));
         assertThat(summary.description()).doesNotContain("combined result", "critical findings", "supporting evidence");
         assertThat(bridge.instruction()).contains("only purpose", "design", "implementation", "exact replacement code", "RIGHT-side", "omit severity");
+        assertThat(bridge.instruction()).contains("End each finding body", "add an **Example**", "only traced from the code");
+        ReviewTool finding = bridge.tools().stream().filter(tool -> tool.name().equals("review_save_finding")).findFirst().orElseThrow();
+        assertThat(finding.description()).contains("Example section");
     }
 
     @Test

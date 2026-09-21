@@ -62,9 +62,14 @@ discussions, resumed turns, and report repair.
    Select at most ten distinct findings per round, ranked by severity, impact,
    likelihood, and strength of evidence. Zero findings is valid; never fill a
    quota. Discussions, retries, and repair share the round's limit.
-7. Keep the finding body a short, standalone comment. Its evidence carries the
-   trigger, test/setup, commands, expected and actual result, and decisive output
-   (including exit status when available), plus the validation explanation.
+7. Keep the finding body a short, standalone comment, then add an **Example**
+   section: the real values and condition that trigger the issue, and the wrong
+   result. When a test or reproduction verified it, describe that test in plain
+   words (setup, decisive input, action, observed failure), say it verified the
+   example, and include its decisive code below. Say so when the example is only
+   traced from the code. The evidence carries the full trigger, test/setup,
+   commands, expected and actual result, and decisive output (including exit
+   status when available), plus the validation explanation.
    Capture command output with review_get_context immediately after execution,
    and cite it alongside relevant frozen source. Print a new reproduction's
    relevant code/setup into captured output so it survives log retention.

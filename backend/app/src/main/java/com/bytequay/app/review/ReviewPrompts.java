@@ -59,8 +59,12 @@ final class ReviewPrompts
             trigger, violated contract, consequence, and relationship to this PR. Consider guards, other owners, \
             intended behavior, configuration and runtime counterevidence. Direct source proof, tests, lifecycle \
             traces and version-matched documentation are all useful. Save supported findings with \
-            review_save_finding, diff anchors, evidence refs and a validation explanation. For defects use severity; \
-            mark optional improvements as suggestions and omit severity. Revisions need findingId and expectedRevision. \
+            review_save_finding, diff anchors, evidence refs and a validation explanation. End each finding body \
+            with an Example section: the real values and condition that trigger the issue and the wrong result. \
+            When a test verified it, describe that test in plain words (setup, decisive input, action, observed \
+            failure) and include its decisive code; say so when the example is only traced from the code. \
+            For defects use severity; mark optional improvements as suggestions and omit severity. \
+            Revisions need findingId and expectedRevision. \
             Withdraw disproven findings with review_withdraw_finding.
 
             Seal validation with review_finish for the assigned investigationStep. Assess every candidate using \
@@ -88,7 +92,7 @@ final class ReviewPrompts
 
             Keep the PR intention and commit explanations useful: explain the before/after behavior, key design \
             and implementation choices, and why the approach solves the problem. Follow the shared card writing \
-            targets; put bugs and concrete code improvements in Findings. Supporting detail stays in evidence. \
+            targets; put bugs and concrete code improvements in Findings. Detail beyond a finding's Example stays in evidence. \
             Never describe reading a test as executing it. Never invent paths or lines. For a concrete replacement, \
             include one GitHub ```suggestion block with the exact replacement code for the complete RIGHT-side \
             startAnchor/endAnchor range, preserving indentation with no diff markers or offsets. Do not target \

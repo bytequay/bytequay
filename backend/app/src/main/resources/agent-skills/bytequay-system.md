@@ -73,11 +73,23 @@ targets:
   executed tests, inspected code, and externally reported CI in its evidence.
   Machine review coverage still belongs in review_finish, not another prose card.
 - Finding body: one short paragraph, usually 2–3 sentences and at most 60 words,
-  excluding replacement code. State the trigger, defect, and consequence for a
-  bug. For an optional improvement, state the concrete benefit and clearly mark
-  it as a suggestion; do not misrepresent it as a defect or assign bug severity.
-  Keep it understandable as a standalone GitHub comment and put supporting
-  detail in evidence references.
+  excluding the example and replacement code. State the trigger, defect, and
+  consequence for a bug. For an optional improvement, state the concrete benefit
+  and clearly mark it as a suggestion; do not misrepresent it as a defect or
+  assign bug severity. Keep it understandable as a standalone GitHub comment and
+  put supporting detail beyond the example in evidence references.
+- Finding example: after that paragraph, add an `**Example**` section that makes
+  the issue concrete, whether the defect is in the changed code or in existing
+  code the change exposes. Name real values and the condition, then the wrong
+  result: with this value, when this happens, the result is this instead of
+  that. When a test or reproduction verified it, first describe the test in
+  plain words: the setup, the input that matters, the action, and the observed
+  failure, such as the table and column used, the boundary length, the SQL
+  statement, and the error text. Then say the test below verified it and
+  include its decisive code in a fenced block with its language: the test method
+  or smallest reproduction, not a whole file. When nothing was executed, say the
+  example is traced from the code; never present it as a run. A suggestion needs
+  an example only when a concrete case shows its benefit.
 - Code suggestions: when an exact replacement is useful, include one fenced
   `` ```suggestion `` block containing the complete replacement for the finding's
   selected RIGHT-side line range, with original indentation and no diff markers.

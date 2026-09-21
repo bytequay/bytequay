@@ -596,6 +596,16 @@ suggestions in intention or commit explanations. The editable outgoing draft
 preserves the block and selected range. Publication still requires a direct
 user action.
 
+A finding body ends with an **Example** section that makes the issue concrete:
+the real values and condition that trigger it and the wrong result, for a defect
+in the changed code or in existing code the change exposes. When a test or
+reproduction verified the issue, the example describes that test in plain words,
+such as the table and column used, the boundary value, the statement run, and
+the error returned, and is followed by the decisive test code in a fenced block.
+An example that was only traced from the code says so. The example is part of
+the Markdown body, so it renders in the card and travels with a published
+comment; it needs no separate field.
+
 Evidence stays with the finding it supports, distinguishing executed checks
 from source inspection and reported CI results. `review_finish` still records
 machine coverage and omissions for the run status, plus optional `warnings` for

@@ -1447,6 +1447,22 @@ describe('agent task detail', () => {
     expect(markup).toContain('aria-label="Allow once: ');
   });
 
+  it('holds a running turn\'s group open in the gap between two commands', () => {
+    // The group folded as soon as a command finished and reopened with the next one, so the page jumped.
+    const between = events.filter((event) => (event.type !== 'lifecycle' || event.payload.phase !== 'TURN_COMPLETED')
+      && !event.type.startsWith('approval') && event.type !== 'error');
+    const markup = body({ task: task('t-1', 'OPEN', 'x'), events: between, connection: 'open' });
+
+    expect(markup).toContain('<span class="agt-act__title">Working</span>');
+    expect(markup).toContain('Ran command');
+    expect(markup).not.toContain('agt-act__fold');
+    // With nothing running the header drops its phrase rather than claiming work.
+    expect(markup).not.toContain('running commands');
+    // Only the finished command's own output folds.
+    expect(markup).toContain('<details class="agt-out">');
+    expect(markup).not.toContain('<details class="agt-out" open="">');
+  });
+
   it('expands a read from its supplied name and keeps skill loading as a plain row', () => {
     const named = events.map((event): AgentEventEnvelope => {
       if (event.type === 'command') return {

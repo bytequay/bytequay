@@ -730,7 +730,10 @@ export function currentPlan(turns: TranscriptTurn[]): PlanBlock | null {
   return turns.at(-1)?.blocks.find((block): block is PlanBlock => block.kind === 'plan') ?? null;
 }
 
-/** Whether an activity group is shown open: always while running, otherwise as the user last chose. */
-export function activityExpanded(block: ActivityBlock, choice: boolean | undefined): boolean {
-  return activityRunning(block) ? true : choice ?? false;
+/**
+ * Whether an activity group is shown open: open while its turn runs, otherwise as the user last
+ * chose. A group folded between two commands made the page jump as the next command reopened it.
+ */
+export function activityExpanded(block: ActivityBlock, choice: boolean | undefined, live: boolean): boolean {
+  return choice ?? (live || activityRunning(block));
 }

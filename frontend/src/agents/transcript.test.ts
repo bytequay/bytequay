@@ -309,15 +309,18 @@ describe('projecting the transcript', () => {
     expect(formatDuration(3_720_000)).toBe('1h 02m');
   });
 
-  it('keeps a running group open and folds a finished one unless the user chose otherwise', () => {
+  it('keeps a running turn\'s groups open and folds them once it ends, unless the user chose otherwise', () => {
     const running: ActivityBlock = { kind: 'activity', id: 'g', startedAt: '2026-08-20T10:00:00Z', endedAt: null, members: [
       { kind: 'command', id: 'a', command: 'sleep 5', state: 'STARTED', output: null, exitCode: null, truncated: false, cwd: null, durationMs: null, actions: [] },
     ] };
     const finished: ActivityBlock = { ...running, endedAt: '2026-08-20T10:00:05Z', members: [{ ...running.members[0], state: 'COMPLETED' } as ActivityBlock['members'][number]] };
-    expect(activityExpanded(running, undefined)).toBe(true);
-    expect(activityExpanded(running, false)).toBe(true);
-    expect(activityExpanded(finished, undefined)).toBe(false);
-    expect(activityExpanded(finished, true)).toBe(true);
+    expect(activityExpanded(running, undefined, false)).toBe(true);
+    expect(activityExpanded(running, false, false)).toBe(false);
+    expect(activityExpanded(finished, undefined, false)).toBe(false);
+    expect(activityExpanded(finished, true, false)).toBe(true);
+    // A group whose commands are done between two of them stays open until its turn ends.
+    expect(activityExpanded(finished, undefined, true)).toBe(true);
+    expect(activityExpanded(finished, false, true)).toBe(false);
   });
 
   it('keeps a child out of its parent transcript and shows it as a chip instead', () => {
@@ -454,7 +457,7 @@ describe('bounded transcript windows', () => {
 
     expect(turn.endedAt).toBe(completedTurn.endedAt);
     expect(activityRunning(activity)).toBe(false);
-    expect(activityExpanded(activity, undefined)).toBe(false);
+    expect(activityExpanded(activity, undefined, false)).toBe(false);
     expect(activity.members).toMatchObject([
       { kind: 'command', state: 'UNKNOWN', output: 'Compiling files\n', exitCode: null },
       { kind: 'tool', state: 'UNKNOWN' },

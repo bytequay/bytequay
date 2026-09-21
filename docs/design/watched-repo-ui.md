@@ -250,12 +250,16 @@ enhancement (or is dropped for the minimal implementation).
 
 ## Interaction behavior
 
-- **Home PR cards**: Home and Workspace Home open the existing zoomed PR details in
-  an overlay, keeping the current route, scroll position, and composer state. Close,
-  Escape, or the backdrop dismisses it. Workspace Home keeps its monitored repository
-  and workspace context. The PR list is not loaded behind the overlay; **See all** and
-  **Start review** still navigate to the PR list. Nested review/merge dialogs consume
-  Escape, and returning from the embedded browser resumes the open details.
+- **Opening one pull request or issue**: every surface that opens a single reference —
+  Home and Workspace Home cards, attention rows, a PR notification, a commit's pull
+  request, an agent task's pull request, and an issue or pull-request link inside rendered
+  Markdown — asks for the same zoom layer over the page it came from, keeping the current
+  route, scroll position, and composer state. Close, Escape, or the backdrop dismisses it.
+  A workspace surface keeps its monitored repository and workspace context. Neither list
+  is loaded behind the overlay; **See all** and **Start review** still navigate to the PR
+  list, and the Issues tab still owns the issue list and its route. A Markdown reference
+  to an issue outside every watched repository stays a web page. Nested review/merge
+  dialogs consume Escape, and returning from the embedded browser resumes the open details.
 - **Watch modal**: `Esc`/`✕` closes at any step without saving. Selecting a result loads
   the preview (spinner replaces content area); Watch is disabled until the preview loads.
   Watch posts the preview fingerprint; a `WatchPreviewChangedException` re-opens the

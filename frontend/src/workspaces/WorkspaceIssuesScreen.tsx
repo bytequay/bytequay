@@ -40,6 +40,7 @@ import {
 import { SkeletonTimeline } from '../pulls/DetailSkeleton';
 import { CommentIcon, PaneIcon, RefreshIcon } from '../pulls/PullsScreen';
 import { relativeTime } from '../relativeTime';
+import { useZoom, ZoomActions, ZoomScrim } from '../Zoom';
 import { useRecentTouch } from '../recent/useRecentTouch';
 import type {
   Bridge,
@@ -62,6 +63,7 @@ const DETAIL_MAX = 1600;
 const DETAIL_DEFAULT = 1120;
 const PAGE_SIZE = 50;
 const HIDDEN_EVENTS = new Set(['comment_deleted', 'mentioned', 'subscribed', 'unsubscribed']);
+const NO_CLOSE = () => {};
 
 type IssueDetailBridge = Pick<Bridge, 'fetchWorkspaceIssueDetail' | 'refreshWorkspaceIssueDetail'>;
 
@@ -79,14 +81,19 @@ export async function loadWorkspaceIssueDetail(
     : detail;
 }
 
-export default function WorkspaceIssuesScreen({ workspaceId, repository, initialIssueNumber, onSelectIssue, onStartDevelopment, onViewTask }: {
+export default function WorkspaceIssuesScreen({ workspaceId, repository, initialIssueNumber, onSelectIssue, onStartDevelopment, onViewTask, onClose }: {
   workspaceId: string;
   repository: string;
   initialIssueNumber: number | null;
-  onSelectIssue: (number: number, mode: NavigationMode) => void;
+  onSelectIssue?: (number: number, mode: NavigationMode) => void;
   onStartDevelopment?: (number: number, launch: TaskLaunch) => void;
   onViewTask?: (link: IssueDevelopmentTaskDto) => void;
+  /** Shows only initialIssueNumber over the current page, without the list or navigation. */
+  onClose?: () => void;
 }) {
+  const overlay = onClose !== undefined;
+  const overlayRef = useRef<HTMLDivElement | null>(null);
+  const zoom = useZoom(onClose ?? NO_CLOSE, overlay);
   const [snapshot, setSnapshot] = useState<RepositoryIssueSnapshotDto | null>(null);
   const [metadata, setMetadata] = useState<RepositoryMetadataDto | null>(null);
   const [selectedId, setSelectedId] = useState<number | null>(null);
@@ -112,8 +119,9 @@ export default function WorkspaceIssuesScreen({ workspaceId, repository, initial
     setSnapshot(value);
     setSelectedId(current => value.issues.some(issue => issue.id === current)
       ? current
-      : value.issues[0]?.id ?? null);
-  }, []);
+      // The overlay was opened on one issue; the first row of the list must never stand in for it.
+      : overlay ? null : value.issues[0]?.id ?? null);
+  }, [overlay]);
 
   const loadDetail = useCallback(async (issueNumber: number, refresh = false) => {
     const request = ++detailRequest.current;
@@ -225,10 +233,21 @@ export default function WorkspaceIssuesScreen({ workspaceId, repository, initial
   }, [apply, workspaceId]);
 
   useEffect(() => {
+    if (!overlay) return;
+    const previousFocus = document.activeElement;
+    overlayRef.current?.focus();
+    return () => {
+      if (previousFocus instanceof HTMLElement && previousFocus.isConnected) previousFocus.focus();
+    };
+  }, [overlay]);
+
+  useEffect(() => {
     let cancelled = false;
     setLoading(true);
     setSnapshot(null);
     loadingMoreRequest.current = false;
+    // ponytail: the overlay reads the same stored page as the list and keeps only its own issue;
+    // give it a single-issue load if that page ever stops being a local read.
     window.bridge.fetchWorkspaceIssues(workspaceId, 0, PAGE_SIZE)
       .then(value => { if (!cancelled) apply(value); })
       .catch(failure => {
@@ -315,7 +334,7 @@ export default function WorkspaceIssuesScreen({ workspaceId, repository, initial
       if (routingInitialIssue.current === selectedNumber) routingInitialIssue.current = null;
       return;
     }
-    onSelectIssue(selectedNumber, 'replace');
+    onSelectIssue?.(selectedNumber, 'replace');
   }, [onSelectIssue, selectedNumber]);
 
   useEffect(() => {
@@ -372,12 +391,17 @@ export default function WorkspaceIssuesScreen({ workspaceId, repository, initial
     workspaceId,
   });
 
-  const paneShown = paneOpen && selected !== null;
+  const paneShown = (paneOpen || overlay) && selected !== null;
   const labelColors = Object.fromEntries((metadata?.labels ?? []).map(label => [label.name, label.color]));
 
   return (
-    <div className="pulls-page issues-page">
-      <section className="pulls-list issues-list">
+    <div className={`pulls-page issues-page${overlay ? ' pulls-page--overlay' : ''}`}
+      ref={overlayRef}
+      role={overlay ? 'dialog' : undefined}
+      aria-modal={overlay ? true : undefined}
+      aria-label={overlay ? `Issue ${repository} #${initialIssueNumber}` : undefined}
+      tabIndex={overlay ? -1 : undefined}>
+      {!overlay && <section className="pulls-list issues-list">
         <header className="pulls-list__toolbar">
           <span className="pulls-scope" title={`Showing ${repository}`}>{repository}</span>
           <nav className="pulls-tabs" aria-label="Issue filters">
@@ -404,29 +428,44 @@ export default function WorkspaceIssuesScreen({ workspaceId, repository, initial
               actions={<IssueDevelopmentActions issue={issue} onStart={onStartDevelopment === undefined ? undefined : setStartingIssue} onViewTask={onViewTask}
                 onToggleGoal={() => { void toggleGoal(issue); }} changingGoal={changingGoal !== null} />}
               selected={issue.id === selectedId} onPick={() => {
-                onSelectIssue(issue.number, 'push');
+                onSelectIssue?.(issue.number, 'push');
                 setSelectedId(issue.id);
                 setPaneOpen(true);
               }} />
           ))}
           {loadingMore && <div className="issues-page-loading">Loading more…</div>}
         </div>
-      </section>
+      </section>}
+
+      {overlay && !zoom.full && <ZoomScrim onClose={zoom.close} />}
+
+      {overlay && selected === null && (
+        <section className={`pull-detail issues-detail ${zoom.cardClass}`}>
+          <div className="pull-detail__body">
+            {error
+              ? <div className="pull-detail__error" role="alert">{error}</div>
+              : <div className="hp-loading">Loading…</div>}
+          </div>
+        </section>
+      )}
 
       {paneShown && selected && (
-        <section className="pull-detail issues-detail" style={{ width: detailWidth }}>
-          <div className="pull-detail__resize" role="separator" aria-orientation="vertical"
-            aria-label="Resize issue panes" onMouseDown={resizeDetail} title="Drag to resize" />
+        <section className={`pull-detail issues-detail${overlay ? ` ${zoom.cardClass}` : ''}`}
+          style={overlay ? undefined : { width: detailWidth }}>
+          {!overlay && <div className="pull-detail__resize" role="separator" aria-orientation="vertical"
+            aria-label="Resize issue panes" onMouseDown={resizeDetail} title="Drag to resize" />}
           <header className="pull-detail__header">
             <div className="pull-detail__title-row">
               <h1>{selected.title} {selected.isGoal && <GoalBadge />}</h1>
               <div className="pull-detail__header-actions">
                 <button type="button" title="Refresh" aria-label="Refresh" disabled={detailLoading}
                   onClick={() => { void loadDetail(selected.number, true); }}><RefreshIcon /></button>
-                <button className="pull-detail__review-action" type="button"
-                  onClick={() => { void window.bridge.openInAppBrowser(`https://github.com/${repository}/issues/new`); }}>
-                  New issue
-                </button>
+                {overlay
+                  ? <ZoomActions {...zoom} label="issue details" className="pull-detail__icon-action" />
+                  : <button className="pull-detail__review-action" type="button"
+                    onClick={() => { void window.bridge.openInAppBrowser(`https://github.com/${repository}/issues/new`); }}>
+                    New issue
+                  </button>}
               </div>
             </div>
           </header>

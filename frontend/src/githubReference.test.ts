@@ -12,7 +12,7 @@
  * limitations under the License.
  */
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { openGitHubReference, parseGitHubReference, pullRequestFromRoute, pullRequestRoute, resolveGitHubReference } from './githubReference';
+import { openGitHubReference, parseGitHubReference, pullRequestFromRoute, pullRequestRoute, resolveGitHubReference, ZOOM_REFERENCE } from './githubReference';
 
 const issuePreview = {
   title: 'Kerberos Hive container startup times out',
@@ -25,6 +25,13 @@ const issuePreview = {
 };
 
 afterEach(() => { vi.unstubAllGlobals(); });
+
+/** What a click asked the app to show over the page it came from. */
+function zoomed(dispatchEvent: ReturnType<typeof vi.fn>) {
+  return dispatchEvent.mock.calls
+    .filter(([event]) => (event as Event).type === ZOOM_REFERENCE)
+    .map(([event]) => (event as CustomEvent).detail);
+}
 
 describe('GitHub references', () => {
   it('recognizes issue and pull request links, including query strings', () => {
@@ -45,6 +52,7 @@ describe('GitHub references', () => {
 
   it.each([false, true])('recognizes an issue URL for a PR when its preview is available: %s', async available => {
     const openInAppBrowser = vi.fn();
+    const dispatchEvent = vi.fn();
     vi.stubGlobal('window', {
       bridge: {
         listWorkspaces: vi.fn().mockResolvedValue([]),
@@ -54,7 +62,7 @@ describe('GitHub references', () => {
         fetchPullRequestDetailByRef: vi.fn().mockResolvedValue({ title: 'Stored pull request' }),
         openInAppBrowser,
       },
-      location: { hash: '' },
+      dispatchEvent,
     });
     const reference = parseGitHubReference('https://github.com/owner/repo/issues/42');
     if (!reference) throw new Error('Expected a GitHub reference');
@@ -64,7 +72,7 @@ describe('GitHub references', () => {
     });
     await openGitHubReference(reference);
 
-    expect(window.location.hash).toBe('#/pulls/owner/repo/42');
+    expect(zoomed(dispatchEvent)).toEqual([{ kind: 'pull', repo: 'owner/repo', number: 42 }]);
     expect(openInAppBrowser).not.toHaveBeenCalled();
   });
 
@@ -77,7 +85,8 @@ describe('GitHub references', () => {
         fetchPullRequestDetailByRef: vi.fn(),
         openInAppBrowser: vi.fn(),
       };
-      vi.stubGlobal('window', { bridge, location: { hash: '' } });
+      const dispatchEvent = vi.fn();
+      vi.stubGlobal('window', { bridge, dispatchEvent });
       const reference = parseGitHubReference('https://github.com/trinodb/trino/issues/30611');
       if (!reference) throw new Error('Expected a GitHub reference');
 
@@ -90,11 +99,11 @@ describe('GitHub references', () => {
       await openGitHubReference(reference);
 
       expect(bridge.openInAppBrowser).toHaveBeenCalledWith(reference.href);
-      expect(window.location.hash).toBe('');
+      expect(zoomed(dispatchEvent)).toEqual([]);
     },
   );
 
-  it('keeps cached issue previews and navigation local', async () => {
+  it('zooms a cached issue instead of opening its list', async () => {
     const bridge = {
       listWorkspaces: vi.fn().mockResolvedValue([{ id: 'workspace-1', monitoredOwner: 'Owner', monitoredRepo: 'Repo' }]),
       fetchWorkspaceIssue: vi.fn().mockResolvedValue({ ...issuePreview, state: undefined }),
@@ -102,7 +111,8 @@ describe('GitHub references', () => {
       fetchPullRequestDetailByRef: vi.fn(),
       openInAppBrowser: vi.fn(),
     };
-    vi.stubGlobal('window', { bridge, location: { hash: '' } });
+    const dispatchEvent = vi.fn();
+    vi.stubGlobal('window', { bridge, dispatchEvent });
     const reference = parseGitHubReference('https://github.com/owner/repo/issues/42');
     if (!reference) throw new Error('Expected a GitHub reference');
 
@@ -111,7 +121,9 @@ describe('GitHub references', () => {
     });
     await openGitHubReference(reference);
 
-    expect(window.location.hash).toBe('#/workspaces/workspace-1/issues/42');
+    expect(zoomed(dispatchEvent)).toEqual([
+      { kind: 'issue', repo: 'owner/repo', number: 42, workspaceId: 'workspace-1' },
+    ]);
     expect(bridge.fetchGitHubIssuePreview).not.toHaveBeenCalled();
     expect(bridge.fetchPullRequestDetailByRef).not.toHaveBeenCalled();
     expect(bridge.openInAppBrowser).not.toHaveBeenCalled();
@@ -124,7 +136,8 @@ describe('GitHub references', () => {
       fetchPullRequestDetailByRef: vi.fn().mockRejectedValue(new Error('Not a pull request')),
       openInAppBrowser: vi.fn(),
     };
-    vi.stubGlobal('window', { bridge, location: { hash: '' } });
+    const dispatchEvent = vi.fn();
+    vi.stubGlobal('window', { bridge, dispatchEvent });
     const reference = parseGitHubReference('https://github.com/owner/repo/issues/42');
     if (!reference) throw new Error('Expected a GitHub reference');
 
@@ -133,6 +146,6 @@ describe('GitHub references', () => {
     await openGitHubReference(reference);
 
     expect(bridge.openInAppBrowser).toHaveBeenCalledWith(reference.href);
-    expect(window.location.hash).toBe('');
+    expect(zoomed(dispatchEvent)).toEqual([]);
   });
 });

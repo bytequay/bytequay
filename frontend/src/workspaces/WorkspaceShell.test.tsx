@@ -13,13 +13,25 @@
  */
 import { Children, isValidElement, type ButtonHTMLAttributes, type MouseEvent, type ReactElement, type ReactNode } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
-import { describe, expect, it, vi } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
+import { ZOOM_REFERENCE } from '../githubReference';
 import AppSidebar from '../AppSidebar';
 import WatchedReposGrid from '../home/WatchedReposGrid';
 import type { WorkspaceDto } from '../types';
 import { RetiredWorkspaceCards, WorkspaceCards } from './WorkspacesPage';
 import UnwatchWorkspaceDialog from './UnwatchWorkspaceDialog';
 import WorkspaceShell from './WorkspaceShell';
+
+afterEach(() => { vi.unstubAllGlobals(); });
+
+/** Captures what a surface asks to zoom; the app itself listens for the same event. */
+function captureZoom() {
+  const dispatchEvent = vi.fn();
+  vi.stubGlobal('window', { dispatchEvent });
+  return () => dispatchEvent.mock.calls
+    .filter(([event]) => (event as Event).type === ZOOM_REFERENCE)
+    .map(([event]) => (event as CustomEvent).detail);
+}
 
 describe('watched repository workspace UI', () => {
   it('keeps global navigation above app and workspace navigation', () => {
@@ -207,7 +219,6 @@ describe('watched repository workspace UI', () => {
       initialAgentTaskId: null as string | null,
       onSelectAgentTask: () => {},
       onSelectPullRequest: () => {},
-      onPreviewPullRequest: () => {},
       onSelectIssue: () => {},
     };
 
@@ -249,7 +260,6 @@ describe('watched repository workspace UI', () => {
       initialAgentTaskId: null as string | null,
       onSelectAgentTask: () => {},
       onSelectPullRequest: () => {},
-      onPreviewPullRequest: () => {},
       onSelectIssue: () => {},
     };
 
@@ -261,8 +271,8 @@ describe('watched repository workspace UI', () => {
     expect(issues).toContain('upstream/project');
   });
 
-  it('previews a workspace Home PR while See all still opens its PR tab', () => {
-    const onPreviewPullRequest = vi.fn();
+  it('zooms a workspace Home PR while See all still opens its PR tab', () => {
+    const zoomed = captureZoom();
     const onSelectPullRequest = vi.fn();
     const onSelectTab = vi.fn();
     let home: ReactElement<{ onOpenPullRequest: (number: number) => void; onOpenPullRequests: () => void }> | undefined;
@@ -277,7 +287,6 @@ describe('watched repository workspace UI', () => {
         initialAgentTaskId: null,
         onSelectAgentTask: () => {},
         onSelectPullRequest,
-        onPreviewPullRequest,
         onSelectIssue: () => {},
       });
       home = view.props.children[0];
@@ -287,7 +296,7 @@ describe('watched repository workspace UI', () => {
 
     expect(home).toBeDefined();
     home?.props.onOpenPullRequest(42);
-    expect(onPreviewPullRequest).toHaveBeenCalledWith(42);
+    expect(zoomed()).toEqual([{ kind: 'pull', repo: 'upstream/project', number: 42, workspaceId: 'workspace-id' }]);
     expect(onSelectPullRequest).not.toHaveBeenCalled();
     expect(onSelectTab).not.toHaveBeenCalled();
 
@@ -313,13 +322,12 @@ describe('watched repository workspace UI', () => {
     initialAgentTaskId: null,
     onSelectAgentTask: () => {},
     onSelectPullRequest: () => {},
-    onPreviewPullRequest: () => {},
     onSelectIssue: () => {},
     ...overrides,
   });
 
   it('opens a task PR full width over the task instead of the PR tab', () => {
-    const onPreviewPullRequest = vi.fn();
+    const zoomed = captureZoom();
     const onSelectPullRequest = vi.fn();
     let task: ReactElement<{ onOpenPullRequest: (number: number) => void }> | undefined;
     function CaptureTask() {
@@ -333,7 +341,6 @@ describe('watched repository workspace UI', () => {
         initialAgentTaskId: 'task-1',
         onSelectAgentTask: () => {},
         onSelectPullRequest,
-        onPreviewPullRequest,
         onSelectIssue: () => {},
       });
       task = find(view, props => typeof props.taskId === 'string');
@@ -342,7 +349,7 @@ describe('watched repository workspace UI', () => {
     renderToStaticMarkup(<CaptureTask />);
 
     task?.props.onOpenPullRequest(42);
-    expect(onPreviewPullRequest).toHaveBeenCalledWith(42);
+    expect(zoomed()).toEqual([{ kind: 'pull', repo: 'upstream/project', number: 42, workspaceId: 'workspace-id' }]);
     expect(onSelectPullRequest).not.toHaveBeenCalled();
   });
 
@@ -382,7 +389,6 @@ describe('watched repository workspace UI', () => {
       initialAgentTaskId={null}
       onSelectAgentTask={() => {}}
       onSelectPullRequest={() => {}}
-      onPreviewPullRequest={() => {}}
       onSelectIssue={() => {}}
     />);
 

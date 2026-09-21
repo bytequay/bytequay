@@ -20,6 +20,7 @@ import TaskOverview from '../agents/TaskOverview';
 import CommitsTab, { type CommitSourceSelection } from '../commits/CommitsTab';
 import ProgressView from '../commits/ProgressView';
 import TasksView from '../commits/TasksView';
+import { zoomReference } from '../githubReference';
 import type { NavigationMode } from '../navigationHistory';
 import PullsScreen from '../pulls/PullsScreen';
 import type { AgentReviewDto } from '../pulls/agent-review/contracts';
@@ -37,7 +38,7 @@ import {
 } from './model';
 import '../css/workspaces.css';
 
-export default function WorkspaceShell({ workspace, tab, onSelectTab, onWorkspaceChanged, initialPullRequestNumber, initialIssueNumber, sourceIssueNumber = null, initialAgentTaskId, initialAgentReviewId = null, browserOpen = false, onSelectAgentTask, onSelectPullRequest, onPreviewPullRequest, onSelectIssue }: {
+export default function WorkspaceShell({ workspace, tab, onSelectTab, onWorkspaceChanged, initialPullRequestNumber, initialIssueNumber, sourceIssueNumber = null, initialAgentTaskId, initialAgentReviewId = null, browserOpen = false, onSelectAgentTask, onSelectPullRequest, onSelectIssue }: {
   workspace: WorkspaceDto;
   tab: WorkspaceTab;
   onSelectTab: (tab: WorkspaceTab) => void;
@@ -51,7 +52,6 @@ export default function WorkspaceShell({ workspace, tab, onSelectTab, onWorkspac
   browserOpen?: boolean;
   onSelectAgentTask: (taskId: string | null, mode: NavigationMode) => void;
   onSelectPullRequest: (number: number, mode: NavigationMode) => void;
-  onPreviewPullRequest: (number: number, repo?: string) => void;
   onSelectIssue: (number: number, mode: NavigationMode) => void;
 }) {
   const [openCherryPick, setOpenCherryPick] = useState<string | null>(null);
@@ -62,6 +62,7 @@ export default function WorkspaceShell({ workspace, tab, onSelectTab, onWorkspac
   const [openReview, setOpenReview] = useState<Pick<AgentReviewDto, 'id' | 'repo' | 'number'> | null>(null);
   // The launch chosen when development was started from an issue; the composer seeds itself with it.
   const [startLaunch, setStartLaunch] = useState<TaskLaunch>();
+  const monitoredRepository = `${workspace.monitoredOwner}/${workspace.monitoredRepo}`;
   const agentScreens = tab === 'home' || tab === 'tasks';
   const taskDetail = tab === 'tasks' && (initialAgentTaskId !== null || initialAgentReviewId !== null);
   // A cherry-pick execution zooms over the task list; an agent task owns the page instead.
@@ -127,6 +128,12 @@ export default function WorkspaceShell({ workspace, tab, onSelectTab, onWorkspac
     onSelectPullRequest(reference.number, mode);
   }, [onSelectPullRequest]);
 
+  // Commits browsed from a remote source name their own repository; everything
+  // else zooms the workspace's monitored one.
+  const zoomPullRequest = useCallback((number: number, repo?: string) => {
+    zoomReference({ kind: 'pull', repo: repo ?? monitoredRepository, number, workspaceId: workspace.id });
+  }, [monitoredRepository, workspace.id]);
+
   // Cross-tab jumps are one-shot: leaving the target tab forgets them, so the
   // next visit starts on that tab's default view again.
   useEffect(() => {
@@ -154,19 +161,18 @@ export default function WorkspaceShell({ workspace, tab, onSelectTab, onWorkspac
         initialRepo={initialCommitsRepo ?? undefined}
         initialSourceSelection={commitSourceSelection}
         onSourceSelectionChange={setCommitSourceSelection}
-        onOpenPullRequest={onPreviewPullRequest}
+        onOpenPullRequest={zoomPullRequest}
         onOpenSettings={() => { window.location.hash = settingsRoute('ws-agents', workspace.id); }}
       />
     );
   }
   if (tab === 'prs') {
-    const repository = `${workspace.monitoredOwner}/${workspace.monitoredRepo}`;
     return (
       <PullsScreen
         initialPr={initialPullRequestNumber === null
           ? undefined
-          : { repo: repository, number: initialPullRequestNumber }}
-        repositoryScope={{ workspaceId: workspace.id, repository }}
+          : { repo: monitoredRepository, number: initialPullRequestNumber }}
+        repositoryScope={{ workspaceId: workspace.id, repository: monitoredRepository }}
         browserOpen={browserOpen}
         onSelectPullRequest={selectScopedPullRequest}
       />
@@ -175,7 +181,7 @@ export default function WorkspaceShell({ workspace, tab, onSelectTab, onWorkspac
   if (tab === 'issues') {
     return <WorkspaceIssuesScreen
       workspaceId={workspace.id}
-      repository={`${workspace.monitoredOwner}/${workspace.monitoredRepo}`}
+      repository={monitoredRepository}
       initialIssueNumber={initialIssueNumber}
       onSelectIssue={onSelectIssue}
       onStartDevelopment={(number, launch) => { setStartLaunch(launch); window.location.hash = workspaceIssueTaskRoute(workspace.id, number); }}
@@ -203,7 +209,7 @@ export default function WorkspaceShell({ workspace, tab, onSelectTab, onWorkspac
           taskId={initialAgentTaskId}
           onBack={() => onSelectAgentTask(null, 'push')}
           headerAction={overviewOpen ? undefined : overviewToggle}
-          onOpenPullRequest={onPreviewPullRequest}
+          onOpenPullRequest={zoomPullRequest}
           workspace={workspace}
           onOpenSettings={() => { window.location.hash = settingsRoute('ws-agents', workspace.id); }}
         />,
@@ -265,13 +271,13 @@ export default function WorkspaceShell({ workspace, tab, onSelectTab, onWorkspac
     <AgentHome
       workspaceId={workspace.id}
       headerAction={overviewOpen ? undefined : overviewToggle}
-      repository={`${workspace.monitoredOwner}/${workspace.monitoredRepo}`}
+      repository={monitoredRepository}
       onOpenTask={(taskId) => onSelectAgentTask(taskId, 'push')}
       onOpenSettings={() => { window.location.hash = settingsRoute('ws-agents', workspace.id); }}
       onShowAll={() => setOverviewOpen(true)}
       onOpenPullRequests={() => onSelectTab('prs')}
-      onOpenPullRequest={onPreviewPullRequest}
-      onOpenIssue={(number) => onSelectIssue(number, 'push')}
+      onOpenPullRequest={zoomPullRequest}
+      onOpenIssue={(number) => zoomReference({ kind: 'issue', repo: monitoredRepository, number, workspaceId: workspace.id })}
       onOpenIssues={() => onSelectTab('issues')}
       onStartIssue={number => { window.location.hash = workspaceIssueTaskRoute(workspace.id, number); }}
     />,

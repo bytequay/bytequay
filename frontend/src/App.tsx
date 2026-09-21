@@ -17,7 +17,7 @@ import BrowserRail from './BrowserRail';
 import FindBar from './FindBar';
 import HomePage from './home/HomePage';
 import { loadHandled } from './home/attention';
-import { pullRequestFromRoute, pullRequestRoute } from './githubReference';
+import { pullRequestFromRoute, pullRequestRoute, zoomReference, ZOOM_REFERENCE, type ZoomedReference } from './githubReference';
 import InAppBrowser from './InAppBrowser';
 import LogoLoading from './LogoLoading';
 import {
@@ -46,6 +46,7 @@ import {
   type SettingsSection,
 } from './settings/routes';
 import type { InAppBrowserState, RecentRowDto, RecentWordHitDto, WorkspaceDto } from './types';
+import WorkspaceIssuesScreen from './workspaces/WorkspaceIssuesScreen';
 import WorkspacesPage from './workspaces/WorkspacesPage';
 import WorkspaceShell from './workspaces/WorkspaceShell';
 import {
@@ -101,7 +102,8 @@ export default function App() {
     setNewPageOpen(false);
     browserAction(window.bridge.hideInAppBrowser());
   }, [browserAction]);
-  const [previewPr, setPreviewPr] = useState<{ repo: string; number: number; workspaceId?: string } | null>(null);
+  /** The one issue or pull request shown over the page, whichever surface asked for it. */
+  const [zoomed, setZoomed] = useState<ZoomedReference | null>(null);
   const [paletteOpen, setPaletteOpen] = useState(false);
   const [fullScreen, setFullScreen] = useState(false);
   const workspaceRef = useRef(workspace);
@@ -167,13 +169,19 @@ export default function App() {
     });
     const stopNotification = window.bridge.onPrNotificationOpen(reference => {
       if (reference.repo.indexOf('/') < 1) return;
-      backToApp();
-      setPaletteOpen(false);
-      // The same zoom layer an attention row opens: the notification shows its pull request
-      // over whatever page is open instead of navigating away to the list.
-      setPreviewPr({ repo: reference.repo, number: reference.number });
+      zoomReference({ kind: 'pull', repo: reference.repo, number: reference.number });
     });
     return () => { stopAttention(); stopNotification(); };
+  }, []);
+
+  useEffect(() => {
+    const open = (event: Event) => {
+      backToApp();
+      setPaletteOpen(false);
+      setZoomed((event as CustomEvent<ZoomedReference>).detail);
+    };
+    window.addEventListener(ZOOM_REFERENCE, open);
+    return () => window.removeEventListener(ZOOM_REFERENCE, open);
   }, [backToApp]);
 
   useEffect(() => {
@@ -228,7 +236,7 @@ export default function App() {
     const applyHistoryRoute = () => {
       // Navigating leaves an open zoom layer; the first route of the session must not, or it
       // races the pull request a notification asked to show while the app was still starting.
-      setPreviewPr(null);
+      setZoomed(null);
       const hash = window.location.hash || '#/home';
       const index = navigationIndex(window.history.state, navigationSession.current, hash);
       const next = index === null
@@ -294,16 +302,7 @@ export default function App() {
     if (current) navigateTo(workspacePullRequestRoute(current.id, number), mode);
   }, [navigateTo]);
 
-  // Commits browsed from a remote source name their own repository; everything
-  // else previews the workspace's monitored one.
-  const previewWorkspacePullRequest = useCallback((number: number, repo?: string) => {
-    const current = workspaceRef.current;
-    if (current) setPreviewPr({
-      repo: repo ?? `${current.monitoredOwner}/${current.monitoredRepo}`, number, workspaceId: current.id,
-    });
-  }, []);
-
-  const closePreview = useCallback(() => setPreviewPr(null), []);
+  const closeZoom = useCallback(() => setZoomed(null), []);
 
   const selectAgentTask = useCallback((taskId: string | null, mode: NavigationMode) => {
     const current = workspaceRef.current;
@@ -373,7 +372,7 @@ export default function App() {
 
   const openPr = (owner: string, repo: string, number?: number) => {
     if (number !== undefined) {
-      setPreviewPr({ repo: `${owner}/${repo}`, number });
+      zoomReference({ kind: 'pull', repo: `${owner}/${repo}`, number });
       return;
     }
     setInitialPr(undefined);
@@ -415,7 +414,7 @@ export default function App() {
         onClose={id => browserAction(window.bridge.closeInAppBrowserTab(id))}
         onRename={(id, name) => browserAction(window.bridge.renameInAppBrowserTab(id, name))} />
       <div className="app-surfaces" inert={browserOpen}>
-    <div className="app-shell" inert={previewPr !== null}>
+    <div className="app-shell" inert={zoomed !== null}>
         <AppSidebar
           page={page}
           browserRailVisible={railVisible}
@@ -493,7 +492,6 @@ export default function App() {
               initialAgentReviewId={initialAgentReviewId}
               browserOpen={browserOpen}
               onSelectPullRequest={selectWorkspacePullRequest}
-              onPreviewPullRequest={previewWorkspacePullRequest}
               onSelectAgentTask={selectAgentTask}
               onSelectIssue={selectWorkspaceIssue}
             />
@@ -507,15 +505,24 @@ export default function App() {
         )}
       </main>
     </div>
-      {previewPr !== null && (
+      {zoomed?.kind === 'pull' && (
         <PullsScreen
-          key={`${previewPr.workspaceId ?? ''}:${previewPr.repo}#${previewPr.number}`}
-          initialPr={previewPr}
-          repositoryScope={previewPr.workspaceId === undefined
+          key={`${zoomed.workspaceId ?? ''}:${zoomed.repo}#${zoomed.number}`}
+          initialPr={zoomed}
+          repositoryScope={zoomed.workspaceId === undefined
             ? undefined
-            : { workspaceId: previewPr.workspaceId, repository: previewPr.repo }}
+            : { workspaceId: zoomed.workspaceId, repository: zoomed.repo }}
           browserOpen={browserOpen}
-          onClose={closePreview}
+          onClose={closeZoom}
+        />
+      )}
+      {zoomed?.kind === 'issue' && (
+        <WorkspaceIssuesScreen
+          key={`${zoomed.workspaceId}:${zoomed.repo}#${zoomed.number}`}
+          workspaceId={zoomed.workspaceId}
+          repository={zoomed.repo}
+          initialIssueNumber={zoomed.number}
+          onClose={closeZoom}
         />
       )}
       {paletteOpen && (

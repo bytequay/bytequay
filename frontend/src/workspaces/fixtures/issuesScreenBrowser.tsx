@@ -89,11 +89,61 @@ async function closeKeepsIssue(): Promise<void> {
   finally { flushSync(() => root.unmount()); host.remove(); }
 }
 
-export async function run(): Promise<{ name: string; error?: string }[]> {
-  const name = 'Closing an issue keeps it in view until the reader leaves';
+async function zoomsOneIssue(): Promise<void> {
+  const issues = [7, 8].map((number): Issue => ({
+    id: 7000 + number, number, title: `Issue ${number}`, body: 'Details', author: 'alice', authorAvatarUrl: '',
+    htmlUrl: `https://github.com/upstream/app/issues/${number}`, labels: [], assignees: [], commentCount: 0,
+    createdAt: '2026-09-01T00:00:00Z', updatedAt: '2026-09-02T00:00:00Z',
+  }));
+  const repository = { owner: 'upstream', repo: 'app' };
+  window.bridge = {
+    fetchWorkspaceIssues: async (): Promise<RepositoryIssueSnapshotDto> => ({
+      repositoryId: 40, repository, issues, page: 0, pageSize: 50, totalIssues: issues.length, hasMore: false, syncedAt: null,
+    }),
+    getWorkspaceMetadata: async (): Promise<RepositoryMetadataDto> => ({
+      repositoryId: 40, repository, contributors: [], labels: [], topics: [], contributorsSyncedAt: null, labelsTopicsSyncedAt: null,
+    }),
+    fetchWorkspaceIssueDetail: async (_workspace: string, number: number): Promise<WorkspaceIssueDetailDto> => ({
+      repositoryId: 40, issueNumber: number, timeline: [], currentType: null, availableTypes: [], refreshedAt: '2026-09-02T00:00:00Z',
+    }),
+    recordRecentTouch: async () => {},
+  } as unknown as Bridge;
+  let closed = 0;
+  const host = document.createElement('div'); document.body.append(host);
+  const root = createRoot(host);
   try {
-    await closeKeepsIssue();
-    return [{ name }];
+    flushSync(() => root.render(<WorkspaceIssuesScreen workspaceId="workspace-1" repository="upstream/app"
+      initialIssueNumber={8} onClose={() => { closed += 1; }} />));
+    await settle();
+    assert(host.querySelector('.pulls-list') === null, 'The zoom layer shows one issue, never the list');
+    const card = host.querySelector<HTMLElement>('.issues-detail.zoom-card');
+    assert(card?.querySelector('h1')?.textContent?.trim() === 'Issue 8',
+      'The zoom layer shows the issue it was opened on, not the first row of the list');
+    const box = card.getBoundingClientRect();
+    assert(box.top > 0 && box.left > 0 && box.bottom < window.innerHeight && box.height > 200,
+      `The card leaves the page visible around it, not ${JSON.stringify(box.toJSON())}`);
+    const body = card.querySelector<HTMLElement>('.pull-detail__body');
+    assert(body !== null && body.getBoundingClientRect().bottom <= Math.ceil(box.bottom),
+      'The issue body scrolls inside the card instead of running past it');
+    window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' }));
+    await settle();
+    assert(closed === 1, 'Escape leaves the zoom layer');
   }
-  catch (error) { return [{ name, error: error instanceof Error ? error.message : String(error) }]; }
+  finally { flushSync(() => root.unmount()); host.remove(); }
+}
+
+export async function run(): Promise<{ name: string; error?: string }[]> {
+  const scenarios: [string, () => Promise<void>][] = [
+    ['Closing an issue keeps it in view until the reader leaves', closeKeepsIssue],
+    ['An issue reference zooms that issue over the page it came from', zoomsOneIssue],
+  ];
+  const results: { name: string; error?: string }[] = [];
+  for (const [name, scenario] of scenarios) {
+    try {
+      await scenario();
+      results.push({ name });
+    }
+    catch (error) { results.push({ name, error: error instanceof Error ? error.message : String(error) }); }
+  }
+  return results;
 }

@@ -12,7 +12,6 @@
  * limitations under the License.
  */
 import type { GitHubIssuePreviewDto, PullRequestDetailDto, RepositoryIssueSnapshotDto } from './types';
-import { workspaceIssueRoute } from './workspaces/model';
 
 export type GitHubReference = {
   kind: 'issue' | 'pull';
@@ -103,18 +102,34 @@ export async function resolveGitHubReference(reference: GitHubReference): Promis
   }
 }
 
+export const ZOOM_REFERENCE = 'bytequay:zoom-reference';
+
+export type ZoomedReference =
+  | { kind: 'pull'; repo: string; number: number; workspaceId?: string }
+  | { kind: 'issue'; repo: string; number: number; workspaceId: string };
+
+/**
+ * Shows one issue or pull request over the page that asked for it. Every surface that opens a
+ * reference goes through here, so a reference never replaces the page with a list to find it in.
+ */
+export function zoomReference(target: ZoomedReference): void {
+  window.dispatchEvent(new CustomEvent(ZOOM_REFERENCE, { detail: target }));
+}
+
 export async function openGitHubReference(reference: GitHubReference): Promise<void> {
+  const repo = `${reference.owner}/${reference.repo}`;
   if (reference.kind === 'pull') {
-    window.location.hash = pullRequestRoute(reference);
+    zoomReference({ kind: 'pull', repo, number: reference.number });
     return;
   }
   const resolved = await resolveGitHubReference(reference).catch((): null => null);
   if (resolved?.kind === 'pull') {
-    window.location.hash = pullRequestRoute(reference);
+    zoomReference({ kind: 'pull', repo, number: reference.number });
     return;
   }
+  // Only a watched repository has an issue the app can show; anything else stays a web page.
   if (resolved?.kind === 'issue' && resolved.workspaceId) {
-    window.location.hash = workspaceIssueRoute(resolved.workspaceId, reference.number);
+    zoomReference({ kind: 'issue', repo, number: reference.number, workspaceId: resolved.workspaceId });
     return;
   }
   await window.bridge.openInAppBrowser(reference.href);

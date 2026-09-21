@@ -34,9 +34,9 @@ import { getCached, getCachedFresh, setCached } from '../dataCache';
 import WatchedReposGrid from './WatchedReposGrid';
 import { pullRequestIsMine, pullRequestNeedsReview } from '../pulls/model';
 import { relativeTime } from '../relativeTime';
+import { zoomReference } from '../githubReference';
 import {
   workspaceIsUpdating,
-  workspaceIssueRoute,
   workspaceRoute,
 } from '../workspaces/model';
 import { ISSUE_DEVELOPMENT_CHANGED } from '../workspaces/issueDevelopment';
@@ -373,7 +373,7 @@ function HomePage({
         onHandledChange={applyHandled}
         onOpen={item => {
           if (item.type === 'issue' && item.workspaceId !== null) {
-            window.location.hash = workspaceIssueRoute(item.workspaceId, item.number);
+            zoomReference({ kind: 'issue', repo: item.repo, number: item.number, workspaceId: item.workspaceId });
             return;
           }
           const slash = item.repo.indexOf('/');

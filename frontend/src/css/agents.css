@@ -1560,6 +1560,13 @@
   margin-top: 10px;
 }
 
+/* A discussion footer sits between two blocks, so the pair above stops matching across it and the
+   following block would butt against the row. Two classes, because the resets that zero these
+   margins are more specific than a lone child selector. */
+.agt-md > .agt-disc-footer + * {
+  margin-top: 10px;
+}
+
 .agt-md ul,
 .agt-md ol {
   margin: 0;
@@ -3604,4 +3611,96 @@
 /* The kept Code & Tests body in the task side panel; its flex display would otherwise override the hidden attribute. */
 .agt-panel > [hidden] {
   display: none;
+}
+
+/* Discussion threads: the reply-count rows under a quoted block, and the selection pill. */
+.agt-answer {
+  position: relative;
+}
+
+.agt-disc-footer {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 2px;
+  margin-top: 6px;
+}
+
+.agt-disc-footer.is-unanchored {
+  margin-top: 10px;
+}
+
+.agt-disc-footer__row {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  max-width: 100%;
+  padding: 2px 6px;
+  border: 0;
+  border-radius: 5px;
+  background: transparent;
+  font: inherit;
+  font-size: 12px;
+  color: #57606a;
+  cursor: pointer;
+  text-align: left;
+}
+
+.agt-disc-footer__row::before {
+  content: '↳';
+  color: #8c959f;
+}
+
+.agt-disc-footer__row:hover {
+  background: #f6f8fa;
+}
+
+/* This app has no global focus ring, so the row carries its own. */
+.agt-disc-footer__row:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+
+.agt-disc-footer.is-unanchored .agt-disc-footer__label {
+  color: #8c959f;
+}
+
+.agt-disc-footer__label {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.agt-disc-footer__count {
+  flex: none;
+  color: var(--accent);
+  font-weight: 500;
+}
+
+.agt-disc-footer__done {
+  flex: none;
+  color: #8c959f;
+}
+
+.agt-disc-pill {
+  position: absolute;
+  z-index: 3;
+  padding: 4px 10px;
+  border: 1px solid #d0d7de;
+  border-radius: 6px;
+  background: #ffffff;
+  box-shadow: 0 2px 8px rgb(31 35 40 / 18%);
+  font: inherit;
+  font-size: 12px;
+  color: #57606a;
+  cursor: pointer;
+}
+
+.agt-disc-pill:hover {
+  background: #f6f8fa;
+}
+
+.agt-disc-pill:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
 }

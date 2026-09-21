@@ -376,16 +376,39 @@ public class ModelSettingsService
      */
     private AgentModelSetting catalogDefault(AgentModelType type)
     {
-        Catalog catalog = cliCatalog(CLAUDE_LANE).orElseGet(() -> new Catalog(laneLabel(CLAUDE_LANE), ImmutableList.of(), ""));
-        Selection selection = selection(CLAUDE_LANE, catalog);
+        String laneId = defaultLaneId();
+        Catalog catalog = cliCatalog(laneId).orElseGet(() -> new Catalog(laneLabel(laneId), ImmutableList.of(), ""));
+        Selection selection = selection(laneId, catalog);
         return new AgentModelSetting(
                 type,
                 false,
-                CLAUDE_LANE,
+                laneId,
                 catalog.label(),
                 selection.model(),
                 catalog.modelLabel(selection.model()),
                 Optional.ofNullable(selection.effort()));
+    }
+
+    /**
+     * The lane a fresh install runs with: the first provider the registry
+     * reports as available and able to name a model, in the registry's own
+     * display order. Naming one lane here is what made a machine with only
+     * Codex signed in default to a Claude lane it could not start.
+     *
+     * <p>Falls back to the seeded Claude catalog when nothing is available, so
+     * an install with no signed-in provider still answers with a model rather
+     * than a blank row. An API key is never a candidate, because no driver can
+     * run a turn against one; {@link #requireAgentSelection} refuses one for
+     * the same reason.
+     */
+    private String defaultLaneId()
+    {
+        return drivers.statuses().stream()
+                .filter(AgentProviderStatus::available)
+                .map(status -> status.laneId().value())
+                .filter(laneId -> cliCatalog(laneId).filter(catalog -> !catalog.models().isEmpty()).isPresent())
+                .findFirst()
+                .orElse(CLAUDE_LANE);
     }
 
     private AgentModelSetting resolve(AgentModelType type, boolean explicit, StoredOverride stored)

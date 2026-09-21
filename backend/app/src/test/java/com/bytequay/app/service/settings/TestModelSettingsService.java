@@ -309,6 +309,38 @@ class TestModelSettingsService
     }
 
     @Test
+    void theDefaultSkipsAProviderThatIsNotSignedIn()
+    {
+        when(drivers.statuses()).thenReturn(ImmutableList.of(
+                new AgentProviderStatus(
+                        new AgentLaneId("claude"), Readiness.AUTHENTICATION_REQUIRED,
+                        Optional.of("2.1.4"), "sign in required", AgentCapabilities.none()),
+                new AgentProviderStatus(
+                        CODEX, Readiness.READY,
+                        Optional.of("0.145.0"), "ready", AgentCapabilities.none())));
+
+        assertThat(service.get().agents()).allSatisfy(agent -> {
+            assertThat(agent.explicit()).isFalse();
+            assertThat(agent.configId()).isEqualTo("codex");
+            assertThat(agent.model()).isEqualTo("gpt-5.6-sol");
+        });
+    }
+
+    @Test
+    void theDefaultFallsBackToTheSeededLaneWhenNothingIsSignedIn()
+    {
+        when(drivers.statuses()).thenReturn(ImmutableList.of(
+                new AgentProviderStatus(
+                        new AgentLaneId("claude"), Readiness.AUTHENTICATION_REQUIRED,
+                        Optional.of("2.1.4"), "sign in required", AgentCapabilities.none()),
+                new AgentProviderStatus(
+                        CODEX, Readiness.CLI_MISSING,
+                        Optional.empty(), "not installed", AgentCapabilities.none())));
+
+        assertThat(service.agentModel(AgentModelType.DEVELOPMENT).configId()).isEqualTo("claude");
+    }
+
+    @Test
     void refreshRewritesTheStoredCatalogOnEveryRun()
     {
         when(codexDriver.models()).thenReturn(ImmutableList.of(

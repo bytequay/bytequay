@@ -12,7 +12,7 @@
  * limitations under the License.
  */
 import { Fragment, useEffect, useId, useState, type ChangeEvent, type MouseEvent, type ReactNode } from 'react';
-import { ArrowUpRight, CircleDot, GitPullRequest } from 'lucide-react';
+import { ArrowUpRight, CircleDot, GitPullRequest, Info, Lightbulb, MessageSquareWarning, OctagonAlert, TriangleAlert, type LucideIcon } from 'lucide-react';
 import hljs from 'highlight.js/lib/common';
 import {
   openGitHubReference,
@@ -44,12 +44,9 @@ type Block =
   | { kind: 'table'; headers: string[]; rows: string[][]; aligns: Array<'left' | 'center' | 'right'> }
   | { kind: 'quote'; text: string }
   | { kind: 'alert'; label: string; text: string }
+  | { kind: 'details'; summary: string; text: string }
   | { kind: 'code-reference'; reference: GitHubCodePermalink }
   | { kind: 'rule' };
-
-type Segment =
-  | { kind: 'markdown'; text: string }
-  | { kind: 'details'; summary: string; text: string };
 
 type Fence = { marker: '`' | '~'; length: number; language: string };
 
@@ -77,6 +74,9 @@ function closesFence(line: string, fence: Fence) {
 }
 
 const CODE_INDENT = /^(?: {4}| {0,3}\t)/;
+const ALERT_ICONS: Record<string, LucideIcon> = {
+  note: Info, tip: Lightbulb, important: MessageSquareWarning, warning: TriangleAlert, caution: OctagonAlert,
+};
 
 /** Flags the lines GitHub renders as indented code: 4+ columns in after a blank line, outside fences and list items. */
 function indentedCodeLines(lines: string[]) {
@@ -256,35 +256,16 @@ export function toggleMarkdownTask(markdown: string, taskIndex: number, checked:
   return markdown;
 }
 
-function markdownSegments(markdown: string): Segment[] {
-  const segments: Segment[] = [];
-  const opening = /<details(?:\s[^>]*)?>/gi;
+/** The offset just past the `</details>` closing the tag at `start`, or the end of the text when it never closes. */
+function detailsEnd(text: string, start: number) {
   const tag = /<\/?details(?:\s[^>]*)?>/gi;
-  let cursor = 0;
-  while (cursor < markdown.length) {
-    opening.lastIndex = cursor;
-    const start = opening.exec(markdown);
-    if (!start) break;
-    tag.lastIndex = start.index + start[0].length;
-    let depth = 1;
-    let end = -1;
-    for (let match = tag.exec(markdown); match; match = tag.exec(markdown)) {
-      depth += match[0].startsWith('</') ? -1 : 1;
-      if (depth === 0) {
-        end = tag.lastIndex;
-        break;
-      }
-    }
-    if (end < 0) break;
-    if (start.index > cursor) segments.push({ kind: 'markdown', text: markdown.slice(cursor, start.index) });
-    const details = markdown.slice(start.index, end)
-      .match(/^<details(?:\s[^>]*)?>\s*<summary>([\s\S]*?)<\/summary>([\s\S]*)<\/details>$/i);
-    if (details) segments.push({ kind: 'details', summary: stripHtml(details[1]), text: details[2] });
-    else segments.push({ kind: 'markdown', text: markdown.slice(start.index, end) });
-    cursor = end;
+  tag.lastIndex = start;
+  let depth = 0;
+  for (let match = tag.exec(text); match; match = tag.exec(text)) {
+    depth += match[0].startsWith('</') ? -1 : 1;
+    if (depth === 0) return tag.lastIndex;
   }
-  if (cursor < markdown.length) segments.push({ kind: 'markdown', text: markdown.slice(cursor) });
-  return segments.length > 0 ? segments : [{ kind: 'markdown', text: markdown }];
+  return text.length;
 }
 
 function stripHtml(value: string) {
@@ -305,7 +286,7 @@ function htmlToMarkdown(value: string) {
       (_match, href: string, label: string) => `[${stripHtml(label)}](${href})`)
     .replace(/<br\s*\/?\s*>/gi, '\n')
     .replace(/<\/(?:p|div|li|tr|table)>/gi, '\n')
-    .replace(/<[^>]+>/g, ''));
+    .replace(/<(?!\/?(?:details|summary)[\s>])[^>]+>/g, ''));
 }
 
 function decodeEntities(value: string) {
@@ -427,6 +408,27 @@ export function markdownBlocks(markdown: string, repository?: string): Block[] {
     if (!line.trim()) {
       flushParagraph();
       flushList();
+      continue;
+    }
+    const disclosure = line.match(/<details(?:\s[^>]*)?>/i);
+    if (disclosure) {
+      const lead = line.slice(0, disclosure.index).trim();
+      if (lead) paragraph.push(lead);
+      flushParagraph();
+      flushList();
+      const rest = lines.slice(index).join('\n');
+      const open = (disclosure.index ?? 0) + disclosure[0].length;
+      const end = detailsEnd(rest, disclosure.index ?? 0);
+      const inner = rest.slice(open, end).replace(/<\/details>$/i, '');
+      const summary = inner.match(/^\s*<summary(?:\s[^>]*)?>([\s\S]*?)<\/summary>/i);
+      blocks.push({ kind: 'details', summary: summary?.[1].trim() ?? '', text: summary ? inner.slice(summary[0].length) : inner });
+      index += rest.slice(0, end).split('\n').length - 1;
+      const tail = rest.slice(end).split('\n', 1)[0];
+      // Re-read what followed the closing tag on its own line instead of dropping it.
+      if (tail.trim()) {
+        lines[index] = tail;
+        index--;
+      }
       continue;
     }
     const codeReference = parseGitHubCodePermalink(line.trim(), repository);
@@ -850,30 +852,10 @@ export default function MarkdownBody({ body, className = '', repository, suggest
     if (taskIndex >= 0) onTaskToggle(taskIndex, event.target.checked);
   };
   const document = extractHttpLinkDefinitions(fenceIndentedCode(body));
-  return <MarkdownBodyContent body={document.body} definitions={document.definitions} className={className} repository={repository}
-    suggestion={suggestion} tasksInteractive={onTaskToggle !== undefined} tasksDisabled={tasksDisabled} onTaskChange={toggleTask} />;
-}
-
-function MarkdownBodyContent({ body, definitions, className = '', repository, suggestion, tasksInteractive, tasksDisabled, onTaskChange }: {
-  body: string;
-  definitions: ReadonlyMap<string, string>;
-  className?: string;
-  repository?: string;
-  suggestion?: SuggestionBase;
-  tasksInteractive: boolean;
-  tasksDisabled: boolean;
-  onTaskChange?: (event: ChangeEvent<HTMLDivElement>) => void;
-}) {
   return (
-    <div className={`markdown-body ${className}`.trim()} onChange={onTaskChange}>
-      {markdownSegments(body).map((segment, segmentIndex) => segment.kind === 'details' ? (
-        <details className="md-details" key={`details-${segmentIndex}`}>
-          <summary>{inline(segment.summary, `details-${segmentIndex}`, definitions)}</summary>
-          <MarkdownBodyContent body={segment.text} definitions={definitions} repository={repository}
-            suggestion={suggestion} tasksInteractive={tasksInteractive} tasksDisabled={tasksDisabled} />
-        </details>
-      ) : <MarkdownBlocks markdown={htmlToMarkdown(segment.text)} repository={repository} suggestion={suggestion}
-        definitions={definitions} tasksInteractive={tasksInteractive} tasksDisabled={tasksDisabled} key={`markdown-${segmentIndex}`} />)}
+    <div className={`markdown-body ${className}`.trim()} onChange={toggleTask}>
+      <MarkdownBlocks markdown={htmlToMarkdown(document.body)} definitions={document.definitions} repository={repository}
+        suggestion={suggestion} tasksInteractive={onTaskToggle !== undefined} tasksDisabled={tasksDisabled} />
     </div>
   );
 }
@@ -913,11 +895,25 @@ function MarkdownBlocks({ markdown, definitions, repository, suggestion, tasksIn
           );
         }
         if (block.kind === 'code-reference') return <CodeReferenceBlock reference={block.reference} key={key} />;
-        if (block.kind === 'alert') return (
-          <aside className={`md-alert is-${block.label.toLowerCase()}`} key={key}>
-            <strong>ⓘ {block.label[0]}{block.label.slice(1).toLowerCase()}</strong>
-            <p>{inline(block.text, key, definitions)}</p>
-          </aside>
+        if (block.kind === 'alert') {
+          const label = block.label.toLowerCase();
+          const Icon = ALERT_ICONS[label] ?? Info;
+          return (
+            <aside className={`md-alert is-${label}`} key={key}>
+              <strong><Icon size={16} aria-hidden="true" />{block.label[0]}{label.slice(1)}</strong>
+              <MarkdownBlocks markdown={fenceIndentedCode(block.text)} definitions={definitions} repository={repository}
+                tasksInteractive={false} tasksDisabled={tasksDisabled} />
+            </aside>
+          );
+        }
+        if (block.kind === 'details') return (
+          <details className="md-details" key={key}>
+            <summary>{inline(block.summary, key, definitions)}</summary>
+            <div className="markdown-body">
+              <MarkdownBlocks markdown={block.text} definitions={definitions} repository={repository}
+                suggestion={suggestion} tasksInteractive={tasksInteractive} tasksDisabled={tasksDisabled} />
+            </div>
+          </details>
         );
         if (block.kind === 'table') return (
           <div className="md-table-scroll" key={key}>

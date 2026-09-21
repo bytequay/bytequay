@@ -911,11 +911,23 @@ describe('PullOverview', () => {
   it('renders GitHub details and anchor HTML without exposing raw tags', () => {
     const html = renderToStaticMarkup(<MarkdownBody body={'> [!NOTE]\n> Review coverage is partial.\n\n<details><summary>Show files</summary>hidden table</details>\n<a href="/owner/repo">Learn more</a>'} />);
 
-    expect(html).toContain('<aside class="md-alert is-note"><strong>ⓘ Note</strong>');
+    expect(html).toContain('<aside class="md-alert is-note"><strong>');
+    expect(html).toContain('Note</strong><p>Review coverage is partial.</p></aside>');
     expect(html).toContain('<details class="md-details"><summary>Show files</summary>');
     expect(html).toContain('href="https://github.com/owner/repo"');
     expect(html).not.toContain('&lt;details');
     expect(html).not.toContain('&lt;a href');
+  });
+
+  it('renders headings and disclosures that a bot nests inside an alert', () => {
+    const body = '> [!IMPORTANT]\n> ## Review skipped\n>\n> No reviewable changes.\n>\n>\n> <details>\n> <summary>Run configuration</summary>\n>\n> **Plan**: Enterprise\n>\n> </details>';
+    const html = renderToStaticMarkup(<MarkdownBody body={body} />);
+
+    expect(html).toContain('<aside class="md-alert is-important">');
+    expect(html).toContain('<h2>Review skipped</h2><p>No reviewable changes.</p>');
+    expect(html).toContain('<details class="md-details"><summary>Run configuration</summary>');
+    expect(html).toContain('<strong>Plan</strong>: Enterprise');
+    expect(html).not.toContain('## Review skipped');
   });
 
   it('renders nested details, linked image badges, and underscore emphasis', () => {

@@ -31,9 +31,11 @@ read-only, and workflow tasks hide the control. Accepted request identities and
 authentication retries retain the same choices.
 
 A completed turn's durable false readiness report shows Waiting for your answer
-in the normal conversation. This survives bounded-history eviction and clears
-when a new answer starts. Active execution/approval and cleanup ownership remain
-separate; the banner never infers a question from arbitrary transcript text.
+as the task status and as the composer placeholder; the question itself stays in
+the transcript rather than being repeated above the composer. This survives
+bounded-history eviction and clears when a new answer starts. Active
+execution/approval and cleanup ownership remain separate; the status never
+infers a question from arbitrary transcript text.
 
 An unfinished continuation blocks ordinary Send, steer, queue start, Complete, and the
 manual draft action while preserving composer text. A quiet continuation shows

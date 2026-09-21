@@ -34,11 +34,11 @@ function taskHtml(turn: AgentTurnDto, approvals = false): string {
   return renderToStaticMarkup(<AgentTaskBody state={state} models={[]} {...TASK_BODY_NOOPS} />);
 }
 
-it('keeps the durable question ahead of the composer', () => {
+it('asks for the durable answer in the composer, not a pinned card', () => {
   const question = 'Which implementation should I use?';
   const html = taskHtml({ ...baseTurn, state: 'COMPLETED', developmentResult: { readyForDelivery: false, message: question } });
-  expect(html.indexOf(question)).toBeLessThan(html.indexOf('agt-compose__input'));
-  expect(html).toContain('Waiting for your answer');
+  expect(html).not.toContain(question);
+  expect(html).toContain('placeholder="Waiting for your answer…"');
 });
 
 it('attributes generated requests using trusted durable origins and names live activity', () => {

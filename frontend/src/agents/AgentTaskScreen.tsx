@@ -1322,12 +1322,6 @@ export function AgentTaskBody({
 
       {terminal && state.task !== null && <TerminalSummary task={state.task} onCleanup={onCleanup} />}
 
-      {/* The question stays open until the reader folds it; a new one arrives open again. */}
-      {!terminal && question !== null && <details key={question} className="agt-development-question" open>
-        <summary><Chevron />Waiting for your answer</summary>
-        <div role="status">{question}</div>
-      </details>}
-
       {automationActive && ciPollingError !== null && <div className="agt-notice" role="alert">{ciPollingError}</div>}
 
       {automationFailure !== null && recordedCiFailure === null && <div className="agt-notice" role="alert">
@@ -1398,6 +1392,7 @@ export function AgentTaskBody({
           automation={automation}
           ciMention={state.task?.interactive === true && !localReviewActive} routedToCi={routedToCi}
           ciMessageHint={routedToCi ? ciUnavailable ?? 'Send to CI Autofix' : undefined}
+          placeholder={question !== null ? 'Waiting for your answer…' : undefined}
           value={state.composer} onChange={onCompose} onSend={onSend} onStop={automationActive ? onStopServer : onCancel} onSteer={onSteer} onQueue={onQueue}
           running={status === 'running' || automationActive} sending={state.sending}
           stopLabel={automationActive ? 'Stop automation' : undefined}

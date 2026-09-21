@@ -1011,6 +1011,7 @@ export function ConversationComposer({
   onSelectModel, onAttach, attachEnabled = false,
   attachTitle = 'Image attachments are unavailable', attachments = [], previews = {}, onRemoveAttachment, footer, automation,
   composerRef, onPaste, connection, closing = false, ciMention = false, routedToCi = false, ciMessageHint,
+  placeholder = 'Message the agent',
   steerTitle = 'Sends into the running turn now', queueTitle = 'Runs after this turn finishes',
   stopLabel = 'Stop this turn', stopTitle = 'Interrupts the running turn and waits for its work to stop',
 }: {
@@ -1042,6 +1043,7 @@ export function ConversationComposer({
   automation?: React.ReactNode;
   composerRef?: React.Ref<HTMLTextAreaElement>;
   onPaste?: React.ClipboardEventHandler<HTMLTextAreaElement>;
+  placeholder?: string;
   connection: AgentStreamConnectionState;
   closing?: boolean;
   ciMention?: boolean;
@@ -1112,7 +1114,7 @@ export function ConversationComposer({
           </button>
         </div>}
         <textarea ref={setComposerRef} className="agt-compose__input" rows={1} value={value}
-          aria-label="Message the agent" placeholder={connection === 'connecting' ? 'Connecting…' : closing ? 'Closing…' : 'Message the agent'} disabled={disabled}
+          aria-label="Message the agent" placeholder={connection === 'connecting' ? 'Connecting…' : closing ? 'Closing…' : placeholder} disabled={disabled}
           aria-autocomplete={ciMention ? 'list' : undefined} aria-controls={activeMention !== null ? mentionId : undefined}
           aria-activedescendant={activeMention !== null ? `${mentionId}-ci` : undefined}
           aria-describedby={ciMessageHint ? `${mentionId}-hint` : undefined}

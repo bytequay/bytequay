@@ -667,11 +667,9 @@ source task's steer or queue paths. The mention grants no additional write
 authority and cannot restart a finished run. Existing source-task polling
 continues to refresh the current CI activity and message eligibility.
 
-A blocking question takes precedence:
-
-```text
-Waiting for your answer: Which implementation should I use?
-```
+A blocking question takes precedence: the status reads Waiting for your answer
+and the empty composer repeats it as its placeholder. The question text itself
+is the agent's own transcript message and is not pinned above the composer.
 
 The user replies in the normal composer. A successful answered turn leads
 back to the checker; ByteQuay never asks the agent to commit simply because

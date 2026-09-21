@@ -374,7 +374,7 @@ async function continuationAdmission(): Promise<{ name: string; error?: string }
       eventId: 'automation-settled', sequence: event.sequence + 1, turnId: null, type: 'lifecycle',
       payload: { phase: 'DEVELOPMENT_AUTOMATION_UPDATED', message: 'Waiting for your answer' } }] });
     await settle();
-    assert(host.textContent?.includes('Waiting for your answer') === true, 'Released ownership must show the durable question');
+    assert(input.placeholder === 'Waiting for your answer…', 'Released ownership must ask for the durable answer in the composer');
     assert(input.value === 'Use the smaller change', 'Ownership changes must preserve the composer draft');
     const send = host.querySelector<HTMLButtonElement>('button[aria-label="Send message"]');
     assert(send !== null && !send.disabled, 'The user must be able to answer normally after ownership release');

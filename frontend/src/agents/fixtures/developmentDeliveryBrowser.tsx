@@ -122,16 +122,17 @@ async function deliveryResult(outcome: 'ready' | 'draft' | 'sync failure', publi
   render();
   try {
     await settle();
-    assert(host.textContent?.includes(question) === true, 'A durable question must be visible before any delivery');
-    assert(host.querySelector('.agt-pr-chip') === null, 'A branch without a pull request must offer no chip');
-    assert(submitted === 0, 'Opening a questioning task must not launch delivery');
     let input = host.querySelector<HTMLTextAreaElement>('textarea[aria-label="Message the agent"]');
     assert(input !== null, 'Normal answer composer must exist');
+    assert(input.placeholder === 'Waiting for your answer…', 'A durable question must ask for its answer before any delivery');
+    assert(host.querySelector('.agt-pr-chip') === null, 'A branch without a pull request must offer no chip');
+    assert(submitted === 0, 'Opening a questioning task must not launch delivery');
     changeInput(input, 'Preserve the public API');
     await settle();
     host.querySelector<HTMLButtonElement>('button[aria-label="Send message"]')?.click();
     await settle();
-    assert(Number(submitted) === 1 && !host.textContent?.includes(question), 'Accepted answer must clear the old question');
+    assert(Number(submitted) === 1 && host.querySelector<HTMLTextAreaElement>('.agt-compose__input')?.placeholder === 'Message the agent',
+      'Accepted answer must clear the old question');
     changeInput(input, 'Keep my next development request');
     await settle();
     await finishTurn();
@@ -225,8 +226,8 @@ async function deliveryResult(outcome: 'ready' | 'draft' | 'sync failure', publi
       emit('TURN_COMPLETED');
       await settle();
       assert(host.querySelector('.agt-status')?.textContent?.startsWith('Waiting for your answer') === true, 'A later question must take precedence over prior green/ready results');
-      const html = host.innerHTML;
-      assert(html.indexOf('agt-development-question') < html.indexOf('agt-pr-chip'), 'The question must appear before the published result');
+      assert(host.querySelector<HTMLTextAreaElement>('.agt-compose__input')?.placeholder === 'Waiting for your answer…',
+        'A later question must ask for the answer in the composer');
     }
     return { name };
   } catch (error) { return { name, error: error instanceof Error ? error.message : String(error) }; }

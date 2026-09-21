@@ -105,13 +105,11 @@ describe('waiting for the user', () => {
     expect(developmentQuestion({ ...state, turn: refined, latestTurnId: refined.id,
       turns: { [turn.id]: { ...turn, developmentResult: { readyForDelivery: true, message: null } }, [commitQuestion.id]: commitQuestion } })).toBe('Which files should be committed?');
   });
-  it('renders the question before the composer without claiming publication', () => {
+  it('waits for the answer in the composer without claiming publication', () => {
     const html = renderToStaticMarkup(<AgentTaskBody state={state} models={[]} {...TASK_BODY_NOOPS} />);
-    // The reader can fold the question away; it opens again with every new one.
-    expect(html).toContain('<details class="agt-development-question" open=""><summary>');
-    expect(html).toContain('Waiting for your answer');
-    expect(html).toContain(report.message);
-    expect(html.indexOf(report.message)).toBeLessThan(html.indexOf('agt-compose__input'));
+    // The question itself stays in the transcript; the composer only says whose turn it is.
+    expect(html).toContain('placeholder="Waiting for your answer…"');
+    expect(html).not.toContain(report.message);
     expect(html).not.toContain('Draft created');
   });
   it('holds earlier queued work while allowing the user to answer normally', () => {

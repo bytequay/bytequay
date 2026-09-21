@@ -28,6 +28,7 @@ import java.time.format.DateTimeParseException;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
@@ -78,8 +79,9 @@ final class ClaudeEventMapper
             case ClaudeProtocol.AssistantMessage assistant -> mapAssistant(assistant);
             case ClaudeProtocol.UserMessage user -> mapUser(user);
             case ClaudeProtocol.ToolProgressMessage progress -> mapProgress(progress);
+            // An allowed status, warning included, never stops the turn, so reporting it is noise.
             case ClaudeProtocol.RateLimitMessage rateLimit ->
-                rateLimit.rateLimitInfo().status().equalsIgnoreCase("allowed")
+                rateLimit.rateLimitInfo().status().toLowerCase(Locale.ROOT).startsWith("allowed")
                         ? ImmutableList.of()
                         : ImmutableList.of(lifecycle(
                                 rateLimit.uuid(),

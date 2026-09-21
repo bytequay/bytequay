@@ -1320,9 +1320,8 @@ export function AgentTaskBody({
         {automationFailure}
       </div>}
 
-      {!terminal && automationActive && currentCi == null && status !== 'recovery' && <div className="agt-barrier" role="status">
-        {state.developmentProgress?.message || 'Automation is running.'} Your next message stays in the composer until it finishes.
-      </div>}
+      {!terminal && automationActive && currentCi == null && status !== 'recovery' && state.developmentProgress?.message
+        && <div className="agt-barrier" role="status">{state.developmentProgress.message}</div>}
 
       {!terminal && plan !== null && plan.steps.length > 0 && <PlanCard steps={plan.steps} open={planOpen} onToggle={onTogglePlan} />}
 

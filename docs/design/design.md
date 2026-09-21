@@ -49,6 +49,12 @@ historical checkpoint evidence and explicitly deferred future work.
   conversations beside the PR. It reuses agent tasks, incremental review and
   explicit user publication. Its [implementation checklist](agent-review-impl-tmp.md)
   records delivery gates; the design is not a claim of implementation.
+- [Discussion Threads](discussion-threads.md) specifies private, read-only side
+  conversations about a quoted passage of a completed assistant answer: a
+  separate provider conversation seeded with the task's history through the
+  selected turn, one thread per passage, a reply-count footer in the transcript
+  and a task side-panel tab. A discussion is not an agent task and never enters
+  the task's own conversation, event log, outbox or stream.
 - [Repository Context](repository-context.md) proposes shared workspace knowledge,
   user-saved lessons, and source-linked input for the existing review flow.
   Start with its overall flow; its [temporary checklist](repository-context-impl-tmp.md)

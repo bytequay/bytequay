@@ -694,7 +694,43 @@ time, and a resolved mark once the discussion is resolved. A discussion whose
 newest question has no answer yet reads as answering rather than showing a
 count.
 
-### 8.2 Decided client behaviour
+### 8.2 The renderer's side
+
+Recorded from the built surfaces, so a later change can tell what was deliberate.
+
+```text
+frontend/src/agents/discussions/
+    contracts.ts          the DTO and the five requests, each field parsed and validated
+    useTaskDiscussions.ts the polling hook and the five writes
+    DiscussableAnswer.tsx one answer, its selection affordance, its footers
+    DiscussionFooter.tsx  the reply-count rows, the label, the reply count
+    DiscussionsPanel.tsx  the tab body: the card, the composers
+```
+
+`markdown.tsx` exports `renderMarkdownBlocks`, returning each block with the text
+it reads as on screen; `renderMarkdown` wraps it, so every existing caller is
+unchanged. Blocks carry no durable identity — a block is addressed only for the
+duration of one render, for the same reason no block ordinal is stored.
+
+Five bridge methods cross the IPC boundary — list, open, ask, resolve, retry —
+and they are named in `AgentBridgePort`, so a fixture rendering the task screen
+must supply them rather than failing at run time on a bridge that lacks them.
+
+The hook polls every three seconds, because a discussion answers on a thread the
+renderer cannot observe. Each write returns the updated discussion and is
+accepted immediately, and a returned row is rejected when the local copy is
+already newer, so a poll in flight cannot undo a question just sent. There is no
+idempotency map: a discussion dispatches nothing through the task's turn
+machinery, so there is no delivery to replay.
+
+Two rules keep the transcript honest. An answer becomes discussable only when it
+is whole — a streaming one has no completed turn to anchor to. And the reply-count
+footer sits between blocks inside `.agt-md`, whose spacing is a set of
+pair-by-pair rules; a rule for the boundary the footer creates carries two
+classes deliberately, because the resets that zero those margins are more
+specific than a lone child selector and a tidier general rule loses to them.
+
+### 8.3 Decided client behaviour
 
 These are settled and recorded so they are not reopened. All are presentation;
 none changes a route or a stored field.

@@ -145,9 +145,12 @@ repository builds.
 The task surface completed CP11 and ships ungated. The accepted decisions are:
 
 1. **Runtime shape:** one task-owned Codex App Server per active turn, never
-   more than one for a task, rooted at that task's worktree. It is verified
-   stopped at turn completion, and the next turn resumes the same thread in a
-   new matching-profile process. Claude remains a separate CLI lane.
+   more than one turn-bearing process for a task, rooted at that task's
+   worktree. It is verified stopped at turn completion, and the next turn
+   resumes the same thread in a new matching-profile process. Claude remains a
+   separate CLI lane. A read-only discussion session may run one further process
+   on the same task and worktree; it takes no turn and changes nothing, and
+   [Discussion Threads](discussion-threads.md) owns that boundary.
 2. **UI contract:** ByteQuay persists and renders normalized messages, plans,
    approvals, activity/logs, images, metrics, queue/steer state, and root/child
    agents; it never renders raw provider JSON or hidden reasoning.

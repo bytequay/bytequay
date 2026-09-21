@@ -527,7 +527,10 @@ chain-of-thought and raw provider JSON are not part of the contract.
 
 For Codex development tasks, App Server owns reasoning and tool selection.
 ByteQuay launches one task-owned App Server per active turn, never more than one
-for a task, with that task's worktree as its working directory. It verifies the
+turn-bearing process for a task, with that task's worktree as its working
+directory. A read-only task discussion is the one process that may join it: at
+most one of those runs alongside, on the same task identity and worktree, and it
+accepts no turn, holds no worktree mutation claim, and writes nothing. It verifies the
 process stopped at turn completion; a later turn resumes the durable provider
 thread in a new matching-profile process. Under `workspace-write` App Server's
 default environment is rooted at that directory, so every active turn gets a
@@ -3296,8 +3299,10 @@ servers and no account credentials.
 The Codex lane uses the documented
 [Codex App Server protocol](https://learn.chatgpt.com/docs/app-server),
 not terminal-screen scraping and not `codex exec --json`. ByteQuay starts one
-task-owned process per active Codex turn, never more than one for a task, rooted
-at that task's managed worktree:
+task-owned process per active Codex turn, never more than one turn-bearing
+process for a task, rooted at that task's managed worktree. A read-only
+discussion session may run one further process on the same task, which the
+[Discussion Threads](discussion-threads.md) design owns:
 
 ```text
 codex app-server --listen stdio://

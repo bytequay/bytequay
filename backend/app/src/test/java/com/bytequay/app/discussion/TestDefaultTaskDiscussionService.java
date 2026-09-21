@@ -14,12 +14,14 @@
 package com.bytequay.app.discussion;
 
 import com.bytequay.agent.core.AgentConflictException;
+import com.bytequay.agent.core.AgentMetrics;
 import com.bytequay.agent.core.AgentResourceService;
 import com.bytequay.agent.core.AgentTask;
 import com.bytequay.agent.core.AgentTaskDefaults;
 import com.bytequay.agent.core.AgentTaskService;
 import com.bytequay.agent.core.RepositoryIdentity;
 import com.bytequay.agent.core.TaskId;
+import com.bytequay.agent.core.TaskSummary;
 import com.bytequay.agent.core.TaskWorktree;
 import com.bytequay.agent.core.TitleSource;
 import com.bytequay.agent.core.store.TaskLogStore;
@@ -66,10 +68,23 @@ class TestDefaultTaskDiscussionService
             store, tasks, resources, drivers, logStore, Clock.fixed(NOW, ZoneOffset.UTC));
 
     @Test
+    void refusesAskingOnceTheWorktreeIsReleasedAfterCompletion()
+    {
+        // A worktree is only released once the task is done, which is what makes a finished task's
+        // threads read-only rather than merely idle.
+        AgentTask completed = task().complete(
+                new TaskSummary("done", Optional.empty(), AgentMetrics.empty(), Optional.empty()), NOW, NOW.plusSeconds(60));
+        when(tasks.getInteractive("w1", TASK)).thenReturn(completed.withWorktreeRemovedAt(NOW.plusSeconds(60)));
+
+        assertThatThrownBy(() -> service.open(open("INVALID_TABLE_PROPERTY", 1, "why?")))
+                .isInstanceOf(AgentConflictException.class)
+                .hasMessageContaining("read-only");
+        verify(store, never()).insertOrGet(any());
+    }
+
+    @Test
     void refusesAskingWhenTheTaskHasNoLiveWorktree()
     {
-        // The same guard covers a worktree released after the task completed, which needs a
-        // terminal task the turn service owns; the failure pass exercises that half end to end.
         when(tasks.getInteractive("w1", TASK)).thenReturn(withoutWorktree());
 
         assertThatThrownBy(() -> service.open(open("INVALID_TABLE_PROPERTY", 1, "why?")))

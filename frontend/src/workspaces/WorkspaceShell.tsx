@@ -64,14 +64,9 @@ export default function WorkspaceShell({ workspace, tab, onSelectTab, onWorkspac
   const [startLaunch, setStartLaunch] = useState<TaskLaunch>();
   const agentScreens = tab === 'home' || tab === 'tasks';
   const taskDetail = tab === 'tasks' && (initialAgentTaskId !== null || initialAgentReviewId !== null);
-  // Opening any task from the list zooms it over that list; the route still owns which agent task.
-  const zoomedTask = tab === 'tasks' && initialAgentTaskId !== null;
+  // A cherry-pick execution zooms over the task list; an agent task owns the page instead.
   const zoomedCherryPick = tab === 'tasks' && openCherryPick !== null;
-  const leaveZoom = useCallback(() => {
-    if (openCherryPick !== null) setOpenCherryPick(null);
-    else onSelectAgentTask(null, 'push');
-  }, [onSelectAgentTask, openCherryPick]);
-  const zoom = useZoom(leaveZoom, zoomedTask || zoomedCherryPick);
+  const zoom = useZoom(useCallback(() => setOpenCherryPick(null), []), zoomedCherryPick);
   const openReviewWorkspace = (review: AgentReviewDto): void => {
     setOpenReview(null);
     window.location.hash = workspaceReviewTaskRoute(review.workspaceId, review.id);
@@ -196,6 +191,24 @@ export default function WorkspaceShell({ workspace, tab, onSelectTab, onWorkspac
       headerAction={overviewOpen ? undefined : overviewToggle}
       browserOpen={browserOpen}
     />);
+    if (initialAgentTaskId !== null) {
+      // Not wrapped in ws-tab-page: the screen scrolls its transcript, not the whole page.
+      // Keyed by task: moving between two open tasks must not carry one task's transcript and
+      // sequence cursor into the other, which would drop the second task's early events as
+      // duplicates.
+      return stage(
+        <AgentTaskScreen
+          key={initialAgentTaskId}
+          workspaceId={workspace.id}
+          taskId={initialAgentTaskId}
+          onBack={() => onSelectAgentTask(null, 'push')}
+          headerAction={overviewOpen ? undefined : overviewToggle}
+          onOpenPullRequest={onPreviewPullRequest}
+          workspace={workspace}
+          onOpenSettings={() => { window.location.hash = settingsRoute('ws-agents', workspace.id); }}
+        />,
+      );
+    }
     const cherryPicks = (
       <WorkspaceTasks
         workspace={workspace}
@@ -207,7 +220,6 @@ export default function WorkspaceShell({ workspace, tab, onSelectTab, onWorkspac
         }}
       />
     );
-    const zoomActions = <ZoomActions {...zoom} label="task" className="agt-headbtn" />;
     // The agent view owns the page: its composer stays anchored under both task sections.
     return stage(
       <>
@@ -217,7 +229,7 @@ export default function WorkspaceShell({ workspace, tab, onSelectTab, onWorkspac
           sourceIssueNumber={sourceIssueNumber}
           launch={sourceIssueNumber === null ? undefined : startLaunch}
           onOpenCreatedTask={task => { window.location.hash = workspaceAgentTaskRoute(task.workspaceId, task.id); }}
-          headerAction={overviewOpen || zoomedTask || zoomedCherryPick ? undefined : overviewToggle}
+          headerAction={overviewOpen || zoomedCherryPick ? undefined : overviewToggle}
           onOpenReview={(review) => setOpenReview({ id: review.id, repo: review.repo, number: review.number })}
           onOpenReviewWorkspace={openReviewWorkspace}
           onOpenTask={(taskId) => onSelectAgentTask(taskId, 'push')}
@@ -225,24 +237,7 @@ export default function WorkspaceShell({ workspace, tab, onSelectTab, onWorkspac
         >
           {cherryPicks}
         </AgentTasksView>
-        {(zoomedTask || zoomedCherryPick) && !zoom.full && <ZoomScrim onClose={zoom.close} />}
-        {zoomedTask && initialAgentTaskId !== null && (
-          // Keyed by task: moving between two open tasks must not carry one task's transcript and
-          // sequence cursor into the other, which would drop the second task's early events as
-          // duplicates.
-          <div className={zoom.cardClass}>
-            <AgentTaskScreen
-              key={initialAgentTaskId}
-              workspaceId={workspace.id}
-              taskId={initialAgentTaskId}
-              onBack={zoom.close}
-              headerAction={overviewOpen ? zoomActions : <>{overviewToggle}{zoomActions}</>}
-              onOpenPullRequest={onPreviewPullRequest}
-              workspace={workspace}
-              onOpenSettings={() => { window.location.hash = settingsRoute('ws-agents', workspace.id); }}
-            />
-          </div>
-        )}
+        {zoomedCherryPick && !zoom.full && <ZoomScrim onClose={zoom.close} />}
         {openCherryPick !== null && (
           <div className={zoom.cardClass}>
             <div className="cmt-root">

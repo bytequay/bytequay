@@ -39,6 +39,7 @@ import com.bytequay.core.discussion.TaskDiscussionStore;
 import com.google.common.collect.ImmutableList;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 
 import java.time.Clock;
@@ -50,7 +51,7 @@ import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
-import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executor;
 import java.util.concurrent.Executors;
 
 import static com.google.common.collect.ImmutableList.toImmutableList;
@@ -79,8 +80,9 @@ public class DefaultTaskDiscussionService
     // In flight is not durable: after a restart nothing is running, and a persisted running row
     // would be a lie needing a recovery sweep. The read route projects this set instead.
     private final Set<String> inFlight = ConcurrentHashMap.newKeySet();
-    private final ExecutorService answers = Executors.newVirtualThreadPerTaskExecutor();
+    private final Executor answers;
 
+    @Autowired
     public DefaultTaskDiscussionService(
             TaskDiscussionStore store,
             AgentTaskService tasks,
@@ -89,6 +91,20 @@ public class DefaultTaskDiscussionService
             TaskLogStore logStore,
             Clock clock)
     {
+        this(store, tasks, resources, drivers, logStore, clock, Executors.newVirtualThreadPerTaskExecutor());
+    }
+
+    /** Lets a test run the answer on the calling thread rather than waiting on a virtual one. */
+    DefaultTaskDiscussionService(
+            TaskDiscussionStore store,
+            AgentTaskService tasks,
+            AgentResourceService resources,
+            AgentDriverRegistry drivers,
+            TaskLogStore logStore,
+            Clock clock,
+            Executor answers)
+    {
+        this.answers = requireNonNull(answers, "answers is null");
         this.store = requireNonNull(store, "store is null");
         this.tasks = requireNonNull(tasks, "tasks is null");
         this.resources = requireNonNull(resources, "resources is null");
@@ -246,6 +262,35 @@ public class DefaultTaskDiscussionService
         if (discussion == null) {
             return;
         }
+        try {
+            run(task, discussion, discussion.sessionReference());
+        }
+        catch (RuntimeException failure) {
+            if (discussion.sessionReference().isEmpty()) {
+                log.warn("Discussion {} could not be answered", discussionId, failure);
+                fail(discussionId, reasonOf(failure));
+                return;
+            }
+            // The recorded conversation is gone. Re-seeding costs the provider's memory of what it
+            // read, not the thread: the same renderer carries the premise and every prior message.
+            log.info("Discussion {} lost its provider conversation; re-seeding", discussionId, failure);
+            try {
+                run(task, discussion, Optional.empty());
+            }
+            catch (RuntimeException reseeded) {
+                log.warn("Discussion {} could not be answered after re-seeding", discussionId, reseeded);
+                fail(discussionId, reasonOf(reseeded));
+            }
+        }
+    }
+
+    private static String reasonOf(RuntimeException failure)
+    {
+        return failure.getMessage() == null ? "The answer could not be produced" : failure.getMessage();
+    }
+
+    private void run(AgentTask task, TaskDiscussion discussion, Optional<DiscussionSession> resume)
+    {
         TaskId scratchId = TaskId.random();
         boolean processMayBeRunning = false;
         AgentSession session = null;
@@ -257,7 +302,7 @@ public class DefaultTaskDiscussionService
                     scratch.runtimeDirectory(),
                     scratch.providerDirectory(),
                     AgentPermissionPolicy.AUTO,
-                    discussion.sessionReference().map(reference -> new AgentSessionRef(task.laneId(), reference.contractVersion(), reference.providerValue())),
+                    resume.map(reference -> new AgentSessionRef(task.laneId(), reference.contractVersion(), reference.providerValue())),
                     (request, timeout) -> CompletableFuture.completedFuture(ProviderApprovalDecision.deny()),
                     discussion.providerModel(),
                     Optional.empty(),
@@ -266,9 +311,10 @@ public class DefaultTaskDiscussionService
                     "");
             processMayBeRunning = true;
             session = drivers.require(task.laneId()).open(context, event -> {});
-            List<DiscussionMessage> priorAnswers = resumable(discussion) ? List.of() : earlier(discussion);
-            String prompt = DiscussionPrompt.render(
-                    discussion.seed(), discussion.anchor().quote(), priorAnswers, lastQuestion(discussion));
+            // A resumed conversation already holds the preamble, the premise and the exchange;
+            // sending them again would duplicate the whole thread in its context.
+            String prompt = resume.isPresent() ? lastQuestion(discussion)
+                    : DiscussionPrompt.render(discussion.seed(), discussion.anchor().quote(), earlier(discussion), lastQuestion(discussion));
             AgentTurnResult result = session.start(new AgentTurnCommand(
                     UUID.randomUUID().toString(), prompt, ImmutableList.of(), MAXIMUM_RUNTIME))
                     .completion().toCompletableFuture().join();
@@ -276,15 +322,11 @@ public class DefaultTaskDiscussionService
             session.close();
             session = null;
             processMayBeRunning = false;
-            record(discussionId, result, reference, task);
-        }
-        catch (RuntimeException failure) {
-            log.warn("Discussion {} could not be answered", discussionId, failure);
-            fail(discussionId, failure.getMessage() == null ? "The answer could not be produced" : failure.getMessage());
+            record(discussion.id(), result, reference, task);
         }
         finally {
             if (session != null) {
-                processMayBeRunning = !closed(session, discussionId);
+                processMayBeRunning = !closed(session, discussion.id());
             }
             if (processMayBeRunning) {
                 log.warn("Retaining discussion resources because the provider may still be running for {}", scratchId);
@@ -298,12 +340,6 @@ public class DefaultTaskDiscussionService
                 }
             }
         }
-    }
-
-    /** A resumed conversation already holds the seed and the prior exchange; a fresh one does not. */
-    private static boolean resumable(TaskDiscussion discussion)
-    {
-        return discussion.sessionReference().isPresent();
     }
 
     private static List<DiscussionMessage> earlier(TaskDiscussion discussion)

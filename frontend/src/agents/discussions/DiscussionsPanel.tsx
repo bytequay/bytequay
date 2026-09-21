@@ -238,16 +238,16 @@ export function DiscussionsPanel({ discussions, turns, onJump, onHover }: {
         const turn = (turns ?? []).find(candidate => candidate.turnId === turnId);
         return (
           <div className="agt-disc-group" key={turnId}>
-            <div className="agt-disc-group__head">
-              <span className="agt-disc-group__turn">{turn === undefined ? 'EARLIER' : `TURN ${turn.ordinal}`}</span>
-              <span className="agt-disc-group__synopsis">
-                {turn === undefined ? 'Earlier in this task' : turn.synopsis}
-              </span>
-              {turn !== undefined && onJump !== undefined && (
-                <button className="agt-disc-group__jump" type="button" title="Show answer in transcript"
-                  aria-label="Show answer in transcript" onClick={() => onJump(cards[0])}>{JUMP}</button>
-              )}
-            </div>
+            {turn !== undefined && (
+              <div className="agt-disc-group__head">
+                <span className="agt-disc-group__turn">TURN {turn.ordinal}</span>
+                <span className="agt-disc-group__synopsis">{turn.synopsis}</span>
+                {onJump !== undefined && (
+                  <button className="agt-disc-group__jump" type="button" title="Show answer in transcript"
+                    aria-label="Show answer in transcript" onClick={() => onJump(cards[0])}>{JUMP}</button>
+                )}
+              </div>
+            )}
             <div className="agt-disc-group__cards">
               {cards.map(discussion => (
                 <DiscussionCard

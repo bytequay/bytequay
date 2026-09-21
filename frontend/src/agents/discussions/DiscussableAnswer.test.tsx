@@ -18,7 +18,9 @@ import { describe, expect, it } from 'vitest';
 
 import { DiscussableAnswer, blockOf } from './DiscussableAnswer';
 import { DiscussionFooter, discussionLabel, replyCount } from './DiscussionFooter';
+import { DiscussionCard, DiscussionsPanel } from './DiscussionsPanel';
 import type { TaskDiscussionDto } from './contracts';
+import type { TaskDiscussions } from './useTaskDiscussions';
 
 const ANSWER = [
   'It throws INVALID_TABLE_PROPERTY with the joined path.',
@@ -129,5 +131,39 @@ describe('a footer row', () => {
       discussion({ id: 'b', quote: `${long}always use remote generation instead` }),
     ];
     expect(discussionLabel(pair[0], pair).text).not.toBe(discussionLabel(pair[1], pair).text);
+  });
+});
+
+describe('the panel', () => {
+  const stub = (disabledReason: string | null): TaskDiscussions => ({
+    discussions: [discussion()], error: null, disabledReason,
+    refresh: async () => {}, open: async () => discussion(), ask: async () => {},
+    resolve: async () => {}, retry: async () => {},
+  });
+
+  it('offers a reply while the task still holds its files', () => {
+    const html = renderToStaticMarkup(
+      <DiscussionCard discussion={discussion()} siblings={[]} discussions={stub(null)} open onToggle={() => {}} />);
+    expect(html).toContain('>Reply<');
+  });
+
+  it('says why instead, once the files are released', () => {
+    const html = renderToStaticMarkup(
+      <DiscussionCard discussion={discussion()} siblings={[]} discussions={stub('files released')} open onToggle={() => {}} />);
+    expect(html).not.toContain('>Reply<');
+    expect(html).toContain('files released');
+  });
+
+  it('draws no group header for an answer it cannot name', () => {
+    const html = renderToStaticMarkup(<DiscussionsPanel discussions={stub(null)} turns={[]} />);
+    expect(html).not.toContain('agt-disc-group__head');
+    expect(html).toContain('INVALID_TABLE_PROPERTY');
+  });
+
+  it('names the answer when the turn is on screen', () => {
+    const turns = [{ turnId: 'turn-10', ordinal: 3, synopsis: 'It throws with the joined path.' }];
+    const html = renderToStaticMarkup(<DiscussionsPanel discussions={stub(null)} turns={turns} />);
+    expect(html).toContain('TURN 3');
+    expect(html).toContain('It throws with the joined path.');
   });
 });

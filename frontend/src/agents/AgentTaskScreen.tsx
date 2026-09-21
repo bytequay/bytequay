@@ -543,7 +543,7 @@ function PanelFrame({ label, tabs, width, flush = false, overview = false, kept 
  * from the task's kept summary, and opening it says its activity expired rather than inventing it.
  */
 function SidePanel({
-  discussions, onJumpToPassage, onHoverDiscussion,
+  discussions, onJumpToPassage, onHoverDiscussion, discussionTurns,
   agents, openAgent, expiredChildren, deleteAfter, transcript, now, tab: requestedTab, task = null, pullRequest,
   pullRequestError, pullRequestLoading, pullRequestChecked, onRefreshPullRequests,
   pullRequestDetail, pullRequestChanges, pullRequestCommitRange, pullRequestPendingComments,
@@ -594,6 +594,8 @@ function SidePanel({
   discussions?: TaskDiscussions;
   onJumpToPassage?: (discussion: TaskDiscussionDto) => void;
   onHoverDiscussion?: (discussionId: string | null) => void;
+  /** The answers the loaded transcript holds, so a thread's card can name the one it hangs under. */
+  discussionTurns?: { turnId: string; ordinal: number; synopsis: string }[];
   learning?: React.ReactNode;
   reviewFocus?: ReviewCardFocus | null;
   /** How many files hold unsaved Code & Tests drafts, so the screen can confirm before they are dropped. */
@@ -752,7 +754,7 @@ function SidePanel({
   const code = { kept: codeBody, keptShown: tab === 'code' };
   if (tab === 'discussions' && discussions !== undefined) {
     return <PanelFrame label="Discussions" tabs={tabs} width={width} {...code}>
-      <DiscussionsPanel discussions={discussions} onJump={onJumpToPassage} onHover={onHoverDiscussion} />
+      <DiscussionsPanel discussions={discussions} turns={discussionTurns} onJump={onJumpToPassage} onHover={onHoverDiscussion} />
     </PanelFrame>;
   }
   if (tab === 'code') return <PanelFrame label="Code & Tests" tabs={tabs} width={width} flush {...code} />;
@@ -1134,6 +1136,13 @@ export function AgentTaskBody({
       ? settleFinalTurn(turn, state.task?.terminalAt ?? null, state.task?.state === 'COMPLETED')
       : turn
   ));
+  // The group header names the answer a thread hangs under; a turn that has left the loaded window
+  // has no ordinal and no synopsis, and the panel then draws no header rather than a useless one.
+  const discussionTurns = turns.flatMap(turn => (turn.turnId === null || turn.answer === null || turn.ordinal < 1 ? [] : [{
+    turnId: turn.turnId,
+    ordinal: turn.ordinal,
+    synopsis: turn.answer.text.replace(/\s+/g, ' ').trim().slice(0, 90),
+  }]));
   const onSend = (): void => { followSend(); send(); };
   const onSteer = (): void => { changeFollowing(true); steer(); };
   const supportsNestedAgents = state.capabilities?.nestedAgentActivity === true;
@@ -1410,6 +1419,7 @@ export function AgentTaskBody({
           <TaskPaneDivider pane={sidePanel} />
           <SidePanel
             discussions={discussions}
+            discussionTurns={discussionTurns}
             onJumpToPassage={onJumpToPassage}
             onHoverDiscussion={onHoverDiscussion}
             agents={agents}
@@ -2070,7 +2080,14 @@ export default function AgentTaskScreen({
   });
   const discussions = useTaskDiscussions(
     state.task?.interactive === true ? { taskId, workspaceId } : null,
-    { active: state.task?.interactive === true, bridge: explicitBridge, disabledReason: agentCommentDisabled });
+    {
+      active: state.task?.interactive === true,
+      bridge: explicitBridge,
+      // A discussion is private and never reaches GitHub, so a closed pull request is nothing to it.
+      // What stops it is the task releasing the files the agent would read.
+      disabledReason: state.task?.checkoutRemovedAt == null ? null
+        : 'This task released its files, so its discussions are read-only.',
+    });
   const createLocalReview = localReview.create;
   const sendAgentComment = useCallback(async (comment: DiffAgentComment) => {
     const task = stateRef.current.task;

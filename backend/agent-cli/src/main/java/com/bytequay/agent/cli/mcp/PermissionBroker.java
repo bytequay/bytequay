@@ -263,7 +263,8 @@ public final class PermissionBroker
                             "http",
                             requireNonNull(endpoint.get(), "endpoint URI is null").toString(),
                             ImmutableMap.of("Authorization", "Bearer " + token),
-                            APPROVAL_TIMEOUT.plusSeconds(30).toMillis()))));
+                            APPROVAL_TIMEOUT.plusSeconds(30).toMillis(),
+                            true))));
             writeOwnerOnly(configFile, json);
             writeOwnerOnly(settingsFile, sandboxSettings(
                     permissionPolicy, access, context.review().isPresent(), runtimeDirectory.toRealPath(), worktree, environment));
@@ -1184,7 +1185,12 @@ public final class PermissionBroker
         }
     }
 
-    private record McpServer(String type, String url, Map<String, String> headers, long timeout)
+    /**
+     * {@code alwaysLoad} keeps every ByteQuay tool in the prompt. Claude defers MCP tools behind tool
+     * search by default, and a deferred {@code report_development_result} is one the agent never finds
+     * and never calls, which fails the turn's mandatory report.
+     */
+    private record McpServer(String type, String url, Map<String, String> headers, long timeout, boolean alwaysLoad)
     {
         private McpServer
         {

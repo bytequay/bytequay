@@ -437,6 +437,8 @@ class TestClaudeCliDriver
 
         Path configFile = runtimeDirectory().resolve("provider/scratch/bytequay-mcp.json");
         assertThat(configFile).exists();
+        // Deferred behind tool search, report_development_result is a tool the agent never finds to call.
+        assertThat(objectMapper.readTree(Files.readString(configFile)).at("/mcpServers/bytequay/alwaysLoad").asBoolean()).isTrue();
         session.close();
         assertThat(configFile).doesNotExist();
 

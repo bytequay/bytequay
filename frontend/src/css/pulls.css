@@ -1019,7 +1019,15 @@
 .pr-skeleton__bar,
 .pr-skeleton__avatar,
 .pr-skeleton__glyph,
-.pr-skeleton__button { flex: none; background: #dfe3e8; animation: bq-pulse 1.5s ease-in-out infinite; }
+.pr-skeleton__button {
+  flex: none;
+  background: #dfe3e8;
+  /* A light travels along each shape, so the wait reads as work in progress rather than a stalled frame. */
+  mask-image: linear-gradient(75deg, #000 30%, rgba(0, 0, 0, 0.3) 50%, #000 70%);
+  mask-size: 200% 100%;
+  animation: pr-skeleton-sweep 1.6s ease-in-out infinite;
+}
+@keyframes pr-skeleton-sweep { from { mask-position: 200% 0; } to { mask-position: 0% 0; } }
 .pr-skeleton__bar { height: 12px; border-radius: 6px; }
 .pr-skeleton__avatar { width: 24px; height: 24px; border-radius: 50%; }
 .pr-skeleton__glyph { width: 16px; height: 16px; border-radius: 5px; }
@@ -1039,7 +1047,7 @@
   .pr-skeleton__bar,
   .pr-skeleton__avatar,
   .pr-skeleton__glyph,
-  .pr-skeleton__button { animation: none; }
+  .pr-skeleton__button { animation: none; mask-image: none; }
 }
 
 .pr-composer { margin-top: 22px; }

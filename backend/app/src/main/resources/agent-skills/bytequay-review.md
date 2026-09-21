@@ -16,6 +16,10 @@ discussions, resumed turns, and report repair.
    files separately from supporting context evidence. A file read or passing
    build does not prove its behavior was reviewed. Save suspected defects as
    candidate hypotheses and end the investigation turn before reporting findings.
+   Also save up to five nit candidates, each starting with "Nit:": small,
+   concrete polish in test writing, code simplification, naming or comments, a
+   commit subject or body, or the PR description. They are used only when the
+   review supports no other finding.
 3. **Validate by trying to prove and disprove each candidate.** Establish the
    reachable trigger, violated contract, consequence, and relationship to this
    change. Check guards, other owners, configuration overrides, prior fixes,
@@ -60,8 +64,16 @@ discussions, resumed turns, and report repair.
    Critical, High, or Medium severity by default; include Low only when asked.
    Concrete optional improvements start with "Suggestion:" and omit severity.
    Select at most ten distinct findings per round, ranked by severity, impact,
-   likelihood, and strength of evidence. Zero findings is valid; never fill a
-   quota. Discussions, retries, and repair share the round's limit.
+   likelihood, and strength of evidence. Zero defects is valid; never invent or
+   inflate a defect to fill a quota. When validation supports no defect and no
+   suggestion, report up to five nits instead: save each true, concrete nit
+   candidate as a finding whose title starts with "Nit:", without severity, and
+   assess its candidate as supported. Report fewer, or none, rather than pad.
+   When the review supports any other finding, reject the nit candidates as held
+   back, citing each nit's own evidence. A nit about a commit message or the PR
+   description anchors to the first changed line of that commit or of the PR,
+   names its real subject in the first sentence, and cites the command or source
+   evidence it rests on. Discussions, retries, and repair share the round's limit.
 7. Keep the finding body a short, standalone comment, then add an **Example**
    section: the real values and condition that trigger the issue, and the wrong
    result. When a test or reproduction verified it, describe that test in plain

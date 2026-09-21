@@ -606,6 +606,18 @@ An example that was only traced from the code says so. The example is part of
 the Markdown body, so it renders in the card and travels with a published
 comment; it needs no separate field.
 
+When validation supports no defect and no suggestion, the review reports up to
+five nits instead of an empty result: small, concrete polish in test writing,
+code simplification, naming or comments, a commit subject or body, or the PR
+description. Nit candidates are collected during investigation, because a
+candidate added during validation requires another investigation round. They
+become severity-free findings titled `Nit:` only when no other finding is
+supported; otherwise validation rejects them as held back. A finding requires a
+diff anchor, so a nit about a commit message or the PR description anchors to
+the first changed line of that commit or of the pull request and names its real
+subject first. A review with no true nit still reports zero findings; nits are
+never padded.
+
 Evidence stays with the finding it supports, distinguishing executed checks
 from source inspection and reported CI results. `review_finish` still records
 machine coverage and omissions for the run status, plus optional `warnings` for

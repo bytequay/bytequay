@@ -169,6 +169,7 @@ class TestReviewTools
         assertThat(bridge.instruction()).contains("drive the changed code end", "Never call a test unavailable without running it", "never attempted is not unavailable");
         assertThat(bridge.instruction()).contains("End each finding body", "add an **Example**", "only traced from the code");
         assertThat(bridge.instruction()).contains("Warnings are only for checks that could not run", "stays in that candidate's conclusion");
+        assertThat(bridge.instruction()).contains("up to five nit candidates", "reject the nit candidates as held back", "Never pad");
         ReviewTool finish = bridge.tools().stream().filter(tool -> tool.name().equals("review_finish")).findFirst().orElseThrow();
         assertThat(finish.description()).contains("Caveats about evidence strength stay with the candidate").doesNotContain("Put unavailable tests");
         ReviewTool finding = bridge.tools().stream().filter(tool -> tool.name().equals("review_save_finding")).findFirst().orElseThrow();

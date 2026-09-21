@@ -229,6 +229,7 @@ public class ReviewTools
                 new ReviewTool("review_save_finding",
                         "During validation, create or revise an inline bug report or concrete code improvement, with evidence refs and diff anchors from review_get_context. "
                                 + "Use severity for defects; mark optional improvements as suggestions and omit severity. "
+                                + "A nit, reported only when nothing else is supported, starts its title with Nit: and omits severity. "
                                 + "End the body with an Example section, paired with the decisive test code when a test verified it. For an exact replacement, "
                                 + "include one GitHub ```suggestion block replacing the complete RIGHT-side startAnchor/endAnchor range. "
                                 + "Revisions require findingId and expectedRevision; nothing is published.",

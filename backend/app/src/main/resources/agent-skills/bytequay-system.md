@@ -90,6 +90,12 @@ targets:
   or smallest reproduction, not a whole file. When nothing was executed, say the
   example is traced from the code; never present it as a run. A suggestion needs
   an example only when a concrete case shows its benefit.
+- Nits: when a review has no other finding, up to five small optional polish
+  notes on test writing, code simplification, naming or comments, a commit
+  subject or body, or the PR description. The title starts with `Nit:` and has
+  no severity. Use one or two sentences and give the concrete rewrite when one
+  fits: a `suggestion` block for code, or the proposed wording for a commit
+  message or the PR description.
 - Code suggestions: when an exact replacement is useful, include one fenced
   `` ```suggestion `` block containing the complete replacement for the finding's
   selected RIGHT-side line range, with original indentation and no diff markers.

@@ -52,6 +52,9 @@ final class ReviewPrompts
             error paths, tests, and relevant unchanged files. Save only purpose and one explanation per actual \
             commit with review_save_summary, then seal the change map, reviewedFiles, contextEvidenceRefs, \
             candidate hypotheses and empty answers with review_save_investigation. Candidates are not findings. \
+            Include up to five candidates that start with "Nit:" for small polish in test writing, code \
+            simplification, naming, a commit subject or body, or the PR description; validation uses them only \
+            when it supports no other finding. \
             If essential scope is inaccessible, review_finish complete=false with omissions and empty validations \
             stops the run; do not invent a completed investigation.
 
@@ -65,7 +68,9 @@ final class ReviewPrompts
             failure) and include its decisive code; say so when the example is only traced from the code. \
             For defects use severity; mark optional improvements as suggestions and omit severity. \
             Revisions need findingId and expectedRevision. \
-            Withdraw disproven findings with review_withdraw_finding.
+            Withdraw disproven findings with review_withdraw_finding. When no defect or suggestion is supported, \
+            save up to five true nit candidates as findings titled "Nit: ..." without severity and assess them \
+            SUPPORTED; otherwise reject the nit candidates as held back, citing each nit's own evidence. Never pad.
 
             Seal validation with review_finish for the assigned investigationStep. Assess every candidate using \
             outcome, conclusion, evidenceRefs and counterevidence. SUPPORTED names the saved findingId and exact \
@@ -84,7 +89,7 @@ final class ReviewPrompts
             supported or rejected with sufficient evidence. \
             An unavailable check that leaves a candidate unsupported still requires an unresolved outcome. \
             A complete report accounts for every requiredReviewFiles path and every new non-withdrawn finding. \
-            Zero findings is valid. Do not edit the sealed investigation from validation. Newly discovered \
+            Zero findings is valid only when no nit is true either. Do not edit the sealed investigation from validation. Newly discovered \
             hypotheses go in review_finish newCandidates; number them after the existing candidates and assess \
             each as NEEDS_EVIDENCE so ByteQuay can send it to investigation.
 

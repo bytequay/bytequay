@@ -82,7 +82,11 @@ export type AgentBridgePort = Pick<Bridge,
   | 'sendCiAutofixMessage'
   | 'syncPrs'
   | 'getEffectiveTurnSettings'
-  | 'refreshAgentProviderReadiness'> & Partial<Pick<Bridge, 'getDevelopmentLearning' | 'createDevelopmentLearningComment'>>;
+  | 'refreshAgentProviderReadiness'
+  | 'openProviderSignIn'
+  | 'writeReviewTerminal'
+  | 'resizeReviewTerminal'
+  | 'onReviewTerminalEvent'> & Partial<Pick<Bridge, 'getDevelopmentLearning' | 'createDevelopmentLearningComment'>>;
 
 export interface AgentTaskState {
   task: AgentTaskDto | null;

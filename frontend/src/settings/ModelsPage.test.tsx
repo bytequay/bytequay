@@ -85,6 +85,33 @@ describe('models page', () => {
     />,
   );
 
+  it('offers sign-in as a button per unauthenticated lane, and never as row metadata', () => {
+    const command = 'CLAUDE_CONFIG_DIR="/homes/ByteQuay/claude-home" claude auth login';
+    const blocked: ModelSettingsDto = {
+      ...SETTINGS,
+      providers: [
+        SETTINGS.providers[0],
+        { ...SETTINGS.providers[0], id: 'claude', label: 'Claude', readiness: 'AUTHENTICATION_REQUIRED', version: '2.1.259', signInCommand: command },
+      ],
+    };
+    const onSignIn = vi.fn();
+    const blockedMarkup = renderToStaticMarkup(
+      <ModelsPage settings={blocked} checkedAt="09:15" checking={false} error={null}
+        onCheck={vi.fn()} onSignIn={onSignIn} onChoose={vi.fn()} onInherit={vi.fn()} onAddKey={vi.fn()} onRemoveKey={vi.fn()} />);
+
+    // A shell command is not row metadata: the button carries it instead of the subtitle.
+    expect(blockedMarkup).toContain('Sign in');
+    expect(blockedMarkup).not.toContain('CLAUDE_CONFIG_DIR');
+    expect(blockedMarkup).not.toContain('auth login');
+    // The ready lane offers only Check, so one blocked lane cannot invite a sign-in for another.
+    // The label text is matched, not the 'Sign in required' status beside it.
+    expect(blockedMarkup.match(/>Sign in</g)).toHaveLength(1);
+    // Without a way to open a terminal there is no button at all.
+    expect(renderToStaticMarkup(
+      <ModelsPage settings={blocked} checkedAt="09:15" checking={false} error={null}
+        onCheck={vi.fn()} onChoose={vi.fn()} onInherit={vi.fn()} onAddKey={vi.fn()} onRemoveKey={vi.fn()} />)).not.toContain('>Sign in<');
+  });
+
   it('names both agent types and no longer offers a main model', () => {
     expect(markup).toContain('Development');
     expect(markup).toContain('Review');

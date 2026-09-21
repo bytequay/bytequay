@@ -39,12 +39,14 @@ class FakeSender {
 
 function setup() {
   const processes: FakeProcess[] = [];
-  const terminals = new CodeTerminals(() => {
+  const commands: Array<string | undefined> = [];
+  const terminals = new CodeTerminals((_cwd, _cols, _rows, command) => {
     const process = new FakeProcess();
     processes.push(process);
+    commands.push(command);
     return process;
   });
-  return { terminals, processes, cwd: () => Promise.resolve('/tmp/review') };
+  return { terminals, processes, commands, cwd: () => Promise.resolve('/tmp/review') };
 }
 
 describe('code terminals', () => {
@@ -81,6 +83,25 @@ describe('code terminals', () => {
     processes[2].exit({ exitCode: 3 });
     expect(sender.sent.at(-1)).toEqual(['terminal:exit', { terminalId, exitCode: 3 }]);
     expect((await terminals.open(sender, 'review:r2', 80, 24, cwd)).terminalId).not.toBe(terminalId);
+  });
+
+  it('runs a provider sign-in as a one-shot shell whose exit is the sign-in result', async () => {
+    const { terminals, processes, commands, cwd } = setup();
+    const sender = new FakeSender();
+    const command = 'CLAUDE_CONFIG_DIR="/homes/ByteQuay/claude-home" claude auth login';
+
+    const { terminalId } = await terminals.open(sender, 'provider:claude', 80, 24, cwd, command);
+
+    // The command carries the provider home, so the shell's own environment cannot redirect it.
+    expect(commands).toEqual([command]);
+    // An interactive host shell still gets no command, so Code & Tests is unaffected.
+    await terminals.open(sender, 'review:r1', 80, 24, cwd);
+    expect(commands).toEqual([command, undefined]);
+
+    // The shell exits when the sign-in ends, and the next attempt starts a new one.
+    processes[0].exit({ exitCode: 0 });
+    expect(sender.sent.at(-1)).toEqual(['terminal:exit', { terminalId, exitCode: 0 }]);
+    expect((await terminals.open(sender, 'provider:claude', 80, 24, cwd, command)).terminalId).not.toBe(terminalId);
   });
 
   it('keeps a review and a task with the same id in separate shells', async () => {

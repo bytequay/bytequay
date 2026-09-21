@@ -1148,6 +1148,19 @@
   overflow-wrap: anywhere;
 }
 
+/* The recovery notice's own remedy: the one action that clears the block. */
+.agt-action.is-primary {
+  border-color: #1f6feb;
+  background: #1f6feb;
+  color: #ffffff;
+}
+
+.agt-action.is-primary:disabled {
+  border-color: #b6d0f7;
+  background: #b6d0f7;
+  color: #ffffff;
+}
+
 .agt-action.is-danger {
   padding: 4px 10px;
   border-color: rgba(207, 34, 46, 0.35);

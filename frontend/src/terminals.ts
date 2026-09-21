@@ -62,16 +62,22 @@ export class CodeTerminals {
   private readonly senderKeys = new WeakMap<TerminalSender, string>();
   private readonly watched = new WeakSet<TerminalSender>();
 
-  constructor(private readonly spawn: (cwd: string, cols: number, rows: number) => TerminalProcess) {}
+  constructor(private readonly spawn: (cwd: string, cols: number, rows: number, command?: string) => TerminalProcess) {}
 
-  async open(sender: TerminalSender, hostKey: string, cols: number, rows: number, workingDirectory: () => Promise<string>) {
+  /**
+   * Attaches to this host's shell, starting one if it has none.
+   *
+   * A `command` makes that shell one-shot: it runs the command and exits, so its exit is the
+   * command's own result. Without one the shell is interactive and outlives any single command.
+   */
+  async open(sender: TerminalSender, hostKey: string, cols: number, rows: number, workingDirectory: () => Promise<string>, command?: string) {
     const key = `${this.senderKey(sender)}:${hostKey}`;
     let terminal = this.terminals.get(key);
     if (terminal === undefined) {
       // Two attaches racing through the backend check must share one shell.
       let pending = this.opening.get(key);
       if (pending === undefined) {
-        pending = workingDirectory().then(cwd => this.start(key, sender, hostKey, cwd, cols, rows));
+        pending = workingDirectory().then(cwd => this.start(key, sender, hostKey, cwd, cols, rows, command));
         this.opening.set(key, pending);
         void pending.catch(() => {}).finally(() => this.opening.delete(key));
       }
@@ -99,9 +105,9 @@ export class CodeTerminals {
     for (const terminal of [...this.terminals.values()]) this.kill(terminal);
   }
 
-  private start(key: string, sender: TerminalSender, hostKey: string, cwd: string, cols: number, rows: number): Terminal {
+  private start(key: string, sender: TerminalSender, hostKey: string, cwd: string, cols: number, rows: number, command?: string): Terminal {
     if (sender.isDestroyed()) throw new Error('The window closed before the terminal opened');
-    const terminal: Terminal = { id: randomUUID(), key, hostKey, sender, process: this.spawn(cwd, cols, rows), scrollback: '' };
+    const terminal: Terminal = { id: randomUUID(), key, hostKey, sender, process: this.spawn(cwd, cols, rows, command), scrollback: '' };
     this.terminals.set(key, terminal);
     this.watch(sender);
     terminal.process.onData(data => {

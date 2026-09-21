@@ -12,7 +12,7 @@
  * limitations under the License.
  */
 import { useState } from 'react';
-import { Plus, RefreshCw } from 'lucide-react';
+import { LogIn, Plus, RefreshCw } from 'lucide-react';
 import type { AgentModelSettingDto, AgentModelType, ModelSettingsDto } from '../types';
 import { providerStatusLabel } from './model';
 import { AddAction, Dialog, SelectPill, SettingsCard, SettingsRow, StatusDot, dotTone, type PillOption } from './primitives';
@@ -169,12 +169,14 @@ export function AgentModelRow({ agent, subtitle, ...controls }: {
   );
 }
 
-export default function ModelsPage({ settings, checkedAt, checking, error, onCheck, onChoose, onInherit, onAddKey, onRemoveKey }: {
+export default function ModelsPage({ settings, checkedAt, checking, error, onCheck, onSignIn, onChoose, onInherit, onAddKey, onRemoveKey }: {
   settings: ModelSettingsDto;
   checkedAt: string | null;
   checking: boolean;
   error: string | null;
   onCheck: () => void;
+  /** Opens that lane's sign-in terminal; absent where no terminal can be opened. */
+  onSignIn?: (providerId: string) => void;
   onChoose: (type: AgentModelType, choice: ModelChoice) => void;
   onInherit: (type: AgentModelType) => void;
   onAddKey: (provider: string, alias: string, key: string) => void;
@@ -227,11 +229,16 @@ export default function ModelsPage({ settings, checkedAt, checking, error, onChe
                   <span>
                     {status.label}
                     {provider.version ? ` · v${provider.version}` : ''}
-                    {provider.signInCommand ? ` · ${provider.signInCommand}` : ''}
                   </span>
                 </span>
               }
             >
+              {onSignIn !== undefined && provider.readiness === 'AUTHENTICATION_REQUIRED' && (
+                <button type="button" className="setw-btn" disabled={checking} onClick={() => onSignIn(provider.id)}>
+                  <LogIn size={12} strokeWidth={2.2} color="#6e6e73" />
+                  <span>Sign in</span>
+                </button>
+              )}
               <button type="button" className="setw-btn" disabled={checking} onClick={onCheck}>
                 <RefreshCw size={12} strokeWidth={2.2} color="#6e6e73" />
                 <span>{checking ? 'Checking…' : 'Check'}</span>

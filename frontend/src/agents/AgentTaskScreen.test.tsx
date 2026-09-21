@@ -1122,6 +1122,31 @@ describe('agent task detail', () => {
     expect(uncertain).not.toContain('Retry last message…');
   });
 
+  it('offers sign-in only where a lane is unauthenticated and a terminal can be opened', () => {
+    const render = (readiness: AgentProviderReadiness, onSignIn?: () => void) => renderToStaticMarkup(
+      <AgentTaskBody
+        state={{ ...initialAgentTaskState(), task: task('t-1', 'OPEN', 'Provider blocked'), connection: 'open', capabilities: CAPABILITIES }}
+        models={MODELS}
+        provider="Claude"
+        providerStatus={providerStatus(readiness)}
+        onSignInProvider={onSignIn}
+        onOpenSettings={() => {}}
+        {...TASK_BODY_NOOPS}
+      />);
+
+    const offered = render('AUTHENTICATION_REQUIRED', () => {});
+    expect(offered).toContain('>Sign in<');
+    // The command stays visible for anyone who would rather run it themselves.
+    expect(offered).toContain('CLAUDE_CONFIG_DIR');
+    expect(offered).toContain('Refresh login status');
+
+    // A lane that is merely unavailable cannot be fixed by signing in.
+    expect(render('TEMPORARILY_UNAVAILABLE', () => {})).not.toContain('>Sign in<');
+    expect(render('CLI_MISSING', () => {})).not.toContain('>Sign in<');
+    // Server-rendered surfaces pass no handler, so they show the command alone.
+    expect(render('AUTHENTICATION_REQUIRED')).not.toContain('>Sign in<');
+  });
+
   it.each([
     ['CLI_MISSING', 'Claude CLI not installed', 'Install the CLI', 'npm install -g @anthropic-ai/claude-code', 'Check again'],
     ['AUTHENTICATION_REQUIRED', 'Claude sign-in required', 'Sign in', 'CLAUDE_CONFIG_DIR=&quot;/provider-home&quot; claude auth login', 'Refresh login status'],

@@ -186,6 +186,15 @@ export function createPreviewBridge(
       }));
     },
 
+    // A preview has no pty; the sign-in terminal is exercised in the app, not here.
+    openProviderSignIn: async (laneId) => {
+      record('openProviderSignIn', laneId);
+      throw new Error('Sign-in is unavailable in this preview');
+    },
+    writeReviewTerminal: () => {},
+    resizeReviewTerminal: () => {},
+    onReviewTerminalEvent: () => () => {},
+
     fetchWorkspaceIssue: async () => { throw new Error('No issue selected in this preview'); },
     listAgentTasks: async (id, limit) => {
       record('listAgentTasks', id, limit);

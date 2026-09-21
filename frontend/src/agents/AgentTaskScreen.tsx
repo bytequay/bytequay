@@ -83,6 +83,7 @@ import { NO_AGENT_CAPABILITIES } from './capabilities';
 import { pasteImage } from './clipboard';
 import { agentProviderUnavailableFrom } from './contracts';
 import { renderMarkdown } from './markdown';
+import ProviderSignInDialog from './ProviderSignInDialog';
 import {
 abandonsUncertainInput,
 acceptsImages,
@@ -309,6 +310,7 @@ function ProviderRecoveryCard({
   onRefresh,
   onRetry,
   onOpenSettings,
+  onSignIn,
 }: {
   provider: string;
   status: AgentProviderStatus | null;
@@ -321,6 +323,8 @@ function ProviderRecoveryCard({
   onRefresh: () => void;
   onRetry: () => void;
   onOpenSettings?: () => void;
+  /** Absent where no terminal can be opened, such as a server-rendered fixture. */
+  onSignIn?: () => void;
 }): React.JSX.Element {
   const ready = statusFresh && status !== null && providerAvailable(status.readiness);
   const providerName = provider || (status === null ? 'Provider' : laneLabel(status.laneId));
@@ -353,7 +357,14 @@ function ProviderRecoveryCard({
             ? 'The failed turn has no safely retryable input. Its delivery may be uncertain, so ByteQuay will not offer to resend it.'
             : 'This task cannot start another turn until the provider is ready. No new turn or delivery was created.'
           : 'The last turn stopped because this provider needs authentication. The task and checkout were preserved.'}
-        {!ready && <div className="agt-row-meta"><strong>{remedy.title}.</strong> {remedy.detail}</div>}
+        {!ready && (
+          <div className="agt-row-meta">
+            <strong>{remedy.title}.</strong>{' '}
+            {onSignIn !== undefined && command !== null && readiness === 'AUTHENTICATION_REQUIRED'
+              ? "Signing in here signs ByteQuay's own provider home in, not your personal CLI login."
+              : remedy.detail}
+          </div>
+        )}
         {readiness === 'UNSUPPORTED' && status?.version && <div className="agt-row-meta">Detected CLI version: {status.version}</div>}
         {status?.diagnostic && <div className="agt-row-meta">{status.diagnostic}</div>}
         {command && !ready && <div className="agt-mono agt-auth-command">{command}</div>}
@@ -374,6 +385,9 @@ function ProviderRecoveryCard({
         )}
       </div>
       <div className="agt-recovery__actions">
+        {onSignIn !== undefined && command !== null && readiness === 'AUTHENTICATION_REQUIRED' && (
+          <button type="button" className="agt-action is-primary" disabled={checking || sending} onClick={onSignIn}>Sign in</button>
+        )}
         <button type="button" className="agt-action" disabled={checking || sending} onClick={onRefresh}>
           {checking ? 'Checking…' : failedTurn || readiness === 'AUTHENTICATION_REQUIRED' ? 'Refresh login status' : 'Check again'}
         </button>
@@ -925,6 +939,7 @@ export function AgentTaskBody({
   providerStatusFresh = false,
   providerChecking = false,
   onRefreshProvider = () => {},
+  onSignInProvider,
   onRetryAuthentication = () => {},
   onOpenSettings,
   now = Date.now(),
@@ -1001,6 +1016,8 @@ export function AgentTaskBody({
   providerStatusFresh?: boolean;
   providerChecking?: boolean;
   onRefreshProvider?: () => void;
+  /** Opens the provider's own sign-in terminal; absent when no bridge can open one. */
+  onSignInProvider?: () => void;
   onRetryAuthentication?: () => void;
   onOpenSettings?: () => void;
   onBack: () => void;
@@ -1315,6 +1332,7 @@ export function AgentTaskBody({
           onRefresh={onRefreshProvider}
           onRetry={onRetryAuthentication}
           onOpenSettings={onOpenSettings}
+          onSignIn={onSignInProvider}
         />
       )}
 
@@ -1490,6 +1508,7 @@ export default function AgentTaskScreen({
   const [models, setModels] = useState<ModelOptionDto[]>([]);
   const [provider, setProvider] = useState('');
   const [providerStatus, setProviderStatus] = useState<AgentProviderStatus | null>(null);
+  const [signingIn, setSigningIn] = useState<{ laneId: string; providerName: string } | null>(null);
   const [providerStatusTurnId, setProviderStatusTurnId] = useState<string | null>(null);
   const [automationDefaults, setAutomationDefaults] = useState<DevelopmentAutomationDto | null>(null);
   const [automationProviders, setAutomationProviders] = useState<ModelProviderDto[]>([]);
@@ -2371,6 +2390,17 @@ export default function AgentTaskScreen({
   }), [live, run]);
 
   return (<>
+    {signingIn !== null && (
+      <ProviderSignInDialog
+        laneId={signingIn.laneId}
+        providerName={signingIn.providerName}
+        bridge={live()}
+        onClose={(signedIn) => {
+          setSigningIn(null);
+          if (signedIn) void refreshProvider();
+        }}
+      />
+    )}
     {localReview.error !== null && <div className="agt-notice" role="alert">Local review comments: {localReview.error}</div>}
     <AgentTaskBody
       state={state}
@@ -2414,6 +2444,8 @@ export default function AgentTaskScreen({
       onStopServer={() => { void stopServer(); }}
       onMarkFailed={() => { void markFailed(); }}
       onRefreshProvider={() => { void refreshProvider(); }}
+      onSignInProvider={providerStatus === null ? undefined
+        : () => setSigningIn({ laneId: providerStatus.laneId, providerName: provider || laneLabel(providerStatus.laneId) })}
       onRetryAuthentication={retryAuthentication}
       onOpenSettings={onOpenSettings}
       onRename={(title) => { void rename(title); }}

@@ -1,0 +1,71 @@
+/*
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+
+.bq-signin-dialog {
+  width: 620px;
+  max-width: calc(100vw - 48px);
+  padding: 16px 16px 12px;
+  border: none;
+  border-radius: 12px;
+  background: #ffffff;
+  color: #1f2328;
+  box-shadow: 0 16px 48px rgb(0 0 0 / 22%);
+}
+
+.bq-signin-dialog::backdrop {
+  background: rgb(0 0 0 / 28%);
+}
+
+.bq-signin-dialog__title {
+  margin: 0;
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.bq-signin-dialog__lede {
+  margin: 6px 0 10px;
+  color: #57606a;
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+.bq-signin-dialog__screen {
+  height: 300px;
+  padding: 8px;
+  border: 1px solid #d0d7de;
+  border-radius: 8px;
+  background: #ffffff;
+  overflow: hidden;
+}
+
+.bq-signin-dialog__actions {
+  display: flex;
+  justify-content: flex-end;
+  margin-top: 10px;
+}
+
+.bq-signin-dialog__button {
+  padding: 5px 14px;
+  border: 1px solid #d0d7de;
+  border-radius: 6px;
+  background: #f6f8fa;
+  color: #1f2328;
+  font: inherit;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.bq-signin-dialog__button:hover {
+  background: #eef1f4;
+}

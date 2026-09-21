@@ -29,6 +29,7 @@ import type {
 import DeleteWorkspaceDialog from '../workspaces/DeleteWorkspaceDialog';
 import UnwatchWorkspaceDialog from '../workspaces/UnwatchWorkspaceDialog';
 import ModelsPage, { type ModelChoice } from './ModelsPage';
+import ProviderSignInDialog from '../agents/ProviderSignInDialog';
 import SkillsPage from './SkillsPage';
 import WorkflowPage from './WorkflowPage';
 import CodeGraphPage from './CodeGraphPage';
@@ -57,6 +58,7 @@ export default function SettingsWindow({ section, workspace, onWorkspacesChanged
   const [automation, setAutomation] = useState<DevelopmentAutomationDto | null>(null);
   const [automationBusy, setAutomationBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [signingIn, setSigningIn] = useState<{ laneId: string; providerName: string } | null>(null);
 
   const [preferences, setPreferences] = useState<AppPreferencesDto | null>(null);
   const [version, setVersion] = useState('');
@@ -195,6 +197,17 @@ export default function SettingsWindow({ section, workspace, onWorkspacesChanged
 
   return (
     <>
+    {signingIn !== null && (
+      <ProviderSignInDialog
+        laneId={signingIn.laneId}
+        providerName={signingIn.providerName}
+        bridge={window.bridge}
+        onClose={signedIn => {
+          setSigningIn(null);
+          if (signedIn) loadModels();
+        }}
+      />
+    )}
     <div className="setw-scroll">
           {section === 'general' && preferences !== null && (
             <GeneralPage
@@ -223,6 +236,10 @@ export default function SettingsWindow({ section, workspace, onWorkspacesChanged
               checkedAt={checkedAt}
               error={error}
               onCheck={loadModels}
+              onSignIn={providerId => setSigningIn({
+                laneId: providerId,
+                providerName: models.providers.find(provider => provider.id === providerId)?.label ?? providerId,
+              })}
               onChoose={chooseModel}
               onInherit={type => {
                 setError(null);

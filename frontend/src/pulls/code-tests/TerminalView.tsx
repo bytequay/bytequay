@@ -24,7 +24,7 @@ export type TerminalBridge = Pick<Bridge, 'openCodeTerminal' | 'writeReviewTermi
 type Status = { kind: 'opening' } | { kind: 'open' } | { kind: 'exited'; exitCode: number } | { kind: 'failed'; message: string };
 
 // GitHub light's ANSI palette; xterm's defaults are tuned for a dark ground.
-const THEME = {
+export const TERMINAL_THEME = {
   background: '#ffffff', foreground: '#1f2328', cursor: '#1f2328', cursorAccent: '#ffffff', selectionBackground: '#b6e3ff',
   black: '#24292f', red: '#cf222e', green: '#116329', yellow: '#4d2d00', blue: '#0550ae', magenta: '#8250df', cyan: '#1b7c83', white: '#6e7781',
   brightBlack: '#57606a', brightRed: '#a40e26', brightGreen: '#1a7f37', brightYellow: '#633c01', brightBlue: '#218bff', brightMagenta: '#a475f9',
@@ -41,7 +41,7 @@ export default function TerminalView({ host: codeHost, bridge, clearRequest }: {
   useEffect(() => {
     const element = host.current;
     if (element === null) return;
-    const term = new Terminal({ fontFamily: "ui-monospace, Menlo, 'Roboto Mono', monospace", fontSize: 12, cursorBlink: true, scrollback: 5000, theme: THEME });
+    const term = new Terminal({ fontFamily: "ui-monospace, Menlo, 'Roboto Mono', monospace", fontSize: 12, cursorBlink: true, scrollback: 5000, theme: TERMINAL_THEME });
     const fit = new FitAddon();
     term.loadAddon(fit);
     term.open(element);

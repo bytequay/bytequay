@@ -1667,6 +1667,8 @@ export type Bridge = {
   discardReviewCodeChanges: (reviewId: string, expectedHead: string) => Promise<ReviewCodeFilesDto>;
   /** Attaches to the host's login shell in its working copy, starting one if none is alive; replays its recent output. */
   openCodeTerminal: (host: CodeHostRef, cols: number, rows: number) => Promise<{ terminalId: string; scrollback: string }>;
+  /** Runs this lane's own sign-in command in a one-shot login shell; it exits when the sign-in ends. */
+  openProviderSignIn: (laneId: string, cols: number, rows: number) => Promise<{ terminalId: string; scrollback: string }>;
   writeReviewTerminal: (terminalId: string, data: string) => void;
   resizeReviewTerminal: (terminalId: string, cols: number, rows: number) => void;
   onReviewTerminalEvent: (listener: (event: { terminalId: string; data: string } | { terminalId: string; exitCode: number }) => void) => () => void;

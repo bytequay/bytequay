@@ -459,9 +459,12 @@ const reviewSubscriptions = new AgentSubscriptions(
 );
 
 // An interactive login shell rebuilds the user's own PATH, which a Finder-launched app does not inherit.
-const codeTerminals = new CodeTerminals((cwd, cols, rows) => spawnPty(os.userInfo().shell ?? '/bin/zsh', ['-l'], {
-  name: 'xterm-256color', cwd, cols, rows, env: terminalEnvironment(process.env),
-}));
+// `-lc` keeps that PATH for a one-shot command, and the shell exits when the command does.
+const codeTerminals = new CodeTerminals((cwd, cols, rows, command) => spawnPty(
+  os.userInfo().shell ?? '/bin/zsh',
+  command === undefined ? ['-l'] : ['-lc', command],
+  { name: 'xterm-256color', cwd, cols, rows, env: terminalEnvironment(process.env) },
+));
 
 const agentSubscriptions = new AgentSubscriptions((taskId, after, signal) => fetch(
   taskUrl(taskId, '/stream')
@@ -891,6 +894,17 @@ function registerIpc(): void {
       if (typeof body.workingDirectory !== 'string') throw new Error('Malformed terminal response');
       return body.workingDirectory;
     }));
+  // The command is read from provider readiness, never from the renderer: this runs in a login shell,
+  // and it carries the provider-home variable that keeps the sign-in out of the user's own home.
+  ipcMain.handle('provider:signin:open', async (event, laneId: unknown, cols: number, rows: number) => {
+    if (typeof laneId !== 'string' || laneId === '') throw new Error('Malformed provider lane');
+    const statuses = await backendJson(`${backendBase()}/agent/providers/status`, {
+      headers: agentHeaders(),
+    }).then(parseAgentProviderStatuses);
+    const command = statuses.find(status => status.laneId === laneId)?.signInCommand;
+    if (typeof command !== 'string' || command.trim() === '') throw new Error(`${laneId} reports no sign-in command`);
+    return codeTerminals.open(event.sender, `provider:${laneId}`, cols, rows, async () => os.homedir(), command);
+  });
   ipcMain.on('terminal:write', (event, terminalId: string, data: string) => codeTerminals.write(event.sender, terminalId, data));
   ipcMain.on('terminal:resize', (event, terminalId: string, cols: number, rows: number) => codeTerminals.resize(event.sender, terminalId, cols, rows));
   ipcMain.handle('code:files', (_event, host: unknown) =>

@@ -256,6 +256,16 @@ The runtime database remains:
 Tests continue to use unique SQLite files under the system temporary
 directory.
 
+One backend owns that file at a time. Startup takes an exclusive
+operating-system lock on `backend.lock` beside it, before Spring initializes
+SQLite, and a second backend exits with a message naming the process that holds
+the lock. Two JVMs on one SQLite file fail every read-then-write transaction
+with `SQLITE_BUSY` — SQLite skips the busy handler when a reading transaction
+upgrades to a write — and their sync sweeps delete each other's rows. The port
+fallback cannot prevent that; a second backend simply moves to another port and
+keeps the same database. The kernel releases the lock however the holder dies,
+so a leftover lock file never blocks a restart.
+
 ## 3. Module responsibilities
 
 | Module | Owns | Must not own |

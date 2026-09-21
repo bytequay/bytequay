@@ -40,6 +40,9 @@ public final class ByteQuayApplication
         Path dbDir = home.resolve("ByteQuay");
         Files.createDirectories(dbDir);
         log.debug("Database directory ready: {}", dbDir);
+        if (!DataDirectoryLock.tryAcquire(dbDir)) {
+            System.exit(1);
+        }
         SpringApplication.run(ByteQuayApplication.class, args);
     }
 }

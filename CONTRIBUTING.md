@@ -151,6 +151,9 @@ code.
 
 - Runtime database: `~/Library/Application Support/ByteQuay/bytequay-1.0.db`
 - Test databases: unique SQLite files under the system temporary directory
+- Single backend: startup locks `backend.lock` in the runtime directory and
+  exits when another backend holds it, so quit a running ByteQuay or `./dev.sh`
+  before starting a second one
 - Schema management: `spring.jpa.hibernate.ddl-auto=update` in production and
   `create-drop` in tests
 

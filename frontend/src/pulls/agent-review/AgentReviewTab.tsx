@@ -639,9 +639,9 @@ export default function AgentReviewTab({
           onSteer={() => { void message('STEER'); }}
           onQueue={() => { void message('QUEUE'); }}
           onStop={() => { void run_(async () => onReviewChange(await window.bridge.stopAgentReview(review.id))); }}
-          onDecide={(approvalId: string, decision: AgentApprovalDecision) => {
+          onDecide={(approvalId: string, decision: AgentApprovalDecision, answers?: Record<string, string>) => {
             void run_(async () => {
-              await window.bridge.resolveAgentReviewApproval(review.id, approvalId, decision);
+              await window.bridge.resolveAgentReviewApproval(review.id, approvalId, decision, answers);
               await refresh(review.id);
             });
           }}

@@ -329,8 +329,8 @@ const bridge: Bridge = {
   resumeAgentQueue: (taskId, workspaceId) => ipcRenderer.invoke('agent:queue:resume', taskId, workspaceId),
   getAgentTurn: turnId => ipcRenderer.invoke('agent:turns:get', turnId),
   cancelAgentTurn: turnId => ipcRenderer.invoke('agent:turns:cancel', turnId),
-  resolveAgentApproval: (approvalId, decision, scopedPermission) =>
-    ipcRenderer.invoke('agent:approvals:resolve', approvalId, decision, scopedPermission),
+  resolveAgentApproval: (approvalId, decision, scopedPermission, answers) =>
+    ipcRenderer.invoke('agent:approvals:resolve', approvalId, decision, scopedPermission, answers),
   completeAgentTask: (taskId, workspaceId, notes) =>
     ipcRenderer.invoke('agent:tasks:complete', taskId, workspaceId, notes),
   cleanupAgentTaskWorktree: (taskId, workspaceId) =>
@@ -397,8 +397,8 @@ const bridge: Bridge = {
     ipcRenderer.invoke('review:finding:reopen', reviewId, findingId, expectedVersion),
   readAgentReviewHistory: (reviewId, taskId, before, after) => ipcRenderer.invoke('review:history:read', reviewId, taskId, before, after),
   readAgentReviewApprovals: (reviewId, taskId, turnId) => ipcRenderer.invoke('review:approvals:pending', reviewId, taskId, turnId),
-  resolveAgentReviewApproval: (reviewId, approvalId, decision) =>
-    ipcRenderer.invoke('review:approvals:resolve', reviewId, approvalId, decision),
+  resolveAgentReviewApproval: (reviewId, approvalId, decision, answers) =>
+    ipcRenderer.invoke('review:approvals:resolve', reviewId, approvalId, decision, answers),
   subscribeAgentReview: streamSubscriber('review'),
 
   addReviewDraftComment: (repo, number, expectedVersion, comment) =>

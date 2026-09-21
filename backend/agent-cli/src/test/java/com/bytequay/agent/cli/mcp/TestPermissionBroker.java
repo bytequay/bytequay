@@ -47,6 +47,7 @@ import java.nio.file.attribute.PosixFilePermissions;
 import java.time.Duration;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.atomic.AtomicInteger;
@@ -715,6 +716,51 @@ class TestPermissionBroker
         registration.close();
         assertThat(registration.configFile()).doesNotExist();
         assertThat(broker.handle(token, objectMapper.createObjectNode()).status()).isEqualTo(401);
+    }
+
+    @Test
+    void carriesQuestionAnswersBackOnTheToolInputItAsked()
+            throws Exception
+    {
+        PermissionBroker broker = new PermissionBroker(
+                () -> URI.create("http://127.0.0.1:9000/internal/agent/claude/mcp"),
+                objectMapper,
+                (taskId, query) -> "memory");
+        Map<String, String> answers = ImmutableMap.of(
+                "Which issue should I work on?", "Both",
+                "Never asked", "Ignored");
+        try (McpConfigRegistration registration = broker.register(
+                "task-1",
+                temporaryDirectory,
+                temporaryDirectory,
+                temporaryDirectory,
+                AgentPermissionPolicy.AUTO,
+                (request, timeout) -> CompletableFuture.completedFuture(ProviderApprovalDecision.allow(Optional.empty(), answers)),
+                SecretRedactor.fromEnvironment(ImmutableMap.of()))) {
+            String token = objectMapper.readTree(Files.readString(registration.configFile()))
+                    .at("/mcpServers/bytequay/headers/Authorization").asText().substring("Bearer ".length());
+            String questions = "[{\"question\":\"Which issue should I work on?\",\"header\":\"Issue\",\"options\":[{\"label\":\"Both\"}]}]";
+            McpHttpResponse called = broker.handle(token, objectMapper.readTree(
+                    "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"tools/call\",\"params\":{"
+                            + "\"name\":\"permission_prompt\",\"arguments\":{\"tool_name\":\"AskUserQuestion\","
+                            + "\"input\":{\"questions\":" + questions + "}}}}"));
+
+            JsonNode permission = objectMapper.readTree(called.body().orElseThrow().at("/result/content/0/text").asText());
+            assertThat(permission.get("behavior").asText()).isEqualTo("allow");
+            // Claude reads the answer off the input it asked with, keyed by the question itself.
+            assertThat(permission.at("/updatedInput/answers/Which issue should I work on?").asText()).isEqualTo("Both");
+            // An answer to a question that was never asked would make Claude drop the whole input.
+            assertThat(permission.at("/updatedInput/answers").size()).isEqualTo(1);
+            assertThat(permission.at("/updatedInput/questions")).isEqualTo(objectMapper.readTree(questions));
+
+            // Every other tool runs on the input it asked with.
+            McpHttpResponse command = broker.handle(token, objectMapper.readTree(
+                    "{\"jsonrpc\":\"2.0\",\"id\":2,\"method\":\"tools/call\",\"params\":{"
+                            + "\"name\":\"permission_prompt\",\"arguments\":{\"tool_name\":\"Bash\","
+                            + "\"input\":{\"command\":\"npm test\"}}}}"));
+            assertThat(objectMapper.readTree(command.body().orElseThrow().at("/result/content/0/text").asText()).at("/updatedInput"))
+                    .isEqualTo(objectMapper.readTree("{\"command\":\"npm test\"}"));
+        }
     }
 
     @Test

@@ -1555,6 +1555,38 @@ describe('agent task detail', () => {
     expect(markup).toContain('Approved for this task —');
   });
 
+  it('answers a question tool in place of allowing its raw input', () => {
+    const questions = JSON.stringify({
+      questions: [{
+        question: 'Which issue should I work on?',
+        header: 'Issue',
+        multiSelect: false,
+        options: [
+          { label: 'Both', description: 'Fix them together.' },
+          { label: 'Neither', description: 'Just the links.' },
+        ],
+      }],
+    });
+    const asked = events
+      .filter((event) => event.type !== 'approval_resolved')
+      .map((event) => event.type === 'approval_requested' && event.payload.approvalId === 'approval-1'
+        ? { ...event, payload: { ...event.payload, title: 'Allow Claude AskUserQuestion', scope: ['AskUserQuestion'], detail: questions } }
+        : event);
+    const markup = body({ task: task('t-1', 'OPEN', 'x'), events: asked, connection: 'open' });
+
+    // The options are the decision, so the raw tool input and its bare allow never appear.
+    expect(markup).toContain('<span class="agt-ask__text">Which issue should I work on?</span>');
+    expect(markup).toContain('<span class="agt-ask__label">Both</span>');
+    expect(markup).toContain('<span class="agt-ask__detail">Fix them together.</span>');
+    expect(markup).toContain('role="radio" aria-checked="false"');
+    expect(markup).not.toContain('Allow once: Allow Claude AskUserQuestion');
+    expect(markup).not.toContain('"multiSelect"');
+    // Nothing is sent until a question is answered.
+    expect(markup).toMatch(/class="agt-decision is-allow" disabled=""[^>]*>Send answer</);
+    // Every other approval keeps the allow it had.
+    expect(body({ task: task('t-1', 'OPEN', 'x'), events, connection: 'open' })).toContain('aria-label="Allow once: ');
+  });
+
   it('allows text paste while an image loads and keeps submission disabled until it finishes', () => {
     const state: AgentTaskState = {
       ...initialAgentTaskState(), task: task('t-1', 'OPEN', 'x'), connection: 'open', capabilities: CAPABILITIES, composer: 'Screenshot details', sending: true,

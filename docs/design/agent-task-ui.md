@@ -470,6 +470,16 @@ Command cards show the command and working directory; network and filesystem
 cards show the requested destination or scope rather than pretending every
 request is a shell command.
 
+A question the agent asks arrives as a permission request for its question
+tool, and its card draws the questions instead of the raw tool input: each
+question keeps its short header, and its options are the decision, one chosen
+per question or several where the question takes several. Sending returns the
+chosen labels to the agent as the answers to the questions it asked, so it
+continues with them rather than with a bare allow; dismissing denies the
+request, and the agent continues without an answer. A question whose input no
+longer reads as one, because it was truncated or redacted, keeps the ordinary
+allow and deny card.
+
 The card renders only the product-permitted subset of decisions offered for
 that request kind. Command requests offer Allow once, Allow for this task and
 Deny; file requests offer Allow once and Deny; permission requests show the

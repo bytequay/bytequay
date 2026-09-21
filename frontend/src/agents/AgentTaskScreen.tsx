@@ -60,7 +60,7 @@ PullRequestDto,
 WorkspaceDto
 } from '../types';
 import TaskPaneDivider, { useTaskPane } from './TaskPaneDivider';
-import { AgentConversation,BlockView,clock,codeGraphText,ConversationComposer,ConversationQueue,Glyph,modelName,PlanSteps,serviceTierName,shortDate,Spinner,stateClass,useConversationHistory,useOutputWheel,type AttachmentPreview } from './AgentConversation';
+import { AgentConversation,BlockView,clock,codeGraphText,ConversationComposer,ConversationQueue,Glyph,modelName,PlanSteps,serviceTierName,shortDate,Spinner,stateClass,useConversationHistory,useOutputWheel,type ApprovalDecider,type AttachmentPreview } from './AgentConversation';
 import { type CommitRange, type DiffAgentComment } from '../pulls/PullChanges';
 import { useTaskDiscussions, type TaskDiscussions } from './discussions/useTaskDiscussions';
 import type { SelectedPassage } from './discussions/DiscussableAnswer';
@@ -585,7 +585,7 @@ function SidePanel({
   onOpenAgent: (threadId: string) => void;
   onCloseAgent: () => void;
   onToggleActivity: (id: string, open: boolean) => void;
-  onDecide: (approvalId: string, decision: AgentApprovalDecision) => void;
+  onDecide: ApprovalDecider;
   onSelectTab: (tab: PanelTab) => void;
   onOpenPullRequest?: (number: number) => void;
   onAskAgent?: (comment: DiffAgentComment) => Promise<void>;
@@ -1058,7 +1058,7 @@ export function AgentTaskBody({
   onSend: () => void;
   onCancel: () => void;
   onComplete: () => void;
-  onDecide: (approvalId: string, decision: AgentApprovalDecision) => void;
+  onDecide: ApprovalDecider;
   onCompose: (text: string) => void;
   onSelectModel: (model: string, effort: string | null, serviceTier: string | null) => void;
   onStopServer: () => void;
@@ -2436,8 +2436,8 @@ export default function AgentTaskScreen({
     });
   }, [retryLastMessage]);
 
-  const decide = useCallback((approvalId: string, decision: AgentApprovalDecision) => run(async () => {
-    await live().resolveAgentApproval(approvalId, decision);
+  const decide = useCallback((approvalId: string, decision: AgentApprovalDecision, answers?: Record<string, string>) => run(async () => {
+    await live().resolveAgentApproval(approvalId, decision, undefined, answers);
     // The buttons that had focus disappear with the decision; the composer is the next thing to do.
     composerRef.current?.focus();
   }), [live, run]);
@@ -2497,7 +2497,7 @@ export default function AgentTaskScreen({
       onCancel={() => { void cancel(); }}
       onComplete={complete}
       onCleanup={() => { void cleanupWorktree(); }}
-      onDecide={(approvalId, decision) => { void decide(approvalId, decision); }}
+      onDecide={(approvalId, decision, answers) => { void decide(approvalId, decision, answers); }}
       onCompose={(text) => {
         const draft = stateRef.current;
         submissions.draftChanged(taskId, text, draft.attachments.map((attachment) => attachment.id), draft.task?.defaults ?? null);

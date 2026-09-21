@@ -42,6 +42,7 @@ import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.DeserializationFeature;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.databind.node.ObjectNode;
 import com.fasterxml.jackson.datatype.jdk8.Jdk8Module;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
@@ -83,6 +84,9 @@ public final class PermissionBroker
 {
     private static final Duration APPROVAL_TIMEOUT = Duration.ofMinutes(5);
     private static final int MAX_DETAIL_CHARACTERS = 16 * 1024;
+    /** Claude's own cap on one answer; a longer one would make it refuse the whole answered input. */
+    private static final int MAX_ANSWER_CHARACTERS = 8 * 1024;
+    private static final String QUESTION_TOOL = "AskUserQuestion";
     private static final int MAXIMUM_TITLE_CHARACTERS = 256;
     private static final int MAXIMUM_BODY_CHARACTERS = 60_000;
     private static final Set<String> PUBLISH_ARGUMENTS = ImmutableSet.of("title", "body");
@@ -754,10 +758,36 @@ public final class PermissionBroker
         }
 
         PermissionResult result = decision.decision() == ProviderApprovalDecision.Decision.ALLOW
-                ? new PermissionResult("allow", Optional.of(arguments.input()), Optional.empty())
+                ? new PermissionResult("allow", Optional.of(answered(arguments, decision.answers())), Optional.empty())
                 : new PermissionResult("deny", Optional.empty(), Optional.of(decision.timedOut() ? "Approval timed out" : "Denied by user"));
         String text = objectMapper.writeValueAsString(result);
         return response(id, new ToolResult(ImmutableList.of(new TextContent("text", text)), false));
+    }
+
+    /**
+     * Claude's question tool reads the user's choices back from its own input, keyed by the exact question asked.
+     * Only answers to questions that were asked are carried, because Claude drops an edited input as a whole and
+     * would then have no answer at all.
+     */
+    private static JsonNode answered(PermissionArguments arguments, Map<String, String> answers)
+    {
+        JsonNode input = arguments.input();
+        if (answers.isEmpty() || !arguments.toolName().equals(QUESTION_TOOL)
+                || !input.isObject() || input.has("answers") || !input.path("questions").isArray()) {
+            return input;
+        }
+        ObjectNode accepted = ((ObjectNode) input).objectNode();
+        for (JsonNode question : input.get("questions")) {
+            String asked = question.path("question").asText("");
+            String answer = answers.getOrDefault(asked, "");
+            if (!answer.isBlank() && answer.length() <= MAX_ANSWER_CHARACTERS) {
+                accepted.put(asked, answer);
+            }
+        }
+        if (accepted.isEmpty()) {
+            return input;
+        }
+        return ((ObjectNode) input.deepCopy()).set("answers", accepted);
     }
 
     private McpHttpResponse readCiMemory(JsonNode id, JsonNode arguments, PermissionContext context)

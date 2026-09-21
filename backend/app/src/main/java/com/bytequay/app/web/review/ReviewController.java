@@ -34,6 +34,7 @@ import com.bytequay.core.review.ReviewDraftItem;
 import com.bytequay.core.review.ReviewInvalidRequestException;
 import com.bytequay.core.review.ReviewNotFoundException;
 import com.google.common.collect.ImmutableList;
+import com.google.common.collect.ImmutableMap;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.DeleteMapping;
@@ -309,7 +310,8 @@ public class ReviewController
                 com.bytequay.agent.core.ApprovalId.valueOf(approvalId),
                 request.decision(),
                 Optional.ofNullable(request.scopedPermission()),
-                Boolean.TRUE.equals(request.forTask()))));
+                Boolean.TRUE.equals(request.forTask()),
+                request.answers() == null ? ImmutableMap.of() : ImmutableMap.copyOf(request.answers()))));
     }
 
     // ---- the user's local pending review ----

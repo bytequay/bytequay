@@ -28,11 +28,14 @@ import { ImageAttachment } from './ImageAttachment';
 import { renderMarkdown } from './markdown';
 import { DiscussableAnswer, type SelectedPassage } from './discussions/DiscussableAnswer';
 import type { TaskDiscussionDto } from './discussions/contracts';
-import { approvalDecisions, type PendingMessage } from './model';
+import { approvalDecisions, approvalQuestions, questionAnswers, type ApprovalQuestion, type PendingMessage } from './model';
 import { ModelPicker } from './ModelPicker';
 import { IssueRequestCard } from './IssueAttachment';
 import { ReviewRequestCard, type ReviewRequest, type ReviewRequestTarget } from './ReviewRequestCard';
 import { activityExpanded,activityPhrase,activitySummary,formatDuration,planChip,turnElapsedMs,turnLabel,type ActivityBlock,type ActivityMember,type ApprovalBlock,type CommandAction,type CommandMember,type PlanStep,type ToolMember,type TranscriptTurn,type TurnBlock } from './transcript';
+
+/** Answers accompany a question tool's allow; every other approval sends the decision alone. */
+export type ApprovalDecider = (approvalId: string, decision: AgentApprovalDecision, answers?: Record<string, string>) => void;
 
 /** What the screen knows about one attachment's image: still loading, an object URL, or gone. */
 export type AttachmentPreview = { status: 'notLoaded' } | { status: 'loading' } | { status: 'ready'; url: string; loadOriginal?: () => Promise<Blob> } | { status: 'unavailable' };
@@ -378,20 +381,104 @@ function pendingApprovalBlock(approval: AgentPendingApprovalDto): ApprovalBlock 
   };
 }
 
+/** A question Claude asked: its own options, answered in place, instead of an allow over raw tool input. */
+function QuestionView({ block, questions, allow, deny, onDecide }: {
+  block: ApprovalBlock;
+  questions: ApprovalQuestion[];
+  allow: AgentApprovalDecision;
+  deny: AgentApprovalDecision;
+  onDecide?: ApprovalDecider;
+}): React.JSX.Element {
+  const [chosen, setChosen] = useState<Record<string, string[]>>({});
+  const answers = questionAnswers(questions, chosen);
+  const pick = (question: ApprovalQuestion, label: string): void => setChosen((current) => {
+    const picked = current[question.question] ?? [];
+    if (!question.multiSelect) return { ...current, [question.question]: [label] };
+    return { ...current, [question.question]: picked.includes(label) ? picked.filter((one) => one !== label) : [...picked, label] };
+  });
+  return (
+    <div className="agt-appr agt-ask" role="group" aria-label={`Question: ${questions[0].question}`}>
+      <div className="agt-appr__head">
+        <Glyph icon={MessageSquare} className="is-warn" />
+        <span className="agt-appr__chip">Your answer</span>
+        <span className="agt-spacer" />
+        <span className="agt-mono agt-right">{block.agent}</span>
+      </div>
+      {questions.map((question) => (
+        <div className="agt-ask__question" key={question.question}>
+          <div className="agt-ask__asked">
+            {question.header !== '' && <span className="agt-ask__tag">{question.header}</span>}
+            <span className="agt-ask__text">{question.question}</span>
+          </div>
+          <div className="agt-ask__options" role={question.multiSelect ? 'group' : 'radiogroup'} aria-label={question.question}>
+            {question.options.map((option) => {
+              const picked = (chosen[question.question] ?? []).includes(option.label);
+              return (
+                <button
+                  key={option.label}
+                  type="button"
+                  role={question.multiSelect ? 'checkbox' : 'radio'}
+                  aria-checked={picked}
+                  className={`agt-ask__option${picked ? ' is-picked' : ''}`}
+                  onClick={() => pick(question, option.label)}
+                >
+                  <span className="agt-ask__label">{option.label}</span>
+                  {option.description !== '' && <span className="agt-ask__detail">{option.description}</span>}
+                </button>
+              );
+            })}
+          </div>
+        </div>
+      ))}
+      <div className="agt-decisions">
+        <button
+          type="button"
+          className="agt-decision is-allow"
+          disabled={questions.some((question) => answers[question.question] === undefined)}
+          aria-label={`Send answer: ${questions[0].question}`}
+          onClick={() => onDecide?.(block.approvalId, allow, answers)}
+        >
+          Send answer
+        </button>
+        <button
+          type="button"
+          className="agt-decision is-deny"
+          aria-label={`Dismiss question: ${questions[0].question}`}
+          onClick={() => onDecide?.(block.approvalId, deny)}
+        >
+          Dismiss
+        </button>
+      </div>
+    </div>
+  );
+}
+
 function ApprovalView({ block, onDecide }: {
   block: ApprovalBlock;
-  onDecide?: (approvalId: string, decision: AgentApprovalDecision) => void;
+  onDecide?: ApprovalDecider;
 }): React.JSX.Element {
   const decisions = approvalDecisions(block);
+  const questions = approvalQuestions(block);
   if (block.outcome !== null) {
     const allowed = block.outcome === 'ALLOWED';
+    const outcome = allowed && questions.length > 0 ? 'Answered'
+      : block.outcome === 'ALLOWED' && block.forTask ? 'Approved for this task'
+        : OUTCOME_LABELS[block.outcome] ?? block.outcome;
     return (
       <div className="agt-appr-done" role="group" aria-label={`Approval: ${block.title}`}>
         <Glyph icon={allowed ? ShieldCheck : ShieldX} className={`${allowed ? 'is-ok' : 'is-failed'} is-outcome`} />
-        <span>{block.outcome === 'ALLOWED' && block.forTask ? 'Approved for this task' : OUTCOME_LABELS[block.outcome] ?? block.outcome} —</span>
-        <span className="agt-mono">{block.detail}</span>
+        <span>{outcome} —</span>
+        {/* The tool input is only readable as a question once it is one. */}
+        <span className={questions.length > 0 ? undefined : 'agt-mono'}>
+          {questions.length > 0 ? questions.map((question) => question.question).join(' ') : block.detail}
+        </span>
       </div>
     );
+  }
+  const allow = decisions.find((choice) => choice.decision === 'ALLOW');
+  const deny = decisions.find((choice) => choice.decision === 'DENY');
+  if (questions.length > 0 && allow !== undefined && deny !== undefined) {
+    return <QuestionView block={block} questions={questions} allow={allow.decision} deny={deny.decision} onDecide={onDecide} />;
   }
   return (
     <div className="agt-appr" role="group" aria-label={`Approval: ${block.title}`}>
@@ -433,7 +520,7 @@ export function BlockView({ block, activityChoice, agentLabels, onToggleActivity
   activityChoice: Record<string, boolean>;
   agentLabels: Record<string, string>;
   onToggleActivity: (id: string, open: boolean) => void;
-  onDecide?: (approvalId: string, decision: AgentApprovalDecision) => void;
+  onDecide?: ApprovalDecider;
   onOpenAgent?: (threadId: string) => void;
   /** The turn is still running, so its groups stay open. */
   live?: boolean;
@@ -561,7 +648,7 @@ export function TurnView({ turn, first, open, now, models, durableTurns, activit
   agentLabels: Record<string, string>;
   onToggle: () => void;
   onToggleActivity: (id: string, open: boolean) => void;
-  onDecide?: (approvalId: string, decision: AgentApprovalDecision) => void;
+  onDecide?: ApprovalDecider;
   onOpenAgent?: (threadId: string) => void;
 }): React.JSX.Element {
   const waiting = turn.blocks.some((block) => block.kind === 'approval' && block.actionable && block.outcome === null);
@@ -906,7 +993,7 @@ export function AgentConversation({
   turnChoice: Record<string, boolean>;
   onToggleTurn: (id: string, open: boolean) => void;
   onToggleActivity: (id: string, open: boolean) => void;
-  onDecide: (approvalId: string, decision: AgentApprovalDecision) => void;
+  onDecide: ApprovalDecider;
   previews?: Record<string, AttachmentPreview>;
   agentLabels?: Record<string, string>;
   pendingApprovals?: AgentPendingApprovalDto[];

@@ -819,11 +819,13 @@ function registerIpc(): void {
     approvalId: string,
     decision: AgentApprovalDecision,
     scopedPermission?: string,
+    answers?: Record<string, string>,
   ) =>
     backendJson(`${backendBase()}/agent/approvals/${encodeURIComponent(approvalId)}`, jsonInit('POST', {
       decision: decision === 'ALLOW_FOR_TASK' ? 'ALLOW' : decision,
       forTask: decision === 'ALLOW_FOR_TASK',
       scopedPermission: scopedPermission ?? null,
+      answers: answers ?? null,
     }, agentHeaders())).then((approval) => parseAgentApproval(approval)));
   ipcMain.handle('agent:tasks:complete', (_event, taskId: string, workspaceId: string, notes?: string) => {
     // Completing removes the worktree a Code & Tests shell runs in, as review:end does for a review.
@@ -1008,9 +1010,9 @@ function registerIpc(): void {
     const approvals = await backendJson<unknown>(reviewUrl(`/${encodeURIComponent(reviewId)}/pending-approvals`), { headers: agentHeaders() });
     return parseAgentPendingApprovals(approvals, taskId, turnId);
   });
-  ipcMain.handle('review:approvals:resolve', (_event, reviewId: string, approvalId: string, decision: string) =>
+  ipcMain.handle('review:approvals:resolve', (_event, reviewId: string, approvalId: string, decision: string, answers?: Record<string, string>) =>
     backendJson(reviewUrl(`/${encodeURIComponent(reviewId)}/approvals/${encodeURIComponent(approvalId)}`),
-      jsonInit('POST', { decision }, agentHeaders()))
+      jsonInit('POST', { decision, answers: answers ?? null }, agentHeaders()))
       .then(parseAgentApproval));
   ipcMain.handle('review:stream:subscribe', (event, reviewId: string, after: number, statusOnly?: boolean) =>
     reviewSubscriptions.start(event.sender, reviewId, after, statusOnly === true));

@@ -13,11 +13,11 @@
  */
 import { useState } from 'react';
 import type { ReviewRequestTarget } from '../../agents/ReviewRequestCard';
-import { AgentConversation, ConversationComposer, ConversationQueue, useConversationHistory, type ConversationHistory, type ConversationQueuedInput } from '../../agents/AgentConversation';
+import { AgentConversation, ConversationComposer, ConversationQueue, useConversationHistory, type ApprovalDecider, type ConversationHistory, type ConversationQueuedInput } from '../../agents/AgentConversation';
 import { projectTranscript, withApprovalAuthority } from '../../agents/transcript';
 import type { AgentEventEnvelope } from '../../agents/events';
 import type { PendingMessage } from '../../agents/model';
-import type { AgentApprovalDecision, AgentPendingApprovalDto, AgentStreamConnectionState, AgentTurnDto, ModelOptionDto } from '../../types';
+import type { AgentPendingApprovalDto, AgentStreamConnectionState, AgentTurnDto, ModelOptionDto } from '../../types';
 import type { AgentReviewDto } from './contracts';
 import type { LocalReviewThreads } from '../local-review/types';
 import { reviewRecoveryRequired, reviewRequests, reviewRunning } from './model';
@@ -50,7 +50,7 @@ export default function ReviewActivity({
   onSteer: () => void;
   onQueue: () => void;
   onStop: () => void;
-  onDecide: (approvalId: string, decision: AgentApprovalDecision) => void;
+  onDecide: ApprovalDecider;
   onRemoveQueued: (queuedInputId: string) => void;
 }) {
   const [activityChoice, setActivityChoice] = useState<Record<string, boolean>>({});

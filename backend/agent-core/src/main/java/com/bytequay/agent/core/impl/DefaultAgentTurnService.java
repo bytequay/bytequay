@@ -2259,7 +2259,7 @@ public final class DefaultAgentTurnService
             return ProviderApprovalDecision.expired();
         }
         return switch (decision.decision()) {
-            case ALLOW -> ProviderApprovalDecision.allow(decision.scopedPermission());
+            case ALLOW -> ProviderApprovalDecision.allow(decision.scopedPermission(), decision.answers());
             case DENY -> ProviderApprovalDecision.deny();
         };
     }

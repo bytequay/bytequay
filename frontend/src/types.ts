@@ -1619,6 +1619,8 @@ export type Bridge = {
     approvalId: string,
     decision: AgentApprovalDecision,
     scopedPermission?: string,
+    /** A question tool's answers, keyed by the question Claude asked. */
+    answers?: Record<string, string>,
   ) => Promise<AgentApprovalDto>;
   completeAgentTask: (taskId: string, workspaceId: string, notes?: string) => Promise<AgentCompletionDto>;
   /** Retries immediate removal of a terminal task's verified clean checkout. */
@@ -1707,6 +1709,8 @@ export type Bridge = {
     reviewId: string,
     approvalId: string,
     decision: AgentApprovalDecision,
+    /** A question tool's answers, keyed by the question Claude asked. */
+    answers?: Record<string, string>,
   ) => Promise<AgentApprovalDto>;
   /** Streams the review task's events; the returned function stops the subscription. */
   subscribeAgentReview: (

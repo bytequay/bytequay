@@ -20,6 +20,8 @@ import {
   acceptsImages,
   agentTaskReducer,
   approvalDecisions,
+  approvalQuestions,
+  questionAnswers,
   canComplete,
   canQueue,
   canSend,
@@ -416,6 +418,58 @@ describe('projecting rows', () => {
     expect(approvalDecisions({ ...open, actionable: false })).toEqual([]);
     // A decision the product has no answer for is dropped, never guessed at.
     expect(approvalDecisions({ ...open, decisions: ['ALLOW_ALWAYS'] })).toEqual([]);
+  });
+
+  it('reads a question tool approval as the questions it asks', () => {
+    const asked: Pick<ApprovalBlock, 'scope' | 'detail'> = {
+      scope: ['AskUserQuestion'],
+      detail: JSON.stringify({
+        questions: [
+          {
+            question: 'Which issue should I work on?',
+            header: 'Issue',
+            multiSelect: false,
+            options: [{ label: 'Both', description: 'Fix them together.' }, { label: 'Neither' }],
+          },
+          {
+            question: 'Which checks should run?',
+            header: 'Checks',
+            multiSelect: true,
+            options: [{ label: 'Lint' }, { label: 'Tests' }],
+          },
+        ],
+      }),
+    };
+    const questions = approvalQuestions(asked);
+
+    expect(questions).toEqual([
+      {
+        question: 'Which issue should I work on?',
+        header: 'Issue',
+        multiSelect: false,
+        options: [{ label: 'Both', description: 'Fix them together.' }, { label: 'Neither', description: '' }],
+      },
+      {
+        question: 'Which checks should run?',
+        header: 'Checks',
+        multiSelect: true,
+        options: [{ label: 'Lint', description: '' }, { label: 'Tests', description: '' }],
+      },
+    ]);
+    // Claude keys its answers by the question; several choices arrive as one joined answer.
+    expect(questionAnswers(questions, {
+      'Which issue should I work on?': ['Both'],
+      'Which checks should run?': ['Lint', 'Tests'],
+    })).toEqual({
+      'Which issue should I work on?': 'Both',
+      'Which checks should run?': 'Lint, Tests',
+    });
+    // An unanswered question is left out, so nothing is sent as an empty answer.
+    expect(questionAnswers(questions, { 'Which issue should I work on?': [] })).toEqual({});
+    // Only the question tool's own approval draws the card, and only while its input is readable.
+    expect(approvalQuestions({ ...asked, scope: ['Bash'] })).toEqual([]);
+    expect(approvalQuestions({ ...asked, detail: '{"questions":[{"question":"Cut?"}]}' })).toEqual([]);
+    expect(approvalQuestions({ ...asked, detail: 'redacted …' })).toEqual([]);
   });
 
   it('keeps a cancelled turn and a terminal error visible', () => {

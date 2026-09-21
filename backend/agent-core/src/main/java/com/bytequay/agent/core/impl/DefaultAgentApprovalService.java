@@ -179,11 +179,13 @@ public final class DefaultAgentApprovalService
             if (approval.pending()) {
                 requireTurnAcceptsDecision(approval);
             }
+            // ponytail: answers ride the waiting future only; the store keeps the outcome, which is all a reload shows.
             ApprovalDecision decision = new ApprovalDecision(
                     command.approvalId(),
                     command.decision(),
                     command.scopedPermission(),
                     command.forTask(),
+                    command.answers(),
                     Instant.now(clock),
                     false);
             resolution = prepareResolution(approval, decision, outcome(decision));

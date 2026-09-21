@@ -417,6 +417,56 @@ export function approvalDecisions(row: Pick<ApprovalBlock, 'actionable' | 'outco
   });
 }
 
+/** The question tool Claude approves through the permission broker, so its card replaces the raw allow. */
+const QUESTION_TOOL = 'AskUserQuestion';
+
+export type ApprovalQuestion = {
+  question: string;
+  header: string;
+  multiSelect: boolean;
+  options: { label: string; description: string }[];
+};
+
+/** The questions behind a question-tool approval, or none when this is an ordinary allow/deny. */
+export function approvalQuestions(row: Pick<ApprovalBlock, 'scope' | 'detail'>): ApprovalQuestion[] {
+  if (!row.scope.includes(QUESTION_TOOL)) return [];
+  let input: unknown;
+  try {
+    input = JSON.parse(row.detail);
+  }
+  catch {
+    // A redacted or truncated detail is no longer the tool's input; the plain approval card still works.
+    return [];
+  }
+  const asked = fields(input).questions;
+  return (Array.isArray(asked) ? asked : []).flatMap((entry) => {
+    const question = fields(entry);
+    const options = (Array.isArray(question.options) ? question.options : []).flatMap((value) => {
+      const option = fields(value);
+      return typeof option.label === 'string' && option.label !== ''
+        ? [{ label: option.label, description: typeof option.description === 'string' ? option.description : '' }]
+        : [];
+    });
+    return typeof question.question !== 'string' || question.question === '' || options.length === 0 ? [] : [{
+      question: question.question,
+      header: typeof question.header === 'string' ? question.header : '',
+      multiSelect: question.multiSelect === true,
+      options,
+    }];
+  });
+}
+
+/** Claude reads answers back keyed by the question it asked; several choices arrive as one joined answer. */
+export function questionAnswers(questions: ApprovalQuestion[], chosen: Record<string, string[]>): Record<string, string> {
+  return Object.fromEntries(questions
+    .map((question) => [question.question, (chosen[question.question] ?? []).join(', ')] as const)
+    .filter(([, answer]) => answer !== ''));
+}
+
+function fields(value: unknown): Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value) ? value as Record<string, unknown> : {};
+}
+
 type AgentTaskSessionBridge = Pick<Bridge, 'getAgentTask' | 'readAgentHistory' | 'subscribeAgentTask'>;
 
 /** Fill the existing bounded window so streamed output does not crowd out the conversation. */

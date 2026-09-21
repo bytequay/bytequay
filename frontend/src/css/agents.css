@@ -1876,6 +1876,76 @@
   background: #ffffff;
 }
 
+/* A question Claude asked: the options are the decision, so they get the room the raw input had. */
+.agt-ask__question {
+  margin-top: 12px;
+}
+
+.agt-ask__asked {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.agt-ask__tag {
+  font-size: 10.5px;
+  font-weight: 600;
+  color: #57606a;
+  background: #f6f8fa;
+  border: 1px solid #d0d7de;
+  border-radius: 10px;
+  padding: 1px 8px;
+}
+
+.agt-ask__text {
+  font-size: 12.5px;
+  font-weight: 600;
+  color: #24292f;
+}
+
+.agt-ask__options {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-top: 8px;
+}
+
+.agt-ask__option {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  text-align: left;
+  border: 1px solid #d0d7de;
+  border-radius: 6px;
+  background: #ffffff;
+  padding: 7px 11px;
+  cursor: pointer;
+}
+
+.agt-ask__option.is-picked {
+  border-color: #0969da;
+  background: #ddf4ff;
+}
+
+.agt-ask__label {
+  font-size: 12.5px;
+  font-weight: 600;
+  color: #24292f;
+}
+
+.agt-ask__detail {
+  font-size: 12px;
+  line-height: 1.5;
+  color: #57606a;
+}
+
+.agt-decision:disabled {
+  background: #94d3a2;
+  border-color: rgba(31, 35, 40, 0.15);
+  cursor: not-allowed;
+}
+
 .agt-appr-done {
   display: flex;
   align-items: center;

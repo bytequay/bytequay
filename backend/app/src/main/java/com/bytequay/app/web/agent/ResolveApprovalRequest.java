@@ -15,7 +15,11 @@ package com.bytequay.app.web.agent;
 
 import com.bytequay.agent.core.ApprovalDecision;
 
+import java.util.Map;
+
 public record ResolveApprovalRequest(
         ApprovalDecision.Decision decision,
         String scopedPermission,
-        Boolean forTask) {}
+        Boolean forTask,
+        /** What the user answered a question tool with, keyed by question. */
+        Map<String, String> answers) {}

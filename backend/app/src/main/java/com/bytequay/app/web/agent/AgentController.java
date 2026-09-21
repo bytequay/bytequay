@@ -76,6 +76,7 @@ import com.bytequay.core.store.PullRequestStore;
 import com.bytequay.core.store.PullRequestTaskStore;
 import com.bytequay.core.store.WorkspaceStore;
 import com.google.common.collect.ImmutableList;
+import com.google.common.collect.ImmutableMap;
 import com.google.common.hash.Hasher;
 import com.google.common.hash.Hashing;
 import org.slf4j.Logger;
@@ -893,7 +894,8 @@ public class AgentController
                 ApprovalId.valueOf(approvalId),
                 request.decision(),
                 Optional.ofNullable(request.scopedPermission()),
-                Boolean.TRUE.equals(request.forTask()))));
+                Boolean.TRUE.equals(request.forTask()),
+                request.answers() == null ? ImmutableMap.of() : ImmutableMap.copyOf(request.answers()))));
     }
 
     @PostMapping("/tasks/{taskId}/complete")

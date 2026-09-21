@@ -16,29 +16,74 @@
 import React, { useState } from 'react';
 
 import { discussionLabel, replyCount } from './DiscussionFooter';
+import { relativeTime } from '../../relativeTime';
 import { renderMarkdown } from '../markdown';
-import type { SelectedPassage } from './DiscussableAnswer';
-import type { TaskDiscussionDto } from './contracts';
+import type { DiscussionMessageDto, TaskDiscussionDto } from './contracts';
 import type { TaskDiscussions } from './useTaskDiscussions';
 
+const JUMP = (
+  <svg width="13" height="13" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+    <path d="M13 3 6 10M13 3H8.6M13 3v4.4M12 10.5v2a.5.5 0 0 1-.5.5h-8a.5.5 0 0 1-.5-.5v-8a.5.5 0 0 1 .5-.5h2"
+      stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round" />
+  </svg>
+);
+
+const LOCK = (
+  <svg width="11" height="11" viewBox="0 0 16 16" fill="none" aria-hidden="true" style={{ flex: 'none' }}>
+    <rect x="3.5" y="7" width="9" height="6" rx="1.5" stroke="currentColor" strokeWidth="1.4" />
+    <path d="M5.5 7V5a2.5 2.5 0 0 1 5 0v2" stroke="currentColor" strokeWidth="1.4" />
+  </svg>
+);
+
+function status(discussion: TaskDiscussionDto): { label: string; kind: string; dot: boolean } | null {
+  const last = discussion.messages.at(-1);
+  if (discussion.pending) return { label: 'Waiting', kind: 'is-waiting', dot: true };
+  if (last !== undefined && last.error !== null) return { label: 'Failed', kind: 'is-failed', dot: false };
+  if (discussion.resolved) return { label: 'Done', kind: 'is-done', dot: false };
+  return null;
+}
+
+/** One question or one answer, with the speaker its rail and avatar name. */
+function Message({ message, lane }: { message: DiscussionMessageDto; lane: string }): React.ReactElement {
+  const reader = message.author === 'USER';
+  return (
+    <div className={`agt-disc-msg${reader ? ' is-reader' : ''}`}>
+      <span className="agt-disc-msg__avatar">{reader ? 'Y' : 'A'}</span>
+      <div className="agt-disc-msg__main">
+        <div className="agt-disc-msg__byline">
+          <span>{reader ? 'You' : 'Agent'}</span>
+          {reader ? ` · ${relativeTime(message.createdAt)}` : ` · ${lane} · read-only`}
+        </div>
+        <div className="agt-disc-msg__body">{renderMarkdown(message.body)}</div>
+      </div>
+    </div>
+  );
+}
+
 /**
- * One discussion, read and replied to in the side panel.
+ * One discussion in the panel.
  *
- * <p>It reads as a sibling of the private local-discussion card rather than a new vocabulary: the
- * quoted passage, the exchange, a collapsed reply, and a failed question carrying its reason beside
- * a retry.
+ * <p>The quote is the card's subject and stays pinned at the top when the card opens, because the
+ * thread is about that passage and the passage may be far away in the transcript.
  */
-export function DiscussionCard({ discussion, siblings, discussions, onJump }: {
+export function DiscussionCard({ discussion, siblings, discussions, open, onToggle, onJump, onHover }: {
   discussion: TaskDiscussionDto;
   siblings: TaskDiscussionDto[];
   discussions: TaskDiscussions;
-  onJump?: (turnId: string) => void;
+  open: boolean;
+  onToggle: () => void;
+  onJump?: (discussion: TaskDiscussionDto) => void;
+  onHover?: (discussionId: string | null) => void;
 }): React.ReactElement {
   const [draft, setDraft] = useState('');
-  const [busy, setBusy] = useState(false);
   const [replying, setReplying] = useState(false);
-  const disabled = discussions.disabledReason;
-  const failed = discussion.messages.findLast(message => message.error !== null);
+  const [busy, setBusy] = useState(false);
+  const readOnly = discussions.disabledReason;
+  const pill = status(discussion);
+  const label = discussionLabel(discussion, siblings);
+  const replies = replyCount(discussion);
+  const failure = discussion.messages.findLast(message => message.error !== null);
+  const asked = discussion.messages.find(message => message.author === 'USER');
 
   const send = async (): Promise<void> => {
     const question = draft.trim();
@@ -55,115 +100,171 @@ export function DiscussionCard({ discussion, siblings, discussions, onJump }: {
   };
 
   return (
-    <details className={`agt-disc-card${discussion.resolved ? ' is-resolved' : ''}`} data-discussion={discussion.id} open={!discussion.resolved}>
-      <summary>
-        <span className="agt-disc-card__label">{discussionLabel(discussion, siblings)}</span>
-        <span className="agt-disc-card__count">
-          {discussion.pending ? 'answering…' : replyCount(discussion) === 1 ? '1 reply' : `${replyCount(discussion)} replies`}
+    <div
+      className={`agt-disc-card${open ? ' is-open' : ''}${discussion.resolved ? ' is-done' : ''}`}
+      data-discussion={discussion.id}
+      onMouseEnter={() => onHover?.(discussion.id)}
+      onMouseLeave={() => onHover?.(null)}
+    >
+      <button className="agt-disc-card__head" type="button" aria-expanded={open} onClick={onToggle}>
+        <span className="agt-disc-card__rail" />
+        <span className="agt-disc-card__main">
+          <span className={`agt-disc-card__quote${label.mono ? ' is-mono' : ''}`}>{discussion.quote}</span>
+          <span className="agt-disc-card__meta">
+            <span className="agt-disc-card__who">
+              {asked === undefined ? 'You' : `You · ${relativeTime(asked.createdAt)}`}
+            </span>
+            {pill !== null && (
+              <span className={`agt-disc-pill-tag ${pill.kind}`}>
+                {pill.dot && <span className="agt-disc-pill-tag__dot" />}
+                {pill.label}
+              </span>
+            )}
+            <span className="agt-disc-card__spacer" />
+            <span className="agt-disc-card__count">{replies === 1 ? '1 reply' : `${replies} replies`}</span>
+          </span>
+          {!open && discussion.messages.length > 0 && (
+            <span className="agt-disc-card__preview">{discussion.messages[discussion.messages.length - 1].body}</span>
+          )}
         </span>
-        {discussion.resolved && <span className="agt-disc-card__pill">Done</span>}
-      </summary>
-      <blockquote className="agt-disc-card__quote">{discussion.quote}</blockquote>
-      {discussion.messages.map(message => (
-        <div className={`agt-disc-msg is-${message.author.toLowerCase()}`} key={message.id}>
-          <span className="agt-disc-msg__who">{message.author === 'USER' ? 'You' : 'Agent'}</span>
-          <div className="agt-disc-msg__body">{renderMarkdown(message.body)}</div>
-          {message.error !== null && (
-            <div className="agt-disc-msg__error" role="alert">
-              {message.error}
-              <button type="button" disabled={busy || disabled !== null} onClick={() => { void discussions.retry(discussion.id, message.id); }}>Retry</button>
+      </button>
+
+      {open && (
+        <div className="agt-disc-card__body">
+          <div className="agt-disc-card__messages">
+            {discussion.messages.map(message => (
+              <Message key={message.id} message={message} lane={discussion.providerLane} />
+            ))}
+            {discussion.pending && (
+              <div className="agt-disc-msg">
+                <span className="agt-disc-msg__avatar">A</span>
+                <div className="agt-disc-msg__main">
+                  <div className="agt-disc-msg__byline"><span>Agent</span>{` · ${discussion.providerLane} · read-only`}</div>
+                  <div className="agt-disc-msg__shimmer">Reading the task history and the repository…</div>
+                </div>
+              </div>
+            )}
+          </div>
+
+          {failure !== undefined && failure.error !== null && (
+            <div className="agt-disc-fail" role="alert">
+              <span>{failure.error}</span>
+              <button type="button" disabled={busy || readOnly !== null}
+                onClick={() => { void discussions.retry(discussion.id, failure.id); }}>Retry</button>
             </div>
           )}
-        </div>
-      ))}
-      <div className="agt-disc-card__actions">
-        {onJump !== undefined && <button type="button" onClick={() => onJump(discussion.turnId)}>Show the passage</button>}
-        <button
-          type="button"
-          onClick={() => { void discussions.resolve(discussion.id, !discussion.resolved, discussion.version); }}
-          disabled={busy}
-        >{discussion.resolved ? 'Reopen' : 'Mark done'}</button>
-      </div>
-      {disabled !== null ? <p className="agt-disc-card__closed">{disabled}</p>
-        : failed !== undefined && !replying ? null
-        : replying ? (
-          <div className="agt-disc-card__composer">
-            <textarea
-              aria-label="Ask a follow-up"
-              value={draft}
-              disabled={busy || discussion.pending}
-              onChange={event => setDraft(event.target.value)}
-            />
-            <button type="button" disabled={busy || discussion.pending || draft.trim() === ''} onClick={() => { void send(); }}>
-              {discussion.pending ? 'Waiting for the answer' : 'Ask'}
-            </button>
-          </div>
-        ) : <button className="agt-disc-card__reply" type="button" onClick={() => setReplying(true)}>Reply</button>}
-    </details>
-  );
-}
 
-/**
- * The passage the reader highlighted, waiting for its first question. A discussion cannot exist
- * without one, so the composer is where a selection becomes a thread.
- */
-function NewDiscussion({ passage, discussions, onDone }: {
-  passage: SelectedPassage;
-  discussions: TaskDiscussions;
-  onDone: () => void;
-}): React.ReactElement {
-  const [draft, setDraft] = useState('');
-  const [busy, setBusy] = useState(false);
-  const ask = async (): Promise<void> => {
-    const question = draft.trim();
-    if (question === '' || busy) return;
-    setBusy(true);
-    try {
-      await discussions.open({ ...passage, question });
-      onDone();
-    }
-    finally {
-      setBusy(false);
-    }
-  };
-  return (
-    <div className="agt-disc-card agt-disc-card--new">
-      <blockquote className="agt-disc-card__quote">{passage.quote}</blockquote>
-      <div className="agt-disc-card__composer">
-        <textarea aria-label="Ask about this passage" autoFocus value={draft} disabled={busy}
-          onChange={event => setDraft(event.target.value)} />
-        <button type="button" disabled={busy || draft.trim() === ''} onClick={() => { void ask(); }}>Ask</button>
-        <button type="button" disabled={busy} onClick={onDone}>Cancel</button>
-      </div>
+          {readOnly !== null ? <p className="agt-disc-card__closed">{readOnly}</p>
+            : replying ? (
+              <div className="agt-disc-reply">
+                <textarea
+                  rows={2}
+                  autoFocus
+                  aria-label="Reply"
+                  placeholder="Reply…"
+                  value={draft}
+                  disabled={busy || discussion.pending}
+                  onChange={event => setDraft(event.target.value)}
+                  onKeyDown={event => {
+                    if (event.key === 'Escape') { setDraft(''); setReplying(false); }
+                    else if (event.key === 'Enter' && (event.metaKey || event.ctrlKey)) void send();
+                  }}
+                />
+                <div className="agt-disc-reply__foot">
+                  <span className="agt-disc-reply__private">{LOCK}Private · reads code, never writes</span>
+                  <button className="agt-disc-reply__cancel" type="button" onClick={() => { setDraft(''); setReplying(false); }}>Cancel</button>
+                  <button className="agt-disc-reply__ask" type="button" disabled={busy || discussion.pending || draft.trim() === ''}
+                    onClick={() => { void send(); }}>Ask</button>
+                </div>
+              </div>
+            ) : (
+              <div className="agt-disc-card__actions">
+                {!discussion.resolved && <button className="agt-disc-card__reply" type="button" onClick={() => setReplying(true)}>Reply</button>}
+                <button className="agt-disc-card__done" type="button" disabled={busy}
+                  onClick={() => { void discussions.resolve(discussion.id, !discussion.resolved, discussion.version); }}>
+                  {discussion.resolved ? 'Reopen' : 'Mark done'}
+                </button>
+                <span className="agt-disc-card__spacer" />
+                {onJump !== undefined && (
+                  <button className="agt-disc-card__jump" type="button" title="Show passage in transcript"
+                    aria-label="Show passage in transcript" onClick={() => onJump(discussion)}>{JUMP}</button>
+                )}
+              </div>
+            )}
+        </div>
+      )}
     </div>
   );
 }
 
-/** Every discussion on the task, in the order their passages appear in the transcript. */
-export function DiscussionsPanel({ discussions, pending, onPendingDone, onJump }: {
+/**
+ * Every discussion on the task, grouped by the answer it hangs under.
+ *
+ * <p>Groups run in transcript order and passages within a group in document order, not the order
+ * the questions were asked, so the panel reads as a map of the answer rather than a log.
+ */
+export function DiscussionsPanel({ discussions, turns, onJump, onHover }: {
   discussions: TaskDiscussions;
-  pending?: SelectedPassage | null;
-  onPendingDone?: () => void;
-  onJump?: (turnId: string) => void;
+  /** Turn ordinals and synopses for the answers on screen, for the sticky group headers. */
+  turns?: { turnId: string; ordinal: number; synopsis: string }[];
+  onJump?: (discussion: TaskDiscussionDto) => void;
+  onHover?: (discussionId: string | null) => void;
 }): React.ReactElement {
+  const [openId, setOpenId] = useState<string | null>(null);
   const rows = discussions.discussions;
-  const composer = pending == null || onPendingDone === undefined ? null
-    : <NewDiscussion passage={pending} discussions={discussions} onDone={onPendingDone} />;
-  if (rows.length === 0 && composer === null) {
+  if (rows.length === 0) {
     return (
-      <p className="agr-card__empty">
-        Highlight part of an answer and ask about it. The thread stays here, and the task&apos;s own
-        conversation is untouched.
-      </p>
+      <div className="agt-disc-empty">
+        <p className="agt-disc-empty__title">No discussions yet</p>
+        <p className="agt-disc-empty__body">
+          Highlight text in a finished answer to ask about it. A discussion stays beside the task — it
+          never enters the conversation, and the agent answering it can read the repository but not
+          change it.
+        </p>
+      </div>
     );
   }
+
+  const order = new Map((turns ?? []).map((turn, index) => [turn.turnId, index]));
+  const byTurn = new Map<string, TaskDiscussionDto[]>();
+  for (const discussion of rows) byTurn.set(discussion.turnId, [...byTurn.get(discussion.turnId) ?? [], discussion]);
+  const groups = [...byTurn.entries()]
+    .sort(([left], [right]) => (order.get(left) ?? Number.MAX_SAFE_INTEGER) - (order.get(right) ?? Number.MAX_SAFE_INTEGER));
+
   return (
-    <div className="agt-disc-list">
+    <div className="agt-disc agt-disc-list">
       {discussions.error !== null && <div className="agt-panel__empty" role="alert">{discussions.error}</div>}
-      {composer}
-      {rows.map(discussion => (
-        <DiscussionCard key={discussion.id} discussion={discussion} siblings={rows} discussions={discussions} onJump={onJump} />
-      ))}
+      {groups.map(([turnId, cards]) => {
+        const turn = (turns ?? []).find(candidate => candidate.turnId === turnId);
+        return (
+          <div className="agt-disc-group" key={turnId}>
+            <div className="agt-disc-group__head">
+              <span className="agt-disc-group__turn">{turn === undefined ? 'EARLIER' : `TURN ${turn.ordinal}`}</span>
+              <span className="agt-disc-group__synopsis">
+                {turn === undefined ? 'Earlier in this task' : turn.synopsis}
+              </span>
+              {turn !== undefined && onJump !== undefined && (
+                <button className="agt-disc-group__jump" type="button" title="Show answer in transcript"
+                  aria-label="Show answer in transcript" onClick={() => onJump(cards[0])}>{JUMP}</button>
+              )}
+            </div>
+            <div className="agt-disc-group__cards">
+              {cards.map(discussion => (
+                <DiscussionCard
+                  key={discussion.id}
+                  discussion={discussion}
+                  siblings={rows}
+                  discussions={discussions}
+                  open={openId === discussion.id}
+                  onToggle={() => setOpenId(current => (current === discussion.id ? null : discussion.id))}
+                  onJump={turn === undefined ? undefined : onJump}
+                  onHover={onHover}
+                />
+              ))}
+            </div>
+          </div>
+        );
+      })}
     </div>
   );
 }

@@ -64,6 +64,7 @@ import { AgentConversation,BlockView,clock,codeGraphText,ConversationComposer,Co
 import { type CommitRange, type DiffAgentComment } from '../pulls/PullChanges';
 import { useTaskDiscussions, type TaskDiscussions } from './discussions/useTaskDiscussions';
 import type { SelectedPassage } from './discussions/DiscussableAnswer';
+import type { TaskDiscussionDto } from './discussions/contracts';
 import { DiscussionsPanel } from './discussions/DiscussionsPanel';
 import { useLocalReviewThreads } from '../pulls/local-review/useLocalReviewThreads';
 import type { LocalReviewThreadDto, LocalReviewThreads } from '../pulls/local-review/types';
@@ -542,7 +543,7 @@ function PanelFrame({ label, tabs, width, flush = false, overview = false, kept 
  * from the task's kept summary, and opening it says its activity expired rather than inventing it.
  */
 function SidePanel({
-  discussions, onJumpToPassage, pendingPassage, onPendingPassageDone,
+  discussions, onJumpToPassage, onHoverDiscussion,
   agents, openAgent, expiredChildren, deleteAfter, transcript, now, tab: requestedTab, task = null, pullRequest,
   pullRequestError, pullRequestLoading, pullRequestChecked, onRefreshPullRequests,
   pullRequestDetail, pullRequestChanges, pullRequestCommitRange, pullRequestPendingComments,
@@ -591,9 +592,8 @@ function SidePanel({
   onAskAgentDisabled?: string | null;
   localReview?: LocalReviewThreads;
   discussions?: TaskDiscussions;
-  onJumpToPassage?: (turnId: string) => void;
-  pendingPassage?: SelectedPassage | null;
-  onPendingPassageDone?: () => void;
+  onJumpToPassage?: (discussion: TaskDiscussionDto) => void;
+  onHoverDiscussion?: (discussionId: string | null) => void;
   learning?: React.ReactNode;
   reviewFocus?: ReviewCardFocus | null;
   /** How many files hold unsaved Code & Tests drafts, so the screen can confirm before they are dropped. */
@@ -752,7 +752,7 @@ function SidePanel({
   const code = { kept: codeBody, keptShown: tab === 'code' };
   if (tab === 'discussions' && discussions !== undefined) {
     return <PanelFrame label="Discussions" tabs={tabs} width={width} {...code}>
-      <DiscussionsPanel discussions={discussions} pending={pendingPassage} onPendingDone={onPendingPassageDone} onJump={onJumpToPassage} />
+      <DiscussionsPanel discussions={discussions} onJump={onJumpToPassage} onHover={onHoverDiscussion} />
     </PanelFrame>;
   }
   if (tab === 'code') return <PanelFrame label="Code & Tests" tabs={tabs} width={width} flush {...code} />;
@@ -881,10 +881,12 @@ function SidePanel({
               <div className="agt-note">Recovering this agent&apos;s activity from its history…</div>
             )}
             <div className="agt-panel__log">
-              {blocks.map((block) => (
+              {blocks.map((block, index) => (
                 <BlockView
                   key={block.id}
                   block={block}
+                  live={running}
+                  active={running && index === blocks.length - 1}
                   activityChoice={activityChoice}
                   agentLabels={labels}
                   onToggleActivity={onToggleActivity}
@@ -952,7 +954,7 @@ function SidePanel({
  */
 export function AgentTaskBody({
   state, models, onBack, onSend: send, onCancel, onComplete, onDecide, onCompose, onSelectModel,
-  discussions, onSelectPassage, onOpenDiscussion, onJumpToPassage, pendingPassage, onPendingPassageDone,
+  discussions, onSelectPassage, onOpenDiscussion, onJumpToPassage, onHoverDiscussion,
   onStopServer, onMarkFailed, onRename, onArchive, composerRef,
   provider = '',
   providerStatus = null,
@@ -1021,11 +1023,10 @@ export function AgentTaskBody({
   onAskAgentDisabled?: string | null;
   localReview?: LocalReviewThreads;
   discussions?: TaskDiscussions;
-  onSelectPassage?: (passage: SelectedPassage) => void;
+  onSelectPassage?: (passage: SelectedPassage, question: string) => void;
   onOpenDiscussion?: (discussionId: string) => void;
-  onJumpToPassage?: (turnId: string) => void;
-  pendingPassage?: SelectedPassage | null;
-  onPendingPassageDone?: () => void;
+  onJumpToPassage?: (discussion: TaskDiscussionDto) => void;
+  onHoverDiscussion?: (discussionId: string | null) => void;
   learning?: React.ReactNode;
   reviewFocus?: ReviewCardFocus | null;
   onOpenReview?: (target: ReviewRequestTarget) => void;
@@ -1411,8 +1412,7 @@ export function AgentTaskBody({
           <SidePanel
             discussions={discussions}
             onJumpToPassage={onJumpToPassage}
-            pendingPassage={pendingPassage}
-            onPendingPassageDone={onPendingPassageDone}
+            onHoverDiscussion={onHoverDiscussion}
             agents={agents}
             openAgent={supportsNestedAgents ? openAgent : null}
             expiredChildren={expiredChildren}
@@ -1573,7 +1573,6 @@ export default function AgentTaskScreen({
   const [ciPollingError, setCiPollingError] = useState<string | null>(null);
   const [openAgent, setOpenAgent] = useState<string | null>(null);
   const [panelTab, setPanelTab] = useState<PanelTab>('pr');
-  const [pendingPassage, setPendingPassage] = useState<SelectedPassage | null>(null);
   const [reviewFocus, setReviewFocus] = useState<ReviewCardFocus | null>(null);
   const [logChoice, setLogChoice] = useState<string | null>(null);
   const [pullRequests, setPullRequests] = useState<PullRequestDto[]>([]);
@@ -2445,12 +2444,12 @@ export default function AgentTaskScreen({
       onAskAgentDisabled={agentCommentDisabled}
       localReview={localReview}
       discussions={discussions}
-      onSelectPassage={passage => { setPanelChoice(true); setPanelTab('discussions'); setPendingPassage(passage); }}
-      pendingPassage={pendingPassage}
-      onPendingPassageDone={() => setPendingPassage(null)}
+      onSelectPassage={(passage, question) => {
+        void discussions.open({ ...passage, question }).then(() => { setPanelChoice(true); setPanelTab('discussions'); });
+      }}
       onOpenDiscussion={() => { setPanelChoice(true); setPanelTab('discussions'); }}
-      onJumpToPassage={turnId => {
-        document.querySelector(`.agt-turn[data-history-anchor="${CSS.escape(turnId)}"]`)
+      onJumpToPassage={discussion => {
+        document.querySelector(`.agt-turn[data-history-anchor="${CSS.escape(discussion.turnId)}"]`)
           ?.scrollIntoView({ block: 'center' });
       }}
       learning={state.task === null ? undefined : <DevelopmentLearningPanel key={taskId} task={state.task} repository={workspace === undefined ? '' : `${workspace.monitoredOwner}/${workspace.monitoredRepo}`}

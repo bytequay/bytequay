@@ -32,7 +32,7 @@ import { approvalDecisions, type PendingMessage } from './model';
 import { ModelPicker } from './ModelPicker';
 import { IssueRequestCard } from './IssueAttachment';
 import { ReviewRequestCard, type ReviewRequest, type ReviewRequestTarget } from './ReviewRequestCard';
-import { activityExpanded,activityPhrase,activityRunning,activitySummary,formatDuration,planChip,turnElapsedMs,turnLabel,type ActivityBlock,type ActivityMember,type ApprovalBlock,type CommandAction,type CommandMember,type PlanStep,type ToolMember,type TranscriptTurn,type TurnBlock } from './transcript';
+import { activityExpanded,activityPhrase,activitySummary,formatDuration,planChip,turnElapsedMs,turnLabel,type ActivityBlock,type ActivityMember,type ApprovalBlock,type CommandAction,type CommandMember,type PlanStep,type ToolMember,type TranscriptTurn,type TurnBlock } from './transcript';
 
 /** What the screen knows about one attachment's image: still loading, an object URL, or gone. */
 export type AttachmentPreview = { status: 'notLoaded' } | { status: 'loading' } | { status: 'ready'; url: string; loadOriginal?: () => Promise<Blob> } | { status: 'unavailable' };
@@ -311,21 +311,25 @@ function MemberRows({ members, live }: { members: ActivityMember[]; live: boolea
 }
 
 /**
- * Contiguous activity as one block: a running group shows its members under a "Working" header,
- * a finished one folds to a sentence derived from those members unless the user opened it.
+ * Contiguous activity as one block: the group the turn is working in shows its members under a
+ * "Working" header, a finished one folds to a sentence derived from those members unless the user
+ * opened it. A group keeps that header through the gaps between its commands, where nothing runs
+ * but the turn has not moved on; folding there made the page jump on every command.
  */
-function ActivityView({ block, expanded, onToggle }: {
+function ActivityView({ block, active, expanded, onToggle }: {
   block: ActivityBlock;
+  active: boolean;
   expanded: boolean;
   onToggle: () => void;
 }): React.JSX.Element {
-  if (activityRunning(block)) {
+  const running = block.members.filter((member) => memberState(member) === 'running');
+  if (active || running.length > 0) {
     return (
       <div className="agt-act is-running">
         <div className="agt-act__head">
           <Spinner />
           <span className="agt-act__title">Working</span>
-          <span className="agt-muted">— {activityPhrase(block.members.filter((member) => memberState(member) === 'running'))}</span>
+          {running.length > 0 && <span className="agt-muted">— {activityPhrase(running)}</span>}
         </div>
         <MemberRows members={block.members} live />
       </div>
@@ -424,13 +428,17 @@ function ApprovalView({ block, onDecide }: {
   );
 }
 
-export function BlockView({ block, activityChoice, agentLabels, onToggleActivity, onDecide, onOpenAgent }: {
+export function BlockView({ block, activityChoice, agentLabels, onToggleActivity, onDecide, onOpenAgent, live = false, active = false }: {
   block: TurnBlock;
   activityChoice: Record<string, boolean>;
   agentLabels: Record<string, string>;
   onToggleActivity: (id: string, open: boolean) => void;
   onDecide?: (approvalId: string, decision: AgentApprovalDecision) => void;
   onOpenAgent?: (threadId: string) => void;
+  /** The turn is still running, so its groups stay open. */
+  live?: boolean;
+  /** This is the group the turn is working in. */
+  active?: boolean;
 }): React.JSX.Element | null {
   switch (block.kind) {
     case 'text':
@@ -459,8 +467,8 @@ export function BlockView({ block, activityChoice, agentLabels, onToggleActivity
         </div>
       );
     case 'activity': {
-      const expanded = activityExpanded(block, activityChoice[block.id]);
-      return <ActivityView block={block} expanded={expanded} onToggle={() => onToggleActivity(block.id, !expanded)} />;
+      const expanded = activityExpanded(block, activityChoice[block.id], live);
+      return <ActivityView block={block} active={active} expanded={expanded} onToggle={() => onToggleActivity(block.id, !expanded)} />;
     }
     case 'approval':
       return <ApprovalView block={block} onDecide={onDecide} />;
@@ -528,11 +536,13 @@ function TurnFooter({ turn, durable, models }: {
   );
 }
 
-export function TurnView({ turn, first, open, now, models, durableTurns, activityChoice, previews, agentLabels, onToggle, onToggleActivity, onDecide, onOpenAgent, generatedRequest = false, generatedBranch = null, localReview, discussions, reviewRequests, issueSource, onOpenReview, onOpenDiscussion, onSelectPassage, latest = false, children }: {
+export function TurnView({ turn, first, open, now, models, durableTurns, activityChoice, previews, agentLabels, onToggle, onToggleActivity, onDecide, onOpenAgent, generatedRequest = false, generatedBranch = null, localReview, discussions, reviewRequests, issueSource, onOpenReview, onOpenDiscussion, onSelectPassage, focusedDiscussion, onHoverDiscussion, latest = false, children }: {
   localReview?: LocalReviewThreads;
   discussions?: TaskDiscussionDto[];
   onOpenDiscussion?: (discussionId: string) => void;
-  onSelectPassage?: (passage: SelectedPassage) => void;
+  focusedDiscussion?: string | null;
+  onHoverDiscussion?: (discussionId: string | null) => void;
+  onSelectPassage?: (passage: SelectedPassage, question: string) => void;
   reviewRequests?: readonly ReviewRequest[];
   issueSource?: AgentIssueSourceDto | null;
   onOpenReview?: (target: ReviewRequestTarget) => void;
@@ -555,7 +565,8 @@ export function TurnView({ turn, first, open, now, models, durableTurns, activit
   onOpenAgent?: (threadId: string) => void;
 }): React.JSX.Element {
   const waiting = turn.blocks.some((block) => block.kind === 'approval' && block.actionable && block.outcome === null);
-  const live = turn.startedAt !== null && turn.endedAt === null && !waiting;
+  const running = turn.startedAt !== null && turn.endedAt === null;
+  const live = running && !waiting;
   const hasLog = turn.startedAt !== null || turn.blocks.length > 0;
   const durable = turn.turnId === null ? undefined : durableTurns[turn.turnId];
   const generatedLabel = developmentTurnLabel(durable) ?? (generatedRequest ? 'Review request' : null);
@@ -628,9 +639,11 @@ export function TurnView({ turn, first, open, now, models, durableTurns, activit
           <Chevron open={open} />
         </button>
       )}
-      {open && turn.blocks.map((block) => (
+      {open && turn.blocks.map((block, index) => (
         <div key={block.id} data-history-anchor={'anchorId' in block ? block.anchorId : block.id}><BlockView
           block={block}
+          live={running}
+          active={live && index === turn.blocks.length - 1}
           activityChoice={activityChoice}
           agentLabels={agentLabels}
           onToggleActivity={onToggleActivity}
@@ -640,16 +653,16 @@ export function TurnView({ turn, first, open, now, models, durableTurns, activit
       ))}
       {turn.answer !== null && (
         <div className="agt-answer" data-history-anchor={turn.answer.anchorId ?? turn.answer.id}>
-          {/* A passage is anchorable only once the answer is whole; a streaming one has no turn to name. */}
-          {turn.answer.complete && turn.turnId !== null
-            ? <DiscussableAnswer
-                turnId={turn.turnId}
-                text={turn.answer.text}
-                discussions={(discussions ?? []).filter(discussion => discussion.turnId === turn.turnId)}
-                onSelect={onSelectPassage}
-                onOpen={onOpenDiscussion}
-              />
-            : renderMarkdown(turn.answer.text)}
+          <DiscussableAnswer
+            turnId={turn.turnId}
+            text={turn.answer.text}
+            streaming={!turn.answer.complete}
+            discussions={(discussions ?? []).filter(discussion => discussion.turnId === turn.turnId)}
+            focused={focusedDiscussion}
+            onSelect={onSelectPassage}
+            onOpen={onOpenDiscussion}
+            onHover={onHoverDiscussion}
+          />
           {!turn.answer.complete && !turn.answer.historical && <span className="agt-cursor" aria-hidden="true" />}
         </div>
       )}
@@ -874,7 +887,7 @@ export function AgentConversation({
   turns, durableTurns, models, now, scroll, connection, running, activeTurn, activeTurnId = activeTurn?.id, waiting, gap = false, pendingMessage = null,
   activityChoice, turnChoice, onToggleTurn, onToggleActivity, onDecide,
   previews = {}, agentLabels = {}, pendingApprovals = [], generatedTurnIds, generatedBranch,
-  onOpenAgent, children, transcriptFooter, localReview, discussions, reviewRequests, issueSource, onOpenReview, onOpenDiscussion, onSelectPassage, label = 'Task transcript',
+  onOpenAgent, children, transcriptFooter, localReview, discussions, reviewRequests, issueSource, onOpenReview, onOpenDiscussion, onSelectPassage, focusedDiscussion, onHoverDiscussion, label = 'Task transcript',
 }: {
   turns: TranscriptTurn[];
   durableTurns: Record<string, AgentTurnDto>;
@@ -905,7 +918,9 @@ export function AgentConversation({
   localReview?: LocalReviewThreads;
   discussions?: TaskDiscussionDto[];
   onOpenDiscussion?: (discussionId: string) => void;
-  onSelectPassage?: (passage: SelectedPassage) => void;
+  focusedDiscussion?: string | null;
+  onHoverDiscussion?: (discussionId: string | null) => void;
+  onSelectPassage?: (passage: SelectedPassage, question: string) => void;
   reviewRequests?: readonly ReviewRequest[];
   issueSource?: AgentIssueSourceDto | null;
   onOpenReview?: (target: ReviewRequestTarget) => void;
@@ -961,6 +976,7 @@ export function AgentConversation({
               previews={previews} agentLabels={agentLabels} onToggle={() => onToggleTurn(id, !open)}
               onToggleActivity={onToggleActivity} onDecide={onDecide} onOpenAgent={onOpenAgent}
               localReview={localReview} discussions={discussions} onOpenDiscussion={onOpenDiscussion} onSelectPassage={onSelectPassage}
+              focusedDiscussion={focusedDiscussion} onHoverDiscussion={onHoverDiscussion}
               reviewRequests={reviewRequests} issueSource={issueSource} onOpenReview={onOpenReview} latest={reserve}
               generatedRequest={turn.turnId !== null && generatedTurnIds?.has(turn.turnId)} generatedBranch={generatedBranch}>
               {latest && liveActivity}

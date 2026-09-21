@@ -17,7 +17,7 @@ import { createRoot } from 'react-dom/client';
 import { flushSync } from 'react-dom';
 
 import { DiscussableAnswer, type SelectedPassage } from '../discussions/DiscussableAnswer';
-import { assert, settle } from '../../fixtures/harness';
+import { assert, changeInput, settle } from '../../fixtures/harness';
 
 const ANSWER = [
   'It resolves address.zip by descending from the root field, then falls back to any',
@@ -64,6 +64,18 @@ export async function run(): Promise<{ name: string; error?: string }[]> {
   await settle();
 
   const pill = (): HTMLElement | null => document.querySelector('.agt-disc-pill');
+  const ask = async (question: string): Promise<void> => {
+    (pill() as HTMLElement).click();
+    await settle();
+    const field = document.querySelector('.agt-disc-pop textarea') as HTMLTextAreaElement;
+    assert(field !== null, 'The inline composer did not open');
+    changeInput(field, question);
+    await settle();
+    const send = document.querySelector('.agt-disc-pop__ask') as HTMLButtonElement;
+    assert(!send.disabled, 'Ask stayed disabled after typing a question');
+    send.click();
+    await settle();
+  };
   const release = (target: EventTarget): void => {
     target.dispatchEvent(new MouseEvent('mouseup', { bubbles: true }));
   };
@@ -99,14 +111,14 @@ export async function run(): Promise<{ name: string; error?: string }[]> {
     select('descendant whose name', false);
     release(document.body);
     await settle();
-    (pill() as HTMLElement).click();
-    await settle();
+    await ask('forwards?');
+    const afterForward = selected.length;
+    assert(afterForward === 1, `The first question sent ${afterForward} passages`);
     await clear();
     select('descendant whose name', true);
     release(document.body);
     await settle();
-    (pill() as HTMLElement).click();
-    await settle();
+    await ask('backwards?');
     assert(selected.length === 2, `Expected two passages, got ${selected.length}`);
     assert(selected[0].quote === selected[1].quote, `Direction changed the quote: ${selected[0].quote} vs ${selected[1].quote}`);
     assert(selected[0].occurrence === selected[1].occurrence, 'Direction changed the occurrence');

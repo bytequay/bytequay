@@ -96,13 +96,38 @@ describe('a footer row', () => {
 
   it('separates two threads on the same text by their mention', () => {
     const siblings = [discussion({ id: 'a', occurrence: 1 }), discussion({ id: 'b', occurrence: 2 })];
-    expect(discussionLabel(siblings[0], siblings)).toBe('INVALID_TABLE_PROPERTY · 1st mention');
-    expect(discussionLabel(siblings[1], siblings)).toBe('INVALID_TABLE_PROPERTY · 2nd mention');
+    expect(discussionLabel(siblings[0], siblings).text).toBe('INVALID_TABLE_PROPERTY · 1st mention');
+    expect(discussionLabel(siblings[1], siblings).text).toBe('INVALID_TABLE_PROPERTY · 2nd mention');
     // A quote nothing else shares needs no disambiguator.
-    expect(discussionLabel(discussion(), [discussion()])).toBe('INVALID_TABLE_PROPERTY');
+    expect(discussionLabel(discussion(), [discussion()]).text).toBe('INVALID_TABLE_PROPERTY');
   });
 
-  it('truncates a long quote', () => {
-    expect(discussionLabel(discussion({ quote: 'w'.repeat(80) }), [])).toHaveLength(49);
+  it('names a bare code token in mono without quote marks', () => {
+    // It is a name, not a sentence.
+    const label = discussionLabel(discussion(), []);
+    expect(label).toEqual({ text: 'INVALID_TABLE_PROPERTY', mono: true, typed: false });
+  });
+
+  it('quotes prose, cutting at a word boundary and dropping trailing punctuation', () => {
+    const label = discussionLabel(discussion({ quote: 'falls back to any descendant whose name matches the leaf.' }), []);
+    expect(label.mono).toBe(false);
+    expect(label.text).toBe('“falls back to any descendant whose name matches…”');
+  });
+
+  it('keeps the head and the tail of one long symbol rather than cutting from the left', () => {
+    const label = discussionLabel(discussion({ quote: 'io.trino.plugin.iceberg.IcebergMetadata#getSortFields' }), []);
+    expect(label.mono).toBe(true);
+    expect(label.text.startsWith('io.trino')).toBe(true);
+    expect(label.text.endsWith('getSortFields')).toBe(true);
+    expect(label.text).toContain('…');
+  });
+
+  it('extends two passages that truncate alike to where they diverge', () => {
+    const long = 'the coordinator limits splits per thread so that small tables ';
+    const pair = [
+      discussion({ id: 'a', quote: `${long}never use remote generation at all` }),
+      discussion({ id: 'b', quote: `${long}always use remote generation instead` }),
+    ];
+    expect(discussionLabel(pair[0], pair).text).not.toBe(discussionLabel(pair[1], pair).text);
   });
 });

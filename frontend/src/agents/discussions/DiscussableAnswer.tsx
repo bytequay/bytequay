@@ -21,78 +21,116 @@ import type { TaskDiscussionDto } from './contracts';
 
 /** Below this a selection is a stray click rather than a passage; the service refuses it too. */
 const MINIMUM_QUOTE = 3;
-
-/** How far above its passage the pill sits, when there is room for it there. */
-const PILL_HEIGHT = 34;
+/** The affordance sits this far below the last selected line. */
+const BELOW = 8;
+/** Within this of the viewport's bottom it flips above the first selected line instead. */
+const EDGE = 44;
 
 export type SelectedPassage = { turnId: string; quote: string; occurrence: number };
 
+/** Why a selection cannot be asked about, when it cannot. */
+type Refusal = 'overruns' | 'streaming' | 'completed';
+
+type Offer =
+  | { kind: 'ask'; left: number; top: number; passage: SelectedPassage }
+  | { kind: 'inert'; left: number; top: number; reason: Refusal }
+  | { kind: 'compose'; left: number; top: number; passage: SelectedPassage };
+
+const SPEECH = <path d="M2.5 3.6h11v7.2H7l-3.2 2.4v-2.4H2.5z" stroke="currentColor" strokeWidth="1.4" strokeLinejoin="round" />;
+
+function Glyph({ size, children }: { size: number; children: React.ReactNode }): React.ReactElement {
+  return <svg width={size} height={size} viewBox="0 0 16 16" fill="none" aria-hidden="true">{children}</svg>;
+}
+
+const REFUSALS: Record<Refusal, { text: string; fix?: string }> = {
+  overruns: { text: 'Selection runs past the end of this answer', fix: 'Trim to this answer' },
+  streaming: { text: 'You can ask once this answer finishes' },
+  completed: { text: 'Task completed — no new discussions.' },
+};
+
 /**
- * One agent answer, with its discussions hung under the blocks they quote.
+ * One agent answer: its discussions, the offer to start another, and the passage each is about.
  *
- * <p>A footer sits under the block containing its passage rather than at the end of the answer, so
- * three quotes in three paragraphs read as three marks in three places. The quote is stored as the
- * reader saw it, so a block is found by plain substring search over its text; the occurrence index
- * picks which appearance when the same text repeats. A passage that spans two blocks belongs to no
- * single one, so its row falls to the end of the answer and says so.
+ * <p>The first question is asked inline, at the selection, because it is a reflex written while the
+ * eye is still on the sentence; every question after it belongs to the thread and is asked in the
+ * panel. A footer hangs under the block holding its passage rather than at the end of the answer.
  */
-export function DiscussableAnswer({ turnId, text, discussions, onSelect, onOpen }: {
+export function DiscussableAnswer({ turnId, text, discussions, completed = false, streaming = false, focused, onSelect, onOpen, onHover }: {
   turnId: string | null;
   text: string;
   discussions: TaskDiscussionDto[];
-  onSelect?: (passage: SelectedPassage) => void;
+  /** The task released its files, so no new discussion can be anchored here. */
+  completed?: boolean;
+  /** This answer is still being written, so it has nothing stable to anchor to. */
+  streaming?: boolean;
+  /** The discussion whose passage the reader is pointing at, from the transcript or the panel. */
+  focused?: string | null;
+  onSelect?: (passage: SelectedPassage, question: string) => void;
   onOpen?: (discussionId: string) => void;
+  onHover?: (discussionId: string | null) => void;
 }): React.ReactElement {
   const answer = useRef<HTMLDivElement>(null);
-  const [pill, setPill] = useState<{ top: number; left: number; passage: SelectedPassage } | null>(null);
+  const [offer, setOffer] = useState<Offer | null>(null);
+  const [draft, setDraft] = useState('');
   const blocks = renderMarkdownBlocks(text);
 
   const placed = new Map<number, TaskDiscussionDto[]>();
-  const unanchored: TaskDiscussionDto[] = [];
+  const adrift: TaskDiscussionDto[] = [];
   for (const discussion of discussions) {
     const index = blockOf(blocks.map(block => block.text), discussion.quote, discussion.occurrence);
-    if (index === null) unanchored.push(discussion);
+    if (index === null) adrift.push(discussion);
     else placed.set(index, [...placed.get(index) ?? [], discussion]);
   }
 
   const capture = useCallback(() => {
-    if (turnId === null || onSelect === undefined) return;
+    setOffer(current => (current?.kind === 'compose' ? current : null));
     const selection = window.getSelection();
     const container = answer.current;
-    if (selection === null || container === null || selection.rangeCount === 0 || selection.isCollapsed) {
-      setPill(null);
-      return;
-    }
+    if (selection === null || container === null || selection.rangeCount === 0 || selection.isCollapsed) return;
     const range = selection.getRangeAt(0);
-    // A selection leaving this answer anchors to no turn, so it is not offered at all.
-    if (!container.contains(range.startContainer) || !container.contains(range.endContainer)) {
-      setPill(null);
+    const startsHere = container.contains(range.startContainer);
+    if (!startsHere && !container.contains(range.endContainer)) return;
+
+    const rects = [...range.getClientRects()];
+    if (rects.length === 0) return;
+    const frame = container.getBoundingClientRect();
+    const last = rects[rects.length - 1];
+    const first = rects[0];
+    const flip = last.bottom + BELOW + 30 > window.innerHeight - EDGE;
+    const anchor = flip ? first : last;
+    const at = {
+      left: Math.min(Math.max(0, anchor.left + anchor.width / 2 - frame.left), frame.width),
+      top: flip ? first.top - frame.top - 30 - BELOW : last.bottom - frame.top + BELOW,
+    };
+
+    // A discussion belongs to exactly one answer, so a range that leaves it has no anchor.
+    if (!container.contains(range.endContainer) || !startsHere) {
+      setOffer({ kind: 'inert', ...at, reason: 'overruns' });
       return;
     }
+    if (streaming || completed) {
+      setOffer({ kind: 'inert', ...at, reason: streaming ? 'streaming' : 'completed' });
+      return;
+    }
+    if (turnId === null || onSelect === undefined) return;
     const quote = selection.toString().replace(/\s+/g, ' ').trim();
-    if (quote.length < MINIMUM_QUOTE) {
-      setPill(null);
-      return;
-    }
+    if (quote.length < MINIMUM_QUOTE) return;
     const before = new Range();
     before.setStart(container, 0);
     before.setEnd(range.startContainer, range.startOffset);
-    const occurrence = occurrencesIn(before.toString(), quote) + 1;
-    const bounds = range.getBoundingClientRect();
-    const frame = container.getBoundingClientRect();
-    const above = bounds.top - frame.top - PILL_HEIGHT;
-    setPill({
-      top: above < 0 ? bounds.bottom - frame.top + 6 : above,
-      left: Math.max(0, bounds.left - frame.left),
-      passage: { turnId, quote, occurrence },
-    });
-  }, [onSelect, turnId]);
+    setOffer({ kind: 'ask', ...at, passage: { turnId, quote, occurrence: occurrencesIn(before.toString(), quote) + 1 } });
+  }, [completed, onSelect, streaming, turnId]);
 
   useEffect(() => {
-    const dismiss = (event: KeyboardEvent): void => { if (event.key === 'Escape') setPill(null); };
+    const dismiss = (event: KeyboardEvent): void => {
+      // Alt+Enter is the keyboard route into the composer, printed once on the pill itself.
+      if (event.key === 'Escape') setOffer(null);
+      else if (event.key === 'Enter' && event.altKey) {
+        setOffer(current => (current?.kind === 'ask' ? { ...current, kind: 'compose' } : current));
+      }
+    };
     // The pointer is released wherever the drag ended. Selecting backwards ends at the passage's
     // start, which is commonly outside this answer, so an element-scoped listener never sees it.
-    // What decides the offer is where the selection is, which capture already checks.
     const released = (): void => capture();
     document.addEventListener('keydown', dismiss);
     document.addEventListener('mouseup', released);
@@ -102,28 +140,93 @@ export function DiscussableAnswer({ turnId, text, discussions, onSelect, onOpen 
     };
   }, [capture]);
 
+  const ask = (passage: SelectedPassage): void => {
+    const question = draft.trim();
+    if (question === '') return;
+    onSelect?.(passage, question);
+    setDraft('');
+    setOffer(null);
+  };
+
   return (
-    <div className="agt-answer">
+    <div className="agt-answer agt-disc">
       <div className="agt-md" ref={answer}>
         {blocks.map((block, index) => (
           <React.Fragment key={index}>
             {block.node}
-            <DiscussionFooter discussions={placed.get(index) ?? []} siblings={discussions} onOpen={onOpen} />
+            <DiscussionFooter discussions={placed.get(index) ?? []} siblings={discussions} focused={focused} onOpen={onOpen} onHover={onHover} />
           </React.Fragment>
         ))}
       </div>
-      <DiscussionFooter discussions={unanchored} siblings={discussions} unanchored onOpen={onOpen} />
-      {pill !== null && (
-        <button
-          className="agt-disc-pill"
-          type="button"
-          style={{ top: pill.top, left: pill.left }}
-          onMouseDown={event => event.preventDefault()}
-          onClick={() => { onSelect?.(pill.passage); setPill(null); }}
-        >Ask about this</button>
+      <DiscussionFooter discussions={adrift} siblings={discussions} focused={focused} unanchored onOpen={onOpen} onHover={onHover} />
+      {offer !== null && (
+        <div className="agt-disc-anchor" style={{ left: offer.left, top: offer.top }}>
+          {offer.kind === 'ask' && (
+            <button className="agt-disc-pill" type="button" onMouseDown={event => event.preventDefault()}
+              onClick={() => setOffer({ ...offer, kind: 'compose' })}>
+              <Glyph size={14}>{SPEECH}</Glyph>
+              Ask about this
+              <span className="agt-disc-pill__key">⌥↩</span>
+            </button>
+          )}
+          {offer.kind === 'inert' && (
+            <div className="agt-disc-inert">
+              <span className="agt-disc-inert__glyph">
+                <Glyph size={14}>
+                  <circle cx="8" cy="8" r="6" stroke="currentColor" strokeWidth="1.4" />
+                  <path d="M8 5v3.6M8 10.8v.4" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
+                </Glyph>
+              </span>
+              <span>{REFUSALS[offer.reason].text}</span>
+              {REFUSALS[offer.reason].fix !== undefined && (
+                <button className="agt-disc-inert__fix" type="button" onClick={() => trim(answer.current, () => capture())}>
+                  {REFUSALS[offer.reason].fix}
+                </button>
+              )}
+            </div>
+          )}
+          {offer.kind === 'compose' && (
+            <div className="agt-disc-pop">
+              <div className="agt-disc-pop__quote">
+                <span className="agt-disc-pop__rail" />
+                <span className="agt-disc-pop__text">{offer.passage.quote}</span>
+              </div>
+              <div className="agt-disc-pop__body">
+                <textarea
+                  rows={2}
+                  autoFocus
+                  aria-label="Ask about this passage"
+                  placeholder="Ask about this passage…"
+                  value={draft}
+                  onChange={event => setDraft(event.target.value)}
+                  onKeyDown={event => {
+                    if (event.key === 'Enter' && (event.metaKey || event.ctrlKey)) ask(offer.passage);
+                  }}
+                />
+                <div className="agt-disc-pop__actions">
+                  <span />
+                  <button className="agt-disc-pop__cancel" type="button" onClick={() => { setDraft(''); setOffer(null); }}>Cancel</button>
+                  <button className="agt-disc-pop__ask" type="button" disabled={draft.trim() === ''} onClick={() => ask(offer.passage)}>Ask</button>
+                </div>
+              </div>
+            </div>
+          )}
+        </div>
       )}
     </div>
   );
+}
+
+/** Drops the part of the selection that left the answer, so the offer can be made for what is left. */
+function trim(container: HTMLElement | null, again: () => void): void {
+  const selection = window.getSelection();
+  if (container === null || selection === null || selection.rangeCount === 0) return;
+  const range = selection.getRangeAt(0).cloneRange();
+  if (!container.contains(range.startContainer)) range.setStart(container, 0);
+  if (!container.contains(range.endContainer)) range.setEnd(container, container.childNodes.length);
+  selection.removeAllRanges();
+  selection.addRange(range);
+  again();
 }
 
 /** The block holding the wanted appearance of a quote, or null when no single block holds it. */

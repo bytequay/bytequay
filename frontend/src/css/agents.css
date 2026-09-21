@@ -3613,207 +3613,509 @@
   display: none;
 }
 
-/* Discussion threads: the reply-count rows under a quoted block, and the selection pill. */
-.agt-answer {
-  position: relative;
+/* Discussion threads. The design authors every colour as a token so dark costs nothing when the
+   app-wide palette lands; they are scoped here rather than on :root, because the design's short
+   names (--bg, --bl, --fg) would collide with the base palette. */
+.agt-disc {
+  --disc-bg: #ffffff;
+  --disc-bg2: #f6f8fa;
+  --disc-bg3: #f1f3f5;
+  --disc-fg: #1f2328;
+  --disc-fg2: #57606a;
+  --disc-fg3: #8c959f;
+  --disc-bd: #d0d7de;
+  --disc-bd2: #e3e3e6;
+  --disc-bl: #0969da;
+  --disc-blbg: #ddf4ff;
+  --disc-mark: #ddf4ff;
+  --disc-markbd: #54aeff;
+  --disc-markbd2: #b6e3ff;
+  --disc-rd: #cf222e;
+  --disc-rdbg: #ffebe9;
+  --disc-rdbd: #ffcecb;
+  --disc-btn: #1f2328;
+  --disc-btnfg: #ffffff;
+  --disc-shadow: rgb(140 149 159 / 28%);
+  --disc-focus: rgb(9 105 218 / 25%);
+  --disc-shim: rgb(9 105 218 / 16%);
 }
 
-.agt-disc-footer {
+@media (prefers-color-scheme: dark) {
+  .agt-disc {
+    --disc-bg: #0d1117;
+    --disc-bg2: #161b22;
+    --disc-bg3: #21262d;
+    --disc-fg: #e6edf3;
+    --disc-fg2: #9198a1;
+    --disc-fg3: #6e7681;
+    --disc-bd: #30363d;
+    --disc-bd2: #21262d;
+    --disc-bl: #4493f8;
+    --disc-blbg: #16324f;
+    --disc-mark: #16324f;
+    --disc-markbd: #388bfd;
+    --disc-markbd2: #1f4b7a;
+    --disc-rd: #f85149;
+    --disc-rdbg: #3a1417;
+    --disc-rdbd: #5c2225;
+    --disc-btn: #373e47;
+    --disc-btnfg: #e6edf3;
+    --disc-shadow: rgb(1 4 9 / 70%);
+    --disc-focus: rgb(68 147 248 / 35%);
+    --disc-shim: rgb(68 147 248 / 20%);
+  }
+}
+
+/* The passage a live selection or a focused thread is about. A fresh selection is a flat tint; the
+   underline is reserved for a passage whose thread is hovered or focused. */
+.agt-disc-mark {
+  border-radius: 2px;
+  background: var(--disc-markbd2);
+  transition: background 0.25s;
+}
+
+.agt-disc-mark.is-anchored {
+  background: var(--disc-mark);
+  box-shadow: inset 0 -2px 0 var(--disc-markbd);
+}
+
+/* The affordance and the composer share one absolutely positioned slot; the composer replaces the
+   pill rather than sitting beside it. */
+.agt-disc-anchor {
+  position: absolute;
+  z-index: 5;
   display: flex;
   flex-direction: column;
   align-items: flex-start;
-  gap: 2px;
-  margin-top: 6px;
-}
-
-.agt-disc-footer.is-unanchored {
-  margin-top: 10px;
-}
-
-.agt-disc-footer__row {
-  display: flex;
-  align-items: baseline;
-  gap: 6px;
-  max-width: 100%;
-  padding: 2px 6px;
-  border: 0;
-  border-radius: 5px;
-  background: transparent;
-  font: inherit;
-  font-size: 12px;
-  color: #57606a;
-  cursor: pointer;
-  text-align: left;
-}
-
-.agt-disc-footer__row::before {
-  content: '↳';
-  color: #8c959f;
-}
-
-.agt-disc-footer__row:hover {
-  background: #f6f8fa;
-}
-
-/* This app has no global focus ring, so the row carries its own. */
-.agt-disc-footer__row:focus-visible {
-  outline: 2px solid var(--accent);
-  outline-offset: 1px;
-}
-
-.agt-disc-footer.is-unanchored .agt-disc-footer__label {
-  color: #8c959f;
-}
-
-.agt-disc-footer__label {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.agt-disc-footer__count {
-  flex: none;
-  color: var(--accent);
-  font-weight: 500;
-}
-
-.agt-disc-footer__done {
-  flex: none;
-  color: #8c959f;
+  transform: translateX(-50%);
 }
 
 .agt-disc-pill {
-  position: absolute;
-  z-index: 3;
-  padding: 4px 10px;
-  border: 1px solid #d0d7de;
-  border-radius: 6px;
-  background: #ffffff;
-  box-shadow: 0 2px 8px rgb(31 35 40 / 18%);
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  height: 30px;
+  padding: 0 12px;
+  border: 1px solid var(--disc-bd);
+  border-radius: 8px;
+  background: var(--disc-bg);
+  color: var(--disc-fg);
   font: inherit;
-  font-size: 12px;
-  color: #57606a;
+  font-size: 12.5px;
+  font-weight: 600;
+  cursor: pointer;
+  box-shadow: 0 6px 18px var(--disc-shadow);
+}
+
+.agt-disc-pill__key {
+  font-family: ui-monospace, Menlo, monospace;
+  font-size: 10.5px;
+  font-weight: 600;
+  color: var(--disc-fg3);
+  border: 1px solid var(--disc-bd);
+  border-radius: 4px;
+  padding: 0 4px;
+}
+
+/* Same shell as the pill, but it states a condition rather than offering an action. */
+.agt-disc-inert {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  min-height: 30px;
+  padding: 5px 12px;
+  border: 1px solid var(--disc-bd);
+  border-radius: 8px;
+  background: var(--disc-bg2);
+  color: var(--disc-fg2);
+  font-size: 12.5px;
+  box-shadow: 0 6px 18px var(--disc-shadow);
+  max-width: 330px;
+  text-wrap: pretty;
+}
+
+.agt-disc-inert__glyph {
+  flex: none;
+  color: var(--disc-fg3);
+  display: inline-flex;
+}
+
+.agt-disc-inert__fix {
+  flex: none;
+  border: none;
+  background: none;
+  padding: 0;
+  font: inherit;
+  font-size: 12.5px;
+  font-weight: 600;
+  color: var(--disc-bl);
   cursor: pointer;
 }
 
-.agt-disc-pill:hover {
-  background: #f6f8fa;
+.agt-disc-pop {
+  width: min(390px, 100%);
+  border: 1px solid var(--disc-bd);
+  border-radius: 10px;
+  background: var(--disc-bg);
+  box-shadow: 0 12px 34px var(--disc-shadow);
+  overflow: hidden;
 }
 
-.agt-disc-pill:focus-visible {
-  outline: 2px solid var(--accent);
-  outline-offset: 1px;
+/* The quote echo is the contract: this is exactly what will be sent as the anchor. */
+.agt-disc-pop__quote {
+  display: flex;
+  gap: 8px;
+  padding: 10px 12px 9px;
+  background: var(--disc-bg2);
+  border-bottom: 1px solid var(--disc-bd2);
 }
 
-.agt-disc-list {
+.agt-disc-pop__rail {
+  width: 2px;
+  flex: none;
+  border-radius: 1px;
+  background: var(--disc-markbd);
+}
+
+.agt-disc-pop__text {
+  flex: 1;
+  min-width: 0;
+  font-size: 12.5px;
+  line-height: 1.5;
+  color: var(--disc-fg2);
+  display: block;
+  max-height: 38px;
+  overflow: hidden;
+}
+
+.agt-disc-pop__body {
+  padding: 10px 12px 11px;
+}
+
+.agt-disc-pop__body textarea {
+  width: 100%;
+  box-sizing: border-box;
+  resize: none;
+  border: 1px solid var(--disc-bd);
+  border-radius: 7px;
+  background: var(--disc-bg);
+  color: var(--disc-fg);
+  padding: 7px 9px;
+  font: inherit;
+  font-size: 13px;
+  line-height: 1.5;
+  outline: none;
+}
+
+.agt-disc-pop__body textarea:focus {
+  border-color: var(--disc-bl);
+  box-shadow: 0 0 0 3px var(--disc-focus);
+}
+
+.agt-disc-pop__actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 9px;
+}
+
+.agt-disc-pop__actions > span {
+  flex: 1;
+}
+
+.agt-disc-pop__cancel,
+.agt-disc-pop__ask {
+  flex: none;
+  height: 28px;
+  border-radius: 7px;
+  font: inherit;
+  font-size: 12.5px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.agt-disc-pop__cancel {
+  padding: 0 11px;
+  border: 1px solid var(--disc-bd);
+  background: var(--disc-bg);
+  color: var(--disc-fg);
+}
+
+/* Never green: green in this app means an action that leaves for GitHub. */
+.agt-disc-pop__ask {
+  padding: 0 12px;
+  border: 1px solid transparent;
+  background: var(--disc-btn);
+  color: var(--disc-btnfg);
+}
+
+.agt-disc-pop__ask[disabled] {
+  opacity: 0.5;
+  cursor: default;
+}
+
+/* No global focus ring, so every control here carries its own. */
+.agt-disc-pill:focus-visible,
+.agt-disc-inert__fix:focus-visible,
+.agt-disc-pop__cancel:focus-visible,
+.agt-disc-pop__ask:focus-visible {
+  outline: 2px solid var(--disc-bl);
+  outline-offset: 2px;
+}
+
+/* The reply-count rows: the quietest thing on the screen, tucked into the paragraph gap. */
+.agt-disc-rows {
   display: flex;
   flex-direction: column;
-  gap: 10px;
+  gap: 1px;
+  margin: 1px 0 13px 15px;
 }
 
-.agt-disc-card {
-  border: 1px solid #d0d7de;
-  border-radius: 6px;
-  padding: 8px 10px;
-  background: #ffffff;
+.agt-disc-rows.is-unanchored {
+  margin: 6px 0 0 15px;
 }
 
-.agt-disc-card.is-resolved {
-  background: #f6f8fa;
+.agt-md li > .agt-disc-rows {
+  margin: 4px 0 2px 8px;
 }
 
-.agt-disc-card > summary {
+.agt-md pre + .agt-disc-rows {
+  margin: 6px 0 0 15px;
+}
+
+.agt-disc-row {
   display: flex;
-  align-items: baseline;
-  gap: 8px;
+  align-items: center;
+  gap: 7px;
+  width: 100%;
+  box-sizing: border-box;
+  text-align: left;
+  border: none;
+  /* Focus and "this thread is open in the panel" are the same fact, so they share one mark. */
+  border-left: 2px solid transparent;
+  border-radius: 0 6px 6px 0;
+  background: transparent;
+  padding: 4px 8px 4px 6px;
   cursor: pointer;
+  min-width: 0;
+  font: inherit;
   font-size: 12.5px;
+  color: var(--disc-fg2);
 }
 
-.agt-disc-card__label {
-  flex: 1 1 0;
+.agt-disc-row:hover {
+  background: var(--disc-bg2);
+}
+
+.agt-disc-row:hover .agt-disc-row__glyph,
+.agt-disc-row:focus-visible .agt-disc-row__glyph {
+  color: var(--disc-bl);
+}
+
+.agt-disc-row:hover .agt-disc-row__label,
+.agt-disc-row:focus-visible .agt-disc-row__label {
+  color: var(--disc-fg);
+}
+
+.agt-disc-row.is-focused,
+.agt-disc-row:focus-visible {
+  background: var(--disc-bg2);
+  border-left-color: var(--disc-bl);
+  outline: none;
+}
+
+.agt-disc-row__glyph {
+  flex: none;
+  display: inline-flex;
+  color: var(--disc-fg3);
+}
+
+.agt-disc-row__label {
+  white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
-  white-space: nowrap;
+  min-width: 0;
+  color: var(--disc-fg2);
 }
 
-.agt-disc-card__count {
-  flex: none;
-  color: var(--accent);
-}
-
-.agt-disc-card__pill {
-  flex: none;
-  border-radius: 20px;
-  padding: 0 7px;
-  background: #eceff2;
-  color: #57606a;
-  font-size: 11px;
-}
-
-.agt-disc-card__quote {
-  margin: 8px 0;
-  padding-left: 8px;
-  border-left: 2px solid #d0d7de;
-  color: #57606a;
-  font-size: 12.5px;
-}
-
-.agt-disc-msg {
-  margin-top: 8px;
-  font-size: 13px;
-}
-
-.agt-disc-msg__who {
-  display: block;
-  color: #8c959f;
+.agt-disc-row__label.is-mono {
+  font-family: ui-monospace, Menlo, monospace;
   font-size: 11.5px;
 }
 
-.agt-disc-msg__error {
-  display: flex;
-  align-items: baseline;
-  gap: 8px;
-  margin-top: 4px;
-  color: #cf222e;
+.agt-disc-row__label.is-typed {
+  color: var(--disc-fg2);
+}
+
+.agt-disc-row__count {
+  flex: none;
+  font-weight: 600;
+  color: var(--disc-bl);
+}
+
+.agt-disc-row__time {
+  flex: none;
+  color: var(--disc-fg3);
+}
+
+.agt-disc-row.is-failed .agt-disc-row__count {
+  color: var(--disc-rd);
+}
+
+/* Done recedes completely, and still reads and still opens. */
+.agt-disc-row.is-done .agt-disc-row__glyph,
+.agt-disc-row.is-done .agt-disc-row__label,
+.agt-disc-row.is-done .agt-disc-row__count {
+  color: var(--disc-fg3);
+}
+
+.agt-disc-rows__more {
+  padding: 2px 8px;
   font-size: 12px;
+  color: var(--disc-fg3);
 }
 
-.agt-disc-card__actions {
-  display: flex;
-  gap: 8px;
-  margin-top: 10px;
+/* The Discussions panel: cards grouped by the answer they hang under. */
+.agt-disc-list { display: flex; flex-direction: column; }
+.agt-disc-empty { padding: 18px 14px; }
+.agt-disc-empty__title { margin: 0 0 6px; font-size: 13px; font-weight: 600; color: var(--disc-fg); }
+.agt-disc-empty__body { margin: 0; font-size: 12.5px; line-height: 1.6; color: var(--disc-fg2); text-wrap: pretty; }
+
+.agt-disc-group__head {
+  position: sticky; top: 0; z-index: 2; display: flex; align-items: center; gap: 8px;
+  padding: 7px 12px; background: var(--disc-bg2); border-bottom: 1px solid var(--disc-bd2);
+}
+.agt-disc-group__turn {
+  font-family: ui-monospace, Menlo, monospace; font-size: 10px; font-weight: 700;
+  letter-spacing: 0.5px; color: var(--disc-fg3); flex: none;
+}
+.agt-disc-group__synopsis {
+  flex: 1; min-width: 0; font-size: 12px; color: var(--disc-fg2);
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.agt-disc-group__jump {
+  flex: none; width: 22px; height: 22px; border: none; border-radius: 6px; background: none;
+  color: var(--disc-fg3); cursor: pointer; display: inline-flex; align-items: center; justify-content: center;
+}
+.agt-disc-group__jump:hover { background: var(--disc-bg3); color: var(--disc-fg); }
+.agt-disc-group__cards { display: flex; flex-direction: column; gap: 9px; padding: 10px 12px 12px; }
+
+.agt-disc-card { border: 1px solid var(--disc-bd); border-radius: 9px; background: var(--disc-bg); overflow: hidden; }
+.agt-disc-card.is-open { border-color: var(--disc-bl); }
+.agt-disc-card.is-done:not(.is-open) { background: var(--disc-bg2); }
+.agt-disc-card__head {
+  display: flex; gap: 8px; width: 100%; box-sizing: border-box; text-align: left; border: none;
+  background: none; padding: 10px 11px 9px; cursor: pointer; align-items: flex-start;
+  white-space: normal; font: inherit;
+}
+.agt-disc-card__rail {
+  width: 2px; align-self: stretch; flex: none; border-radius: 1px;
+  background: var(--disc-markbd); min-height: 26px;
+}
+.agt-disc-card.is-done .agt-disc-card__rail { background: var(--disc-bd); }
+.agt-disc-card__main { flex: 1; min-width: 0; }
+
+/* The quote is the card's subject and stays pinned when it opens; it only grows. */
+.agt-disc-card__quote {
+  display: block; max-height: 39px; overflow: hidden; font-size: 12.5px;
+  line-height: 1.55; overflow-wrap: anywhere; color: var(--disc-fg);
+}
+.agt-disc-card.is-open .agt-disc-card__quote { max-height: 200px; }
+.agt-disc-card__quote.is-mono {
+  font-family: ui-monospace, Menlo, monospace; font-size: 11px;
+  background: var(--disc-bg2); border-radius: 6px; padding: 7px 8px; white-space: pre;
+}
+.agt-disc-card.is-done .agt-disc-card__quote { color: var(--disc-fg3); }
+.agt-disc-card__meta { display: flex; align-items: center; gap: 6px; margin-top: 7px; flex-wrap: wrap; }
+.agt-disc-card__who { font-size: 11.5px; color: var(--disc-fg3); white-space: nowrap; }
+.agt-disc-card__spacer { flex: 1; }
+.agt-disc-card__count { font-size: 12px; font-weight: 600; color: var(--disc-bl); }
+.agt-disc-card.is-done .agt-disc-card__count { color: var(--disc-fg3); }
+.agt-disc-card__preview {
+  display: block; margin-top: 6px; font-size: 12.5px; color: var(--disc-fg2);
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
 }
 
-.agt-disc-card__composer {
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-  margin-top: 8px;
+.agt-disc-pill-tag {
+  display: inline-flex; align-items: center; gap: 4px; font-size: 10.5px; font-weight: 700;
+  letter-spacing: 0.2px; border-radius: 9px; padding: 1px 7px; border: 1px solid transparent;
+}
+.agt-disc-pill-tag.is-waiting { color: var(--disc-bl); background: var(--disc-blbg); }
+.agt-disc-pill-tag.is-failed { color: var(--disc-rd); background: var(--disc-rdbg); border-color: var(--disc-rdbd); }
+.agt-disc-pill-tag.is-done { color: var(--disc-fg2); background: var(--disc-bg2); border-color: var(--disc-bd); }
+.agt-disc-pill-tag__dot { width: 5px; height: 5px; border-radius: 50%; background: currentcolor; animation: agt-disc-pulse 1.1s infinite; }
+@keyframes agt-disc-pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.3; } }
+
+.agt-disc-card__body { padding: 0 11px 11px; }
+.agt-disc-card__messages { display: flex; flex-direction: column; gap: 2px; }
+.agt-disc-msg { display: flex; gap: 8px; padding: 8px 9px; border-radius: 7px; border-left: 2px solid transparent; }
+.agt-disc-msg.is-reader { background: var(--disc-bg2); border-left-color: var(--disc-bd); }
+.agt-disc-msg__avatar {
+  width: 18px; height: 18px; flex: none; border-radius: 50%; background: var(--disc-bg3);
+  color: var(--disc-fg2); font-size: 9.5px; font-weight: 700; display: inline-flex;
+  align-items: center; justify-content: center; margin-top: 1px;
+}
+.agt-disc-msg__main { flex: 1; min-width: 0; }
+.agt-disc-msg__byline { font-size: 11.5px; color: var(--disc-fg3); margin-bottom: 2px; }
+.agt-disc-msg__byline span { font-weight: 600; color: var(--disc-fg); }
+.agt-disc-msg__body { font-size: 12.5px; line-height: 1.6; color: var(--disc-fg); overflow-wrap: anywhere; }
+
+/* A question in flight reads as work happening, not as an empty answer. */
+.agt-disc-msg__shimmer {
+  font-size: 12.5px; color: var(--disc-fg2);
+  background: linear-gradient(100deg, transparent 20%, var(--disc-shim) 42%, transparent 64%);
+  background-size: 220% 100%; animation: agt-disc-shim 1.5s linear infinite;
+  border-radius: 4px; display: inline-block; padding: 1px 3px;
+}
+@keyframes agt-disc-shim { from { background-position: 140% 0; } to { background-position: -40% 0; } }
+
+.agt-disc-fail {
+  display: flex; align-items: center; gap: 8px; margin-top: 8px; padding: 7px 9px;
+  border: 1px solid var(--disc-rdbd); border-radius: 7px; background: var(--disc-rdbg);
+  color: var(--disc-rd); font-size: 12px;
+}
+.agt-disc-fail span { flex: 1; min-width: 0; }
+.agt-disc-fail button {
+  flex: none; height: 24px; padding: 0 9px; border: 1px solid var(--disc-rdbd); border-radius: 6px;
+  background: var(--disc-bg); color: var(--disc-fg); font: inherit; font-size: 12px; font-weight: 600; cursor: pointer;
 }
 
-.agt-disc-card__composer textarea {
-  min-height: 56px;
-  resize: vertical;
-  font: inherit;
-  font-size: 13px;
-  padding: 6px 8px;
-  border: 1px solid #d0d7de;
-  border-radius: 6px;
-}
-
-.agt-disc-card__closed {
-  margin: 8px 0 0;
-  color: #8c959f;
-  font-size: 12px;
-}
-
+.agt-disc-card__actions { display: flex; align-items: center; gap: 7px; margin-top: 9px; padding-left: 10px; }
 .agt-disc-card__reply {
-  margin-top: 8px;
+  height: 27px; padding: 0 11px; border: 1px solid var(--disc-bd); border-radius: 7px;
+  background: var(--disc-bg); color: var(--disc-fg); font: inherit; font-size: 12.5px; font-weight: 600; cursor: pointer;
 }
+.agt-disc-card__done {
+  height: 27px; padding: 0 10px; border: none; border-radius: 7px; background: none;
+  color: var(--disc-fg2); font: inherit; font-size: 12.5px; font-weight: 600; cursor: pointer;
+}
+.agt-disc-card__done:hover { background: var(--disc-bg3); }
+.agt-disc-card__jump {
+  flex: none; width: 26px; height: 26px; border: 1px solid var(--disc-bd); border-radius: 7px;
+  background: var(--disc-bg); color: var(--disc-fg2); cursor: pointer;
+  display: inline-flex; align-items: center; justify-content: center;
+}
+.agt-disc-card__closed { margin: 9px 0 0 10px; font-size: 12px; color: var(--disc-fg3); }
 
-.agt-disc-card button:focus-visible,
-.agt-disc-card__composer textarea:focus-visible {
-  outline: 2px solid var(--accent);
-  outline-offset: 1px;
+/* The box is the field: the textarea inside it carries no border of its own. */
+.agt-disc-reply {
+  margin: 9px 0 0 10px; border: 1px solid var(--disc-bd); border-radius: 8px;
+  background: var(--disc-bg); padding: 8px 9px;
 }
+.agt-disc-reply textarea {
+  width: 100%; box-sizing: border-box; resize: none; border: none; outline: none; background: none;
+  color: var(--disc-fg); font: inherit; font-size: 12.5px; line-height: 1.5; padding: 0;
+}
+.agt-disc-reply__foot { display: flex; align-items: center; gap: 7px; margin-top: 7px; }
+.agt-disc-reply__private {
+  flex: 1; min-width: 0; display: inline-flex; align-items: center; gap: 5px;
+  font-size: 11px; color: var(--disc-fg3);
+}
+.agt-disc-reply__cancel,
+.agt-disc-reply__ask { flex: none; height: 26px; border-radius: 6px; font: inherit; font-size: 12px; font-weight: 600; cursor: pointer; }
+.agt-disc-reply__cancel { padding: 0 10px; border: 1px solid var(--disc-bd); background: var(--disc-bg); color: var(--disc-fg); }
+.agt-disc-reply__ask { padding: 0 11px; border: 1px solid transparent; background: var(--disc-btn); color: var(--disc-btnfg); }
+.agt-disc-reply__ask[disabled] { opacity: 0.5; cursor: default; }
+.agt-disc-card button:focus-visible,
+.agt-disc-fail button:focus-visible { outline: 2px solid var(--disc-bl); outline-offset: 2px; }
+.agt-disc-reply:focus-within { border-color: var(--disc-bl); box-shadow: 0 0 0 3px var(--disc-focus); }

@@ -12,7 +12,7 @@
  * limitations under the License.
  */
 import { useState } from 'react';
-import { RefreshCw } from 'lucide-react';
+import { LogIn, RefreshCw } from 'lucide-react';
 import type {
   AgentModelType,
   ModelSettingsDto,
@@ -176,7 +176,7 @@ export function WorkspaceRepositoryPage({ workspace, settings, error, onAddRemot
 }
 
 export function WorkspaceAgentsPage({
-  workspace, settings, models, checking, checkedAt, error, onChoose, onUseGlobal, onCheck,
+  workspace, settings, models, checking, checkedAt, error, onChoose, onUseGlobal, onCheck, onSignIn,
 }: {
   workspace: WorkspaceDto;
   settings: WorkspaceSettingsDto | null;
@@ -187,6 +187,8 @@ export function WorkspaceAgentsPage({
   onChoose: (type: AgentModelType, choice: ModelChoice) => void;
   onUseGlobal: (type: AgentModelType) => void;
   onCheck: () => void;
+  /** Opens that lane's sign-in terminal; this is where a blocked composer sends the user. */
+  onSignIn?: (providerId: string) => void;
 }) {
   return (
     <div className="setw-page">
@@ -251,7 +253,14 @@ export function WorkspaceAgentsPage({
                   <span>{status.label}{provider.version ? ` · v${provider.version}` : ''}</span>
                 </span>
               }
-            />
+            >
+              {onSignIn !== undefined && provider.readiness === 'AUTHENTICATION_REQUIRED' && (
+                <button type="button" className="setw-btn" disabled={checking} onClick={() => onSignIn(provider.id)}>
+                  <LogIn size={12} strokeWidth={2.2} color="#6e6e73" />
+                  <span>Sign in</span>
+                </button>
+              )}
+            </SettingsRow>
           );
         })}
       </SettingsCard>

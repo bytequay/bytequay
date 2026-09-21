@@ -204,7 +204,9 @@ export default function SettingsWindow({ section, workspace, onWorkspacesChanged
         bridge={window.bridge}
         onClose={signedIn => {
           setSigningIn(null);
-          if (signedIn) loadModels();
+          // Signing a lane in can change which provider the global default resolves to, so the
+          // workspace rows that show that default have to be re-read too.
+          if (signedIn) { loadModels(); refreshWorkspaceSettings(); }
         }}
       />
     )}
@@ -361,6 +363,10 @@ export default function SettingsWindow({ section, workspace, onWorkspacesChanged
                 window.bridge.clearWorkspaceAgentModel(workspace.id, type).then(refreshWorkspaceSettings).catch(report);
               }}
               onCheck={loadModels}
+              onSignIn={providerId => setSigningIn({
+                laneId: providerId,
+                providerName: models?.providers.find(provider => provider.id === providerId)?.label ?? providerId,
+              })}
             />
           )}
           {section === 'ws-token' && workspace !== null && (

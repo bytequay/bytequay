@@ -590,7 +590,14 @@ export async function runSelectionStability(): Promise<string> {
     flushSync(() => root.render(<PullsScreen key={String(link)} initialPr={link ? { repo: older.repo, number: older.number } : undefined}
       onSelectPullRequest={reference => navigations.push(reference.number)} />));
     if (link) {
-      await until(() => open() === older.title);
+      // The link resolves after page zero renders; its wait must never paint another pull request.
+      let intruder: string | undefined;
+      await until(() => {
+        const shown = open();
+        if (shown !== undefined && shown !== older.title) intruder = shown;
+        return shown === older.title;
+      });
+      assert(intruder === undefined, `A linked pull request must open alone, but ${intruder} showed first`);
     } else {
       await until(() => host.querySelector('.pulls-list')?.textContent?.includes(older.title) === true);
       const row = [...host.querySelectorAll<HTMLElement>('.pulls-list button, .pulls-list [role="option"]')]

@@ -635,7 +635,10 @@ export default function PullsScreen({
     () => PULL_TABS.map(item => `${rowsForTab(prs, item.key, viewerLogin).length}${hasMore ? '+' : ''}`),
     [hasMore, prs, viewerLogin],
   );
-  const visibleSelected = singlePullRequest ? selected : visibleSelectedId(rows, selected);
+  // A route or a notification names a pull request the loaded page may not hold, and resolving
+  // it costs a round trip. Standing the first row in meanwhile opens the wrong pull request.
+  const awaitingInitialPr = initialPr !== undefined && selected === null;
+  const visibleSelected = singlePullRequest || awaitingInitialPr ? selected : visibleSelectedId(rows, selected);
   const selectedPr = prs.find(pr => pr.id === visibleSelected) ?? null;
   const selectedPrId = selectedPr?.id;
   const selectedPrNumber = selectedPr?.number;
@@ -883,7 +886,7 @@ export default function PullsScreen({
     workspaceId: repositoryScope?.workspaceId ?? null,
   });
 
-  const paneShown = paneOpen && selectedPr !== null;
+  const paneShown = paneOpen && (selectedPr !== null || awaitingInitialPr);
 
   return (
     <div className={`pulls-page${overlay ? ' pulls-page--overlay' : ''}${reviewWorkspace === undefined ? '' : ' pulls-page--review-workspace'}`}
@@ -1004,17 +1007,21 @@ export default function PullsScreen({
 
       {zoomLayer && !zoom.full && <ZoomScrim onClose={zoom.close} />}
 
-      {singlePullRequest && selectedPr === null && (
+      {selectedPr === null && (singlePullRequest || paneShown) && (
         <section className={`pull-detail${overlay ? zoomClass : ''}${reviewWorkspace === undefined ? '' : ' agt-panel'}`}
-          style={reviewWorkspace === undefined ? undefined : { width: reviewPane.width }}>
+          style={singlePullRequest
+            ? reviewWorkspace === undefined ? undefined : { width: reviewPane.width }
+            : { width: detailPane.width }}>
           <header className="pull-detail__header pull-detail__header--tabs">
             <div className="pull-detail__toolbar">
               <span>{initialPr?.repo} #{initialPr?.number}</span>
-              <div className="pull-detail__header-actions">
-                <button className="pull-detail__icon-action" type="button" aria-label="Close pull request details" title="Close (Esc)" onClick={zoom.close}>
-                  <X size={16} aria-hidden="true" />
-                </button>
-              </div>
+              {singlePullRequest && (
+                <div className="pull-detail__header-actions">
+                  <button className="pull-detail__icon-action" type="button" aria-label="Close pull request details" title="Close (Esc)" onClick={zoom.close}>
+                    <X size={16} aria-hidden="true" />
+                  </button>
+                </div>
+              )}
             </div>
           </header>
           {error

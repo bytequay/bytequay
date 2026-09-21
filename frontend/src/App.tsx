@@ -166,13 +166,12 @@ export default function App() {
       window.dispatchEvent(new CustomEvent('bytequay:pr-attention-updated', { detail: prs }));
     });
     const stopNotification = window.bridge.onPrNotificationOpen(reference => {
-      const slash = reference.repo.indexOf('/');
-      if (slash < 1) return;
+      if (reference.repo.indexOf('/') < 1) return;
       backToApp();
       setPaletteOpen(false);
-      window.location.hash = pullRequestRoute({
-        owner: reference.repo.slice(0, slash), repo: reference.repo.slice(slash + 1), number: reference.number,
-      });
+      // The same zoom layer an attention row opens: the notification shows its pull request
+      // over whatever page is open instead of navigating away to the list.
+      setPreviewPr({ repo: reference.repo, number: reference.number });
     });
     return () => { stopAttention(); stopNotification(); };
   }, [backToApp]);
@@ -181,7 +180,6 @@ export default function App() {
     if (status !== 'ready') return;
     let request = 0;
     const applyRoute = () => {
-      setPreviewPr(null);
       const settingsLocation = settingsLocationFromRoute(window.location.hash);
       setSettingsSection(settingsLocation?.section ?? null);
       setSettingsWorkspaceId(settingsLocation?.workspaceId ?? null);
@@ -228,6 +226,9 @@ export default function App() {
         });
     };
     const applyHistoryRoute = () => {
+      // Navigating leaves an open zoom layer; the first route of the session must not, or it
+      // races the pull request a notification asked to show while the app was still starting.
+      setPreviewPr(null);
       const hash = window.location.hash || '#/home';
       const index = navigationIndex(window.history.state, navigationSession.current, hash);
       const next = index === null

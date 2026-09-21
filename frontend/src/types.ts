@@ -13,6 +13,7 @@
  */
 
 import { AgentEventEnvelope } from './agents/events';
+import type { AskDiscussionRequest, DiscussionQuery, OpenDiscussionRequest, ResolveDiscussionRequest, RetryDiscussionRequest, TaskDiscussionDto } from './agents/discussions/contracts';
 import type { CreateDevelopmentLearningCommentRequest, CreateLocalReviewRequest, LocalReviewQuery, ReplyLocalReviewRequest, ResolveLocalReviewRequest, RetryLocalReviewRequest } from './pulls/local-review/contracts';
 import type { LocalReviewThreadDto } from './pulls/local-review/types';
 import type {
@@ -1590,6 +1591,11 @@ export type Bridge = {
   getEffectiveTurnSettings: (taskId: string, workspaceId: string) => Promise<AgentTurnSettingsDto>;
   readAgentHistory: (taskId: string, before?: string, after?: string) => Promise<AgentHistoryPageDto>;
   readAgentPendingApprovals: (taskId: string, turnId: string) => Promise<AgentPendingApprovalDto[]>;
+  listTaskDiscussions: (query: DiscussionQuery) => Promise<TaskDiscussionDto[]>;
+  openTaskDiscussion: (request: OpenDiscussionRequest) => Promise<TaskDiscussionDto>;
+  askTaskDiscussion: (request: AskDiscussionRequest) => Promise<TaskDiscussionDto>;
+  resolveTaskDiscussion: (request: ResolveDiscussionRequest) => Promise<TaskDiscussionDto>;
+  retryTaskDiscussion: (request: RetryDiscussionRequest) => Promise<TaskDiscussionDto>;
   listLocalReviewComments: (query: LocalReviewQuery) => Promise<LocalReviewThreadDto[]>;
   getDevelopmentLearning: (taskId: string, workspaceId: string) => Promise<AgentTurnDto | null>;
   createDevelopmentLearningComment: (request: CreateDevelopmentLearningCommentRequest) => Promise<LocalReviewThreadDto>;

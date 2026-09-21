@@ -42,6 +42,7 @@ import {
   parseDevelopmentAutomation,
   parseModelSettings,
 } from './agents/contracts';
+import { parseTaskDiscussion, parseTaskDiscussions, type AskDiscussionRequest, type DiscussionQuery, type OpenDiscussionRequest, type ResolveDiscussionRequest, type RetryDiscussionRequest } from './agents/discussions/contracts';
 import { parseLocalReviewThread, parseLocalReviewThreads, type CreateDevelopmentLearningCommentRequest, type CreateLocalReviewRequest, type LocalReviewQuery, type ReplyLocalReviewRequest, type ResolveLocalReviewRequest, type RetryLocalReviewRequest } from './pulls/local-review/contracts';
 import { parseAgentHistoryPage, parseAgentPendingApprovals } from './agents/events';
 import {
@@ -652,6 +653,29 @@ function registerIpc(): void {
     const { taskId, workspaceId, idempotencyKey, ...body } = request;
     return parseLocalReviewThread(await backendJson(learningUrl(taskId, workspaceId, '/comments'),
       jsonInit('POST', body, { ...agentHeaders(true), 'Idempotency-Key': idempotencyKey })));
+  });
+  const discussionUrl = (taskId: string, workspaceId: string, suffix = ''): string =>
+    taskUrl(taskId, `/discussions${suffix}`, { workspaceId });
+  ipcMain.handle('agent:discussions:list', async (_event, query: DiscussionQuery) =>
+    parseTaskDiscussions(await backendJson(discussionUrl(query.taskId, query.workspaceId), { headers: agentHeaders() })));
+  ipcMain.handle('agent:discussions:open', async (_event, request: OpenDiscussionRequest) => {
+    const { taskId, workspaceId, ...body } = request;
+    return parseTaskDiscussion(await backendJson(discussionUrl(taskId, workspaceId), jsonInit('POST', body, agentHeaders(true))));
+  });
+  ipcMain.handle('agent:discussions:ask', async (_event, request: AskDiscussionRequest) => {
+    const { taskId, workspaceId, discussionId, ...body } = request;
+    return parseTaskDiscussion(await backendJson(discussionUrl(taskId, workspaceId, `/${encodeURIComponent(discussionId)}/messages`),
+      jsonInit('POST', body, agentHeaders(true))));
+  });
+  ipcMain.handle('agent:discussions:resolve', async (_event, request: ResolveDiscussionRequest) => {
+    const { taskId, workspaceId, discussionId, ...body } = request;
+    return parseTaskDiscussion(await backendJson(discussionUrl(taskId, workspaceId, `/${encodeURIComponent(discussionId)}`),
+      jsonInit('PATCH', body, agentHeaders(true))));
+  });
+  ipcMain.handle('agent:discussions:retry', async (_event, request: RetryDiscussionRequest) => {
+    const { taskId, workspaceId, discussionId, messageId } = request;
+    return parseTaskDiscussion(await backendJson(discussionUrl(taskId, workspaceId,
+      `/${encodeURIComponent(discussionId)}/messages/${encodeURIComponent(messageId)}/retry`), jsonInit('POST', {}, agentHeaders(true))));
   });
   ipcMain.handle('agent:local-review:list', async (_event, query: LocalReviewQuery) => {
     const url = 'taskId' in query ? localReviewUrl(query.taskId, query.workspaceId)

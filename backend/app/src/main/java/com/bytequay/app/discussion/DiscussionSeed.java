@@ -57,7 +57,7 @@ final class DiscussionSeed
      * @throws AgentUnavailableException when that turn has no recorded final answer, which is the
      *         only honest response to an anchor this task's history cannot support
      */
-    String build(TaskId taskId, TurnId upTo)
+    Seeded build(TaskId taskId, TurnId upTo)
     {
         requireNonNull(taskId, "taskId is null");
         requireNonNull(upTo, "upTo is null");
@@ -71,11 +71,12 @@ final class DiscussionSeed
                     append(seed, "[user]", message.text());
                 }
                 else if (isRootAnswer(envelope)) {
-                    append(seed, "[agent]", ((AgentEventPayload.AssistantMessage) envelope.payload()).text());
+                    String answer = ((AgentEventPayload.AssistantMessage) envelope.payload()).text();
+                    append(seed, "[agent]", answer);
                     if (anchored) {
                         checkState(seed.length() <= TaskDiscussion.MAX_SEED_CHARACTERS,
                                 "This task's history is too long to discuss; start from an earlier turn");
-                        return seed.toString().stripTrailing();
+                        return new Seeded(seed.toString().stripTrailing(), answer);
                     }
                 }
             }
@@ -85,6 +86,13 @@ final class DiscussionSeed
             afterSequence = page.getLast().sequence();
         }
     }
+
+    /**
+     * The starting context a discussion inherits, and the answer its quote must occur in. Both come
+     * from one pass, because the log is read from disk and the quote check needs the same answer the
+     * seed ends with.
+     */
+    record Seeded(String text, String answer) {}
 
     /** A subagent's answer is its own; only the root thread answers for the task. */
     private static boolean isRootAnswer(AgentEventEnvelope envelope)

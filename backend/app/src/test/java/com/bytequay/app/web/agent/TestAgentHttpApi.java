@@ -948,7 +948,7 @@ class TestAgentHttpApi
     }
 
     @Test
-    void missingReadinessReportStopsAutomationAndPreservesTheTaskForAnotherRequest()
+    void anUnreportedTurnThatChangedNothingSettlesWithoutStoppingAutomation()
             throws Exception
     {
         driver.holdNextTurn();
@@ -962,19 +962,16 @@ class TestAgentHttpApi
         String unchangedHead = run("git", "-C", worktree.canonicalWorktree().toString(), "rev-parse", "HEAD");
         driver.completeHeldTurn();
 
-        awaitCondition(() -> get(eventsPath).getBody().findValuesAsText("message").stream()
-                .anyMatch(message -> message.startsWith("Automation stopped.")));
-        JsonNode stopped = get(taskPath).getBody();
-        assertThat(stopped.required("state").asText()).isEqualTo("OPEN");
-        assertThat(stopped.required("developmentContinuationUnfinished").asBoolean()).isFalse();
-        assertThat(stopped.path("mutationClaim").isNull()).isTrue();
-        assertThat(stopped.path("terminalReason").isNull()).isTrue();
-        assertThat(get(eventsPath).getBody()).anySatisfy(event -> {
-            assertThat(event.path("type").asText()).isEqualTo("lifecycle");
-            assertThat(event.path("payload").path("phase").asText()).isEqualTo("DEVELOPMENT_AUTOMATION_UPDATED");
-            assertThat(event.path("payload").path("message").asText()).startsWith("Automation stopped.")
-                    .contains("did not report a valid development result");
-        });
+        // The turn answered without reporting and left the checkout alone, so automation holds nothing
+        // back and has nothing to announce; only an unreported turn that changed code is an error.
+        awaitContinuationSettled(taskId);
+        JsonNode settled = get(taskPath).getBody();
+        assertThat(settled.required("state").asText()).isEqualTo("OPEN");
+        assertThat(settled.required("developmentContinuationUnfinished").asBoolean()).isFalse();
+        assertThat(settled.path("mutationClaim").isNull()).isTrue();
+        assertThat(settled.path("terminalReason").isNull()).isTrue();
+        assertThat(get(eventsPath).getBody().findValuesAsText("message"))
+                .noneMatch(message -> message.startsWith("Automation stopped."));
         assertThat(tasks.get(TaskId.valueOf(taskId)).taskWorktree()).contains(worktree);
         assertThat(worktree.canonicalWorktree()).isDirectory();
 

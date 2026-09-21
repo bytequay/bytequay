@@ -693,6 +693,43 @@ class TestDevelopmentFollowupCoordinator
         verify(turns).failDevelopmentContinuation(eq(taskId), eq(source.id()), contains("Remote result may have changed"));
     }
 
+    /** Accepts the turn, then completes that same turn without a report, leaving the checkout at {@code after}. */
+    private void unreported(DevelopmentLocalFacts after)
+    {
+        source = running(FULL);
+        history.add(source);
+        when(git.capture(task)).thenReturn(new DevelopmentBaseline(worktree, route, local(BASE, false)));
+        coordinator.accepted(task, source);
+        source = source.finish(TurnState.COMPLETED, AgentMetrics.empty(), Optional.empty(), NOW);
+        history.set(history.size() - 1, source);
+        outcome = new DevelopmentTurnCompletion(task, source, true, Optional.empty());
+        when(turns.ownsDevelopmentContinuation(taskId, source.id())).thenReturn(true);
+        when(git.inspectLocal(worktree, route)).thenReturn(after);
+    }
+
+    @Test
+    void missingReportOnAnUntouchedCheckoutEndsTheTurnQuietly()
+    {
+        unreported(local(BASE, false));
+
+        advance();
+
+        verify(turns).finishDevelopmentContinuation(taskId, source.id());
+        verify(turns, never()).failDevelopmentContinuation(any(), any(), anyString());
+        noFollowup();
+    }
+
+    @Test
+    void missingReportAfterRealWorkStillFails()
+    {
+        unreported(local(HEAD, false));
+
+        advance();
+
+        verify(turns).failDevelopmentContinuation(eq(taskId), eq(source.id()), contains("did not report"));
+        noFollowup();
+    }
+
     @Test
     void missingReportFailsInsteadOfAssumingReadiness()
     {

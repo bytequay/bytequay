@@ -156,6 +156,13 @@ public class DevelopmentFollowupCoordinator
                 finish(completion);
                 return;
             }
+            // A turn that only answered a question leaves the checkout exactly as it was accepted, so a
+            // missing report withholds nothing and means the same as readyForDelivery=false: wait for the
+            // user. A turn that did change something must still report, or finished work would be dropped.
+            if (completion.turn().developmentResult().isEmpty() && captured.isPresent() && !undelivered(captured.get())) {
+                finish(completion, true);
+                return;
+            }
             DevelopmentResultReport report = requireResult(completion);
             if (!report.readyForDelivery()) {
                 finish(completion);
@@ -452,6 +459,12 @@ public class DevelopmentFollowupCoordinator
         return found;
     }
 
+    /** Whether the turn left code or commits the accepted automation would still have to deliver. */
+    private boolean undelivered(Accepted source)
+    {
+        return source.pendingDelivery() || changed(source.baseline().local(), inspectLocal(source.baseline()));
+    }
+
     private boolean priorQuestion(TaskId taskId, TurnId acceptedTurn)
     {
         List<AgentTurn> history = turnStore.list(taskId).stream().filter(turn -> !turn.id().equals(acceptedTurn))
@@ -501,10 +514,19 @@ public class DevelopmentFollowupCoordinator
 
     private void finish(DevelopmentTurnCompletion completion)
     {
+        finish(completion, false);
+    }
+
+    /**
+     * @param awaitingUser forces the waiting branch for a turn that reported nothing and delivered nothing,
+     *         whose own absent report the queue handoff would otherwise read as work not yet ready
+     */
+    private void finish(DevelopmentTurnCompletion completion, boolean awaitingUser)
+    {
         if (!owns(completion)) {
             return;
         }
-        boolean waitingForAnswer = turnStore.list(completion.task().id()).reversed().stream()
+        boolean waitingForAnswer = awaitingUser || turnStore.list(completion.task().id()).reversed().stream()
                 .filter(turn -> turn.developmentOrigin().filter(origin -> origin.kind() == DevelopmentTurnOrigin.Kind.REFINE_SUMMARY).isEmpty())
                 .filter(turn -> turn.developmentResult().isPresent())
                 .findFirst().flatMap(AgentTurn::developmentResult).filter(report -> !report.readyForDelivery()).isPresent();

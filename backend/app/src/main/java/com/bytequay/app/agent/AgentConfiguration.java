@@ -14,6 +14,7 @@
 package com.bytequay.app.agent;
 
 import com.bytequay.agent.cli.claude.ClaudeCliDriver;
+import com.bytequay.agent.cli.claude.ClaudeHome;
 import com.bytequay.agent.cli.codex.CodexCliDriver;
 import com.bytequay.agent.cli.codex.CodexHome;
 import com.bytequay.agent.cli.mcp.PermissionBroker;
@@ -160,8 +161,14 @@ public class AgentConfiguration
             ObjectMapper objectMapper,
             PermissionBroker permissions,
             ProcessSupervisor supervisor)
+            throws IOException
     {
-        return new ClaudeCliDriver(properties.claudeExecutable(), objectMapper, permissions, supervisor);
+        return new ClaudeCliDriver(
+                properties.claudeExecutable(),
+                objectMapper,
+                permissions,
+                supervisor,
+                ClaudeHome.prepare(properties.claudeHome()));
     }
 
     @Bean

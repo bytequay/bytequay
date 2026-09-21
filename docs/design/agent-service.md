@@ -2108,6 +2108,41 @@ safety net; with an empty home it passes by construction, which is what makes
 the Codex lane usable on a machine whose own Codex setup carries inherited
 capabilities.
 
+#### ByteQuay-owned Claude home
+
+The Claude lane owns its provider home the same way. Every Claude process
+ByteQuay starts, the turn processes and the `--version`, `--help`,
+`auth status` and auto-mode probes, runs with `CLAUDE_CONFIG_DIR` set to
+`~/Library/Application Support/ByteQuay/claude-home`, created owner-only. The
+driver builds one environment and every process spec derives from it, so there
+is a single place where the home is chosen; an exported `CLAUDE_CONFIG_DIR` is
+filtered out of the inherited environment before ByteQuay's value is set, so a
+user's shell cannot redirect ByteQuay's processes.
+
+The home carries the identity a sign-in establishes, not the secret. On macOS the credential
+itself is held by the login Keychain, so `CLAUDE_CONFIG_DIR` separates settings, transcripts,
+history and which account a process acts as, but not the OS credential store. A home with no
+sign-in of its own reports logged out even where the user's personal CLI is signed in, which is
+what makes the separate sign-in both necessary and sufficient.
+
+Flags already excluded the user's *config*: `--strict-mcp-config`,
+`--setting-sources=` and an explicit `--settings` file. The home is what was
+still shared, and it holds two things worth separating. The sign-in is now
+ByteQuay's own, reported as
+`CLAUDE_CONFIG_DIR="…/ByteQuay/claude-home" claude auth login`; signing in once
+against that home is the same one-time step the Codex home already requires,
+and until it is done the lane reports `AUTHENTICATION_REQUIRED`. ByteQuay never
+reads, copies, or links the user's own credentials. Session transcripts,
+written under `projects/<escaped-worktree-path>/<session-id>.jsonl` because
+turns persist sessions to resume them, now land in ByteQuay's home instead of
+mixing into the user's `~/.claude`, which ByteQuay must never delete from.
+Claude needs no seeded config file: unlike Codex there is no user layer left to
+neutralize.
+
+Each task gets a fresh worktree and cleanup removes that worktree, so a
+transcript directory keyed to the dead path is never written to again. Those
+directories are now ByteQuay's to sweep; retention is not built here.
+
 ### 5.4 Turn quiescence
 
 Provider work is finished when the current agent turn is terminal, its own

@@ -50,6 +50,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
+import com.google.common.collect.Maps;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -152,6 +153,7 @@ public final class ClaudeCliDriver
 
     private final String executable;
     private final ProcessSupervisor supervisor;
+    private final Path claudeHome;
     private final Map<String, String> environment;
     private final SecretRedactor redactor;
     private final ObjectMapper objectMapper;
@@ -161,13 +163,18 @@ public final class ClaudeCliDriver
     private volatile boolean forwardSubagentText = true;
     private volatile boolean closed;
 
+    /**
+     * @param claudeHome ByteQuay's own Claude home; every Claude process this driver starts runs with
+     * {@code CLAUDE_CONFIG_DIR} set to it, so the user's {@code ~/.claude} never reaches a task
+     */
     public ClaudeCliDriver(
             String executable,
             ObjectMapper objectMapper,
             PermissionBroker permissions,
-            ProcessSupervisor supervisor)
+            ProcessSupervisor supervisor,
+            Path claudeHome)
     {
-        this(executable, objectMapper, permissions, supervisor, inheritedEnvironment());
+        this(executable, objectMapper, permissions, supervisor, claudeHome, inheritedEnvironment());
     }
 
     ClaudeCliDriver(
@@ -175,11 +182,18 @@ public final class ClaudeCliDriver
             ObjectMapper objectMapper,
             PermissionBroker permissions,
             ProcessSupervisor supervisor,
+            Path claudeHome,
             Map<String, String> environment)
     {
         this.executable = requireNonNull(executable, "executable is null");
         this.supervisor = requireNonNull(supervisor, "supervisor is null");
-        this.environment = ImmutableMap.copyOf(requireNonNull(environment, "environment is null"));
+        this.claudeHome = requireNonNull(claudeHome, "claudeHome is null").toAbsolutePath();
+        // Overrides any inherited value: a shell that exports CLAUDE_CONFIG_DIR must not redirect
+        // ByteQuay's processes into the user's own Claude setup.
+        this.environment = ImmutableMap.<String, String>builder()
+                .putAll(Maps.filterKeys(requireNonNull(environment, "environment is null"), name -> !name.equals("CLAUDE_CONFIG_DIR")))
+                .put("CLAUDE_CONFIG_DIR", this.claudeHome.toString())
+                .buildOrThrow();
         this.redactor = SecretRedactor.fromEnvironment(this.environment);
         this.objectMapper = requireNonNull(objectMapper, "objectMapper is null");
         this.codec = new ClaudeProtocolCodec(objectMapper);
@@ -481,8 +495,14 @@ public final class ClaudeCliDriver
                 redactor.redact(message),
                 capabilities(),
                 readiness == AgentProviderStatus.Readiness.AUTHENTICATION_REQUIRED
-                        ? Optional.of("claude auth login")
+                        ? Optional.of(signInCommand())
                         : Optional.empty());
+    }
+
+    /** The one command that signs ByteQuay's Claude home in; a plain {@code claude auth login} would not. */
+    private String signInCommand()
+    {
+        return "CLAUDE_CONFIG_DIR=\"" + claudeHome + "\" " + executable + " auth login";
     }
 
     private AuthenticationProbe probeAuthentication()

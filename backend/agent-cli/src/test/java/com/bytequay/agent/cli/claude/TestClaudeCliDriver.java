@@ -243,7 +243,8 @@ class TestClaudeCliDriver
                 () -> URI.create("http://127.0.0.1:9000/internal/agent/claude/mcp"), objectMapper, (taskId, query) -> "memory", taskId -> Optional.of(review));
         List<ProviderAgentEvent> events = new CopyOnWriteArrayList<>();
         try (ClaudeCliDriver driver = new ClaudeCliDriver(
-                executable.toString(), objectMapper, permissions, supervisor, ImmutableMap.of("HOME", worktree.toString(), "PATH", "/usr/bin:/bin"))) {
+                executable.toString(), objectMapper, permissions, supervisor, claudeHome(),
+                ImmutableMap.of("HOME", worktree.toString(), "PATH", "/usr/bin:/bin"))) {
             AgentProviderStatus status = driver.probe();
             assertThat(status.readiness()).as(status.diagnostic()).isEqualTo(AgentProviderStatus.Readiness.READY);
             AgentSession session = driver.open(context(Optional.empty()), events::add);
@@ -399,6 +400,10 @@ class TestClaudeCliDriver
                 "authoritative [REDACTED]"));
         ProcessSpec firstSpec = supervisor.turns().getFirst().spec();
         assertThat(firstSpec.environment()).containsEntry("GH_TOKEN", "github-sentinel").containsEntry("ANTHROPIC_API_KEY", "known-secret");
+        // Probes and turns alike derive their environment from the driver's, so `--version`, `--help`,
+        // `auth status` and every turn read ByteQuay's home; an exported one never redirects them.
+        assertThat(supervisor.specs).hasSizeGreaterThan(1).allSatisfy(spec ->
+                assertThat(spec.environment()).containsEntry("CLAUDE_CONFIG_DIR", claudeHome().toAbsolutePath().toString()));
         assertThat(firstSpec.owner().kind()).isEqualTo(ProcessOwner.Kind.CLAUDE_TURN);
         assertThat(firstSpec.argv()).containsSequence("--session-id", reference.providerValue());
         assertThat(firstSpec.argv()).contains("--permission-prompt-tool", "mcp__bytequay__permission_prompt");
@@ -762,7 +767,7 @@ class TestClaudeCliDriver
         AgentProviderStatus status = loggedOutDriver.probe();
 
         assertThat(status.readiness()).isEqualTo(AgentProviderStatus.Readiness.AUTHENTICATION_REQUIRED);
-        assertThat(status.signInCommand()).contains("claude auth login");
+        assertThat(status.signInCommand()).contains("CLAUDE_CONFIG_DIR=\"" + claudeHome().toAbsolutePath() + "\" /fake/claude auth login");
         assertThat(status.diagnostic()).doesNotContain("/secret/path", "authMethod");
         loggedOutDriver.close();
 
@@ -948,7 +953,7 @@ class TestClaudeCliDriver
                 () -> URI.create("http://127.0.0.1:9000/internal/agent/claude/mcp"), objectMapper, (taskId, query) -> "memory",
                 ReviewBridgeResolver.NONE, DevelopmentResultBridgeResolver.NONE, DraftPullRequestPublisher.NONE, LocalReviewBridgeResolver.NONE,
                 PullRequestCiBridgeResolver.NONE, taskId -> Optional.of(issue));
-        ClaudeCliDriver driver = new ClaudeCliDriver("/fake/claude", objectMapper, broker, supervisor, ImmutableMap.of());
+        ClaudeCliDriver driver = new ClaudeCliDriver("/fake/claude", objectMapper, broker, supervisor, claudeHome(), ImmutableMap.of());
         Optional<AgentSessionRef> reference = Optional.empty();
         for (int index = 0; index < 2; index++) {
             try (AgentSession session = driver.open(context(reference), event -> {})) {
@@ -973,7 +978,7 @@ class TestClaudeCliDriver
                 () -> URI.create("http://127.0.0.1:9000/internal/agent/claude/mcp"), objectMapper, (taskId, query) -> "memory",
                 ReviewBridgeResolver.NONE, DevelopmentResultBridgeResolver.NONE, DraftPullRequestPublisher.NONE, LocalReviewBridgeResolver.NONE,
                 taskId -> Optional.of(ci));
-        ClaudeCliDriver driver = new ClaudeCliDriver("/fake/claude", objectMapper, broker, supervisor, ImmutableMap.of());
+        ClaudeCliDriver driver = new ClaudeCliDriver("/fake/claude", objectMapper, broker, supervisor, claudeHome(), ImmutableMap.of());
         Optional<AgentSessionRef> reference = Optional.empty();
         for (int index = 0; index < 2; index++) {
             try (AgentSession session = driver.open(context(reference), event -> {})) {
@@ -1000,7 +1005,7 @@ class TestClaudeCliDriver
                 taskId -> Optional.of(new DevelopmentResultBridge("turn-1", DevelopmentResultBridge.INSTRUCTION)),
                 DraftPullRequestPublisher.NONE, taskId -> Optional.of(local));
         Map<String, String> environment = apiKey ? ImmutableMap.of("ANTHROPIC_API_KEY", "test-api-key") : ImmutableMap.of();
-        ClaudeCliDriver driver = new ClaudeCliDriver("/fake/claude", objectMapper, broker, supervisor, environment);
+        ClaudeCliDriver driver = new ClaudeCliDriver("/fake/claude", objectMapper, broker, supervisor, claudeHome(), environment);
         AgentSessionRef reference;
         try (AgentSession session = driver.open(context(Optional.empty()), event -> {})) {
             await(session.start(command("local-review")));
@@ -1333,7 +1338,7 @@ class TestClaudeCliDriver
         ScriptedProcessSupervisor supervisor = new ScriptedProcessSupervisor();
         PermissionBroker broker = new PermissionBroker(
                 () -> URI.create("http://127.0.0.1:9000/internal/agent/claude/mcp"), objectMapper, (taskId, query) -> "memory");
-        ClaudeCliDriver driver = new ClaudeCliDriver("/fake/claude", objectMapper, broker, supervisor, ImmutableMap.of());
+        ClaudeCliDriver driver = new ClaudeCliDriver("/fake/claude", objectMapper, broker, supervisor, claudeHome(), ImmutableMap.of());
         AgentSessionContext plain = context(Optional.empty());
         AgentSessionContext context = new AgentSessionContext(
                 plain.taskId(), plain.worktree(), plain.runtimeDirectory(), plain.providerDirectory(), plain.permissionPolicy(),
@@ -1377,7 +1382,7 @@ class TestClaudeCliDriver
         ScriptedProcessSupervisor supervisor = new ScriptedProcessSupervisor();
         PermissionBroker broker = new PermissionBroker(
                 () -> URI.create("http://127.0.0.1:9000/internal/agent/claude/mcp"), objectMapper, (taskId, query) -> "memory");
-        ClaudeCliDriver driver = new ClaudeCliDriver("/fake/claude", objectMapper, broker, supervisor, ImmutableMap.of());
+        ClaudeCliDriver driver = new ClaudeCliDriver("/fake/claude", objectMapper, broker, supervisor, claudeHome(), ImmutableMap.of());
         CompletableFuture<ProviderApprovalDecision> decision = new CompletableFuture<>();
         CountDownLatch requested = new CountDownLatch(1);
         AgentSessionContext plain = context(Optional.empty());
@@ -1424,6 +1429,11 @@ class TestClaudeCliDriver
         }
     }
 
+    private Path claudeHome()
+    {
+        return worktree.resolve("claude-home");
+    }
+
     private ClaudeCliDriver driver(ProcessSupervisor supervisor)
     {
         return driver(supervisor, taskId -> Optional.empty());
@@ -1441,11 +1451,13 @@ class TestClaudeCliDriver
                 objectMapper,
                 permissions,
                 supervisor,
+                claudeHome(),
                 ImmutableMap.of(
                         "HOME", worktree.toString(),
                         "ANTHROPIC_API_KEY", "known-secret",
                         "GH_TOKEN", "github-sentinel",
-                        "GH_CONFIG_DIR", worktree.resolve("gh-config").toString()));
+                        "GH_CONFIG_DIR", worktree.resolve("gh-config").toString(),
+                        "CLAUDE_CONFIG_DIR", "/user/own/.claude"));
     }
 
     private AgentSessionContext context(Optional<AgentSessionRef> reference)
@@ -1534,6 +1546,7 @@ class TestClaudeCliDriver
             implements ProcessSupervisor
     {
         private final List<ScriptedTurn> turns = new CopyOnWriteArrayList<>();
+        private final List<ProcessSpec> specs = new CopyOnWriteArrayList<>();
         private String versionOutput = "2.1.233 (Claude Code)";
         private String helpOutput = """
                 --output-format --include-partial-messages --include-hook-events
@@ -1565,6 +1578,7 @@ class TestClaudeCliDriver
         @Override
         public PreparedProcess prepare(ProcessSpec spec)
         {
+            specs.add(spec);
             return new ScriptedLaunch(spec);
         }
 

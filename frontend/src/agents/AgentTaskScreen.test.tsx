@@ -57,7 +57,7 @@ function providerStatus(readiness: AgentProviderReadiness, extra: Partial<AgentP
     version: '2.1.259',
     diagnostic: 'provider readiness diagnostic',
     capabilities: CAPABILITIES,
-    signInCommand: readiness === 'AUTHENTICATION_REQUIRED' ? 'CLAUDE_CONFIG_DIR=/provider-home claude auth login' : null,
+    signInCommand: readiness === 'AUTHENTICATION_REQUIRED' ? 'CLAUDE_CONFIG_DIR="/provider-home" claude auth login' : null,
     ...extra,
   };
 }
@@ -1124,7 +1124,7 @@ describe('agent task detail', () => {
 
   it.each([
     ['CLI_MISSING', 'Claude CLI not installed', 'Install the CLI', 'npm install -g @anthropic-ai/claude-code', 'Check again'],
-    ['AUTHENTICATION_REQUIRED', 'Claude sign-in required', 'Sign in', 'CLAUDE_CONFIG_DIR=/provider-home claude auth login', 'Refresh login status'],
+    ['AUTHENTICATION_REQUIRED', 'Claude sign-in required', 'Sign in', 'CLAUDE_CONFIG_DIR=&quot;/provider-home&quot; claude auth login', 'Refresh login status'],
     ['UNSUPPORTED', 'Claude is unsupported', 'Report an issue', 'Detected CLI version: 2.1.259', 'Check again'],
     ['TEMPORARILY_UNAVAILABLE', 'Claude is unavailable', 'Check again', 'provider readiness diagnostic', 'Check again'],
   ] as const)('blocks a new turn and shows the typed %s remedy', (readiness, heading, remedy, detail, checkAction) => {

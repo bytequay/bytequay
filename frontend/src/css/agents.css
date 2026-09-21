@@ -3681,6 +3681,11 @@
 
 /* The affordance and the composer share one absolutely positioned slot; the composer replaces the
    pill rather than sitting beside it. */
+/* The offer is placed in this box's coordinates, so it has to be the positioned ancestor. */
+.agt-answer.agt-disc {
+  position: relative;
+}
+
 .agt-disc-anchor {
   position: absolute;
   z-index: 5;
@@ -3688,6 +3693,11 @@
   flex-direction: column;
   align-items: flex-start;
   transform: translateX(-50%);
+}
+
+/* Once the reader has moved it, it is where they put it rather than centred on the passage. */
+.agt-disc-anchor.is-moved {
+  transform: none;
 }
 
 .agt-disc-pill {
@@ -3752,22 +3762,37 @@
   cursor: pointer;
 }
 
+/* A fixed width, not a percentage: the anchor shrinks to its content, so a percentage here has
+   nothing to resolve against and collapses the composer to the width of its own buttons. */
 .agt-disc-pop {
-  width: min(390px, 100%);
+  display: flex;
+  flex-direction: column;
+  width: 460px;
+  max-width: calc(100vw - 32px);
+  min-width: 320px;
+  min-height: 190px;
   border: 1px solid var(--disc-bd);
   border-radius: 10px;
   background: var(--disc-bg);
   box-shadow: 0 12px 34px var(--disc-shadow);
   overflow: hidden;
+  resize: both;
 }
 
 /* The quote echo is the contract: this is exactly what will be sent as the anchor. */
 .agt-disc-pop__quote {
   display: flex;
   gap: 8px;
+  flex: none;
   padding: 10px 12px 9px;
   background: var(--disc-bg2);
   border-bottom: 1px solid var(--disc-bd2);
+  cursor: grab;
+  user-select: none;
+}
+
+.agt-disc-pop__quote:active {
+  cursor: grabbing;
 }
 
 .agt-disc-pop__rail {
@@ -3789,11 +3814,17 @@
 }
 
 .agt-disc-pop__body {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
   padding: 10px 12px 11px;
 }
 
 .agt-disc-pop__body textarea {
   width: 100%;
+  flex: 1;
+  min-height: 62px;
   box-sizing: border-box;
   resize: none;
   border: 1px solid var(--disc-bd);
@@ -3816,6 +3847,7 @@
   display: flex;
   align-items: center;
   gap: 8px;
+  flex: none;
   margin-top: 9px;
 }
 

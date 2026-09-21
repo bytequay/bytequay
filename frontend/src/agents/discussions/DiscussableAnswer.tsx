@@ -13,7 +13,7 @@
  */
 
 
-import React, { useCallback, useEffect, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState, type CSSProperties, type MouseEvent as ReactMouseEvent } from 'react';
 
 import { DiscussionFooter } from './DiscussionFooter';
 import { renderMarkdownBlocks } from '../markdown';
@@ -25,6 +25,8 @@ const MINIMUM_QUOTE = 3;
 const BELOW = 8;
 /** Within this of the viewport's bottom it flips above the first selected line instead. */
 const EDGE = 44;
+/** How far from the bottom right corner the browser's own resize grip takes a press. */
+const RESIZE_GRIP = 18;
 
 export type SelectedPassage = { turnId: string; quote: string; occurrence: number };
 
@@ -70,8 +72,14 @@ export function DiscussableAnswer({ turnId, text, discussions, completed = false
   onHover?: (discussionId: string | null) => void;
 }): React.ReactElement {
   const answer = useRef<HTMLDivElement>(null);
+  // The offer is positioned against the shell, so its coordinates must be measured there too; the
+  // rendered blocks sit inset from it, and measuring those puts every offer out by that inset.
+  const shell = useRef<HTMLDivElement>(null);
   const [offer, setOffer] = useState<Offer | null>(null);
   const [draft, setDraft] = useState('');
+  // A composer the reader moved or resized keeps where they put it until it closes.
+  const [moved, setMoved] = useState<{ left: number; top: number } | null>(null);
+  const [sized, setSized] = useState<CSSProperties>({});
   const blocks = renderMarkdownBlocks(text);
 
   const placed = new Map<number, TaskDiscussionDto[]>();
@@ -92,8 +100,8 @@ export function DiscussableAnswer({ turnId, text, discussions, completed = false
     if (!startsHere && !container.contains(range.endContainer)) return;
 
     const rects = [...range.getClientRects()];
-    if (rects.length === 0) return;
-    const frame = container.getBoundingClientRect();
+    if (rects.length === 0 || shell.current === null) return;
+    const frame = shell.current.getBoundingClientRect();
     const last = rects[rects.length - 1];
     const first = rects[0];
     const flip = last.bottom + BELOW + 30 > window.innerHeight - EDGE;
@@ -124,7 +132,7 @@ export function DiscussableAnswer({ turnId, text, discussions, completed = false
   useEffect(() => {
     const dismiss = (event: KeyboardEvent): void => {
       // Alt+Enter is the keyboard route into the composer, printed once on the pill itself.
-      if (event.key === 'Escape') setOffer(null);
+      if (event.key === 'Escape') place(null);
       else if (event.key === 'Enter' && event.altKey) {
         setOffer(current => (current?.kind === 'ask' ? { ...current, kind: 'compose' } : current));
       }
@@ -140,16 +148,50 @@ export function DiscussableAnswer({ turnId, text, discussions, completed = false
     };
   }, [capture]);
 
+  const place = (next: Offer | null): void => {
+    setMoved(null);
+    setSized({});
+    setOffer(next);
+  };
+
+  /** Drags the composer by its quote band, the way the hover card drags by its head. */
+  const startDrag = (event: ReactMouseEvent<HTMLElement>): void => {
+    const box = event.currentTarget.closest('.agt-disc-pop')?.getBoundingClientRect();
+    const frame = shell.current?.getBoundingClientRect();
+    if (box === undefined || frame === undefined) return;
+    const grabX = event.clientX - box.left;
+    const grabY = event.clientY - box.top;
+    const move = (next: globalThis.MouseEvent): void => setMoved({
+      left: next.clientX - grabX - frame.left,
+      top: next.clientY - grabY - frame.top,
+    });
+    const stop = (): void => {
+      window.removeEventListener('mousemove', move);
+      window.removeEventListener('mouseup', stop);
+      document.body.style.userSelect = '';
+    };
+    document.body.style.userSelect = 'none';
+    window.addEventListener('mousemove', move);
+    window.addEventListener('mouseup', stop);
+  };
+
+  /** The browser's own grip writes width and height from here, so the placed height has to give way. */
+  const startResize = (event: ReactMouseEvent<HTMLElement>): void => {
+    const box = event.currentTarget.getBoundingClientRect();
+    if (box.right - event.clientX > RESIZE_GRIP || box.bottom - event.clientY > RESIZE_GRIP) return;
+    setSized({ width: box.width, height: box.height });
+  };
+
   const ask = (passage: SelectedPassage): void => {
     const question = draft.trim();
     if (question === '') return;
     onSelect?.(passage, question);
     setDraft('');
-    setOffer(null);
+    place(null);
   };
 
   return (
-    <div className="agt-answer agt-disc">
+    <div className="agt-answer agt-disc" ref={shell}>
       <div className="agt-md" ref={answer}>
         {blocks.map((block, index) => (
           <React.Fragment key={index}>
@@ -160,10 +202,13 @@ export function DiscussableAnswer({ turnId, text, discussions, completed = false
       </div>
       <DiscussionFooter discussions={adrift} siblings={discussions} focused={focused} unanchored onOpen={onOpen} onHover={onHover} />
       {offer !== null && (
-        <div className="agt-disc-anchor" style={{ left: offer.left, top: offer.top }}>
+        <div
+          className={`agt-disc-anchor${moved === null ? '' : ' is-moved'}`}
+          style={{ left: moved?.left ?? offer.left, top: moved?.top ?? offer.top }}
+        >
           {offer.kind === 'ask' && (
             <button className="agt-disc-pill" type="button" onMouseDown={event => event.preventDefault()}
-              onClick={() => setOffer({ ...offer, kind: 'compose' })}>
+              onClick={() => place({ ...offer, kind: 'compose' })}>
               <Glyph size={14}>{SPEECH}</Glyph>
               Ask about this
               <span className="agt-disc-pill__key">⌥↩</span>
@@ -186,14 +231,14 @@ export function DiscussableAnswer({ turnId, text, discussions, completed = false
             </div>
           )}
           {offer.kind === 'compose' && (
-            <div className="agt-disc-pop">
-              <div className="agt-disc-pop__quote">
+            <div className="agt-disc-pop" style={sized} onMouseDown={startResize}>
+              <div className="agt-disc-pop__quote" onMouseDown={startDrag} title="Drag to move">
                 <span className="agt-disc-pop__rail" />
                 <span className="agt-disc-pop__text">{offer.passage.quote}</span>
               </div>
               <div className="agt-disc-pop__body">
                 <textarea
-                  rows={2}
+                  rows={3}
                   autoFocus
                   aria-label="Ask about this passage"
                   placeholder="Ask about this passage…"
@@ -205,7 +250,7 @@ export function DiscussableAnswer({ turnId, text, discussions, completed = false
                 />
                 <div className="agt-disc-pop__actions">
                   <span />
-                  <button className="agt-disc-pop__cancel" type="button" onClick={() => { setDraft(''); setOffer(null); }}>Cancel</button>
+                  <button className="agt-disc-pop__cancel" type="button" onClick={() => { setDraft(''); place(null); }}>Cancel</button>
                   <button className="agt-disc-pop__ask" type="button" disabled={draft.trim() === ''} onClick={() => ask(offer.passage)}>Ask</button>
                 </div>
               </div>

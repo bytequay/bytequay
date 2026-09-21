@@ -16,6 +16,7 @@
 import { createRoot } from 'react-dom/client';
 import { flushSync } from 'react-dom';
 
+import '../../css/agents.css';
 import { DiscussableAnswer, type SelectedPassage } from '../discussions/DiscussableAnswer';
 import { assert, changeInput, settle } from '../../fixtures/harness';
 
@@ -134,6 +135,31 @@ export async function run(): Promise<{ name: string; error?: string }[]> {
     assert(offered !== null, 'No pill for a first-line passage');
     const frame = (document.querySelector('.agt-answer') as HTMLElement).getBoundingClientRect();
     assert(offered.getBoundingClientRect().top >= frame.top, 'The pill sits above the answer and is unreachable');
+  }, results);
+
+  await clear();
+  await scenario('opens a composer wide enough to write in, which drags and resizes', async () => {
+    select('falls back to any', false);
+    release(document.body);
+    await settle();
+    (pill() as HTMLElement).click();
+    await settle();
+    const pop = document.querySelector('.agt-disc-pop') as HTMLElement | null;
+    assert(pop !== null, 'The composer did not open');
+    // The percentage width it used to carry resolved against a shrink-to-fit parent and collapsed.
+    const width = pop.getBoundingClientRect().width;
+    assert(width >= 440 && width <= 470, `The composer is ${Math.round(width)}px wide, not the 460 it asks for`);
+    assert(getComputedStyle(pop).resize === 'both', 'The composer cannot be resized');
+
+    const band = pop.querySelector('.agt-disc-pop__quote') as HTMLElement;
+    const before = pop.getBoundingClientRect();
+    band.dispatchEvent(new MouseEvent('mousedown', { bubbles: true, clientX: before.left + 30, clientY: before.top + 10 }));
+    window.dispatchEvent(new MouseEvent('mousemove', { bubbles: true, clientX: before.left + 90, clientY: before.top + 40 }));
+    window.dispatchEvent(new MouseEvent('mouseup', { bubbles: true }));
+    await settle();
+    const after = (document.querySelector('.agt-disc-pop') as HTMLElement).getBoundingClientRect();
+    assert(Math.round(after.left - before.left) === 60, `Dragging moved it ${Math.round(after.left - before.left)}px across, not 60`);
+    assert(Math.round(after.top - before.top) === 30, `Dragging moved it ${Math.round(after.top - before.top)}px down, not 30`);
   }, results);
 
   return results;

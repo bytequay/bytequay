@@ -17,6 +17,7 @@ import com.bytequay.core.ci.CiAutofixAttempt.FailureEvidence;
 import com.bytequay.core.ci.CiAutofixRun.Warning;
 import com.bytequay.core.ci.CiDescriptionChange;
 import com.bytequay.core.ci.CiRerunAssessment;
+import com.bytequay.persistence.sqlite.converter.JsonColumns;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.google.common.collect.ImmutableList;
@@ -28,7 +29,7 @@ import static com.fasterxml.jackson.databind.SerializationFeature.WRITE_DATES_AS
 
 final class CiAutofixJson
 {
-    private static final ObjectMapper MAPPER = new ObjectMapper().findAndRegisterModules().disable(WRITE_DATES_AS_TIMESTAMPS);
+    private static final ObjectMapper MAPPER = JsonColumns.mapper().disable(WRITE_DATES_AS_TIMESTAMPS);
     private static final TypeReference<List<Warning>> WARNING_VALUES = new TypeReference<>() {};
     private static final TypeReference<List<FailureEvidence>> FAILURE_VALUES = new TypeReference<>() {};
 

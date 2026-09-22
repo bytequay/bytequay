@@ -14,6 +14,7 @@
 package com.bytequay.persistence.sqlite.entity;
 
 import com.bytequay.agent.core.AgentAttachmentReference;
+import com.bytequay.persistence.sqlite.converter.JsonColumns;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.google.common.collect.ImmutableList;
@@ -24,7 +25,7 @@ import static com.bytequay.persistence.sqlite.entity.JsonGuard.AGENT;
 
 final class AgentAttachmentReferenceJson
 {
-    private static final ObjectMapper OBJECT_MAPPER = new ObjectMapper();
+    private static final ObjectMapper OBJECT_MAPPER = JsonColumns.mapper();
     private static final TypeReference<List<AgentAttachmentReference>> REFERENCE_LIST = new TypeReference<>() {};
 
     private AgentAttachmentReferenceJson() {}

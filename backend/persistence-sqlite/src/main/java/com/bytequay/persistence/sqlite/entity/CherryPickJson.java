@@ -22,6 +22,7 @@ import com.bytequay.core.cherrypick.CherryPickItem.Disposition;
 import com.bytequay.core.cherrypick.CherryPickItem.IndexStage;
 import com.bytequay.core.cherrypick.CherryPickItem.PullRequestRefView;
 import com.bytequay.core.cherrypick.CherryPickItem.Result;
+import com.bytequay.persistence.sqlite.converter.JsonColumns;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.google.common.collect.ImmutableList;
@@ -35,7 +36,7 @@ import static com.google.common.collect.ImmutableList.toImmutableList;
 
 final class CherryPickJson
 {
-    private static final ObjectMapper MAPPER = new ObjectMapper();
+    private static final ObjectMapper MAPPER = JsonColumns.mapper();
     private static final TypeReference<List<ItemValue>> ITEM_VALUES = new TypeReference<>() {};
 
     private CherryPickJson() {}

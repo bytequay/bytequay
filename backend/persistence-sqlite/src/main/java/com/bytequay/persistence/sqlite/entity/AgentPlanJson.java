@@ -14,6 +14,7 @@
 package com.bytequay.persistence.sqlite.entity;
 
 import com.bytequay.agent.spi.ProviderAgentEvent.PlanItem;
+import com.bytequay.persistence.sqlite.converter.JsonColumns;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.google.common.collect.ImmutableList;
@@ -24,7 +25,7 @@ import static com.bytequay.persistence.sqlite.entity.JsonGuard.AGENT;
 
 final class AgentPlanJson
 {
-    private static final ObjectMapper MAPPER = new ObjectMapper();
+    private static final ObjectMapper MAPPER = JsonColumns.mapper();
     private static final TypeReference<List<PlanItem>> ITEMS = new TypeReference<>() {};
 
     private AgentPlanJson() {}

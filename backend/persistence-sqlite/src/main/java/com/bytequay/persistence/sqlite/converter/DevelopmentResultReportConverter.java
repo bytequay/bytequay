@@ -25,7 +25,7 @@ import jakarta.persistence.Converter;
 public class DevelopmentResultReportConverter
         implements AttributeConverter<DevelopmentResultReport, String>
 {
-    private static final ObjectMapper MAPPER = new ObjectMapper().findAndRegisterModules()
+    private static final ObjectMapper MAPPER = JsonColumns.mapper()
             .disable(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES)
             .enable(DeserializationFeature.FAIL_ON_NULL_FOR_PRIMITIVES);
 

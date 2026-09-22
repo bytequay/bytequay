@@ -17,6 +17,7 @@ import com.bytequay.agent.core.AgentEventOutboxPayload;
 import com.bytequay.agent.core.AgentEventPayload;
 import com.bytequay.agent.core.AgentEventSource;
 import com.bytequay.agent.core.AgentStorageException;
+import com.bytequay.persistence.sqlite.converter.JsonColumns;
 import com.fasterxml.jackson.databind.DeserializationFeature;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -25,7 +26,7 @@ import static com.bytequay.persistence.sqlite.entity.JsonGuard.AGENT;
 
 final class AgentEventOutboxJson
 {
-    private static final ObjectMapper MAPPER = new ObjectMapper().findAndRegisterModules();
+    private static final ObjectMapper MAPPER = JsonColumns.mapper();
 
     private AgentEventOutboxJson() {}
 

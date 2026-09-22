@@ -14,6 +14,7 @@
 package com.bytequay.persistence.sqlite.entity;
 
 import com.bytequay.core.discussion.TaskDiscussion;
+import com.bytequay.persistence.sqlite.converter.JsonColumns;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
@@ -41,7 +42,7 @@ import static com.bytequay.persistence.sqlite.entity.JsonGuard.AGENT;
 public class TaskDiscussionEntity
         extends AssignedIdEntity<String>
 {
-    private static final ObjectMapper MAPPER = new ObjectMapper().findAndRegisterModules();
+    private static final ObjectMapper MAPPER = JsonColumns.mapper();
 
     @Id
     @Getter(onMethod_ = @Override)

@@ -23,7 +23,7 @@ import jakarta.persistence.Converter;
 public class PrTimelinePayloadConverter
         implements AttributeConverter<PrTimelinePayload, String>
 {
-    private static final ObjectMapper MAPPER = new ObjectMapper().findAndRegisterModules();
+    private static final ObjectMapper MAPPER = JsonColumns.mapper();
 
     @Override
     public String convertToDatabaseColumn(PrTimelinePayload payload)

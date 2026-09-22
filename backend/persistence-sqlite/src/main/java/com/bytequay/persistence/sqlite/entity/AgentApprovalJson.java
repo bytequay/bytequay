@@ -14,13 +14,14 @@
 package com.bytequay.persistence.sqlite.entity;
 
 import com.bytequay.agent.core.ApprovalRequest;
+import com.bytequay.persistence.sqlite.converter.JsonColumns;
 import com.fasterxml.jackson.databind.ObjectMapper;
 
 import static com.bytequay.persistence.sqlite.entity.JsonGuard.AGENT;
 
 final class AgentApprovalJson
 {
-    private static final ObjectMapper MAPPER = new ObjectMapper().findAndRegisterModules();
+    private static final ObjectMapper MAPPER = JsonColumns.mapper();
 
     private AgentApprovalJson() {}
 

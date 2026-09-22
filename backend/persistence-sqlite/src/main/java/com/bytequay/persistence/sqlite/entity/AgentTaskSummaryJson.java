@@ -19,6 +19,7 @@ import com.bytequay.agent.core.TaskSummary;
 import com.bytequay.agent.core.TaskWorktree;
 import com.bytequay.agent.core.ToolCounters;
 import com.bytequay.agent.core.WorktreeSnapshot;
+import com.bytequay.persistence.sqlite.converter.JsonColumns;
 import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.google.common.collect.ImmutableList;
@@ -34,7 +35,7 @@ import static com.google.common.collect.ImmutableList.toImmutableList;
 
 final class AgentTaskSummaryJson
 {
-    private static final ObjectMapper OBJECT_MAPPER = new ObjectMapper().findAndRegisterModules();
+    private static final ObjectMapper OBJECT_MAPPER = JsonColumns.mapper();
 
     private AgentTaskSummaryJson() {}
 

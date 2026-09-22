@@ -24,7 +24,7 @@ import jakarta.persistence.Converter;
 public class DevelopmentAutomationConverter
         implements AttributeConverter<DevelopmentAutomation, String>
 {
-    private static final ObjectMapper MAPPER = new ObjectMapper().findAndRegisterModules()
+    private static final ObjectMapper MAPPER = JsonColumns.mapper()
             .enable(DeserializationFeature.FAIL_ON_MISSING_CREATOR_PROPERTIES)
             .enable(DeserializationFeature.FAIL_ON_NULL_FOR_PRIMITIVES);
 

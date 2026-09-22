@@ -126,6 +126,14 @@ class TestGitHubClientAggregation
     }
 
     @Test
+    void testExtractGitHubErrorMessageIncludesFirstTextualError()
+    {
+        assertThat(GitHubApiSupport.extractGitHubErrorMessage(
+                "{\"message\":\"Unprocessable Entity\",\"errors\":[\"Path could not be resolved\"]}"))
+                .isEqualTo("Unprocessable Entity: Path could not be resolved");
+    }
+
+    @Test
     void testExtractGitHubErrorMessageInvalidJsonReturnsNull()
     {
         assertThat(GitHubApiSupport.extractGitHubErrorMessage("not-json"))

@@ -170,8 +170,8 @@ final class GitHubApiSupport
     /**
      * Pulls the human-readable message out of a GitHub error response. GitHub
      * returns {@code {"message": "...", "errors": [...], "documentation_url": "..."}};
-     * we surface {@code message} and the first {@code errors[].message} when
-     * present.
+     * we surface {@code message} and the first entry of {@code errors} when
+     * present, whether that entry is a string or an object with a message.
      */
     static String extractGitHubErrorMessage(String body)
     {
@@ -187,7 +187,9 @@ final class GitHubApiSupport
             JsonNode errors = root.path("errors");
             if (errors.isArray() && !errors.isEmpty()) {
                 JsonNode first = errors.get(0);
-                String detail = first.path("message").asText(null);
+                // Review validation answers with plain strings ("Path could not be resolved"); most
+                // other endpoints answer with objects carrying a message.
+                String detail = first.isTextual() ? first.textValue() : first.path("message").asText(null);
                 if (detail != null && !detail.isBlank()) {
                     return top + ": " + detail;
                 }

@@ -558,10 +558,11 @@ function IssueRow({ issue, repository, labelColors, selected, onPick, actions }:
           {issue.labels.map(label => <span key={label} style={labelStyle(labelColors[label])}>{label}</span>)}
         </span>
       )}
-      <span className="pull-row__stats issues-row__stats">
-        {issue.assignees.length > 0 && <span className="issues-row__assignees">Assigned to {issue.assignees.join(', ')}</span>}
-        <span className="pull-row__comments"><CommentIcon />{issue.commentCount}</span>
-      </span>
+      {issue.assignees.length > 0 && (
+        <span className="pull-row__stats issues-row__stats">
+          <span className="issues-row__assignees">Assigned to {issue.assignees.join(', ')}</span>
+        </span>
+      )}
       </button>
       <div className="issues-row__footer">
         <button type="button" className="issues-row__select" aria-label={`Open issue #${issue.number}`} onClick={onPick}>
@@ -573,6 +574,8 @@ function IssueRow({ issue, repository, labelColors, selected, onPick, actions }:
             <span className="pull-row__meta-name" title={issue.author}>{issue.author}</span>
             <span>·</span>
             <span className="pull-row__meta-time">{relativeTime(issue.updatedAt)}</span>
+            <span>·</span>
+            <span className="pull-row__comments"><CommentIcon />{issue.commentCount}</span>
           </span>
         </button>
         {actions}

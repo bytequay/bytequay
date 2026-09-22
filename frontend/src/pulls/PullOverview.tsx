@@ -923,7 +923,7 @@ export function ReviewThread({ activity, viewerLogin, pr, workspaceId, onRefresh
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const resolutionInFlight = useRef(false);
   const targetLine = payload.line ?? payload.originalLine;
-  const commentedLine = showCode && payload.diffHunk ? reviewCommentLine(payload.diffHunk, targetLine, payload.side) : null;
+  const commentedLines = showCode ? threadCommentedLines(payload) : [];
   const suggestion = reviewThreadSuggestion(payload);
   const rootCommentId = payload.comments.find(comment => comment.inReplyToId === null)?.githubId
     ?? payload.comments[0]?.githubId;
@@ -932,7 +932,7 @@ export function ReviewThread({ activity, viewerLogin, pr, workspaceId, onRefresh
   const sidePrefix = payload.side === 'LEFT' ? 'L' : payload.side === 'RIGHT' ? 'R' : '';
   const isRange = startLine !== null && startLine !== targetLine;
   const location = showCode
-    ? <code>{threadLocation(payload.path, resolved || !commentedLine ? targetLine : null, payload.side, startLine)}</code>
+    ? <code>{threadLocation(payload.path, resolved || commentedLines.length === 0 ? targetLine : null, payload.side, startLine)}</code>
     : targetLine === null
       ? <span>Comment on file</span>
       : <span>Comment on {isRange ? 'lines' : 'line'} <strong>{isRange ? `${sidePrefix}${startLine}–` : ''}{sidePrefix}{targetLine}</strong></span>;
@@ -1031,7 +1031,7 @@ export function ReviewThread({ activity, viewerLogin, pr, workspaceId, onRefresh
   );
   return (
     <ReviewThreadCard location={location} resolved={resolved} outdated={payload.outdated}
-      code={commentedLine && <CommentedCodeLine line={commentedLine} />} controls={controls}>
+      code={commentedLines.map((line, index) => <CommentedCodeLine key={line.lineNumber ?? index} line={line} />)} controls={controls}>
       {payload.comments.map(comment => <ThreadComment comment={comment} fallbackUrl={payload.htmlUrl ?? pr.htmlUrl} suggestion={suggestion}
         viewerLogin={viewerLogin} pr={pr} onDetailUpdate={onDetailUpdate} onQuote={quoteReply} edit={edit} onEditChange={setEdit}
         key={comment.githubId ?? comment.timestamp} />)}
@@ -1159,47 +1159,42 @@ export type ReviewCommentLine = {
   text: string;
 };
 
-export function reviewCommentLine(diffHunk: string, targetLine: number | null, side: string | null): ReviewCommentLine | null {
-  if (!targetLine) return null;
-  const lines = diffHunk.split('\n');
-  const header = lines[0]?.match(/^@@ -(\d+)(?:,\d+)? \+(\d+)(?:,\d+)? @@/);
-  if (!header) return null;
-  let oldLine = Number(header[1]);
-  let newLine = Number(header[2]);
-  for (const value of lines.slice(1)) {
-    const prefix = value[0];
-    if (prefix !== ' ' && prefix !== '+' && prefix !== '-') continue;
-    const onLeft = prefix !== '+';
-    const onRight = prefix !== '-';
-    const lineNumber = side?.toUpperCase() === 'LEFT' ? (onLeft ? oldLine : null) : (onRight ? newLine : null);
-    if (lineNumber === targetLine) return { lineNumber, prefix, text: value.slice(1) };
-    if (onLeft) oldLine++;
-    if (onRight) newLine++;
-  }
-  return null;
+/** The commented lines of a range, read from a thread's diff_hunk or from a whole-file patch of several hunks. */
+export function commentedCodeLines(patch: string | null, side: string | null, startLine: number | null, endLine: number | null): ReviewCommentLine[] {
+  if (endLine === null) return [];
+  const left = side?.toUpperCase() === 'LEFT';
+  const first = startLine ?? endLine;
+  return parseUnifiedDiff(patch).flatMap(hunk => hunk.rows)
+    .map((row): ReviewCommentLine => ({
+      lineNumber: left ? row.oldLine : row.newLine,
+      prefix: row.kind === 'add' ? '+' : row.kind === 'del' ? '-' : ' ',
+      text: row.content,
+    }))
+    .filter(line => line.lineNumber !== null && line.lineNumber >= first && line.lineNumber <= endLine);
 }
 
-/**
- * The head-side lines a RIGHT review thread's suggestion replaces. GitHub's diff_hunk is the hunk as of
- * the comment's original commit, ending at the commented line, so its text is read by original numbers.
- */
-export function reviewThreadSuggestion(payload: PullTimelinePayloadDto): SuggestionBase | undefined {
+/** A thread's range in its own diff_hunk, which GitHub records as the diff at the comment's original commit. */
+function threadHunkRange(payload: PullTimelinePayloadDto): { start: number; end: number } | null {
   const end = payload.originalLine ?? payload.line;
-  if (payload.side?.toUpperCase() !== 'RIGHT' || !payload.diffHunk || end === null) return undefined;
-  const start = (payload.originalLine !== null ? payload.originalStartLine : payload.startLine) ?? end;
-  const rows = parseUnifiedDiff(payload.diffHunk).flatMap(hunk => hunk.rows)
-    .filter(row => row.newLine !== null && row.newLine >= start && row.newLine <= end);
-  return {
-    startLine: payload.line !== null ? payload.startLine ?? payload.line : start,
-    lines: rows.length > 0 && rows.length === end - start + 1 ? rows.map(row => row.content) : null,
-  };
+  if (end === null) return null;
+  return { start: (payload.originalLine !== null ? payload.originalStartLine : payload.startLine) ?? end, end };
 }
 
-/** The commented line in a whole-file patch, which, unlike a thread's diff_hunk, can hold several hunks. */
-export function patchCommentLine(patch: string | null, targetLine: number, side: string): ReviewCommentLine | null {
-  const left = side.toUpperCase() === 'LEFT';
-  const row = parseUnifiedDiff(patch).flatMap(hunk => hunk.rows).find(value => (left ? value.oldLine : value.newLine) === targetLine);
-  return row ? { lineNumber: targetLine, prefix: row.kind === 'add' ? '+' : row.kind === 'del' ? '-' : ' ', text: row.content } : null;
+/** The code a review thread comments on, as its diff_hunk recorded it. */
+export function threadCommentedLines(payload: PullTimelinePayloadDto): ReviewCommentLine[] {
+  const range = threadHunkRange(payload);
+  return range === null ? [] : commentedCodeLines(payload.diffHunk, payload.side, range.start, range.end);
+}
+
+/** The head-side lines a RIGHT review thread's suggestion replaces. */
+export function reviewThreadSuggestion(payload: PullTimelinePayloadDto): SuggestionBase | undefined {
+  const range = threadHunkRange(payload);
+  if (payload.side?.toUpperCase() !== 'RIGHT' || !payload.diffHunk || range === null) return undefined;
+  const lines = threadCommentedLines(payload);
+  return {
+    startLine: payload.line !== null ? payload.startLine ?? payload.line : range.start,
+    lines: lines.length > 0 && lines.length === range.end - range.start + 1 ? lines.map(line => line.text) : null,
+  };
 }
 
 export function CommentedCodeLine({ line }: { line: ReviewCommentLine }) {

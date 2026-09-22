@@ -30,10 +30,11 @@ import { useLocalReviewThreads } from './local-review/useLocalReviewThreads';
 import type { LocalReviewThreads } from './local-review/types';
 import PullChanges, { type CommitRange, type DiffAgentComment } from './PullChanges';
 import MarkdownBody from './MarkdownBody';
-import PullOverview, { CommentedCodeLine, isQueued, mergePullRequestWriteDetail, patchCommentLine, remoteErrorMessage, useViewer, type PullDetailUpdater } from './PullOverview';
+import PullOverview, { commentedCodeLines, CommentedCodeLine, isQueued, mergePullRequestWriteDetail, remoteErrorMessage, useViewer, type PullDetailUpdater } from './PullOverview';
 import { ReviewThreadCard, ReviewThreadMessage } from './ReviewThreadCard';
 import UserAvatar from '../UserAvatar';
 import PullRowItem, { PullRequestIcon } from './PullRowItem';
+import { reviewCommentGroups } from './lineRangeSelection';
 import { mergePullRequestDetailStatus, usePullRequestDetail } from './usePullRequestDetail';
 import { pullRequestDiffRevision, usePullRequestChanges } from './usePullRequestChanges';
 import { useRecentTouch } from '../recent/useRecentTouch';
@@ -717,9 +718,13 @@ export default function PullsScreen({
     setError(null);
   }, [selectedPrNumber, selectedPrRepo]);
 
+  // A staged review is the reader's unsent writing, so it lasts as long as the pull request is
+  // open here. Nothing the pull request itself does — a new head, a refresh, a narrowed commit
+  // range — may throw it away; a comment written against an older head carries that head's SHA and
+  // is refused at submission instead.
   useEffect(() => {
     setPendingReviewComments([]);
-  }, [diffRevision, selectedPrNumber, selectedPrRepo]);
+  }, [selectedPrNumber, selectedPrRepo]);
 
   const scopedWorkspaceId = repositoryScope?.workspaceId;
   const requestedReviewId = selectedPrRepo?.toLowerCase() === initialPr?.repo.toLowerCase() && selectedPrNumber === initialPr?.number
@@ -813,11 +818,6 @@ export default function PullsScreen({
     }
   };
 
-  const changeCommitRange = (range: CommitRange) => {
-    changes.changeCommitRange(range);
-    setPendingReviewComments([]);
-  };
-
   const refreshChanges = changes.refresh;
   const refresh = useCallback(async () => {
     if (!selectedPr || detailLoading) return;
@@ -830,7 +830,6 @@ export default function PullsScreen({
     if (request !== manualDetailRefreshRequest.current
         || selectedPullRequest.current?.key !== selectedKey) return;
     refreshChanges();
-    setPendingReviewComments([]);
     if (singlePullRequest || listVersion !== listRequest.current) return;
     try {
       const result = await window.bridge.fetchPrs(repositoryScope?.workspaceId, 0, PAGE_SIZE);
@@ -1188,7 +1187,7 @@ export default function PullsScreen({
               diffRange={diffRange}
               diffLoading={diffLoading}
               pendingComments={pendingReviewComments}
-              onCommitRangeChange={changeCommitRange}
+              onCommitRangeChange={changes.changeCommitRange}
               onPendingCommentsChange={setPendingReviewComments}
               contributorsWorkspaceId={repositoryScope?.workspaceId}
               onRefresh={refresh}
@@ -1551,10 +1550,10 @@ export function ReviewDialog({
   }, [detail.repo, detail.number, hasOutgoing]);
 
   // Line numbers of a comment written on selected commits belong to that range, not to the stored diff.
-  const codeLine = (comment: InlineReviewCommentDto | ReviewDraftItemDto) => {
-    if (snapshot === null || ('commitId' in comment && comment.commitId !== null && comment.commitId !== snapshot.headSha)) return null;
+  const codeLines = (comment: InlineReviewCommentDto | ReviewDraftItemDto) => {
+    if (snapshot === null || ('commitId' in comment && comment.commitId !== null && comment.commitId !== snapshot.headSha)) return [];
     const file = snapshot.files.find(value => value.filename === comment.path);
-    return file ? patchCommentLine(file.patch, comment.line, comment.side) : null;
+    return file ? commentedCodeLines(file.patch, comment.side, comment.startLine, comment.line) : [];
   };
 
   useEffect(() => {
@@ -1594,15 +1593,26 @@ export function ReviewDialog({
           .then(reviewed => onReviewSubmitted(reviewed, event), () => {});
       }
       else {
-        const reviewed = await window.bridge.submitReview(
-          pr.id,
-          detail.repo,
-          detail.number,
-          event,
-          body.trim(),
-          pendingComments,
-        );
-        onPendingCommentsChange([]);
+        // One review is anchored at one commit, so comments written while different commits were
+        // selected go out as one review each and the verdict rides the one written on the head.
+        // Each group leaves the staged list as it lands, so retrying after a group fails cannot
+        // send an earlier one twice.
+        const groups = reviewCommentGroups(pendingComments, snapshot?.headSha ?? null);
+        let remaining = pendingComments;
+        let reviewed = detail;
+        for (const [index, group] of groups.entries()) {
+          const verdict = index === groups.length - 1;
+          reviewed = await window.bridge.submitReview(
+            pr.id,
+            detail.repo,
+            detail.number,
+            verdict ? event : 'COMMENT',
+            verdict ? body.trim() : '',
+            group,
+          );
+          remaining = remaining.filter(comment => !group.includes(comment));
+          onPendingCommentsChange(remaining);
+        }
         // A review cannot move the diff, so the patched detail is enough and the
         // Changes tab keeps what it already loaded.
         onReviewSubmitted(reviewed, event);
@@ -1635,10 +1645,10 @@ export function ReviewDialog({
         {outgoing.length > 0 && (
           <div className="pr-review-sheet__pending">
             {outgoing.map(({ key, comment, remove }) => {
-              const line = codeLine(comment);
+              const lines = codeLines(comment);
               return <ReviewThreadCard key={key} resolved={false} controls={null}
                 location={<code title={comment.path}>{comment.path}</code>}
-                code={line && <CommentedCodeLine line={line} />}>
+                code={lines.map((line, index) => <CommentedCodeLine key={line.lineNumber ?? index} line={line} />)}>
                 <ReviewThreadMessage timestamp={null}
                   author={<>{viewer && <UserAvatar login={viewer.login} avatarUrl={viewer.avatarUrl} size={22} showLogin />}
                     <span className="pull-diff-pending__badge">Pending</span></>}

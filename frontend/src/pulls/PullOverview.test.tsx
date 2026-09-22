@@ -18,10 +18,13 @@ import { describe, expect, it, vi } from 'vitest';
 import type { InlineReviewCommentDto, PullRequestDetailDto, PullRequestDto, PullTimelinePayloadDto } from '../types';
 import MarkdownBody, { markdownBlocks } from './MarkdownBody';
 import { EMPTY_TIMELINE_PAYLOAD as emptyPayload } from './model';
-import PullOverview, { activeMention, appendQuotedReply, applyViewerReaction, canUpdateComment, CommentEditor, displayedMetadataPickerOptions, groupTimelineActivities, githubActionsJobId, isViewerComment, MAX_UNSELECTED_PEOPLE_PICKER_OPTIONS, mentionCandidates, mergePullRequestWriteDetail, MetadataPicker, nextViewerReaction, patchCommentLine, peoplePickerCandidates, remoteErrorMessage, replaceMention, reviewCommentLine, ReviewThread, reviewThreadSuggestion, submitPullReaction, submitPullRequestComment, updatePullReactionDetail, updateReviewThreadResolution } from './PullOverview';
+import PullOverview, { activeMention, appendQuotedReply, applyViewerReaction, canUpdateComment, commentedCodeLines, CommentEditor, displayedMetadataPickerOptions, groupTimelineActivities, githubActionsJobId, isViewerComment, MAX_UNSELECTED_PEOPLE_PICKER_OPTIONS, mentionCandidates, mergePullRequestWriteDetail, MetadataPicker, nextViewerReaction, peoplePickerCandidates, remoteErrorMessage, replaceMention, ReviewThread, reviewThreadSuggestion, submitPullReaction, submitPullRequestComment, updatePullReactionDetail, updateReviewThreadResolution } from './PullOverview';
 import { relativeTime } from '../relativeTime';
 import PullsScreen, { canSubmitReview, hasMergeConflicts, isReviewRequestedForViewer, MergeDialog, mergeActionLabel, mergeStatus, PullDetailHeader, remotePullRequest, ReviewDialog, unresolvedReviewCount } from './PullsScreen';
 
+
+/** New lines 41 (context) through 44, as GitHub records a thread's diff_hunk. */
+const COMMENTED_HUNK = '@@ -41,4 +41,18 @@ default long getMemoryUsage()\n {\n+    MemoryUsageTracker createTracker();\n+\n+    interface MemoryUsageTracker';
 
 describe('PullOverview', () => {
   it('places private local review cards among GitHub activity without changing remote comments', () => {
@@ -716,14 +719,14 @@ describe('PullOverview', () => {
     expect(skippedRollback.recentActivity.find(activity => activity.githubId === 3)?.payload.resolved).toBe(true);
   });
 
-  it('shows only the commented diff line with its number and state', () => {
+  it('shows the commented diff lines with their numbers and state', () => {
     const value = detail();
     value.recentActivity = [{
       actor: 'bob', eventType: 'review_thread', timestamp: '2026-08-20T09:35:00Z', body: null, githubId: 4,
       payload: {
         ...emptyPayload,
         path: 'src/PageSourceProvider.java',
-        diffHunk: '@@ -41,4 +41,18 @@ default long getMemoryUsage()\n {\n+    MemoryUsageTracker createTracker();\n+\n+    interface MemoryUsageTracker',
+        diffHunk: COMMENTED_HUNK,
         originalLine: 44,
         side: 'RIGHT',
         outdated: true,
@@ -732,16 +735,42 @@ describe('PullOverview', () => {
 
     const html = renderToStaticMarkup(<PullOverview pr={pullRequest()} detail={value} onRefresh={async () => {}} />);
 
-    expect(reviewCommentLine('@@ -7,2 +7 @@\n keep\n-old', 8, 'LEFT')).toEqual({ lineNumber: 8, prefix: '-', text: 'old' });
     const patch = '@@ -1,2 +1,2 @@\n one\n-two\n+2\n@@ -40,2 +40,3 @@\n forty\n+added\n-gone';
-    expect(patchCommentLine(patch, 41, 'RIGHT')).toEqual({ lineNumber: 41, prefix: '+', text: 'added' });
-    expect(patchCommentLine(patch, 41, 'LEFT')).toEqual({ lineNumber: 41, prefix: '-', text: 'gone' });
-    expect(patchCommentLine(patch, 3, 'RIGHT')).toBeNull();
+    expect(commentedCodeLines(patch, 'RIGHT', null, 41)).toEqual([{ lineNumber: 41, prefix: '+', text: 'added' }]);
+    expect(commentedCodeLines(patch, 'LEFT', 40, 41)).toEqual([
+      { lineNumber: 40, prefix: ' ', text: 'forty' },
+      { lineNumber: 41, prefix: '-', text: 'gone' },
+    ]);
+    expect(commentedCodeLines(patch, 'RIGHT', null, 3)).toEqual([]);
     expect(html).toContain('<code>src/PageSourceProvider.java</code><span class="pr-thread-outdated">Outdated</span>');
     expect(html).toContain('class="pr-commented-code-line is-add"');
     expect(html).toContain('pr-commented-code-line__number">44</span>');
     expect(html).toContain('<code>    interface MemoryUsageTracker</code>');
     expect(html).not.toContain('createTracker');
+  });
+
+  it('shows every line of a multi-line review comment', () => {
+    const value = detail();
+    value.recentActivity = [{
+      actor: 'bob', eventType: 'review_thread', timestamp: '2026-08-20T09:35:00Z', body: null, githubId: 4,
+      payload: {
+        ...emptyPayload,
+        path: 'src/PageSourceProvider.java',
+        diffHunk: COMMENTED_HUNK,
+        line: 44,
+        originalLine: 44,
+        startLine: 42,
+        originalStartLine: 42,
+        side: 'RIGHT',
+      },
+    }];
+
+    const html = renderToStaticMarkup(<PullOverview pr={pullRequest()} detail={value} onRefresh={async () => {}} />);
+
+    expect(html).toContain('pr-commented-code-line__number">42</span>');
+    expect(html).toContain('<code>    MemoryUsageTracker createTracker();</code>');
+    expect(html).toContain('pr-commented-code-line__number">44</span>');
+    expect(html).toContain('<code>    interface MemoryUsageTracker</code>');
   });
 
   it('offers reply and unresolve actions inside a resolved review thread', () => {

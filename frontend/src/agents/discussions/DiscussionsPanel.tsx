@@ -72,7 +72,8 @@ export function DiscussionCard({ discussion, siblings, discussions, open, onTogg
   discussions: TaskDiscussions;
   open: boolean;
   onToggle: () => void;
-  onJump?: (discussion: TaskDiscussionDto) => void;
+  /** Shows the passage this thread is about, or the whole answer when no thread is named. */
+  onJump?: (target: { turnId: string; discussionId?: string }) => void;
   onHover?: (discussionId: string | null) => void;
 }): React.ReactElement {
   const [draft, setDraft] = useState('');
@@ -187,7 +188,8 @@ export function DiscussionCard({ discussion, siblings, discussions, open, onTogg
                 <span className="agt-disc-card__spacer" />
                 {onJump !== undefined && (
                   <button className="agt-disc-card__jump" type="button" title="Show passage in transcript"
-                    aria-label="Show passage in transcript" onClick={() => onJump(discussion)}>{JUMP}</button>
+                    aria-label="Show passage in transcript"
+                    onClick={() => onJump({ turnId: discussion.turnId, discussionId: discussion.id })}>{JUMP}</button>
                 )}
               </div>
             )}
@@ -212,7 +214,7 @@ export function DiscussionsPanel({ discussions, turns, focus, onJump, onHover }:
    * one twice opens it again after the reader has folded it.
    */
   focus?: { id: string } | null;
-  onJump?: (discussion: TaskDiscussionDto) => void;
+  onJump?: (target: { turnId: string; discussionId?: string }) => void;
   onHover?: (discussionId: string | null) => void;
 }): React.ReactElement {
   const [openId, setOpenId] = useState<string | null>(focus?.id ?? null);
@@ -259,7 +261,7 @@ export function DiscussionsPanel({ discussions, turns, focus, onJump, onHover }:
                 <span className="agt-disc-group__synopsis">{turn.synopsis}</span>
                 {onJump !== undefined && (
                   <button className="agt-disc-group__jump" type="button" title="Show answer in transcript"
-                    aria-label="Show answer in transcript" onClick={() => onJump(cards[0])}>{JUMP}</button>
+                    aria-label="Show answer in transcript" onClick={() => onJump({ turnId })}>{JUMP}</button>
                 )}
               </div>
             )}

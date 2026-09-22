@@ -200,6 +200,7 @@ export function DiscussableAnswer({ turnId, text, discussions, completed = false
             <button
               type="button"
               className={`agt-disc-mark${focused === discussion.id ? ' is-anchored' : ''}`}
+              data-discussion={discussion.id}
               title="Show this discussion"
               onClick={() => onOpen?.(discussion.id)}
               onMouseEnter={() => onHover?.(discussion.id)}
@@ -274,6 +275,20 @@ export function DiscussableAnswer({ turnId, text, discussions, completed = false
       )}
     </div>
   );
+}
+
+/**
+ * Brings the passage a discussion is about into the transcript, at the top of it.
+ *
+ * <p>The mark rather than its turn: a turn runs for several screens, so scrolling to the turn
+ * routinely leaves the passage the thread is about off screen. The answer stands in when the
+ * passage has drifted out of it, and the turn when the answer has not rendered at all.
+ */
+export function revealPassage(target: { turnId: string; discussionId?: string }): void {
+  const mark = target.discussionId === undefined ? null
+    : document.querySelector<HTMLElement>(`.agt-disc-mark[data-discussion="${CSS.escape(target.discussionId)}"]`);
+  const turn = document.querySelector<HTMLElement>(`.agt-turn[data-history-anchor="${CSS.escape(target.turnId)}"]`);
+  (mark ?? turn?.querySelector<HTMLElement>('.agt-answer') ?? turn)?.scrollIntoView({ block: 'start' });
 }
 
 /** Drops the part of the selection that left the answer, so the offer can be made for what is left. */

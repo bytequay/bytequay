@@ -63,8 +63,7 @@ import TaskPaneDivider, { useTaskPane } from './TaskPaneDivider';
 import { AgentConversation,BlockView,clock,codeGraphText,ConversationComposer,ConversationQueue,Glyph,modelName,PlanSteps,serviceTierName,shortDate,Spinner,stateClass,useConversationHistory,useOutputWheel,type ApprovalDecider,type AttachmentPreview } from './AgentConversation';
 import { type CommitRange, type DiffAgentComment } from '../pulls/PullChanges';
 import { useTaskDiscussions, type TaskDiscussions } from './discussions/useTaskDiscussions';
-import type { SelectedPassage } from './discussions/DiscussableAnswer';
-import type { TaskDiscussionDto } from './discussions/contracts';
+import { revealPassage, type SelectedPassage } from './discussions/DiscussableAnswer';
 import { DiscussionsPanel } from './discussions/DiscussionsPanel';
 import { useLocalReviewThreads } from '../pulls/local-review/useLocalReviewThreads';
 import type { LocalReviewThreadDto, LocalReviewThreads } from '../pulls/local-review/types';
@@ -592,7 +591,7 @@ function SidePanel({
   onAskAgentDisabled?: string | null;
   localReview?: LocalReviewThreads;
   discussions?: TaskDiscussions;
-  onJumpToPassage?: (discussion: TaskDiscussionDto) => void;
+  onJumpToPassage?: (target: { turnId: string; discussionId?: string }) => void;
   onHoverDiscussion?: (discussionId: string | null) => void;
   /** The answers the loaded transcript holds, so a thread's card can name the one it hangs under. */
   discussionTurns?: { turnId: string; ordinal: number; synopsis: string }[];
@@ -1032,7 +1031,7 @@ export function AgentTaskBody({
   onOpenDiscussion?: (discussionId: string) => void;
   /** The discussion a transcript footer asked to see, which opens its card in the panel. */
   discussionFocus?: { id: string } | null;
-  onJumpToPassage?: (discussion: TaskDiscussionDto) => void;
+  onJumpToPassage?: (target: { turnId: string; discussionId?: string }) => void;
   onHoverDiscussion?: (discussionId: string | null) => void;
   learning?: React.ReactNode;
   reviewFocus?: ReviewCardFocus | null;
@@ -2468,10 +2467,7 @@ export default function AgentTaskScreen({
       }}
       discussionFocus={discussionFocus}
       onOpenDiscussion={id => { setPanelChoice(true); setPanelTab('discussions'); setDiscussionFocus({ id }); }}
-      onJumpToPassage={discussion => {
-        document.querySelector(`.agt-turn[data-history-anchor="${CSS.escape(discussion.turnId)}"]`)
-          ?.scrollIntoView({ block: 'center' });
-      }}
+      onJumpToPassage={revealPassage}
       learning={state.task === null ? undefined : <DevelopmentLearningPanel key={taskId} task={state.task} repository={workspace === undefined ? '' : `${workspace.monitoredOwner}/${workspace.monitoredRepo}`}
         refreshKey={state.lifecycleEpoch} refining={state.task.developmentContinuationUnfinished && state.turn?.developmentOrigin?.kind === 'REFINE_SUMMARY'}
         disabledReason={taskCommentDisabled}

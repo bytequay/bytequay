@@ -3744,6 +3744,9 @@
   border-radius: 2px;
   background: var(--disc-markbd2);
   transition: background 0.25s;
+  /* Jumping here from the panel puts the passage at the top of the transcript, with a couple of
+     lines of the answer above it for context rather than flush against the edge. */
+  scroll-margin-top: 72px;
 }
 
 /* The mark is a button so a click opens its thread, and it has to stay part of the sentence. */

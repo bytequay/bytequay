@@ -17,7 +17,7 @@ import { createRoot } from 'react-dom/client';
 import { flushSync } from 'react-dom';
 
 import '../../css/agents.css';
-import { DiscussableAnswer, type SelectedPassage } from '../discussions/DiscussableAnswer';
+import { DiscussableAnswer, revealPassage, type SelectedPassage } from '../discussions/DiscussableAnswer';
 import { assert, changeInput, settle } from '../../fixtures/harness';
 
 const ANSWER = [
@@ -184,6 +184,34 @@ export async function run(): Promise<{ name: string; error?: string }[]> {
     await settle();
     assert(opened.join() === 'd1', `Clicking the mark opened ${opened.join() || 'nothing'}`);
     marked.remove();
+  }, results);
+
+  await clear();
+  await scenario('jumps to the passage itself, at the top of the transcript', async () => {
+    const scroller = document.createElement('div');
+    scroller.className = 'agt-transcript';
+    scroller.style.height = '300px';
+    // A turn runs far past one screen, which is what used to hide the passage when the jump
+    // scrolled to the turn and centred it.
+    scroller.innerHTML = '<section class="agt-turn" data-history-anchor="turn-10">'
+      + '<div class="agt-user"><div class="agt-user__bubble">Ask</div></div>'
+      + '<p style="height:900px">Log</p><div class="agt-answer"></div><p style="height:900px">After</p></section>';
+    document.body.append(scroller);
+    flushSync(() => createRoot(scroller.querySelector('.agt-answer') as HTMLElement).render(
+      <DiscussableAnswer turnId="turn-10" text={ANSWER} discussions={[{
+        id: 'd2', taskId: 't1', turnId: 'turn-10', quote: 'descendant whose name matches the leaf', occurrence: 1,
+        resolved: false, pending: false, providerLane: 'claude', version: 0,
+        createdAt: '2026-09-22T00:00:00Z', updatedAt: '2026-09-22T00:00:00Z', messages: [],
+      }]} />));
+    await settle();
+    scroller.scrollTop = 0;
+    revealPassage({ turnId: 'turn-10', discussionId: 'd2' });
+    await settle();
+    const mark = scroller.querySelector('button.agt-disc-mark[data-discussion="d2"]') as HTMLElement | null;
+    assert(mark !== null, 'The jump target is not marked');
+    const top = mark.getBoundingClientRect().top - scroller.getBoundingClientRect().top;
+    assert(Math.abs(top - 72) <= 8, `The passage landed ${Math.round(top)}px below the top, not the 72 it asks for`);
+    scroller.remove();
   }, results);
 
   return results;

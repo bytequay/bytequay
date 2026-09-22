@@ -293,14 +293,17 @@ describe('DiffViewer', () => {
     expect(html).not.toContain('Unrelated event');
   });
 
-  it('shows full-PR threads separately when a selected commit range changes line positions', () => {
+  it('anchors a commit-range thread only while the lines it quotes still read the same', () => {
+    const moved = reviewActivity(102, 'Moved discussion', {
+      diffHunk: '@@ -95,3 +95,3 @@\n context\n+a line this commit range does not show\n trailing',
+    });
     const html = renderToStaticMarkup(<DiffViewer files={[file]} commits={commits} commitRange={{ start: 1, end: 1 }}
-      reviewThreads={reviewThreads([reviewActivity(101, 'Full-PR discussion')])} />);
+      reviewThreads={reviewThreads([reviewActivity(101, 'Anchored discussion'), moved])} />);
 
-    expect(html).not.toContain('<tr class="is-review-thread ');
+    expect(html).toContain('<tr class="is-review-thread ');
+    expect(html.indexOf('Anchored discussion')).toBeLessThan(html.indexOf('</table>'));
     expect(html).toContain('aria-label="Review comments on the full pull request"');
-    expect(html).toContain('Full-PR discussion');
-    expect(html.indexOf('Full-PR discussion')).toBeGreaterThan(html.indexOf('</table>'));
+    expect(html.indexOf('Moved discussion')).toBeGreaterThan(html.indexOf('</table>'));
   });
 
   it('reports unavailable review comments without hiding the code', () => {

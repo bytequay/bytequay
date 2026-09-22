@@ -31,7 +31,7 @@ import BetterWordsButton from './BetterWordsButton';
 import MarkdownBody, { type SuggestionBase } from './MarkdownBody';
 import MarkdownEditor from './MarkdownEditor';
 import CopyLinkButton from '../CopyLinkButton';
-import { remoteErrorMessage, ReviewThread, useViewer, type PullDetailUpdater } from './PullOverview';
+import { remoteErrorMessage, ReviewThread, threadCommentedLines, useViewer, type PullDetailUpdater } from './PullOverview';
 import type { ReviewNavigationTarget } from './agent-review/AgentReviewTab';
 import type { AgentReviewDto, ReviewSide } from './agent-review/contracts';
 import ReviewFindingCard from './agent-review/ReviewFindingCard';
@@ -747,6 +747,14 @@ function DiffFileCard({
   const canComment = canReview || onAskAgent !== undefined;
   const fileThreads = reviewThreads?.activities.filter(activity =>
     activity.eventType === 'review_thread' && activity.payload.path === file.filename) ?? [];
+  // A commit range numbers its own diff, not the pull request head, so a thread anchors in one only while
+  // the lines it quotes still read the same.
+  const anchoredThreads = fullDiff ? fileThreads : fileThreads.filter(activity => {
+    const { line, side, startLine } = activity.payload;
+    const quoted = threadCommentedLines(activity.payload).map(value => value.text).join('\n');
+    return line !== null && quoted !== '' && diffSideLines(hunks, side === 'LEFT' ? oldLines : newLines,
+      side === 'LEFT' ? 'LEFT' : 'RIGHT', startLine ?? line, line)?.join('\n') === quoted;
+  });
   const placedThreads = new Set<PullRequestDetailDto['recentActivity'][number]>();
   const fileLocalThreads = localReview?.threads.filter(thread => thread.path === file.filename) ?? [];
   const anchoredLocalThreads = fileLocalThreads.filter(thread => localReviewMatchesRevision(thread, baseSha, headSha)
@@ -914,10 +922,10 @@ function DiffFileCard({
       && navigation.side === rowSide
       && rowLine >= navigation.startLine
       && rowLine <= navigation.endLine;
-    const rowThreads = fullDiff ? fileThreads.filter(activity => !activity.payload.outdated
+    const rowThreads = anchoredThreads.filter(activity => !activity.payload.outdated
       && activity.payload.line !== null
       && (activity.payload.side === 'LEFT' ? activity.payload.line === oldLine
-        : activity.payload.side === 'RIGHT' && activity.payload.line === newLine)) : [];
+        : activity.payload.side === 'RIGHT' && activity.payload.line === newLine));
     rowThreads.forEach(activity => placedThreads.add(activity));
     const rowLocalThreads = anchoredLocalThreads.filter(thread => thread.line === (thread.side === 'LEFT' ? oldLine : newLine));
     rowLocalThreads.forEach(thread => placedLocalThreads.add(thread.id));

@@ -292,22 +292,7 @@ class TestReviewTools
         TurnId turnId = TurnId.random();
         String command = "mvn -Dtest=TestWidget#rejectsNull test";
         String output = "Tests run: 1, Failures: 1\nExpected rejection but the null value was accepted.";
-        AgentEventEnvelope completed = new AgentEventEnvelope(
-                AgentEventEnvelope.CURRENT_SCHEMA_VERSION,
-                EventId.random(),
-                1,
-                TaskId.valueOf(TASK_ID),
-                Optional.of(turnId),
-                AgentEventSource.root(),
-                NOW,
-                new AgentEventPayload.CommandActivity(
-                        ActivityState.COMPLETED,
-                        ImmutableList.of("mvn", "-Dtest=TestWidget#rejectsNull", "test"),
-                        Optional.of(output),
-                        Optional.of(1),
-                        false));
-        when(events.readHistory(TaskId.valueOf(TASK_ID), OptionalLong.empty(), OptionalLong.empty()))
-                .thenReturn(new AgentHistoryPage(ImmutableList.of(completed), OptionalLong.empty(), OptionalLong.empty(), 1));
+        commandRan(turnId, output);
 
         JsonNode commands = call("review_get_context", ImmutableMap.of("kind", "command_output")).path("commands");
         assertThat(commands).hasSize(1);
@@ -537,13 +522,67 @@ class TestReviewTools
         assertThat(store.findRun(RUN_ID).orElseThrow().investigation().orElseThrow().validations().getFirst().findingId()).isEmpty();
     }
 
+    private void commandRan(TurnId turnId, String output)
+    {
+        AgentEventEnvelope completed = new AgentEventEnvelope(
+                AgentEventEnvelope.CURRENT_SCHEMA_VERSION,
+                EventId.random(),
+                1,
+                TaskId.valueOf(TASK_ID),
+                Optional.of(turnId),
+                AgentEventSource.root(),
+                NOW,
+                new AgentEventPayload.CommandActivity(
+                        ActivityState.COMPLETED,
+                        ImmutableList.of("mvn", "-Dtest=TestWidget#rejectsNull", "test"),
+                        Optional.of(output),
+                        Optional.of(1),
+                        false));
+        when(events.readHistory(TaskId.valueOf(TASK_ID), OptionalLong.empty(), OptionalLong.empty()))
+                .thenReturn(new AgentHistoryPage(ImmutableList.of(completed), OptionalLong.empty(), OptionalLong.empty(), 1));
+    }
+
+    @Test
+    void aWarningMustCiteTheOutputOfACommandThatWasRun()
+    {
+        call("review_save_summary", summary("summary", "Guarded input behavior"));
+        readSource();
+        List<Map<String, Object>> validations = ImmutableList.of(assessment(1, "REJECTED"));
+        String text = "Live Snowflake tests stopped at login: the account credentials were not supplied.";
+        // A sentence alone, a warning with no refs, and a warning backed only by a source read were never attempted checks.
+        for (Object unproven : ImmutableList.of(
+                text,
+                ImmutableMap.of("text", text),
+                ImmutableMap.of("text", text, "evidenceRefs", ImmutableList.of()),
+                ImmutableMap.of("text", text, "evidenceRefs", ImmutableList.of("E1")))) {
+            Map<String, Object> refused = ImmutableMap.<String, Object>builder()
+                    .putAll(finish("unproven-" + unproven.hashCode(), validations))
+                    .put("warnings", ImmutableList.of(unproven))
+                    .buildOrThrow();
+            assertThat(call("review_finish", refused).at("/error/field").asText()).isEqualTo("warnings");
+            assertThat(store.findRun(RUN_ID).orElseThrow().coverage()).isEmpty();
+        }
+
+        commandRan(TurnId.random(), "SnowflakeSQLException: Incorrect username or password was specified.");
+        String ref = call("review_get_context", ImmutableMap.of("kind", "command_output")).at("/commands/0/evidenceRef").asText();
+        Map<String, Object> proven = ImmutableMap.<String, Object>builder()
+                .putAll(finish("proven", validations))
+                .put("warnings", ImmutableList.of(ImmutableMap.of("text", text, "evidenceRefs", ImmutableList.of(ref))))
+                .buildOrThrow();
+        assertThat(call("review_finish", proven).path("status").asText()).isEqualTo("accepted");
+        assertThat(store.findRun(RUN_ID).orElseThrow().coverage().orElseThrow().warnings()).containsExactly(text + " (" + ref + ")");
+    }
+
     @Test
     void unavailableTestsAreWarningsWithoutBypassingCandidateValidation()
     {
         call("review_save_summary", summary("summary", "Clarify the key encoding"));
         readSource();
         String findingId = call("review_save_finding", finding("finding", "Clarify encoding", "A2", ImmutableList.of(evidence("E1")))).path("findingId").asText();
-        List<String> warnings = ImmutableList.of("Live Snowflake authentication tests could not run because account credentials were not supplied.");
+        commandRan(TurnId.random(), "SnowflakeSQLException: Incorrect username or password was specified.");
+        String commandRef = call("review_get_context", ImmutableMap.of("kind", "command_output")).at("/commands/0/evidenceRef").asText();
+        String warning = "Live Snowflake authentication tests could not run because account credentials were not supplied.";
+        List<Map<String, Object>> warnings = ImmutableList.of(ImmutableMap.of("text", warning, "evidenceRefs", ImmutableList.of(commandRef)));
         Map<String, Object> unresolved = ImmutableMap.<String, Object>builder()
                 .putAll(finish("unresolved", ImmutableList.of(assessment(1, "UNRESOLVED"))))
                 .put("warnings", warnings)
@@ -560,7 +599,7 @@ class TestReviewTools
         ReviewCoverage coverage = run.coverage().orElseThrow();
         assertThat(coverage.complete()).isTrue();
         assertThat(coverage.omissions()).isEmpty();
-        assertThat(coverage.warnings()).isEqualTo(warnings);
+        assertThat(coverage.warnings()).containsExactly(warning + " (" + commandRef + ")");
         assertThat(run.currentStep().orElseThrow().validation().orElseThrow().coverage()).isEqualTo(coverage);
     }
 
@@ -580,7 +619,7 @@ class TestReviewTools
         readSource();
         Map<String, Object> withWarning = ImmutableMap.<String, Object>builder()
                 .putAll(finish("missing-file", ImmutableList.of(assessment(1, "REJECTED"))))
-                .put("warnings", ImmutableList.of("An external test service is unavailable"))
+                .put("warnings", ImmutableList.of())
                 .buildOrThrow();
         assertThat(call("review_finish", withWarning)
                 .at("/error/field").asText()).isEqualTo("reviewedFiles");

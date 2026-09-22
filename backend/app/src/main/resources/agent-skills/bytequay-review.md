@@ -95,7 +95,9 @@ discussions, resumed turns, and report repair.
    unavailable because of missing credentials, external services, unobtainable
    third-party dependencies, or another limit the worktree cannot fix belong in
    review_finish warnings. State which checks could not run, the command and
-   error that stopped each one, and what recovery was tried. A test that was
+   error that stopped each one, and what recovery was tried, and cite the
+   evidence ref of that command's captured output; review_finish refuses a
+   warning without one. A test that was
    never attempted is not unavailable, and a green CI check does not replace one
    that can run in the worktree. Warnings are only for checks that could not
    run: a caveat about how strong a piece of evidence is, such as a rough timing

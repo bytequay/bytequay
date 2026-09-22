@@ -82,7 +82,9 @@ final class ReviewPrompts
             Tests still unavailable after the Testing recovery below, because of missing credentials, external \
             services, unobtainable third-party dependencies, native denials, or another limit this worktree \
             cannot fix, belong in review_finish warnings that name the command that was run, the error that \
-            stopped it, and the recovery that was tried. Warnings are only for checks that could not run. \
+            stopped it, and the recovery that was tried. Each warning cites the evidence ref of that command's \
+            captured output from review_get_context kind command_output; review_finish refuses a warning without \
+            one. Warnings are only for checks that could not run. \
             A caveat about how strong a piece of evidence is, such as a rough timing measurement, stays in \
             that candidate's conclusion or the finding's evidence explanation. Warnings do not prevent \
             complete=true with omissions=[] if all required scope was reviewed and every candidate is \

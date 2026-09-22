@@ -93,6 +93,8 @@ public class ReviewTools
     private static final int MAX_TITLE = 200;
     private static final int MAX_KEY = 100;
     private static final int MAX_EVIDENCE = 8;
+    /** Marks evidence captured from a command the agent ran, which is the only proof a warning accepts. */
+    private static final String COMMAND_EVIDENCE_SOURCE = "command output: ";
     private static final int MAX_CANDIDATES = 30;
     private static final int MAX_EXCERPT = 4000;
     private static final int SOURCE_WINDOW = 200;
@@ -294,7 +296,8 @@ public class ReviewTools
                                 + "SUPPORTED binds a saved findingId and findingRevision. Report the investigationStep from the assignment context. "
                                 + "complete=false and omissions are required for unsettled candidates or unreviewed scope. "
                                 + "Warnings are only for checks that were run and stopped by a limit the worktree cannot fix, such as missing credentials, "
-                                + "external services, or unobtainable third-party dependencies; each names the command, its error, and the recovery tried. "
+                                + "external services, or unobtainable third-party dependencies; each names the command, its error, and the recovery tried, "
+                                + "and cites the evidence ref of that command's captured output. A warning without one is refused. "
                                 + "Caveats about evidence strength stay with the candidate they qualify. "
                                 + "Warnings do not prevent completion when all scope was reviewed and candidate conclusions have sufficient evidence.",
                         schema(ImmutableMap.of(
@@ -303,7 +306,9 @@ public class ReviewTools
                                 "newCandidates", stringArray(MAX_CANDIDATES, 2000),
                                 "complete", ImmutableMap.of("type", "boolean"),
                                 "omissions", stringArray(50, 500),
-                                "warnings", stringArray(50, 500),
+                                "warnings", ImmutableMap.of("type", "array", "maxItems", 50, "items", schema(ImmutableMap.of(
+                                        "text", ImmutableMap.of("type", "string", "minLength", 1, "maxLength", 500),
+                                        "evidenceRefs", stringArray(MAX_EVIDENCE, 20)), ImmutableList.of("text", "evidenceRefs"))),
                                 "validations", ImmutableMap.of("type", "array", "maxItems", MAX_CANDIDATES, "items", validationSchema())),
                                 ImmutableList.of("operationKey", "complete", "omissions", "validations")),
                         arguments -> call(reviewId, turnId, arguments, this::finish)));
@@ -680,7 +685,7 @@ public class ReviewTools
         }
         ReviewStep step = call.step().filter(value -> call.run().active())
                 .orElseThrow(() -> new ReviewInvalidRequestException("validation: only the assigned review turn can report completion"));
-        List<String> warnings = arguments.has("warnings") ? strings(arguments, "warnings", 50, 500) : ImmutableList.of();
+        List<String> warnings = arguments.has("warnings") ? warnings(call, arguments) : ImmutableList.of();
         ReviewCoverage coverage = new ReviewCoverage(complete.asBoolean(), omissions, warnings, now());
         ObjectNode result = objectMapper.createObjectNode().put("status", "accepted").put("next", "End this turn; ByteQuay decides the next assignment");
         // An inaccessible initial scope can stop without inventing an investigation or a validation result.
@@ -779,6 +784,25 @@ public class ReviewTools
         }
         store.updateRun(run.withOperation(replay.key(), new ReviewOperation(replay.digest(), result.toString()), now()));
         return result;
+    }
+
+    /** A warning reports a check that was run and stopped, so it cites the captured output of that command; the refs stay visible in its text. */
+    private static List<String> warnings(Call call, JsonNode arguments)
+    {
+        ImmutableList.Builder<String> warnings = ImmutableList.builder();
+        for (JsonNode item : array(arguments, "warnings", 50)) {
+            if (!item.isObject() || !item.path("evidenceRefs").isArray()) {
+                throw new ReviewInvalidRequestException("warnings: each warning is an object with text and evidenceRefs");
+            }
+            String text = text(item, "text", 500, true);
+            List<String> refs = evidenceRefs(call, item, "evidenceRefs", MAX_EVIDENCE);
+            if (refs.stream().noneMatch(ref -> call.run().evidence().get(ref).source().startsWith(COMMAND_EVIDENCE_SOURCE))) {
+                throw new ReviewInvalidRequestException("warnings: cite the captured output of the command that was run and stopped; "
+                        + "run the check, then read review_get_context kind command_output for its evidence ref");
+            }
+            warnings.add(text + " (" + String.join(", ", refs) + ")");
+        }
+        return warnings.build();
     }
 
     private static int investigationStep(ReviewRun run)
@@ -1070,7 +1094,7 @@ public class ReviewTools
             String excerpt = bounded("$ " + commandLine + "\n" + command.output().orElseThrow(), 3000);
             String ref = registerEvidence(
                     call,
-                    "command output: " + bounded(commandLine, 200),
+                    COMMAND_EVIDENCE_SOURCE + bounded(commandLine, 200),
                     "command run by the agent in the review worktree" + envelope.turnId().map(turn -> " during turn " + turn).orElse(""),
                     excerpt);
             commands.add(ImmutableMap.of("evidenceRef", ref, "command", commandLine, "exitCode", command.exitCode().map(String::valueOf).orElse(""), "output", excerpt));

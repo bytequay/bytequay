@@ -729,7 +729,11 @@ runnable, because of missing
 credentials, external services, unobtainable third-party dependencies, native
 denials, or another limit the worktree cannot fix, use `warnings` that name
 the command that was run, the error that stopped it, and the recovery that was
-tried. Evidence-strength caveats are not warnings. Warnings do not prevent
+tried. `review_finish` enforces the attempt: each warning carries `text` and
+`evidenceRefs`, at least one ref must be captured command output from this run,
+and a warning without one is refused. The stored warning keeps its refs in its
+text, so the card shows which command output backs it. Evidence-strength
+caveats are not warnings. Warnings do not prevent
 complete=true with empty omissions when every required file and candidate has
 been assessed. A warning cannot replace evidence needed to support or reject a
 candidate. A complete zero-finding result is explicit.

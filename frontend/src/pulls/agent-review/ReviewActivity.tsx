@@ -68,7 +68,7 @@ export default function ReviewActivity({
 
   return (
     <AgentConversation
-      turns={projected} durableTurns={turns} models={models} now={now} scroll={scroll}
+      turns={projected} repository={review.repo} durableTurns={turns} models={models} now={now} scroll={scroll}
       localReview={localReview} reviewRequests={reviewRequests(review)} onOpenReview={onOpenReview}
       connection={connection} running={running} activeTurn={review.activeTurn} waiting={waiting} pendingMessage={pendingMessage}
       activityChoice={activityChoice} turnChoice={turnChoice} pendingApprovals={pendingApprovals}

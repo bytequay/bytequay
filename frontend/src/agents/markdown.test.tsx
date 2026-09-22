@@ -55,6 +55,14 @@ describe('agent markdown', () => {
     expect(out).toContain('<a href="https://trino.io/docs" target="_blank" rel="noreferrer">https://trino.io/docs</a>.');
   });
 
+  it('links #number in the task repository the same way GitHub text does', () => {
+    const out = renderToStaticMarkup(<>{renderMarkdown('Fixed in #1234, see **#7** and [#8](https://example.com).', 'trinodb/trino')}</>);
+    expect(out).toMatch(/issues\/1234"><svg[^>]*>.*?<\/svg>#1234<\/a>/);
+    expect(out).toMatch(/issues\/7"><svg[^>]*>.*?<\/svg>#7<\/a>/);
+    expect(out.match(/md-reference/g)).toHaveLength(2);
+    expect(html('Fixed in #1234')).not.toContain('md-reference');
+  });
+
   it('leaves plain prose alone, including asterisks that mark nothing', () => {
     expect(html('2 * 3 = 6 and a_b_c stays')).toBe('<div class="agt-md"><p>2 * 3 = 6 and a_b_c stays</p></div>');
   });

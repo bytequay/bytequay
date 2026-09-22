@@ -44,7 +44,7 @@ function status(discussion: TaskDiscussionDto): { label: string; kind: string; d
 }
 
 /** One question or one answer, with the speaker its rail and avatar name. */
-function Message({ message, lane }: { message: DiscussionMessageDto; lane: string }): React.ReactElement {
+function Message({ message, lane, repository }: { message: DiscussionMessageDto; lane: string; repository?: string | null }): React.ReactElement {
   const reader = message.author === 'USER';
   return (
     <div className={`agt-disc-msg${reader ? ' is-reader' : ''}`}>
@@ -54,7 +54,7 @@ function Message({ message, lane }: { message: DiscussionMessageDto; lane: strin
           <span>{reader ? 'You' : 'Agent'}</span>
           {reader ? ` · ${relativeTime(message.createdAt)}` : ` · ${lane} · read-only`}
         </div>
-        <div className="agt-disc-msg__body">{renderMarkdown(message.body)}</div>
+        <div className="agt-disc-msg__body">{renderMarkdown(message.body, repository)}</div>
       </div>
     </div>
   );
@@ -66,8 +66,10 @@ function Message({ message, lane }: { message: DiscussionMessageDto; lane: strin
  * <p>The quote is the card's subject and stays pinned at the top when the card opens, because the
  * thread is about that passage and the passage may be far away in the transcript.
  */
-export function DiscussionCard({ discussion, siblings, discussions, open, onToggle, onJump, onHover }: {
+export function DiscussionCard({ discussion, repository, siblings, discussions, open, onToggle, onJump, onHover }: {
   discussion: TaskDiscussionDto;
+  /** `owner/repo` a bare `#1234` in the thread refers to. */
+  repository?: string | null;
   siblings: TaskDiscussionDto[];
   discussions: TaskDiscussions;
   open: boolean;
@@ -134,7 +136,7 @@ export function DiscussionCard({ discussion, siblings, discussions, open, onTogg
         <div className="agt-disc-card__body">
           <div className="agt-disc-card__messages">
             {discussion.messages.map(message => (
-              <Message key={message.id} message={message} lane={discussion.providerLane} />
+              <Message key={message.id} message={message} lane={discussion.providerLane} repository={repository} />
             ))}
             {discussion.pending && (
               <div className="agt-disc-msg">
@@ -205,8 +207,10 @@ export function DiscussionCard({ discussion, siblings, discussions, open, onTogg
  * <p>Groups run in transcript order and passages within a group in document order, not the order
  * the questions were asked, so the panel reads as a map of the answer rather than a log.
  */
-export function DiscussionsPanel({ discussions, turns, focus, onJump, onHover }: {
+export function DiscussionsPanel({ discussions, repository, turns, focus, onJump, onHover }: {
   discussions: TaskDiscussions;
+  /** `owner/repo` a bare `#1234` in a thread refers to. */
+  repository?: string | null;
   /** Turn ordinals and synopses for the answers on screen, for the sticky group headers. */
   turns?: { turnId: string; ordinal: number; synopsis: string }[];
   /**
@@ -270,6 +274,7 @@ export function DiscussionsPanel({ discussions, turns, focus, onJump, onHover }:
                 <DiscussionCard
                   key={discussion.id}
                   discussion={discussion}
+                  repository={repository}
                   siblings={rows}
                   discussions={discussions}
                   open={openId === discussion.id}

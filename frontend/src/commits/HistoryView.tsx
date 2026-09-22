@@ -15,6 +15,7 @@ import { useEffect, useMemo, useRef, useState, type ReactNode, type UIEvent as R
 import { ChevronDown, ChevronRight, Ellipsis, GitCommitHorizontal } from 'lucide-react';
 import type { DiffFileDto, GitCommitDto, GitDiffFileDto } from '../types';
 import { DiffViewer } from '../pulls/PullChanges';
+import { linkIssueNumbers } from '../pulls/MarkdownBody';
 import CommitCard, { CommitByline } from './CommitCard';
 import { useResizablePane } from '../useResizablePane';
 import {
@@ -443,7 +444,7 @@ export default function HistoryView({
         <div className="cmt-view-head">
           <div className="cmt-view-head-main">
             <div className="cmt-view-title">
-              <span>{multi ? `Range changes — ${spanCommits.length} commits` : viewed?.title ?? ''}</span>
+              <span>{multi ? `Range changes — ${spanCommits.length} commits` : linkIssueNumbers(viewed?.title ?? '', pullRequestRepo, true)}</span>
               {viewedBody !== '' && (
                 <button
                   type="button"
@@ -458,7 +459,7 @@ export default function HistoryView({
             </div>
             {viewedBody !== '' && bodyOpen && (
               // Authored line lengths carry meaning, so the body is never re-wrapped.
-              <pre className="cmt-view-body">{viewedBody}</pre>
+              <pre className="cmt-view-body">{linkIssueNumbers(viewedBody, pullRequestRepo)}</pre>
             )}
             <div className="cmt-view-meta">
               {multi && span

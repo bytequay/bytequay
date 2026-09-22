@@ -36,7 +36,7 @@ import type {
   UserProfileDto,
 } from '../types';
 import BetterWordsButton from './BetterWordsButton';
-import MarkdownBody, { GitHubReferenceLink, toggleMarkdownTask, type SuggestionBase } from './MarkdownBody';
+import MarkdownBody, { GitHubReferenceLink, linkIssueNumbers, toggleMarkdownTask, type SuggestionBase } from './MarkdownBody';
 import { EMPTY_TIMELINE_PAYLOAD } from './model';
 import { PullRequestIcon } from './PullRowItem';
 import { ReviewThreadCard, ReviewThreadMessage } from './ReviewThreadCard';
@@ -118,7 +118,7 @@ export default function PullOverview({ pr, detail, contributorsWorkspaceId, loca
     <div className="pr-overview pull-request-overview">
       <section className="pr-overview__summary">
         <div className="pr-overview__title">
-          <h1>{title}</h1>
+          <h1>{linkIssueNumbers(title, detail.repo, true)}</h1>
           <div className="pr-overview__number">
             <span>#{detail.number}</span>
             <CopyLinkButton value={detail.htmlUrl ?? pr.htmlUrl} label="pull request link" />

@@ -57,9 +57,11 @@ const REFUSALS: Record<Refusal, { text: string; fix?: string }> = {
  * eye is still on the sentence; every question after it belongs to the thread and is asked in the
  * panel. A footer hangs under the block holding its passage rather than at the end of the answer.
  */
-export function DiscussableAnswer({ turnId, text, discussions, completed = false, streaming = false, focused, onSelect, onOpen, onHover }: {
+export function DiscussableAnswer({ turnId, text, repository, discussions, completed = false, streaming = false, focused, onSelect, onOpen, onHover }: {
   turnId: string | null;
   text: string;
+  /** `owner/repo` a bare `#1234` in the answer refers to. */
+  repository?: string | null;
   discussions: TaskDiscussionDto[];
   /** The task released its files, so no new discussion can be anchored here. */
   completed?: boolean;
@@ -80,7 +82,7 @@ export function DiscussableAnswer({ turnId, text, discussions, completed = false
   // A composer the reader moved or resized keeps where they put it until it closes.
   const [moved, setMoved] = useState<{ left: number; top: number } | null>(null);
   const [sized, setSized] = useState<CSSProperties>({});
-  const blocks = renderMarkdownBlocks(text);
+  const blocks = renderMarkdownBlocks(text, repository);
 
   const placed = new Map<number, { discussion: TaskDiscussionDto; nth: number }[]>();
   const adrift: TaskDiscussionDto[] = [];

@@ -319,7 +319,7 @@ export function tableAlignments(line: string) {
 
 // Like GitHub, `_` emphasis cannot open or close inside a word, so ICEBERG_FILESYSTEM_ERROR stays literal.
 // Its content admits only intraword underscores, which keeps an unclosed `_` from scanning the rest of the text.
-const INLINE_TOKEN = /(\\[\\`]|\[!\[[^\]]*\]\([^)]+\)\]\([^)]+\)|!\[[^\]]*\]\([^)]+\)|\*\*[^*]+\*\*|(?<=^|[\s\p{P}\p{S}])_(?!\s)(?:[^_]|(?<=[^\s\p{P}\p{S}])_(?=[^\s\p{P}\p{S}]))+?(?<!\s)_(?=$|[\s\p{P}\p{S}])|`[^`]+`|\[[^\]]+\]\([^)]+\)|\[[^\]]+\]\[[^\]]*\]|\[[^\]]+\]|https?:\/\/[^\s<>()\]]*[^\s<>()\].,!?;:'"]|@[A-Za-z0-9](?:[A-Za-z0-9-]*[A-Za-z0-9])?|#[0-9]+)/gu;
+const INLINE_TOKEN = /(\\[\\`]|\[!\[[^\]]*\]\([^)]+\)\]\([^)]+\)|!\[[^\]]*\]\([^)]+\)|\*\*[^*]+\*\*|(?<=^|[\s\p{P}\p{S}])_(?!\s)(?:[^_]|(?<=[^\s\p{P}\p{S}])_(?=[^\s\p{P}\p{S}]))+?(?<!\s)_(?=$|[\s\p{P}\p{S}])|`[^`]+`|\[[^\]]+\]\([^)]+\)|\[[^\]]+\]\[[^\]]*\]|\[[^\]]+\]|https?:\/\/[^\s<>()\]]*[^\s<>()\].,!?;:'"]|@[A-Za-z0-9](?:[A-Za-z0-9-]*[A-Za-z0-9])?)/gu;
 
 export function parseGitHubCodePermalink(value: string, repository?: string): GitHubCodePermalink | null {
   if (!repository) return null;
@@ -526,7 +526,12 @@ export function markdownBlocks(markdown: string, repository?: string): Block[] {
 
 const EMPTY_LINK_DEFINITIONS = new Map<string, string>();
 
-function inline(text: string, keyPrefix: string, definitions: ReadonlyMap<string, string> = EMPTY_LINK_DEFINITIONS): ReactNode[] {
+function inline(
+  text: string,
+  keyPrefix: string,
+  definitions: ReadonlyMap<string, string> = EMPTY_LINK_DEFINITIONS,
+  repository?: string,
+): ReactNode[] {
   return text.split(INLINE_TOKEN).filter(Boolean).map((part, index) => {
     const key = `${keyPrefix}-${index}`;
     if (part === '\\`' || part === '\\\\') return <Fragment key={key}>{part.slice(1)}</Fragment>;
@@ -541,8 +546,8 @@ function inline(text: string, keyPrefix: string, definitions: ReadonlyMap<string
     );
     const image = part.match(/^!\[([^\]]*)\]\(([^)]+)\)$/);
     if (image) return <img className="md-image" key={key} src={image[2]} alt={image[1]} />;
-    if (part.startsWith('**') && part.endsWith('**')) return <strong key={key}>{inline(part.slice(2, -2), `${key}-strong`, definitions)}</strong>;
-    if (part.startsWith('_') && part.endsWith('_')) return <em key={key}>{inline(part.slice(1, -1), `${key}-em`, definitions)}</em>;
+    if (part.startsWith('**') && part.endsWith('**')) return <strong key={key}>{inline(part.slice(2, -2), `${key}-strong`, definitions, repository)}</strong>;
+    if (part.startsWith('_') && part.endsWith('_')) return <em key={key}>{inline(part.slice(1, -1), `${key}-em`, definitions, repository)}</em>;
     if (part.startsWith('`') && part.endsWith('`')) return <code key={key}>{part.slice(1, -1)}</code>;
     const directLink = part.match(/^\[([^\]]+)\]\(([^)]+)\)$/);
     const referenceLink = directLink ? null : part.match(/^\[([^\]]+)\](?:\[([^\]]*)\])?$/);
@@ -555,6 +560,7 @@ function inline(text: string, keyPrefix: string, definitions: ReadonlyMap<string
       const reference = linkText.match(/^(.*) (#\d+)$/);
       const githubReference = parseGitHubReference(href);
       const showTitle = /^https?:\/\//i.test(linkText);
+      // The label is already inside a link, so its own #numbers stay text.
       const label = showTitle && githubReference
         ? <>{githubReference.owner}/{githubReference.repo} <small>#{githubReference.number}</small></>
         : reference ? <>{reference[1]} <small>{reference[2]}</small></> : inline(linkText, `${key}-link`, definitions);
@@ -572,8 +578,8 @@ function inline(text: string, keyPrefix: string, definitions: ReadonlyMap<string
     }
     if (referenceLink) return (
       <Fragment key={key}>
-        [{inline(referenceLink[1], `${key}-reference-text`, definitions)}]
-        {referenceLink[2] !== undefined && <>[{inline(referenceLink[2], `${key}-reference-label`, definitions)}]</>}
+        [{inline(referenceLink[1], `${key}-reference-text`, definitions, repository)}]
+        {referenceLink[2] !== undefined && <>[{inline(referenceLink[2], `${key}-reference-label`, definitions, repository)}]</>}
       </Fragment>
     );
     const bareReference = parseGitHubReference(part);
@@ -590,10 +596,10 @@ function inline(text: string, keyPrefix: string, definitions: ReadonlyMap<string
         {part}
       </a>
     );
-    if (part.startsWith('@') || /^#[0-9]+$/.test(part)) return <span className="md-link" key={key}>{part}</span>;
+    if (part.startsWith('@')) return <span className="md-link" key={key}>{part}</span>;
     // Unlike Markdown files, GitHub descriptions and comments keep every source line break.
     return <Fragment key={key}>{part.split('\n').map((line, lineIndex) => (
-      <Fragment key={lineIndex}>{lineIndex > 0 && <br />}{line}</Fragment>
+      <Fragment key={lineIndex}>{lineIndex > 0 && <br />}{linkIssueNumbers(line, repository)}</Fragment>
     ))}</Fragment>;
   });
 }
@@ -679,6 +685,24 @@ type ReferencePreview = GitHubReferencePreview;
 
 const previewRequests = new Map<string, Promise<ReferencePreview | null>>();
 
+const ISSUE_NUMBER = /((?<![\p{L}\p{N}_&])#[0-9]+(?![\p{L}\p{N}_]))/u;
+
+/**
+ * Text with every `#1234` linked, with its hover card, to that issue or pull request in `repository`.
+ * Every surface showing GitHub or agent text goes through here. In prose the link reads as the item's
+ * icon, title and number; a `compact` one, inside a title that is already a heading, stays `#1234`.
+ */
+export function linkIssueNumbers(text: string, repository: string | null | undefined, compact = false): ReactNode[] {
+  const [owner, repo] = repository?.split('/') ?? [];
+  if (!owner || !repo) return [text];
+  return text.split(ISSUE_NUMBER).map((part, index) => index % 2 === 0 ? part : (
+    // GitHub answers /issues/{number} for pull requests too, so the preview settles which one it is.
+    <ReferenceLink key={index} icon={!compact} showTitle={!compact} reference={{
+      kind: 'issue', owner, repo, number: Number(part.slice(1)), href: `https://github.com/${owner}/${repo}/issues/${part.slice(1)}`,
+    }}>{part}</ReferenceLink>
+  ));
+}
+
 export function GitHubReferenceLink({ href, children }: { href: string | null; children: ReactNode }) {
   const reference = href ? parseGitHubReference(href) : null;
   return reference
@@ -753,9 +777,10 @@ export function ReferencePreviewCard({ id, hover, reference, preview, actions }:
   );
 }
 
-export function ReferenceLink({ reference, showTitle = false, children }: {
+export function ReferenceLink({ reference, showTitle = false, icon = true, children }: {
   reference: GitHubReference;
   showTitle?: boolean;
+  icon?: boolean;
   children: ReactNode;
 }) {
   const previewId = useId();
@@ -788,7 +813,7 @@ export function ReferenceLink({ reference, showTitle = false, children }: {
         void openGitHubReference({ ...reference, kind });
       }}
     >
-      <ReferenceIcon pull={kind === 'pull'} />
+      {icon && <ReferenceIcon pull={kind === 'pull'} />}
       {showTitle && title ? <>{title} <small>#{reference.number}</small></> : children}
     </a>
     <ReferencePreviewCard id={previewId} hover={hover} reference={reference} preview={preview}
@@ -893,14 +918,14 @@ function MarkdownBlocks({ markdown, definitions, repository, suggestion, tasksIn
         const key = `${block.kind}-${index}`;
         if (block.kind === 'heading') {
           const Heading = `h${block.level}` as keyof React.JSX.IntrinsicElements;
-          return <Heading key={key}>{inline(block.text, key, definitions)}</Heading>;
+          return <Heading key={key}>{inline(block.text, key, definitions, repository)}</Heading>;
         }
-        if (block.kind === 'paragraph') return <p key={key}>{inline(block.text, key, definitions)}</p>;
+        if (block.kind === 'paragraph') return <p key={key}>{inline(block.text, key, definitions, repository)}</p>;
         if (block.kind === 'task') return (
           <p key={key}><label><input type="checkbox" checked={block.checked}
             disabled={!tasksInteractive || tasksDisabled} readOnly={!tasksInteractive}
             data-markdown-task={tasksInteractive ? '' : undefined}
-            onChange={tasksInteractive ? () => {} : undefined} /> {inline(block.text, key, definitions)}</label></p>
+            onChange={tasksInteractive ? () => {} : undefined} /> {inline(block.text, key, definitions, repository)}</label></p>
         );
         if (block.kind === 'code') {
           if (suggestion && block.language.toLowerCase() === 'suggestion') return <SuggestedChange base={suggestion} text={block.text} key={key} />;
@@ -927,7 +952,7 @@ function MarkdownBlocks({ markdown, definitions, repository, suggestion, tasksIn
         }
         if (block.kind === 'details') return (
           <details className="md-details" key={key}>
-            <summary>{inline(block.summary, key, definitions)}</summary>
+            <summary>{inline(block.summary, key, definitions, repository)}</summary>
             <div className="markdown-body">
               <MarkdownBlocks markdown={block.text} definitions={definitions} repository={repository}
                 suggestion={suggestion} tasksInteractive={tasksInteractive} tasksDisabled={tasksDisabled} />
@@ -938,11 +963,11 @@ function MarkdownBlocks({ markdown, definitions, repository, suggestion, tasksIn
           <div className="md-table-scroll" key={key}>
             <table>
               <thead><tr>{block.headers.map((header, cellIndex) => (
-                <th key={`${key}-header-${cellIndex}`} style={{ textAlign: block.aligns[cellIndex] }}>{inline(header, `${key}-header-${cellIndex}`, definitions)}</th>
+                <th key={`${key}-header-${cellIndex}`} style={{ textAlign: block.aligns[cellIndex] }}>{inline(header, `${key}-header-${cellIndex}`, definitions, repository)}</th>
               ))}</tr></thead>
               <tbody>{block.rows.map((row, rowIndex) => (
                 <tr key={`${key}-row-${rowIndex}`}>{row.map((cell, cellIndex) => (
-                  <td key={`${key}-row-${rowIndex}-${cellIndex}`} style={{ textAlign: block.aligns[cellIndex] }}>{inline(cell, `${key}-row-${rowIndex}-${cellIndex}`, definitions)}</td>
+                  <td key={`${key}-row-${rowIndex}-${cellIndex}`} style={{ textAlign: block.aligns[cellIndex] }}>{inline(cell, `${key}-row-${rowIndex}-${cellIndex}`, definitions, repository)}</td>
                 ))}</tr>
               ))}</tbody>
             </table>
@@ -955,7 +980,7 @@ function MarkdownBlocks({ markdown, definitions, repository, suggestion, tasksIn
         if (block.kind === 'rule') return <hr key={key} />;
         const List = block.ordered ? 'ol' : 'ul';
         return <List key={key}>{block.items.map((item, itemIndex) => (
-          <li key={`${key}-${itemIndex}`}>{inline(item, `${key}-${itemIndex}`, definitions)}</li>
+          <li key={`${key}-${itemIndex}`}>{inline(item, `${key}-${itemIndex}`, definitions, repository)}</li>
         ))}</List>;
       })}
     </>;

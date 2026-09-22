@@ -410,7 +410,7 @@ function ProviderRecoveryCard({
 }
 
 /** The task's result once it is closed: what was kept, and whether the checkout is gone. */
-function TerminalSummary({ task, onCleanup }: { task: AgentTaskDto; onCleanup: () => void }): React.JSX.Element {
+function TerminalSummary({ task, repository, onCleanup }: { task: AgentTaskDto; repository: string | null; onCleanup: () => void }): React.JSX.Element {
   const completed = task.state === 'COMPLETED';
   return (
     <section className="agt-terminal" aria-label={completed ? 'Task result' : 'Task failure'}>
@@ -418,7 +418,7 @@ function TerminalSummary({ task, onCleanup }: { task: AgentTaskDto; onCleanup: (
         {completed ? 'Completed' : 'Failed'}{task.terminalAt === null ? '' : ` · ${relativeTime(task.terminalAt)}`}
       </div>
       {task.terminalReason !== null && <div>{task.terminalReason}</div>}
-      {task.summary?.finalResponse && <div className="agt-terminal__response">{renderMarkdown(task.summary.finalResponse)}</div>}
+      {task.summary?.finalResponse && <div className="agt-terminal__response">{renderMarkdown(task.summary.finalResponse, repository)}</div>}
       <dl>
         {task.summary?.resultBranch && <><dt>Result branch</dt><dd>{task.summary.resultBranch}</dd></>}
         {task.summary?.resultHead && <><dt>HEAD</dt><dd>{task.summary.resultHead}</dd></>}
@@ -755,7 +755,7 @@ function SidePanel({
   const code = { kept: codeBody, keptShown: tab === 'code' };
   if (tab === 'discussions' && discussions !== undefined) {
     return <PanelFrame label="Discussions" tabs={tabs} width={width} {...code}>
-      <DiscussionsPanel discussions={discussions} turns={discussionTurns} focus={discussionFocus}
+      <DiscussionsPanel discussions={discussions} repository={repository} turns={discussionTurns} focus={discussionFocus}
         onJump={onJumpToPassage} onHover={onHoverDiscussion} />
     </PanelFrame>;
   }
@@ -889,6 +889,7 @@ function SidePanel({
                 <BlockView
                   key={block.id}
                   block={block}
+                  repository={repository}
                   activityChoice={activityChoice}
                   agentLabels={labels}
                   onToggleActivity={onToggleActivity}
@@ -901,7 +902,7 @@ function SidePanel({
         {result !== null && (
           <>
             <div className="agt-label agt-panel__section">Result{blocks.length === 0 ? ' — kept' : ''}</div>
-            <div className="agt-panel__result">{renderMarkdown(result)}</div>
+            <div className="agt-panel__result">{renderMarkdown(result, repository)}</div>
           </>
         )}
         {!running && worked !== null && (
@@ -1300,7 +1301,7 @@ export function AgentTaskBody({
       )}
       {state.notice !== null && <div className="agt-notice" role="alert">{state.notice}</div>}
       <AgentConversation
-        turns={turns} durableTurns={state.turns} models={models} now={now} scroll={scroll}
+        turns={turns} repository={repository} durableTurns={state.turns} models={models} now={now} scroll={scroll}
         localReview={localReview} onOpenReview={onOpenReview} issueSource={state.task?.issueSource}
         discussions={discussions?.discussions} onSelectPassage={onSelectPassage} onOpenDiscussion={onOpenDiscussion}
         generatedBranch={state.task?.generatedBranch}
@@ -1317,7 +1318,7 @@ export function AgentTaskBody({
       {/* Bounded: the status and turn state change a handful of times, streamed text never lands here. */}
       <div className="agt-status" role="status" aria-live="polite">{statusText}</div>
 
-      {terminal && state.task !== null && <TerminalSummary task={state.task} onCleanup={onCleanup} />}
+      {terminal && state.task !== null && <TerminalSummary task={state.task} repository={repository} onCleanup={onCleanup} />}
 
       {automationActive && ciPollingError !== null && <div className="agt-notice" role="alert">{ciPollingError}</div>}
 

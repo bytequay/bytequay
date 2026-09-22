@@ -14,7 +14,7 @@
 import { renderToStaticMarkup } from 'react-dom/server';
 import { describe, expect, it } from 'vitest';
 import type { PullRequestDetailDto } from '../types';
-import MarkdownBody, { changedSpan, CodeReferenceCard, markdownBlocks, parseGitHubCodePermalink, referenceCardItem, toggleMarkdownTask } from './MarkdownBody';
+import MarkdownBody, { changedSpan, CodeReferenceCard, linkIssueNumbers, markdownBlocks, parseGitHubCodePermalink, referenceCardItem, toggleMarkdownTask } from './MarkdownBody';
 
 describe('suggested changes', () => {
   it('spans the differing middle between a shared prefix and a non-overlapping suffix', () => {
@@ -502,5 +502,28 @@ describe('MarkdownBody', () => {
     expect(html.match(/<blockquote>/g)).toHaveLength(2);
     expect(html).toContain('<blockquote><p>I read the execution flow:</p><blockquote><p>The coordinator aggregates deletion vectors —<br/>this is necessary because multiple workers may process the same file.<br/>CopyOnWriteFileRewriter writes the surviving rows.</p></blockquote><p>I suspect the rewriting is happening on the coordinator.</p></blockquote>');
     expect(html).not.toContain('&gt; The coordinator');
+  });
+});
+
+describe('short issue references', () => {
+  it('links #number to the body repository and leaves look-alikes as text', () => {
+    const html = renderToStaticMarkup(<MarkdownBody body={'Fixes #1234 and **#7**, not a#5, &#39;, `#8` or #9x'} repository="trinodb/trino" />);
+
+    // The icon leads from the start; the title replaces the number's text once the preview loads.
+    expect(html).toMatch(/<a class="md-reference is-issue" href="https:\/\/github.com\/trinodb\/trino\/issues\/1234"><svg[^>]*>.*?<\/svg>#1234<\/a>/);
+    expect(html).toMatch(/issues\/7"><svg[^>]*>.*?<\/svg>#7<\/a>/);
+    expect(html.match(/md-reference/g)).toHaveLength(2);
+  });
+
+  it('keeps a compact #number, for a title, to the bare number', () => {
+    expect(renderToStaticMarkup(<h1>{linkIssueNumbers('Fix it (#7)', 'trinodb/trino', true)}</h1>))
+      .toBe('<h1>Fix it (<a class="md-reference is-issue" href="https://github.com/trinodb/trino/issues/7">#7</a>)</h1>');
+  });
+
+  it('keeps #number plain without a repository or inside another link', () => {
+    expect(renderToStaticMarkup(<MarkdownBody body="Fixes #1234" />)).toBe('<div class="markdown-body"><p>Fixes #1234</p></div>');
+    const html = renderToStaticMarkup(<MarkdownBody body="See [#5 notes](https://example.com)" repository="trinodb/trino" />);
+    expect(html).not.toContain('md-reference');
+    expect(html).toContain('>#5 notes</a>');
   });
 });

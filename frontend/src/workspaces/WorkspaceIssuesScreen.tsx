@@ -26,7 +26,7 @@ import { CircleCheck, CircleDot, ExternalLink, Flag, ListTodo, Play, User } from
 import { issueDevelopmentAction, notifyIssueDevelopmentChanged } from './issueDevelopment';
 import type { NavigationMode } from '../navigationHistory';
 import CopyLinkButton from '../CopyLinkButton';
-import MarkdownBody, { GitHubReferenceLink } from '../pulls/MarkdownBody';
+import MarkdownBody, { GitHubReferenceLink, linkIssueNumbers } from '../pulls/MarkdownBody';
 import {
   CardHeader,
   DiscussionComposer,
@@ -456,7 +456,7 @@ export default function WorkspaceIssuesScreen({ workspaceId, repository, initial
             aria-label="Resize issue panes" onMouseDown={resizeDetail} title="Drag to resize" />}
           <header className="pull-detail__header">
             <div className="pull-detail__title-row">
-              <h1>{selected.title} {selected.isGoal && <GoalBadge />}</h1>
+              <h1>{linkIssueNumbers(selected.title, repository, true)} {selected.isGoal && <GoalBadge />}</h1>
               <div className="pull-detail__header-actions">
                 <button type="button" title="Refresh" aria-label="Refresh" disabled={detailLoading}
                   onClick={() => { void loadDetail(selected.number, true); }}><RefreshIcon /></button>
@@ -703,7 +703,7 @@ export function IssueOverview({
     <div className="pr-overview issue-overview">
       <section className="pr-overview__summary">
         <div className="pr-overview__title">
-          <h2>{issue.title} <span>#{issue.number}</span></h2>
+          <h2>{linkIssueNumbers(issue.title, repository, true)} <span>#{issue.number}</span></h2>
           <CopyLinkButton value={issue.htmlUrl} label="issue link" />
         </div>
         <div className="pr-overview__branches">

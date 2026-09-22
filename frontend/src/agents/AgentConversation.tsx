@@ -20,6 +20,7 @@ import '../css/agents.css';
 import { displayModelName } from '../settings/model';
 import LocalReviewThreadCard from '../pulls/local-review/LocalReviewThreadCard';
 import type { LocalReviewThreads } from '../pulls/local-review/types';
+import { linkIssueNumbers } from '../pulls/MarkdownBody';
 import type { AgentIssueSourceDto,AgentApprovalDecision,AgentAttachmentDto,AgentPendingApprovalDto,AgentQueuedInputDto,AgentStreamConnectionState,AgentTurnDto,ModelOptionDto,ToolCountersDto } from '../types';
 import { AgentMark } from './AgentMark';
 import { developmentTurnLabel,draftPullRequestRequest } from './DevelopmentFacts';
@@ -524,8 +525,10 @@ function ApprovalView({ block, onDecide }: {
   );
 }
 
-export function BlockView({ block, activityChoice, agentLabels, onToggleActivity, onDecide, onOpenAgent }: {
+export function BlockView({ block, repository, activityChoice, agentLabels, onToggleActivity, onDecide, onOpenAgent }: {
   block: TurnBlock;
+  /** `owner/repo` a bare `#1234` in the text refers to. */
+  repository?: string | null;
   activityChoice: Record<string, boolean>;
   agentLabels: Record<string, string>;
   onToggleActivity: (id: string, open: boolean) => void;
@@ -535,17 +538,17 @@ export function BlockView({ block, activityChoice, agentLabels, onToggleActivity
   switch (block.kind) {
     case 'text':
       if (block.role === 'reasoning') {
-        return <div className="agt-reasoning">{renderMarkdown(block.text)}{!block.complete && !block.historical && <span className="agt-cursor" aria-hidden="true" />}</div>;
+        return <div className="agt-reasoning">{renderMarkdown(block.text, repository)}{!block.complete && !block.historical && <span className="agt-cursor" aria-hidden="true" />}</div>;
       }
       if (block.role === 'planText') {
         return (
           <div className="agt-plan">
             <div className="agt-plan__head"><Glyph icon={ListChecks} /><span className="agt-label">Plan</span></div>
-            <div className="agt-text">{renderMarkdown(block.text)}{!block.complete && !block.historical && <span className="agt-cursor" aria-hidden="true" />}</div>
+            <div className="agt-text">{renderMarkdown(block.text, repository)}{!block.complete && !block.historical && <span className="agt-cursor" aria-hidden="true" />}</div>
           </div>
         );
       }
-      return <div className="agt-text">{renderMarkdown(block.text)}{!block.complete && !block.historical && <span className="agt-cursor" aria-hidden="true" />}</div>;
+      return <div className="agt-text">{renderMarkdown(block.text, repository)}{!block.complete && !block.historical && <span className="agt-cursor" aria-hidden="true" />}</div>;
     case 'plan':
       if (block.steps.length === 0) return null;
       return (
@@ -628,7 +631,7 @@ function TurnFooter({ turn, durable, models }: {
   );
 }
 
-export function TurnView({ turn, first, open, now, models, durableTurns, activityChoice, previews, agentLabels, onToggle, onToggleActivity, onDecide, onOpenAgent, generatedRequest = false, generatedBranch = null, localReview, discussions, reviewRequests, issueSource, onOpenReview, onOpenDiscussion, onSelectPassage, focusedDiscussion, onHoverDiscussion, latest = false, children }: {
+export function TurnView({ turn, repository, first, open, now, models, durableTurns, activityChoice, previews, agentLabels, onToggle, onToggleActivity, onDecide, onOpenAgent, generatedRequest = false, generatedBranch = null, localReview, discussions, reviewRequests, issueSource, onOpenReview, onOpenDiscussion, onSelectPassage, focusedDiscussion, onHoverDiscussion, latest = false, children }: {
   localReview?: LocalReviewThreads;
   discussions?: TaskDiscussionDto[];
   onOpenDiscussion?: (discussionId: string) => void;
@@ -643,6 +646,7 @@ export function TurnView({ turn, first, open, now, models, durableTurns, activit
   generatedRequest?: boolean;
   generatedBranch?: string | null;
   turn: TranscriptTurn;
+  repository?: string | null;
   first: boolean;
   open: boolean;
   now: number;
@@ -712,7 +716,7 @@ export function TurnView({ turn, first, open, now, models, durableTurns, activit
                     ))}
                   </div>
                 )}
-                <div>{user.text}</div>
+                <div>{linkIssueNumbers(user.text, repository)}</div>
                 {user.delivery !== 'TURN' && (
                   <div className="agt-muted agt-small agt-user__delivery">
                     <Glyph icon={user.delivery === 'STEER' ? CornerDownRight : ListPlus} />
@@ -734,6 +738,7 @@ export function TurnView({ turn, first, open, now, models, durableTurns, activit
       {open && turn.blocks.map((block) => (
         <div key={block.id} data-history-anchor={'anchorId' in block ? block.anchorId : block.id}><BlockView
           block={block}
+          repository={repository}
           activityChoice={activityChoice}
           agentLabels={agentLabels}
           onToggleActivity={onToggleActivity}
@@ -746,6 +751,7 @@ export function TurnView({ turn, first, open, now, models, durableTurns, activit
           <DiscussableAnswer
             turnId={turn.turnId}
             text={turn.answer.text}
+            repository={repository}
             streaming={!turn.answer.complete}
             discussions={(discussions ?? []).filter(discussion => discussion.turnId === turn.turnId)}
             focused={focusedDiscussion}
@@ -974,12 +980,14 @@ function pendingTurn(message: PendingMessage, now: number): TranscriptTurn {
 }
 
 export function AgentConversation({
-  turns, durableTurns, models, now, scroll, connection, running, activeTurn, activeTurnId = activeTurn?.id, waiting, gap = false, pendingMessage = null,
+  turns, repository, durableTurns, models, now, scroll, connection, running, activeTurn, activeTurnId = activeTurn?.id, waiting, gap = false, pendingMessage = null,
   activityChoice, turnChoice, onToggleTurn, onToggleActivity, onDecide,
   previews = {}, agentLabels = {}, pendingApprovals = [], generatedTurnIds, generatedBranch,
   onOpenAgent, children, transcriptFooter, localReview, discussions, reviewRequests, issueSource, onOpenReview, onOpenDiscussion, onSelectPassage, focusedDiscussion, onHoverDiscussion, label = 'Task transcript',
 }: {
   turns: TranscriptTurn[];
+  /** `owner/repo` a bare `#1234` in the transcript refers to. */
+  repository?: string | null;
   durableTurns: Record<string, AgentTurnDto>;
   models: ModelOptionDto[];
   now: number;
@@ -1061,7 +1069,7 @@ export function AgentConversation({
             // A request reserves a viewport only until its reply starts, so sending lifts it to the top.
             // From the first block on the turn is its own height, so output stays just above the composer.
             const reserve = latest && turn.blocks.length === 0 && turn.answer === null;
-            return <TurnView key={id} turn={turn} first={index === 0} open={open} now={now}
+            return <TurnView key={id} turn={turn} repository={repository} first={index === 0} open={open} now={now}
               models={models} durableTurns={durableTurns} activityChoice={activityChoice}
               previews={previews} agentLabels={agentLabels} onToggle={() => onToggleTurn(id, !open)}
               onToggleActivity={onToggleActivity} onDecide={onDecide} onOpenAgent={onOpenAgent}
@@ -1072,7 +1080,7 @@ export function AgentConversation({
               {latest && liveActivity}
             </TurnView>;
           })}
-        {pending !== null && <TurnView key="pending-message" turn={pendingTurn(pending, now)} first={turns.length === 0} open now={now}
+        {pending !== null && <TurnView key="pending-message" turn={pendingTurn(pending, now)} repository={repository} first={turns.length === 0} open now={now}
           models={models} durableTurns={durableTurns} activityChoice={activityChoice} previews={previews} agentLabels={agentLabels}
           onToggle={() => {}} onToggleActivity={onToggleActivity} latest>
           {liveActivity}

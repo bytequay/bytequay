@@ -11,12 +11,12 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-import { useEffect, useId, useMemo, useState } from 'react';
+import { useEffect, useId, useState } from 'react';
 import { Check, Copy, GitPullRequest } from 'lucide-react';
 import Avatar from '../Avatar';
-import ReferenceCard, { previewMarkdown, useHoverCard, type ReferenceCardItem } from '../ReferenceCard';
-import MarkdownBody, { loadPreview, referenceCardItem } from '../pulls/MarkdownBody';
-import type { GitHubReference, GitHubReferencePreview } from '../githubReference';
+import { useHoverCard } from '../ReferenceCard';
+import { ReferencePreviewCard, useReferencePreview } from '../pulls/MarkdownBody';
+import type { GitHubReference } from '../githubReference';
 import { relativeTime } from '../relativeTime';
 import type { GitCommitDto } from '../types';
 import { shortSha } from './model';
@@ -61,24 +61,11 @@ export function CommitByline({ commit }: { commit: GitCommitDto }) {
 function PullRequestTitle({ repo, number, title }: { repo: string; number: number; title: string }) {
   const previewId = useId();
   const hover = useHoverCard();
-  const [preview, setPreview] = useState<GitHubReferencePreview | null | undefined>();
   const open = hover.anchor !== null;
   const [owner, name] = repo.split('/');
-  const reference: GitHubReference = useMemo(
-    () => ({ kind: 'pull', owner, repo: name, number, href: `https://github.com/${owner}/${name}/pull/${number}` }),
-    [name, number, owner],
-  );
-
+  const reference: GitHubReference = { kind: 'pull', owner, repo: name, number, href: `https://github.com/${owner}/${name}/pull/${number}` };
   // Nothing is fetched for a title the reader only passed over.
-  useEffect(() => {
-    if (!open) return;
-    let current = true;
-    void loadPreview(reference).then(value => { if (current) setPreview(value); });
-    return () => { current = false; };
-  }, [open, reference]);
-
-  const body = preview?.kind === 'pull' ? preview.detail.body : null;
-  const item: ReferenceCardItem = referenceCardItem(reference, preview);
+  const preview = useReferencePreview(reference, open);
   return <>
     <span
       className="cmt-commit-pr-title"
@@ -89,16 +76,7 @@ function PullRequestTitle({ repo, number, title }: { repo: string; number: numbe
     >
       {title}
     </span>
-    <ReferenceCard
-      id={previewId}
-      hover={hover}
-      item={item}
-      body={preview === undefined
-        ? <span className="ref-card__muted">Loading details…</span>
-        : preview === null
-          ? <span className="ref-card__muted">Details are unavailable.</span>
-          : <MarkdownBody body={previewMarkdown(body) || 'No description provided.'} repository={repo} />}
-    />
+    <ReferencePreviewCard id={previewId} hover={hover} reference={reference} preview={preview} />
   </>;
 }
 

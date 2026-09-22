@@ -21,7 +21,7 @@ import {
   type GitHubReferencePreview,
   resolveGitHubReference,
 } from '../githubReference';
-import ReferenceCard, { previewMarkdown, stateChip, useHoverCard, type ReferenceCardItem } from '../ReferenceCard';
+import ReferenceCard, { previewMarkdown, stateChip, useHoverCard, type HoverCard, type ReferenceCardItem } from '../ReferenceCard';
 import type { GitHubCodeSnippetDto } from '../types';
 import { once } from '../dataCache';
 
@@ -686,8 +686,8 @@ export function GitHubReferenceLink({ href, children }: { href: string | null; c
     : <span className="md-link">{children}</span>;
 }
 
-/** Shared with the commit card, so hovering the same reference twice makes one request. */
-export function loadPreview(reference: GitHubReference): Promise<ReferencePreview | null> {
+/** Hovering the same reference twice, anywhere, makes one request. */
+function loadPreview(reference: GitHubReference): Promise<ReferencePreview | null> {
   const key = `${reference.kind}:${reference.owner}/${reference.repo}#${reference.number}`.toLowerCase();
   return once(previewRequests, key, () => resolveGitHubReference(reference));
 }
@@ -711,6 +711,48 @@ export function referenceCardItem(reference: GitHubReference, preview: Reference
   };
 }
 
+/** A reference's preview once `load` turns true: undefined while it loads, null when GitHub has none. */
+export function useReferencePreview(reference: GitHubReference, load: boolean): ReferencePreview | null | undefined {
+  const [preview, setPreview] = useState<ReferencePreview | null | undefined>();
+  const { href, kind, number, owner, repo } = reference;
+  useEffect(() => {
+    if (!load) return;
+    let current = true;
+    void loadPreview({ href, kind, number, owner, repo }).then(value => {
+      if (current) setPreview(value);
+    });
+    return () => { current = false; };
+  }, [href, kind, load, number, owner, repo]);
+  return preview;
+}
+
+/** The hover card of one issue or pull request reference, whatever shows the reference itself. */
+export function ReferencePreviewCard({ id, hover, reference, preview, actions }: {
+  id: string;
+  hover: HoverCard;
+  reference: GitHubReference;
+  preview: ReferencePreview | null | undefined;
+  actions?: ReactNode;
+}) {
+  const body = preview?.kind === 'pull' ? preview.detail.body : preview?.kind === 'issue' ? preview.issue.body : null;
+  return (
+    <ReferenceCard
+      id={id}
+      hover={hover}
+      item={referenceCardItem(reference, preview)}
+      body={preview === undefined
+        ? <span className="ref-card__muted">Loading details…</span>
+        : preview === null
+          ? <span className="ref-card__muted">Details are unavailable.</span>
+          : <MarkdownBody
+              body={previewMarkdown(body) || 'No description provided.'}
+              repository={`${reference.owner}/${reference.repo}`}
+            />}
+      actions={actions}
+    />
+  );
+}
+
 export function ReferenceLink({ reference, showTitle = false, children }: {
   reference: GitHubReference;
   showTitle?: boolean;
@@ -718,23 +760,12 @@ export function ReferenceLink({ reference, showTitle = false, children }: {
 }) {
   const previewId = useId();
   const hover = useHoverCard();
-  const [preview, setPreview] = useState<ReferencePreview | null | undefined>();
-  const { href, kind: referenceKind, number, owner, repo } = reference;
   const open = hover.anchor !== null;
-
   // A reference the reader passed over is never fetched; the hover delay and the shown title are the two reasons to.
-  useEffect(() => {
-    if (!open && !showTitle) return;
-    let current = true;
-    void loadPreview({ href, kind: referenceKind, number, owner, repo }).then(value => {
-      if (current) setPreview(value);
-    });
-    return () => { current = false; };
-  }, [href, number, open, owner, referenceKind, repo, showTitle]);
+  const preview = useReferencePreview(reference, open || showTitle);
 
   const kind = preview?.kind ?? reference.kind;
   const title = preview?.kind === 'pull' ? preview.detail.title : preview?.kind === 'issue' ? preview.issue.title : null;
-  const body = preview?.kind === 'pull' ? preview.detail.body : preview?.kind === 'issue' ? preview.issue.body : null;
   const openReference = () => {
     hover.close();
     void openGitHubReference({ ...reference, kind });
@@ -760,22 +791,10 @@ export function ReferenceLink({ reference, showTitle = false, children }: {
       <ReferenceIcon pull={kind === 'pull'} />
       {showTitle && title ? <>{title} <small>#{reference.number}</small></> : children}
     </a>
-    <ReferenceCard
-      id={previewId}
-      hover={hover}
-      item={referenceCardItem(reference, preview)}
-      body={preview === undefined
-        ? <span className="ref-card__muted">Loading details…</span>
-        : preview === null
-          ? <span className="ref-card__muted">Details are unavailable. Click to open on GitHub.</span>
-          : <MarkdownBody
-              body={previewMarkdown(body) || 'No description provided.'}
-              repository={`${reference.owner}/${reference.repo}`}
-            />}
+    <ReferencePreviewCard id={previewId} hover={hover} reference={reference} preview={preview}
       actions={<button className="bq-button" type="button" onClick={openReference}>
         Open <ArrowUpRight aria-hidden="true" />
-      </button>}
-    />
+      </button>} />
   </>;
 }
 

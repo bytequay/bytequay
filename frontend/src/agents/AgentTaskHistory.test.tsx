@@ -27,7 +27,7 @@ const events: AgentEventEnvelope[] = [
     schemaVersion: 2, eventId: 'progress-command', sequence: 101, taskId: 'task', turnId: 'turn', occurredAt: '2026-09-07T09:00:00Z',
     source: { ...source, providerItemId: 'command', providerEventId: null },
     type: 'command',
-    payload: { state: 'PROGRESS', argv: ['mvn', 'verify'], output: 'Compiling source files', exitCode: null, truncated: false, cwd: '.', durationMs: null, actions: [] },
+    payload: { state: 'PROGRESS', argv: ['mvn', 'verify'], output: 'Compiling source files', exitCode: null, truncated: false, cwd: '.', durationMs: null, actions: [], description: null },
   },
   {
     schemaVersion: 2, eventId: 'partial-text', sequence: 102, taskId: 'task', turnId: 'turn', occurredAt: '2026-09-07T09:00:01Z',

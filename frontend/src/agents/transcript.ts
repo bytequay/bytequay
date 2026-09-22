@@ -36,6 +36,8 @@ export type CommandMember = {
   cwd: string | null;
   durationMs: number | null;
   actions: CommandAction[];
+  /** The provider's own name for what the command is doing; null when it supplies none. */
+  description: string | null;
 };
 
 type FileMember = {
@@ -343,6 +345,7 @@ class TurnBuilder {
             cwd: payload.cwd ?? previous?.cwd ?? null,
             durationMs: payload.durationMs ?? previous?.durationMs ?? null,
             actions: payload.actions.length > 0 ? uniqueCommandActions(payload.actions) : previous?.actions ?? [],
+            description: payload.description ?? previous?.description ?? null,
           };
         });
         break;
@@ -643,19 +646,6 @@ export function activitySummary(members: ActivityMember[]): string {
   return sentence.charAt(0).toUpperCase() + sentence.slice(1);
 }
 
-/** What a running group is doing, for its header: "reading files and running commands". */
-export function activityPhrase(members: ActivityMember[]): string {
-  const counts = activityCounts(members);
-  const parts: string[] = [];
-  if (counts.reads > 0 || counts.listings > 0) parts.push('reading files');
-  if (counts.searches > 0) parts.push('searching');
-  if (counts.commands > 0) parts.push('running commands');
-  if (counts.edits > 0) parts.push('editing files');
-  if (counts.web > 0) parts.push('searching the web');
-  if (counts.tools > 0) parts.push('using tools');
-  return joinClauses(parts.slice(0, 2)) || 'working';
-}
-
 /** "38s", "4m 51s", "1h 02m": the compact form the design uses for elapsed time and durations. */
 export function formatDuration(ms: number): string {
   const total = Math.max(0, Math.floor(ms / 1000));
@@ -730,10 +720,3 @@ export function currentPlan(turns: TranscriptTurn[]): PlanBlock | null {
   return turns.at(-1)?.blocks.find((block): block is PlanBlock => block.kind === 'plan') ?? null;
 }
 
-/**
- * Whether an activity group is shown open: open while its turn runs, otherwise as the user last
- * chose. A group folded between two commands made the page jump as the next command reopened it.
- */
-export function activityExpanded(block: ActivityBlock, choice: boolean | undefined, live: boolean): boolean {
-  return choice ?? (live || activityRunning(block));
-}

@@ -13,7 +13,8 @@
  */
 
 import { BookOpen,Check,ChevronsDownUp,Circle,CircleAlert,CircleCheck,CircleX,CornerDownRight,FilePenLine,FolderOpen,GitPullRequest,Globe,Image,ListChecks,ListPlus,LoaderCircle,MessageSquare,Search,ShieldCheck,ShieldX,SquareTerminal,Trash2,TriangleAlert,Wrench,X,type LucideIcon } from 'lucide-react';
-import React,{ useCallback,useEffect,useId,useLayoutEffect,useRef,useState } from 'react';
+import hljs from 'highlight.js/lib/common';
+import React,{ useCallback,useEffect,useId,useLayoutEffect,useMemo,useRef,useState } from 'react';
 import { Chevron } from '../Chevron';
 import '../css/agents.css';
 import { displayModelName } from '../settings/model';
@@ -32,7 +33,7 @@ import { approvalDecisions, approvalQuestions, questionAnswers, type ApprovalQue
 import { ModelPicker } from './ModelPicker';
 import { IssueRequestCard } from './IssueAttachment';
 import { ReviewRequestCard, type ReviewRequest, type ReviewRequestTarget } from './ReviewRequestCard';
-import { activityExpanded,activityPhrase,activitySummary,formatDuration,planChip,turnElapsedMs,turnLabel,type ActivityBlock,type ActivityMember,type ApprovalBlock,type CommandAction,type CommandMember,type PlanStep,type ToolMember,type TranscriptTurn,type TurnBlock } from './transcript';
+import { activitySummary,formatDuration,planChip,turnElapsedMs,turnLabel,type ActivityBlock,type ActivityMember,type ApprovalBlock,type CommandAction,type CommandMember,type PlanStep,type ToolMember,type TranscriptTurn,type TurnBlock } from './transcript';
 
 /** Answers accompany a question tool's allow; every other approval sends the decision alone. */
 export type ApprovalDecider = (approvalId: string, decision: AgentApprovalDecision, answers?: Record<string, string>) => void;
@@ -127,7 +128,7 @@ function currentActivityLabel(turn: TranscriptTurn | undefined): string {
     if (action?.kind === 'READ') return `Reading ${action.name ?? action.path ?? 'file'}`;
     if (action?.kind === 'SEARCH') return `Searching ${action.query ?? action.name ?? 'files'}`;
     if (action?.kind === 'LIST_FILES') return `Listing ${action.name ?? action.path ?? 'files'}`;
-    return member.command === '' ? 'Running command' : `Running ${member.command}`;
+    return member.description ?? (member.command === '' ? 'Running command' : `Running ${member.command}`);
   }
   if (member?.kind === 'tool') return toolLabel(member.name);
   if (turn?.answer && !turn.answer.complete) return 'Writing response';
@@ -201,25 +202,45 @@ export function useOutputWheel(containerRef: React.RefObject<HTMLElement | null>
 }
 
 /** A command has one result, even when the provider describes several actions within it. */
-function CommandRows({ member, live }: { member: CommandMember; live: boolean }): React.JSX.Element {
+function CommandRows({ member }: { member: CommandMember }): React.JSX.Element {
   const running = memberState(member) === 'running';
-  if (member.command === '' && !member.output) {
+  // hljs escapes the source it highlights, so its markup carries no shell text as HTML.
+  const shell = useMemo(
+    () => member.command === '' ? null : hljs.highlight(member.command, { language: 'bash', ignoreIllegals: true }).value,
+    [member.command]);
+  if (shell === null && !member.output) {
     return <div className="agt-act__row"><CommandCells member={member} /></div>;
   }
   return (
-    <details className="agt-out" open={live && running ? true : undefined}>
+    <details className="agt-out">
       <summary className="agt-act__row is-command">
         <CommandCells member={member} chevron />
       </summary>
-      <pre className="agt-pre">
+      <pre className="agt-pre is-shell">
         <span className="agt-out__label">Shell{member.cwd !== null && member.cwd !== '.' ? ` · ${member.cwd}` : ''}</span>
-        {member.command !== '' && `$ ${member.command}\n\n`}
-        {member.output}
-        {member.truncated && <span className="agt-muted"> … truncated</span>}
-        {running && <span className="agt-cursor" aria-hidden="true" />}
+        {shell !== null && <span className="agt-out__cmd">$ <code className="hljs" dangerouslySetInnerHTML={{ __html: shell }} /></span>}
+        <span className="agt-out__stream">
+          {member.output}
+          {member.truncated && <span className="agt-muted"> … truncated</span>}
+          {running && <span className="agt-cursor" aria-hidden="true" />}
+        </span>
       </pre>
     </details>
   );
+}
+
+/** One parsed fragment as its row reads it: "Read src/auth.ts", "Searched token in src". */
+function actionLabel(action: CommandAction): string {
+  const target = action.kind === 'SEARCH'
+    ? `${action.query ?? action.name ?? 'files'}${action.path === null ? '' : ` in ${action.path}`}`
+    : action.name ?? action.path ?? (action.kind === 'READ' ? 'file' : 'files');
+  return `${ACTION_VERBS[action.kind]} ${target}`;
+}
+
+/** What a command's row calls itself: the provider's own label, else what it parsed the shell as. */
+function commandLabel(member: CommandMember): string {
+  const parsed = member.actions.find((action) => action.kind !== 'OTHER');
+  return member.description ?? (parsed === undefined ? 'Ran command' : actionLabel(parsed));
 }
 
 /** Summary titles use provider facts; the exact shell command stays in the disclosure. */
@@ -227,22 +248,17 @@ function CommandCells({ member, chevron = false }: {
   member: CommandMember;
   chevron?: boolean;
 }): React.JSX.Element {
-  const parsed = member.actions.filter((action) => action.kind !== 'OTHER');
+  const parsed = member.description === null ? member.actions.filter((action) => action.kind !== 'OTHER') : [];
   return (
     <>
       {parsed.map((action, index) => (
         <React.Fragment key={index}>
           <ActivityIcon member={member} action={action.kind} />
-          <span className="agt-act__label">
-            {ACTION_VERBS[action.kind]}{' '}
-            {action.kind === 'SEARCH'
-              ? `${action.query ?? action.name ?? 'files'}${action.path === null ? '' : ` in ${action.path}`}`
-              : action.name ?? action.path ?? (action.kind === 'READ' ? 'file' : 'files')}
-          </span>
+          <span className="agt-act__label">{actionLabel(action)}</span>
         </React.Fragment>
       ))}
       {(parsed.length === 0 || member.actions.some((action) => action.kind === 'OTHER')) && (
-        <><ActivityIcon member={member} /><span className="agt-act__label">Ran command</span></>
+        <><ActivityIcon member={member} /><span className="agt-act__label">{member.description ?? 'Ran command'}</span></>
       )}
       {chevron && <Chevron size={11} />}
       {member.exitCode !== null && (
@@ -279,11 +295,11 @@ function ToolRows({ member }: { member: ToolMember }): React.JSX.Element {
   );
 }
 
-function MemberRows({ members, live }: { members: ActivityMember[]; live: boolean }): React.JSX.Element {
+function MemberRows({ members }: { members: ActivityMember[] }): React.JSX.Element {
   return (
     <>
       {members.map((member) => {
-        if (member.kind === 'command') return <CommandRows key={member.id} member={member} live={live} />;
+        if (member.kind === 'command') return <CommandRows key={member.id} member={member} />;
         if (member.kind === 'file') {
           return (
             <React.Fragment key={member.id}>
@@ -314,39 +330,32 @@ function MemberRows({ members, live }: { members: ActivityMember[]; live: boolea
 }
 
 /**
- * Contiguous activity as one block: the group the turn is working in shows its members under a
- * "Working" header, a finished one folds to a sentence derived from those members unless the user
- * opened it. A group keeps that header through the gaps between its commands, where nothing runs
- * but the turn has not moved on; folding there made the page jump on every command.
+ * Contiguous activity as one folded line: what is running right now while something is, and the
+ * sentence its members add up to once nothing is. Opening it lists those members, each still
+ * folded over its own output, so a log is only ever read on purpose.
  */
-function ActivityView({ block, active, expanded, onToggle }: {
+function ActivityView({ block, expanded, onToggle }: {
   block: ActivityBlock;
-  active: boolean;
   expanded: boolean;
   onToggle: () => void;
 }): React.JSX.Element {
-  const running = block.members.filter((member) => memberState(member) === 'running');
-  if (active || running.length > 0) {
-    return (
-      <div className="agt-act is-running">
-        <div className="agt-act__head">
-          <Spinner />
-          <span className="agt-act__title">Working</span>
-          {running.length > 0 && <span className="agt-muted">— {activityPhrase(running)}</span>}
-        </div>
-        <MemberRows members={block.members} live />
-      </div>
-    );
-  }
+  const current = block.members.filter((member) => memberState(member) === 'running').at(-1);
   return (
-    <div className="agt-act">
+    <div className={`agt-act${current === undefined ? '' : ' is-running'}`}>
       <button type="button" className="agt-act__fold" aria-expanded={expanded} onClick={onToggle}>
         <Chevron open={expanded} />
-        <span>{activitySummary(block.members)}</span>
+        <span>{current === undefined ? activitySummary(block.members) : memberLabel(current)}</span>
       </button>
-      {expanded && <div className="agt-act__body"><MemberRows members={block.members} live={false} /></div>}
+      {expanded && <div className="agt-act__body"><MemberRows members={block.members} /></div>}
     </div>
   );
+}
+
+/** The one line a running member is named by, in the group's fold. */
+function memberLabel(member: ActivityMember): string {
+  if (member.kind === 'command') return commandLabel(member);
+  if (member.kind === 'tool') return toolLabel(member.name);
+  return `${CHANGE_VERBS[member.change] ?? member.change} ${member.path}`;
 }
 
 export function PlanSteps({ steps, compact = false }: { steps: PlanStep[]; compact?: boolean }): React.JSX.Element {
@@ -515,17 +524,13 @@ function ApprovalView({ block, onDecide }: {
   );
 }
 
-export function BlockView({ block, activityChoice, agentLabels, onToggleActivity, onDecide, onOpenAgent, live = false, active = false }: {
+export function BlockView({ block, activityChoice, agentLabels, onToggleActivity, onDecide, onOpenAgent }: {
   block: TurnBlock;
   activityChoice: Record<string, boolean>;
   agentLabels: Record<string, string>;
   onToggleActivity: (id: string, open: boolean) => void;
   onDecide?: ApprovalDecider;
   onOpenAgent?: (threadId: string) => void;
-  /** The turn is still running, so its groups stay open. */
-  live?: boolean;
-  /** This is the group the turn is working in. */
-  active?: boolean;
 }): React.JSX.Element | null {
   switch (block.kind) {
     case 'text':
@@ -554,8 +559,8 @@ export function BlockView({ block, activityChoice, agentLabels, onToggleActivity
         </div>
       );
     case 'activity': {
-      const expanded = activityExpanded(block, activityChoice[block.id], live);
-      return <ActivityView block={block} active={active} expanded={expanded} onToggle={() => onToggleActivity(block.id, !expanded)} />;
+      const expanded = activityChoice[block.id] === true;
+      return <ActivityView block={block} expanded={expanded} onToggle={() => onToggleActivity(block.id, !expanded)} />;
     }
     case 'approval':
       return <ApprovalView block={block} onDecide={onDecide} />;
@@ -726,11 +731,9 @@ export function TurnView({ turn, first, open, now, models, durableTurns, activit
           <Chevron open={open} />
         </button>
       )}
-      {open && turn.blocks.map((block, index) => (
+      {open && turn.blocks.map((block) => (
         <div key={block.id} data-history-anchor={'anchorId' in block ? block.anchorId : block.id}><BlockView
           block={block}
-          live={running}
-          active={live && index === turn.blocks.length - 1}
           activityChoice={activityChoice}
           agentLabels={agentLabels}
           onToggleActivity={onToggleActivity}

@@ -885,12 +885,10 @@ function SidePanel({
               <div className="agt-note">Recovering this agent&apos;s activity from its history…</div>
             )}
             <div className="agt-panel__log">
-              {blocks.map((block, index) => (
+              {blocks.map((block) => (
                 <BlockView
                   key={block.id}
                   block={block}
-                  live={running}
-                  active={running && index === blocks.length - 1}
                   activityChoice={activityChoice}
                   agentLabels={labels}
                   onToggleActivity={onToggleActivity}

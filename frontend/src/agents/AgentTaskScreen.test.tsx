@@ -969,14 +969,14 @@ describe('agent task detail', () => {
 
   it('prints the whole fixture transcript', () => {
     const folded = body({ task: task('t-1', 'OPEN', 'Rename the widget'), events, connection: 'open' });
-    // The fixture's activity group is finished, so it folds to its sentence until it is opened.
-    expect(folded).not.toContain('$ npm test');
+    // The fixture's activity group folds to its sentence until it is opened.
+    expect(folded.replace(/<[^>]*>/g, '')).not.toContain('$ npm test');
     const markup = body({ task: task('t-1', 'OPEN', 'Rename the widget'), events, connection: 'open' }, { '00000000-0000-4000-8000-000000000005': true });
 
     expect(markup).toContain('Rename the widget');
     expect(markup).toContain('Review the authentication change');
     expect(markup).toContain('Plan');
-    expect(markup).toContain('$ npm test');
+    expect(markup.replace(/<[^>]*>/g, '')).toContain('$ npm test');
     expect(markup).toContain('Approval');
     expect(markup).toContain('Live');
     // A finished group folds to a sentence derived from its typed members.
@@ -1441,26 +1441,33 @@ describe('agent task detail', () => {
     // The disclosure carries the app's one arrow, not the browser's marker.
     // The command row is the disclosure, its chevron on the row; the output box hangs under it.
     expect(markup).toMatch(/<summary class="agt-act__row is-command">[^]*?<svg class="chev"/);
-    expect(markup).toMatch(/<summary class="agt-act__row is-command">[^]*?Ran command[^]*?<\/summary><pre class="agt-pre">[^]*?Shell[^]*?\$ npm test/);
+    expect(markup).toMatch(/<summary class="agt-act__row is-command">[^]*?Ran command[^]*?<\/summary><pre class="agt-pre is-shell">[^]*?Shell[^]*?<span class="agt-out__cmd">\$ <code class="hljs">/);
+    // The command is printed whole and read as shell; only its output is windowed.
+    expect(markup.replace(/<[^>]*>/g, '')).toContain('$ npm test');
+    expect(markup).toMatch(/class="agt-out__cmd"[^]*?class="hljs-[^]*?<\/code><\/span><span class="agt-out__stream">/);
     expect(markup).not.toContain('<summary>Output');
     // Approval buttons carry the request they answer, not just "Allow once".
     expect(markup).toContain('aria-label="Allow once: ');
   });
 
-  it('holds a running turn\'s group open in the gap between two commands', () => {
-    // The group folded as soon as a command finished and reopened with the next one, so the page jumped.
+  it('keeps a running group to one folded line that names what is running', () => {
+    // A log that opens itself moved the page under the reader on every command.
     const between = events.filter((event) => (event.type !== 'lifecycle' || event.payload.phase !== 'TURN_COMPLETED')
       && !event.type.startsWith('approval') && event.type !== 'error');
-    const markup = body({ task: task('t-1', 'OPEN', 'x'), events: between, connection: 'open' });
+    const live = between.map((event): AgentEventEnvelope => event.type !== 'command' ? event
+      : { ...event, payload: { ...event.payload, state: 'STARTED', exitCode: null, output: null } });
+    const running = body({ task: task('t-1', 'OPEN', 'x'), events: live, connection: 'open' });
 
-    expect(markup).toContain('<span class="agt-act__title">Working</span>');
-    expect(markup).toContain('Ran command');
-    expect(markup).not.toContain('agt-act__fold');
-    // With nothing running the header drops its phrase rather than claiming work.
-    expect(markup).not.toContain('running commands');
-    // Only the finished command's own output folds.
-    expect(markup).toContain('<details class="agt-out">');
-    expect(markup).not.toContain('<details class="agt-out" open="">');
+    expect(running).toContain('<span>Ran command</span>');
+    expect(running).not.toContain('agt-act__body');
+    expect(running).not.toContain('<details class="agt-out"');
+    // The provider's own label for the command names the line instead of "Ran command".
+    const named = live.map((event): AgentEventEnvelope => event.type !== 'command' ? event
+      : { ...event, payload: { ...event.payload, description: 'Run the focused tests' } });
+    expect(body({ task: task('t-1', 'OPEN', 'x'), events: named, connection: 'open' })).toContain('<span>Run the focused tests</span>');
+    // With nothing running the same line is the sentence its members add up to.
+    expect(body({ task: task('t-1', 'OPEN', 'x'), events: between, connection: 'open' }))
+      .toContain('<span>Ran 1 command, edited 1 file, and used 1 tool</span>');
   });
 
   it('expands a read from its supplied name and keeps skill loading as a plain row', () => {
@@ -1482,7 +1489,7 @@ describe('agent task detail', () => {
     });
     const markup = body({ task: task('t-1', 'OPEN', 'x'), events: named, connection: 'open' }, { '00000000-0000-4000-8000-000000000005': true });
 
-    expect(markup).toMatch(/<summary class="agt-act__row is-command">[^]*?Read OpenAI Docs skill[^]*?<\/summary><pre class="agt-pre">[^]*?Skill documentation content[^]*?truncated/);
+    expect(markup).toMatch(/<summary class="agt-act__row is-command">[^]*?Read OpenAI Docs skill[^]*?<\/summary><pre class="agt-pre is-shell">[^]*?Skill documentation content[^]*?truncated/);
     expect(markup.match(/Skill documentation content/g)).toHaveLength(1);
     expect(markup).not.toMatch(/<summary[^>]*>[^<]*Output/);
     expect(markup).not.toContain('>0s<');
@@ -1511,7 +1518,7 @@ describe('agent task detail', () => {
     expect(inline).toMatch(/<div class="agt-act__row">[^]*?review_get_context[^]*?<span class="agt-mono">ok<\/span><\/div>/);
   });
 
-  it('keeps unnamed reads truthful and running results open without activity clocks', () => {
+  it('keeps unnamed reads truthful and a running result folded, without activity clocks', () => {
     const reading = events.filter((event) => event.type !== 'lifecycle' || event.payload.phase !== 'TURN_COMPLETED')
       .map((event): AgentEventEnvelope => event.type !== 'command' ? event : ({
       ...event,
@@ -1524,11 +1531,16 @@ describe('agent task detail', () => {
       },
     }));
     const markup = body({ task: task('t-1', 'OPEN', 'x'), events: reading, connection: 'open' });
-    expect(markup).toMatch(/<details class="agt-out" open=""><summary[^>]*>[^]*?Read file[^]*?<\/summary>/);
+    // An action the provider left unnamed says what it did, never "Read .".
+    expect(markup).toContain('<span>Read file</span>');
     expect(markup).not.toContain('Read .');
-    expect(markup).toContain('— reading files');
-    expect(markup).not.toMatch(/<div class="agt-act__head">(?:(?!<\/div>)[^])*\d+s/);
-    expect(markup).toContain('agt-cursor');
+    // Its output is there to open, not opened for the reader, and the line carries no clock.
+    expect(markup).not.toContain('<details class="agt-out" open="">');
+    expect(markup).not.toMatch(/class="agt-act__fold"(?:(?!<\/button>)[^])*\d+s/);
+    const opened = body({ task: task('t-1', 'OPEN', 'x'), events: reading, connection: 'open' },
+      { '00000000-0000-4000-8000-000000000005': true });
+    expect(opened).toMatch(/<details class="agt-out"><summary[^>]*>[^]*?Read file[^]*?<\/summary>/);
+    expect(opened).toContain('agt-cursor');
   });
 
   it('keeps approval outcomes without inserting a timestamp into the log', () => {

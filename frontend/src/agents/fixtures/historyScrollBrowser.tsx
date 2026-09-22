@@ -121,7 +121,7 @@ async function longCommandConversation(): Promise<void> {
     ...event, source: { ...event.source, providerItemId: 'long-command' }, type: 'command',
     payload: {
       state: 'PROGRESS', argv: ['mvn', 'verify'], output: `Building module ${event.sequence}: compilation complete.\n`,
-      exitCode: null, truncated: false, cwd: '.', durationMs: null, actions: [],
+      exitCode: null, truncated: false, cwd: '.', durationMs: null, actions: [], description: null,
     },
   } : {
     ...event, type: 'assistant_message',

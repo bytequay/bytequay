@@ -17,8 +17,6 @@ import { parseAgentEventSequence, type AgentEventEnvelope } from './events';
 import type { AgentTurnDto } from '../types';
 import {
   activeAgents,
-  activityExpanded,
-  activityPhrase,
   activityRunning,
   activitySummary,
   currentPlan,
@@ -245,17 +243,13 @@ describe('projecting the transcript', () => {
     const again = must(projectTranscript(fixtureEvents)[0].blocks.find((block): block is ActivityBlock => block.kind === 'activity'));
     expect(activitySummary(again.members)).toBe(activitySummary(must(activity).members));
     expect(activitySummary([
-      { kind: 'command', id: 'a', command: 'cat x', state: 'COMPLETED', output: null, exitCode: 0, truncated: false, cwd: null, durationMs: null, actions: [{ kind: 'READ', path: 'x', query: null }, { kind: 'READ', path: 'y', query: null }] },
-      { kind: 'command', id: 'b', command: 'cat x', state: 'COMPLETED', output: null, exitCode: 0, truncated: false, cwd: null, durationMs: null, actions: [{ kind: 'READ', path: 'x', query: null }] },
-      { kind: 'command', id: 'c', command: 'mvn test', state: 'COMPLETED', output: null, exitCode: 0, truncated: false, cwd: null, durationMs: null, actions: [] },
-      { kind: 'command', id: 'd', command: 'mvn verify', state: 'COMPLETED', output: null, exitCode: 0, truncated: false, cwd: null, durationMs: null, actions: [] },
+      { kind: 'command', id: 'a', command: 'cat x', state: 'COMPLETED', output: null, exitCode: 0, truncated: false, cwd: null, durationMs: null, actions: [{ kind: 'READ', path: 'x', query: null }, { kind: 'READ', path: 'y', query: null }], description: null },
+      { kind: 'command', id: 'b', command: 'cat x', state: 'COMPLETED', output: null, exitCode: 0, truncated: false, cwd: null, durationMs: null, actions: [{ kind: 'READ', path: 'x', query: null }], description: null },
+      { kind: 'command', id: 'c', command: 'mvn test', state: 'COMPLETED', output: null, exitCode: 0, truncated: false, cwd: null, durationMs: null, actions: [], description: null },
+      { kind: 'command', id: 'd', command: 'mvn verify', state: 'COMPLETED', output: null, exitCode: 0, truncated: false, cwd: null, durationMs: null, actions: [], description: null },
       { kind: 'file', id: 'e', path: 'A.java', change: 'MODIFIED', diff: null, added: 0, removed: 0 },
       { kind: 'file', id: 'f', path: 'B.java', change: 'ADDED', diff: null, added: 0, removed: 0 },
     ])).toBe('Read 2 files, ran 2 commands, and edited 2 files');
-    expect(activityPhrase([
-      { kind: 'command', id: 'a', command: 'cat x', state: 'COMPLETED', output: null, exitCode: 0, truncated: false, cwd: null, durationMs: null, actions: [{ kind: 'READ', path: 'x', query: null }] },
-      { kind: 'command', id: 'c', command: 'mvn test', state: 'STARTED', output: null, exitCode: null, truncated: false, cwd: null, durationMs: null, actions: [] },
-    ])).toBe('reading files and running commands');
   });
 
   it('replaces the plan in place when a newer plan arrives', () => {
@@ -307,20 +301,6 @@ describe('projecting the transcript', () => {
       kind: 'error', code: 'INTERRUPTED', message: 'Backend restarted while the turn was active', retryable: false,
     });
     expect(formatDuration(3_720_000)).toBe('1h 02m');
-  });
-
-  it('keeps a running turn\'s groups open and folds them once it ends, unless the user chose otherwise', () => {
-    const running: ActivityBlock = { kind: 'activity', id: 'g', startedAt: '2026-08-20T10:00:00Z', endedAt: null, members: [
-      { kind: 'command', id: 'a', command: 'sleep 5', state: 'STARTED', output: null, exitCode: null, truncated: false, cwd: null, durationMs: null, actions: [] },
-    ] };
-    const finished: ActivityBlock = { ...running, endedAt: '2026-08-20T10:00:05Z', members: [{ ...running.members[0], state: 'COMPLETED' } as ActivityBlock['members'][number]] };
-    expect(activityExpanded(running, undefined, false)).toBe(true);
-    expect(activityExpanded(running, false, false)).toBe(false);
-    expect(activityExpanded(finished, undefined, false)).toBe(false);
-    expect(activityExpanded(finished, true, false)).toBe(true);
-    // A group whose commands are done between two of them stays open until its turn ends.
-    expect(activityExpanded(finished, undefined, true)).toBe(true);
-    expect(activityExpanded(finished, false, true)).toBe(false);
   });
 
   it('keeps a child out of its parent transcript and shows it as a chip instead', () => {
@@ -457,7 +437,6 @@ describe('bounded transcript windows', () => {
 
     expect(turn.endedAt).toBe(completedTurn.endedAt);
     expect(activityRunning(activity)).toBe(false);
-    expect(activityExpanded(activity, undefined, false)).toBe(false);
     expect(activity.members).toMatchObject([
       { kind: 'command', state: 'UNKNOWN', output: 'Compiling files\n', exitCode: null },
       { kind: 'tool', state: 'UNKNOWN' },

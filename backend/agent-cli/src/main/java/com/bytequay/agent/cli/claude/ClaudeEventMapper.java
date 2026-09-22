@@ -416,7 +416,8 @@ final class ClaudeEventMapper
                     Optional.empty(),
                     Optional.of(Duration.ofMillis(Math.max(0, Math.round(progress.elapsedTimeSeconds() * 1000)))),
                     ImmutableList.of(),
-                    call.background()));
+                    call.background(),
+                    commandLabel(call)));
         }
         return ImmutableList.of(new ProviderAgentEvent.Tool(
                 progress.uuid(),
@@ -449,7 +450,8 @@ final class ClaudeEventMapper
                     Optional.empty(),
                     Optional.empty(),
                     ImmutableList.of(),
-                    call.background());
+                    call.background(),
+                    commandLabel(call));
         }
         return new ProviderAgentEvent.Tool(
                 eventId,
@@ -485,7 +487,8 @@ final class ClaudeEventMapper
                     Optional.empty(),
                     Optional.empty(),
                     ImmutableList.of(),
-                    call.background());
+                    call.background(),
+                    commandLabel(call));
         }
         return new ProviderAgentEvent.Tool(
                 eventId,
@@ -725,6 +728,12 @@ final class ClaudeEventMapper
             String message)
     {
         return new ProviderAgentEvent.Lifecycle(eventId, Optional.empty(), phase, bounded(message));
+    }
+
+    /** Claude labels its own shell calls; that label names the row where the argv only shows the shell. */
+    private Optional<String> commandLabel(ToolCall call)
+    {
+        return call.input().description().filter(value -> !value.isBlank()).map(this::bounded);
     }
 
     private String bounded(String text)

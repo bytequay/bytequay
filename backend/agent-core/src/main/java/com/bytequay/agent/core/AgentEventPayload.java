@@ -128,7 +128,8 @@ public sealed interface AgentEventPayload
             Optional<String> cwd,
             Optional<Long> durationMs,
             List<CommandAction> actions,
-            boolean background)
+            boolean background,
+            Optional<String> description)
             implements AgentEventPayload
     {
         /** A command that runs in the foreground; a stored row written before the flag existed reads the same way. */
@@ -142,7 +143,7 @@ public sealed interface AgentEventPayload
                 Optional<Long> durationMs,
                 List<CommandAction> actions)
         {
-            this(state, argv, output, exitCode, truncated, cwd, durationMs, actions, false);
+            this(state, argv, output, exitCode, truncated, cwd, durationMs, actions, false, Optional.empty());
         }
 
         /** The shape stored before the working directory, duration, and parsed actions were carried. */
@@ -168,6 +169,7 @@ public sealed interface AgentEventPayload
             durationMs.ifPresent(value -> checkArgument(value >= 0, "durationMs is negative"));
             // A row stored before actions were carried has no field for them, which reads as none.
             actions = actions == null ? ImmutableList.of() : ImmutableList.copyOf(actions);
+            checkOptionalText(description, "description");
         }
 
         @Override

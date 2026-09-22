@@ -1687,29 +1687,6 @@
   margin-top: 14px;
 }
 
-.agt-act__head {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  margin-bottom: 4px;
-  font-size: 12px;
-}
-
-.agt-act__head .agt-spin {
-  width: 15px;
-  height: 15px;
-}
-
-.agt-act__head .agt-mono {
-  font-size: 11px;
-  color: #57606a;
-}
-
-.agt-act__title {
-  font-weight: 700;
-  color: var(--accent);
-}
-
 .agt-act__fold {
   display: flex;
   align-items: center;
@@ -1809,12 +1786,44 @@
   overflow: auto;
 }
 
+/* A shell box windows its output instead, so the command the row promised is never cut. */
+.agt-out > .agt-pre.is-shell {
+  max-height: none;
+  overflow: visible;
+}
+
+.agt-out__cmd {
+  display: block;
+  color: var(--text-1);
+}
+
+/* The theme makes a code block in a pre stand alone; here it continues the prompt's own line. */
+.agt-out__cmd code.hljs {
+  display: inline;
+  padding: 0;
+  background: transparent;
+  font: inherit;
+}
+
+.agt-out__stream {
+  display: block;
+  /* Whole lines only: 13 of them; the box's own padding stays outside the window. */
+  max-height: 20.8em;
+  overflow: auto;
+}
+
+.agt-out__cmd + .agt-out__stream {
+  margin-top: 1.6em;
+}
+
 /* macOS hides an overlay scrollbar, which makes a capped output read as cut; this one stays visible. */
-.agt-out > .agt-pre::-webkit-scrollbar {
+.agt-out > .agt-pre::-webkit-scrollbar,
+.agt-out__stream::-webkit-scrollbar {
   width: 9px;
 }
 
-.agt-out > .agt-pre::-webkit-scrollbar-thumb {
+.agt-out > .agt-pre::-webkit-scrollbar-thumb,
+.agt-out__stream::-webkit-scrollbar-thumb {
   border: 2px solid transparent;
   border-radius: 5px;
   background: #d0d7de;

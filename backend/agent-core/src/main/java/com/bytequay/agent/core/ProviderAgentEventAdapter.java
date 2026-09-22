@@ -60,7 +60,8 @@ public final class ProviderAgentEventAdapter
                     command.cwd(),
                     command.duration().map(Duration::toMillis),
                     command.actions(),
-                    command.background());
+                    command.background(),
+                    command.description());
             case ProviderAgentEvent.FileChange file -> new AgentEventPayload.FileActivity(
                     ActivityState.COMPLETED,
                     file.relativePath(),

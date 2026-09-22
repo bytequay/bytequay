@@ -108,6 +108,8 @@ export type AgentEventEnvelope =
     durationMs: number | null;
     /** What the provider parsed the command as doing; empty on events stored before this existed. */
     actions: Array<{ kind: typeof COMMAND_ACTION_KINDS[number]; name?: string | null; path: string | null; query: string | null }>;
+    /** The provider's own label for the command; null when it supplies none. */
+    description: string | null;
   }>
   | AgentEvent<'file_change', {
     state: typeof ACTIVITY_STATES[number];
@@ -282,6 +284,8 @@ function validatePayload(type: typeof EVENT_TYPES[number], value: unknown, index
       if (payload.cwd === undefined) payload.cwd = null;
       if (payload.durationMs === undefined) payload.durationMs = null;
       if (payload.actions === undefined) payload.actions = [];
+      if (payload.description === undefined) payload.description = null;
+      nullableString(payload.description, 'command.description');
       nullableString(payload.cwd, 'command.cwd');
       nullableInteger(payload.durationMs, 'command.durationMs');
       arrayValue(payload.actions, 'command.actions').forEach((action, actionIndex) => {

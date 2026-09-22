@@ -212,7 +212,8 @@ public sealed interface ProviderAgentEvent
             Optional<String> cwd,
             Optional<Duration> duration,
             List<CommandAction> actions,
-            boolean background)
+            boolean background,
+            Optional<String> description)
             implements ProviderAgentEvent
     {
         public Command(
@@ -257,7 +258,7 @@ public sealed interface ProviderAgentEvent
                 Optional<Duration> duration,
                 List<CommandAction> actions)
         {
-            this(providerEventId, providerTimestamp, commandId, state, argv, output, exitCode, truncated, source, cwd, duration, actions, false);
+            this(providerEventId, providerTimestamp, commandId, state, argv, output, exitCode, truncated, source, cwd, duration, actions, false, Optional.empty());
         }
 
         public Command
@@ -275,6 +276,7 @@ public sealed interface ProviderAgentEvent
             requireNonNull(duration, "duration is null");
             // A record written before actions were carried has no field for them, which reads as none.
             actions = actions == null ? ImmutableList.of() : ImmutableList.copyOf(actions);
+            checkOptionalText(description, "description");
         }
     }
 

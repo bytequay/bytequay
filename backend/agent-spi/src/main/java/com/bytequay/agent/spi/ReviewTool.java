@@ -29,10 +29,20 @@ import static java.util.Objects.requireNonNull;
  * never throws for an invalid call: field-specific validation errors are tool text the model can
  * repair from, so a provider adapter never sees a review failure.
  */
-public record ReviewTool(String name, String description, Map<String, Object> inputSchema, Function<String, String> call)
+public record ReviewTool(String name, String description, Map<String, Object> inputSchema, Function<String, String> call, boolean childCallable)
 {
     public static final String NAME_PREFIX = "review_";
 
+    /** A tool only the root agent may call, which is every tool that saves or changes review state. */
+    public ReviewTool(String name, String description, Map<String, Object> inputSchema, Function<String, String> call)
+    {
+        this(name, description, inputSchema, call, false);
+    }
+
+    /**
+     * @param childCallable whether an exploration child the root agent starts may also call this tool;
+     *         true only for a tool that reads
+     */
     public ReviewTool
     {
         checkNotBlank(name, "name");

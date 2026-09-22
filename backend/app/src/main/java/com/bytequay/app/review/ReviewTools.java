@@ -181,7 +181,8 @@ public class ReviewTools
                                 .put("target", ImmutableMap.of("type", "string", "maxLength", 200))
                                 .put("ref", ImmutableMap.of("type", "string", "maxLength", 20))
                                 .buildOrThrow(), ImmutableList.of("kind")),
-                        arguments -> call(reviewId, turnId, arguments, this::getContext)),
+                        // The only review tool that reads, so the only one an exploration child may call.
+                        arguments -> call(reviewId, turnId, arguments, this::getContext), true),
                 new ReviewTool("review_save_summary",
                         "Save only the pull request's intention and one design/implementation explanation per commit in scope. "
                                 + "Put bugs and concrete code improvements in inline findings. Saving again creates the next revision.",

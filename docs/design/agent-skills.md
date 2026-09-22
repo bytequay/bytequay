@@ -21,9 +21,10 @@ with the main agent. Exploration subagents use the session's ByteQuay tools,
 CodeGraph, and every read-only tool the session permits, including read-only
 `git` and `gh` where the session has network access. The recommendation grants
 no capability. A
-development session already offers subagents and remote reads; a review session
-offers neither until its root-only tool boundary is proved, so its agent
-explores directly.
+development session already offers subagents and remote reads. An attended
+Claude review offers read-only `Explore` children behind the root-only child
+gate described in [Agent Review](agent-review.md); a Codex review offers none
+until that boundary is proved for Codex, so its agent explores directly.
 Required review coverage is preserved when grouping long lists.
 Wording rules favor readable sentences and preserve exact technical details,
 conditions, and normal prose in shared artifacts.

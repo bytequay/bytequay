@@ -514,13 +514,35 @@ unavailable there. Ordinary tasks retain their capabilities. Review subagents
 can be enabled only after a trustworthy root-only tool boundary is proved;
 do not assume process-wide MCP configuration enforces it.
 
+That boundary is proved for the Claude lane. A probe of the Claude CLI with a
+stand-in MCP write tool showed that a read-only `Explore` child inherits every
+MCP tool and can call a write tool, that the MCP request carries only a tool-use
+identifier and so cannot identify its caller, and that the `PreToolUse` hook
+input carries `agent_id` and `agent_type` for a child's tool call and neither
+for the root's. An attended Claude review that owns its worktree therefore
+installs a root-only child gate: an owner-only script in the task's provider
+directory, registered as a `PreToolUse` hook for the Agent and Task tools and
+every ByteQuay MCP tool. The gate parses the hook input with the system
+`plutil`, refuses a call it cannot read, starts only `Explore` children, and
+lets a child call only the ByteQuay tools marked child-callable:
+`review_get_context` and `codegraph_explore`. Every tool that saves or changes
+review state stays with the root agent, including tools added later, which
+are root-only until marked otherwise. The approval layer applies the same rule,
+and the driver offers the Agent tool only on a CLI release at or above the one
+whose hook input was verified and only when child text is forwarded. Children
+are for searching and exploring, as the shared guidance describes; they inherit
+the review session's sandbox and command review.
+
 The Claude review profile selects only the fixed native file, shell, source,
-and background-command output/stop tools used for investigation. It disables
-slash commands and refuses Agent, Task, Skill, Workflow and SendMessage before
-approval. Native delegation, resumed children, and newly introduced provider
-workflow tools are therefore not inherited from the ordinary task profile.
-Codex reviews use their no-child launch profile. Both review projections
-advertise subagents as unavailable independently of ordinary task capability.
+and background-command output/stop tools used for investigation, plus Agent
+under the gate above. It disables slash commands and refuses Skill, Workflow
+and SendMessage before approval, and refuses Agent and Task wherever the gate
+is absent: unattended, text-only and read-only sessions. Other native
+delegation, resumed children, and newly introduced provider workflow tools are
+therefore not inherited from the ordinary task profile. Codex reviews keep
+their no-child launch profile until the same boundary is proved for Codex. The
+review projection reports nested agents from the lane: available for a gated
+Claude review, unavailable for Codex.
 
 A new inline finding has this logical shape:
 
@@ -927,7 +949,7 @@ activity, capability-based queue/steer, incremental runs, and explicit user
 publication. Reuse existing PR refresh cadence for observed head changes.
 
 Defer a fourth column, new global review inbox, cross-PR agent memory,
-review subagents without a proved root-only tool boundary,
+Codex review subagents, which lack a proved root-only tool boundary,
 independent reviewer/verifier multi-agent execution, arbitrary application tool
 registry, automatic force-push worktree repair, automatic commit/push,
 provider-history editing, and a new scheduler or graph framework. Do not

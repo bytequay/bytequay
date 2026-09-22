@@ -984,7 +984,7 @@ public class DefaultAgentReviewService
                         task.defaults().model(),
                         task.worktreeMutationClaim().map(claim -> claim.kind().name()),
                         capabilities.steering(),
-                        false),
+                        capabilities.nestedAgentActivity() && drivers.require(task.laneId()).reviewChildAgents()),
                 active.map(turn -> new AgentReviewProjection.TurnView(turn.id().toString(), turn.state().name(), turn.startedAt(), turn.cancellationRequestedAt())),
                 queued,
                 pendingApprovals,

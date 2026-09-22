@@ -170,6 +170,9 @@ class TestReviewTools
         assertThat(bridge.instruction()).contains("End each finding body", "add an **Example**", "only traced from the code");
         assertThat(bridge.instruction()).contains("Warnings are only for checks that could not run", "stays in that candidate's conclusion");
         assertThat(bridge.instruction()).contains("up to five nit candidates", "reject the nit candidates as held back", "Never pad");
+        assertThat(bridge.instruction()).contains("starts only read-only Explore subagents", "every tool that saves or changes review state is yours alone");
+        // Only the tool that reads may be called by an exploration child; the child gate refuses the rest.
+        assertThat(bridge.tools().stream().filter(ReviewTool::childCallable)).extracting(ReviewTool::name).containsExactly("review_get_context");
         ReviewTool finish = bridge.tools().stream().filter(tool -> tool.name().equals("review_finish")).findFirst().orElseThrow();
         assertThat(finish.description()).contains("Caveats about evidence strength stay with the candidate").doesNotContain("Put unavailable tests");
         ReviewTool finding = bridge.tools().stream().filter(tool -> tool.name().equals("review_save_finding")).findFirst().orElseThrow();

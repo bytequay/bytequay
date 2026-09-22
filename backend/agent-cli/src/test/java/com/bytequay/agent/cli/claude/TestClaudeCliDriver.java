@@ -1074,6 +1074,30 @@ class TestClaudeCliDriver
     }
 
     @Test
+    void offersReviewChildrenOnlyOnAReleaseWithTheVerifiedGateInput()
+            throws Exception
+    {
+        ReviewBridge review = new ReviewBridge(ImmutableList.of(), "Review this PR");
+        for (String version : ImmutableList.of("2.1.277", "2.1.278")) {
+            ScriptedProcessSupervisor supervisor = new ScriptedProcessSupervisor();
+            supervisor.versionOutput = version + " (Claude Code)";
+            try (ClaudeCliDriver driver = driver(supervisor, taskId -> Optional.of(review))) {
+                assertThat(driver.reviewChildAgents()).isFalse();
+                driver.probe();
+                boolean verified = version.equals("2.1.278");
+                assertThat(driver.reviewChildAgents()).isEqualTo(verified);
+                try (AgentSession session = driver.open(context(Optional.empty()), event -> {})) {
+                    await(session.start(command("review")));
+                }
+                List<String> argv = supervisor.turns().getLast().spec().argv();
+                String[] nativeTools = argv.get(argv.indexOf("--tools") + 1).split(",");
+                assertThat(nativeTools).doesNotContain("Task", "Skill", "Workflow", "SendMessage");
+                assertThat(ImmutableList.copyOf(nativeTools).contains("Agent")).isEqualTo(verified);
+            }
+        }
+    }
+
+    @Test
     void restrictsNativeReviewToolsOnInitialAndResumedSessions()
             throws Exception
     {

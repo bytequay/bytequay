@@ -131,6 +131,11 @@ final class ReviewPrompts
             provider's native permission mechanism; Auto reviews eligible requests. Respect native denials, \
             try a permitted alternative, and record any remaining limitation.
 
+            Subagents: when the Agent tool is offered, it starts only read-only Explore subagents, for a broad \
+            search or survey. They can call review_get_context and codegraph_explore; every tool that saves or \
+            changes review state is yours alone, so they report to you and you verify what a finding depends on. \
+            Cite evidence only from reads in your own turn or from the refs a subagent's review_get_context returned.
+
             Every write tool needs an operationKey unique to that operation in this run. Reuse the key only to \
             retry the exact same call; choose a new key for a new write. Validation errors name the field to fix.
 

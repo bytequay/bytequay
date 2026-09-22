@@ -38,8 +38,11 @@ import com.fasterxml.jackson.databind.node.ObjectNode;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.condition.EnabledOnOs;
+import org.junit.jupiter.api.condition.OS;
 import org.junit.jupiter.api.io.TempDir;
 
+import java.io.OutputStream;
 import java.net.URI;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -53,6 +56,8 @@ import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
 
+import static java.nio.charset.StandardCharsets.UTF_8;
+import static java.util.concurrent.TimeUnit.SECONDS;
 import static org.assertj.core.api.Assertions.assertThat;
 
 class TestPermissionBroker
@@ -1012,6 +1017,12 @@ class TestPermissionBroker
                                             .isEqualTo(objectMapper.valueToTree(ImmutableList.of("$defaults", AgentCommandPolicy.reviewInstructions())));
                                     assertThat(settings.at("/autoMode/hard_deny"))
                                             .isEqualTo(objectMapper.valueToTree(ImmutableList.<String>builder().add("$defaults").addAll(AgentCommandPolicy.reviewRestrictions()).build()));
+                                    boolean children = policy == AgentPermissionPolicy.AUTO && access == SessionAccess.FULL;
+                                    assertThat(settings.at("/permissions/deny").toString()).contains("\"Skill\"", "\"Workflow\"", "\"SendMessage\"");
+                                    assertThat(settings.at("/permissions/deny").toString().contains("\"Agent\"")).isNotEqualTo(children);
+                                    assertThat(settings.at("/permissions/deny").toString().contains("\"Task\"")).isNotEqualTo(children);
+                                    assertThat(settings.path("hooks").isMissingNode()).isNotEqualTo(children);
+                                    assertThat(Files.exists(registration.settingsFile().resolveSibling("review-child-gate.sh"))).isEqualTo(children);
                                 }
                                 else {
                                     assertThat(settings.path("autoMode").isMissingNode()).isTrue();
@@ -1029,6 +1040,62 @@ class TestPermissionBroker
                 }
             }
         }
+    }
+
+    @Test
+    @EnabledOnOs(OS.MAC)
+    void reviewChildGateKeepsWriteToolsWithTheRootAgent()
+            throws Exception
+    {
+        Path worktree = Files.createDirectories(temporaryDirectory.resolve("gate-worktree"));
+        // The runtime directory sits under "Application Support", so the hook command must survive a space.
+        Path runtime = Files.createDirectories(temporaryDirectory.resolve("gate runtime"));
+        ReviewBridge review = new ReviewBridge(ImmutableList.of(
+                new ReviewTool("review_get_context", "Read review context", ImmutableMap.of("type", "object"), arguments -> "context", true),
+                new ReviewTool("review_finish", "Finish the review", ImmutableMap.of("type", "object"), arguments -> "{}")), "Review only");
+        PermissionBroker broker = new PermissionBroker(
+                () -> URI.create("http://127.0.0.1:9000/internal/agent/claude/mcp"), objectMapper, (taskId, query) -> "", taskId -> Optional.of(review));
+        Path gate;
+        try (var registration = broker.register("task-gate", worktree, runtime, runtime.resolve("provider"), AgentPermissionPolicy.AUTO, SessionAccess.FULL,
+                (request, timeout) -> CompletableFuture.completedFuture(ProviderApprovalDecision.deny()),
+                SecretRedactor.fromEnvironment(ImmutableMap.of()), Optional.of(new CodeGraphBridge(query -> "graph", "Use the graph")), ImmutableMap.of())) {
+            gate = registration.settingsFile().resolveSibling("review-child-gate.sh");
+            JsonNode hook = objectMapper.readTree(Files.readString(registration.settingsFile())).at("/hooks/PreToolUse/0");
+            assertThat(hook.path("matcher").asText()).isEqualTo("^(Agent|Task|mcp__bytequay__.*)$");
+            String command = hook.at("/hooks/0/command").asText();
+            assertThat(command).isEqualTo("'" + gate + "'");
+            assertThat(PosixFilePermissions.toString(Files.getPosixFilePermissions(gate))).isEqualTo("rwx------");
+            String child = "\"agent_id\":\"a1\",\"agent_type\":\"Explore\",";
+
+            // The root agent keeps every tool.
+            assertThat(gate(command, "{\"tool_name\":\"mcp__bytequay__review_finish\",\"tool_input\":{}}")).isZero();
+            // A child reads and explores, and nothing else.
+            assertThat(gate(command, "{" + child + "\"tool_name\":\"mcp__bytequay__review_get_context\",\"tool_input\":{\"kind\":\"pr\"}}")).isZero();
+            assertThat(gate(command, "{" + child + "\"tool_name\":\"mcp__bytequay__codegraph_explore\",\"tool_input\":{}}")).isZero();
+            assertThat(gate(command, "{" + child + "\"tool_name\":\"mcp__bytequay__review_finish\",\"tool_input\":{}}")).isEqualTo(2);
+            assertThat(gate(command, "{" + child + "\"tool_name\":\"mcp__bytequay__review_future_tool\",\"tool_input\":{}}")).isEqualTo(2);
+            // Only read-only Explore children start.
+            assertThat(gate(command, "{\"tool_name\":\"Agent\",\"tool_input\":{\"subagent_type\":\"Explore\",\"prompt\":\"find callers\"}}")).isZero();
+            assertThat(gate(command, "{\"tool_name\":\"Agent\",\"tool_input\":{\"subagent_type\":\"general-purpose\",\"prompt\":\"fix it\"}}")).isEqualTo(2);
+            assertThat(gate(command, "{\"tool_name\":\"Agent\",\"tool_input\":{\"prompt\":\"no type\"}}")).isEqualTo(2);
+            // Text or arguments that merely mention agent_id do not make the root look like a child.
+            assertThat(gate(command, "{\"tool_name\":\"mcp__bytequay__review_finish\",\"tool_input\":{\"body\":\"the \\\"agent_id\\\": field\",\"agent_id\":\"x\"}}")).isZero();
+            // A call the gate cannot read is refused.
+            assertThat(gate(command, "not json")).isEqualTo(2);
+        }
+        assertThat(gate).doesNotExist();
+    }
+
+    private static int gate(String hookCommand, String payload)
+            throws Exception
+    {
+        Process process = new ProcessBuilder("/bin/sh", "-c", hookCommand).redirectErrorStream(true).start();
+        try (OutputStream stdin = process.getOutputStream()) {
+            stdin.write(payload.getBytes(UTF_8));
+        }
+        process.getInputStream().readAllBytes();
+        assertThat(process.waitFor(10, SECONDS)).isTrue();
+        return process.exitValue();
     }
 
     private String permission(

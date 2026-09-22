@@ -49,6 +49,8 @@ import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
 
 import java.io.IOException;
+import java.io.InputStream;
+import java.io.UncheckedIOException;
 import java.net.URI;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
@@ -83,6 +85,11 @@ import static java.util.Objects.requireNonNull;
 public final class PermissionBroker
 {
     private static final Duration APPROVAL_TIMEOUT = Duration.ofMinutes(5);
+    /** Root-only gate for review sessions; see {@code review-child-gate.sh} for what it refuses and why. */
+    private static final String CHILD_GATE_SCRIPT = readChildGateScript();
+    /** Every call that starts a child, and every ByteQuay tool call, because a child inherits all of them. */
+    private static final String CHILD_GATE_MATCHER = "^(Agent|Task|mcp__bytequay__.*)$";
+    private static final Pattern SHELL_SAFE_TOOL_NAME = Pattern.compile("[A-Za-z0-9_]+");
     private static final int MAX_DETAIL_CHARACTERS = 16 * 1024;
     /** Claude's own cap on one answer; a longer one would make it refuse the whole answered input. */
     private static final int MAX_ANSWER_CHARACTERS = 8 * 1024;
@@ -255,9 +262,11 @@ public final class PermissionBroker
         String token = token();
         Path configFile = providerDirectory.resolve("bytequay-mcp.json");
         Path settingsFile = providerDirectory.resolve("sandbox-settings.json");
+        Path childGateFile = providerDirectory.resolve("review-child-gate.sh");
         requireNonNull(codeGraph, "codeGraph is null");
         PermissionContext context = resolveContext(taskId, worktree, permissionPolicy, approvals, redactor.withSecret(token), codeGraph, access, true);
         contexts.put(token, context);
+        Optional<Path> childGate = context.reviewChildren() ? Optional.of(childGateFile) : Optional.empty();
         try {
             Files.createDirectories(providerDirectory);
             // Claude's HTTP first-response deadline otherwise expires after 60 seconds, before the approval card.
@@ -270,8 +279,12 @@ public final class PermissionBroker
                             APPROVAL_TIMEOUT.plusSeconds(30).toMillis(),
                             true))));
             writeOwnerOnly(configFile, json);
+            if (childGate.isPresent()) {
+                writeOwnerOnly(childGateFile, childGateScript(context));
+                Files.setPosixFilePermissions(childGateFile, PosixFilePermissions.fromString("rwx------"));
+            }
             writeOwnerOnly(settingsFile, sandboxSettings(
-                    permissionPolicy, access, context.review().isPresent(), runtimeDirectory.toRealPath(), worktree, environment));
+                    permissionPolicy, access, context.review().isPresent(), runtimeDirectory.toRealPath(), worktree, environment, childGate));
             List<String> toolNames = tools(context).stream()
                     .map(ToolDefinition::name)
                     .filter(name -> !name.equals("permission_prompt"))
@@ -282,12 +295,14 @@ public final class PermissionBroker
                         contexts.remove(token);
                         delete(configFile);
                         delete(settingsFile);
+                        delete(childGateFile);
                     });
         }
         catch (IOException e) {
             contexts.remove(token);
             delete(configFile);
             delete(settingsFile);
+            delete(childGateFile);
             throw new AgentUnavailableException("Unable to write Claude MCP configuration", e);
         }
     }
@@ -345,8 +360,12 @@ public final class PermissionBroker
                 || permissionPolicy.allowsGitHubCommands(false, review.isPresent()))
                 ? pullRequestChecks.resolve(taskId) : Optional.empty();
         Optional<IssueContextBridge> issueContext = restricted ? Optional.empty() : issueContexts.resolve(taskId);
+        // Exploration children exist only in an attended Claude review that owns its worktree, where the child gate
+        // keeps every ByteQuay write tool with the root. Codex registers no permission tools and keeps its no-child profile.
+        boolean reviewChildren = permissionTools && review.isPresent() && !permissionPolicy.unattended() && !restricted;
         return new PermissionContext(
-                taskId, worktree, permissionPolicy, approvals, redactor, permissionTools, codeGraph, review, development, localReview, pullRequestCi, issueContext);
+                taskId, worktree, permissionPolicy, approvals, redactor, permissionTools, codeGraph, review, development, localReview, pullRequestCi, issueContext,
+                reviewChildren);
     }
 
     /** Combines the fixed capabilities' guidance for the session's instruction channel. */
@@ -706,9 +725,17 @@ public final class PermissionBroker
         PermissionArguments arguments = objectMapper.treeToValue(input, PermissionArguments.class);
         Optional<String> refused = Optional.empty();
         if (context.review().isPresent()) {
-            if (arguments.toolName().equalsIgnoreCase("Agent")
-                    || arguments.toolName().equalsIgnoreCase("Task")
-                    || arguments.toolName().equalsIgnoreCase("Skill")
+            if (arguments.toolName().equalsIgnoreCase("Agent") || arguments.toolName().equalsIgnoreCase("Task")) {
+                boolean explore = Optional.ofNullable(arguments.input().get("subagent_type")).filter(JsonNode::isTextual).map(JsonNode::asText)
+                        .filter("Explore"::equals).isPresent();
+                if (!context.reviewChildren()) {
+                    refused = Optional.of("Review sessions cannot start or resume subagents because review tools require the root agent");
+                }
+                else if (!explore) {
+                    refused = Optional.of("Review sessions may start only read-only Explore subagents, for searching and exploring");
+                }
+            }
+            else if (arguments.toolName().equalsIgnoreCase("Skill")
                     || arguments.toolName().equalsIgnoreCase("Workflow")
                     || arguments.toolName().equalsIgnoreCase("SendMessage")) {
                 refused = Optional.of("Review sessions cannot start or resume subagents because review tools require the root agent");
@@ -1047,7 +1074,8 @@ public final class PermissionBroker
             boolean reviewSession,
             Path runtimeDirectory,
             Path worktree,
-            Map<String, String> environment)
+            Map<String, String> environment,
+            Optional<Path> childGate)
             throws IOException
     {
         boolean gitHubCommands = permissionPolicy.allowsGitHubCommands(access.restricted(), reviewSession);
@@ -1063,9 +1091,13 @@ public final class PermissionBroker
             Optional.ofNullable(environment.get("GH_CONFIG_DIR")).filter(value -> !value.isBlank()).ifPresent(denyRead::add);
         }
         if (reviewSession) {
-            // This task's MCP token does not distinguish a root agent from a child caller.
-            // Skills and workflows can start children; SendMessage can resume earlier children.
-            deny.add("Agent", "Task", "Skill", "Workflow", "SendMessage");
+            // This task's MCP token does not distinguish a root agent from a child caller, so a child is
+            // admitted only behind the gate below, which keeps every ByteQuay write tool with the root.
+            // Skills and workflows start other kinds of children; SendMessage can resume earlier children.
+            deny.add("Skill", "Workflow", "SendMessage");
+            if (childGate.isEmpty()) {
+                deny.add("Agent", "Task");
+            }
             // Native approval must preserve the review boundary while allowing local experiment edits.
             for (String command : ImmutableList.of("commit", "commit-tree", "update-ref", "merge", "rebase", "cherry-pick", "revert", "am", "switch", "pull")) {
                 deny.add("Bash(git " + command + ")", "Bash(git " + command + ":*)");
@@ -1131,7 +1163,34 @@ public final class PermissionBroker
                     "environment", ImmutableList.of("$defaults", AgentCommandPolicy.reviewInstructions()),
                     "hard_deny", ImmutableList.<String>builder().add("$defaults").addAll(AgentCommandPolicy.reviewRestrictions()).build()));
         }
+        // A hook sees agent_id on a child's tool call; the MCP request itself carries nothing that identifies the caller.
+        childGate.ifPresent(gate -> settings.put("hooks", ImmutableMap.of("PreToolUse", ImmutableList.of(ImmutableMap.of(
+                "matcher", CHILD_GATE_MATCHER,
+                "hooks", ImmutableList.of(ImmutableMap.of("type", "command", "command", "'" + gate.toString().replace("'", "'\\''") + "'")))))));
         return objectMapper.writeValueAsString(settings.buildOrThrow());
+    }
+
+    /** Fills the gate's allowlist with the tools that only read: a tool stays root-only until it is marked child-callable. */
+    private static String childGateScript(PermissionContext context)
+    {
+        List<String> readable = Stream.concat(
+                        context.review().stream().flatMap(review -> review.tools().stream()).filter(ReviewTool::childCallable).map(ReviewTool::name),
+                        context.codeGraph().stream().map(graph -> CodeGraphBridge.TOOL_NAME))
+                .filter(name -> SHELL_SAFE_TOOL_NAME.matcher(name).matches())
+                .map(name -> "mcp__bytequay__" + name)
+                .collect(toImmutableList());
+        return CHILD_GATE_SCRIPT.replace("@CHILD_TOOLS@", readable.isEmpty() ? "mcp__bytequay__none" : String.join("|", readable));
+    }
+
+    private static String readChildGateScript()
+    {
+        try (InputStream script = PermissionBroker.class.getResourceAsStream("review-child-gate.sh")) {
+            requireNonNull(script, "review-child-gate.sh is missing from the agent-cli resources");
+            return new String(script.readAllBytes(), StandardCharsets.UTF_8);
+        }
+        catch (IOException e) {
+            throw new UncheckedIOException("Cannot load the review child gate", e);
+        }
     }
 
     private static void writeOwnerOnly(Path path, String content)
@@ -1188,7 +1247,8 @@ public final class PermissionBroker
             Optional<DevelopmentResultBridge> development,
             Optional<LocalReviewBridge> localReview,
             Optional<PullRequestCiBridge> pullRequestCi,
-            Optional<IssueContextBridge> issueContext)
+            Optional<IssueContextBridge> issueContext,
+            boolean reviewChildren)
     {
         private PermissionContext
         {

@@ -33,6 +33,7 @@ import org.junit.jupiter.api.io.TempDir;
 import java.net.URI;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.Map;
 import java.util.Optional;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.atomic.AtomicInteger;
@@ -252,7 +253,7 @@ class TestReviewToolBroker
     }
 
     @Test
-    void claudeReviewRegistrationsDenySubagentsWhileOrdinaryTasksPreserveApprovals()
+    void claudeReviewRegistrationsAdmitOnlyExploreChildrenWhileOrdinaryTasksPreserveApprovals()
             throws Exception
     {
         AtomicInteger approvals = new AtomicInteger();
@@ -275,32 +276,45 @@ class TestReviewToolBroker
                     SecretRedactor.fromEnvironment(ImmutableMap.of()))) {
                 JsonNode deniedTools = objectMapper.readTree(Files.readString(registration.settingsFile())).at("/permissions/deny");
                 if (registration.review().isPresent()) {
-                    assertThat(deniedTools).extracting(JsonNode::asText).contains("Agent", "Task", "Skill", "Workflow", "SendMessage");
+                    // The child gate, not a blanket refusal, keeps review write tools with the root agent.
+                    assertThat(deniedTools).extracting(JsonNode::asText).contains("Skill", "Workflow", "SendMessage").doesNotContain("Agent", "Task");
                 }
                 else {
                     assertThat(deniedTools).extracting(JsonNode::asText).doesNotContain("Agent", "Task", "Skill", "Workflow", "SendMessage");
                 }
                 for (String tool : ImmutableList.of("Agent", "Task", "Skill", "Workflow", "SendMessage")) {
-                    JsonNode request = objectMapper.valueToTree(ImmutableMap.of(
-                            "jsonrpc", "2.0",
-                            "id", tool,
-                            "method", "tools/call",
-                            "params", ImmutableMap.of(
-                                    "name", "permission_prompt",
-                                    "arguments", ImmutableMap.of("tool_name", tool, "input", ImmutableMap.of("prompt", "Investigate the change")))));
-                    JsonNode response = broker.handle(registration.token(), request).body().orElseThrow();
-                    JsonNode permission = objectMapper.readTree(response.at("/result/content/0/text").asText());
+                    JsonNode permission = permission(broker, registration.token(), tool, ImmutableMap.of("prompt", "Investigate the change"));
                     if (registration.review().isPresent()) {
                         assertThat(permission.get("behavior").asText()).isEqualTo("deny");
-                        assertThat(permission.get("message").asText()).contains("require the root agent");
+                        assertThat(permission.get("message").asText()).contains(tool.equals("Agent") || tool.equals("Task") ? "only read-only Explore subagents" : "require the root agent");
                         assertThat(approvals).hasValue(0);
                     }
                     else {
                         assertThat(permission.get("behavior").asText()).isEqualTo("allow");
                     }
                 }
+                if (registration.review().isPresent()) {
+                    assertThat(permission(broker, registration.token(), "Agent", ImmutableMap.of("subagent_type", "general-purpose", "prompt", "Fix it")).get("behavior").asText())
+                            .isEqualTo("deny");
+                    assertThat(approvals).hasValue(0);
+                    assertThat(permission(broker, registration.token(), "Agent", ImmutableMap.of("subagent_type", "Explore", "prompt", "Find the callers")).get("behavior").asText())
+                            .isEqualTo("allow");
+                    assertThat(approvals).hasValue(1);
+                }
             }
         }
-        assertThat(approvals).hasValue(5);
+        assertThat(approvals).hasValue(6);
+    }
+
+    private JsonNode permission(PermissionBroker broker, String token, String tool, Map<String, Object> input)
+            throws Exception
+    {
+        JsonNode request = objectMapper.valueToTree(ImmutableMap.of(
+                "jsonrpc", "2.0",
+                "id", tool,
+                "method", "tools/call",
+                "params", ImmutableMap.of("name", "permission_prompt", "arguments", ImmutableMap.of("tool_name", tool, "input", input))));
+        JsonNode response = broker.handle(token, request).body().orElseThrow();
+        return objectMapper.readTree(response.at("/result/content/0/text").asText());
     }
 }

@@ -43,6 +43,17 @@ public interface AgentDriver
     }
 
     /**
+     * Reports whether a private review session of this lane may start read-only exploration children.
+     * A lane answers true only behind a verified gate that keeps review write tools with the root agent.
+     *
+     * @return true when review sessions may delegate exploration
+     */
+    default boolean reviewChildAgents()
+    {
+        return false;
+    }
+
+    /**
      * Describes event fidelity and features supported by this driver version.
      *
      * @return immutable provider capabilities

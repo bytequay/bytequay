@@ -93,6 +93,8 @@ public final class ClaudeCliDriver
     private static final int CONTRACT_VERSION = 1;
     private static final Version MINIMUM_VERSION = new Version(2, 1, 200);
     private static final Version SUBAGENT_TEXT_VERSION = new Version(2, 1, 219);
+    // The release whose PreToolUse hook input was verified to mark a child's tool call with agent_id, which the review child gate reads.
+    private static final Version REVIEW_CHILD_VERSION = new Version(2, 1, 278);
     private static final Duration PROBE_TIMEOUT = Duration.ofSeconds(10);
     private static final Duration UPDATE_TIMEOUT = Duration.ofMinutes(5);
     private static final Duration PROCESS_CANCELLATION_GRACE = Duration.ofSeconds(3);
@@ -162,6 +164,7 @@ public final class ClaudeCliDriver
     private final PermissionBroker permissions;
     private final Set<ClaudeSession> sessions = ConcurrentHashMap.newKeySet();
     private volatile boolean forwardSubagentText = true;
+    private volatile boolean reviewChildAgents;
     private volatile boolean closed;
 
     /**
@@ -250,6 +253,12 @@ public final class ClaudeCliDriver
     }
 
     @Override
+    public boolean reviewChildAgents()
+    {
+        return reviewChildAgents;
+    }
+
+    @Override
     public AgentProviderStatus probe()
     {
         try {
@@ -311,6 +320,8 @@ public final class ClaudeCliDriver
             }
             forwardSubagentText = version.compareTo(SUBAGENT_TEXT_VERSION) >= 0
                     && help.stdout().contains("--forward-subagent-text");
+            // A review child is visible only through forwarded text, and gated only on a release with the verified hook input.
+            reviewChildAgents = forwardSubagentText && version.compareTo(REVIEW_CHILD_VERSION) >= 0;
             CommandResult defaults = run(executable, "auto-mode", "defaults");
             if (defaults.timedOut()) {
                 return status(
@@ -440,8 +451,10 @@ public final class ClaudeCliDriver
             argv.add("--disable-slash-commands", "--tools", "Bash,Glob,Grep,Read");
         }
         else if (registration.review().isPresent()) {
-            // Keep new provider workflow/delegation tools out of root-only review sessions.
-            argv.add("--disable-slash-commands", "--tools", "Bash,Glob,Grep,Read,Edit,Write,NotebookEdit,WebFetch,WebSearch,TodoWrite,TaskOutput,TaskStop");
+            // Keep new provider workflow/delegation tools out of review sessions. Agent starts only the read-only Explore
+            // children the broker's gate admits, in an attended review on a release where that gate was verified.
+            argv.add("--disable-slash-commands", "--tools", "Bash,Glob,Grep,Read,Edit,Write,NotebookEdit,WebFetch,WebSearch,TodoWrite,TaskOutput,TaskStop"
+                    + (reviewChildAgents && !permissionPolicy.unattended() ? ",Agent" : ""));
         }
         if (!attachments.isEmpty()) {
             argv.add("--add-dir");

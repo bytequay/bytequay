@@ -654,10 +654,13 @@ fields and discussions are read without generating replacement prose for
 removed sections.
 
 Every saved card and finding describes the pull request. Scope omissions remain run metadata; outgoing findings do not contain
-agent autobiography or tool/environment commentary. Review commands have no network access, so the agent builds
-and runs the tests that exercise the change offline against the local
-dependency caches; both providers may write `~/.m2/repository`.
-Only a failed offline build shows a dependency is missing.
+agent autobiography or tool/environment commentary. An attended review reads
+the network and never writes to it: it fetches Git objects and remote-tracking
+references, runs read-only `git` and `gh` commands through the user's stored
+login, and fetches or searches documentation and package registries. The agent
+still builds and runs the tests that exercise the change against the local
+dependency caches first; both providers may write `~/.m2/repository`.
+Only a failed build shows a dependency is missing.
 The caches supply third-party dependencies only. The project's own modules come
 from the worktree, because a cached build of one, such as a Maven SNAPSHOT a
 different checkout installed, may hold other code under the same version. When
@@ -921,7 +924,20 @@ native-tool approval guard in both adapters. Reject remote-write and
 credential-access requests before offering an approval card; do not let an
 ordinary AUTO approval enable direct `gh` writes or `git push` for a review
 session. A user prompt or PR instruction cannot override that guard. A lane
-without the tested guard is not review-capable. The current same-user
+without the tested guard is not review-capable. Remote reads do not loosen it.
+The Claude review sandbox opens outbound hosts and the SSH agent socket, lets
+`git`, `gh` and `ssh` read their own login files while the agent's Read tool
+may not, and replaces the blanket `gh` refusal with outright refusals of the
+plain remote-write and credential commands; native review of every shell
+command and the approval-boundary guard cover the forms a prefix rule misses,
+such as a `gh api` request with a write method. The review environment keeps
+the stored login's locators and drops every raw GitHub token variable, because
+the pull request's own tests run in that environment. A Codex review keeps its
+sandboxed network off and its restricted shell environment: a remote read is a
+native escalation that the review policy now permits and the same guard checks,
+so it works through the stored `gh` and Git login but not through the SSH
+agent. Unattended, text-only and read-only sessions keep no network at all.
+The current same-user
 runtime is not an OS-enforced secret-read boundary: do not claim that prompt
 text or environment stripping prevents every ambient-credential bypass.
 Verify supported native-tool permission paths and keep this limitation

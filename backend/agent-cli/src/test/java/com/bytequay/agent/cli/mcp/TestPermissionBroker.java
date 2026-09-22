@@ -1004,8 +1004,10 @@ class TestPermissionBroker
                                 assertThat(settings.at("/autoMode/classifyAllShell").asBoolean()).isTrue();
                             }
                             else {
+                                // An attended review reads remotes with the stored Git and gh login and never writes to them.
+                                boolean reviewReads = reviewSession && policy == AgentPermissionPolicy.AUTO && access == SessionAccess.FULL;
                                 assertThat(settings.at("/sandbox/network/allowedDomains"))
-                                        .isEqualTo(objectMapper.valueToTree(ImmutableList.of()));
+                                        .isEqualTo(objectMapper.valueToTree(reviewReads ? ImmutableList.of("*") : ImmutableList.of()));
                                 if (reviewSession) {
                                     assertThat(settings.at("/sandbox/autoAllowBashIfSandboxed").asBoolean()).isFalse();
                                     assertThat(settings.at("/sandbox/filesystem/allowWrite"))
@@ -1029,9 +1031,19 @@ class TestPermissionBroker
                                     assertThat(settings.at("/permissions/deny").toString())
                                             .doesNotContain("Bash(git commit", "Bash(git update-ref", "Bash(git cherry-pick", "Bash(git reset");
                                 }
-                                assertThat(settings.at("/sandbox/network/allowUnixSockets").isMissingNode()).isTrue();
-                                assertThat(settings.at("/permissions/deny").toString()).contains("Bash(gh:*)", "Bash(git push:*)");
-                                assertThat(settings.at("/sandbox/filesystem/denyRead").toString()).contains(ghConfig, xdgConfig + "/gh");
+                                String denied = settings.at("/permissions/deny").toString();
+                                assertThat(denied).contains("Bash(git push:*)", "Read(~/.config/gh/**)", "Read(~/.ssh/**)");
+                                if (reviewReads) {
+                                    assertThat(settings.at("/sandbox/network/allowUnixSockets")).isEqualTo(objectMapper.valueToTree(ImmutableList.of(socket)));
+                                    assertThat(settings.at("/sandbox/filesystem/denyRead")).isEmpty();
+                                    assertThat(denied).doesNotContain("Bash(gh:*)")
+                                            .contains("Bash(git credential:*)", "Bash(gh auth:*)", "Bash(gh pr review:*)", "Bash(gh pr comment)", "Bash(gh pr merge:*)", "Bash(gh issue comment:*)");
+                                }
+                                else {
+                                    assertThat(settings.at("/sandbox/network/allowUnixSockets").isMissingNode()).isTrue();
+                                    assertThat(denied).contains("Bash(gh:*)");
+                                    assertThat(settings.at("/sandbox/filesystem/denyRead").toString()).contains(ghConfig, xdgConfig + "/gh");
+                                }
                             }
                             previous.ifPresent(prior -> assertThat(settings).isEqualTo(prior));
                             previous = Optional.of(settings);

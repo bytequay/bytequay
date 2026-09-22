@@ -616,6 +616,7 @@ public final class ClaudeCliDriver
                         maximumRuntime,
                         OptionalInt.of(MAX_PROBE_OUTPUT_BYTES),
                         MAX_PROBE_OUTPUT_BYTES,
+                        false,
                         false))
                 .start((stream, bytes) -> append(
                         stream == ProcessStream.STDOUT ? stdout : stderr,
@@ -679,13 +680,14 @@ public final class ClaudeCliDriver
             Duration maximumRuntime,
             OptionalInt stdoutCaptureLimit,
             int maximumStderrBytes,
-            boolean allowGitHubCommands)
+            boolean allowGitHubCommands,
+            boolean reviewReads)
     {
         return new ProcessSpec(
                 owner,
                 argv,
                 workingDirectory,
-                GitCliEnvironment.forSession(environment, allowGitHubCommands),
+                reviewReads ? GitCliEnvironment.forReview(environment) : GitCliEnvironment.forSession(environment, allowGitHubCommands),
                 stdoutCaptureLimit,
                 maximumStderrBytes,
                 maximumRuntime,
@@ -1015,7 +1017,8 @@ public final class ClaudeCliDriver
                     command.maximumRuntime(),
                     OptionalInt.empty(),
                     MAX_STDERR_BYTES,
-                    session.context.permissionPolicy().allowsGitHubCommands(session.context.restricted(), session.registration.review().isPresent()));
+                    session.context.permissionPolicy().allowsGitHubCommands(session.context.restricted(), session.registration.review().isPresent()),
+                    session.registration.review().isPresent() && session.context.permissionPolicy().allowsRemoteReads(session.context.restricted()));
             completeSubagentStream = spec.argv().contains("--forward-subagent-text");
             ManagedProcess started = supervisor.prepare(spec).start(this);
             this.process = started;

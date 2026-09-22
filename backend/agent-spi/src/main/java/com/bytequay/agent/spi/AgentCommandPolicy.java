@@ -68,8 +68,15 @@ public final class AgentCommandPolicy
                     Allow local experiment edits, staging, unstaging, applying patches, and read-only Git metadata commands.
                     Resetting files to the current HEAD is allowed; moving HEAD or a branch to another commit is not.
                     Evaluate complete commands, including Git options, aliases, shell chains, and invoked scripts.
-                    Earlier development authorization does not apply to this private review session. Synchronizing the
-                    remote PR head and publishing review comments are ByteQuay user actions, not agent shell actions.
+                    Earlier development authorization does not apply to this private review session. Moving the
+                    worktree to a new PR head and publishing review comments are ByteQuay user actions, not agent shell actions.
+                    """.strip(),
+                    """
+                    Allow reading from the network: fetching Git objects and remote-tracking references, read-only gh
+                    commands and GitHub API GET requests, and fetching or searching documentation and package
+                    registries. Git and gh use the CLI's stored login without displaying credentials.
+                    Block every remote write, including a gh api request with a write method, fields, or a request
+                    body, and block any request that sends repository content, credentials, or other private data.
                     """.strip())
             .addAll(COMMON_RESTRICTIONS)
             .build();

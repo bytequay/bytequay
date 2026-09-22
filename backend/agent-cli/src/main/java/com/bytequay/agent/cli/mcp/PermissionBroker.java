@@ -90,6 +90,20 @@ public final class PermissionBroker
     /** Every call that starts a child, and every ByteQuay tool call, because a child inherits all of them. */
     private static final String CHILD_GATE_MATCHER = "^(Agent|Task|mcp__bytequay__.*)$";
     private static final Pattern SHELL_SAFE_TOOL_NAME = Pattern.compile("[A-Za-z0-9_]+");
+    /**
+     * Remote writes and credential commands an attended review refuses outright while it reads the network.
+     * ponytail: prefix rules catch only the plain command form; {@link ReviewBridge#deniedReason} at the approval
+     * boundary and native review of every shell command cover the rest, such as a gh api request with a write method.
+     */
+    private static final List<String> REVIEW_REMOTE_WRITES = Stream.of(
+                    "git push", "git send-email", "git request-pull", "git credential", "gh auth", "gh release", "gh secret", "gh ssh-key", "gh gpg-key",
+                    "gh pr comment", "gh pr review", "gh pr merge", "gh pr close", "gh pr reopen", "gh pr edit", "gh pr create", "gh pr ready", "gh pr lock", "gh pr unlock",
+                    "gh issue comment", "gh issue close", "gh issue create", "gh issue edit", "gh issue reopen", "gh issue lock", "gh issue unlock", "gh issue delete",
+                    "gh repo create", "gh repo delete", "gh repo edit", "gh repo fork", "gh repo sync",
+                    "gh label create", "gh label delete", "gh label edit", "gh workflow run", "gh workflow enable", "gh workflow disable")
+            .flatMap(command -> Stream.of("Bash(" + command + ")", "Bash(" + command + ":*)"))
+            .collect(toImmutableList());
+    private static final List<String> CREDENTIAL_FILE_READS = ImmutableList.of("Read(~/.config/gh/**)", "Read(~/.git-credentials)", "Read(~/.netrc)", "Read(~/.ssh/**)");
     private static final int MAX_DETAIL_CHARACTERS = 16 * 1024;
     /** Claude's own cap on one answer; a longer one would make it refuse the whole answered input. */
     private static final int MAX_ANSWER_CHARACTERS = 8 * 1024;
@@ -1079,11 +1093,16 @@ public final class PermissionBroker
             throws IOException
     {
         boolean gitHubCommands = permissionPolicy.allowsGitHubCommands(access.restricted(), reviewSession);
+        // An attended review reads remotes with the user's stored Git and gh login; it never writes to them.
+        boolean reviewReads = reviewSession && permissionPolicy.allowsRemoteReads(access.restricted());
         ImmutableList.Builder<String> deny = ImmutableList.builder();
         ImmutableList.Builder<String> denyRead = ImmutableList.builder();
-        if (!gitHubCommands) {
-            deny.add("Bash(git credential)", "Bash(git credential:*)", "Bash(git push:*)", "Bash(gh:*)",
-                    "Read(~/.config/gh/**)", "Read(~/.git-credentials)", "Read(~/.netrc)", "Read(~/.ssh/**)");
+        if (reviewReads) {
+            // git, gh and ssh read their own login files, so the sandbox lets them; the agent's Read tool still may not.
+            deny.addAll(REVIEW_REMOTE_WRITES).addAll(CREDENTIAL_FILE_READS);
+        }
+        else if (!gitHubCommands) {
+            deny.add("Bash(git credential)", "Bash(git credential:*)", "Bash(git push:*)", "Bash(gh:*)").addAll(CREDENTIAL_FILE_READS);
             denyRead.add("~/.config/gh", "~/.git-credentials", "~/.netrc", "~/.ssh");
             // Custom CLI config locations must not evade the restricted session's credential boundary.
             Optional.ofNullable(environment.get("XDG_CONFIG_HOME")).filter(value -> !value.isBlank())
@@ -1144,8 +1163,14 @@ public final class PermissionBroker
             sandbox.put("network", network.buildOrThrow());
         }
         else if (reviewSession) {
-            // Review tests may start localhost servers; outbound hosts still need native approval.
-            sandbox.put("network", ImmutableMap.of("allowedDomains", ImmutableList.of(), "allowLocalBinding", true));
+            // Review tests may start localhost servers. Outbound reads are open; REVIEW_REMOTE_WRITES, the approval
+            // boundary and native review of every shell command refuse a remote write.
+            ImmutableMap.Builder<String, Object> network = ImmutableMap.<String, Object>builder()
+                    .put("allowedDomains", ImmutableList.of("*"))
+                    .put("allowLocalBinding", true);
+            Optional.ofNullable(environment.get("SSH_AUTH_SOCK")).filter(value -> !value.isBlank())
+                    .ifPresent(socket -> network.put("allowUnixSockets", ImmutableList.of(socket)));
+            sandbox.put("network", network.buildOrThrow());
         }
         ImmutableMap.Builder<String, Object> settings = ImmutableMap.<String, Object>builder()
                 .put("autoMemoryEnabled", false)

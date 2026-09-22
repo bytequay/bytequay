@@ -40,6 +40,22 @@ public final class GitCliEnvironment
         return VARIABLES;
     }
 
+    /**
+     * A private review reads remotes through the CLI's stored login and the SSH agent, never through a raw
+     * token in its environment, which the pull request's own tests could read and send away.
+     */
+    public static Map<String, String> forReview(Map<String, String> environment)
+    {
+        requireNonNull(environment, "environment is null");
+        ImmutableMap.Builder<String, String> selected = ImmutableMap.builder();
+        environment.forEach((name, value) -> {
+            if (!name.endsWith("_TOKEN") || !VARIABLES.contains(name)) {
+                selected.put(name, value);
+            }
+        });
+        return selected.buildOrThrow();
+    }
+
     /** Keeps provider authentication unchanged while withholding Git credentials from restricted sessions. */
     public static Map<String, String> forSession(Map<String, String> environment, boolean allowGitHubCommands)
     {

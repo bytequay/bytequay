@@ -36,6 +36,12 @@ class TestGitCliEnvironment
 
         assertThat(GitCliEnvironment.forSession(captured, true)).isEqualTo(captured);
         assertThat(GitCliEnvironment.forSession(captured, false)).isEqualTo(base);
+        // A review keeps the stored login's locators and the SSH agent, and no raw token the pull request's tests could read.
+        assertThat(GitCliEnvironment.forReview(captured))
+                .containsAllEntriesOf(base)
+                .containsKeys("GH_HOST", "GH_CONFIG_DIR", "SSH_AUTH_SOCK")
+                .doesNotContainKeys("GH_TOKEN", "GITHUB_TOKEN", "GH_ENTERPRISE_TOKEN", "GITHUB_ENTERPRISE_TOKEN")
+                .containsKey("ANTHROPIC_AUTH_TOKEN");
         SecretRedactor redactor = SecretRedactor.fromEnvironment(captured);
         for (String name : GitCliEnvironment.variables()) {
             if (name.endsWith("TOKEN")) {

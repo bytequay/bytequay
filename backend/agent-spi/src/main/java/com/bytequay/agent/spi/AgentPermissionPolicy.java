@@ -43,4 +43,18 @@ public enum AgentPermissionPolicy
     {
         return this == AUTO && !restricted && !reviewSession;
     }
+
+    /**
+     * Keeps authenticated remote reads within attended sessions that own a worktree: development and private review.
+     *
+     * <p>A private review reads the network, including through {@code git} and {@code gh}, while
+     * {@link ReviewBridge#deniedReason(String)} and {@link AgentCommandPolicy#reviewRestrictions()} refuse every remote write.
+     *
+     * @param restricted whether the session withholds write capability, which is every
+     *         {@link SessionAccess} level but {@code FULL}
+     */
+    public boolean allowsRemoteReads(boolean restricted)
+    {
+        return this == AUTO && !restricted;
+    }
 }

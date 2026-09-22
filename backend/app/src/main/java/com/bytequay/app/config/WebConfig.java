@@ -52,7 +52,14 @@ public class WebConfig
                 .requestFactory(newTimeoutRequestFactory(
                         CONNECT_TIMEOUT,
                         READ_TIMEOUT,
-                        HttpClient.Redirect.NEVER))
+                        // A renamed repository (prestosql/presto -> trinodb/trino)
+                        // answers with 301; not following it parsed GitHub's
+                        // redirect envelope as an empty issue or pull request.
+                        // The redirect stays on api.github.com, so the PAT
+                        // survives - the JDK drops credentials only across
+                        // origins. Writes redirect with 307, which preserves the
+                        // method; a 301 would silently downgrade them to GET.
+                        HttpClient.Redirect.NORMAL))
                 .build();
     }
 

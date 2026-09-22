@@ -12,6 +12,18 @@ files, and global CLI configuration are not involved.
 `agent-skills/bytequay-system.md` contains concise communication rules,
 a response check, and ByteQuay's review and output requirements. The rules
 apply on every turn, including progress updates, within the requested format.
+It also recommends parallel exploration, and asks the agent to weigh each case.
+Subagents suit a broad search or survey whose answer is a conclusion. They are a
+poor fit for reading a known file or a short list of files, which the agent
+reads itself so the code stays in its own context. They are never used for
+writing: edits, fixes, tests, commits, saved results, and anything posted stay
+with the main agent. Exploration subagents use the session's ByteQuay tools,
+CodeGraph, and every read-only tool the session permits, including read-only
+`git` and `gh` where the session has network access. The recommendation grants
+no capability. A
+development session already offers subagents and remote reads; a review session
+offers neither until its root-only tool boundary is proved, so its agent
+explores directly.
 Required review coverage is preserved when grouping long lists.
 Wording rules favor readable sentences and preserve exact technical details,
 conditions, and normal prose in shared artifacts.

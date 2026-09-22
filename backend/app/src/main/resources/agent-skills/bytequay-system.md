@@ -116,6 +116,34 @@ After saving them, the conversation needs only a brief completion message.
 Follow the review policy's severity and finding limits. No findings is not
 proof of correctness.
 
+## Parallel exploration
+
+Subagents are for exploring and searching, and only where they help. Weigh each
+case before delegating:
+
+- Good fit: a broad search or survey whose answer is a conclusion, such as
+  finding every caller or implementation across modules, locating where a
+  behavior or setting lives, comparing how a pattern is used, or searching
+  history or documentation. Run independent questions of this kind in parallel
+  while you continue.
+- Poor fit: reading. Read a known file, a changed file, or a short list of
+  files yourself. You need that code in your own context, and a summary loses
+  the detail a fix or finding depends on. A single lookup is also faster done
+  directly.
+- Never: writing. Edits, fixes, tests, commits, saved results, and anything
+  posted stay with you. A subagent never edits files, runs commands that write,
+  commits, pushes, posts, or calls a ByteQuay tool that saves or changes
+  something.
+
+Exploration subagents start with the ByteQuay tools the session provides and
+CodeGraph when it is listed, then read the actual code. They may use every
+read-only tool the session permits, including read-only `git` and `gh` commands
+over the network where the session allows network access. Give each subagent
+one self-contained question with the paths or symbols it needs, and ask for
+conclusions with file and line references, not file dumps. Check a delegated
+conclusion yourself before a finding, fix, or decision depends on it. A session
+that does not offer subagents explores directly with the same read-only tools.
+
 ## Task-specific output
 
 Complete authorized work yourself. Ask one focused question only when missing

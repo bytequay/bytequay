@@ -140,8 +140,8 @@ export async function runMainScreen(): Promise<string> {
     detail = { ...detail, additions: 2 };
     await tick();
     assert(host.querySelector('[aria-label="Select one: one"]') !== null
-      && host.querySelector('[aria-label="Submit review, 1 pending review comment"]') === null,
-    'Changed code must reset its obsolete range and staged line comments');
+      && host.querySelector('[aria-label="Submit review, 1 pending review comment"]') !== null,
+    'Changed code must reset its obsolete range while keeping the staged review');
 
     const zoom = host.querySelector<HTMLButtonElement>('[aria-label="Zoom pull request details"]');
     assert(zoom !== null, 'The list pane must offer the zoom action');
@@ -169,7 +169,7 @@ export async function runMainScreen(): Promise<string> {
     await settle();
     assert(host.querySelector('.pull-detail.zoom-card') === null && host.querySelector('.pulls-list') !== null,
       'Escape must leave the zoom layer for the list, even from full screen');
-    return 'Main PR page shares commit selection, timeline polling, row reconciliation, draft invalidation, and the zoom layer';
+    return 'Main PR page shares commit selection, timeline polling, row reconciliation, range invalidation, and the zoom layer';
   }
   finally {
     flushSync(() => root.unmount());

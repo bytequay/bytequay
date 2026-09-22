@@ -1875,18 +1875,20 @@ export default function AgentTaskScreen({
   const pullRequestDetail = {
     ...detailSource,
     refresh: async () => {
-      setPullRequestReview(current => ({ ...current, pendingComments: [] }));
       await detailSource.refresh();
       if (currentReviewKey.current === reviewKey) pullRequestChanges.refresh();
     },
   };
   const pullRequestCommitRange = pullRequestChanges.commitRange;
-  const pullRequestKey = taskPr === null ? null : `${taskPr.repo.toLowerCase()}#${taskPr.number}`;
-  const reviewKey = `${pullRequestKey}:${diffRevision}:${JSON.stringify(pullRequestCommitRange)}`;
+  // A staged review is the reader's unsent writing, so it lasts as long as the panel shows this
+  // pull request. Nothing the pull request itself does — a new head, a refresh, a narrowed commit
+  // range — may throw it away; a comment written against an older head carries that head's SHA and
+  // is refused at submission instead.
+  const reviewKey = taskPr === null ? null : `${taskPr.repo.toLowerCase()}#${taskPr.number}`;
   const currentReviewKey = useRef(reviewKey);
   currentReviewKey.current = reviewKey;
   const [pullRequestReview, setPullRequestReview] = useState<{
-    key: string;
+    key: string | null;
     pendingComments: InlineReviewCommentDto[];
   }>({ key: reviewKey, pendingComments: [] });
   const pullRequestPendingComments = pullRequestReview.key === reviewKey ? pullRequestReview.pendingComments : [];
@@ -2542,10 +2544,7 @@ export default function AgentTaskScreen({
       pullRequestChanges={pullRequestChanges}
       pullRequestCommitRange={pullRequestCommitRange}
       pullRequestPendingComments={pullRequestPendingComments}
-      onPullRequestCommitRangeChange={commitRange => {
-        pullRequestChanges.changeCommitRange(commitRange);
-        setPullRequestReview({ key: reviewKey, pendingComments: [] });
-      }}
+      onPullRequestCommitRangeChange={pullRequestChanges.changeCommitRange}
       onPullRequestPendingCommentsChange={pendingComments => setPullRequestReview(current => currentReviewKey.current !== reviewKey
         ? current
         : { key: reviewKey, pendingComments })}

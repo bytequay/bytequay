@@ -255,8 +255,8 @@ public class GitHubPullRequestWriteClient
                 request.put("body", body);
             }
             if (comments != null && !comments.isEmpty()) {
-                Optional.ofNullable(comments.getFirst().commitId())
-                        .filter(commitId -> !commitId.isBlank())
+                // One review is anchored at one commit; callers guarantee every comment names the same one.
+                comments.stream().map(InlineReviewComment::commitId).filter(commitId -> commitId != null && !commitId.isBlank()).findFirst()
                         .ifPresent(commitId -> request.put("commit_id", commitId));
                 request.put("comments", comments.stream()
                         .map(GitHubPullRequestWriteClient::toReviewCommentRequest)

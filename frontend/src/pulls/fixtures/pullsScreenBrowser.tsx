@@ -381,7 +381,10 @@ export async function runReviewSheet(): Promise<string> {
     submitReviewDraft: async (_repo, _number, version, body, event) => {
       calls.push(`draft v${version} ${event} "${body}"`);
     },
-    submitReview: async () => { calls.push('plain'); return detail; },
+    submitReview: async (_prId, _repo, _number, event, body, comments) => {
+      calls.push(`plain ${event} "${body}" ${(comments ?? []).map(comment => comment.path).join(',')}`);
+      return detail;
+    },
     getAgentReview: async () => { calls.push('reload'); return review; },
     fetchPullRequestDetailByRef: async () => { calls.push('detail'); return detail; },
     fetchPrDiffFiles: async () => [
@@ -398,8 +401,11 @@ export async function runReviewSheet(): Promise<string> {
   const host = document.createElement('div');
   document.body.append(host);
   const root = createRoot(host);
-  const mount = (comments: InlineReviewCommentDto[]) => flushSync(() => root.render(<ReviewDialog pr={remotePullRequest(detail, 'bob')}
-    detail={detail} review={review} onReviewChange={() => events.push('review')} pendingComments={comments}
+  // A submitted sheet stays mounted with its submit in flight, so each scenario needs a fresh one.
+  let mounted = 0;
+  const mount = (comments: InlineReviewCommentDto[], carries: AgentReviewDto | null = review) => flushSync(() => root.render(
+    <ReviewDialog key={++mounted} pr={remotePullRequest(detail, 'bob')}
+    detail={detail} review={carries} onReviewChange={() => events.push('review')} pendingComments={comments}
     onPendingCommentsChange={next => events.push(`pending ${next.length}`)}
     onReviewSubmitted={(_value, event) => events.push(`submitted ${event}`)} onClose={() => { closed = true; }} />));
   const submit = async () => {
@@ -424,12 +430,27 @@ export async function runReviewSheet(): Promise<string> {
 
     calls.length = 0;
     mount([written]);
+    host.querySelector<HTMLInputElement>('input[type="radio"]')?.click();
+    await settle();
     await submit();
     assert(closed && calls.join(' | ') === 'add v4 src/Written.java:3 Written comment text | draft v5 COMMENT "" | reload | detail',
       `Added findings must go out through the draft with the written comments, not the plain review: ${calls.join(' | ')}`);
     assert(events.includes('pending 0') && events.includes('submitted COMMENT') && events.includes('review'),
       `Submitting must clear written comments and refresh the review and pull request: ${events.join(' | ')}`);
-    return 'Submit review lists added findings and sends them with written comments through the draft';
+
+    // No added findings, so the comments go out as plain reviews — one per commit they were
+    // written on, because GitHub anchors a whole review at a single commit.
+    calls.length = 0;
+    events.length = 0;
+    mount([written, { ...written, path: 'src/Older.java', commitId: 'older-commit' }], null);
+    await settle();
+    await settle();
+    await submit();
+    assert(calls.join(' | ') === 'plain COMMENT "" src/Older.java | plain APPROVE "" src/Written.java',
+      `Comments written on different commits must go out as one review each, the verdict last: ${calls.join(' | ')}`);
+    assert(events.join(' | ').startsWith('pending 1 | pending 0'),
+      `Each group must leave the staged list as it lands, so a retry cannot send it twice: ${events.join(' | ')}`);
+    return 'Submit review sends added findings through the draft and splits written comments by commit';
   }
   finally {
     flushSync(() => root.unmount());

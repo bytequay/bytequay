@@ -1380,6 +1380,19 @@ class TestPullRequestService
     }
 
     @Test
+    void rejectsOneReviewCarryingCommentsFromDifferentCommits()
+    {
+        List<InlineReviewComment> comments = ImmutableList.of(
+                new InlineReviewComment("a.txt", "note", 4, "RIGHT", null, null, "older"),
+                new InlineReviewComment("b.txt", "note", 9, "RIGHT", null, null, "head"));
+
+        assertThatThrownBy(() -> service.submitReview("owner/repo", 7, 12L, "COMMENT", "", comments))
+                .isInstanceOf(ResponseStatusException.class)
+                .hasMessageContaining("comments written on one commit");
+        verify(writes, never()).submitReview(anyString(), any(), anyString(), anyString(), anyList());
+    }
+
+    @Test
     void rejectsCommentReviewWithoutBody()
     {
         assertThatThrownBy(() -> service.submitReview("owner/repo", 7, 12L, "COMMENT", " ", ImmutableList.of()))

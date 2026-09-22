@@ -125,6 +125,28 @@ export function rangeHeading(range: Pick<LineSelection, 'side' | 'start' | 'end'
     : `Add a comment on lines ${prefix}${range.start} to ${prefix}${range.end}`;
 }
 
+/**
+ * GitHub anchors a whole review at one commit and resolves every comment's path and line against
+ * it, so comments written while different commits were selected have to go out as one review each.
+ * The group written on `headSha` sorts last, so the verdict is recorded against the current head.
+ * Returns one empty group when there is nothing staged, so a body-only review still goes out.
+ */
+export function reviewCommentGroups(
+  comments: InlineReviewCommentDto[],
+  headSha: string | null,
+): InlineReviewCommentDto[][] {
+  const groups = new Map<string | null, InlineReviewCommentDto[]>();
+  for (const comment of comments) {
+    const group = groups.get(comment.commitId);
+    if (group === undefined) groups.set(comment.commitId, [comment]);
+    else group.push(comment);
+  }
+  if (groups.size === 0) return [[]];
+  // sort is stable, so every other group keeps the order its comments were written in.
+  return [...groups.values()].sort((left, right) =>
+    Number(left[0].commitId === headSha) - Number(right[0].commitId === headSha));
+}
+
 /** Null when the body is blank. */
 export function inlineReviewComment(
   path: string,

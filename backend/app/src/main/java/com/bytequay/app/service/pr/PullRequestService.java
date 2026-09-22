@@ -818,6 +818,12 @@ public class PullRequestService
         }
         List<InlineReviewComment> reviewComments = comments == null ? ImmutableList.of() : comments;
         reviewComments.forEach(comment -> validateReviewComment(comment, false));
+        // GitHub anchors a whole review at one commit and resolves every comment's path and line
+        // against it, so a mixed batch would land on the wrong lines — or, for a file that commit
+        // does not have yet, be rejected outright. Callers split such a batch into one review each.
+        if (reviewComments.stream().map(InlineReviewComment::commitId).filter(commit -> commit != null && !commit.isBlank()).distinct().count() > 1) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "one review carries comments written on one commit");
+        }
         String reviewBody = body == null ? "" : body.trim();
         if (!"APPROVE".equals(normalizedEvent) && reviewBody.isBlank() && reviewComments.isEmpty()) {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "review body or inline comment must not be blank");

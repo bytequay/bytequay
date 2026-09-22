@@ -3699,9 +3699,9 @@
   --disc-bd2: #e3e3e6;
   --disc-bl: #0969da;
   --disc-blbg: #ddf4ff;
-  --disc-mark: #ddf4ff;
-  --disc-markbd: #54aeff;
-  --disc-markbd2: #b6e3ff;
+  --disc-mark: #fff8c5;
+  --disc-markbd: #d4a72c;
+  --disc-markbd2: #f8e3a1;
   --disc-rd: #cf222e;
   --disc-rdbg: #ffebe9;
   --disc-rdbd: #ffcecb;
@@ -3724,9 +3724,9 @@
     --disc-bd2: #21262d;
     --disc-bl: #4493f8;
     --disc-blbg: #16324f;
-    --disc-mark: #16324f;
-    --disc-markbd: #388bfd;
-    --disc-markbd2: #1f4b7a;
+    --disc-mark: #2b2211;
+    --disc-markbd: #d29922;
+    --disc-markbd2: #3f3212;
     --disc-rd: #f85149;
     --disc-rdbg: #3a1417;
     --disc-rdbd: #5c2225;

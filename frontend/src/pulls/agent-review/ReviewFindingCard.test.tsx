@@ -70,6 +70,27 @@ describe('finding suggestions', () => {
     expect(html).toContain('<code>    return result;</code>');
   });
 
+  it('shows a finding about the whole pull request without code, and offers only the review summary', () => {
+    const whole: ReviewFindingDto = { ...finding, title: 'Nit: the commit subject names the file', severity: null,
+      body: 'Commit message: name the behavior. Proposed subject: Reject null widget input',
+      path: null, side: null, startLine: null, endLine: null, range: null, excerpt: [] };
+    const html = render(whole);
+    expect(html).toContain('Whole pull request');
+    expect(html).not.toContain('Reviewed code');
+    expect(html).toContain('Add to my review');
+    expect(html).not.toContain('Post comment now');
+    expect(html).not.toContain('View in Changes');
+
+    const inSummary = renderToStaticMarkup(<ReviewFindingCard projection="review" viewerLogin="reviewer" viewerAvatarUrl={null} finding={whole}
+      review={reviewFixture({ findings: [whole], draft: {
+        repo: 'trinodb/trino', number: 30304, body: `Thanks.\n\n${whole.body}`, event: 'COMMENT', items: [], version: 2, updatedAt: whole.updatedAt,
+      } })}
+      actions={{ onAsk: async () => {}, onResolve: async () => {}, onReopen: async () => {}, onAddToReview: async () => {},
+        onPostNow: async () => {}, onEditDraft: async () => {}, onNavigate: () => {} }} />);
+    expect(inSummary).toContain('In your review summary');
+    expect(inSummary).not.toContain('Add to my review');
+  });
+
   it('previews outgoing suggestions only against the same finding revision and anchor', () => {
     expect(render(finding, draftItem).match(/class="md-suggestion"/g)).toHaveLength(2);
     for (const stale of [{ ...draftItem, findingRevision: finding.revision - 1 }, { ...draftItem, startLine: 119, line: 120 }]) {

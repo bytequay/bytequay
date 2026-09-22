@@ -233,6 +233,8 @@ public class ReviewTools
                         "During validation, create or revise an inline bug report or concrete code improvement, with evidence refs and diff anchors from review_get_context. "
                                 + "Use severity for defects; mark optional improvements as suggestions and omit severity. "
                                 + "A nit, reported only when nothing else is supported, starts its title with Nit: and omits severity. "
+                                + "A finding about a commit message or the PR description has no lines: pass scope pull_request instead of anchors, "
+                                + "without severity or a suggestion block, and give the proposed wording as text. "
                                 + "End the body with an Example section, paired with the decisive test code when a test verified it. For an exact replacement, "
                                 + "include one GitHub ```suggestion block replacing the complete RIGHT-side startAnchor/endAnchor range. "
                                 + "Revisions require findingId and expectedRevision; nothing is published.",
@@ -267,7 +269,8 @@ public class ReviewTools
                                                                 ImmutableMap.of("type", "string", "maxLength", 800)),
                                                         "required",
                                                         ImmutableList.of("ref", "explanation"))))
-                                .buildOrThrow(), ImmutableList.of("operationKey", "title", "body", "startAnchor", "evidence", "validation")),
+                                .put("scope", ImmutableMap.of("type", "string", "enum", ImmutableList.of("lines", "pull_request")))
+                                .buildOrThrow(), ImmutableList.of("operationKey", "title", "body", "evidence", "validation")),
                         arguments -> call(reviewId, turnId, arguments, this::saveFinding)),
                 new ReviewTool("review_reply",
                         "Append your private answer to a discussion: target is \"summary\", a run-scoped cardId, or a findingId.",
@@ -492,6 +495,11 @@ public class ReviewTools
         Optional<String> severity = Optional.ofNullable(arguments.get("severity")).filter(JsonNode::isTextual).map(JsonNode::asText)
                 .map(value -> SEVERITIES.stream().filter(candidate -> candidate.equalsIgnoreCase(value)).findFirst()
                         .orElseThrow(() -> new ReviewInvalidRequestException("severity: use critical, high, medium or low")));
+        Optional<Boolean> wholePullRequest = Optional.ofNullable(arguments.get("scope")).filter(JsonNode::isTextual).map(JsonNode::asText).map(scope -> switch (scope) {
+            case "lines" -> false;
+            case "pull_request" -> true;
+            default -> throw new ReviewInvalidRequestException("scope: use lines or pull_request");
+        });
         List<ReviewEvidence> evidence = new ArrayList<>();
         for (JsonNode item : array(arguments, "evidence", MAX_EVIDENCE)) {
             String ref = text(item, "ref", 20, true);
@@ -523,6 +531,9 @@ public class ReviewTools
             if (existing.state() == ReviewFinding.State.WITHDRAWN) {
                 throw new ReviewConflictException("findingId: the finding was withdrawn");
             }
+            if (wholePullRequest.filter(whole -> whole != existing.anchor().isEmpty()).isPresent()) {
+                throw new ReviewInvalidRequestException("scope: a revision keeps the finding's scope; withdraw it and save a new finding to change it");
+            }
             saved = existing.revised(title, body, severity, ImmutableList.copyOf(evidence), now());
             insert = false;
         }
@@ -531,19 +542,24 @@ public class ReviewTools
             if (findings.stream().filter(finding -> finding.runId().equals(call.run().id())).count() >= 10) {
                 throw new ReviewInvalidRequestException("finding: select at most ten distinct findings per round");
             }
-            ReviewDiffAnchors anchors = ReviewDiffAnchors.of(call.run().diff());
-            ReviewAnchor anchor = anchors.range(
-                    text(arguments, "startAnchor", 20, true),
-                    Optional.ofNullable(arguments.get("endAnchor")).filter(JsonNode::isTextual).map(JsonNode::asText));
+            Optional<ReviewAnchor> anchor;
+            if (wholePullRequest.orElse(false)) {
+                if (arguments.hasNonNull("startAnchor") || arguments.hasNonNull("endAnchor")) {
+                    throw new ReviewInvalidRequestException("startAnchor: a pull_request finding has no lines; omit the anchors or use scope lines");
+                }
+                anchor = Optional.empty();
+            }
+            else {
+                anchor = Optional.of(ReviewDiffAnchors.of(call.run().diff()).range(
+                        text(arguments, "startAnchor", 20, true),
+                        Optional.ofNullable(arguments.get("endAnchor")).filter(JsonNode::isTextual).map(JsonNode::asText)));
+            }
             Optional<ReviewFinding> duplicate = findings.stream()
-                    .filter(finding -> finding.state() != ReviewFinding.State.WITHDRAWN
-                            && finding.anchor().path().equals(anchor.path())
-                            && finding.anchor().side().equals(anchor.side())
-                            && finding.anchor().startLine() == anchor.startLine() && finding.anchor().endLine() == anchor.endLine() && finding.title().equalsIgnoreCase(title))
+                    .filter(finding -> finding.state() != ReviewFinding.State.WITHDRAWN && finding.title().equalsIgnoreCase(title) && sameLines(finding.anchor(), anchor))
                     .findFirst();
             if (duplicate.isPresent()) {
-                throw new ReviewConflictException(
-                        "startAnchor: finding " + duplicate.orElseThrow().id() + " already reports this at the same lines; revise it by findingId instead");
+                throw new ReviewConflictException((anchor.isPresent() ? "startAnchor" : "scope") + ": finding " + duplicate.orElseThrow().id()
+                        + " already reports this " + (anchor.isPresent() ? "at the same lines" : "for the pull request") + "; revise it by findingId instead");
             }
             Instant now = now();
             saved = new ReviewFinding(
@@ -566,8 +582,14 @@ public class ReviewTools
                     now);
             insert = true;
         }
+        if (saved.anchor().isEmpty() && severity.isPresent()) {
+            throw new ReviewInvalidRequestException("severity: a defect needs the lines it is in; a pull_request finding is a suggestion or a nit");
+        }
         if (body.lines().anyMatch(line -> line.stripLeading().startsWith("```suggestion"))) {
-            if (!saved.anchor().side().equals("RIGHT")) {
+            if (saved.anchor().isEmpty()) {
+                throw new ReviewInvalidRequestException("body: a pull_request finding has no lines to replace; give the proposed wording as text");
+            }
+            if (!saved.anchor().orElseThrow().side().equals("RIGHT")) {
                 throw new ReviewInvalidRequestException("startAnchor: a suggestion must replace current RIGHT-side lines, not deleted lines");
             }
             if (body.lines().anyMatch(line -> line.stripLeading().startsWith("```suggestion") && !line.strip().equals("```suggestion"))) {
@@ -578,7 +600,7 @@ public class ReviewTools
                 .put("findingId", saved.id())
                 .put("label", saved.label())
                 .put("revision", saved.revision())
-                .put("location", saved.anchor().path() + " " + saved.anchor().label())
+                .put("location", ReviewPrompts.location(saved))
                 .put("status", "accepted");
         store.saveFinding(saved, insert, call.run().withOperation(replay.key(), new ReviewOperation(replay.digest(), result.toString()), now()));
         return result;
@@ -784,6 +806,16 @@ public class ReviewTools
         }
         store.updateRun(run.withOperation(replay.key(), new ReviewOperation(replay.digest(), result.toString()), now()));
         return result;
+    }
+
+    private static boolean sameLines(Optional<ReviewAnchor> first, Optional<ReviewAnchor> second)
+    {
+        if (first.isEmpty() || second.isEmpty()) {
+            return first.isEmpty() && second.isEmpty();
+        }
+        ReviewAnchor left = first.orElseThrow();
+        ReviewAnchor right = second.orElseThrow();
+        return left.path().equals(right.path()) && left.side().equals(right.side()) && left.startLine() == right.startLine() && left.endLine() == right.endLine();
     }
 
     /** A warning reports a check that was run and stopped, so it cites the captured output of that command; the refs stay visible in its text. */
@@ -1111,8 +1143,8 @@ public class ReviewTools
                         .put("revision", finding.revision())
                         .put("state", finding.state().name())
                         .put("outdated", finding.outdated())
-                        .put("path", finding.anchor().path())
-                        .put("range", finding.anchor().label())
+                        .put("path", finding.anchor().map(ReviewAnchor::path).orElse(""))
+                        .put("range", finding.anchor().map(ReviewAnchor::label).orElse("whole pull request"))
                         .put("title", finding.title())
                         .put("severity", finding.severity().orElse(""))
                         .buildOrThrow())

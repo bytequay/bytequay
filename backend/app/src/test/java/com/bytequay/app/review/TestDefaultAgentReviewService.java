@@ -1900,7 +1900,7 @@ class TestDefaultAgentReviewService
                 "Reset the parser",
                 "The parser keeps state across files",
                 Optional.of("major"),
-                new ReviewAnchor("src/App.java", "RIGHT", 3, 3, ImmutableList.of("added")),
+                Optional.of(new ReviewAnchor("src/App.java", "RIGHT", 3, 3, ImmutableList.of("added"))),
                 ImmutableList.of(),
                 1,
                 state,

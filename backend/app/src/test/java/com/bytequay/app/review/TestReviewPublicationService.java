@@ -144,6 +144,29 @@ class TestReviewPublicationService
     }
 
     @Test
+    void aFindingAboutTheWholePullRequestJoinsTheReviewText()
+    {
+        ReviewFinding lines = finding(FINDING_ID, 1, "src/Service.java", 118, 131, "Guard the null case");
+        ReviewFinding whole = new ReviewFinding("f-whole", REVIEW_ID, RUN_ID, 2, "Nit: commit subject", "Commit message: name the behavior, not the file.", Optional.empty(),
+                Optional.empty(), ImmutableList.of(), 1, ReviewFinding.State.OPEN, Optional.empty(), REVIEWED_HEAD, false, 0, NOW, NOW);
+        reviews.put(lines);
+        reviews.put(whole);
+
+        ReviewDraft first = service.addFinding(REPO, NUMBER, 0, REVIEW_ID, "f-whole");
+        assertThat(first.items()).isEmpty();
+        assertThat(first.body()).isEqualTo("Commit message: name the behavior, not the file.");
+        assertThatThrownBy(() -> service.addFinding(REPO, NUMBER, first.version(), REVIEW_ID, "f-whole"))
+                .isInstanceOf(ReviewConflictException.class).hasMessageContaining("already in your review");
+
+        // It follows text the user already wrote, and a finding with lines still becomes an inline comment.
+        ReviewDraft written = service.saveReview(REPO, NUMBER, first.version(), "Thanks for the fix.", "COMMENT");
+        ReviewDraft second = service.addFinding(REPO, NUMBER, written.version(), REVIEW_ID, "f-whole");
+        assertThat(second.body()).isEqualTo("Thanks for the fix.\n\nCommit message: name the behavior, not the file.");
+        assertThat(service.addFinding(REPO, NUMBER, second.version(), REVIEW_ID, FINDING_ID).items()).hasSize(1);
+        verifyNoInteractions(pullRequests);
+    }
+
+    @Test
     void addFindingSnapshotsTheFindingWithoutTouchingIt()
     {
         ReviewFinding open = finding(FINDING_ID, 1, "src/Service.java", 118, 131, "Guard the null case");
@@ -388,7 +411,7 @@ class TestReviewPublicationService
                 "Finding " + ordinal,
                 body,
                 Optional.of("major"),
-                new ReviewAnchor(path, "RIGHT", startLine, endLine, ImmutableList.of("  return value;")),
+                Optional.of(new ReviewAnchor(path, "RIGHT", startLine, endLine, ImmutableList.of("  return value;"))),
                 ImmutableList.of(),
                 1,
                 ReviewFinding.State.OPEN,

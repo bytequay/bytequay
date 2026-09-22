@@ -114,7 +114,7 @@ public class AgentReviewFindingEntity
         title = finding.title();
         body = finding.body();
         severity = finding.severity().orElse(null);
-        anchorJson = AgentReviewJson.encode(finding.anchor());
+        anchorJson = AgentReviewJson.encode(finding.anchor().orElse(null));
         evidenceJson = AgentReviewJson.encode(finding.evidence());
         revision = finding.revision();
         state = finding.state();
@@ -135,7 +135,7 @@ public class AgentReviewFindingEntity
                 title,
                 body,
                 Optional.ofNullable(severity),
-                AgentReviewJson.decode(anchorJson, ReviewAnchor.class),
+                Optional.ofNullable(AgentReviewJson.decode(anchorJson, ReviewAnchor.class)),
                 AgentReviewJson.decode(evidenceJson, EVIDENCE),
                 revision,
                 state,

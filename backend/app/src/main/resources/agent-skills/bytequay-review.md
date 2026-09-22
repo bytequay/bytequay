@@ -71,9 +71,10 @@ discussions, resumed turns, and report repair.
    assess its candidate as supported. Report fewer, or none, rather than pad.
    When the review supports any other finding, reject the nit candidates as held
    back, citing each nit's own evidence. A nit about a commit message or the PR
-   description anchors to the first changed line of that commit or of the PR,
-   names its real subject in the first sentence, and cites the command or source
-   evidence it rests on. Discussions, retries, and repair share the round's limit.
+   description has no lines: save it with scope pull_request instead of anchors,
+   name its real subject in the first sentence, give the proposed wording as
+   text, and cite the command or source evidence it rests on. Discussions,
+   retries, and repair share the round's limit.
 7. Keep the finding body a short, standalone comment, then add an **Example**
    section: the real values and condition that trigger the issue, and the wrong
    result. When a test or reproduction verified it, describe that test in plain

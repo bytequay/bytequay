@@ -23,9 +23,11 @@ import static com.google.common.base.Preconditions.checkArgument;
 import static java.util.Objects.requireNonNull;
 
 /**
- * One inline finding with its stable identity, its frozen location, and the local decisions made
+ * One finding with its stable identity, its frozen location, and the local decisions made
  * about it. Agent revisions move {@code revision}; a user resolution is a state the agent cannot undo.
  *
+ * @param anchor the diff lines the finding is about, or empty for a finding about the whole pull
+ *        request, such as a commit message or the description, which has no lines
  * @param validatedHeadSha the head at which the anchor last mapped deterministically; a later head
  *        without a proved mapping leaves the finding outdated and unpublishable
  */
@@ -37,7 +39,7 @@ public record ReviewFinding(
         String title,
         String body,
         Optional<String> severity,
-        ReviewAnchor anchor,
+        Optional<ReviewAnchor> anchor,
         List<ReviewEvidence> evidence,
         int revision,
         State state,

@@ -42,6 +42,7 @@ import ReviewFindingCard from './ReviewFindingCard';
 import ReviewDetails from './ReviewDetails';
 import { useFindingActions } from './useFindingActions';
 import ReviewSummaryCard from './ReviewSummaryCard';
+import { findingLines } from './contracts';
 import type { AgentReviewDto, ReviewFindingDto } from './contracts';
 import { latestRun, newCommits, openFindings, provisional, reviewElapsed, reviewRecoveryRequired, reviewRunning, reviewStatus, shortSha, shownRun } from './model';
 
@@ -361,12 +362,15 @@ export default function AgentReviewTab({
   };
 
   const navigate = useCallback((finding: ReviewFindingDto) => {
+    // A finding about the whole pull request has no lines to show in Changes.
+    const lines = findingLines(finding);
+    if (lines === null) return;
     navigationToken.current += 1;
     onNavigateToChanges({
-      path: finding.path,
-      side: finding.side,
-      startLine: finding.startLine,
-      endLine: finding.endLine,
+      path: lines.path,
+      side: lines.side,
+      startLine: lines.startLine,
+      endLine: lines.endLine,
       findingId: finding.id,
       token: navigationToken.current,
     });

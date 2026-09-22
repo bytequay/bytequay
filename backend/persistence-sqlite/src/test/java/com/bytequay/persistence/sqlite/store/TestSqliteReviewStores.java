@@ -140,6 +140,13 @@ class TestSqliteReviewStores
         assertThat(store.findFinding("finding-1")).contains(finding);
         assertThat(store.listFindings("review-1")).containsExactly(finding);
         assertThat(store.listMessages("review-1")).containsExactly(question, answer);
+
+        // A finding about the whole pull request has no lines, and keeps none through storage.
+        ReviewFinding whole = new ReviewFinding("finding-whole", "review-1", "run-1", 2, "Nit: commit subject", "Commit message: name the behavior.", Optional.empty(),
+                Optional.empty(), ImmutableList.of(CONTEXT_EVIDENCE), 1, ReviewFinding.State.OPEN, Optional.empty(), finding.validatedHeadSha(), false, 0, NOW, NOW);
+        store.insertFinding(whole);
+        entityManager.clear();
+        assertThat(store.findFinding("finding-whole")).map(ReviewFinding::anchor).contains(Optional.empty());
     }
 
     @Test
@@ -447,7 +454,7 @@ class TestSqliteReviewStores
                 "Published counter never increments",
                 "The loop publishes every finding but leaves `published` at zero, so the caller reports nothing was sent.",
                 Optional.of("critical"),
-                anchor,
+                Optional.of(anchor),
                 ImmutableList.of(CONTEXT_EVIDENCE, COMMAND_EVIDENCE),
                 2,
                 ReviewFinding.State.OPEN,

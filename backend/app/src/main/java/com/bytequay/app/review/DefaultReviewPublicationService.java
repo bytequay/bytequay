@@ -17,6 +17,7 @@ import com.bytequay.app.service.pr.PullRequestService;
 import com.bytequay.core.domain.InlineReviewComment;
 import com.bytequay.core.domain.PullRequestDetail;
 import com.bytequay.core.review.AgentReviewStore;
+import com.bytequay.core.review.ReviewAnchor;
 import com.bytequay.core.review.ReviewConflictException;
 import com.bytequay.core.review.ReviewDraft;
 import com.bytequay.core.review.ReviewDraftItem;
@@ -111,6 +112,15 @@ public class DefaultReviewPublicationService
             ReviewDraft draft = expect(repo, number, expectedVersion);
             ReviewFinding finding = requireFinding(reviewId, findingId);
             requirePromotable(finding);
+            if (finding.anchor().isEmpty()) {
+                // A finding about the whole pull request has no line to comment on, so it joins the review's own text, which the user edits before submitting.
+                String text = body(finding.body());
+                if (draft.body().contains(text)) {
+                    throw new ReviewConflictException("This finding is already in your review");
+                }
+                return drafts.save(draft.withReview(draft.body().isBlank() ? text : draft.body().stripTrailing() + "\n\n" + text, draft.event(), now()));
+            }
+            ReviewAnchor anchor = finding.anchor().orElseThrow();
             if (draft.items().stream().anyMatch(existing -> existing.findingId().equals(Optional.of(findingId)) && !existing.published())) {
                 throw new ReviewConflictException("This finding is already in your review");
             }
@@ -122,10 +132,10 @@ public class DefaultReviewPublicationService
                     ReviewDraftItem.Source.AGENT_FINDING,
                     Optional.of(finding.id()),
                     OptionalInt.of(finding.revision()),
-                    finding.anchor().path(),
-                    finding.anchor().side(),
-                    finding.anchor().endLine(),
-                    finding.anchor().startLine() == finding.anchor().endLine() ? OptionalInt.empty() : OptionalInt.of(finding.anchor().startLine()),
+                    anchor.path(),
+                    anchor.side(),
+                    anchor.endLine(),
+                    anchor.startLine() == anchor.endLine() ? OptionalInt.empty() : OptionalInt.of(anchor.startLine()),
                     body(finding.body()),
                     true,
                     Optional.empty());

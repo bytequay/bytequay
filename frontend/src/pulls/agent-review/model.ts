@@ -202,6 +202,7 @@ export function draftItemFor(draft: ReviewDraftDto | null, findingId: string): R
 
 type FindingPublication =
   | { kind: 'publishable' }
+  | { kind: 'inReviewText' }
   | { kind: 'draft'; item: ReviewDraftItemDto }
   | { kind: 'published'; item: ReviewDraftItemDto }
   | { kind: 'blocked'; reason: string };
@@ -220,6 +221,8 @@ export function findingPublication(review: AgentReviewDto, finding: ReviewFindin
   if (finding.outdated) return { kind: 'blocked', reason: 'Not publishable until re-anchored' };
   if (provisional(review)) return { kind: 'blocked', reason: 'Publishing unlocks when validation and complete coverage are accepted' };
   if (item !== null) return { kind: 'draft', item };
+  // A finding about the whole pull request has no line to comment on: it joins the review's own text instead of becoming an item.
+  if (finding.path === null && review.draft !== null && review.draft.body.includes(finding.body.trim())) return { kind: 'inReviewText' };
   return { kind: 'publishable' };
 }
 
@@ -230,7 +233,7 @@ export function findingPill(review: AgentReviewDto, finding: ReviewFindingDto): 
   if (finding.state === 'RESOLVED') return { text: 'Resolved locally', tone: 'neutral' };
   if (publication.kind === 'published') return { text: 'Published', tone: 'ready' };
   if (finding.outdated) return { text: 'Outdated', tone: 'warn' };
-  if (publication.kind === 'draft') return { text: 'Pending · in your review', tone: 'warn' };
+  if (publication.kind === 'draft' || publication.kind === 'inReviewText') return { text: 'Pending · in your review', tone: 'warn' };
   return { text: 'Private', tone: 'neutral' };
 }
 

@@ -169,7 +169,7 @@ class TestReviewTools
         assertThat(bridge.instruction()).contains("drive the changed code end", "Never call a test unavailable without running it", "never attempted is not unavailable");
         assertThat(bridge.instruction()).contains("End each finding body", "add an **Example**", "only traced from the code");
         assertThat(bridge.instruction()).contains("Warnings are only for checks that could not run", "stays in that candidate's conclusion");
-        assertThat(bridge.instruction()).contains("up to five nit candidates", "reject the nit candidates as held back", "Never pad");
+        assertThat(bridge.instruction()).contains("up to five nit candidates", "reject the nit candidates as held back", "Never pad", "save it with scope pull_request");
         assertThat(bridge.instruction()).contains("starts only read-only Explore subagents", "every tool that saves or changes review state is yours alone");
         // Only the tool that reads may be called by an exploration child; the child gate refuses the rest.
         assertThat(bridge.tools().stream().filter(ReviewTool::childCallable)).extracting(ReviewTool::name).containsExactly("review_get_context");
@@ -223,11 +223,7 @@ class TestReviewTools
         ReviewFinding stored = findings.getFirst();
         assertThat(stored.id()).isEqualTo(saved.path("findingId").asText());
         assertThat(stored.state()).isEqualTo(ReviewFinding.State.OPEN);
-        assertThat(stored.anchor().path()).isEqualTo(DIFF_PATH);
-        assertThat(stored.anchor().side()).isEqualTo("RIGHT");
-        assertThat(stored.anchor().startLine()).isEqualTo(2);
-        assertThat(stored.anchor().endLine()).isEqualTo(2);
-        assertThat(stored.anchor().excerpt()).containsExactly("beta");
+        assertThat(stored.anchor()).contains(new ReviewAnchor(DIFF_PATH, "RIGHT", 2, 2, ImmutableList.of("beta")));
         assertThat(stored.evidence()).extracting(ReviewEvidence::ref).containsExactly("E1");
         assertThat(store.findRun(RUN_ID).orElseThrow().version()).isPositive();
     }
@@ -243,7 +239,7 @@ class TestReviewTools
         ReviewFinding finding = store.listFindings(REVIEW_ID).getFirst();
         assertThat(finding.body()).isEqualTo(body);
         assertThat(finding.severity()).isEmpty();
-        assertThat(finding.anchor()).isEqualTo(new ReviewAnchor(DIFF_PATH, "RIGHT", 2, 3, ImmutableList.of("beta", "gamma")));
+        assertThat(finding.anchor()).contains(new ReviewAnchor(DIFF_PATH, "RIGHT", 2, 3, ImmutableList.of("beta", "gamma")));
 
         Map<String, Object> offset = ImmutableMap.of("operationKey", "offset", "title", "Suggestion: another replacement",
                 "body", body.replace("```suggestion", "```suggestion:-1+2"), "startAnchor", "A2", "evidence", ImmutableList.of(evidence("E1")));
@@ -520,6 +516,51 @@ class TestReviewTools
         assertThat(call("review_finish", finish("finished", validations)).path("status").asText()).isEqualTo("accepted");
         assertThat(store.listFindings(REVIEW_ID)).isEmpty();
         assertThat(store.findRun(RUN_ID).orElseThrow().investigation().orElseThrow().validations().getFirst().findingId()).isEmpty();
+    }
+
+    @Test
+    void aFindingAboutTheWholePullRequestHasNoLines()
+    {
+        readSource();
+        Map<String, Object> nit = ImmutableMap.<String, Object>builder()
+                .put("operationKey", "message-nit")
+                .put("title", "Nit: the commit subject names the file, not the behavior")
+                .put("body", "Commit message of " + COMMIT_SHA + ": say what changes for the caller. Proposed subject: Reject null widget input")
+                .put("validation", "The subject describes the edit; the diff shows the behavior it changes.")
+                .put("scope", "pull_request")
+                .put("evidence", ImmutableList.of(evidence("E1")))
+                .buildOrThrow();
+        // A defect needs its lines, a whole-PR finding has none to anchor or to replace, and the scope is a closed choice.
+        assertThat(call("review_save_finding", with(nit, "with-severity", "severity", "medium")).at("/error/field").asText()).isEqualTo("severity");
+        assertThat(call("review_save_finding", with(nit, "with-anchor", "startAnchor", "A2")).at("/error/field").asText()).isEqualTo("startAnchor");
+        assertThat(call("review_save_finding", with(nit, "with-suggestion", "body", "Reword it.\n```suggestion\nbeta\n```")).at("/error/field").asText()).isEqualTo("body");
+        assertThat(call("review_save_finding", with(nit, "bad-scope", "scope", "commit")).at("/error/field").asText()).isEqualTo("scope");
+        assertThat(store.listFindings(REVIEW_ID)).isEmpty();
+
+        JsonNode saved = call("review_save_finding", nit);
+        assertThat(saved.path("status").asText()).isEqualTo("accepted");
+        assertThat(saved.path("location").asText()).isEqualTo("whole pull request");
+        ReviewFinding stored = store.listFindings(REVIEW_ID).getFirst();
+        assertThat(stored.anchor()).isEmpty();
+        assertThat(stored.severity()).isEmpty();
+        assertThat(call("review_save_finding", with(nit, "again", "validation", "Same nit again.")).at("/error/field").asText()).isEqualTo("scope");
+        assertThat(call("review_get_context", ImmutableMap.of("kind", "findings")).at("/findings/0/range").asText()).isEqualTo("whole pull request");
+
+        // A revision keeps the scope it was saved with.
+        Map<String, Object> moved = ImmutableMap.<String, Object>builder()
+                .putAll(with(nit, "moved", "scope", "lines"))
+                .put("findingId", stored.id())
+                .put("expectedRevision", 1)
+                .buildOrThrow();
+        assertThat(call("review_save_finding", moved).at("/error/field").asText()).isEqualTo("scope");
+    }
+
+    private static Map<String, Object> with(Map<String, Object> arguments, String operationKey, String field, Object value)
+    {
+        Map<String, Object> changed = new LinkedHashMap<>(arguments);
+        changed.put("operationKey", operationKey);
+        changed.put(field, value);
+        return ImmutableMap.copyOf(changed);
     }
 
     private void commandRan(TurnId turnId, String output)
@@ -1032,7 +1073,7 @@ class TestReviewTools
                 "Missing null check",
                 "The added line is used without any validation.",
                 Optional.of("Low"),
-                new ReviewAnchor(DIFF_PATH, "RIGHT", 2, 2, ImmutableList.of("beta")),
+                Optional.of(new ReviewAnchor(DIFF_PATH, "RIGHT", 2, 2, ImmutableList.of("beta"))),
                 ImmutableList.of(new ReviewEvidence("E1", DIFF_PATH + " L1-L3", "source read from the frozen head", "2  beta", "shows the missing check")),
                 1,
                 ReviewFinding.State.RESOLVED,

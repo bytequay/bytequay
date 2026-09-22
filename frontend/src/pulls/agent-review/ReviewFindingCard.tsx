@@ -19,6 +19,7 @@ import Avatar from '../../Avatar';
 import { ReviewThreadCard, ReviewThreadMessage } from '../ReviewThreadCard';
 import ReviewComposer from './ReviewComposer';
 import ReviewThread from './ReviewThread';
+import { findingLines } from './contracts';
 import type { AgentReviewDto, ReviewFindingDto } from './contracts';
 import { askLabel, findingPill, findingPublication, messagesFor, shortPath, shortSha } from './model';
 
@@ -76,14 +77,16 @@ export default function ReviewFindingCard({
   const publication = findingPublication(review, finding);
   const messages = messagesFor(review, finding.id);
   const item = publication.kind === 'draft' || publication.kind === 'published' ? publication.item : null;
-  const suggestion: SuggestionBase | undefined = finding.side === 'RIGHT'
-    ? { startLine: finding.startLine, lines: finding.excerpt }
+  // Null for a finding about the whole pull request, such as a commit message: it has no code, no suggestion and no line to post on.
+  const lines = findingLines(finding);
+  const suggestion: SuggestionBase | undefined = lines !== null && lines.side === 'RIGHT'
+    ? { startLine: lines.startLine, lines: finding.excerpt }
     : undefined;
-  const draftSuggestion = item !== null && item.findingRevision === finding.revision && item.path === finding.path
-    && item.side === finding.side && (item.startLine ?? item.line) === finding.startLine && item.line === finding.endLine ? suggestion : undefined;
+  const draftSuggestion = item !== null && lines !== null && item.findingRevision === finding.revision && item.path === lines.path
+    && item.side === lines.side && (item.startLine ?? item.line) === lines.startLine && item.line === lines.endLine ? suggestion : undefined;
   const withdrawn = finding.state === 'WITHDRAWN';
   // Deleted ranges can omit intervening context; do not invent their individual line numbers.
-  const completeExcerpt = finding.excerpt.length === finding.endLine - finding.startLine + 1;
+  const completeExcerpt = lines !== null && finding.excerpt.length === lines.endLine - lines.startLine + 1;
   const evidenceLabel = finding.evidence.length === 1
     ? '1 reference'
     : `${finding.evidence.length} references`;
@@ -117,14 +120,16 @@ export default function ReviewFindingCard({
       id={`agent-review-finding-${finding.id}`} data-finding-id={finding.id}>
       <ReviewThreadCard resolved={finding.state === 'RESOLVED'} outdated={finding.outdated} defaultOpen={defaultOpen}
         privateLabel="Agent finding · Private"
-        location={<><code className="pr-local-review__location" title={finding.path}>{shortPath(finding.path)} {finding.range}</code>
+        location={<>{lines === null
+          ? <span className="pr-local-review__location">Whole pull request</span>
+          : <code className="pr-local-review__location" title={lines.path}>{shortPath(lines.path)} {lines.range}</code>}
           {pill.text !== 'Private' && <span className={`agr-pill is-${pill.tone}`}>{pill.text}</span>}</>}
-        code={finding.excerpt.length > 0 && <div>
+        code={lines !== null && finding.excerpt.length > 0 && <div>
           <div className="pr-local-review__snapshot">
             {finding.outdated ? 'Recorded code' : 'Reviewed code'} · review <code>{shortSha(finding.validatedHeadSha)}</code>
           </div>
-          {finding.excerpt.map((text, index) => <CommentedCodeLine key={finding.startLine + index}
-            line={{ lineNumber: completeExcerpt ? finding.startLine + index : null, prefix: finding.side === 'LEFT' ? '-' : ' ', text }} />)}
+          {finding.excerpt.map((text, index) => <CommentedCodeLine key={lines.startLine + index}
+            line={{ lineNumber: completeExcerpt ? lines.startLine + index : null, prefix: lines.side === 'LEFT' ? '-' : ' ', text }} />)}
         </div>}
         controls={<footer className="agr-finding__controls">
           {composer !== null && (
@@ -141,8 +146,8 @@ export default function ReviewFindingCard({
               primaryLabel={composer === 'resolve' ? 'Resolve locally' : composer === 'ask' ? askLabel(review) : composer === 'post' ? 'Post now' : 'Save'}
               outgoing={composer === 'ask' || composer === 'resolve'
                 ? null
-                : composer === 'post'
-                  ? `Posts to GitHub on ${shortPath(finding.path, 28)} ${finding.range} · the head is re-checked on send`
+                : composer === 'post' && lines !== null
+                  ? `Posts to GitHub on ${shortPath(lines.path, 28)} ${lines.range} · the head is re-checked on send`
                   : 'Your outgoing text; the agent never sees these edits'}
               onChange={setText}
               onSubmit={() => { void submit(); }}
@@ -157,7 +162,7 @@ export default function ReviewFindingCard({
                 <button type="button" className="agr-action" disabled={busy}
                   onClick={() => openComposer('resolve', '')}>Resolve locally</button>
               )}
-              {actions.onNavigate !== undefined && (
+              {actions.onNavigate !== undefined && lines !== null && (
                 <button type="button" className="agr-action" onClick={() => actions.onNavigate?.(finding)}>
                   {projection === 'review' ? 'View in Changes' : 'Open in Review & Learning'}
                 </button>
@@ -167,13 +172,15 @@ export default function ReviewFindingCard({
                 <>
                   <span className="agr-actions__divider" aria-hidden="true" />
                   <button type="button" className="agr-action" disabled={busy}
+                    title={lines === null ? 'Adds this text to your review summary, which you can edit before submitting' : undefined}
                     onClick={() => { void actions.onAddToReview(finding); }}>Add to my review</button>
-                  <button type="button" className="agr-action is-primary" disabled={busy}
-                    onClick={() => openComposer('post', finding.body)}>Post comment now</button>
+                  {lines !== null && <button type="button" className="agr-action is-primary" disabled={busy}
+                    onClick={() => openComposer('post', finding.body)}>Post comment now</button>}
                 </>
               )}
               {publication.kind === 'blocked' && <span className="agr-actions__blocked">{publication.reason}</span>}
               {publication.kind === 'draft' && <span className="agr-actions__blocked">In your pending review</span>}
+              {publication.kind === 'inReviewText' && <span className="agr-actions__blocked">In your review summary</span>}
             </div>
           )}
           {error && <span className="pr-thread-reply__error" role="alert">{error}</span>}

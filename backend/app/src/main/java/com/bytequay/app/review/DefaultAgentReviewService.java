@@ -839,7 +839,12 @@ public class DefaultAgentReviewService
                 if (finding.state() == ReviewFinding.State.WITHDRAWN || finding.validatedHeadSha().equals(snapshot.headSha())) {
                     continue;
                 }
-                Optional<ReviewAnchor> mapped = anchors.remap(finding.anchor());
+                if (finding.anchor().isEmpty()) {
+                    // A finding about the whole pull request has no lines to lose; the review reassesses it like any other.
+                    store.updateFinding(finding.withMapping(snapshot.headSha(), false, now));
+                    continue;
+                }
+                Optional<ReviewAnchor> mapped = anchors.remap(finding.anchor().orElseThrow());
                 store.updateFinding(mapped.map(anchor -> relocated(finding, anchor, snapshot.headSha(), now))
                         .orElseGet(() -> finding.withMapping(finding.validatedHeadSha(), true, now)));
             }
@@ -871,7 +876,7 @@ public class DefaultAgentReviewService
                 finding.title(),
                 finding.body(),
                 finding.severity(),
-                anchor,
+                Optional.of(anchor),
                 finding.evidence(),
                 finding.revision(),
                 finding.state(),

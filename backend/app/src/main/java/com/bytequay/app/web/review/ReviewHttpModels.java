@@ -27,6 +27,7 @@ import com.bytequay.core.review.ReviewInvestigation;
 import com.bytequay.core.review.ReviewMessage;
 import com.bytequay.core.review.ReviewStep;
 import com.bytequay.core.review.ReviewSummary;
+import com.google.common.collect.ImmutableList;
 
 import java.time.Instant;
 import java.util.List;
@@ -112,7 +113,7 @@ final class ReviewHttpModels
 
     private static FindingResponse finding(ReviewFinding finding)
     {
-        ReviewAnchor anchor = finding.anchor();
+        Optional<ReviewAnchor> anchor = finding.anchor();
         return new FindingResponse(
                 finding.id(),
                 finding.label(),
@@ -120,12 +121,12 @@ final class ReviewHttpModels
                 finding.title(),
                 finding.body(),
                 finding.severity(),
-                anchor.path(),
-                anchor.side(),
-                anchor.startLine(),
-                anchor.endLine(),
-                anchor.label(),
-                anchor.excerpt(),
+                anchor.map(ReviewAnchor::path),
+                anchor.map(ReviewAnchor::side),
+                anchor.map(ReviewAnchor::startLine),
+                anchor.map(ReviewAnchor::endLine),
+                anchor.map(ReviewAnchor::label),
+                anchor.map(ReviewAnchor::excerpt).orElse(ImmutableList.of()),
                 finding.evidence().stream().map(ReviewHttpModels::evidence).collect(toImmutableList()),
                 finding.revision(),
                 finding.state().name(),
@@ -275,11 +276,11 @@ final class ReviewHttpModels
             String title,
             String body,
             Optional<String> severity,
-            String path,
-            String side,
-            int startLine,
-            int endLine,
-            String range,
+            Optional<String> path,
+            Optional<String> side,
+            Optional<Integer> startLine,
+            Optional<Integer> endLine,
+            Optional<String> range,
             List<String> excerpt,
             List<EvidenceResponse> evidence,
             int revision,

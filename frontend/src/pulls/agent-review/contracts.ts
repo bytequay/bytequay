@@ -103,11 +103,12 @@ export type ReviewFindingDto = {
   title: string;
   body: string;
   severity: string | null;
-  path: string;
-  side: ReviewSide;
-  startLine: number;
-  endLine: number;
-  range: string;
+  /** The diff lines the finding is about. All null for a finding about the whole pull request, such as a commit message. */
+  path: string | null;
+  side: ReviewSide | null;
+  startLine: number | null;
+  endLine: number | null;
+  range: string | null;
   excerpt: string[];
   evidence: ReviewEvidenceDto[];
   revision: number;
@@ -118,6 +119,16 @@ export type ReviewFindingDto = {
   version: number;
   updatedAt: string;
 };
+
+/** Where a finding sits in the diff, or null for a finding about the whole pull request. */
+export type FindingLines = { path: string; side: ReviewSide; startLine: number; endLine: number; range: string };
+
+export function findingLines(finding: ReviewFindingDto): FindingLines | null {
+  const { path, side, startLine, endLine, range } = finding;
+  return path === null || side === null || startLine === null || endLine === null || range === null
+    ? null
+    : { path, side, startLine, endLine, range };
+}
 
 export type ReviewMessageDto = {
   id: string;
@@ -363,11 +374,15 @@ function parseFinding(value: unknown): ReviewFindingDto {
     title: text(finding.title, 'finding title'),
     body: text(finding.body, 'finding body'),
     severity: optionalText(finding.severity),
-    path: text(finding.path, 'finding path'),
-    side: oneOf(finding.side, ['LEFT', 'RIGHT'] as const, 'finding side'),
-    startLine: count(finding.startLine, 'finding start line'),
-    endLine: count(finding.endLine, 'finding end line'),
-    range: text(finding.range, 'finding range'),
+    ...(optionalText(finding.path) === null
+      ? { path: null, side: null, startLine: null, endLine: null, range: null }
+      : {
+          path: text(finding.path, 'finding path'),
+          side: oneOf(finding.side, ['LEFT', 'RIGHT'] as const, 'finding side'),
+          startLine: count(finding.startLine, 'finding start line'),
+          endLine: count(finding.endLine, 'finding end line'),
+          range: text(finding.range, 'finding range'),
+        }),
     excerpt: strings(finding.excerpt),
     evidence: list(finding.evidence).map(parseEvidence),
     revision: count(finding.revision, 'finding revision'),

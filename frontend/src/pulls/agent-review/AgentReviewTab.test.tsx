@@ -228,6 +228,16 @@ describe('banners', () => {
   });
 });
 
+describe('a finding about the whole pull request', () => {
+  it('parses a finding that has no lines, as the backend sends it', () => {
+    const original = reviewFixture();
+    const wire: ReviewFindingDto = { ...original.findings[0], path: null, side: null, startLine: null, endLine: null, range: null, excerpt: [] };
+    const parsed = parseAgentReview(JSON.parse(JSON.stringify({ ...original, findings: [wire, original.findings[0]] }))).findings;
+    expect(parsed[0]).toMatchObject({ path: null, side: null, startLine: null, endLine: null, range: null });
+    expect(parsed[1].path).toBe(original.findings[0].path);
+  });
+});
+
 describe('review details', () => {
   it('shows assessed scope and final validation evidence without promoting draft candidates', () => {
     const original = reviewFixture({ findings: [] });

@@ -561,7 +561,15 @@ A new inline finding has this logical shape:
 ```
 
 `operationKey`, `title`, `body`, `validation`, `startAnchor`, and nonempty `evidence` are required;
-`endAnchor` is optional for a single line. Priority may use the existing
+`endAnchor` is optional for a single line. A finding about the whole pull
+request, such as a commit message or the description, has no lines: it passes
+`"scope": "pull_request"` instead of anchors, carries no severity, because a
+defect needs the lines it is in, and no `suggestion` block, because there are no
+lines to replace; it gives its proposed wording as text. A revision keeps the
+scope it was saved with. Such a finding is stored without an anchor, is never
+outdated by moved lines, shows as a whole-pull-request card with no code, and
+when added to the review joins the review's own text, which the user edits
+before submitting, instead of becoming an inline comment. Priority may use the existing
 product vocabulary but is not required to locate or retain a finding. IDs in
 this example are illustrative; only IDs returned for the bound run are valid.
 The model does not supply GitHub request parameters, path/side/line mappings,
@@ -634,9 +642,8 @@ code simplification, naming or comments, a commit subject or body, or the PR
 description. Nit candidates are collected during investigation, because a
 candidate added during validation requires another investigation round. They
 become severity-free findings titled `Nit:` only when no other finding is
-supported; otherwise validation rejects them as held back. A finding requires a
-diff anchor, so a nit about a commit message or the PR description anchors to
-the first changed line of that commit or of the pull request and names its real
+supported; otherwise validation rejects them as held back. A nit about a commit
+message or the PR description is a whole-pull-request finding and names its real
 subject first. A review with no true nit still reports zero findings; nits are
 never padded.
 

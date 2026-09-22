@@ -143,7 +143,7 @@ export default function ReviewSummaryCard({ review, run, findings, viewerLogin, 
       : <ul className="agr-critical agr-learning-card__content">{critical.map(finding => <li key={finding.id}>
         <span className="agr-severity is-critical">{finding.severity ?? 'Critical'}</span>
         <button type="button" className="agr-link" onClick={() => onSelectFinding(finding)}>{finding.title}</button>
-        <span className="agr-critical__where">{finding.path.split('/').pop()} {finding.range}</span>
+        <span className="agr-critical__where">{finding.path === null ? 'Whole pull request' : `${finding.path.split('/').pop()} ${finding.range}`}</span>
       </li>)}</ul> },
   ].filter(card => review.messages.some(message => message.findingId === null && message.cardId === card.id));
   const renderCard = (card: SummaryCard) => <SummarySectionCard key={card.id} card={card} review={review} run={run}

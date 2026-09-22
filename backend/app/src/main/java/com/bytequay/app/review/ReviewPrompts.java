@@ -152,6 +152,11 @@ final class ReviewPrompts
 
     private ReviewPrompts() {}
 
+    static String location(ReviewFinding finding)
+    {
+        return finding.anchor().map(anchor -> anchor.path() + " " + anchor.label()).orElse("whole pull request");
+    }
+
     private static String loadReviewInstructions()
     {
         try (InputStream resource = ReviewPrompts.class.getResourceAsStream("/agent-skills/bytequay-review.md")) {
@@ -180,7 +185,7 @@ final class ReviewPrompts
                     .append("and update the overall summary rather than writing only a changelog.\n");
             String open = priorFindings.stream()
                     .filter(finding -> finding.state() != ReviewFinding.State.WITHDRAWN)
-                    .map(finding -> finding.id() + " (" + finding.label() + ", revision " + finding.revision() + ", " + finding.anchor().path() + " " + finding.anchor().label() + "): " + finding.title())
+                    .map(finding -> finding.id() + " (" + finding.label() + ", revision " + finding.revision() + ", " + location(finding) + "): " + finding.title())
                     .collect(toImmutableList())
                     .toString();
             request.append("Existing findings: ").append(open).append("\n");

@@ -36,8 +36,12 @@ class TestPullRequestDetailMapper
     {
         assertThat(PullRequestDetailMapper.aggregateCiStatus(ImmutableList.of())).isEqualTo(PullRequestDetail.CiStatus.NONE);
         assertThat(PullRequestDetailMapper.aggregateCiStatus(ImmutableList.of(
-                check("build", "completed", "success"),
-                check("build", "completed", "failure")))).isEqualTo(PullRequestDetail.CiStatus.PASSING);
+                new PrCheckRunState(2L, "build", "completed", "success"),
+                new PrCheckRunState(1L, "build", "completed", "failure")))).isEqualTo(PullRequestDetail.CiStatus.PASSING);
+        // The store returns the first-seen run first, so an older failure precedes its re-run.
+        assertThat(PullRequestDetailMapper.aggregateCiStatus(ImmutableList.of(
+                new PrCheckRunState(1L, "build", "completed", "failure"),
+                new PrCheckRunState(2L, "build", "completed", "success")))).isEqualTo(PullRequestDetail.CiStatus.PASSING);
         assertThat(PullRequestDetailMapper.aggregateCiStatus(ImmutableList.of(
                 check("build", "completed", "success"),
                 check("test", "in_progress", null)))).isEqualTo(PullRequestDetail.CiStatus.PENDING);

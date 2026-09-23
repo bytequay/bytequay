@@ -78,15 +78,23 @@ final class PullRequestDetailMapper
                 viewerCanWrite);
     }
 
+    // A workflow re-run by a PR edit adds a new run under the same name on the same commit. The store
+    // keeps rows in first-seen order, so the newest run must be picked by id, which GitHub assigns in
+    // creation order, not by position.
     static List<PrCheckRunState> dedupeCheckRunsByName(List<PrCheckRunState> checkRuns)
     {
         Map<String, PrCheckRunState> latestByName = new LinkedHashMap<>();
         for (int i = 0; i < checkRuns.size(); i++) {
             PrCheckRunState checkRun = checkRuns.get(i);
             String key = checkRun.name() == null || checkRun.name().isBlank() ? "__anonymous__" + i : checkRun.name();
-            latestByName.putIfAbsent(key, checkRun);
+            latestByName.merge(key, checkRun, (kept, next) -> isNewer(next, kept) ? next : kept);
         }
         return ImmutableList.copyOf(latestByName.values());
+    }
+
+    private static boolean isNewer(PrCheckRunState candidate, PrCheckRunState kept)
+    {
+        return candidate.githubId() != null && (kept.githubId() == null || candidate.githubId() > kept.githubId());
     }
 
     static List<PullRequestDetail.CheckRun> toCheckRuns(List<PrCheckRunState> checkRuns)

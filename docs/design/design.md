@@ -208,7 +208,7 @@ methods used by isolation and quiescence; task sessions opt into
 and termination.
 Transport success alone is not sufficient. Production configures the minimum
 Codex CLI version through `bytequay.agent.codex-minimum-version`, currently
-`0.153.4`. At startup, an older installed CLI is automatically upgraded to that
+`0.156.1`. At startup, an older installed CLI is automatically upgraded to that
 exact release with a versioned npm installation; equal or newer versions are kept.
 Readiness, catalog discovery, and task launch require the configured executable
 to meet the minimum after any upgrade. Failed or unreadable version checks

@@ -50,6 +50,6 @@ class TestApplicationContextSmoke
     void contextLoads()
     {
         assertThat(agentServingGate.isReady()).isTrue();
-        assertThat(agentProperties.codexMinimumVersion()).isEqualTo("0.153.4");
+        assertThat(agentProperties.codexMinimumVersion()).isEqualTo("0.156.1");
     }
 }

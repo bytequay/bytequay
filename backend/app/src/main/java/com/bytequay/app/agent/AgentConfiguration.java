@@ -158,7 +158,7 @@ public class AgentConfiguration
             PermissionBroker permissions,
             ProcessSupervisor supervisor)
     {
-        return new ClaudeCliDriver(properties.claudeExecutable(), objectMapper, permissions, supervisor);
+        return new ClaudeCliDriver(properties.claudeExecutable(), properties.claudeHome(), objectMapper, permissions, supervisor);
     }
 
     @Bean

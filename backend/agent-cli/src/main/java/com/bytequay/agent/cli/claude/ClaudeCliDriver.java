@@ -54,6 +54,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
+import com.google.common.collect.Maps;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -150,6 +151,7 @@ public final class ClaudeCliDriver
             "XDG_CONFIG_HOME");
 
     private final String executable;
+    private final Path claudeHome;
     private final ProcessSupervisor supervisor;
     private final Map<String, String> environment;
     private final SecretRedactor redactor;
@@ -162,23 +164,29 @@ public final class ClaudeCliDriver
 
     public ClaudeCliDriver(
             String executable,
+            Path claudeHome,
             ObjectMapper objectMapper,
             PermissionBroker permissions,
             ProcessSupervisor supervisor)
     {
-        this(executable, objectMapper, permissions, supervisor, inheritedEnvironment());
+        this(executable, claudeHome, objectMapper, permissions, supervisor, inheritedEnvironment());
     }
 
     ClaudeCliDriver(
             String executable,
+            Path claudeHome,
             ObjectMapper objectMapper,
             PermissionBroker permissions,
             ProcessSupervisor supervisor,
             Map<String, String> environment)
     {
         this.executable = requireNonNull(executable, "executable is null");
+        this.claudeHome = requireNonNull(claudeHome, "claudeHome is null").toAbsolutePath().normalize();
         this.supervisor = requireNonNull(supervisor, "supervisor is null");
-        this.environment = ImmutableMap.copyOf(requireNonNull(environment, "environment is null"));
+        this.environment = ImmutableMap.<String, String>builder()
+                .putAll(Maps.filterKeys(requireNonNull(environment, "environment is null"), name -> !name.equals("CLAUDE_CONFIG_DIR")))
+                .put("CLAUDE_CONFIG_DIR", this.claudeHome.toString())
+                .buildOrThrow();
         this.redactor = SecretRedactor.fromEnvironment(this.environment);
         this.objectMapper = requireNonNull(objectMapper, "objectMapper is null");
         this.codec = new ClaudeProtocolCodec(objectMapper);
@@ -481,6 +489,7 @@ public final class ClaudeCliDriver
             String diagnostic)
     {
         String message = diagnostic == null || diagnostic.isBlank() ? readiness.name().toLowerCase() : diagnostic;
+        String command = executable.matches("[A-Za-z0-9_./-]+") ? executable : shellQuote(executable);
         return new AgentProviderStatus(
                 LANE_ID,
                 readiness,
@@ -488,8 +497,13 @@ public final class ClaudeCliDriver
                 redactor.redact(message),
                 capabilities(),
                 readiness == AgentProviderStatus.Readiness.AUTHENTICATION_REQUIRED
-                        ? Optional.of("claude auth login")
+                        ? Optional.of("CLAUDE_CONFIG_DIR=" + shellQuote(claudeHome.toString()) + " " + command + " auth login")
                         : Optional.empty());
+    }
+
+    private static String shellQuote(String value)
+    {
+        return "'" + value.replace("'", "'\"'\"'") + "'";
     }
 
     private AuthenticationProbe probeAuthentication()

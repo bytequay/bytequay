@@ -90,7 +90,8 @@ class TestCherryPickPreviewHttpApi
                 "codex",
                 "0.153.4",
                 Path.of("/tmp/agent-codex-home"),
-                "claude");
+                "claude",
+                Path.of("/tmp/agent-claude-home"));
         AgentServingGate servingGate = readyAgentServingGate();
         mvc = standaloneSetup(new CherryPickPreviewController(workspaces, previewService))
                 .addFilters(new AgentRequestFilter(properties, new ObjectMapper().findAndRegisterModules(), servingGate))

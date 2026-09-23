@@ -29,7 +29,8 @@ public record AgentProperties(
         String codexExecutable,
         String codexMinimumVersion,
         Path codexHome,
-        String claudeExecutable)
+        String claudeExecutable,
+        Path claudeHome)
 {
     public AgentProperties
     {
@@ -40,6 +41,7 @@ public record AgentProperties(
         requireNonNull(codexMinimumVersion, "codexMinimumVersion is null");
         requireNonNull(codexHome, "codexHome is null");
         requireNonNull(claudeExecutable, "claudeExecutable is null");
+        requireNonNull(claudeHome, "claudeHome is null");
         checkArgument(!codexExecutable.isBlank(), "codexExecutable is blank");
         checkArgument(!codexMinimumVersion.isBlank(), "codexMinimumVersion is blank");
         checkArgument(!claudeExecutable.isBlank(), "claudeExecutable is blank");

@@ -742,6 +742,9 @@ renderer crashes detach the native surface and expose a reload action.
   the user with the command readiness shows. The user's `~/.codex` is never
   read, copied, or linked, and the variable is set on ByteQuay's processes
   only, so the user's own Codex sessions are unaffected.
+- Every Claude CLI process ByteQuay starts uses `CLAUDE_CONFIG_DIR` pointing
+  to `claude-home` under that same application-support directory. The sign-in
+  command shown by readiness uses the same path; the CLI owns the credentials.
 - There is one Codex App Server process per active Codex turn, launched with
   the task ID as its owner and the task worktree as its working directory. Its
   loss interrupts only that task's turn; stored thread IDs remain resumable by

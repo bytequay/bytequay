@@ -94,7 +94,7 @@ class TestCherryPickExecutionHttpApi
                 ImmutableList.of()));
         service = mock(CherryPickExecutionService.class);
         AgentProperties properties = new AgentProperties(
-                Path.of("/tmp/agent-runtime"), Duration.ofMinutes(30), SESSION, "codex", "0.153.4", Path.of("/tmp/agent-codex-home"), "claude");
+                Path.of("/tmp/agent-runtime"), Duration.ofMinutes(30), SESSION, "codex", "0.153.4", Path.of("/tmp/agent-codex-home"), "claude", Path.of("/tmp/agent-claude-home"));
         AgentServingGate servingGate = readyAgentServingGate();
         mvc = standaloneSetup(new CherryPickExecutionController(workspaces, service))
                 .addFilters(new AgentRequestFilter(properties, new ObjectMapper().findAndRegisterModules(), servingGate))

@@ -241,7 +241,8 @@ class TestClaudeCliDriver
                 () -> URI.create("http://127.0.0.1:9000/internal/agent/claude/mcp"), objectMapper, (taskId, query) -> "memory", taskId -> Optional.of(review));
         List<ProviderAgentEvent> events = new CopyOnWriteArrayList<>();
         try (ClaudeCliDriver driver = new ClaudeCliDriver(
-                executable.toString(), objectMapper, permissions, supervisor, ImmutableMap.of("HOME", worktree.toString(), "PATH", "/usr/bin:/bin"))) {
+                executable.toString(), worktree.resolve("claude-home"), objectMapper, permissions, supervisor,
+                ImmutableMap.of("HOME", worktree.toString(), "PATH", "/usr/bin:/bin"))) {
             AgentProviderStatus status = driver.probe();
             assertThat(status.readiness()).as(status.diagnostic()).isEqualTo(AgentProviderStatus.Readiness.READY);
             AgentSession session = driver.open(context(Optional.empty()), events::add);
@@ -756,7 +757,7 @@ class TestClaudeCliDriver
         AgentProviderStatus status = loggedOutDriver.probe();
 
         assertThat(status.readiness()).isEqualTo(AgentProviderStatus.Readiness.AUTHENTICATION_REQUIRED);
-        assertThat(status.signInCommand()).contains("claude auth login");
+        assertThat(status.signInCommand().orElseThrow()).contains("/fake/claude auth login");
         assertThat(status.diagnostic()).doesNotContain("/secret/path", "authMethod");
         loggedOutDriver.close();
 
@@ -808,6 +809,32 @@ class TestClaudeCliDriver
         assertThat(truncatedDriver.probe().readiness())
                 .isEqualTo(AgentProviderStatus.Readiness.TEMPORARILY_UNAVAILABLE);
         truncatedDriver.close();
+    }
+
+    @Test
+    void usesTheConfiguredClaudeProfileForReadinessTurnsAndSignIn()
+            throws Exception
+    {
+        Path profile = worktree.resolve("ByteQuay's Claude home");
+        String executable = worktree.resolve("Claude CLI's bin/claude").toString();
+        ScriptedProcessSupervisor supervisor = new ScriptedProcessSupervisor();
+        supervisor.authentication("{\"loggedIn\":false}", "", 1);
+        PermissionBroker broker = new PermissionBroker(
+                () -> URI.create("http://127.0.0.1:9000/internal/agent/claude/mcp"), objectMapper, (taskId, query) -> "memory");
+        try (ClaudeCliDriver driver = new ClaudeCliDriver(executable, profile, objectMapper, broker, supervisor,
+                ImmutableMap.of("HOME", worktree.resolve("ambient-home").toString(), "CLAUDE_CONFIG_DIR", worktree.resolve("ambient-config").toString()))) {
+            AgentProviderStatus status = driver.probe();
+            assertThat(status.readiness()).isEqualTo(AgentProviderStatus.Readiness.AUTHENTICATION_REQUIRED);
+            assertThat(status.signInCommand().orElseThrow()).isEqualTo("CLAUDE_CONFIG_DIR='" + profile.toString().replace("'", "'\"'\"'")
+                    + "' '" + executable.replace("'", "'\"'\"'") + "' auth login");
+            assertThat(supervisor.specs()).isNotEmpty().allSatisfy(spec ->
+                    assertThat(spec.environment()).containsEntry("CLAUDE_CONFIG_DIR", profile.toString()));
+
+            try (AgentSession session = driver.open(context(Optional.empty()), event -> {})) {
+                assertThat(await(session.start(command("profile-check"))).state()).isEqualTo(AgentTurnResult.State.COMPLETED);
+            }
+            assertThat(supervisor.turns().getFirst().spec().environment()).containsEntry("CLAUDE_CONFIG_DIR", profile.toString());
+        }
     }
 
     @Test
@@ -942,7 +969,7 @@ class TestClaudeCliDriver
                 () -> URI.create("http://127.0.0.1:9000/internal/agent/claude/mcp"), objectMapper, (taskId, query) -> "memory",
                 ReviewBridgeResolver.NONE, DevelopmentResultBridgeResolver.NONE, DraftPullRequestPublisher.NONE, LocalReviewBridgeResolver.NONE,
                 taskId -> Optional.of(ci));
-        ClaudeCliDriver driver = new ClaudeCliDriver("/fake/claude", objectMapper, broker, supervisor, ImmutableMap.of());
+        ClaudeCliDriver driver = new ClaudeCliDriver("/fake/claude", worktree.resolve("claude-home"), objectMapper, broker, supervisor, ImmutableMap.of());
         Optional<AgentSessionRef> reference = Optional.empty();
         for (int index = 0; index < 2; index++) {
             try (AgentSession session = driver.open(context(reference), event -> {})) {
@@ -967,7 +994,7 @@ class TestClaudeCliDriver
                 (taskId, query) -> "memory", ReviewBridgeResolver.NONE,
                 taskId -> Optional.of(new DevelopmentResultBridge("turn-1", DevelopmentResultBridge.INSTRUCTION)),
                 DraftPullRequestPublisher.NONE, taskId -> Optional.of(local));
-        ClaudeCliDriver driver = new ClaudeCliDriver("/fake/claude", objectMapper, broker, supervisor, ImmutableMap.of());
+        ClaudeCliDriver driver = new ClaudeCliDriver("/fake/claude", worktree.resolve("claude-home"), objectMapper, broker, supervisor, ImmutableMap.of());
         AgentSessionRef reference;
         try (AgentSession session = driver.open(context(Optional.empty()), event -> {})) {
             await(session.start(command("local-review")));
@@ -1295,7 +1322,7 @@ class TestClaudeCliDriver
         ScriptedProcessSupervisor supervisor = new ScriptedProcessSupervisor();
         PermissionBroker broker = new PermissionBroker(
                 () -> URI.create("http://127.0.0.1:9000/internal/agent/claude/mcp"), objectMapper, (taskId, query) -> "memory");
-        ClaudeCliDriver driver = new ClaudeCliDriver("/fake/claude", objectMapper, broker, supervisor, ImmutableMap.of());
+        ClaudeCliDriver driver = new ClaudeCliDriver("/fake/claude", worktree.resolve("claude-home"), objectMapper, broker, supervisor, ImmutableMap.of());
         AgentSessionContext plain = context(Optional.empty());
         AgentSessionContext context = new AgentSessionContext(
                 plain.taskId(), plain.worktree(), plain.runtimeDirectory(), plain.providerDirectory(), plain.permissionPolicy(),
@@ -1339,7 +1366,7 @@ class TestClaudeCliDriver
         ScriptedProcessSupervisor supervisor = new ScriptedProcessSupervisor();
         PermissionBroker broker = new PermissionBroker(
                 () -> URI.create("http://127.0.0.1:9000/internal/agent/claude/mcp"), objectMapper, (taskId, query) -> "memory");
-        ClaudeCliDriver driver = new ClaudeCliDriver("/fake/claude", objectMapper, broker, supervisor, ImmutableMap.of());
+        ClaudeCliDriver driver = new ClaudeCliDriver("/fake/claude", worktree.resolve("claude-home"), objectMapper, broker, supervisor, ImmutableMap.of());
         CompletableFuture<ProviderApprovalDecision> decision = new CompletableFuture<>();
         CountDownLatch requested = new CountDownLatch(1);
         AgentSessionContext plain = context(Optional.empty());
@@ -1400,6 +1427,7 @@ class TestClaudeCliDriver
                 reviews);
         return new ClaudeCliDriver(
                 "/fake/claude",
+                worktree.resolve("claude-home"),
                 objectMapper,
                 permissions,
                 supervisor,
@@ -1496,6 +1524,7 @@ class TestClaudeCliDriver
             implements ProcessSupervisor
     {
         private final List<ScriptedTurn> turns = new CopyOnWriteArrayList<>();
+        private final List<ProcessSpec> specs = new CopyOnWriteArrayList<>();
         private String versionOutput = "2.1.233 (Claude Code)";
         private String helpOutput = """
                 --output-format --include-partial-messages --include-hook-events
@@ -1527,7 +1556,13 @@ class TestClaudeCliDriver
         @Override
         public PreparedProcess prepare(ProcessSpec spec)
         {
+            specs.add(spec);
             return new ScriptedLaunch(spec);
+        }
+
+        private List<ProcessSpec> specs()
+        {
+            return specs;
         }
 
         @Override

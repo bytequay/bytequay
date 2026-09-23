@@ -4482,8 +4482,10 @@ machine-readable status rather than by parsing diagnostic text:
 - degraded but usable; and
 - temporarily unavailable, including failed or empty Codex version reads.
 
-For Claude CLI, the authentication portion runs `claude auth status --json`
-with the same executable and allowlisted environment used for turns. Opening
+For Claude CLI, ByteQuay sets `CLAUDE_CONFIG_DIR` to its configured
+`…/ByteQuay/claude-home` for every probe, update, and turn, overriding any
+ambient value. The authentication portion runs `claude auth status --json`
+with that same executable and allowlisted environment used for turns. Opening
 the interactive `claude` screen is not an authentication check. The CP11
 reference executable (2.1.259) returns one JSON object whose required
 `loggedIn` member is boolean; fields such as `authMethod`, `apiProvider`, and
@@ -4547,7 +4549,8 @@ selected provider can work in this workspace.
 | Unavailable | Redacted actionable diagnostic | Check again |
 
 The sign-in action is a direct user action. In the first release ByteQuay shows
-the provider-owned command (for Claude, `claude auth login`) for the user to run
+the provider-owned command (for Claude,
+`CLAUDE_CONFIG_DIR='<ByteQuay Claude home>' claude auth login`) for the user to run
 in a visible terminal; it does not launch, script, or infer completion of an
 interactive login. The row provides **Check again**, which invokes the shared
 typed readiness-refresh bridge operation and replaces the displayed status and
@@ -4566,8 +4569,9 @@ CP11 closed the release blocker after automated tests demonstrated:
    task/turn creation, worktree provisioning, and CI attempt consumption.
 2. Workspace settings renders the typed authentication-required state and its
    sign-in action without exposing credentials.
-3. Successful login plus readiness refresh enables task start without an app
-   restart.
+3. Successful login in ByteQuay's configured Claude profile plus readiness
+   refresh enables task start without an app restart. The probe and turn
+   receive that same profile path even when an ambient Claude profile differs.
 4. Authentication expiry during a turn pauses the workflow, preserves its
    retry budget and task resources, and supports an explicit retry after login.
 5. Provider authentication failures are logged once with task/run context and

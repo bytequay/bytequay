@@ -1023,7 +1023,12 @@ These placeholder strings abbreviate full objects only in the examples above.
 For a nonblank read, its notebook `evidenceRef` becomes the globally unique read
 ID and resolves to the copied excerpt in `sourceEvidence`; run-local IDs such
 as E1 cannot collide across reviews. A blank receipt keeps no evidence reference
-and creates no invented prose. Each result permits at most eight checked reads.
+and creates no invented prose. Each result permits at most 128 checked reads,
+matching the execution's capture budget. This checked-input inventory is separate
+from the eight-source limit for an individual note or claim. An EMPTY builder
+result must be able to account for every captured read, including observations
+that did not become note citations. Existing notebook and tool-response byte
+limits still apply.
 The fingerprint is the full input inventory plus computed digest and gaps,
 not a model-supplied digest. It is recomputed against the prospective retained
 sources before saving, so newly attached sources do not invalidate their own note.
@@ -1603,6 +1608,14 @@ does not hash the entire repository tree. Component inputs use their selected su
 referenced repository files, with ancestor dependency manifests. Explicit
 absence and the documentation-source catalog participate in the fingerprint,
 so newly added relevant input invalidates an earlier negative preparation.
+Each ancestor's supported manifest names and object identities, including absent
+files, form one `git-manifests:<directory>` input. This avoids exhausting the
+per-scope input count with nonexistent manifest paths. Actual Git lookup paths
+still share the 512-path, 128-path batch and ten-second bounds; an omitted or
+failed lookup makes the inventory incomplete. Changes, additions and removals
+within the manifest group invalidate reuse and source applicability, while
+unrelated sibling files do not. Referenced source files remain individual
+`git:<path>` inputs.
 Sources from saved MEMORY lessons do not participate in baseline knowledge
 preparation fingerprints; saving a lesson must not force knowledge regeneration.
 They retain their own source references and applicability limits in the review.
@@ -1764,9 +1777,12 @@ entry; a reloaded scope retains its current enabled state. Old workspace respons
 cannot replace a newly opened workspace's notebook.
 
 **Save lesson** on a retained private review message opens the shared editor with
-the original message text. The user writes its title and summary, edits its
-conditions, and can select additional retained evidence before saving. New
-lessons start with no scope selected and show **Choose where this lesson applies**.
+the original message text. The user writes a summary of when the lesson matters
+and what to check, edits its conditions, and can select additional retained
+evidence before saving. The title is optional; when blank, the editor derives a
+short title from the summary. Scope determines eligibility, while words in the
+title and summary rank matching lessons. New lessons start with no scope selected
+and show **Choose where this lesson applies**.
 The user must choose a scope before saving. Project remains an explicit option;
 choosing a repository-wide scope explains that it applies across the repository
 and suggests a component scope for a more specific note.
@@ -1836,13 +1852,14 @@ Preserve details across replay/reconnect and runtime cleanup.
    It cannot request tool installation, change permissions, publish, or direct
    unrelated filesystem/network actions.
 
-Both providers intentionally resume task conversation. Claude currently sets
-autoMemoryEnabled=false. Codex isolates its app-owned home but the current
-profile has no explicit native-memory disable/verification. Before enabling a
-lane, verify supported behavior and either disable autonomous cross-task memory
-or document/test the limitation without claiming isolation. Model pretraining
-cannot be disabled. Current snapshot identity and source revalidation are
-required even when a provider remembers other material.
+Both providers intentionally resume task conversation. Claude sets
+`autoMemoryEnabled=false`. Codex uses its app-owned home and explicitly disables
+the supported `memories` feature at process launch and thread start/resume; the
+existing isolation check verifies that setting. In the pinned CLI this disables
+automatic extraction/consolidation, memory injection and dedicated memory tools.
+This does not delete retained provider sessions or disable model pretraining.
+Record live provider enforcement in acceptance before enabling a lane. Current
+snapshot identity and source revalidation remain required.
 
 Review remains no-child. This design makes no guarantee of independent context
 delivery to future development subagents.

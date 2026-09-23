@@ -345,7 +345,12 @@ final class CodexAppServerClient
             return;
         }
         if (envelope.id().isPresent()) {
-            receiveRequest(codec.decodeServerRequest(line));
+            CodexProtocol.ServerRequest request = codec.decodeServerRequest(line);
+            if (request instanceof CodexProtocol.UnknownServerRequest) {
+                // Identify protocol gaps without logging arguments, user input, or credentials.
+                log.warn("Unsupported Codex server request: method={}, threadId={}", redactor.redact(envelope.method().orElseThrow()), redactor.redact(request.threadId()));
+            }
+            receiveRequest(request);
         }
         else {
             receiveNotification(codec.decodeNotification(line));

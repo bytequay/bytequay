@@ -49,6 +49,7 @@ import com.bytequay.app.workspace.WorkspaceRepositoryContext;
 import com.bytequay.app.workspace.WorkspaceRepositoryService;
 import com.bytequay.core.context.ContextContribution;
 import com.bytequay.core.context.ContextDocumentRead;
+import com.bytequay.core.context.ContextEntry;
 import com.bytequay.core.context.ContextHistoryRead;
 import com.bytequay.core.context.ContextLimits;
 import com.bytequay.core.context.ContextPreparationResult;
@@ -87,6 +88,7 @@ import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.DeserializationFeature;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.databind.exc.ValueInstantiationException;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 import com.google.common.base.Stopwatch;
 import com.google.common.collect.ImmutableList;
@@ -453,22 +455,25 @@ public class ReviewTools
     private ReviewTool preparationTool(String reviewId, Optional<TurnId> turnId)
     {
         Map<String, Object> claim = schema(ImmutableMap.of(
-                "text", ImmutableMap.of("type", "string", "minLength", 1, "maxLength", 2000),
+                "text", ImmutableMap.of("type", "string", "minLength", 1, "maxLength", 2000, "description", "At most 2000 UTF-8 bytes."),
                 "basis", ImmutableMap.of("type", "string", "enum", ImmutableList.of("DOCUMENTED", "RECORDED_DECISION", "INFERENCE", "QUESTION")),
                 "sourceIds", stringArray(ContextLimits.MAX_SOURCES, 500)), ImmutableList.of("text", "basis", "sourceIds"));
         Map<String, Object> entry = schema(ImmutableMap.of(
-                "id", ImmutableMap.of("type", "string", "minLength", 1, "maxLength", 1200),
+                "id", ImmutableMap.of("type", "string", "minLength", 1, "maxLength", 1200,
+                        "description", "Exactly knowledge:<scopeId>; use knowledge:project for scope project, or the BEGIN expectedNoteId."),
                 "scopeId", ImmutableMap.of("type", "string", "minLength", 1, "maxLength", 1100),
-                "title", ImmutableMap.of("type", "string", "minLength", 1, "maxLength", 200),
-                "summary", ImmutableMap.of("type", "string", "minLength", 1, "maxLength", 1000),
-                "body", ImmutableMap.of("type", "string", "minLength", 1, "maxLength", ContextLimits.MAX_BODY_BYTES),
+                "title", ImmutableMap.of("type", "string", "minLength", 1, "maxLength", 200, "description", "At most 200 UTF-8 bytes."),
+                "summary", ImmutableMap.of("type", "string", "minLength", 1, "maxLength", 1000, "description", "At most 1000 UTF-8 bytes."),
+                "body", ImmutableMap.of("type", "string", "minLength", 1, "maxLength", ContextLimits.MAX_BODY_BYTES,
+                        "description", "At most " + ContextLimits.MAX_BODY_BYTES + " UTF-8 bytes."),
                 "claims", ImmutableMap.of("type", "array", "maxItems", 12, "items", claim),
                 "sourceIds", stringArray(ContextLimits.MAX_SOURCES, 500)), ImmutableList.of("id", "scopeId", "title", "summary", "body", "claims", "sourceIds"));
         Map<String, Object> scope = schema(ImmutableMap.of(
                 "scopeId", ImmutableMap.of("type", "string", "minLength", 1, "maxLength", 1100),
                 "outcome", ImmutableMap.of("type", "string", "enum", ImmutableList.of("READY", "EMPTY", "FAILED")),
-                "noteIds", stringArray(1, 1200),
-                "checkedSourceIds", stringArray(ContextLimits.MAX_SOURCES, 100),
+                "noteIds", ImmutableMap.of("type", "array", "maxItems", 1, "items", ImmutableMap.of("type", "string", "minLength", 1, "maxLength", 1200),
+                        "description", "READY requires exactly [knowledge:<scopeId>] and the matching entry; EMPTY/FAILED require []."),
+                "checkedSourceIds", stringArray(ContextLimits.MAX_SOURCE_READS, 100),
                 "explanation", ImmutableMap.of("type", "string", "minLength", 1, "maxLength", 2000)),
                 ImmutableList.of("scopeId", "outcome", "noteIds", "checkedSourceIds", "explanation"));
         return new ReviewTool("repository_context_prepare",
@@ -478,6 +483,11 @@ public class ReviewTools
                         + "SUBMIT attemptId, operationKey and report after reading frozen baseline files or registered documents with review_get_context. "
                         + "History-based READY requires nonblank monitored-baseline evidence; historical snapshots cannot establish EMPTY. "
                         + "checkedSourceIds, sourceIds and claim sources must use returned readId values, never raw evidence refs or invented source records. "
+                        + "READY produces exactly one entry per scope: id=knowledge:<scopeId> (knowledge:project for project), and noteIds contains only that ID. "
+                        + "EMPTY/FAILED use empty noteIds and no entry. checkedSourceIds allows up to " + ContextLimits.MAX_SOURCE_READS + " readIds; "
+                        + "each entry/claim sourceIds allows up to " + ContextLimits.MAX_SOURCES + " readIds. "
+                        + "entry sources must be checkedSourceIds, and claim sources must belong to the entry. "
+                        + "Prose limits are UTF-8 bytes: title 200, summary 1000, body " + ContextLimits.MAX_BODY_BYTES + ", each claim 2000; at most 12 claims. "
                         + "Report every admitted scope as READY, EMPTY or FAILED. EMPTY means inspected complete inputs yielded no useful note. "
                         + "JOINED/DEFERRED does not grant write ownership: continue the review or retry later; no background wait or new builder starts. "
                         + "Reuse unchanged saved knowledge; never treat a shared note as verified for this PR. "
@@ -618,6 +628,9 @@ public class ReviewTools
                             .treeToValue(reportNode, GeneratedReport.class);
                 }
                 catch (JsonProcessingException failure) {
+                    if (failure instanceof ValueInstantiationException && failure.getCause() instanceof IllegalArgumentException invalid) {
+                        throw new ReviewInvalidRequestException("report: " + bounded(invalid.getMessage(), 500));
+                    }
                     throw new ReviewInvalidRequestException("report: invalid generated report fields or values");
                 }
                 Completion completion = outsideReviewLock(call, () -> preparation.prepareCompletion(preparationExecution(call), attemptId, report));
@@ -673,7 +686,8 @@ public class ReviewTools
             ObjectNode attempt = result.putObject("attempt").put("attemptId", active.attemptId()).put("requestKey", active.requestKey())
                     .put("ownerTaskId", active.ownerTaskId()).put("ownerTurnId", active.ownerTurnId()).put("ownerTurnKey", active.ownerTurnKey())
                     .put("reviewId", active.reviewId().orElse(null)).put("runId", active.runId().orElse(null)).put("baseContentRevision", active.baseContentRevision());
-            attempt.putPOJO("scopes", active.inputs().stream().map(input -> ImmutableMap.of("scopeId", input.scopeId(), "digest", input.digest().orElseThrow()))
+            attempt.putPOJO("scopes", active.inputs().stream().map(input -> ImmutableMap.of("scopeId", input.scopeId(),
+                            "expectedNoteId", ContextEntry.knowledgeId(input.scopeId()), "digest", input.digest().orElseThrow()))
                     .collect(toImmutableList()));
         }, () -> result.putNull("attempt"));
         result.putPOJO("reused", admission.reused().stream().map(this::preparationOutcome).collect(toImmutableList()));

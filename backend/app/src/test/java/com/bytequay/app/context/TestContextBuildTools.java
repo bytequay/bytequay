@@ -35,6 +35,7 @@ import com.bytequay.app.workspace.WorkspaceRepositoryContext;
 import com.bytequay.app.workspace.WorkspaceRepositoryService;
 import com.bytequay.core.context.ContextEntryOrigin;
 import com.bytequay.core.context.ContextInputFingerprint;
+import com.bytequay.core.context.ContextLimits;
 import com.bytequay.core.context.ContextMatch;
 import com.bytequay.core.context.ContextPacket;
 import com.bytequay.core.context.ContextPreparationResult;
@@ -284,6 +285,21 @@ class TestContextBuildTools
     }
 
     @Test
+    void preparationSchemaExplainsCanonicalNotesAndSeparatesCheckedReadsFromCitations()
+    {
+        JsonNode schema = mapper.valueToTree(bridge.tool("repository_context_prepare").orElseThrow().inputSchema());
+        JsonNode entry = schema.at("/properties/report/properties/entries/items/properties");
+        JsonNode scope = schema.at("/properties/report/properties/scopeResults/items/properties");
+        assertThat(entry.at("/id/description").textValue()).contains("knowledge:project", "expectedNoteId");
+        assertThat(scope.at("/noteIds/description").textValue()).contains("READY", "EMPTY/FAILED");
+        assertThat(scope.at("/checkedSourceIds/maxItems").intValue()).isEqualTo(ContextLimits.MAX_SOURCE_READS);
+        assertThat(entry.at("/sourceIds/maxItems").intValue()).isEqualTo(ContextLimits.MAX_SOURCES);
+        assertThat(entry.at("/claims/items/properties/sourceIds/maxItems").intValue()).isEqualTo(ContextLimits.MAX_SOURCES);
+        assertThat(entry.at("/body/description").textValue()).contains("8192 UTF-8 bytes");
+        assertThat(bridge.tool("repository_context_prepare").orElseThrow().description()).contains("exactly one entry per scope", "claim sources must belong to the entry");
+    }
+
+    @Test
     void acceptedToolReportPersistsGeneratedKnowledgeAndReplaysWithoutRewriting()
             throws Exception
     {
@@ -308,6 +324,7 @@ class TestContextBuildTools
         assertThat(selection.path("scopes").get(0).path("id").textValue()).isEqualTo("project");
         JsonNode admission = prepare(BEGIN.replace("\"expectedRevision\":0", "\"expectedRevision\":1"));
         assertThat(admission.path("status").textValue()).isEqualTo("OWNED");
+        assertThat(admission.at("/attempt/scopes/0/expectedNoteId").textValue()).isEqualTo("knowledge:project");
         String attempt = admission.path("attempt").path("attemptId").textValue();
         String report = """
                 {"operation":"SUBMIT","attemptId":"%s","operationKey":"save","report":{
@@ -317,12 +334,19 @@ class TestContextBuildTools
                     "summary":"A documented behavior","body":"Useful generated knowledge from the frozen README.",
                     "claims":[{"text":"A documented behavior","basis":"DOCUMENTED","sourceIds":["%s"]}],"sourceIds":["%s"]}]}}
                 """.formatted(attempt, readId, readId, readId);
+        JsonNode invalid = prepare(report.replace("knowledge:project", "project-build-overview"));
+        assertThat(invalid.at("/error/message").textValue()).contains("Knowledge id must be knowledge:project");
+        assertThat(actualNotebooks.getNotebook(WORKSPACE).entries()).isEmpty();
+        assertThat(actualNotebooks.getNotebook(WORKSPACE).activePreparation()).isPresent();
+        assertThat(current().capture().operations()).hasSize(1);
+        assertThat(current().capture().result()).isEmpty();
         JsonNode receipt = prepare(report);
         assertThat(receipt.has("error")).isFalse();
         RepositoryNotebook saved = actualNotebooks.getNotebook(WORKSPACE);
         assertThat(saved.useInReviews()).isFalse();
         assertThat(saved.activePreparation()).isEmpty();
         assertThat(saved.entries()).singleElement().satisfies(entry -> {
+            assertThat(entry.id()).isEqualTo("knowledge:project");
             assertThat(entry.origin()).isEqualTo(ContextEntryOrigin.GENERATED);
             assertThat(entry.body()).isEqualTo("Useful generated knowledge from the frozen README.");
         });

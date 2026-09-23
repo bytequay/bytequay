@@ -43,7 +43,7 @@ public record ReviewContextSnapshot(
 {
     public static final int MAXIMUM_SELECTED_TEXT_BYTES = 8 * 1024;
     public static final int MAXIMUM_INPUT_BYTES = 256 * 1024;
-    public static final int MAXIMUM_SOURCE_READS = 128;
+    public static final int MAXIMUM_SOURCE_READS = ContextLimits.MAX_SOURCE_READS;
     public static final int MAXIMUM_CONTRIBUTIONS = 3;
     public static final int MAXIMUM_DELIVERIES = 128;
 

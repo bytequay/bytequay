@@ -1417,9 +1417,14 @@ exact replay deduplication. When a provider omits identity, ByteQuay still
 records and displays the callback, but cannot deduplicate a repeated delta
 callback across replay.
 
-For cumulative samples, `record` derives the baseline from the durable metrics
-of the task's other turns. No separate startup snapshot is needed, so the same
-calculation applies after a service restart.
+For task-wide `CUMULATIVE` samples, `record` derives the baseline from the durable
+metrics of the task's other turns. `CUMULATIVE_FOR_INVOCATION` samples instead
+replace the current turn's counters with no earlier-turn subtraction. Codex
+uses this scope because each ByteQuay turn opens a fresh App Server process;
+resuming the saved provider thread does not preserve its usage counters across
+processes. Both scopes ignore older counter samples and survive a service
+restart using the stored turn metrics. Neither adds repeated cumulative
+callbacks together.
 
 ```java
 package com.bytequay.agent.core;

@@ -48,6 +48,7 @@ import com.bytequay.agent.spi.ProviderApprovalRequest;
 import com.bytequay.agent.spi.PullRequestCiBridge;
 import com.bytequay.agent.spi.ReviewBridge;
 import com.bytequay.agent.spi.ReviewBridgeResolver;
+import com.bytequay.agent.spi.ReviewTool;
 import com.bytequay.agent.spi.RunningTurn;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -167,7 +168,7 @@ class TestCodexCliDriver
             assertThat(event).isInstanceOf(ProviderAgentEvent.Usage.class);
             ProviderAgentEvent.Usage usage = (ProviderAgentEvent.Usage) event;
             assertThat(usage.sample().semantics()).isEqualTo(
-                    com.bytequay.agent.spi.ProviderUsageSample.Semantics.CUMULATIVE);
+                    com.bytequay.agent.spi.ProviderUsageSample.Semantics.CUMULATIVE_FOR_INVOCATION);
             assertThat(usage.sample().inputTokens()).isEqualTo(80);
             assertThat(usage.sample().outputTokens()).isEqualTo(20);
         });
@@ -977,10 +978,14 @@ class TestCodexCliDriver
                 "grantRoot":"","itemId":"patch-empty-root","startedAtMs":1786884871467,
                 "threadId":"thread-1","turnId":"%s"}}
                 """.formatted(server.activeTurn()));
+        server.emit("""
+                {"id":103,"method":"item/tool/requestUserInput","params":{
+                "threadId":"thread-1","turnId":"%s","itemId":"unregistered-input","questions":[]}}
+                """.formatted(server.activeTurn()));
 
         // Every rejection is answered on the dispatch thread, so all of them have to arrive
         // before any is read. Waiting for only the first few leaves the rest racing the asserts.
-        List<Long> rejected = List.of(92L, 93L, 94L, 95L, 96L, 97L, 99L, 100L, 102L);
+        List<Long> rejected = ImmutableList.of(92L, 93L, 94L, 95L, 96L, 97L, 99L, 100L, 102L, 103L);
         awaitCondition(() -> rejected.stream().allMatch(id -> server.error(id) != null));
         assertThat(server.error(92).path("message").asText()).contains("active turn");
         assertThat(server.error(93).path("message").asText()).contains("Unsupported Codex request");
@@ -991,6 +996,7 @@ class TestCodexCliDriver
         assertThat(server.error(99).path("message").asText()).contains("cannot represent");
         assertThat(server.error(100).path("message").asText()).contains("scoped grant");
         assertThat(server.error(102).path("message").asText()).contains("scoped grant");
+        assertThat(server.error(103).path("message").asText()).contains("active turn");
         assertThat(approval).hasValue(null);
     }
 
@@ -2647,6 +2653,7 @@ class TestCodexCliDriver
                         {"jsonrpc":"2.0","id":1,"method":"tools/list","params":{}}
                         """)).body().orElseThrow();
                 assertThat(listed.at("/result/tools")).isEmpty();
+                assertThat(supervisor.serverArgv().getLast()).contains("mcp_servers.bytequay.tools={}");
 
                 session.start(command("private review"));
                 assertThat(server.turnRequests().getFirst().path("approvalsReviewer").asText()).isEqualTo("user");
@@ -2678,6 +2685,41 @@ class TestCodexCliDriver
                 awaitCondition(() -> server.result(98) != null);
                 assertThat(server.result(98).path("decision").asText()).isEqualTo("accept");
                 assertThat(approval.get().detail()).contains("git add TestExperiment.java");
+                reference = Optional.of(session.reference());
+            }
+        }
+    }
+
+    @Test
+    void approvesOnlyTheFixedLearningToolsOnInitialAndResumedSessions()
+            throws Exception
+    {
+        ScriptedProcessSupervisor supervisor = new ScriptedProcessSupervisor(objectMapper);
+        supervisor.configBody = "{\"mcp_servers\":{\"bytequay\":{\"url\":\"" + MCP_ENDPOINT + "\"}}}";
+        supervisor.mcpStatuses = "{\"data\":[{\"name\":\"bytequay\",\"pluginId\":null}],\"nextCursor\":null}";
+        List<String> names = ImmutableList.of("repository_context_read", "repository_context_prepare");
+        ReviewBridge review = new ReviewBridge(names.stream()
+                .map(name -> new ReviewTool(name, "Fixed task tool", ImmutableMap.of("type", "object"), arguments -> "captured"))
+                .collect(ImmutableList.toImmutableList()), "Learn the frozen repository");
+        PermissionBroker broker = new PermissionBroker(
+                () -> URI.create(MCP_ENDPOINT), objectMapper, (taskId, query) -> "", taskId -> Optional.of(review));
+        CodexHome.prepare(codexHome());
+        CodexCliDriver driver = new CodexCliDriver("/fake/codex", "0.153.4", objectMapper, supervisor,
+                ImmutableMap.of("HOME", worktree.toString()), codexHome(), broker, Duration.ofSeconds(30));
+        Optional<AgentSessionRef> reference = Optional.empty();
+        for (int index = 0; index < 2; index++) {
+            try (AgentSession session = driver.open(context(reference, new AtomicReference<>()), event -> {})) {
+                List<String> arguments = supervisor.serverArgv().getLast();
+                assertThat(arguments).filteredOn(argument -> argument.startsWith("mcp_servers.bytequay.tools="))
+                        .containsExactly("mcp_servers.bytequay.tools={"
+                                + "\"repository_context_read\"={approval_mode=\"approve\"},\"repository_context_prepare\"={approval_mode=\"approve\"}}");
+                assertThat(arguments).noneMatch(argument -> argument.contains("default_tools_approval_mode") || argument.startsWith("approval_policy="));
+                String token = supervisor.environments().getLast().get("BYTEQUAY_CODEGRAPH_TOKEN");
+                JsonNode listed = broker.handle(token, objectMapper.readTree("""
+                        {"jsonrpc":"2.0","id":1,"method":"tools/list","params":{}}
+                        """)).body().orElseThrow();
+                assertThat(listed.at("/result/tools").findValuesAsText("name")).containsExactlyElementsOf(names);
+                assertThat(supervisor.servers().getLast().threadRequests().getFirst().path("approvalsReviewer").asText()).isEqualTo("user");
                 reference = Optional.of(session.reference());
             }
         }

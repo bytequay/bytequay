@@ -157,8 +157,13 @@ export async function runScenarios(): Promise<string[]> {
 
     notebook = empty; responseLost = true;
     const uncertain = await open('response-lost');
+    fill(field(uncertain, 'Title'), '');
+    fill(field(uncertain, 'Summary'), 'When changing nested fields, check parent IDs.');
+    assert(!field(uncertain, 'Title').required && !button(uncertain, 'Save lesson').disabled,
+      'A lesson with a summary and scope must not require a search-optimized title');
     button(uncertain, 'Save lesson').click();
     await waitFor(() => uncertain.textContent?.includes('Reply interrupted after save') === true, 'Uncertain receipt must retain draft');
+    assert(writes.at(-1)?.title === 'When changing nested fields, check parent IDs.', 'A blank title must be filled from the summary');
     const attempts = writes.length;
     assert(uncertain.textContent?.includes('Reply interrupted after save') === true, 'Uncertain receipt must retain draft');
     button(uncertain, 'Reload notebook').click();

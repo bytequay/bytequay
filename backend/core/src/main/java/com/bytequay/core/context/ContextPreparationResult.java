@@ -37,7 +37,7 @@ public record ContextPreparationResult(
         noteIds = ImmutableList.copyOf(noteIds);
         checkedReads = ImmutableList.copyOf(checkedReads);
         ContextLimits.unique(noteIds, "preparation note ids", 1);
-        ContextLimits.unique(checkedReads.stream().map(ContextSourceRead::id).toList(), "checked source reads", ContextLimits.MAX_SOURCES);
+        ContextLimits.unique(checkedReads.stream().map(ContextSourceRead::id).toList(), "checked source reads", ContextLimits.MAX_SOURCE_READS);
         ContextLimits.text(explanation, "preparation explanation", 2000);
         checkArgument(outcome == Outcome.FAILED || inputFingerprint.digest().isPresent(), "Successful preparation needs complete input identities");
         checkArgument(outcome == Outcome.READY

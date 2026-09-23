@@ -34,6 +34,7 @@ import com.bytequay.app.context.RepositoryContextPreparation;
 import com.bytequay.app.context.RepositoryContextPreparation.Admission;
 import com.bytequay.app.context.RepositoryContextPreparation.Completion;
 import com.bytequay.app.context.RepositoryContextPreparation.Execution;
+import com.bytequay.app.context.RepositoryContextPreparation.GeneratedReport;
 import com.bytequay.app.context.RepositoryContextPreparation.Plan;
 import com.bytequay.app.context.RepositoryContextPreparation.Receipt;
 import com.bytequay.app.context.RepositoryContextPreparation.Status;
@@ -59,6 +60,7 @@ import com.bytequay.core.context.ContextEntryKind;
 import com.bytequay.core.context.ContextEntryOrigin;
 import com.bytequay.core.context.ContextHistoryRead;
 import com.bytequay.core.context.ContextInputFingerprint;
+import com.bytequay.core.context.ContextLimits;
 import com.bytequay.core.context.ContextMatch;
 import com.bytequay.core.context.ContextPacket;
 import com.bytequay.core.context.ContextPreparationResult;
@@ -95,6 +97,7 @@ import com.bytequay.core.review.ReviewSummary;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.google.common.base.Stopwatch;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.hash.Hashing;
@@ -103,6 +106,8 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.ValueSource;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.http.HttpStatus;
 import org.springframework.web.server.ResponseStatusException;
 
@@ -120,6 +125,9 @@ import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
 import java.util.OptionalLong;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.Executors;
+import java.util.concurrent.TimeoutException;
 import java.util.concurrent.locks.ReentrantLock;
 import java.util.stream.IntStream;
 
@@ -128,7 +136,11 @@ import static com.bytequay.core.review.ReviewStep.Kind.VALIDATE;
 import static com.google.common.base.Preconditions.checkArgument;
 import static com.google.common.collect.ImmutableList.toImmutableList;
 import static java.nio.charset.StandardCharsets.UTF_8;
+import static java.util.concurrent.TimeUnit.MICROSECONDS;
+import static java.util.concurrent.TimeUnit.MILLISECONDS;
+import static java.util.concurrent.TimeUnit.SECONDS;
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.anyString;
@@ -144,6 +156,8 @@ import static org.mockito.Mockito.when;
 
 class TestReviewTools
 {
+    private static final Logger log = LoggerFactory.getLogger(TestReviewTools.class);
+
     private static final String REVIEW_ID = "review-1";
     private static final String RUN_ID = "run-1";
     private static final String TASK_ID = "e4469e62-6122-4c61-b279-459a6ad35f20";
@@ -323,6 +337,7 @@ class TestReviewTools
         assertThat(admitted.path("elapsedMillis").asLong()).isNotNegative();
         assertThat(admitted.path("receiptRef").asText()).isEqualTo("review-step:" + RUN_ID + ":1:repository_context_prepare:BEGIN:begin");
         assertThat(admitted.at("/attempt/scopes/0/scopeId").asText()).isEqualTo("project");
+        assertThat(admitted.at("/attempt/scopes/0/expectedNoteId").asText()).isEqualTo("knowledge:project");
         assertThat(admitted.at("/attempt/scopes/0/digest").asText()).isEqualTo(active.inputs().getFirst().digest().orElseThrow());
         assertThat(admitted.at("/attempt/baseContentRevision").asLong()).isEqualTo(7);
         assertThat(admitted.path("attempt").has("inputs")).isFalse();
@@ -468,6 +483,46 @@ class TestReviewTools
                 "report", ImmutableMap.of("scopeResults", ImmutableList.of(), "entries", ImmutableList.of(), "sources", ImmutableList.of())))
                 .at("/error/field").asText()).isEqualTo("report");
         verifyNoInteractions(preparation);
+    }
+
+    @Test
+    void preparationExplainsCanonicalNoteIdsAndAllowsRepairBeforeSaving()
+    {
+        preparationContext();
+        JsonNode schema = objectMapper.valueToTree(bridge.tool("repository_context_prepare").orElseThrow().inputSchema());
+        JsonNode entry = schema.at("/properties/report/properties/entries/items/properties");
+        JsonNode scope = schema.at("/properties/report/properties/scopeResults/items/properties");
+        assertThat(entry.at("/id/description").asText()).contains("knowledge:project", "expectedNoteId");
+        assertThat(scope.at("/noteIds/description").asText()).contains("READY", "EMPTY/FAILED");
+        assertThat(scope.at("/checkedSourceIds/maxItems").asInt()).isEqualTo(ContextLimits.MAX_SOURCE_READS);
+        assertThat(entry.at("/sourceIds/maxItems").asInt()).isEqualTo(ContextLimits.MAX_SOURCES);
+        assertThat(entry.at("/body/description").asText()).contains("8192 UTF-8 bytes");
+
+        JsonNode invalid = call("repository_context_prepare", generatedPreparation("project-build-overview"));
+        assertThat(invalid.at("/error/field").asText()).isEqualTo("report");
+        assertThat(invalid.at("/error/message").asText()).contains("Knowledge id must be knowledge:project");
+        assertThat(store.findRun(RUN_ID).orElseThrow().operations()).isEmpty();
+        verifyNoInteractions(preparation);
+
+        Receipt receipt = new Receipt("attempt-1", 8, ImmutableList.of(), ContextPacket.create("Accepted canonical note"));
+        when(preparation.prepareCompletion(any(), anyString(), any())).thenAnswer(invocation -> {
+            GeneratedReport report = invocation.getArgument(2);
+            assertThat(report.entries()).singleElement().satisfies(note -> assertThat(note.id()).isEqualTo("knowledge:project"));
+            assertThat(report.scopeResults().getFirst().noteIds()).containsExactly("knowledge:project");
+            return new Completion(RepositoryNotebook.empty(), RepositoryNotebook.empty(), receipt);
+        });
+        when(preparation.complete(any(), any())).thenReturn(receipt);
+        assertThat(call("repository_context_prepare", generatedPreparation("knowledge:project")).path("status").asText()).isEqualTo("APPLIED");
+        assertThat(store.findRun(RUN_ID).orElseThrow().operations()).hasSize(1);
+    }
+
+    private static Map<String, Object> generatedPreparation(String id)
+    {
+        return ImmutableMap.of("operation", "SUBMIT", "attemptId", "attempt-1", "operationKey", "submit", "report", ImmutableMap.of(
+                "scopeResults", ImmutableList.of(ImmutableMap.of("scopeId", "project", "outcome", "READY", "noteIds", ImmutableList.of(id),
+                        "checkedSourceIds", ImmutableList.of("context-read:source"), "explanation", "Read the frozen README")),
+                "entries", ImmutableList.of(ImmutableMap.of("id", id, "scopeId", "project", "title", "Project", "summary", "Documented behavior",
+                        "body", "Saved source-backed overview", "claims", ImmutableList.of(), "sourceIds", ImmutableList.of("context-read:source")))));
     }
 
     @Test
@@ -971,6 +1026,64 @@ class TestReviewTools
         assertThat(evidence.provenance()).contains("refreshAttempted=true", "observedHeadSha=" + observed, "frozenReviewedHead=" + HEAD_SHA, "unavailableSections=[checks]");
         assertThat(store.findRun(RUN_ID).orElseThrow().headSha()).isEqualTo(HEAD_SHA);
         verifyNoInteractions(pullRequests, repositories, issues, issueRefresh);
+    }
+
+    @Test
+    void selectedHydratorQueuesItsReviewButDoesNotHoldTheNotebookLock()
+            throws Exception
+    {
+        CountDownLatch hydrating = new CountDownLatch(1);
+        CountDownLatch release = new CountDownLatch(1);
+        CountDownLatch queued = new CountDownLatch(1);
+        ReentrantLock reviewLock = (ReentrantLock) locks.lock(REVIEW_ID);
+        PullRequestDetail detail = pullRequestDetail(42, "Selected cached body", ImmutableList.of(), ImmutableList.of(), ImmutableList.of());
+        when(selectedPullRequests.read(REPO, 42, SelectedPullRequestReader.Section.PR)).thenAnswer(_ -> {
+            assertThat(reviewLock.isHeldByCurrentThread()).isTrue();
+            assertThat(((ReentrantLock) WorkspaceOperationLocks.get(WORKSPACE_ID)).isHeldByCurrentThread()).isFalse();
+            assertThat(inTransaction).isFalse();
+            hydrating.countDown();
+            assertThat(release.await(5, SECONDS)).isTrue();
+            return selected(detail, Optional.of(HEAD_SHA), false);
+        });
+        int writes = store.runUpdates;
+        try (var executor = Executors.newFixedThreadPool(2)) {
+            var source = executor.submit(() -> call("review_get_context", ImmutableMap.of("kind", "pr")));
+            try {
+                assertThat(hydrating.await(5, SECONDS)).isTrue();
+                Stopwatch notebookLock = Stopwatch.createStarted();
+                assertThat(WorkspaceOperationLocks.get(WORKSPACE_ID).tryLock()).isTrue();
+                long notebookMicros;
+                try {
+                    notebookMicros = notebookLock.elapsed(MICROSECONDS);
+                }
+                finally {
+                    WorkspaceOperationLocks.get(WORKSPACE_ID).unlock();
+                }
+                var sameReview = executor.submit(() -> {
+                    Stopwatch waiting = Stopwatch.createStarted();
+                    queued.countDown();
+                    JsonNode assignment = call("review_get_context", ImmutableMap.of("kind", "assignment"));
+                    assertThat(assignment.has("error")).isFalse();
+                    return waiting.elapsed(MICROSECONDS);
+                });
+                assertThat(queued.await(5, SECONDS)).isTrue();
+                assertThatThrownBy(() -> sameReview.get(150, MILLISECONDS)).isInstanceOf(TimeoutException.class);
+                assertThat(reviewLock.hasQueuedThreads()).isTrue();
+                assertThat(store.runUpdates).isEqualTo(writes);
+                release.countDown();
+                assertThat(source.get(5, SECONDS).path("title").asText()).isEqualTo(detail.title());
+                long sameReviewMicros = sameReview.get(5, SECONDS);
+                assertThat(store.runUpdates).isEqualTo(writes + 1);
+                log.info("Repository context acceptance: {}", ImmutableMap.of(
+                        "sample", "one selected PR read with deliberately blocked fixture I/O; no GitHub request or SQLite adapter",
+                        "sameReviewCallIncludingHydratorWaitMicros", Long.toString(sameReviewMicros),
+                        "sameWorkspaceNotebookLockAcquireMicros", Long.toString(notebookMicros),
+                        "sourceEvidenceRunUpdates", Integer.toString(store.runUpdates - writes)));
+            }
+            finally {
+                release.countDown();
+            }
+        }
     }
 
     @Test

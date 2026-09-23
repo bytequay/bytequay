@@ -14,7 +14,12 @@
 package com.bytequay.app.context;
 
 import com.bytequay.agent.core.store.AgentUnitOfWork;
+import com.bytequay.app.context.RepositoryContextPreparation.Admission;
+import com.bytequay.app.context.RepositoryContextPreparation.Execution;
+import com.bytequay.app.context.RepositoryContextPreparation.Plan;
 import com.bytequay.app.workspace.WorkspaceOperationLocks;
+import com.bytequay.app.workspace.WorkspaceRepositoryContext;
+import com.bytequay.app.workspace.WorkspaceRepositoryService;
 import com.bytequay.core.context.ActiveContextPreparation;
 import com.bytequay.core.context.ContextClaim;
 import com.bytequay.core.context.ContextDocumentRead;
@@ -37,24 +42,56 @@ import com.bytequay.core.review.ReviewRun;
 import com.bytequay.core.store.AppSettingsStore;
 import com.bytequay.core.store.WorkspaceStore;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.google.common.base.Stopwatch;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
+import com.zaxxer.hikari.HikariDataSource;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.transaction.support.TransactionSynchronizationManager;
 
+import javax.sql.DataSource;
+
+import java.nio.file.Path;
+import java.sql.Connection;
 import java.time.Instant;
+import java.util.List;
 import java.util.Optional;
+import java.util.OptionalLong;
 import java.util.UUID;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
+import java.util.concurrent.TimeoutException;
+import java.util.concurrent.atomic.AtomicLong;
+import java.util.concurrent.locks.ReentrantLock;
+import java.util.stream.IntStream;
 
+import static com.bytequay.app.context.RepositoryContextPreparation.Status.JOINED;
+import static com.bytequay.app.context.RepositoryContextPreparation.Status.OWNED;
+import static com.bytequay.core.context.ContextEntryKind.KNOWLEDGE;
+import static java.nio.charset.StandardCharsets.UTF_8;
+import static java.util.concurrent.TimeUnit.MICROSECONDS;
+import static java.util.concurrent.TimeUnit.MILLISECONDS;
+import static java.util.concurrent.TimeUnit.SECONDS;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyList;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.when;
 
 /** Exercises notebook serialization and retention through the application's real SQLite settings port. */
-@SpringBootTest
+@SpringBootTest(properties = "spring.datasource.url=jdbc:sqlite:${java.io.tmpdir}/bytequay-context-test-${random.uuid}.db"
+        + "?journal_mode=WAL&busy_timeout=30000&synchronous=NORMAL&foreign_keys=ON&temp_store=MEMORY")
 class TestRepositoryContextSqlite
 {
+    private static final Logger log = LoggerFactory.getLogger(TestRepositoryContextSqlite.class);
+
     @Autowired
     private RepositoryContextService context;
 
@@ -72,6 +109,9 @@ class TestRepositoryContextSqlite
 
     @Autowired
     private AgentUnitOfWork unitOfWork;
+
+    @Autowired
+    private DataSource dataSource;
 
     private String workspaceId;
 
@@ -210,6 +250,155 @@ class TestRepositoryContextSqlite
         assertThat(context.getNotebook(workspaceId)).isEqualTo(owned);
         assertThat(reviews.findRun(run.id()).orElseThrow().operations()).containsEntry("begin", receipt);
     }
+
+    @Test
+    void separatesConnectionWaitFromBoundedNotebookWrite()
+            throws Exception
+    {
+        HikariDataSource pool = dataSource.unwrap(HikariDataSource.class);
+        assertThat(pool.getMaximumPoolSize()).isEqualTo(1);
+        RepositoryNotebook notebook = capturedNotebook();
+        WriteTiming initial = measureWrite(() -> context.savePreparation(workspaceId, RepositoryNotebook.empty(), notebook));
+        assertThat(context.getNotebook(workspaceId)).isEqualTo(notebook);
+        long notebookBytes = settings.get(key()).orElseThrow().getBytes(UTF_8).length;
+        CountDownLatch started = new CountDownLatch(1);
+        CountDownLatch callbackEntered = new CountDownLatch(1);
+        try (var executor = Executors.newSingleThreadExecutor()) {
+            Future<WriteTiming> waiting;
+            try (Connection held = dataSource.getConnection()) {
+                try (var statement = held.createStatement(); var result = statement.executeQuery("PRAGMA journal_mode")) {
+                    assertThat(result.next()).isTrue();
+                    assertThat(result.getString(1)).isEqualToIgnoringCase("wal");
+                }
+                waiting = executor.submit(() -> {
+                    started.countDown();
+                    return measureWrite(() -> {
+                        callbackEntered.countDown();
+                        context.setUseInReviews(workspaceId, 1, false);
+                    });
+                });
+                assertThat(started.await(5, SECONDS)).isTrue();
+                assertThatThrownBy(() -> waiting.get(150, MILLISECONDS)).isInstanceOf(TimeoutException.class);
+                assertThat(callbackEntered.getCount()).isEqualTo(1);
+                assertThat(pool.getHikariPoolMXBean().getThreadsAwaitingConnection()).isEqualTo(1);
+            }
+            WriteTiming contended = waiting.get(5, SECONDS);
+            assertThat(context.getNotebook(workspaceId).entries()).isEqualTo(notebook.entries());
+            assertThat(context.getNotebook(workspaceId).useInReviews()).isFalse();
+            log.info("Repository context acceptance: {}", ImmutableMap.of(
+                    "sample", "one synthetic notebook write and one write after a deliberately held pool connection; no remote work",
+                    "notebookUtf8Bytes", Long.toString(notebookBytes),
+                    "initialTransactionMicros", Long.toString(initial.totalMicros()),
+                    "initialCallbackBeforeFlushMicros", Long.toString(initial.callbackMicros()),
+                    "contendedConnectionAcquisitionMicros", Long.toString(contended.acquisitionMicros()),
+                    "contendedCallbackBeforeFlushMicros", Long.toString(contended.callbackMicros()),
+                    "contendedTransactionAfterAcquisitionMicros", Long.toString(contended.totalMicros() - contended.acquisitionMicros())));
+        }
+    }
+
+    @Test
+    void concurrentInputInspectionLeavesDatabaseFreeAndAdmitsOneWorkspaceOwner()
+            throws Exception
+    {
+        Workspace workspace = workspaces.findById(workspaceId).orElseThrow();
+        ContextInputReader inputs = mock(ContextInputReader.class);
+        WorkspaceRepositoryService repositories = mock(WorkspaceRepositoryService.class);
+        when(repositories.requireReadableRepository(workspaceId)).thenReturn(new WorkspaceRepositoryContext(workspaceId, Path.of(workspace.localRepositoryPath()),
+                workspace.monitoredRepositoryId(), workspace.monitoredRepository(), OptionalLong.empty(), workspace.monitoredRepository(),
+                "origin", "origin", "main", ImmutableList.of()));
+        RepositoryContextPreparation preparation = new RepositoryContextPreparation(context, inputs, repositories);
+        CountDownLatch inspecting = new CountDownLatch(2);
+        CountDownLatch releaseInspection = new CountDownLatch(1);
+        when(inputs.capture(any(), any(), any(), anyList())).thenAnswer(_ -> {
+            assertThat(TransactionSynchronizationManager.isActualTransactionActive()).isFalse();
+            assertThat(((ReentrantLock) WorkspaceOperationLocks.get(workspaceId)).isHeldByCurrentThread()).isFalse();
+            inspecting.countDown();
+            assertThat(releaseInspection.await(5, SECONDS)).isTrue();
+            return ImmutableList.of(ContextInputFingerprint.create("project", ImmutableMap.of("git:README.md", "a".repeat(40)), ImmutableList.of()));
+        });
+        Execution first = execution(workspace, "first");
+        Execution second = execution(workspace, "second");
+        try (var executor = Executors.newFixedThreadPool(2)) {
+            Future<Plan> firstPlan = executor.submit(() -> preparation.plan(first, ImmutableList.of("project")));
+            Future<Plan> secondPlan = executor.submit(() -> preparation.plan(second, ImmutableList.of("project")));
+            long notebookTransactionMicros;
+            try {
+                assertThat(inspecting.await(5, SECONDS)).isTrue();
+                WriteTiming duringInspection = measureWrite(() -> context.savePreparation(workspaceId, RepositoryNotebook.empty(), RepositoryNotebook.empty()));
+                assertThat(firstPlan.isDone()).isFalse();
+                assertThat(secondPlan.isDone()).isFalse();
+                notebookTransactionMicros = duringInspection.totalMicros();
+            }
+            finally {
+                releaseInspection.countDown();
+            }
+            Plan firstInputs = firstPlan.get(5, SECONDS);
+            Plan secondInputs = secondPlan.get(5, SECONDS);
+            CountDownLatch ready = new CountDownLatch(2);
+            CountDownLatch race = new CountDownLatch(1);
+            Future<Admission> firstAdmission = executor.submit(() -> beginTogether(preparation, first, firstInputs, ready, race));
+            Future<Admission> secondAdmission = executor.submit(() -> beginTogether(preparation, second, secondInputs, ready, race));
+            assertThat(ready.await(5, SECONDS)).isTrue();
+            Stopwatch elapsed = Stopwatch.createStarted();
+            race.countDown();
+            List<Admission> admitted = ImmutableList.of(firstAdmission.get(5, SECONDS), secondAdmission.get(5, SECONDS));
+            log.info("Repository context acceptance: {}", ImmutableMap.of(
+                    "sample", "two concurrent preparation requests with deliberately blocked input capture; real SQLite notebook writes",
+                    "notebookTransactionWhileTwoInputReadsBlockedMicros", Long.toString(notebookTransactionMicros),
+                    "twoConcurrentAdmissionsMicros", Long.toString(elapsed.elapsed(MICROSECONDS))));
+            assertThat(admitted).extracting(Admission::status).containsExactlyInAnyOrder(OWNED, JOINED);
+            ActiveContextPreparation owner = context.getNotebook(workspaceId).activePreparation().orElseThrow();
+            assertThat(admitted).allSatisfy(admission -> assertThat(admission.attempt()).contains(owner));
+            assertThat(context.getNotebook(workspaceId).revision()).isZero();
+        }
+    }
+
+    private Admission beginTogether(RepositoryContextPreparation preparation, Execution execution, Plan plan, CountDownLatch ready, CountDownLatch start)
+            throws InterruptedException
+    {
+        ready.countDown();
+        assertThat(start.await(5, SECONDS)).isTrue();
+        return WorkspaceOperationLocks.withLock(workspaceId, () -> unitOfWork.execute(() -> preparation.begin(execution, execution.turnId(),
+                "sha256:" + "a".repeat(64), 0, plan)));
+    }
+
+    private static Execution execution(Workspace workspace, String id)
+    {
+        return new Execution(workspace.id(), workspace.monitoredRepository().fullName(), workspace.monitoredRepositoryId(), "a".repeat(40),
+                "task-" + id, "turn-" + id, "key-" + id, Optional.empty(), Optional.empty(), ImmutableList.of(), ImmutableMap.of());
+    }
+
+    private WriteTiming measureWrite(Runnable mutation)
+    {
+        return WorkspaceOperationLocks.withLock(workspaceId, () -> {
+            Stopwatch total = Stopwatch.createStarted();
+            AtomicLong acquisition = new AtomicLong();
+            long callback = unitOfWork.execute(() -> {
+                acquisition.set(total.elapsed(MICROSECONDS));
+                Stopwatch elapsed = Stopwatch.createStarted();
+                mutation.run();
+                return elapsed.elapsed(MICROSECONDS);
+            });
+            return new WriteTiming(acquisition.get(), callback, total.elapsed(MICROSECONDS));
+        });
+    }
+
+    private RepositoryNotebook capturedNotebook()
+    {
+        Workspace workspace = workspaces.findById(workspaceId).orElseThrow();
+        String sha = "a".repeat(40);
+        List<ContextSourceEvidence> evidence = IntStream.range(0, 11).mapToObj(index -> new ContextSourceEvidence("context-read:" + UUID.randomUUID(),
+                new ContextReference.RepositoryFile(workspace.monitoredRepositoryId(), workspace.monitoredRepository(), "docs/source-" + index + ".md", sha),
+                "Synthetic captured documentation for local storage measurement", "x".repeat(8192), ContextSourceEvidence.Capture.BYTEQUAY_READ,
+                Optional.of(Instant.EPOCH), Optional.of(sha), Optional.empty(), false)).collect(ImmutableList.toImmutableList());
+        ContextEntry entry = new ContextEntry("knowledge:project", KNOWLEDGE, "project", "Synthetic project overview", "Storage fixture", "b".repeat(1519),
+                ImmutableList.of(new ContextClaim("Synthetic documented claim", ContextClaim.Basis.DOCUMENTED, ImmutableList.of(evidence.getFirst().id()))),
+                ImmutableList.of(evidence.getFirst().id()), ContextEntryOrigin.GENERATED, true, 1);
+        return new RepositoryNotebook(1, 1, true, ImmutableList.of(), ImmutableList.of(ContextScope.project()), ImmutableList.of(entry),
+                ImmutableList.of(), evidence, Optional.empty());
+    }
+
+    private record WriteTiming(long acquisitionMicros, long callbackMicros, long totalMicros) {}
 
     @Test
     void corruptSavedDataIsNotReplacedByReadOrMutation()

@@ -52,7 +52,7 @@ public record ContextEntry(
         checkArgument(claims.stream().allMatch(claim -> retainedSources.containsAll(claim.sourceIds())), "Claim sources must belong to the entry");
         requireNonNull(origin, "origin is null");
         checkArgument(version > 0, "Entry version must be positive");
-        checkArgument(kind != ContextEntryKind.KNOWLEDGE || id.equals(knowledgeId(scopeId)), "Knowledge must use its scope's canonical id");
+        checkArgument(kind != ContextEntryKind.KNOWLEDGE || id.equals(knowledgeId(scopeId)), "Knowledge id must be %s for scope %s", knowledgeId(scopeId), scopeId);
         checkArgument(kind != ContextEntryKind.MEMORY || origin == ContextEntryOrigin.USER, "Memory must be user-owned");
         checkArgument(kind != ContextEntryKind.MEMORY || !sourceIds.isEmpty(), "Memory needs retained evidence");
         checkArgument(origin != ContextEntryOrigin.GENERATED || !sourceIds.isEmpty(), "Generated knowledge needs retained evidence");

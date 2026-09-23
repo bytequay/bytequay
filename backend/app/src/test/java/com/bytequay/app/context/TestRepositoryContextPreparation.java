@@ -26,6 +26,7 @@ import com.bytequay.core.context.ContextDocumentRead;
 import com.bytequay.core.context.ContextEntryOrigin;
 import com.bytequay.core.context.ContextHistoryRead;
 import com.bytequay.core.context.ContextInputFingerprint;
+import com.bytequay.core.context.ContextLimits;
 import com.bytequay.core.context.ContextMatch;
 import com.bytequay.core.context.ContextPacket;
 import com.bytequay.core.context.ContextReference;
@@ -105,7 +106,8 @@ class TestRepositoryContextPreparation
             RepositoryNotebook notebook = call.getArgument(2);
             List<ContextScope> scopes = call.getArgument(3);
             return scopes.stream().map(scope -> ContextInputFingerprint.create(scope.id(), ImmutableMap.of("source-inventory",
-                    notebook.sourceEvidence().toString() + scope.preparation().map(result -> result.checkedReads().toString()).orElse("")), ImmutableList.of()))
+                    Hashing.sha256().hashString(notebook.sourceEvidence().toString()
+                            + scope.preparation().map(result -> result.checkedReads().toString()).orElse(""), UTF_8).toString()), ImmutableList.of()))
                     .collect(ImmutableList.toImmutableList());
         });
     }
@@ -248,6 +250,64 @@ class TestRepositoryContextPreparation
         assertThat(saved.revision()).isZero();
         assertThat(saved.scopes().getFirst().preparation().orElseThrow().checkedReads()).hasSize(1);
         assertThat(preparation.begin(owner, "reuse", DIGEST, 0, preparation.plan(owner, ImmutableList.of("project"))).status()).isEqualTo(REUSED);
+    }
+
+    @Test
+    void emptyPreparationRetainsMoreCheckedReadsThanNoteCitationsAllow()
+    {
+        Execution owner = repositoryExecution(13, true);
+        var admitted = begin(owner);
+        List<String> checked = owner.sourceReads().stream().map(ContextSourceRead::id).collect(ImmutableList.toImmutableList());
+        var report = new GeneratedReport(ImmutableList.of(new ScopeReport("project", EMPTY, ImmutableList.of(), checked,
+                "Every selected source was inspected and empty")), ImmutableList.of());
+
+        var receipt = preparation.complete(owner, preparation.prepareCompletion(owner, admitted.attempt().orElseThrow().attemptId(), report));
+
+        assertThat(receipt.scopeResults()).singleElement().satisfies(result -> {
+            assertThat(result.outcome()).isEqualTo(EMPTY);
+            assertThat(result.checkedReads()).containsExactlyElementsOf(owner.sourceReads());
+        });
+        RepositoryNotebook saved = notebooks.getNotebook("workspace");
+        assertThat(saved.entries()).isEmpty();
+        assertThat(saved.sourceEvidence()).isEmpty();
+        assertThat(saved.revision()).isZero();
+        assertThat(saved.scopes().getFirst().preparation().orElseThrow().checkedReads()).hasSize(13);
+        assertThat(begin(owner).status()).isEqualTo(REUSED);
+    }
+
+    @Test
+    void readyPreparationChecksThirteenReadsWhileItsNoteCitesOne()
+    {
+        Execution owner = repositoryExecution(13, false);
+        var admitted = begin(owner);
+        List<String> checked = owner.sourceReads().stream().map(ContextSourceRead::id).collect(ImmutableList.toImmutableList());
+        var report = new GeneratedReport(ImmutableList.of(new ScopeReport("project", READY, ImmutableList.of("knowledge:project"), checked,
+                "One bounded note cites the relevant source among all inspected files")), readyReport(checked.getFirst()).entries());
+
+        preparation.complete(owner, preparation.prepareCompletion(owner, admitted.attempt().orElseThrow().attemptId(), report));
+
+        RepositoryNotebook saved = notebooks.getNotebook("workspace");
+        assertThat(saved.sourceEvidence()).hasSize(13);
+        assertThat(saved.scopes().getFirst().preparation().orElseThrow().checkedReads()).containsExactlyElementsOf(owner.sourceReads());
+        assertThat(saved.entries()).singleElement().satisfies(entry -> {
+            assertThat(entry.id()).isEqualTo("knowledge:project");
+            assertThat(entry.sourceIds()).containsExactly(checked.getFirst());
+            assertThat(entry.claims()).singleElement().satisfies(claim -> assertThat(claim.sourceIds()).containsExactly(checked.getFirst()));
+        });
+        assertThat(begin(owner).status()).isEqualTo(REUSED);
+    }
+
+    @Test
+    void checkedReadBudgetStillRejectsOversizedReportsAndExecutions()
+    {
+        List<String> tooMany = IntStream.rangeClosed(0, ContextLimits.MAX_SOURCE_READS)
+                .mapToObj(index -> "context-read:" + index).collect(ImmutableList.toImmutableList());
+
+        assertThatThrownBy(() -> new ScopeReport("project", EMPTY, ImmutableList.of(), tooMany, "Inspected sources"))
+                .isInstanceOf(IllegalArgumentException.class).hasMessageContaining("checked source ids exceeds");
+        assertThatThrownBy(() -> repositoryExecution(ContextLimits.MAX_SOURCE_READS + 1, true))
+                .isInstanceOf(IllegalArgumentException.class).hasMessageContaining("captured source reads exceeds");
+        assertThat(notebooks.getNotebook("workspace").activePreparation()).isEmpty();
     }
 
     @Test
@@ -433,5 +493,16 @@ class TestRepositoryContextPreparation
                 Instant.EPOCH, 1, blank ? 0 : 1, blank ? 0 : 1, blank ? 0 : 6, false, blank ? Optional.empty() : Optional.of("E1"));
         return new Execution(REVIEW, run.withContextSourceRead(read, blank ? Optional.empty()
                 : Optional.of(new ReviewEvidence("E1", "Baseline source", "Retained baseline README", "source", "Original source")), Instant.EPOCH), turn, "step-key");
+    }
+
+    private static Execution repositoryExecution(int count, boolean blank)
+    {
+        List<ContextSourceRead> reads = IntStream.range(0, count).<ContextSourceRead>mapToObj(index -> new ContextRepositoryRead("context-read:" + index,
+                        new ContextReference.RepositoryFile(1, REPOSITORY, "source-" + index + ".txt", SHA), SHA, Instant.EPOCH,
+                        1, blank ? 0 : 1, blank ? 0 : 1, blank ? 0 : 6, false, blank ? Optional.empty() : Optional.of("context-read:" + index)))
+                .collect(ImmutableList.toImmutableList());
+        return new Execution("workspace", REPOSITORY.fullName(), 1, SHA, "learning-task", "learning-turn", "learning-key", Optional.empty(), Optional.empty(), reads,
+                reads.stream().filter(read -> read.evidenceRef().isPresent()).collect(ImmutableMap.toImmutableMap(ContextSourceRead::id,
+                        read -> new RepositoryContextPreparation.CapturedSource("Retained baseline file", "source"))));
     }
 }

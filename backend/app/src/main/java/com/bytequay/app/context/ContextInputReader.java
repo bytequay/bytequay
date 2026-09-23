@@ -82,7 +82,8 @@ public class ContextInputReader
 
     /**
      * Captures comparable inputs at an immutable monitored commit, without reading HEAD, disk files or remote content.
-     * Scope/source configuration is hashed in full. Expected missing paths remain explicit inputs, so their later addition invalidates reuse.
+     * Scope/source configuration is hashed in full. Ancestor manifests share one framed identity per directory,
+     * including missing candidates, so their addition, removal or content change invalidates reuse.
      * At most five Git commands inspect 512 distinct requested paths; excluded or unreadable essential inputs remove the digest.
      */
     public List<ContextInputFingerprint> capture(
@@ -126,7 +127,8 @@ public class ContextInputReader
                 .orElseGet(() -> new Read(ImmutableMap.of(), Optional.of("The captured immutable monitored baseline is unavailable.")));
         String catalog = catalogHash(notebook.sources());
         List<Plan> plans = scopes.stream().map(scope -> plan(workspace, notebook, scope, root, catalog, entries)).collect(toImmutableList());
-        List<String> requested = TOTAL_PATHS.select(plans.stream().flatMap(plan -> plan.paths().stream())
+        List<String> requested = TOTAL_PATHS.select(plans.stream().flatMap(plan -> Stream.concat(plan.paths().stream(),
+                        plan.manifestDirectories().stream().flatMap(ContextInputReader::manifestPaths)))
                 .filter(path -> path.contains("/")).distinct().sorted()).collect(toImmutableList());
         Map<String, String> objects = new LinkedHashMap<>(root.objects());
         Map<String, String> failures = new LinkedHashMap<>();
@@ -246,15 +248,26 @@ public class ContextInputReader
         Stream<String> project = scope.match() instanceof ContextMatch.Repository
                 ? Stream.concat(PROJECT_PATHS.stream(), root.objects().keySet().stream().filter(ContextInputReader::projectDocument).sorted())
                 : Stream.empty();
-        Stream<String> ancestors = Stream.concat(prefixes.stream(), files.stream()).flatMap(ContextInputReader::parents).distinct()
-                .filter(parent -> prefixes.stream().noneMatch(prefix -> parent.equals(prefix) || parent.startsWith(prefix + "/")))
-                .flatMap(parent -> MANIFESTS.stream().map(manifest -> parent + "/" + manifest));
-        List<String> candidates = new TopKSelector(SCOPE_PATH_LIMIT + 1).select(Stream.of(prefixes.stream(), files.stream().sorted(), project, MANIFESTS.stream(), ancestors)
+        List<String> ancestors = new TopKSelector(SCOPE_PATH_LIMIT + 1).select(
+                Stream.concat(prefixes.stream(), files.stream().sorted()).flatMap(ContextInputReader::parents).distinct()
+                        .filter(parent -> prefixes.stream().noneMatch(prefix -> parent.equals(prefix) || parent.startsWith(prefix + "/"))))
+                .collect(toImmutableList());
+        if (ancestors.size() > SCOPE_PATH_LIMIT) {
+            gaps.add("Ancestor manifest directories exceeded the per-scope limit of " + SCOPE_PATH_LIMIT + ".");
+        }
+        List<String> candidates = new TopKSelector(SCOPE_PATH_LIMIT + 1).select(Stream.of(prefixes.stream(), files.stream().sorted(), project, MANIFESTS.stream())
                 .flatMap(stream -> stream).distinct()).collect(toImmutableList());
         if (candidates.size() > SCOPE_PATH_LIMIT) {
             gaps.add("Essential paths exceeded the per-scope limit of " + SCOPE_PATH_LIMIT + ".");
         }
-        List<String> paths = new ArrayList<>();
+        List<String> paths = safePaths(candidates, gaps);
+        List<String> manifestDirectories = safePaths(ancestors, gaps);
+        return new Plan(scope.id(), ImmutableMap.copyOf(inputs), paths, manifestDirectories, ImmutableList.copyOf(gaps));
+    }
+
+    private static List<String> safePaths(List<String> candidates, Set<String> gaps)
+    {
+        ImmutableList.Builder<String> paths = ImmutableList.builder();
         for (String candidate : SCOPE_PATHS.select(candidates)) {
             try {
                 ContextLimits.pathPrefix(candidate + "/");
@@ -264,34 +277,41 @@ public class ContextInputReader
                 gaps.add("An essential discovered path cannot be represented safely by the local source reader.");
             }
         }
-        return new Plan(scope.id(), ImmutableMap.copyOf(inputs), ImmutableList.copyOf(paths), ImmutableList.copyOf(gaps));
+        return paths.build();
     }
 
     private static ContextInputFingerprint fingerprint(Plan plan, Read root, Map<String, String> objects, Map<String, String> failures)
     {
         Map<String, String> inputs = new LinkedHashMap<>(plan.inputs());
         Set<String> gaps = new LinkedHashSet<>(plan.gaps());
-        int inputBytes = inputs.entrySet().stream().mapToInt(entry -> bytes(entry.getKey()) + bytes(entry.getValue())).sum();
+        Map<String, String> identities = new LinkedHashMap<>();
         for (String path : plan.paths()) {
-            if (root.gap().isPresent()) {
-                continue;
+            identity(path, root, objects, failures, gaps).ifPresent(value -> identities.put("git:" + path, value));
+        }
+        for (String directory : plan.manifestDirectories()) {
+            Hasher manifests = Hashing.sha256().newHasher();
+            boolean complete = true;
+            for (String path : manifestPaths(directory).toList()) {
+                Optional<String> value = identity(path, root, objects, failures, gaps);
+                if (value.isEmpty()) {
+                    complete = false;
+                    continue;
+                }
+                frame(manifests, path);
+                frame(manifests, value.orElseThrow());
             }
-            if (failures.containsKey(path)) {
-                gaps.add(failures.get(path));
-                continue;
+            if (complete) {
+                identities.put("git-manifests:" + directory, manifests.hash().toString());
             }
-            if (path.contains("/") && !objects.containsKey(path)) {
-                gaps.add("Essential paths exceeded the shared limit of " + TOTAL_PATH_LIMIT + ".");
-                continue;
-            }
-            String key = "git:" + path;
-            String identity = objects.getOrDefault(path, "ABSENT");
-            int added = bytes(key) + bytes(identity);
+        }
+        int inputBytes = inputs.entrySet().stream().mapToInt(entry -> bytes(entry.getKey()) + bytes(entry.getValue())).sum();
+        for (Map.Entry<String, String> identity : identities.entrySet()) {
+            int added = bytes(identity.getKey()) + bytes(identity.getValue());
             if (inputs.size() >= 128 || inputBytes + added > ContextInputFingerprint.MAXIMUM_INPUT_BYTES) {
                 gaps.add("Essential inputs exceeded the per-scope count or UTF-8 byte budget.");
                 continue;
             }
-            inputs.put(key, identity);
+            inputs.put(identity.getKey(), identity.getValue());
             inputBytes += added;
         }
         List<String> retainedGaps = new TopKSelector(9).select(gaps.stream()).collect(toImmutableList());
@@ -299,6 +319,27 @@ public class ContextInputReader
             retainedGaps = ImmutableList.<String>builder().addAll(retainedGaps).add("Additional fingerprint limitations were omitted.").build();
         }
         return ContextInputFingerprint.create(plan.scopeId(), inputs, retainedGaps);
+    }
+
+    private static Optional<String> identity(String path, Read root, Map<String, String> objects, Map<String, String> failures, Set<String> gaps)
+    {
+        if (root.gap().isPresent()) {
+            return Optional.empty();
+        }
+        if (failures.containsKey(path)) {
+            gaps.add(failures.get(path));
+            return Optional.empty();
+        }
+        if (path.contains("/") && !objects.containsKey(path)) {
+            gaps.add("Essential paths exceeded the shared limit of " + TOTAL_PATH_LIMIT + ".");
+            return Optional.empty();
+        }
+        return Optional.of(objects.getOrDefault(path, "ABSENT"));
+    }
+
+    private static Stream<String> manifestPaths(String directory)
+    {
+        return MANIFESTS.stream().map(manifest -> directory + "/" + manifest);
     }
 
     private Read read(WorkspaceRepositoryContext workspace, String sha, List<String> paths, long deadline)
@@ -364,7 +405,7 @@ public class ContextInputReader
     private static String scopeHash(ContextScope scope)
     {
         Hasher hash = Hashing.sha256().newHasher();
-        frame(hash, "local-git-inputs-v1");
+        frame(hash, "local-git-inputs-v2");
         frame(hash, scope.id());
         frame(hash, scope.title());
         frame(hash, Boolean.toString(scope.enabled()));
@@ -479,5 +520,5 @@ public class ContextInputReader
 
     private record Read(Map<String, String> objects, Optional<String> gap) {}
 
-    private record Plan(String scopeId, Map<String, String> inputs, List<String> paths, List<String> gaps) {}
+    private record Plan(String scopeId, Map<String, String> inputs, List<String> paths, List<String> manifestDirectories, List<String> gaps) {}
 }

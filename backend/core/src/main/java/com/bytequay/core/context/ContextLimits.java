@@ -31,6 +31,7 @@ public final class ContextLimits
     public static final int MAX_PROSE_BYTES = 256 * 1024;
     public static final int MAX_NOTEBOOK_BYTES = 1024 * 1024;
     public static final int MAX_SOURCES = 8;
+    public static final int MAX_SOURCE_READS = 128;
 
     private ContextLimits() {}
 

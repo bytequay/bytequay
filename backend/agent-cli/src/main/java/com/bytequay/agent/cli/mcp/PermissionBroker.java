@@ -71,6 +71,7 @@ import static com.bytequay.agent.spi.ProviderAgentEventSource.root;
 import static com.bytequay.agent.spi.ProviderApprovalRequest.Decision.ALLOW_ONCE;
 import static com.bytequay.agent.spi.ProviderApprovalRequest.Decision.DENY;
 import static com.google.common.base.Preconditions.checkArgument;
+import static com.google.common.collect.ImmutableList.toImmutableList;
 import static java.util.Objects.requireNonNull;
 
 /** Serves ByteQuay's task-scoped MCP tools. */
@@ -303,10 +304,12 @@ public final class PermissionBroker
             return Optional.empty();
         }
         String token = token();
-        contexts.put(token, new PermissionContext(
-                taskId, worktree, permissionPolicy, approvals, redactor.withSecret(token), false, codeGraph, review, development, localReview, pullRequestCi));
+        PermissionContext context = new PermissionContext(
+                taskId, worktree, permissionPolicy, approvals, redactor.withSecret(token), false, codeGraph, review, development, localReview, pullRequestCi);
+        contexts.put(token, context);
         return Optional.of(new CodeGraphRegistration(
-                token, requireNonNull(endpoint.get(), "endpoint URI is null"), codeGraph, review, development, localReview, pullRequestCi, () -> contexts.remove(token)));
+                token, requireNonNull(endpoint.get(), "endpoint URI is null"), codeGraph, review, development, localReview, pullRequestCi,
+                tools(context).stream().map(ToolDefinition::name).collect(toImmutableList()), () -> contexts.remove(token)));
     }
 
     /** Combines the fixed capabilities' guidance for the session's instruction channel. */

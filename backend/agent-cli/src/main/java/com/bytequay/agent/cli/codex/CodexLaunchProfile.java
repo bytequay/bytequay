@@ -50,6 +50,7 @@ final class CodexLaunchProfile
             "hooks",
             "image_generation",
             "in_app_browser",
+            "memories",
             "plugins",
             "remote_plugin",
             "skill_mcp_dependency_install",
@@ -176,6 +177,9 @@ final class CodexLaunchProfile
         codeGraph.ifPresent(launch -> arguments.add(
                 "-c", "mcp_servers.bytequay.url=" + tomlString(launch.endpoint().toString()),
                 "-c", "mcp_servers.bytequay.bearer_token_env_var=" + tomlString(CodeGraphLaunch.TOKEN_VARIABLE),
+                // The broker owns authorization for this exact task inventory; other tools retain their native approval policy.
+                "-c", "mcp_servers.bytequay.tools=" + launch.toolNames().stream()
+                        .map(name -> tomlString(name) + "={approval_mode=\"approve\"}").collect(joining(",", "{", "}")),
                 "-c", "developer_instructions=" + tomlString(launch.instruction())));
         return arguments.build();
     }
@@ -270,7 +274,7 @@ final class CodexLaunchProfile
     }
 
     /** What a launch needs to expose the CodeGraph tool: where the task MCP endpoint is and what to tell the model. */
-    record CodeGraphLaunch(URI endpoint, String instruction)
+    record CodeGraphLaunch(URI endpoint, String instruction, List<String> toolNames)
     {
         static final String TOKEN_VARIABLE = "BYTEQUAY_CODEGRAPH_TOKEN";
 
@@ -278,6 +282,7 @@ final class CodexLaunchProfile
         {
             requireNonNull(endpoint, "endpoint is null");
             requireNonNull(instruction, "instruction is null");
+            toolNames = ImmutableList.copyOf(toolNames);
         }
     }
 

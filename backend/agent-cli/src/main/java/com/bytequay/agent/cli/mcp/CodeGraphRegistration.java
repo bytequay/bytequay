@@ -18,8 +18,10 @@ import com.bytequay.agent.spi.DevelopmentResultBridge;
 import com.bytequay.agent.spi.LocalReviewBridge;
 import com.bytequay.agent.spi.PullRequestCiBridge;
 import com.bytequay.agent.spi.ReviewBridge;
+import com.google.common.collect.ImmutableList;
 
 import java.net.URI;
+import java.util.List;
 import java.util.Optional;
 
 import static java.util.Objects.requireNonNull;
@@ -35,11 +37,13 @@ public final class CodeGraphRegistration
     private final Optional<DevelopmentResultBridge> development;
     private final Optional<LocalReviewBridge> localReview;
     private final Optional<PullRequestCiBridge> pullRequestCi;
+    private final List<String> toolNames;
     private final Runnable release;
 
     CodeGraphRegistration(
             String token, URI endpoint, Optional<CodeGraphBridge> codeGraph, Optional<ReviewBridge> review,
-            Optional<DevelopmentResultBridge> development, Optional<LocalReviewBridge> localReview, Optional<PullRequestCiBridge> pullRequestCi, Runnable release)
+            Optional<DevelopmentResultBridge> development, Optional<LocalReviewBridge> localReview, Optional<PullRequestCiBridge> pullRequestCi,
+            List<String> toolNames, Runnable release)
     {
         this.token = requireNonNull(token, "token is null");
         this.endpoint = requireNonNull(endpoint, "endpoint is null");
@@ -48,6 +52,7 @@ public final class CodeGraphRegistration
         this.development = requireNonNull(development, "development is null");
         this.localReview = requireNonNull(localReview, "localReview is null");
         this.pullRequestCi = requireNonNull(pullRequestCi, "pullRequestCi is null");
+        this.toolNames = ImmutableList.copyOf(toolNames);
         this.release = requireNonNull(release, "release is null");
     }
 
@@ -71,6 +76,12 @@ public final class CodeGraphRegistration
     public String token()
     {
         return token;
+    }
+
+    /** The exact fixed inventory exposed by this token, used for provider-specific tool approval configuration. */
+    public List<String> toolNames()
+    {
+        return toolNames;
     }
 
     public URI endpoint()

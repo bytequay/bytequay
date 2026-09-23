@@ -539,7 +539,7 @@ final class CodexEventMapper
         CodexProtocol.TokenUsageBreakdown total = params.tokenUsage().total();
         return ImmutableList.of(new ProviderAgentEvent.Usage(new ProviderUsageSample(
                 Optional.of(params.turnId() + ":usage:" + total.totalTokens()),
-                ProviderUsageSample.Semantics.CUMULATIVE,
+                ProviderUsageSample.Semantics.CUMULATIVE_FOR_INVOCATION,
                 total.inputTokens(),
                 total.cachedInputTokens(),
                 total.outputTokens(),

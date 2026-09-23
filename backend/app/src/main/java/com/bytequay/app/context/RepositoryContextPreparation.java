@@ -449,7 +449,7 @@ public class RepositoryContextPreparation
             checkArgument(reviewId.isPresent() == runId.isPresent(), "Review and run identities must be paired");
             sourceReads = ImmutableList.copyOf(sourceReads);
             evidence = ImmutableMap.copyOf(evidence);
-            ContextLimits.unique(sourceReads.stream().map(ContextSourceRead::id).toList(), "captured source reads", 128);
+            ContextLimits.unique(sourceReads.stream().map(ContextSourceRead::id).toList(), "captured source reads", ContextLimits.MAX_SOURCE_READS);
             for (ContextSourceRead read : sourceReads) {
                 if (read.evidenceRef().isPresent()) {
                     CapturedSource source = evidence.get(read.evidenceRef().orElseThrow());
@@ -542,7 +542,7 @@ public class RepositoryContextPreparation
             noteIds = ImmutableList.copyOf(noteIds);
             checkedSourceIds = ImmutableList.copyOf(checkedSourceIds);
             ContextLimits.unique(noteIds, "reported note ids", 1);
-            ContextLimits.unique(checkedSourceIds, "checked source ids", ContextLimits.MAX_SOURCES);
+            ContextLimits.unique(checkedSourceIds, "checked source ids", ContextLimits.MAX_SOURCE_READS);
             checkedSourceIds.forEach(id -> ContextLimits.text(id, "checked source id", 100));
             ContextLimits.text(explanation, "preparation explanation", 2000);
         }

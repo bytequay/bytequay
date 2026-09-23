@@ -15,6 +15,7 @@ package com.bytequay.agent.cli.codex;
 
 import com.bytequay.agent.cli.process.SecretRedactor;
 import com.bytequay.agent.spi.ProviderAgentEvent;
+import com.bytequay.agent.spi.ProviderUsageSample;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.google.common.collect.ImmutableList;
@@ -79,6 +80,7 @@ class TestCodexEventMapper
                 "emittedAtMs":1786884871458}
                 """, ProviderAgentEvent.Usage.class);
         assertThat(usage.sample().inputTokens()).isEqualTo(64841);
+        assertThat(usage.sample().semantics()).isEqualTo(ProviderUsageSample.Semantics.CUMULATIVE_FOR_INVOCATION);
         assertThat(usage.sample().outputTokens()).isEqualTo(471);
         assertThat(usage.source().providerThreadId()).contains("thread-1");
         assertThat(usage.source().providerTurnId()).contains("turn-1");

@@ -16,6 +16,7 @@ package com.bytequay.agent.cli.codex;
 import com.google.common.collect.ImmutableList;
 import org.junit.jupiter.api.Test;
 
+import java.net.URI;
 import java.util.List;
 import java.util.Optional;
 
@@ -92,6 +93,41 @@ class TestCodexLaunchProfile
     }
 
     @Test
+    void disablesNativeMemoriesAtProcessAndResumedThreadScope()
+    {
+        CodexLaunchProfile.CodeGraphLaunch launch = new CodexLaunchProfile.CodeGraphLaunch(
+                URI.create("http://127.0.0.1:9000/mcp"), "Learn", ImmutableList.of("repository_context_read"));
+        for (CodexLaunchProfile.ChildProfile childProfile : CodexLaunchProfile.ChildProfile.values()) {
+            assertThat(CodexLaunchProfile.arguments("codex", childProfile, Optional.of(launch))).containsSequence("--disable", "memories");
+            assertThat(CodexLaunchProfile.expectedFeatures(childProfile)).containsEntry("memories", false);
+            assertThat(CodexLaunchProfile.threadConfig(childProfile)).containsEntry("features", CodexLaunchProfile.expectedFeatures(childProfile));
+            assertThat(CodexLaunchProfile.threadConfig(childProfile, true)).containsEntry("features", CodexLaunchProfile.expectedFeatures(childProfile));
+        }
+    }
+
+    @Test
+    void approvesOnlyTheRegisteredTaskToolInventory()
+    {
+        List<String> tools = ImmutableList.of("repository_context_read", "repository_context_prepare");
+        CodexLaunchProfile.CodeGraphLaunch launch = new CodexLaunchProfile.CodeGraphLaunch(URI.create("http://127.0.0.1:9000/mcp"), "Learn", tools);
+        List<String> arguments = CodexLaunchProfile.arguments("codex", CodexLaunchProfile.ChildProfile.NONE, Optional.of(launch));
+        assertThat(arguments).containsSequence("-c", "mcp_servers.bytequay.tools={"
+                + "\"repository_context_read\"={approval_mode=\"approve\"},\"repository_context_prepare\"={approval_mode=\"approve\"}}");
+        assertThat(arguments).noneMatch(argument -> argument.contains("default_tools_approval_mode") || argument.startsWith("approval_policy="));
+        assertThat(CodexLaunchProfile.arguments("codex", CodexLaunchProfile.ChildProfile.NONE))
+                .noneMatch(argument -> argument.startsWith("mcp_servers."));
+    }
+
+    @Test
+    void toolNamesCannotEscapeTheTaskApprovalTable()
+    {
+        CodexLaunchProfile.CodeGraphLaunch launch = new CodexLaunchProfile.CodeGraphLaunch(
+                URI.create("http://127.0.0.1:9000/mcp"), "Learn", ImmutableList.of("review_\".other\\tool"));
+        assertThat(CodexLaunchProfile.arguments("codex", CodexLaunchProfile.ChildProfile.NONE, Optional.of(launch)))
+                .contains("mcp_servers.bytequay.tools={\"review_\\\".other\\\\tool\"={approval_mode=\"approve\"}}");
+    }
+
+    @Test
     void pinsUnattendedCiAtProcessAndThreadScopeForEveryChildProfile()
     {
         List<String> roots = ImmutableList.of("/task", "/repo/.git/worktrees/task", "/repo/.git/refs/heads/task.lock");
@@ -150,7 +186,7 @@ class TestCodexLaunchProfile
         assertThat(arguments).contains(
                 "shell_environment_policy.include_only=[\"HOME\",\"LANG\",\"LC_ALL\",\"LOGNAME\","
                         + "\"PATH\",\"SHELL\",\"TERM\",\"TMPDIR\",\"USER\"]");
-        for (String feature : List.of("apps", "hooks", "plugins", "computer_use", "browser_use", "skill_search")) {
+        for (String feature : ImmutableList.of("apps", "hooks", "memories", "plugins", "computer_use", "browser_use", "skill_search")) {
             assertThat(arguments).containsSequence("--disable", feature);
         }
     }

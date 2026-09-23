@@ -92,6 +92,23 @@ class TestContextSourceApplicability
     }
 
     @Test
+    void comparesGroupedAncestorManifestsAndKeepsOmittedGroupsUnverified()
+    {
+        ContextEntry entry = note(SOURCE);
+        Map<String, String> identities = ImmutableMap.of("repository", "7:upstream/repo", "git:src/code.java", "100644 blob " + BLOB,
+                "git-manifests:src", "d".repeat(64));
+        ContextScope prepared = prepared(entry, identities);
+        assertThat(compare(entry, prepared, SOURCE, fingerprint(identities)).applicability()).isEqualTo(MATCHED);
+        Map<String, String> changed = ImmutableMap.<String, String>builder().putAll(identities)
+                .put("git-manifests:src", "e".repeat(64)).buildKeepingLast();
+        ContextSourceApplicability.Result mismatch = compare(entry, prepared, SOURCE, fingerprint(changed));
+        assertThat(mismatch.applicability()).isEqualTo(VERSION_MISMATCH);
+        assertThat(mismatch.reason()).contains("git-manifests:src", "Effective dependency versions remain UNVERIFIED");
+        ContextInputFingerprint omitted = fingerprint(ImmutableMap.of("repository", "7:upstream/repo", "git:src/code.java", "100644 blob " + BLOB));
+        assertThat(compare(entry, prepared, SOURCE, omitted).applicability()).isEqualTo(UNVERIFIED);
+    }
+
+    @Test
     void externalAndAgentReportedSourcesNeverAcquireAnInferredVersionMapping()
     {
         for (ContextSourceEvidence.Capture capture : ImmutableList.of(BYTEQUAY_READ, AGENT_REPORTED)) {

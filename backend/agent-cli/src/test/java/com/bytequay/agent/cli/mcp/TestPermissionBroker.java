@@ -498,6 +498,7 @@ class TestPermissionBroker
                     {"jsonrpc":"2.0","id":1,"method":"tools/list","params":{}}
                     """)).body().orElseThrow();
             assertThat(listed.at("/result/tools").findValuesAsText("name")).containsExactly("review_context");
+            assertThat(registration.toolNames()).containsExactlyElementsOf(listed.at("/result/tools").findValuesAsText("name"));
             JsonNode denied = broker.handle(registration.token(), objectMapper.readTree("""
                     {"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"read_ci_memory","arguments":{}}}
                     """)).body().orElseThrow();

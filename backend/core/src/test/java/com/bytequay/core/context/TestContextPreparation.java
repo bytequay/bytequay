@@ -146,7 +146,10 @@ class TestContextPreparation
         ContextPreparationResult ready = result(READY, ImmutableList.of("knowledge:project"), reads);
         reads.clear();
         assertThat(ready.checkedReads()).hasSize(1);
-        List<ContextSourceRead> excessive = IntStream.range(0, 9).mapToObj(index -> (ContextSourceRead) read("source" + index)).collect(toImmutableList());
+        List<ContextSourceRead> full = IntStream.range(0, ContextLimits.MAX_SOURCE_READS)
+                .mapToObj(index -> (ContextSourceRead) read("source" + index)).collect(toImmutableList());
+        assertThat(result(READY, ready.noteIds(), full).checkedReads()).hasSize(ContextLimits.MAX_SOURCE_READS);
+        List<ContextSourceRead> excessive = ImmutableList.<ContextSourceRead>builder().addAll(full).add(read("excessive")).build();
         assertThatThrownBy(() -> result(READY, ready.noteIds(), excessive)).isInstanceOf(IllegalArgumentException.class);
     }
 

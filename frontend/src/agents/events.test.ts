@@ -56,6 +56,16 @@ describe('agent event contract', () => {
     expect(approval?.payload.availableDecisions).toEqual(['ALLOW_ONCE', 'DENY']);
   });
 
+  it('accepts invocation-cumulative usage and preserves its counter scope', () => {
+    const usage = { ...fixture.events[11], sequence: 1,
+      payload: { ...fixture.events[11].payload, semantics: 'CUMULATIVE_FOR_INVOCATION' } };
+    const [parsed] = parseAgentEventSequence([usage]);
+    expect(parsed.type).toBe('usage');
+    expect(parsed.payload).toEqual(usage.payload);
+    expect(() => parseAgentEventSequence([{ ...usage, payload: { ...usage.payload, semantics: 'UNKNOWN_SCOPE' } }]))
+      .toThrow('usage.semantics');
+  });
+
   it('accepts completed commentary as distinct from the terminal answer', () => {
     const commentary = structuredClone(fixture.events[2]);
     commentary.sequence = 1;

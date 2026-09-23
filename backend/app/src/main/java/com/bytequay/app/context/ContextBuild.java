@@ -112,7 +112,7 @@ public record ContextBuild(
             operations = ImmutableMap.copyOf(operations);
             requireNonNull(result, "result is null");
             gaps = ImmutableList.copyOf(gaps);
-            ContextLimits.unique(sourceReads.stream().map(ContextSourceRead::id).toList(), "build source receipts", 128);
+            ContextLimits.unique(sourceReads.stream().map(ContextSourceRead::id).toList(), "build source receipts", ContextLimits.MAX_SOURCE_READS);
             checkArgument(evidence.size() <= 128 && attempts.size() <= 128 && operations.size() <= 20, "Build capture limit reached");
             attempts.forEach((key, value) -> {
                 ContextLimits.text(key, "source attempt key", 1500);

@@ -112,12 +112,13 @@ class TestContextInputReader
         assertThat(before.digest()).isPresent();
         assertThat(before.inputs().get("git:" + directory)).startsWith("040000 tree ");
         assertThat(before.inputs().get("git:" + file)).startsWith("100644 blob ");
-        assertThat(before.inputs()).containsEntry("git:plugin/pom.xml", "ABSENT");
+        assertThat(before.inputs().get("git-manifests:plugin")).matches("[0-9a-f]{64}");
+        assertThat(before.inputs()).doesNotContainKey("git:plugin/pom.xml");
         write("plugin/pom.xml", "Parent dependency declarations");
         String withParent = commit();
         ContextInputFingerprint changed = capture(withParent, notebook).getLast();
         assertThat(changed.digest()).isPresent().isNotEqualTo(before.digest());
-        assertThat(changed.inputs().get("git:plugin/pom.xml")).startsWith("100644 blob ");
+        assertThat(changed.inputs().get("git-manifests:plugin")).isNotEqualTo(before.inputs().get("git-manifests:plugin"));
         assertThat(changed.inputs().get("git:" + directory)).isEqualTo(before.inputs().get("git:" + directory));
 
         write(file, "Changed implementation");
@@ -140,14 +141,63 @@ class TestContextInputReader
                 fileSource("old-a", first, baseline), fileSource("old-b", second, baseline));
         ContextInputFingerprint before = capture(baseline, notebook(scope, ImmutableList.of(), sources)).getLast();
         assertThat(before.digest()).isPresent();
-        assertThat(before.inputs()).containsKey("git:plugin/pom.xml").containsKey("git:" + first)
-                .doesNotContainKey("git:" + directory + "/src/main/java/io/trino/plugin/pom.xml");
+        assertThat(before.inputs()).containsKey("git-manifests:plugin").containsKey("git:" + first)
+                .doesNotContainKey("git-manifests:" + directory + "/src/main/java/io/trino/plugin");
 
         write("unrelated.txt", "Unrelated commit");
         String later = commit();
         List<ContextSourceEvidence> recaptured = ImmutableList.of(fileSource("new-a", second, later), fileSource("new-b", first, later));
         ContextInputFingerprint after = capture(later, notebook(scope, ImmutableList.of(), recaptured)).getLast();
         assertThat(after).isEqualTo(before);
+    }
+
+    @Test
+    void nineCheckedProjectDocumentsKeepCompleteManifestGroupsAndTrackTheirChanges()
+            throws IOException
+    {
+        initialize();
+        List<String> paths = ImmutableList.of(".github/CONTRIBUTING.md", "DEVELOPMENT.md", "CLAUDE.md", "README.md", "pom.xml", "docs/README.md",
+                "docs/src/main/sphinx/overview/concepts.md", "docs/src/main/sphinx/develop/spi-overview.md", "docs/src/main/sphinx/develop/tests.md");
+        for (String path : paths) {
+            write(path, "Excerpt");
+        }
+        String baseline = commit();
+        List<ContextSourceEvidence> sources = IntStream.range(0, paths.size())
+                .mapToObj(index -> fileSource("context-read:" + index, paths.get(index), baseline)).collect(toImmutableList());
+        List<ContextRepositoryRead> reads = sources.stream().map(source -> {
+            ContextReference.RepositoryFile file = (ContextReference.RepositoryFile) source.reference();
+            return new ContextRepositoryRead(source.id(), file, command("rev-parse", baseline + ":" + file.path()).strip(), Instant.EPOCH,
+                    1, 1, 1, 7, false, Optional.of(source.id()));
+        }).collect(toImmutableList());
+        ContextInputFingerprint initial = capture(baseline, RepositoryNotebook.empty()).getFirst();
+        ContextPreparationResult result = new ContextPreparationResult("attempt", initial, ContextPreparationResult.Outcome.READY,
+                ImmutableList.of("knowledge:project"), ImmutableList.copyOf(reads), "Checked the repository documentation");
+        ContextScope project = new ContextScope("project", "Project", new ContextMatch.Repository(), true, Optional.of(result), Optional.empty());
+        ContextEntry note = new ContextEntry("knowledge:project", ContextEntryKind.KNOWLEDGE, "project", "Project", "Summary", "Body", ImmutableList.of(),
+                ImmutableList.of(sources.getFirst().id()), ContextEntryOrigin.GENERATED, true, 1);
+        RepositoryNotebook notebook = new RepositoryNotebook(1, 1, true, ImmutableList.of(), ImmutableList.of(project), ImmutableList.of(note),
+                ImmutableList.of(), sources, Optional.empty());
+        ContextInputFingerprint before = capture(baseline, notebook).getFirst();
+
+        assertThat(before.digest()).isPresent();
+        assertThat(before.gaps()).isEmpty();
+        assertThat(before.inputs()).hasSizeLessThan(80).containsKey("git-manifests:.github").containsKey("git-manifests:docs/src/main/sphinx/develop");
+        for (String path : paths) {
+            assertThat(before.inputs().get("git:" + path)).startsWith("100644 blob ");
+        }
+        write(".github/unrelated.md", "A sibling that is not a source or manifest");
+        assertThat(capture(commit(), notebook).getFirst()).isEqualTo(before);
+        write(".github/package.json", "First dependency declaration");
+        ContextInputFingerprint added = capture(commit(), notebook).getFirst();
+        assertThat(added.digest()).isPresent().isNotEqualTo(before.digest());
+        assertThat(added.inputs().get("git-manifests:.github")).isNotEqualTo(before.inputs().get("git-manifests:.github"));
+        write(".github/package.json", "Changed dependency declaration");
+        ContextInputFingerprint changed = capture(commit(), notebook).getFirst();
+        assertThat(changed.digest()).isPresent().isNotEqualTo(added.digest());
+        Files.delete(repository.resolve(".github/package.json"));
+        assertThat(capture(commit(), notebook).getFirst()).isEqualTo(before);
+        write(".github/gradle/libs.versions.toml", "[versions]\ntool = '1'");
+        assertThat(capture(commit(), notebook).getFirst().inputs().get("git-manifests:.github")).isNotEqualTo(before.inputs().get("git-manifests:.github"));
     }
 
     @Test
@@ -417,7 +467,22 @@ class TestContextInputReader
         ContextInputFingerprint input = new ContextInputReader(local).capture(workspace(), Optional.of(SHA), notebook, notebook.scopes()).getLast();
         assertThat(input.digest()).isEmpty();
         assertThat(input.inputs()).doesNotContainKey("git:plugin/iceberg");
+        assertThat(input.inputs()).doesNotContainKey("git-manifests:plugin");
         assertThat(input.gaps()).anySatisfy(gap -> assertThat(gap).contains("unavailable"));
+    }
+
+    @Test
+    void aPartlyOmittedManifestGroupNeverProducesACompleteIdentity()
+    {
+        GitCommandRunner local = emptyGit();
+        String path = "a/".repeat(30) + "source.md";
+        RepositoryNotebook notebook = notebook(ImmutableList.of(), ImmutableList.of(fileSource("source", path, SHA)));
+        ContextInputFingerprint input = new ContextInputReader(local).capture(workspace(), Optional.of(SHA), notebook, notebook.scopes()).getLast();
+
+        assertThat(input.digest()).isEmpty();
+        assertThat(input.gaps()).anySatisfy(gap -> assertThat(gap).contains("shared limit"));
+        assertThat(input.inputs()).doesNotContainKey("git-manifests:a");
+        verify(local, times(5)).runLocalBounded(eq(repository), any(Duration.class), eq(256 * 1024), anyList());
     }
 
     @Test

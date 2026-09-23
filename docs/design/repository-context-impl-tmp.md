@@ -34,8 +34,11 @@ cleanup verification and desktop packaging. Explicit scope/document suggestions
 and bounded resolved-history discovery also pass backend/frontend and package
 gates. The final integration adds frozen-head source/input comparison, exact-version
 note reads, separate discussion captures, source-to-conclusion navigation and
-durable preparation activity. Live provider, performance
-and On/Off judgment acceptance remain pending. Unchecked items remain pending
+durable preparation activity. Codex Learn, empty-notebook preparation, saved-note
+reuse and existing-card discussion have live integration evidence. Two small
+code changes now pass full Codex investigation/validation in four independent
+Off/cold-On arms. Human judgment acceptance, Claude and controlled performance
+remain pending. Unchecked items remain pending
 even when related infrastructure already exists.
 
 ## Delivery summary
@@ -55,12 +58,15 @@ even when related infrastructure already exists.
 | Scope/root discovery and bounded resolved-history discovery | H3 finished; language-neutral traversal passed backend verification and desktop packaging |
 | Automatic context delivery and investigation report integration | Implemented; frozen bootstrap/brief, exact-version deferred notes and separate replayable discussion capture |
 | Notebook/settings UI, Save lesson and context delivery display | Implemented; citations, retained retrievals, folded preparation outcomes, bytes/timing and receipt-derived delivery state |
-| On/Off quality comparison, performance and live provider acceptance | Pending; required before enablement |
+| Reproducible small comparison fixtures | Implemented; two frozen code diffs and eight context proposals, with dependency-free behavior checks; human assessment pending |
+| False lesson, correction and future exclusion | Four live Codex lifecycle reviews passed source-based rejection, exact versions and immutable old snapshots |
+| On/Off quality comparison, performance and live provider acceptance | Four isolated Codex reviews match the two fixture expectations; human assessment, broader cases, Claude and controlled performance remain open |
 
 The H1–H3 cold-start work is implemented and its automated/package gates pass.
 Discussion-source supplements, selected deferred-note exact-version reads and
-display integration are implemented. Remaining acceptance requires deliberate
-live provider runs and a human-reviewed On/Off comparison; fixtures cannot certify
+display integration are implemented. Remaining acceptance requires the broader
+stale/irrelevant/history-assisted cases, Claude, native-memory and controlled
+performance checks, plus human assessment; fixtures cannot certify
 review judgment. The [acceptance protocol](repository-context-acceptance.md) keeps
 those procedures and unknown metrics explicit. Existing CP sections
 retain the detailed foundation and verification checklist; their numbering does
@@ -474,14 +480,29 @@ opening settings or inspecting a source list must not launch generation.
 
 - [ ] Create a small human-reviewed case set with correct, stale, irrelevant,
   missing and deliberately wrong notes, using fixed PR/code identities.
+  The local generator now prepares two frozen diffs and eight proposed variants
+  with independently executable contract tests and a reviewer guide. Its checks
+  establish fixture behavior and integrity; human assessment and actual provider
+  comparisons now include four independent Codex runs; human assessment of the
+  full proposed case set remains pending.
 - [ ] Compare review behavior with context disabled and enabled on the same
   cases; record evidence quality, false positives, missed known issues and
   explicit uncertainty. Use the workspace switch with fresh independent tasks
   and provider conversations per arm; same-head Update is not a fresh run.
   Include small PRs covering distinct behaviors. Citation counts alone are not
   a quality metric.
-- [ ] Verify a false saved rule cannot establish a defect by itself; exercise
+  Both Off/cold-On pairs completed with the expected supported findings: one
+  boundary defect in each positive arm and none in either safe optimization
+  arm. Actual tests and an independent technical audit support that observation;
+  this small machine-assessed sample does not close human judgment acceptance.
+  Stale, irrelevant and history-assisted comparisons remain part of the broader
+  acceptance gate.
+- [x] Verify a false saved rule cannot establish a defect by itself; exercise
   original-source/code checks, counterevidence, corrections and future exclusion.
+  A real saved MEMORY v2 was delivered, read and explicitly refuted; fresh reviews
+  used corrected v3 and excluded disabled/removed versions. All four accepted
+  lifecycle runs had zero findings and unchanged old snapshots. This is one
+  bounded live case with prior review history available, not a universal guarantee.
 - [x] Exercise the offline source prompt-injection boundary: hostile source text
   does not change managed policy, tool inventory or trusted caller routing.
   Review/permission tests retain no-publication and no-child authority. Live
@@ -489,19 +510,28 @@ opening settings or inspecting a source list must not launch generation.
 - [ ] Verify Claude native-memory settings and supported Codex behavior. Disable
   autonomous cross-task memory where supported; otherwise document and test the
   limitation before making the lane available. Claude's actual generated settings
-  now have an explicit autoMemoryEnabled=false regression; live enforcement and
-  Codex behavior remain unverified. Never claim to disable pretraining.
+  have an explicit autoMemoryEnabled=false regression. Codex now explicitly
+  disables memories in process and start/resume configuration; the pinned CLI
+  accepted that profile in disposable live runs. Cross-task behavioral checks
+  and Claude live enforcement remain open. Never claim to disable pretraining.
 - [ ] Measure cold and warm overhead: model turns/tokens, elapsed preparation,
   source requests, notebook/run bytes, SQLite wait/write duration, and peak
   process memory/CPU under simultaneous review/task activity.
-- [ ] Record unknown or unavailable metrics explicitly. If contention exists,
+- [x] Record unknown or unavailable metrics explicitly. If contention exists,
   fix transaction length/write frequency before proposing separate storage.
   Measure existing source-hydrator locks separately from notebook mutation locks.
+  Local tests separate connection-pool/transaction admission from notebook
+  writes and same-review hydrator waiting. Real remote delay, SQLite busy-handler
+  duration and attributable concurrent-process overhead remain explicitly unknown.
 - [x] Confirm bounded documentation capture and one workspace generation owner
   in automated cancellation, concurrency and explicit-refresh/replay regressions.
   Repeat under live-provider acceptance; fixtures do not establish live behavior.
 - [ ] Run live cold then warm review for each lane intended for enablement,
   plus an explicit builder and a new-comment discussion on an existing card.
+  Codex explicit Learn, empty-notebook review preparation, saved-note reuse/delivery
+  and a local-comment discussion fixture passed. Complete review validation now
+  passes on the small Python fixtures; the earlier Trino build limitation remains
+  recorded separately. Claude live execution is still unavailable.
 
 Gate: no known unsupported note-only finding or cross-run evidence acceptance;
 no duplicate generation or write-lock held across external work; bounded payloads
@@ -1421,3 +1451,174 @@ Required checks below describe the current increment, not full feature acceptanc
   overhead. These were not run and are not claimed complete. Automatic mapping
   from external document releases to effective dependencies stays outside the
   minimal implementation; those claims remain UNVERIFIED.
+
+## Disposable live acceptance and integration repairs
+
+- Ran the selected cached Trino PR #31022 against fixed local Git identities in
+  disposable databases/workspaces. Off and cold On used fresh provider tasks and
+  separate databases; no GitHub writes or personal notebook mutations occurred.
+  Codex 0.153.4 was authenticated; Claude was not, so its live checks remain open.
+- Fixed omitted review HTTP context fields, scoped native MCP approval to the
+  exact broker inventory, corrected resumed Codex invocation usage accounting,
+  and explicitly disabled Codex native memories at process and thread start/resume.
+  Initial protocol-failure attempts are excluded from comparisons.
+- Live cold review and standalone Learn exposed missing canonical-note guidance
+  and contradictory checked-source limits. Both tool contracts now expose
+  expectedNoteId, one canonical READY note, actionable constructor validation,
+  and actual UTF-8 bounds. Checked-read inventories use the 128-capture budget;
+  note and claim citations retain their eight-source bound. Regressions cover
+  correction after rejection, 13 checked observations, and rejection of 129.
+- Off/cold reviews completed provider turns but remained INCOMPLETE because build
+  validation was unavailable. The first standalone Learn captured repository
+  structure/documentation but settled FAILED and saved no knowledge; its clean
+  worktree was removed. These failures drove the fixes and are not successful
+  quality or warm-reuse evidence. Exact observations and limitations are retained
+  in [the acceptance record](repository-context-acceptance.md).
+- Initial focused integration verification passed seven suites / 162 tests:
+  `/private/tmp/bytequay-context-live-integration-verify.log`.
+- Full `mvn -B verify` ran 237 suites / 2,818 tests, with zero assertion failures
+  and two existing HTTP-suite settlement timeouts:
+  `createsTaskRunsIdempotentTurnsAndReplaysSse` and
+  `missingReadinessReportStopsAutomationAndPreservesTheTaskForAnotherRequest`.
+  Log: `/private/tmp/bytequay-context-live-full-verify.log`. These paths use the
+  deterministic driver, not Codex; the log does not prove the latency cause.
+- Final affected verification passed seven suites / 193 tests, including the
+  entire 39-test HTTP suite and final submission-contract changes:
+  `/private/tmp/bytequay-context-live-contract-verify-final.log`.
+  The first contract attempt stopped at a missing test import, which was fixed.
+  Its log remains `/private/tmp/bytequay-context-live-contract-verify.log`.
+- Frontend lint, TypeScript and all 84 files / 943 tests passed. Electron tests
+  required the usual local process access; the initial sandbox attempt could not
+  launch Electron. Logs: `/private/tmp/bytequay-context-live-{lint,types,tests}.log`.
+- Desktop packaging passed: `/private/tmp/bytequay-context-live-package.log`.
+  Source and bundled backend JAR SHA-256 both equal
+  `65579514c84ac0d1f05d5c668db139ec886c4e4a2cee6a7b82b9ed2493c7356d`.
+- CP6/CP7 acceptance remains open: human-approved judgments, deliberately false
+  notes, independent cold/warm overhead and contention measurements, new-comment
+  discussion, and both intended provider lanes. Partial integration samples do
+  not establish those broader claims.
+- A further live retry exposed ancestor-manifest fingerprint growth: nine normal
+  documentation paths expanded beyond 120 individual inputs. Compact complete
+  `git-manifests:<directory>` identities now preserve addition/removal/content
+  detection within the unchanged Git read budgets. Applicability compares these
+  groups, and legacy fingerprints conservatively refresh or become UNVERIFIED.
+- After that final correction, all 26 context/review-tool suites / 401 tests
+  passed: `/private/tmp/bytequay-context-live-fingerprint-verify.log`.
+  This includes the real nine-document layout, unrelated sibling stability,
+  manifest addition/change/removal and missing/failed lookup coverage.
+- Repackaging the final backend passed:
+  `/private/tmp/bytequay-context-live-package-final.log`. Final source/bundled JAR
+  SHA-256 is `92ecfd6730b292d2bfd1ab5d49df1e52f0cbd7d57c5b1428b3da39b116c3e9a2`.
+- Final live Learn succeeded without an active PR: project READY,
+  `knowledge:project` v1, notebook revision 1, eleven checked file receipts and
+  clean learning-worktree removal. A fresh review returned REUSED in 44 ms,
+  delivered the same saved note with MATCHED source identities, confirmed both
+  packet deliveries, and generated no replacement knowledge. The warm review's
+  build/test validation remained incomplete. This closes the basic Codex
+  Learn-to-reuse integration check, not the broader CP6 quality/performance gate.
+- The live existing-card discussion also passed with a clearly labeled local
+  comment fixture: its new 1,986-byte supplement had confirmed delivery, while
+  original packet/note/fingerprint/delivery data stayed unchanged. The agent
+  rebutted the false index claim using frozen-code evidence and retained the
+  validation limits. This is an integration observation, not human-adjudicated
+  false-memory acceptance. Notebook and purpose revisions remained 1. The
+  disposable review was closed and backend/sampler stopped; evidence retained.
+
+## Remaining-development verification
+
+- Corrected empty-notebook Codex review preparation passed: revision 0 became 1,
+  `knowledge:project` v1 was saved READY, and both the original bootstrap and
+  subsequent preparation brief had confirmed delivery. The two provider turns
+  completed; the review stayed INCOMPLETE because Trino compilation/focused tests
+  could not finish after Maven cache access failed and the broad retry was denied.
+  This is integration evidence, not an independent quality-comparison arm.
+- Added three bounded local contention regressions: source input inspection
+  leaves the notebook transaction free, two concurrent admissions produce one
+  owner, and selected hydration queues only its review while the notebook lock
+  remains obtainable. A 98,369-byte notebook transaction took 2.658 ms in the
+  retained single sample; intentionally blocked connection and hydrator waits
+  are reported separately. Full boundaries and limitations are in
+  [the acceptance record](repository-context-acceptance.md#local-storage-and-contention-checks).
+- Replaced the HTTP test helper's generic five-second continuation wait with a
+  separate thirty-second integration bound and last-response diagnostics.
+  Terminal provider state precedes real Git settlement, which performs many
+  subprocess checks under four concurrent test JVMs. Production behavior,
+  generic fixture waits and build concurrency are unchanged. The exact cause
+  of earlier machine latency is not claimed proven.
+- Full `mvn -B verify` passed all 237 suites / 2,829 tests, with no failures,
+  errors or skips in 03:04, including all 39 HTTP cases:
+  `/private/tmp/bytequay-context-remaining-full-verify.log`.
+- A final logging-only change makes measurement maps visible through the existing
+  test logger. Both affected suites passed all 117 tests through verify:
+  `/private/tmp/bytequay-context-remaining-measurements.log`. Exact reports and
+  bounded sample values are retained in `/private/tmp/bytequay-context-remaining-metrics/`.
+- No frontend source changed in this increment; the preceding lint, TypeScript
+  and 943-test pass still applies. No learning scheduler, new storage service,
+  automatic memory promotion, GitHub write or personal-notebook mutation was added.
+- Desktop packaging passed for darwin arm64:
+  `/private/tmp/bytequay-context-remaining-package.log`. Source and bundled JARs
+  share SHA-256 `92ecfd6730b292d2bfd1ab5d49df1e52f0cbd7d57c5b1428b3da39b116c3e9a2`.
+- Claude authentication remains unavailable. Human quality evaluation and
+  controlled live overhead/native-memory behavior remain separate acceptance
+  items, not a per-note or per-review approval requirement. All disposable live
+  services and the resource sampler were stopped after evidence capture.
+
+## Reproducible comparison-case tooling
+
+- Added `scripts/repository-context-cases.py`: explicit `create` and `verify`
+  commands prepare a disposable local Git repository, an exact-identity manifest
+  and a reviewer guide. The two frozen diffs contain a half-open window boundary
+  bug and a safe immutable field-index lookup optimization. Eight proposed
+  context variants cover correct, false, stale, irrelevant, missing, corrected,
+  disabled and removed notes.
+- Verification checks frozen source bytes, checkout bytes, manifest identities
+  and the generated guide before running fixed dependency-free behavior checks.
+  It rejects existing output directories and Git-hidden checkout changes. Note
+  proposals are not app import payloads or fabricated capture receipts; normal
+  Learn/edit/Save lesson operations remain required for a live comparison.
+- All five tests in `scripts/test-repository-context-cases.py` passed on Python
+  3.9.6. Log: `/private/tmp/bytequay-context-cases-tests.log`.
+- Both CLI commands passed independently: legacy/base/safe tests exit zero and
+  the buggy head exits one with the expected `END_EXCLUSIVE` assertion. The
+  generated guide is
+  `/private/tmp/bytequay-context-cases-final-zho1k1o3/cases/REVIEW.md`; machine
+  results are retained beside its `cases` directory as `create-result.json`
+  and `verify-result.json`.
+- This increment changes acceptance tooling and documentation only. The prior
+  backend/frontend/package verification still applies. No provider is launched,
+  no app state is seeded and no scheduler or approval gate is introduced.
+- CP6/CP7 human findings assessment, independent live On/Off comparisons,
+  controlled overhead/native-memory checks and the authenticated Claude lane
+  remain open. The fixture tests do not establish improved review quality.
+
+## Isolated review and saved-lesson acceptance
+
+- Removed expected-outcome labels from generated Git commit subjects. Live
+  clones expose no evaluator tags, labels or guide; the fixed neutral corpus
+  passed all five Python checks (`/private/tmp/bytequay-context-neutral-tests.log`).
+- Four independent Codex reviews at identical per-pair code/settings completed
+  full investigation and validation: boundary Off/On each reported one supported
+  defect; safe optimization Off/On each reported none. Cold On runs saved actual
+  source-linked knowledge and confirmed both bootstrap and later delivery.
+- Four additional fresh reviews exercised one genuinely saved lesson through
+  false v2, corrected v3, disabled and removed states. The false claim was
+  explicitly rejected against source/test evidence. Every run completed with no
+  finding, knowledge stayed v1, and all original context snapshots stayed intact.
+  These same-workspace lifecycle runs retain prior history and are reported
+  separately from the independent pairs.
+- Invocation-aware token folding matched persisted usage. Single-run timings,
+  packet sizes, evidence, snapshot/version checks and limitations are retained
+  in `/private/tmp/bytequay-context-comparison-y47wqfjn/results.json` and the
+  adjacent `REVIEW-RESULTS.md`. The
+  [acceptance record](repository-context-acceptance.md#executed-isolated-small-code-comparisons)
+  records the exact code identities and observations. An independent technical
+  audit checked all eight accepted outcomes and snapshot preservation.
+- All reviews were closed; all four disposable backends stopped; temporary
+  credential records were removed and zero remaining rows verified. The initial
+  final-report attempt raced SQLite shutdown; its read-only rerun after shutdown
+  succeeded. No production service or UI code changed in this increment; the
+  previously verified backend JAR hash is unchanged. `git diff --check` passed.
+- Core feature implementation is complete. Broader stale/irrelevant/history
+  cases, human adjudication, controlled overhead, native-memory behavior and
+  the unauthenticated Claude lane remain acceptance work. None is an approval
+  requirement for each ordinary lesson or review.

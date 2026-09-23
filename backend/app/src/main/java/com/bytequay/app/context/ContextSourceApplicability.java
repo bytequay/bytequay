@@ -55,7 +55,7 @@ final class ContextSourceApplicability
             }
             else {
                 for (Map.Entry<String, String> input : original.inputs().entrySet()) {
-                    if (!input.getKey().startsWith("git:") && !input.getKey().equals("repository-root-layout")) {
+                    if (!input.getKey().startsWith("git:") && !input.getKey().startsWith("git-manifests:") && !input.getKey().equals("repository-root-layout")) {
                         continue;
                     }
                     Optional<String> observed = Optional.ofNullable(current.inputs().get(input.getKey()));

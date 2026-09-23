@@ -22,6 +22,9 @@ historical checkpoint evidence and explicitly deferred future work.
   App Server and Claude implementation and specifies the task, turn, event,
   approval, queue, attachment, and subagent contracts used by the rich task
   surface.
+- [DeepSeek API-key task lane](deepseek-api-key-lane.md) is the approved,
+  unimplemented saved-key choice for attended agent tasks using the existing
+  Codex App Server adapter.
 - [Managed Worktree Service](worktree-service.md) specifies the approved
   stateless, synchronous separate-worktree boundary shared by interactive
   tasks, cherry-pick, and CI Autofix: provision, inspect, and non-destructive

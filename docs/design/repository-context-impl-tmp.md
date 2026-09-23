@@ -74,6 +74,30 @@ those procedures and unknown metrics explicit. Existing CP sections
 retain the detailed foundation and verification checklist; their numbering does
 not override this priority order. Earlier “Next” notes are historical evidence.
 
+## Proposed next extension: agent discovery
+
+The [agent discovery design](repository-context-agent-discovery.md) is proposed,
+not implemented. It extends the notebook to ordinary development turns and
+lets active reviews find notes beyond their original frozen selection. It does
+not change the H1–H3 implementation or complete their live acceptance gates.
+
+- [ ] Review the new design's overall flow, settings, matching order, source
+  safety and truthful Offered/Found/Opened display.
+- [ ] Implement one bounded local notebook search and exact-version read path;
+  verify disabled, suppressed, cross-workspace and changed-version cases.
+- [ ] Extend active review lookup with separately retained later discoveries;
+  preserve frozen bootstrap, Off and old-card discussion behavior.
+- [ ] Add a default-on development-use setting, accepted-turn offer, fixed
+  read-only broker tool and task-owned receipts for both providers.
+- [ ] Show offer/search/read receipts in task and review details, then complete
+  live Codex/Claude and On/Off quality/performance checks.
+- [ ] Add idempotent usage facts from confirmed provider receipts and the
+  Repository context Usage view. Show per-note versions, task types and
+  missing-scope demand; separate prepared/uncertain from confirmed delivery,
+  and label the tracking start and retained-history boundary.
+- [ ] Evaluate optional per-task note feedback after usage counts are verified;
+  do not infer help from retrieval or require an approval for every lesson.
+
 ## Cold-start priority order
 
 ### H1 — Learn shared knowledge from selected history

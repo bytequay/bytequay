@@ -69,6 +69,9 @@ Deferred:
 
 The notebook can be reused by development later; this design does not silently
 add context tools or notebook write authority to ordinary development tasks.
+The proposed [agent discovery extension](repository-context-agent-discovery.md)
+specifies that next read-only step for review and development. Its boundary is
+not part of this approved first version until reviewed and implemented.
 
 ## 2. Overall flow
 

@@ -149,6 +149,8 @@ export type ReviewMessageDto = {
   createdAt: string;
 };
 
+export type ReviewLessonDraftDto = { title: string; summary: string; body: string };
+
 type ReviewTaskDto = {
   id: string;
   workspaceId: string;
@@ -492,6 +494,15 @@ function parseMessage(value: unknown): ReviewMessageDto {
     queuedInputId: optionalText(message.queuedInputId),
     messageEventId: optionalText(message.messageEventId),
     createdAt: text(message.createdAt, 'message time'),
+  };
+}
+
+export function parseReviewLessonDraft(value: unknown): ReviewLessonDraftDto {
+  const draft = object(value, 'lesson draft');
+  return {
+    title: text(draft.title, 'lesson title'),
+    summary: text(draft.summary, 'lesson summary'),
+    body: text(draft.body, 'lesson details'),
   };
 }
 

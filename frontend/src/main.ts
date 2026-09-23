@@ -59,6 +59,7 @@ import {
 import {
   parseAgentReview,
   parseAgentReviews,
+  parseReviewLessonDraft,
   parseReviewDraft,
   parseReviewIneligible,
   parseReviewPublishResult,
@@ -876,6 +877,10 @@ function registerIpc(): void {
   ipcMain.handle('review:start', (_event, workspaceId: string, repo: string, number: number) =>
     review('', {}, { method: 'POST', body: JSON.stringify({ workspaceId, repo, number }) }));
   ipcMain.handle('review:get', (_event, reviewId: string) => review(`/${encodeURIComponent(reviewId)}`));
+  ipcMain.handle('review:lesson-draft', (_event, reviewId: string, messageId: string) =>
+    backendJson(reviewUrl(`/${encodeURIComponent(reviewId)}/lesson-draft`), {
+      ...jsonInit('POST', { messageId }, agentHeaders()), signal: AbortSignal.timeout(120_000),
+    }).then(parseReviewLessonDraft));
   ipcMain.handle('review:stop', (_event, reviewId: string) => review(`/${encodeURIComponent(reviewId)}/stop`, {}, { method: 'POST' }));
   ipcMain.handle('review:runtime:stop-impact', (_event, reviewId: string) =>
     backendJson(reviewUrl(`/${encodeURIComponent(reviewId)}/runtime/stop-impact`), { headers: agentHeaders() })

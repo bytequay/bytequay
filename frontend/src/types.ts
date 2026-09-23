@@ -34,6 +34,7 @@ import type {
   ReviewDraftDto,
   ReviewEvent,
   ReviewIneligibleDto,
+  ReviewLessonDraftDto,
   ReviewPublishResultDto,
   ReviewSide,
 } from './pulls/agent-review/contracts';
@@ -1666,6 +1667,7 @@ export type Bridge = {
   /** Starts a private review, or returns the open one: one review per workspace and pull request. */
   startAgentReview: (workspaceId: string, repo: string, number: number) => Promise<AgentReviewDto>;
   getAgentReview: (reviewId: string) => Promise<AgentReviewDto>;
+  draftReviewLesson: (reviewId: string, messageId: string) => Promise<ReviewLessonDraftDto>;
   stopAgentReview: (reviewId: string) => Promise<AgentReviewDto>;
   getAgentReviewRuntimeStopImpact: (reviewId: string) => Promise<AgentRuntimeStopImpactDto>;
   /** Verifies only this review's retained runtime, keeping its conversation and worktree. */

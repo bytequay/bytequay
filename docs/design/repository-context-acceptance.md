@@ -141,6 +141,15 @@ report alone do not establish improved review quality.
    run the poisoned-source case. Record CLI/model identity, supported memory
    controls and observed limitations; do not infer provider enforcement from the
    generated configuration alone.
+6. On a retained review discussion, request an agent lesson draft both before and
+   after opening the Save lesson editor. Check that the proposal is marked
+   unverified and only title, summary and details are filled. Edit the text,
+   choose scope and evidence yourself, and verify that neither drafting nor
+   canceling changes the notebook. Repeat with an unavailable provider, an
+   insufficient or malformed proposal, and a lost Save response: existing edits
+   must survive, while only an explicit Save may create a lesson. Use an older
+   discussion after its finding changes to check that later revisions are not
+   presented as the original discussion's evidence.
 
 ## Measurements to retain
 

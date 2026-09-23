@@ -3143,6 +3143,26 @@ class TestReviewTools
         }
 
         @Override
+        public Optional<ReviewMessage> findMessage(String messageId)
+        {
+            return Optional.ofNullable(messages.get(messageId));
+        }
+
+        @Override
+        public List<ReviewMessage> listEarlierMessages(String reviewId, String runId, Optional<String> findingId, Optional<String> cardId,
+                int targetRevision, Instant createdAt, String messageId, int limit)
+        {
+            return messages.values().stream()
+                    .filter(message -> message.reviewId().equals(reviewId) && message.runId().equals(runId))
+                    .filter(message -> message.findingId().equals(findingId) && message.cardId().equals(cardId))
+                    .filter(message -> message.targetRevision() == targetRevision)
+                    .filter(message -> message.createdAt().isBefore(createdAt) || (message.createdAt().equals(createdAt) && message.id().compareTo(messageId) < 0))
+                    .sorted(Comparator.comparing(ReviewMessage::createdAt).thenComparing(ReviewMessage::id).reversed())
+                    .limit(limit)
+                    .collect(toImmutableList());
+        }
+
+        @Override
         public List<ReviewMessage> listMessages(String reviewId)
         {
             return messages.values().stream().filter(message -> message.reviewId().equals(reviewId)).collect(toImmutableList());

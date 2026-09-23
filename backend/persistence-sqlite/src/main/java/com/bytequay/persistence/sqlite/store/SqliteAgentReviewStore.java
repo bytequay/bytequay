@@ -32,6 +32,7 @@ import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.stereotype.Repository;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.time.Instant;
 import java.util.List;
 import java.util.Locale;
 import java.util.Optional;
@@ -234,6 +235,23 @@ public class SqliteAgentReviewStore
                 AgentReviewMessageEntity::getVersion,
                 entity -> entity.updateFrom(message),
                 AgentReviewMessageEntity::toDomain);
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public Optional<ReviewMessage> findMessage(String messageId)
+    {
+        return messages.findById(messageId).map(AgentReviewMessageEntity::toDomain);
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public List<ReviewMessage> listEarlierMessages(String reviewId, String runId, Optional<String> findingId, Optional<String> cardId,
+            int targetRevision, Instant createdAt, String messageId, int limit)
+    {
+        checkArgument(limit > 0 && limit <= 10, "Message limit must be between 1 and 10");
+        return messages.findEarlier(reviewId, runId, findingId.orElse(null), cardId.orElse(null), targetRevision, createdAt, messageId, PageRequest.of(0, limit))
+                .stream().map(AgentReviewMessageEntity::toDomain).collect(toImmutableList());
     }
 
     @Override

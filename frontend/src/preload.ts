@@ -343,6 +343,7 @@ const bridge: Bridge = {
   findAgentReview: (workspaceId, repo, number) => ipcRenderer.invoke('review:find', workspaceId, repo, number),
   startAgentReview: (workspaceId, repo, number) => ipcRenderer.invoke('review:start', workspaceId, repo, number),
   getAgentReview: reviewId => ipcRenderer.invoke('review:get', reviewId),
+  draftReviewLesson: (reviewId, messageId) => ipcRenderer.invoke('review:lesson-draft', reviewId, messageId),
   stopAgentReview: reviewId => ipcRenderer.invoke('review:stop', reviewId),
   getAgentReviewRuntimeStopImpact: reviewId => ipcRenderer.invoke('review:runtime:stop-impact', reviewId),
   stopAgentReviewRuntime: (reviewId, generation) => ipcRenderer.invoke('review:runtime:stop', reviewId, generation),

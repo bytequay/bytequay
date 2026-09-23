@@ -543,6 +543,13 @@ class TestReviewPublicationService
         public ReviewMessage updateMessage(ReviewMessage message) { throw new UnsupportedOperationException(); }
 
         @Override
+        public Optional<ReviewMessage> findMessage(String messageId) { throw new UnsupportedOperationException(); }
+
+        @Override
+        public List<ReviewMessage> listEarlierMessages(String reviewId, String runId, Optional<String> findingId, Optional<String> cardId,
+                int targetRevision, Instant createdAt, String messageId, int limit) { throw new UnsupportedOperationException(); }
+
+        @Override
         public List<ReviewMessage> listMessages(String reviewId) { throw new UnsupportedOperationException(); }
     }
 }

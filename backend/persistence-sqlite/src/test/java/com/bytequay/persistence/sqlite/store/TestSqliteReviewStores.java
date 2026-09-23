@@ -158,6 +158,38 @@ class TestSqliteReviewStores
     }
 
     @Test
+    void readsOnlyBoundedEarlierMessagesFromTheSameTargetAndRevision()
+    {
+        store.insertReview(newReview("review-discussion", "workspace-a", "bytequay/sample", 7, "task-discussion", NOW));
+        store.insertRun(newRun("run-discussion", "review-discussion"));
+        ReviewMessage first = new ReviewMessage("message-a", "review-discussion", Optional.of("finding-1"), Optional.empty(),
+                ReviewMessage.Author.USER, "First", 1, "run-discussion", Optional.empty(), Optional.empty(), 0, NOW);
+        ReviewMessage second = new ReviewMessage("message-b", "review-discussion", Optional.of("finding-1"), Optional.empty(),
+                ReviewMessage.Author.AGENT, "Second", 1, "run-discussion", Optional.empty(), Optional.empty(), 0, NOW.plusSeconds(1));
+        ReviewMessage changedRevision = new ReviewMessage("message-c", "review-discussion", Optional.of("finding-1"), Optional.empty(),
+                ReviewMessage.Author.USER, "Later revision", 2, "run-discussion", Optional.empty(), Optional.empty(), 0, NOW.plusSeconds(1));
+        ReviewMessage differentTarget = new ReviewMessage("message-aa", "review-discussion", Optional.of("finding-2"), Optional.empty(),
+                ReviewMessage.Author.USER, "Other finding", 1, "run-discussion", Optional.empty(), Optional.empty(), 0, NOW.plusSeconds(1));
+        ReviewMessage laterId = new ReviewMessage("message-z", "review-discussion", Optional.of("finding-1"), Optional.empty(),
+                ReviewMessage.Author.USER, "Same time, later ID", 1, "run-discussion", Optional.empty(), Optional.empty(), 0, NOW.plusSeconds(1));
+        ReviewMessage source = new ReviewMessage("message-d", "review-discussion", Optional.of("finding-1"), Optional.empty(),
+                ReviewMessage.Author.AGENT, "Selected", 1, "run-discussion", Optional.empty(), Optional.empty(), 0, NOW.plusSeconds(1));
+        store.insertMessage(first);
+        store.insertMessage(second);
+        store.insertMessage(changedRevision);
+        store.insertMessage(differentTarget);
+        store.insertMessage(laterId);
+        store.insertMessage(source);
+        entityManager.clear();
+
+        assertThat(store.findMessage("message-d")).contains(source);
+        assertThat(store.listEarlierMessages("review-discussion", "run-discussion", Optional.of("finding-1"), Optional.empty(), 1,
+                source.createdAt(), source.id(), 1)).containsExactly(second);
+        assertThat(store.listEarlierMessages("review-discussion", "run-discussion", Optional.of("finding-1"), Optional.empty(), 1,
+                source.createdAt(), source.id(), 3)).containsExactly(second, first);
+    }
+
+    @Test
     void preservesAbsentAndDisabledContextSeparately()
     {
         store.insertReview(newReview("review-history", "workspace-a", "bytequay/sample", 7, "task-history", NOW));

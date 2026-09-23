@@ -42,9 +42,10 @@ export function ContextDialog({ title, busy, onCancel, children }: {
 }
 
 export default function ContextEntryEditor({ initialValue, scopes, scopeLocked = false, submitDisabled = false, optionalTitle = false, busy, error, onSave, onCancel,
-  title = 'Edit note', confirmLabel = 'Save', children, onChange }: {
+  title = 'Edit note', confirmLabel = 'Save', busyLabel = 'Saving…', beforeFields, children, onChange }: {
   initialValue: ContextEntryDraft; scopes: ContextScopeDto[]; scopeLocked?: boolean; submitDisabled?: boolean; optionalTitle?: boolean; busy: boolean; error: string | null;
-  onSave: (value: ContextEntryDraft) => void; onCancel: () => void; title?: string; confirmLabel?: string; children?: ReactNode;
+  onSave: (value: ContextEntryDraft) => void; onCancel: () => void; title?: string; confirmLabel?: string; busyLabel?: string;
+  beforeFields?: ReactNode; children?: ReactNode;
   onChange?: (value: ContextEntryDraft) => void;
 }) {
   const [draft, setDraft] = useState(initialValue);
@@ -60,6 +61,7 @@ export default function ContextEntryEditor({ initialValue, scopes, scopeLocked =
           ? 'Choose where this lesson applies, then summarize when it matters and what to check. The scope decides when it can match; words in the title and summary help rank it for future reviews.'
           : 'Keep this note specific to the conditions where it applies. Saved notes guide future reviews; they are not verified facts.'}</p>
         {error !== null && <div className="rc-error" role="alert">{error}</div>}
+        {beforeFields}
         <label>Applies to<select value={draft.scopeId} disabled={busy || scopeLocked} required onChange={event => change({ ...draft, scopeId: event.target.value })}>
           {draft.scopeId === '' && <option value="" disabled>Choose where this lesson applies</option>}
           {scopes.map(scope => <option key={scope.id} value={scope.id}>{scope.title}{scope.enabled ? '' : ' (disabled)'}</option>)}
@@ -82,7 +84,7 @@ export default function ContextEntryEditor({ initialValue, scopes, scopeLocked =
         {children}
       </div>
       <footer><button type="button" className="rc-button" disabled={busy} onClick={onCancel}>Cancel</button>
-        <button type="submit" className="rc-button is-primary" disabled={busy || invalid || submitDisabled}>{busy ? 'Saving…' : confirmLabel}</button></footer>
+        <button type="submit" className="rc-button is-primary" disabled={busy || invalid || submitDisabled}>{busy ? busyLabel : confirmLabel}</button></footer>
     </form>
   </ContextDialog>;
 }

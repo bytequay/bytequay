@@ -94,8 +94,23 @@ export async function runScenarios(): Promise<string[]> {
   let notebook = empty;
   const writes: SaveRepositoryContextLessonRequest[] = [];
   let responseLost = false;
+  let draftFails = true;
+  const draftRequests: string[] = [];
+  const bridgeCalls: string[] = [];
   const bridge = {
-    getRepositoryContext: async (workspaceId: string) => { assert(workspaceId === review.workspaceId, 'Notebook must belong to review workspace'); return notebook; },
+    getRepositoryContext: async (workspaceId: string) => {
+      assert(workspaceId === review.workspaceId, 'Notebook must belong to review workspace');
+      bridgeCalls.push('notebook');
+      return notebook;
+    },
+    draftReviewLesson: async (reviewId: string, messageId: string) => {
+      assert(reviewId === review.id && messageId === message.id, 'Draft must use the exact retained review message');
+      bridgeCalls.push('draft');
+      draftRequests.push(messageId);
+      if (draftFails) throw new Error('Review model unavailable');
+      return { title: 'Keep field IDs within their parent', summary: 'When resolving nested fields, check the parent struct.',
+        body: 'Compare each field ID with the selected parent before treating a leaf name as the same field.' };
+    },
     saveRepositoryContextLesson: async (workspaceId: string, request: SaveRepositoryContextLessonRequest) => {
       assert(workspaceId === review.workspaceId, 'Save must retain workspace ownership');
       writes.push(request);
@@ -104,7 +119,7 @@ export async function runScenarios(): Promise<string[]> {
       if (responseLost) throw new Error('Reply interrupted after save');
       return notebook;
     },
-  } satisfies Pick<Bridge, 'getRepositoryContext' | 'saveRepositoryContextLesson'>;
+  } satisfies Pick<Bridge, 'getRepositoryContext' | 'draftReviewLesson' | 'saveRepositoryContextLesson'>;
   Object.defineProperty(window, 'bridge', { configurable: true, value: bridge });
   const open = async (key: string) => {
     flushSync(() => root.render(<ReviewThread key={key} review={review} messages={review.messages} viewerLogin="reader" viewerAvatarUrl={null} />));
@@ -128,6 +143,82 @@ export async function runScenarios(): Promise<string[]> {
     return dialog;
   };
   try {
+    flushSync(() => root.render(<ReviewThread key="agent-draft" review={review} messages={review.messages} viewerLogin="reader" viewerAvatarUrl={null} />));
+    assert(button(host, 'Draft with agent').title.includes('selected model'), 'Draft action must identify the review model');
+    button(host, 'Draft with agent').click();
+    await waitFor(() => host.textContent?.includes('Review model unavailable') === true, 'Draft failure must be visible');
+    assert(host.querySelector('dialog') === null && !button(host, 'Save lesson').disabled && !button(host, 'Retry draft').disabled,
+      'A failed draft must leave both manual saving and retry available');
+    assert(writes.length === 0, 'Draft failure must not save a lesson');
+    draftFails = false;
+    button(host, 'Retry draft').click();
+    await waitFor(() => host.querySelector('dialog')?.open === true, 'Retry must open the editable agent suggestion');
+    const suggestion = host.querySelector('dialog');
+    assert(suggestion !== null, 'Retry must open the lesson editor');
+    assert(field(suggestion, 'Title').value === 'Keep field IDs within their parent'
+      && field(suggestion, 'Summary').value === 'When resolving nested fields, check the parent struct.'
+      && field(suggestion, 'Details').value.startsWith('Compare each field ID'), 'Agent fields must populate the editable form');
+    assert(suggestion.textContent?.includes('not verified') === true && suggestion.textContent.includes('selected model'),
+      'The proposal must be labeled as an unverified suggestion from the review model');
+    assert(suggestion.querySelector('select')?.value === '' && suggestion.querySelector('legend')?.textContent?.includes('0 of 7 selected') === true,
+      'Scope and evidence must remain explicit user choices');
+    assert(button(suggestion, 'Save lesson').disabled && writes.length === 0 && draftRequests.length === 2,
+      'Drafting alone must not save, even when generated prose is complete');
+    assert(bridgeCalls.slice(-2).join(',') === 'draft,notebook', 'The notebook revision must be fetched after the model draft completes');
+    fill(field(suggestion, 'Summary'), 'When nested names repeat, check the selected parent struct.');
+    selectScope(suggestion, 'project');
+    assert(field(suggestion, 'Summary').value.startsWith('When nested names repeat') && !button(suggestion, 'Save lesson').disabled,
+      'The suggestion must remain editable and become saveable only after scope choice');
+    button(suggestion, 'Cancel').click();
+    await waitFor(() => host.querySelector('dialog') === null, 'Cancel must close the suggested lesson without saving');
+    results.push('Draft failure keeps manual save and retry; a successful draft fills only editable prose');
+
+    const editing = await open('replace-open');
+    const selectedEvidence = editing.querySelector<HTMLInputElement>('.agr-lesson-evidence input');
+    assert(selectedEvidence !== null, 'The open editor must offer retained evidence');
+    selectedEvidence.click();
+    draftFails = true;
+    button(editing, 'Replace text with agent draft').click();
+    await waitFor(() => editing.textContent?.includes('Review model unavailable') === true, 'Failed replacement must explain the error inside the editor');
+    assert(editing.open && field(editing, 'Title').value === 'Parent-scoped field IDs'
+      && field(editing, 'Summary').value === 'Use each parent struct when resolving a nested field.'
+      && field(editing, 'Details').value === 'Apply this when nested structs reuse a leaf name.'
+      && editing.querySelector('select')?.value === 'project' && selectedEvidence.checked,
+    'Failed replacement must keep all current text, scope, and evidence edits');
+    draftFails = false;
+    button(editing, 'Retry agent draft').click();
+    await waitFor(() => host.querySelector('dialog')?.textContent?.includes('replaced the lesson text') === true,
+      'Successful replacement must reopen the editor with proposed text');
+    const replaced = host.querySelector('dialog');
+    assert(replaced !== null && replaced !== editing, 'Successful replacement must remount the editor');
+    assert(field(replaced, 'Title').value === 'Keep field IDs within their parent'
+      && field(replaced, 'Summary').value === 'When resolving nested fields, check the parent struct.'
+      && field(replaced, 'Details').value.startsWith('Compare each field ID')
+      && replaced.querySelector('select')?.value === 'project'
+      && replaced.querySelector<HTMLInputElement>('.agr-lesson-evidence input')?.checked === true,
+    'Successful replacement must update only prose and keep the manual scope/evidence selections');
+    assert(bridgeCalls.slice(-2).join(',') === 'draft,notebook' && writes.length === 0,
+      'Replacing text must refresh the notebook after generation and never save automatically');
+    button(replaced, 'Cancel').click();
+    await waitFor(() => host.querySelector('dialog') === null, 'Cancel must close the replaced draft without saving');
+    button(host, 'Save lesson').click();
+    await waitFor(() => host.querySelector('dialog')?.open === true, 'Manual save must reopen the editor after cancel');
+    const reopened = host.querySelector('dialog');
+    assert(reopened !== null && reopened.querySelector('select')?.value === ''
+      && reopened.querySelector('legend')?.textContent?.includes('0 of 7 selected') === true,
+    'A fresh editor must not reuse the canceled scope or evidence selection');
+    button(reopened, 'Replace text with agent draft').click();
+    await waitFor(() => host.querySelector('dialog')?.textContent?.includes('replaced the lesson text') === true,
+      'Agent draft must replace text in the reopened editor');
+    const freshSuggestion = host.querySelector('dialog');
+    assert(freshSuggestion !== null && freshSuggestion.querySelector('select')?.value === ''
+      && freshSuggestion.querySelector<HTMLInputElement>('.agr-lesson-evidence input')?.checked === false
+      && button(freshSuggestion, 'Save lesson').disabled && writes.length === 0,
+    'Drafting after cancel and reopen must keep scope and evidence blank, without saving');
+    button(freshSuggestion, 'Cancel').click();
+    await waitFor(() => host.querySelector('dialog') === null, 'Cancel must close the fresh suggestion without saving');
+    results.push('Open-editor drafting preserves current choices but clears canceled scope/evidence on a fresh open');
+
     const dialog = await open('conflict');
     results.push('Saving requires an explicit scope choice and permits a disclosed Project choice');
     const evidence = dialog.querySelector<HTMLInputElement>('.agr-lesson-evidence input');
@@ -275,11 +366,12 @@ export async function showFixture(mode: 'context' | 'lesson'): Promise<void> {
       readAt: '2026-01-01T00:00:00Z', startLine: 1, endLine: 2, totalLines: 30, utf8Bytes: 42, truncated: false, evidenceRef: 'E1' }, ...historyReads],
     gaps: ['Selected notebook claims have not been verified for this pull request.', 'Recent history is limited to locally cached records.'],
     contributions: [brief], deliveries: [delivery] };
+  const discussionText = 'Recent discussion at launch\n\nThe author confirmed that repeated field names must remain scoped to their parent struct.';
   Object.defineProperty(window, 'bridge', { configurable: true, value: {
     getRepositoryContext: async () => empty,
+    draftReviewLesson: async () => ({ title: 'Keep field IDs within their parent', summary: 'Check the parent struct.', body: discussionText }),
     saveRepositoryContextLesson: async (_workspaceId: string, request: SaveRepositoryContextLessonRequest) => stored(empty, request),
-  } satisfies Pick<Bridge, 'getRepositoryContext' | 'saveRepositoryContextLesson'> });
-  const discussionText = 'Recent discussion at launch\n\nThe author confirmed that repeated field names must remain scoped to their parent struct.';
+  } satisfies Pick<Bridge, 'getRepositoryContext' | 'draftReviewLesson' | 'saveRepositoryContextLesson'> });
   const noteText = 'Project overview captured after initial selection.\nClaims remain conditional on the reviewed source version.';
   const displayRun: ReviewRunDto = { ...run, evidence: [...run.evidence, { ref: 'context-note:project-v3', source: 'Project overview v3',
     provenance: 'Exact originally selected notebook version', excerpt: noteText, explanation: 'Unverified reference material' }],

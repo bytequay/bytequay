@@ -18,11 +18,11 @@ import com.bytequay.core.context.ContextLimits;
 import static com.google.common.base.Preconditions.checkArgument;
 
 /** UTF-8 excerpts for context metadata and source previews; complete note bodies are deferred instead. */
-final class ContextText
+public final class ContextText
 {
     private ContextText() {}
 
-    static String excerpt(String text, int maximumBytes)
+    public static String excerpt(String text, int maximumBytes)
     {
         checkArgument(maximumBytes >= 3, "Excerpt budget must include its truncation marker");
         if (ContextLimits.bytes(text) <= maximumBytes) {

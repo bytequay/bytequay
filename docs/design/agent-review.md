@@ -461,7 +461,15 @@ lesson**. Its local editor lets the user accept or rewrite the text, choose a
 notebook scope, and select additional evidence from that original run. The backend
 retains the original message source even when a newer review run exists. Saving
 uses the notebook revision, preserves failed drafts, and starts no agent turn or
-GitHub write. The settings notebook is the place to edit or remove the saved lesson.
+GitHub write. An explicit **Draft with agent** action can fill editable title,
+summary and details from that saved discussion and its retained evidence through
+a structured proposal in a disposable isolated text-only provider session, without
+adding a review turn. The user still chooses scope and evidence; malformed
+or failed proposals leave the editor draft intact for retry or manual completion.
+Drafting from an open editor keeps the user's scope and evidence choices; a
+successful proposal replaces only its text fields.
+Only **Save lesson** creates a lesson from this proposal. The settings notebook
+is the place to edit or remove the saved lesson.
 
 The accepted review request contains purpose, PR identity, frozen scope,
 previous review reference where applicable, and available capabilities. Enabled

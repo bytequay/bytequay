@@ -236,9 +236,10 @@
 .agr-context__citations ul { padding-left: 20px; }
 .agr-context__evidence { margin: 8px 0; }
 .agr-context .agr-evidence__excerpt { max-height: 320px; overflow: auto; }
-.agr-lesson-action { display: inline-flex; align-items: center; gap: 6px; }
+.agr-lesson-action { display: inline-flex; align-items: center; flex-wrap: wrap; max-width: 100%; gap: 6px; }
 .agr-lesson-action button { border: 0; background: transparent; color: #0969da; font: inherit; cursor: pointer; }
 .agr-lesson-action button:disabled { color: #8c959f; cursor: default; }
+.agr-lesson-action [role="alert"] { overflow-wrap: anywhere; }
 .agr-lesson-evidence { max-height: 180px; overflow: auto; border: 1px solid #d8dee4; border-radius: 6px; padding: 8px 10px; }
 .agr-lesson-evidence label { display: flex; align-items: baseline; gap: 6px; margin: 6px 0; font-size: 12px; }
 .agr-lesson-evidence input { flex: none; }

@@ -13,6 +13,7 @@
  */
 package com.bytequay.core.review;
 
+import java.time.Instant;
 import java.util.List;
 import java.util.Optional;
 
@@ -75,6 +76,12 @@ public interface AgentReviewStore
     ReviewMessage insertMessage(ReviewMessage message);
 
     ReviewMessage updateMessage(ReviewMessage message);
+
+    Optional<ReviewMessage> findMessage(String messageId);
+
+    /** Reads only the preceding messages on one saved discussion target, newest first. */
+    List<ReviewMessage> listEarlierMessages(String reviewId, String runId, Optional<String> findingId, Optional<String> cardId,
+            int targetRevision, Instant createdAt, String messageId, int limit);
 
     List<ReviewMessage> listMessages(String reviewId);
 }

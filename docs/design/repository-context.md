@@ -294,6 +294,7 @@ is a stale-input guard, not source evidence or a caller-selected repository iden
 | Use selected suggestions button | Append selected revalidated configuration and provenance at the displayed revision, if any | Fill Learn's selected scopes/history; no agent starts |
 | Learn/Refresh button | Prepare selected generated scopes | Visible, stoppable task reads repository files/structure/documentation and registered docs by default, plus optional selected history |
 | User edits/disables/removes a note | New notebook content revision | No review restart |
+| User clicks Draft with agent in a saved discussion | None | Explicit agent proposal for that discussion's source run; no lesson or GitHub write |
 | User saves a lesson | New user-owned MEMORY entry | No review restart |
 | Background PR/issue refresh | None | Refresh existing source records only |
 | Someone posts a GitHub review/comment | None | Existing refresh sees it; no automatic agent turn |
@@ -1777,20 +1778,32 @@ entry; a reloaded scope retains its current enabled state. Old workspace respons
 cannot replace a newly opened workspace's notebook.
 
 **Save lesson** on a retained private review message opens the shared editor with
-the original message text. The user writes a summary of when the lesson matters
-and what to check, edits its conditions, and can select additional retained
-evidence before saving. The title is optional; when blank, the editor derives a
-short title from the summary. Scope determines eligibility, while words in the
-title and summary rank matching lessons. New lessons start with no scope selected
-and show **Choose where this lesson applies**.
+the original message text. The user can write a summary of when the lesson
+matters and what to check, or explicitly choose **Draft with agent** to ask the
+agent for a structured proposal containing a title, summary and details from
+that saved discussion and its retained review evidence. The proposed fields
+populate the editor for review and remain editable; an ordinary prose reply is
+not interpreted as a draft. A malformed response or provider failure leaves the
+existing draft intact and permits another attempt or manual editing. Drafting
+does not save a note or promote anything to memory. The draft is not persisted.
+The user can also draft from an already-open editor: failure preserves its
+fields, scope and evidence choices; a successful proposal replaces only the
+editable title, summary and details.
+
+The user chooses the lesson's scope and supporting evidence in the editor; the
+agent's proposal does not select either. The title is optional; when blank, the
+editor derives a short title from the summary. Scope determines eligibility,
+while words in the title and summary rank matching lessons. New lessons start
+with no scope selected and show **Choose where this lesson applies**.
 The user must choose a scope before saving. Project remains an explicit option;
 choosing a repository-wide scope explains that it applies across the repository
 and suggests a component scope for a more specific note.
 The backend binds the source to that message's original review/run, including
-older discussions. This is a local notebook action and creates no provider turn
-or GitHub comment. Failed saves keep the draft; after an uncertain response, a
-reload recognizes an identical accepted lesson instead of duplicating it. Newer
-draft edits remain visible with a notice that another save creates another lesson.
+older discussions. Only the user's **Save lesson** action writes the notebook;
+opening the editor and drafting create no lesson or GitHub comment. Failed saves
+keep the draft; after an uncertain response, a reload recognizes an identical
+accepted lesson instead of duplicating it. Newer draft edits remain visible
+with a notice that another save creates another lesson.
 
 The implemented Review details disclosure renders the immutable run snapshot:
 **Prepared**, **Off for this run**, or **Not recorded**, captured revision, exact
@@ -2925,6 +2938,7 @@ Use the current authenticated Electron transport:
 | PUT /api/workspaces/{workspaceId}/repository-context/entries | Edit fields with id and expectedRevision in the body |
 | PUT /api/workspaces/{workspaceId}/repository-context/entries/enabled | Change enabled with entryId and expectedRevision in the body |
 | DELETE /api/workspaces/{workspaceId}/repository-context/entries | Remove/suppress with entryId and expectedRevision in the body |
+| POST /api/agent-review/{reviewId}/lesson-draft | Explicit draft from a retained private message ID; return structured title, summary and body without a notebook write |
 | POST /api/workspaces/{workspaceId}/repository-context/lessons | Explicit edited Save lesson |
 | PUT /api/workspaces/{workspaceId}/repository-context/configuration | Edit useInReviews and/or registered source roots/scopes with expectedRevision |
 | POST /api/workspaces/{workspaceId}/repository-context/reset | Explicit selected suppression reset with expectedRevision |
@@ -2937,6 +2951,19 @@ Use the current authenticated Electron transport:
 | POST /api/workspaces/{workspaceId}/repository-context/build/runtime/stop | Stop/recover runtime with taskId and observed generation |
 | POST /api/workspaces/{workspaceId}/repository-context/build/mark-failed | Explicit failure through existing completion service, with taskId and reason |
 | POST /api/workspaces/{workspaceId}/repository-context/build/cleanup | Retry permitted clean-worktree removal with taskId |
+
+The draft route accepts `{ "messageId": "..." }` for a message in the named
+review and returns only `{ "title": "...", "summary": "...", "body": "..." }`.
+It runs a disposable isolated text-only provider session over the saved message,
+up to three earlier messages for the same run, target and target revision, the
+card or finding only when its saved revision remains available, and up to eight
+bounded evidence excerpts from that source run. Later run evidence is labeled
+as potentially newer than the selected message. The
+response must be a complete structured JSON object. An insufficient, malformed
+or failed provider response fails the whole request without returning partial
+fields, and leaves the editor unchanged for retry. The
+provider cannot choose the notebook scope or supporting evidence and cannot
+write a lesson.
 
 Source editing uses the same guarded mutation semantics as entry editing.
 Entry IDs travel in request bodies because canonical knowledge IDs contain

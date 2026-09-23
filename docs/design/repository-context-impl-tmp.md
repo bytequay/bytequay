@@ -21,7 +21,7 @@ Selected merged PRs and closed issues now retain typed historical receipts and
 can support shared knowledge alongside captured monitored-baseline evidence.
 Snapshots are prepared before agent admission and exposed in the existing review
 projection. The first settings/display UI now exposes local notebook editing,
-default-on review selection, source/scope configuration, Save lesson from retained
+default-on review selection, source/scope configuration, manual Save lesson from retained
 private messages, and truthful prepared-packet/receipt inspection. Review-owned
 BEGIN/SUBMIT now admits shared preparation for existing scopes, retains
 READY/EMPTY/FAILED outcomes and checked source receipts, reuses equal inputs,
@@ -38,7 +38,8 @@ durable preparation activity. Codex Learn, empty-notebook preparation, saved-not
 reuse and existing-card discussion have live integration evidence. Two small
 code changes now pass full Codex investigation/validation in four independent
 Off/cold-On arms. Human judgment acceptance, Claude and controlled performance
-remain pending. Unchecked items remain pending
+remain pending. Agent-drafted lesson fields are implemented, and their focused
+backend/frontend verification passes. Unchecked acceptance items remain pending
 even when related infrastructure already exists.
 
 ## Delivery summary
@@ -58,6 +59,7 @@ even when related infrastructure already exists.
 | Scope/root discovery and bounded resolved-history discovery | H3 finished; language-neutral traversal passed backend verification and desktop packaging |
 | Automatic context delivery and investigation report integration | Implemented; frozen bootstrap/brief, exact-version deferred notes and separate replayable discussion capture |
 | Notebook/settings UI, Save lesson and context delivery display | Implemented; citations, retained retrievals, folded preparation outcomes, bytes/timing and receipt-derived delivery state |
+| Agent-drafted lesson fields | Implemented; backend, browser interaction, frontend and package gates passed; live provider acceptance remains open |
 | Reproducible small comparison fixtures | Implemented; two frozen code diffs and eight context proposals, with dependency-free behavior checks; human assessment pending |
 | False lesson, correction and future exclusion | Four live Codex lifecycle reviews passed source-based rejection, exact versions and immutable old snapshots |
 | On/Off quality comparison, performance and live provider acceptance | Four isolated Codex reviews match the two fixture expectations; human assessment, broader cases, Claude and controlled performance remain open |
@@ -222,11 +224,12 @@ provenance are tested. Discovery alone performs no generation or memory promotio
 
 ### After cold start
 
-Fresh discussion-source supplements and selected deferred-note exact-version
-reads are next after the completed H1–H3 work. Citation navigation and folded activity remain ordinary UI
-work. CP6's live provider, performance, poisoned-note and On/Off quality gates,
-and CP7's required repository checks/enablement rules remain unchanged. Offline
-fixtures or a working builder do not prove improved review judgments.
+Discussion-source supplements, selected deferred-note exact-version reads,
+citation navigation and folded preparation activity are implemented. The
+explicit agent-drafted lesson proposal is implemented, with focused verification
+complete. CP6's live provider, performance and On/Off quality gates, and CP7's required
+repository checks and enablement rules remain open. Offline fixtures or a
+working builder do not prove improved review judgments.
 
 ## Working rules
 
@@ -459,6 +462,14 @@ derive from durable facts. Exercise each supported provider independently.
   existing task transcript for progress, Stop, failure and recovery navigation.
 - [x] Add Save lesson to the existing private discussion/response surface;
   use the same editor for user acceptance of text, evidence and scope.
+- [x] Add an explicit Draft with agent action to fill editable title, summary and
+  details from the retained discussion and source-run evidence. Keep scope and
+  evidence selection manual and Save lesson as the sole notebook write. Support
+  drafting from the open editor while preserving scope/evidence choices. Preserve
+  the current draft on malformed/provider failure and permit retry or manual
+  completion. Verify the response contract and editor/retry states with focused
+  tests and the real review UI before marking this item complete; live provider
+  acceptance remains under CP6.
 - [x] Extend Review details with prepared context, exact captured text and bytes,
   reasons, versions, gaps, fingerprints and retained source receipts.
 - [x] Add confirmed provided state from existing provider receipts; missing
@@ -1622,3 +1633,34 @@ Required checks below describe the current increment, not full feature acceptanc
   cases, human adjudication, controlled overhead, native-memory behavior and
   the unauthenticated Claude lane remain acceptance work. None is an approval
   requirement for each ordinary lesson or review.
+
+## Agent-drafted lesson verification
+
+- **Draft with agent** now requests a structured title, summary and body from the
+  retained discussion through a disposable text-only provider session. The
+  request is bound to the saved review/run/target revision, reads bounded local
+  evidence and returns no partial proposal on insufficient or malformed output.
+  Drafting writes no notebook entry; the user edits text, chooses scope and
+  evidence, then explicitly uses **Save lesson**.
+- Focused backend tests passed: 15 draft-service tests and 16 SQLite review-store
+  tests, with no failures or errors. They cover source/target binding, bounded
+  nearby discussion, strict response parsing, insufficient output, and provider
+  open/start/stop failures. Log: `/private/tmp/bytequay-lesson-draft-tests-final.log`.
+  The later target-binding regression is included in the final full gate below.
+- Final-source backend `mvn verify` passed with 1,943 app tests, zero failures or
+  errors and zero Checkstyle violations. Log:
+  `/private/tmp/bytequay-backend-verify-lesson-draft-final.log`.
+- Frontend lint, `npx tsc --noEmit`, all 84 test files / 943 tests and darwin
+  arm64 packaging passed. The review browser fixture exercises drafting before
+  and inside the editor, failure/retry, editable text, preserved scope/evidence,
+  and the separate explicit Save boundary. Electron visual inspection at
+  1000×900 and 430×900 confirmed the draft action and suggestion are visible
+  without scrolling or horizontal clipping. Captures:
+  `/private/var/folders/mj/vy763y3s0fvf33w6bz86q3980000gn/T/bytequay-lesson-visual-6eWhKS/normal-agent.png`
+  and `/private/var/folders/mj/vy763y3s0fvf33w6bz86q3980000gn/T/bytequay-lesson-visual-6eWhKS/narrow-agent.png`.
+  No live provider draft is claimed here.
+- CP6/CP7 provider-specific acceptance remains open: Claude is signed out;
+  human-adjudicated stale, irrelevant and history-assisted comparisons,
+  cross-task native-memory checks and controlled concurrent overhead are not
+  established by these tests. The existing workspace Off switch remains
+  available, and no ordinary lesson requires a separate approval queue.

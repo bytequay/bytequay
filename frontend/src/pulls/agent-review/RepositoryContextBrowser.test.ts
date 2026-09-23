@@ -48,7 +48,7 @@ it('preserves explicit lesson ownership and discloses receipt-based context deli
     const args = [join(directory, 'main.cjs')];
     const command = process.platform === 'linux' && !process.env.DISPLAY ? 'xvfb-run' : executable;
     const result = await promisify(execFile)(command, command === executable ? args : ['-a', executable, ...args], { env: environment, timeout: 30_000 });
-    expect(JSON.parse(result.stdout.trim())).toHaveLength(6);
+    expect(JSON.parse(result.stdout.trim())).toHaveLength(8);
   }
   finally { await rm(directory, { recursive: true, force: true }); }
 }, 40_000);

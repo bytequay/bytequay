@@ -29,11 +29,15 @@ function alreadySaved(notebook: RepositoryNotebookDto, request: SaveRepositoryCo
   });
 }
 
-/** A saved discussion is the source; the user supplies the conditional lesson and its scope. */
+/** A saved discussion is the source; only Save lesson persists an edited lesson with its chosen scope. */
 export default function SaveReviewLesson({ review, run, message }: { review: AgentReviewDto; run: ReviewRunDto; message: ReviewMessageDto }) {
   const [notebook, setNotebook] = useState<RepositoryNotebookDto | null>(null);
+  const [editorValue, setEditorValue] = useState<ContextEntryDraft>({ scopeId: '', title: '', summary: '', body: message.body });
+  const [editorVersion, setEditorVersion] = useState(0);
   const [editing, setEditing] = useState(false);
   const [busy, setBusy] = useState(false);
+  const [drafting, setDrafting] = useState(false);
+  const [draftFailed, setDraftFailed] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const [reloadNeeded, setReloadNeeded] = useState(false);
@@ -48,6 +52,7 @@ export default function SaveReviewLesson({ review, run, message }: { review: Age
   const load = async () => {
     if (inFlight.current) return;
     inFlight.current = true;
+    setDraftFailed(false);
     setBusy(true); setError(null);
     try {
       const latest = await window.bridge.getRepositoryContext(review.workspaceId);
@@ -66,11 +71,43 @@ export default function SaveReviewLesson({ review, run, message }: { review: Age
         pending.current = null;
       }
       else {
+        if (!editing) {
+          latestDraft.current = null;
+          setEvidenceRefs([]);
+          setEditorValue({ scopeId: '', title: '', summary: '', body: message.body });
+        }
         setNotebook(latest); setReloadNeeded(false); setEditing(true); setNotice(null);
       }
     }
     catch (cause) { if (alive.current) setError(cause instanceof Error ? cause.message : 'Could not load the repository notebook.'); }
     finally { inFlight.current = false; if (alive.current) setBusy(false); }
+  };
+  const draft = async () => {
+    if (inFlight.current) return;
+    inFlight.current = true;
+    setBusy(true); setDrafting(true); setError(null);
+    try {
+      const proposal = await window.bridge.draftReviewLesson(review.id, message.id);
+      const latest = await window.bridge.getRepositoryContext(review.workspaceId);
+      if (!alive.current) return;
+      const replacement = { scopeId: editing ? latestDraft.current?.scopeId ?? editorValue.scopeId : '', ...proposal };
+      setNotebook(latest);
+      if (!editing) setEvidenceRefs([]);
+      setEditorValue(replacement);
+      latestDraft.current = replacement;
+      setEditorVersion(version => version + 1);
+      setNotice(editing
+        ? 'Agent suggestion from this review\'s selected model replaced the lesson text. Review and edit before saving; it is not verified. Your scope and evidence choices were kept.'
+        : 'Agent suggestion from this review\'s selected model. Review and edit before saving; the draft is not verified. Choose a scope and supporting evidence.');
+      setDraftFailed(false); setEditing(true);
+    }
+    catch (cause) {
+      if (alive.current) {
+        setDraftFailed(true);
+        setError(`Could not draft the lesson: ${cause instanceof Error ? cause.message : 'Please try again.'}`);
+      }
+    }
+    finally { inFlight.current = false; if (alive.current) { setBusy(false); setDrafting(false); } }
   };
   const save = async (draft: ContextEntryDraft) => {
     if (notebook === null || inFlight.current || reloadNeeded || message.runId !== run.id) return;
@@ -97,15 +134,28 @@ export default function SaveReviewLesson({ review, run, message }: { review: Age
   if (saved) return <span className="agr-lesson-action" role="status">Lesson saved</span>;
   return <>
     <span className="agr-lesson-action">
-      <button type="button" disabled={busy} onClick={() => { void load(); }}>{busy && !editing ? 'Loading notebook…' : 'Save lesson'}</button>
+      <button type="button" disabled={busy} onClick={() => { void load(); }}>{busy && !editing && !drafting ? 'Loading notebook…' : 'Save lesson'}</button>
+      <button type="button" disabled={busy} title="Uses this review's selected model to suggest lesson text" onClick={() => { void draft(); }}>
+        {drafting ? 'Drafting with review model…' : draftFailed ? 'Retry draft' : 'Draft with agent'}
+      </button>
       {!editing && error !== null && <span role="alert">{error}</span>}
     </span>
-    {editing && notebook !== null && <ContextEntryEditor title="Save lesson" confirmLabel="Save lesson" optionalTitle
-      initialValue={{ scopeId: '', title: '', summary: '', body: message.body }} scopes={notebook.scopes}
+    {editing && notebook !== null && <ContextEntryEditor key={editorVersion} title="Save lesson" confirmLabel="Save lesson"
+      busyLabel={drafting ? 'Drafting…' : 'Saving…'} optionalTitle
+      initialValue={editorValue} scopes={notebook.scopes}
       busy={busy} error={error} submitDisabled={reloadNeeded} onChange={draft => { latestDraft.current = draft; }}
-      onCancel={() => { setEditing(false); setError(null); }} onSave={draft => { void save(draft); }}>
+      onCancel={() => {
+        if (pending.current === null) latestDraft.current = null;
+        setEvidenceRefs([]);
+        setEditing(false); setError(null);
+      }} onSave={draft => { void save(draft); }} beforeFields={<>
+        {notice !== null && <p role="status">{notice}</p>}
+        <button type="button" className="rc-button" disabled={busy || reloadNeeded}
+          title="Uses this review's selected model to suggest lesson text" onClick={() => { void draft(); }}>
+          {drafting ? 'Drafting with review model…' : draftFailed ? 'Retry agent draft' : 'Replace text with agent draft'}
+        </button>
+      </>}>
       <p className="rc-muted">Source: this saved private discussion from run {run.ordinal}. The original message is retained with the lesson.</p>
-      {notice !== null && <p role="status">{notice}</p>}
       {run.evidence.length > 0 && <fieldset className="agr-lesson-evidence" disabled={busy}>
         <legend>Supporting evidence · {evidenceRefs.length} of 7 selected</legend>
         {run.evidence.map(item => <label key={item.ref}>

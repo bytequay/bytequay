@@ -91,6 +91,7 @@ import com.bytequay.core.review.ReviewEvidence;
 import com.bytequay.core.review.ReviewFinding;
 import com.bytequay.core.review.ReviewInvestigation;
 import com.bytequay.core.review.ReviewMessage;
+import com.bytequay.core.review.ReviewOperation;
 import com.bytequay.core.review.ReviewRun;
 import com.bytequay.core.review.ReviewStep;
 import com.bytequay.core.review.ReviewSummary;
@@ -406,6 +407,31 @@ class TestReviewTools
     }
 
     @Test
+    void saturatedPreparationActivitiesStillRecordFirstDecisionForRequiredScope()
+    {
+        coldPreparationContext();
+        when(preparation.plan(any(), any(), any())).thenReturn(new Plan(RepositoryNotebook.empty(), preparationAttempt().inputs()));
+        when(preparation.begin(any(), anyString(), anyString(), anyLong(), any())).thenReturn(new Admission(Status.DEFERRED, 0,
+                Optional.empty(), ImmutableList.of(), ImmutableList.of("Another scope is being prepared"), ContextPacket.create("Continue with a gap")));
+        for (int index = 0; index < 100; index++) {
+            call("repository_context_prepare", ImmutableMap.of("operation", "BEGIN", "requestKey", "other", "expectedRevision", 0,
+                    "scopeIds", ImmutableList.of("other")));
+        }
+        Map<String, Object> required = ImmutableMap.of("operation", "BEGIN", "requestKey", "required", "expectedRevision", 0,
+                "scopeIds", ImmutableList.of("project"));
+        assertThat(call("repository_context_prepare", required).path("activityLimitReached").asBoolean()).isFalse();
+        assertThat(store.findRun(RUN_ID).orElseThrow().operations()).hasSize(101);
+        assertThat(call("repository_context_prepare", required).path("activityLimitReached").asBoolean()).isTrue();
+        assertThat(store.findRun(RUN_ID).orElseThrow().operations()).hasSize(101);
+
+        call("review_save_summary", summary("summary", "Input change"));
+        readSource();
+        Map<String, Object> report = investigation("initial", ImmutableList.of(DIFF_PATH), ImmutableList.of("E1"), ImmutableList.of());
+        assertThat(call("review_save_investigation", contextInvestigation(report, "Source checked", ImmutableList.of(),
+                ImmutableList.of("Project preparation was deferred by another owner"))).path("status").asText()).isEqualTo("accepted");
+    }
+
+    @Test
     void stoppedPreparationCannotCommitAfterItsUnlockedInputInspection()
     {
         preparationContext();
@@ -601,6 +627,114 @@ class TestReviewTools
         assertThat(store.findRun(RUN_ID).orElseThrow().currentStep().orElseThrow().sealed()).isFalse();
         assertThat(store.findRun(RUN_ID).orElseThrow().context().orElseThrow().contributions()).isEmpty();
         assertThat(call("review_save_investigation", valid).path("status").asText()).isEqualTo("accepted");
+    }
+
+    @Test
+    void coldInvestigationRequiresSavedPreparationBeforeSealing()
+    {
+        coldPreparationContext();
+        call("review_save_summary", summary("summary", "Input change"));
+        readSource();
+        assertThat(call("review_get_context", ImmutableMap.of("kind", "assignment")).at("/repositoryContext/requiredPreparationScopeIds"))
+                .extracting(JsonNode::asText).containsExactly("project");
+        Map<String, Object> report = investigation("initial", ImmutableList.of(DIFF_PATH), ImmutableList.of("E1"), ImmutableList.of());
+        Map<String, Object> unprepared = contextInvestigation(report, "Source checked", ImmutableList.of(), ImmutableList.of());
+
+        assertThat(call("review_save_investigation", unprepared).at("/error/field").asText()).isEqualTo("contextPreparationRefs");
+        assertThat(store.findRun(RUN_ID).orElseThrow().currentStep().orElseThrow().sealed()).isFalse();
+
+        recordPreparation("BEGIN:begin", ImmutableMap.of("status", "OWNED", "requestedScopes", ImmutableList.of("project"),
+                "attempt", ImmutableMap.of("attemptId", "attempt-1", "scopes", ImmutableList.of(ImmutableMap.of("scopeId", "project")))));
+        assertThat(call("review_save_investigation", unprepared).at("/error/field").asText()).isEqualTo("contextPreparationRefs");
+
+        String receipt = recordPreparation("SUBMIT:submit", ImmutableMap.of("status", "APPLIED", "attemptId", "attempt-1",
+                "scopeResults", ImmutableList.of(ImmutableMap.of("scopeId", "project", "outcome", "EMPTY"))));
+        assertThat(call("review_save_investigation", contextInvestigation(report, "Checked inputs established no reusable note",
+                ImmutableList.of(receipt), ImmutableList.of())).path("status").asText()).isEqualTo("accepted");
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"JOINED", "DEFERRED"})
+    void coldInvestigationCanContinueAfterRecordedSharedPreparationGap(String status)
+    {
+        coldPreparationContext();
+        when(preparation.plan(any(), any(), any())).thenReturn(new Plan(RepositoryNotebook.empty(), preparationAttempt().inputs()));
+        when(preparation.begin(any(), anyString(), anyString(), anyLong(), any())).thenReturn(new Admission(Status.valueOf(status), 0,
+                status.equals("JOINED") ? Optional.of(preparationAttempt()) : Optional.empty(), ImmutableList.of(),
+                ImmutableList.of("Shared preparation is unavailable"), ContextPacket.create("Continue with a gap")));
+
+        JsonNode attempt = call("repository_context_prepare", ImmutableMap.of("operation", "BEGIN", "requestKey", "begin", "expectedRevision", 0,
+                "scopeIds", ImmutableList.of("project")));
+        assertThat(attempt.path("status").asText()).isEqualTo(status);
+        assertThat(attempt.path("requestedScopes")).extracting(JsonNode::asText).containsExactly("project");
+        assertThat(store.findRun(RUN_ID).orElseThrow().operations().keySet()).allMatch(key -> key.startsWith("context-activity:"));
+
+        call("review_save_summary", summary("summary", "Input change"));
+        readSource();
+        Map<String, Object> report = investigation("initial", ImmutableList.of(DIFF_PATH), ImmutableList.of("E1"), ImmutableList.of());
+        assertThat(call("review_save_investigation", contextInvestigation(report, "Source checked", ImmutableList.of(), ImmutableList.of()))
+                .at("/error/field").asText()).isEqualTo("contextPreparationRefs");
+        assertThat(call("review_save_investigation", contextInvestigation(report, "Source checked", ImmutableList.of(),
+                ImmutableList.of("The shared project preparation was " + status))).path("status").asText()).isEqualTo("accepted");
+    }
+
+    @Test
+    void mixedDeferredPreparationRetainsReceiptForItsReusedScope()
+    {
+        coldPreparationContext();
+        when(preparation.plan(any(), any(), any())).thenReturn(new Plan(RepositoryNotebook.empty(), preparationAttempt().inputs()));
+        when(preparation.begin(any(), anyString(), anyString(), anyLong(), any())).thenReturn(new Admission(Status.DEFERRED, 0,
+                Optional.empty(), ImmutableList.of(preparationOutcome()), ImmutableList.of("Other scope is deferred"),
+                ContextPacket.create("One scope reused; another deferred")));
+        JsonNode mixed = call("repository_context_prepare", ImmutableMap.of("operation", "BEGIN", "requestKey", "mixed", "expectedRevision", 0,
+                "scopeIds", ImmutableList.of("project", "other")));
+        assertThat(mixed.path("status").asText()).isEqualTo("DEFERRED");
+        String receipt = mixed.path("receiptRef").asText();
+        assertThat(receipt).isNotBlank();
+
+        call("review_save_summary", summary("summary", "Input change"));
+        readSource();
+        Map<String, Object> report = investigation("initial", ImmutableList.of(DIFF_PATH), ImmutableList.of("E1"), ImmutableList.of());
+        assertThat(call("review_save_investigation", contextInvestigation(report, "Source checked", ImmutableList.of(),
+                ImmutableList.of("Another scope was deferred"))).at("/error/field").asText()).isEqualTo("contextPreparationRefs");
+
+        assertThat(call("review_save_investigation", contextInvestigation(report, "Source checked", ImmutableList.of(receipt),
+                ImmutableList.of("Another scope was deferred"))).path("status").asText()).isEqualTo("accepted");
+    }
+
+    @Test
+    void failedColdPreparationNeedsAnExplicitLimitation()
+    {
+        coldPreparationContext();
+        call("review_save_summary", summary("summary", "Input change"));
+        readSource();
+        recordPreparation("BEGIN:begin", ImmutableMap.of("status", "OWNED", "requestedScopes", ImmutableList.of("project"),
+                "attempt", ImmutableMap.of("attemptId", "attempt-1", "scopes", ImmutableList.of(ImmutableMap.of("scopeId", "project")))));
+        String receipt = recordPreparation("SUBMIT:submit", ImmutableMap.of("status", "APPLIED", "attemptId", "attempt-1",
+                "scopeResults", ImmutableList.of(ImmutableMap.of("scopeId", "project", "outcome", "FAILED"))));
+        Map<String, Object> report = investigation("initial", ImmutableList.of(DIFF_PATH), ImmutableList.of("E1"), ImmutableList.of());
+
+        assertThat(call("review_save_investigation", contextInvestigation(report, "Source checked", ImmutableList.of(receipt), ImmutableList.of()))
+                .at("/error/field").asText()).isEqualTo("contextPreparationRefs");
+        assertThat(call("review_save_investigation", contextInvestigation(report, "Source checked", ImmutableList.of(receipt),
+                ImmutableList.of("The required source was unavailable"))).path("status").asText()).isEqualTo("accepted");
+    }
+
+    @Test
+    void disabledScopeAfterCaptureAllowsQualifiedInvestigationWithoutAnAttempt()
+    {
+        coldPreparationContext();
+        ContextScope disabled = new ContextScope("project", "Project overview", ContextScope.project().match(), false, Optional.empty(), Optional.empty());
+        when(selectedDocumentation.notebook(WORKSPACE_ID)).thenReturn(new RepositoryNotebook(1, 1, true, ImmutableList.of(),
+                ImmutableList.of(disabled), ImmutableList.of(), ImmutableList.of(), ImmutableList.of(), Optional.empty()));
+        call("review_save_summary", summary("summary", "Input change"));
+        readSource();
+        Map<String, Object> report = investigation("initial", ImmutableList.of(DIFF_PATH), ImmutableList.of("E1"), ImmutableList.of());
+
+        assertThat(call("review_save_investigation", contextInvestigation(report, "Source checked", ImmutableList.of(), ImmutableList.of()))
+                .at("/error/field").asText()).isEqualTo("contextPreparationRefs");
+        assertThat(call("review_save_investigation", contextInvestigation(report, "Source checked", ImmutableList.of(),
+                ImmutableList.of("Project scope was disabled after this review captured its notebook"))).path("status").asText()).isEqualTo("accepted");
     }
 
     @ParameterizedTest
@@ -834,6 +968,26 @@ class TestReviewTools
         documentContext(true);
         bridge = tools.bridge(TASK_ID).orElseThrow();
         when(selectedDocumentation.notebook(WORKSPACE_ID)).thenReturn(RepositoryNotebook.empty());
+    }
+
+    private void coldPreparationContext()
+    {
+        store.updateRun(run(RUN_ID, 1, PATCH, false).withVersion(store.findRun(RUN_ID).orElseThrow().version()));
+        ContextInputFingerprint input = ContextInputFingerprint.create("project", ImmutableMap.of("git:README.md", BASE_SHA), ImmutableList.of());
+        ReviewContextSnapshot snapshot = new ReviewContextSnapshot("cold-context", true, 0, 1, Optional.of(BASE_SHA),
+                Optional.of(ContextPacket.create("Project has no knowledge entry")), ImmutableList.of(), ImmutableList.of(), ImmutableList.of(input),
+                ImmutableList.of(), ImmutableList.of(), ImmutableList.of(), ImmutableList.of("project has no knowledge entry"), ImmutableList.of("project"));
+        store.updateRun(store.findRun(RUN_ID).orElseThrow().withContext(snapshot, ImmutableMap.of(), NOW));
+        bridge = tools.bridge(TASK_ID).orElseThrow();
+        when(selectedDocumentation.notebook(WORKSPACE_ID)).thenReturn(RepositoryNotebook.empty());
+    }
+
+    private String recordPreparation(String suffix, Map<String, Object> result)
+    {
+        String ref = "review-step:" + RUN_ID + ":1:repository_context_prepare:" + suffix;
+        ReviewRun current = store.findRun(RUN_ID).orElseThrow();
+        store.updateRun(current.withOperation(ref, new ReviewOperation("test-digest", write(result)), NOW));
+        return ref;
     }
 
     private ActiveContextPreparation preparationAttempt()

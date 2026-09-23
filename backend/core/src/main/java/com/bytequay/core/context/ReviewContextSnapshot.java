@@ -39,7 +39,8 @@ public record ReviewContextSnapshot(
         List<ContextSourceRead> sourceReads,
         List<ContextContribution> contributions,
         List<ContextDelivery> deliveries,
-        List<String> gaps)
+        List<String> gaps,
+        List<String> preparationScopeIds)
 {
     public static final int MAXIMUM_SELECTED_TEXT_BYTES = 8 * 1024;
     public static final int MAXIMUM_INPUT_BYTES = 256 * 1024;
@@ -61,15 +62,23 @@ public record ReviewContextSnapshot(
         contributions = ImmutableList.copyOf(contributions);
         deliveries = ImmutableList.copyOf(deliveries);
         gaps = ImmutableList.copyOf(gaps);
+        // Older persisted review snapshots predate the frozen preparation requirement.
+        preparationScopeIds = preparationScopeIds == null ? ImmutableList.of() : ImmutableList.copyOf(preparationScopeIds);
         ContextLimits.unique(selectedEntries.stream().map(ContextSelectedEntry::entryId).toList(), "selected entries", ContextLimits.MAX_ENTRIES);
         ContextLimits.unique(relatedItems.stream().map(ContextRelatedItem::sourceId).toList(), "related sources", 100);
         ContextLimits.unique(inputFingerprints.stream().map(ContextInputFingerprint::scopeId).toList(), "input fingerprint scopes", 100);
+        ContextLimits.unique(preparationScopeIds, "preparation scopes", 100);
+        preparationScopeIds.forEach(scopeId -> ContextLimits.text(scopeId, "preparation scope id", 1100));
+        Set<String> completeScopes = inputFingerprints.stream().filter(input -> input.digest().isPresent())
+                .map(ContextInputFingerprint::scopeId).collect(ImmutableSet.toImmutableSet());
+        checkArgument(completeScopes.containsAll(preparationScopeIds), "Preparation scopes need complete captured inputs");
         ContextLimits.unique(sourceReads.stream().map(ContextSourceRead::id).toList(), "source reads", MAXIMUM_SOURCE_READS);
         checkArgument(sourceReads.stream().filter(ContextRepositoryRead.class::isInstance).map(ContextRepositoryRead.class::cast)
                 .allMatch(read -> read.reference().repositoryId() == repositoryId), "Source read belongs to another repository");
         long inputBytes = inputFingerprints.stream().mapToLong(ContextInputFingerprint::inputBytes).sum();
         checkArgument(inputBytes <= MAXIMUM_INPUT_BYTES, "Context fingerprint inputs exceed UTF-8 budget");
         checkArgument(enabled || inputFingerprints.isEmpty(), "Disabled context cannot contain input fingerprints");
+        checkArgument(enabled && baselineSha.isPresent() || preparationScopeIds.isEmpty(), "Preparation scopes need enabled context and a baseline");
         checkArgument(sourceReads.stream().filter(ContextHistoryRead.class::isInstance).map(ContextHistoryRead.class::cast)
                 .allMatch(read -> read.repositoryId() == repositoryId), "History source belongs to another repository");
         checkArgument(enabled || sourceReads.isEmpty(), "Disabled context cannot contain source reads");
@@ -92,6 +101,15 @@ public record ReviewContextSnapshot(
         checkArgument(!enabled || baselineSha.isPresent() || !gaps.isEmpty(), "Missing baseline must be an explicit gap");
         long textBytes = selectedEntries.stream().flatMap(entry -> entry.text().stream()).mapToLong(ContextLimits::bytes).sum();
         checkArgument(textBytes <= MAXIMUM_SELECTED_TEXT_BYTES, "Selected context text exceeds UTF-8 budget");
+    }
+
+    public ReviewContextSnapshot(String id, boolean enabled, long notebookRevision, long repositoryId, Optional<String> baselineSha,
+            Optional<ContextPacket> bootstrap, List<ContextSelectedEntry> selectedEntries, List<ContextRelatedItem> relatedItems,
+            List<ContextInputFingerprint> inputFingerprints, List<ContextSourceRead> sourceReads, List<ContextContribution> contributions,
+            List<ContextDelivery> deliveries, List<String> gaps)
+    {
+        this(id, enabled, notebookRevision, repositoryId, baselineSha, bootstrap, selectedEntries, relatedItems, inputFingerprints,
+                sourceReads, contributions, deliveries, gaps, ImmutableList.of());
     }
 
     /** References that must already exist in the owning run's evidence map. */
@@ -118,7 +136,7 @@ public record ReviewContextSnapshot(
         }
         List<ContextSourceRead> appended = ImmutableList.<ContextSourceRead>builder().addAll(sourceReads).add(read).build();
         return new ReviewContextSnapshot(id, enabled, notebookRevision, repositoryId, baselineSha, bootstrap, selectedEntries,
-                relatedItems, inputFingerprints, appended, contributions, deliveries, gaps);
+                relatedItems, inputFingerprints, appended, contributions, deliveries, gaps, preparationScopeIds);
     }
 
     /** Seals one step without changing an earlier brief or the original bootstrap. */
@@ -133,7 +151,7 @@ public record ReviewContextSnapshot(
         }
         List<ContextContribution> appended = ImmutableList.<ContextContribution>builder().addAll(contributions).add(contribution).build();
         return new ReviewContextSnapshot(id, enabled, notebookRevision, repositoryId, baselineSha, bootstrap, selectedEntries,
-                relatedItems, inputFingerprints, sourceReads, appended, deliveries, gaps);
+                relatedItems, inputFingerprints, sourceReads, appended, deliveries, gaps, preparationScopeIds);
     }
 
     /** Binds one accepted turn to an exact saved packet without asserting provider delivery. */
@@ -148,7 +166,7 @@ public record ReviewContextSnapshot(
         }
         List<ContextDelivery> appended = ImmutableList.<ContextDelivery>builder().addAll(deliveries).add(delivery).build();
         return new ReviewContextSnapshot(id, enabled, notebookRevision, repositoryId, baselineSha, bootstrap, selectedEntries,
-                relatedItems, inputFingerprints, sourceReads, contributions, appended, gaps);
+                relatedItems, inputFingerprints, sourceReads, contributions, appended, gaps, preparationScopeIds);
     }
 
     /** Resolves an immutable prefix so later evidence collection cannot rewrite a previously bound input. */

@@ -203,11 +203,30 @@ notebook storage across source I/O; they do not establish sustained throughput,
 true process peaks or attributable model/remote overhead. No separate storage
 service is justified by these observations.
 
-The final focused run passed 117 tests; exact INFO measurements and reports are
-retained in `/private/tmp/bytequay-context-remaining-measurements.log` and
-`/private/tmp/bytequay-context-remaining-metrics/`. JUnit TestReporter entries were
-not retained by this Surefire setup, so these tests use the existing console
-logger without changing build configuration.
+The earlier focused run passed 117 tests, but its temporary INFO log and metrics
+directory are no longer present. JUnit TestReporter entries were not retained by
+this Surefire setup, so these tests use the existing console logger without
+changing build configuration.
+
+Two fresh runs of the three focused SQLite contention tests passed with the same
+98,369-byte notebook, WAL/NORMAL mode and one pooled connection. Measured values
+were:
+
+| Observation | Fresh run 1 | Fresh run 2 |
+| --- | ---: | ---: |
+| Initial notebook transaction including flush/commit | 120.238 ms | 23.877 ms |
+| Pool admission after an intentional 150 ms connection hold | 158.879 ms | 155.686 ms |
+| Notebook transaction during two blocked source captures | 3.144 ms | 1.609 ms |
+| Two concurrent BEGIN admissions, exactly one OWNED and one JOINED | 24.588 ms | 11.183 ms |
+| Same-review source-hydrator wait | 171.922 ms | 173.454 ms |
+| Same-workspace notebook lock acquisition during hydration | 0.007 ms | 0.007 ms |
+
+Raw test logs remain at `/private/tmp/bytequay-context-perf-NR7Col/`. The
+`/usr/bin/time` process maximum RSS was 1,695,809,536 and 1,350,123,520 bytes;
+these are whole Maven/Spring test-process footprints, not context-only memory or
+concurrent review/task peaks. Startup variance explains why these samples are
+not latency bounds. Direct SQLite busy-handler duration, real source requests,
+provider tokens and attributable cold/warm CPU/RAM remain unmeasured here.
 
 ### Disposable Codex integration sample
 
@@ -432,11 +451,14 @@ three complete README/fields/window receipts. No approval requests occurred.
 
 The common base is `99dac517a7758debe9005eec0b910109c7ce8d32`; boundary head is
 `a8cd427b4b6b04af139b329269fdc3aa231d0c2e`, optimization head is
-`e01629d78d437886c8779a3ddde430f4543c2a95`. Exact run IDs, source identities,
-packet digests, evidence, findings and invocation-verified token totals are in
-`/private/tmp/bytequay-context-comparison-y47wqfjn/independent-results.json`;
-the readable report is `INDEPENDENT-REVIEWS.md` alongside it. The neutral corpus
-is `/private/tmp/bytequay-context-neutral-483a8qvt/cases`.
+`e01629d78d437886c8779a3ddde430f4543c2a95`. The run IDs, source
+identities, packet digests, evidence, findings and token totals were written to
+temporary `independent-results.json` and `INDEPENDENT-REVIEWS.md` files, but
+those raw reports are no longer present at
+`/private/tmp/bytequay-context-comparison-y47wqfjn/`. The summarized values
+above remain without their original per-run artifact for later independent
+inspection. The neutral corpus is
+`/private/tmp/bytequay-context-neutral-483a8qvt/cases`.
 
 Each row is one observation. Turn elapsed includes model/tool work and is not
 isolated preparation overhead. Cached tokens are included in input tokens;
@@ -485,10 +507,83 @@ the reviewed code remained fixed locally. This exercise supports this specific
 false-rule rejection and editing/exclusion behavior, not immunity to all wrong
 notes or general review-quality improvement.
 
-`/private/tmp/bytequay-context-comparison-y47wqfjn/results.json` separates the
-four independent arms from `lessonLifecycle`. `REVIEW-RESULTS.md` alongside it
-includes the actual retained context assessments and version/delivery table.
-All eight provider sessions were distinct, all reviews closed, all four owned
-backends stopped, and all disposable credential/workspace-credential tables
-were empty after normal credential removal. No GitHub writes occurred. A fresh
-Claude status check still reported `loggedIn=false`; its live lane remains open.
+The temporary `results.json` separated the four independent arms from
+`lessonLifecycle`, and the adjacent `REVIEW-RESULTS.md` held the context
+assessments and version/delivery table. Those raw files are no longer present;
+the summarized observations above are the remaining record. All eight provider
+sessions were distinct, all reviews closed, all four owned backends stopped,
+and all disposable credential/workspace-credential tables were empty after
+normal credential removal. No GitHub writes occurred. Claude was not yet
+authenticated for that exercise; its later profile repair and live sample are
+recorded separately below.
+
+## Claude profile and local cold-to-warm exercise
+
+ByteQuay now sets `CLAUDE_CONFIG_DIR` to its own profile for every Claude CLI
+readiness check and task turn. A sanitized `claude auth status` check of that
+profile returned `loggedIn=true`; the disposable backend reported Claude CLI
+2.1.280 READY. The fixture confirmed its live process received the dedicated
+profile path, and generated Claude settings contained
+`autoMemoryEnabled=false`. This checks actual process configuration, not
+cross-task memory behavior.
+
+The fixture was local and synthetic: cached PR
+`contextfixture/review-case#1`, frozen base
+`99dac517a7758debe9005eec0b910109c7ce8d32`, safe head
+`e01629d78d437886c8779a3ddde430f4543c2a95`, a local bare Git remote,
+isolated SQLite database and a fake HTTPS GitHub endpoint. No real PAT was
+copied, all 15 observed fake GitHub requests were GET, and no GitHub writes
+occurred. The retained fixture is
+`/private/tmp/bytequay-context-irrelevant-BmwaLu/`.
+
+| Exercise | Observed result | Limitation |
+| --- | --- | --- |
+| First Claude review, empty notebook (run `2093a8ed-ebaa-4200-8df3-1ea7b62cbd0a`) | ACCEPTED, complete coverage, both packets confirmed, zero findings | The agent chose to skip `repository_context_prepare`; notebook stayed at revision 0. This violates the intended first-review preparation behavior and is not a successful cold build. |
+| Explicit **Learn project** (task `9224b7a1-0f96-4641-b5fa-6be41fc1a2be`) | COMPLETED on the first attempt; revision 0 to 1, `knowledge:project` v1 GENERATED/READY from five captured source reads | User-triggered build, not proof of review-triggered build. |
+| Later Claude review (run `402b7a2b-36e1-4c44-922a-c120c49b9bcc`) | ACCEPTED, complete coverage, zero findings, both packets confirmed; selected `knowledge:project` v1 in the 6,013-byte initial packet and did not rebuild | The PR changed a learned file, so applicability was correctly `VERSION_MISMATCH`; the agent disclosed this and checked source/tests. This is reuse, not an independent On/Off quality arm. |
+
+Provider-reported input/cached-input/output tokens were respectively
+311,324/234,294/2,677 and 125,280/83,011/497 for the cold review's two turns;
+152,958/124,504/5,448 for Learn; and 221,089/187,332/2,259 and
+102,509/67,685/581 for the warm review's two turns. These are task usage
+figures, not attributable context overhead. No retained private discussion was
+present in this fixture, so the live lesson-draft endpoint was not exercised.
+The isolated Codex lane hit the host's managed-requirements gate before a model
+turn; it yielded no comparison result and was not bypassed.
+
+This exercise exposed an enforcement gap: the cold agent saw the missing
+project knowledge but sealed investigation without a preparation attempt. The
+new first-investigation guard freezes required scopes, requires a saved
+preparation decision and receipt when one owns the build, and permits explicit
+join/defer/failure or changed-catalog limitations. Focused tests and the full
+backend `mvn -q verify` pass (2,856 tests, zero failures/errors/skips; log:
+`/private/tmp/bytequay-context-full-verify-cap.log`). A fresh
+Claude cold repeat on the rebuilt JAR then exercised the guard:
+
+- Review `200efa3b-3fa4-4b43-aae8-ea0fdd49edf5`, run
+  `77aa2ec6-e289-4832-84d0-8749f33a4f9b`, captured required scope
+  `[project]` from an enabled empty notebook at revision 2. It recorded an
+  OWNED BEGIN and an APPLIED SUBMIT with one checked source read. Its first
+  accepted context contribution cited both exact receipt references.
+- The agent submitted `EMPTY`: it had inspected the short fixture contracts but
+  judged no durable note useful. The notebook stayed at revision 2 with zero
+  entries and a saved EMPTY preparation result. The review completed with
+  confirmed deliveries, complete coverage and zero findings. This establishes
+  an explicit preparation decision, not successful knowledge creation. The
+  separate user-triggered Learn on the equivalent fixture had produced READY,
+  showing that note usefulness remains a model judgment.
+- Provider-reported investigation/validation usage was respectively
+  288,344/263,953/3,286 and 114,356/87,089/548
+  input/cached-input/output tokens. The fake endpoint's cumulative 21 requests
+  were all GET; no GitHub write occurred. Retained local evidence is under
+  `/private/tmp/bytequay-context-irrelevant-BmwaLu/guard-*.json`.
+
+The new guard therefore removes silent skipping on this small cold case.
+The final regression suite also covers a full preparation-activity journal:
+one decision for each still-undecided frozen scope is retained within a hard
+bound of 100 activities plus the required-scope count. A mixed reused and
+deferred BEGIN retains a receipt for the reused scope, which the report must
+cite. These are automated edge checks, not additional live-provider samples.
+Human findings assessment, independent
+Off/On comparisons and controlled concurrent resource measurements also remain
+open.

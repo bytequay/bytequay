@@ -2904,6 +2904,25 @@ result; invalid or oversized reports leave the step open for existing repair.
 Off and historical absent-context runs reject the added fields and retain the
 original report contract. No separate acknowledgment tool or turn is added.
 
+The first review snapshot also freezes `preparationScopeIds`: selected scopes
+whose generated knowledge is missing, whose monitored baseline and input
+fingerprint are complete, and whose matching prior EMPTY result cannot be
+reused. `review_get_context` assignment exposes them as
+`requiredPreparationScopeIds`. The first investigation cannot seal until each
+has a recorded BEGIN decision; an owned attempt needs a cited SUBMIT receipt.
+REUSED needs its cited BEGIN receipt. JOINED/DEFERRED or a FAILED result needs
+an explicit limitation. A baseline gap, incomplete input or reusable EMPTY
+result does not create a mandatory build. Later notebook removal, disablement
+or catalog failure permits a qualified limitation instead of trapping the
+review. Older saved snapshots without this field remain readable with no
+retroactive requirement. This checks that preparation was attempted and
+reported; it does not certify the generated claims or force a second provider
+turn merely to acknowledge delivery. A BEGIN that reuses one scope while
+another joins or defers retains a citeable receipt for the reused scope.
+Pure JOINED/DEFERRED decisions remain visible as bounded activities; after the
+ordinary 100-activity cap, at most one extra decision is retained per frozen
+required scope that has not yet received one.
+
 The learning bridge is purpose-bound and exposes only its two fixed context
 tools. Its default assignment requires root-directory and repository-file work
 and an attempt for every frozen registered documentation source before BEGIN or

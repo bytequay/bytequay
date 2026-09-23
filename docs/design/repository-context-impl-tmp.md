@@ -523,8 +523,10 @@ opening settings or inspecting a source list must not launch generation.
   limitation before making the lane available. Claude's actual generated settings
   have an explicit autoMemoryEnabled=false regression. Codex now explicitly
   disables memories in process and start/resume configuration; the pinned CLI
-  accepted that profile in disposable live runs. Cross-task behavioral checks
-  and Claude live enforcement remain open. Never claim to disable pretraining.
+  accepted that profile in disposable live runs. The later Claude live fixture
+  confirmed that its process used ByteQuay's authenticated profile and generated
+  autoMemoryEnabled=false settings; cross-task behavioral checks remain open.
+  Never claim to disable pretraining.
 - [ ] Measure cold and warm overhead: model turns/tokens, elapsed preparation,
   source requests, notebook/run bytes, SQLite wait/write duration, and peak
   process memory/CPU under simultaneous review/task activity.
@@ -542,7 +544,10 @@ opening settings or inspecting a source list must not launch generation.
   Codex explicit Learn, empty-notebook review preparation, saved-note reuse/delivery
   and a local-comment discussion fixture passed. Complete review validation now
   passes on the small Python fixtures; the earlier Trino build limitation remains
-  recorded separately. Claude live execution is still unavailable.
+  recorded separately. A later Claude sample completed cold review, explicit
+  Learn and saved-note reuse; cold review skipped preparation despite the prompt,
+  so its enforcement repair and repeat are tracked below. The fixture had no
+  discussion message for a live lesson draft. Provider acceptance remains open.
 
 Gate: no known unsupported note-only finding or cross-run evidence acceptance;
 no duplicate generation or write-lock held across external work; bounded payloads
@@ -1618,9 +1623,10 @@ Required checks below describe the current increment, not full feature acceptanc
   These same-workspace lifecycle runs retain prior history and are reported
   separately from the independent pairs.
 - Invocation-aware token folding matched persisted usage. Single-run timings,
-  packet sizes, evidence, snapshot/version checks and limitations are retained
-  in `/private/tmp/bytequay-context-comparison-y47wqfjn/results.json` and the
-  adjacent `REVIEW-RESULTS.md`. The
+  packet sizes, evidence, snapshot/version checks and limitations were written
+  to `/private/tmp/bytequay-context-comparison-y47wqfjn/results.json` and the
+  adjacent `REVIEW-RESULTS.md`, but these temporary reports are no longer on
+  disk. The
   [acceptance record](repository-context-acceptance.md#executed-isolated-small-code-comparisons)
   records the exact code identities and observations. An independent technical
   audit checked all eight accepted outcomes and snapshot preservation.
@@ -1659,8 +1665,45 @@ Required checks below describe the current increment, not full feature acceptanc
   `/private/var/folders/mj/vy763y3s0fvf33w6bz86q3980000gn/T/bytequay-lesson-visual-6eWhKS/normal-agent.png`
   and `/private/var/folders/mj/vy763y3s0fvf33w6bz86q3980000gn/T/bytequay-lesson-visual-6eWhKS/narrow-agent.png`.
   No live provider draft is claimed here.
-- CP6/CP7 provider-specific acceptance remains open: Claude is signed out;
+- CP6/CP7 provider-specific acceptance remains open: this increment did not
+  exercise Claude (the dedicated profile was not yet wired into ByteQuay);
   human-adjudicated stale, irrelevant and history-assisted comparisons,
   cross-task native-memory checks and controlled concurrent overhead are not
   established by these tests. The existing workspace Off switch remains
   available, and no ordinary lesson requires a separate approval queue.
+
+## Claude profile, first-use preparation guard and local reuse
+
+- ByteQuay now points every Claude readiness and task process at its dedicated
+  profile. A sanitized profile status returned `loggedIn=true`; the disposable
+  backend reported Claude CLI 2.1.280 READY, and the live Learn/review processes
+  used that profile with `autoMemoryEnabled=false` in generated settings.
+- A first Claude review of an empty project notebook completed with no findings
+  but called no shared preparation tool. This was a real cold-start behavior
+  gap: the project fingerprint was complete and the missing scope was delivered,
+  yet the investigation accepted empty preparation references.
+- Added frozen first-use scope IDs to the run snapshot and assignment, plus a
+  first-investigation gate. A scope with complete inputs and no reusable EMPTY
+  result now needs a recorded BEGIN; owned work needs a cited SUBMIT receipt.
+  Reuse, joined/deferred attempts, failed reads and changed catalog routing
+  retain their explicit receipt or limitation paths. Older persisted snapshots
+  deserialize without a retroactive requirement.
+- An explicit Claude **Learn project** then created `knowledge:project` v1 from
+  five captured source reads. A fresh review selected and received that entry
+  without rebuilding; it marked source applicability `VERSION_MISMATCH` because
+  the reviewed change edited a learned file, and checked the code and tests.
+  This reuse run is not an independent quality-comparison arm.
+- Focused guard tests and elevated full backend `mvn -q verify` passed: 2,856
+  tests, zero failures/errors/skips. Frontend code did not change in this repair.
+  A rebuilt-JAR cold Claude repeat recorded OWNED BEGIN, APPLIED SUBMIT with an
+  explicit EMPTY outcome, and both receipt references in the accepted
+  investigation. It completed with confirmed packet delivery and complete
+  coverage. The guard prevented silent skipping; the agent did not create a
+  note because it judged the tiny fixture not worth a durable summary. Live
+  lesson drafting, human judgment and controlled concurrent resource acceptance
+  remain open.
+- A final code review found two edge cases and both are fixed with regression
+  tests: a full JOINED/DEFERRED activity journal now reserves one bounded
+  decision for each still-undecided required scope, and a mixed reused/deferred
+  BEGIN keeps a receipt that must be cited for the reused scope. The last full
+  verify log is `/private/tmp/bytequay-context-full-verify-cap.log`.

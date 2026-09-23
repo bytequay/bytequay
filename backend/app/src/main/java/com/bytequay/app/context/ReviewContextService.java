@@ -17,6 +17,7 @@ import com.bytequay.app.workspace.WorkspaceRepositoryContext;
 import com.bytequay.core.context.ContextEntry;
 import com.bytequay.core.context.ContextInputFingerprint;
 import com.bytequay.core.context.ContextPacket;
+import com.bytequay.core.context.ContextPreparationResult;
 import com.bytequay.core.context.ContextRelatedItem;
 import com.bytequay.core.context.ContextScope;
 import com.bytequay.core.context.ContextSelectedEntry;
@@ -116,6 +117,12 @@ public class ReviewContextService
         RepositoryContextReader.Selection selection = reader.select(review, run, workspace, previous, notebook);
         List<String> gaps = new ArrayList<>(selection.gaps());
         List<ContextInputFingerprint> fingerprints = captureInputs(workspace, notebook, selection, gaps);
+        List<String> preparationScopeIds = selection.baselineSha().isEmpty() ? ImmutableList.of() : selection.notes().scopes().stream()
+                .filter(RepositoryContextMatcher.ScopeMatch::missingKnowledge)
+                .filter(match -> fingerprints.stream().filter(input -> input.scopeId().equals(match.scope().id()) && input.digest().isPresent())
+                        .anyMatch(input -> match.scope().preparation().filter(result -> result.outcome() == ContextPreparationResult.Outcome.EMPTY
+                                && result.inputFingerprint().equals(input)).isEmpty()))
+                .map(match -> match.scope().id()).collect(ImmutableList.toImmutableList());
         selection.notes().scopes().stream().filter(RepositoryContextMatcher.ScopeMatch::missingKnowledge).forEach(match -> {
             String state = match.scope().preparation().map(result -> "Last preparation: " + result.outcome() + "; " + result.explanation())
                     .orElse("No completed preparation is recorded.");
@@ -190,7 +197,8 @@ public class ReviewContextService
         }
         ContextPacket packet = ContextPacket.create(header + notes + history);
         ReviewContextSnapshot snapshot = new ReviewContextSnapshot("context:" + run.id(), true, notebook.revision(), repositoryId,
-                selection.baselineSha(), Optional.of(packet), entries, related, fingerprints, ImmutableList.of(), ImmutableList.of(), ImmutableList.of(), retainedGaps);
+                selection.baselineSha(), Optional.of(packet), entries, related, fingerprints, ImmutableList.of(), ImmutableList.of(), ImmutableList.of(), retainedGaps,
+                preparationScopeIds);
         ReviewRun saved = reviews.updateRun(run.withContext(snapshot, evidence, Instant.now(clock)));
         log.info("Prepared repository context for run {}: {} notes included, {} deferred, {} related sources, {} gaps, {} UTF-8 bytes in {} ms; delivery pending",
                 run.id(), entries.size() - deferred, deferred, related.size(), retainedGaps.size(), packet.utf8Bytes(), NANOSECONDS.toMillis(System.nanoTime() - started));

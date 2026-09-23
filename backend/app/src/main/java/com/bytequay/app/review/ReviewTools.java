@@ -646,8 +646,12 @@ public class ReviewTools
                 }
                 assigned(current, INVESTIGATE);
                 ObjectNode result = mutation.apply(current);
+                if (begin) {
+                    result.set("requestedScopes", objectMapper.valueToTree(strings(call.arguments(), "scopeIds", 100, 1100)));
+                }
                 result.put("recordedAt", now().toString()).put("elapsedMillis", elapsed.elapsed(MILLISECONDS));
-                boolean retained = !begin || !(result.path("status").asText().equals("JOINED") || result.path("status").asText().equals("DEFERRED"));
+                boolean retained = !begin || !(result.path("status").asText().equals("JOINED") || result.path("status").asText().equals("DEFERRED"))
+                        || !result.path("reused").isEmpty();
                 if (retained) {
                     result.put("receiptRef", checked.key());
                 }
@@ -657,7 +661,7 @@ public class ReviewTools
                 if (retained) {
                     store.updateRun(current.run().withOperation(checked.key(), new ReviewOperation(checked.digest(), result.toString()), now()));
                 }
-                else if (current.run().operations().keySet().stream().filter(key -> key.startsWith("context-activity:")).count() < MAX_PREPARATION_ACTIVITIES) {
+                else if (retainPreparationActivity(current.run(), result)) {
                     store.updateRun(current.run().withOperation("context-activity:" + UUID.randomUUID(), new ReviewOperation(checked.digest(), result.toString()), now()));
                 }
                 else {
@@ -690,10 +694,31 @@ public class ReviewTools
                             "expectedNoteId", ContextEntry.knowledgeId(input.scopeId()), "digest", input.digest().orElseThrow()))
                     .collect(toImmutableList()));
         }, () -> result.putNull("attempt"));
-        result.putPOJO("reused", admission.reused().stream().map(this::preparationOutcome).collect(toImmutableList()));
+        result.set("reused", objectMapper.valueToTree(admission.reused().stream().map(this::preparationOutcome).collect(toImmutableList())));
         result.putPOJO("gaps", admission.gaps());
         result.set("packet", objectMapper.valueToTree(admission.packet()));
         return result;
+    }
+
+    private boolean retainPreparationActivity(ReviewRun run, JsonNode result)
+    {
+        List<ReviewOperation> activities = run.operations().entrySet().stream().filter(entry -> entry.getKey().startsWith("context-activity:"))
+                .map(Map.Entry::getValue).toList();
+        if (activities.size() < MAX_PREPARATION_ACTIVITIES) {
+            return true;
+        }
+        List<String> required = run.context().map(ReviewContextSnapshot::preparationScopeIds).orElseGet(ImmutableList::of);
+        if (activities.size() >= MAX_PREPARATION_ACTIVITIES + required.size()) {
+            return false;
+        }
+        Set<String> undecided = new HashSet<>(required);
+        for (ReviewOperation activity : activities) {
+            JsonNode saved = preparationResult(activity);
+            undecided.removeIf(scopeId -> containsText(saved.path("requestedScopes"), scopeId)
+                    && scopeResult(saved.path("reused"), scopeId).isEmpty());
+        }
+        return undecided.stream().anyMatch(scopeId -> containsText(result.path("requestedScopes"), scopeId)
+                && scopeResult(result.path("reused"), scopeId).isEmpty());
     }
 
     private ObjectNode preparationReceipt(Receipt receipt)
@@ -791,6 +816,7 @@ public class ReviewTools
         }
         List<String> refs = evidenceRefs(call, call.arguments(), "contextEvidenceRefs", 80);
         Optional<ContextContribution> contribution = contextContribution(call, step, refs);
+        requireColdPreparation(call, step, contribution);
         List<String> candidates = strings(call.arguments(), "candidates", MAX_CANDIDATES, 2000);
         List<String> previous = call.run().investigation().map(ReviewInvestigation::candidates).orElseGet(ImmutableList::of);
         if (step.kind() == COLLECT_EVIDENCE) {
@@ -830,6 +856,120 @@ public class ReviewTools
         }
         store.updateRun(updated.withOperation(replay.key(), new ReviewOperation(replay.digest(), result.toString()), now()));
         return result;
+    }
+
+    private void requireColdPreparation(Call call, ReviewStep step, Optional<ContextContribution> contribution)
+    {
+        if (step.kind() != INVESTIGATE || step.number() != 1) {
+            return;
+        }
+        List<String> required = call.run().context().map(ReviewContextSnapshot::preparationScopeIds).orElseGet(ImmutableList::of);
+        for (String scopeId : required) {
+            if (!preparedOrDeferred(call.run(), scopeId, contribution.orElseThrow())
+                    && !preparationNoLongerAvailable(call, scopeId, contribution.orElseThrow())) {
+                throw new ReviewInvalidRequestException("contextPreparationRefs: prepare selected scope " + scopeId
+                        + " with repository_context_prepare BEGIN and, when owned, SUBMIT; cite the saved receiptRef before sealing the investigation");
+            }
+        }
+    }
+
+    private boolean preparationNoLongerAvailable(Call call, String scopeId, ContextContribution contribution)
+    {
+        if (contribution.limitations().isEmpty()) {
+            return false;
+        }
+        try {
+            RepositoryNotebook current = selectedDocumentation.notebook(call.review().workspaceId());
+            if (current.revision() == call.run().context().orElseThrow().notebookRevision()) {
+                return false;
+            }
+            Optional<ContextScope> scope = current.scopes().stream().filter(value -> value.id().equals(scopeId)).findFirst();
+            return scope.isEmpty() || !scope.orElseThrow().enabled()
+                    || current.suppressedKnowledgeIds().contains(ContextEntry.knowledgeId(scopeId))
+                    || current.entries().stream().anyMatch(entry -> entry.id().equals(ContextEntry.knowledgeId(scopeId)));
+        }
+        catch (ContextNotFoundException | ContextStorageException unavailable) {
+            return true;
+        }
+    }
+
+    private boolean preparedOrDeferred(ReviewRun run, String scopeId, ContextContribution contribution)
+    {
+        String prefix = "review-step:" + run.id() + ":1:repository_context_prepare:";
+        for (Map.Entry<String, ReviewOperation> operation : run.operations().entrySet()) {
+            if (!operation.getKey().startsWith(prefix + "BEGIN:") && !operation.getKey().startsWith("context-activity:")) {
+                continue;
+            }
+            JsonNode begin = preparationResult(operation.getValue());
+            if (!containsText(begin.path("requestedScopes"), scopeId)) {
+                continue;
+            }
+            if (scopeResult(begin.path("reused"), scopeId).isPresent()) {
+                if (contribution.preparationRefs().contains(operation.getKey())) {
+                    return true;
+                }
+                continue;
+            }
+            String status = begin.path("status").asText();
+            if ((status.equals("JOINED") || status.equals("DEFERRED")) && !contribution.limitations().isEmpty()) {
+                return true;
+            }
+            if (!status.equals("OWNED")) {
+                continue;
+            }
+            String attemptId = begin.path("attempt").path("attemptId").asText();
+            if (scopeResult(begin.path("attempt").path("scopes"), scopeId).isEmpty()) {
+                if (!contribution.limitations().isEmpty() && !begin.path("gaps").isEmpty()) {
+                    return true;
+                }
+                continue;
+            }
+            for (Map.Entry<String, ReviewOperation> submission : run.operations().entrySet()) {
+                if (!submission.getKey().startsWith(prefix + "SUBMIT:")) {
+                    continue;
+                }
+                JsonNode applied = preparationResult(submission.getValue());
+                if (!applied.path("status").asText().equals("APPLIED") || !applied.path("attemptId").asText().equals(attemptId)) {
+                    continue;
+                }
+                Optional<JsonNode> result = scopeResult(applied.path("scopeResults"), scopeId);
+                if (result.isPresent() && contribution.preparationRefs().contains(submission.getKey())
+                        && (!result.orElseThrow().path("outcome").asText().equals("FAILED") || !contribution.limitations().isEmpty())) {
+                    return true;
+                }
+            }
+        }
+        return false;
+    }
+
+    private JsonNode preparationResult(ReviewOperation operation)
+    {
+        try {
+            return objectMapper.readTree(operation.result());
+        }
+        catch (JsonProcessingException invalid) {
+            return objectMapper.getNodeFactory().nullNode();
+        }
+    }
+
+    private static Optional<JsonNode> scopeResult(JsonNode results, String scopeId)
+    {
+        for (JsonNode result : results) {
+            if (result.path("scopeId").asText().equals(scopeId)) {
+                return Optional.of(result);
+            }
+        }
+        return Optional.empty();
+    }
+
+    private static boolean containsText(JsonNode values, String expected)
+    {
+        for (JsonNode value : values) {
+            if (value.asText().equals(expected)) {
+                return true;
+            }
+        }
+        return false;
     }
 
     private static Optional<ContextContribution> contextContribution(Call call, ReviewStep step, List<String> evidenceRefs)
@@ -1603,6 +1743,7 @@ public class ReviewTools
             if (call.step().filter(step -> call.run().active() && step.kind() == INVESTIGATE).isEmpty()) {
                 return node;
             }
+            context.putPOJO("requiredPreparationScopeIds", snapshot.preparationScopeIds());
             try {
                 RepositoryNotebook notebook = selectedDocumentation.notebook(call.review().workspaceId());
                 List<ContextScope> scopes = notebook.scopes().stream().filter(ContextScope::enabled).collect(toImmutableList());

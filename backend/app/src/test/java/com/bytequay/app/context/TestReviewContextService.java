@@ -15,12 +15,15 @@ package com.bytequay.app.context;
 
 import com.bytequay.app.workspace.WorkspaceRepositoryContext;
 import com.bytequay.core.context.ContextClaim;
+import com.bytequay.core.context.ContextContribution;
 import com.bytequay.core.context.ContextEntry;
 import com.bytequay.core.context.ContextInputFingerprint;
 import com.bytequay.core.context.ContextLimits;
 import com.bytequay.core.context.ContextMatch;
 import com.bytequay.core.context.ContextPacket;
+import com.bytequay.core.context.ContextPreparationResult;
 import com.bytequay.core.context.ContextReference;
+import com.bytequay.core.context.ContextRepositoryRead;
 import com.bytequay.core.context.ContextScope;
 import com.bytequay.core.context.ContextSelectedEntry;
 import com.bytequay.core.context.ContextSourceEvidence;
@@ -31,6 +34,8 @@ import com.bytequay.core.review.AgentReview;
 import com.bytequay.core.review.AgentReviewStore;
 import com.bytequay.core.review.ReviewEvidence;
 import com.bytequay.core.review.ReviewRun;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.databind.node.ObjectNode;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import org.junit.jupiter.api.Test;
@@ -342,7 +347,69 @@ class TestReviewContextService
 
         assertThat(context.baselineSha()).isEmpty();
         assertThat(context.selectedEntries()).isEmpty();
+        assertThat(context.preparationScopeIds()).isEmpty();
         assertThat(context.gaps()).contains("Baseline unavailable locally").anyMatch(gap -> gap.contains("No completed preparation is recorded"));
+    }
+
+    @Test
+    void freezesFirstUsePreparationOnlyForCompleteSelectedInputs()
+    {
+        RepositoryNotebook notebook = RepositoryNotebook.empty();
+        ReviewRun original = run();
+        when(notebooks.getNotebook("workspace")).thenReturn(notebook);
+        RepositoryContextMatcher.ScopeMatch missing = new RepositoryContextMatcher.ScopeMatch(ContextScope.project(), ImmutableList.of("Repository-wide scope"),
+                RepositoryContextMatcher.Rank.REPOSITORY, true);
+        when(reader.select(REVIEW, original, WORKSPACE, Optional.empty(), notebook)).thenReturn(new RepositoryContextReader.Selection(Optional.of(BASE),
+                new RepositoryContextMatcher.Selection(ImmutableList.of(), ImmutableList.of(missing)), ImmutableList.of(), ImmutableList.of()));
+        ContextInputFingerprint complete = ContextInputFingerprint.create("project", ImmutableMap.of("git:README.md", BASE), ImmutableList.of());
+        when(inputs.capture(WORKSPACE, Optional.of(BASE), notebook, ImmutableList.of(ContextScope.project()))).thenReturn(ImmutableList.of(complete));
+        captureWrites();
+
+        ReviewContextSnapshot context = service.prepareRun(REVIEW, original, WORKSPACE, Optional.empty()).context().orElseThrow();
+
+        assertThat(context.notebookRevision()).isZero();
+        assertThat(context.preparationScopeIds()).containsExactly("project");
+        assertThat(context.withContribution(new ContextContribution(1, "Brief", ImmutableList.of(), ImmutableList.of(), ImmutableList.of()))
+                .preparationScopeIds()).containsExactly("project");
+    }
+
+    @Test
+    void matchingEmptyPreparationDoesNotRequireAnotherAttempt()
+    {
+        ContextInputFingerprint input = ContextInputFingerprint.create("project", ImmutableMap.of("git:README.md", BASE), ImmutableList.of());
+        ContextRepositoryRead read = new ContextRepositoryRead("context-read:empty", new ContextReference.RepositoryFile(42, WORKSPACE.monitoredRepository(), "README.md", BASE),
+                BASE, NOW, 1, 0, 0, 0, false, Optional.empty());
+        ContextPreparationResult empty = new ContextPreparationResult("previous", input, ContextPreparationResult.Outcome.EMPTY,
+                ImmutableList.of(), ImmutableList.of(read), "No useful project summary in checked sources");
+        ContextScope project = new ContextScope("project", "Project overview", ContextScope.project().match(), true, Optional.of(empty), Optional.empty());
+        RepositoryNotebook notebook = new RepositoryNotebook(1, 1, true, ImmutableList.of(), ImmutableList.of(project), ImmutableList.of(),
+                ImmutableList.of(), ImmutableList.of(), Optional.empty());
+        ReviewRun original = run();
+        when(notebooks.getNotebook("workspace")).thenReturn(notebook);
+        RepositoryContextMatcher.ScopeMatch missing = new RepositoryContextMatcher.ScopeMatch(project, ImmutableList.of("Repository-wide scope"),
+                RepositoryContextMatcher.Rank.REPOSITORY, true);
+        when(reader.select(REVIEW, original, WORKSPACE, Optional.empty(), notebook)).thenReturn(new RepositoryContextReader.Selection(Optional.of(BASE),
+                new RepositoryContextMatcher.Selection(ImmutableList.of(), ImmutableList.of(missing)), ImmutableList.of(), ImmutableList.of()));
+        when(inputs.capture(WORKSPACE, Optional.of(BASE), notebook, ImmutableList.of(project))).thenReturn(ImmutableList.of(input));
+        captureWrites();
+
+        assertThat(service.prepareRun(REVIEW, original, WORKSPACE, Optional.empty()).context().orElseThrow().preparationScopeIds()).isEmpty();
+    }
+
+    @Test
+    void olderSnapshotJsonWithoutPreparationScopesStillLoads()
+            throws Exception
+    {
+        ReviewContextSnapshot original = new ReviewContextSnapshot("context", true, 0, 42, Optional.of(BASE), Optional.of(ContextPacket.create("Reference")),
+                ImmutableList.of(), ImmutableList.of(), ImmutableList.of(), ImmutableList.of(), ImmutableList.of(), ImmutableList.of(), ImmutableList.of());
+        ObjectMapper mapper = new ObjectMapper().findAndRegisterModules();
+        ObjectNode json = (ObjectNode) mapper.valueToTree(original);
+        json.remove("preparationScopeIds");
+
+        ReviewContextSnapshot restored = mapper.treeToValue(json, ReviewContextSnapshot.class);
+
+        assertThat(restored.preparationScopeIds()).isEmpty();
+        assertThat(restored).isEqualTo(original);
     }
 
     @Test

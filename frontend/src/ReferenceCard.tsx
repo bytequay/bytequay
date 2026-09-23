@@ -11,7 +11,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties, type MouseEvent, type ReactNode } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type MouseEvent, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';
 import { CircleDot, GitPullRequest } from 'lucide-react';
 import Avatar from './Avatar';
@@ -210,7 +210,18 @@ export default function ReferenceCard({ id, hover, item, body, actions }: {
   const card = useRef<HTMLDivElement>(null);
   const [moved, setMoved] = useState<CSSProperties | null>(null);
   const [sized, setSized] = useState<CSSProperties | null>(null);
+  const [height, setHeight] = useState(CARD_HEIGHT[item.type]);
   const { anchor, pinned, close, hide, hold, pin, restoreFocus } = hover;
+
+  useLayoutEffect(() => {
+    if (anchor === null || card.current === null) return;
+    const element = card.current;
+    const measure = () => setHeight(element.getBoundingClientRect().height);
+    measure();
+    const observer = new ResizeObserver(measure);
+    observer.observe(element);
+    return () => observer.disconnect();
+  }, [anchor]);
 
   // Every fresh hover hands over a new rectangle, which drops whatever the reader did to the last card.
   useEffect(() => {
@@ -283,7 +294,7 @@ export default function ReferenceCard({ id, hover, item, body, actions }: {
   const byline = item.byline ?? defaultByline(item);
   const style: CSSProperties = {
     maxHeight: Math.min(CARD_HEIGHT[item.type], window.innerHeight - 20),
-    ...anchorPanel(anchor, CARD_WIDTH, CARD_HEIGHT[item.type], anchor.left + 40),
+    ...anchorPanel(anchor, CARD_WIDTH, height, anchor.left + 40),
     ...moved,
     ...sized,
   };

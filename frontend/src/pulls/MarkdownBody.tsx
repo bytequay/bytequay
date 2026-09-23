@@ -17,6 +17,7 @@ import hljs from 'highlight.js/lib/common';
 import {
   openGitHubReference,
   parseGitHubReference,
+  referenceHref,
   type GitHubReference,
   type GitHubReferencePreview,
   resolveGitHubReference,
@@ -790,16 +791,17 @@ export function ReferenceLink({ reference, showTitle = false, icon = true, child
   const preview = useReferencePreview(reference, open || showTitle);
 
   const kind = preview?.kind ?? reference.kind;
+  const href = referenceHref(reference, kind);
   const title = preview?.kind === 'pull' ? preview.detail.title : preview?.kind === 'issue' ? preview.issue.title : null;
   const openReference = () => {
     hover.close();
-    void openGitHubReference({ ...reference, kind });
+    void openGitHubReference(reference, preview);
   };
 
   return <>
     <a
       className={`md-reference is-${kind}`}
-      href={reference.href}
+      href={href}
       aria-describedby={open ? previewId : undefined}
       onMouseEnter={event => hover.show(event.currentTarget)}
       onMouseLeave={() => hover.hide()}
@@ -810,7 +812,7 @@ export function ReferenceLink({ reference, showTitle = false, icon = true, child
         // A surface that already took the click, like a task showing its own pull request in a panel, keeps it.
         if (event.defaultPrevented) return;
         event.preventDefault();
-        void openGitHubReference({ ...reference, kind });
+        void openGitHubReference(reference, preview);
       }}
     >
       {icon && <ReferenceIcon pull={kind === 'pull'} />}

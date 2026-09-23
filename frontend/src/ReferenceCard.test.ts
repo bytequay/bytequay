@@ -13,6 +13,7 @@
  */
 import { describe, expect, it } from 'vitest';
 import { anchorPanel, clampCardOrigin, previewMarkdown, stateChip } from './ReferenceCard';
+import { runBrowserFixture } from './fixtures/browserFixture';
 
 describe('clampCardOrigin', () => {
   const card = { width: 480, height: 400 };
@@ -86,3 +87,14 @@ describe('previewMarkdown', () => {
     expect(previewMarkdown(null)).toBe('');
   });
 });
+
+it('shows a short hover card beside its link and resolves a pull-shaped issue link in Chromium', async () => {
+  await runBrowserFixture({
+    prefix: 'bytequay-reference-card-',
+    entry: 'src/fixtures/referenceCardBrowser.tsx',
+    global: 'ReferenceCardTests',
+    styles: true,
+    width: 900,
+    height: 800,
+  });
+}, 30_000);

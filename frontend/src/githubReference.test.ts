@@ -76,6 +76,28 @@ describe('GitHub references', () => {
     expect(openInAppBrowser).not.toHaveBeenCalled();
   });
 
+  it('resolves a pull URL pointing to an issue and opens the issue URL', async () => {
+    const bridge = {
+      fetchPullRequestDetailByRef: vi.fn().mockRejectedValue(new Error('Not a pull request')),
+      fetchGitHubIssuePreview: vi.fn().mockResolvedValue(issuePreview),
+      openInAppBrowser: vi.fn(),
+    };
+    const dispatchEvent = vi.fn();
+    vi.stubGlobal('window', { bridge, dispatchEvent });
+    const reference = parseGitHubReference('https://github.com/trinodb/trino/pull/31252');
+    if (!reference) throw new Error('Expected a GitHub reference');
+
+    expect(await resolveGitHubReference(reference)).toMatchObject({
+      kind: 'issue', issue: { title: issuePreview.title },
+    });
+    await openGitHubReference(reference);
+
+    expect(bridge.fetchPullRequestDetailByRef).toHaveBeenCalledWith('trinodb/trino', 31252);
+    expect(bridge.fetchGitHubIssuePreview).toHaveBeenCalledWith('trinodb', 'trino', 31252);
+    expect(bridge.openInAppBrowser).toHaveBeenCalledWith('https://github.com/trinodb/trino/issues/31252');
+    expect(zoomed(dispatchEvent)).toEqual([]);
+  });
+
   it.each([[], [{ id: 'workspace-1', monitoredOwner: 'trinodb', monitoredRepo: 'trino' }]])(
     'loads an uncached issue independently of watched workspaces: %j', async workspaces => {
       const bridge = {

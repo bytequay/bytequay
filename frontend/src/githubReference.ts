@@ -44,6 +44,12 @@ export function parseGitHubReference(href: string): GitHubReference | null {
   }
 }
 
+export function referenceHref(reference: GitHubReference, kind: GitHubReference['kind']): string {
+  return kind === reference.kind
+    ? reference.href
+    : `https://github.com/${reference.owner}/${reference.repo}/${kind === 'pull' ? 'pull' : 'issues'}/${reference.number}`;
+}
+
 export function pullRequestRoute(reference: Pick<GitHubReference, 'owner' | 'repo' | 'number'>): string {
   return `#/pulls/${encodeURIComponent(reference.owner)}/${encodeURIComponent(reference.repo)}/${reference.number}`;
 }
@@ -98,6 +104,16 @@ export async function resolveGitHubReference(reference: GitHubReference): Promis
     };
   }
   catch {
+    // A PR-shaped URL can point at an issue. GitHub's issues endpoint identifies both kinds.
+    if (reference.kind === 'pull') {
+      try {
+        const issue = await window.bridge.fetchGitHubIssuePreview(reference.owner, reference.repo, reference.number);
+        if (!issue.pullRequest) return { kind: 'issue', workspaceId: null, issue };
+      }
+      catch {
+        // Keep the link usable when GitHub cannot provide either preview.
+      }
+    }
     return null;
   }
 }
@@ -116,14 +132,11 @@ export function zoomReference(target: ZoomedReference): void {
   window.dispatchEvent(new CustomEvent(ZOOM_REFERENCE, { detail: target }));
 }
 
-export async function openGitHubReference(reference: GitHubReference): Promise<void> {
+export async function openGitHubReference(reference: GitHubReference, preview?: GitHubReferencePreview | null): Promise<void> {
   const repo = `${reference.owner}/${reference.repo}`;
-  if (reference.kind === 'pull') {
-    zoomReference({ kind: 'pull', repo, number: reference.number });
-    return;
-  }
-  const resolved = await resolveGitHubReference(reference).catch((): null => null);
-  if (resolved?.kind === 'pull') {
+  const resolved = preview ?? await resolveGitHubReference(reference).catch((): null => null);
+  const kind = resolved?.kind ?? reference.kind;
+  if (kind === 'pull') {
     zoomReference({ kind: 'pull', repo, number: reference.number });
     return;
   }
@@ -132,5 +145,5 @@ export async function openGitHubReference(reference: GitHubReference): Promise<v
     zoomReference({ kind: 'issue', repo, number: reference.number, workspaceId: resolved.workspaceId });
     return;
   }
-  await window.bridge.openInAppBrowser(reference.href);
+  await window.bridge.openInAppBrowser(referenceHref(reference, kind));
 }

@@ -633,3 +633,18 @@ and [result](../evaluation/repository-context-native-memory/result.json) retain
 the input/output checks without the marker. This is one cross-task non-leak
 observation per lane, not proof that provider-held memory is absent in every
 case or that pretraining can be disabled.
+
+## Claude discussion with a new cached comment
+
+An isolated Claude review of a three-file boundary change was accepted with
+complete coverage and one supported finding. After acceptance, a simulated
+comment was added to the local PR cache. A question on the existing purpose
+card received a 1,236-byte supplement with that exact comment and a freshness
+warning; delivery was confirmed. Claude checked the comment's false result
+against the frozen code, rejected it and preserved the original finding. The
+review summary, finding, notebook revision, initial packets and fingerprints
+were unchanged; only the new discussion evidence and delivery were appended.
+The [saved case](../evaluation/repository-context-claude-discussion/README.md)
+and [result](../evaluation/repository-context-claude-discussion/result.json)
+show the identities and limits. The notebook was empty, so this validates
+discussion capture and the frozen-card boundary rather than knowledge reuse.

@@ -595,7 +595,7 @@ opening settings or inspecting a source list must not launch generation.
 - [x] Confirm bounded documentation capture and one workspace generation owner
   in automated cancellation, concurrency and explicit-refresh/replay regressions.
   Repeat under live-provider acceptance; fixtures do not establish live behavior.
-- [ ] Run live cold then warm review for each lane intended for enablement,
+- [x] Run live cold then warm review for each lane intended for enablement,
   plus an explicit builder and a new-comment discussion on an existing card.
   Codex explicit Learn, empty-notebook review preparation, saved-note reuse/delivery
   and a local-comment discussion fixture passed. Complete review validation now
@@ -603,7 +603,11 @@ opening settings or inspecting a source list must not launch generation.
   recorded separately. A later Claude sample completed cold review, explicit
   Learn and saved-note reuse; cold review skipped preparation despite the prompt,
   so its enforcement repair and repeat are tracked below. The fixture had no
-  discussion message for a live lesson draft. Provider acceptance remains open.
+  discussion message for a live lesson draft. A later Claude existing-card
+  question received a confirmed 1,236-byte supplement containing a new cached
+  comment; the agent checked the frozen code, rebutted the false comment and
+  left the accepted card unchanged. The independent quality and performance
+  gates still control enablement.
 
 Gate: no known unsupported note-only finding or cross-run evidence acceptance;
 no duplicate generation or write-lock held across external work; bounded payloads

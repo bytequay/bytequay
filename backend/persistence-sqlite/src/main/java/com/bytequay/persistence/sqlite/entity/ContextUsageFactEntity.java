@@ -30,10 +30,10 @@ import lombok.Getter;
         @Index(name = "idx_context_usage_workspace_time", columnList = "workspace_id, occurred_at_ms"),
         @Index(name = "idx_context_usage_workspace_entry", columnList = "workspace_id, entry_id"),
         @Index(name = "idx_context_usage_task", columnList = "workspace_id, task_id, occurred_at_ms")})
+@Getter
 public class ContextUsageFactEntity
 {
     @Id
-    @Getter
     private String id;
 
     @Column(name = "workspace_id", nullable = false)
@@ -93,4 +93,53 @@ public class ContextUsageFactEntity
     private String payloadDigest;
 
     public ContextUsageFactEntity() {}
+
+    public ContextUsageFactEntity(String id, String payloadDigest, ContextUsageEvent event)
+    {
+        this.id = id;
+        this.payloadDigest = payloadDigest;
+        workspaceId = event.workspaceId();
+        taskId = event.taskId();
+        turnId = event.turnId().orElse(null);
+        reviewRunId = event.reviewRunId().orElse(null);
+        taskKind = event.taskKind();
+        stage = event.stage();
+        delivery = event.delivery();
+        receiptRef = event.receiptRef();
+        ContextUsageEvent.Note note = event.note().orElse(null);
+        ContextUsageEvent.Scope scope = event.scope().orElse(null);
+        entryId = note == null ? null : note.id();
+        entryVersion = note == null ? null : note.version();
+        entryKind = note == null ? null : note.kind();
+        scopeId = note == null ? scope == null ? null : scope.id() : note.scopeId();
+        entryTitle = note == null ? null : note.title();
+        observedPreparation = scope == null ? null : scope.preparation();
+        contextEnabled = event.contextEnabled().orElse(null);
+        occurredAtMillis = event.occurredAt().toEpochMilli();
+    }
+
+    public String getTaskKindName()
+    {
+        return taskKind.name();
+    }
+
+    public String getStageName()
+    {
+        return stage.name();
+    }
+
+    public String getDeliveryName()
+    {
+        return delivery.name();
+    }
+
+    public String getEntryKindName()
+    {
+        return entryKind == null ? null : entryKind.name();
+    }
+
+    public String getObservedPreparationName()
+    {
+        return observedPreparation == null ? null : observedPreparation.name();
+    }
 }

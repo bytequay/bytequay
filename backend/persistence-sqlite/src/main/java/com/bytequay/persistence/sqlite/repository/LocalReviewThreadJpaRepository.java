@@ -15,6 +15,8 @@ package com.bytequay.persistence.sqlite.repository;
 
 import com.bytequay.persistence.sqlite.entity.LocalReviewThreadEntity;
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Modifying;
+import org.springframework.data.jpa.repository.Query;
 
 import java.util.List;
 
@@ -24,4 +26,8 @@ public interface LocalReviewThreadJpaRepository
     List<LocalReviewThreadEntity> findByTaskIdOrderByIdAsc(String taskId);
 
     List<LocalReviewThreadEntity> findByRepoAndNumberOrderByIdAsc(String repo, int number);
+
+    @Modifying
+    @Query("DELETE FROM LocalReviewThreadEntity thread WHERE thread.taskId = :taskId")
+    void deleteByTaskId(String taskId);
 }

@@ -110,8 +110,9 @@ and desktop packaging. Electron browser fixtures and packaging required an
 unsandboxed run on this host. The new Usage view measures observed reach, not
 review correctness; the live provider and human comparison checks above remain
 open. The separate persistence refactor removed all three production
-JDBC-template users. Usage reads use bounded JPA projections, while atomic receipt writes
-and workspace cleanup retain SQLite-specific SQL through JPA's EntityManager.
+JDBC-template users. Usage reads and task cleanup use Spring Data repositories;
+the receipt upsert retains SQLite's atomic conflict rule in one repository query.
+Workspace cleanup retains its ordered SQLite-specific SQL through EntityManager.
 Low-level SQL in schema and store tests remains test-only.
 
 ## Cold-start priority order

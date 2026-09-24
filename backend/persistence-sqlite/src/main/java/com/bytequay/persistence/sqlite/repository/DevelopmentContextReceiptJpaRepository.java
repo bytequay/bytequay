@@ -41,5 +41,6 @@ public interface DevelopmentContextReceiptJpaRepository
     long taskBytes(String taskId);
 
     @Modifying
+    @Query("DELETE FROM DevelopmentContextReceiptEntity receipt WHERE receipt.taskId = :taskId")
     void deleteByTaskId(String taskId);
 }

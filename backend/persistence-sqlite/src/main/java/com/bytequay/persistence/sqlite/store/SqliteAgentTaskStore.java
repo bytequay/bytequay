@@ -31,8 +31,13 @@ import com.bytequay.persistence.sqlite.repository.AgentProcessLaunchJpaRepositor
 import com.bytequay.persistence.sqlite.repository.AgentQueuedInputJpaRepository;
 import com.bytequay.persistence.sqlite.repository.AgentTaskJpaRepository;
 import com.bytequay.persistence.sqlite.repository.AgentTurnJpaRepository;
+import com.bytequay.persistence.sqlite.repository.BranchRebaseJpaRepository;
+import com.bytequay.persistence.sqlite.repository.ContextUsageFactJpaRepository;
+import com.bytequay.persistence.sqlite.repository.DevelopmentContextReceiptJpaRepository;
+import com.bytequay.persistence.sqlite.repository.LocalReviewThreadJpaRepository;
+import com.bytequay.persistence.sqlite.repository.RecentTextJpaRepository;
+import com.bytequay.persistence.sqlite.repository.RecentTouchJpaRepository;
 import com.google.common.collect.ImmutableList;
-import jakarta.persistence.EntityManager;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.stereotype.Repository;
 import org.springframework.transaction.annotation.Transactional;
@@ -64,7 +69,12 @@ public class SqliteAgentTaskStore
     private final AgentInputDeliveryJpaRepository deliveries;
     private final AgentEventOutboxJpaRepository outbox;
     private final AgentProcessLaunchJpaRepository launches;
-    private final EntityManager entities;
+    private final BranchRebaseJpaRepository rebases;
+    private final RecentTouchJpaRepository recentTouches;
+    private final RecentTextJpaRepository recentTexts;
+    private final LocalReviewThreadJpaRepository reviewThreads;
+    private final ContextUsageFactJpaRepository usage;
+    private final DevelopmentContextReceiptJpaRepository contextReceipts;
 
     public SqliteAgentTaskStore(
             AgentTaskJpaRepository repository,
@@ -74,7 +84,12 @@ public class SqliteAgentTaskStore
             AgentInputDeliveryJpaRepository deliveries,
             AgentEventOutboxJpaRepository outbox,
             AgentProcessLaunchJpaRepository launches,
-            EntityManager entities)
+            BranchRebaseJpaRepository rebases,
+            RecentTouchJpaRepository recentTouches,
+            RecentTextJpaRepository recentTexts,
+            LocalReviewThreadJpaRepository reviewThreads,
+            ContextUsageFactJpaRepository usage,
+            DevelopmentContextReceiptJpaRepository contextReceipts)
     {
         this.repository = requireNonNull(repository, "repository is null");
         this.turns = requireNonNull(turns, "turns is null");
@@ -83,7 +98,12 @@ public class SqliteAgentTaskStore
         this.deliveries = requireNonNull(deliveries, "deliveries is null");
         this.outbox = requireNonNull(outbox, "outbox is null");
         this.launches = requireNonNull(launches, "launches is null");
-        this.entities = requireNonNull(entities, "entities is null");
+        this.rebases = requireNonNull(rebases, "rebases is null");
+        this.recentTouches = requireNonNull(recentTouches, "recentTouches is null");
+        this.recentTexts = requireNonNull(recentTexts, "recentTexts is null");
+        this.reviewThreads = requireNonNull(reviewThreads, "reviewThreads is null");
+        this.usage = requireNonNull(usage, "usage is null");
+        this.contextReceipts = requireNonNull(contextReceipts, "contextReceipts is null");
     }
 
     @Override
@@ -229,16 +249,15 @@ public class SqliteAgentTaskStore
     {
         requireNonNull(taskId, "taskId is null");
         String id = taskId.toString();
-        if (entities.createQuery("SELECT COUNT(rebase) FROM BranchRebaseEntity rebase WHERE rebase.agentTaskId = :taskId AND rebase.terminalAt IS NULL", Long.class)
-                .setParameter("taskId", id).getSingleResult() > 0) {
+        if (rebases.existsByAgentTaskIdAndTerminalAtIsNull(id)) {
             throw new AgentConflictException("Task has an active branch rebase: " + taskId);
         }
-        entities.createQuery("DELETE FROM BranchRebaseEntity rebase WHERE rebase.agentTaskId = :taskId").setParameter("taskId", id).executeUpdate();
-        entities.createQuery("DELETE FROM RecentTouchEntity touch WHERE touch.itemKey = :itemKey").setParameter("itemKey", "task:" + id).executeUpdate();
-        entities.createQuery("DELETE FROM RecentTextEntity text WHERE text.itemKey = :itemKey").setParameter("itemKey", "task:" + id).executeUpdate();
-        entities.createQuery("DELETE FROM LocalReviewThreadEntity thread WHERE thread.taskId = :taskId").setParameter("taskId", id).executeUpdate();
-        entities.createQuery("DELETE FROM ContextUsageFactEntity fact WHERE fact.taskId = :taskId").setParameter("taskId", id).executeUpdate();
-        entities.createQuery("DELETE FROM DevelopmentContextReceiptEntity receipt WHERE receipt.taskId = :taskId").setParameter("taskId", id).executeUpdate();
+        rebases.deleteByAgentTaskId(id);
+        recentTouches.deleteByItemKey("task:" + id);
+        recentTexts.deleteByItemKey("task:" + id);
+        reviewThreads.deleteByTaskId(id);
+        usage.deleteByTaskId(id);
+        contextReceipts.deleteByTaskId(id);
         // A launch names its owner, the task or one of its turns; nothing else ties it to the task.
         List<String> owners = Stream.concat(Stream.of(id), turns.findByTaskIdOrderByCreatedAtAsc(id).stream().map(AgentTurnEntity::getId))
                 .collect(toImmutableList());

@@ -307,7 +307,7 @@ class TestReviewRuntimeRecovery
     {
         return new RunView("run-1", 1, ReviewRun.Scope.FULL, "main", "a".repeat(40), "a".repeat(40), "b".repeat(40), Optional.empty(), ImmutableList.of(),
                 1, ImmutableList.of("turn-1"), ReviewRun.State.RUNNING, Optional.empty(), Optional.empty(), Optional.empty(), ImmutableList.of(), ImmutableList.of(),
-                context, deliveries, activities, reads, false, Optional.empty(), NOW, NOW, Optional.empty());
+                context, deliveries, activities, reads, ImmutableList.of(), false, Optional.empty(), NOW, NOW, Optional.empty());
     }
 
     private AgentMaintenance maintenance()

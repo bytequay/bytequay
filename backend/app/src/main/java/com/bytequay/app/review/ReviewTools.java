@@ -1579,9 +1579,21 @@ public class ReviewTools
             throw new ReviewInvalidRequestException("note_search: the workspace notebook is unavailable; no search was retained");
         }
         ObjectNode result = (ObjectNode) objectMapper.valueToTree(search);
+        List<String> suppliedSelected = paths.stream().filter(suppliedPaths::contains).collect(toImmutableList());
+        int frozenSelected = paths.size() - suppliedSelected.size();
         result.put("searchRef", key).put("originalNotebookRevision", call.run().context().orElseThrow().notebookRevision())
                 .put("newerThanSnapshot", search.notebookRevision() > call.run().context().orElseThrow().notebookRevision())
-                .put("query", query).put("pathHintCount", paths.size()).put("frozenPathHints", frozenPaths.size());
+                .put("query", query).put("pathHintCount", paths.size()).put("frozenPathHints", frozenSelected);
+        var displayedPaths = result.putArray("paths");
+        result.put("omittedPathHints", suppliedSelected.size());
+        for (String path : suppliedSelected) {
+            displayedPaths.add(path);
+            result.put("omittedPathHints", suppliedSelected.size() - displayedPaths.size());
+            if (ContextLimits.bytes(result.toString()) > 16 * 1024) {
+                displayedPaths.remove(displayedPaths.size() - 1);
+                result.put("omittedPathHints", suppliedSelected.size() - displayedPaths.size());
+            }
+        }
         String encoded = result.toString();
         if (ContextLimits.bytes(encoded) > 16 * 1024) {
             throw new ReviewInvalidRequestException("note_search: result exceeds 16 KiB; narrow the query");

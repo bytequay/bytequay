@@ -16,6 +16,7 @@ package com.bytequay.app.web.review;
 import com.bytequay.app.review.AgentReviewProjection;
 import com.bytequay.app.review.AgentReviewProjection.ContextDeliveryState;
 import com.bytequay.app.review.AgentReviewProjection.ContextNoteRead;
+import com.bytequay.app.review.AgentReviewProjection.ContextNoteSearch;
 import com.bytequay.app.review.AgentReviewProjection.ContextPreparationActivity;
 import com.bytequay.app.review.ReviewPublicationService;
 import com.bytequay.core.context.ReviewContextSnapshot;
@@ -100,6 +101,7 @@ final class ReviewHttpModels
                 run.contextDeliveryStates(),
                 run.contextPreparationActivities(),
                 run.contextNoteReads(),
+                run.contextNoteSearches(),
                 run.outcome(),
                 run.createdAt(),
                 run.endedAt());
@@ -267,6 +269,7 @@ final class ReviewHttpModels
             Map<String, ContextDeliveryState> contextDeliveryStates,
             List<ContextPreparationActivity> contextPreparationActivities,
             List<ContextNoteRead> contextNoteReads,
+            List<ContextNoteSearch> contextNoteSearches,
             Optional<String> outcome,
             Instant createdAt,
             Optional<Instant> endedAt)
@@ -277,6 +280,7 @@ final class ReviewHttpModels
             contextDeliveryStates = ImmutableMap.copyOf(contextDeliveryStates);
             contextPreparationActivities = ImmutableList.copyOf(contextPreparationActivities);
             contextNoteReads = ImmutableList.copyOf(contextNoteReads);
+            contextNoteSearches = ImmutableList.copyOf(contextNoteSearches);
         }
     }
 

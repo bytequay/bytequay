@@ -53,6 +53,7 @@ import com.bytequay.app.service.settings.AgentModelType;
 import com.bytequay.app.service.settings.ModelSettingsService;
 import com.bytequay.app.workspace.WorkspaceRepositoryContext;
 import com.bytequay.app.workspace.WorkspaceRepositoryService;
+import com.bytequay.core.context.ContextUsageEvent;
 import com.bytequay.core.domain.DiffFile;
 import com.bytequay.core.domain.PullRequestDetail;
 import com.bytequay.core.review.AgentReview;
@@ -70,6 +71,7 @@ import com.bytequay.core.review.ReviewNotFoundException;
 import com.bytequay.core.review.ReviewRun;
 import com.bytequay.core.review.ReviewStep;
 import com.bytequay.core.review.ReviewValidation;
+import com.bytequay.core.store.ContextUsageStore;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.util.concurrent.Striped;
@@ -124,6 +126,7 @@ public class DefaultAgentReviewService
     private final ReviewTaskObserver observer;
     private final ReviewContextService context;
     private final ReviewContextPreparationCleanup preparationCleanup;
+    private final ContextUsageStore contextUsage;
     private final Clock clock;
     private final Striped<Lock> startLocks = Striped.lock(32);
     private final ReviewLocks locks;
@@ -150,6 +153,7 @@ public class DefaultAgentReviewService
             ReviewLocks locks,
             ReviewContextService context,
             ReviewContextPreparationCleanup preparationCleanup,
+            ContextUsageStore contextUsage,
             Clock clock)
     {
         this.store = requireNonNull(store, "store is null");
@@ -172,6 +176,7 @@ public class DefaultAgentReviewService
         this.observer = requireNonNull(observer, "observer is null");
         this.context = requireNonNull(context, "context is null");
         this.preparationCleanup = requireNonNull(preparationCleanup, "preparationCleanup is null");
+        this.contextUsage = requireNonNull(contextUsage, "contextUsage is null");
         this.clock = requireNonNull(clock, "clock is null");
         this.locks = requireNonNull(locks, "locks is null");
     }
@@ -964,6 +969,9 @@ public class DefaultAgentReviewService
     {
         AgentReview review = requireReview(reviewId);
         List<ReviewRun> runs = store.listRuns(reviewId);
+        List<ContextUsageEvent> usage = runs.stream().anyMatch(run -> run.operations().keySet().stream()
+                .anyMatch(key -> key.startsWith("context-search:"))) ? contextUsage.listTask(review.workspaceId(), review.taskId(), 1001) : ImmutableList.of();
+        boolean usageTruncated = usage.size() > 1000;
         TaskId taskId = TaskId.valueOf(review.taskId());
         AgentTask task = tasks.get(taskId);
         Optional<AgentTurn> active = activeTurn(task);
@@ -976,7 +984,8 @@ public class DefaultAgentReviewService
                 review,
                 runs.stream().map(run -> AgentReviewProjection.RunView.of(run, run.context().stream().flatMap(snapshot -> snapshot.deliveries().stream())
                         .collect(toImmutableMap(delivery -> delivery.turnId(), delivery -> AgentReviewProjection.ContextDeliveryState.of(
-                                turnStore.find(TurnId.valueOf(delivery.turnId())).filter(turn -> turn.taskId().equals(taskId))))))).collect(toImmutableList()),
+                                turnStore.find(TurnId.valueOf(delivery.turnId())).filter(turn -> turn.taskId().equals(taskId))))),
+                        usage, usageTruncated)).collect(toImmutableList()),
                 store.listFindings(reviewId),
                 store.listMessages(reviewId).stream().map(this::messageView).collect(toImmutableList()),
                 new AgentReviewProjection.TaskView(

@@ -881,13 +881,16 @@ class TestReviewTools
         noteContext(ImmutableList.of(), ImmutableMap.of());
         when(notebooks.getNotebook(WORKSPACE_ID)).thenReturn(noteNotebook(8, "Later knowledge"));
         int writes = store.runUpdates;
-        Map<String, Object> query = ImmutableMap.of("kind", "note_search", "query", "Original", "operationKey", "later-knowledge");
+        Map<String, Object> query = ImmutableMap.of("kind", "note_search", "query", "Original", "paths", ImmutableList.of("src/"),
+                "operationKey", "later-knowledge");
 
         JsonNode search = call("review_get_context", query);
         assertThat(search.path("contextState").asText()).isEqualTo("MATCHES");
         assertThat(search.path("newerThanSnapshot").asBoolean()).isTrue();
         assertThat(search.at("/hits/0/entryId").asText()).isEqualTo("knowledge:project");
         assertThat(search.at("/hits/0/entryVersion").asLong()).isEqualTo(8);
+        assertThat(search.at("/paths/0").asText()).isEqualTo("src/");
+        assertThat(search.path("omittedPathHints").asInt()).isZero();
         assertThat(store.findRun(RUN_ID).orElseThrow().context().orElseThrow().selectedEntries()).isEmpty();
         assertThat(store.runUpdates).isEqualTo(writes + 1);
 

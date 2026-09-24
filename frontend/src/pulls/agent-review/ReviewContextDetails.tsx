@@ -12,7 +12,7 @@
  * limitations under the License.
  */
 import type { ContextContributionDto, ContextDeliveryDto } from '../../repository-context/contracts';
-import type { ContextDeliveryStateDto, ReviewFindingDto, ReviewRunDto } from './contracts';
+import type { ContextDeliveryStateDto, ContextNoteSearchDto, ReviewFindingDto, ReviewRunDto } from './contracts';
 import { reviewCitations, EvidenceCitationLinks, type EvidenceCitations } from './ReviewEvidenceLinks';
 import ReviewPreparationActivity from './ReviewPreparationActivity';
 
@@ -130,6 +130,56 @@ function DeliveryReceipt({ delivery, run, index, citations }: { delivery: Contex
   </details>;
 }
 
+function NoteSearchReceipt({ search, index, run, citations }: { search: ContextNoteSearchDto; index: number; run: ReviewRunDto; citations: EvidenceCitations }) {
+  const confirmed = search.delivery === 'CONFIRMED';
+  const label = search.status === 'RECEIPT_UNAVAILABLE' ? 'Receipt unavailable' : confirmed ? search.hits.length > 0 ? 'Found later' : 'Search delivered'
+    : search.delivery === 'PREPARED' ? 'Search result prepared' : 'Delivery uncertain';
+  return <details className="agr-context__item">
+    <summary>Notebook search {index + 1} · {label} · {search.hits.length} {search.hits.length === 1 ? 'hit' : 'hits'}</summary>
+    {search.status === 'RECEIPT_UNAVAILABLE' ? <p>The saved search receipt is unavailable. No current notebook results were substituted.</p> : <>
+      <p>{confirmed ? 'The provider received this search result.' : 'The saved result does not confirm that the provider received it.'}
+        {' '}Note summaries and match reasons are pointers; they do not prove the note was read or useful.</p>
+      <dl className="agr-context__facts">
+        <dt>Search text</dt><dd>{search.query || 'No text query'}</dd>
+        <dt>Retained agent path hints</dt><dd>{search.paths.length === 0 ? 'None' : search.paths.join(', ')}</dd>
+        <dt>Notebook revision</dt><dd>{search.notebookRevision ?? 'Unavailable'}{search.newerThanSnapshot ? ' · newer than the initial snapshot' : ''}</dd>
+        <dt>Initial notebook revision</dt><dd>{search.originalNotebookRevision ?? 'Unavailable'}</dd>
+        <dt>Path hints used</dt><dd>{search.pathHintCount} total · {search.frozenPathHints} frozen review paths</dd>
+        <dt>Search receipt</dt><dd><code>{search.searchRef}</code></dd>
+      </dl>
+      {search.omittedPathHints > 0 && <p>{search.omittedPathHints} path {search.omittedPathHints === 1 ? 'hint was' : 'hints were'} omitted.</p>}
+      {search.omittedCount > 0 && <p>{search.omittedCount} additional {search.omittedCount === 1 ? 'hit was' : 'hits were'} omitted by the result limit.</p>}
+      {search.contextState === 'NO_MATCH' && <p>No saved note matched this search.</p>}
+      {search.contextState === 'UNKNOWN' && <p>The search match state is unavailable.</p>}
+      {search.hits.map(hit => {
+        const read = hit.read;
+        const readLabel = read?.status === 'RECEIPT_UNAVAILABLE' ? 'Read receipt unavailable'
+          : read?.delivery === 'CONFIRMED' ? 'Opened' : read?.delivery === 'PREPARED' ? 'Exact read prepared'
+            : read === null ? null : 'Exact read delivery uncertain';
+        return <details className="agr-context__item" key={`${hit.entryId}:${hit.entryVersion}`}>
+          <summary>{hit.title} · version {hit.entryVersion} · {hit.initiallySelected ? 'also in initial selection' : confirmed ? 'found later' : 'saved search hit'}</summary>
+          <p>{hit.kind === 'KNOWLEDGE' ? 'Knowledge' : 'Saved lesson'} · scope <code>{hit.scopeId}</code> · applicability unverified</p>
+          <p>{hit.summary}</p>
+          <strong>Why matched</strong><ul>{hit.matchReasons.map(reason => <li key={reason}>{reason}</li>)}</ul>
+          {read === null ? <p>No exact note read was saved for this hit.</p> : <details className="agr-context__evidence">
+            <summary>{readLabel} · exact version {hit.entryVersion}</summary>
+            <p>{read.status === 'RECEIPT_UNAVAILABLE' ? 'The saved exact read cannot be inspected.'
+              : read.delivery === 'CONFIRMED' ? 'The provider received this exact note read.'
+                : 'A read result was saved, but provider delivery is not confirmed.'} Its claims remain unverified.</p>
+            <p>Read receipt · <code>{read.receiptRef}</code></p>
+            {read.status === 'RECEIPT_UNAVAILABLE' ? <p>The exact saved read is unavailable. No current note was substituted.</p> : <>
+              <Evidence run={run} reference={read.evidenceRef} citations={citations} />
+              {Object.entries(read.sourceEvidenceRefs).map(([source, reference]) => <div key={source}>
+                <p>Notebook source: <code>{source}</code></p><Evidence run={run} reference={reference} citations={citations} />
+              </div>)}
+            </>}
+          </details>}
+        </details>;
+      })}
+    </>}
+  </details>;
+}
+
 export default function ReviewContextDetails({ run, findings = [] }: { run: ReviewRunDto; findings?: ReviewFindingDto[] }) {
   const citations = reviewCitations(run, findings);
   const context = run.context;
@@ -146,7 +196,11 @@ export default function ReviewContextDetails({ run, findings = [] }: { run: Revi
     ...context.sourceReads.flatMap(read => read.evidenceRef === null ? [] : [read.evidenceRef]), ...context.contributions.flatMap(item => item.evidenceRefs),
     ...context.deliveries.flatMap(item => item.discussionSupplement?.evidenceRefs ?? []),
     ...run.contextNoteReads.flatMap(read => [...(read.evidenceRef === null ? [] : [read.evidenceRef]), ...Object.values(read.sourceEvidenceRefs)]),
+    ...run.contextNoteSearches.flatMap(search => search.hits.flatMap(hit => hit.read === null ? []
+      : [...(hit.read.evidenceRef === null ? [] : [hit.read.evidenceRef]), ...Object.values(hit.read.sourceEvidenceRefs)])),
   ]);
+  const laterReadReceipts = new Map(run.contextNoteSearches.flatMap(search => search.hits.flatMap(hit => hit.read === null ? []
+    : [[hit.read.receiptRef, hit.read] as const])));
   const cited = [...references].filter(reference => citations.has(reference)).length;
   const capturedBytes = context.sourceReads.reduce((sum, read) => sum + read.utf8Bytes, 0);
   const included = context.selectedEntries.filter(entry => entry.inclusion === 'INCLUDED').length;
@@ -164,7 +218,8 @@ export default function ReviewContextDetails({ run, findings = [] }: { run: Revi
     <p>Delivery and source reads do not establish that context was understood or improved the review.</p>
     <dl className="agr-context__facts">
       <dt>Captured source text</dt><dd>{capturedBytes.toLocaleString()} UTF-8 bytes across {context.sourceReads.length} read receipts</dd>
-      <dt>Retrieved note text</dt><dd>{run.contextNoteReads.reduce((sum, read) => sum + new TextEncoder().encode(read.text ?? '').length, 0).toLocaleString()} UTF-8 bytes in saved note reads</dd>
+      <dt>Initial selection note reads</dt><dd>{run.contextNoteReads.reduce((sum, read) => sum + new TextEncoder().encode(read.text ?? '').length, 0).toLocaleString()} UTF-8 bytes in saved exact reads</dd>
+      <dt>Later exact read receipts</dt><dd>{[...laterReadReceipts.values()].filter(read => read.delivery === 'CONFIRMED').length} confirmed · {laterReadReceipts.size} saved</dd>
       <dt>Cited sources</dt><dd>{cited} of {references.size} saved context references cited by findings or validation conclusions</dd>
       <dt>Token usage</dt><dd>Not recorded for repository context</dd>
       <dt>Notebook revision</dt><dd>{context.notebookRevision}</dd>
@@ -193,8 +248,8 @@ export default function ReviewContextDetails({ run, findings = [] }: { run: Revi
         {entry.text !== null ? <pre className="agr-evidence__excerpt">{entry.text}</pre> : <p>This note was deferred; its text was not included in the packet.</p>}
         {run.contextNoteReads.filter(read => read.entryId === entry.entryId && read.entryVersion === entry.entryVersion).map(read => <div key={read.entryId}>
           {read.status === 'RECEIPT_UNAVAILABLE' ? <p>The saved exact-version read is unavailable. No current note has been substituted.</p> : <details className="agr-context__evidence">
-            <summary>Retrieved by agent · exact version {read.entryVersion}</summary>
-            <p>This saved tool read is separate from the initial packet. The note’s claims remain unverified.</p>
+            <summary>Saved exact read · version {read.entryVersion}</summary>
+            <p>This saved tool read is separate from the initial packet. Its provider delivery and the note’s claims remain unverified here.</p>
             <Evidence run={run} reference={read.evidenceRef} citations={citations} />
             {Object.entries(read.sourceEvidenceRefs).map(([source, reference]) => <div key={source}>
               <p>Notebook source: <code>{source}</code></p><Evidence run={run} reference={reference} citations={citations} />
@@ -205,6 +260,11 @@ export default function ReviewContextDetails({ run, findings = [] }: { run: Revi
           <p>Notebook source: <code>{source}</code></p><Evidence run={run} reference={reference} citations={citations} />
         </div>)}
       </details>)}
+    </details>
+    <details className="agr-context__item">
+      <summary>Later notebook searches · {run.contextNoteSearches.length}</summary>
+      {run.contextNoteSearches.length === 0 && <p>No later notebook search was saved for this run.</p>}
+      {run.contextNoteSearches.map((search, index) => <NoteSearchReceipt key={search.searchRef} search={search} index={index} run={run} citations={citations} />)}
     </details>
     <details className="agr-context__item">
       <summary>Related history · {context.relatedItems.length}</summary>

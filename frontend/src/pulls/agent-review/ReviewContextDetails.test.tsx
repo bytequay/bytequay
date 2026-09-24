@@ -19,7 +19,7 @@ import ReviewDetails from './ReviewDetails';
 import ReviewThread from './ReviewThread';
 import { reviewFixture } from './fixtures/review';
 import { reviewCitations } from './ReviewEvidenceLinks';
-import type { ContextDeliveryStateDto, ContextPreparationActivityDto, ContextNoteReadDto, ReviewCandidateValidationDto, ReviewRunDto } from './contracts';
+import type { ContextDeliveryStateDto, ContextPreparationActivityDto, ContextNoteReadDto, ContextNoteSearchDto, ReviewCandidateValidationDto, ReviewRunDto } from './contracts';
 
 const original = reviewFixture().runs[0];
 const packet = 'Exact packet\n<script>source text</script>\n  retain indentation\n';
@@ -212,14 +212,61 @@ describe('saved review repository context', () => {
     const finding = { ...reviewFixture().findings[0], evidence: [evidence[1]] };
     const html = renderToStaticMarkup(<ReviewContextDetails run={{ ...run, evidence, contextNoteReads: [read] }} findings={[finding]} />);
     expect(html).toContain('Iceberg contracts · version 5 · deferred');
-    expect(html).toContain('Retrieved by agent · exact version 5');
+    expect(html).toContain('Saved exact read · version 5');
     expect(html).toContain('Exact deferred note');
     expect(html).toContain('Captured note source');
     expect(html).toContain('1 of 3 saved context references cited');
     const unavailable = renderToStaticMarkup(<ReviewContextDetails run={{ ...run, contextNoteReads: [{ ...read, status: 'RECEIPT_UNAVAILABLE',
       text: null, evidenceRef: null, sourceEvidenceRefs: {} }] }} />);
     expect(unavailable).toContain('The saved exact-version read is unavailable. No current note has been substituted.');
-    expect(unavailable).not.toContain('Retrieved by agent');
+    expect(unavailable).not.toContain('Saved exact read');
+  });
+
+  it('shows later search matches and exact reads with their separate provider receipts', () => {
+    const exactRead = { status: 'AVAILABLE' as const, evidenceRef: 'note:later', sourceEvidenceRefs: { 'source:pr': 'E2' },
+      delivery: 'CONFIRMED' as const, receiptRef: 'context-note:later' };
+    const search: ContextNoteSearchDto = { searchRef: 'context-search:later', status: 'AVAILABLE', notebookRevision: 7,
+      originalNotebookRevision: 4, newerThanSnapshot: true, contextState: 'MATCHES', query: 'retry', paths: ['plugin/iceberg/'],
+      omittedPathHints: 1, pathHintCount: 2, frozenPathHints: 1, omittedCount: 2, delivery: 'CONFIRMED', hits: [
+        { entryId: 'memory:retry', entryVersion: 3, kind: 'MEMORY', scopeId: 'iceberg', title: 'Retry lesson',
+          summary: 'Review retry guard <script>alert(1)</script>', matchReasons: ['Search text: retry', 'Changed path'],
+          applicability: 'UNVERIFIED', initiallySelected: false, read: exactRead },
+        { entryId: 'knowledge:project', entryVersion: 2, kind: 'KNOWLEDGE', scopeId: 'project', title: 'Architecture',
+          summary: 'Initial note', matchReasons: ['Project scope'], applicability: 'UNVERIFIED', initiallySelected: true, read: null },
+      ] };
+    const evidence = [...run.evidence, { ref: 'note:later', source: 'Later exact note', provenance: 'Saved read', excerpt: 'Exact v3 text', explanation: '' },
+      { ref: 'E2', source: 'Merged PR', provenance: 'Local source', excerpt: 'Source text', explanation: '' }];
+    const html = renderToStaticMarkup(<ReviewContextDetails run={{ ...run, evidence, contextNoteSearches: [search] }} />);
+    expect(html).toContain('Later notebook searches · 1');
+    expect(html).toContain('Notebook search 1 · Found later · 2 hits');
+    expect(html).toContain('retry');
+    expect(html).toContain('plugin/iceberg/');
+    expect(html).toContain('newer than the initial snapshot');
+    expect(html).toContain('2 additional hits were omitted');
+    expect(html).toContain('Retry lesson · version 3 · found later');
+    expect(html).toContain('Architecture · version 2 · also in initial selection');
+    expect(html).toContain('Search text: retry');
+    expect(html).toContain('Opened · exact version 3');
+    expect(html).toContain('Exact v3 text');
+    expect(html).toContain('Later exact read receipts</dt><dd>1 confirmed · 1 saved');
+    expect(html).toContain('3 saved context references');
+    expect(html).toContain('&lt;script&gt;alert(1)&lt;/script&gt;');
+    expect(html).not.toContain('<script>');
+
+    const prepared = renderToStaticMarkup(<ReviewContextDetails run={{ ...run, contextNoteSearches: [{ ...search, delivery: 'PREPARED',
+      hits: [{ ...search.hits[0], read: { ...exactRead, delivery: 'UNCERTAIN' } }] }] }} />);
+    expect(prepared).toContain('Notebook search 1 · Search result prepared');
+    expect(prepared).toContain('Exact read delivery uncertain');
+    expect(prepared).not.toContain('Notebook search 1 · Found later');
+    expect(prepared).not.toContain('Opened · exact version 3');
+    const noMatch = renderToStaticMarkup(<ReviewContextDetails run={{ ...run, contextNoteSearches: [{ ...search,
+      contextState: 'NO_MATCH', hits: [] }] }} />);
+    expect(noMatch).toContain('Notebook search 1 · Search delivered · 0 hits');
+    expect(noMatch).toContain('No saved note matched this search.');
+    const unavailable = renderToStaticMarkup(<ReviewContextDetails run={{ ...run, contextNoteSearches: [{ ...search,
+      status: 'RECEIPT_UNAVAILABLE', contextState: 'UNKNOWN', delivery: 'UNKNOWN', hits: [] }] }} />);
+    expect(unavailable).toContain('Notebook search 1 · Receipt unavailable');
+    expect(unavailable).toContain('No current notebook results were substituted.');
   });
 
   it('offers Save lesson only for messages bound to a retained run, including older runs', () => {

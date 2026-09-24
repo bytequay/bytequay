@@ -13,9 +13,14 @@
  */
 package com.bytequay.app.review;
 
+import com.bytequay.core.context.ContextEntryKind;
+import com.bytequay.core.context.ContextPacket;
 import com.bytequay.core.context.ContextSelectedEntry;
+import com.bytequay.core.context.ContextUsageEvent;
+import com.bytequay.core.context.ReviewContextSnapshot;
 import com.bytequay.core.review.ReviewEvidence;
 import com.bytequay.core.review.ReviewOperation;
+import com.bytequay.core.review.ReviewRun;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.hash.Hashing;
@@ -28,6 +33,7 @@ import java.util.Map;
 import java.util.Optional;
 
 import static com.bytequay.app.review.AgentReviewProjection.noteRead;
+import static com.bytequay.app.review.AgentReviewProjection.noteSearches;
 import static com.bytequay.app.review.AgentReviewProjection.preparationActivities;
 import static org.assertj.core.api.Assertions.assertThat;
 
@@ -120,6 +126,91 @@ class TestAgentReviewProjection
         ContextSelectedEntry newer = new ContextSelectedEntry(selected.entryId(), 4, selected.title(), Optional.empty(), ImmutableMap.of(),
                 selected.matchReasons(), selected.applicability(), selected.inclusion());
         assertThat(noteRead(newer, operations, evidence)).isEmpty();
+    }
+
+    @Test
+    void laterSearchAndExactReadShowOnlyConfirmedReceipts()
+    {
+        String searchRef = "context-search:" + "a".repeat(64);
+        String id = "knowledge:component";
+        String digest = Hashing.sha256().hashString(searchRef + "\n" + id + "\n2", StandardCharsets.UTF_8).toString();
+        String readRef = "context-note:" + digest;
+        String search = """
+                {"searchRef":"%s","notebookRevision":5,"originalNotebookRevision":3,"newerThanSnapshot":true,
+                 "contextState":"MATCHES","query":"snapshot","paths":["src/"],"omittedPathHints":0,
+                 "pathHintCount":4,"frozenPathHints":3,"omittedCount":0,"hits":[
+                   {"entryId":"%s","entryVersion":2,"kind":"KNOWLEDGE","scopeId":"scope:component",
+                    "title":"Component","summary":"Snapshot guidance","matchReasons":["Topic match only"],"applicability":"UNVERIFIED"}]}
+                """.formatted(searchRef, id);
+        String read = """
+                {"status":"AVAILABLE","searchRef":"%s","entryId":"%s","entryVersion":2,
+                 "text":"Exact saved note","evidenceRef":"%s","sourceEvidenceRefs":{"source":"E1"}}
+                """.formatted(searchRef, id, readRef);
+        ReviewRun run = run(true, ImmutableList.of(), ImmutableMap.of(
+                searchRef, operation(search), readRef, new ReviewOperation(digest, read)), ImmutableMap.of(
+                readRef, new ReviewEvidence(readRef, "Note", "Saved", "Exact saved note", "Unverified"),
+                "E1", new ReviewEvidence("E1", "Source", "Saved", "Original passage", "Unverified")));
+        ContextUsageEvent found = usage(searchRef, ContextUsageEvent.Stage.FOUND, ContextUsageEvent.Delivery.PREPARED);
+        ContextUsageEvent opened = usage(readRef, ContextUsageEvent.Stage.OPENED, ContextUsageEvent.Delivery.CONFIRMED);
+
+        AgentReviewProjection.ContextNoteSearch result = noteSearches(run, ImmutableList.of(found, opened), false).getFirst();
+        assertThat(result.status()).isEqualTo(AgentReviewProjection.ContextNoteSearch.Status.AVAILABLE);
+        assertThat(result.query()).isEqualTo("snapshot");
+        assertThat(result.paths()).containsExactly("src/");
+        assertThat(result.frozenPathHints()).isEqualTo(3);
+        assertThat(result.delivery()).isEqualTo(AgentReviewProjection.ContextNoteSearch.Delivery.PREPARED);
+        assertThat(result.hits()).hasSize(1);
+        assertThat(result.hits().getFirst().matchReasons()).containsExactly("Topic match only");
+        assertThat(result.hits().getFirst().initiallySelected()).isFalse();
+        AgentReviewProjection.ContextNoteSearchRead exact = result.hits().getFirst().read().orElseThrow();
+        assertThat(exact.delivery()).isEqualTo(AgentReviewProjection.ContextNoteSearch.Delivery.CONFIRMED);
+        assertThat(exact.evidenceRef()).contains(readRef);
+        assertThat(exact.sourceEvidenceRefs()).containsExactlyEntriesOf(ImmutableMap.of("source", "E1"));
+        assertThat(noteSearches(run, ImmutableList.of(usage(searchRef, ContextUsageEvent.Stage.FOUND,
+                ContextUsageEvent.Delivery.CONFIRMED), opened), false).getFirst().delivery())
+                .isEqualTo(AgentReviewProjection.ContextNoteSearch.Delivery.CONFIRMED);
+    }
+
+    @Test
+    void malformedSearchDoesNotInventHitsAndFrozenNotesAreMarked()
+    {
+        String ref = "context-search:" + "b".repeat(64);
+        ContextSelectedEntry selected = new ContextSelectedEntry("knowledge:project", 3, "Project", Optional.empty(), ImmutableMap.of(),
+                ImmutableList.of("Project scope"), ContextSelectedEntry.Applicability.UNVERIFIED, ContextSelectedEntry.Inclusion.DEFERRED);
+        String result = """
+                {"searchRef":"%s","notebookRevision":3,"originalNotebookRevision":3,"newerThanSnapshot":false,
+                 "contextState":"MATCHES","query":"project","pathHintCount":0,"frozenPathHints":0,"omittedCount":0,"hits":[
+                   {"entryId":"knowledge:project","entryVersion":3,"kind":"KNOWLEDGE","scopeId":"project",
+                    "title":"Project","summary":"Overview","matchReasons":["Project scope"],"applicability":"UNVERIFIED"}]}
+                """.formatted(ref);
+        ReviewRun run = run(true, ImmutableList.of(selected), ImmutableMap.of(ref, operation(result)), ImmutableMap.of());
+        assertThat(noteSearches(run, ImmutableList.of(), false).getFirst().hits().getFirst().initiallySelected()).isTrue();
+        ReviewRun malformed = run(true, ImmutableList.of(), ImmutableMap.of(ref, operation("{\"searchRef\":\"wrong\"}")), ImmutableMap.of());
+        AgentReviewProjection.ContextNoteSearch unavailable = noteSearches(malformed, ImmutableList.of(), true).getFirst();
+        assertThat(unavailable.status()).isEqualTo(AgentReviewProjection.ContextNoteSearch.Status.RECEIPT_UNAVAILABLE);
+        assertThat(unavailable.hits()).isEmpty();
+        assertThat(unavailable.delivery()).isEqualTo(AgentReviewProjection.ContextNoteSearch.Delivery.UNKNOWN);
+        assertThat(noteSearches(run(false, ImmutableList.of(), ImmutableMap.of(ref, operation(result)), ImmutableMap.of()), ImmutableList.of(), false)).isEmpty();
+    }
+
+    private static ReviewRun run(boolean enabled, List<ContextSelectedEntry> selected, Map<String, ReviewOperation> operations,
+            Map<String, ReviewEvidence> evidence)
+    {
+        String sha = "a".repeat(40);
+        ReviewContextSnapshot snapshot = new ReviewContextSnapshot("snapshot", enabled, 3, 1, Optional.of(sha),
+                enabled ? Optional.of(ContextPacket.create("Saved packet")) : Optional.empty(), selected, ImmutableList.of(), ImmutableList.of(),
+                ImmutableList.of(), ImmutableList.of(), ImmutableList.of(), ImmutableList.of());
+        Instant now = Instant.parse("2026-01-01T00:00:00Z");
+        return new ReviewRun("run", "review", 1, ReviewRun.Scope.FULL, "main", sha, sha, sha, Optional.empty(), ImmutableList.of(),
+                ImmutableList.of(), ImmutableList.of(), ReviewRun.State.RUNNING, Optional.empty(), Optional.empty(), Optional.empty(),
+                ImmutableList.of(), false, operations, evidence, Optional.of(snapshot), Optional.empty(), 0, now, now, Optional.empty());
+    }
+
+    private static ContextUsageEvent usage(String ref, ContextUsageEvent.Stage stage, ContextUsageEvent.Delivery delivery)
+    {
+        return new ContextUsageEvent("workspace", "task", Optional.of("turn"), Optional.of("run"), ContextUsageEvent.TaskKind.PR_REVIEW,
+                stage, delivery, ref, Optional.of(new ContextUsageEvent.Note("knowledge:component", 2, ContextEntryKind.KNOWLEDGE,
+                "scope:component", "Component")), Optional.empty(), Optional.empty(), Instant.parse("2026-01-01T00:00:00Z"));
     }
 
     private static ReviewOperation operation(String result)

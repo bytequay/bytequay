@@ -78,6 +78,20 @@ export type ContextNoteReadDto = {
   evidenceRef: string | null; sourceEvidenceRefs: Record<string, string>;
 };
 
+type ContextNoteToolDeliveryDto = 'PREPARED' | 'CONFIRMED' | 'UNCERTAIN' | 'UNKNOWN';
+type ContextNoteSearchReadDto = { status: 'AVAILABLE' | 'RECEIPT_UNAVAILABLE'; evidenceRef: string | null;
+  sourceEvidenceRefs: Record<string, string>; delivery: ContextNoteToolDeliveryDto; receiptRef: string };
+
+export type ContextNoteSearchDto = {
+  searchRef: string; status: 'AVAILABLE' | 'RECEIPT_UNAVAILABLE'; notebookRevision: number | null;
+  originalNotebookRevision: number | null; newerThanSnapshot: boolean; contextState: 'MATCHES' | 'NO_MATCH' | 'UNKNOWN'; query: string; paths: string[];
+  omittedPathHints: number; pathHintCount: number; frozenPathHints: number; omittedCount: number;
+  delivery: ContextNoteToolDeliveryDto;
+  hits: Array<{ entryId: string; entryVersion: number; kind: 'KNOWLEDGE' | 'MEMORY'; scopeId: string;
+    title: string; summary: string; matchReasons: string[]; applicability: 'UNVERIFIED';
+    initiallySelected: boolean; read: ContextNoteSearchReadDto | null }>;
+};
+
 export type ReviewRunDto = {
   id: string;
   ordinal: number;
@@ -99,6 +113,7 @@ export type ReviewRunDto = {
   contextDeliveryStates: Record<string, ContextDeliveryStateDto>;
   contextPreparationActivities: ContextPreparationActivityDto[];
   contextNoteReads: ContextNoteReadDto[];
+  contextNoteSearches: ContextNoteSearchDto[];
   outcome: string | null;
   createdAt: string;
   endedAt: string | null;
@@ -420,10 +435,66 @@ function parseNoteRead(value: unknown): ContextNoteReadDto {
   return result;
 }
 
+function parseNoteSearchRead(value: unknown): ContextNoteSearchReadDto {
+  const read = object(value, 'context note search read');
+  const result: ContextNoteSearchReadDto = { status: oneOf(read.status, ['AVAILABLE', 'RECEIPT_UNAVAILABLE'] as const, 'found note read status'),
+    receiptRef: text(read.receiptRef, 'found note read reference'),
+    evidenceRef: read.evidenceRef === null ? null : text(read.evidenceRef, 'found note evidence'),
+    sourceEvidenceRefs: Object.fromEntries(Object.entries(object(read.sourceEvidenceRefs, 'found note source references'))
+      .map(([id, source]) => [id, text(source, 'found note source reference')])),
+    delivery: oneOf(read.delivery, ['PREPARED', 'CONFIRMED', 'UNCERTAIN', 'UNKNOWN'] as const, 'context note tool delivery') };
+  if ((result.status === 'AVAILABLE') !== (result.evidenceRef !== null)
+    || (result.status === 'RECEIPT_UNAVAILABLE' && Object.keys(result.sourceEvidenceRefs).length > 0)) {
+    throw new Error('Malformed found note read status and evidence');
+  }
+  return result;
+}
+
+function parseNoteSearch(value: unknown): ContextNoteSearchDto {
+  const item = object(value, 'saved context note search');
+  const integer = (value: unknown, what: string, minimum = 0) => {
+    const parsed = count(value, what);
+    if (!Number.isSafeInteger(parsed) || parsed < minimum) throw new Error(`Malformed ${what} from the review service`);
+    return parsed;
+  };
+  const revision = (value: unknown, what: string) => value === null ? null : integer(value, what);
+  const stringList = (value: unknown, what: string) => {
+    if (!Array.isArray(value) || value.some(part => typeof part !== 'string')) throw new Error(`Malformed ${what} from the review service`);
+    return value as string[];
+  };
+  const delivery = (value: unknown) => oneOf(value, ['PREPARED', 'CONFIRMED', 'UNCERTAIN', 'UNKNOWN'] as const, 'context note tool delivery');
+  if (typeof item.newerThanSnapshot !== 'boolean' || !Array.isArray(item.hits)) throw new Error('Malformed saved context note search');
+  return { searchRef: text(item.searchRef, 'context note search reference'),
+    status: oneOf(item.status, ['AVAILABLE', 'RECEIPT_UNAVAILABLE'] as const, 'context note search status'),
+    notebookRevision: revision(item.notebookRevision, 'context note notebook revision'),
+    originalNotebookRevision: revision(item.originalNotebookRevision, 'original context note notebook revision'),
+    newerThanSnapshot: item.newerThanSnapshot,
+    contextState: oneOf(item.contextState, ['MATCHES', 'NO_MATCH', 'UNKNOWN'] as const, 'context note search state'),
+    query: text(item.query, 'context note query'), paths: stringList(item.paths, 'context note paths'),
+    omittedPathHints: integer(item.omittedPathHints, 'omitted context note paths'),
+    pathHintCount: integer(item.pathHintCount, 'context note path count'),
+    frozenPathHints: integer(item.frozenPathHints, 'frozen context note paths'),
+    omittedCount: integer(item.omittedCount, 'omitted context note hits'), delivery: delivery(item.delivery),
+    hits: item.hits.map(value => {
+      const hit = object(value, 'context note search hit');
+      if (typeof hit.initiallySelected !== 'boolean') throw new Error('Malformed found note initial selection');
+      return { entryId: text(hit.entryId, 'found note id'), entryVersion: integer(hit.entryVersion, 'found note version', 1),
+        kind: oneOf(hit.kind, ['KNOWLEDGE', 'MEMORY'] as const, 'found note kind'), scopeId: text(hit.scopeId, 'found note scope'),
+        title: text(hit.title, 'found note title'), summary: text(hit.summary, 'found note summary'),
+        matchReasons: stringList(hit.matchReasons, 'found note reasons'),
+        applicability: oneOf(hit.applicability, ['UNVERIFIED'] as const, 'found note applicability'),
+        initiallySelected: hit.initiallySelected,
+        read: hit.read === null ? null : parseNoteSearchRead(hit.read),
+      };
+    }),
+  };
+}
+
 function parseRun(value: unknown): ReviewRunDto {
   const run = object(value, 'review run');
   if (!Array.isArray(run.contextPreparationActivities)) throw new Error('Malformed context preparation activities');
   if (!Array.isArray(run.contextNoteReads)) throw new Error('Malformed saved context note reads');
+  if (!Array.isArray(run.contextNoteSearches)) throw new Error('Malformed saved context note searches');
   return {
     id: text(run.id, 'run id'),
     ordinal: count(run.ordinal, 'run ordinal'),
@@ -448,6 +519,7 @@ function parseRun(value: unknown): ReviewRunDto {
     contextDeliveryStates: parseContextDeliveryStates(run.contextDeliveryStates),
     contextPreparationActivities: list(run.contextPreparationActivities).map(parsePreparationActivity),
     contextNoteReads: list(run.contextNoteReads).map(parseNoteRead),
+    contextNoteSearches: list(run.contextNoteSearches).map(parseNoteSearch),
     outcome: optionalText(run.outcome),
     createdAt: text(run.createdAt, 'run time'),
     endedAt: optionalText(run.endedAt),

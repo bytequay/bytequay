@@ -89,6 +89,7 @@ import com.bytequay.core.review.ReviewRun;
 import com.bytequay.core.review.ReviewStep;
 import com.bytequay.core.review.ReviewSummary;
 import com.bytequay.core.review.ReviewValidation;
+import com.bytequay.core.store.ContextUsageStore;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
@@ -1956,6 +1957,7 @@ class TestDefaultAgentReviewService
         private final ReviewTaskObserver observer = mock(ReviewTaskObserver.class);
         private final ReviewContextService context = mock(ReviewContextService.class);
         private final ReviewContextPreparationCleanup preparationCleanup = mock(ReviewContextPreparationCleanup.class);
+        private final ContextUsageStore contextUsage = mock(ContextUsageStore.class);
         private final Map<String, AgentTurn> acceptedTurns = new LinkedHashMap<>();
         private final DefaultAgentReviewService service;
 
@@ -1983,6 +1985,7 @@ class TestDefaultAgentReviewService
                     new ReviewLocks(),
                     context,
                     preparationCleanup,
+                    contextUsage,
                     CLOCK);
             when(context.prepareRun(any(AgentReview.class), any(ReviewRun.class), any(WorkspaceRepositoryContext.class), any()))
                     .thenAnswer(invocation -> invocation.getArgument(1));

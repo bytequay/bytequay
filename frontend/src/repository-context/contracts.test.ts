@@ -12,7 +12,7 @@
  * limitations under the License.
  */
 import { describe, expect, it } from 'vitest';
-import { parseAgentReview, type ContextNoteReadDto, type ContextPreparationActivityDto, type ContextDeliveryStateDto } from '../pulls/agent-review/contracts';
+import { parseAgentReview, type ContextNoteReadDto, type ContextNoteSearchDto, type ContextPreparationActivityDto, type ContextDeliveryStateDto } from '../pulls/agent-review/contracts';
 import { reviewFixture } from '../pulls/agent-review/fixtures/review';
 import {
   parseApplyContextDiscoveryRequest,
@@ -296,6 +296,25 @@ describe('repository context contracts', () => {
     for (const bad of [undefined, [{ ...read, status: 'VERSION_UNAVAILABLE' }], [{ ...read, entryVersion: 0 }],
       [{ ...read, text: null }], [{ ...read, evidenceRef: undefined }], [{ ...read, sourceEvidenceRefs: ['invalid'] }],
       [{ ...read, status: 'RECEIPT_UNAVAILABLE' }]]) expect(() => parse(bad)).toThrow();
+  });
+
+  it('parses later search receipts without inventing provider delivery or note reads', () => {
+    const review = reviewFixture();
+    const search: ContextNoteSearchDto = { searchRef: 'context-search:1', status: 'AVAILABLE', notebookRevision: 5,
+      originalNotebookRevision: 2, newerThanSnapshot: true, contextState: 'MATCHES', query: 'retry', paths: ['plugin/iceberg/'],
+      omittedPathHints: 0, pathHintCount: 1, frozenPathHints: 1, omittedCount: 0, delivery: 'PREPARED', hits: [
+        { entryId: 'memory:retry', entryVersion: 2, kind: 'MEMORY', scopeId: 'iceberg', title: 'Retry lesson', summary: 'Check retry state',
+          matchReasons: ['Search text'], applicability: 'UNVERIFIED', initiallySelected: false, read: null },
+      ] };
+    const parse = (contextNoteSearches: unknown) => parseAgentReview({ ...review, runs: [{ ...review.runs[0], contextNoteSearches }] });
+    expect(parse([search]).runs[0].contextNoteSearches).toEqual([search]);
+    for (const bad of [undefined, null, [{ ...search, delivery: 'OPENED' }], [{ ...search, contextState: 'FIXED' }],
+      [{ ...search, notebookRevision: -1 }], [{ ...search, paths: 'plugin/iceberg/' }], [{ ...search, omittedCount: -1 }],
+      [{ ...search, hits: [{ ...search.hits[0], initiallySelected: 'yes' }] }],
+      [{ ...search, hits: [{ ...search.hits[0], read: { status: 'AVAILABLE', evidenceRef: 'E1', sourceEvidenceRefs: {},
+        delivery: 'CONFIRMED' } }] }],
+      [{ ...search, hits: [{ ...search.hits[0], read: { status: 'AVAILABLE', evidenceRef: null as string | null, sourceEvidenceRefs: {},
+        delivery: 'CONFIRMED', receiptRef: 'context-note:1' } }] }]]) expect(() => parse(bad)).toThrow();
   });
 
   it('keeps optimistic revisions and absent configuration fields unchanged', () => {

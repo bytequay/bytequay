@@ -66,6 +66,7 @@ const RUN: ReviewRunDto = {
   contextDeliveryStates: {},
   contextPreparationActivities: [],
   contextNoteReads: [],
+  contextNoteSearches: [],
   outcome: null,
   createdAt: '2026-09-06T16:03:00Z',
   endedAt: '2026-09-06T16:15:00Z',

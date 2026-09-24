@@ -32,12 +32,15 @@ any knowledge text exists. Its scope row is not a generated summary. Once a
 review investigation or an explicit build produces the note, Project overview
 appears under **Knowledge**; until then, the scope is unprepared.
 
-There are two durable aggregates:
+The original review flow has two durable aggregates:
 
 1. One notebook JSON value per workspace in the existing application settings.
 2. A context snapshot on the existing review run, with source excerpts in its
    existing evidence map and bounded per-turn delivery bindings. New discussion
    source supplements remain a separate integration requirement.
+
+The agent-discovery extension also retains task-level delivery and lookup
+receipts for the Repository context Usage view.
 
 Knowledge is shared across that workspace's review tasks and providers. The
 first version does not automatically share notebooks across distinct workspaces,
@@ -58,28 +61,28 @@ Included:
 
 Deferred:
 
-- Full development-turn context integration, CI/cherry-pick integration, and
-  independent child-agent delivery. Development-associated PR reviews are included
-  because they already use the same review workflow.
+- Agent-initiated notebook generation or writes during development, CI/cherry-pick integration,
+  and independent child-agent delivery. Development-associated PR reviews use
+  the same review workflow.
 - Automatic incoming-comment triage or a full re-review of an unchanged accepted head.
 - Autonomous promotion of findings into memory, embeddings/vector search, whole-site
   crawling, a knowledge graph, background model research, or a new scheduler.
 - A separate database, Git repository for notes, provider memory framework, or
   new Maven module.
 
-The notebook can be reused by development later; this design does not silently
-add context tools or notebook write authority to ordinary development tasks.
-The proposed [agent discovery extension](repository-context-agent-discovery.md)
-specifies that next read-only step for review and development. Its boundary is
-not part of this approved first version until reviewed and implemented.
+The implemented [agent discovery extension](repository-context-agent-discovery.md)
+adds bounded notebook offers, search and exact reads to ordinary development
+tasks and active reviews. It does not give agents notebook write authority.
 
 ## 2. Overall flow
 
 ### Setting and comparison
 
 **Workspace settings → Repository context → Use repository context in reviews**
-is one switch, **on by default** in the shipped feature after its acceptance
-gates pass. There are no separate knowledge/memory/context switches in V1.
+is **on by default** in the shipped feature after its acceptance gates pass.
+The discovery extension adds a separate default-on **Use in development**
+switch for accepted development turns. There are no separate
+knowledge/memory/context switches.
 
 - On: new review runs automatically select, prepare as needed, and receive
   Repository Context as described below.

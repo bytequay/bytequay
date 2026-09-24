@@ -587,3 +587,21 @@ cite. These are automated edge checks, not additional live-provider samples.
 Human findings assessment, independent
 Off/On comparisons and controlled concurrent resource measurements also remain
 open.
+
+## Explicit closed-issue Learn and reuse
+
+An isolated fixture selected cached `contextfixture/issue-case#12`, a closed
+issue with a maintainer comment and no code fix, for an explicit Learn. The
+result was `knowledge:project` version 1, with an exact `ISSUE` source identity,
+captured activity and a `RECORDED_DECISION` claim. It also preserved the gap
+that closure does not prove the behavior is current or fixed. A fresh development
+turn then received, searched for and opened the same note version; all three
+provider receipts were confirmed. Its answer checked the issue's recorded
+decision without presenting closure as a fix. The fixture used only a
+disposable database, local HTTPS Git and a GET-only fake GitHub API; no real
+GitHub writes occurred. [The saved case](../evaluation/repository-context-resolved-issue/README.md)
+and [sanitized result](../evaluation/repository-context-resolved-issue/result.json)
+retain the source hash, frozen inputs, receipts and limitations. This is one
+lookup/reuse observation, not a scored answer-quality comparison. The agent
+made no code change, so development-result automation did not accept an
+implementation result after the provider turn completed.

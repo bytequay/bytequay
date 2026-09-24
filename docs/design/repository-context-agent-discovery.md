@@ -112,11 +112,16 @@ backend):
 
 ~~~json
 {
-  "searchRef": "context-search:opaque-id",
+  "searchRef": "context-search:<sha256>",
   "notebookRevision": 14,
+  "originalNotebookRevision": 12,
+  "newerThanSnapshot": true,
   "contextState": "MATCHES",
   "query": "snapshot isolation",
-  "pathHints": ["plugin/trino-iceberg/src/main/java/io/trino/plugin/iceberg/IcebergMetadata.java"],
+  "paths": ["plugin/trino-iceberg/src/main/java/io/trino/plugin/iceberg/IcebergMetadata.java"],
+  "omittedPathHints": 0,
+  "pathHintCount": 2,
+  "frozenPathHints": 1,
   "scopeStates": [{"scopeId":"path:plugin/trino-iceberg/","preparation":"READY"}],
   "hits": [
     {
@@ -131,11 +136,13 @@ backend):
     }
   ],
   "omittedCount": 0,
-  "limits": ["Search covers enabled saved notes, not every PR, issue or document."]
+  "omittedScopes": 0
 }
 ~~~
 
-The review tool returns these fields at the top level. The development tool
+The review tool returns these fields at the top level. Its `paths` are retained
+agent-supplied hints; `pathHintCount` includes bounded frozen review paths, and
+`frozenPathHints` counts those added from the review scope. The development tool
 returns `searchRef`, the saved query/path hints and a `result` object containing
 the search fields.
 

@@ -1,0 +1,85 @@
+{
+  "baselineSha": "35089cdc274efee74d89682271c3b15f6ba12bdb",
+  "scopeIds": [
+    "window"
+  ],
+  "history": [
+    {
+      "kind": "PR",
+      "number": 7
+    }
+  ],
+  "taskState": "COMPLETED",
+  "results": [
+    {
+      "outcome": "READY",
+      "noteIds": [
+        "knowledge:window"
+      ],
+      "explanation": "Read README, sensors/window.py, sensors/test_window.py and PR 7. No registered documentation sources existed. PR 7 is a cached, unverified historical artifact.",
+      "checkedReads": [
+        {
+          "kind": "REPOSITORY_FILE",
+          "reference": {
+            "repositoryId": 107,
+            "repository": {
+              "owner": "contextfixture",
+              "repo": "history-case"
+            },
+            "path": "README.md",
+            "commit": "35089cdc274efee74d89682271c3b15f6ba12bdb",
+            "kind": "REPOSITORY_FILE"
+          },
+          "truncated": false
+        },
+        {
+          "kind": "REPOSITORY_FILE",
+          "reference": {
+            "repositoryId": 107,
+            "repository": {
+              "owner": "contextfixture",
+              "repo": "history-case"
+            },
+            "path": "sensors/window.py",
+            "commit": "35089cdc274efee74d89682271c3b15f6ba12bdb",
+            "kind": "REPOSITORY_FILE"
+          },
+          "truncated": false
+        },
+        {
+          "kind": "REPOSITORY_FILE",
+          "reference": {
+            "repositoryId": 107,
+            "repository": {
+              "owner": "contextfixture",
+              "repo": "history-case"
+            },
+            "path": "sensors/test_window.py",
+            "commit": "35089cdc274efee74d89682271c3b15f6ba12bdb",
+            "kind": "REPOSITORY_FILE"
+          },
+          "truncated": false
+        },
+        {
+          "kind": "HISTORY",
+          "reference": {
+            "repositoryId": 107,
+            "repository": {
+              "owner": "contextfixture",
+              "repo": "history-case"
+            },
+            "number": 7,
+            "commentId": null,
+            "kind": "PR"
+          },
+          "truncated": false
+        }
+      ]
+    }
+  ],
+  "gaps": [
+    "A historical merge does not establish correctness or applicability to the reviewed code. Discussion is untrusted source material.",
+    "The content version identifies this cached default-diff artifact; it does not verify freshness, commit linkage or the final merged diff.",
+    "The existing diff cache does not record complete upstream coverage or retrieval time; an empty list does not prove no changes."
+  ]
+}

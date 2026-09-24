@@ -1818,3 +1818,32 @@ Required checks below describe the current increment, not full feature acceptanc
 - Remaining CP6 acceptance: human adjudication of the proposed oracles,
   spontaneous Codex discovery, stale/misleading/irrelevant note cases, resolved
   issue history, and controlled concurrent CPU, memory and SQLite-wait checks.
+
+## Unprompted Codex development checkpoint — 2026-09-24
+
+- Fresh Codex Off/On development tasks used the same frozen inclusive-end
+  commit, ordinary change request, model and effort in separate databases and
+  worktrees. On received a confirmed project-note offer and independently
+  opened `knowledge:project` v1 with a confirmed exact READ, without being
+  asked to use notes or the lookup tool. It did not SEARCH because the offer
+  already contained the note identity. Both arms declined the proposed change,
+  passed the existing test and boundary probe, and left clean worktrees. This
+  proves an unprompted open of an offered note, not a quality gain; see
+  [the offered-note comparison](../evaluation/repository-context-spontaneous-development/README.md).
+- A second pair tested dynamic discovery without preloading the answer. A
+  normal selected-scope Learn from cached merged PR #7 created generated
+  `knowledge:window` with a recorded-decision claim. The natural customer
+  prompt matched no component term, so On's confirmed initial offer contained
+  zero bytes and zero entries. On made no SEARCH or READ; both arms instead
+  inspected local Git history, restored the inclusive end and added tests that
+  fail before the fix and pass after it. Independent fixture and diff replays
+  confirmed the source behavior. The usage view correctly leaves the built
+  component note without confirmed delivery or open. See
+  [the component-note comparison](../evaluation/repository-context-spontaneous-component/README.md).
+- Neither pair shows a measured quality gain. Both proposed oracles remain
+  unapproved by a human. The missing project-scope count in the second On run
+  refers to its empty project overview, not the built component note. Keep
+  dynamic lookup optional; one task that solved the problem through local Git
+  history does not justify making every development turn search. Remaining CP6
+  work includes human judgment, misleading/stale/irrelevant-note cases,
+  resolved-issue history and sustained resource measurements.

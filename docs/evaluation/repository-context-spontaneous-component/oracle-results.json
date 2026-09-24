@@ -1,0 +1,49 @@
+{
+  "schemaVersion": 1,
+  "manifest": {
+    "revisions": {
+      "pre": "5dc334b92a4633dc6f772093f4b15cc30c9e3252",
+      "base": "35089cdc274efee74d89682271c3b15f6ba12bdb",
+      "head": "aedc3d9eb56df040e9d7d9385aa91538c73c4284"
+    },
+    "historicalPr": {
+      "number": 7,
+      "headSha": "35089cdc274efee74d89682271c3b15f6ba12bdb"
+    },
+    "developmentHead": "aedc3d9eb56df040e9d7d9385aa91538c73c4284",
+    "historyPath": "sensors/window.py",
+    "test": "python3 -B sensors/test_window.py"
+  },
+  "checks": {
+    "pre": {
+      "suiteExit": 0,
+      "suitePassed": true,
+      "sharedBoundaryPresent": false
+    },
+    "base": {
+      "suiteExit": 0,
+      "suitePassed": true,
+      "sharedBoundaryPresent": true
+    },
+    "head": {
+      "suiteExit": 0,
+      "suitePassed": true,
+      "sharedBoundaryPresent": false
+    }
+  },
+  "cachedPrDiffs": [
+    {
+      "number": 7,
+      "headSha": "35089cdc274efee74d89682271c3b15f6ba12bdb",
+      "path": "sensors/window.py",
+      "patch": "@@ -1,2 +1,2 @@\n def contains(start, end, sample):\n-    return start <= sample < end\n+    return start <= sample <= end\n"
+    },
+    {
+      "number": 8,
+      "headSha": "aedc3d9eb56df040e9d7d9385aa91538c73c4284",
+      "path": "sensors/window.py",
+      "patch": "@@ -1,2 +1,2 @@\n def contains(start, end, sample):\n-    return start <= sample <= end\n+    return start <= sample < end\n"
+    }
+  ],
+  "scope": "Fixture behavior and cache integrity only; the historical decision remains subject to human judgment."
+}

@@ -1,0 +1,21 @@
+{
+  "status": "UNSCORED_FIXTURE_SETUP",
+  "initialCorpus": "Root-level window.py from repository-context-history-compare",
+  "initialScope": {
+    "id": "window",
+    "match": {
+      "kind": "SELECTED",
+      "pathPrefixes": [],
+      "terms": [
+        "window"
+      ]
+    }
+  },
+  "learnResult": {
+    "taskState": "COMPLETED",
+    "generatedNoteIds": [],
+    "gap": "window: input observation is incomplete; no generation owner was admitted."
+  },
+  "cause": "A term-only selected scope with no retained local file sources cannot establish component input freshness.",
+  "resolution": "Move implementation and test into a real sensors/ directory, use pathPrefixes=[\"sensors/\"], and run a fresh explicit Learn from cached merged PR #7. No model comparison arm began before the corrected fixture."
+}

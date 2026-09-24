@@ -133,6 +133,7 @@ final class CodexIsolationGuard
         requireNonNull(cwd, "cwd is null");
         verifyReportedCodexHome();
         verifyNoManagedRequirements();
+        verifyChatGptAccount();
         verifyNoLifecycleHooks(cwd);
         verifyNoAmbientExecPolicyRules(cwd);
         verifySkillOrigin(cwd);
@@ -497,6 +498,15 @@ final class CodexIsolationGuard
         }
         if (!response.get(REQUIREMENTS_FIELD).isNull()) {
             throw unavailable("Codex managed requirements apply to this host");
+        }
+    }
+
+    private void verifyChatGptAccount()
+    {
+        JsonNode response = request("account/read");
+        if (!response.path("requiresOpenaiAuth").asBoolean(false)
+                || !response.path("account").path("type").asText().equals("chatgpt")) {
+            throw unavailable("Codex must use the isolated ChatGPT account");
         }
     }
 

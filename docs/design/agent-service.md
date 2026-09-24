@@ -760,6 +760,9 @@ The implementation must enforce these invariants:
   not exec-policy sources. This is not described as a per-thread rule override.
   Separately, `configRequirements/read` must prove there are no applicable
   managed requirements; non-null or uninspectable requirements fail closed.
+  The task App Server does not set `forced_login_method`, because that setting
+  itself produces a non-null managed requirement. Before any turn, `account/read`
+  must instead report `requiresOpenaiAuth: true` and `account.type: chatgpt`.
 - Definite terminal operations release their matching claim in the same unit
   of work as their terminal state. An unknown provider delivery, orphaned
   process, or active descendant retains the blocking turn or claim and projects

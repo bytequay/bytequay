@@ -411,6 +411,7 @@ class TestCodexCliDriver
         assertThat(supervisor.serverArgv().getFirst()).containsSequence("--disable", "js_repl");
         assertThat(supervisor.serverArgv().getFirst()).containsSequence("--disable", "shell_snapshot");
         assertThat(supervisor.serverArgv().getFirst()).containsSequence("--disable", "unified_exec");
+        assertThat(supervisor.serverArgv().getFirst()).noneMatch(argument -> argument.startsWith("forced_login_method="));
         RunningTurn turn = session.start(command("read only"));
         JsonNode request = supervisor.server().turnRequests().getFirst();
         assertThat(request.path("approvalPolicy").asText()).isEqualTo("never");
@@ -1325,6 +1326,16 @@ class TestCodexCliDriver
                 "{\"requirements\":null,\"futurePolicy\":{}}")))
                 .isInstanceOf(AgentUnavailableException.class)
                 .hasMessageContaining("unknown managed-policy field");
+
+        assertThatThrownBy(() -> startTurnWith(supervisor -> supervisor.reportAccount(
+                "{\"requiresOpenaiAuth\":true,\"account\":{\"type\":\"apiKey\"}}")))
+                .isInstanceOf(AgentUnavailableException.class)
+                .hasMessageContaining("isolated ChatGPT account");
+
+        assertThatThrownBy(() -> startTurnWith(supervisor -> supervisor.reportAccount(
+                "{\"requiresOpenaiAuth\":false,\"account\":{\"type\":\"chatgpt\"}}")))
+                .isInstanceOf(AgentUnavailableException.class)
+                .hasMessageContaining("isolated ChatGPT account");
 
         // A lifecycle hook sits in the approval path that ByteQuay assumes it owns.
         assertThatThrownBy(() -> startTurnWith(supervisor -> supervisor.reportHooks("[{\"name\":\"stop\"}]")))
@@ -2999,6 +3010,7 @@ class TestCodexCliDriver
         /** The environment of every process launched, App Server and probe alike, in launch order. */
         private final List<Map<String, String>> environments = new CopyOnWriteArrayList<>();
         private volatile String managedRequirements = "{\"requirements\":null}";
+        private volatile String account = "{\"requiresOpenaiAuth\":true,\"account\":{\"type\":\"chatgpt\"}}";
         private volatile String hooks = "[]";
         private volatile String configLayers;
         private volatile String configBody = "{}";
@@ -3239,6 +3251,11 @@ class TestCodexCliDriver
             managedRequirements = response;
         }
 
+        private void reportAccount(String response)
+        {
+            account = response;
+        }
+
         private void reportHooks(String discovered)
         {
             hooks = discovered;
@@ -3343,6 +3360,7 @@ class TestCodexCliDriver
                     Path.of(spec.environment().getOrDefault("CODEX_HOME", spec.workingDirectory().toString())),
                     spec.argv(),
                     () -> managedRequirements,
+                    () -> account,
                     () -> hooks,
                     () -> configLayers,
                     () -> configBody,
@@ -3436,6 +3454,7 @@ class TestCodexCliDriver
         private final AtomicInteger resumes = new AtomicInteger();
         private final List<String> approvalPolicies = new CopyOnWriteArrayList<>();
         private final Supplier<String> managedRequirements;
+        private final Supplier<String> account;
         private final Supplier<String> hooks;
         private final Supplier<String> configLayers;
         private final Supplier<String> configBody;
@@ -3495,6 +3514,7 @@ class TestCodexCliDriver
                 Path codexHome,
                 List<String> argv,
                 Supplier<String> managedRequirements,
+                Supplier<String> account,
                 Supplier<String> hooks,
                 Supplier<String> configLayers,
                 Supplier<String> configBody,
@@ -3513,6 +3533,7 @@ class TestCodexCliDriver
             this.codexHome = codexHome;
             this.argv = ImmutableList.copyOf(argv);
             this.managedRequirements = managedRequirements;
+            this.account = account;
             this.hooks = hooks;
             this.configLayers = configLayers;
             this.configBody = configBody;
@@ -3698,6 +3719,7 @@ class TestCodexCliDriver
                             .toString());
                 }
                 case "configRequirements/read" -> respond(id, managedRequirements.get());
+                case "account/read" -> respond(id, account.get());
                 case "config/read" -> respond(id, configReadResponse().toString());
                 case "skills/list" -> respond(id, "{\"data\":[{\"cwd\":\""
                         + message.path("params").path("cwds").get(0).asText()

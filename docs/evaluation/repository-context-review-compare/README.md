@@ -78,8 +78,12 @@ The backend JAR SHA-256 was
 Claude CLI was 2.1.281. Codex CLI 0.156.1 reported READY, but an earlier
 Codex review attempt returned [`codex-blocked.json`](codex-blocked.json):
 HTTP 503, “Codex isolation check failed: Codex managed requirements apply to
-this host.” It reached no model turn and was not scored. A copied, already
-completed Learn task initially left a launch record pointing at a runtime
+this host.” It reached no model turn and was not scored. The cause was a
+ByteQuay launch setting that made the requirements response non-null; the
+subsequent [Codex development lookup check](../repository-context-codex-lookup/README.md)
+completed after that launch setting was removed and ChatGPT account validation
+was moved to `account/read`. A live Codex review comparison is still untested.
+A copied, already completed Learn task initially left a launch record pointing at a runtime
 marker absent from the split arms; startup recovery blocked agent operations.
 The split helper now validates completion and removes that copied record. The
 guard itself was not bypassed for an active process. The background workspace

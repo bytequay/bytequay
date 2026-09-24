@@ -141,8 +141,6 @@ final class CodexLaunchProfile
                 "-c",
                 "cli_auth_credentials_store=\"file\"",
                 "-c",
-                "forced_login_method=\"chatgpt\"",
-                "-c",
                 "web_search=" + tomlString(textOnly || ci ? "disabled" : "live"),
                 "-c",
                 "shell_environment_policy.inherit=" + tomlString(allowGitHubCommands ? "all" : "core"),

@@ -567,18 +567,25 @@ opening settings or inspecting a source list must not launch generation.
   does not change managed policy, tool inventory or trusted caller routing.
   Review/permission tests retain no-publication and no-child authority. Live
   model resistance to misleading text remains part of the unperformed cases.
-- [ ] Verify Claude native-memory settings and supported Codex behavior. Disable
+- [x] Verify Claude native-memory settings and supported Codex behavior. Disable
   autonomous cross-task memory where supported; otherwise document and test the
   limitation before making the lane available. Claude's actual generated settings
   have an explicit autoMemoryEnabled=false regression. Codex now explicitly
   disables memories in process and start/resume configuration; the pinned CLI
   accepted that profile in disposable live runs. The later Claude live fixture
   confirmed that its process used ByteQuay's authenticated profile and generated
-  autoMemoryEnabled=false settings; cross-task behavioral checks remain open.
-  Never claim to disable pretraining.
+  autoMemoryEnabled=false settings. A disposable two-task canary for each lane
+  used distinct provider threads and clean worktrees; the second task did not
+  receive or reproduce the first task's marker. This bounded observation is not
+  proof of absent provider memory. Never claim to disable pretraining.
 - [ ] Measure cold and warm overhead: model turns/tokens, elapsed preparation,
   source requests, notebook/run bytes, SQLite wait/write duration, and peak
   process memory/CPU under simultaneous review/task activity.
+  An isolated Claude review and development turn overlapped for 16.082 seconds
+  with an empty notebook; token, packet, serialized-size and sampled whole-process-tree
+  RSS/CPU values are retained in the concurrent evaluation. This is a missing-note
+  sample, not attributable saved-note overhead. Live SQLite wait/busy-handler time,
+  per-process memory and a concurrent warm-note pair remain unmeasured.
 - [x] Record unknown or unavailable metrics explicitly. If contention exists,
   fix transaction length/write frequency before proposing separate storage.
   Measure existing source-hydrator locks separately from notebook mutation locks.

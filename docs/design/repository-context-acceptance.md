@@ -605,3 +605,31 @@ retain the source hash, frozen inputs, receipts and limitations. This is one
 lookup/reuse observation, not a scored answer-quality comparison. The agent
 made no code change, so development-result automation did not accept an
 implementation result after the provider turn completed.
+
+## Simultaneous review and development sample
+
+An isolated Claude review and development turn overlapped for 16.082 seconds;
+the review was accepted and the development provider turn completed. The
+notebook was empty throughout, so this checks concurrent missing-note behavior,
+not the incremental cost of saved-note delivery. The sampled maximum of
+2,688,352 KiB is summed RSS for the backend process tree and may double-count
+shared memory; no JVM/provider split was retained. Live SQLite pool, transaction
+and busy-handler waits were not instrumented. Rate-limit warnings and one pair
+also prevent a stable latency conclusion. See the [saved measurement](../evaluation/repository-context-concurrent/README.md)
+and [result](../evaluation/repository-context-concurrent/result.json). The
+performance gate remains open for attributable cold/warm note-use overhead and
+SQLite contention under simultaneous activity.
+
+## Cross-task native-memory canary
+
+In a disposable workspace, Codex and Claude each ran two fresh development
+tasks with distinct provider threads. The first task received and repeated a
+one-time marker; the second received no marker in its prompt or worktree,
+answered `UNKNOWN` and did not reproduce it. No tool was called and the
+notebook remained empty. ByteQuay disabled Codex memories in its launch and
+thread configuration, while Claude's actual generated turn settings contained
+`autoMemoryEnabled=false`. The [sanitized observations](../evaluation/repository-context-native-memory/README.md)
+and [result](../evaluation/repository-context-native-memory/result.json) retain
+the input/output checks without the marker. This is one cross-task non-leak
+observation per lane, not proof that provider-held memory is absent in every
+case or that pretraining can be disabled.

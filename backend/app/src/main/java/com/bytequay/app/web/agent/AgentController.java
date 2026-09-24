@@ -58,6 +58,7 @@ import com.bytequay.app.agent.DevelopmentFollowupCoordinator;
 import com.bytequay.app.agent.InteractiveAgentTaskCreator;
 import com.bytequay.app.agent.LocalReviewSessionService;
 import com.bytequay.app.ci.CiAutofixService;
+import com.bytequay.app.context.RepositoryContextService;
 import com.bytequay.app.service.pr.PullRequestService;
 import com.bytequay.app.service.recent.RecentTouchRecorder;
 import com.bytequay.app.service.settings.AppSettingsService;
@@ -147,6 +148,7 @@ public class AgentController
     private final AgentTaskStartupProgress startupProgress;
     private final DevelopmentFollowupCoordinator developmentFollowups;
     private final LocalReviewSessionService localReviewSessions;
+    private final RepositoryContextService repositoryContext;
 
     public AgentController(
             AgentTaskService taskService,
@@ -171,7 +173,8 @@ public class AgentController
             CiAutofixService ci,
             AgentTaskStartupProgress startupProgress,
             DevelopmentFollowupCoordinator developmentFollowups,
-            LocalReviewSessionService localReviewSessions)
+            LocalReviewSessionService localReviewSessions,
+            RepositoryContextService repositoryContext)
     {
         this.taskService = requireNonNull(taskService, "taskService is null");
         this.taskTitles = requireNonNull(taskTitles, "taskTitles is null");
@@ -196,6 +199,7 @@ public class AgentController
         this.startupProgress = requireNonNull(startupProgress, "startupProgress is null");
         this.developmentFollowups = requireNonNull(developmentFollowups, "developmentFollowups is null");
         this.localReviewSessions = requireNonNull(localReviewSessions, "localReviewSessions is null");
+        this.repositoryContext = requireNonNull(repositoryContext, "repositoryContext is null");
     }
 
     /**
@@ -279,7 +283,8 @@ public class AgentController
                     taskId,
                     request.message(),
                     attachments,
-                    request.idempotencyKey()).withDevelopmentAutomation(request.developmentAutomation().map(DevelopmentAutomationDto::toDomain)));
+                    request.idempotencyKey()).withDevelopmentAutomation(request.developmentAutomation().map(DevelopmentAutomationDto::toDomain))
+                    .withRepositoryContext(replay ? Optional.empty() : submissionContext(task)));
             InteractiveAgentHttpContract.TaskResponse response = taskResponse(taskService.get(taskId));
             if (!replay) {
                 taskTitles.generate(task, initialTurn.id(), request.message());
@@ -590,7 +595,8 @@ public class AgentController
                 request.expectedVersion(),
                 request.message(),
                 attachments,
-                idempotencyKey).withDevelopmentAutomation(replay ? Optional.empty() : submissionAutomation(taskService.get(id), request.developmentAutomation())));
+                idempotencyKey).withDevelopmentAutomation(replay ? Optional.empty() : submissionAutomation(taskService.get(id), request.developmentAutomation()))
+                .withRepositoryContext(replay ? Optional.empty() : submissionContext(taskService.get(id))));
         if (!replay) {
             recordPrompt(taskId, idempotencyKey, request.message());
         }
@@ -611,6 +617,14 @@ public class AgentController
                 .orElseGet(appSettings::developmentAutomation);
         appSettings.validateDevelopmentAutomation(automation);
         return Optional.of(automation);
+    }
+
+    private Optional<Boolean> submissionContext(AgentTask task)
+    {
+        if (!task.interactive() || task.localReviewHead().isPresent()) {
+            return Optional.empty();
+        }
+        return task.workspaceId().map(workspaceId -> repositoryContext.getNotebook(workspaceId).useInDevelopment());
     }
 
     /** The stored images a message names, resolved to the provider inputs only the backend may build. */
@@ -691,7 +705,8 @@ public class AgentController
                 request.message(),
                 attachments,
                 idempotencyKey,
-                replay ? Optional.empty() : submissionAutomation(task, request.developmentAutomation())));
+                replay ? Optional.empty() : submissionAutomation(task, request.developmentAutomation()),
+                replay ? Optional.empty() : submissionContext(task)));
         return ResponseEntity.status(HttpStatus.CREATED).body(InteractiveAgentHttpContract.queuedInput(queued));
     }
 

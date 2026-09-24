@@ -32,6 +32,7 @@ public record RepositoryNotebook(
         int schemaVersion,
         long revision,
         boolean useInReviews,
+        boolean useInDevelopment,
         List<RegisteredContextSource> sources,
         List<ContextScope> scopes,
         List<ContextEntry> entries,
@@ -39,6 +40,13 @@ public record RepositoryNotebook(
         List<ContextSourceEvidence> sourceEvidence,
         Optional<ActiveContextPreparation> activePreparation)
 {
+    public RepositoryNotebook(int schemaVersion, long revision, boolean useInReviews, List<RegisteredContextSource> sources,
+            List<ContextScope> scopes, List<ContextEntry> entries, List<String> suppressedKnowledgeIds,
+            List<ContextSourceEvidence> sourceEvidence, Optional<ActiveContextPreparation> activePreparation)
+    {
+        this(schemaVersion, revision, useInReviews, true, sources, scopes, entries, suppressedKnowledgeIds, sourceEvidence, activePreparation);
+    }
+
     public RepositoryNotebook
     {
         checkArgument(schemaVersion == 1, "Unsupported notebook schema");
@@ -103,7 +111,7 @@ public record RepositoryNotebook(
 
     public static RepositoryNotebook empty()
     {
-        return new RepositoryNotebook(1, 0, true, ImmutableList.of(), ImmutableList.of(ContextScope.project()),
+        return new RepositoryNotebook(1, 0, true, true, ImmutableList.of(), ImmutableList.of(ContextScope.project()),
                 ImmutableList.of(), ImmutableList.of(), ImmutableList.of(), Optional.empty());
     }
 }

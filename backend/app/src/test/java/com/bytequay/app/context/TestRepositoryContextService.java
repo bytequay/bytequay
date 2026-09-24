@@ -35,6 +35,7 @@ import com.bytequay.core.review.ReviewMessage;
 import com.bytequay.core.review.ReviewRun;
 import com.bytequay.core.store.WorkspaceStore;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.databind.node.ObjectNode;
 import com.fasterxml.jackson.datatype.jdk8.Jdk8Module;
 import com.fasterxml.jackson.datatype.jsr310.JavaTimeModule;
 import com.google.common.collect.ImmutableList;
@@ -88,6 +89,7 @@ class TestRepositoryContextService
     void absentNotebookIsEnabledAndReadsNeverWrite()
     {
         assertThat(service.getNotebook(WORKSPACE)).isEqualTo(RepositoryNotebook.empty());
+        assertThat(service.getNotebook(WORKSPACE).useInDevelopment()).isTrue();
         assertThat(settings.get(KEY)).isEmpty();
         RepositoryNotebook saved = service.setUseInReviews(WORKSPACE, 0, false);
         String json = settings.get(KEY).orElseThrow();
@@ -96,6 +98,25 @@ class TestRepositoryContextService
         assertThat(saved.revision()).isEqualTo(1);
         assertThat(settings.get(KEY)).contains(json);
         verifyNoInteractions(reviews);
+    }
+
+    @Test
+    void developmentChoiceIsIndependentAndOldNotebookDefaultsToEnabled()
+            throws Exception
+    {
+        ObjectNode old = (ObjectNode) mapper.valueToTree(RepositoryNotebook.empty());
+        old.remove("useInDevelopment");
+        settings.put(KEY, mapper.writeValueAsString(old));
+        assertThat(service.getNotebook(WORKSPACE).useInDevelopment()).isTrue();
+
+        RepositoryNotebook disabled = service.setUseInDevelopment(WORKSPACE, 0, false);
+        assertThat(disabled.useInDevelopment()).isFalse();
+        assertThat(disabled.useInReviews()).isTrue();
+        assertThat(service.setUseInReviews(WORKSPACE, 1, false).useInDevelopment()).isFalse();
+
+        old.putNull("useInDevelopment");
+        settings.put(KEY, mapper.writeValueAsString(old));
+        assertThatThrownBy(() -> service.getNotebook(WORKSPACE)).isInstanceOf(ContextStorageException.class);
     }
 
     @ParameterizedTest

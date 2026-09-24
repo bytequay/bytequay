@@ -39,4 +39,7 @@ public interface ReviewTurnInputResolver
      * @throws RuntimeException when required reference preparation fails; the provider is not started
      */
     String prepare(AgentTask task, AgentTurn turn, String message);
+
+    /** Called after the provider acknowledged the exact prepared input; usage bookkeeping must not affect the running turn. */
+    default void delivered(AgentTask task, AgentTurn turn) {}
 }

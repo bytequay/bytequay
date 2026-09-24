@@ -38,7 +38,7 @@ export type ContextSourceEvidenceDto = {
   retrievedAt: string | null; contentHash: string | null; version: string | null; truncated: boolean;
 };
 export type RepositoryNotebookDto = {
-  schemaVersion: number; revision: number; useInReviews: boolean; sources: ContextSourceDto[]; scopes: ContextScopeDto[];
+  schemaVersion: number; revision: number; useInReviews: boolean; useInDevelopment: boolean; sources: ContextSourceDto[]; scopes: ContextScopeDto[];
   entries: ContextEntryDto[]; suppressedKnowledgeIds: string[]; sourceEvidence: ContextSourceEvidenceDto[];
   activePreparation: ActiveContextPreparationDto | null;
 };
@@ -92,6 +92,26 @@ export type ContextBuildViewDto = {
     pendingApprovals: number; results: ContextPreparationResultDto[]; gaps: string[];
   };
 };
+export type ContextUsageWindow = '30d' | 'all';
+export type ContextUsageStage = 'SELECTED' | 'PROVIDED' | 'FOUND' | 'OPENED' | 'CITED';
+export type ContextUsageTaskKind = 'DEVELOPMENT' | 'PR_REVIEW';
+export type ContextUsageNoteKind = 'KNOWLEDGE' | 'MEMORY';
+export type ContextUsageOverviewDto = {
+  trackingSince: string | null; window: ContextUsageWindow; coverage: 'RETAINED_TASKS_AND_REVIEWS';
+  summary: { eligibleDevelopmentTasks: number; eligibleReviewRuns: number; contextOffTasks: number; tasksProvidedOrOpened: number;
+    activeNotesWithoutConfirmedDeliveryOrOpen: number; scopesDemandedWhileMissing: number; scopesStillMissingAfterDemand: number;
+    searchesWithNoMatchingScope: number; searchesWithScopeButNoNote: number };
+  byTaskAndNoteKind: Array<{ taskKind: ContextUsageTaskKind; noteKind: ContextUsageNoteKind; providedOrOpenedTasks: number; foundTasks: number; openedTasks: number }>;
+  entries: Array<{ entryId: string; kind: ContextUsageNoteKind; scopeId: string; title: string; currentVersion: number | null; currentEnabled: boolean | null;
+    currentVersionCounts: { selectedTasks: number; providedTasks: number; searchHits: number; foundTasks: number; openedTasks: number; citedReviews: number };
+    allVersionCounts: { providedTasks: number; foundTasks: number; openedTasks: number }; lastConfirmedUseAt: string | null }>;
+  scopeGaps: Array<{ scopeId: string; demandingTasks: number; observedPreparationCounts: { NOT_PREPARED: number; EMPTY: number; FAILED: number; READY: number };
+    currentPreparation: 'NOT_PREPARED' | 'EMPTY' | 'FAILED' | 'READY'; currentKnowledge: 'PRESENT' | 'MISSING' | 'DISABLED' }>;
+  hasMoreEntries: boolean; hasMoreScopeGaps: boolean;
+};
+export type ContextUsageActivitiesDto = { entryId: string; activities: Array<{ taskId: string; reviewRunId: string | null; turnId: string | null;
+  taskKind: ContextUsageTaskKind; entryVersion: number; stage: ContextUsageStage; delivery: 'PREPARED' | 'CONFIRMED' | 'UNCERTAIN';
+  occurredAt: string; receiptRef: string }>; hasMore: boolean };
 export type ContextContributionDto = {
   investigationStep: number; text: string; evidenceRefs: string[]; preparationRefs: string[]; limitations: string[];
 };
@@ -113,7 +133,7 @@ export type ReviewContextSnapshotDto = {
 };
 
 export type ConfigureRepositoryContextRequest = {
-  expectedRevision: number; useInReviews?: boolean; sources?: ContextSourceConfigurationDto[]; scopes?: ContextScopeConfigurationDto[];
+  expectedRevision: number; useInReviews?: boolean; useInDevelopment?: boolean; sources?: ContextSourceConfigurationDto[]; scopes?: ContextScopeConfigurationDto[];
 };
 export type EditRepositoryContextEntryRequest = {
   expectedRevision: number; id: string; scopeId: string; title: string; summary: string; body: string; claims: ContextClaimDto[]; sourceIds: string[];
@@ -136,6 +156,7 @@ function text(value: unknown, field: string): string {
   return value;
 }
 function optionalText(value: unknown, field: string): string | null { return value == null ? null : text(value, field); }
+function nullableText(value: unknown, field: string): string | null { return value === null ? null : text(value, field); }
 function count(value: unknown, field: string, minimum = 0): number {
   if (typeof value !== 'number' || !Number.isSafeInteger(value) || value < minimum) malformed(field);
   return value;
@@ -143,6 +164,13 @@ function count(value: unknown, field: string, minimum = 0): number {
 function flag(value: unknown, field: string): boolean {
   if (typeof value !== 'boolean') malformed(field);
   return value;
+}
+export function parseContextUsageWindow(value: unknown): ContextUsageWindow { return oneOf(value, ['30d', 'all'], 'usage window'); }
+export function parseContextUsagePage(value: unknown): number { return count(value, 'usage page'); }
+export function parseContextUsageEntryId(value: unknown): string {
+  const id = text(value, 'usage entry id');
+  if (id.length === 0 || new TextEncoder().encode(id).length > 1200) malformed('usage entry id');
+  return id;
 }
 function array<T>(value: unknown, field: string, parse: (item: unknown) => T): T[] {
   if (!Array.isArray(value)) malformed(field);
@@ -215,6 +243,7 @@ export function parseRepositoryNotebook(value: unknown): RepositoryNotebookDto {
   const item = object(value, 'notebook');
   if (item.schemaVersion !== 1) malformed('notebook schema version');
   return { schemaVersion: 1, revision: count(item.revision, 'notebook revision'), useInReviews: flag(item.useInReviews, 'review preference'),
+    useInDevelopment: flag(item.useInDevelopment, 'development preference'),
     sources: array(item.sources, 'sources', source), scopes: array(item.scopes, 'scopes', scope), entries: array(item.entries, 'entries', entry),
     suppressedKnowledgeIds: strings(item.suppressedKnowledgeIds, 'suppression'), sourceEvidence: array(item.sourceEvidence, 'source evidence', evidence),
     activePreparation: item.activePreparation == null ? null : activePreparation(item.activePreparation) };
@@ -379,6 +408,63 @@ export function parseContextBuildView(value: unknown, workspaceId: string): Cont
   if (result.build.task !== null && (result.build.task.id !== result.build.taskId || result.build.task.workspaceId !== workspaceId)) malformed('build task ownership');
   return result;
 }
+export function parseContextUsageOverview(value: unknown, window: ContextUsageWindow): ContextUsageOverviewDto {
+  const item = object(value, 'usage overview');
+  if (item.window !== window) malformed('usage window');
+  const summary = object(item.summary, 'usage summary');
+  return { trackingSince: nullableText(item.trackingSince, 'tracking start'), window,
+    coverage: oneOf(item.coverage, ['RETAINED_TASKS_AND_REVIEWS'], 'usage coverage'),
+    summary: { eligibleDevelopmentTasks: count(summary.eligibleDevelopmentTasks, 'eligible development tasks'),
+      eligibleReviewRuns: count(summary.eligibleReviewRuns, 'eligible review runs'), contextOffTasks: count(summary.contextOffTasks, 'context off tasks'),
+      tasksProvidedOrOpened: count(summary.tasksProvidedOrOpened, 'provided or opened tasks'),
+      activeNotesWithoutConfirmedDeliveryOrOpen: count(summary.activeNotesWithoutConfirmedDeliveryOrOpen, 'notes without confirmed use'),
+      scopesDemandedWhileMissing: count(summary.scopesDemandedWhileMissing, 'missing scope demand'),
+      scopesStillMissingAfterDemand: count(summary.scopesStillMissingAfterDemand, 'still missing scopes'),
+      searchesWithNoMatchingScope: count(summary.searchesWithNoMatchingScope, 'searches without a matching scope'),
+      searchesWithScopeButNoNote: count(summary.searchesWithScopeButNoNote, 'searches without a matching note') },
+    byTaskAndNoteKind: array(item.byTaskAndNoteKind, 'usage by kind', value => {
+      const row = object(value, 'usage kind row');
+      return { taskKind: oneOf(row.taskKind, ['DEVELOPMENT', 'PR_REVIEW'], 'usage task kind'),
+        noteKind: oneOf(row.noteKind, ['KNOWLEDGE', 'MEMORY'], 'usage note kind'),
+        providedOrOpenedTasks: count(row.providedOrOpenedTasks, 'kind provided tasks'),
+        foundTasks: count(row.foundTasks, 'kind found tasks'), openedTasks: count(row.openedTasks, 'kind opened tasks') };
+    }), entries: array(item.entries, 'usage entries', value => {
+      const row = object(value, 'usage entry');
+      const current = object(row.currentVersionCounts, 'current version counts');
+      const all = object(row.allVersionCounts, 'all version counts');
+      const currentVersion = row.currentVersion === null ? null : count(row.currentVersion, 'current version', 1);
+      const currentEnabled = row.currentEnabled === null ? null : flag(row.currentEnabled, 'current note enabled');
+      if ((currentVersion === null) !== (currentEnabled === null)) malformed('current note state');
+      return { entryId: text(row.entryId, 'usage entry id'), kind: oneOf(row.kind, ['KNOWLEDGE', 'MEMORY'], 'usage entry kind'),
+        scopeId: text(row.scopeId, 'usage scope id'), title: text(row.title, 'usage title'),
+        currentVersion, currentEnabled,
+        currentVersionCounts: { selectedTasks: count(current.selectedTasks, 'selected tasks'), providedTasks: count(current.providedTasks, 'provided tasks'),
+          searchHits: count(current.searchHits, 'search hits'), foundTasks: count(current.foundTasks, 'found tasks'),
+          openedTasks: count(current.openedTasks, 'opened tasks'), citedReviews: count(current.citedReviews, 'cited reviews') },
+        allVersionCounts: { providedTasks: count(all.providedTasks, 'all provided tasks'), foundTasks: count(all.foundTasks, 'all found tasks'),
+        openedTasks: count(all.openedTasks, 'all opened tasks') }, lastConfirmedUseAt: nullableText(row.lastConfirmedUseAt, 'last confirmed use') };
+    }), scopeGaps: array(item.scopeGaps, 'usage scope gaps', value => {
+      const row = object(value, 'usage scope gap');
+      const observed = object(row.observedPreparationCounts, 'observed preparation counts');
+      return { scopeId: text(row.scopeId, 'usage gap scope'), demandingTasks: count(row.demandingTasks, 'demanding tasks'),
+        observedPreparationCounts: { NOT_PREPARED: count(observed.NOT_PREPARED, 'not prepared demand'), EMPTY: count(observed.EMPTY, 'empty demand'),
+          FAILED: count(observed.FAILED, 'failed demand'), READY: count(observed.READY, 'ready demand') },
+        currentPreparation: oneOf(row.currentPreparation, ['NOT_PREPARED', 'EMPTY', 'FAILED', 'READY'], 'current preparation'),
+        currentKnowledge: oneOf(row.currentKnowledge, ['PRESENT', 'MISSING', 'DISABLED'], 'current knowledge') };
+    }), hasMoreEntries: flag(item.hasMoreEntries, 'more usage entries'), hasMoreScopeGaps: flag(item.hasMoreScopeGaps, 'more scope gaps') };
+}
+export function parseContextUsageActivities(value: unknown, entryId: string): ContextUsageActivitiesDto {
+  const item = object(value, 'usage activities');
+  if (item.entryId !== entryId) malformed('usage activity entry');
+  return { entryId, activities: array(item.activities, 'usage activities', value => {
+    const activity = object(value, 'usage activity');
+    return { taskId: text(activity.taskId, 'activity task'), reviewRunId: nullableText(activity.reviewRunId, 'activity review run'),
+      turnId: nullableText(activity.turnId, 'activity turn'), taskKind: oneOf(activity.taskKind, ['DEVELOPMENT', 'PR_REVIEW'], 'activity task kind'),
+      entryVersion: count(activity.entryVersion, 'activity version', 1), stage: oneOf(activity.stage, ['SELECTED', 'PROVIDED', 'FOUND', 'OPENED', 'CITED'], 'activity stage'),
+      delivery: oneOf(activity.delivery, ['PREPARED', 'CONFIRMED', 'UNCERTAIN'], 'activity delivery'),
+      occurredAt: text(activity.occurredAt, 'activity time'), receiptRef: text(activity.receiptRef, 'activity receipt') };
+  }), hasMore: flag(item.hasMore, 'more activities') };
+}
 export function parseDiscoverRepositoryContextRequest(value: unknown): DiscoverRepositoryContextRequest {
   const item = request(value, ['expectedRevision', 'scopeIds', 'query', 'includeRemote']);
   return { expectedRevision: count(item.expectedRevision, 'expected revision'), scopeIds: strings(item.scopeIds, 'discovery scopes'),
@@ -412,9 +498,10 @@ export function parseContextDiscovery(value: unknown, workspaceId: string): Cont
       pullRequests: count(inspected.pullRequests, 'inspected PRs'), issues: count(inspected.issues, 'inspected issues') } };
 }
 export function parseConfigureRepositoryContextRequest(value: unknown): ConfigureRepositoryContextRequest {
-  const item = request(value, ['expectedRevision', 'useInReviews', 'sources', 'scopes']);
+  const item = request(value, ['expectedRevision', 'useInReviews', 'useInDevelopment', 'sources', 'scopes']);
   const result: ConfigureRepositoryContextRequest = { expectedRevision: count(item.expectedRevision, 'expected revision') };
   if (item.useInReviews !== undefined) result.useInReviews = flag(item.useInReviews, 'review preference');
+  if (item.useInDevelopment !== undefined) result.useInDevelopment = flag(item.useInDevelopment, 'development preference');
   if (item.scopes !== undefined) result.scopes = array(item.scopes, 'scopes', scopeConfiguration);
   if (item.sources !== undefined) result.sources = array(item.sources, 'sources', value => {
     const source = request(value, ['id', 'kind', 'url']);

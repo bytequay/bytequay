@@ -1,10 +1,11 @@
 # Repository Context discovery during agent work
 
-This is the proposed next extension to [Repository Context](repository-context.md),
-not a description of implemented behavior. It changes that design's deferred
-boundary for ordinary development turns only after review. Existing notebook
-creation, explicit Learn/Refresh, review preparation and review snapshots remain
-the starting point.
+This is the first agent-discovery extension to [Repository Context](repository-context.md).
+The bounded development offer, review/development search and exact read, retained
+receipts, and usage view are implemented. Live provider acceptance and controlled
+quality/performance comparison remain open. Existing notebook creation,
+explicit Learn/Refresh, review preparation and review snapshots remain the
+starting point.
 
 ## 1. Decision in simple terms
 
@@ -129,6 +130,10 @@ backend):
   "limits": ["Search covers enabled saved notes, not every PR, issue or document."]
 }
 ~~~
+
+The review tool returns these fields at the top level. The development tool
+returns `searchRef`, the saved query/path hints and a `result` object containing
+the search fields.
 
 `contextState` describes this query: `MATCHES` or `NO_MATCH`; development Off
 does not register the lookup tool, and review Off rejects `note_search`.
@@ -375,12 +380,13 @@ and v3 still counts once for that note.
 Review discussion receipts remain under their owning review run and can be
 identified in its detail, rather than counted as another review.
 
-The current review UI's source-citation count is not a note-citation count. To
-show the latter, give each included bootstrap note and later exact read its own
-retained note evidence reference and require an explicit reference in the saved
-review result. Older runs without such references display **Not tracked**, not
-zero. Development has no structured note citation yet, so it shows Provided,
-Found and Opened, with no inferred “applied” or “helped” count.
+The current review UI's source-citation count is not a note-citation count.
+Each included bootstrap note and later exact read has its own retained note
+evidence reference; a saved finding or conclusion must cite that exact reference
+to count as **Cited in review**. Older runs without such references are outside
+this new citation tracking boundary. Development has no structured note citation
+yet, so it shows Provided, Found and Opened, with no inferred “applied” or
+“helped” count.
 
 ### 8.2 Show demand separately from retrieval
 
@@ -407,8 +413,8 @@ to create a lesson.
 Keep immutable review operations and the proposed development receipts as the
 source of truth. In the existing SQLite database, add one indexed
 `context_usage_fact` table for fast workspace-level grouping. An eligibility
-fact marks each accepted root development turn or PR review run, including its
-captured On/Off choice; this supplies the denominator even when no note
+fact marks each root development turn as it begins launch, or each prepared PR
+review run, including its captured On/Off choice; this supplies the denominator even when no note
 matches. A workspace-owned tracking-start marker is created with the first
 eligibility fact and remains until workspace deletion. A completed no-hit
 search also records its known scope status without
@@ -420,11 +426,16 @@ ID, version, `KNOWLEDGE`/`MEMORY`, scope ID and short title snapshot. No note
 body, search text, source excerpt or provider transcript is copied into this
 table. A unique source-reference/stage/note-version key makes receipt retry and
 replay idempotent; confirmation updates the same fact instead of inserting a
-second use. Facts are written with the existing receipt/delivery transaction,
-never by a separate background learner or per-page scan. They do not change the
-notebook revision. Indexed, paged aggregation avoids parsing every retained
-review snapshot on each page load and adds only short writes to SQLite's one
-writer path. Measure this write time in the existing performance check.
+second use. Prepared facts are written atomically with their saved receipt;
+provider acceptance or a correlated completed tool event confirms them later.
+Uncorrelated receipts stay prepared, including when a bounded retained-event
+replay cannot establish delivery. These observations never start learning or
+change the notebook revision. The first view reads indexed facts in the chosen window on demand
+and pages the displayed notes and gaps; it does not parse retained review
+snapshots. Its distinct-task aggregation still scans those fact rows and grows
+with retained activity, especially for **All retained**. Measure read and write
+time in the performance check; move grouping into SQLite if real workspaces
+make this view slow.
 
 `trackingSince` comes from the retained workspace marker. Before any eligible
 task, show **No tracked tasks yet**, not a zero-use verdict. Do not manufacture
@@ -459,9 +470,10 @@ aggregates only that workspace's indexed facts and current notebook state.
 Return bounded pages of notes and scope gaps, not note text. `window=all`
 means all retained facts, not lifetime use before tracking or after task
 deletion. A note-row drilldown uses
-`GET /api/workspaces/{workspaceId}/repository-context/usage/entries/{entryId}/activities?window=30d&page=0`;
+`GET /api/workspaces/{workspaceId}/repository-context/usage/activities?entryId={encodedEntryId}&window=30d&page=0`;
 it returns bounded task/review links, exact versions, stages, timestamps and
-receipt references. The backend checks workspace ownership before resolving
+receipt references. Note IDs can contain `/`, so the ID is a query parameter.
+The backend checks workspace ownership before resolving
 any link. An illustrative overview response is:
 
 ~~~json
@@ -476,7 +488,9 @@ any link. An illustrative overview response is:
     "tasksProvidedOrOpened": 9,
     "activeNotesWithoutConfirmedDeliveryOrOpen": 3,
     "scopesDemandedWhileMissing": 2,
-    "scopesStillMissingAfterDemand": 1
+    "scopesStillMissingAfterDemand": 1,
+    "searchesWithNoMatchingScope": 2,
+    "searchesWithScopeButNoNote": 3
   },
   "byTaskAndNoteKind": [
     {"taskKind":"DEVELOPMENT","noteKind":"KNOWLEDGE","providedOrOpenedTasks":5,"foundTasks":3,"openedTasks":2},
@@ -488,6 +502,7 @@ any link. An illustrative overview response is:
     "scopeId": "path:plugin/trino-iceberg/",
     "title": "Iceberg connector",
     "currentVersion": 3,
+    "currentEnabled": true,
     "currentVersionCounts": {"selectedTasks": 4, "providedTasks": 3, "searchHits": 2, "foundTasks": 2, "openedTasks": 1, "citedReviews": 0},
     "allVersionCounts": {"providedTasks": 7, "foundTasks": 4, "openedTasks": 2},
     "lastConfirmedUseAt": "2026-09-23T10:15:00Z"

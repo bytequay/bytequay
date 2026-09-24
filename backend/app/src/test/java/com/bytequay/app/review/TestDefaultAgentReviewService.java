@@ -50,6 +50,7 @@ import com.bytequay.agent.spi.AgentPermissionPolicy;
 import com.bytequay.agent.spi.AgentProviderStatus;
 import com.bytequay.agent.spi.ProviderTurnRef;
 import com.bytequay.app.context.ContextDiscussionReader;
+import com.bytequay.app.context.ContextUsageRecorder;
 import com.bytequay.app.context.ReviewContextService;
 import com.bytequay.app.git.GitCommandRunner;
 import com.bytequay.app.git.ReviewExperiments;
@@ -181,7 +182,8 @@ class TestDefaultAgentReviewService
             AgentTurn accepted = AgentTurn.accepted(TURN_ONE, TASK_ID, command.idempotencyKey(), SETTINGS, NOW);
             when(fixture.turnStore.findActive(TASK_ID)).thenReturn(Optional.of(accepted));
             RepositoryContextTurnInput input = new RepositoryContextTurnInput(fixture.store,
-                    new ReviewToolAssignment(fixture.turnStore, fixture.queueStore, fixture.store), new ReviewLocks(), CLOCK, mock(ContextDiscussionReader.class));
+                    new ReviewToolAssignment(fixture.turnStore, fixture.queueStore, fixture.store), new ReviewLocks(), CLOCK,
+                    mock(ContextDiscussionReader.class), mock(ContextUsageRecorder.class));
             assertThat(input.prepare(idleTask(), accepted, command.message())).contains(snapshot.bootstrap().orElseThrow().text());
             AgentTurn running = accepted.markDeliveryStarted(NOW).running(new ProviderTurnRef("provider-turn"), Optional.empty());
             when(fixture.turnStore.find(TURN_ONE)).thenReturn(Optional.of(running));
@@ -1466,10 +1468,24 @@ class TestDefaultAgentReviewService
         assertThat(stopped.outcome()).contains("Review ended");
 
         InOrder order = inOrder(fixture.observer, fixture.completions, fixture.store);
+        order.verify(fixture.observer).confirmRetainedUsage(argThat(review -> review.id().equals(reviewId)));
         order.verify(fixture.observer).unwatch(reviewId);
         order.verify(fixture.completions).complete(new CompleteAgentTaskCommand(TASK_ID, Optional.of("Agent review ended by the user")));
         order.verify(fixture.store).updateReview(argThat(review -> review.state() == AgentReview.State.CLOSED));
         order.verify(fixture.completions).cleanupWorktree(TASK_ID);
+    }
+
+    @Test
+    void endClosesReviewWhenRetainedUsageCannotBeReplayed()
+    {
+        Fixture fixture = new Fixture();
+        String reviewId = fixture.service.start(WORKSPACE, REPO, NUMBER).review().id();
+        doThrow(new IllegalStateException("Task log unavailable")).when(fixture.observer).confirmRetainedUsage(any(AgentReview.class));
+
+        AgentReviewProjection projection = fixture.service.end(reviewId);
+
+        assertThat(projection.review().state()).isEqualTo(AgentReview.State.CLOSED);
+        verify(fixture.observer).unwatch(reviewId);
     }
 
     @Test

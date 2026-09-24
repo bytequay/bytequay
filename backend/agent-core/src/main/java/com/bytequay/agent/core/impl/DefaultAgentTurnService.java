@@ -842,6 +842,12 @@ public final class DefaultAgentTurnService
                     settings.serviceTier()));
             started = Optional.of(runningTurn);
             registerRunningTurn(accepted, runningTurn, session.reference());
+            try {
+                reviewTurnInput.delivered(task, requireTurn(accepted.id()));
+            }
+            catch (RuntimeException ignored) {
+                // Provider delivery is already durable; usage projection may be retried from the saved offer.
+            }
             return new Launch(accepted, started, Optional.empty());
         }
         catch (RuntimeException failure) {
@@ -1115,7 +1121,8 @@ public final class DefaultAgentTurnService
                     command.idempotencyKey(),
                     textBlob,
                     command.message(),
-                    turnSettings(task, references(command.attachments()), command.developmentAutomation()),
+                    turnSettings(task, references(command.attachments()), command.developmentAutomation())
+                            .withRepositoryContext(command.useRepositoryContext().orElse(true)),
                     queuedAt);
             return eventCommitter.commit(
                     pendingLifecycle(
@@ -1445,7 +1452,8 @@ public final class DefaultAgentTurnService
     private TurnAcceptance acceptTurnLocked(AgentTask task, StartAgentTurnCommand command)
     {
         return acceptTurnLocked(task, command.idempotencyKey(), command.message(), command.attachments(),
-                turnSettings(task, references(command.attachments()), command.developmentAutomation()), Optional.empty());
+                turnSettings(task, references(command.attachments()), command.developmentAutomation())
+                        .withRepositoryContext(command.useRepositoryContext().orElse(true)), Optional.empty());
     }
 
     private TurnAcceptance acceptTurnLocked(

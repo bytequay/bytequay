@@ -123,6 +123,11 @@ final class ReviewPrompts
             VERSION_UNAVAILABLE is a gap; never substitute a different version or assume a successful retrieval. \
             Source identities matched means equal captured inputs, not a verified claim or resolved dependency version.
 
+            During an active investigation, validation or evidence step, use review_get_context kind note_search \
+            with a topic or path and operationKey when the frozen selection misses a relevant saved note. \
+            The result is a pointer, not proof; read an exact hit with kind note, searchRef, entryId and entryVersion. \
+            A later search never changes this run's original selection. Old-card discussion cannot start a new search or read.
+
             At the opening of investigation, inspect assignment.repositoryContext. For each \
             requiredPreparationScopeIds entry, use repository_context_prepare BEGIN and, if owned, SUBMIT \
             before sealing the report. Reuse applicable notes and prepare other outdated generated knowledge in configured scopes, \

@@ -13,6 +13,7 @@
  */
 package com.bytequay.app.context;
 
+import com.bytequay.agent.core.store.AgentUnitOfWork;
 import com.bytequay.app.workspace.WorkspaceRepositoryContext;
 import com.bytequay.core.context.ContextEntry;
 import com.bytequay.core.context.ContextInputFingerprint;
@@ -23,6 +24,7 @@ import com.bytequay.core.context.ContextScope;
 import com.bytequay.core.context.ContextSelectedEntry;
 import com.bytequay.core.context.ContextSelectedEntry.Applicability;
 import com.bytequay.core.context.ContextSourceEvidence;
+import com.bytequay.core.context.ContextUsageEvent;
 import com.bytequay.core.context.RepositoryNotebook;
 import com.bytequay.core.context.ReviewContextSnapshot;
 import com.bytequay.core.review.AgentReview;
@@ -48,6 +50,12 @@ import static com.bytequay.app.context.ContextText.excerpt;
 import static com.bytequay.core.context.ContextLimits.bytes;
 import static com.bytequay.core.context.ContextSelectedEntry.Inclusion.DEFERRED;
 import static com.bytequay.core.context.ContextSelectedEntry.Inclusion.INCLUDED;
+import static com.bytequay.core.context.ContextUsageEvent.Delivery.CONFIRMED;
+import static com.bytequay.core.context.ContextUsageEvent.Delivery.PREPARED;
+import static com.bytequay.core.context.ContextUsageEvent.Stage.ELIGIBLE;
+import static com.bytequay.core.context.ContextUsageEvent.Stage.PROVIDED;
+import static com.bytequay.core.context.ContextUsageEvent.Stage.SCOPE_DEMAND;
+import static com.bytequay.core.context.ContextUsageEvent.Stage.SELECTED;
 import static com.bytequay.core.context.ReviewContextSnapshot.MAXIMUM_INPUT_BYTES;
 import static com.bytequay.core.context.ReviewContextSnapshot.MAXIMUM_SELECTED_TEXT_BYTES;
 import static com.google.common.base.Preconditions.checkArgument;
@@ -67,14 +75,19 @@ public class ReviewContextService
     private final RepositoryContextReader reader;
     private final ContextInputReader inputs;
     private final AgentReviewStore reviews;
+    private final ContextUsageRecorder usage;
+    private final AgentUnitOfWork unitOfWork;
     private final Clock clock;
 
-    public ReviewContextService(RepositoryContextService notebooks, RepositoryContextReader reader, ContextInputReader inputs, AgentReviewStore reviews, Clock clock)
+    public ReviewContextService(RepositoryContextService notebooks, RepositoryContextReader reader, ContextInputReader inputs,
+            AgentReviewStore reviews, ContextUsageRecorder usage, AgentUnitOfWork unitOfWork, Clock clock)
     {
         this.notebooks = requireNonNull(notebooks, "notebooks is null");
         this.reader = requireNonNull(reader, "reader is null");
         this.inputs = requireNonNull(inputs, "inputs is null");
         this.reviews = requireNonNull(reviews, "reviews is null");
+        this.usage = requireNonNull(usage, "usage is null");
+        this.unitOfWork = requireNonNull(unitOfWork, "unitOfWork is null");
         this.clock = requireNonNull(clock, "clock is null");
     }
 
@@ -110,7 +123,11 @@ public class ReviewContextService
             ReviewContextSnapshot snapshot = new ReviewContextSnapshot("context:" + run.id(), false, notebook.revision(), repositoryId,
                     Optional.empty(), Optional.empty(), ImmutableList.of(), ImmutableList.of(), ImmutableList.of(),
                     ImmutableList.of(), ImmutableList.of(), ImmutableList.of(), ImmutableList.of());
-            ReviewRun saved = reviews.updateRun(run.withContext(snapshot, ImmutableMap.of(), Instant.now(clock)));
+            ReviewRun saved = unitOfWork.execute(() -> {
+                ReviewRun stored = reviews.updateRun(run.withContext(snapshot, ImmutableMap.of(), Instant.now(clock)));
+                recordEligibility(review, stored, false);
+                return stored;
+            });
             log.info("Repository context disabled for review run {}", run.id());
             return saved;
         }
@@ -147,11 +164,15 @@ public class ReviewContextService
             ContextSourceApplicability.Result applicability = ContextSourceApplicability.compare(entry,
                     selectedScopes.stream().filter(scope -> scope.id().equals(entry.scopeId())).findFirst(), sources,
                     Optional.ofNullable(reviewed.get(entry.scopeId())), workspace);
-            String rendered = renderEntry(entry, refs, applicability.applicability());
+            String noteRef = bootstrapNoteRef(run.id(), entry.id(), entry.version());
+            String rendered = renderEntry(entry, refs, applicability.applicability()) + "Note evidence reference: " + noteRef + '\n';
             boolean included = bytes(notes.toString()) + bytes(rendered) <= MAXIMUM_SELECTED_TEXT_BYTES;
             if (included) {
                 notes.append(rendered);
                 refs.forEach((sourceId, ref) -> evidence.putIfAbsent(ref, capture(sources.get(sourceId), ref)));
+                evidence.put(noteRef, new ReviewEvidence(noteRef, "Repository note " + entry.id() + " v" + entry.version(),
+                        "Exact note included in review run " + run.id() + "; applicability=" + applicability.applicability(), rendered,
+                        "Untrusted saved note; its source identity does not verify a claim or its applicability."));
             }
             entries.add(new ContextSelectedEntry(entry.id(), entry.version(), entry.title(), included ? Optional.of(rendered) : Optional.empty(),
                     included ? refs : ImmutableMap.of(), ImmutableList.<String>builder().addAll(match.matchReasons()).add(applicability.reason()).build(),
@@ -199,10 +220,41 @@ public class ReviewContextService
         ReviewContextSnapshot snapshot = new ReviewContextSnapshot("context:" + run.id(), true, notebook.revision(), repositoryId,
                 selection.baselineSha(), Optional.of(packet), entries, related, fingerprints, ImmutableList.of(), ImmutableList.of(), ImmutableList.of(), retainedGaps,
                 preparationScopeIds);
-        ReviewRun saved = reviews.updateRun(run.withContext(snapshot, evidence, Instant.now(clock)));
+        ReviewRun saved = unitOfWork.execute(() -> {
+            ReviewRun stored = reviews.updateRun(run.withContext(snapshot, evidence, Instant.now(clock)));
+            recordEligibility(review, stored, true);
+            for (RepositoryContextMatcher.Match match : selection.notes().entries()) {
+                ContextEntry entry = match.entry();
+                usage.record(usageEvent(review, stored, SELECTED, CONFIRMED, snapshot.id(), Optional.of(ContextUsageEvent.Note.from(entry)),
+                        Optional.empty(), Optional.empty()));
+                if (entries.stream().anyMatch(selectedEntry -> selectedEntry.entryId().equals(entry.id()) && selectedEntry.inclusion() == INCLUDED)) {
+                    usage.record(usageEvent(review, stored, PROVIDED, PREPARED, snapshot.id(), Optional.of(ContextUsageEvent.Note.from(entry)),
+                            Optional.empty(), Optional.empty()));
+                }
+            }
+            for (RepositoryContextMatcher.ScopeMatch match : selection.notes().scopes()) {
+                if (match.missingKnowledge()) {
+                    usage.record(usageEvent(review, stored, SCOPE_DEMAND, CONFIRMED, snapshot.id(), Optional.empty(),
+                            Optional.of(ContextUsageEvent.Scope.from(match.scope())), Optional.empty()));
+                }
+            }
+            return stored;
+        });
         log.info("Prepared repository context for run {}: {} notes included, {} deferred, {} related sources, {} gaps, {} UTF-8 bytes in {} ms; delivery pending",
                 run.id(), entries.size() - deferred, deferred, related.size(), retainedGaps.size(), packet.utf8Bytes(), NANOSECONDS.toMillis(System.nanoTime() - started));
         return saved;
+    }
+
+    private void recordEligibility(AgentReview review, ReviewRun run, boolean enabled)
+    {
+        usage.record(usageEvent(review, run, ELIGIBLE, CONFIRMED, "context-eligible:" + run.id(), Optional.empty(), Optional.empty(), Optional.of(enabled)));
+    }
+
+    private ContextUsageEvent usageEvent(AgentReview review, ReviewRun run, ContextUsageEvent.Stage stage, ContextUsageEvent.Delivery delivery,
+            String receiptRef, Optional<ContextUsageEvent.Note> note, Optional<ContextUsageEvent.Scope> scope, Optional<Boolean> enabled)
+    {
+        return new ContextUsageEvent(review.workspaceId(), review.taskId(), Optional.empty(), Optional.of(run.id()),
+                ContextUsageEvent.TaskKind.PR_REVIEW, stage, delivery, receiptRef, note, scope, enabled, Instant.now(clock));
     }
 
     private List<ContextInputFingerprint> captureInputs(
@@ -243,6 +295,12 @@ public class ReviewContextService
     static String evidenceRef(String sourceId)
     {
         return "context-source:" + Hashing.sha256().hashString(sourceId, UTF_8);
+    }
+
+    /** Stable evidence identity for a note fully included in one frozen review bootstrap. */
+    public static String bootstrapNoteRef(String runId, String entryId, long version)
+    {
+        return "context-note:" + Hashing.sha256().hashString("bootstrap\n" + runId + "\n" + entryId + "\n" + version, UTF_8);
     }
 
     static ReviewEvidence capture(ContextSourceEvidence source, String ref)

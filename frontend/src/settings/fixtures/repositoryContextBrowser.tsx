@@ -17,7 +17,7 @@ import AppSidebar from '../../AppSidebar';
 import type { AgentPendingApprovalDto, Bridge, WorkspaceDto } from '../../types';
 import type { AgentEventEnvelope } from '../../agents/events';
 import { createPreviewBridge } from '../../agents/fixtures/previewBridge';
-import type { ApplyContextDiscoveryRequest, ContextBuildViewDto, ContextDiscoveryDto, ContextEntryDto, ContextScopeDto, ContextSourceDto, DiscoverRepositoryContextRequest, RepositoryNotebookDto, StartContextBuildRequest } from '../../repository-context/contracts';
+import type { ApplyContextDiscoveryRequest, ContextBuildViewDto, ContextDiscoveryDto, ContextEntryDto, ContextScopeDto, ContextSourceDto, ContextUsageOverviewDto, DiscoverRepositoryContextRequest, RepositoryNotebookDto, StartContextBuildRequest } from '../../repository-context/contracts';
 import SettingsWindow from '../SettingsWindow';
 import '../../css/base.css';
 import '../../css/settings-window.css';
@@ -33,7 +33,7 @@ const eventSource: AgentPendingApprovalDto['source'] = { providerThreadId: null,
 
 function notebook(second = false): RepositoryNotebookDto {
   return {
-    schemaVersion: 1, revision: 7, useInReviews: true, activePreparation: null,
+    schemaVersion: 1, revision: 7, useInReviews: true, useInDevelopment: true, activePreparation: null,
     sources: [{ id: 'docs-trino', kind: 'DOCUMENTATION_ROOT', url: 'https://trino.io/docs/current/', origin: 'USER', discoveryEvidenceRef: null }],
     scopes: [
       { id: 'project', title: 'Project overview', match: { kind: 'REPOSITORY' }, enabled: true, preparation: null, discoveryEvidenceRef: null },
@@ -64,6 +64,20 @@ function notebook(second = false): RepositoryNotebookDto {
   };
 }
 
+function usage(window: ContextUsageOverviewDto['window']): ContextUsageOverviewDto {
+  return { trackingSince: '2026-09-01T00:00:00Z', window, coverage: 'RETAINED_TASKS_AND_REVIEWS',
+    summary: { eligibleDevelopmentTasks: 2, eligibleReviewRuns: 1, contextOffTasks: 1, tasksProvidedOrOpened: 2,
+      activeNotesWithoutConfirmedDeliveryOrOpen: 1, scopesDemandedWhileMissing: 1, scopesStillMissingAfterDemand: 1,
+      searchesWithNoMatchingScope: 1, searchesWithScopeButNoNote: 2 },
+    byTaskAndNoteKind: [{ taskKind: 'DEVELOPMENT', noteKind: 'MEMORY', providedOrOpenedTasks: 1, foundTasks: 1, openedTasks: 1 }],
+    entries: [{ entryId: 'lesson:field-ids', kind: 'MEMORY', scopeId: 'path:plugin/trino-iceberg/', title: 'Resolve nested fields within their parent', currentVersion: 3, currentEnabled: true,
+      currentVersionCounts: { selectedTasks: 1, providedTasks: 1, searchHits: 1, foundTasks: 1, openedTasks: 1, citedReviews: 0 },
+      allVersionCounts: { providedTasks: 2, foundTasks: 1, openedTasks: 1 }, lastConfirmedUseAt: '2026-09-02T00:00:00Z' }],
+    scopeGaps: [{ scopeId: 'path:plugin/trino-iceberg/', demandingTasks: 1,
+      observedPreparationCounts: { NOT_PREPARED: 1, EMPTY: 0, FAILED: 0, READY: 0 },
+      currentPreparation: 'NOT_PREPARED', currentKnowledge: 'MISSING' }], hasMoreEntries: false, hasMoreScopeGaps: false };
+}
+
 type Mutation = { action: string; workspaceId: string; request: { expectedRevision: number } };
 function discovery(workspaceId: string, revision: number): ContextDiscoveryDto {
   const evidence: ContextDiscoveryDto['scopes'][number]['evidence'] = { id: 'discovered-readme', reference: { kind: 'REPOSITORY_FILE', repositoryId: 42,
@@ -92,8 +106,11 @@ function backend() {
   const writes: Mutation[] = [];
   const discoveries: DiscoverRepositoryContextRequest[] = [];
   const applications: ApplyContextDiscoveryRequest[] = [];
+  const usageReads: Array<{ workspaceId: string; window: '30d' | 'all'; page: number }> = [];
+  const activityReads: Array<{ workspaceId: string; entryId: string; window: '30d' | 'all'; page: number }> = [];
   const delayed = new Map<string, (notebook: RepositoryNotebookDto) => void>();
-  const state = { saved, reads, writes, delayed, builds, starts, controls, discoveries, applications, discoveryFailure: false, emptyDiscovery: false,
+  const state = { saved, reads, writes, delayed, builds, starts, controls, discoveries, applications, usageReads, activityReads,
+    discoveryFailure: false, emptyDiscovery: false,
     loseApply: false, readFailure: false, holdWorkspace: '', unavailable: false,
     loseStartBefore: false, loseStartAfter: false, approvals: [] as AgentPendingApprovalDto[], events: [] as AgentEventEnvelope[] };
   const mutate = <T extends { expectedRevision: number }>(action: string, workspaceId: string, request: T,
@@ -117,6 +134,18 @@ function backend() {
       const current = saved.get(workspaceId);
       assert(current !== undefined, 'Notebook workspace must exist');
       return structuredClone(current);
+    },
+    getRepositoryContextUsage: async (workspaceId, window, page) => {
+      usageReads.push({ workspaceId, window, page });
+      return structuredClone(usage(window));
+    },
+    getRepositoryContextEntryUsage: async (workspaceId, entryId, window, page) => {
+      activityReads.push({ workspaceId, entryId, window, page });
+      return { entryId, activities: [{ taskId: 'task-1', reviewRunId: null, turnId: 'turn-1', taskKind: 'DEVELOPMENT' as const,
+        entryVersion: 3, stage: 'OPENED' as const, delivery: 'CONFIRMED' as const, occurredAt: '2026-09-02T00:00:00Z', receiptRef: 'context-read:1' },
+      { taskId: 'task-2', reviewRunId: 'review-run-1', turnId: null, taskKind: 'PR_REVIEW' as const,
+        entryVersion: 2, stage: 'CITED' as const, delivery: 'CONFIRMED' as const, occurredAt: '2026-09-01T00:00:00Z', receiptRef: 'review:1' }],
+      hasMore: false };
     },
     getModelSettings: async () => {
       const catalog = await createPreviewBridge('ws-1').getModelSettings();
@@ -193,6 +222,7 @@ function backend() {
     },
     configureRepositoryContext: (workspaceId, request) => mutate('configure', workspaceId, request, current => ({
       ...current, useInReviews: request.useInReviews ?? current.useInReviews,
+      useInDevelopment: request.useInDevelopment ?? current.useInDevelopment,
       scopes: request.scopes?.map((scope): ContextScopeDto => ({ ...scope, preparation: current.scopes.find(value => value.id === scope.id)?.preparation ?? null, discoveryEvidenceRef: null })) ?? current.scopes,
       sources: request.sources?.map((source): ContextSourceDto => ({ ...source, origin: 'USER', discoveryEvidenceRef: null })) ?? current.sources,
     })),
@@ -214,7 +244,8 @@ function backend() {
     resetRepositoryContext: (workspaceId, request) => mutate('reset', workspaceId, request, current => ({
       ...current, suppressedKnowledgeIds: current.suppressedKnowledgeIds.filter(id => !request.scopeIds.some(scope => id === 'knowledge:' + scope)),
     })),
-  } satisfies Pick<Bridge, 'getAppVersion' | 'getAppPreferences' | 'getWorkspaceSettings' | 'getRepositoryContext' | 'configureRepositoryContext'
+  } satisfies Pick<Bridge, 'getAppVersion' | 'getAppPreferences' | 'getWorkspaceSettings' | 'getRepositoryContext' | 'getRepositoryContextUsage'
+    | 'getRepositoryContextEntryUsage' | 'configureRepositoryContext'
     | 'editRepositoryContextEntry' | 'setRepositoryContextEntryEnabled' | 'removeRepositoryContextEntry' | 'resetRepositoryContext' | 'getModelSettings'
     | 'getRepositoryContextBuild' | 'startRepositoryContextBuild' | 'stopRepositoryContextBuild' | 'getRepositoryContextBuildStopImpact'
     | 'stopRepositoryContextBuildRuntime' | 'readAgentHistory' | 'readAgentPendingApprovals' | 'getAgentTurn' | 'resolveAgentApproval'
@@ -303,16 +334,45 @@ export async function run(): Promise<Array<{ name: string; error?: string }>> {
 
   await check('Opening is read-only and the default-on toggle retains saved notes', async view => {
     assert(view.state.reads.length === 1 && Number(view.state.writes.length) === 0, 'Opening must only read the notebook');
+    assert(view.state.usageReads.length === 0, 'Usage details load on demand');
     assert(button(view.host, 'Use repository context in reviews').getAttribute('aria-checked') === 'true', 'Initial preference must be on');
-    assert(view.text().includes('Reviews can prepare reusable knowledge for configured scopes and provide saved context to the agent.'), 'Help must describe the implemented review workflow');
+    assert(button(view.host, 'Use repository context in development').getAttribute('aria-checked') === 'true', 'Development preference must be on');
+    assert(view.text().includes('Reviews can prepare reusable knowledge for configured scopes.'), 'Help must describe the implemented review workflow');
     assert(view.text().includes('Learn / Refresh starts an explicit learning task.'), 'Standalone preparation is an explicit action');
     assert(view.state.starts.length === 0, 'Opening settings must not start learning');
     assert(!view.row('Project overview').textContent?.includes('No saved knowledge note'), 'A scope with a retained note must not claim that knowledge is absent');
     await view.click('Use repository context in reviews');
     assert(view.state.writes.length === 1 && view.state.writes[0].request.expectedRevision === 7, 'Toggle must use displayed revision');
     assert(!view.state.saved.get('ws-1')?.useInReviews && view.state.saved.get('ws-1')?.entries.length === 2, 'Off retains both saved notes');
+    assert(view.state.saved.get('ws-1')?.useInDevelopment === true, 'Review setting must not change the development setting');
     assert(view.text().includes('Project architecture'), 'Notes stay visible after disabling');
     assert(button(view.host, 'Use repository context in reviews').getAttribute('aria-checked') === 'false', 'Saved off state must render');
+    await view.click('Use repository context in development');
+    assert(Number(view.state.writes.length) === 2 && view.state.writes[1].request.expectedRevision === 8, 'Development toggle must use the updated revision');
+    assert(view.state.saved.get('ws-1')?.useInDevelopment === false && view.state.saved.get('ws-1')?.useInReviews === false,
+      'Development setting must change independently and retain notes');
+  });
+
+  await check('Usage shows recorded stages, missing requests and note activity without a quality claim', async view => {
+    await view.click('View usage');
+    assert(view.state.usageReads.length === 1 && view.state.usageReads[0].workspaceId === 'ws-1', 'Usage reads the selected workspace');
+    assert(view.text().includes('Searches with no matching scope') && view.text().includes('Searches with a scope but no matching note'),
+      'Distinct no-hit search reasons remain visible');
+    assert(view.text().includes('Requested knowledge that was missing') && view.text().includes('Iceberg connector'),
+      'Scope demand appears beside current state');
+    assert(view.text().includes('Current version: 1 selected · 1 provided · 1 found · 1 opened'), 'Stage counts remain distinct');
+    assert(view.text().includes('They do not show whether a note was understood or improved a result.'), 'Usage does not claim quality');
+    assert(view.state.activityReads.length === 0, 'Entry activity loads only when opened');
+    await view.click('View activity');
+    assert(Number(view.state.activityReads.length) === 1 && view.state.activityReads[0].entryId === 'lesson:field-ids', 'Activity remains tied to the selected note');
+    assert(view.text().includes('Opened') && view.host.querySelector('.rc-usage__activity a')?.getAttribute('href')?.includes('task-1'),
+      'Activity links to its actual task');
+    assert(view.text().includes('Cited') && view.text().includes('Review run: review-run-1'), 'Review activity retains its run identity');
+    await view.click('All retained');
+    assert(Number(view.state.usageReads.length) === 2 && view.state.usageReads[1].window === 'all', 'Switching period loads that window');
+    await view.workspace('ws-2');
+    if ([...view.host.querySelectorAll('button')].some(item => item.textContent?.trim() === 'View usage')) await view.click('View usage');
+    assert(Number(view.state.usageReads.length) === 3 && view.state.usageReads[2].workspaceId === 'ws-2', 'Open Usage follows workspace changes');
   });
 
   await check('An empty Project overview scope is not presented as generated knowledge', async view => {

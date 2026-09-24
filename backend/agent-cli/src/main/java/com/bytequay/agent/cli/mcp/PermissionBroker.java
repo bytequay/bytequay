@@ -30,6 +30,8 @@ import com.bytequay.agent.spi.ProviderApprovalDecision;
 import com.bytequay.agent.spi.ProviderApprovalRequest;
 import com.bytequay.agent.spi.PullRequestCiBridge;
 import com.bytequay.agent.spi.PullRequestCiBridgeResolver;
+import com.bytequay.agent.spi.RepositoryContextBridge;
+import com.bytequay.agent.spi.RepositoryContextBridgeResolver;
 import com.bytequay.agent.spi.ReviewBridge;
 import com.bytequay.agent.spi.ReviewBridgeResolver;
 import com.bytequay.agent.spi.ReviewTool;
@@ -98,6 +100,7 @@ public final class PermissionBroker
     private final DraftPullRequestPublisher draftPullRequests;
     private final LocalReviewBridgeResolver localReviews;
     private final PullRequestCiBridgeResolver pullRequestChecks;
+    private final RepositoryContextBridgeResolver repositoryContext;
     private final Map<String, PermissionContext> contexts = new ConcurrentHashMap<>();
 
     public PermissionBroker(
@@ -160,6 +163,21 @@ public final class PermissionBroker
             LocalReviewBridgeResolver localReviews,
             PullRequestCiBridgeResolver pullRequestChecks)
     {
+        this(endpoint, objectMapper, ciMemoryReader, reviews, developments, draftPullRequests, localReviews, pullRequestChecks,
+                RepositoryContextBridgeResolver.NONE);
+    }
+
+    public PermissionBroker(
+            Supplier<URI> endpoint,
+            ObjectMapper objectMapper,
+            CiMemoryReader ciMemoryReader,
+            ReviewBridgeResolver reviews,
+            DevelopmentResultBridgeResolver developments,
+            DraftPullRequestPublisher draftPullRequests,
+            LocalReviewBridgeResolver localReviews,
+            PullRequestCiBridgeResolver pullRequestChecks,
+            RepositoryContextBridgeResolver repositoryContext)
+    {
         this.endpoint = requireNonNull(endpoint, "endpoint is null");
         this.objectMapper = requireNonNull(objectMapper, "objectMapper is null")
                 .copy()
@@ -171,6 +189,7 @@ public final class PermissionBroker
         this.draftPullRequests = requireNonNull(draftPullRequests, "draftPullRequests is null");
         this.localReviews = requireNonNull(localReviews, "localReviews is null");
         this.pullRequestChecks = requireNonNull(pullRequestChecks, "pullRequestChecks is null");
+        this.repositoryContext = requireNonNull(repositoryContext, "repositoryContext is null");
     }
 
     McpConfigRegistration register(
@@ -237,6 +256,7 @@ public final class PermissionBroker
         Optional<LocalReviewBridge> localReview = textOnly ? Optional.empty() : localReviews.resolve(taskId);
         Optional<PullRequestCiBridge> pullRequestCi = permissionPolicy.allowsGitHubCommands(textOnly, review.isPresent())
                 ? pullRequestChecks.resolve(taskId) : Optional.empty();
+        Optional<RepositoryContextBridge> notebook = textOnly || review.isPresent() ? Optional.empty() : repositoryContext.resolve(taskId);
         contexts.put(token, new PermissionContext(
                 taskId,
                 worktree,
@@ -248,7 +268,8 @@ public final class PermissionBroker
                 review,
                 development,
                 localReview,
-                pullRequestCi));
+                pullRequestCi,
+                notebook));
         try {
             Files.createDirectories(providerDirectory);
             // Claude's HTTP first-response deadline otherwise expires after 60 seconds, before the approval card.
@@ -261,7 +282,7 @@ public final class PermissionBroker
                             APPROVAL_TIMEOUT.plusSeconds(30).toMillis()))));
             writeOwnerOnly(configFile, json);
             writeOwnerOnly(settingsFile, sandboxSettings(permissionPolicy, textOnly, review.isPresent(), runtimeDirectory.toRealPath(), environment));
-            return new McpConfigRegistration(configFile, settingsFile, token, codeGraph, review, development, localReview, pullRequestCi, () -> {
+            return new McpConfigRegistration(configFile, settingsFile, token, codeGraph, review, development, localReview, pullRequestCi, notebook, () -> {
                 contexts.remove(token);
                 delete(configFile);
                 delete(settingsFile);
@@ -299,30 +320,32 @@ public final class PermissionBroker
         Optional<LocalReviewBridge> localReview = localReviews.resolve(taskId);
         Optional<PullRequestCiBridge> pullRequestCi = permissionPolicy.allowsGitHubCommands(false, review.isPresent())
                 ? pullRequestChecks.resolve(taskId) : Optional.empty();
+        Optional<RepositoryContextBridge> notebook = review.isPresent() ? Optional.empty() : repositoryContext.resolve(taskId);
         if (permissionPolicy != AgentPermissionPolicy.CI_AUTOFIX
-                && codeGraph.isEmpty() && review.isEmpty() && development.isEmpty() && localReview.isEmpty() && pullRequestCi.isEmpty()) {
+                && codeGraph.isEmpty() && review.isEmpty() && development.isEmpty() && localReview.isEmpty() && pullRequestCi.isEmpty() && notebook.isEmpty()) {
             return Optional.empty();
         }
         String token = token();
         PermissionContext context = new PermissionContext(
-                taskId, worktree, permissionPolicy, approvals, redactor.withSecret(token), false, codeGraph, review, development, localReview, pullRequestCi);
+                taskId, worktree, permissionPolicy, approvals, redactor.withSecret(token), false, codeGraph, review, development, localReview, pullRequestCi, notebook);
         contexts.put(token, context);
         return Optional.of(new CodeGraphRegistration(
-                token, requireNonNull(endpoint.get(), "endpoint URI is null"), codeGraph, review, development, localReview, pullRequestCi,
+                token, requireNonNull(endpoint.get(), "endpoint URI is null"), codeGraph, review, development, localReview, pullRequestCi, notebook,
                 tools(context).stream().map(ToolDefinition::name).collect(toImmutableList()), () -> contexts.remove(token)));
     }
 
     /** Combines the fixed capabilities' guidance for the session's instruction channel. */
     static Optional<String> managedInstruction(
             Optional<CodeGraphBridge> codeGraph, Optional<ReviewBridge> review, Optional<DevelopmentResultBridge> development,
-            Optional<LocalReviewBridge> localReview, Optional<PullRequestCiBridge> pullRequestCi)
+            Optional<LocalReviewBridge> localReview, Optional<PullRequestCiBridge> pullRequestCi, Optional<RepositoryContextBridge> notebook)
     {
         String joined = Stream.of(
                         review.map(ReviewBridge::instruction),
                         codeGraph.map(CodeGraphBridge::instruction),
                         development.map(DevelopmentResultBridge::instruction),
                         localReview.map(LocalReviewBridge::instruction),
-                        pullRequestCi.map(PullRequestCiBridge::instruction))
+                        pullRequestCi.map(PullRequestCiBridge::instruction),
+                        notebook.map(RepositoryContextBridge::instruction))
                 .flatMap(Optional::stream)
                 .collect(Collectors.joining("\n\n"));
         return joined.isBlank() ? Optional.empty() : Optional.of(joined);
@@ -373,6 +396,7 @@ public final class PermissionBroker
             case DevelopmentResultBridge.TOOL_NAME -> developmentResult(request.id(), params.arguments(), context);
             case DevelopmentResultBridge.PUBLISH_TOOL_NAME -> createDraftPullRequest(request.id(), params.arguments(), context);
             case PullRequestCiBridge.TOOL_NAME -> pullRequestCi(request.id(), params.arguments(), context);
+            case RepositoryContextBridge.TOOL_NAME -> repositoryContext(request.id(), params.arguments(), context);
             case LocalReviewBridge.LIST_TOOL, LocalReviewBridge.REPLY_TOOL, LocalReviewBridge.RESOLVE_TOOL -> localReviewTool(request.id(), params, context);
             default -> reviewTool(request.id(), params, context);
         };
@@ -573,6 +597,24 @@ public final class PermissionBroker
         return response(id, new ToolResult(ImmutableList.of(new TextContent("text", context.redactor().redact(text))), failed));
     }
 
+    private McpHttpResponse repositoryContext(JsonNode id, JsonNode arguments, PermissionContext context)
+            throws JsonProcessingException
+    {
+        if (context.notebook().isEmpty()) {
+            return error(id, -32602, "Unknown tool");
+        }
+        try {
+            RepositoryContextBridge bridge = repositoryContext.resolve(context.taskId())
+                    .orElseThrow(() -> new IllegalStateException("Repository context is unavailable for this turn"));
+            String result = bridge.lookup().apply(objectMapper.writeValueAsString(arguments));
+            return response(id, new ToolResult(ImmutableList.of(new TextContent("text", context.redactor().redact(result))), false));
+        }
+        catch (RuntimeException failure) {
+            String detail = Optional.ofNullable(failure.getMessage()).orElse(failure.getClass().getSimpleName());
+            return response(id, new ToolResult(ImmutableList.of(new TextContent("text", context.redactor().redact("Context lookup failed: " + detail))), true));
+        }
+    }
+
     private McpHttpResponse permission(JsonNode id, JsonNode input, PermissionContext context)
             throws JsonProcessingException
     {
@@ -731,6 +773,21 @@ public final class PermissionBroker
             tools.add(codeGraphTool());
         }
         context.review().ifPresent(review -> review.tools().forEach(tool -> tools.add(new ToolDefinition(tool.name(), tool.description(), tool.inputSchema()))));
+        context.notebook().ifPresent(ignored -> tools.add(new ToolDefinition(
+                RepositoryContextBridge.TOOL_NAME,
+                "Search saved workspace knowledge and lessons, then read an exact returned version. Read-only; verify sources against current code.",
+                ImmutableMap.of(
+                        "type", "object",
+                        "properties", ImmutableMap.of(
+                                "action", ImmutableMap.of("type", "string", "enum", ImmutableList.of("SEARCH", "READ")),
+                                "query", ImmutableMap.of("type", "string", "maxLength", 200),
+                                "paths", ImmutableMap.of("type", "array", "items", ImmutableMap.of("type", "string"), "maxItems", 20),
+                                "operationKey", ImmutableMap.of("type", "string", "maxLength", 100),
+                                "searchRef", ImmutableMap.of("type", "string"),
+                                "entryId", ImmutableMap.of("type", "string"),
+                                "entryVersion", ImmutableMap.of("type", "integer", "minimum", 1)),
+                        "required", ImmutableList.of("action"),
+                        "additionalProperties", false))));
         context.pullRequestCi().ifPresent(ignored -> tools.add(new ToolDefinition(
                 PullRequestCiBridge.TOOL_NAME,
                 "Read this task's current pull-request CI overview, or supply a returned failed jobId for its bounded log; unavailable and truncated evidence is marked",
@@ -992,7 +1049,8 @@ public final class PermissionBroker
             Optional<ReviewBridge> review,
             Optional<DevelopmentResultBridge> development,
             Optional<LocalReviewBridge> localReview,
-            Optional<PullRequestCiBridge> pullRequestCi)
+            Optional<PullRequestCiBridge> pullRequestCi,
+            Optional<RepositoryContextBridge> notebook)
     {
         private PermissionContext
         {
@@ -1006,6 +1064,7 @@ public final class PermissionBroker
             requireNonNull(development, "development is null");
             requireNonNull(localReview, "localReview is null");
             requireNonNull(pullRequestCi, "pullRequestCi is null");
+            requireNonNull(notebook, "notebook is null");
         }
     }
 

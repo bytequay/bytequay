@@ -19,6 +19,9 @@ import type {
   ApplyContextDiscoveryRequest,
   ConfigureRepositoryContextRequest,
   ContextBuildViewDto,
+  ContextUsageActivitiesDto,
+  ContextUsageOverviewDto,
+  ContextUsageWindow,
   ContextDiscoveryDto,
   DiscoverRepositoryContextRequest,
   EditRepositoryContextEntryRequest,
@@ -1318,6 +1321,34 @@ export type RecentDraftRequest = {
   body: string;
 };
 
+export interface DevelopmentContextActivityDto {
+  cards: Array<{
+    reference: string;
+    turnId: string;
+    kind: 'OFFER' | 'SEARCH' | 'READ';
+    createdAt: string;
+    notebookRevision: number;
+    delivery: 'PREPARED' | 'CONFIRMED' | 'UNCERTAIN' | 'UNKNOWN';
+    bytes: number;
+    query: string;
+    paths: string[];
+    entries: Array<{
+      id: string;
+      version: number;
+      kind: string;
+      scopeId: string;
+      title: string;
+      matchReasons: string[];
+      included: boolean;
+    }>;
+    omittedCount: number;
+    scopeStates: Array<{ scopeId: string; preparation: string; missingKnowledge: boolean }>;
+    warnings: string[];
+  }>;
+  hasMore: boolean;
+  usageTruncated: boolean;
+}
+
 export type Bridge = {
   savePat: (pat: string) => Promise<boolean>;
   hasPat: () => Promise<boolean>;
@@ -1544,6 +1575,8 @@ export type Bridge = {
 
   getWorkspaceSettings: (workspaceId: string) => Promise<WorkspaceSettingsDto>;
   getRepositoryContext: (workspaceId: string) => Promise<RepositoryNotebookDto>;
+  getRepositoryContextUsage: (workspaceId: string, window: ContextUsageWindow, page: number) => Promise<ContextUsageOverviewDto>;
+  getRepositoryContextEntryUsage: (workspaceId: string, entryId: string, window: ContextUsageWindow, page: number) => Promise<ContextUsageActivitiesDto>;
   discoverRepositoryContext: (workspaceId: string, request: DiscoverRepositoryContextRequest) => Promise<ContextDiscoveryDto>;
   applyRepositoryContextDiscovery: (workspaceId: string, request: ApplyContextDiscoveryRequest) => Promise<RepositoryNotebookDto>;
   getRepositoryContextBuild: (workspaceId: string) => Promise<ContextBuildViewDto>;
@@ -1587,6 +1620,7 @@ export type Bridge = {
   listAgentTasks: (workspaceId: string, limit?: number) => Promise<AgentTaskDto[]>;
   createAgentTask: (request: CreateAgentTaskRequest) => Promise<AgentTaskDto>;
   getAgentTask: (taskId: string, workspaceId: string) => Promise<AgentTaskDto>;
+  getAgentTaskRepositoryContext: (taskId: string, workspaceId: string) => Promise<DevelopmentContextActivityDto>;
   /** Polled while createAgentTask is in flight; the task may not exist yet, so it takes no workspace. */
   getAgentTaskStartup: (taskId: string) => Promise<AgentTaskStartupDto>;
   /** Version-checked, so a stale screen cannot overwrite a change it never saw. */

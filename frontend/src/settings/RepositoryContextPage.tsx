@@ -17,6 +17,7 @@ import ContextEntryEditor, { ContextDialog, type ContextEntryDraft } from '../re
 import type { ContextClaimDto, ContextEntryDto, ContextScopeConfigurationDto, ContextScopeDto, ContextSourceConfigurationDto, ContextSourceDto, RepositoryNotebookDto } from '../repository-context/contracts';
 import { Badge, SettingsCard, SettingsRow, Toggle } from './primitives';
 import RepositoryContextBuild from './RepositoryContextBuild';
+import RepositoryContextUsage from './RepositoryContextUsage';
 
 type Editor = { kind: 'entry'; entry: ContextEntryDto | null; initial: ContextEntryDraft; claims: ContextClaimDto[] }
   | { kind: 'source'; source: ContextSourceDto | null } | { kind: 'scope'; scope: ContextScopeDto | null };
@@ -116,7 +117,7 @@ export default function RepositoryContextPage({ workspace }: { workspace: Worksp
       </details>
       <div className="rc-actions"><button className="rc-button" disabled={disabled} onClick={() => openNote(entry)}>Edit</button>
         <button className="rc-button" disabled={disabled} onClick={() => void mutate(revision => window.bridge.setRepositoryContextEntryEnabled(workspace.id,
-          { expectedRevision: revision, entryId: entry.id, enabled: !entry.enabled }), entry.enabled ? 'Note disabled for future reviews.' : 'Note enabled for future reviews.')}>{entry.enabled ? 'Disable' : 'Enable'}</button>
+          { expectedRevision: revision, entryId: entry.id, enabled: !entry.enabled }), entry.enabled ? 'Note disabled for future tasks and reviews.' : 'Note enabled for future tasks and reviews.')}>{entry.enabled ? 'Disable' : 'Enable'}</button>
         <button className="rc-button is-danger" disabled={disabled} onClick={() => setRemoving(entry)}>Remove</button></div>
     </article>;
   });
@@ -130,8 +131,12 @@ export default function RepositoryContextPage({ workspace }: { workspace: Worksp
       <SettingsCard><SettingsRow title="Use repository context in reviews" subtitle="Applies to new review runs. Turning it off keeps your notes and past review records.">
         <Toggle on={notebook.useInReviews} disabled={disabled} label="Use repository context in reviews" onChange={enabled => void mutate(revision =>
           window.bridge.configureRepositoryContext(workspace.id, { expectedRevision: revision, useInReviews: enabled }), enabled ? 'Repository context enabled for new runs.' : 'Repository context disabled for new runs.')} />
+      </SettingsRow><SettingsRow title="Use repository context in development" subtitle="Applies to new development turns. Turning it off keeps your notes and past task records.">
+        <Toggle on={notebook.useInDevelopment} disabled={disabled} label="Use repository context in development" onChange={enabled => void mutate(revision =>
+          window.bridge.configureRepositoryContext(workspace.id, { expectedRevision: revision, useInDevelopment: enabled }), enabled ? 'Repository context enabled for new development turns.' : 'Repository context disabled for new development turns.')} />
       </SettingsRow></SettingsCard>
       <RepositoryContextBuild workspaceId={workspace.id} notebook={notebook} onNotebookChange={setNotebook} disabled={disabled} />
+      <RepositoryContextUsage workspaceId={workspace.id} notebook={notebook} />
       {notebook.activePreparation !== null && <div className="rc-status" role="status">Shared preparation is claimed for {notebook.activePreparation.inputs
         .map(input => notebook.scopes.find(scope => scope.id === input.scopeId)?.title ?? input.scopeId).join(', ')}. Saved notes remain available.
         <details><summary>Preparation owner</summary><p>Task: {notebook.activePreparation.ownerTaskId}</p>
@@ -151,7 +156,7 @@ export default function RepositoryContextPage({ workspace }: { workspace: Worksp
           </details>}</>}>
         <button className="rc-button" disabled={disabled} onClick={() => setEditor({ kind: 'scope', scope })}>Edit</button>
         <button className="rc-button" disabled={disabled} onClick={() => void mutate(revision => window.bridge.configureRepositoryContext(workspace.id,
-          { expectedRevision: revision, scopes: notebook.scopes.map(value => value.id === scope.id ? { ...value, enabled: !value.enabled } : value) }), 'Scope updated for future reviews.')}>{scope.enabled ? 'Disable' : 'Enable'}</button>
+          { expectedRevision: revision, scopes: notebook.scopes.map(value => value.id === scope.id ? { ...value, enabled: !value.enabled } : value) }), 'Scope updated for future tasks and reviews.')}>{scope.enabled ? 'Disable' : 'Enable'}</button>
       </SettingsRow>)}</SettingsCard>
       <div className="setw-section"><span className="setw-section-title">Documentation sources</span><button className="rc-button" disabled={disabled} onClick={() => setEditor({ kind: 'source', source: null })}>Add source</button></div>
       <SettingsCard>{notebook.sources.length === 0 && <div className="setw-row-empty">Add a documentation website or page. Saving a link does not fetch it.</div>}
@@ -168,12 +173,12 @@ export default function RepositoryContextPage({ workspace }: { workspace: Worksp
             <button className="rc-button" disabled={disabled || scope === undefined} onClick={() => scope && void mutate(revision => window.bridge.resetRepositoryContext(workspace.id,
               { expectedRevision: revision, scopeIds: [scope.id] }), 'Removal reset. You can add a new note for this scope.')}>Reset removal</button></SettingsRow>;
         })}</SettingsCard></>}
-      <p className="rc-muted">Reviews can prepare reusable knowledge for configured scopes and provide saved context to the agent. Learn / Refresh starts an explicit learning task. Opening this page does not start learning.</p>
+      <p className="rc-muted">Reviews can prepare reusable knowledge for configured scopes. New review runs and development turns can use saved context when their switches are on. Learn / Refresh starts an explicit learning task. Opening this page does not start learning.</p>
       {editor?.kind === 'entry' && <ContextEntryEditor initialValue={editor.initial} scopes={editor.entry === null ? availableScopes : notebook.scopes}
         scopeLocked={editor.entry !== null} busy={busy} error={error} submitDisabled={needsReload || sourceLinksChanged || editor.claims.some(claim => claim.text.trim() === '' || new TextEncoder().encode(claim.text).length > 2000)
           || (editor.entry !== null && !notebook.entries.some(entry => entry.id === editor.entry?.id))} title={editor.entry === null ? 'Add knowledge note' : 'Edit note'} onCancel={closeEditor}
         onSave={draft => void mutate(revision => window.bridge.editRepositoryContextEntry(workspace.id, { expectedRevision: revision, ...draft,
-          id: editor.entry?.id ?? 'knowledge:' + draft.scopeId, claims: editor.claims, sourceIds: editor.entry?.sourceIds ?? [] }), 'Note saved for future reviews.', true)}>
+          id: editor.entry?.id ?? 'knowledge:' + draft.scopeId, claims: editor.claims, sourceIds: editor.entry?.sourceIds ?? [] }), 'Note saved for future tasks and reviews.', true)}>
         {editor.entry?.origin === 'GENERATED' && <p className="rc-muted">Saving makes this a user-managed note.</p>}
         {sourceLinksChanged && <p className="rc-error" role="alert">The saved sources or claim structure changed. Copy any draft text you want to keep, then cancel and reopen this note to edit its latest sources.</p>}
         {editor.claims.length > 0 && <details open><summary>Supporting claims</summary>{editor.claims.map((claim, index) => <label key={index}>
@@ -194,7 +199,7 @@ export default function RepositoryContextPage({ workspace }: { workspace: Worksp
           scopes: [...notebook.scopes.filter(value => value.id !== scope.id), { ...scope, enabled: notebook.scopes.find(value => value.id === scope.id)?.enabled ?? true }] }), 'Matching scope saved.', true)} />}
       {removing !== null && <ContextDialog title="Remove saved note?" busy={busy} onCancel={() => setRemoving(null)}><form onSubmit={event => { event.preventDefault();
         void mutate(revision => window.bridge.removeRepositoryContextEntry(workspace.id, { expectedRevision: revision, entryId: removing.id }), 'Note removed. Previous review records are unchanged.', true);
-      }}><div className="rc-dialog-body"><p>Remove “{removing.title}” from future reviews?</p>
+      }}><div className="rc-dialog-body"><p>Remove “{removing.title}” from future tasks and reviews?</p>
         <p className="rc-muted">Past review records stay available.{removing.kind === 'KNOWLEDGE' ? ' This scope stays excluded from recreation until you reset its removal.' : ' The saved lesson will be deleted.'}</p>
         {error && <div className="rc-error" role="alert">{error}{reloadControl}</div>}</div><footer><button type="button" className="rc-button" disabled={busy} onClick={() => setRemoving(null)}>Cancel</button>
           <button className="rc-button is-danger" type="submit" disabled={disabled}>Remove note</button></footer></form></ContextDialog>}

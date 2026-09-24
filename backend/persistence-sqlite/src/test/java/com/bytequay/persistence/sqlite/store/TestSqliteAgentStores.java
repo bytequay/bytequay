@@ -72,6 +72,7 @@ import com.bytequay.agent.spi.AgentTurnResult;
 import com.bytequay.agent.spi.DevelopmentResultReport;
 import com.bytequay.agent.spi.ProviderTurnRef;
 import com.bytequay.agent.spi.RunningTurn;
+import com.bytequay.core.context.ContextUsageEvent;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
 import jakarta.persistence.EntityManager;
@@ -112,6 +113,9 @@ class TestSqliteAgentStores
 
     @Autowired
     private SqliteAgentTaskStore taskStore;
+
+    @Autowired
+    private SqliteContextUsageStore usageStore;
 
     @Autowired
     private SqliteAgentTurnStore turnStore;
@@ -793,6 +797,9 @@ class TestSqliteAgentStores
         AgentTask other = newTask(now);
         taskStore.insert(other);
         launchStore.insert(new AgentProcessLaunch("launch-other", LaunchOwnerKind.APP_SERVER, other.id().toString(), true, "/usr/bin/codex", "digest", now));
+        usageStore.record(new ContextUsageEvent("workspace-a", task.id().toString(), Optional.of(turn.id().toString()), Optional.empty(),
+                ContextUsageEvent.TaskKind.DEVELOPMENT, ContextUsageEvent.Stage.ELIGIBLE, ContextUsageEvent.Delivery.CONFIRMED,
+                "context-eligible:" + turn.id(), Optional.empty(), Optional.empty(), Optional.of(true), now));
         entityManager.clear();
 
         taskStore.delete(task.id());
@@ -800,7 +807,7 @@ class TestSqliteAgentStores
 
         assertThat(taskStore.find(task.id())).isEmpty();
         assertThat(turnStore.find(turn.id())).isEmpty();
-        for (String table : ImmutableList.of("agent_turn", "agent_queued_input", "agent_input_delivery", "agent_event_outbox")) {
+        for (String table : ImmutableList.of("agent_turn", "agent_queued_input", "agent_input_delivery", "agent_event_outbox", "context_usage_fact")) {
             assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM " + table + " WHERE task_id = ?", Integer.class, task.id().toString()))
                     .as(table).isZero();
         }

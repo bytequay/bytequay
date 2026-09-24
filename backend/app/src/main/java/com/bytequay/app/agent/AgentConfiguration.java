@@ -25,8 +25,10 @@ import com.bytequay.agent.core.AgentCompletionService;
 import com.bytequay.agent.core.AgentEventService;
 import com.bytequay.agent.core.AgentMetricsService;
 import com.bytequay.agent.core.AgentResourceService;
+import com.bytequay.agent.core.AgentTask;
 import com.bytequay.agent.core.AgentTaskService;
 import com.bytequay.agent.core.AgentTaskTitleService;
+import com.bytequay.agent.core.AgentTurn;
 import com.bytequay.agent.core.AgentTurnService;
 import com.bytequay.agent.core.CodeGraphService;
 import com.bytequay.agent.core.ReviewTurnInputResolver;
@@ -57,6 +59,7 @@ import com.bytequay.agent.spi.AgentDriverRegistry;
 import com.bytequay.agent.spi.DevelopmentResultBridgeResolver;
 import com.bytequay.agent.spi.LocalReviewBridgeResolver;
 import com.bytequay.agent.spi.PullRequestCiBridgeResolver;
+import com.bytequay.agent.spi.RepositoryContextBridgeResolver;
 import com.bytequay.agent.spi.ReviewBridgeResolver;
 import com.bytequay.app.agent.codegraph.CodeGraphBaseline;
 import com.bytequay.app.agent.codegraph.CodeGraphCli;
@@ -67,6 +70,7 @@ import com.bytequay.app.ci.CiMemoryService;
 import com.bytequay.app.ci.DevelopmentCiOwnership;
 import com.bytequay.app.ci.GitHubActionsClient;
 import com.bytequay.app.ci.ReadCiMemoryCommand;
+import com.bytequay.app.context.DevelopmentContextTools;
 import com.bytequay.app.git.GitCommandRunner;
 import com.bytequay.app.repository.github.GitHubPullRequestReadClient;
 import com.bytequay.app.repository.github.GitHubPullRequestWriteClient;
@@ -135,6 +139,7 @@ public class AgentConfiguration
             DevelopmentResultBridgeResolver developmentResults,
             LocalReviewBridgeResolver localReviews,
             PullRequestCiBridgeResolver pullRequestChecks,
+            RepositoryContextBridgeResolver repositoryContext,
             ObjectProvider<DevelopmentFollowupCoordinator> developmentFollowups)
     {
         return new PermissionBroker(
@@ -147,7 +152,8 @@ public class AgentConfiguration
                 developmentResults,
                 (taskId, title, body) -> developmentFollowups.getObject().publishDraftPullRequest(taskId, title, body),
                 localReviews,
-                pullRequestChecks);
+                pullRequestChecks,
+                repositoryContext);
     }
 
     @Bean(destroyMethod = "close")
@@ -334,6 +340,7 @@ public class AgentConfiguration
             CodeGraphService codeGraph,
             AgentSkillService skills,
             ObjectProvider<ReviewTurnInputResolver> reviewTurnInput,
+            DevelopmentContextTools developmentContext,
             Clock agentClock,
             AgentProperties properties,
             AgentReviewStore reviews,
@@ -357,7 +364,21 @@ public class AgentConfiguration
                 runtimeRegistry,
                 codeGraph,
                 task -> skills.instructions(task) + ciOwnership.instructions(task),
-                (task, turn, message) -> reviewTurnInput.getObject().prepare(task, turn, message),
+                new ReviewTurnInputResolver()
+                {
+                    @Override
+                    public String prepare(AgentTask task, AgentTurn turn, String message)
+                    {
+                        return developmentContext.prepare(task, turn, reviewTurnInput.getObject().prepare(task, turn, message));
+                    }
+
+                    @Override
+                    public void delivered(AgentTask task, AgentTurn turn)
+                    {
+                        reviewTurnInput.getObject().delivered(task, turn);
+                        developmentContext.delivered(task, turn);
+                    }
+                },
                 agentClock,
                 properties.maximumTurnRuntime(),
                 // A queued turn starts from whatever thread ended the last one, which may be the

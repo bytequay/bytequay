@@ -34,11 +34,13 @@ import com.bytequay.agent.spi.AgentLaneId;
 import com.bytequay.agent.spi.AgentPermissionPolicy;
 import com.bytequay.agent.spi.ProviderTurnRef;
 import com.bytequay.app.context.ContextDiscussionReader;
+import com.bytequay.app.context.ContextUsageRecorder;
 import com.bytequay.core.context.ContextContribution;
 import com.bytequay.core.context.ContextDelivery;
 import com.bytequay.core.context.ContextDiscussionSupplement;
 import com.bytequay.core.context.ContextLimits;
 import com.bytequay.core.context.ContextPacket;
+import com.bytequay.core.context.ContextUsageEvent;
 import com.bytequay.core.context.ReviewContextSnapshot;
 import com.bytequay.core.review.AgentReview;
 import com.bytequay.core.review.AgentReviewStore;
@@ -101,6 +103,19 @@ class TestRepositoryContextTurnInput
         assertThat(fixture.prepare("Review this PR")).isEqualTo(input);
         verify(fixture.reviews, times(1)).updateRun(any());
         assertThatThrownBy(() -> fixture.prepare("Changed input")).isInstanceOf(IllegalStateException.class).hasMessageContaining("cannot be replaced");
+    }
+
+    @Test
+    void confirmsOnlyTheBootstrapPacketAfterProviderAcceptance()
+    {
+        Fixture fixture = new Fixture();
+        fixture.prepare("Review this PR");
+        fixture.input.delivered(fixture.task, fixture.turn);
+        verify(fixture.usage, never()).confirm(any(), any(), any());
+
+        AgentTurn running = fixture.turn.markDeliveryStarted(NOW).running(new ProviderTurnRef("provider-turn"), Optional.empty());
+        fixture.input.delivered(fixture.task, running);
+        verify(fixture.usage).confirm("workspace", "context", ContextUsageEvent.Stage.PROVIDED);
     }
 
     @Test
@@ -280,8 +295,9 @@ class TestRepositoryContextTurnInput
                 new AgentTaskDefaults(Optional.empty(), Optional.empty(), AgentPermissionPolicy.AUTO, Optional.empty()), NOW);
         private final AtomicReference<ReviewRun> run = new AtomicReference<>(run(Optional.of(snapshot(true))));
         private final ContextDiscussionReader discussions = mock(ContextDiscussionReader.class);
+        private final ContextUsageRecorder usage = mock(ContextUsageRecorder.class);
         private final RepositoryContextTurnInput input = new RepositoryContextTurnInput(reviews, new ReviewToolAssignment(turns, queue, reviews),
-                new ReviewLocks(), Clock.fixed(NOW, ZoneOffset.UTC), discussions);
+                new ReviewLocks(), Clock.fixed(NOW, ZoneOffset.UTC), discussions, usage);
         private AgentTurn turn;
 
         private Fixture()

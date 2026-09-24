@@ -237,6 +237,8 @@ public class SqliteAgentTaskStore
         jdbc.update("DELETE FROM recent_touch WHERE item_key = ?", "task:" + id);
         jdbc.update("DELETE FROM recent_text WHERE item_key = ?", "task:" + id);
         jdbc.update("DELETE FROM local_review_thread WHERE task_id = ?", id);
+        jdbc.update("DELETE FROM context_usage_fact WHERE task_id = ?", id);
+        jdbc.update("DELETE FROM development_context_receipt WHERE task_id = ?", id);
         // A launch names its owner, the task or one of its turns; nothing else ties it to the task.
         List<String> owners = Stream.concat(Stream.of(id), turns.findByTaskIdOrderByCreatedAtAsc(id).stream().map(AgentTurnEntity::getId))
                 .collect(toImmutableList());

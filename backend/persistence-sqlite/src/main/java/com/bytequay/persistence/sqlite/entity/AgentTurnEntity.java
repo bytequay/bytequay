@@ -116,6 +116,8 @@ public class AgentTurnEntity
     @Convert(converter = DevelopmentAutomationConverter.class)
     private DevelopmentAutomation developmentAutomation;
 
+    private Boolean useRepositoryContext;
+
     @Enumerated(EnumType.STRING)
     private AgentPermissionPolicy permissionPolicy;
 
@@ -201,6 +203,7 @@ public class AgentTurnEntity
         effort = turn.settings().flatMap(AgentTurnSettings::effort).orElse(null);
         serviceTier = turn.settings().flatMap(AgentTurnSettings::serviceTier).orElse(null);
         developmentAutomation = turn.settings().flatMap(AgentTurnSettings::developmentAutomation).orElse(null);
+        useRepositoryContext = turn.settings().map(AgentTurnSettings::useRepositoryContext).orElse(null);
         permissionPolicy = turn.settings().map(AgentTurnSettings::permissionPolicy).orElse(null);
         maximumRuntimeMillis = turn.settings().map(settings -> settings.maximumRuntime().toMillis()).orElse(null);
         attachmentsJson = turn.settings()
@@ -237,7 +240,8 @@ public class AgentTurnEntity
                         Duration.ofMillis(runtime),
                         AgentAttachmentReferenceJson.decode(attachmentsJson),
                         Optional.ofNullable(serviceTier),
-                        Optional.ofNullable(developmentAutomation)));
+                        Optional.ofNullable(developmentAutomation),
+                        !Boolean.FALSE.equals(useRepositoryContext)));
         return new AgentTurn(
                 TurnId.valueOf(id),
                 TaskId.valueOf(taskId),

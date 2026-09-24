@@ -25,12 +25,19 @@ import static java.util.Objects.requireNonNull;
 /** User-selected preference/catalog changes; absent fields retain their current values. */
 public record EditContextConfiguration(
         Optional<Boolean> useInReviews,
+        Optional<Boolean> useInDevelopment,
         Optional<List<Source>> sources,
         Optional<List<ContextScope>> scopes)
 {
+    public EditContextConfiguration(Optional<Boolean> useInReviews, Optional<List<Source>> sources, Optional<List<ContextScope>> scopes)
+    {
+        this(useInReviews, Optional.empty(), sources, scopes);
+    }
+
     public EditContextConfiguration
     {
         requireNonNull(useInReviews, "useInReviews is null");
+        requireNonNull(useInDevelopment, "useInDevelopment is null");
         sources = requireNonNull(sources, "sources is null").map(ImmutableList::copyOf);
         scopes = requireNonNull(scopes, "scopes is null").map(ImmutableList::copyOf);
     }

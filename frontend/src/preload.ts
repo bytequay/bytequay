@@ -232,6 +232,8 @@ const bridge: Bridge = {
 
   getWorkspaceSettings: workspaceId => ipcRenderer.invoke('workspaces:settings', workspaceId),
   getRepositoryContext: workspaceId => ipcRenderer.invoke('repository-context:get', workspaceId),
+  getRepositoryContextUsage: (workspaceId, window, page) => ipcRenderer.invoke('repository-context:usage', workspaceId, window, page),
+  getRepositoryContextEntryUsage: (workspaceId, entryId, window, page) => ipcRenderer.invoke('repository-context:usage:entry', workspaceId, entryId, window, page),
   discoverRepositoryContext: (workspaceId, request) => ipcRenderer.invoke('repository-context:discover', workspaceId, request),
   applyRepositoryContextDiscovery: (workspaceId, request) => ipcRenderer.invoke('repository-context:discovery:apply', workspaceId, request),
   getRepositoryContextBuild: workspaceId => ipcRenderer.invoke('repository-context:build:get', workspaceId),
@@ -276,6 +278,7 @@ const bridge: Bridge = {
   listAgentTasks: (workspaceId, limit) => ipcRenderer.invoke('agent:tasks:list', workspaceId, limit),
   createAgentTask: request => ipcRenderer.invoke('agent:tasks:create', request),
   getAgentTask: (taskId, workspaceId) => ipcRenderer.invoke('agent:tasks:get', taskId, workspaceId),
+  getAgentTaskRepositoryContext: (taskId, workspaceId) => ipcRenderer.invoke('agent:tasks:repository-context', taskId, workspaceId),
   getAgentTaskStartup: taskId => ipcRenderer.invoke('agent:tasks:startup', taskId),
   updateAgentTaskDefaults: (taskId, workspaceId, expectedVersion, defaults) =>
     ipcRenderer.invoke('agent:task:defaults', taskId, workspaceId, expectedVersion, defaults),

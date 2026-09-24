@@ -60,6 +60,8 @@ even when related infrastructure already exists.
 | Automatic context delivery and investigation report integration | Implemented; frozen bootstrap/brief, exact-version deferred notes and separate replayable discussion capture |
 | Notebook/settings UI, Save lesson and context delivery display | Implemented; citations, retained retrievals, folded preparation outcomes, bytes/timing and receipt-derived delivery state |
 | Agent-drafted lesson fields | Implemented; backend, browser interaction, frontend and package gates passed; live provider acceptance remains open |
+| Development/review agent note discovery | Implemented; default-on development offers, scoped searches and exact reads retain versions and receipts; live provider acceptance remains open |
+| Repository context usage and demand view | Implemented; task-detail cards, note versions, delivery state and missing-scope demand pass backend/frontend gates; live provider acceptance remains open |
 | Reproducible small comparison fixtures | Implemented; two frozen code diffs and eight context proposals, with dependency-free behavior checks; human assessment pending |
 | False lesson, correction and future exclusion | Four live Codex lifecycle reviews passed source-based rejection, exact versions and immutable old snapshots |
 | On/Off quality comparison, performance and live provider acceptance | Four isolated Codex reviews match the two fixture expectations; human assessment, broader cases, Claude and controlled performance remain open |
@@ -74,29 +76,41 @@ those procedures and unknown metrics explicit. Existing CP sections
 retain the detailed foundation and verification checklist; their numbering does
 not override this priority order. Earlier “Next” notes are historical evidence.
 
-## Proposed next extension: agent discovery
+## Agent discovery and usage
 
-The [agent discovery design](repository-context-agent-discovery.md) is proposed,
-not implemented. It extends the notebook to ordinary development turns and
-lets active reviews find notes beyond their original frozen selection. It does
-not change the H1–H3 implementation or complete their live acceptance gates.
+The [agent discovery design](repository-context-agent-discovery.md) now has a
+first implementation. It extends the notebook to ordinary development turns
+and lets active reviews find notes beyond their original frozen selection. It
+does not change the H1–H3 implementation or complete their live acceptance gates.
 
-- [ ] Review the new design's overall flow, settings, matching order, source
+- [x] Review the new design's overall flow, settings, matching order, source
   safety and truthful Offered/Found/Opened display.
-- [ ] Implement one bounded local notebook search and exact-version read path;
+- [x] Implement one bounded local notebook search and exact-version read path;
   verify disabled, suppressed, cross-workspace and changed-version cases.
-- [ ] Extend active review lookup with separately retained later discoveries;
+- [x] Extend active review lookup with separately retained later discoveries;
   preserve frozen bootstrap, Off and old-card discussion behavior.
-- [ ] Add a default-on development-use setting, accepted-turn offer, fixed
+- [x] Add a default-on development-use setting, accepted-turn offer, fixed
   read-only broker tool and task-owned receipts for both providers.
-- [ ] Show offer/search/read receipts in task and review details, then complete
-  live Codex/Claude and On/Off quality/performance checks.
-- [ ] Add idempotent usage facts from confirmed provider receipts and the
+- [x] Show bounded offer/search/read receipt cards in development task details;
+  preserve review receipt detail, exact versions and match reasons without exposing
+  note bodies in the task card.
+- [ ] Run live Codex/Claude dynamic lookup and On/Off quality/performance checks.
+  Codex's dedicated CLI profile is ready; Claude's dedicated profile reported
+  signed out during this check, and no local ByteQuay backend was running.
+- [x] Add idempotent usage facts from confirmed provider receipts and the
   Repository context Usage view. Show per-note versions, task types and
   missing-scope demand; separate prepared/uncertain from confirmed delivery,
   and label the tracking start and retained-history boundary.
 - [ ] Evaluate optional per-task note feedback after usage counts are verified;
   do not infer help from retrieval or require an approval for every lesson.
+
+The discovery implementation passes backend `mvn verify` (including the local
+HTTP/process tests), frontend lint and TypeScript checks, 948 frontend tests,
+and desktop packaging. Electron browser fixtures and packaging required an
+unsandboxed run on this host. The new Usage view measures observed reach, not
+review correctness; the live provider and human comparison checks above remain
+open. A separate JPA-only persistence refactor is requested for the three
+production JDBC-template users and will be tracked in its own commit.
 
 ## Cold-start priority order
 

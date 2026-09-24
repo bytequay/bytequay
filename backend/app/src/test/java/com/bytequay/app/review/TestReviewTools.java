@@ -29,7 +29,10 @@ import com.bytequay.app.context.ContextBaselineReader;
 import com.bytequay.app.context.ContextHistoryReader;
 import com.bytequay.app.context.ContextNotFoundException;
 import com.bytequay.app.context.ContextNoteReader;
+import com.bytequay.app.context.ContextNotebookLookup;
 import com.bytequay.app.context.ContextStorageException;
+import com.bytequay.app.context.ContextUsageRecorder;
+import com.bytequay.app.context.RepositoryContextMatcher;
 import com.bytequay.app.context.RepositoryContextPreparation;
 import com.bytequay.app.context.RepositoryContextPreparation.Admission;
 import com.bytequay.app.context.RepositoryContextPreparation.Completion;
@@ -39,6 +42,7 @@ import com.bytequay.app.context.RepositoryContextPreparation.Plan;
 import com.bytequay.app.context.RepositoryContextPreparation.Receipt;
 import com.bytequay.app.context.RepositoryContextPreparation.Status;
 import com.bytequay.app.context.RepositoryContextService;
+import com.bytequay.app.context.ReviewContextService;
 import com.bytequay.app.context.SelectedCommitPullRequestReader;
 import com.bytequay.app.context.SelectedDocumentationReader;
 import com.bytequay.app.git.GitCommandRunner;
@@ -69,6 +73,7 @@ import com.bytequay.core.context.ContextRepositoryRead;
 import com.bytequay.core.context.ContextScope;
 import com.bytequay.core.context.ContextSelectedEntry;
 import com.bytequay.core.context.ContextSourceEvidence;
+import com.bytequay.core.context.ContextUsageEvent;
 import com.bytequay.core.context.RegisteredContextSource;
 import com.bytequay.core.context.RepositoryNotebook;
 import com.bytequay.core.context.ReviewContextSnapshot;
@@ -95,9 +100,11 @@ import com.bytequay.core.review.ReviewOperation;
 import com.bytequay.core.review.ReviewRun;
 import com.bytequay.core.review.ReviewStep;
 import com.bytequay.core.review.ReviewSummary;
+import com.bytequay.core.store.ContextUsageStore;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.databind.node.ObjectNode;
 import com.google.common.base.Stopwatch;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
@@ -107,6 +114,7 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.ValueSource;
+import org.mockito.ArgumentCaptor;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.http.HttpStatus;
@@ -200,6 +208,8 @@ class TestReviewTools
     private WorkspaceIssueRefreshService issueRefresh;
     private WorkspaceRepositoryService workspaces;
     private RepositoryContextPreparation preparation;
+    private ContextUsageStore usageStore;
+    private ContextUsageRecorder usage;
     private ReviewLocks locks;
     private boolean inTransaction;
 
@@ -227,6 +237,8 @@ class TestReviewTools
         objectMapper = new ObjectMapper().findAndRegisterModules();
         assignments = mock(ReviewToolAssignment.class);
         preparation = mock(RepositoryContextPreparation.class);
+        usageStore = mock(ContextUsageStore.class);
+        usage = mock(ContextUsageRecorder.class);
         locks = new ReviewLocks();
         TurnId turn = TurnId.random();
         capturedTurn = turn;
@@ -236,7 +248,10 @@ class TestReviewTools
             return new ReviewToolAssignment.Binding(current, current.currentStep(), Optional.empty());
         });
         tools = new ReviewTools(store, pullRequests, selectedPullRequests, selectedPullRequestDiffs, selectedCommitPullRequests, selectedDocumentation, baselineSources,
-                historySources, new ContextNoteReader(notebooks), repositories, issues, issueRefresh, events, workspaces, git, objectMapper,
+                historySources, new ContextNoteReader(notebooks),
+                new ContextNotebookLookup(notebooks, new RepositoryContextMatcher(), new ContextNoteReader(notebooks), objectMapper),
+                usageStore, usage,
+                repositories, issues, issueRefresh, events, workspaces, git, objectMapper,
                 locks, assignments, preparation, new AgentUnitOfWork()
                 {
                     @Override
@@ -783,6 +798,8 @@ class TestReviewTools
     {
         noteContext(ImmutableList.of(selectedNote("knowledge:project", 7, Optional.empty())), ImmutableMap.of());
         when(notebooks.getNotebook(WORKSPACE_ID)).thenReturn(noteNotebook(7, "Original conditional claim"));
+        when(usageStore.findSelectedNote(WORKSPACE_ID, RUN_ID, "knowledge:project", 7)).thenReturn(Optional.of(
+                new ContextUsageEvent.Note("knowledge:project", 7, ContextEntryKind.KNOWLEDGE, "project", "Selected note")));
         ReviewContextSnapshot snapshot = store.findRun(RUN_ID).orElseThrow().context().orElseThrow();
         JsonNode result = call("review_get_context", noteRequest(7));
 
@@ -797,6 +814,11 @@ class TestReviewTools
         assertThat(saved.evidence().get(sourceRef).excerpt()).isEqualTo("Original source passage");
         assertThat(saved.evidence().get(sourceRef).provenance()).contains("AGENT_REPORTED");
         assertThat(saved.operations()).containsOnlyKeys(noteRef);
+        ArgumentCaptor<ContextUsageEvent> usageEvent = ArgumentCaptor.forClass(ContextUsageEvent.class);
+        verify(usage).record(usageEvent.capture());
+        assertThat(usageEvent.getValue().stage()).isEqualTo(ContextUsageEvent.Stage.OPENED);
+        assertThat(usageEvent.getValue().delivery()).isEqualTo(ContextUsageEvent.Delivery.PREPARED);
+        assertThat(usageEvent.getValue().receiptRef()).isEqualTo(noteRef);
         assertThat(call("review_get_context", ImmutableMap.of("kind", "evidence", "ref", sourceRef)).path("excerpt").asText()).isEqualTo("Original source passage");
 
         ReviewRun reloaded = objectMapper.readValue(objectMapper.writeValueAsString(saved), ReviewRun.class);
@@ -807,6 +829,149 @@ class TestReviewTools
         assertThat(call("review_get_context", noteRequest(7))).isEqualTo(result);
         assertThat(store.runUpdates).isEqualTo(writes);
         verifyNoInteractions(notebooks);
+    }
+
+    @Test
+    void selectedNoteReceiptIsUniqueAcrossReviewRuns()
+    {
+        noteContext(ImmutableList.of(selectedNote("knowledge:project", 7, Optional.empty())), ImmutableMap.of());
+        when(notebooks.getNotebook(WORKSPACE_ID)).thenReturn(noteNotebook(7, "Exact shared knowledge"));
+        ContextUsageEvent.Note identity = new ContextUsageEvent.Note("knowledge:project", 7, ContextEntryKind.KNOWLEDGE, "project", "Selected note");
+        when(usageStore.findSelectedNote(WORKSPACE_ID, RUN_ID, "knowledge:project", 7)).thenReturn(Optional.of(identity));
+        String first = call("review_get_context", noteRequest(7)).path("evidenceRef").asText();
+
+        ReviewRun previous = store.findRun(RUN_ID).orElseThrow();
+        store.updateRun(previous.ended(ReviewRun.State.STOPPED, Optional.of("Next run"), NOW));
+        String secondRunId = "newer-run";
+        store.insertRun(run(secondRunId, 2, PATCH, false).withContext(previous.context().orElseThrow(), ImmutableMap.of(), NOW));
+        when(usageStore.findSelectedNote(WORKSPACE_ID, secondRunId, "knowledge:project", 7)).thenReturn(Optional.of(identity));
+        String second = call("review_get_context", noteRequest(7)).path("evidenceRef").asText();
+
+        assertThat(first).startsWith("context-note:").isNotEqualTo(second);
+        assertThat(second).startsWith("context-note:");
+        assertThat(store.findRun(RUN_ID).orElseThrow().operations()).containsKey(first).doesNotContainKey(second);
+        assertThat(store.findRun(secondRunId).orElseThrow().operations()).containsKey(second).doesNotContainKey(first);
+        ArgumentCaptor<ContextUsageEvent> recorded = ArgumentCaptor.forClass(ContextUsageEvent.class);
+        verify(usage, times(2)).record(recorded.capture());
+        assertThat(recorded.getAllValues()).extracting(ContextUsageEvent::receiptRef).containsExactly(first, second);
+    }
+
+    @Test
+    void oldSelectedNoteReceiptReplaysWithoutCreatingANewUsageFact()
+    {
+        noteContext(ImmutableList.of(selectedNote("knowledge:project", 7, Optional.empty())), ImmutableMap.of());
+        String digest = Hashing.sha256().hashString("knowledge:project\n7", UTF_8).toString();
+        String ref = "context-note:" + digest;
+        String text = "Previously retained note";
+        ObjectNode result = objectMapper.createObjectNode().put("entryId", "knowledge:project").put("entryVersion", 7)
+                .put("status", "AVAILABLE").put("evidenceRef", ref).put("text", text);
+        result.set("sourceEvidenceRefs", objectMapper.createObjectNode());
+        ReviewRun run = store.findRun(RUN_ID).orElseThrow().withEvidence(ref,
+                new ReviewEvidence(ref, "Repository note", "Legacy exact capture", text, "Untrusted"), NOW)
+                .withOperation(ref, new ReviewOperation(digest, result.toString()), NOW);
+        store.updateRun(run);
+
+        assertThat(call("review_get_context", noteRequest(7))).isEqualTo(result);
+        verifyNoInteractions(notebooks, usageStore, usage);
+    }
+
+    @Test
+    void activeReviewFindsAndOpensLaterNotebookVersionWithoutChangingFrozenSelection()
+    {
+        noteContext(ImmutableList.of(), ImmutableMap.of());
+        when(notebooks.getNotebook(WORKSPACE_ID)).thenReturn(noteNotebook(8, "Later knowledge"));
+        int writes = store.runUpdates;
+        Map<String, Object> query = ImmutableMap.of("kind", "note_search", "query", "Original", "operationKey", "later-knowledge");
+
+        JsonNode search = call("review_get_context", query);
+        assertThat(search.path("contextState").asText()).isEqualTo("MATCHES");
+        assertThat(search.path("newerThanSnapshot").asBoolean()).isTrue();
+        assertThat(search.at("/hits/0/entryId").asText()).isEqualTo("knowledge:project");
+        assertThat(search.at("/hits/0/entryVersion").asLong()).isEqualTo(8);
+        assertThat(store.findRun(RUN_ID).orElseThrow().context().orElseThrow().selectedEntries()).isEmpty();
+        assertThat(store.runUpdates).isEqualTo(writes + 1);
+
+        Map<String, Object> read = ImmutableMap.of("kind", "note", "searchRef", search.path("searchRef").asText(),
+                "entryId", "knowledge:project", "entryVersion", 8);
+        JsonNode opened = call("review_get_context", read);
+        assertThat(opened.path("status").asText()).isEqualTo("AVAILABLE");
+        assertThat(opened.path("text").asText()).contains("Later knowledge", "UNVERIFIED");
+        assertThat(opened.path("searchRef").asText()).isEqualTo(search.path("searchRef").asText());
+        assertThat(store.findRun(RUN_ID).orElseThrow().evidence()).containsKey(opened.path("evidenceRef").asText());
+        ArgumentCaptor<ContextUsageEvent> usageEvents = ArgumentCaptor.forClass(ContextUsageEvent.class);
+        verify(usage, times(2)).record(usageEvents.capture());
+        assertThat(usageEvents.getAllValues()).extracting(ContextUsageEvent::stage)
+                .containsExactly(ContextUsageEvent.Stage.FOUND, ContextUsageEvent.Stage.OPENED);
+        assertThat(usageEvents.getAllValues()).allSatisfy(event -> assertThat(event.delivery()).isEqualTo(ContextUsageEvent.Delivery.PREPARED));
+
+        when(notebooks.getNotebook(WORKSPACE_ID)).thenReturn(RepositoryNotebook.empty());
+        clearInvocations(notebooks);
+        int retainedWrites = store.runUpdates;
+        assertThat(call("review_get_context", query)).isEqualTo(search);
+        assertThat(call("review_get_context", read)).isEqualTo(opened);
+        assertThat(store.runUpdates).isEqualTo(retainedWrites);
+        verifyNoInteractions(notebooks);
+    }
+
+    @Test
+    void acceptedFindingCitesOnlyAnExactRetainedFrozenNoteReference()
+    {
+        noteContext(ImmutableList.of(selectedNote("knowledge:project", 7, Optional.empty())), ImmutableMap.of());
+        when(notebooks.getNotebook(WORKSPACE_ID)).thenReturn(noteNotebook(7, "Original claim"));
+        ContextUsageEvent.Note identity = new ContextUsageEvent.Note("knowledge:project", 7, ContextEntryKind.KNOWLEDGE, "project", "Selected note");
+        when(usageStore.findSelectedNote(WORKSPACE_ID, RUN_ID, "knowledge:project", 7)).thenReturn(Optional.of(identity));
+        JsonNode opened = call("review_get_context", noteRequest(7));
+        String ref = opened.path("evidenceRef").asText();
+        advance(VALIDATE);
+
+        Map<String, Object> finding = finding("cite-note", "Issue supported by note", "A2", ImmutableList.of(evidence(ref)));
+        assertThat(call("review_save_finding", finding).path("status").asText()).isEqualTo("accepted");
+        ArgumentCaptor<ContextUsageEvent> events = ArgumentCaptor.forClass(ContextUsageEvent.class);
+        verify(usage, times(2)).record(events.capture());
+        assertThat(events.getAllValues()).extracting(ContextUsageEvent::stage)
+                .containsExactly(ContextUsageEvent.Stage.OPENED, ContextUsageEvent.Stage.CITED);
+        assertThat(events.getAllValues().getLast().note()).contains(identity);
+        assertThat(events.getAllValues().getLast().delivery()).isEqualTo(ContextUsageEvent.Delivery.CONFIRMED);
+        call("review_save_finding", finding);
+        verifyNoMoreInteractions(usage);
+    }
+
+    @Test
+    void acceptedFindingCanCiteAnIncludedBootstrapNote()
+    {
+        String text = "Exact note included in the frozen bootstrap";
+        String ref = ReviewContextService.bootstrapNoteRef(RUN_ID, "knowledge:project", 7);
+        ReviewEvidence evidence = new ReviewEvidence(ref, "Repository note knowledge:project v7", "Frozen bootstrap", text, "Untrusted note");
+        noteContext(ImmutableList.of(selectedNote("knowledge:project", 7, Optional.of(text))), ImmutableMap.of(ref, evidence));
+        ContextUsageEvent.Note identity = new ContextUsageEvent.Note("knowledge:project", 7, ContextEntryKind.KNOWLEDGE, "project", "Selected note");
+        when(usageStore.findSelectedNote(WORKSPACE_ID, RUN_ID, "knowledge:project", 7)).thenReturn(Optional.of(identity));
+        advance(VALIDATE);
+
+        Map<String, Object> finding = finding("cite-bootstrap", "Issue supported by note", "A2", ImmutableList.of(evidence(ref)));
+        assertThat(call("review_save_finding", finding).path("status").asText()).isEqualTo("accepted");
+        ArgumentCaptor<ContextUsageEvent> events = ArgumentCaptor.forClass(ContextUsageEvent.class);
+        verify(usage).record(events.capture());
+        assertThat(events.getValue().stage()).isEqualTo(ContextUsageEvent.Stage.CITED);
+        assertThat(events.getValue().note()).contains(identity);
+        call("review_save_finding", finding);
+        verifyNoMoreInteractions(usage);
+    }
+
+    @Test
+    void oldDiscussionCannotSearchOrFirstOpenADynamicNote()
+    {
+        noteContext(ImmutableList.of(), ImmutableMap.of());
+        when(notebooks.getNotebook(WORKSPACE_ID)).thenReturn(noteNotebook(8, "Later knowledge"));
+        Map<String, Object> query = ImmutableMap.of("kind", "note_search", "query", "Original", "operationKey", "later-knowledge");
+        JsonNode search = call("review_get_context", query);
+        when(assignments.resolve(REVIEW_ID, Optional.of(capturedTurn))).thenAnswer(_ ->
+                new ReviewToolAssignment.Binding(store.findRun(RUN_ID).orElseThrow(), Optional.empty(), Optional.empty()));
+        assertThat(call("review_get_context", ImmutableMap.of("kind", "note_search", "query", "another", "operationKey", "new"))
+                .at("/error/field").asText()).isEqualTo("note_search");
+        Map<String, Object> read = ImmutableMap.of("kind", "note", "searchRef", search.path("searchRef").asText(),
+                "entryId", "knowledge:project", "entryVersion", 8);
+        assertThat(call("review_get_context", read).at("/error/field").asText()).isEqualTo("note_search");
+        assertThat(store.findRun(RUN_ID).orElseThrow().evidence()).isEmpty();
     }
 
     @Test

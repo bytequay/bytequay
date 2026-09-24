@@ -26,7 +26,9 @@ import com.bytequay.app.context.ContextConflictException;
 import com.bytequay.app.context.ContextHistoryReader;
 import com.bytequay.app.context.ContextNotFoundException;
 import com.bytequay.app.context.ContextNoteReader;
+import com.bytequay.app.context.ContextNotebookLookup;
 import com.bytequay.app.context.ContextStorageException;
+import com.bytequay.app.context.ContextUsageRecorder;
 import com.bytequay.app.context.RepositoryContextPreparation;
 import com.bytequay.app.context.RepositoryContextPreparation.Admission;
 import com.bytequay.app.context.RepositoryContextPreparation.Completion;
@@ -34,6 +36,7 @@ import com.bytequay.app.context.RepositoryContextPreparation.Execution;
 import com.bytequay.app.context.RepositoryContextPreparation.GeneratedReport;
 import com.bytequay.app.context.RepositoryContextPreparation.Plan;
 import com.bytequay.app.context.RepositoryContextPreparation.Receipt;
+import com.bytequay.app.context.ReviewContextService;
 import com.bytequay.app.context.SelectedCommitPullRequestReader;
 import com.bytequay.app.context.SelectedDocumentationReader;
 import com.bytequay.app.git.GitCommandRunner;
@@ -50,6 +53,7 @@ import com.bytequay.app.workspace.WorkspaceRepositoryService;
 import com.bytequay.core.context.ContextContribution;
 import com.bytequay.core.context.ContextDocumentRead;
 import com.bytequay.core.context.ContextEntry;
+import com.bytequay.core.context.ContextEntryKind;
 import com.bytequay.core.context.ContextHistoryRead;
 import com.bytequay.core.context.ContextLimits;
 import com.bytequay.core.context.ContextPreparationResult;
@@ -58,6 +62,7 @@ import com.bytequay.core.context.ContextRepositoryRead;
 import com.bytequay.core.context.ContextScope;
 import com.bytequay.core.context.ContextSelectedEntry;
 import com.bytequay.core.context.ContextSourceRead;
+import com.bytequay.core.context.ContextUsageEvent;
 import com.bytequay.core.context.RepositoryNotebook;
 import com.bytequay.core.context.ReviewContextSnapshot;
 import com.bytequay.core.domain.DiffFile;
@@ -84,6 +89,7 @@ import com.bytequay.core.review.ReviewRun;
 import com.bytequay.core.review.ReviewStep;
 import com.bytequay.core.review.ReviewSummary;
 import com.bytequay.core.review.ReviewValidation;
+import com.bytequay.core.store.ContextUsageStore;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.DeserializationFeature;
 import com.fasterxml.jackson.databind.JsonNode;
@@ -158,6 +164,9 @@ public class ReviewTools
     private static final int MAX_NOTE_RESPONSE_BYTES = 64 * 1024;
     private static final int MAX_RETAINED_NOTE_BYTES = 1024 * 1024;
     private static final String NOTE_OPERATION_PREFIX = "context-note:";
+    private static final String SEARCH_OPERATION_PREFIX = "context-search:";
+    private static final int MAX_NOTE_SEARCHES = 20;
+    private static final int MAX_NOTE_SEARCH_BYTES = 320 * 1024;
     private static final List<String> SEVERITIES = ImmutableList.of("Critical", "High", "Medium", "Low");
 
     private final AgentReviewStore store;
@@ -169,6 +178,9 @@ public class ReviewTools
     private final ContextBaselineReader baselineSources;
     private final ContextHistoryReader historySources;
     private final ContextNoteReader noteSources;
+    private final ContextNotebookLookup notebookLookup;
+    private final ContextUsageStore usageStore;
+    private final ContextUsageRecorder usage;
     private final RepoService repositories;
     private final WorkspaceIssueService issues;
     private final WorkspaceIssueRefreshService issueRefresh;
@@ -192,6 +204,9 @@ public class ReviewTools
             ContextBaselineReader baselineSources,
             ContextHistoryReader historySources,
             ContextNoteReader noteSources,
+            ContextNotebookLookup notebookLookup,
+            ContextUsageStore usageStore,
+            ContextUsageRecorder usage,
             RepoService repositories,
             WorkspaceIssueService issues,
             WorkspaceIssueRefreshService issueRefresh,
@@ -214,6 +229,9 @@ public class ReviewTools
         this.baselineSources = requireNonNull(baselineSources, "baselineSources is null");
         this.historySources = requireNonNull(historySources, "historySources is null");
         this.noteSources = requireNonNull(noteSources, "noteSources is null");
+        this.notebookLookup = requireNonNull(notebookLookup, "notebookLookup is null");
+        this.usageStore = requireNonNull(usageStore, "usageStore is null");
+        this.usage = requireNonNull(usage, "usage is null");
         this.repositories = requireNonNull(repositories, "repositories is null");
         this.issues = requireNonNull(issues, "issues is null");
         this.issueRefresh = requireNonNull(issueRefresh, "issueRefresh is null");
@@ -247,7 +265,8 @@ public class ReviewTools
                                 + " unique full 40/64-hex commit IDs in this repository), "
                                 + "document (omit sourceId for registered source list pages; otherwise sourceId, optional relativePage, captureId, page, refresh), "
                                 + "history (required sourceKind PR or ISSUE and number; selected merged PR or closed non-PR issue), "
-                                + "note (page lists originally selected notes; entryId and entryVersion read that exact version), "
+                                + "note (page lists originally selected notes; entryId and entryVersion read that exact version; searchRef opens a later search hit), "
+                                + "note_search (query and/or paths, operationKey; finds enabled saved notes without changing the frozen selection), "
                                 + "source (path, startLine, endLine, revision: head/base/previous/baseline), command_output, investigation, findings, "
                                 + "summary, discussion (target), or evidence (ref). "
                                 + "Only current-review diff lines carry anchor ids; related patch pages and other source reads return evidence refs. "
@@ -280,6 +299,7 @@ public class ReviewTools
                                                         "document",
                                                         "history",
                                                         "note",
+                                                        "note_search",
                                                         "source",
                                                         "command_output",
                                                         "investigation",
@@ -297,6 +317,10 @@ public class ReviewTools
                                 .put("sourceId", ImmutableMap.of("type", "string", "minLength", 1, "maxLength", 200))
                                 .put("entryId", ImmutableMap.of("type", "string", "minLength", 1, "maxLength", 1200))
                                 .put("entryVersion", ImmutableMap.of("type", "integer", "minimum", 1))
+                                .put("searchRef", ImmutableMap.of("type", "string", "minLength", 1, "maxLength", 100))
+                                .put("query", ImmutableMap.of("type", "string", "maxLength", 200))
+                                .put("paths", stringArray(20, 1000))
+                                .put("operationKey", ImmutableMap.of("type", "string", "minLength", 1, "maxLength", MAX_KEY))
                                 .put("sourceKind", ImmutableMap.of("type", "string", "enum", ImmutableList.of("PR", "ISSUE")))
                                 .put("relativePage", ImmutableMap.of("type", "string", "minLength", 1, "maxLength", 1000))
                                 .put("captureId", ImmutableMap.of("type", "string", "pattern", "^[0-9a-f]{8}(-[0-9a-f]{4}){3}-[0-9a-f]{12}$"))
@@ -1109,6 +1133,7 @@ public class ReviewTools
                 .put("location", saved.anchor().path() + " " + saved.anchor().label())
                 .put("status", "accepted");
         store.saveFinding(saved, insert, call.run().withOperation(replay.key(), new ReviewOperation(replay.digest(), result.toString()), now()));
+        recordCitations(call, replay.key(), evidence.stream().map(ReviewEvidence::ref).collect(toImmutableList()));
         return result;
     }
 
@@ -1310,6 +1335,7 @@ public class ReviewTools
             run = run.withCoverage(coverage, now());
         }
         store.updateRun(run.withOperation(replay.key(), new ReviewOperation(replay.digest(), result.toString()), now()));
+        recordCitations(call, replay.key(), validations.stream().flatMap(value -> value.evidenceRefs().stream()).distinct().collect(toImmutableList()));
         return result;
     }
 
@@ -1375,6 +1401,7 @@ public class ReviewTools
             case "document" -> document(call);
             case "history" -> history(call);
             case "note" -> note(call);
+            case "note_search" -> noteSearch(call);
             case "source" -> source(call, text(arguments, "path", 1000, true), integer(arguments, "startLine").orElse(1), integer(arguments, "endLine"));
             case "command_output" -> commandOutput(call);
             case "investigation" -> objectMapper.valueToTree(call.run().investigation().orElse(null));
@@ -1393,10 +1420,13 @@ public class ReviewTools
                 .orElseThrow(() -> new ReviewInvalidRequestException("note: repository context was not enabled for this run"));
         ObjectNode arguments = call.arguments();
         arguments.fieldNames().forEachRemaining(field -> {
-            if (!ImmutableList.of("kind", "entryId", "entryVersion", "page").contains(field)) {
+            if (!ImmutableList.of("kind", "entryId", "entryVersion", "page", "searchRef").contains(field)) {
                 throw new ReviewInvalidRequestException(field + ": not a selected-note selector");
             }
         });
+        if (arguments.has("searchRef")) {
+            return dynamicNote(call, snapshot);
+        }
         if (!arguments.has("entryId") && !arguments.has("entryVersion")) {
             if (arguments.has("page") && arguments.get("page").isNull()) {
                 throw new ReviewInvalidRequestException("page: must be a positive integer");
@@ -1423,7 +1453,13 @@ public class ReviewTools
         ContextSelectedEntry selected = snapshot.selectedEntries().stream()
                 .filter(entry -> entry.entryId().equals(entryId) && entry.entryVersion() == requestedVersion.longValue()).findFirst()
                 .orElseThrow(() -> new ReviewInvalidRequestException("entryVersion: this entry and version were not selected for the captured run"));
-        String digest = Hashing.sha256().hashString(entryId + "\n" + selected.entryVersion(), StandardCharsets.UTF_8).toString();
+        String legacyDigest = Hashing.sha256().hashString(entryId + "\n" + selected.entryVersion(), StandardCharsets.UTF_8).toString();
+        String legacyKey = NOTE_OPERATION_PREFIX + legacyDigest;
+        Optional<JsonNode> legacy = retainedNote(call.run(), legacyKey, legacyDigest, selected);
+        if (legacy.isPresent()) {
+            return legacy.orElseThrow();
+        }
+        String digest = Hashing.sha256().hashString(call.run().id() + "\n" + entryId + "\n" + selected.entryVersion(), StandardCharsets.UTF_8).toString();
         String key = NOTE_OPERATION_PREFIX + digest;
         Optional<JsonNode> retained = retainedNote(call.run(), key, digest, selected);
         if (retained.isPresent()) {
@@ -1442,6 +1478,10 @@ public class ReviewTools
                 throw new ReviewConflictException("note: the accepted turn no longer owns this captured run");
             }
             ReviewRun current = binding.run();
+            Optional<JsonNode> old = retainedNote(current, legacyKey, legacyDigest, selected);
+            if (old.isPresent()) {
+                return old.orElseThrow();
+            }
             Optional<JsonNode> replay = retainedNote(current, key, digest, selected);
             if (replay.isPresent()) {
                 return replay.orElseThrow();
@@ -1482,6 +1522,312 @@ public class ReviewTools
                 throw new ReviewInvalidRequestException("note: exact note retention exceeds the 1 MiB run limit; nothing was retained");
             }
             store.updateRun(current);
+            usageStore.findSelectedNote(call.review().workspaceId(), call.run().id(), entryId, selected.entryVersion())
+                    .ifPresent(noteIdentity -> usage.record(usageEvent(call, ContextUsageEvent.Stage.OPENED, ContextUsageEvent.Delivery.PREPARED,
+                            key, Optional.of(noteIdentity), Optional.empty())));
+            return result;
+        }));
+    }
+
+    private JsonNode noteSearch(Call call)
+    {
+        activeNoteDiscovery(call);
+        ObjectNode arguments = call.arguments();
+        arguments.fieldNames().forEachRemaining(field -> {
+            if (!ImmutableList.of("kind", "query", "paths", "operationKey").contains(field)) {
+                throw new ReviewInvalidRequestException(field + ": not a note-search selector");
+            }
+        });
+        String operationKey = text(arguments, "operationKey", MAX_KEY, true);
+        String key = SEARCH_OPERATION_PREFIX + Hashing.sha256().hashString(call.run().id() + "\n" + call.step().orElseThrow().number()
+                + "\n" + operationKey, StandardCharsets.UTF_8);
+        String digest = Hashing.sha256().hashString(canonical(arguments), StandardCharsets.UTF_8).toString();
+        Optional<JsonNode> replay = retainedSearch(call.run(), key, digest);
+        if (replay.isPresent()) {
+            return replay.orElseThrow();
+        }
+        if (arguments.has("query") && !arguments.get("query").isTextual()) {
+            throw new ReviewInvalidRequestException("query: must be plain text");
+        }
+        String query = text(arguments, "query", 200, false);
+        List<String> suppliedPaths = arguments.has("paths") ? strings(arguments, "paths", 20, 1000) : ImmutableList.of();
+        if (suppliedPaths.stream().mapToInt(ContextLimits::bytes).sum() > 4 * 1024) {
+            throw new ReviewInvalidRequestException("paths: path hints exceed 4 KiB");
+        }
+        suppliedPaths.forEach(path -> {
+            try {
+                ContextLimits.pathPrefix(path.endsWith("/") ? path : path + "/");
+            }
+            catch (IllegalArgumentException failure) {
+                throw new ReviewInvalidRequestException("paths: invalid repository-relative hint");
+            }
+        });
+        List<String> frozenPaths = requiredFiles(call);
+        List<String> paths = boundedSearchPaths(ImmutableList.<String>builder().addAll(suppliedPaths).addAll(frozenPaths).build());
+        ContextNotebookLookup.SearchQuery searchQuery;
+        try {
+            searchQuery = new ContextNotebookLookup.SearchQuery(query, paths);
+        }
+        catch (IllegalArgumentException failure) {
+            throw new ReviewInvalidRequestException("note_search: " + bounded(failure.getMessage(), 300));
+        }
+        ContextNotebookLookup.SearchResult search;
+        try {
+            search = outsideReviewLock(call, () -> notebookLookup.search(call.review().workspaceId(), searchQuery));
+        }
+        catch (ContextNotFoundException | ContextStorageException failure) {
+            throw new ReviewInvalidRequestException("note_search: the workspace notebook is unavailable; no search was retained");
+        }
+        ObjectNode result = (ObjectNode) objectMapper.valueToTree(search);
+        result.put("searchRef", key).put("originalNotebookRevision", call.run().context().orElseThrow().notebookRevision())
+                .put("newerThanSnapshot", search.notebookRevision() > call.run().context().orElseThrow().notebookRevision())
+                .put("query", query).put("pathHintCount", paths.size()).put("frozenPathHints", frozenPaths.size());
+        String encoded = result.toString();
+        if (ContextLimits.bytes(encoded) > 16 * 1024) {
+            throw new ReviewInvalidRequestException("note_search: result exceeds 16 KiB; narrow the query");
+        }
+        return WorkspaceOperationLocks.withLock(call.review().workspaceId(), () -> unitOfWork.execute(() -> {
+            ReviewToolAssignment.Binding binding = assignments.resolve(call.review().id(), call.turnId());
+            if (!binding.run().id().equals(call.run().id()) || !binding.step().equals(call.step()) || !binding.run().active()) {
+                throw new ReviewConflictException("note_search: this turn no longer owns the active review step");
+            }
+            ReviewRun current = binding.run();
+            Optional<JsonNode> stored = retainedSearch(current, key, digest);
+            if (stored.isPresent()) {
+                return stored.orElseThrow();
+            }
+            long count = current.operations().keySet().stream().filter(item -> item.startsWith(SEARCH_OPERATION_PREFIX)).count();
+            long bytes = current.operations().entrySet().stream().filter(item -> item.getKey().startsWith(SEARCH_OPERATION_PREFIX))
+                    .mapToLong(item -> ContextLimits.bytes(item.getValue().result())).sum();
+            if (count >= MAX_NOTE_SEARCHES || bytes + ContextLimits.bytes(encoded) > MAX_NOTE_SEARCH_BYTES) {
+                throw new ReviewInvalidRequestException("note_search: the run's search receipt limit was reached");
+            }
+            store.updateRun(current.withOperation(key, new ReviewOperation(digest, encoded), now()));
+            recordSearchUsage(call, key, search);
+            return result;
+        }));
+    }
+
+    private Optional<JsonNode> retainedSearch(ReviewRun run, String key, String digest)
+    {
+        ReviewOperation stored = run.operations().get(key);
+        if (stored == null) {
+            return Optional.empty();
+        }
+        if (!stored.payloadDigest().equals(digest)) {
+            throw new ReviewConflictException("operationKey: the same search key was used with different arguments");
+        }
+        try {
+            JsonNode result = objectMapper.readTree(stored.result());
+            if (!result.isObject() || !result.path("searchRef").asText().equals(key) || !result.path("hits").isArray()) {
+                throw new ReviewConflictException("note_search: retained search result is incomplete");
+            }
+            return Optional.of(result);
+        }
+        catch (JsonProcessingException failure) {
+            throw new ReviewConflictException("note_search: retained search result is unreadable");
+        }
+    }
+
+    private void recordSearchUsage(Call call, String ref, ContextNotebookLookup.SearchResult search)
+    {
+        for (ContextNotebookLookup.Hit hit : search.hits()) {
+            usage.record(usageEvent(call, ContextUsageEvent.Stage.FOUND, ContextUsageEvent.Delivery.PREPARED, ref,
+                    Optional.of(new ContextUsageEvent.Note(hit.entryId(), hit.entryVersion(), hit.kind(), hit.scopeId(), hit.title())), Optional.empty()));
+        }
+        for (ContextNotebookLookup.ScopeState state : search.scopeStates()) {
+            if (state.missingKnowledge()) {
+                usage.record(usageEvent(call, ContextUsageEvent.Stage.SCOPE_DEMAND, ContextUsageEvent.Delivery.PREPARED, ref, Optional.empty(),
+                        Optional.of(new ContextUsageEvent.Scope(state.scopeId(), ContextUsageEvent.Preparation.valueOf(state.preparation())))));
+            }
+        }
+        if (search.hits().isEmpty() && search.scopeStates().stream().noneMatch(ContextNotebookLookup.ScopeState::missingKnowledge)) {
+            Optional<ContextUsageEvent.Scope> scope = search.scopeStates().stream().findFirst()
+                    .map(state -> new ContextUsageEvent.Scope(state.scopeId(), ContextUsageEvent.Preparation.valueOf(state.preparation())));
+            usage.record(usageEvent(call, ContextUsageEvent.Stage.NO_MATCH, ContextUsageEvent.Delivery.PREPARED, ref, Optional.empty(), scope));
+        }
+    }
+
+    private void recordCitations(Call call, String receiptRef, List<String> evidenceRefs)
+    {
+        for (String ref : evidenceRefs.stream().distinct().toList()) {
+            if (!ref.startsWith(NOTE_OPERATION_PREFIX) || !call.run().evidence().containsKey(ref)) {
+                continue;
+            }
+            ReviewOperation operation = call.run().operations().get(ref);
+            if (operation == null) {
+                call.run().context().stream().flatMap(snapshot -> snapshot.selectedEntries().stream())
+                        .filter(selected -> selected.inclusion() == ContextSelectedEntry.Inclusion.INCLUDED
+                                && ReviewContextService.bootstrapNoteRef(call.run().id(), selected.entryId(), selected.entryVersion()).equals(ref)
+                                && selected.text().filter(call.run().evidence().get(ref).excerpt()::equals).isPresent())
+                        .findFirst().flatMap(selected -> usageStore.findSelectedNote(call.review().workspaceId(), call.run().id(),
+                                selected.entryId(), selected.entryVersion()))
+                        .ifPresent(note -> usage.record(usageEvent(call, ContextUsageEvent.Stage.CITED, ContextUsageEvent.Delivery.CONFIRMED,
+                                receiptRef, Optional.of(note), Optional.empty())));
+                continue;
+            }
+            Optional<ContextUsageEvent.Note> note;
+            try {
+                JsonNode result = objectMapper.readTree(operation.result());
+                if (!result.path("status").asText().equals("AVAILABLE") || !result.path("evidenceRef").asText().equals(ref)
+                        || !result.hasNonNull("entryId") || result.path("entryVersion").asLong() < 1) {
+                    continue;
+                }
+                if (result.hasNonNull("searchRef") && result.hasNonNull("kind") && result.hasNonNull("scopeId")) {
+                    note = Optional.of(new ContextUsageEvent.Note(result.path("entryId").asText(), result.path("entryVersion").asLong(),
+                            ContextEntryKind.valueOf(result.path("kind").asText()), result.path("scopeId").asText(), result.path("title").asText()));
+                }
+                else if (!result.has("searchRef")) {
+                    note = usageStore.findSelectedNote(call.review().workspaceId(), call.run().id(), result.path("entryId").asText(),
+                            result.path("entryVersion").asLong());
+                }
+                else {
+                    continue;
+                }
+            }
+            catch (JsonProcessingException | IllegalArgumentException ignored) {
+                // Old or malformed receipts cannot prove which exact notebook version was cited.
+                continue;
+            }
+            note.ifPresent(value -> usage.record(usageEvent(call, ContextUsageEvent.Stage.CITED, ContextUsageEvent.Delivery.CONFIRMED,
+                    receiptRef, Optional.of(value), Optional.empty())));
+        }
+    }
+
+    private ContextUsageEvent usageEvent(Call call, ContextUsageEvent.Stage stage, ContextUsageEvent.Delivery delivery, String ref,
+            Optional<ContextUsageEvent.Note> note, Optional<ContextUsageEvent.Scope> scope)
+    {
+        return new ContextUsageEvent(call.review().workspaceId(), call.review().taskId(), call.turnId().map(TurnId::toString),
+                Optional.of(call.run().id()), ContextUsageEvent.TaskKind.PR_REVIEW, stage, delivery, ref, note, scope, Optional.empty(), now());
+    }
+
+    private List<String> boundedSearchPaths(List<String> candidates)
+    {
+        ImmutableList.Builder<String> selected = ImmutableList.builder();
+        int bytes = 0;
+        int count = 0;
+        for (String path : candidates.stream().distinct().toList()) {
+            if (ContextLimits.bytes(path) > 1000) {
+                continue;
+            }
+            try {
+                ContextLimits.pathPrefix(path.endsWith("/") ? path : path + "/");
+            }
+            catch (IllegalArgumentException ignored) {
+                continue;
+            }
+            if (count == 20 || bytes + ContextLimits.bytes(path) > 4 * 1024) {
+                break;
+            }
+            selected.add(path);
+            bytes += ContextLimits.bytes(path);
+            count++;
+        }
+        return selected.build();
+    }
+
+    private static void activeNoteDiscovery(Call call)
+    {
+        if (!call.run().active() || call.step().isEmpty()
+                || !ImmutableList.of(INVESTIGATE, COLLECT_EVIDENCE, VALIDATE).contains(call.step().orElseThrow().kind())
+                || call.run().context().filter(ReviewContextSnapshot::enabled).isEmpty()) {
+            throw new ReviewInvalidRequestException("note_search: only an active context-enabled review assignment can search saved notes");
+        }
+    }
+
+    private JsonNode dynamicNote(Call call, ReviewContextSnapshot snapshot)
+    {
+        ObjectNode arguments = call.arguments();
+        if (arguments.has("page")) {
+            throw new ReviewInvalidRequestException("page: not allowed with searchRef");
+        }
+        String searchRef = text(arguments, "searchRef", 100, true);
+        String entryId = text(arguments, "entryId", 1200, true);
+        JsonNode versionNode = arguments.get("entryVersion");
+        if (versionNode == null || !versionNode.isIntegralNumber() || !versionNode.canConvertToLong() || versionNode.longValue() < 1) {
+            throw new ReviewInvalidRequestException("entryVersion: required positive integer");
+        }
+        long version = versionNode.longValue();
+        ReviewOperation searchOperation = call.run().operations().get(searchRef);
+        if (!searchRef.startsWith(SEARCH_OPERATION_PREFIX) || searchOperation == null) {
+            throw new ReviewInvalidRequestException("searchRef: no retained search belongs to this run");
+        }
+        JsonNode search;
+        try {
+            search = objectMapper.readTree(searchOperation.result());
+        }
+        catch (JsonProcessingException failure) {
+            throw new ReviewConflictException("searchRef: the retained search is unreadable");
+        }
+        if (search == null || !search.path("searchRef").asText().equals(searchRef) || !search.path("hits").isArray()) {
+            throw new ReviewConflictException("searchRef: the retained search is incomplete");
+        }
+        JsonNode hit = ImmutableList.copyOf(search.path("hits")).stream()
+                .filter(item -> item.path("entryId").asText().equals(entryId) && item.path("entryVersion").asLong() == version)
+                .findFirst().orElseThrow(() -> new ReviewInvalidRequestException("entryVersion: this exact note was not in the retained search"));
+        ContextSelectedEntry selected = new ContextSelectedEntry(entryId, version, hit.path("title").asText(), Optional.empty(), ImmutableMap.of(),
+                ImmutableList.of("Found in retained search " + searchRef), ContextSelectedEntry.Applicability.UNVERIFIED, ContextSelectedEntry.Inclusion.DEFERRED);
+        String digest = Hashing.sha256().hashString(searchRef + "\n" + entryId + "\n" + version, StandardCharsets.UTF_8).toString();
+        String key = NOTE_OPERATION_PREFIX + digest;
+        Optional<JsonNode> replay = retainedNote(call.run(), key, digest, selected);
+        if (replay.isPresent()) {
+            return replay.orElseThrow();
+        }
+        activeNoteDiscovery(call);
+        Optional<ContextNotebookLookup.Read> read;
+        try {
+            read = outsideReviewLock(call, () -> notebookLookup.readEnabled(call.review().workspaceId(), entryId, version));
+        }
+        catch (ContextNotFoundException | ContextStorageException failure) {
+            throw new ReviewInvalidRequestException("note: the current notebook is unavailable; no note was retained");
+        }
+        return WorkspaceOperationLocks.withLock(call.review().workspaceId(), () -> unitOfWork.execute(() -> {
+            ReviewToolAssignment.Binding binding = assignments.resolve(call.review().id(), call.turnId());
+            if (!binding.run().id().equals(call.run().id()) || !binding.step().equals(call.step()) || !binding.run().active()) {
+                throw new ReviewConflictException("note: this turn no longer owns the active review step");
+            }
+            ReviewRun current = binding.run();
+            Optional<JsonNode> stored = retainedNote(current, key, digest, selected);
+            if (stored.isPresent()) {
+                return stored.orElseThrow();
+            }
+            if (read.isEmpty()) {
+                return noteIdentity(selected).put("status", "VERSION_UNAVAILABLE")
+                        .put("note", "The searched version changed, was disabled or was removed before capture. Search again; no replacement was read.");
+            }
+            ContextNotebookLookup.Read capture = read.orElseThrow();
+            ObjectNode result = noteIdentity(selected).put("status", "AVAILABLE").put("text", capture.capture().text())
+                    .put("evidenceRef", key).put("searchRef", searchRef).put("notebookRevision", capture.notebookRevision())
+                    .put("kind", capture.entry().kind().name()).put("scopeId", capture.entry().scopeId())
+                    .put("note", "Exact newly discovered note; applicability and claims are unverified. Check its original sources against the reviewed code.");
+            result.set("sourceEvidenceRefs", objectMapper.valueToTree(capture.capture().sourceEvidenceRefs()));
+            String encoded = result.toString();
+            if (ContextLimits.bytes(encoded) > MAX_NOTE_RESPONSE_BYTES) {
+                throw new ReviewInvalidRequestException("note: complete searched note exceeds the 64 KiB response limit");
+            }
+            for (Map.Entry<String, ReviewEvidence> item : capture.capture().evidence().entrySet()) {
+                ReviewEvidence existing = current.evidence().get(item.getKey());
+                if (existing != null && !existing.equals(item.getValue())) {
+                    throw new ReviewConflictException("note: searched source conflicts with retained evidence");
+                }
+                if (existing == null) {
+                    current = current.withEvidence(item.getKey(), item.getValue(), now());
+                }
+            }
+            ReviewEvidence note = new ReviewEvidence(key, "Repository note " + entryId + " v" + version,
+                    "Exact note found at notebook revision " + capture.notebookRevision() + "; search=" + searchRef + "; applicability=UNVERIFIED",
+                    capture.capture().text(), "Untrusted note; source versions and claims need independent review.");
+            current = current.withEvidence(key, note, now()).withOperation(key, new ReviewOperation(digest, encoded), now());
+            long retainedBytes = current.operations().entrySet().stream().filter(item -> item.getKey().startsWith(NOTE_OPERATION_PREFIX))
+                    .mapToLong(item -> ContextLimits.bytes(item.getValue().result())).sum()
+                    + current.evidence().entrySet().stream().filter(item -> item.getKey().startsWith("context-source:") || item.getKey().startsWith(NOTE_OPERATION_PREFIX))
+                    .mapToLong(item -> ContextLimits.bytes(item.getValue().excerpt()) + ContextLimits.bytes(item.getValue().provenance())).sum();
+            if (retainedBytes > MAX_RETAINED_NOTE_BYTES) {
+                throw new ReviewInvalidRequestException("note: exact note retention exceeds the 1 MiB run limit");
+            }
+            store.updateRun(current);
+            usage.record(usageEvent(call, ContextUsageEvent.Stage.OPENED, ContextUsageEvent.Delivery.PREPARED, key,
+                    Optional.of(ContextUsageEvent.Note.from(capture.entry())), Optional.empty()));
             return result;
         }));
     }

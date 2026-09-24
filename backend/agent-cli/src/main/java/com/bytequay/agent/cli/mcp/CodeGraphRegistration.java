@@ -17,6 +17,7 @@ import com.bytequay.agent.spi.CodeGraphBridge;
 import com.bytequay.agent.spi.DevelopmentResultBridge;
 import com.bytequay.agent.spi.LocalReviewBridge;
 import com.bytequay.agent.spi.PullRequestCiBridge;
+import com.bytequay.agent.spi.RepositoryContextBridge;
 import com.bytequay.agent.spi.ReviewBridge;
 import com.google.common.collect.ImmutableList;
 
@@ -37,12 +38,14 @@ public final class CodeGraphRegistration
     private final Optional<DevelopmentResultBridge> development;
     private final Optional<LocalReviewBridge> localReview;
     private final Optional<PullRequestCiBridge> pullRequestCi;
+    private final Optional<RepositoryContextBridge> notebook;
     private final List<String> toolNames;
     private final Runnable release;
 
     CodeGraphRegistration(
             String token, URI endpoint, Optional<CodeGraphBridge> codeGraph, Optional<ReviewBridge> review,
             Optional<DevelopmentResultBridge> development, Optional<LocalReviewBridge> localReview, Optional<PullRequestCiBridge> pullRequestCi,
+            Optional<RepositoryContextBridge> notebook,
             List<String> toolNames, Runnable release)
     {
         this.token = requireNonNull(token, "token is null");
@@ -52,6 +55,7 @@ public final class CodeGraphRegistration
         this.development = requireNonNull(development, "development is null");
         this.localReview = requireNonNull(localReview, "localReview is null");
         this.pullRequestCi = requireNonNull(pullRequestCi, "pullRequestCi is null");
+        this.notebook = requireNonNull(notebook, "notebook is null");
         this.toolNames = ImmutableList.copyOf(toolNames);
         this.release = requireNonNull(release, "release is null");
     }
@@ -70,7 +74,7 @@ public final class CodeGraphRegistration
     /** The managed guidance for the launch's instruction channel; empty only for a token without any guidance. */
     public String instruction()
     {
-        return PermissionBroker.managedInstruction(codeGraph, review, development, localReview, pullRequestCi).orElse("");
+        return PermissionBroker.managedInstruction(codeGraph, review, development, localReview, pullRequestCi, notebook).orElse("");
     }
 
     public String token()

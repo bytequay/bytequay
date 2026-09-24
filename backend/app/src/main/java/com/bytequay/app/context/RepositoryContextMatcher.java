@@ -82,7 +82,7 @@ public class RepositoryContextMatcher
         long pathBytes = 0;
         for (String path : changedPaths) {
             requireNonNull(path, "changed path is null");
-            ContextLimits.pathPrefix(path + "/");
+            ContextLimits.pathPrefix(path.endsWith("/") ? path : path + "/");
             pathBytes += ContextLimits.bytes(path);
         }
         checkArgument(pathBytes <= MAX_PATH_BYTES, "Changed paths exceed UTF-8 limit");
@@ -164,7 +164,7 @@ public class RepositoryContextMatcher
         return topicWords(description);
     }
 
-    private static Set<String> topicWords(String text)
+    static Set<String> topicWords(String text)
     {
         String normalized = CAMEL_BOUNDARY.matcher(normalizeText(text)).replaceAll(" ").toLowerCase(Locale.ROOT);
         return TOPIC_WORD.matcher(normalized).results().map(match -> match.group())

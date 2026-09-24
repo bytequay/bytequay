@@ -19,6 +19,11 @@ import {
   parseConfigureRepositoryContextRequest,
   parseContextBuildView,
   parseContextDiscovery,
+  parseContextUsageActivities,
+  parseContextUsageEntryId,
+  parseContextUsageOverview,
+  parseContextUsagePage,
+  parseContextUsageWindow,
   parseDiscoverRepositoryContextRequest,
   parseEditRepositoryContextEntryRequest,
   parseRepositoryNotebook,
@@ -30,6 +35,8 @@ import {
   type ContextDiscoveryDto,
   type ContextDeliveryDto,
   type ContextHistoryReadDto,
+  type ContextUsageActivitiesDto,
+  type ContextUsageOverviewDto,
   type ContextPreparationResultDto,
   type ContextSourceDto,
   type RepositoryNotebookDto,
@@ -38,13 +45,28 @@ import {
 
 const source: ContextSourceDto = { id: 'docs', kind: 'DOCUMENTATION_ROOT', url: 'https://example.com/docs/', origin: 'USER', discoveryEvidenceRef: null };
 const notebook: RepositoryNotebookDto = {
-  schemaVersion: 1, revision: 7, useInReviews: true, sources: [source], activePreparation: null,
+  schemaVersion: 1, revision: 7, useInReviews: true, useInDevelopment: true, sources: [source], activePreparation: null,
   scopes: [{ id: 'project', title: 'Project', match: { kind: 'REPOSITORY' }, enabled: true, preparation: null, discoveryEvidenceRef: null }],
   entries: [{ id: 'knowledge:project', kind: 'KNOWLEDGE', scopeId: 'project', title: 'Project', summary: 'Summary', body: 'Keep the condition.',
     claims: [{ text: 'Conditional claim', basis: 'INFERENCE', sourceIds: ['source'] }], sourceIds: ['source'], origin: 'GENERATED', enabled: false, version: 2 }],
   suppressedKnowledgeIds: [], sourceEvidence: [{ id: 'source', reference: { kind: 'DOCUMENT', sourceId: 'docs', url: 'https://example.com/docs/page' },
     provenance: 'Captured page', excerpt: 'Original text', capture: 'BYTEQUAY_READ', retrievedAt: null, contentHash: null, version: null, truncated: true }],
 };
+const usage: ContextUsageOverviewDto = {
+  trackingSince: '2026-09-01T00:00:00Z', window: '30d', coverage: 'RETAINED_TASKS_AND_REVIEWS',
+  summary: { eligibleDevelopmentTasks: 2, eligibleReviewRuns: 1, contextOffTasks: 1, tasksProvidedOrOpened: 2,
+    activeNotesWithoutConfirmedDeliveryOrOpen: 0, scopesDemandedWhileMissing: 1, scopesStillMissingAfterDemand: 1,
+    searchesWithNoMatchingScope: 1, searchesWithScopeButNoNote: 2 },
+  byTaskAndNoteKind: [{ taskKind: 'DEVELOPMENT', noteKind: 'KNOWLEDGE', providedOrOpenedTasks: 1, foundTasks: 1, openedTasks: 1 }],
+  entries: [{ entryId: 'knowledge:project', kind: 'KNOWLEDGE', scopeId: 'project', title: 'Project', currentVersion: 2, currentEnabled: false,
+    currentVersionCounts: { selectedTasks: 2, providedTasks: 1, searchHits: 1, foundTasks: 1, openedTasks: 1, citedReviews: 0 },
+    allVersionCounts: { providedTasks: 2, foundTasks: 1, openedTasks: 1 }, lastConfirmedUseAt: '2026-09-02T00:00:00Z' }],
+  scopeGaps: [{ scopeId: 'iceberg', demandingTasks: 1, observedPreparationCounts: { NOT_PREPARED: 1, EMPTY: 0, FAILED: 0, READY: 0 },
+    currentPreparation: 'NOT_PREPARED', currentKnowledge: 'MISSING' }], hasMoreEntries: false, hasMoreScopeGaps: false,
+};
+const activities: ContextUsageActivitiesDto = { entryId: 'knowledge:project', activities: [{ taskId: 'task', reviewRunId: null, turnId: 'turn',
+  taskKind: 'DEVELOPMENT', entryVersion: 2, stage: 'OPENED', delivery: 'CONFIRMED', occurredAt: '2026-09-02T00:00:00Z',
+  receiptRef: 'context-read:1' }], hasMore: false };
 const snapshot: ReviewContextSnapshotDto = {
   id: 'snapshot', enabled: true, notebookRevision: 7, repositoryId: 42, baselineSha: 'a'.repeat(40),
   bootstrap: { text: 'Prepared only', digest: 'sha256:packet', utf8Bytes: 13 },
@@ -72,9 +94,39 @@ const closed: ContextHistoryReadDto = { ...merged, id: 'context-read:closed-issu
   truncated: false, refreshFailed: false, gaps: ['Closure reason is unknown.'], evidenceRef: 'history:issue:9' };
 
 describe('repository context contracts', () => {
+  it('parses usage without treating an absent, removed or disabled note as confirmed use', () => {
+    expect(parseContextUsageOverview(usage, '30d')).toEqual(usage);
+    expect(parseContextUsageOverview({ ...usage, trackingSince: null,
+      entries: [{ ...usage.entries[0], currentVersion: null, currentEnabled: null, lastConfirmedUseAt: null }] }, '30d').entries[0].currentVersion).toBeNull();
+    expect(parseContextUsageActivities(activities, activities.entryId)).toEqual(activities);
+    expect(parseContextUsageWindow('all')).toBe('all');
+    expect(parseContextUsagePage(2)).toBe(2);
+    expect(parseContextUsageEntryId('lesson:field-ids')).toBe('lesson:field-ids');
+  });
+
+  it('rejects malformed usage identities, evidence stages and counts', () => {
+    for (const malformed of [{ ...usage, window: 'all' }, { ...usage, trackingSince: undefined }, { ...usage, coverage: 'EVERY_TASK' },
+      { ...usage, summary: { ...usage.summary, searchesWithNoMatchingScope: undefined } },
+      { ...usage, summary: { ...usage.summary, eligibleReviewRuns: -1 } },
+      { ...usage, entries: [{ ...usage.entries[0], currentVersion: 0 }] },
+      { ...usage, entries: [{ ...usage.entries[0], currentVersion: null }] },
+      { ...usage, entries: [{ ...usage.entries[0], currentEnabled: undefined }] },
+      { ...usage, scopeGaps: [{ ...usage.scopeGaps[0], currentKnowledge: 'GUESS' }] }])
+      expect(() => parseContextUsageOverview(malformed, '30d')).toThrow('Malformed repository context');
+    for (const malformed of [{ ...activities, entryId: 'other' },
+      { ...activities, activities: [{ ...activities.activities[0], stage: 'HELPED' }] },
+      { ...activities, activities: [{ ...activities.activities[0], delivery: 'INFERRED' }] },
+      { ...activities, activities: [{ ...activities.activities[0], reviewRunId: undefined }] }])
+      expect(() => parseContextUsageActivities(malformed, activities.entryId)).toThrow('Malformed repository context');
+    for (const bad of ['month', null]) expect(() => parseContextUsageWindow(bad)).toThrow();
+    for (const bad of [-1, 0.5]) expect(() => parseContextUsagePage(bad)).toThrow();
+    for (const bad of ['', 'x'.repeat(1201)]) expect(() => parseContextUsageEntryId(bad)).toThrow();
+  });
+
   it('retains ownership, disabled notes, conditional claims and incomplete source provenance', () => {
     expect(parseRepositoryNotebook(notebook)).toEqual(notebook);
     expect(parseRepositoryNotebook({ ...notebook, useInReviews: false }).useInReviews).toBe(false);
+    expect(parseRepositoryNotebook({ ...notebook, useInDevelopment: false }).useInDevelopment).toBe(false);
   });
 
   it('requires nullable discovery provenance on stored scopes and registered sources', () => {
@@ -124,7 +176,7 @@ describe('repository context contracts', () => {
   });
 
   it('rejects malformed saved content instead of rendering an empty notebook or coercing preferences', () => {
-    for (const value of [null, {}, { ...notebook, schemaVersion: 2 }, { ...notebook, useInReviews: 'false' },
+    for (const value of [null, {}, { ...notebook, schemaVersion: 2 }, { ...notebook, useInReviews: 'false' }, { ...notebook, useInDevelopment: 'false' },
       { ...notebook, revision: 1.5 }, { ...notebook, entries: null }, { ...notebook, entries: [{ ...notebook.entries[0], origin: 'VERIFIED' }] }]) {
       expect(() => parseRepositoryNotebook(value)).toThrow('Malformed repository context');
     }
@@ -249,6 +301,8 @@ describe('repository context contracts', () => {
   it('keeps optimistic revisions and absent configuration fields unchanged', () => {
     expect(parseConfigureRepositoryContextRequest({ expectedRevision: 7, useInReviews: false }))
       .toEqual({ expectedRevision: 7, useInReviews: false });
+    expect(parseConfigureRepositoryContextRequest({ expectedRevision: 7, useInDevelopment: false }))
+      .toEqual({ expectedRevision: 7, useInDevelopment: false });
     expect(() => parseConfigureRepositoryContextRequest({ useInReviews: false })).toThrow('expected revision');
     expect(() => parseConfigureRepositoryContextRequest({ expectedRevision: 7, sources: [source] })).toThrow('origin');
     expect(() => parseEditRepositoryContextEntryRequest({ expectedRevision: 7, ...notebook.entries[0] })).toThrow('unsupported request field');

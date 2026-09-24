@@ -16,7 +16,7 @@ import { afterEach, expect, it, vi } from 'vitest';
 import { CI_RUN } from './agents/fixtures/ciAutofix';
 import contracts from './agents/fixtures/agent-contracts-v1.json';
 import { parseAgentTask } from './agents/contracts';
-import type { ContextBuildViewDto, ContextDiscoveryDto, RepositoryNotebookDto } from './repository-context/contracts';
+import type { ContextBuildViewDto, ContextDiscoveryDto, ContextUsageActivitiesDto, ContextUsageOverviewDto, RepositoryNotebookDto } from './repository-context/contracts';
 import type { AgentRuntimeStopImpactDto } from './types';
 
 const desktop = vi.hoisted(() => ({
@@ -84,9 +84,38 @@ it('sends versioned local review actions and preserves the returned private revi
   }
 });
 
-const emptyNotebook: RepositoryNotebookDto = { schemaVersion: 1, revision: 7, useInReviews: true, sources: [], activePreparation: null,
+const emptyNotebook: RepositoryNotebookDto = { schemaVersion: 1, revision: 7, useInReviews: true, useInDevelopment: true, sources: [], activePreparation: null,
   scopes: [{ id: 'project', title: 'Project', match: { kind: 'REPOSITORY' }, enabled: true, preparation: null, discoveryEvidenceRef: null }],
   entries: [], suppressedKnowledgeIds: [], sourceEvidence: [] };
+
+it('reads bounded usage and a selected note’s activities through authenticated workspace endpoints', async () => {
+  await import('./main');
+  await expect(desktop.listeners.get('ready')?.()).rejects.toThrow('End test startup');
+  const overview: ContextUsageOverviewDto = { trackingSince: null, window: '30d', coverage: 'RETAINED_TASKS_AND_REVIEWS',
+    summary: { eligibleDevelopmentTasks: 0, eligibleReviewRuns: 0, contextOffTasks: 0, tasksProvidedOrOpened: 0,
+      activeNotesWithoutConfirmedDeliveryOrOpen: 0, scopesDemandedWhileMissing: 0, scopesStillMissingAfterDemand: 0,
+      searchesWithNoMatchingScope: 0, searchesWithScopeButNoNote: 0 },
+    byTaskAndNoteKind: [], entries: [], scopeGaps: [], hasMoreEntries: false, hasMoreScopeGaps: false };
+  const activities: ContextUsageActivitiesDto = { entryId: 'knowledge:path:plugin/trino-iceberg/', activities: [{ taskId: 'task', reviewRunId: null, turnId: 'turn',
+    taskKind: 'DEVELOPMENT', entryVersion: 2, stage: 'OPENED', delivery: 'CONFIRMED', occurredAt: '2026-09-02T00:00:00Z',
+    receiptRef: 'context-read:1' }], hasMore: false };
+  const fetch = vi.fn(async () => new Response(JSON.stringify(overview)));
+  vi.stubGlobal('fetch', fetch);
+  const base = 'http://127.0.0.1:9527/api/workspaces/workspace%2Fone/repository-context/usage';
+  await expect(desktop.handlers.get('repository-context:usage')?.({}, 'workspace/one', '30d', 0)).resolves.toEqual(overview);
+  expect(fetch).toHaveBeenLastCalledWith(base + '?window=30d&page=0',
+    expect.objectContaining({ headers: { 'X-ByteQuay-Session': 'test-session' } }));
+  fetch.mockImplementation(async () => new Response(JSON.stringify(activities)));
+  await expect(desktop.handlers.get('repository-context:usage:entry')?.({}, 'workspace/one', activities.entryId, '30d', 1)).resolves.toEqual(activities);
+  expect(fetch).toHaveBeenLastCalledWith(base + '/activities?entryId=knowledge%3Apath%3Aplugin%2Ftrino-iceberg%2F&window=30d&page=1',
+    expect.objectContaining({ headers: { 'X-ByteQuay-Session': 'test-session' } }));
+  fetch.mockClear();
+  expect(() => desktop.handlers.get('repository-context:usage')?.({}, 'workspace/one', 'year', 0)).toThrow('Malformed repository context');
+  expect(() => desktop.handlers.get('repository-context:usage:entry')?.({}, 'workspace/one', 'knowledge:project', '30d', -1)).toThrow('Malformed repository context');
+  expect(fetch).not.toHaveBeenCalled();
+  fetch.mockImplementation(async () => new Response(JSON.stringify({ ...overview, window: 'all' })));
+  await expect(desktop.handlers.get('repository-context:usage')?.({}, 'workspace/one', '30d', 0)).rejects.toThrow('Malformed repository context');
+});
 
 it('routes notebook actions through authenticated workspace-scoped endpoints with exact revision and lesson bindings', async () => {
   await import('./main');
@@ -98,6 +127,7 @@ it('routes notebook actions through authenticated workspace-scoped endpoints wit
   expect(fetch).toHaveBeenLastCalledWith(base, expect.objectContaining({ headers: { 'X-ByteQuay-Session': 'test-session' } }));
   const actions: Array<{ action: string; path: string; method: string; request: Record<string, unknown> }> = [
     { action: 'configure', path: '/configuration', method: 'PUT', request: { expectedRevision: 7, useInReviews: false } },
+    { action: 'configure', path: '/configuration', method: 'PUT', request: { expectedRevision: 7, useInDevelopment: false } },
     { action: 'edit', path: '/entries', method: 'PUT', request: { expectedRevision: 7, id: 'knowledge:project', scopeId: 'project',
       title: 'Project', summary: 'Summary', body: 'Corrected text', claims: [], sourceIds: [] } },
     { action: 'enabled', path: '/entries/enabled', method: 'PUT', request: { expectedRevision: 7, entryId: 'knowledge:project', enabled: false } },
@@ -111,7 +141,7 @@ it('routes notebook actions through authenticated workspace-scoped endpoints wit
     expect(fetch).toHaveBeenLastCalledWith(base + path, expect.objectContaining({ method, body: JSON.stringify(request),
       headers: { 'Content-Type': 'application/json', 'X-ByteQuay-Session': 'test-session' } }));
   }
-  expect(fetch).toHaveBeenCalledTimes(7);
+  expect(fetch).toHaveBeenCalledTimes(8);
 });
 
 it('rejects forged notebook mutation fields before sending and surfaces stale revisions without an automatic retry', async () => {

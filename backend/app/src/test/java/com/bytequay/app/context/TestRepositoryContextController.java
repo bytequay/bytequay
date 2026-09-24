@@ -77,6 +77,7 @@ class TestRepositoryContextController
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.revision").value(0))
                 .andExpect(jsonPath("$.useInReviews").value(true))
+                .andExpect(jsonPath("$.useInDevelopment").value(true))
                 .andExpect(jsonPath("$.scopes[0].match.kind").value("REPOSITORY"));
     }
 
@@ -88,7 +89,7 @@ class TestRepositoryContextController
 
         mvc.perform(put(ROOT + "/configuration").contentType(MediaType.APPLICATION_JSON).content("""
                         {
-                          "expectedRevision":0,"useInReviews":false,
+                          "expectedRevision":0,"useInReviews":false,"useInDevelopment":false,
                           "sources":[{"id":"iceberg","kind":"DOCUMENTATION_ROOT","url":"https://iceberg.apache.org/docs/latest/","origin":"GENERATED","discoveryEvidenceRef":"fake"}],
                           "scopes":[
                             {"id":"project","title":"Project","match":{"kind":"REPOSITORY"},"enabled":true,"discoveryEvidenceRef":"fake"},
@@ -102,6 +103,7 @@ class TestRepositoryContextController
         ArgumentCaptor<EditContextConfiguration> edit = ArgumentCaptor.forClass(EditContextConfiguration.class);
         verify(service).configure(eq(WORKSPACE), eq(0L), edit.capture());
         assertThat(edit.getValue().useInReviews()).contains(false);
+        assertThat(edit.getValue().useInDevelopment()).contains(false);
         assertThat(edit.getValue().sources()).contains(ImmutableList.of(new EditContextConfiguration.Source(
                 "iceberg", RegisteredContextSource.Kind.DOCUMENTATION_ROOT, "https://iceberg.apache.org/docs/latest/")));
         assertThat(edit.getValue().scopes()).contains(ImmutableList.of(

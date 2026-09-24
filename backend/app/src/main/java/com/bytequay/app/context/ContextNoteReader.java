@@ -14,17 +14,20 @@
 package com.bytequay.app.context;
 
 import com.bytequay.core.context.ContextEntry;
+import com.bytequay.core.context.ContextLimits;
 import com.bytequay.core.context.ContextSelectedEntry;
 import com.bytequay.core.context.ContextSourceEvidence;
 import com.bytequay.core.context.RepositoryNotebook;
 import com.bytequay.core.review.ReviewEvidence;
 import com.google.common.collect.ImmutableMap;
+import com.google.common.hash.Hashing;
 import org.springframework.stereotype.Component;
 
 import java.util.Map;
 import java.util.Optional;
 
 import static com.google.common.collect.ImmutableMap.toImmutableMap;
+import static java.nio.charset.StandardCharsets.UTF_8;
 import static java.util.Objects.requireNonNull;
 
 /** Reads an originally selected note version without consulting current matching or applicability. */
@@ -56,13 +59,33 @@ public class ContextNoteReader
         if (matching.isEmpty()) {
             return Optional.empty();
         }
-        ContextEntry entry = matching.orElseThrow();
+        return Optional.of(capture(notebook, matching.orElseThrow(), selected.applicability(), false));
+    }
+
+    /** Reads today's enabled exact version; no selected-run snapshot or older version is substituted. */
+    public Optional<EnabledRead> readEnabled(String workspaceId, String entryId, long version)
+    {
+        ContextLimits.text(entryId, "entry id", 1200);
+        RepositoryNotebook notebook = notebooks.getNotebook(workspaceId);
+        return notebook.entries().stream().filter(entry -> entry.id().equals(entryId) && entry.version() == version && entry.enabled())
+                .filter(entry -> !notebook.suppressedKnowledgeIds().contains(entry.id()))
+                .filter(entry -> notebook.scopes().stream().anyMatch(scope -> scope.id().equals(entry.scopeId()) && scope.enabled()))
+                .findFirst().map(entry -> new EnabledRead(notebook.revision(), entry,
+                        capture(notebook, entry, ContextSelectedEntry.Applicability.UNVERIFIED, true)));
+    }
+
+    private static Read capture(RepositoryNotebook notebook, ContextEntry entry, ContextSelectedEntry.Applicability applicability, boolean dynamic)
+    {
         Map<String, ContextSourceEvidence> sources = notebook.sourceEvidence().stream().collect(toImmutableMap(ContextSourceEvidence::id, source -> source));
-        Map<String, String> refs = entry.sourceIds().stream().collect(toImmutableMap(id -> id, ReviewContextService::evidenceRef));
+        Map<String, String> refs = entry.sourceIds().stream().collect(toImmutableMap(id -> id, id -> dynamic
+                ? "context-source:" + Hashing.sha256().hashString(entry.id() + "\n" + entry.version() + "\n" + id, UTF_8)
+                : ReviewContextService.evidenceRef(id)));
         ImmutableMap.Builder<String, ReviewEvidence> captured = ImmutableMap.builder();
         refs.forEach((sourceId, ref) -> captured.put(ref, ReviewContextService.capture(sources.get(sourceId), ref)));
-        return Optional.of(new Read(ReviewContextService.renderEntry(entry, refs, selected.applicability()), refs, captured.buildOrThrow()));
+        return new Read(ReviewContextService.renderEntry(entry, refs, applicability), refs, captured.buildOrThrow());
     }
+
+    public record EnabledRead(long notebookRevision, ContextEntry entry, Read read) {}
 
     public record Read(String text, Map<String, String> sourceEvidenceRefs, Map<String, ReviewEvidence> evidence)
     {

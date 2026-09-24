@@ -364,6 +364,24 @@ class TestCodexEventMapper
     }
 
     @Test
+    void completedByteQuayContextToolCarriesOnlyItsSavedReceipt()
+            throws Exception
+    {
+        String ref = "context-search:" + "a".repeat(64);
+        String content = new ObjectMapper().writeValueAsString(java.util.Map.of("content", List.of(
+                java.util.Map.of("type", "text", "text", "{\"searchRef\":\"" + ref + "\",\"hits\":[]}"))));
+        String notification = """
+                {"method":"item/completed","params":{"item":{"type":"mcpToolCall","id":"mcp-context",
+                "server":"bytequay","tool":"review_get_context","status":"completed","result":%s},
+                "threadId":"thread-1","turnId":"turn-1"}}
+                """.formatted(content);
+        ProviderAgentEvent.Tool completed = only(notification, ProviderAgentEvent.Tool.class);
+        assertThat(completed.name()).isEqualTo("bytequay/review_get_context");
+        assertThat(completed.summary()).isEqualTo("context-receipt:" + ref);
+        assertThat(completed.state()).isEqualTo(ProviderAgentEvent.ActivityState.COMPLETED);
+    }
+
+    @Test
     void mapsCompletedFileChangesInsideTheWorktree()
     {
         CodexEventMapper worktreeMapper = new CodexEventMapper(

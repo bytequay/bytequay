@@ -308,6 +308,12 @@ public class DefaultAgentReviewService
             if (activeTurn(task).isPresent()) {
                 throw new ReviewConflictException("Stop the running turn before ending the review");
             }
+            try {
+                observer.confirmRetainedUsage(review);
+            }
+            catch (RuntimeException failure) {
+                log.warn("Review {} could not confirm retained context use before closing; unconfirmed receipts remain prepared: {}", reviewId, failure.toString());
+            }
             observer.unwatch(reviewId);
             if (task.state() == TaskState.OPEN) {
                 completions.complete(new CompleteAgentTaskCommand(taskId, Optional.of("Agent review ended by the user")));

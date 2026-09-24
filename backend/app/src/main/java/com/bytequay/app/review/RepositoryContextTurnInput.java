@@ -17,10 +17,12 @@ import com.bytequay.agent.core.AgentTask;
 import com.bytequay.agent.core.AgentTurn;
 import com.bytequay.agent.core.ReviewTurnInputResolver;
 import com.bytequay.app.context.ContextDiscussionReader;
+import com.bytequay.app.context.ContextUsageRecorder;
 import com.bytequay.core.context.ContextDelivery;
 import com.bytequay.core.context.ContextDiscussionSupplement;
 import com.bytequay.core.context.ContextLimits;
 import com.bytequay.core.context.ContextPacket;
+import com.bytequay.core.context.ContextUsageEvent;
 import com.bytequay.core.context.ReviewContextSnapshot;
 import com.bytequay.core.review.AgentReview;
 import com.bytequay.core.review.AgentReviewStore;
@@ -50,14 +52,17 @@ public class RepositoryContextTurnInput
     private final ReviewLocks locks;
     private final Clock clock;
     private final ContextDiscussionReader discussions;
+    private final ContextUsageRecorder usage;
 
-    public RepositoryContextTurnInput(AgentReviewStore reviews, ReviewToolAssignment assignments, ReviewLocks locks, Clock clock, ContextDiscussionReader discussions)
+    public RepositoryContextTurnInput(AgentReviewStore reviews, ReviewToolAssignment assignments, ReviewLocks locks, Clock clock,
+            ContextDiscussionReader discussions, ContextUsageRecorder usage)
     {
         this.reviews = requireNonNull(reviews, "reviews is null");
         this.assignments = requireNonNull(assignments, "assignments is null");
         this.locks = requireNonNull(locks, "locks is null");
         this.clock = requireNonNull(clock, "clock is null");
         this.discussions = requireNonNull(discussions, "discussions is null");
+        this.usage = requireNonNull(usage, "usage is null");
     }
 
     /**
@@ -129,5 +134,19 @@ public class RepositoryContextTurnInput
         finally {
             lock.unlock();
         }
+    }
+
+    /** Confirms the bootstrap note packet only when the exact prepared turn was accepted by the provider. */
+    @Override
+    public void delivered(AgentTask task, AgentTurn turn)
+    {
+        if (turn.providerTurnReference().isEmpty()) {
+            return;
+        }
+        reviews.findReviewByTask(task.id().toString()).filter(review -> task.workspaceId().filter(review.workspaceId()::equals).isPresent())
+                .ifPresent(review -> reviews.listRuns(review.id()).stream().flatMap(run -> run.context().stream())
+                        .filter(snapshot -> snapshot.deliveries().stream()
+                                .anyMatch(delivery -> delivery.turnId().equals(turn.id().toString()) && delivery.contributionCount() == 0))
+                        .forEach(snapshot -> usage.confirm(review.workspaceId(), snapshot.id(), ContextUsageEvent.Stage.PROVIDED)));
     }
 }

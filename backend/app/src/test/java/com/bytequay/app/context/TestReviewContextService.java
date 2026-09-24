@@ -13,6 +13,7 @@
  */
 package com.bytequay.app.context;
 
+import com.bytequay.agent.core.store.AgentUnitOfWork;
 import com.bytequay.app.workspace.WorkspaceRepositoryContext;
 import com.bytequay.core.context.ContextClaim;
 import com.bytequay.core.context.ContextContribution;
@@ -27,6 +28,7 @@ import com.bytequay.core.context.ContextRepositoryRead;
 import com.bytequay.core.context.ContextScope;
 import com.bytequay.core.context.ContextSelectedEntry;
 import com.bytequay.core.context.ContextSourceEvidence;
+import com.bytequay.core.context.ContextUsageEvent;
 import com.bytequay.core.context.RepositoryNotebook;
 import com.bytequay.core.context.ReviewContextSnapshot;
 import com.bytequay.core.domain.RepoRef;
@@ -39,6 +41,7 @@ import com.fasterxml.jackson.databind.node.ObjectNode;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import org.junit.jupiter.api.Test;
+import org.mockito.ArgumentCaptor;
 
 import java.nio.file.Path;
 import java.time.Clock;
@@ -58,6 +61,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.clearInvocations;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
@@ -79,7 +83,17 @@ class TestReviewContextService
     private final RepositoryContextReader reader = mock(RepositoryContextReader.class);
     private final ContextInputReader inputs = mock(ContextInputReader.class);
     private final AgentReviewStore reviews = mock(AgentReviewStore.class);
-    private final ReviewContextService service = new ReviewContextService(notebooks, reader, inputs, reviews, Clock.fixed(NOW, ZoneOffset.UTC));
+    private final ContextUsageRecorder usage = mock(ContextUsageRecorder.class);
+    private final AgentUnitOfWork unitOfWork = new AgentUnitOfWork()
+    {
+        @Override
+        public <T> T execute(Work<T> work)
+        {
+            return work.run();
+        }
+    };
+    private final ReviewContextService service = new ReviewContextService(notebooks, reader, inputs, reviews, usage, unitOfWork,
+            Clock.fixed(NOW, ZoneOffset.UTC));
 
     @Test
     void disabledContextPersistsExplicitSnapshotWithoutReadingSources()
@@ -103,6 +117,11 @@ class TestReviewContextService
         assertThat(captured.version()).isEqualTo(1);
         verifyNoInteractions(reader, inputs);
         verify(reviews).updateRun(captured.withVersion(0));
+        ArgumentCaptor<ContextUsageEvent> off = ArgumentCaptor.forClass(ContextUsageEvent.class);
+        verify(usage).record(off.capture());
+        assertThat(off.getValue().stage()).isEqualTo(ContextUsageEvent.Stage.ELIGIBLE);
+        assertThat(off.getValue().contextEnabled()).contains(false);
+        assertThat(off.getValue().reviewRunId()).contains(run.id());
     }
 
     @Test
@@ -132,18 +151,25 @@ class TestReviewContextService
         ContextSelectedEntry selected = context.selectedEntries().getFirst();
         String evidenceRef = selected.sourceEvidenceRefs().get(SOURCE.id());
         ReviewEvidence evidence = captured.evidence().get(evidenceRef);
+        String noteRef = ReviewContextService.bootstrapNoteRef(original.id(), note.id(), note.version());
 
         assertThat(context.notebookRevision()).isEqualTo(notebook.revision());
         assertThat(context.baselineSha()).contains(BASE);
         assertThat(selected.entryVersion()).isEqualTo(4);
         assertThat(selected.applicability()).isEqualTo(ContextSelectedEntry.Applicability.UNVERIFIED);
-        assertThat(selected.text().orElseThrow()).contains(note.title(), note.summary(), note.body(), note.claims().getFirst().text(), "DOCUMENTED", evidenceRef);
+        assertThat(selected.text().orElseThrow()).contains(note.title(), note.summary(), note.body(), note.claims().getFirst().text(), "DOCUMENTED", evidenceRef, noteRef);
+        assertThat(captured.evidence().get(noteRef).excerpt()).isEqualTo(selected.text().orElseThrow());
         assertThat(evidence.excerpt()).isEqualTo(SOURCE.excerpt());
         assertThat(evidence.source()).contains("https://example.com/docs/page");
         assertThat(evidence.provenance()).contains(SOURCE.provenance(), "capture=BYTEQUAY_READ", "version=release-1", "contentHash=sha256:source", "truncated=false");
         assertThat(context.bootstrap().orElseThrow().text()).contains(selected.text().orElseThrow());
         assertThat(captured.evidence()).containsEntry("existing", original.evidence().get("existing"));
         assertThat(original.context()).isEmpty();
+        ArgumentCaptor<ContextUsageEvent> events = ArgumentCaptor.forClass(ContextUsageEvent.class);
+        verify(usage, times(3)).record(events.capture());
+        assertThat(events.getAllValues()).extracting(ContextUsageEvent::stage)
+                .containsExactly(ContextUsageEvent.Stage.ELIGIBLE, ContextUsageEvent.Stage.SELECTED, ContextUsageEvent.Stage.PROVIDED);
+        assertThat(events.getAllValues().getLast().delivery()).isEqualTo(ContextUsageEvent.Delivery.PREPARED);
 
         when(notebooks.getNotebook("workspace")).thenReturn(RepositoryNotebook.empty());
         clearInvocations(notebooks, reader, inputs, reviews);

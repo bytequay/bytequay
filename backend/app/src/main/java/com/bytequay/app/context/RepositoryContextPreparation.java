@@ -385,7 +385,7 @@ public class RepositoryContextPreparation
             List<ContextSourceEvidence> evidence, Optional<ActiveContextPreparation> active)
     {
         Set<String> retained = RepositoryContextService.retainedSources(current.sources(), scopes, entries);
-        return new RepositoryNotebook(1, revision, current.useInReviews(), current.sources(), scopes, entries, current.suppressedKnowledgeIds(),
+        return new RepositoryNotebook(1, revision, current.useInReviews(), current.useInDevelopment(), current.sources(), scopes, entries, current.suppressedKnowledgeIds(),
                 evidence.stream().filter(source -> retained.contains(source.id())).collect(toImmutableList()), active);
     }
 

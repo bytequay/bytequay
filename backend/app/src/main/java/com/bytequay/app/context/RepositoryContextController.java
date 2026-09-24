@@ -55,7 +55,7 @@ public class RepositoryContextController
     @PutMapping("/configuration")
     public RepositoryNotebook configure(@PathVariable String workspaceId, @RequestBody ConfigurationRequest request)
     {
-        EditContextConfiguration edit = new EditContextConfiguration(request.useInReviews(), request.sources(),
+        EditContextConfiguration edit = new EditContextConfiguration(request.useInReviews(), request.useInDevelopment(), request.sources(),
                 request.scopes().map(scopes -> scopes.stream().map(ScopeRequest::toScope).collect(toImmutableList())));
         return context.configure(workspaceId, request.expectedRevision(), edit);
     }
@@ -96,6 +96,7 @@ public class RepositoryContextController
     public record ConfigurationRequest(
             Long expectedRevision,
             Optional<Boolean> useInReviews,
+            Optional<Boolean> useInDevelopment,
             Optional<List<EditContextConfiguration.Source>> sources,
             Optional<List<ScopeRequest>> scopes)
     {
@@ -103,6 +104,7 @@ public class RepositoryContextController
         {
             requireRevision(expectedRevision);
             requireNonNull(useInReviews, "useInReviews is null");
+            requireNonNull(useInDevelopment, "useInDevelopment is null");
             sources = requireNonNull(sources, "sources is null").map(ImmutableList::copyOf);
             scopes = requireNonNull(scopes, "scopes is null").map(ImmutableList::copyOf);
             sources.ifPresent(values -> values.forEach(source -> {

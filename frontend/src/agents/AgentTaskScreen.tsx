@@ -65,6 +65,7 @@ import AgentReviewTab, { type ReviewNavigationTarget } from '../pulls/agent-revi
 import type { AgentReviewDto } from '../pulls/agent-review/contracts';
 import { workspaceReviewTaskRoute } from '../workspaces/model';
 import DevelopmentLearningPanel from './DevelopmentLearningPanel';
+import DevelopmentContextActivityPanel from './DevelopmentContextActivityPanel';
 import LocalReviewThreadCard from '../pulls/local-review/LocalReviewThreadCard';
 import type { ReviewCardFocus, ReviewRequestTarget } from './ReviewRequestCard';
 import { useReviewCardFocus } from './reviewCardNavigation';
@@ -941,7 +942,7 @@ export function AgentTaskBody({
   automation,
   headerAction,
   submissionBlocked = false,
-  onAskAgent, onAskAgentDisabled, localReview, learning, reviewFocus, onOpenReview,
+  onAskAgent, onAskAgentDisabled, localReview, learning, contextActivity, reviewFocus, onOpenReview,
 }: {
   state: AgentTaskState;
   automation?: React.ReactNode;
@@ -951,6 +952,7 @@ export function AgentTaskBody({
   onAskAgentDisabled?: string | null;
   localReview?: LocalReviewThreads;
   learning?: React.ReactNode;
+  contextActivity?: React.ReactNode;
   reviewFocus?: ReviewCardFocus | null;
   onOpenReview?: (target: ReviewRequestTarget) => void;
   models: ModelOptionDto[];
@@ -1223,6 +1225,8 @@ export function AgentTaskBody({
         <button type="button" className="agt-action" disabled={localReviewActionBlocked} onClick={onStartLocalReview}>Review locally</button>
         <span>Try tests and code changes without committing or publishing them.</span>
       </div>}
+
+      {contextActivity}
 
       <AgentConversation
         turns={turns} durableTurns={state.turns} models={models} now={now} scroll={scroll}
@@ -2367,6 +2371,10 @@ export default function AgentTaskScreen({
         refreshKey={state.lifecycleEpoch} refining={state.task.developmentContinuationUnfinished && state.turn?.developmentOrigin?.kind === 'REFINE_SUMMARY'}
         disabledReason={taskCommentDisabled}
         localReview={localReview} bridge={live()} />}
+      contextActivity={state.task?.interactive && state.task.localReviewHead == null && live().getAgentTaskRepositoryContext
+        ? <DevelopmentContextActivityPanel taskId={taskId} workspaceId={workspaceId} bridge={live() as Required<Pick<AgentBridgePort, 'getAgentTaskRepositoryContext'>>}
+          refreshKey={`${state.lifecycleEpoch}:${state.events.filter(event => event.type === 'tool' && event.payload.state === 'COMPLETED'
+            && event.payload.summary.startsWith('context-receipt:')).at(-1)?.sequence ?? 0}`} /> : undefined}
       automation={automationEligible && automationSelection !== null ? <AutomationControl value={automationSelection} providers={automationProviders} disabled />
         : automationEligible ? <span className="agt-meta">Loading automation settings…</span> : undefined}
       historyLoading={historyLoading}

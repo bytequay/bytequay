@@ -39,7 +39,9 @@ import com.fasterxml.jackson.annotation.JsonSubTypes;
 import com.fasterxml.jackson.annotation.JsonTypeInfo;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.DeserializationFeature;
+import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.databind.node.ObjectNode;
 import com.google.common.collect.ImmutableList;
 import com.google.common.hash.Hashing;
 import org.springframework.stereotype.Service;
@@ -111,6 +113,13 @@ public class RepositoryContextService
         return configure(workspaceId, expectedRevision, new EditContextConfiguration(Optional.of(enabled), Optional.empty(), Optional.empty()));
     }
 
+    /** Changes use by newly accepted development turns without changing review use. */
+    public RepositoryNotebook setUseInDevelopment(String workspaceId, long expectedRevision, boolean enabled)
+    {
+        return configure(workspaceId, expectedRevision,
+                new EditContextConfiguration(Optional.empty(), Optional.of(enabled), Optional.empty(), Optional.empty()));
+    }
+
     /**
      * Applies only supplied preference/source/scope fields in one revision-checked mutation.
      *
@@ -139,7 +148,7 @@ public class RepositoryContextService
                         .filter(source -> source.id().equals(value.id()) && source.kind() == value.kind() && source.url().equals(value.url()))
                         .findFirst().orElse(updated);
             }).collect(toImmutableList())).orElse(current.sources());
-            return content(current, edit.useInReviews().orElse(current.useInReviews()), sources, scopes,
+            return content(current, edit.useInReviews().orElse(current.useInReviews()), edit.useInDevelopment().orElse(current.useInDevelopment()), sources, scopes,
                     current.entries(), current.suppressedKnowledgeIds(), current.sourceEvidence());
         });
     }
@@ -355,7 +364,8 @@ public class RepositoryContextService
             if (changed.equals(current)) {
                 return current;
             }
-            RepositoryNotebook saved = new RepositoryNotebook(1, Math.addExact(current.revision(), 1), changed.useInReviews(), changed.sources(), changed.scopes(),
+            RepositoryNotebook saved = new RepositoryNotebook(1, Math.addExact(current.revision(), 1),
+                    changed.useInReviews(), changed.useInDevelopment(), changed.sources(), changed.scopes(),
                     changed.entries(), changed.suppressedKnowledgeIds(), changed.sourceEvidence(), changed.activePreparation());
             String json = encode(saved);
             checkArgument(ContextLimits.bytes(json) <= ContextLimits.MAX_NOTEBOOK_BYTES, "Serialized notebook exceeds UTF-8 limit");
@@ -367,8 +377,15 @@ public class RepositoryContextService
     private static RepositoryNotebook content(RepositoryNotebook current, boolean useInReviews, List<RegisteredContextSource> sources, List<ContextScope> scopes,
             List<ContextEntry> entries, List<String> suppression, List<ContextSourceEvidence> evidence)
     {
+        return content(current, useInReviews, current.useInDevelopment(), sources, scopes, entries, suppression, evidence);
+    }
+
+    private static RepositoryNotebook content(RepositoryNotebook current, boolean useInReviews, boolean useInDevelopment,
+            List<RegisteredContextSource> sources, List<ContextScope> scopes, List<ContextEntry> entries, List<String> suppression,
+            List<ContextSourceEvidence> evidence)
+    {
         Set<String> retained = retainedSources(sources, scopes, entries);
-        return new RepositoryNotebook(1, current.revision(), useInReviews, sources, scopes, entries, suppression,
+        return new RepositoryNotebook(1, current.revision(), useInReviews, useInDevelopment, sources, scopes, entries, suppression,
                 evidence.stream().filter(source -> retained.contains(source.id())).collect(toImmutableList()), current.activePreparation());
     }
 
@@ -419,7 +436,13 @@ public class RepositoryContextService
     {
         try {
             checkArgument(ContextLimits.bytes(json) <= ContextLimits.MAX_NOTEBOOK_BYTES, "Saved notebook exceeds UTF-8 limit");
-            return requireNonNull(mapper.readValue(json, RepositoryNotebook.class), "Saved notebook is null");
+            JsonNode parsed = mapper.readTree(json);
+            checkArgument(parsed instanceof ObjectNode, "Saved notebook must be an object");
+            ObjectNode saved = (ObjectNode) parsed;
+            if (!saved.has("useInDevelopment")) {
+                saved.put("useInDevelopment", true);
+            }
+            return requireNonNull(mapper.treeToValue(saved, RepositoryNotebook.class), "Saved notebook is null");
         }
         catch (JsonProcessingException | IllegalArgumentException | NullPointerException failure) {
             throw new ContextStorageException("Saved repository context could not be read", failure);

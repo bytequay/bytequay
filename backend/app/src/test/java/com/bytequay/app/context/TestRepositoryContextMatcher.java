@@ -75,6 +75,8 @@ class TestRepositoryContextMatcher
 
         assertThat(matcher.select(notebook, ImmutableList.of("plugin/iceberg/Metadata.java"), "", ImmutableList.of()).entries())
                 .extracting(RepositoryContextMatcher.Match::rank).containsExactly(PATH);
+        assertThat(matcher.select(notebook, ImmutableList.of("plugin/iceberg/"), "", ImmutableList.of()).entries())
+                .extracting(RepositoryContextMatcher.Match::rank).containsExactly(PATH);
         assertThat(matcher.select(notebook, ImmutableList.of("plugin/iceberg-extra/Metadata.java"), "SNAPSHOT\u00a0\n isolation", ImmutableList.of()).entries())
                 .extracting(RepositoryContextMatcher.Match::rank).containsExactly(TERM);
         assertThat(matcher.select(notebook, ImmutableList.of("plugin/iceberg-extra/Metadata.java"), "snapshot isolations", ImmutableList.of()).entries()).isEmpty();
@@ -229,7 +231,7 @@ class TestRepositoryContextMatcher
     @ParameterizedTest
     @ValueSource(strings = {
             "/etc/passwd", "../Metadata.java", "plugin/../Metadata.java", "./Metadata.java", "plugin//Metadata.java",
-            "-option", "plugin\\Metadata.java", "plugin/", "plugin/\u0000.java"})
+            "-option", "plugin\\Metadata.java", "plugin/\u0000.java"})
     void rejectsUnsafeOrNoncanonicalPaths(String path)
     {
         assertThatThrownBy(() -> matcher.select(RepositoryNotebook.empty(), ImmutableList.of(path), "", ImmutableList.of())).isInstanceOf(IllegalArgumentException.class);

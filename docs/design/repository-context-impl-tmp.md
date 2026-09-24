@@ -584,8 +584,12 @@ opening settings or inspecting a source list must not launch generation.
   An isolated Claude review and development turn overlapped for 16.082 seconds
   with an empty notebook; token, packet, serialized-size and sampled whole-process-tree
   RSS/CPU values are retained in the concurrent evaluation. This is a missing-note
-  sample, not attributable saved-note overhead. Live SQLite wait/busy-handler time,
-  per-process memory and a concurrent warm-note pair remain unmeasured.
+  sample, not attributable saved-note overhead. Live SQLite wait/busy-handler
+  time and per-process memory were not measured in that first pair.
+  A second pair overlapped for 23.898 seconds and confirmed delivery/search/read
+  of one saved component note, with separate sampled JVM and Claude RSS/CPU.
+  The review also built missing project knowledge, so it mixes warm reuse with
+  cold preparation; live SQLite waits and attributable overhead remain unknown.
 - [x] Record unknown or unavailable metrics explicitly. If contention exists,
   fix transaction length/write frequency before proposing separate storage.
   Measure existing source-hydrator locks separately from notebook mutation locks.

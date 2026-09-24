@@ -1,0 +1,161 @@
+{
+  "sampleKind": "isolated_concurrent_review_and_development_with_warm_component_note_and_cold_project_preparation",
+  "fixture": {
+    "repository": "contextfixture/history-case",
+    "prNumber": 8,
+    "baselineSha": "35089cdc274efee74d89682271c3b15f6ba12bdb",
+    "headSha": "aedc3d9eb56df040e9d7d9385aa91538c73c4284",
+    "savedNote": {
+      "id": "knowledge:window",
+      "version": 2,
+      "scopeId": "window"
+    },
+    "provider": "Claude 2.1.281, Sonnet, Low effort",
+    "isolation": "disposable SQLite, workspaces, runtime and token; GET-only local GitHub proxy and read-only HTTPS Git remote"
+  },
+  "pairedStart": {
+    "requestStartSeparationMs": 0.086,
+    "reviewHttpStatus": 200,
+    "developmentHttpStatus": 201,
+    "reviewHttpElapsedMs": 4179.1,
+    "developmentHttpElapsedMs": 3670.0
+  },
+  "providerOverlap": {
+    "firstReviewAndDevelopmentSeconds": 23.898
+  },
+  "review": {
+    "runState": "ACCEPTED",
+    "runWallSeconds": 77.395,
+    "providerTurns": 2,
+    "providerElapsedMsSum": 74809,
+    "inputTokens": 512926,
+    "cachedInputTokens": 466873,
+    "outputTokens": 7349,
+    "rateLimitEventMentions": 2,
+    "contextEnabled": true,
+    "selectedNotes": [
+      {
+        "id": "knowledge:window",
+        "version": 2,
+        "inclusion": "INCLUDED",
+        "applicability": "VERSION_MISMATCH"
+      }
+    ],
+    "packetUtf8Bytes": [
+      5930,
+      3133
+    ],
+    "deliveryOutcomes": [
+      "CONFIRMED",
+      "CONFIRMED"
+    ],
+    "sourceReadReceiptCount": 3,
+    "sourceReadKinds": [
+      "HISTORY",
+      "REPOSITORY_FILE",
+      "REPOSITORY_FILE"
+    ],
+    "preparationActivityStates": [
+      "OWNED",
+      "APPLIED"
+    ],
+    "newProjectKnowledge": true,
+    "coverageComplete": true
+  },
+  "development": {
+    "providerTurnState": "COMPLETED",
+    "providerTurns": 1,
+    "elapsedMs": 24402,
+    "inputTokens": 211295,
+    "cachedInputTokens": 195335,
+    "outputTokens": 1706,
+    "rateLimitEventMentions": 1,
+    "contextReceipts": [
+      {
+        "kind": "OFFER",
+        "storedPayloadBytes": 2762,
+        "projectedBytes": 2233,
+        "delivery": "CONFIRMED"
+      },
+      {
+        "kind": "SEARCH",
+        "storedPayloadBytes": 861,
+        "projectedBytes": 861,
+        "delivery": "CONFIRMED"
+      },
+      {
+        "kind": "READ",
+        "storedPayloadBytes": 10251,
+        "projectedBytes": 10251,
+        "delivery": "CONFIRMED"
+      }
+    ],
+    "confirmedReadNote": {
+      "id": "knowledge:window",
+      "version": 2
+    }
+  },
+  "storage": {
+    "notebookJsonBytesBeforePair": 13245,
+    "notebookJsonBytesAfterPair": 23356,
+    "reviewRunContextJsonBytes": 20084,
+    "contextUsageFactRowsAfterPair": 11,
+    "databaseFileBytesAtRead": 544768,
+    "walFileBytesAtRead": 2896392
+  },
+  "processSamples": {
+    "count": 192,
+    "windowSeconds": 105.853,
+    "intervalTargetSeconds": 0.5,
+    "wholeWindow": {
+      "count": 192,
+      "maxJvmRssKiB": 2020496,
+      "maxJvmReportedCpuPercent": 133.7,
+      "maxDescendantCount": 8,
+      "maxDescendantRssKiBSum": 756960,
+      "maxDescendantReportedCpuPercentSum": 108.8,
+      "maxIdentifiedClaudeCount": 3,
+      "maxIdentifiedClaudeRssKiBSum": 750304,
+      "maxIdentifiedClaudeReportedCpuPercentSum": 108.4
+    },
+    "duringProviderOverlap": {
+      "count": 44,
+      "maxJvmRssKiB": 2013424,
+      "maxJvmReportedCpuPercent": 65.4,
+      "maxDescendantCount": 7,
+      "maxDescendantRssKiBSum": 756960,
+      "maxDescendantReportedCpuPercentSum": 108.8,
+      "maxIdentifiedClaudeCount": 3,
+      "maxIdentifiedClaudeRssKiBSum": 750304,
+      "maxIdentifiedClaudeReportedCpuPercentSum": 108.4
+    },
+    "rssMeaning": "reported resident sizes; descendant sums may double-count shared pages",
+    "cpuMeaning": "ps reported %CPU samples, not integrated core-seconds",
+    "truePeaksMeasured": false
+  },
+  "sqlite": {
+    "configuredPoolMaximum": 1,
+    "livePoolAcquisitionWaitMs": null,
+    "liveTransactionWriteWaitMs": null,
+    "liveBusyHandlerWaitMs": null
+  },
+  "localRequestsAcrossSetupAndPair": {
+    "fakeGithubGetCount": 3,
+    "localGitGetCount": 6,
+    "writeRequestCount": 0
+  },
+  "usageSummary": {
+    "eligibleDevelopmentTasks": 1,
+    "eligibleReviewRuns": 1,
+    "tasksProvidedOrOpened": 2,
+    "scopesDemandedWhileMissing": 1,
+    "scopesStillMissingAfterDemand": 0
+  },
+  "limits": [
+    "The review also prepared missing project knowledge while reusing the warm component note, so this pair cannot isolate warm-note overhead.",
+    "One pair with provider rate-limit warnings cannot establish throughput or stable latency.",
+    "The review note carried VERSION_MISMATCH because its source tree changed at the PR head; delivery and the development read do not prove a quality gain.",
+    "The local backend does not expose live SQLite pool or busy-handler wait timing.",
+    "RSS and %CPU were sampled, and command-name matching may include Claude readiness/update processes."
+  ]
+}

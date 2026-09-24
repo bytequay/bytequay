@@ -648,3 +648,21 @@ The [saved case](../evaluation/repository-context-claude-discussion/README.md)
 and [result](../evaluation/repository-context-claude-discussion/result.json)
 show the identities and limits. The notebook was empty, so this validates
 discussion capture and the frozen-card boundary rather than knowledge reuse.
+
+## Simultaneous saved-note reuse and preparation
+
+A second isolated Claude pair started review and development together. Their
+first provider turns overlapped for 23.898 seconds. The review accepted
+`knowledge:window` version 2 in confirmed packets and completed its finding
+report; development confirmed offer, search and exact read of that version.
+The review also generated previously missing project knowledge, so the run
+combines warm component reuse with cold project preparation. It cannot isolate
+warm-note overhead. During overlap the sampled backend JVM maximum was
+2,013,424 KiB RSS, while matching Claude processes summed to at most 750,304
+KiB RSS; these are sampled process values, not true peaks or context-attributable
+cost. Live SQLite pool, transaction and busy-handler waits were unavailable.
+The selected component note was marked `VERSION_MISMATCH` at the PR head, and
+rate-limit warnings occurred. The [saved sample](../evaluation/repository-context-warm-concurrent/README.md)
+and [result](../evaluation/repository-context-warm-concurrent/result.json)
+retain turn, receipt, byte, source-read and storage measurements with those
+limits.

@@ -42,10 +42,14 @@ The result may include an Iceberg knowledge note and a user lesson about a
 previous failure. If the agent never searches, it still receives the initial
 offer; ByteQuay does not claim it read or applied anything beyond that offer.
 
+When enabled notes exist but none match a development request, the accepted
+turn receives only a short search reminder. It names no note or claim. Disabled
+or suppressed notes do not cause that reminder.
+
 A short managed instruction describes the lookup tool and asks the agent to
 search when it enters a component, encounters a new topic, or needs to check a
-saved lesson. Tool use remains optional; the automatic offer covers the case
-where the agent never calls it. No scheduler or extra model turn is started.
+saved lesson. Tool use remains optional; matched notes are offered even if the
+agent never calls it. No scheduler or extra model turn is started.
 
 An empty notebook displays **Not prepared** or the recorded **Empty/Failed**
 preparation state. A populated notebook with no search hits displays **No

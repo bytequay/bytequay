@@ -179,6 +179,12 @@ public class DevelopmentContextTools
                 entries.add(new OfferEntry(entry.id(), entry.version(), entry.kind().name(), entry.scopeId(), entry.title(), included, reasons));
             }
         }
+        if (selection.entries().isEmpty() && notebook.entries().stream().anyMatch(entry -> entry.enabled()
+                && !notebook.suppressedKnowledgeIds().contains(entry.id())
+                && notebook.scopes().stream().anyMatch(scope -> scope.enabled() && scope.id().equals(entry.scopeId())))) {
+            packet.append("Saved ByteQuay notes exist, but none matched this request. If you enter a component or need an earlier decision, ")
+                    .append("use repository_context_lookup SEARCH with its topic or repository path. Verify any result against current sources.\n");
+        }
         if (omitted > 0) {
             packet.append("\n").append(omitted).append(" additional matched notes omitted by the offer limit; search by topic or path.\n");
         }

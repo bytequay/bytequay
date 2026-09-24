@@ -38,6 +38,7 @@ import com.bytequay.core.context.ContextEntry;
 import com.bytequay.core.context.ContextEntryKind;
 import com.bytequay.core.context.ContextEntryOrigin;
 import com.bytequay.core.context.ContextLimits;
+import com.bytequay.core.context.ContextMatch;
 import com.bytequay.core.context.ContextScope;
 import com.bytequay.core.context.DevelopmentContextReceipt;
 import com.bytequay.core.context.DevelopmentContextReceiptStore;
@@ -153,6 +154,40 @@ class TestDevelopmentContextTools
         assertThat(offered).doesNotContain("x".repeat(100));
         assertThat(ContextLimits.bytes(offered.substring(offered.indexOf("----- BEGIN SAVED REPOSITORY CONTEXT -----"))))
                 .isLessThan(8 * 1024 + 200);
+    }
+
+    @Test
+    void unmatchedComponentNotesOfferAPathSearchReminder()
+    {
+        ContextScope scope = new ContextScope("path:sensors/", "Sensors",
+                new ContextMatch.Selected(ImmutableList.of("sensors/"), ImmutableList.of("window")), true, Optional.empty(), Optional.empty());
+        ContextEntry note = new ContextEntry("knowledge:path:sensors/", ContextEntryKind.KNOWLEDGE, scope.id(), "Window decision",
+                "Shared endpoint", "The decision belongs to the sensors component.", ImmutableList.of(), ImmutableList.of(), ContextEntryOrigin.USER, true, 1);
+        when(notebooks.getNotebook(WORKSPACE)).thenReturn(new RepositoryNotebook(1, 7, true, true, ImmutableList.of(),
+                ImmutableList.of(ContextScope.project(), scope), ImmutableList.of(note), ImmutableList.of(), ImmutableList.of(), Optional.empty()));
+        when(matcher.select(any(), eq(ImmutableList.of()), eq("Investigate customer report"), eq(ImmutableList.of())))
+                .thenReturn(new RepositoryContextMatcher.Selection(ImmutableList.of(), ImmutableList.of()));
+
+        String offered = service.prepare(task, turn, "Investigate customer report");
+
+        assertThat(offered).contains("Investigate customer report").contains("Saved ByteQuay notes exist, but none matched")
+                .contains("repository_context_lookup SEARCH").doesNotContain(note.title());
+        assertThat(service.prepare(task, turn, "Investigate customer report")).isEqualTo(offered);
+    }
+
+    @Test
+    void disabledNotesDoNotTriggerASearchReminder()
+    {
+        ContextScope scope = new ContextScope("path:sensors/", "Sensors",
+                new ContextMatch.Selected(ImmutableList.of("sensors/"), ImmutableList.of("window")), true, Optional.empty(), Optional.empty());
+        ContextEntry disabled = new ContextEntry("knowledge:path:sensors/", ContextEntryKind.KNOWLEDGE, scope.id(), "Window decision",
+                "Shared endpoint", "Do not offer this disabled note.", ImmutableList.of(), ImmutableList.of(), ContextEntryOrigin.USER, false, 1);
+        when(notebooks.getNotebook(WORKSPACE)).thenReturn(new RepositoryNotebook(1, 7, true, true, ImmutableList.of(),
+                ImmutableList.of(ContextScope.project(), scope), ImmutableList.of(disabled), ImmutableList.of(), ImmutableList.of(), Optional.empty()));
+        when(matcher.select(any(), eq(ImmutableList.of()), eq("Investigate customer report"), eq(ImmutableList.of())))
+                .thenReturn(new RepositoryContextMatcher.Selection(ImmutableList.of(), ImmutableList.of()));
+
+        assertThat(service.prepare(task, turn, "Investigate customer report")).isEqualTo("Investigate customer report");
     }
 
     @Test

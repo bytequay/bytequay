@@ -554,9 +554,13 @@ opening settings or inspecting a source list must not launch generation.
   in both arms. The On review received the learned note but did not open it;
   the On development turn received the note but did not search it. A separate
   non-scored Claude development turn confirmed scoped search and exact read.
+  An additional Claude pair on a safe resolver change had zero findings in
+  both arms, with a confirmed unrelated window note in On. That note also had
+  `VERSION_MISMATCH` from a changed project-wide preparation input, so the
+  pair does not isolate distraction from irrelevant content.
   These small machine-assessed samples do not close human judgment acceptance.
-  Stale, irrelevant and history-assisted comparisons remain part of the broader
-  acceptance gate.
+  An obsolete wrong rule and a pure irrelevant-note case, plus human scoring,
+  remain part of the broader acceptance gate.
 - [x] Verify a false saved rule cannot establish a defect by itself; exercise
   original-source/code checks, counterevidence, corrections and future exclusion.
   A real saved MEMORY v2 was delivered, read and explicitly refuted; fresh reviews

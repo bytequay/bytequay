@@ -1,0 +1,176 @@
+{
+  "schemaVersion": 1,
+  "fixture": {
+    "repository": "contextfixture/review-case",
+    "pullRequest": 2,
+    "baseSha": "99dac517a7758debe9005eec0b910109c7ce8d32",
+    "headSha": "e01629d78d437886c8779a3ddde430f4543c2a95",
+    "patchSha256": "9d200143d94319820cc444c1c6832044b5930509a54b7ccc37c08e915f02c3b6",
+    "independentSafeOracle": {
+      "exitCode": 0,
+      "testCount": 2,
+      "expectedFindings": 0,
+      "humanApproved": false
+    },
+    "remote": "read-only local HTTPS Git and GET-only fake GitHub",
+    "githubGetCount": 14,
+    "gitReadCount": 18
+  },
+  "provider": {
+    "lane": "claude",
+    "model": "sonnet",
+    "effort": "High",
+    "cliVersion": "2.1.281",
+    "backendJarSha256": "ca334e3d3b14ecc65fbbf96fb6663ae1437326ae8a8062a09b95830d3906fd37"
+  },
+  "savedNote": {
+    "entryId": "knowledge:project",
+    "kind": "KNOWLEDGE",
+    "scopeId": "project",
+    "origin": "USER",
+    "version": 2,
+    "notebookRevisionBeforeSplit": 2,
+    "title": "Window endpoint convention",
+    "summary": "Windows include their start and exclude their end.",
+    "claimBasis": "DOCUMENTED",
+    "sources": [
+      {
+        "path": "README.md",
+        "commit": "99dac517a7758debe9005eec0b910109c7ce8d32",
+        "blobId": "b844a6f003407943625f30794e6213b697894e3a",
+        "capture": "BYTEQUAY_READ"
+      },
+      {
+        "path": "window.py",
+        "commit": "99dac517a7758debe9005eec0b910109c7ce8d32",
+        "blobId": "e11b4c6578c724e0ea53df6b60f82be14a4746b1",
+        "capture": "BYTEQUAY_READ"
+      }
+    ]
+  },
+  "arms": {
+    "off": {
+      "reviewId": "cb5d52f1-e810-4c30-9ec8-f2e2f2d9a4b1",
+      "runId": "ff09410e-3886-431d-b514-e3d7d348d411",
+      "taskId": "6b4d1040-eea3-410c-97ce-d195ccb0e9ed",
+      "state": "ACCEPTED",
+      "notebookRevision": 3,
+      "contextEnabled": false,
+      "baseSha": "99dac517a7758debe9005eec0b910109c7ce8d32",
+      "headSha": "e01629d78d437886c8779a3ddde430f4543c2a95",
+      "coverageComplete": true,
+      "findingCount": 0,
+      "summaryPurpose": "Avoid a redundant field index lookup in resolve while keeping its results unchanged.",
+      "summaryCommitExplanation": "resolve reuses the relation index for the hierarchy index instead of calling fields.index_of(name) twice. index_of reads an immutable map, so both calls return the same value and behavior is unchanged.",
+      "selectedNotes": [],
+      "bootstrapUtf8Bytes": 0,
+      "deliveries": [],
+      "dynamicSearchCount": 0,
+      "exactReadCount": 0,
+      "noteUsage": {
+        "selectedTasks": 0,
+        "providedTasks": 0,
+        "searchHits": 0,
+        "foundTasks": 0,
+        "openedTasks": 0,
+        "citedReviews": 0
+      },
+      "usageSummary": {
+        "eligibleDevelopmentTasks": 0,
+        "eligibleReviewRuns": 1,
+        "contextOffTasks": 1,
+        "tasksProvidedOrOpened": 0,
+        "activeNotesWithoutConfirmedDeliveryOrOpen": 1,
+        "scopesDemandedWhileMissing": 0,
+        "scopesStillMissingAfterDemand": 0,
+        "searchesWithNoMatchingScope": 0,
+        "searchesWithScopeButNoNote": 0
+      },
+      "provider": {
+        "completedTurns": 2,
+        "turnSpanSeconds": 31.556,
+        "inputTokens": 278403,
+        "cachedInputTokens": 259946,
+        "outputTokens": 1996,
+        "reportedCost": 0.257263,
+        "rateLimitWarnings": 2
+      }
+    },
+    "on": {
+      "reviewId": "f483cf06-d3cb-40e3-87aa-2c56b99dc275",
+      "runId": "509ff0df-796c-4e87-bbfc-7b90fd35d06d",
+      "taskId": "4ae166a9-c9d8-40d0-a440-a877d01f0a10",
+      "state": "ACCEPTED",
+      "notebookRevision": 2,
+      "contextEnabled": true,
+      "baseSha": "99dac517a7758debe9005eec0b910109c7ce8d32",
+      "headSha": "e01629d78d437886c8779a3ddde430f4543c2a95",
+      "coverageComplete": true,
+      "findingCount": 0,
+      "summaryPurpose": "Avoid a second field-index lookup in resolve by reusing the index already computed for the same name. Returned values are meant to stay the same.",
+      "summaryCommitExplanation": "resolve now adds parent_offset to the relation_index it already fetched, instead of calling index_of(name) again. Because Fields.index_of reads an immutable map, both calls return the same value, so the result is unchanged.",
+      "selectedNotes": [
+        {
+          "entryId": "knowledge:project",
+          "version": 2,
+          "inclusion": "INCLUDED",
+          "applicability": "VERSION_MISMATCH",
+          "matchReasons": [
+            "Repository-wide scope",
+            "Source identity VERSION_MISMATCH: Recorded source or dependency input differs at the frozen reviewed head: git:resolver.py; recorded=100644 blob 20dd7dd99c6d2d9a22f7c4db0859c5ef93b5f53f; reviewed=100644 blob 87811979b4149c556d17acbc0ac5a15f5ba5718e. Effective dependency versions remain UNVERIFIED."
+          ]
+        }
+      ],
+      "bootstrapUtf8Bytes": 2568,
+      "deliveries": [
+        {
+          "packetDigest": "sha256:a9540c67fb826c973242d54225e3ccfd45888718be2851e416f1ee098a28fcfb",
+          "utf8Bytes": 2568,
+          "outcome": "CONFIRMED"
+        },
+        {
+          "packetDigest": "sha256:f68f09ed346fcc922861c818ba69e30c8f28549c3ac4d9a688924eec166f5646",
+          "utf8Bytes": 1396,
+          "outcome": "CONFIRMED"
+        }
+      ],
+      "dynamicSearchCount": 0,
+      "exactReadCount": 0,
+      "noteUsage": {
+        "selectedTasks": 1,
+        "providedTasks": 1,
+        "searchHits": 0,
+        "foundTasks": 0,
+        "openedTasks": 0,
+        "citedReviews": 0
+      },
+      "usageSummary": {
+        "eligibleDevelopmentTasks": 0,
+        "eligibleReviewRuns": 1,
+        "contextOffTasks": 0,
+        "tasksProvidedOrOpened": 1,
+        "activeNotesWithoutConfirmedDeliveryOrOpen": 0,
+        "scopesDemandedWhileMissing": 0,
+        "scopesStillMissingAfterDemand": 0,
+        "searchesWithNoMatchingScope": 0,
+        "searchesWithScopeButNoNote": 0
+      },
+      "provider": {
+        "completedTurns": 2,
+        "turnSpanSeconds": 30.97,
+        "inputTokens": 250436,
+        "cachedInputTokens": 226537,
+        "outputTokens": 2017,
+        "reportedCost": 0.248404,
+        "rateLimitWarnings": 2
+      }
+    }
+  },
+  "limitations": [
+    "One synthetic pair with no human adjudication; zero findings is consistent with the machine oracle but does not prove review quality.",
+    "The project-wide preparation fingerprint includes resolver.py; the On note is marked VERSION_MISMATCH even though its claim concerns unchanged window sources.",
+    "Confirmed packet delivery proves availability, not that the provider relied on the unrelated claim.",
+    "Both arms saw provider rate-limit warnings; elapsed time, tokens and cost are one-run observations.",
+    "The copied completed Learn task had no runtime resources in each arm; startup logged a build-coordinator warning, while both fresh reviews completed."
+  ]
+}

@@ -666,3 +666,19 @@ rate-limit warnings occurred. The [saved sample](../evaluation/repository-contex
 and [result](../evaluation/repository-context-warm-concurrent/result.json)
 retain turn, receipt, byte, source-read and storage measurements with those
 limits.
+
+## Irrelevant-note Off/On comparison
+
+An isolated safe resolver PR was reviewed in independent Claude conversations
+with repository context Off and On. Both were accepted with complete coverage
+and zero findings, consistent with the passing contract tests. The On arm
+received a user-edited, source-linked window note in two confirmed packets;
+the Off arm received none. Neither arm searched or opened that note later.
+The On note also carried `VERSION_MISMATCH` because its project preparation
+fingerprint included the changed resolver file, although the narrowed claim
+cited unchanged window sources. That warning may have helped the agent set the
+irrelevant note aside, so this is not a pure distraction test. The
+[saved comparison](../evaluation/repository-context-irrelevant-compare/README.md)
+and [result](../evaluation/repository-context-irrelevant-compare/result.json)
+retain identities, receipts and provider metrics. The machine oracle is
+verified, but a human has not approved the case or scored answer quality.

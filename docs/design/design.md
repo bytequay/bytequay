@@ -50,9 +50,9 @@ historical checkpoint evidence and explicitly deferred future work.
   Start with its overall flow; its [temporary checklist](repository-context-impl-tmp.md)
   tracks implementation and enablement gates.
 - [Repository Context agent discovery](repository-context-agent-discovery.md)
-  proposes the next read-only search and exact-note retrieval extension for
-  development tasks and active reviews, with a separate usage and coverage view.
-  It is not implemented yet.
+  defines the implemented read-only search and exact-note retrieval extension
+  for development tasks and active reviews, with a usage and coverage view.
+  Provider quality and performance acceptance remains open.
 - [CI Autofix Service](ci-autofix-service.md) specifies a user-started,
   bounded watch/fix/commit/push loop for pending or failing GitHub Actions checks. Review
   comment triage is intentionally outside that service and will be designed

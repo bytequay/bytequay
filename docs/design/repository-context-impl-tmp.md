@@ -37,10 +37,12 @@ note reads, separate discussion captures, source-to-conclusion navigation and
 durable preparation activity. Codex Learn, empty-notebook preparation, saved-note
 reuse and existing-card discussion have live integration evidence. Two small
 code changes now pass full Codex investigation/validation in four independent
-Off/cold-On arms. Human judgment acceptance, Claude and controlled performance
-remain pending. Agent-drafted lesson fields are implemented, and their focused
-backend/frontend verification passes. Unchecked acceptance items remain pending
-even when related infrastructure already exists.
+Off/cold-On arms. Human judgment and controlled performance remain pending.
+Later review searches and exact reads now appear in Review details with
+receipt-based delivery labels. Development turns with saved but unmatched notes
+receive a short search reminder. Agent-drafted lesson fields are implemented,
+and their focused backend/frontend checks pass. Unchecked acceptance items
+remain pending even when related infrastructure already exists.
 
 ## Delivery summary
 
@@ -60,7 +62,7 @@ even when related infrastructure already exists.
 | Automatic context delivery and investigation report integration | Implemented; frozen bootstrap/brief, exact-version deferred notes and separate replayable discussion capture |
 | Notebook/settings UI, Save lesson and context delivery display | Implemented; citations, retained retrievals, folded preparation outcomes, bytes/timing and receipt-derived delivery state |
 | Agent-drafted lesson fields | Implemented; backend, browser interaction, frontend and package gates passed; live provider acceptance remains open |
-| Development/review agent note discovery | Implemented; live Claude review packets and a separate Claude development search and exact read have confirmed receipts; Codex live acceptance is host-guard blocked |
+| Development/review agent note discovery | Implemented; later review searches/reads are visible and unmatched development turns receive a search reminder; Claude and Codex have confirmed development lookup receipts, and unprompted Codex opened an offered note; broader acceptance remains open |
 | Repository context usage and demand view | Implemented; task-detail cards and note-version usage recorded live offer, search and read delivery; controlled quality/performance acceptance remains open |
 | Reproducible small comparison fixtures | Implemented; two frozen code diffs and eight context proposals, with dependency-free behavior checks; human assessment pending |
 | False lesson, correction and future exclusion | Four live Codex lifecycle reviews passed source-based rejection, exact versions and immutable old snapshots |
@@ -95,8 +97,9 @@ does not change the H1–H3 implementation or complete their live acceptance gat
   preserve review receipt detail, exact versions and match reasons without exposing
   note bodies in the task card.
 - [ ] Run live Codex/Claude dynamic lookup and On/Off quality/performance checks.
-  Codex's dedicated CLI profile is ready; Claude's dedicated profile reported
-  signed out during this check, and no local ByteQuay backend was running.
+  Both lanes have confirmed live search and exact-read receipts, and fresh
+  Off/On comparisons have run. Human-adjudicated quality gain and controlled
+  performance remain unverified.
 - [x] Add idempotent usage facts from confirmed provider receipts and the
   Repository context Usage view. Show per-note versions, task types and
   missing-scope demand; separate prepared/uncertain from confirmed delivery,
@@ -104,12 +107,12 @@ does not change the H1–H3 implementation or complete their live acceptance gat
 - [ ] Evaluate optional per-task note feedback after usage counts are verified;
   do not infer help from retrieval or require an approval for every lesson.
 
-The discovery implementation passes backend `mvn verify` (including the local
-HTTP/process tests), frontend lint and TypeScript checks, 948 frontend tests,
-and desktop packaging. Electron browser fixtures and packaging required an
-unsandboxed run on this host. The new Usage view measures observed reach, not
-review correctness; the live provider and human comparison checks above remain
-open. The separate persistence refactor removed all three production
+The discovery implementation passes backend `mvn verify` (including 1,982 app
+tests and the local HTTP/process tests), frontend lint and TypeScript checks,
+950 frontend tests, and desktop packaging. Electron browser fixtures and
+packaging required an unsandboxed run on this host. The new Usage view measures
+observed reach, not review correctness; the live provider and human comparison
+checks above remain open. The separate persistence refactor removed all three production
 JDBC-template users. Usage reads and task cleanup use Spring Data repositories;
 the receipt upsert retains SQLite's atomic conflict rule in one repository query.
 Workspace cleanup retains its ordered SQLite-specific SQL through EntityManager.

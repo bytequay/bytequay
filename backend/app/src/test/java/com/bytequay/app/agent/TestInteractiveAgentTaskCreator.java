@@ -87,6 +87,7 @@ class TestInteractiveAgentTaskCreator
     private AgentTaskService tasks;
     private AgentTurnService turns;
     private AgentDriver driver;
+    private AgentDriverRegistry drivers;
     private ModelSettingsService models;
     private AppSettingsService settings;
     private WorkspaceRepositoryService workspaces;
@@ -103,7 +104,7 @@ class TestInteractiveAgentTaskCreator
         tasks = mock(AgentTaskService.class);
         turns = mock(AgentTurnService.class);
         driver = mock(AgentDriver.class);
-        AgentDriverRegistry drivers = mock(AgentDriverRegistry.class);
+        drivers = mock(AgentDriverRegistry.class);
         models = mock(ModelSettingsService.class);
         settings = mock(AppSettingsService.class);
         when(settings.developmentAutomation()).thenReturn(DevelopmentAutomation.DEFAULT);
@@ -258,6 +259,40 @@ class TestInteractiveAgentTaskCreator
     }
 
     @Test
+    void deepSeekCreationForcesLocalOnlyBeforeAllocatingAWorktree()
+    {
+        AgentLaneId lane = new AgentLaneId("deepseek-key-11111111-1111-1111-1111-111111111111");
+        when(drivers.require(lane)).thenReturn(driver);
+        Path repository = temporaryDirectory.resolve("repository");
+        when(workspaces.requireReadyRepository("workspace-1")).thenReturn(workspace(repository));
+        when(git.run(repository, "rev-parse", "--verify", "refs/remotes/origin/main^{commit}"))
+                .thenReturn(new GitCommandRunner.Result(0, START_COMMIT, false));
+
+        creator.create(TASK_ID, "workspace-1", "Task", lane, defaults(), "create-key",
+                Optional.empty(), Optional.of(DevelopmentAutomation.LOCAL_ONLY), Optional.empty(), Optional.empty());
+
+        ArgumentCaptor<CreateInteractiveAgentTaskCommand> command = ArgumentCaptor.forClass(CreateInteractiveAgentTaskCommand.class);
+        verify(tasks).createInteractive(command.capture());
+        assertThat(command.getValue().defaults().developmentAutomation()).contains(DevelopmentAutomation.LOCAL_ONLY);
+        verify(driver).probe(Optional.of("model-a"));
+        verify(settings, never()).developmentAutomation();
+        verifyNoInteractions(names);
+    }
+
+    @Test
+    void deepSeekRejectsAutomaticDeliveryBeforeRepositoryWork()
+    {
+        AgentLaneId lane = new AgentLaneId("deepseek-key-11111111-1111-1111-1111-111111111111");
+        assertThatThrownBy(() -> creator.create(TASK_ID, "workspace-1", "Task", lane, defaults(), "create-key",
+                Optional.empty(), Optional.of(DevelopmentAutomation.DEFAULT), Optional.empty(), Optional.empty()))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("automatic delivery");
+
+        verifyNoInteractions(provisioning, workspaces, git);
+        verify(tasks, never()).createInteractive(any());
+    }
+
+    @Test
     void readinessFailureDoesNotResolveWorkspaceOrGit()
     {
         when(driver.probe()).thenReturn(new AgentProviderStatus(
@@ -387,12 +422,14 @@ class TestInteractiveAgentTaskCreator
 
     private void ready()
     {
-        when(driver.probe()).thenReturn(new AgentProviderStatus(
+        AgentProviderStatus ready = new AgentProviderStatus(
                 AgentLaneId.CODEX_CLI,
                 AgentProviderStatus.Readiness.READY,
                 Optional.of("test"),
                 "ready",
-                AgentCapabilities.none()));
+                AgentCapabilities.none());
+        when(driver.probe()).thenReturn(ready);
+        when(driver.probe(any())).thenReturn(ready);
     }
 
     private AgentTask create(AgentTaskDefaults defaults)

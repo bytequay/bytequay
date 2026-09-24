@@ -15,7 +15,7 @@
 import React, { useEffect, useId, useRef, useState } from 'react';
 import { CircleCheck, CircleX } from 'lucide-react';
 import { Chevron } from '../Chevron';
-import { laneLabel, providerAvailable, providerRemedy, providerStatusLabel } from '../settings/model';
+import { isDeepSeekKeyLane, laneLabel, providerAvailable, providerRemedy, providerStatusLabel } from '../settings/model';
 import type { ModelProviderDto } from '../types';
 
 /** The row that receives focus when the popover opens: current when usable, else first usable. */
@@ -30,7 +30,7 @@ export function ProviderPicker({ providers, selectedId, onSelect, onOpenSettings
   providers: ModelProviderDto[];
   selectedId: string;
   onSelect: (laneId: string) => void;
-  onOpenSettings?: () => void;
+  onOpenSettings?: (laneId: string) => void;
 }): React.JSX.Element {
   const [open, setOpen] = useState(false);
   const triggerRef = useRef<HTMLButtonElement>(null);
@@ -94,7 +94,7 @@ export function ProviderPicker({ providers, selectedId, onSelect, onOpenSettings
           <div className="agt-picker__heading">Provider</div>
           {providers.map((provider) => {
             const available = providerAvailable(provider.readiness);
-            const status = providerStatusLabel(provider.readiness, false);
+            const status = providerStatusLabel(provider.readiness, false, provider.id);
             const StatusIcon = available ? CircleCheck : CircleX;
             const remedy = providerRemedy(provider.readiness, provider.id);
             return (
@@ -125,10 +125,10 @@ export function ProviderPicker({ providers, selectedId, onSelect, onOpenSettings
                         data-provider-focus="remedy"
                         onClick={() => {
                           close();
-                          onOpenSettings();
+                          onOpenSettings(provider.id);
                         }}
                       >
-                        Open settings
+                        Open {isDeepSeekKeyLane(provider.id) ? 'Models' : 'workspace'} settings
                       </button>
                     )}
                   </div>

@@ -23,7 +23,11 @@ public interface ModelApiKeyStore
 {
     List<ModelApiKey> findAll();
 
+    Optional<ModelApiKey> findById(String id);
+
     Optional<String> findSecret(String alias);
+
+    Optional<String> findSecretById(String id);
 
     /** Inserts a new key; the alias must not exist yet. */
     void save(ModelApiKey key, String secret);

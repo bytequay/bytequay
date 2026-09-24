@@ -15,11 +15,13 @@ package com.bytequay.persistence.sqlite.credential;
 
 import com.bytequay.core.domain.ModelApiKey;
 import com.bytequay.core.store.ModelApiKeyStore;
+import jakarta.annotation.PostConstruct;
 import org.springframework.stereotype.Repository;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.util.List;
 import java.util.Optional;
+import java.util.UUID;
 
 import static com.google.common.base.Preconditions.checkArgument;
 import static com.google.common.collect.ImmutableList.toImmutableList;
@@ -38,13 +40,31 @@ public class SqliteModelApiKeyStore
         this.cipher = requireNonNull(cipher, "cipher is null");
     }
 
+    @PostConstruct
+    void assignMissingIds()
+    {
+        for (ModelApiKeyEntity entity : jpaRepository.findAll()) {
+            if (entity.getKeyId() == null) {
+                entity.setKeyId(UUID.randomUUID().toString());
+                jpaRepository.save(entity);
+            }
+        }
+    }
+
     @Override
     @Transactional(readOnly = true)
     public List<ModelApiKey> findAll()
     {
         return jpaRepository.findAllByOrderByCreatedAtAsc().stream()
-                .map(entity -> new ModelApiKey(entity.getAlias(), entity.getProvider(), entity.getMaskedHint(), entity.getCreatedAt()))
+                .map(SqliteModelApiKeyStore::toModelApiKey)
                 .collect(toImmutableList());
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public Optional<ModelApiKey> findById(String id)
+    {
+        return jpaRepository.findByKeyId(id).map(SqliteModelApiKeyStore::toModelApiKey);
     }
 
     @Override
@@ -56,6 +76,14 @@ public class SqliteModelApiKeyStore
     }
 
     @Override
+    @Transactional(readOnly = true)
+    public Optional<String> findSecretById(String id)
+    {
+        return jpaRepository.findByKeyId(id)
+                .map(entity -> cipher.decrypt(entity.getCiphertext()));
+    }
+
+    @Override
     @Transactional
     public void save(ModelApiKey key, String secret)
     {
@@ -63,8 +91,9 @@ public class SqliteModelApiKeyStore
         String trimmed = requireNonNull(secret, "secret is null").trim();
         checkArgument(!trimmed.isEmpty(), "secret must not be blank");
         checkArgument(!jpaRepository.existsById(key.alias()), "alias already exists");
+        checkArgument(jpaRepository.findByKeyId(key.id()).isEmpty(), "key ID already exists");
         jpaRepository.save(new ModelApiKeyEntity(
-                key.alias(), key.provider(), cipher.encrypt(trimmed), key.maskedHint(), key.createdAt()));
+                key.id(), key.alias(), key.provider(), cipher.encrypt(trimmed), key.maskedHint(), key.createdAt()));
     }
 
     @Override
@@ -72,5 +101,10 @@ public class SqliteModelApiKeyStore
     public void delete(String alias)
     {
         jpaRepository.deleteById(alias);
+    }
+
+    private static ModelApiKey toModelApiKey(ModelApiKeyEntity entity)
+    {
+        return new ModelApiKey(entity.getKeyId(), entity.getAlias(), entity.getProvider(), entity.getMaskedHint(), entity.getCreatedAt());
     }
 }

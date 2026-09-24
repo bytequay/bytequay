@@ -16,7 +16,7 @@ import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { describe, expect, it } from 'vitest';
-import { AgentTaskList, creationBlocker, groupTasksByDay } from './AgentTasksView';
+import { AgentTaskList, creationBlocker, groupTasksByDay, taskCreationCatalog } from './AgentTasksView';
 import type { TaskDiscussions } from './discussions/useTaskDiscussions';
 import { AgentTaskBody, providerStatusFromUnavailable, type AttachmentPreview } from './AgentTaskScreen';
 import fixture from './fixtures/agent-events-v2.json';
@@ -416,6 +416,29 @@ describe('agent task list', () => {
     // A catalog that has not arrived yet is loading, not an unchecked provider.
     expect(creationBlocker(null, 'codex', null)).toBeNull();
     expect(creationBlocker(readyCatalog(MODELS), 'codex', { model: 'gpt-5.6-codex', effort: 'high' })).toBeNull();
+  });
+
+  it('uses a saved-key remedy when a DeepSeek key is invalid or removed', () => {
+    const laneId = 'deepseek-key-123';
+    const catalog: ModelSettingsDto = {
+      ...readyCatalog(MODELS),
+      providers: [{ ...readyCatalog(MODELS).providers[0], id: laneId, label: 'DeepSeek · personal', readiness: 'AUTHENTICATION_REQUIRED',
+        diagnostic: 'DeepSeek rejected this API key' }],
+    };
+    const blocked = creationBlocker(catalog, laneId, { model: 'deepseek-flash', effort: null });
+    expect(blocked).toContain('Check the DeepSeek key');
+    expect(blocked).toContain('DeepSeek rejected this API key');
+    expect(blocked).not.toContain('codex login');
+    expect(creationBlocker({ ...catalog, providers: [] }, laneId, null)).toContain('DeepSeek key removed');
+  });
+
+  it('offers DeepSeek to manual tasks but keeps issue-sourced starts on CLI lanes', () => {
+    const codex = readyCatalog(MODELS).providers[0];
+    const deepSeek = { ...codex, id: 'deepseek-key-123', label: 'DeepSeek · personal' };
+    const catalog = { ...readyCatalog(MODELS), providers: [codex, deepSeek] };
+
+    expect(taskCreationCatalog(catalog, null).providers.map(provider => provider.id)).toEqual(['codex', deepSeek.id]);
+    expect(taskCreationCatalog(catalog, 42).providers.map(provider => provider.id)).toEqual(['codex']);
   });
 
   it('shows loading, empty and error states rather than an unexplained blank list', () => {
@@ -1148,6 +1171,35 @@ describe('agent task detail', () => {
     const uncertain = renderAuth(true, { ...authTurn, delivered: false, knownUnsent: false });
     expect(uncertain).toContain('delivery may be uncertain');
     expect(uncertain).not.toContain('Retry last message…');
+  });
+
+  it('keeps a removed DeepSeek key task readable and blocks another turn', () => {
+    const oldTask = { ...task('t-1', 'OPEN', 'Saved work'), laneId: 'deepseek-key-old' };
+    const markup = renderToStaticMarkup(<AgentTaskBody
+      state={{ ...initialAgentTaskState(), task: oldTask, events, connection: 'open', capabilities: NO_AGENT_CAPABILITIES }}
+      models={[]} provider="DeepSeek" keyRemoved onOpenSettings={() => {}} {...TASK_BODY_NOOPS} />);
+
+    expect(markup).toContain('DeepSeek key removed');
+    expect(markup).toContain('Its transcript and checkout remain available');
+    expect(markup).toContain('Open Models settings');
+    expect(markup).toContain('Review the authentication change');
+    expect(markup).not.toContain('Codex sign-in');
+    expect(markup).not.toContain('aria-label="Send message"');
+  });
+
+  it('shows a key remedy for an invalid DeepSeek key without offering CLI sign-in', () => {
+    const invalid = providerStatus('AUTHENTICATION_REQUIRED', {
+      laneId: 'deepseek-key-123', diagnostic: 'DeepSeek rejected this API key', signInCommand: null,
+    });
+    const markup = renderToStaticMarkup(<AgentTaskBody
+      state={{ ...initialAgentTaskState(), task: { ...task('t-1', 'OPEN', 'Key issue'), laneId: invalid.laneId }, connection: 'open', capabilities: NO_AGENT_CAPABILITIES }}
+      models={[]} provider="DeepSeek · personal" providerStatus={invalid} onOpenSettings={() => {}} {...TASK_BODY_NOOPS} />);
+
+    expect(markup).toContain('DeepSeek key needs attention');
+    expect(markup).toContain('Open Models settings');
+    expect(markup).toContain('DeepSeek rejected this API key');
+    expect(markup).not.toContain('>Sign in<');
+    expect(markup).not.toContain('codex login');
   });
 
   it('offers sign-in only where a lane is unauthenticated and a terminal can be opened', () => {

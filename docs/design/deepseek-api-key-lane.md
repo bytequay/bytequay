@@ -1,9 +1,9 @@
 # DeepSeek API-key task lane
 
 This approved design extends the current [Agent Service](agent-service.md)
-with a DeepSeek key chosen for one agent task. It is not implemented; the
-current Codex and Claude lanes remain the shipped behavior. Fold these rules
-into the canonical Agent Service design before changing the service.
+with a DeepSeek key chosen for one agent task. The implementation has passed
+offline verification; its opt-in live-key gate remains open. The current
+Codex and Claude lanes remain the released behavior.
 
 ## Scope
 
@@ -67,25 +67,46 @@ DeepSeek's setup script.
 | Configuration | DeepSeek lane value |
 | --- | --- |
 | Model provider | deepseek |
-| Base URL | https://api.deepseek.com/ |
+| Codex base URL | Task-scoped ByteQuay proxy on 127.0.0.1 |
+| Proxy upstream | https://api.deepseek.com/ |
 | Wire API | responses |
-| Credential source | env_key pointing to DEEPSEEK_API_KEY |
+| Credential source | Saved key held by ByteQuay's proxy, outside the Codex process |
 | Model catalog | ByteQuay-owned catalog for deepseek-flash and deepseek-v4-pro |
 | Web search | disabled |
 | Child agents | disabled for the first release |
+| Tool filesystem | Named Codex profile: workspace write, minimal runtime reads, broad home reads and ByteQuay app data denied |
 
 Read the selected secret immediately before launching each App Server process.
-Pass it only in that process's environment, never in arguments or a config
-file. The model-facing shell environment excludes DEEPSEEK_API_KEY; provider
-output, errors, and logs use the existing secret redactor. The isolation guard
-must verify the effective provider, endpoint, catalog, web setting, shell
-allowlist, and other current launch restrictions before a thread starts.
+Hold it only in a small task-scoped loopback Responses proxy. The proxy adds
+the saved key to requests sent to DeepSeek and accepts only the Responses
+requests that the Codex compatibility fixture proves necessary. Close it with
+the App Server session. Codex receives a local provider URL; it never receives
+the DeepSeek key in its environment, arguments, or config file.
+An already running session may finish after its saved key is removed, while
+the next turn fails admission. Provider output, errors, and logs use the
+existing secret redactor. The isolation guard must verify the effective
+provider, local endpoint, catalog, web setting, shell allowlist, and other
+current launch restrictions before a thread starts.
+
+The DeepSeek tool profile uses Codex's named permissions: it denies filesystem
+reads by default, allows the minimal system paths needed to run tools, and
+allows worktree writes. It leaves shell networking disabled. App Server thread
+and turn requests select this profile without a legacy sandbox override.
+This keeps ByteQuay's SQLite data and credential master key outside the
+model-facing shell's readable paths. The fixture must prove the effective
+profile and a failed read of a fake ByteQuay credential file while a worktree
+edit still succeeds. An approved command also remains unable to read that
+file; the native fixture checks this before the lane is available.
+
+The offline Codex 0.156.1 fixture found that a model-requested native
+`exec_command` inherited a key from the App Server environment even when
+`config/read` showed the shell allowlist. The proxy keeps the saved key out of
+that process boundary. This follows OpenAI's guidance to
+[keep long-lived credentials outside self-hosted agent environments](https://developers.openai.com/api/docs/guides/agents-api/environments/security).
 
 DeepSeek's [Codex integration](https://api-docs.deepseek.com/quick_start/agent_integrations/codex/)
 documents the Responses provider and model catalog. ByteQuay will generate
-its own minimal strict profile, using Codex's documented
-[env_key setting](https://learn.chatgpt.com/docs/config-file/config-reference)
-instead of storing a bearer token in configuration.
+its own minimal strict profile and point its provider at the task proxy.
 
 ## Models, readiness, and ordinary failures
 
@@ -141,23 +162,25 @@ The change is confined to the current modules:
    behavior. Keep the existing immutable task lane and worktree admission
    flow.
 3. **agent-cli:** parameterize the Codex driver and launch profile for the
-   DeepSeek lane; update model catalog loading, isolation verification,
-   redaction, and per-key runtime cleanup. The installed Codex binary is
-   version-checked and upgraded once, not once per saved key.
+   DeepSeek lane; add the task-scoped Responses proxy, and update model catalog
+   loading, isolation verification, redaction, and per-key runtime cleanup.
+   The installed Codex binary is version-checked and upgraded once, not once
+   per saved key.
 4. **frontend:** show DeepSeek key lanes in the existing picker and render
    invalid or removed-key recovery without losing historical tasks.
 
 Offline tests cover lane binding, removal, readiness errors, strict App Server
-configuration, secret exclusion from model-facing tools, event filtering, and
-resume against the same lane. An opt-in real-key gate must complete a local
-edit, approval, second turn, cancellation, and an attempted network write
-that cannot proceed without direct user approval. Run backend mvn verify and
-the frontend lint, typecheck, test, and package gates for the implementation.
+configuration, proxy forwarding and closure, the worktree-only tool read
+boundary, secret exclusion from the Codex process and model-facing tools,
+event filtering, and resume against the same lane. An opt-in real-key gate
+must complete a local edit, approval, second turn, cancellation, and an
+attempted network write that cannot proceed without direct user approval.
+Run backend mvn verify and the frontend lint, typecheck, test, and package
+gates for the implementation.
 
 ## Later key lanes
 
-OpenAI keys can reuse the saved-key identity and task picker, then sign the
-task's Codex App Server in with an ephemeral API-key login. Anthropic keys can
-reuse that identity and picker with the existing Claude CLI driver and a
-task-scoped ANTHROPIC_API_KEY environment. Neither provider is part of this
-DeepSeek-first implementation.
+OpenAI and Anthropic keys can reuse the saved-key identity and task picker.
+Their runtime credential boundary and compatibility gate need separate design
+and verification so no long-lived key reaches a model-facing shell. Neither
+provider is part of this DeepSeek-first implementation.

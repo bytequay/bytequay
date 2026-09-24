@@ -35,6 +35,7 @@ final class CodexEventMapper
 {
     private final Path worktree;
     private final SecretRedactor redactor;
+    private final boolean exposeReasoningSummaries;
 
     CodexEventMapper()
     {
@@ -43,8 +44,14 @@ final class CodexEventMapper
 
     CodexEventMapper(Path worktree, SecretRedactor redactor)
     {
+        this(worktree, redactor, true);
+    }
+
+    CodexEventMapper(Path worktree, SecretRedactor redactor, boolean exposeReasoningSummaries)
+    {
         this.worktree = requireNonNull(worktree, "worktree is null").toAbsolutePath().normalize();
         this.redactor = requireNonNull(redactor, "redactor is null");
+        this.exposeReasoningSummaries = exposeReasoningSummaries;
     }
 
     /**
@@ -298,7 +305,7 @@ final class CodexEventMapper
             case CodexProtocol.ReasoningItem reasoning -> {
                 // Only the readable summary is mapped; the hidden reasoning text was never decoded.
                 List<String> summary = reasoning.summary().orElse(ImmutableList.of());
-                yield started || summary.isEmpty()
+                yield !exposeReasoningSummaries || started || summary.isEmpty()
                         ? ImmutableList.of()
                         : ImmutableList.of(new ProviderAgentEvent.Message(
                                 Optional.of(eventId),

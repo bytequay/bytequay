@@ -67,6 +67,12 @@ public interface AgentDriver
      */
     AgentProviderStatus probe();
 
+    /** Checks readiness for a task's selected model when the provider can verify it. */
+    default AgentProviderStatus probe(Optional<String> model)
+    {
+        return probe();
+    }
+
     /**
      * Enumerates the models this provider currently offers, when the provider
      * can report them. Drivers without a native catalog surface return an

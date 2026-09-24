@@ -35,8 +35,12 @@ export const INTERACTIVE_LANE_ID = 'codex';
 
 const LANE_LABELS: Record<string, string> = { codex: 'Codex', claude: 'Claude' };
 
+export function isDeepSeekKeyLane(laneId: string): boolean {
+  return laneId.startsWith('deepseek-key-');
+}
+
 export function laneLabel(laneId: string): string {
-  return LANE_LABELS[laneId] ?? laneId;
+  return isDeepSeekKeyLane(laneId) ? 'DeepSeek' : LANE_LABELS[laneId] ?? laneId;
 }
 
 /**
@@ -104,13 +108,21 @@ export function laneModels(providers: ModelProviderDto[] | null, laneId: string)
 }
 
 export function providerRemedy(readiness: AgentProviderReadiness, laneId = INTERACTIVE_LANE_ID): ProviderRemedy {
+  if (isDeepSeekKeyLane(laneId) && readiness === 'AUTHENTICATION_REQUIRED') {
+    return {
+      kind: 'retry',
+      title: 'Check the DeepSeek key',
+      detail: 'Review the saved key in Models settings, then check again.',
+      command: null,
+    };
+  }
   switch (readiness) {
     case 'CLI_MISSING':
       return {
         kind: 'install',
-        title: 'Install the CLI',
+        title: isDeepSeekKeyLane(laneId) ? 'Install Codex CLI' : 'Install the CLI',
         detail: 'ByteQuay runs the CLI you already manage; it does not install one for you.',
-        command: INSTALL_COMMANDS[laneId] ?? null,
+        command: isDeepSeekKeyLane(laneId) ? INSTALL_COMMANDS.codex : INSTALL_COMMANDS[laneId] ?? null,
       };
     case 'AUTHENTICATION_REQUIRED':
       return {
@@ -151,13 +163,13 @@ export function remedyCommand(
 }
 
 /** Maps backend provider readiness to the settings badge; checking wins over any probe result. */
-export function providerStatusLabel(readiness: AgentProviderReadiness, checking: boolean): ProviderStatusTone {
+export function providerStatusLabel(readiness: AgentProviderReadiness, checking: boolean, laneId = ''): ProviderStatusTone {
   if (checking) return { label: 'Checking…', tone: 'is-neutral' };
   switch (readiness) {
     case 'READY':
       return { label: 'Ready', tone: 'is-ok' };
     case 'AUTHENTICATION_REQUIRED':
-      return { label: 'Sign in required', tone: 'is-danger' };
+      return { label: isDeepSeekKeyLane(laneId) ? 'Key needs attention' : 'Sign in required', tone: 'is-danger' };
     case 'CLI_MISSING':
       return { label: 'Not installed', tone: 'is-neutral' };
     case 'UNSUPPORTED':

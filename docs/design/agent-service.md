@@ -11,16 +11,17 @@ task, turn, worktree, event, approval, and cleanup services:
   lane. A task keeps its lane across turns; deleting and re-adding an alias
   cannot move an old task to a different key.
 - The existing Codex App Server adapter will use a DeepSeek Responses provider,
-  an isolated ByteQuay-owned home, an environment-supplied key, and a curated
-  model catalog. Readiness checks the saved key through DeepSeek rather than
-  Codex login status.
+  an isolated ByteQuay-owned home, a task-scoped loopback credential proxy,
+  and a curated model catalog. The saved key stays outside the Codex process.
+  Readiness checks it through DeepSeek rather than Codex login status.
 - The first release will admit manually started, attended worktree tasks only.
   Their development automation is local-only, including later and queued
   turns. Development/Review defaults, PR assignment, CI Autofix, automatic
   delivery, web search, images, CodeGraph, and subagents stay outside it.
 - DeepSeek command escalation will use the user reviewer under the existing
-  sandbox, with shell networking disabled. This narrower provider profile
-  responds to DeepSeek's instruction-role behavior, not API-key authentication.
+  restricted filesystem profile, with shell networking disabled. This
+  narrower provider profile responds to DeepSeek's instruction-role behavior,
+  not API-key authentication.
   No GitHub write is authorized without a direct user action.
 
 The linked design owns the detailed user flow, key lifecycle, launch profile,

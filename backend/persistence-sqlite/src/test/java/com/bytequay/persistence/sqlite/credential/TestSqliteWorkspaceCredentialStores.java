@@ -15,6 +15,7 @@ package com.bytequay.persistence.sqlite.credential;
 
 import com.bytequay.core.domain.ModelApiKey;
 import com.bytequay.persistence.sqlite.config.SqlitePersistenceConfiguration;
+import jakarta.persistence.EntityManager;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.jdbc.AutoConfigureTestDatabase;
@@ -49,6 +50,15 @@ class TestSqliteWorkspaceCredentialStores
     private SqliteCredentialStore credentials;
 
     @Autowired
+    private ModelApiKeyJpaRepository apiKeyRows;
+
+    @Autowired
+    private CredentialCipher cipher;
+
+    @Autowired
+    private EntityManager entityManager;
+
+    @Autowired
     private WorkspaceCredentialJpaRepository workspaceCredentialRows;
 
     @DynamicPropertySource
@@ -81,17 +91,46 @@ class TestSqliteWorkspaceCredentialStores
     void apiKeysListWithoutSecretsAndRejectDuplicates()
     {
         Instant createdAt = Instant.parse("2026-08-23T10:00:00Z");
-        apiKeys.save(new ModelApiKey("personal-deepseek", "DeepSeek", "sk-se••••••cret", createdAt), "sk-secret");
+        ModelApiKey key = new ModelApiKey("personal-deepseek", "DeepSeek", "sk-se••••••cret", createdAt);
+        apiKeys.save(key, "sk-secret");
 
-        assertThat(apiKeys.findAll())
-                .containsExactly(new ModelApiKey("personal-deepseek", "DeepSeek", "sk-se••••••cret", createdAt));
+        assertThat(apiKeys.findAll()).containsExactly(key);
+        assertThat(apiKeys.findById(key.id())).contains(key);
         assertThat(apiKeys.findSecret("personal-deepseek")).contains("sk-secret");
+        assertThat(apiKeys.findSecretById(key.id())).contains("sk-secret");
         assertThatThrownBy(() -> apiKeys.save(
                 new ModelApiKey("personal-deepseek", "DeepSeek", "sk-ot••••••ther", createdAt), "sk-other"))
                 .isInstanceOf(IllegalArgumentException.class);
 
         apiKeys.delete("personal-deepseek");
         assertThat(apiKeys.findAll()).isEmpty();
+        assertThat(apiKeys.findById(key.id())).isEmpty();
+        assertThat(apiKeys.findSecretById(key.id())).isEmpty();
+
+        ModelApiKey replacement = new ModelApiKey("personal-deepseek", "DeepSeek", "sk-ot••••••ther", createdAt);
+        apiKeys.save(replacement, "sk-other");
+        assertThat(replacement.id()).isNotEqualTo(key.id());
+        assertThat(apiKeys.findSecretById(key.id())).isEmpty();
+        assertThat(apiKeys.findSecretById(replacement.id())).contains("sk-other");
+    }
+
+    @Test
+    void existingApiKeyReceivesPermanentId()
+    {
+        apiKeyRows.save(new ModelApiKeyEntity(null, "legacy-deepseek", "DeepSeek", cipher.encrypt("sk-legacy"), "sk-le••••••gacy",
+                Instant.parse("2026-08-23T10:00:00Z")));
+
+        apiKeys.assignMissingIds();
+        String id = apiKeys.findAll().stream()
+                .filter(key -> key.alias().equals("legacy-deepseek"))
+                .findFirst().orElseThrow().id();
+        apiKeyRows.flush();
+        entityManager.clear();
+
+        assertThat(apiKeyRows.findById("legacy-deepseek").orElseThrow().getKeyId()).isEqualTo(id);
+        assertThat(apiKeys.findSecretById(id)).contains("sk-legacy");
+        apiKeys.assignMissingIds();
+        assertThat(apiKeys.findById(id)).isPresent();
     }
 
     @Test

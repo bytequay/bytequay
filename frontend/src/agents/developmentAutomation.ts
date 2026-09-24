@@ -18,13 +18,17 @@ export const DEFAULT_DEVELOPMENT_AUTOMATION: DevelopmentAutomationDto = {
   autoDraftPr: true, autoCiFix: true, ciLaneId: null,
 };
 
+export const NO_AUTOMATIC_DELIVERY: DevelopmentAutomationDto = {
+  autoDraftPr: false, autoCiFix: false, ciLaneId: null,
+};
+
 export const AUTOMATION_OPTIONS = [
   { key: 'autoDraftPr', title: 'Auto draft PR', description: 'Push commits and create or update this task’s PR.' },
   { key: 'autoCiFix', title: 'Auto CI fix', description: 'Repair code or PR-description checks, rerun CI, and mark the draft ready when checks pass.' },
 ] as const;
 
 export function automationForSubmission(settings: DevelopmentAutomationDto, localOnly: boolean): DevelopmentAutomationDto {
-  return localOnly ? { ...settings, autoDraftPr: false, autoCiFix: false } : settings;
+  return localOnly ? NO_AUTOMATIC_DELIVERY : settings;
 }
 
 export function automationSummary(settings: DevelopmentAutomationDto): string {

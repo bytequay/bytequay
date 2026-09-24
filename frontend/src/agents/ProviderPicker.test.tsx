@@ -40,6 +40,8 @@ describe('provider picker accessibility', () => {
     expect(providerFocusTarget(providers, 'codex')).toBe('codex');
     expect(providerFocusTarget(providers, 'claude')).toBe('codex');
     expect(providerFocusTarget([provider('claude', 'CLI_MISSING')], 'claude')).toBeNull();
+    expect(providerFocusTarget([...providers, { ...provider('deepseek-key-123', 'READY'), label: 'DeepSeek · personal' }], 'deepseek-key-123'))
+      .toBe('deepseek-key-123');
   });
 
   it('exposes a named popup trigger and implements keyboard open and focus-restoring Escape', () => {

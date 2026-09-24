@@ -420,6 +420,62 @@ class TestDefaultAgentTurnService
     }
 
     @Test
+    void deepSeekTurnsRejectDeliveryOverridesAndKeepQueuedWorkLocalOnly()
+    {
+        AgentLaneId lane = new AgentLaneId("deepseek-key-11111111-1111-1111-1111-111111111111");
+        driver = new DeterministicAgentDriver(lane);
+        taskService = new DefaultAgentTaskService(
+                stores, worktrees, resources, new StaticAgentDriverRegistry(ImmutableList.of(driver)),
+                codeGraph, () -> codeGraphEnabled, Runnable::run, CLOCK);
+        service = service(driver, runtimeRegistry);
+        TaskId taskId = TaskId.random();
+        AgentTask deepSeek = taskService.createInteractive(new CreateInteractiveAgentTaskCommand(
+                taskId, "workspace-a", lane, new RepositoryIdentity("bytequay", "bytequay"),
+                "0123456789012345678901234567890123456789",
+                TaskBranches.generate(taskId, "user", "DeepSeek task"), "DeepSeek task",
+                new AgentTaskDefaults(Optional.of("deepseek-flash"), Optional.of("high"), AgentPermissionPolicy.AUTO)
+                        .withDevelopmentAutomation(DevelopmentAutomation.DEFAULT),
+                "deepseek-fingerprint", Optional.empty()));
+
+        assertThat(service.effectiveSettings(deepSeek.id()).developmentAutomation()).contains(DevelopmentAutomation.LOCAL_ONLY);
+        assertThatThrownBy(() -> service.start(new StartAgentTurnCommand(
+                deepSeek.id(), "invalid", ImmutableList.of(), "invalid-automation")
+                .withDevelopmentAutomation(Optional.of(DevelopmentAutomation.DEFAULT))))
+                .isInstanceOf(InvalidAgentRequestException.class).hasMessageContaining("automatic delivery");
+
+        AgentTurn first = service.start(new StartAgentTurnCommand(
+                deepSeek.id(), "first", ImmutableList.of(), "deepseek-first"));
+        assertThat(first.settings().orElseThrow().developmentAutomation()).contains(DevelopmentAutomation.LOCAL_ONLY);
+        assertThat(driver.openedContexts().getLast().managedInstructions())
+                .contains("DeepSeek local task", "A local commit requires a direct user request")
+                .doesNotContain("Private local review");
+        long version = taskService.get(deepSeek.id()).version();
+        assertThatThrownBy(() -> service.enqueue(new QueueAgentInputCommand(
+                deepSeek.id(), version, "invalid queued", ImmutableList.of(), "invalid-queue",
+                Optional.of(DevelopmentAutomation.DEFAULT))))
+                .isInstanceOf(InvalidAgentRequestException.class).hasMessageContaining("automatic delivery");
+        QueuedAgentInput queued = service.enqueue(new QueueAgentInputCommand(
+                deepSeek.id(), version, "queued", ImmutableList.of(), "deepseek-queue"));
+        assertThat(queued.settings().developmentAutomation()).contains(DevelopmentAutomation.LOCAL_ONLY);
+
+        AgentTask current = taskService.get(deepSeek.id());
+        taskService.updateDefaults(new UpdateAgentTaskDefaultsCommand(
+                deepSeek.id(), current.version(),
+                new AgentTaskDefaults(Optional.of("deepseek-v4-pro"), current.defaults().effort(),
+                        current.defaults().permissionPolicy(), current.defaults().serviceTier(),
+                        current.defaults().developmentAutomation())));
+        driver.unsupportedModel(Optional.of("deepseek-flash"));
+        driver.complete("first done");
+        assertThat(stores.find(queued.id()).orElseThrow().state()).isEqualTo(QueuedAgentInput.State.PAUSED);
+        assertThat(stores.findActive(deepSeek.id())).isEmpty();
+        assertThatThrownBy(() -> service.resumeQueued(deepSeek.id()))
+                .isInstanceOf(AgentProviderUnavailableException.class).hasMessageContaining("model unavailable");
+        driver.unsupportedModel(Optional.empty());
+        AgentTurn resumed = service.resumeQueued(deepSeek.id());
+        assertThat(resumed.settings().orElseThrow().model()).contains("deepseek-flash");
+    }
+
+    @Test
     void workflowTurnsCannotAcquireAnInteractiveAutomationOverride()
     {
         assertThatThrownBy(() -> service.start(command("first", "workflow-automation")

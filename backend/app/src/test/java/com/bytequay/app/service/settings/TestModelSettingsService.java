@@ -55,6 +55,7 @@ class TestModelSettingsService
     private AgentDriverRegistry drivers;
     private AgentDriver codexDriver;
     private InMemoryAppSettingsStore settingsStore;
+    private InMemoryModelApiKeyStore apiKeys;
     private ModelSettingsService service;
 
     @BeforeEach
@@ -84,9 +85,10 @@ class TestModelSettingsService
                         Optional.of("medium"), false)));
         when(drivers.require(CODEX)).thenReturn(codexDriver);
         settingsStore = new InMemoryAppSettingsStore();
+        apiKeys = new InMemoryModelApiKeyStore();
         service = new ModelSettingsService(
                 drivers,
-                new InMemoryModelApiKeyStore(),
+                apiKeys,
                 settingsStore,
                 new ObjectMapper(),
                 Clock.fixed(Instant.parse("2026-08-23T10:00:00Z"), ZoneOffset.UTC));
@@ -180,22 +182,34 @@ class TestModelSettingsService
     }
 
     @Test
-    void anApiKeyIsListedButCannotBeAnAgentTypesModel()
+    void aDeepSeekKeyHasACuratedTaskCatalogButCannotBeAnAgentDefault()
     {
         service.addApiKey("DeepSeek", "personal-deepseek", "sk-4fabcdefghijklmnope2a1");
         ModelSettings settings = service.get();
         var key = settings.apiKeys().getFirst();
         assertThat(key.maskedKey()).doesNotContain("abcdefgh").contains("••••");
-        assertThat(key.selectedModel()).isEqualTo("deepseek-chat");
+        assertThat(key.selectedModel()).isEqualTo("deepseek-flash");
+        AgentLaneId lane = new AgentLaneId("deepseek-key-" + apiKeys.findAll().getFirst().id());
+        when(drivers.statuses()).thenReturn(ImmutableList.of(
+                new AgentProviderStatus(lane, Readiness.READY, Optional.of("0.156.1"), "ready", AgentCapabilities.none()),
+                new AgentProviderStatus(new AgentLaneId("claude"), Readiness.READY, Optional.of("2.1.4"), "ready", AgentCapabilities.none())));
+        AgentDriver deepSeek = mock(AgentDriver.class);
+        when(deepSeek.label()).thenReturn("DeepSeek · personal-deepseek");
+        when(drivers.require(lane)).thenReturn(deepSeek);
 
-        // No agent driver can run a turn against a raw API key, so the value is refused rather
-        // than stored and left to throw later when a review starts.
+        var provider = service.get().providers().getFirst();
+        assertThat(provider.models()).extracting(ModelOption::id)
+                .containsExactly("deepseek-flash", "deepseek-v4-pro");
+        assertThat(provider.selectedModel()).isEqualTo("deepseek-flash");
+        service.validateSelection(lane.value(), "deepseek-v4-pro", Optional.of("high"), Optional.empty());
+        assertThat(service.agentModel(AgentModelType.DEVELOPMENT).configId()).isEqualTo("claude");
+
         assertThatThrownBy(() -> service.setAgentModel(
-                AgentModelType.DEVELOPMENT, "key:personal-deepseek", "deepseek-chat", Optional.empty()))
+                AgentModelType.DEVELOPMENT, lane.value(), "deepseek-flash", Optional.empty()))
                 .isInstanceOf(IllegalArgumentException.class)
-                .hasMessageContaining("cannot run agent tasks");
+                .hasMessageContaining("CLI provider");
         assertThatThrownBy(() -> service.setWorkspaceOverride(
-                "ws-1", AgentModelType.REVIEW, "key:personal-deepseek", "deepseek-chat", Optional.empty()))
+                "ws-1", AgentModelType.REVIEW, "key:personal-deepseek", "deepseek-flash", Optional.empty()))
                 .isInstanceOf(IllegalArgumentException.class);
     }
 
@@ -439,10 +453,27 @@ class TestModelSettingsService
         }
 
         @Override
+        public Optional<ModelApiKey> findById(String id)
+        {
+            return keys.stream().filter(key -> key.id().equals(id)).findFirst();
+        }
+
+        @Override
         public Optional<String> findSecret(String alias)
         {
             for (int i = 0; i < keys.size(); i++) {
                 if (keys.get(i).alias().equals(alias)) {
+                    return Optional.of(secrets.get(i));
+                }
+            }
+            return Optional.empty();
+        }
+
+        @Override
+        public Optional<String> findSecretById(String id)
+        {
+            for (int i = 0; i < keys.size(); i++) {
+                if (keys.get(i).id().equals(id)) {
                     return Optional.of(secrets.get(i));
                 }
             }

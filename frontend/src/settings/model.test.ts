@@ -12,7 +12,7 @@
  * limitations under the License.
  */
 import { describe, expect, it } from 'vitest';
-import { MINUTE_OPTIONS, formatMinuteOfDay, providerAvailable, providerRemedy, providerStatusLabel } from './model';
+import { MINUTE_OPTIONS, formatMinuteOfDay, isDeepSeekKeyLane, laneLabel, providerAvailable, providerRemedy, providerStatusLabel } from './model';
 
 describe('settings model helpers', () => {
   it('formats minutes of day as 12-hour times', () => {
@@ -62,5 +62,14 @@ describe('provider remedies', () => {
     for (const readiness of ['READY', 'DEGRADED', 'TEMPORARILY_UNAVAILABLE'] as const) {
       expect(providerRemedy(readiness).kind).toBe('retry');
     }
+  });
+
+  it('routes DeepSeek key errors to Models settings without a CLI sign-in command', () => {
+    expect(isDeepSeekKeyLane('deepseek-key-123')).toBe(true);
+    expect(laneLabel('deepseek-key-123')).toBe('DeepSeek');
+    expect(providerStatusLabel('AUTHENTICATION_REQUIRED', false, 'deepseek-key-123').label).toBe('Key needs attention');
+    expect(providerRemedy('AUTHENTICATION_REQUIRED', 'deepseek-key-123')).toMatchObject({
+      title: 'Check the DeepSeek key', command: null,
+    });
   });
 });

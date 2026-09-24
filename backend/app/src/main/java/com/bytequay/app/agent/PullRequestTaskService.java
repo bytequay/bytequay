@@ -132,11 +132,13 @@ public class PullRequestTaskService
             Optional<AgentTask> existing = find(workspaceId, repository, number);
             if (existing.isPresent()) {
                 AgentTask task = existing.orElseThrow();
+                requireAssignableLane(task.laneId());
                 assignments.findByTaskId(task.id().toString()).ifPresent(assignment -> initialize(task, assignment.initialContext()));
                 return tasks.get(task.id());
             }
             AgentModelSetting model = models.agentModel(AgentModelType.DEVELOPMENT, Optional.of(workspaceId));
             AgentLaneId lane = new AgentLaneId(model.configId());
+            requireAssignableLane(lane);
             WorkflowAgentTasks.requireReady(drivers, lane, AgentPermissionPolicy.AUTO);
             models.validateSelection(lane.value(), model.model(), model.effort(), Optional.empty());
             WorkspaceRepositoryContext workspace = repositories.requireReadyRepository(workspaceId);
@@ -187,6 +189,11 @@ public class PullRequestTaskService
         checkArgument(repo.matches("[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+") && number > 0, "Invalid pull request");
         checkArgument(workspaces.findById(workspaceId).filter(workspace -> workspace.monitoredRepository().fullName().equalsIgnoreCase(repo)).isPresent(),
                 "Pull request does not belong to this workspace");
+    }
+
+    private static void requireAssignableLane(AgentLaneId lane)
+    {
+        checkArgument(!lane.value().startsWith("deepseek-key-"), "DeepSeek key tasks cannot be assigned to pull requests");
     }
 
     private static String requireGit(GitCommandRunner.Result result)

@@ -52,13 +52,12 @@ import static java.util.Objects.requireNonNull;
  * never written back, so "Review is the same as Development" stays an absent
  * row rather than a frozen copy.
  *
- * <p>Provider catalogs live in the settings store, never in code. Every app
- * start re-probes each available driver ({@code model/list} for Codex) and
- * rewrites its catalog row; Claude Code cannot enumerate models, so its row
- * is seeded once with the CLI aliases ({@code opus}, {@code fable}, ...) that
- * the CLI itself resolves to the newest model of each tier. Model ids are the
- * stable values providers accept on session start; display names resolve
- * through the catalog.
+ * <p>CLI catalogs live in the settings store. Every app start re-probes each
+ * available driver ({@code model/list} for Codex) and rewrites its catalog row;
+ * Claude Code cannot enumerate models, so its row is seeded with the CLI
+ * aliases ({@code opus}, {@code fable}, ...). The isolated DeepSeek key lane
+ * uses ByteQuay's fixed two-model catalog. Model ids are the values providers
+ * accept on session start; display names resolve through the catalog.
  */
 @Service
 public class ModelSettingsService
@@ -74,6 +73,7 @@ public class ModelSettingsService
     private static final String SELECTION_PREFIX = "model.selection.";
     private static final String CATALOG_PREFIX = "model.catalog.";
     private static final String API_KEY_ID_PREFIX = "key:";
+    private static final String DEEPSEEK_LANE_PREFIX = "deepseek-key-";
     private static final Pattern ALIAS = Pattern.compile("[A-Za-z0-9][A-Za-z0-9._-]{0,63}");
 
     // Bootstrap data written into the settings store; after that the stored
@@ -93,9 +93,12 @@ public class ModelSettingsService
                     new ModelOption("sonnet", "Sonnet", "Most efficient for everyday tasks", CLAUDE_EFFORTS, "High"),
                     new ModelOption("haiku", "Haiku", "Fastest for quick answers", CLAUDE_EFFORTS, "High")));
     private static final String CLAUDE_LANE = "claude";
+    private static final List<ModelOption> DEEPSEEK_MODELS = ImmutableList.of(
+            new ModelOption("deepseek-flash", "DeepSeek Flash", "Fast coding model", ImmutableList.of("low", "high"), "high"),
+            new ModelOption("deepseek-v4-pro", "DeepSeek V4 Pro", "Complex coding model", ImmutableList.of("low", "high"), "high"));
 
     private static final Map<String, List<String>> KEY_PROVIDER_MODELS = ImmutableMap.of(
-            "DeepSeek", ImmutableList.of("deepseek-chat", "deepseek-reasoner"),
+            "DeepSeek", ImmutableList.of("deepseek-flash", "deepseek-v4-pro"),
             "OpenAI", ImmutableList.of("gpt-5.2", "gpt-5.2-mini", "gpt-5.1"));
 
     private final AgentDriverRegistry drivers;
@@ -163,6 +166,10 @@ public class ModelSettingsService
                 continue;
             }
             String id = status.laneId().value();
+            if (id.startsWith(DEEPSEEK_LANE_PREFIX)) {
+                // Its two-model catalog is ByteQuay-owned and needs no App Server probe per saved key.
+                continue;
+            }
             if (onlyMissing && storedCatalog(id).isPresent()) {
                 continue;
             }
@@ -397,15 +404,15 @@ public class ModelSettingsService
      *
      * <p>Falls back to the seeded Claude catalog when nothing is available, so
      * an install with no signed-in provider still answers with a model rather
-     * than a blank row. An API key is never a candidate, because no driver can
-     * run a turn against one; {@link #requireAgentSelection} refuses one for
-     * the same reason.
+     * than a blank row. Saved-key lanes are selected only for manual tasks,
+     * not for automatic Development or Review work.
      */
     private String defaultLaneId()
     {
         return drivers.statuses().stream()
                 .filter(AgentProviderStatus::available)
                 .map(status -> status.laneId().value())
+                .filter(laneId -> !laneId.startsWith(DEEPSEEK_LANE_PREFIX))
                 .filter(laneId -> cliCatalog(laneId).filter(catalog -> !catalog.models().isEmpty()).isPresent())
                 .findFirst()
                 .orElse(CLAUDE_LANE);
@@ -430,17 +437,14 @@ public class ModelSettingsService
     }
 
     /**
-     * Validates a model an agent type may actually run with. An API key is not
-     * a lane — {@link AgentLaneId} admits no {@code :} — so no agent driver can
-     * execute a turn against one, and accepting it here is what used to make a
-     * review start throw.
+     * Automatic Development and Review work stays on the existing CLI lanes.
      */
     private void requireAgentSelection(String configId, String model, Optional<String> effort)
     {
         requireSelection(configId, model, effort);
-        if (configId.startsWith(API_KEY_ID_PREFIX)) {
+        if (configId.startsWith(API_KEY_ID_PREFIX) || configId.startsWith(DEEPSEEK_LANE_PREFIX)) {
             throw new IllegalArgumentException(
-                    "An API key cannot run agent tasks; choose a CLI provider's model.");
+                    "Choose a CLI provider for automatic Development and Review tasks.");
         }
     }
 
@@ -541,6 +545,12 @@ public class ModelSettingsService
     /** The stored catalog row for a CLI lane; absent until seeded or probed. */
     private Optional<Catalog> cliCatalog(String laneId)
     {
+        if (laneId.startsWith(DEEPSEEK_LANE_PREFIX)) {
+            String keyId = laneId.substring(DEEPSEEK_LANE_PREFIX.length());
+            return apiKeys.findById(keyId)
+                    .filter(key -> key.provider().equals("DeepSeek"))
+                    .map(key -> new Catalog("DeepSeek · " + key.alias(), DEEPSEEK_MODELS, DEEPSEEK_MODELS.getFirst().id()));
+        }
         return storedCatalog(laneId)
                 .map(stored -> new Catalog(laneLabel(laneId), stored.models(), stored.defaultModelId()));
     }

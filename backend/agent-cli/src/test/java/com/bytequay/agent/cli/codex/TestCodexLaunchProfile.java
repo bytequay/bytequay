@@ -15,14 +15,92 @@ package com.bytequay.agent.cli.codex;
 
 import com.google.common.collect.ImmutableList;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.io.TempDir;
 
+import java.net.URI;
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.util.List;
 import java.util.Optional;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 class TestCodexLaunchProfile
 {
+    @TempDir
+    private Path temporary;
+
+    @Test
+    void pinsDeepSeekProviderAndUserReviewedLocalTools()
+    {
+        Path catalog = temporary.resolve("home/deepseek-models.json");
+        DeepSeekModelCatalog.prepare(catalog);
+        DeepSeekModelCatalog.verify(catalog);
+        URI proxy = URI.create("http://127.0.0.1:12345/fixture/");
+        Path appData = temporary.resolve("Library/Application Support/ByteQuay");
+        CodexLaunchProfile.DeepSeekProfile deepSeek = new CodexLaunchProfile.DeepSeekProfile(catalog, proxy, appData);
+        List<String> arguments = CodexLaunchProfile.arguments(
+                "codex", CodexLaunchProfile.ChildProfile.NONE, Optional.empty(), false, ImmutableList.of(), false, false, Optional.of(deepSeek));
+        assertThat(arguments).containsSequence("-c", "model_provider=\"deepseek\"");
+        assertThat(arguments).containsSequence("-c", "model_providers.deepseek.base_url=\"" + proxy + "\"");
+        assertThat(arguments).containsSequence("-c", "approval_policy=\"on-request\"");
+        assertThat(arguments).containsSequence("-c", "approvals_reviewer=\"user\"");
+        assertThat(arguments).containsSequence("-c", "default_permissions=\"bytequay-deepseek\"");
+        assertThat(arguments).containsSequence("-c", "permissions.bytequay-deepseek.extends=\":workspace\"");
+        assertThat(arguments).containsSequence("-c", "permissions.bytequay-deepseek.network.enabled=false");
+        assertThat(arguments).containsSequence("-c", "model_providers.deepseek.request_max_retries=0");
+        assertThat(arguments).containsSequence("-c", "web_search=\"disabled\"");
+        assertThat(arguments).containsSequence("--disable", "multi_agent");
+        assertThat(arguments).containsSequence("--disable", "multi_agent_v2");
+        assertThat(arguments).containsSequence("--disable", "guardian_approval");
+        assertThat(arguments).noneMatch(value -> value.contains("DEEPSEEK_API_KEY") || value.contains("sk-secret")
+                || value.contains("experimental_bearer_token") || value.contains("chatgpt")
+                || value.contains("sandbox_workspace_write"));
+        assertThat(CodexLaunchProfile.expectedShellEnvironmentIncludeOnly(false))
+                .doesNotContain("DEEPSEEK_API_KEY", "OPENAI_API_KEY", "GH_TOKEN", "CODEX_HOME");
+        assertThat(CodexLaunchProfile.threadConfig(
+                CodexLaunchProfile.ChildProfile.NONE, false, false, ImmutableList.of(), false, false, Optional.of(deepSeek)))
+                .containsEntry("model_provider", "deepseek")
+                .containsEntry("model_catalog_json", catalog.toString())
+                .containsEntry("approval_policy", "on-request")
+                .containsEntry("approvals_reviewer", "user")
+                .containsEntry("default_permissions", CodexLaunchProfile.DEEPSEEK_PERMISSIONS)
+                .containsEntry("permissions", java.util.Map.of(CodexLaunchProfile.DEEPSEEK_PERMISSIONS,
+                        CodexLaunchProfile.deepSeekPermissionsConfig(deepSeek)))
+                .containsEntry("web_search", "disabled");
+        assertThatThrownBy(() -> CodexLaunchProfile.arguments(
+                "codex", CodexLaunchProfile.ChildProfile.V1, Optional.empty(), false, ImmutableList.of(), false, false, Optional.of(deepSeek)))
+                .isInstanceOf(IllegalArgumentException.class);
+        assertThatThrownBy(() -> {
+            Files.writeString(catalog, "{}");
+            DeepSeekModelCatalog.verify(catalog);
+        }).hasMessageContaining("does not match ByteQuay");
+        assertThatThrownBy(() -> {
+            Files.writeString(catalog.getParent().resolve("config.toml"), "web_search = \"live\"\n");
+            DeepSeekModelCatalog.prepare(catalog);
+        }).hasMessageContaining("unexpected user configuration");
+        Path linkedHome = temporary.resolve("linked-home");
+        assertThatThrownBy(() -> {
+            Files.createSymbolicLink(linkedHome, catalog.getParent());
+            DeepSeekModelCatalog.verifyHome(linkedHome);
+        }).hasMessageContaining("cannot use a symbolic link");
+    }
+
+    @Test
+    void givesActionableDeepSeekTurnErrorsWithoutEchoingProviderDetails()
+    {
+        assertThat(CodexCliDriver.deepSeekFailure("HTTP 401: invalid api key sk-secret"))
+                .contains("rejected this saved API key")
+                .doesNotContain("sk-secret");
+        assertThat(CodexCliDriver.deepSeekFailure("HTTP 402: insufficient_balance"))
+                .contains("insufficient balance")
+                .contains("explicitly retry");
+        assertThat(CodexCliDriver.deepSeekFailure("model_not_found: deepseek-old"))
+                .contains("selected model")
+                .doesNotContain("deepseek-old");
+    }
+
     @Test
     void isolatesCatalogCapabilitiesWithoutSubagents()
     {

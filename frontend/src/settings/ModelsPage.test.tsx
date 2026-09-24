@@ -36,6 +36,16 @@ const SETTINGS: ModelSettingsDto = {
     ],
     selectedModel: 'sol',
     selectedEffort: 'high',
+  }, {
+    id: 'deepseek-key-123',
+    label: 'DeepSeek · personal',
+    readiness: 'READY',
+    version: null,
+    diagnostic: '',
+    capabilities: NO_AGENT_CAPABILITIES,
+    models: [{ id: 'deepseek-flash', name: 'deepseek-flash', description: '', efforts: [], defaultEffort: null }],
+    selectedModel: 'deepseek-flash',
+    selectedEffort: '',
   }],
   apiKeys: [{
     id: 'key:personal',
@@ -43,21 +53,21 @@ const SETTINGS: ModelSettingsDto = {
     provider: 'DeepSeek',
     maskedKey: 'sk-4f••••2a1',
     createdAt: '2026-09-01T00:00:00Z',
-    models: ['deepseek-chat'],
-    selectedModel: 'deepseek-chat',
+    models: ['deepseek-flash'],
+    selectedModel: 'deepseek-flash',
   }],
-  keyProviders: [{ name: 'DeepSeek', models: ['deepseek-chat'] }],
+  keyProviders: [{ name: 'DeepSeek', models: ['deepseek-flash'] }],
 };
 
 describe('model choice', () => {
-  it('offers every configured model but refuses to let an API key back an agent turn', () => {
+  it('keeps DeepSeek keys out of Development and Review defaults without a duplicate disabled choice', () => {
     const options = modelOptions(SETTINGS);
 
     expect(options.map(option => option.value))
-      .toEqual(['codex::sol', 'codex::mini', 'codex::flat', 'key:personal::deepseek-chat']);
-    expect(options.filter(option => option.disabled === true).map(option => option.value))
-      .toEqual(['key:personal::deepseek-chat']);
-    expect(options.at(-1)?.disabledReason).toBe(API_KEY_REASON);
+      .toEqual(['codex::sol', 'codex::mini', 'codex::flat']);
+    expect(options.some(option => option.disabled)).toBe(false);
+    expect(modelOptions({ ...SETTINGS, apiKeys: [{ ...SETTINGS.apiKeys[0], id: 'key:other', provider: 'OpenAI', alias: 'other' }] }).at(-1)?.disabledReason)
+      .toBe(API_KEY_REASON);
   });
 
   it('keeps the effort when the new model still offers it and otherwise takes that model’s highest', () => {
@@ -127,6 +137,8 @@ describe('models page', () => {
 
   it('keeps provider rows to status and credentials', () => {
     expect(markup).toContain('Codex CLI');
+    expect(markup).not.toContain('DeepSeek · personal CLI');
+    expect(markup.match(/DeepSeek · personal/g)).toHaveLength(1);
     expect(markup).toContain('v0.153.4');
     expect(markup).toContain('sk-4f••••2a1');
     expect(markup).toContain('Add API key');

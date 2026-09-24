@@ -14,22 +14,30 @@
 package com.bytequay.core.domain;
 
 import java.time.Instant;
+import java.util.UUID;
 
 import static com.bytequay.core.domain.Checks.checkText;
 import static java.util.Objects.requireNonNull;
 
 /**
- * One stored model-provider API key, identified by its user-chosen alias.
+ * One stored model-provider API key, identified by an opaque permanent ID.
+ * The alias is only its user-facing name.
  * The secret itself never travels on this record; read it through the store.
  *
  * @param maskedHint what the settings page displays in place of the secret,
  * computed once when the key is saved so listing keys never decrypts them.
  * Blank for a key stored before the hint was kept.
  */
-public record ModelApiKey(String alias, String provider, String maskedHint, Instant createdAt)
+public record ModelApiKey(String id, String alias, String provider, String maskedHint, Instant createdAt)
 {
+    public ModelApiKey(String alias, String provider, String maskedHint, Instant createdAt)
+    {
+        this(UUID.randomUUID().toString(), alias, provider, maskedHint, createdAt);
+    }
+
     public ModelApiKey
     {
+        checkText(id, "id");
         checkText(alias, "alias");
         checkText(provider, "provider");
         maskedHint = maskedHint == null ? "" : maskedHint;

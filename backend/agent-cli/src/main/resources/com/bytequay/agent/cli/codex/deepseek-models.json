@@ -1,0 +1,74 @@
+{
+  "models": [
+    {
+      "slug": "deepseek-flash",
+      "display_name": "DeepSeek Flash",
+      "description": "DeepSeek text model for attended local coding tasks.",
+      "visibility": "list",
+      "priority": 1,
+      "supported_in_api": true,
+      "minimal_client_version": "0.156.1",
+      "context_window": 128000,
+      "max_context_window": 128000,
+      "effective_context_window_percent": 95,
+      "truncation_policy": {"mode": "tokens", "limit": 10000},
+      "input_modalities": ["text"],
+      "apply_patch_tool_type": "freeform",
+      "shell_type": "shell_command",
+      "multi_agent_version": "disabled",
+      "supports_parallel_tool_calls": true,
+      "web_search_tool_type": "text",
+      "supports_search_tool": false,
+      "support_verbosity": false,
+      "default_reasoning_level": "high",
+      "supported_reasoning_levels": [
+        {"effort": "low", "description": "Faster reasoning"},
+        {"effort": "high", "description": "Deeper reasoning"}
+      ],
+      "default_reasoning_summary": "none",
+      "supports_reasoning_summaries": false,
+      "experimental_supported_tools": [],
+      "model_messages": {
+        "instructions_template": "You are an assistant helping the user with local software work. Follow the user's request and use only the tools available in this task.",
+        "instructions_variables": {},
+        "approvals": null
+      },
+      "base_instructions": "You are an assistant helping the user with local software work. Follow the user's request and use only the tools available in this task."
+    },
+    {
+      "slug": "deepseek-v4-pro",
+      "display_name": "DeepSeek V4 Pro",
+      "description": "DeepSeek text model for attended local coding tasks.",
+      "visibility": "list",
+      "priority": 2,
+      "supported_in_api": true,
+      "minimal_client_version": "0.156.1",
+      "context_window": 128000,
+      "max_context_window": 128000,
+      "effective_context_window_percent": 95,
+      "truncation_policy": {"mode": "tokens", "limit": 10000},
+      "input_modalities": ["text"],
+      "apply_patch_tool_type": "freeform",
+      "shell_type": "shell_command",
+      "multi_agent_version": "disabled",
+      "supports_parallel_tool_calls": true,
+      "web_search_tool_type": "text",
+      "supports_search_tool": false,
+      "support_verbosity": false,
+      "default_reasoning_level": "high",
+      "supported_reasoning_levels": [
+        {"effort": "low", "description": "Faster reasoning"},
+        {"effort": "high", "description": "Deeper reasoning"}
+      ],
+      "default_reasoning_summary": "none",
+      "supports_reasoning_summaries": false,
+      "experimental_supported_tools": [],
+      "model_messages": {
+        "instructions_template": "You are an assistant helping the user with local software work. Follow the user's request and use only the tools available in this task.",
+        "instructions_variables": {},
+        "approvals": null
+      },
+      "base_instructions": "You are an assistant helping the user with local software work. Follow the user's request and use only the tools available in this task."
+    }
+  ]
+}

@@ -60,6 +60,7 @@ final class CodexIsolationGuard
     private final List<String> ciWritableRoots;
     private final boolean allowGitHubCommands;
     private final boolean review;
+    private final Optional<CodexLaunchProfile.DeepSeekProfile> deepSeek;
 
     CodexIsolationGuard(
             CodexAppServerClient client,
@@ -69,7 +70,8 @@ final class CodexIsolationGuard
             boolean textOnly,
             List<String> ciWritableRoots,
             boolean allowGitHubCommands,
-            boolean review)
+            boolean review,
+            Optional<CodexLaunchProfile.DeepSeekProfile> deepSeek)
     {
         this.client = requireNonNull(client, "client is null");
         this.codexHome = requireNonNull(codexHome, "codexHome is null").toAbsolutePath().normalize();
@@ -79,6 +81,7 @@ final class CodexIsolationGuard
         this.ciWritableRoots = ImmutableList.copyOf(ciWritableRoots);
         this.allowGitHubCommands = allowGitHubCommands;
         this.review = review;
+        this.deepSeek = requireNonNull(deepSeek, "deepSeek is null");
     }
 
     /**
@@ -230,8 +233,54 @@ final class CodexIsolationGuard
             throw unavailable("config/read omitted the launch policy");
         }
         boolean ci = !ciWritableRoots.isEmpty();
-        requireTextValue(config, "web_search", textOnly || ci ? "disabled" : "live");
-        if (!textOnly && !ci) {
+        requireTextValue(config, "web_search", deepSeek.isPresent() || textOnly || ci ? "disabled" : "live");
+        if (deepSeek.isPresent()) {
+            requireTextValue(config, "cli_auth_credentials_store", "ephemeral");
+            JsonNode forcedLogin = config.path("forced_login_method");
+            if (!forcedLogin.isMissingNode() && !forcedLogin.isNull()) {
+                throw unavailable("DeepSeek launch inherited an OpenAI login method");
+            }
+            requireTextValue(config, "model_provider", "deepseek");
+            requireTextValue(config, "model_catalog_json", deepSeek.orElseThrow().catalog().toString());
+            JsonNode provider = config.path("model_providers").path("deepseek");
+            requireTextValue(provider, "name", "DeepSeek");
+            requireTextValue(provider, "base_url", deepSeek.orElseThrow().baseUrl().toString());
+            requireTextValue(provider, "wire_api", "responses");
+            if (provider.hasNonNull("env_key") || provider.hasNonNull("experimental_bearer_token")) {
+                throw unavailable("DeepSeek launch exposed provider credentials to Codex");
+            }
+            requireBooleanValue(provider, "requires_openai_auth", false);
+            requireBooleanValue(provider, "supports_websockets", false);
+            JsonNode retries = provider.path("request_max_retries");
+            if (!retries.isIntegralNumber() || retries.asInt() != 0) {
+                throw unavailable("DeepSeek provider could retry a failed request");
+            }
+            requireTextValue(config, "approval_policy", "on-request");
+            requireTextValue(config, "approvals_reviewer", "user");
+            requireTextValue(config, "default_permissions", CodexLaunchProfile.DEEPSEEK_PERMISSIONS);
+            JsonNode profile = config.path("permissions").path(CodexLaunchProfile.DEEPSEEK_PERMISSIONS);
+            requireTextValue(profile, "extends", ":workspace");
+            JsonNode filesystem = profile.path("filesystem");
+            requireTextValue(filesystem, ":root", "deny");
+            requireTextValue(filesystem, ":minimal", "read");
+            requireTextValue(filesystem, deepSeek.orElseThrow().protectedAppData().toString(), "deny");
+            Set<String> allowedPaths = Set.of(":root", ":minimal", deepSeek.orElseThrow().protectedAppData().toString());
+            filesystem.fields().forEachRemaining(entry -> {
+                if (!allowedPaths.contains(entry.getKey()) && !entry.getValue().isNull()) {
+                    throw unavailable("DeepSeek permission profile contains an unexpected filesystem grant");
+                }
+            });
+            requireBooleanValue(profile.path("network"), "enabled", false);
+            if (config.path("sandbox_mode").isTextual() || config.path("sandbox_workspace_write").isObject()) {
+                throw unavailable("DeepSeek launch mixed legacy sandbox settings with the permission profile");
+            }
+            JsonNode autoReview = config.path("auto_review").path("policy");
+            if (!autoReview.isMissingNode() && !autoReview.isNull()) {
+                throw unavailable("DeepSeek launch inherited automatic approval review");
+            }
+            DeepSeekModelCatalog.verify(deepSeek.orElseThrow().catalog());
+        }
+        else if (!textOnly && !ci) {
             requireTextValue(config.path("auto_review"), "policy", CodexApprovalPolicy.policy(review));
         }
         if (ci) {
@@ -259,7 +308,7 @@ final class CodexIsolationGuard
         if (!features.isObject()) {
             throw unavailable("config/read omitted the feature policy");
         }
-        for (Map.Entry<String, Boolean> feature : CodexLaunchProfile.expectedFeatures(childProfile, textOnly, ci).entrySet()) {
+        for (Map.Entry<String, Boolean> feature : CodexLaunchProfile.expectedFeatures(childProfile, textOnly, ci, deepSeek.isPresent()).entrySet()) {
             JsonNode value = features.path(feature.getKey());
             if (!value.isBoolean() || value.asBoolean() != feature.getValue()) {
                 throw unavailable("Codex feature " + feature.getKey() + " does not match the launch profile");

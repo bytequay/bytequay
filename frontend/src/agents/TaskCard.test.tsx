@@ -231,4 +231,23 @@ describe('new task image composer', () => {
     expect(markup).toMatch(/aria-label="Attach an image"[^>]*disabled/);
     expect(markup).toMatch(/aria-label="Send — creates the task"[^>]*disabled/);
   });
+
+  it('selects a saved DeepSeek key and model with no automatic delivery controls', () => {
+    const deepSeekModels: ModelOptionDto[] = [
+      { id: 'deepseek-flash', name: 'deepseek-flash', description: '', efforts: [], defaultEffort: null, inputModalities: ['text'] },
+      { id: 'deepseek-v4-pro', name: 'deepseek-v4-pro', description: '', efforts: [], defaultEffort: null, inputModalities: ['text'] },
+    ];
+    const deepSeek: ModelProviderDto = {
+      ...PROVIDERS[0], id: 'deepseek-key-123', label: 'DeepSeek · personal', models: deepSeekModels,
+      selectedModel: 'deepseek-flash', selectedEffort: '',
+    };
+    const markup = renderToStaticMarkup(<TaskComposer {...props} laneId={deepSeek.id} providers={[...PROVIDERS, deepSeek]}
+      models={deepSeekModels} selection={{ model: 'deepseek-v4-pro', effort: null }}
+      automation={<span>Automation controls</span>} />);
+    expect(markup).toContain('Provider: DeepSeek · personal');
+    expect(markup).toContain('deepseek-v4-pro');
+    expect(markup).toContain('No automatic delivery');
+    expect(markup).not.toContain('Automation controls');
+    expect(markup).toMatch(/aria-label="Attach an image"[^>]*disabled/);
+  });
 });

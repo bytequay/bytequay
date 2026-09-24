@@ -23,6 +23,10 @@ import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
 
 import java.io.IOException;
+import java.nio.file.DirectoryStream;
+import java.nio.file.Files;
+import java.nio.file.LinkOption;
+import java.nio.file.Path;
 import java.time.Duration;
 import java.time.Instant;
 
@@ -32,8 +36,8 @@ import static java.util.Objects.requireNonNull;
 /**
  * Bounds the provider homes ByteQuay owns. Both CLIs keep every thread's session transcript
  * forever, and nothing else deletes them: the task retention job covers ByteQuay's own runtime
- * directories and task logs, which is a different tree. Only these two homes are swept — the user's
- * {@code ~/.codex} and {@code ~/.claude} are never ByteQuay's to touch.
+ * directories and task logs, which is a different tree. These ByteQuay-owned homes are swept;
+ * the user's {@code ~/.codex} and {@code ~/.claude} are never ByteQuay's to touch.
  */
 @Component
 public class ProviderSessionRetentionJob
@@ -66,7 +70,26 @@ public class ProviderSessionRetentionJob
     {
         Instant deleteBefore = Instant.now().minus(retention);
         sweep("Codex", () -> CodexHome.pruneSessions(properties.codexHome(), deleteBefore));
+        sweepDeepSeekHomes(deleteBefore);
         sweep("Claude", () -> ClaudeHome.pruneSessions(properties.claudeHome(), deleteBefore));
+    }
+
+    private void sweepDeepSeekHomes(Instant deleteBefore)
+    {
+        Path root = properties.codexHome().resolve("deepseek");
+        if (!Files.isDirectory(root, LinkOption.NOFOLLOW_LINKS)) {
+            return;
+        }
+        try (DirectoryStream<Path> homes = Files.newDirectoryStream(root)) {
+            for (Path home : homes) {
+                if (Files.isDirectory(home, LinkOption.NOFOLLOW_LINKS)) {
+                    sweep("DeepSeek", () -> CodexHome.pruneSessions(home, deleteBefore));
+                }
+            }
+        }
+        catch (IOException failure) {
+            log.warn("DeepSeek session retention sweep failed: {}", failure.getMessage());
+        }
     }
 
     private void sweep(String lane, Sweep sweep)

@@ -79,6 +79,11 @@ public final class McpConfigRegistration
         return localReview;
     }
 
+    public Optional<RepositoryContextBridge> notebook()
+    {
+        return notebook;
+    }
+
     /** The review capability this token exposes, resolved from the task when it registered. */
     public Optional<ReviewBridge> review()
     {

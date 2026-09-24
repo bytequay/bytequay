@@ -46,6 +46,8 @@ import com.bytequay.agent.spi.LocalReviewBridgeResolver;
 import com.bytequay.agent.spi.ProviderAgentEvent;
 import com.bytequay.agent.spi.ProviderApprovalDecision;
 import com.bytequay.agent.spi.PullRequestCiBridge;
+import com.bytequay.agent.spi.PullRequestCiBridgeResolver;
+import com.bytequay.agent.spi.RepositoryContextBridge;
 import com.bytequay.agent.spi.ReviewBridge;
 import com.bytequay.agent.spi.ReviewBridgeResolver;
 import com.bytequay.agent.spi.ReviewTool;
@@ -979,6 +981,31 @@ class TestClaudeCliDriver
                 assertThat(argv).doesNotContain("--disable-slash-commands", "--tools");
                 assertThat(argv.get(argv.indexOf("--allowedTools") + 1)).contains("mcp__bytequay__" + PullRequestCiBridge.TOOL_NAME);
                 assertThat(argv.get(argv.indexOf("--append-system-prompt") + 1)).contains(PullRequestCiBridge.INSTRUCTION);
+            }
+        }
+    }
+
+    @Test
+    void repositoryContextLookupIsAllowedOnOpenAndResume()
+            throws Exception
+    {
+        ScriptedProcessSupervisor supervisor = new ScriptedProcessSupervisor();
+        RepositoryContextBridge notebook = new RepositoryContextBridge(query -> "{}", "Search saved workspace notes when relevant");
+        PermissionBroker broker = new PermissionBroker(
+                () -> URI.create("http://127.0.0.1:9000/internal/agent/claude/mcp"), objectMapper, (taskId, query) -> "memory",
+                ReviewBridgeResolver.NONE, DevelopmentResultBridgeResolver.NONE, DraftPullRequestPublisher.NONE,
+                LocalReviewBridgeResolver.NONE, PullRequestCiBridgeResolver.NONE, taskId -> Optional.of(notebook));
+        try (ClaudeCliDriver driver = new ClaudeCliDriver(
+                "/fake/claude", worktree.resolve("claude-home"), objectMapper, broker, supervisor, ImmutableMap.of())) {
+            Optional<AgentSessionRef> reference = Optional.empty();
+            for (int index = 0; index < 2; index++) {
+                try (AgentSession session = driver.open(context(reference), event -> {})) {
+                    assertThat(await(session.start(command("notes-" + index))).state()).isEqualTo(AgentTurnResult.State.COMPLETED);
+                    reference = Optional.of(session.reference());
+                    List<String> argv = supervisor.turns().getLast().spec().argv();
+                    assertThat(argv.get(argv.indexOf("--allowedTools") + 1)).contains("mcp__bytequay__" + RepositoryContextBridge.TOOL_NAME);
+                    assertThat(argv.get(argv.indexOf("--append-system-prompt") + 1)).contains(notebook.instruction());
+                }
             }
         }
     }

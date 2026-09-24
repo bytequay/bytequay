@@ -48,6 +48,7 @@ import com.bytequay.agent.spi.ProviderApprovalDecision;
 import com.bytequay.agent.spi.ProviderApprovalRequest;
 import com.bytequay.agent.spi.ProviderTurnRef;
 import com.bytequay.agent.spi.PullRequestCiBridge;
+import com.bytequay.agent.spi.RepositoryContextBridge;
 import com.bytequay.agent.spi.RunningTurn;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -453,6 +454,7 @@ public final class ClaudeCliDriver
         registration.localReview().ifPresent(bridge -> LocalReviewBridge.TOOL_NAMES.forEach(name -> allowedTools.add("mcp__bytequay__" + name)));
         registration.review().ifPresent(bridge -> bridge.tools()
                 .forEach(tool -> allowedTools.add("mcp__bytequay__" + tool.name())));
+        registration.notebook().ifPresent(bridge -> allowedTools.add("mcp__bytequay__" + RepositoryContextBridge.TOOL_NAME));
         String instruction = Stream.of(
                         permissionPolicy.allowsGitHubCommands(textOnly, registration.review().isPresent()) ? AgentCommandPolicy.instructions() : "",
                         managedInstructions,

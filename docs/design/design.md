@@ -24,7 +24,9 @@ historical checkpoint evidence and explicitly deferred future work.
   surface.
 - [DeepSeek API-key task lane](deepseek-api-key-lane.md) is the approved,
   unimplemented saved-key choice for attended agent tasks using the existing
-  Codex App Server adapter.
+  Codex App Server adapter. Its
+  [implementation checklist](deepseek-api-key-lane-impl-tmp.md) tracks
+  checkpoints and verification.
 - [Managed Worktree Service](worktree-service.md) specifies the approved
   stateless, synchronous separate-worktree boundary shared by interactive
   tasks, cherry-pick, and CI Autofix: provision, inspect, and non-destructive

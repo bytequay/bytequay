@@ -25,17 +25,22 @@ checkpoint is complete yet.
 
 ## CP0 — Align the canonical design
 
-- [ ] Fold the approved DeepSeek behavior into agent-service.md and its
+- [x] Fold the approved DeepSeek behavior into agent-service.md and its
   relevant provider, readiness, permission, and settings sections.
-- [ ] Resolve statements that defer all Codex API-key task support while
+- [x] Resolve statements that defer all Codex API-key task support while
   preserving descriptions of the current shipped Codex and Claude lanes.
-- [ ] Keep the design index and temporary checklist links accurate. Do not
+- [x] Keep the design index and temporary checklist links accurate. Do not
   describe the DeepSeek lane as implemented until its release gate passes.
 
 Gate:
 
-- [ ] Canonical design, approved extension, and index have no conflicting
+- [x] Canonical design, approved extension, and index have no conflicting
   claims; documentation links and whitespace checks pass.
+
+Evidence: the canonical design distinguishes the approved extension from
+shipped Codex/Claude behavior, links the approved design, and identifies the
+separate DeepSeek fixture. The design index links this checklist.
+`git diff --check` passed.
 
 ## CP1 — Stable keys and selectable lanes
 

@@ -1,5 +1,31 @@
 # Agent Service Design
 
+## Approved DeepSeek API-key task lane
+
+[DeepSeek API-key task lane](deepseek-api-key-lane.md) is an approved extension
+that has not been implemented yet. The shipped Codex and Claude descriptions
+below remain current until that work lands. The extension keeps the existing
+task, turn, worktree, event, approval, and cleanup services:
+
+- Each saved DeepSeek key has an immutable opaque ID and a selectable task
+  lane. A task keeps its lane across turns; deleting and re-adding an alias
+  cannot move an old task to a different key.
+- The existing Codex App Server adapter will use a DeepSeek Responses provider,
+  an isolated ByteQuay-owned home, an environment-supplied key, and a curated
+  model catalog. Readiness checks the saved key through DeepSeek rather than
+  Codex login status.
+- The first release will admit manually started, attended worktree tasks only.
+  Their development automation is local-only, including later and queued
+  turns. Development/Review defaults, PR assignment, CI Autofix, automatic
+  delivery, web search, images, CodeGraph, and subagents stay outside it.
+- DeepSeek command escalation will use the user reviewer under the existing
+  sandbox, with shell networking disabled. This narrower provider profile
+  responds to DeepSeek's instruction-role behavior, not API-key authentication.
+  No GitHub write is authorized without a direct user action.
+
+The linked design owns the detailed user flow, key lifecycle, launch profile,
+readiness, and acceptance gate for this extension.
+
 ## Starting development from a GitHub issue
 
 [Issue-backed Development](issue-development-plan.md) extends canonical
@@ -3235,6 +3261,9 @@ their narrower execution profiles and do not receive interactive GitHub
 credentials. Authentication by subscription or API key does not select a
 different permission policy. Claude's existing login and API-key paths use the
 same policy; this change adds no API driver or Codex API-key task support.
+The approved [DeepSeek extension](deepseek-api-key-lane.md) is separate from
+this shipped change and requires a narrower provider reviewer profile because
+of DeepSeek's instruction-role behavior.
 
 `AgentCommandPolicy` owns the provider-independent development and private-review
 authorization instructions and restrictions in `agent-spi`. Both adapters supply
@@ -3728,7 +3757,9 @@ invoked by the normal test or CI command. Each requires
 outside the repository that was signed in directly with ChatGPT. It must never
 use the ambient Codex profile or seed a profile by copying `auth.json`. App
 Server verifies through `account/read` that `requiresOpenaiAuth` is true and
-`account.type` is `chatgpt`; API-key fixture support is deferred. App Server
+`account.type` is `chatgpt`; this fixture does not cover API-key paths. The
+approved [DeepSeek extension](deepseek-api-key-lane.md) requires its own
+isolated offline and opt-in live gates. App Server
 receives that selected `CODEX_HOME` only for its own
 process and uses a temporary `CODEX_SQLITE_HOME` for database state. A
 profile-local exclusive lock prevents concurrent live gates from sharing the

@@ -1,0 +1,190 @@
+{
+  "buildRequestSequence": 1,
+  "notebookRevision": 1,
+  "build": {
+    "taskId": "544bd16b-e694-4a15-b37d-6a26641eba22",
+    "baselineSha": "99dac517a7758debe9005eec0b910109c7ce8d32",
+    "scopeIds": [
+      "project"
+    ],
+    "task": {
+      "state": "COMPLETED",
+      "laneId": "claude",
+      "model": "sonnet",
+      "worktreeRemovedAt": "2026-09-24T04:01:24.862617Z"
+    },
+    "results": [
+      {
+        "attemptId": "14773869-4042-4d70-aba8-510ac9d57987",
+        "inputFingerprint": {
+          "scopeId": "project",
+          "inputs": {
+            "scope-configuration": "cd96139926c4e7b1734eca8fa8888851f805b895af8abac4c74160345018fbdc",
+            "repository-root-layout": "f8baec1155893bc172196bed3be81ea75a8173673e2417ad6cef43cae489a447",
+            "registered-documentation-catalog-remote-content-unchecked": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+            "repository": "101:contextfixture/review-case",
+            "retained-source-identities": "6d7344d45dfef6d0afceb7fa075ff8cde9df577b89e27453614a9c918d5b184e",
+            "git:README.md": "100644 blob b844a6f003407943625f30794e6213b697894e3a",
+            "git:fields.py": "100644 blob 9aa6d5d2607cae68104a650f0742854877624817",
+            "git:resolver.py": "100644 blob 20dd7dd99c6d2d9a22f7c4db0859c5ef93b5f53f",
+            "git:test_contract.py": "100644 blob 6d2ebae81e1c2a758af642641ac9e02f2d9f0d60",
+            "git:window.py": "100644 blob e11b4c6578c724e0ea53df6b60f82be14a4746b1",
+            "git:README": "ABSENT",
+            "git:README.rst": "ABSENT",
+            "git:README.txt": "ABSENT",
+            "git:CONTRIBUTING.md": "ABSENT",
+            "git:ARCHITECTURE.md": "ABSENT",
+            "git:docs": "ABSENT",
+            "git:doc": "ABSENT",
+            "git:documentation": "ABSENT",
+            "git:pom.xml": "ABSENT",
+            "git:build.gradle": "ABSENT",
+            "git:build.gradle.kts": "ABSENT",
+            "git:settings.gradle": "ABSENT",
+            "git:settings.gradle.kts": "ABSENT",
+            "git:gradle.properties": "ABSENT",
+            "git:gradle/libs.versions.toml": "ABSENT",
+            "git:package.json": "ABSENT",
+            "git:package-lock.json": "ABSENT",
+            "git:pnpm-lock.yaml": "ABSENT",
+            "git:yarn.lock": "ABSENT",
+            "git:go.mod": "ABSENT",
+            "git:go.sum": "ABSENT",
+            "git:Cargo.toml": "ABSENT",
+            "git:Cargo.lock": "ABSENT",
+            "git:pyproject.toml": "ABSENT",
+            "git:requirements.txt": "ABSENT",
+            "git:uv.lock": "ABSENT",
+            "git:setup.py": "ABSENT",
+            "git:setup.cfg": "ABSENT",
+            "git:Makefile": "ABSENT",
+            "git:CMakeLists.txt": "ABSENT",
+            "git:WORKSPACE": "ABSENT",
+            "git:WORKSPACE.bazel": "ABSENT",
+            "git:MODULE.bazel": "ABSENT"
+          },
+          "digest": "sha256:28611fd07702a78705ebb85f4de80cfc315fe8331e7c402694817b347807ebe8",
+          "gaps": []
+        },
+        "outcome": "READY",
+        "noteIds": [
+          "knowledge:project"
+        ],
+        "checkedReads": [
+          {
+            "id": "context-read:e83db463-8feb-4298-aa59-eca1bd235dbb",
+            "reference": {
+              "repositoryId": 101,
+              "repository": {
+                "owner": "contextfixture",
+                "repo": "review-case"
+              },
+              "path": "README.md",
+              "commit": "99dac517a7758debe9005eec0b910109c7ce8d32",
+              "kind": "REPOSITORY_FILE"
+            },
+            "blobId": "b844a6f003407943625f30794e6213b697894e3a",
+            "readAt": "2026-09-24T04:00:33.472602Z",
+            "startLine": 1,
+            "endLine": 11,
+            "totalLines": 11,
+            "utf8Bytes": 539,
+            "truncated": false,
+            "evidenceRef": "context-read:e83db463-8feb-4298-aa59-eca1bd235dbb",
+            "kind": "REPOSITORY_FILE"
+          },
+          {
+            "id": "context-read:06094ac4-52b5-4f44-a086-a16c3d9db505",
+            "reference": {
+              "repositoryId": 101,
+              "repository": {
+                "owner": "contextfixture",
+                "repo": "review-case"
+              },
+              "path": "fields.py",
+              "commit": "99dac517a7758debe9005eec0b910109c7ce8d32",
+              "kind": "REPOSITORY_FILE"
+            },
+            "blobId": "9aa6d5d2607cae68104a650f0742854877624817",
+            "readAt": "2026-09-24T04:00:33.895901Z",
+            "startLine": 1,
+            "endLine": 13,
+            "totalLines": 13,
+            "utf8Bytes": 442,
+            "truncated": false,
+            "evidenceRef": "context-read:06094ac4-52b5-4f44-a086-a16c3d9db505",
+            "kind": "REPOSITORY_FILE"
+          },
+          {
+            "id": "context-read:3a57307a-9aa4-4614-bb1a-2259bf0df586",
+            "reference": {
+              "repositoryId": 101,
+              "repository": {
+                "owner": "contextfixture",
+                "repo": "review-case"
+              },
+              "path": "resolver.py",
+              "commit": "99dac517a7758debe9005eec0b910109c7ce8d32",
+              "kind": "REPOSITORY_FILE"
+            },
+            "blobId": "20dd7dd99c6d2d9a22f7c4db0859c5ef93b5f53f",
+            "readAt": "2026-09-24T04:00:34.338166Z",
+            "startLine": 1,
+            "endLine": 4,
+            "totalLines": 4,
+            "utf8Bytes": 200,
+            "truncated": false,
+            "evidenceRef": "context-read:3a57307a-9aa4-4614-bb1a-2259bf0df586",
+            "kind": "REPOSITORY_FILE"
+          },
+          {
+            "id": "context-read:13dcb8d9-d081-4ea4-b90b-8fb0da0d9d66",
+            "reference": {
+              "repositoryId": 101,
+              "repository": {
+                "owner": "contextfixture",
+                "repo": "review-case"
+              },
+              "path": "test_contract.py",
+              "commit": "99dac517a7758debe9005eec0b910109c7ce8d32",
+              "kind": "REPOSITORY_FILE"
+            },
+            "blobId": "6d2ebae81e1c2a758af642641ac9e02f2d9f0d60",
+            "readAt": "2026-09-24T04:00:34.763765Z",
+            "startLine": 1,
+            "endLine": 23,
+            "totalLines": 23,
+            "utf8Bytes": 788,
+            "truncated": false,
+            "evidenceRef": "context-read:13dcb8d9-d081-4ea4-b90b-8fb0da0d9d66",
+            "kind": "REPOSITORY_FILE"
+          },
+          {
+            "id": "context-read:fc9e00ec-d099-497a-a854-8a8044e3f9e6",
+            "reference": {
+              "repositoryId": 101,
+              "repository": {
+                "owner": "contextfixture",
+                "repo": "review-case"
+              },
+              "path": "window.py",
+              "commit": "99dac517a7758debe9005eec0b910109c7ce8d32",
+              "kind": "REPOSITORY_FILE"
+            },
+            "blobId": "e11b4c6578c724e0ea53df6b60f82be14a4746b1",
+            "readAt": "2026-09-24T04:00:35.078782Z",
+            "startLine": 1,
+            "endLine": 2,
+            "totalLines": 2,
+            "utf8Bytes": 71,
+            "truncated": false,
+            "evidenceRef": "context-read:fc9e00ec-d099-497a-a854-8a8044e3f9e6",
+            "kind": "REPOSITORY_FILE"
+          }
+        ],
+        "explanation": "Root tree has five files, all read in full at baseline 99dac51. No registered documentation sources and no history references were assigned. The repository is tiny, so coverage is complete for the frozen tree."
+      }
+    ],
+    "gaps": []
+  }
+}

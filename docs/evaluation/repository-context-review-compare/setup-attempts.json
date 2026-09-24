@@ -1,0 +1,21 @@
+{
+  "excludedFromPairedScores": [
+    {
+      "attempt": "Codex Off review",
+      "result": "HTTP 503 before a provider turn",
+      "reason": "Codex isolation check failed: Codex managed requirements apply to this host",
+      "resolution": "No bypass; use the dedicated signed-in Claude profile for the paired comparison",
+      "rawResponse": "codex-blocked.json"
+    },
+    {
+      "attempt": "First startup of copied Claude Off database",
+      "result": "Agent operations unavailable before a review was started",
+      "reason": "The copied completed Learn turn retained a provider-launch row, but its launch marker remained in the source runtime and was not in either split arm",
+      "resolution": "Verified the Learn turn and task were completed and its worktree removed; split_arms.py now removes only that stale copied launch row"
+    }
+  ],
+  "unscoredWarnings": [
+    "The deliberately narrow fake GitHub API returned 404 to background workspace metadata refresh; both cached PR reviews completed.",
+    "Claude reported rate-limit warnings in both arms (two Off, three On)."
+  ]
+}

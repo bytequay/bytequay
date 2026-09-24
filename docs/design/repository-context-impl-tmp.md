@@ -60,17 +60,17 @@ even when related infrastructure already exists.
 | Automatic context delivery and investigation report integration | Implemented; frozen bootstrap/brief, exact-version deferred notes and separate replayable discussion capture |
 | Notebook/settings UI, Save lesson and context delivery display | Implemented; citations, retained retrievals, folded preparation outcomes, bytes/timing and receipt-derived delivery state |
 | Agent-drafted lesson fields | Implemented; backend, browser interaction, frontend and package gates passed; live provider acceptance remains open |
-| Development/review agent note discovery | Implemented; default-on development offers, scoped searches and exact reads retain versions and receipts; live provider acceptance remains open |
-| Repository context usage and demand view | Implemented; task-detail cards, note versions, delivery state and missing-scope demand pass backend/frontend gates; live provider acceptance remains open |
+| Development/review agent note discovery | Implemented; live Claude review packets and a separate Claude development search and exact read have confirmed receipts; Codex live acceptance is host-guard blocked |
+| Repository context usage and demand view | Implemented; task-detail cards and note-version usage recorded live offer, search and read delivery; controlled quality/performance acceptance remains open |
 | Reproducible small comparison fixtures | Implemented; two frozen code diffs and eight context proposals, with dependency-free behavior checks; human assessment pending |
 | False lesson, correction and future exclusion | Four live Codex lifecycle reviews passed source-based rejection, exact versions and immutable old snapshots |
-| On/Off quality comparison, performance and live provider acceptance | Four isolated Codex reviews match the two fixture expectations; human assessment, broader cases, Claude and controlled performance remain open |
+| On/Off quality comparison, performance and live provider acceptance | Four isolated Codex reviews and two paired Claude cases match fixture expectations; human assessment, broader cases and controlled performance remain open |
 
 The H1–H3 cold-start work is implemented and its automated/package gates pass.
 Discussion-source supplements, selected deferred-note exact-version reads and
 display integration are implemented. Remaining acceptance requires the broader
-stale/irrelevant/history-assisted cases, Claude, native-memory and controlled
-performance checks, plus human assessment; fixtures cannot certify
+stale/irrelevant/history-assisted cases, native-memory and controlled
+performance checks, plus human assessment; the live Claude pairs cannot certify
 review judgment. The [acceptance protocol](repository-context-acceptance.md) keeps
 those procedures and unknown metrics explicit. Existing CP sections
 retain the detailed foundation and verification checklist; their numbering does
@@ -546,7 +546,12 @@ opening settings or inspecting a source list must not launch generation.
   Both Off/cold-On pairs completed with the expected supported findings: one
   boundary defect in each positive arm and none in either safe optimization
   arm. Actual tests and an independent technical audit support that observation;
-  this small machine-assessed sample does not close human judgment acceptance.
+  a further live Claude Off/warm-On review pair found the same seeded boundary
+  bug in both arms, and a live development pair correctly declined a false fix
+  in both arms. The On review received the learned note but did not open it;
+  the On development turn received the note but did not search it. A separate
+  non-scored Claude development turn confirmed scoped search and exact read.
+  These small machine-assessed samples do not close human judgment acceptance.
   Stale, irrelevant and history-assisted comparisons remain part of the broader
   acceptance gate.
 - [x] Verify a false saved rule cannot establish a defect by itself; exercise
@@ -1615,7 +1620,8 @@ Required checks below describe the current increment, not full feature acceptanc
 - Desktop packaging passed for darwin arm64:
   `/private/tmp/bytequay-context-remaining-package.log`. Source and bundled JARs
   share SHA-256 `92ecfd6730b292d2bfd1ab5d49df1e52f0cbd7d57c5b1428b3da39b116c3e9a2`.
-- Claude authentication remains unavailable. Human quality evaluation and
+- Claude authentication was unavailable during this earlier run; a later live
+  Claude comparison succeeded. Human quality evaluation and
   controlled live overhead/native-memory behavior remain separate acceptance
   items, not a per-note or per-review approval requirement. All disposable live
   services and the resource sampler were stopped after evidence capture.
@@ -1748,3 +1754,31 @@ Required checks below describe the current increment, not full feature acceptanc
   decision for each still-undecided required scope, and a mixed reused/deferred
   BEGIN keeps a receipt that must be cited for the reused scope. The last full
   verify log is `/private/tmp/bytequay-context-full-verify-cap.log`.
+
+## Live Claude On/Off comparison checkpoint — 2026-09-24
+
+- A synthetic PR review ran with context Off and warm On in separate databases,
+  checkouts and Claude Sonnet/high conversations. Both found the one seeded
+  half-open-window regression with no extra finding. On delivered one learned
+  project note in confirmed packets; neither arm opened a note dynamically.
+  The preserved evidence and limits are in
+  [the review comparison](../evaluation/repository-context-review-compare/README.md).
+- A separate synthetic development investigation used the same frozen source,
+  prompt and model in independent Off and warm-On arms. Both correctly declined
+  a false bug fix, passed two focused tests and left clean worktrees. On had one
+  confirmed 2,348-byte note offer; neither scored arm searched or read a note.
+  A distinct, unscored On task confirmed SEARCH and exact READ of that note,
+  after two rejected extra-parameter attempts. Evidence is in
+  [the development comparison](../evaluation/repository-context-development-compare/README.md).
+- The Claude CLI allowlist now includes the notebook lookup tool only when its
+  task-scoped bridge is registered, with open/resume regression coverage. The
+  full backend `mvn verify` passed 2,892 tests with zero failures, errors or
+  skips when run with local process-group access. The sandboxed attempt could
+  not run process-supervisor tests because the sandbox denied `sysctl`/process
+  group inspection; it is not a product test failure.
+- These two easy pairs show confirmed delivery and correct outcomes, not a
+  measured quality gain. The proposed development oracle is not human-approved.
+  Stale, irrelevant, misleading and history-assisted cases, sustained resource
+  measurements and human judgment remain CP6 acceptance work. The Codex live
+  review attempt was stopped by this host's managed-isolation guard before a
+  model turn; it was excluded from the comparison.

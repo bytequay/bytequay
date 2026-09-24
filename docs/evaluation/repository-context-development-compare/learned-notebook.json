@@ -1,0 +1,371 @@
+{
+  "schemaVersion": 1,
+  "revision": 1,
+  "useInReviews": true,
+  "useInDevelopment": true,
+  "sources": [],
+  "scopes": [
+    {
+      "id": "project",
+      "title": "Project overview",
+      "match": {
+        "kind": "REPOSITORY"
+      },
+      "enabled": true,
+      "preparation": {
+        "attemptId": "3ebdd0a8-faa5-43ff-851f-c638c8a83d80",
+        "inputFingerprint": {
+          "scopeId": "project",
+          "inputs": {
+            "scope-configuration": "cd96139926c4e7b1734eca8fa8888851f805b895af8abac4c74160345018fbdc",
+            "repository-root-layout": "f8baec1155893bc172196bed3be81ea75a8173673e2417ad6cef43cae489a447",
+            "registered-documentation-catalog-remote-content-unchecked": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+            "repository": "101:contextfixture/dev-compare",
+            "retained-source-identities": "1b119af059efec4d8861329f2b5c1894177e2441fd20c244653f6bf833f02700",
+            "git:README.md": "100644 blob b844a6f003407943625f30794e6213b697894e3a",
+            "git:fields.py": "100644 blob 9aa6d5d2607cae68104a650f0742854877624817",
+            "git:resolver.py": "100644 blob 20dd7dd99c6d2d9a22f7c4db0859c5ef93b5f53f",
+            "git:test_contract.py": "100644 blob 6d2ebae81e1c2a758af642641ac9e02f2d9f0d60",
+            "git:window.py": "100644 blob e11b4c6578c724e0ea53df6b60f82be14a4746b1",
+            "git:README": "ABSENT",
+            "git:README.rst": "ABSENT",
+            "git:README.txt": "ABSENT",
+            "git:CONTRIBUTING.md": "ABSENT",
+            "git:ARCHITECTURE.md": "ABSENT",
+            "git:docs": "ABSENT",
+            "git:doc": "ABSENT",
+            "git:documentation": "ABSENT",
+            "git:pom.xml": "ABSENT",
+            "git:build.gradle": "ABSENT",
+            "git:build.gradle.kts": "ABSENT",
+            "git:settings.gradle": "ABSENT",
+            "git:settings.gradle.kts": "ABSENT",
+            "git:gradle.properties": "ABSENT",
+            "git:gradle/libs.versions.toml": "ABSENT",
+            "git:package.json": "ABSENT",
+            "git:package-lock.json": "ABSENT",
+            "git:pnpm-lock.yaml": "ABSENT",
+            "git:yarn.lock": "ABSENT",
+            "git:go.mod": "ABSENT",
+            "git:go.sum": "ABSENT",
+            "git:Cargo.toml": "ABSENT",
+            "git:Cargo.lock": "ABSENT",
+            "git:pyproject.toml": "ABSENT",
+            "git:requirements.txt": "ABSENT",
+            "git:uv.lock": "ABSENT",
+            "git:setup.py": "ABSENT",
+            "git:setup.cfg": "ABSENT",
+            "git:Makefile": "ABSENT",
+            "git:CMakeLists.txt": "ABSENT",
+            "git:WORKSPACE": "ABSENT",
+            "git:WORKSPACE.bazel": "ABSENT",
+            "git:MODULE.bazel": "ABSENT"
+          },
+          "digest": "sha256:6b12bf30c64dd2a6c2ad76c6b4cb6473c6a051d812d9ba06ca99e250579516fb",
+          "gaps": []
+        },
+        "outcome": "READY",
+        "noteIds": [
+          "knowledge:project"
+        ],
+        "checkedReads": [
+          {
+            "id": "context-read:c0b4c4c7-b85c-4b82-a016-cb5fe5273ccd",
+            "reference": {
+              "repositoryId": 101,
+              "repository": {
+                "owner": "contextfixture",
+                "repo": "dev-compare"
+              },
+              "path": "README.md",
+              "commit": "99dac517a7758debe9005eec0b910109c7ce8d32",
+              "kind": "REPOSITORY_FILE"
+            },
+            "blobId": "b844a6f003407943625f30794e6213b697894e3a",
+            "readAt": "2026-09-24T04:14:33.419429Z",
+            "startLine": 1,
+            "endLine": 11,
+            "totalLines": 11,
+            "utf8Bytes": 539,
+            "truncated": false,
+            "evidenceRef": "context-read:c0b4c4c7-b85c-4b82-a016-cb5fe5273ccd",
+            "kind": "REPOSITORY_FILE"
+          },
+          {
+            "id": "context-read:139ab9f7-c745-45e7-ab9e-018e92bd1418",
+            "reference": {
+              "repositoryId": 101,
+              "repository": {
+                "owner": "contextfixture",
+                "repo": "dev-compare"
+              },
+              "path": "fields.py",
+              "commit": "99dac517a7758debe9005eec0b910109c7ce8d32",
+              "kind": "REPOSITORY_FILE"
+            },
+            "blobId": "9aa6d5d2607cae68104a650f0742854877624817",
+            "readAt": "2026-09-24T04:14:33.848043Z",
+            "startLine": 1,
+            "endLine": 13,
+            "totalLines": 13,
+            "utf8Bytes": 442,
+            "truncated": false,
+            "evidenceRef": "context-read:139ab9f7-c745-45e7-ab9e-018e92bd1418",
+            "kind": "REPOSITORY_FILE"
+          },
+          {
+            "id": "context-read:ced71e41-f576-4ad8-96be-1f494608e429",
+            "reference": {
+              "repositoryId": 101,
+              "repository": {
+                "owner": "contextfixture",
+                "repo": "dev-compare"
+              },
+              "path": "resolver.py",
+              "commit": "99dac517a7758debe9005eec0b910109c7ce8d32",
+              "kind": "REPOSITORY_FILE"
+            },
+            "blobId": "20dd7dd99c6d2d9a22f7c4db0859c5ef93b5f53f",
+            "readAt": "2026-09-24T04:14:34.293619Z",
+            "startLine": 1,
+            "endLine": 4,
+            "totalLines": 4,
+            "utf8Bytes": 200,
+            "truncated": false,
+            "evidenceRef": "context-read:ced71e41-f576-4ad8-96be-1f494608e429",
+            "kind": "REPOSITORY_FILE"
+          },
+          {
+            "id": "context-read:080fa2da-bbda-4bdb-b51f-6607cba88e0c",
+            "reference": {
+              "repositoryId": 101,
+              "repository": {
+                "owner": "contextfixture",
+                "repo": "dev-compare"
+              },
+              "path": "test_contract.py",
+              "commit": "99dac517a7758debe9005eec0b910109c7ce8d32",
+              "kind": "REPOSITORY_FILE"
+            },
+            "blobId": "6d2ebae81e1c2a758af642641ac9e02f2d9f0d60",
+            "readAt": "2026-09-24T04:14:34.755710Z",
+            "startLine": 1,
+            "endLine": 23,
+            "totalLines": 23,
+            "utf8Bytes": 788,
+            "truncated": false,
+            "evidenceRef": "context-read:080fa2da-bbda-4bdb-b51f-6607cba88e0c",
+            "kind": "REPOSITORY_FILE"
+          },
+          {
+            "id": "context-read:26876867-82ce-4c55-8990-ee790e4d77d1",
+            "reference": {
+              "repositoryId": 101,
+              "repository": {
+                "owner": "contextfixture",
+                "repo": "dev-compare"
+              },
+              "path": "window.py",
+              "commit": "99dac517a7758debe9005eec0b910109c7ce8d32",
+              "kind": "REPOSITORY_FILE"
+            },
+            "blobId": "e11b4c6578c724e0ea53df6b60f82be14a4746b1",
+            "readAt": "2026-09-24T04:14:35.066632Z",
+            "startLine": 1,
+            "endLine": 2,
+            "totalLines": 2,
+            "utf8Bytes": 71,
+            "truncated": false,
+            "evidenceRef": "context-read:26876867-82ce-4c55-8990-ee790e4d77d1",
+            "kind": "REPOSITORY_FILE"
+          }
+        ],
+        "explanation": "Read the full root tree (5 files) and all five files completely. No registered documentation sources or history references were assigned. The repository is small, so coverage is complete for the baseline commit."
+      },
+      "discoveryEvidenceRef": null
+    }
+  ],
+  "entries": [
+    {
+      "id": "knowledge:project",
+      "kind": "KNOWLEDGE",
+      "scopeId": "project",
+      "title": "dev-compare: window and field contracts (Python)",
+      "summary": "Small dependency-free Python repo defining two contracts: half-open windows [start, end) and an order-preserving Fields index map with a separate visible-names view, plus a resolver that adds a parent offset. Tests run with python3 -B test_contract.py.",
+      "body": "Layout (flat, root only): README.md, window.py, fields.py, resolver.py, test_contract.py.\n\nWindow contract: window.contains(start, end, value) returns start <= value < end. The start is inclusive and the end is exclusive. Adjacent windows must not both accept their shared boundary. The test asserts contains(10,20,10) and contains(10,20,19) are true and contains(10,20,20) is false (message \"END_EXCLUSIVE\").\n\nField contract: Fields(fields) takes an iterable of (name, hidden) pairs and stores them as a tuple in original order, including hidden fields. It builds one immutable MappingProxyType name->index map over all fields, so index_of(name) is stable across repeated calls and raises KeyError for unknown names. visible_names() is a separate filtered tuple of non-hidden names. It is a view only and must never be used as an index namespace.\n\nResolver: resolver.resolve(fields, name, parent_offset) returns (relation_index, hierarchy_index). relation_index is the all-fields index. hierarchy_index is that index plus parent_offset. The current code calls index_of twice rather than reusing relation_index.\n\nTesting: dependency-free unittest in test_contract.py, run with `python3 -B test_contract.py`. Tests cover the window boundaries and a two-field case (hidden then visible) where visible_names() == (\"value\",), index_of(\"value\") == 1 (hidden fields still count), and resolve(fields, \"value\", 3) == (1, 4).\n\nWhen changing code here, preserve the half-open window semantics and keep hidden fields counted in indexes.",
+      "claims": [
+        {
+          "text": "Windows include their start and exclude their end ([start, end)); adjacent windows must not both accept the shared boundary.",
+          "basis": "DOCUMENTED",
+          "sourceIds": [
+            "context-read:c0b4c4c7-b85c-4b82-a016-cb5fe5273ccd",
+            "context-read:26876867-82ce-4c55-8990-ee790e4d77d1"
+          ]
+        },
+        {
+          "text": "window.contains is implemented as start <= value < end and the test asserts the end value is rejected.",
+          "basis": "DOCUMENTED",
+          "sourceIds": [
+            "context-read:26876867-82ce-4c55-8990-ee790e4d77d1",
+            "context-read:080fa2da-bbda-4bdb-b51f-6607cba88e0c"
+          ]
+        },
+        {
+          "text": "Fields keeps original order including hidden fields; index_of reads one immutable map (MappingProxyType) and returns the same index on repeated calls.",
+          "basis": "DOCUMENTED",
+          "sourceIds": [
+            "context-read:c0b4c4c7-b85c-4b82-a016-cb5fe5273ccd",
+            "context-read:139ab9f7-c745-45e7-ab9e-018e92bd1418"
+          ]
+        },
+        {
+          "text": "visible_names is a separate filtered view and is never an index namespace; hidden fields still consume indexes.",
+          "basis": "DOCUMENTED",
+          "sourceIds": [
+            "context-read:c0b4c4c7-b85c-4b82-a016-cb5fe5273ccd",
+            "context-read:139ab9f7-c745-45e7-ab9e-018e92bd1418",
+            "context-read:080fa2da-bbda-4bdb-b51f-6607cba88e0c"
+          ]
+        },
+        {
+          "text": "resolve returns (all-fields index, all-fields index + parent_offset); it calls index_of twice instead of reusing the first result.",
+          "basis": "DOCUMENTED",
+          "sourceIds": [
+            "context-read:ced71e41-f576-4ad8-96be-1f494608e429",
+            "context-read:c0b4c4c7-b85c-4b82-a016-cb5fe5273ccd"
+          ]
+        },
+        {
+          "text": "Tests are dependency-free unittest, run with `python3 -B test_contract.py`; there is no CI config, packaging or contributing guide in the frozen tree.",
+          "basis": "DOCUMENTED",
+          "sourceIds": [
+            "context-read:c0b4c4c7-b85c-4b82-a016-cb5fe5273ccd",
+            "context-read:080fa2da-bbda-4bdb-b51f-6607cba88e0c"
+          ]
+        },
+        {
+          "text": "Limitation: test coverage is minimal (one window case, one field case). Duplicate field names, unknown names and non-integer offsets are untested, and behavior for duplicate names (later index wins in the dict comprehension) is inferred from code, not documented.",
+          "basis": "INFERENCE",
+          "sourceIds": [
+            "context-read:139ab9f7-c745-45e7-ab9e-018e92bd1418",
+            "context-read:080fa2da-bbda-4bdb-b51f-6607cba88e0c"
+          ]
+        }
+      ],
+      "sourceIds": [
+        "context-read:c0b4c4c7-b85c-4b82-a016-cb5fe5273ccd",
+        "context-read:139ab9f7-c745-45e7-ab9e-018e92bd1418",
+        "context-read:ced71e41-f576-4ad8-96be-1f494608e429",
+        "context-read:080fa2da-bbda-4bdb-b51f-6607cba88e0c",
+        "context-read:26876867-82ce-4c55-8990-ee790e4d77d1"
+      ],
+      "origin": "GENERATED",
+      "enabled": true,
+      "version": 1
+    }
+  ],
+  "suppressedKnowledgeIds": [],
+  "sourceEvidence": [
+    {
+      "id": "context-read:c0b4c4c7-b85c-4b82-a016-cb5fe5273ccd",
+      "reference": {
+        "repositoryId": 101,
+        "repository": {
+          "owner": "contextfixture",
+          "repo": "dev-compare"
+        },
+        "path": "README.md",
+        "commit": "99dac517a7758debe9005eec0b910109c7ce8d32",
+        "kind": "REPOSITORY_FILE"
+      },
+      "provenance": "BYTEQUAY_READ monitored baseline 99dac517a7758debe9005eec0b910109c7ce8d32; blob=b844a6f003407943625f30794e6213b697894e3a; lines=1-11/11; readAt=2026-09-24T04:14:33.419429Z; untrusted source; applicability unverified.",
+      "excerpt": "1  # Window and field contracts\n2  \n3  Windows include their start and exclude their end: [start, end).\n4  Adjacent windows must not both accept their shared boundary.\n5  \n6  Fields retain their original order, including hidden fields. index_of\n7  reads one immutable map and returns the same index on repeated calls.\n8  visible_names is a separate filtered view, never an index namespace.\n9  resolve adds the supplied parent-field offset to the all-fields index.\n10  \n11  Run the dependency-free tests with `python3 -B test_contract.py`.\n",
+      "capture": "BYTEQUAY_READ",
+      "retrievedAt": "2026-09-24T04:14:33.419429Z",
+      "contentHash": "b844a6f003407943625f30794e6213b697894e3a",
+      "version": null,
+      "truncated": false
+    },
+    {
+      "id": "context-read:139ab9f7-c745-45e7-ab9e-018e92bd1418",
+      "reference": {
+        "repositoryId": 101,
+        "repository": {
+          "owner": "contextfixture",
+          "repo": "dev-compare"
+        },
+        "path": "fields.py",
+        "commit": "99dac517a7758debe9005eec0b910109c7ce8d32",
+        "kind": "REPOSITORY_FILE"
+      },
+      "provenance": "BYTEQUAY_READ monitored baseline 99dac517a7758debe9005eec0b910109c7ce8d32; blob=9aa6d5d2607cae68104a650f0742854877624817; lines=1-13/13; readAt=2026-09-24T04:14:33.848043Z; untrusted source; applicability unverified.",
+      "excerpt": "1  from types import MappingProxyType\n2  \n3  \n4  class Fields:\n5      def __init__(self, fields):\n6          self._fields = tuple(fields)\n7          self._indexes = MappingProxyType({name: index for index, (name, hidden) in enumerate(self._fields)})\n8  \n9      def index_of(self, name):\n10          return self._indexes[name]\n11  \n12      def visible_names(self):\n13          return tuple(name for name, hidden in self._fields if not hidden)\n",
+      "capture": "BYTEQUAY_READ",
+      "retrievedAt": "2026-09-24T04:14:33.848043Z",
+      "contentHash": "9aa6d5d2607cae68104a650f0742854877624817",
+      "version": null,
+      "truncated": false
+    },
+    {
+      "id": "context-read:ced71e41-f576-4ad8-96be-1f494608e429",
+      "reference": {
+        "repositoryId": 101,
+        "repository": {
+          "owner": "contextfixture",
+          "repo": "dev-compare"
+        },
+        "path": "resolver.py",
+        "commit": "99dac517a7758debe9005eec0b910109c7ce8d32",
+        "kind": "REPOSITORY_FILE"
+      },
+      "provenance": "BYTEQUAY_READ monitored baseline 99dac517a7758debe9005eec0b910109c7ce8d32; blob=20dd7dd99c6d2d9a22f7c4db0859c5ef93b5f53f; lines=1-4/4; readAt=2026-09-24T04:14:34.293619Z; untrusted source; applicability unverified.",
+      "excerpt": "1  def resolve(fields, name, parent_offset):\n2      relation_index = fields.index_of(name)\n3      hierarchy_index = fields.index_of(name) + parent_offset\n4      return relation_index, hierarchy_index\n",
+      "capture": "BYTEQUAY_READ",
+      "retrievedAt": "2026-09-24T04:14:34.293619Z",
+      "contentHash": "20dd7dd99c6d2d9a22f7c4db0859c5ef93b5f53f",
+      "version": null,
+      "truncated": false
+    },
+    {
+      "id": "context-read:080fa2da-bbda-4bdb-b51f-6607cba88e0c",
+      "reference": {
+        "repositoryId": 101,
+        "repository": {
+          "owner": "contextfixture",
+          "repo": "dev-compare"
+        },
+        "path": "test_contract.py",
+        "commit": "99dac517a7758debe9005eec0b910109c7ce8d32",
+        "kind": "REPOSITORY_FILE"
+      },
+      "provenance": "BYTEQUAY_READ monitored baseline 99dac517a7758debe9005eec0b910109c7ce8d32; blob=6d2ebae81e1c2a758af642641ac9e02f2d9f0d60; lines=1-23/23; readAt=2026-09-24T04:14:34.755710Z; untrusted source; applicability unverified.",
+      "excerpt": "1  import unittest\n2  \n3  from fields import Fields\n4  from resolver import resolve\n5  from window import contains\n6  \n7  \n8  class ContractTest(unittest.TestCase):\n9      def test_window_end(self):\n10          self.assertTrue(contains(10, 20, 10))\n11          self.assertTrue(contains(10, 20, 19))\n12          self.assertFalse(contains(10, 20, 20), \"END_EXCLUSIVE\")\n13  \n14      def test_field_indexes(self):\n15          fields = Fields(((\"hidden\", True), (\"value\", False)))\n16          self.assertEqual(fields.visible_names(), (\"value\",))\n17          self.assertEqual(fields.index_of(\"value\"), 1)\n18          self.assertEqual(fields.index_of(\"value\"), 1)\n19          self.assertEqual(resolve(fields, \"value\", 3), (1, 4))\n20  \n21  \n22  if __name__ == \"__main__\":\n23      unittest.main()\n",
+      "capture": "BYTEQUAY_READ",
+      "retrievedAt": "2026-09-24T04:14:34.755710Z",
+      "contentHash": "6d2ebae81e1c2a758af642641ac9e02f2d9f0d60",
+      "version": null,
+      "truncated": false
+    },
+    {
+      "id": "context-read:26876867-82ce-4c55-8990-ee790e4d77d1",
+      "reference": {
+        "repositoryId": 101,
+        "repository": {
+          "owner": "contextfixture",
+          "repo": "dev-compare"
+        },
+        "path": "window.py",
+        "commit": "99dac517a7758debe9005eec0b910109c7ce8d32",
+        "kind": "REPOSITORY_FILE"
+      },
+      "provenance": "BYTEQUAY_READ monitored baseline 99dac517a7758debe9005eec0b910109c7ce8d32; blob=e11b4c6578c724e0ea53df6b60f82be14a4746b1; lines=1-2/2; readAt=2026-09-24T04:14:35.066632Z; untrusted source; applicability unverified.",
+      "excerpt": "1  def contains(start, end, value):\n2      return start <= value < end\n",
+      "capture": "BYTEQUAY_READ",
+      "retrievedAt": "2026-09-24T04:14:35.066632Z",
+      "contentHash": "e11b4c6578c724e0ea53df6b60f82be14a4746b1",
+      "version": null,
+      "truncated": false
+    }
+  ],
+  "activePreparation": null
+}

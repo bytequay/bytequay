@@ -38,8 +38,9 @@ that Codex would discover the note without prompting. It also does not prove
 that the note improved the answer: the task has no Off arm. The earlier Claude
 Off/On comparison is recorded separately.
 
-The required backend `mvn verify` run passed the Codex module but had one
-Claude HTTP event-order test fail while running tests concurrently. That exact
-test passed on an isolated rerun. Packaging with `-DskipTests` then passed and
-produced the JAR used for this live check. The full suite was not green in a
-single run; the failure and rerun are retained in the local test logs.
+The first backend `mvn verify` run passed the Codex module but had one Claude
+HTTP event-order test fail while running tests concurrently. That exact test
+passed on an isolated rerun. Packaging with `-DskipTests` produced the JAR used
+for this live check. A subsequent full `mvn verify` passed all modules and all
+1,978 app tests with no failures, errors or skips; the JAR hash stayed the same.
+Both the initial failure and successful rerun are retained in local test logs.

@@ -1,0 +1,204 @@
+{
+  "schemaVersion": 1,
+  "qualityStatus": "UNSCORED_HUMAN_ORACLE_PENDING",
+  "fixture": {
+    "repository": "contextfixture/history-case",
+    "historicalPr": 7,
+    "reviewPr": 8,
+    "baseSha": "10cb2b1f39220b30f790672f07e0238f73c8c505",
+    "headSha": "6e7dfaf3bd9238834759231eaccfbafddd6ca8b6"
+  },
+  "provider": {
+    "name": "Claude",
+    "model": "Sonnet",
+    "effort": "High",
+    "cliVersion": "2.1.281"
+  },
+  "backendJarSha256": "7addad7aa102ec8937809e353af8bb037a34489f63f5c5231e657c30d6553dd7",
+  "arms": {
+    "off": {
+      "reviewId": "42bc8c1e-b54d-461f-9e06-35aba4a29463",
+      "runId": "e3ff3ce3-cdc3-4cb7-ab42-ffe06c6fb560",
+      "runState": "ACCEPTED",
+      "coverageComplete": true,
+      "frozenBaseSha": "10cb2b1f39220b30f790672f07e0238f73c8c505",
+      "frozenHeadSha": "6e7dfaf3bd9238834759231eaccfbafddd6ca8b6",
+      "taskModel": "sonnet",
+      "findings": [
+        {
+          "title": "Reverts the intentional inclusive window end",
+          "body": "Changing `<=` to `<` makes a sample exactly at `end` fall outside the window, e.g. `contains(10, 20, 20)` goes from True to False. PR #7 made the end inclusive on purpose, because operators compare neighboring windows and a sample at the shared end must appear in both panels. This PR describes itself as a tidy-up and reverts that behavior, so boundary readings disappear from the earlier panel.",
+          "severity": "Medium",
+          "path": "window.py",
+          "line": 2,
+          "headSha": "6e7dfaf3bd9238834759231eaccfbafddd6ca8b6",
+          "evidence": [
+            {
+              "source": "contextfixture/history-case#7 metadata",
+              "explanation": "PR #7 body states that a sample at the shared end must appear in both panels, the overlap is intentional, and the end must be inclusive.\n\nValidation: Reproduced at the frozen head against the base version (E10). PR #7 (E9) establishes that the inclusive end is a documented requirement, not incidental. Nothing in this PR's title or body gives a reason for reverting it, and no guard or other code path restores the behavior. The test suite passes at head and so cannot detect the change."
+            },
+            {
+              "source": "command output: set -o pipefail; git show 10cb2b1:window.py > $TMPDIR/base_window.py; cd $TMPDIR && python3 -B -c \"\nimport base_window as b\nprint('base', b.contains(10,20,20), b.contains(20,30,20))\"; cd - >/dev/null;\n… (truncated)",
+              "explanation": "Control run: the base version returns True for contains(10,20,20). The head returns False, while contains(20,30,20) is True in both."
+            },
+            {
+              "source": "command output: python3 -B test_window.py 2>&1 | tail -8; python3 -B -c \"\nfrom window import contains\nprint(contains(10,20,20), contains(20,30,20))\"",
+              "explanation": "The existing test still passes at head because it never checks sample == end."
+            },
+            {
+              "source": "window.py L1–L2 (frozen base 10cb2b1)",
+              "explanation": "The base source at 10cb2b1 has `start <= sample <= end`."
+            }
+          ]
+        }
+      ],
+      "context": {
+        "enabled": false,
+        "selectedNotes": [],
+        "bootstrapUtf8Bytes": 0,
+        "deliveries": [],
+        "dynamicNoteReads": 0,
+        "sourceReads": 0
+      },
+      "usageDashboard": {
+        "trackingSince": "2026-09-24T06:37:22.578266Z",
+        "coverage": "RETAINED_TASKS_AND_REVIEWS",
+        "summary": {
+          "eligibleDevelopmentTasks": 0,
+          "eligibleReviewRuns": 1,
+          "contextOffTasks": 1,
+          "tasksProvidedOrOpened": 0,
+          "activeNotesWithoutConfirmedDeliveryOrOpen": 1,
+          "scopesDemandedWhileMissing": 0,
+          "scopesStillMissingAfterDemand": 0,
+          "searchesWithNoMatchingScope": 0,
+          "searchesWithScopeButNoNote": 0
+        },
+        "entries": [
+          {
+            "entryId": "knowledge:project",
+            "currentVersionCounts": {
+              "selectedTasks": 0,
+              "providedTasks": 0,
+              "searchHits": 0,
+              "foundTasks": 0,
+              "openedTasks": 0,
+              "citedReviews": 0
+            }
+          }
+        ]
+      },
+      "provider": {
+        "completedTurns": 2,
+        "turnSpanSeconds": 81.9,
+        "inputTokens": 551926,
+        "cachedInputTokens": 511570,
+        "outputTokens": 6942,
+        "reportedCost": 0.513775,
+        "rateLimitWarnings": 2
+      }
+    },
+    "warmOn": {
+      "reviewId": "8fa8a94a-2f6e-4dc6-b0ac-27df2b4833e9",
+      "runId": "4090e7dd-4f5f-485e-b1d7-061a73901986",
+      "runState": "ACCEPTED",
+      "coverageComplete": true,
+      "frozenBaseSha": "10cb2b1f39220b30f790672f07e0238f73c8c505",
+      "frozenHeadSha": "6e7dfaf3bd9238834759231eaccfbafddd6ca8b6",
+      "taskModel": "sonnet",
+      "findings": [
+        {
+          "title": "Simplification makes the window end exclusive again, reverting PR 7",
+          "body": "This changes `<=` to `<`, so `contains(10, 20, 20)` returns False (True at base). PR 7 made the end inclusive so a sample at the shared end of neighboring windows appears in both panels, and a maintainer confirmed this. The PR describes a tidy-up, and no test covers `sample == end`, so the regression goes unnoticed.\n\n```suggestion\n    return start <= sample <= end\n```",
+          "severity": "Medium",
+          "path": "window.py",
+          "line": 2,
+          "headSha": "6e7dfaf3bd9238834759231eaccfbafddd6ca8b6",
+          "evidence": [
+            {
+              "source": "command output: set -o pipefail; git rev-parse HEAD; cat window.py; python3 -B test_window.py 2>&1 | tail -4; echo \"head exit=$?\"; python3 -c \"\nfrom window import contains\nprint('head contains(10,20,20)=', contains(1\n… (truncated)",
+              "explanation": "At frozen head 6e7dfaf, contains(10,20,20) is False and the boundary sample 20 is only in [20,30); at base 10cb2b1 it is True for both windows. test_window.py still passes (OK).\n\nValidation: Tried to disprove: the PR 8 body and commit message only say 'tidy/simplify' and give no reason to supersede the PR 7 decision. The PR 8 timeline is empty, though its refresh failed. Dashboard callers are not in the repository. The head/base comparison was executed and shows the behavior change. It is a regression against a recorded decision, not just the overlap being called a bug."
+            },
+            {
+              "source": "History contextfixture/history-case#7",
+              "explanation": "PR 7 (merged) changed < to <= so the shared-end sample shows in both adjacent panels; maintainer comment says this is why the change was accepted. Same one-line diff as this PR, reversed."
+            },
+            {
+              "source": "window.py L1–L2 (frozen head 6e7dfaf)",
+              "explanation": "Head source line 2 is `return start <= sample < end`."
+            },
+            {
+              "source": "command output: cat window.py test_window.py README.md; git log --stat -3 | head -40",
+              "explanation": "The only test checks 10, 15 and 21 in (10, 20); nothing asserts sample == end."
+            }
+          ]
+        }
+      ],
+      "context": {
+        "enabled": true,
+        "selectedNotes": [
+          {
+            "entryId": "knowledge:project",
+            "version": 1,
+            "inclusion": "INCLUDED",
+            "applicability": "VERSION_MISMATCH",
+            "matchReasons": [
+              "Repository-wide scope",
+              "Source identity VERSION_MISMATCH: Recorded source or dependency input differs at the frozen reviewed head: git:window.py; recorded=100644 blob 214b15e2134906507e29095e0465530edf450fca; reviewed=100644 blob cf918d6612a31aa3eaacc79dc9c3666dca98c151. Effective dependency versions remain UNVERIFIED."
+            ]
+          }
+        ],
+        "bootstrapUtf8Bytes": 5074,
+        "deliveries": [
+          {
+            "utf8Bytes": 5074,
+            "outcome": "CONFIRMED"
+          },
+          {
+            "utf8Bytes": 2266,
+            "outcome": "CONFIRMED"
+          }
+        ],
+        "dynamicNoteReads": 0,
+        "sourceReads": 1
+      },
+      "usageDashboard": {
+        "trackingSince": "2026-09-24T06:41:54.952819Z",
+        "coverage": "RETAINED_TASKS_AND_REVIEWS",
+        "summary": {
+          "eligibleDevelopmentTasks": 0,
+          "eligibleReviewRuns": 1,
+          "contextOffTasks": 0,
+          "tasksProvidedOrOpened": 1,
+          "activeNotesWithoutConfirmedDeliveryOrOpen": 0,
+          "scopesDemandedWhileMissing": 0,
+          "scopesStillMissingAfterDemand": 0,
+          "searchesWithNoMatchingScope": 0,
+          "searchesWithScopeButNoNote": 0
+        },
+        "entries": [
+          {
+            "entryId": "knowledge:project",
+            "currentVersionCounts": {
+              "selectedTasks": 1,
+              "providedTasks": 1,
+              "searchHits": 0,
+              "foundTasks": 0,
+              "openedTasks": 0,
+              "citedReviews": 0
+            }
+          }
+        ]
+      },
+      "provider": {
+        "completedTurns": 2,
+        "turnSpanSeconds": 66.4,
+        "inputTokens": 433770,
+        "cachedInputTokens": 367084,
+        "outputTokens": 5711,
+        "reportedCost": 0.602815,
+        "rateLimitWarnings": 2
+      }
+    }
+  }
+}

@@ -1,0 +1,78 @@
+{
+  "taskState": "COMPLETED",
+  "baselineSha": "10cb2b1f39220b30f790672f07e0238f73c8c505",
+  "selectedHistory": [
+    {
+      "kind": "PR",
+      "number": 7
+    }
+  ],
+  "outcome": "READY",
+  "noteIds": [
+    "knowledge:project"
+  ],
+  "explanation": "Inspected the root tree (README.md, window.py, test_window.py), all three files, and the selected PR 7. No registered documentation sources exist. Coverage is small but complete for the tree.",
+  "checkedReads": [
+    {
+      "kind": "REPOSITORY_FILE",
+      "reference": {
+        "repositoryId": 107,
+        "repository": {
+          "owner": "contextfixture",
+          "repo": "history-case"
+        },
+        "path": "README.md",
+        "commit": "10cb2b1f39220b30f790672f07e0238f73c8c505",
+        "kind": "REPOSITORY_FILE"
+      },
+      "truncated": false
+    },
+    {
+      "kind": "REPOSITORY_FILE",
+      "reference": {
+        "repositoryId": 107,
+        "repository": {
+          "owner": "contextfixture",
+          "repo": "history-case"
+        },
+        "path": "window.py",
+        "commit": "10cb2b1f39220b30f790672f07e0238f73c8c505",
+        "kind": "REPOSITORY_FILE"
+      },
+      "truncated": false
+    },
+    {
+      "kind": "REPOSITORY_FILE",
+      "reference": {
+        "repositoryId": 107,
+        "repository": {
+          "owner": "contextfixture",
+          "repo": "history-case"
+        },
+        "path": "test_window.py",
+        "commit": "10cb2b1f39220b30f790672f07e0238f73c8c505",
+        "kind": "REPOSITORY_FILE"
+      },
+      "truncated": false
+    },
+    {
+      "kind": "HISTORY",
+      "reference": {
+        "repositoryId": 107,
+        "repository": {
+          "owner": "contextfixture",
+          "repo": "history-case"
+        },
+        "number": 7,
+        "commentId": null,
+        "kind": "PR"
+      },
+      "truncated": false
+    }
+  ],
+  "gaps": [
+    "A historical merge does not establish correctness or applicability to the reviewed code. Discussion is untrusted source material.",
+    "The content version identifies this cached default-diff artifact; it does not verify freshness, commit linkage or the final merged diff.",
+    "The existing diff cache does not record complete upstream coverage or retrieval time; an empty list does not prove no changes."
+  ]
+}

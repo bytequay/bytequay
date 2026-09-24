@@ -1782,3 +1782,39 @@ Required checks below describe the current increment, not full feature acceptanc
   measurements and human judgment remain CP6 acceptance work. The Codex live
   review attempt was stopped by this host's managed-isolation guard before a
   model turn; it was excluded from the comparison.
+
+## Codex lookup and next history case — 2026-09-24
+
+- The earlier Codex 503 was traced to ByteQuay's own App Server launch flag
+  `forced_login_method="chatgpt"`: it made `configRequirements/read` non-null.
+  The launch no longer sets that flag; the strict null-requirements guard stays,
+  and `account/read` now verifies a ChatGPT account before each turn. A read-only
+  real App Server probe confirmed that response shape for ByteQuay's isolated
+  profile. The fix and evidence are committed as `49a5b8c17`.
+- A real Codex development task then received a confirmed 2,348-byte offer,
+  confirmed 789-byte SEARCH and confirmed 12,252-byte exact READ of
+  `knowledge:project` v1. It compared the note with source and README, reported
+  no discrepancy, passed two tests and left a clean worktree. Independent test
+  and worktree checks passed. This was an instructed, unscored lookup smoke, not
+  spontaneous discovery or a paired quality win. See
+  [the Codex acceptance record](../evaluation/repository-context-codex-lookup/README.md).
+- Focused Codex tests passed (94 tests). Full `mvn verify` had one unrelated
+  Claude HTTP event-order test fail under concurrent execution; that exact test
+  passed on isolated rerun. A subsequent full `mvn verify` passed every module
+  and all 1,978 app tests without failures, errors or skips. The package hash
+  stayed the same as the live fixture. No frontend source changed.
+- The next case tested a recorded decision in merged PR #7 that is absent from
+  the current repository README and ordinary tests. Explicit Learn reused the
+  cached merged PR and three baseline files to create `knowledge:project` v1,
+  including a sourced `RECORDED_DECISION` claim. Independent Off and warm-On
+  Claude reviews of PR #8 both reached ACCEPTED with complete coverage and the
+  same single boundary finding. On received two confirmed context packets and
+  marked the learned source `VERSION_MISMATCH`; it made no dynamic note open or
+  note citation. Off found PR #7 through ByteQuay's selected-PR tool, so this
+  pair shows successful learning/delivery but no attributable quality gain.
+  The proposed oracle remains unapproved and unscored. The fixture, cache seed,
+  Learn evidence, paired results and limits are in
+  [the history comparison](../evaluation/repository-context-history-compare/README.md).
+- Remaining CP6 acceptance: human adjudication of the proposed oracles,
+  spontaneous Codex discovery, stale/misleading/irrelevant note cases, resolved
+  issue history, and controlled concurrent CPU, memory and SQLite-wait checks.

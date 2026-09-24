@@ -1,0 +1,25 @@
+{
+  "status": "UNSCORED_FIXTURE_SETUP",
+  "attempts": [
+    {
+      "step": "Initial explicit Learn",
+      "outcome": "FAILED_BEFORE_TASK_LAUNCH",
+      "reason": "The workspace Git origin did not match its seeded clone URL. Both were aligned to the disposable local bare remote before retry."
+    },
+    {
+      "step": "Explicit Learn retry",
+      "outcome": "COMPLETED_READY",
+      "detail": "Generated knowledge:project v1 from three baseline files and cached merged PR #7."
+    },
+    {
+      "step": "Split-arm startup recovery",
+      "outcome": "NON_BLOCKING_WARNING",
+      "reason": "A copied, completed Learn turn had a provider-launch marker tied to the source runtime. That marker alone was removed from each isolated arm."
+    },
+    {
+      "step": "Fake GitHub metadata synchronization",
+      "outcome": "EXPECTED_404_FALLBACK",
+      "reason": "The fake endpoint intentionally did not serve PR refresh or repository activity requests; the seeded local caches remained available."
+    }
+  ]
+}

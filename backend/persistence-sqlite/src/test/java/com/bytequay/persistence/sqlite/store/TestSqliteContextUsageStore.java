@@ -15,7 +15,9 @@ package com.bytequay.persistence.sqlite.store;
 
 import com.bytequay.core.context.ContextEntryKind;
 import com.bytequay.core.context.ContextUsageEvent;
+import com.bytequay.persistence.sqlite.entity.AppSettingEntity;
 import com.google.common.collect.ImmutableList;
+import jakarta.persistence.EntityManager;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.test.context.DynamicPropertyRegistry;
@@ -39,6 +41,9 @@ class TestSqliteContextUsageStore
 
     @Autowired
     private SqliteContextUsageStore store;
+
+    @Autowired
+    private EntityManager entities;
 
     @DynamicPropertySource
     static void configureDatabase(DynamicPropertyRegistry registry)
@@ -117,6 +122,20 @@ class TestSqliteContextUsageStore
         assertThat(store.listTask("workspace-b", "task-1", 2)).hasSize(1);
         assertThat(store.listTask("workspace-a", "other-task", 2)).isEmpty();
         assertThatThrownBy(() -> store.listTask("workspace-a", "task-1", 1002)).isInstanceOf(IllegalArgumentException.class);
+    }
+
+    @Test
+    void recordingUsageDoesNotDetachOtherManagedState()
+    {
+        AppSettingEntity setting = new AppSettingEntity("outer.transaction.setting", "before");
+        entities.persist(setting);
+
+        store.record(event("workspace-a", ContextUsageEvent.Stage.FOUND, ContextUsageEvent.Delivery.PREPARED));
+        setting.setValue("after");
+        entities.flush();
+        entities.clear();
+
+        assertThat(entities.find(AppSettingEntity.class, "outer.transaction.setting").getValue()).isEqualTo("after");
     }
 
     private static ContextUsageEvent event(String workspace, ContextUsageEvent.Stage stage, ContextUsageEvent.Delivery delivery)

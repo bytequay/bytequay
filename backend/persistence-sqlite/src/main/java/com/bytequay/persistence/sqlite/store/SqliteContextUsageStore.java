@@ -16,20 +16,21 @@ package com.bytequay.persistence.sqlite.store;
 import com.bytequay.core.context.ContextEntryKind;
 import com.bytequay.core.context.ContextUsageEvent;
 import com.bytequay.core.store.ContextUsageStore;
-import com.google.common.collect.ImmutableList;
+import com.bytequay.persistence.sqlite.entity.AppSettingEntity;
+import com.bytequay.persistence.sqlite.repository.AppSettingJpaRepository;
 import com.google.common.hash.Hashing;
-import org.springframework.jdbc.core.JdbcTemplate;
-import org.springframework.jdbc.core.RowCallbackHandler;
+import jakarta.persistence.EntityManager;
+import jakarta.persistence.Tuple;
+import jakarta.persistence.TypedQuery;
 import org.springframework.stereotype.Repository;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.nio.charset.StandardCharsets;
-import java.sql.ResultSet;
-import java.sql.SQLException;
 import java.time.Instant;
 import java.util.List;
 import java.util.Optional;
 import java.util.function.Consumer;
+import java.util.stream.Stream;
 
 import static com.google.common.base.Preconditions.checkArgument;
 import static com.google.common.base.Preconditions.checkState;
@@ -41,15 +42,19 @@ public class SqliteContextUsageStore
         implements ContextUsageStore
 {
     private static final int ACTIVITY_PAGE_SIZE = 20;
-    private static final String COLUMNS = "workspace_id, task_id, turn_id, review_run_id, task_kind, stage, delivery, receipt_ref, "
-            + "entry_id, entry_version, entry_kind, scope_id, entry_title, observed_preparation, context_enabled, occurred_at_ms";
+    // Scalar reads stay current after bulk delivery updates and do not retain every fact during aggregation.
+    private static final String FACTS = "SELECT f.workspaceId, f.taskId, f.turnId, f.reviewRunId, f.taskKind, f.stage, f.delivery, "
+            + "f.receiptRef, f.entryId, f.entryVersion, f.entryKind, f.scopeId, f.entryTitle, f.observedPreparation, "
+            + "f.contextEnabled, f.occurredAtMillis FROM ContextUsageFactEntity f";
     private static final String TRACKING_PREFIX = "workspace.contextUsageTrackingSince.";
 
-    private final JdbcTemplate jdbc;
+    private final EntityManager entities;
+    private final AppSettingJpaRepository settings;
 
-    public SqliteContextUsageStore(JdbcTemplate jdbc)
+    public SqliteContextUsageStore(EntityManager entities, AppSettingJpaRepository settings)
     {
-        this.jdbc = requireNonNull(jdbc, "jdbc is null");
+        this.entities = requireNonNull(entities, "entities is null");
+        this.settings = requireNonNull(settings, "settings is null");
     }
 
     @Override
@@ -57,15 +62,12 @@ public class SqliteContextUsageStore
     public void record(ContextUsageEvent event)
     {
         requireNonNull(event, "event is null");
-        if (event.stage() == ContextUsageEvent.Stage.ELIGIBLE) {
-            jdbc.update("INSERT OR IGNORE INTO app_settings (setting_key, setting_value) VALUES (?, ?)",
-                    TRACKING_PREFIX + event.workspaceId(), event.occurredAt().toString());
-        }
         String id = digest(identity(event));
         String payload = digest(payload(event));
         ContextUsageEvent.Note note = event.note().orElse(null);
         ContextUsageEvent.Scope scope = event.scope().orElse(null);
-        int changed = jdbc.update("""
+        // One SQLite upsert keeps retries atomic across concurrent task workers.
+        int changed = entities.createNativeQuery("""
                 INSERT INTO context_usage_fact (id, workspace_id, task_id, turn_id, review_run_id, task_kind, stage, delivery, receipt_ref,
                     entry_id, entry_version, entry_kind, scope_id, entry_title, observed_preparation, context_enabled, occurred_at_ms, payload_digest)
                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
@@ -73,12 +75,33 @@ public class SqliteContextUsageStore
                     WHEN context_usage_fact.delivery = 'CONFIRMED' OR excluded.delivery = 'PREPARED' THEN context_usage_fact.delivery
                     ELSE excluded.delivery END
                 WHERE context_usage_fact.payload_digest = excluded.payload_digest
-                """, id, event.workspaceId(), event.taskId(), event.turnId().orElse(null), event.reviewRunId().orElse(null), event.taskKind().name(),
-                event.stage().name(), event.delivery().name(), event.receiptRef(), note == null ? null : note.id(), note == null ? null : note.version(),
-                note == null ? null : note.kind().name(), note == null ? scope == null ? null : scope.id() : note.scopeId(),
-                note == null ? null : note.title(), scope == null ? null : scope.preparation().name(), event.contextEnabled().orElse(null),
-                event.occurredAt().toEpochMilli(), payload);
+                """)
+                .setParameter(1, id)
+                .setParameter(2, event.workspaceId())
+                .setParameter(3, event.taskId())
+                .setParameter(4, event.turnId().orElse(null))
+                .setParameter(5, event.reviewRunId().orElse(null))
+                .setParameter(6, event.taskKind().name())
+                .setParameter(7, event.stage().name())
+                .setParameter(8, event.delivery().name())
+                .setParameter(9, event.receiptRef())
+                .setParameter(10, note == null ? null : note.id())
+                .setParameter(11, note == null ? null : note.version())
+                .setParameter(12, note == null ? null : note.kind().name())
+                .setParameter(13, note == null ? scope == null ? null : scope.id() : note.scopeId())
+                .setParameter(14, note == null ? null : note.title())
+                .setParameter(15, scope == null ? null : scope.preparation().name())
+                .setParameter(16, event.contextEnabled().orElse(null))
+                .setParameter(17, event.occurredAt().toEpochMilli())
+                .setParameter(18, payload)
+                .executeUpdate();
         checkState(changed == 1, "Context usage receipt identity was reused with different content");
+        if (event.stage() == ContextUsageEvent.Stage.ELIGIBLE) {
+            String key = TRACKING_PREFIX + event.workspaceId();
+            if (!settings.existsById(key)) {
+                settings.save(new AppSettingEntity(key, event.occurredAt().toString()));
+            }
+        }
     }
 
     @Override
@@ -99,8 +122,7 @@ public class SqliteContextUsageStore
     @Transactional(readOnly = true)
     public Optional<Instant> trackingSince(String workspaceId)
     {
-        return jdbc.query("SELECT setting_value FROM app_settings WHERE setting_key = ?", rs -> rs.next() ? Optional.of(Instant.parse(rs.getString(1))) : Optional.empty(),
-                TRACKING_PREFIX + requireText(workspaceId));
+        return settings.findById(TRACKING_PREFIX + requireText(workspaceId)).map(setting -> Instant.parse(setting.getValue()));
     }
 
     @Override
@@ -108,9 +130,12 @@ public class SqliteContextUsageStore
     public List<ContextUsageEvent> listTask(String workspaceId, String taskId, int limit)
     {
         checkArgument(limit >= 1 && limit <= 1001, "Task usage display limit is out of range");
-        return ImmutableList.copyOf(jdbc.query("SELECT " + COLUMNS + " FROM context_usage_fact WHERE workspace_id = ? AND task_id = ? "
-                        + "ORDER BY occurred_at_ms DESC, id DESC LIMIT ?", (row, ignored) -> event(row),
-                requireText(workspaceId), requireText(taskId), limit));
+        return entities.createQuery(FACTS + " WHERE f.workspaceId = :workspace AND f.taskId = :task "
+                        + "ORDER BY f.occurredAtMillis DESC, f.id DESC", Tuple.class)
+                .setParameter("workspace", requireText(workspaceId))
+                .setParameter("task", requireText(taskId))
+                .setMaxResults(limit)
+                .getResultList().stream().map(SqliteContextUsageStore::event).toList();
     }
 
     @Override
@@ -119,14 +144,12 @@ public class SqliteContextUsageStore
     {
         requireNonNull(since, "since is null");
         requireNonNull(consumer, "consumer is null");
-        String sql = "SELECT " + COLUMNS + " FROM context_usage_fact WHERE workspace_id = ?"
-                + (since.isPresent() ? " AND occurred_at_ms >= ?" : "") + " ORDER BY occurred_at_ms, id";
-        RowCallbackHandler handler = rs -> consumer.accept(event(rs));
-        if (since.isPresent()) {
-            jdbc.query(sql, handler, requireText(workspaceId), since.orElseThrow().toEpochMilli());
-        }
-        else {
-            jdbc.query(sql, handler, requireText(workspaceId));
+        TypedQuery<Tuple> query = entities.createQuery(FACTS + " WHERE f.workspaceId = :workspace"
+                        + (since.isPresent() ? " AND f.occurredAtMillis >= :since" : "") + " ORDER BY f.occurredAtMillis, f.id", Tuple.class)
+                .setParameter("workspace", requireText(workspaceId));
+        since.ifPresent(value -> query.setParameter("since", value.toEpochMilli()));
+        try (Stream<Tuple> rows = query.getResultStream()) {
+            rows.map(SqliteContextUsageStore::event).forEach(consumer);
         }
     }
 
@@ -135,10 +158,15 @@ public class SqliteContextUsageStore
     public Optional<ContextUsageEvent.Note> findSelectedNote(String workspaceId, String reviewRunId, String entryId, long version)
     {
         checkArgument(version > 0, "note version must be positive");
-        return jdbc.query("SELECT " + COLUMNS + " FROM context_usage_fact WHERE workspace_id = ? AND review_run_id = ? "
-                        + "AND entry_id = ? AND entry_version = ? AND stage = 'SELECTED' LIMIT 1",
-                rs -> rs.next() ? event(rs).note() : Optional.empty(),
-                requireText(workspaceId), requireText(reviewRunId), requireText(entryId), version);
+        return entities.createQuery(FACTS + " WHERE f.workspaceId = :workspace AND f.reviewRunId = :run "
+                        + "AND f.entryId = :entry AND f.entryVersion = :version AND f.stage = :stage", Tuple.class)
+                .setParameter("workspace", requireText(workspaceId))
+                .setParameter("run", requireText(reviewRunId))
+                .setParameter("entry", requireText(entryId))
+                .setParameter("version", version)
+                .setParameter("stage", ContextUsageEvent.Stage.SELECTED)
+                .setMaxResults(1)
+                .getResultList().stream().findFirst().flatMap(row -> event(row).note());
     }
 
     @Override
@@ -147,14 +175,10 @@ public class SqliteContextUsageStore
     {
         checkPage(page);
         requireNonNull(since, "since is null");
-        String sql = "SELECT " + COLUMNS + " FROM context_usage_fact WHERE workspace_id = ? AND entry_id = ?"
-                + (since.isPresent() ? " AND occurred_at_ms >= ?" : "") + " ORDER BY occurred_at_ms DESC, id DESC LIMIT ? OFFSET ?";
-        int offset = Math.multiplyExact(page, ACTIVITY_PAGE_SIZE);
-        if (since.isPresent()) {
-            return ImmutableList.copyOf(jdbc.query(sql, (rs, row) -> event(rs), requireText(workspaceId), requireText(entryId),
-                    since.orElseThrow().toEpochMilli(), ACTIVITY_PAGE_SIZE, offset));
-        }
-        return ImmutableList.copyOf(jdbc.query(sql, (rs, row) -> event(rs), requireText(workspaceId), requireText(entryId), ACTIVITY_PAGE_SIZE, offset));
+        return activitiesQuery(workspaceId, entryId, since)
+                .setFirstResult(Math.multiplyExact(page, ACTIVITY_PAGE_SIZE))
+                .setMaxResults(ACTIVITY_PAGE_SIZE)
+                .getResultList().stream().map(SqliteContextUsageStore::event).toList();
     }
 
     @Override
@@ -163,36 +187,48 @@ public class SqliteContextUsageStore
     {
         checkPage(page);
         requireNonNull(since, "since is null");
-        String sql = "SELECT EXISTS (SELECT 1 FROM context_usage_fact WHERE workspace_id = ? AND entry_id = ?"
-                + (since.isPresent() ? " AND occurred_at_ms >= ?" : "") + " LIMIT 1 OFFSET ?)";
-        int offset = Math.multiplyExact(page + 1, ACTIVITY_PAGE_SIZE);
-        if (since.isPresent()) {
-            return Boolean.TRUE.equals(jdbc.queryForObject(sql, Boolean.class, requireText(workspaceId), requireText(entryId), since.orElseThrow().toEpochMilli(), offset));
-        }
-        return Boolean.TRUE.equals(jdbc.queryForObject(sql, Boolean.class, requireText(workspaceId), requireText(entryId), offset));
+        return !activitiesQuery(workspaceId, entryId, since)
+                .setFirstResult(Math.multiplyExact(page + 1, ACTIVITY_PAGE_SIZE))
+                .setMaxResults(1)
+                .getResultList().isEmpty();
+    }
+
+    private TypedQuery<Tuple> activitiesQuery(String workspaceId, String entryId, Optional<Instant> since)
+    {
+        TypedQuery<Tuple> query = entities.createQuery(FACTS + " WHERE f.workspaceId = :workspace AND f.entryId = :entry"
+                        + (since.isPresent() ? " AND f.occurredAtMillis >= :since" : "") + " ORDER BY f.occurredAtMillis DESC, f.id DESC",
+                Tuple.class)
+                .setParameter("workspace", requireText(workspaceId))
+                .setParameter("entry", requireText(entryId));
+        since.ifPresent(value -> query.setParameter("since", value.toEpochMilli()));
+        return query;
+    }
+
+    private static ContextUsageEvent event(Tuple row)
+    {
+        String entryId = row.get(8, String.class);
+        String scopeId = row.get(11, String.class);
+        ContextUsageEvent.Preparation preparation = row.get(13, ContextUsageEvent.Preparation.class);
+        return new ContextUsageEvent(row.get(0, String.class), row.get(1, String.class), Optional.ofNullable(row.get(2, String.class)),
+                Optional.ofNullable(row.get(3, String.class)), row.get(4, ContextUsageEvent.TaskKind.class),
+                row.get(5, ContextUsageEvent.Stage.class), row.get(6, ContextUsageEvent.Delivery.class), row.get(7, String.class),
+                entryId == null ? Optional.empty() : Optional.of(new ContextUsageEvent.Note(entryId, row.get(9, Long.class),
+                        row.get(10, ContextEntryKind.class), scopeId, row.get(12, String.class))),
+                preparation == null ? Optional.empty() : Optional.of(new ContextUsageEvent.Scope(scopeId, preparation)),
+                Optional.ofNullable(row.get(14, Boolean.class)), Instant.ofEpochMilli(row.get(15, Long.class)));
     }
 
     private void delivery(String workspaceId, String receiptRef, ContextUsageEvent.Stage stage, ContextUsageEvent.Delivery value)
     {
         requireNonNull(stage, "stage is null");
-        jdbc.update("UPDATE context_usage_fact SET delivery = ? WHERE workspace_id = ? AND receipt_ref = ? AND stage = ? AND delivery <> 'CONFIRMED'",
-                value.name(), requireText(workspaceId), requireText(receiptRef), stage.name());
-    }
-
-    private static ContextUsageEvent event(ResultSet row)
-            throws SQLException
-    {
-        String entryId = row.getString("entry_id");
-        String scopeId = row.getString("scope_id");
-        String preparation = row.getString("observed_preparation");
-        Object enabled = row.getObject("context_enabled");
-        return new ContextUsageEvent(row.getString("workspace_id"), row.getString("task_id"), Optional.ofNullable(row.getString("turn_id")),
-                Optional.ofNullable(row.getString("review_run_id")), ContextUsageEvent.TaskKind.valueOf(row.getString("task_kind")),
-                ContextUsageEvent.Stage.valueOf(row.getString("stage")), ContextUsageEvent.Delivery.valueOf(row.getString("delivery")),
-                row.getString("receipt_ref"), entryId == null ? Optional.empty() : Optional.of(new ContextUsageEvent.Note(entryId,
-                row.getLong("entry_version"), ContextEntryKind.valueOf(row.getString("entry_kind")), scopeId, row.getString("entry_title"))),
-                preparation == null ? Optional.empty() : Optional.of(new ContextUsageEvent.Scope(scopeId, ContextUsageEvent.Preparation.valueOf(preparation))),
-                enabled == null ? Optional.empty() : Optional.of(((Number) enabled).intValue() != 0), Instant.ofEpochMilli(row.getLong("occurred_at_ms")));
+        entities.createQuery("UPDATE ContextUsageFactEntity SET delivery = :value WHERE workspaceId = :workspace "
+                        + "AND receiptRef = :receipt AND stage = :stage AND delivery <> :confirmed")
+                .setParameter("value", value)
+                .setParameter("workspace", requireText(workspaceId))
+                .setParameter("receipt", requireText(receiptRef))
+                .setParameter("stage", stage)
+                .setParameter("confirmed", ContextUsageEvent.Delivery.CONFIRMED)
+                .executeUpdate();
     }
 
     private static String identity(ContextUsageEvent event)

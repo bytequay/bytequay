@@ -24,6 +24,7 @@ import com.bytequay.core.ci.CiAutofixAttempt;
 import com.bytequay.core.ci.CiAutofixAttemptId;
 import com.bytequay.core.ci.CiAutofixRun;
 import com.bytequay.core.ci.CiAutofixRunId;
+import com.bytequay.core.context.ContextUsageEvent;
 import com.bytequay.core.domain.PullRequestRef;
 import com.bytequay.core.domain.RecentText;
 import com.bytequay.core.domain.RepoRef;
@@ -84,6 +85,9 @@ class TestSqliteWorkspaceStore
 
     @Autowired
     private SqliteAppSettingsStore settings;
+
+    @Autowired
+    private SqliteContextUsageStore usage;
 
     @DynamicPropertySource
     static void configureDatabase(DynamicPropertyRegistry registry)
@@ -184,6 +188,25 @@ class TestSqliteWorkspaceStore
 
         store.delete(workspace.id());
         assertThat(settings.get(key)).isEmpty();
+    }
+
+    @Test
+    void deletionRemovesOnlyTheOwnedUsageFactsAndTrackingMarker()
+    {
+        Workspace removed = store.createOrGet(direct("usage-removed", 100, 0));
+        Workspace retained = store.createOrGet(direct("usage-retained", 101, 1));
+        for (Workspace workspace : ImmutableList.of(removed, retained)) {
+            usage.record(new ContextUsageEvent(workspace.id(), "task-" + workspace.id(), Optional.of("turn-1"), Optional.empty(),
+                    ContextUsageEvent.TaskKind.DEVELOPMENT, ContextUsageEvent.Stage.ELIGIBLE, ContextUsageEvent.Delivery.CONFIRMED,
+                    "turn-1", Optional.empty(), Optional.empty(), Optional.of(true), NOW));
+        }
+
+        store.delete(removed.id());
+
+        assertThat(usage.trackingSince(removed.id())).isEmpty();
+        assertThat(usage.listTask(removed.id(), "task-" + removed.id(), 1)).isEmpty();
+        assertThat(usage.trackingSince(retained.id())).contains(NOW);
+        assertThat(usage.listTask(retained.id(), "task-" + retained.id(), 1)).hasSize(1);
     }
 
     @Test

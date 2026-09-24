@@ -73,6 +73,7 @@ import com.bytequay.agent.spi.DevelopmentResultReport;
 import com.bytequay.agent.spi.ProviderTurnRef;
 import com.bytequay.agent.spi.RunningTurn;
 import com.bytequay.core.context.ContextUsageEvent;
+import com.bytequay.core.context.DevelopmentContextReceipt;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
 import jakarta.persistence.EntityManager;
@@ -116,6 +117,9 @@ class TestSqliteAgentStores
 
     @Autowired
     private SqliteContextUsageStore usageStore;
+
+    @Autowired
+    private SqliteDevelopmentContextReceiptStore contextReceipts;
 
     @Autowired
     private SqliteAgentTurnStore turnStore;
@@ -800,6 +804,9 @@ class TestSqliteAgentStores
         usageStore.record(new ContextUsageEvent("workspace-a", task.id().toString(), Optional.of(turn.id().toString()), Optional.empty(),
                 ContextUsageEvent.TaskKind.DEVELOPMENT, ContextUsageEvent.Stage.ELIGIBLE, ContextUsageEvent.Delivery.CONFIRMED,
                 "context-eligible:" + turn.id(), Optional.empty(), Optional.empty(), Optional.of(true), now));
+        DevelopmentContextReceipt receipt = new DevelopmentContextReceipt(task.id().toString(), turn.id().toString(), "search:one",
+                "context-search:one", DevelopmentContextReceipt.Kind.SEARCH, "request", "{\"hits\":[]}", "payload", now);
+        contextReceipts.insert(receipt);
         entityManager.clear();
 
         taskStore.delete(task.id());
@@ -812,6 +819,7 @@ class TestSqliteAgentStores
                     .as(table).isZero();
         }
         assertThat(launchStore.list()).extracting(AgentProcessLaunch::launchId).containsExactly("launch-other");
+        assertThat(contextReceipts.find(task.id().toString(), turn.id().toString(), "search:one")).isEmpty();
         assertThat(taskStore.find(other.id())).isPresent();
 
         taskStore.delete(task.id());

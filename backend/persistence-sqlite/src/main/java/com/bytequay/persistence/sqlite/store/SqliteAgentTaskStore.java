@@ -32,8 +32,8 @@ import com.bytequay.persistence.sqlite.repository.AgentQueuedInputJpaRepository;
 import com.bytequay.persistence.sqlite.repository.AgentTaskJpaRepository;
 import com.bytequay.persistence.sqlite.repository.AgentTurnJpaRepository;
 import com.google.common.collect.ImmutableList;
+import jakarta.persistence.EntityManager;
 import org.springframework.data.domain.PageRequest;
-import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Repository;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -64,7 +64,7 @@ public class SqliteAgentTaskStore
     private final AgentInputDeliveryJpaRepository deliveries;
     private final AgentEventOutboxJpaRepository outbox;
     private final AgentProcessLaunchJpaRepository launches;
-    private final JdbcTemplate jdbc;
+    private final EntityManager entities;
 
     public SqliteAgentTaskStore(
             AgentTaskJpaRepository repository,
@@ -74,7 +74,7 @@ public class SqliteAgentTaskStore
             AgentInputDeliveryJpaRepository deliveries,
             AgentEventOutboxJpaRepository outbox,
             AgentProcessLaunchJpaRepository launches,
-            JdbcTemplate jdbc)
+            EntityManager entities)
     {
         this.repository = requireNonNull(repository, "repository is null");
         this.turns = requireNonNull(turns, "turns is null");
@@ -83,7 +83,7 @@ public class SqliteAgentTaskStore
         this.deliveries = requireNonNull(deliveries, "deliveries is null");
         this.outbox = requireNonNull(outbox, "outbox is null");
         this.launches = requireNonNull(launches, "launches is null");
-        this.jdbc = requireNonNull(jdbc, "jdbc is null");
+        this.entities = requireNonNull(entities, "entities is null");
     }
 
     @Override
@@ -229,16 +229,16 @@ public class SqliteAgentTaskStore
     {
         requireNonNull(taskId, "taskId is null");
         String id = taskId.toString();
-        if (Boolean.TRUE.equals(jdbc.queryForObject(
-                "SELECT EXISTS (SELECT 1 FROM branch_rebase WHERE agent_task_id = ? AND terminal_at IS NULL)", Boolean.class, id))) {
+        if (entities.createQuery("SELECT COUNT(rebase) FROM BranchRebaseEntity rebase WHERE rebase.agentTaskId = :taskId AND rebase.terminalAt IS NULL", Long.class)
+                .setParameter("taskId", id).getSingleResult() > 0) {
             throw new AgentConflictException("Task has an active branch rebase: " + taskId);
         }
-        jdbc.update("DELETE FROM branch_rebase WHERE agent_task_id = ?", id);
-        jdbc.update("DELETE FROM recent_touch WHERE item_key = ?", "task:" + id);
-        jdbc.update("DELETE FROM recent_text WHERE item_key = ?", "task:" + id);
-        jdbc.update("DELETE FROM local_review_thread WHERE task_id = ?", id);
-        jdbc.update("DELETE FROM context_usage_fact WHERE task_id = ?", id);
-        jdbc.update("DELETE FROM development_context_receipt WHERE task_id = ?", id);
+        entities.createQuery("DELETE FROM BranchRebaseEntity rebase WHERE rebase.agentTaskId = :taskId").setParameter("taskId", id).executeUpdate();
+        entities.createQuery("DELETE FROM RecentTouchEntity touch WHERE touch.itemKey = :itemKey").setParameter("itemKey", "task:" + id).executeUpdate();
+        entities.createQuery("DELETE FROM RecentTextEntity text WHERE text.itemKey = :itemKey").setParameter("itemKey", "task:" + id).executeUpdate();
+        entities.createQuery("DELETE FROM LocalReviewThreadEntity thread WHERE thread.taskId = :taskId").setParameter("taskId", id).executeUpdate();
+        entities.createQuery("DELETE FROM ContextUsageFactEntity fact WHERE fact.taskId = :taskId").setParameter("taskId", id).executeUpdate();
+        entities.createQuery("DELETE FROM DevelopmentContextReceiptEntity receipt WHERE receipt.taskId = :taskId").setParameter("taskId", id).executeUpdate();
         // A launch names its owner, the task or one of its turns; nothing else ties it to the task.
         List<String> owners = Stream.concat(Stream.of(id), turns.findByTaskIdOrderByCreatedAtAsc(id).stream().map(AgentTurnEntity::getId))
                 .collect(toImmutableList());

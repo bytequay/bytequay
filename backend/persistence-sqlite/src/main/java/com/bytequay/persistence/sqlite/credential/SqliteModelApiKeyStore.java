@@ -69,14 +69,6 @@ public class SqliteModelApiKeyStore
 
     @Override
     @Transactional(readOnly = true)
-    public Optional<String> findSecret(String alias)
-    {
-        return jpaRepository.findById(alias)
-                .map(entity -> cipher.decrypt(entity.getCiphertext()));
-    }
-
-    @Override
-    @Transactional(readOnly = true)
     public Optional<String> findSecretById(String id)
     {
         return jpaRepository.findByKeyId(id)

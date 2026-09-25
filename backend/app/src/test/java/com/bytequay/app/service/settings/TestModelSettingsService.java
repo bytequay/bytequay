@@ -459,17 +459,6 @@ class TestModelSettingsService
         }
 
         @Override
-        public Optional<String> findSecret(String alias)
-        {
-            for (int i = 0; i < keys.size(); i++) {
-                if (keys.get(i).alias().equals(alias)) {
-                    return Optional.of(secrets.get(i));
-                }
-            }
-            return Optional.empty();
-        }
-
-        @Override
         public Optional<String> findSecretById(String id)
         {
             for (int i = 0; i < keys.size(); i++) {

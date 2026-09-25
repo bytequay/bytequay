@@ -174,10 +174,10 @@ public class PullRequestService
         this.applicationContext = requireNonNull(applicationContext, "applicationContext is null");
     }
 
-    public PullRequestPage listPullRequests(int page, int pageSize, String search)
+    public PullRequestPage listPullRequests(int page, int pageSize)
     {
         checkPage(page, pageSize);
-        return store.findPage(page, pageSize, validateSearch(search));
+        return store.findPage(page, pageSize);
     }
 
     public List<PullRequest> listAttentionCandidates()
@@ -234,17 +234,7 @@ public class PullRequestService
     public PullRequestPage listPullRequests(RepoRef repository, int page, int pageSize, String search)
     {
         checkPage(page, pageSize);
-        return store.findRepositoryPage(
-                requireNonNull(repository, "repository is null").fullName(), page, pageSize, validateSearch(search));
-    }
-
-    private static String validateSearch(String search)
-    {
-        String value = search == null ? "" : search.trim();
-        if (value.length() > 200) {
-            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "search must not exceed 200 characters");
-        }
-        return value;
+        return store.findRepositoryPage(requireNonNull(repository, "repository is null").fullName(), page, pageSize, search);
     }
 
     /** Exact-fetches a newly created pull request so its workspace projection does not wait for GitHub search. */

@@ -103,18 +103,6 @@ public class SqlitePullRequestStore
     }
 
     @Override
-    public PullRequestPage findPage(int page, int pageSize, String search)
-    {
-        String term = normalizeSearch(search);
-        if (term.isEmpty()) {
-            return findPage(page, pageSize);
-        }
-        Integer number = pullRequestNumber(term);
-        Page<PullRequestEntity> rows = jpaRepository.searchDashboardPage(term, number, pageRequest(page, pageSize));
-        return toPage(rows, page, pageSize, jpaRepository.countOpenDashboardSearch(term, number));
-    }
-
-    @Override
     public PullRequestPage findRepositoryPage(String repository, int page, int pageSize)
     {
         requireNonNull(repository, "repository is null");

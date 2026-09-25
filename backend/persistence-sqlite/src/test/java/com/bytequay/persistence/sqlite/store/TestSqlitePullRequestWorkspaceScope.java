@@ -213,10 +213,6 @@ class TestSqlitePullRequestWorkspaceScope
                 .extracting(PullRequest::id)
                 .containsExactlyInAnyOrder(1L, 2L, 3L);
         assertThat(store.findPage(0, 50).openPullRequests()).isEqualTo(3);
-        assertThat(store.findPage(0, 50, "#3").pullRequests())
-                .extracting(PullRequest::id)
-                .containsExactly(3L);
-        assertThat(store.findPage(0, 50, "#4").pullRequests()).isEmpty();
         assertThat(store.findRepositoryPage("OWNER/PROJECT", 0, 50).pullRequests())
                 .extracting(PullRequest::id)
                 .containsExactlyInAnyOrder(2L, 3L);
@@ -239,16 +235,14 @@ class TestSqlitePullRequestWorkspaceScope
         assertThat(store.findPage(0, 50).pullRequests())
                 .extracting(PullRequest::id)
                 .containsExactlyInAnyOrder(1L, 2L);
-        assertThat(store.findPage(0, 50, "#3").pullRequests()).isEmpty();
         assertThat(store.findPage(0, 50).openPullRequests()).isEqualTo(2);
-        assertThat(store.findPage(0, 50, "#3").openPullRequests()).isZero();
         assertThat(store.findRepositoryPage("owner/project", 0, 50).pullRequests())
                 .extracting(PullRequest::id).containsExactlyInAnyOrder(2L, 3L);
 
         workspaceStore.setWatched(workspace.id(), true);
 
         assertThat(store.findPage(0, 50).pullRequests()).extracting(PullRequest::id).containsExactlyInAnyOrder(1L, 2L, 3L);
-        assertThat(store.findPage(0, 50, "#3").openPullRequests()).isEqualTo(1);
+        assertThat(store.findPage(0, 50).openPullRequests()).isEqualTo(3);
     }
 
     @Test

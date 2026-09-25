@@ -36,8 +36,6 @@ public interface PullRequestStore
 
     void setMonitored(long prId, boolean monitored);
 
-    PullRequestPage findPage(int page, int pageSize, String search);
-
     PullRequestPage findRepositoryPage(String repository, int page, int pageSize);
 
     PullRequestPage findRepositoryPage(String repository, int page, int pageSize, String search);

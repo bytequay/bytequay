@@ -1040,7 +1040,7 @@ public class PullRequestService
     {
         for (int page = 1; page <= MAX_SEARCH_PAGES; page++) {
             PullRequestHistoryPage result =
-                    gitHub.searchPullRequestsPaged(pat, query, page, SEARCH_PAGE_SIZE, "updated", "desc");
+                    gitHub.searchPullRequestsPaged(pat, query, page, SEARCH_PAGE_SIZE);
             List<FetchedPullRequest> fresh = result.items().stream()
                     .filter(pullRequest -> seen.add(pullRequest.repo() + "#" + pullRequest.number()))
                     .map(pullRequest -> pullRequest.withOrigin(origin))
@@ -1091,7 +1091,7 @@ public class PullRequestService
     {
         for (int page = 1; page <= MAX_SEARCH_PAGES; page++) {
             PullRequestHistoryPage result =
-                    gitHub.searchPullRequestsPaged(pat, query, page, SEARCH_PAGE_SIZE, "updated", "desc");
+                    gitHub.searchPullRequestsPaged(pat, query, page, SEARCH_PAGE_SIZE);
             List<FetchedPullRequest> fresh = result.items().stream()
                     .map(pullRequest -> reviewRequested
                             ? pullRequest.withOrigin(REVIEW_REQUESTED)

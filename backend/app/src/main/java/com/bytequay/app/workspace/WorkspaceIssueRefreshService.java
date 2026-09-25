@@ -153,9 +153,9 @@ public class WorkspaceIssueRefreshService
     private List<PrTimelineEvent> fetchTimeline(String token, PullRequestRef issue)
     {
         return java.util.stream.Stream.concat(
-                        issueReads.fetchPrTimeline(token, issue, null).stream()
+                        issueReads.fetchPrTimeline(token, issue).stream()
                                 .filter(event -> !"commented".equals(event.event())),
-                        issueReads.fetchPrIssueComments(token, issue, null).stream())
+                        issueReads.fetchPrIssueComments(token, issue).stream())
                 .sorted(Comparator.comparing(
                         PrTimelineEvent::timestamp,
                         Comparator.nullsLast(Comparator.naturalOrder())))

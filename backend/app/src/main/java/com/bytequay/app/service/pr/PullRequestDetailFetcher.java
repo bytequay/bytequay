@@ -90,9 +90,9 @@ class PullRequestDetailFetcher
         ListenableFuture<SourceItems<PrReviewState>> reviews = fetchOptionalListAsync(
                 "fetchPrReviews", StoredPrDetail.REVIEWS, ref, () -> gitHub.fetchPrReviews(pat, ref));
         ListenableFuture<SourceItems<PrTimelineEvent>> timeline = fetchOptionalListAsync(
-                "fetchPrTimeline", StoredPrDetail.TIMELINE, ref, () -> gitHub.fetchPrTimeline(pat, ref, null));
+                "fetchPrTimeline", StoredPrDetail.TIMELINE, ref, () -> gitHub.fetchPrTimeline(pat, ref));
         ListenableFuture<SourceItems<PrTimelineEvent>> comments = fetchOptionalListAsync(
-                "fetchPrIssueComments", StoredPrDetail.COMMENTS, ref, () -> gitHub.fetchPrIssueComments(pat, ref, null));
+                "fetchPrIssueComments", StoredPrDetail.COMMENTS, ref, () -> gitHub.fetchPrIssueComments(pat, ref));
         ListenableFuture<SourceItems<PrTimelineEvent>> commits = fetchOptionalListAsync(
                 "fetchPrCommits", StoredPrDetail.COMMITS, ref, () -> gitHub.fetchPrCommits(pat, ref));
         ListenableFuture<SourceItems<PrTimelineEvent>> threads = fetchOptionalListAsync(

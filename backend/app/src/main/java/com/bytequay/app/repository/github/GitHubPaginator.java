@@ -21,7 +21,6 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.web.client.RestClient;
 import org.springframework.web.server.ResponseStatusException;
 
-import java.time.Instant;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Optional;
@@ -50,37 +49,7 @@ final class GitHubPaginator
     }
 
     /**
-     * Fetches every page from endpoints that support GitHub's {@code since}
-     * query parameter.
-     */
-    <T> List<T> paginateSince(
-            String pat,
-            String pathTemplate,
-            ParameterizedTypeReference<List<T>> typeRef,
-            Instant since,
-            Object... uriVariables)
-    {
-        // Defensive: guard against the edge case where GitHub returns the
-        // same id on adjacent pages while comments/events are created during
-        // the walk. Downstream saves can then rely on one row per identity.
-        Set<T> seen = new LinkedHashSet<>();
-        for (int page = 1; page <= MAX_PAGES; page++) {
-            List<T> rows = fetchPage(pat, pathTemplate, typeRef, since, page, uriVariables);
-            if (rows.isEmpty()) {
-                break;
-            }
-
-            int size = seen.size();
-            seen.addAll(rows);
-            if (rows.size() < PAGE_SIZE || seen.size() == size) {
-                break;
-            }
-        }
-        return ImmutableList.copyOf(seen);
-    }
-
-    /**
-     * Walks the same pages, but sends the caller's ETag with page one. GitHub
+     * Walks every page and sends the caller's ETag with page one. GitHub
      * answers 304 when nothing changed, which costs no rate limit and lets the
      * caller keep what it already stored.
      *
@@ -96,6 +65,8 @@ final class GitHubPaginator
             Object... uriVariables)
     {
         requireNonNull(etag, "etag is null");
+        // GitHub can return the same row on adjacent pages while rows are created during the walk;
+        // the set keeps downstream saves at one row per identity.
         Set<T> seen = new LinkedHashSet<>();
         Optional<String> responseEtag = etag;
         for (int page = 1; page <= MAX_PAGES; page++) {
@@ -136,27 +107,21 @@ final class GitHubPaginator
             ParameterizedTypeReference<List<T>> typeRef,
             Object... uriVariables)
     {
-        return paginateSince(pat, pathTemplate, typeRef, null, uriVariables);
+        return paginateConditional(pat, pathTemplate, typeRef, Optional.empty(), uriVariables).values().orElseThrow();
     }
 
     <T> List<T> fetchPage(
             String pat,
             String pathTemplate,
             ParameterizedTypeReference<List<T>> typeRef,
-            Instant since,
             int page,
             Object... uriVariables)
     {
         return translating(() -> {
-            List<T> rows = get(gitHubRestClient, pat, u -> {
-                u.path(pathTemplate)
-                        .queryParam("per_page", PAGE_SIZE)
-                        .queryParam("page", page);
-                if (since != null) {
-                    u.queryParam("since", since.toString());
-                }
-                return u.build(uriVariables);
-            })
+            List<T> rows = get(gitHubRestClient, pat, u -> u.path(pathTemplate)
+                    .queryParam("per_page", PAGE_SIZE)
+                    .queryParam("page", page)
+                    .build(uriVariables))
                     .retrieve()
                     .body(typeRef);
             return requireBody(rows, "Empty response from GitHub list endpoint");

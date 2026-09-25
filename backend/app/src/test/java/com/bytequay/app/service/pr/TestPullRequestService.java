@@ -222,7 +222,7 @@ class TestPullRequestService
         when(detailStore.find(row.id())).thenReturn(Optional.of(new StoredPrDetail(raw(), ImmutableList.of(), ImmutableList.of(), ImmutableList.of(), ImmutableList.of(), true)));
         when(gitHub.fetchPrDetail("pat", ref)).thenReturn(baseline.raw());
         when(gitHub.fetchPrReviews("pat", ref)).thenReturn(baseline.reviews());
-        when(gitHub.fetchPrIssueComments("pat", ref, null)).thenReturn(baseline.timeline());
+        when(gitHub.fetchPrIssueComments("pat", ref)).thenReturn(baseline.timeline());
         when(gitHub.enrichTimelineReferences("pat", ref, baseline.timeline())).thenReturn(baseline.timeline());
         when(actions.fetchPrCheckRuns("pat", "owner", "repo", "head")).thenReturn(baseline.checkRuns());
 
@@ -236,8 +236,8 @@ class TestPullRequestService
         order.verify(store).setMonitored(row.id(), true);
         verify(gitHub).fetchPrDetail("pat", ref);
         verify(gitHub).fetchPrReviews("pat", ref);
-        verify(gitHub).fetchPrTimeline("pat", ref, null);
-        verify(gitHub).fetchPrIssueComments("pat", ref, null);
+        verify(gitHub).fetchPrTimeline("pat", ref);
+        verify(gitHub).fetchPrIssueComments("pat", ref);
         verify(gitHub).fetchPrCommits("pat", ref);
         verify(gitHub).fetchPrReviewThreads("pat", ref);
         verify(gitHub).fetchPrDescriptionReactions("pat", ref);
@@ -315,7 +315,7 @@ class TestPullRequestService
     @Test
     void scheduledDashboardSyncRefreshesRetainedPrsMissingFromSearch()
     {
-        when(gitHub.searchPullRequestsPaged(anyString(), anyString(), anyInt(), anyInt(), anyString(), anyString()))
+        when(gitHub.searchPullRequestsPaged(anyString(), anyString(), anyInt(), anyInt()))
                 .thenReturn(new PullRequestHistoryPage(ImmutableList.of(), false));
         when(store.findAttentionCandidates()).thenReturn(ImmutableList.of(storedPullRequest()));
         PullRequestService monitoredService = spy(service);
@@ -522,8 +522,7 @@ class TestPullRequestService
     {
         RepoRef repository = RepoRef.of("owner", "repo");
         when(gitHub.searchPullRequestsPaged(
-                eq("pat"), org.mockito.ArgumentMatchers.contains("repo:owner/repo"), anyInt(), anyInt(),
-                eq("updated"), eq("desc")))
+                eq("pat"), org.mockito.ArgumentMatchers.contains("repo:owner/repo"), anyInt(), anyInt()))
                 .thenReturn(new PullRequestHistoryPage(ImmutableList.of(), false));
 
         service.syncRepository(repository);
@@ -532,7 +531,7 @@ class TestPullRequestService
         verify(store, never()).saveDashboardSyncPage(any(), anyString());
         ArgumentCaptor<String> queries = ArgumentCaptor.forClass(String.class);
         verify(gitHub, org.mockito.Mockito.times(3)).searchPullRequestsPaged(
-                eq("pat"), queries.capture(), anyInt(), anyInt(), eq("updated"), eq("desc"));
+                eq("pat"), queries.capture(), anyInt(), anyInt());
         assertThat(queries.getAllValues()).hasSize(3);
         assertThat(queries.getAllValues().get(0))
                 .startsWith("is:pr updated:>=")
@@ -556,7 +555,7 @@ class TestPullRequestService
                 eq("owner/repo"),
                 eq(ImmutableList.of(fetched.withViewerOrigin("me"))),
                 anyString());
-        verify(gitHub, never()).searchPullRequestsPaged(anyString(), anyString(), anyInt(), anyInt(), anyString(), anyString());
+        verify(gitHub, never()).searchPullRequestsPaged(anyString(), anyString(), anyInt(), anyInt());
     }
 
     @Test
@@ -565,7 +564,7 @@ class TestPullRequestService
         PullRequestRef ref = PullRequestRef.of("owner", "repo", 7);
         Instant currentUpdatedAt = pullRequest().updatedAt();
         when(gitHub.searchPullRequestsPaged(
-                eq("pat"), anyString(), anyInt(), anyInt(), eq("updated"), eq("desc")))
+                eq("pat"), anyString(), anyInt(), anyInt()))
                 .thenReturn(new PullRequestHistoryPage(ImmutableList.of(pullRequest()), false));
         when(store.findIdByRepoAndNumber("owner/repo", 7)).thenReturn(Optional.of(12L));
         when(store.findUpdatedAtByIds(ImmutableSet.of(12L)))
@@ -579,8 +578,8 @@ class TestPullRequestService
         when(accounts.fetchViewerCanWrite("pat", RepoRef.of("owner", "repo"))).thenReturn(true);
         when(gitHub.fetchPrDetail("pat", ref)).thenReturn(raw());
         when(gitHub.fetchPrReviews("pat", ref)).thenReturn(ImmutableList.of());
-        when(gitHub.fetchPrTimeline("pat", ref, null)).thenReturn(ImmutableList.of());
-        when(gitHub.fetchPrIssueComments("pat", ref, null)).thenReturn(ImmutableList.of());
+        when(gitHub.fetchPrTimeline("pat", ref)).thenReturn(ImmutableList.of());
+        when(gitHub.fetchPrIssueComments("pat", ref)).thenReturn(ImmutableList.of());
         when(gitHub.fetchPrCommits("pat", ref)).thenReturn(ImmutableList.of());
         when(gitHub.fetchPrReviewThreads("pat", ref)).thenReturn(ImmutableList.of());
         when(gitHub.fetchPrDescriptionReactions("pat", ref)).thenReturn(ImmutableList.of());
@@ -624,8 +623,7 @@ class TestPullRequestService
                 99,
                 "closed", Instant.parse("2026-08-22T00:00:00Z"), Instant.parse("2026-08-22T00:00:00Z"));
         when(gitHub.searchPullRequestsPaged(
-                eq("pat"), org.mockito.ArgumentMatchers.contains("repo:owner/repo"), anyInt(), anyInt(),
-                eq("updated"), eq("desc")))
+                eq("pat"), org.mockito.ArgumentMatchers.contains("repo:owner/repo"), anyInt(), anyInt()))
                 .thenReturn(new PullRequestHistoryPage(ImmutableList.of(), false));
         when(store.findRepositoryRowsMissingSync(eq("owner/repo"), anyString()))
                 .thenReturn(ImmutableList.of(stored));
@@ -787,8 +785,8 @@ class TestPullRequestService
         when(accounts.fetchViewerCanWrite("pat", RepoRef.of("owner", "repo"))).thenReturn(true);
         when(gitHub.fetchPrDetail("pat", ref)).thenReturn(raw());
         when(gitHub.fetchPrReviews("pat", ref)).thenReturn(ImmutableList.of());
-        when(gitHub.fetchPrTimeline("pat", ref, null)).thenReturn(ImmutableList.of());
-        when(gitHub.fetchPrIssueComments("pat", ref, null)).thenReturn(ImmutableList.of());
+        when(gitHub.fetchPrTimeline("pat", ref)).thenReturn(ImmutableList.of());
+        when(gitHub.fetchPrIssueComments("pat", ref)).thenReturn(ImmutableList.of());
         when(gitHub.fetchPrCommits("pat", ref)).thenReturn(ImmutableList.of());
         when(gitHub.fetchPrReviewThreads("pat", ref)).thenReturn(ImmutableList.of());
         when(gitHub.fetchPrDescriptionReactions("pat", ref)).thenReturn(ImmutableList.of());

@@ -72,8 +72,8 @@ class TestPullRequestDetailFetcher
         PrCheckRunState check = new PrCheckRunState(1L, "build", "completed", "success");
         when(gitHub.fetchPrDetail("pat", REF)).thenReturn(raw("head"));
         when(gitHub.fetchPrReviews("pat", REF)).thenReturn(ImmutableList.of(review));
-        when(gitHub.fetchPrTimeline("pat", REF, null)).thenReturn(ImmutableList.of());
-        when(gitHub.fetchPrIssueComments("pat", REF, null)).thenReturn(ImmutableList.of());
+        when(gitHub.fetchPrTimeline("pat", REF)).thenReturn(ImmutableList.of());
+        when(gitHub.fetchPrIssueComments("pat", REF)).thenReturn(ImmutableList.of());
         when(actions.fetchPrCheckRuns("pat", "owner", "repo", "head")).thenReturn(ImmutableList.of(check));
 
         StoredPrDetail stored = PullRequestDetailFetcher.await(fetcher.fetch("pat", REF));
@@ -89,8 +89,8 @@ class TestPullRequestDetailFetcher
     {
         when(gitHub.fetchPrDetail("pat", REF)).thenReturn(raw("head"));
         when(gitHub.fetchPrReviews("pat", REF)).thenReturn(null);
-        when(gitHub.fetchPrTimeline("pat", REF, null)).thenReturn(null);
-        when(gitHub.fetchPrIssueComments("pat", REF, null)).thenReturn(null);
+        when(gitHub.fetchPrTimeline("pat", REF)).thenReturn(null);
+        when(gitHub.fetchPrIssueComments("pat", REF)).thenReturn(null);
         when(actions.fetchPrCheckRuns("pat", "owner", "repo", "head")).thenReturn(null);
 
         StoredPrDetail stored = PullRequestDetailFetcher.await(fetcher.fetch("pat", REF));
@@ -105,8 +105,8 @@ class TestPullRequestDetailFetcher
     {
         when(gitHub.fetchPrDetail("pat", REF)).thenReturn(raw(null));
         when(gitHub.fetchPrReviews("pat", REF)).thenReturn(ImmutableList.of());
-        when(gitHub.fetchPrTimeline("pat", REF, null)).thenReturn(ImmutableList.of());
-        when(gitHub.fetchPrIssueComments("pat", REF, null)).thenReturn(ImmutableList.of());
+        when(gitHub.fetchPrTimeline("pat", REF)).thenReturn(ImmutableList.of());
+        when(gitHub.fetchPrIssueComments("pat", REF)).thenReturn(ImmutableList.of());
 
         StoredPrDetail stored = PullRequestDetailFetcher.await(fetcher.fetch("pat", REF));
 
@@ -119,8 +119,8 @@ class TestPullRequestDetailFetcher
     {
         when(gitHub.fetchPrDetail("pat", REF)).thenReturn(null);
         when(gitHub.fetchPrReviews("pat", REF)).thenReturn(ImmutableList.of());
-        when(gitHub.fetchPrTimeline("pat", REF, null)).thenReturn(ImmutableList.of());
-        when(gitHub.fetchPrIssueComments("pat", REF, null)).thenReturn(ImmutableList.of());
+        when(gitHub.fetchPrTimeline("pat", REF)).thenReturn(ImmutableList.of());
+        when(gitHub.fetchPrIssueComments("pat", REF)).thenReturn(ImmutableList.of());
 
         assertThatThrownBy(() -> PullRequestDetailFetcher.await(fetcher.fetch("pat", REF)))
                 .isInstanceOfSatisfying(ResponseStatusException.class,
@@ -134,8 +134,8 @@ class TestPullRequestDetailFetcher
         ResponseStatusException notFound = new ResponseStatusException(NOT_FOUND, "gone");
         when(gitHub.fetchPrDetail("pat", REF)).thenReturn(raw(null));
         when(gitHub.fetchPrReviews("pat", REF)).thenThrow(notFound);
-        when(gitHub.fetchPrTimeline("pat", REF, null)).thenReturn(ImmutableList.of());
-        when(gitHub.fetchPrIssueComments("pat", REF, null)).thenReturn(ImmutableList.of());
+        when(gitHub.fetchPrTimeline("pat", REF)).thenReturn(ImmutableList.of());
+        when(gitHub.fetchPrIssueComments("pat", REF)).thenReturn(ImmutableList.of());
 
         StoredPrDetail stored = PullRequestDetailFetcher.await(fetcher.fetch("pat", REF));
 
@@ -152,8 +152,8 @@ class TestPullRequestDetailFetcher
         PrTimelineEvent issueCopy = comment(3L, "alice", commentedAt, "copy with reactions");
         when(gitHub.fetchPrDetail("pat", REF)).thenReturn(raw(null));
         when(gitHub.fetchPrReviews("pat", REF)).thenReturn(ImmutableList.of());
-        when(gitHub.fetchPrTimeline("pat", REF, null)).thenReturn(ImmutableList.of(timelineCopy, labeled));
-        when(gitHub.fetchPrIssueComments("pat", REF, null)).thenReturn(ImmutableList.of(issueCopy));
+        when(gitHub.fetchPrTimeline("pat", REF)).thenReturn(ImmutableList.of(timelineCopy, labeled));
+        when(gitHub.fetchPrIssueComments("pat", REF)).thenReturn(ImmutableList.of(issueCopy));
 
         StoredPrDetail stored = PullRequestDetailFetcher.await(fetcher.fetch("pat", REF));
 
@@ -165,13 +165,13 @@ class TestPullRequestDetailFetcher
     {
         when(gitHub.fetchPrDetail("pat", REF)).thenReturn(raw(null));
         when(gitHub.fetchPrReviews("pat", REF)).thenReturn(ImmutableList.of());
-        when(gitHub.fetchPrTimeline("pat", REF, null)).thenReturn(ImmutableList.of());
-        when(gitHub.fetchPrIssueComments("pat", REF, null)).thenReturn(ImmutableList.of());
+        when(gitHub.fetchPrTimeline("pat", REF)).thenReturn(ImmutableList.of());
+        when(gitHub.fetchPrIssueComments("pat", REF)).thenReturn(ImmutableList.of());
 
         PullRequestDetailFetcher.await(fetcher.fetch("pat", REF));
 
-        verify(gitHub).fetchPrTimeline("pat", REF, null);
-        verify(gitHub).fetchPrIssueComments("pat", REF, null);
+        verify(gitHub).fetchPrTimeline("pat", REF);
+        verify(gitHub).fetchPrIssueComments("pat", REF);
     }
 
     private static PrRawDetail raw(String headSha)

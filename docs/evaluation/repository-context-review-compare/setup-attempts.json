@@ -11,7 +11,7 @@
       "attempt": "First startup of copied Claude Off database",
       "result": "Agent operations unavailable before a review was started",
       "reason": "The copied completed Learn turn retained a provider-launch row, but its launch marker remained in the source runtime and was not in either split arm",
-      "resolution": "Verified the Learn turn and task were completed and its worktree removed; split_arms.py now removes only that stale copied launch row"
+      "resolution": "Verified the Learn turn and task were completed and its worktree removed; fixture.py split removes only that stale copied launch row"
     }
   ],
   "unscoredWarnings": [

@@ -58,20 +58,28 @@ To rebuild the data portion of this fixture, first generate the corpus with
 `python3 scripts/repository-context-cases.py create <scratch>/cases`, create a
 bare Git remote with the two refs above, and start isolated ByteQuay against a
 new SQLite database. Use
-[`seed_fixture.py`](seed_fixture.py) after Hibernate creates the schema to
+[`fixture.py seed`](fixture.py) after Hibernate creates the schema to
 insert the workspace and cached PR. Explicitly invoke `Learn project` with
 scope `project`, and wait until it completes; the learned note must be version
-1. [`split_arms.py`](split_arms.py) then copies that post-Learn DB into two
+1. [`fixture.py split`](fixture.py) then copies that post-Learn DB into two
 independent arms and gives each a local HTTPS origin with its own trusted CA.
 The script removes only the completed Learn turn's stale provider-launch row:
 its launch marker belonged to the source runtime, which is not copied. Start
 each arm separately, turn Off only `useInReviews` in the Off DB, start the same
 review, and wait for an accepted run. Save each arm's final `GET
 /api/agent-review/{id}`, events (`?after=0&limit=1000`) and repository-context
-usage responses. [`summarize_results.py`](summarize_results.py) produces the
+usage responses. [`fixture.py summarize`](fixture.py) produces the
 sanitized result JSON from those three response files per arm. The helper
-scripts refuse to overwrite an earlier arm so a rerun does not silently
+script refuses to overwrite an earlier arm so a rerun does not silently
 replace evidence.
+
+From this directory, the data helpers are:
+
+```bash
+python3 fixture.py seed <database> <cases> <managed-repository> <bare-remote>
+python3 fixture.py split <database> <arms-directory> <bare-remote> <https-url> <ca-certificate>
+python3 fixture.py summarize <arms-directory> <result.json>
+```
 
 The backend JAR SHA-256 was
 `1204933b67c0aa171ba4f10d224a6c2bd42e1b158f898e785feefd441a58ad2d`;

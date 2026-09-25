@@ -66,7 +66,7 @@ root-level fixture. ByteQuay correctly deferred generation because it could
 not fingerprint any local component path; see
 [`setup-attempt.json`](setup-attempt.json). The corrected corpus puts the
 implementation and test in a real `sensors/` directory. Run
-`python3 -B fixture.py /private/tmp/new-component-case` from this directory to
+`python3 -B docs/evaluation/repository-context-history-compare/fixture.py component /private/tmp/new-component-case` from the repository root to
 recreate its three commits; a separate recreation produced exactly the saved
 SHAs. The disposable GitHub fixture returned no PR #7 fetch during Learn or
 the task pair, so Learn used ByteQuay's seeded PR cache.

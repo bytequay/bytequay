@@ -75,10 +75,16 @@ python3 docs/evaluation/repository-context-history-compare/fixture.py create /pr
 python3 docs/evaluation/repository-context-history-compare/fixture.py verify /private/tmp/my-new-history-case
 ```
 
-[`seed_fixture.py`](seed_fixture.py) loads cached PR #7, its comment and
+The [`fixture.py seed`](fixture.py) command takes a database, corpus, managed
+checkout and local bare remote, then loads cached PR #7, its comment and
 default diff, plus PR #8, into a disposable Hibernate-created SQLite database.
-It refuses an existing workspace or a database outside `/private/tmp`. The
-fake GitHub endpoint answered only selected identity/repository metadata and
+It refuses an existing workspace or a database outside `/private/tmp`.
+
+```bash
+python3 docs/evaluation/repository-context-history-compare/fixture.py seed <database> <corpus> <managed-checkout> <bare-remote>
+```
+
+The fake GitHub endpoint answered only selected identity/repository metadata and
 returned 404 for other requests. Its request log had **no PR #7 fetch**;
 selected-history Learn used ByteQuay's seeded cache. A local HTTPS Git server
 served the bare repository. After Learn, each arm was copied into its own
@@ -93,9 +99,18 @@ these fixture corrections separately from the scored arms.
 Capture an accepted `GET /api/agent-review/{id}`, its events with
 `?after=0&limit=500`, and the workspace's repository-context usage response
 as `final-review.json`, `events.json` and `usage.json` in each disposable arm.
-[`summarize_results.py`](summarize_results.py) exports only bounded facts from
+The [`fixture.py summarize`](fixture.py) command takes the disposable fixture
+root and a separate results directory, then exports only bounded facts from
 those responses and the Learn notebook; it verifies the frozen commits and
-enabled states. The backend JAR SHA-256 was
+enabled states. Set `CASE_ROOT` to the disposable live-run root:
+
+```bash
+mkdir "$CASE_ROOT/results"
+cp docs/evaluation/repository-context-history-compare/case.json "$CASE_ROOT/results/case.json"
+python3 docs/evaluation/repository-context-history-compare/fixture.py summarize "$CASE_ROOT" "$CASE_ROOT/results"
+```
+
+The backend JAR SHA-256 was
 `7addad7aa102ec8937809e353af8bb037a34489f63f5c5231e657c30d6553dd7`;
 Claude CLI was 2.1.281. The case measures one synthetic history decision, not
 general review quality, CPU, memory, SQLite contention or development tasks.

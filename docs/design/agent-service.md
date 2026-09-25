@@ -1976,7 +1976,7 @@ public interface ProcessSupervisor
      * {@link PreparedProcess#start}. This closes the database/process gap.
      *
      * @param spec owner kind/ID, executable, arguments, environment allowlist,
-     * execution profile, worktree, and limits
+     * worktree, and limits
      * @return durable prepared launch; no payload process exists yet
      */
     PreparedProcess prepare(ProcessSpec spec);
@@ -2038,32 +2038,33 @@ the stdin writer's lock. It stops the owned process group and known descendants
 before closing stdin, so a blocked write cannot prevent cancellation while
 stdout is backpressured.
 
-`ProcessOwner.Kind` also carries one closed `ExecutionProfile` value rather
-than arbitrary sandbox text:
+`ProcessOwner.Kind` is a closed set of owner roles rather than arbitrary
+sandbox text:
 
-- `PROVIDER_CONTROL` owns one task's App Server or one Claude turn process and
-  does not claim an endpoint-level network allowlist;
-- `LOCAL_COMMAND` owns one user-requested command in a review task's or
-  development task's working copy ([Code & Tests](code-tests.md) §11), selected
-  only by `ProcessOwner.Kind.LOCAL_RUN`. ByteQuay builds its
-  argv: a fixed `/bin/bash -c` wrapper around the worktree's Maven wrapper,
-  with the test selector as positional arguments. It runs with the user's
-  login-shell environment minus every `BYTEQUAY_*` variable, and under no
-  provider sandbox or approval ([Code & Tests](code-tests.md) §5.3);
+- `APP_SERVER`, `CLAUDE_TURN`, `DISCUSSION`, and `CLI_PROBE` own provider
+  control processes: one task's App Server, one Claude turn process, one
+  read-only discussion session, or a short-lived control command. None claims
+  an endpoint-level network allowlist;
+- `LOCAL_RUN` owns one user-requested command in a review task's or
+  development task's working copy ([Code & Tests](code-tests.md) §11).
+  ByteQuay builds its argv: a fixed `/bin/bash -c` wrapper around the
+  worktree's Maven wrapper, with the test selector as positional arguments. It
+  runs with the user's login-shell environment minus every `BYTEQUAY_*`
+  variable, and under no provider sandbox or approval
+  ([Code & Tests](code-tests.md) §5.3);
 - `TASK_EXEC_SERVER` is retained only to recover markers written by the
   superseded loopback-executor design; no current launch selects it.
 
-Within `PROVIDER_CONTROL`, `CLI_PROBE` identifies short-lived provider control
-commands and validated text-only helpers. The exact
-`APP_SERVER/codex-model-catalog` owner is also control-only. Every other
-`APP_SERVER` owner, every `CLAUDE_TURN` owner, and every `LOCAL_RUN` owner is
-task-worktree-capable.
+`CLI_PROBE` identifies short-lived provider control commands and validated
+text-only helpers. The exact `APP_SERVER/codex-model-catalog` owner is also
+control-only. Every other `APP_SERVER` owner, every `CLAUDE_TURN` owner, and
+every `LOCAL_RUN` owner is task-worktree-capable.
 Keeping this classification on existing owner values preserves durable marker
 and SQLite compatibility without adding a lifecycle state.
 
-Adding another profile requires a design change and compatibility fixture. A
-caller cannot supply raw Seatbelt rules, broaden writable roots, or turn a
-provider approval into a different execution profile.
+Adding another owner role requires a design change and compatibility fixture.
+A caller cannot supply raw Seatbelt rules, broaden writable roots, or turn a
+provider approval into a different runtime boundary.
 
 `prepare(...)` and `PreparedProcess.start(...)` use a gated-launch protocol
 instead of a spawn-then-record race:

@@ -869,10 +869,9 @@ Each phase is runnable and reviewable on its own. Each runs the full gates
    - local runs as review-owned records that are not evidence cards;
    - §4's "optional agent-led queries" also allowing read-only UI graph queries.
 2. **`agent-service.md` §5:**
-   - `ProcessOwner.Kind.LOCAL_RUN` with a new `ExecutionProfile.LOCAL_COMMAND`
-     (a user-requested command in the review working copy, login environment,
-     no provider sandbox), and `LaunchOwnerKind.LOCAL_RUN` with its recovery
-     attribution;
+   - `ProcessOwner.Kind.LOCAL_RUN` (a user-requested command in the review
+     working copy, login environment, no provider sandbox), and
+     `LaunchOwnerKind.LOCAL_RUN` with its recovery attribution;
    - `WorktreeMutationClaim.Kind.LOCAL_RUN` with
      `AgentTurnService.claimLocalRun` and `releaseLocalRun`. `AgentMaintenance`
      releases the claim at startup and relies on `settleAfterProcessRecovery`

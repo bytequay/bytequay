@@ -13,7 +13,6 @@
  */
 package com.bytequay.agent.cli.process.impl;
 
-import com.bytequay.agent.cli.process.ExecutionProfile;
 import com.bytequay.agent.cli.process.LaunchPhase;
 import com.bytequay.agent.cli.process.ProcessExit;
 import com.bytequay.agent.cli.process.ProcessIdentity;
@@ -44,7 +43,6 @@ record LaunchMarker(
         String backendId,
         ProcessOwner.Kind ownerKind,
         String ownerId,
-        ExecutionProfile profile,
         String executable,
         String argvDigest,
         LaunchPhase phase,
@@ -71,7 +69,6 @@ record LaunchMarker(
         requireNonNull(backendId, "backendId is null");
         requireNonNull(ownerKind, "ownerKind is null");
         requireNonNull(ownerId, "ownerId is null");
-        requireNonNull(profile, "profile is null");
         requireNonNull(executable, "executable is null");
         requireNonNull(argvDigest, "argvDigest is null");
         requireNonNull(phase, "phase is null");
@@ -91,7 +88,6 @@ record LaunchMarker(
             checkArgument(canonical.equalsIgnoreCase(value), "invalid recovery boot session UUID");
             return canonical;
         });
-        checkArgument(profile == ownerKind.profile(), "profile does not match the owner kind");
         checkArgument(phase == LaunchPhase.PREPARED || pid.isPresent(), "launched marker has no pid");
     }
 
@@ -108,7 +104,6 @@ record LaunchMarker(
                 backendId,
                 owner.kind(),
                 owner.id(),
-                owner.profile(),
                 executable,
                 argvDigest,
                 LaunchPhase.PREPARED,
@@ -221,7 +216,7 @@ record LaunchMarker(
             Optional<Integer> exitCode, Optional<ProcessExit.Reason> exitReason, Optional<ProcessExit.TreeTermination> treeTermination,
             Optional<String> recoveryBootSessionId)
     {
-        return new LaunchMarker(format, launchId, backendId, ownerKind, ownerId, profile, executable, argvDigest, phase, pid, startToken, launcherCommand,
+        return new LaunchMarker(format, launchId, backendId, ownerKind, ownerId, executable, argvDigest, phase, pid, startToken, launcherCommand,
                 processGroup, descendantStartTokens, descendantTrackingIncomplete, workFinished, exitCode, exitReason, treeTermination, recoveryBootSessionId);
     }
 }

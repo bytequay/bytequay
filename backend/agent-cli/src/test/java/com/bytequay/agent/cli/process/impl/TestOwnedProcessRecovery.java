@@ -13,7 +13,6 @@
  */
 package com.bytequay.agent.cli.process.impl;
 
-import com.bytequay.agent.cli.process.ExecutionProfile;
 import com.bytequay.agent.cli.process.LaunchPhase;
 import com.bytequay.agent.cli.process.ManagedProcess;
 import com.bytequay.agent.cli.process.OwnedProcessRecovery;
@@ -186,7 +185,6 @@ class TestOwnedProcessRecovery
                 marker.backendId(),
                 marker.ownerKind(),
                 marker.ownerId(),
-                marker.profile(),
                 marker.executable(),
                 marker.argvDigest(),
                 marker.phase(),
@@ -340,7 +338,6 @@ class TestOwnedProcessRecovery
                 "an-earlier-backend",
                 OWNER.kind(),
                 OWNER.id(),
-                ExecutionProfile.PROVIDER_CONTROL,
                 "/bin/sleep",
                 "digest",
                 LaunchPhase.RUNNING,
@@ -591,7 +588,6 @@ class TestOwnedProcessRecovery
                 "an-earlier-backend",
                 OWNER.kind(),
                 OWNER.id(),
-                ExecutionProfile.PROVIDER_CONTROL,
                 executable,
                 "digest",
                 phase,

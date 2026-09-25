@@ -17,8 +17,6 @@ import com.bytequay.agent.core.AgentEventOutboxPayload;
 import com.bytequay.agent.core.AgentEventPayload;
 import com.bytequay.agent.core.AgentEventSource;
 import com.bytequay.agent.core.AgentStorageException;
-import com.fasterxml.jackson.databind.DeserializationFeature;
-import com.fasterxml.jackson.databind.JsonNode;
 
 import static com.bytequay.persistence.sqlite.entity.JsonGuard.AGENT;
 
@@ -56,24 +54,6 @@ final class AgentEventOutboxJson
             return AGENT.read(json, AgentEventOutboxPayload.UserMessageBlob.class, "event payload");
         }
 
-        return AGENT.guard("Cannot deserialize event payload", mapper -> {
-            JsonNode payload = mapper.readTree(json);
-            AgentEventPayload decoded = switch (kind) {
-                case USER_MESSAGE -> mapper.treeToValue(payload, AgentEventPayload.UserMessage.class);
-                case ASSISTANT_MESSAGE -> mapper.treeToValue(payload, AgentEventPayload.AssistantMessage.class);
-                case DEVELOPMENT_RESULT -> mapper.readerFor(AgentEventPayload.DevelopmentResult.class)
-                        .without(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES).readValue(json);
-                case PLAN_UPDATED -> mapper.treeToValue(payload, AgentEventPayload.PlanUpdated.class);
-                case COMMAND -> mapper.treeToValue(payload, AgentEventPayload.CommandActivity.class);
-                case FILE_CHANGE -> mapper.treeToValue(payload, AgentEventPayload.FileActivity.class);
-                case TOOL -> mapper.treeToValue(payload, AgentEventPayload.ToolActivity.class);
-                case APPROVAL_REQUESTED -> mapper.treeToValue(payload, AgentEventPayload.ApprovalRequested.class);
-                case APPROVAL_RESOLVED -> mapper.treeToValue(payload, AgentEventPayload.ApprovalResolved.class);
-                case USAGE -> mapper.treeToValue(payload, AgentEventPayload.UsageUpdated.class);
-                case LIFECYCLE -> mapper.treeToValue(payload, AgentEventPayload.Lifecycle.class);
-                case ERROR -> mapper.treeToValue(payload, AgentEventPayload.Error.class);
-            };
-            return new AgentEventOutboxPayload.Inline(decoded);
-        });
+        return new AgentEventOutboxPayload.Inline(AGENT.read(json, kind.type(), "event payload"));
     }
 }

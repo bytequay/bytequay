@@ -26,10 +26,9 @@ class TestAgentEventOutboxJson
     {
         AgentEventPayload.DevelopmentResult report = (AgentEventPayload.DevelopmentResult) inline(
                 AgentEventPayload.Kind.DEVELOPMENT_RESULT,
-                "{\"readyForDelivery\":false,\"message\":\"Which approach?\",\"stopAfter\":\"COMMITS\"}");
+                "{\"readyForDelivery\":false,\"message\":\"Which approach?\"}");
         assertThat(report.readyForDelivery()).isFalse();
         assertThat(report.message()).contains("Which approach?");
-        assertThat(AgentEventOutboxJson.encodePayload(new AgentEventOutboxPayload.Inline(report))).doesNotContain("stopAfter");
     }
 
     @Test

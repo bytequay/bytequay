@@ -96,7 +96,7 @@ historical checkpoint evidence and explicitly deferred future work.
 - [Cherry-pick Range](cherry-pick-range.md) specifies source-range preview,
   target-presence detection, pull-request grouping and skip selection,
   conflict scope, immutable confirmation, local execution handoff, and final
-  range review.
+  accounting.
 - [Commit History and Refresh](commits.md) specifies local-only commit display,
   durable commit-to-PR and avatar enrichment, scheduled and manual refresh,
   backend service contracts, and the renderer call chain.

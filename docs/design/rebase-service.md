@@ -96,7 +96,7 @@ and accepted history remain service-specific:
 | who chooses the commit list | the user, through confirmed skips | nobody; it is whatever the branch holds |
 | durable per-commit result owed | yes, for per-item progress and final accounting | no |
 | conflict result | source-marked target `C` plus adjacent fixup `F`, or empty | one replayed commit produced by `rebase --continue` |
-| what the service adds | plan, positions, `-x` reconciliation, accounting, range-diff | original tip, descendant fast path, abort-restores-tip |
+| what the service adds | plan, positions, `-x` reconciliation, accounting | original tip, descendant fast path, abort-restores-tip |
 
 So cherry-pick keeps a plan with durable item results, and this service keeps
 almost no state at all. Forcing both into one state machine would mean giving

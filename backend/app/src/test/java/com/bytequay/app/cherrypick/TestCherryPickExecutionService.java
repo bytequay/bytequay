@@ -1106,7 +1106,7 @@ class TestCherryPickExecutionService
     }
 
     @Test
-    void storesARangeReviewAndClosesTheAgentTask()
+    void summarizesTheRangeAndClosesTheAgentTask()
     {
         String base = head(upstream);
         write(upstream, "file.txt", "content\n");
@@ -1120,9 +1120,6 @@ class TestCherryPickExecutionService
 
         CherryPickExecution finished = runToCompletion(started);
 
-        assertThat(finished.rangeReview()).isPresent();
-        assertThat(finished.rangeReview().orElseThrow().truncated()).isFalse();
-        assertThat(finished.rangeReview().orElseThrow().output()).contains("Upstream change");
         assertThat(finished.summary().orElseThrow()).contains("1 applied");
         assertThat(agent.taskCompleted()).isTrue();
         assertThat(finished.workspace().worktree()).doesNotExist();

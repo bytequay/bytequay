@@ -1046,30 +1046,10 @@ public class CherryPickExecutionService
         CherryPickExecution settled = execution.journal().isPresent()
                 ? store.save(execution.withoutJournal(clock.instant()))
                 : execution;
-        CherryPickExecution reviewed = store.save(settled.withRangeReview(rangeReview(settled, state.head()),
-                clock.instant()));
-        completeAgentTask(reviewed);
-        CherryPickExecution finished = store.save(reviewed.finish(FinishReason.COMPLETED, summary(reviewed), clock.instant()));
+        completeAgentTask(settled);
+        CherryPickExecution finished = store.save(settled.finish(FinishReason.COMPLETED, summary(settled), clock.instant()));
         cleanupAgentTask(finished);
         return finished;
-    }
-
-    private CherryPickExecution.RangeReview rangeReview(CherryPickExecution execution, String currentTargetSha)
-    {
-        GitCommandRunner.Result result = git.run(
-                execution.workspace().worktree(),
-                "range-diff",
-                execution.range().sourceBaseSha() + ".." + execution.range().sourceTipSha(),
-                execution.range().initialTargetSha() + ".." + currentTargetSha);
-        String output = result.successful() ? result.output() : "Range review unavailable: " + result.output();
-        boolean truncated = result.truncated()
-                || output.length() > CherryPickExecution.RangeReview.MAX_OUTPUT_CHARACTERS;
-        return new CherryPickExecution.RangeReview(
-                truncated
-                        ? output.substring(0, Math.min(
-                                output.length(), CherryPickExecution.RangeReview.MAX_OUTPUT_CHARACTERS))
-                        : output,
-                truncated);
     }
 
     private void completeAgentTask(CherryPickExecution execution)

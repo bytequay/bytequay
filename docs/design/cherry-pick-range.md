@@ -41,8 +41,8 @@ repository and branch as the PR base.
    A conflict retains the source-marked target and its adjacent agent fixup as
    described in section 7.
 8. After every item has a result, the backend performs exact Git accounting,
-   stores `git range-diff` only for human review, completes the agent task, and
-   removes the clean worktree while retaining the generated branch for delivery.
+   completes the agent task, and removes the clean worktree while retaining the
+   generated branch for delivery.
 
 There is no automatic rebase before or after range execution. A target move
 before start invalidates the preview. Rebasing an already-created branch is a
@@ -414,7 +414,7 @@ Additional edge cases:
 | Target moves after preview but before start | Reject stale preview before creating the worktree |
 | Target moves during execution | Finish against the frozen target; do not auto-rebase |
 
-## 9. Final accounting and range review
+## 9. Final accounting
 
 Completion requires:
 
@@ -439,16 +439,7 @@ subject, and absent `-x` line exactly match `F`. New pair finalization cannot
 use the exception because it records `currentTargetSha=F`, and the
 no-unrecorded-commit check therefore requires that exact child to be consumed.
 
-Only after these checks does the service store:
-
-```text
-git range-diff sourceBase..sourceTip initialTarget..finalTarget
-```
-
-This output helps a person see missing, extra, or changed patches. It is never
-parsed to decide completion because its matching is heuristic.
-
-After the review is stored, completion records the generated branch as the
+After these checks, completion records the generated branch as the
 local result and calls `WorktreeService.cleanup(taskWorktree)`. Delivery
 later pushes that recorded branch from the managed repository, so it does not
 require a checked-out worktree. Cleanup failure is retryable and does not

@@ -19,7 +19,6 @@ import com.bytequay.core.cherrypick.CherryPickExecution.FinishReason;
 import com.bytequay.core.cherrypick.CherryPickExecution.PauseReason;
 import com.bytequay.core.cherrypick.CherryPickExecution.PullRequestDraft;
 import com.bytequay.core.cherrypick.CherryPickExecution.Range;
-import com.bytequay.core.cherrypick.CherryPickExecution.RangeReview;
 import com.bytequay.core.cherrypick.CherryPickExecution.Status;
 import com.bytequay.core.cherrypick.CherryPickExecution.Step;
 import com.bytequay.core.cherrypick.CherryPickExecution.Workspace;
@@ -146,11 +145,6 @@ public class CherryPickExecutionEntity
     @Column(nullable = false, columnDefinition = "TEXT")
     private String itemsJson;
 
-    @Column(columnDefinition = "TEXT")
-    private String rangeReview;
-
-    private Boolean rangeReviewTruncated;
-
     @Version
     @Getter
     private long version;
@@ -216,8 +210,6 @@ public class CherryPickExecutionEntity
         summary = execution.summary().orElse(null);
         journalJson = CherryPickJson.encodeJournal(execution.journal());
         itemsJson = CherryPickJson.encodeItems(execution.items());
-        rangeReview = execution.rangeReview().map(RangeReview::output).orElse(null);
-        rangeReviewTruncated = execution.rangeReview().map(RangeReview::truncated).orElse(null);
         createdAt = execution.createdAt();
         updatedAt = execution.updatedAt();
         terminalAt = execution.terminalAt().orElse(null);
@@ -258,8 +250,6 @@ public class CherryPickExecutionEntity
                 Optional.ofNullable(finishReason),
                 Optional.ofNullable(summary),
                 CherryPickJson.decodeJournal(journalJson),
-                Optional.ofNullable(rangeReview)
-                        .map(output -> new RangeReview(output, Boolean.TRUE.equals(rangeReviewTruncated))),
                 CherryPickJson.decodeItems(itemsJson),
                 version,
                 createdAt,

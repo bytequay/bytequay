@@ -279,7 +279,8 @@ public final class DefaultAgentTaskService
             Consumer<AgentTask> persistTask)
     {
         // Stamped once, so a later settings change never alters what a running task was given.
-        boolean codegraph = codeGraph.available() && codeGraphEnabled.getAsBoolean();
+        boolean codegraph = !laneId.value().startsWith("deepseek-key-")
+                && codeGraph.available() && codeGraphEnabled.getAsBoolean();
         TaskResources resources;
         AgentTask task;
         try {

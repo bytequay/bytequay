@@ -72,6 +72,55 @@ async function createLocalTask(): Promise<{ name: string; error?: string }[]> {
   finally { flushSync(() => root.unmount()); host.remove(); }
 }
 
+async function createDeepSeekTask(): Promise<{ name: string; error?: string }[]> {
+  const bridge = createPreviewBridge('workspace-1');
+  const settings = await bridge.getModelSettings();
+  const laneId = 'deepseek-key-123';
+  bridge.getModelSettings = async () => ({
+    ...settings,
+    providers: [...settings.providers, {
+      ...settings.providers[0], id: laneId, label: 'DeepSeek · personal',
+      models: [{ id: 'deepseek-flash', name: 'deepseek-flash', description: '', efforts: [], defaultEffort: null }],
+      selectedModel: 'deepseek-flash', selectedEffort: '',
+    }],
+  });
+  const host = document.createElement('div');
+  document.body.append(host);
+  const root = createRoot(host);
+  function Harness() {
+    const live = useCallback(() => bridge, []);
+    const creation = useAgentTaskCreation({ workspaceId: 'workspace-1',
+      initialLaunch: { laneId, model: 'deepseek-flash', effort: null }, bridge: live, onOpenTask: () => {} });
+    return <TaskComposer {...creation.composer} />;
+  }
+  flushSync(() => root.render(<Harness />));
+  try {
+    await settle();
+    assert(host.textContent?.includes('draft PR · CI fix') === true, 'DeepSeek must inherit the saved automation defaults');
+    const ciOption = [...host.querySelectorAll<HTMLLabelElement>('.agt-automation-option')]
+      .find(label => label.textContent?.includes('Auto CI fix'))?.querySelector<HTMLInputElement>('input');
+    assert(ciOption !== undefined && ciOption !== null && ciOption.checked, 'DeepSeek must start with saved Auto CI fix enabled');
+    const input = host.querySelector<HTMLTextAreaElement>('textarea[aria-label="Describe a task"]');
+    assert(input !== null, 'DeepSeek task composer must exist');
+    changeInput(input, 'Fix failing checks');
+    await settle();
+    const send = host.querySelector<HTMLButtonElement>('.agt-send');
+    assert(send !== null && !send.disabled, 'Ready DeepSeek task must be sendable with saved automation');
+    send.click();
+    await settle();
+    const command = bridge.commands.find(item => item.name === 'createAgentTask');
+    assert(command !== undefined, 'DeepSeek creation must submit one task');
+    const request = command.args[0] as CreateAgentTaskRequest;
+    assert(request.laneId === laneId && request.defaults.developmentAutomation?.autoCiFix === true
+      && request.developmentAutomation?.autoCiFix === true, 'DeepSeek must inherit saved Auto CI fix for task and first turn');
+    assert(request.defaults.developmentAutomation?.autoDraftPr === true && request.developmentAutomation?.autoDraftPr === true,
+      'DeepSeek must inherit saved draft publication for task and first turn');
+    return [{ name: 'DeepSeek creation inherits saved automation for task and first turn' }];
+  }
+  catch (error) { return [{ name: 'DeepSeek automation submission', error: error instanceof Error ? error.message : String(error) }]; }
+  finally { flushSync(() => root.unmount()); host.remove(); }
+}
+
 async function retryLocalTurn(): Promise<{ name: string; error?: string }[]> {
   const bridge = createPreviewBridge('workspace-1');
   const userEvent = bridge.events.find(event => event.type === 'user_message');
@@ -160,7 +209,7 @@ async function multilineDraft(): Promise<{ name: string; error?: string }[]> {
 }
 
 export async function run(): Promise<{ name: string; error?: string }[]> {
-  return [...await createLocalTask(), ...await multilineDraft(), ...await retryLocalTurn(), ...await localReviewExperiments(), ...await localReviewExperiments(true), ...await continuationAdmission(), ...await stopPreservesTask(), ...await pullRequestLookupPolicy(), ...await runCiAutofixScenarios(), ...await runDevelopmentDeliveryScenarios()];
+  return [...await createLocalTask(), ...await createDeepSeekTask(), ...await multilineDraft(), ...await retryLocalTurn(), ...await localReviewExperiments(), ...await localReviewExperiments(true), ...await continuationAdmission(), ...await stopPreservesTask(), ...await pullRequestLookupPolicy(), ...await runCiAutofixScenarios(), ...await runDevelopmentDeliveryScenarios()];
 }
 
 async function localReviewExperiments(reloadPrivate = false): Promise<{ name: string; error?: string }[]> {

@@ -172,6 +172,8 @@ echo "[dev] starting backend (Spring Boot prefers :9527, then an available OS-as
 # bound in backend/pom.xml that otherwise run before every dev start
 # and routinely push mvn past the 60s readiness window above. CI and
 # `mvn verify` still enforce both — these are dev-only shortcuts.
+# Force the app JAR to rebuild when only a dependency module changed; otherwise
+# Maven may leave Spring Boot's repackaged JAR with old agent-cli classes.
 JVM_ARGS=(--enable-native-access=ALL-UNNAMED -Xmx2000m -XX:MaxMetaspaceSize=256m -XX:ReservedCodeCacheSize=128m -XX:+ExitOnOutOfMemoryError)
 # Maven replaces the target JAR during later builds. Keep the running JVM's
 # lazy-loaded classes on an unchanged copy until this dev session exits.
@@ -181,6 +183,7 @@ backend_runtime_dir="$(mktemp -d "${TMPDIR:-/tmp}/bytequay-backend.XXXXXX")" || 
         -DskipTests \
         -Dcheckstyle.skip=true \
         -Dlicense.skip=true \
+        -Dmaven.jar.forceCreation=true \
     && cp app/target/bytequay-backend.jar "$backend_runtime_dir/bytequay-backend.jar" \
     && BYTEQUAY_BACKEND_PORT_FILE="$backend_runtime_dir/port" exec /usr/bin/perl -MPOSIX -e \
         '$SIG{$_} = "DEFAULT" for qw(INT QUIT); setsid; exec @ARGV or die "$ARGV[0]: $!\n"' \

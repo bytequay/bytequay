@@ -391,6 +391,13 @@ function pendingApprovalBlock(approval: AgentPendingApprovalDto): ApprovalBlock 
   };
 }
 
+export function PendingApprovalCard({ approval, onDecide }: {
+  approval: AgentPendingApprovalDto;
+  onDecide: ApprovalDecider;
+}): React.JSX.Element {
+  return <ApprovalView block={pendingApprovalBlock(approval)} onDecide={onDecide} />;
+}
+
 /** A question Claude asked: its own options, answered in place, instead of an allow over raw tool input. */
 function QuestionView({ block, questions, allow, deny, onDecide }: {
   block: ApprovalBlock;

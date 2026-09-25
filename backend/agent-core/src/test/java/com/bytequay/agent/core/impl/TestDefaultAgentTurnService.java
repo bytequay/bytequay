@@ -422,6 +422,56 @@ class TestDefaultAgentTurnService
     }
 
     @Test
+    void deepSeekTurnsUseNormalAutomationAndPreserveQueuedSettings()
+    {
+        AgentLaneId lane = new AgentLaneId("deepseek-key-11111111-1111-1111-1111-111111111111");
+        driver = new DeterministicAgentDriver(lane);
+        taskService = new DefaultAgentTaskService(
+                stores, worktrees, resources, new StaticAgentDriverRegistry(ImmutableList.of(driver)),
+                codeGraph, () -> codeGraphEnabled, Runnable::run, CLOCK);
+        service = service(driver, runtimeRegistry);
+        TaskId taskId = TaskId.random();
+        AgentTask deepSeek = taskService.createInteractive(new CreateInteractiveAgentTaskCommand(
+                taskId, "workspace-a", lane, new RepositoryIdentity("bytequay", "bytequay"),
+                "0123456789012345678901234567890123456789",
+                TaskBranches.generate(taskId, "user", "DeepSeek task"), "DeepSeek task",
+                new AgentTaskDefaults(Optional.of("deepseek-flash"), Optional.of("high"), AgentPermissionPolicy.AUTO)
+                        .withDevelopmentAutomation(DevelopmentAutomation.DEFAULT),
+                "deepseek-fingerprint", Optional.empty()));
+
+        assertThat(service.effectiveSettings(deepSeek.id()).developmentAutomation()).contains(DevelopmentAutomation.DEFAULT);
+
+        AgentTurn first = service.start(new StartAgentTurnCommand(
+                deepSeek.id(), "first", ImmutableList.of(), "deepseek-first")
+                .withDevelopmentAutomation(Optional.of(DevelopmentAutomation.LOCAL_ONLY)));
+        assertThat(first.settings().orElseThrow().developmentAutomation()).contains(DevelopmentAutomation.LOCAL_ONLY.forDevelopment());
+        assertThat(driver.openedContexts().getLast().managedInstructions())
+                .contains("Commit finished development work: true", "Auto draft PR: false")
+                .doesNotContain("Private local review");
+        long version = taskService.get(deepSeek.id()).version();
+        QueuedAgentInput queued = service.enqueue(new QueueAgentInputCommand(
+                deepSeek.id(), version, "queued", ImmutableList.of(), "deepseek-queue",
+                Optional.of(DevelopmentAutomation.DEFAULT)));
+        assertThat(queued.settings().developmentAutomation()).contains(DevelopmentAutomation.DEFAULT);
+
+        AgentTask current = taskService.get(deepSeek.id());
+        taskService.updateDefaults(new UpdateAgentTaskDefaultsCommand(
+                deepSeek.id(), current.version(),
+                new AgentTaskDefaults(Optional.of("deepseek-v4-pro"), current.defaults().effort(),
+                        current.defaults().permissionPolicy(), current.defaults().serviceTier(),
+                        current.defaults().developmentAutomation())));
+        driver.unsupportedModel(Optional.of("deepseek-flash"));
+        driver.complete("first done");
+        assertThat(stores.find(queued.id()).orElseThrow().state()).isEqualTo(QueuedAgentInput.State.PAUSED);
+        assertThat(stores.findActive(deepSeek.id())).isEmpty();
+        assertThatThrownBy(() -> service.resumeQueued(deepSeek.id()))
+                .isInstanceOf(AgentProviderUnavailableException.class).hasMessageContaining("model unavailable");
+        driver.unsupportedModel(Optional.empty());
+        AgentTurn resumed = service.resumeQueued(deepSeek.id());
+        assertThat(resumed.settings().orElseThrow().model()).contains("deepseek-flash");
+    }
+
+    @Test
     void workflowTurnsCannotAcquireAnInteractiveAutomationOverride()
     {
         assertThatThrownBy(() -> service.start(command("first", "workflow-automation")

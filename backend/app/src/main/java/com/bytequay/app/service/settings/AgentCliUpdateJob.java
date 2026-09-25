@@ -59,6 +59,10 @@ public class AgentCliUpdateJob
                 continue;
             }
             String lane = status.laneId().value();
+            if (lane.startsWith("deepseek-key-")) {
+                // One installed Codex binary is updated through its CLI lane, never once per saved key.
+                continue;
+            }
             try {
                 drivers.require(status.laneId()).update().ifPresent(output ->
                         log.info("{} CLI update: {}", lane, output));

@@ -295,6 +295,16 @@ class TestCodexEventMapper
     }
 
     @Test
+    void deepSeekNeverPublishesReasoningItems()
+    {
+        CodexEventMapper deepSeek = new CodexEventMapper(worktree, SecretRedactor.fromEnvironment(ImmutableMap.of()), false);
+        assertThat(deepSeek.map(codec.decodeNotification("""
+                {"method":"item/completed","params":{"item":{"type":"reasoning","id":"reasoning-1",
+                "summary":["provider reasoning"],"content":["hidden reasoning"]},"threadId":"thread-1","turnId":"turn-1"}}
+                """), true, CodexEventMapper.ThreadLineage.NONE)).isEmpty();
+    }
+
+    @Test
     void mapsStructuredPlanProgressAndAnExplicitEmptyPlan()
     {
         ProviderAgentEvent.Plan initial = only("""

@@ -430,7 +430,8 @@ class TestClaudeCliDriver
                 messages.getFirst().source().providerItemId().orElseThrow(),
                 "authoritative [REDACTED]"));
         ProcessSpec firstSpec = supervisor.turns().getFirst().spec();
-        assertThat(firstSpec.environment()).containsEntry("GH_TOKEN", "github-sentinel").containsEntry("ANTHROPIC_API_KEY", "known-secret");
+        assertThat(firstSpec.environment()).containsEntry("ANTHROPIC_API_KEY", "known-secret")
+                .doesNotContainKeys("GH_TOKEN", "GITHUB_TOKEN", "GH_CONFIG_DIR", "SSH_AUTH_SOCK");
         // Probes and turns alike derive their environment from the driver's, so `--version`, `--help`,
         // `auth status` and every turn read ByteQuay's home; an exported one never redirects them.
         assertThat(supervisor.specs).hasSizeGreaterThan(1).allSatisfy(spec ->
@@ -488,6 +489,8 @@ class TestClaudeCliDriver
         assertThat(ciSpec.argv()).contains("--strict-mcp-config");
         assertThat(ciSpec.argv()).contains("--setting-sources=");
         assertThat(ciSpec.argv()).containsSequence("--add-dir", realLog.getParent().toString());
+        assertThat(ciSpec.argv().get(ciSpec.argv().indexOf("--append-system-prompt") + 1))
+                .contains("ByteQuay CI Repair Scope", "Never push");
         int allowedTools = ciSpec.argv().indexOf("--allowedTools");
         assertThat(allowedTools).isGreaterThanOrEqualTo(0);
         assertThat(ciSpec.argv().get(allowedTools + 1))
@@ -514,7 +517,7 @@ class TestClaudeCliDriver
         AgentSession autoSession = driver.open(context(Optional.empty(), AgentPermissionPolicy.AUTO), events::add);
         assertThat(await(autoSession.start(command("auto"))).state()).isEqualTo(AgentTurnResult.State.COMPLETED);
         ProcessSpec autoSpec = supervisor.turns().getLast().spec();
-        assertThat(autoSpec.environment()).containsEntry("GH_TOKEN", "github-sentinel");
+        assertThat(autoSpec.environment()).doesNotContainKeys("GH_TOKEN", "GITHUB_TOKEN", "GH_CONFIG_DIR", "SSH_AUTH_SOCK");
         assertThat(autoSpec.stdoutCaptureLimit()).isEmpty();
         assertThat(autoSpec.argv()).containsSequence("--permission-mode", "auto");
         assertThat(autoSpec.argv()).contains("--strict-mcp-config", "--setting-sources=", "--settings");

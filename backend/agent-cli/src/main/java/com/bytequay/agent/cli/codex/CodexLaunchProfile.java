@@ -13,11 +13,11 @@
  */
 package com.bytequay.agent.cli.codex;
 
-import com.bytequay.agent.cli.process.GitCliEnvironment;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 
 import java.net.URI;
+import java.nio.file.Path;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -39,7 +39,7 @@ import static java.util.stream.Collectors.joining;
  */
 final class CodexLaunchProfile
 {
-    /** Capabilities that must never be inherited by a task; each is disabled explicitly. */
+    /** Capabilities that must never be inherited by a task; the optional network proxy also blocks JVM builds on macOS. */
     private static final List<String> DISABLED_FEATURES = ImmutableList.of(
             "apps",
             "browser_use",
@@ -51,6 +51,7 @@ final class CodexLaunchProfile
             "image_generation",
             "in_app_browser",
             "memories",
+            "network_proxy",
             "plugins",
             "remote_plugin",
             "skill_mcp_dependency_install",
@@ -77,22 +78,14 @@ final class CodexLaunchProfile
             "TERM",
             "TMPDIR",
             "USER");
-    private static final List<String> GIT_SHELL_ENVIRONMENT_INCLUDE_ONLY = ImmutableList.<String>builder()
-            .addAll(SHELL_ENVIRONMENT_INCLUDE_ONLY)
-            .add("XDG_CONFIG_HOME")
-            .addAll(GitCliEnvironment.variables())
-            .build();
-
     /** Root, child, and grandchild: the bounded recursive tree proven by the compatibility gate. */
     private static final int MULTI_AGENT_MAX_DEPTH = 2;
-
     private CodexLaunchProfile() {}
 
     /**
      * Returns the full argument vector for one App Server launch, optionally pointing the process at
-     * ByteQuay's task MCP endpoint for the CodeGraph tool. The bearer token is not on the command
-     * line: it travels in {@link CodeGraphLaunch#TOKEN_VARIABLE} of the process environment, which
-     * the shell policy above keeps away from the model-facing shell.
+     * ByteQuay's task MCP endpoint. A direct broker registration keeps its bearer in
+     * {@link CodeGraphLaunch#TOKEN_VARIABLE}; a proxied registration keeps it outside Codex.
      */
     static List<String> arguments(
             String executable,
@@ -103,9 +96,24 @@ final class CodexLaunchProfile
             boolean allowGitHubCommands,
             boolean review)
     {
+        return arguments(executable, childProfile, codeGraph, textOnly, ciWritableRoots, allowGitHubCommands, review, Optional.empty());
+    }
+
+    static List<String> arguments(
+            String executable,
+            ChildProfile childProfile,
+            Optional<CodeGraphLaunch> codeGraph,
+            boolean textOnly,
+            List<String> ciWritableRoots,
+            boolean allowGitHubCommands,
+            boolean review,
+            Optional<DeepSeekProfile> deepSeek)
+    {
         requireNonNull(codeGraph, "codeGraph is null");
+        requireNonNull(deepSeek, "deepSeek is null");
         boolean ci = !ciWritableRoots.isEmpty();
-        checkArgument(!allowGitHubCommands || (!textOnly && !ci && !review), "Restricted Codex profiles cannot inherit Git authentication");
+        checkArgument(!allowGitHubCommands || (!textOnly && !ci && !review), "Restricted Codex profiles cannot use attended network scope");
+        checkArgument(!review || (!textOnly && !ci), "Restricted Codex profiles cannot run private review");
         ImmutableList.Builder<String> arguments = ImmutableList.<String>builder().add(
                 executable,
                 "app-server",
@@ -113,32 +121,46 @@ final class CodexLaunchProfile
                 "stdio://",
                 "--strict-config",
                 "--enable",
-                "skip_host_skill_discovery",
-                "-c",
-                "cli_auth_credentials_store=\"file\"",
-                "-c",
-                "forced_login_method=\"chatgpt\"",
+                "skip_host_skill_discovery");
+        if (deepSeek.isPresent()) {
+            arguments.add(
+                    "-c", "cli_auth_credentials_store=\"ephemeral\"",
+                    "-c", "model_provider=\"deepseek\"",
+                    "-c", "model_catalog_json=" + tomlString(deepSeek.orElseThrow().catalog().toString()),
+                    "-c", "model_providers.deepseek.name=\"DeepSeek\"",
+                    "-c", "model_providers.deepseek.base_url=" + tomlString(deepSeek.orElseThrow().baseUrl().toString()),
+                    "-c", "model_providers.deepseek.wire_api=\"responses\"",
+                    "-c", "model_providers.deepseek.requires_openai_auth=false",
+                    "-c", "model_providers.deepseek.supports_websockets=false",
+                    "-c", "model_providers.deepseek.request_max_retries=0");
+        }
+        else {
+            arguments.add(
+                    "-c", "cli_auth_credentials_store=\"file\"",
+                    "-c", "forced_login_method=\"chatgpt\"");
+        }
+        arguments.add(
                 "-c",
                 "web_search=" + tomlString(textOnly || ci ? "disabled" : "live"),
                 "-c",
-                "shell_environment_policy.inherit=" + tomlString(allowGitHubCommands ? "all" : "core"),
+                "shell_environment_policy.inherit=\"core\"",
                 "-c",
-                "shell_environment_policy.ignore_default_excludes=" + allowGitHubCommands,
+                "shell_environment_policy.ignore_default_excludes=false",
                 "-c",
-                "shell_environment_policy.include_only=" + quotedList(expectedShellEnvironmentIncludeOnly(allowGitHubCommands)),
+                "shell_environment_policy.include_only=" + quotedList(expectedShellEnvironmentIncludeOnly()),
                 "-c",
-                "shell_environment_policy.experimental_use_profile=false");
+                "shell_environment_policy.experimental_use_profile=false",
+                "-c",
+                "sandbox_workspace_write.network_access=" + (allowGitHubCommands || review || ci),
+                "-c",
+                "approval_policy=" + tomlString(textOnly ? "never" : "on-request"),
+                "-c",
+                "approvals_reviewer=\"user\"");
         DISABLED_FEATURES.forEach(feature -> arguments.add("--disable", feature));
-        arguments.add(textOnly || ci ? "--disable" : "--enable", "guardian_approval");
-        if (!textOnly && !ci) {
-            arguments.add("-c", "auto_review.policy=" + tomlString(CodexApprovalPolicy.policy(review)));
-        }
+        arguments.add("--disable", "guardian_approval");
         if (ci) {
             arguments.add(
-                    "-c", "approval_policy=\"never\"",
-                    "-c", "approvals_reviewer=\"user\"",
                     "-c", "sandbox_workspace_write.writable_roots=" + quotedList(ciWritableRoots),
-                    "-c", "sandbox_workspace_write.network_access=false",
                     "-c", "sandbox_workspace_write.exclude_tmpdir_env_var=true",
                     "-c", "sandbox_workspace_write.exclude_slash_tmp=true");
         }
@@ -151,14 +173,17 @@ final class CodexLaunchProfile
             arguments.add("-c", "agents.max_depth=" + MULTI_AGENT_MAX_DEPTH);
         }
         // The broker admits only this task's authorized tools; Codex must not ask a second approval question for them.
-        codeGraph.ifPresent(launch -> arguments.add(
-                "-c", "mcp_servers.bytequay.url=" + tomlString(launch.endpoint().toString()),
-                "-c", "mcp_servers.bytequay.bearer_token_env_var=" + tomlString(CodeGraphLaunch.TOKEN_VARIABLE),
-                "-c", "mcp_servers.bytequay.default_tools_approval_mode=\"approve\"",
-                // The broker owns authorization for this exact task inventory; other tools retain their native approval policy.
-                "-c", "mcp_servers.bytequay.tools=" + launch.toolNames().stream()
-                        .map(name -> tomlString(name) + "={approval_mode=\"approve\"}").collect(joining(",", "{", "}")),
-                "-c", "developer_instructions=" + tomlString(launch.instruction())));
+        codeGraph.ifPresent(launch -> {
+            arguments.add("-c", "mcp_servers.bytequay.url=" + tomlString(launch.endpoint().toString()));
+            if (launch.bearerTokenInEnvironment()) {
+                arguments.add("-c", "mcp_servers.bytequay.bearer_token_env_var=" + tomlString(CodeGraphLaunch.TOKEN_VARIABLE));
+            }
+            arguments.add("-c", "mcp_servers.bytequay.default_tools_approval_mode=\"approve\"",
+                    // The broker owns authorization for this exact task inventory; other tools retain their native approval policy.
+                    "-c", "mcp_servers.bytequay.tools=" + launch.toolNames().stream()
+                            .map(name -> tomlString(name) + "={approval_mode=\"approve\"}").collect(joining(",", "{", "}")),
+                    "-c", "developer_instructions=" + tomlString(launch.instruction()));
+        });
         return arguments.build();
     }
 
@@ -178,20 +203,39 @@ final class CodexLaunchProfile
             boolean allowGitHubCommands,
             boolean review)
     {
+        return threadConfig(childProfile, codeGraph, textOnly, ciWritableRoots, allowGitHubCommands, review, Optional.empty());
+    }
+
+    static Map<String, Object> threadConfig(
+            ChildProfile childProfile,
+            boolean codeGraph,
+            boolean textOnly,
+            List<String> ciWritableRoots,
+            boolean allowGitHubCommands,
+            boolean review,
+            Optional<DeepSeekProfile> deepSeek)
+    {
         requireNonNull(childProfile, "childProfile is null");
+        requireNonNull(deepSeek, "deepSeek is null");
         boolean ci = !ciWritableRoots.isEmpty();
-        checkArgument(!allowGitHubCommands || (!textOnly && !ci && !review), "Restricted Codex profiles cannot inherit Git authentication");
+        checkArgument(!allowGitHubCommands || (!textOnly && !ci && !review), "Restricted Codex profiles cannot use attended network scope");
+        checkArgument(!review || (!textOnly && !ci), "Restricted Codex profiles cannot run private review");
         ImmutableMap.Builder<String, Object> config = ImmutableMap.<String, Object>builder()
                 .put("web_search", textOnly || ci ? "disabled" : "live")
-                .put("features", expectedFeatures(childProfile, textOnly, ci))
-                .put("shell_environment_policy", expectedShellEnvironmentPolicy(allowGitHubCommands));
-        if (!textOnly && !ci) {
-            config.put("auto_review", ImmutableMap.of("policy", CodexApprovalPolicy.policy(review)));
+                .put("features", expectedFeatures(childProfile, textOnly))
+                .put("shell_environment_policy", expectedShellEnvironmentPolicy());
+        if (deepSeek.isPresent()) {
+            config.put("model_provider", "deepseek")
+                    .put("model_catalog_json", deepSeek.orElseThrow().catalog().toString())
+                    .put("model_providers", ImmutableMap.of("deepseek", deepSeekProviderConfig(deepSeek.orElseThrow().baseUrl())));
         }
         if (ci) {
-            config.put("approval_policy", "never")
+            config.put("approval_policy", "on-request")
                     .put("approvals_reviewer", "user")
                     .put("sandbox_workspace_write", ciSandboxConfig(ciWritableRoots));
+        }
+        else if (allowGitHubCommands || review) {
+            config.put("sandbox_workspace_write", ImmutableMap.of("network_access", true));
         }
         if (!codeGraph) {
             config.put("mcp_servers", ImmutableMap.of());
@@ -202,12 +246,12 @@ final class CodexLaunchProfile
         return config.buildOrThrow();
     }
 
-    static Map<String, Boolean> expectedFeatures(ChildProfile childProfile, boolean textOnly, boolean ci)
+    static Map<String, Boolean> expectedFeatures(ChildProfile childProfile, boolean textOnly)
     {
         requireNonNull(childProfile, "childProfile is null");
         ImmutableMap.Builder<String, Boolean> features = ImmutableMap.builder();
         features.put("skip_host_skill_discovery", true);
-        features.put("guardian_approval", !textOnly && !ci);
+        features.put("guardian_approval", false);
         DISABLED_FEATURES.forEach(feature -> features.put(feature, false));
         if (textOnly) {
             TEXT_ONLY_DISABLED_FEATURES.forEach(feature -> features.put(feature, false));
@@ -221,9 +265,20 @@ final class CodexLaunchProfile
     {
         return ImmutableMap.of(
                 "writable_roots", ImmutableList.copyOf(writableRoots),
-                "network_access", false,
+                "network_access", true,
                 "exclude_tmpdir_env_var", true,
                 "exclude_slash_tmp", true);
+    }
+
+    static Map<String, Object> deepSeekProviderConfig(URI baseUrl)
+    {
+        return ImmutableMap.of(
+                "name", "DeepSeek",
+                "base_url", baseUrl.toString(),
+                "wire_api", "responses",
+                "requires_openai_auth", false,
+                "supports_websockets", false,
+                "request_max_retries", 0);
     }
 
     /** A TOML basic string: quotes, backslashes, and line breaks escaped, everything else literal. */
@@ -233,9 +288,14 @@ final class CodexLaunchProfile
     }
 
     /** What a launch needs to expose the CodeGraph tool: where the task MCP endpoint is and what to tell the model. */
-    record CodeGraphLaunch(URI endpoint, String instruction, List<String> toolNames)
+    record CodeGraphLaunch(URI endpoint, String instruction, List<String> toolNames, boolean bearerTokenInEnvironment)
     {
         static final String TOKEN_VARIABLE = "BYTEQUAY_CODEGRAPH_TOKEN";
+
+        CodeGraphLaunch(URI endpoint, String instruction, List<String> toolNames)
+        {
+            this(endpoint, instruction, toolNames, true);
+        }
 
         CodeGraphLaunch
         {
@@ -245,18 +305,30 @@ final class CodexLaunchProfile
         }
     }
 
-    static Map<String, Object> expectedShellEnvironmentPolicy(boolean allowGitHubCommands)
+    record DeepSeekProfile(Path catalog, URI baseUrl)
     {
-        return ImmutableMap.of(
-                "inherit", allowGitHubCommands ? "all" : "core",
-                "ignore_default_excludes", allowGitHubCommands,
-                "include_only", expectedShellEnvironmentIncludeOnly(allowGitHubCommands),
-                "experimental_use_profile", false);
+        DeepSeekProfile
+        {
+            requireNonNull(catalog, "catalog is null");
+            requireNonNull(baseUrl, "baseUrl is null");
+            checkArgument(baseUrl.getScheme().equals("http") && baseUrl.getHost().equals("127.0.0.1")
+                    && baseUrl.getPort() > 0 && baseUrl.getRawQuery() == null, "DeepSeek proxy must use a loopback HTTP URL");
+        }
     }
 
-    static List<String> expectedShellEnvironmentIncludeOnly(boolean allowGitHubCommands)
+    static Map<String, Object> expectedShellEnvironmentPolicy()
     {
-        return allowGitHubCommands ? GIT_SHELL_ENVIRONMENT_INCLUDE_ONLY : SHELL_ENVIRONMENT_INCLUDE_ONLY;
+        ImmutableMap.Builder<String, Object> policy = ImmutableMap.<String, Object>builder()
+                .put("inherit", "core")
+                .put("ignore_default_excludes", false)
+                .put("include_only", expectedShellEnvironmentIncludeOnly())
+                .put("experimental_use_profile", false);
+        return policy.buildOrThrow();
+    }
+
+    static List<String> expectedShellEnvironmentIncludeOnly()
+    {
+        return SHELL_ENVIRONMENT_INCLUDE_ONLY;
     }
 
     static Optional<Integer> expectedAgentMaxDepth(ChildProfile childProfile)

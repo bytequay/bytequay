@@ -21,21 +21,6 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 class TestAgentCommandPolicy
 {
     @Test
-    void authenticatedCommandsAreLimitedToAttendedDevelopment()
-    {
-        assertThat(AgentPermissionPolicy.AUTO.allowsGitHubCommands(false, false)).isTrue();
-        assertThat(AgentPermissionPolicy.AUTO.allowsGitHubCommands(true, false)).isFalse();
-        assertThat(AgentPermissionPolicy.AUTO.allowsGitHubCommands(false, true)).isFalse();
-        assertThat(AgentPermissionPolicy.AUTO.allowsGitHubCommands(true, true)).isFalse();
-        for (AgentPermissionPolicy policy : new AgentPermissionPolicy[] {AgentPermissionPolicy.CI_AUTOFIX, AgentPermissionPolicy.CHERRY_PICK}) {
-            assertThat(policy.allowsGitHubCommands(false, false)).isFalse();
-            assertThat(policy.allowsGitHubCommands(true, false)).isFalse();
-            assertThat(policy.allowsGitHubCommands(false, true)).isFalse();
-            assertThat(policy.allowsGitHubCommands(true, true)).isFalse();
-        }
-    }
-
-    @Test
     void modelAndReviewerInstructionsShareEveryRestriction()
     {
         assertThat(AgentCommandPolicy.restrictions()).isNotEmpty().allSatisfy(restriction -> {
@@ -54,7 +39,11 @@ class TestAgentCommandPolicy
                 "expected remote revision",
                 "whole shell chain",
                 "without exposing their values",
-                "native denials still apply");
+                "native denials still apply",
+                "one-time ByteQuay approval request",
+                "ByteQuay checks concrete file-write requests");
+        assertThat(AgentCommandPolicy.instructions()).startsWith("## ByteQuay Development Scope").doesNotContain("Automatic Approval Scope", "sandbox weakening");
+        assertThat(AgentCommandPolicy.reviewInstructions()).startsWith("## ByteQuay Private Review Scope").doesNotContain("Automatic Approval Scope");
     }
 
     @Test

@@ -30,6 +30,10 @@ class ModelApiKeyEntity
     @Id
     private String alias;
 
+    /** Nullable for rows saved before opaque IDs were introduced. */
+    @Column(name = "key_id")
+    private String keyId;
+
     @Column(nullable = false)
     private String provider;
 
@@ -45,12 +49,18 @@ class ModelApiKeyEntity
 
     protected ModelApiKeyEntity() {}
 
-    ModelApiKeyEntity(String alias, String provider, String ciphertext, String maskedHint, Instant createdAt)
+    ModelApiKeyEntity(String keyId, String alias, String provider, String ciphertext, String maskedHint, Instant createdAt)
     {
+        this.keyId = keyId;
         this.alias = alias;
         this.provider = provider;
         this.ciphertext = ciphertext;
         this.maskedHint = maskedHint;
         this.createdAt = createdAt;
+    }
+
+    void setKeyId(String keyId)
+    {
+        this.keyId = keyId;
     }
 }

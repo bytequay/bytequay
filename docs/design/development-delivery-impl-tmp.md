@@ -705,10 +705,12 @@ Codex CI verification evidence:
   Logs: `/private/tmp/bytequay-codex-ci-frontend-{lint,tsc,test}.log`.
 - macOS arm64 packaging passed with the verified backend JAR. The temporary
   dependency symlink was removed. Log: `/private/tmp/bytequay-codex-ci-package.log`.
-- The keyless native Codex 0.153.4 fixture passed local edits/commits, readonly
-  CI logs, denied other refs/config/hooks/outside/network writes, never/user
-  start/turn/resume, local denial of escalation and user-input requests, and
-  disabled child agents. A real detached rebase conflict staged successfully
+- The earlier keyless native Codex 0.153.4 fixture passed local edits/commits,
+  readonly CI logs, denied other refs/config/hooks/outside/network writes,
+  never/user start/turn/resume, local denial of escalation and user-input
+  requests, and disabled child agents. Its network and escalation findings were
+  superseded by the current CI approval and dependency-download probe. A real
+  detached rebase conflict staged successfully
   without advancing Git or acquiring writable branch refs. Evidence:
   `/private/tmp/bytequay-codex-ci-jcb4mhjb`.
 - Independent review identified and resolved punctuation corruption in writable

@@ -201,17 +201,39 @@ The initial limits are:
 The agent may edit, commit, amend, squash, and reorder fixups only inside the
 generated task worktree. During a program-owned target rebase it may edit and stage the
 current conflict, but only the program may continue, skip, or abort. It never
-receives a GitHub credential or a GitHub write tool, and its runtime policy
-denies network writes. Only the program may update the authorized PR description, push, or rerun GitHub Actions.
+receives a ByteQuay-stored GitHub credential, an explicitly routed ambient
+GitHub token or SSH-agent variable, or a GitHub write tool. The agent
+may download build dependencies, while its prompt forbids direct GitHub writes.
+The sandbox's turn-wide network access does not enforce a download-only rule;
+a build script can read accessible host files and make network requests. Only the program
+may update the authorized PR description, push, or rerun GitHub Actions.
 
 Codex repairs use the same watch, fix, validate, push, rerun, and completion
-loop. The adapter uses `never` approval policy, reviewer `user`, disabled native
-review escalation, web search and child agents, and no command network access.
-Its writable roots contain the linked task worktree and the specific Git
-metadata needed for local commits. CI logs remain read-only task-owned files;
+loop. The adapter uses `on-request` approval policy, reviewer `user`, disabled
+web search and child agents, and enabled command network
+access for build dependencies. Its writable roots contain the linked task
+worktree, the shared validated Maven, Gradle, and npm cache roots, and the
+specific linked-worktree Git metadata needed for local commits. Claude uses
+the same validated cache and Git metadata roots, plus its existing `/var/tmp`
+allowance. Other Git refs and shared configuration retain their native
+protections. Unresolved
+provider prompts reach ByteQuay's task approval cards; denial or expiry
+refuses the action. A card does not expand the CI task's authority: direct
+GitHub writes and program-owned rebase controls remain prohibited. CI logs
+remain read-only task-owned files;
 the `read_ci_memory` tool is available even with CodeGraph and the Claude lane
 disabled. The tool token grants no Claude permission prompt. Ordinary Codex
-`AUTO` tasks retain their attended native review policy.
+`AUTO` tasks retain their native sandbox and approval route.
+
+Claude repair turns use Auto mode. ByteQuay first checks concrete file-write
+requests against the leased worktree and validated build-cache roots. Other
+requests that reach its host callback create the task's ordinary approval card;
+denial or expiry refuses that tool call. Auto mode may deny an action before it
+reaches the callback. A sandbox violation can prompt Claude to retry a
+Bash command with `dangerouslyDisableSandbox:true`; that retry always creates a
+ByteQuay approval card. Approval runs the whole command outside Claude's sandbox, with
+host file access beyond the reported path, including credential files. Native
+deny rules still apply before the callback.
 
 The run keeps its task worktree while `ACTIVE` or `PAUSED`. A dirty or
 uncertain agent result pauses and preserves it. Terminal settlement follows

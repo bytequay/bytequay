@@ -87,6 +87,7 @@ class TestInteractiveAgentTaskCreator
     private AgentTaskService tasks;
     private AgentTurnService turns;
     private AgentDriver driver;
+    private AgentDriverRegistry drivers;
     private ModelSettingsService models;
     private AppSettingsService settings;
     private WorkspaceRepositoryService workspaces;
@@ -103,7 +104,7 @@ class TestInteractiveAgentTaskCreator
         tasks = mock(AgentTaskService.class);
         turns = mock(AgentTurnService.class);
         driver = mock(AgentDriver.class);
-        AgentDriverRegistry drivers = mock(AgentDriverRegistry.class);
+        drivers = mock(AgentDriverRegistry.class);
         models = mock(ModelSettingsService.class);
         settings = mock(AppSettingsService.class);
         when(settings.developmentAutomation()).thenReturn(DevelopmentAutomation.DEFAULT);
@@ -258,6 +259,60 @@ class TestInteractiveAgentTaskCreator
     }
 
     @Test
+    void deepSeekCreationKeepsAcceptedCommitAndCiSettings()
+    {
+        AgentLaneId lane = new AgentLaneId("deepseek-key-11111111-1111-1111-1111-111111111111");
+        DevelopmentAutomation automation = new DevelopmentAutomation(true, false, true, Optional.of(AgentLaneId.CODEX_CLI));
+        when(drivers.require(lane)).thenReturn(driver);
+        Path repository = temporaryDirectory.resolve("repository");
+        when(workspaces.requireReadyRepository("workspace-1")).thenReturn(workspace(repository));
+        when(git.run(repository, "rev-parse", "--verify", "refs/remotes/origin/main^{commit}"))
+                .thenReturn(new GitCommandRunner.Result(0, START_COMMIT, false));
+        when(tasks.createInteractive(any())).thenAnswer(invocation -> {
+            CreateInteractiveAgentTaskCommand command = invocation.getArgument(0);
+            return AgentTask.created(command.taskId(), true, Optional.of(command.creationFingerprint()), "Task", TitleSource.USER,
+                    command.laneId(), new TaskWorktree(command.taskId(), command.workspaceId(), command.physicalRepository(),
+                    temporaryDirectory.resolve(command.taskId().toString()), command.generatedBranch(), START_COMMIT),
+                    command.defaults(), Instant.parse("2026-09-01T00:00:00Z"));
+        });
+
+        AgentTask created = creator.create(TASK_ID, "workspace-1", "Task", lane, defaults().withDevelopmentAutomation(automation), "create-key",
+                Optional.empty(), Optional.of(automation), Optional.empty(), Optional.empty());
+
+        ArgumentCaptor<CreateInteractiveAgentTaskCommand> command = ArgumentCaptor.forClass(CreateInteractiveAgentTaskCommand.class);
+        verify(tasks).createInteractive(command.capture());
+        assertThat(command.getValue().defaults().developmentAutomation()).contains(automation);
+        doReturn(created).when(tasks).getInteractive("workspace-1", TASK_ID);
+        assertThat(creator.create(TASK_ID, "workspace-1", "Task", lane, defaults().withDevelopmentAutomation(automation), "create-key",
+                Optional.empty(), Optional.of(automation), Optional.empty(), Optional.empty())).isSameAs(created);
+        assertThatThrownBy(() -> creator.create(TASK_ID, "workspace-1", "Task", lane, defaults().withDevelopmentAutomation(automation), "create-key",
+                Optional.empty(), Optional.of(new DevelopmentAutomation(true, false, false, Optional.empty())), Optional.empty(), Optional.empty()))
+                .isInstanceOf(AgentConflictException.class).hasMessageContaining("creation request changed");
+        verify(driver, times(2)).probe(Optional.of("model-a"));
+        verify(settings, never()).developmentAutomation();
+        verify(settings, times(2)).validateDevelopmentAutomation(automation);
+        verify(names).generate(eq(lane), any(), eq("Task"));
+    }
+
+    @Test
+    void deepSeekRejectsInvalidSelectedCiLaneBeforeRepositoryWork()
+    {
+        AgentLaneId lane = new AgentLaneId("deepseek-key-11111111-1111-1111-1111-111111111111");
+        DevelopmentAutomation invalid = new DevelopmentAutomation(true, false, true,
+                Optional.of(new AgentLaneId("unsupported")));
+        doThrow(new IllegalArgumentException("Agent lane unsupported does not support CI Autofix"))
+                .when(settings).validateDevelopmentAutomation(invalid);
+
+        assertThatThrownBy(() -> creator.create(TASK_ID, "workspace-1", "Task", lane, defaults(), "create-key",
+                Optional.empty(), Optional.of(invalid), Optional.empty(), Optional.empty()))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("does not support CI Autofix");
+
+        verifyNoInteractions(provisioning, workspaces, git);
+        verify(tasks, never()).createInteractive(any());
+    }
+
+    @Test
     void readinessFailureDoesNotResolveWorkspaceOrGit()
     {
         when(driver.probe()).thenReturn(new AgentProviderStatus(
@@ -387,12 +442,14 @@ class TestInteractiveAgentTaskCreator
 
     private void ready()
     {
-        when(driver.probe()).thenReturn(new AgentProviderStatus(
+        AgentProviderStatus ready = new AgentProviderStatus(
                 AgentLaneId.CODEX_CLI,
                 AgentProviderStatus.Readiness.READY,
                 Optional.of("test"),
                 "ready",
-                AgentCapabilities.none()));
+                AgentCapabilities.none());
+        when(driver.probe()).thenReturn(ready);
+        when(driver.probe(any())).thenReturn(ready);
     }
 
     private AgentTask create(AgentTaskDefaults defaults)

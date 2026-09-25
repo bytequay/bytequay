@@ -262,7 +262,7 @@ class TestBetterWordsService
     void usesDeepSeekChatCompletionsWithTheSelectedModelAndKey()
     {
         ModelSettingsService settings = mock(ModelSettingsService.class);
-        when(settings.agentModel(eq(AgentModelType.REVIEW), any())).thenReturn(reviewModel("key:personal", "deepseek-chat"));
+        when(settings.agentModel(eq(AgentModelType.REVIEW), any())).thenReturn(reviewModel("key:personal", "deepseek-flash"));
         ModelApiKeyStore keys = apiKeyStore("personal", "DeepSeek", "sk-deepseek-secret");
 
         RestClient.Builder deepSeekBuilder = RestClient.builder().baseUrl("https://deepseek.test");
@@ -275,7 +275,7 @@ class TestBetterWordsService
                 .andExpect(jsonPath("$.messages[0].content", containsString("These rewrite requirements take precedence over style preferences")))
                 .andExpect(content().json("""
                         {
-                          "model": "deepseek-chat",
+                          "model": "deepseek-flash",
                           "messages": [
                             {"role": "system"},
                             {"role": "user", "content": "why u do this?"}
@@ -329,7 +329,7 @@ class TestBetterWordsService
         openAiServer.verify();
 
         ModelSettingsService deepSeekSettings = mock(ModelSettingsService.class);
-        when(deepSeekSettings.agentModel(eq(AgentModelType.REVIEW), any())).thenReturn(reviewModel("key:personal", "deepseek-chat"));
+        when(deepSeekSettings.agentModel(eq(AgentModelType.REVIEW), any())).thenReturn(reviewModel("key:personal", "deepseek-v4-pro"));
         RestClient.Builder deepSeekBuilder = RestClient.builder().baseUrl("https://deepseek.test");
         MockRestServiceServer deepSeekServer = MockRestServiceServer.bindTo(deepSeekBuilder).build();
         deepSeekServer.expect(once(), requestTo("https://deepseek.test/chat/completions"))

@@ -43,6 +43,7 @@ describe('start development dialog', () => {
     expect(defaultDevelopmentLane(both, undefined)).toBe('claude');
     expect(defaultDevelopmentLane([provider('claude', 'AUTHENTICATION_REQUIRED'), provider('codex', 'READY')], 'claude')).toBe('codex');
     expect(defaultDevelopmentLane([provider('claude', 'CLI_MISSING')], 'claude')).toBe('');
+    expect(defaultDevelopmentLane([provider('deepseek-key-123', 'READY'), provider('codex', 'READY')], undefined)).toBe('codex');
   });
 
   it('seeds the lane\u2019s own model and effort, and keeps an effort only a model still offers', () => {

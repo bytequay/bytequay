@@ -13,6 +13,8 @@
  */
 import { useEffect, useMemo, useState, type ReactNode } from 'react';
 import type {
+  AgentApprovalDecision,
+  AgentPendingApprovalDto,
   CherryPickExecution,
   CherryPickExecutionItem,
   WorkspaceDeliveryStatus,
@@ -23,6 +25,7 @@ import { remotePullRequest } from '../pulls/PullsScreen';
 import { usePullRequestDetail } from '../pulls/usePullRequestDetail';
 import { useResizablePane } from '../useResizablePane';
 import { completedExecutionItems, foldNav, pullRequestPanelRef, shortSha, taskState } from './model';
+import { PendingApprovalCard } from '../agents/AgentConversation';
 
 type ItemView = {
   item: CherryPickExecutionItem;
@@ -77,6 +80,7 @@ export default function ProgressView({
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [delivery, setDelivery] = useState<WorkspaceDeliveryStatus | null>(null);
+  const [ciApprovals, setCiApprovals] = useState<{ runId: string; approvals: AgentPendingApprovalDto[]; error: string | null } | null>(null);
   const [deliveryBusy, setDeliveryBusy] = useState(false);
   const [ask, setAsk] = useState<{ title: string; body: ReactNode; label: string; act: () => void } | null>(null);
   const leftPane = useResizablePane(260, 180, 420);
@@ -133,6 +137,44 @@ export default function ProgressView({
       if (timer !== null) window.clearInterval(timer);
     };
   }, [delivery?.ciAutofix?.status, execution?.executionId, execution?.finishReason, execution?.status, workspaceId]);
+
+  const ciRunId = delivery?.ciAutofix?.status === 'ACTIVE' ? delivery.ciAutofix.runId : null;
+  useEffect(() => {
+    if (ciRunId === null) { setCiApprovals(null); return; }
+    let active = true;
+    let reading = false;
+    const read = async () => {
+      if (reading) return;
+      reading = true;
+      try {
+        const run = await window.bridge.getCiAutofixRun(ciRunId);
+        if (!active) return;
+        if (run.id !== ciRunId || run.workspaceId !== workspaceId || run.parentTaskId !== null) {
+          throw new Error('CI run no longer belongs to this delivery');
+        }
+        const approvals = run.status === 'ACTIVE' && run.agentTaskId !== null && run.currentTurnId !== null
+          ? await window.bridge.readAgentPendingApprovals(run.agentTaskId, run.currentTurnId) : [];
+        if (active) setCiApprovals({ runId: ciRunId, approvals, error: null });
+      } catch (failure) {
+        if (active) setCiApprovals({ runId: ciRunId, approvals: [], error: `Could not load CI approvals. ${failure instanceof Error ? failure.message : String(failure)}` });
+      } finally {
+        reading = false;
+      }
+    };
+    void read();
+    const timer = window.setInterval(() => { void read(); }, 5_000);
+    return () => { active = false; window.clearInterval(timer); };
+  }, [ciRunId, workspaceId]);
+
+  const decideCiApproval = (approvalId: string, decision: AgentApprovalDecision, answers?: Record<string, string>) => {
+    void window.bridge.resolveAgentApproval(approvalId, decision, undefined, answers)
+      .then(() => setCiApprovals(current => current === null ? null : {
+        ...current, approvals: current.approvals.filter(approval => approval.approvalId !== approvalId),
+      }))
+      .catch(failure => setCiApprovals(current => current === null ? null : {
+        ...current, error: `Could not answer CI approval. ${failure instanceof Error ? failure.message : String(failure)}`,
+      }));
+  };
 
   const views = useMemo(
     () => (execution ? execution.items.map(item => itemView(item, execution)) : []),
@@ -434,6 +476,11 @@ export default function ProgressView({
             </div>
           </div>
         )}
+        {ciRunId !== null && ciApprovals?.runId === ciRunId && <>
+          {ciApprovals.error !== null && <div className="cmt-error" role="alert">{ciApprovals.error}</div>}
+          {ciApprovals.approvals.map(approval => <PendingApprovalCard key={approval.approvalId}
+            approval={{ ...approval, title: `CI Autofix · ${approval.title}` }} onDecide={decideCiApproval} />)}
+        </>}
         {state === 'canceled' && (
           <div className="cmt-banner is-canceled">
             <div className="cmt-banner-main">

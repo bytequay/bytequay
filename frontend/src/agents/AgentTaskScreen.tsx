@@ -37,10 +37,12 @@ import { canSubmitReview, PullDetailHeader } from '../pulls/PullsScreen';
 import CodeTestsTab from '../pulls/code-tests/CodeTestsTab';
 import {
 laneLabel,
+isDeepSeekKeyLane,
 providerAvailable,
 providerRemedy,
 remedyCommand
 } from '../settings/model';
+import { settingsRoute } from '../settings/routes';
 import type {
 AgentApprovalDecision,
 AgentCapabilitiesDto,
@@ -305,7 +307,9 @@ function RecoveryCard({ task, turn, working, onStopServer, onMarkFailed }: {
 /** A typed readiness block, retaining the auth-only explicit retry when its input is safe. */
 function ProviderRecoveryCard({
   provider,
+  laneId,
   status,
+  keyRemoved,
   statusFresh,
   failedTurn,
   checking,
@@ -317,7 +321,9 @@ function ProviderRecoveryCard({
   onSignIn,
 }: {
   provider: string;
+  laneId: string;
   status: AgentProviderStatus | null;
+  keyRemoved: boolean;
   /** True only after readiness was probed after this exact failed turn became durable. */
   statusFresh: boolean;
   failedTurn: boolean;
@@ -330,18 +336,31 @@ function ProviderRecoveryCard({
   /** Absent where no terminal can be opened, such as a server-rendered fixture. */
   onSignIn?: () => void;
 }): React.JSX.Element {
+  if (keyRemoved) {
+    return <section className="agt-recovery is-auth" aria-labelledby="agt-auth-recovery-title">
+      <div className="agt-recovery__head"><TriangleAlert aria-hidden="true" /><span id="agt-auth-recovery-title">DeepSeek key removed</span></div>
+      <div className="agt-recovery__body">This task&apos;s saved key was removed. Its transcript and checkout remain available. Add a key in Models settings to start a new task.</div>
+      <div className="agt-recovery__actions">
+        <button type="button" className="agt-action" disabled={checking || sending} onClick={onRefresh}>{checking ? 'Checking…' : 'Check again'}</button>
+        {onOpenSettings !== undefined && <button type="button" className="agt-action" onClick={onOpenSettings}>Open Models settings</button>}
+      </div>
+    </section>;
+  }
   const ready = statusFresh && status !== null && providerAvailable(status.readiness);
-  const providerName = provider || (status === null ? 'Provider' : laneLabel(status.laneId));
+  const statusLaneId = status?.laneId ?? laneId;
+  const keyLane = isDeepSeekKeyLane(laneId) || isDeepSeekKeyLane(statusLaneId);
+  const remedyLaneId = isDeepSeekKeyLane(laneId) ? laneId : statusLaneId;
+  const providerName = provider || (statusLaneId === '' ? 'Provider' : laneLabel(statusLaneId));
   // A READY row from before the failed turn is stale until the post-failure probe proves it again.
   const readiness = failedTurn && (status === null || providerAvailable(status.readiness))
     ? 'AUTHENTICATION_REQUIRED'
     : status?.readiness ?? 'AUTHENTICATION_REQUIRED';
-  const remedy = providerRemedy(readiness, status?.laneId ?? '');
+  const remedy = providerRemedy(readiness, remedyLaneId);
   const command = status === null ? remedy.command : remedyCommand(status, remedy);
   const title = readiness === 'AUTHENTICATION_REQUIRED'
-    ? `${providerName} sign-in required`
+    ? keyLane ? 'DeepSeek key needs attention' : `${providerName} sign-in required`
     : readiness === 'CLI_MISSING'
-      ? `${providerName} CLI not installed`
+      ? keyLane ? 'Codex CLI not installed' : `${providerName} CLI not installed`
       : readiness === 'UNSUPPORTED'
         ? `${providerName} is unsupported`
         : `${providerName} is unavailable`;
@@ -360,7 +379,9 @@ function ProviderRecoveryCard({
           ? failedTurn
             ? 'The failed turn has no safely retryable input. Its delivery may be uncertain, so ByteQuay will not offer to resend it.'
             : 'This task cannot start another turn until the provider is ready. No new turn or delivery was created.'
-          : 'The last turn stopped because this provider needs authentication. The task and checkout were preserved.'}
+          : keyLane
+            ? 'The last turn stopped because this DeepSeek key needs attention. The task and checkout were preserved.'
+            : 'The last turn stopped because this provider needs authentication. The task and checkout were preserved.'}
         {!ready && (
           <div className="agt-row-meta">
             <strong>{remedy.title}.</strong>{' '}
@@ -372,7 +393,7 @@ function ProviderRecoveryCard({
         {readiness === 'UNSUPPORTED' && status?.version && <div className="agt-row-meta">Detected CLI version: {status.version}</div>}
         {status?.diagnostic && <div className="agt-row-meta">{status.diagnostic}</div>}
         {command && !ready && <div className="agt-mono agt-auth-command">{command}</div>}
-        {ready && <div className="agt-auth-ready">Login status is ready. Retry remains a separate confirmed action.</div>}
+        {ready && <div className="agt-auth-ready">{keyLane ? 'The key is ready' : 'Login status is ready'}. Retry remains a separate confirmed action.</div>}
         {input !== null && (
           <div className="agt-auth-input" aria-label="Message that will be retried">
             <strong>Message to resend</strong>
@@ -393,10 +414,10 @@ function ProviderRecoveryCard({
           <button type="button" className="agt-action is-primary" disabled={checking || sending} onClick={onSignIn}>Sign in</button>
         )}
         <button type="button" className="agt-action" disabled={checking || sending} onClick={onRefresh}>
-          {checking ? 'Checking…' : failedTurn || readiness === 'AUTHENTICATION_REQUIRED' ? 'Refresh login status' : 'Check again'}
+          {checking ? 'Checking…' : keyLane ? 'Check key again' : failedTurn || readiness === 'AUTHENTICATION_REQUIRED' ? 'Refresh login status' : 'Check again'}
         </button>
         {!ready && onOpenSettings !== undefined && (
-          <button type="button" className="agt-action" onClick={onOpenSettings}>Open workspace settings</button>
+          <button type="button" className="agt-action" onClick={onOpenSettings}>Open {keyLane ? 'Models' : 'workspace'} settings</button>
         )}
         {input !== null && (
           <button type="button" className="agt-action" disabled={retryDisabled} title={retryTitle} onClick={onRetry}>
@@ -962,6 +983,7 @@ export function AgentTaskBody({
   onStopServer, onMarkFailed, onRename, onArchive, composerRef,
   provider = '',
   providerStatus = null,
+  keyRemoved = false,
   providerStatusFresh = false,
   providerChecking = false,
   onRefreshProvider = () => {},
@@ -981,6 +1003,7 @@ export function AgentTaskBody({
   pullRequestLoading = false,
   pullRequestChecked = false,
   ciPollingError = null,
+  ciApprovalError = null,
   ciSubmissionBlocked = false,
   onRefreshPullRequests,
   pullRequestDetail = NO_PULL_REQUEST_DETAIL,
@@ -1046,6 +1069,8 @@ export function AgentTaskBody({
   provider?: string;
   /** Fresh status for the immutable task lane, used only by typed authentication recovery. */
   providerStatus?: AgentProviderStatus | null;
+  /** The task's key lane is absent from the current catalog after its key was removed. */
+  keyRemoved?: boolean;
   /** A readiness probe completed after the typed failed turn currently on screen. */
   providerStatusFresh?: boolean;
   providerChecking?: boolean;
@@ -1097,6 +1122,7 @@ export function AgentTaskBody({
   pullRequestLoading?: boolean;
   pullRequestChecked?: boolean;
   ciPollingError?: string | null;
+  ciApprovalError?: string | null;
   ciSubmissionBlocked?: boolean;
   onRefreshPullRequests?: () => void;
   /** What the wrapper has read for the panel's pull request; this body reads nothing itself. */
@@ -1181,6 +1207,7 @@ export function AgentTaskBody({
     showPullRequest();
   };
   const status = runtimeStatus(state);
+  const keyLane = isDeepSeekKeyLane(state.task?.laneId ?? '');
   const routedToCi = !localReviewActive && ciMessage(state.composer) !== null;
   const ciUnavailable = ciMessageUnavailable(state);
   const automationActive = state.task?.developmentContinuationUnfinished === true;
@@ -1198,7 +1225,9 @@ export function AgentTaskBody({
   const generatedActivity = state.turn?.developmentOrigin?.kind === 'AUTO_COMMIT' ? 'Committing'
     : state.turn?.developmentOrigin?.kind === 'CREATE_DRAFT_PR' ? 'Creating draft PR'
     : state.turn?.developmentOrigin?.kind === 'REFINE_SUMMARY' ? 'Refining summary…' : null;
-  const statusLabel = question !== null ? 'Waiting for your answer' : status === 'running' && waiting ? 'Needs approval'
+  const ciWaiting = pendingApprovals?.some(approval => approval.taskId !== state.task?.id) ?? false;
+  const statusLabel = question !== null ? 'Waiting for your answer'
+    : (status === 'running' && waiting) || (status === 'idle' && automationActive && ciWaiting) ? 'Needs approval'
     : status === 'running' && generatedActivity !== null ? generatedActivity
     : status === 'idle' && automationActive && currentCi != null ? ciActivity(currentCi)
     : status === 'idle' && automationActive ? 'Automation running' : STATUS_LABELS[status];
@@ -1209,8 +1238,8 @@ export function AgentTaskBody({
   const plan = status === 'running' && after === null && state.capabilities?.structuredPlans === true
     ? state.turn?.id === planTurnId && state.turn.plan != null ? { steps: state.turn.plan }
       : currentPlan(planTurnId === null ? turns : turns.filter((turn) => turn.turnId === planTurnId)) : null;
-  const nextImagesAccepted = acceptsImages(models, state.task?.defaults.model, state.capabilities);
-  const activeImagesAccepted = acceptsImages(models, state.turn?.settings?.model, state.capabilities);
+  const nextImagesAccepted = !keyLane && acceptsImages(models, state.task?.defaults.model, state.capabilities);
+  const activeImagesAccepted = !keyLane && acceptsImages(models, state.turn?.settings?.model, state.capabilities);
   const imagesAccepted = status === 'running'
     ? nextImagesAccepted || (state.capabilities?.steering === true && activeImagesAccepted)
     : nextImagesAccepted;
@@ -1223,7 +1252,7 @@ export function AgentTaskBody({
   const steerImageBlocked = hasDraftImages && !activeImagesAccepted;
   const queueImageBlocked = hasDraftImages && !nextImagesAccepted;
   const authenticationFailure = state.turn?.failureKind === 'AUTHENTICATION_REQUIRED';
-  const providerBlocked = providerStatus !== null && !providerAvailable(providerStatus.readiness);
+  const providerBlocked = keyRemoved || (providerStatus !== null && !providerAvailable(providerStatus.readiness));
   const providerRecoveryRequired = !routedToCi && status === 'idle' && !automationActive && (authenticationFailure || providerBlocked);
   const providerStartBlocked = providerBlocked || (authenticationFailure && !providerStatusFresh);
   const authenticationRetry = authenticationFailure ? retryableInput(state) : null;
@@ -1325,6 +1354,7 @@ export function AgentTaskBody({
       {terminal && state.task !== null && <TerminalSummary task={state.task} repository={repository} onCleanup={onCleanup} />}
 
       {automationActive && ciPollingError !== null && <div className="agt-notice" role="alert">{ciPollingError}</div>}
+      {automationActive && ciApprovalError !== null && <div className="agt-notice" role="alert">{ciApprovalError}</div>}
 
       {automationFailure !== null && recordedCiFailure === null && <div className="agt-notice" role="alert">
         {automationFailure}
@@ -1360,7 +1390,9 @@ export function AgentTaskBody({
       {providerRecoveryRequired && (
         <ProviderRecoveryCard
           provider={provider}
+          laneId={state.task?.laneId ?? ''}
           status={providerStatus}
+          keyRemoved={keyRemoved}
           statusFresh={providerStatusFresh}
           failedTurn={authenticationFailure}
           checking={providerChecking}
@@ -1551,6 +1583,7 @@ export default function AgentTaskScreen({
   const [models, setModels] = useState<ModelOptionDto[]>([]);
   const [provider, setProvider] = useState('');
   const [providerStatus, setProviderStatus] = useState<AgentProviderStatus | null>(null);
+  const [keyRemoved, setKeyRemoved] = useState(false);
   const [signingIn, setSigningIn] = useState<{ laneId: string; providerName: string } | null>(null);
   const [providerStatusTurnId, setProviderStatusTurnId] = useState<string | null>(null);
   const [automationDefaults, setAutomationDefaults] = useState<DevelopmentAutomationDto | null>(null);
@@ -1601,6 +1634,7 @@ export default function AgentTaskScreen({
   const historyLoadingRef = useRef(false);
   const followingHistory = useRef(true);
   const [pendingApprovals, setPendingApprovals] = useState<AgentPendingApprovalDto[] | null>(null);
+  const [ciApprovalState, setCiApprovalState] = useState<{ runId: string; approvals: AgentPendingApprovalDto[]; error: string | null } | null>(null);
   const stateRef = useRef(state);
   stateRef.current = state;
   // Object URLs are browser resources: created when an image's bytes arrive, revoked when the
@@ -1674,6 +1708,7 @@ export default function AgentTaskScreen({
     dispatch({ type: 'turn/changed', turn });
   }, []);
 
+  const taskKeyLane = isDeepSeekKeyLane(state.task?.laneId ?? '');
   const automationEligible = state.task?.interactive === true && state.task.localReviewHead == null;
   useEffect(() => {
     if (!automationEligible) return;
@@ -1744,7 +1779,8 @@ export default function AgentTaskScreen({
       const lane = catalog.providers.find((candidate) => candidate.id === taskLaneId);
       setAutomationProviders(catalog.providers);
       setModels(lane?.models ?? []);
-      setProvider(lane?.label ?? '');
+      setProvider(lane?.label ?? (taskKeyLane ? 'DeepSeek' : ''));
+      setKeyRemoved(lane === undefined && taskKeyLane);
       if (lane !== undefined) {
         dispatch({ type: 'capabilities/loaded', capabilities: lane.capabilities });
         setProviderStatus({
@@ -1756,10 +1792,11 @@ export default function AgentTaskScreen({
           signInCommand: lane.signInCommand,
         });
       }
+      else setProviderStatus(null);
       dispatch({ type: 'settings/loaded', settings: effective });
     })().catch(() => { /* the composer then shows no catalog, which the list already explains */ });
     return () => { active = false; };
-  }, [live, taskId, taskLaneId, workspaceId]);
+  }, [live, taskId, taskKeyLane, taskLaneId, workspaceId]);
 
   useEffect(() => {
     void refreshProjection(null).catch((failure: unknown) => {
@@ -1819,7 +1856,7 @@ export default function AgentTaskScreen({
   const continuationUnfinished = state.task?.developmentContinuationUnfinished ?? false;
   const pollContinuation = continuationUnfinished && state.task?.state === 'OPEN';
   useEffect(() => {
-    if (!pollContinuation) return;
+    if (!pollContinuation) { setCiApprovalState(null); return; }
     let active = true;
     let timer: ReturnType<typeof setTimeout> | undefined;
     const read = async () => {
@@ -1828,7 +1865,21 @@ export default function AgentTaskScreen({
         if (!active) return;
         dispatch({ type: 'task/loaded', task });
         setCiPollingError(null);
-        if (task.state !== 'OPEN' || !task.developmentContinuationUnfinished) return;
+        if (task.state !== 'OPEN' || !task.developmentContinuationUnfinished) { setCiApprovalState(null); return; }
+        const ci = task.developmentCi;
+        if (ci?.status === 'ACTIVE' && ci.agentTaskId !== null) {
+          try {
+            const run = await live().getCiAutofixRun(ci.runId);
+            if (!active) return;
+            if (run.id !== ci.runId || run.parentTaskId !== taskId || run.workspaceId !== workspaceId || run.agentTaskId !== ci.agentTaskId) {
+              throw new Error('CI run no longer belongs to this task');
+            }
+            const approvals = run.currentTurnId === null ? [] : await live().readAgentPendingApprovals(ci.agentTaskId, run.currentTurnId);
+            if (active) setCiApprovalState({ runId: ci.runId, approvals, error: null });
+          } catch (failure) {
+            if (active) setCiApprovalState({ runId: ci.runId, approvals: [], error: `Could not load CI approvals. ${failureText(failure)}` });
+          }
+        } else setCiApprovalState(null);
       } catch (failure) {
         if (active) setCiPollingError(`Could not refresh CI activity. ${failureText(failure)}`);
       }
@@ -1926,7 +1977,14 @@ export default function AgentTaskScreen({
       : null;
     const statuses = await live().refreshAgentProviderReadiness();
     const status = statuses.find((candidate) => candidate.laneId === laneId);
+    if (status === undefined && isDeepSeekKeyLane(laneId)) {
+      setKeyRemoved(true);
+      setProviderStatus(null);
+      setProviderStatusTurnId(null);
+      return null;
+    }
     if (status === undefined) throw new Error(`${laneLabel(laneId)} readiness was not returned`);
+    setKeyRemoved(false);
     setProviderStatus(status);
     const currentTurn = stateRef.current.turn;
     setProviderStatusTurnId(currentTurn?.failureKind === 'AUTHENTICATION_REQUIRED'
@@ -1946,8 +2004,13 @@ export default function AgentTaskScreen({
       stateRef.current.capabilities ?? NO_AGENT_CAPABILITIES,
     ));
     setProviderStatusTurnId(null);
+    if (isDeepSeekKeyLane(unavailable.laneId)) {
+      void live().getModelSettings().then(catalog => {
+        if (mountedRef.current) setKeyRemoved(!catalog.providers.some(provider => provider.id === unavailable.laneId));
+      }).catch(() => {});
+    }
     return true;
-  }, []);
+  }, [live]);
 
   const selectModel = useCallback((model: string, effort: string | null, serviceTier: string | null) => run(async () => {
     const task = state.task;
@@ -2206,8 +2269,9 @@ export default function AgentTaskScreen({
   const attach = useCallback((source: 'picker' | 'clipboard' = 'picker') => run(async () => {
     const current = stateRef.current;
     const status = runtimeStatus(current);
-    const imagesAccepted = acceptsImages(models, current.task?.defaults.model, current.capabilities)
-      || (status === 'running' && current.capabilities?.steering === true && acceptsImages(models, current.turn?.settings?.model, current.capabilities));
+    const imagesAccepted = !isDeepSeekKeyLane(current.task?.laneId ?? '')
+      && (acceptsImages(models, current.task?.defaults.model, current.capabilities)
+        || (status === 'running' && current.capabilities?.steering === true && acceptsImages(models, current.turn?.settings?.model, current.capabilities)));
     if (attachmentPendingRef.current || current.sending || !imagesAccepted || (status !== 'idle' && status !== 'running')) return;
     attachmentPendingRef.current = true;
     setAttaching(true);
@@ -2442,9 +2506,14 @@ export default function AgentTaskScreen({
 
   const decide = useCallback((approvalId: string, decision: AgentApprovalDecision, answers?: Record<string, string>) => run(async () => {
     await live().resolveAgentApproval(approvalId, decision, undefined, answers);
+    setCiApprovalState(current => current === null ? null : {
+      ...current, approvals: current.approvals.filter(approval => approval.approvalId !== approvalId),
+    });
     // The buttons that had focus disappear with the decision; the composer is the next thing to do.
     composerRef.current?.focus();
   }), [live, run]);
+
+  const currentCiApprovals = ciApprovalState?.runId === state.task?.developmentCi?.runId ? ciApprovalState : null;
 
   return (<>
     {signingIn !== null && (
@@ -2490,10 +2559,14 @@ export default function AgentTaskScreen({
         followingHistory.current = following;
         if (resumed && stateRef.current.lastSequence > (stateRef.current.events.at(-1)?.sequence ?? 0)) void loadHistory('latest');
       }}
-      pendingApprovals={pendingApprovals}
+      pendingApprovals={[...(pendingApprovals ?? []), ...((currentCiApprovals?.approvals ?? []).map(approval => ({
+        ...approval, title: `CI Autofix · ${approval.title}`,
+      })))]}
+      ciApprovalError={currentCiApprovals?.error}
       models={models}
       provider={provider}
       providerStatus={providerStatus}
+      keyRemoved={keyRemoved}
       providerStatusFresh={authenticationTurnId !== null && providerStatusTurnId === authenticationTurnId}
       providerChecking={providerChecking}
       composerRef={composerRef}
@@ -2512,10 +2585,10 @@ export default function AgentTaskScreen({
       onStopServer={() => { void stopServer(); }}
       onMarkFailed={() => { void markFailed(); }}
       onRefreshProvider={() => { void refreshProvider(); }}
-      onSignInProvider={providerStatus === null ? undefined
+      onSignInProvider={taskKeyLane || providerStatus === null ? undefined
         : () => setSigningIn({ laneId: providerStatus.laneId, providerName: provider || laneLabel(providerStatus.laneId) })}
       onRetryAuthentication={retryAuthentication}
-      onOpenSettings={onOpenSettings}
+      onOpenSettings={taskKeyLane ? () => { window.location.hash = settingsRoute('models'); } : onOpenSettings}
       onRename={(title) => { void rename(title); }}
       onArchive={(archived) => { void archive(archived); }}
       now={now}

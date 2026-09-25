@@ -59,6 +59,7 @@ import java.util.concurrent.atomic.AtomicReference;
 import static java.nio.charset.StandardCharsets.UTF_8;
 import static java.util.concurrent.TimeUnit.SECONDS;
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 class TestPermissionBroker
 {
@@ -787,13 +788,19 @@ class TestPermissionBroker
                 });
         Path worktree = Files.createDirectories(temporaryDirectory.resolve("worktree"));
         Path provider = temporaryDirectory.resolve("provider");
+        AtomicReference<ProviderApprovalRequest> requestedApproval = new AtomicReference<>();
+        AtomicInteger approvalCount = new AtomicInteger();
         McpConfigRegistration registration = broker.register(
                 "task-ci",
                 worktree,
                 temporaryDirectory,
                 provider,
                 AgentPermissionPolicy.CI_AUTOFIX,
-                (request, timeout) -> CompletableFuture.completedFuture(ProviderApprovalDecision.deny()),
+                (request, timeout) -> {
+                    requestedApproval.set(request);
+                    approvalCount.incrementAndGet();
+                    return CompletableFuture.completedFuture(ProviderApprovalDecision.deny());
+                },
                 SecretRedactor.fromEnvironment(ImmutableMap.of()));
         String token = token(registration);
 
@@ -801,8 +808,12 @@ class TestPermissionBroker
         assertThat(settings.at("/sandbox/enabled").asBoolean()).isTrue();
         assertThat(settings.at("/sandbox/autoAllowBashIfSandboxed").asBoolean()).isTrue();
         assertThat(settings.at("/sandbox/failIfUnavailable").asBoolean()).isTrue();
-        assertThat(settings.at("/sandbox/allowUnsandboxedCommands").asBoolean()).isFalse();
-        assertThat(settings.at("/sandbox/network/allowedDomains")).isEmpty();
+        assertThat(settings.at("/sandbox/allowUnsandboxedCommands").asBoolean()).isTrue();
+        assertThat(settings.at("/permissions/ask"))
+                .isEqualTo(objectMapper.valueToTree(ImmutableList.of("Bash(dangerouslyDisableSandbox:true)")));
+        assertThat(settings.at("/sandbox/network/allowedDomains"))
+                .isEqualTo(objectMapper.valueToTree(ImmutableList.of("*")));
+        assertThat(settings.at("/sandbox/network/allowLocalBinding").asBoolean()).isTrue();
         assertThat(settings.at("/sandbox/filesystem/denyRead").toString()).contains(".config/gh");
         assertThat(settings.at("/permissions/deny").toString())
                 .contains("WebFetch", "Bash(git credential:*)", "Bash(git push:*)", "Read(~/.config/gh/**)");
@@ -838,16 +849,59 @@ class TestPermissionBroker
 
         assertThat(permission(broker, token, "Edit", "file_path", worktree.resolve("src/Main.java").toString()))
                 .isEqualTo("allow");
+        assertThat(approvalCount).hasValue(0);
         assertThat(permission(broker, token, "Write", "file_path", temporaryDirectory.resolve("outside").toString()))
                 .isEqualTo("deny");
+        assertThat(requestedApproval.get().kind()).isEqualTo(ProviderApprovalRequest.Kind.FILE_CHANGE);
+        Path escaped = Files.createDirectories(temporaryDirectory.resolve("escaped"));
+        Files.createSymbolicLink(worktree.resolve("linked"), escaped);
+        assertThat(permission(broker, token, "Edit", "file_path", worktree.resolve("linked/Main.java").toString()))
+                .isEqualTo("deny");
+        assertThat(approvalCount).hasValue(2);
         assertThat(permission(broker, token, "Bash", "command", "git push origin HEAD"))
                 .isEqualTo("deny");
+        assertThat(requestedApproval.get().kind()).isEqualTo(ProviderApprovalRequest.Kind.COMMAND);
+        assertThat(approvalCount).hasValue(3);
 
         Path settingsFile = registration.settingsFile();
         registration.close();
         assertThat(registration.configFile()).doesNotExist();
         assertThat(settingsFile).doesNotExist();
         assertThat(broker.handle(token, objectMapper.createObjectNode()).status()).isEqualTo(401);
+    }
+
+    @Test
+    void forwardsCiPermissionRequestsToTheApprovalHandler()
+            throws Exception
+    {
+        PermissionBroker broker = new PermissionBroker(
+                () -> URI.create("http://127.0.0.1:9000/internal/agent/claude/mcp"),
+                objectMapper,
+                (taskId, query) -> "");
+        Path worktree = Files.createDirectories(temporaryDirectory.resolve("ci-approval-worktree"));
+        AtomicReference<ProviderApprovalRequest> requestedApproval = new AtomicReference<>();
+        try (McpConfigRegistration registration = broker.register(
+                "task-ci-approval",
+                worktree,
+                temporaryDirectory,
+                temporaryDirectory.resolve("ci-approval-provider"),
+                AgentPermissionPolicy.CI_AUTOFIX,
+                (request, timeout) -> {
+                    requestedApproval.set(request);
+                    return CompletableFuture.completedFuture(ProviderApprovalDecision.allow(Optional.empty()));
+                },
+                SecretRedactor.fromEnvironment(ImmutableMap.of()))) {
+            ObjectNode retry = objectMapper.createObjectNode()
+                    .put("command", "mvn test")
+                    .put("dangerouslyDisableSandbox", true);
+            assertThat(permission(broker, token(registration), "Bash", retry))
+                    .isEqualTo("allow");
+            assertThat(requestedApproval.get().title()).isEqualTo("Allow Claude unsandboxed command");
+            assertThat(requestedApproval.get().detail()).contains("mvn test", "\"dangerouslyDisableSandbox\":true", "host file access");
+            assertThat(requestedApproval.get().availableDecisions()).containsExactly(
+                    ProviderApprovalRequest.Decision.ALLOW_ONCE,
+                    ProviderApprovalRequest.Decision.DENY);
+        }
     }
 
     @Test
@@ -873,6 +927,7 @@ class TestPermissionBroker
         assertThat(settings.at("/sandbox/enabled").asBoolean()).isTrue();
         assertThat(settings.at("/sandbox/autoAllowBashIfSandboxed").asBoolean()).isFalse();
         assertThat(settings.at("/sandbox/allowUnsandboxedCommands").asBoolean()).isFalse();
+        assertThat(settings.at("/permissions/ask").isMissingNode()).isTrue();
         assertThat(settings.at("/sandbox/network/allowedDomains")).isEmpty();
         assertThat(settings.at("/permissions/deny").toString())
                 .contains("WebFetch", "Bash(git push:*)", "Bash(gh:*)", "Read(~/.ssh/**)");
@@ -908,6 +963,10 @@ class TestPermissionBroker
                 .isEqualTo("deny");
         assertThat(permission(broker, token, "Bash", "command", "git cherry-pick --continue"))
                 .isEqualTo("deny");
+        ObjectNode unsandboxed = objectMapper.createObjectNode()
+                .put("command", "mvn test")
+                .put("dangerouslyDisableSandbox", true);
+        assertThat(permission(broker, token, "Bash", unsandboxed)).isEqualTo("deny");
     }
 
     @Test
@@ -936,11 +995,15 @@ class TestPermissionBroker
         JsonNode settings = objectMapper.readTree(Files.readString(registration.settingsFile()));
         assertThat(settings.at("/sandbox/enabled").asBoolean()).isTrue();
         assertThat(settings.at("/sandbox/autoAllowBashIfSandboxed").asBoolean()).isFalse();
-        assertThat(settings.at("/sandbox/allowUnsandboxedCommands").asBoolean()).isFalse();
+        assertThat(settings.at("/sandbox/allowUnsandboxedCommands").asBoolean()).isTrue();
+        assertThat(settings.at("/permissions/ask"))
+                .isEqualTo(objectMapper.valueToTree(ImmutableList.of("Bash(dangerouslyDisableSandbox:true)")));
         assertThat(settings.at("/sandbox/network/allowedDomains"))
                 .isEqualTo(objectMapper.valueToTree(ImmutableList.of("*")));
+        assertThat(settings.at("/sandbox/network/allowLocalBinding").asBoolean()).isTrue();
         assertThat(settings.at("/sandbox/network/allowUnixSockets").isMissingNode()).isTrue();
-        assertThat(settings.at("/sandbox/filesystem/allowWrite").toString()).contains("~/.m2/repository", "~/.m2/wrapper", "/var/tmp").doesNotContain("\"~/.m2\"");
+        assertThat(settings.at("/sandbox/filesystem/allowWrite"))
+                .isEqualTo(objectMapper.valueToTree(ImmutableList.of("/var/tmp")));
         assertThat(settings.at("/permissions/allow").isMissingNode()).isTrue();
         assertThat(settings.at("/permissions/deny")).isEmpty();
         assertThat(settings.at("/sandbox/filesystem/denyRead")).isEmpty();
@@ -955,14 +1018,161 @@ class TestPermissionBroker
                 """));
         assertThat(listed.body().orElseThrow().at("/result/tools")).hasSize(1);
 
-        // An attended policy escalates past the sandbox to the user instead of deciding from a rule.
+        assertThat(permission(broker, token, "Edit", "file_path", worktree.resolve("src/Main.java").toString()))
+                .isEqualTo("allow");
+        assertThat(approval.get()).isNull();
+        assertThat(permission(broker, token, "FutureTool", "file_path", worktree.resolve("src/Main.java").toString()))
+                .isEqualTo("deny");
+        assertThat(approval.get().kind()).isEqualTo(ProviderApprovalRequest.Kind.TOOL);
         assertThat(permission(broker, token, "Write", "file_path", temporaryDirectory.resolve("outside.txt").toString()))
                 .isEqualTo("deny");
         assertThat(approval.get().kind()).isEqualTo(ProviderApprovalRequest.Kind.FILE_CHANGE);
         String chain = "git status && gh pr view 42 && git push origin HEAD";
         assertThat(permission(broker, token, "Bash", "command", chain)).isEqualTo("deny");
         assertThat(approval.get().detail()).contains(chain);
+        ObjectNode retry = objectMapper.createObjectNode()
+                .put("command", "mvn test")
+                .put("dangerouslyDisableSandbox", true);
+        assertThat(permission(broker, token, "Bash", retry)).isEqualTo("deny");
+        assertThat(approval.get().title()).isEqualTo("Allow Claude unsandboxed command");
         registration.close();
+    }
+
+    @Test
+    void grantsClaudeOnlyTheSharedValidatedBuildCaches()
+            throws Exception
+    {
+        Path home = Files.createDirectories(temporaryDirectory.resolve("build-home")).toRealPath();
+        Path external = Files.createDirectories(temporaryDirectory.resolve("external"));
+        Path linkedHome = Files.createDirectories(temporaryDirectory.resolve("linked-build-home")).toRealPath();
+        Files.createSymbolicLink(linkedHome.resolve(".m2"), external);
+        var environment = ImmutableMap.of("HOME", home.toString());
+        PermissionBroker broker = new PermissionBroker(
+                () -> URI.create("http://127.0.0.1:9000/internal/agent/claude/mcp"), objectMapper,
+                (taskId, query) -> "");
+        Path worktree = Files.createDirectories(temporaryDirectory.resolve("build-worktree"));
+        Path runtime = Files.createDirectory(temporaryDirectory.resolve("build-runtime"));
+        Files.createSymbolicLink(worktree.resolve("linked"), external);
+        for (AgentPermissionPolicy policy : ImmutableList.of(AgentPermissionPolicy.AUTO, AgentPermissionPolicy.CI_AUTOFIX)) {
+            AtomicInteger approvalCount = new AtomicInteger();
+            try (McpConfigRegistration registration = broker.register(
+                    "build-" + policy, worktree, runtime, runtime.resolve("build-provider-" + policy), policy, SessionAccess.FULL,
+                    (request, timeout) -> {
+                        approvalCount.incrementAndGet();
+                        return CompletableFuture.completedFuture(ProviderApprovalDecision.deny());
+                    },
+                    SecretRedactor.fromEnvironment(environment), Optional.empty(), environment)) {
+                JsonNode settings = objectMapper.readTree(Files.readString(registration.settingsFile()));
+                List<String> expected = ImmutableList.of(home.resolve(".m2").toString(), home.resolve(".gradle").toString(),
+                        home.resolve(".npm").toString(), "/var/tmp");
+                assertThat(settings.at("/sandbox/filesystem/allowWrite"))
+                        .isEqualTo(objectMapper.valueToTree(expected));
+                assertThat(expected).doesNotContain(external.toString());
+                String token = token(registration);
+                assertThat(permission(broker, token, "Edit", "file_path", worktree.resolve("src/Main.java").toString()))
+                        .isEqualTo("allow");
+                assertThat(permission(broker, token, "Write", "file_path", home.resolve(".m2/repository/test.pom").toString()))
+                        .isEqualTo("allow");
+                assertThat(permission(broker, token, "NotebookEdit", "notebook_path", home.resolve(".gradle/build.ipynb").toString()))
+                        .isEqualTo("allow");
+                assertThat(approvalCount).hasValue(0);
+                assertThat(permission(broker, token, "Write", "file_path", external.resolve("test.pom").toString()))
+                        .isEqualTo("deny");
+                assertThat(approvalCount).hasValue(1);
+                assertThat(permission(broker, token, "Edit", "file_path", worktree.resolve("linked/test.pom").toString()))
+                        .isEqualTo("deny");
+                assertThat(approvalCount).hasValue(2);
+                assertThat(permission(broker, token, "Bash", "command", "mvn test"))
+                        .isEqualTo("deny");
+                assertThat(approvalCount).hasValue(3);
+            }
+        }
+        var linkedEnvironment = ImmutableMap.of("HOME", linkedHome.toString());
+        try (McpConfigRegistration registration = broker.register(
+                "linked-build", worktree, runtime, runtime.resolve("linked-provider"),
+                AgentPermissionPolicy.AUTO, SessionAccess.FULL,
+                (request, timeout) -> CompletableFuture.completedFuture(ProviderApprovalDecision.deny()),
+                SecretRedactor.fromEnvironment(linkedEnvironment), Optional.empty(), linkedEnvironment)) {
+            JsonNode settings = objectMapper.readTree(Files.readString(registration.settingsFile()));
+            List<String> expected = ImmutableList.of(linkedHome.resolve(".gradle").toString(),
+                    linkedHome.resolve(".npm").toString(), "/var/tmp");
+            assertThat(settings.at("/sandbox/filesystem/allowWrite"))
+                    .isEqualTo(objectMapper.valueToTree(expected));
+            assertThat(expected).doesNotContain(linkedHome.resolve(".m2").toString(), external.toString());
+            assertThat(permission(broker, token(registration), "Write", "file_path", linkedHome.resolve(".m2/test.pom").toString()))
+                    .isEqualTo("deny");
+        }
+    }
+
+    @Test
+    void grantsLinkedGitMetadataOnlyToWritableTaskTurns()
+            throws Exception
+    {
+        Path root = temporaryDirectory.toRealPath();
+        Path worktree = Files.createDirectory(root.resolve("linked-worktree"));
+        Path common = Files.createDirectories(root.resolve("repository/.git"));
+        Path privateGit = Files.createDirectories(common.resolve("worktrees/task"));
+        Path objects = Files.createDirectory(common.resolve("objects"));
+        Files.writeString(worktree.resolve(".git"), "gitdir: " + privateGit + "\n");
+        Files.writeString(privateGit.resolve("gitdir"), worktree.resolve(".git") + "\n");
+        Files.writeString(privateGit.resolve("commondir"), "../..\n");
+        Files.writeString(privateGit.resolve("HEAD"), "ref: refs/heads/bytequay/task\n");
+        Path branch = common.resolve("refs/heads/bytequay/task");
+        Path reflog = common.resolve("logs/refs/heads/bytequay/task");
+        List<String> expected = ImmutableList.of(
+                privateGit.toString(), objects.toString(), branch.toString(), branch + ".lock",
+                reflog.toString(), reflog + ".lock", "/var/tmp");
+        Path runtime = Files.createDirectory(root.resolve("linked-runtime"));
+        ReviewBridge review = new ReviewBridge(ImmutableList.of(new ReviewTool(
+                "review_context", "Read review context", ImmutableMap.of("type", "object"), input -> "context")), "Review only");
+        PermissionBroker broker = new PermissionBroker(
+                () -> URI.create("http://127.0.0.1:9000/internal/agent/claude/mcp"), objectMapper,
+                (taskId, query) -> "", taskId -> taskId.equals("review") ? Optional.of(review) : Optional.empty());
+        for (AgentPermissionPolicy policy : AgentPermissionPolicy.values()) {
+            String taskId = policy.name().toLowerCase();
+            try (McpConfigRegistration registration = broker.register(
+                    taskId, worktree, runtime, root.resolve("provider-" + taskId), policy, SessionAccess.FULL,
+                    (request, timeout) -> CompletableFuture.completedFuture(ProviderApprovalDecision.deny()),
+                    SecretRedactor.fromEnvironment(ImmutableMap.of()), Optional.empty(), ImmutableMap.of())) {
+                JsonNode settings = objectMapper.readTree(Files.readString(registration.settingsFile()));
+                assertThat(settings.at("/sandbox/filesystem/allowWrite"))
+                        .isEqualTo(objectMapper.valueToTree(expected));
+            }
+        }
+        for (String taskId : ImmutableList.of("review", "read-only")) {
+            SessionAccess access = taskId.equals("read-only") ? SessionAccess.READ_ONLY : SessionAccess.FULL;
+            try (McpConfigRegistration registration = broker.register(
+                    taskId, worktree, runtime, root.resolve("provider-" + taskId), AgentPermissionPolicy.AUTO, access,
+                    (request, timeout) -> CompletableFuture.completedFuture(ProviderApprovalDecision.deny()),
+                    SecretRedactor.fromEnvironment(ImmutableMap.of()), Optional.empty(), ImmutableMap.of())) {
+                JsonNode settings = objectMapper.readTree(Files.readString(registration.settingsFile()));
+                assertThat(settings.at("/sandbox/filesystem/allowWrite"))
+                        .isEqualTo(objectMapper.valueToTree(ImmutableList.of("/var/tmp")));
+                assertThat(settings.at("/sandbox/allowUnsandboxedCommands").asBoolean()).isFalse();
+                assertThat(settings.at("/permissions/ask").isMissingNode()).isTrue();
+            }
+        }
+    }
+
+    @Test
+    void rejectsMalformedLinkedGitMetadataWithoutLeavingClaudeConfiguration()
+            throws Exception
+    {
+        Path root = temporaryDirectory.toRealPath();
+        Path worktree = Files.createDirectory(root.resolve("malformed-worktree"));
+        Files.createSymbolicLink(worktree.resolve(".git"), root.resolve("missing-gitdir"));
+        Path runtime = Files.createDirectory(root.resolve("malformed-runtime"));
+        Path provider = root.resolve("malformed-provider");
+        PermissionBroker broker = new PermissionBroker(
+                () -> URI.create("http://127.0.0.1:9000/internal/agent/claude/mcp"), objectMapper,
+                (taskId, query) -> "");
+        assertThatThrownBy(() -> broker.register(
+                "malformed", worktree, runtime, provider, AgentPermissionPolicy.AUTO, SessionAccess.FULL,
+                (request, timeout) -> CompletableFuture.completedFuture(ProviderApprovalDecision.deny()),
+                SecretRedactor.fromEnvironment(ImmutableMap.of()), Optional.empty(), ImmutableMap.of()))
+                .hasMessageContaining("regular file");
+        assertThat(provider.resolve("bytequay-mcp.json")).doesNotExist();
+        assertThat(provider.resolve("sandbox-settings.json")).doesNotExist();
     }
 
     @Test
@@ -994,13 +1204,24 @@ class TestPermissionBroker
                             JsonNode settings = objectMapper.readTree(json);
                             assertThat(settings.path("autoMemoryEnabled")).isEqualTo(objectMapper.valueToTree(false));
                             assertThat(json).doesNotContain("provider-secret", "github-secret");
-                            assertThat(settings.at("/sandbox/allowUnsandboxedCommands").asBoolean()).isFalse();
-                            assertThat(settings.at("/sandbox/network/allowLocalBinding").asBoolean()).isEqualTo(reviewSession && access == SessionAccess.FULL && !policy.unattended());
+                            boolean canRetryOutsideSandbox = access == SessionAccess.FULL && !reviewSession
+                                    && policy != AgentPermissionPolicy.CHERRY_PICK;
+                            assertThat(settings.at("/sandbox/allowUnsandboxedCommands").asBoolean())
+                                    .isEqualTo(canRetryOutsideSandbox);
+                            if (canRetryOutsideSandbox) {
+                                assertThat(settings.at("/permissions/ask"))
+                                        .isEqualTo(objectMapper.valueToTree(ImmutableList.of("Bash(dangerouslyDisableSandbox:true)")));
+                            }
+                            else {
+                                assertThat(settings.at("/permissions/ask").isMissingNode()).isTrue();
+                            }
+                            boolean ciBuildNetwork = policy == AgentPermissionPolicy.CI_AUTOFIX && access == SessionAccess.FULL;
+                            assertThat(settings.at("/sandbox/network/allowLocalBinding").asBoolean())
+                                    .isEqualTo((policy == AgentPermissionPolicy.AUTO && access == SessionAccess.FULL) || ciBuildNetwork);
                             if (interactive) {
                                 assertThat(settings.at("/sandbox/network/allowedDomains"))
                                         .isEqualTo(objectMapper.valueToTree(ImmutableList.of("*")));
-                                assertThat(settings.at("/sandbox/network/allowUnixSockets"))
-                                        .isEqualTo(objectMapper.valueToTree(ImmutableList.of(socket)));
+                                assertThat(settings.at("/sandbox/network/allowUnixSockets").isMissingNode()).isTrue();
                                 assertThat(settings.at("/permissions/deny")).isEmpty();
                                 assertThat(settings.at("/sandbox/filesystem/denyRead")).isEmpty();
                                 assertThat(settings.at("/autoMode/classifyAllShell").asBoolean()).isTrue();
@@ -1009,11 +1230,11 @@ class TestPermissionBroker
                                 // An attended review reads remotes with the stored Git and gh login and never writes to them.
                                 boolean reviewReads = reviewSession && policy == AgentPermissionPolicy.AUTO && access == SessionAccess.FULL;
                                 assertThat(settings.at("/sandbox/network/allowedDomains"))
-                                        .isEqualTo(objectMapper.valueToTree(reviewReads ? ImmutableList.of("*") : ImmutableList.of()));
+                                        .isEqualTo(objectMapper.valueToTree(reviewReads || ciBuildNetwork ? ImmutableList.of("*") : ImmutableList.of()));
                                 if (reviewSession) {
                                     assertThat(settings.at("/sandbox/autoAllowBashIfSandboxed").asBoolean()).isFalse();
                                     assertThat(settings.at("/sandbox/filesystem/allowWrite"))
-                                            .isEqualTo(objectMapper.valueToTree(ImmutableList.of("~/.m2/repository", "~/.m2/wrapper", "~/.gradle", "~/.npm", "/var/tmp")));
+                                            .isEqualTo(objectMapper.valueToTree(ImmutableList.of("/var/tmp")));
                                     assertThat(settings.at("/permissions/deny").toString()).contains("Bash(git commit:*)", "Bash(git update-ref:*)")
                                             .doesNotContain("Bash(git add", "Bash(git write-tree", "Bash(git update-index", "Bash(git symbolic-ref", "Bash(git reset");
                                     assertThat(settings.at("/autoMode/classifyAllShell").asBoolean()).isTrue();
@@ -1036,7 +1257,7 @@ class TestPermissionBroker
                                 String denied = settings.at("/permissions/deny").toString();
                                 assertThat(denied).contains("Bash(git push:*)", "Read(~/.config/gh/**)", "Read(~/.ssh/**)");
                                 if (reviewReads) {
-                                    assertThat(settings.at("/sandbox/network/allowUnixSockets")).isEqualTo(objectMapper.valueToTree(ImmutableList.of(socket)));
+                                    assertThat(settings.at("/sandbox/network/allowUnixSockets").isMissingNode()).isTrue();
                                     assertThat(settings.at("/sandbox/filesystem/denyRead")).isEmpty();
                                     assertThat(denied).doesNotContain("Bash(gh:*)")
                                             .contains("Bash(git credential:*)", "Bash(gh auth:*)", "Bash(gh pr review:*)", "Bash(gh pr comment)", "Bash(gh pr merge:*)", "Bash(gh issue comment:*)");
@@ -1120,8 +1341,14 @@ class TestPermissionBroker
             String value)
             throws Exception
     {
+        return permission(broker, token, toolName, objectMapper.createObjectNode().put(field, value));
+    }
+
+    private String permission(PermissionBroker broker, String token, String toolName, JsonNode input)
+            throws Exception
+    {
         ObjectNode arguments = objectMapper.createObjectNode().put("tool_name", toolName);
-        arguments.set("input", objectMapper.createObjectNode().put(field, value));
+        arguments.set("input", input);
         ObjectNode params = objectMapper.createObjectNode().put("name", "permission_prompt");
         params.set("arguments", arguments);
         ObjectNode request = objectMapper.createObjectNode()

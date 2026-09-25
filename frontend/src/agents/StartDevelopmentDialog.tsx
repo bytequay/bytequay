@@ -13,13 +13,13 @@
  */
 import { useEffect, useState } from 'react';
 import { ConfirmDialog } from '../ConfirmDialog';
-import { displayModelName, effortLabel, laneDefaults, laneLabel, laneModels, modelEffort, providerAvailable, providerStatusLabel } from '../settings/model';
+import { displayModelName, effortLabel, isDeepSeekKeyLane, laneDefaults, laneLabel, laneModels, modelEffort, providerAvailable, providerStatusLabel } from '../settings/model';
 import type { TaskLaunch } from './AgentTasksView';
 import type { ModelProviderDto } from '../types';
 
 /** The lane the composer would have seeded itself with: the Development agent, else the first ready provider. */
 export function defaultDevelopmentLane(providers: ModelProviderDto[], developmentLaneId?: string): string {
-  const usable = providers.filter(provider => providerAvailable(provider.readiness));
+  const usable = providers.filter(provider => !isDeepSeekKeyLane(provider.id) && providerAvailable(provider.readiness));
   if (developmentLaneId !== undefined && usable.some(provider => provider.id === developmentLaneId)) return developmentLaneId;
   return usable[0]?.id ?? '';
 }
@@ -40,9 +40,10 @@ export default function StartDevelopmentDialog({ workspaceId, issueNumber, onCon
     void window.bridge.getModelSettings(workspaceId)
       .then(settings => {
         if (!active) return;
-        const lane = defaultDevelopmentLane(settings.providers, settings.agents.find(agent => agent.type === 'DEVELOPMENT')?.configId);
-        const defaults = laneDefaults(settings.providers, lane);
-        setProviders(settings.providers);
+        const providers = settings.providers.filter(provider => !isDeepSeekKeyLane(provider.id));
+        const lane = defaultDevelopmentLane(providers, settings.agents.find(agent => agent.type === 'DEVELOPMENT')?.configId);
+        const defaults = laneDefaults(providers, lane);
+        setProviders(providers);
         setLaneId(lane);
         setModel(defaults.model);
         setEffort(defaults.effort);

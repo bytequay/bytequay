@@ -79,12 +79,13 @@ environment setters, exclusions, or filters. Hook discovery must return one
 clean, empty result for the requested canonical cwd. This proves the isolated
 profiles can be selected; it does not prove that a model can create children.
 
-The ordinary task profile also supplies ByteQuay's pinned automatic-review
-policy verbatim, verified in effective config and session flags. Thread start,
-resume, and turn encode fixtures exercise `approvalsReviewer: "auto_review"`;
-the explicit manual-approval probe retains `user`. Typed automatic-review
-notifications are checked against the reference schema. These offline checks
-prove protocol/configuration compatibility, not a model's approval decisions.
+The ordinary task profile uses `approvalPolicy: "on-request"` and
+`approvalsReviewer: "user"` so native approval requests reach ByteQuay.
+The live probe verifies those values in effective config and session flags.
+Typed automatic-review notifications remain in the reference schema as
+compatibility fixtures; the product profile disables the native reviewer.
+These offline checks prove protocol/configuration compatibility, not a model's
+approval decisions.
 Text-only helpers continue to disable both web search and interactive approvals.
 
 `skip_host_skill_discovery` does not make the v0.151 skill catalog empty. App
@@ -123,11 +124,11 @@ their four decisions, and the opaque permission payload with top-level
 response fields and turn/session scope. Legacy
 `applyPatchApproval` and `execCommandApproval` requests remain unsupported and
 are proven to fail closed. This is offline wire evidence only. The current
-runtime bridge still maps command/file one-time allow or deny to
-`accept`/`decline`. It rejects command/file scope it cannot represent and
-stale or post-cancellation decisions; preserving the full choice set in
-ByteQuay's provider-neutral contract and UI is deferred to CP2 and later
-checkpoints.
+runtime bridge maps command/file one-time allow or deny to
+`accept`/`decline`, displays structured command and file grant metadata, and
+routes `item/permissions/requestApproval` through ByteQuay with a turn-scoped
+permission response. It rejects malformed, stale, or post-cancellation
+decisions and never offers reusable task-wide approval.
 
 The offline schema gate also checks the minimum child-thread contract before
 ByteQuay implements child routing. Stable schema must retain the subagent

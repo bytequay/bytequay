@@ -1,5 +1,36 @@
 # Agent Service Design
 
+## DeepSeek API-key task lane
+
+[DeepSeek API-key task lane](deepseek-api-key-lane.md) extends the existing
+task, turn, worktree, event, approval, and cleanup services. Its saved-key and
+automation paths have passed offline verification, and a saved-key connectivity
+task completed. Broader live delivery checks remain open:
+
+- Each saved DeepSeek key has an immutable opaque ID and a selectable task
+  lane. A task keeps its lane across turns; deleting and re-adding an alias
+  cannot move an old task to a different key.
+- The existing Codex App Server adapter uses a DeepSeek Responses provider,
+  an isolated ByteQuay-owned home, a task-scoped loopback credential proxy,
+  and a curated model catalog. The saved key stays outside the Codex process.
+  Readiness checks it through DeepSeek rather than Codex login status.
+- Manually created interactive tasks can use the existing accepted automation
+  settings for local commits, scoped draft publication, and bounded CI Autofix.
+  DeepSeek can be an explicit CI lane or the inherited **Same agent as
+  development** lane; model-less CI selects and preflights `deepseek-flash`.
+  The omitted-settings default awaits user review. Development/Review provider
+  defaults, issue starts, PR assignment, web search, images, CodeGraph, and
+  subagents remain outside this change.
+- DeepSeek and subscription Codex use one `AgentPermissionPolicy`-based Codex
+  launch permission calculation. Attended tasks get the same sandbox,
+  ByteQuay approval routing, shell and Git permissions; CI gets the same
+  `on-request` approval and validated Git roots. A task-scoped loopback MCP bridge exposes the existing
+  fixed tools while ByteQuay holds the broker bearer. Accepted automation
+  authorizes only the existing scoped program-owned writes.
+
+The linked design owns the detailed user flow, key lifecycle, launch profile,
+readiness, and acceptance gate for this extension.
+
 ## Starting development from a GitHub issue
 
 [Issue-backed Development](issue-development-plan.md) extends canonical
@@ -1410,8 +1441,12 @@ scoped decisions, but neither command adapter issues a task scope or remembers
 command approval for later calls. The product-permitted set is the intersection of
 the provider's legal offered decisions and ByteQuay's immutable safety ceiling;
 an empty set fails closed instead of producing an actionable approval.
-Undisplayable, unrouteable, additional/network, overly broad, scoped-but-
-unsupported, unoffered, stale, or post-cancellation grants fail closed.
+Undisplayable, unrouteable, malformed, unoffered, stale, or post-cancellation
+grants fail closed. Codex command approvals display requested additional and
+network permissions, and file approvals display a requested write root.
+`item/permissions/requestApproval` displays its exact permission object and
+grants it only for the current turn after a user decision. No command adapter
+offers a reusable task-wide grant.
 `acceptWithExecpolicyAmendment` remains reference-codec coverage only: the first
 release does not offer or persist it because that would create an allow rule and
 violate the zero-inherited/generated-allow-rule boundary. CP1's representative
@@ -2205,9 +2240,10 @@ directory. This defines the provider's filesystem scope, not a process-lifetime
 containment guarantee. Under `sandbox: workspace-write`
 App Server's default environment is rooted at its own working directory.
 Attended `AUTO` also permits the provider's ordinary `/tmp` and `$TMPDIR`
-writes and, for development and review turns, the user's Maven local repository
-(section 8.1); other policies retain their temporary-directory exclusions.
-Writes outside those permitted roots require provider approval. Measured against codex-cli
+writes. Full `AUTO` and CI turns can write the validated Maven, Gradle, and npm
+caches (section 8.1); other policies retain their temporary-directory exclusions.
+Writes outside those roots request ByteQuay approval in full worktree turns.
+Measured against codex-cli
 0.151.0 with no environment registered: an in-worktree write landed with zero
 approvals, and a write to a path under `$HOME` produced an approval request and
 never landed.
@@ -3374,19 +3410,30 @@ provider JSON never reaches `agent-core`, `TaskLogStore`, SQLite, or SSE.
 ### Shared development command policy
 
 Attended `AUTO` development sessions allow `git` and `gh` through the native
-provider tools and permission review. `AgentPermissionPolicy` in `agent-spi`
-selects this capability only when the session is neither text-only nor
-review-owned. CI Autofix, cherry-pick, review, and text-only sessions retain
-their narrower execution profiles and do not receive interactive GitHub
-credentials. Authentication by subscription or API key does not select a
-different permission policy. Claude's existing login and API-key paths use the
-same policy; this change adds no API driver or Codex API-key task support.
+provider tools and permission review. `AgentPermissionScope` in `agent-spi`
+derives one provider-neutral decision from `AgentPermissionPolicy`, session
+access, and review ownership before a Codex, DeepSeek, or Claude session starts.
+It decides whether a turn is unattended, authenticated Git and GitHub CLI
+eligibility, and private-review remote reads. CI Autofix, cherry-pick, review,
+and text-only sessions retain their narrower execution profiles and do not
+receive development write authority. Subscription or API-key authentication
+does not select a different permission decision.
+`CodexLaunchProfile` maps the decision to App Server sandbox and approval
+settings for both Codex-backed lanes; the Claude adapter maps it to Claude's
+native sandbox and Auto mode, with its existing MCP callback for
+escalations. Provider requests that reach ByteQuay are checked against its
+verified file-write roots before unresolved requests become approval cards. These native mechanisms
+remain different and keep their provider-specific safety checks. DeepSeek adds
+no narrower filesystem, shell, Git, or reviewer policy. Delivery and CI actions use the existing task-scoped
+authorization and verification boundaries.
 
-`AgentCommandPolicy` owns the provider-independent development and private-review
-authorization instructions and restrictions in `agent-spi`. Both adapters supply
-the appropriate scope to their native reviewer configuration. Adapters own only
-the translation to their provider settings. Interactive development
-permissions use no ByteQuay shell parser or second command approval engine.
+`AgentCommandPolicy` owns provider-independent development and private-review
+instructions and restrictions in `agent-spi`. Codex supplies the instructions
+to the agent and uses its sandbox with `on-request` approvals routed to
+ByteQuay; it has no separate automatic reviewer. Claude supplies them to its
+native permission mode and MCP permission callback. Both adapters translate
+the shared scope to provider settings. Interactive development permissions use
+no ByteQuay shell parser or second command approval engine.
 
 - Task-required local Git commands may operate wherever the existing
   filesystem permissions and native review permit. Remote reads needed for
@@ -3401,29 +3448,33 @@ permissions use no ByteQuay shell parser or second command approval engine.
   one task-branch push with an exact `--force-with-lease` naming the observed
   remote revision. Unleased force pushes, broad refspecs, and branch deletion
   remain prohibited.
-- Native review evaluates the complete action, including shell chains,
+- The agent must evaluate the complete action, including shell chains,
   substitutions, pipelines, invoked scripts, and network payloads. One allowed
   Git command cannot authorize its surrounding commands. Unclear targets need
-  read-only evidence before approval.
-- Normal CLI authentication may use existing login, credential helpers, SSH
-  agents, or configured environment credentials without exposing their values.
-  Failed authentication is reported; it does not authorize searching unrelated
-  files or exporting secrets. Persistent grants and sandbox weakening remain
-  prohibited.
+  read-only evidence before approval. A command the sandbox already permits
+  may run without a ByteQuay approval request.
+- Normal CLI authentication may use an existing stored `gh` login where the
+  session permits it. Failed authentication is reported; it does not authorize
+  searching unrelated files or exporting secrets. Persistent grants and
+  sandbox weakening remain prohibited.
 
-The shared `GitCliEnvironment` in `agent-cli` admits only the finite GitHub
-CLI token/host/config variables and `SSH_AUTH_SOCK` to eligible development
-sessions, alongside the existing provider-specific environment allowlists.
-It does not inherit arbitrary `GIT_*` repository or command overrides and never
-copies ByteQuay's stored GitHub token into a provider process. Codex's
-model-facing shell still excludes provider API keys and `CODEX_HOME`. CLI
-authentication can fail independently of ByteQuay's own GitHub connection.
+The shared `GitCliEnvironment` in `agent-cli` removes ambient GitHub CLI
+token, host, and config variables and `SSH_AUTH_SOCK` from both CLI lanes.
+The Codex model-facing shell also excludes provider API keys and
+`CODEX_HOME`. These routes do not inherit arbitrary `GIT_*` repository or
+command overrides or copy ByteQuay's stored GitHub token. Eligible
+development and private-review sessions may still use a normal stored `gh`
+login through its default configuration path. CLI authentication can fail
+independently of ByteQuay's own GitHub connection.
 
 Repository, branch, and authorization checks here are model-based scope rules,
 not hard filesystem or remote capability boundaries. Native reviewers retain
 their own risk rules and can deny an authorized action. Codex sandboxed actions
-that need no escalation do not necessarily invoke its reviewer; shell network
-access remains disabled so remote commands require native escalation. Claude
+that need no escalation do not necessarily invoke its reviewer. Full `AUTO`
+and CI turns have command network access for builds; this is a turn-wide grant,
+not a package-host or read-only network filter. The shared GitHub authorization
+rules still apply at the application level, but the network sandbox does not
+enforce them for commands that run without escalation. Claude
 interactive Bash uses its normal permission flow with all shell actions
 configured for its classifier, while its sandbox remains enabled. Neither provider promises
 identical decisions or successful authentication for every command.
@@ -3483,8 +3534,8 @@ The connection and task sequence is:
    disables apps, plugins, hooks, host skill discovery, the other
    multi-agent feature, and all other unapproved optional capabilities, and
    applies the same minimal command environment. Ordinary tasks enable native
-   `web_search: "live"` so public documentation reads do not require shell
-   network access. Text-only helpers keep web search disabled. The separate
+   `web_search: "live"` for public documentation reads independently of shell
+   networking. Text-only helpers keep web search disabled. The separate
    `--live-children` fixture proved the bounded root/child/grandchild V1/V2
    contract with a persistent fixture profile signed in directly with ChatGPT;
    production now applies that model-advertised profile at each turn boundary.
@@ -3515,7 +3566,7 @@ The connection and task sequence is:
 4. Call `thread/start` with canonical `cwd`, the selected default model,
    the compatibility-tested wire value for on-request approval
    (`approvalPolicy: "on-request"` in the v0.151 reference schema),
-   `approvalsReviewer: "auto_review"`, the generated per-thread config override, and
+   `approvalsReviewer: "user"`, the generated per-thread config override, and
    legacy `sandbox: "workspace-write"`. No `environments` are selected: the
    process default is rooted at the process working directory, which is this
    task's worktree. After start, page
@@ -3528,7 +3579,7 @@ The connection and task sequence is:
    child profile. A stale idle session must first close with a verified process
    stop. Start a new thread when no session reference exists; otherwise call
    `thread/resume` with the stored `threadId`, the same config and sandbox ceiling, and
-   `approvalsReviewer: "auto_review"`. Repeat the
+   `approvalsReviewer: "user"`. Repeat the
    effective-capability checks and never infer a session ID from provider
    files. Relaunching at the turn boundary is deliberate: changing the task
    default between turns cannot reuse a process configured for the previous
@@ -3538,32 +3589,31 @@ The connection and task sequence is:
    `{"type": "localImage", "path": "<validated-task-blob>"}` items. App Server's `image`
    input is URL-based and is outside the first local-upload release. Apply the
    turn's snapshotted model, reasoning effort, service tier, `approvalPolicy`,
-   `approvalsReviewer: "auto_review"`, canonical `cwd`, and structured
-   `sandboxPolicy` with `type: "workspaceWrite"` and
-   `writableRoots: [canonicalWorktree]` (plus the Maven root below), with tool
-   network disabled. Attended
-   `AUTO` sets `excludeTmpdirEnvVar: false` and `excludeSlashTmp: false` to
+   `approvalsReviewer: "user"`, canonical `cwd`, and structured
+   `sandboxPolicy` with `type: "workspaceWrite"` and validated writable roots.
+   Full `AUTO` and CI turns set `networkAccess: true` so Maven, Gradle, and
+   other builds can fetch dependencies. Read-only, text-only, and cherry-pick
+   turns keep command network disabled. Codex launches disable the optional
+   managed network proxy: a native macOS
+   fixture showed that it blocks JVM dependency fetches even when the artifact
+   host is allowed. Effective configuration checks keep the proxy disabled.
+   Attended `AUTO` sets `excludeTmpdirEnvVar: false` and `excludeSlashTmp: false` to
    retain the provider's ordinary temporary-directory allowances. Other policies
-   keep both exclusions enabled. Attended `AUTO` development and review turns
-   also add the user's Maven local repository as a writable root, checked on
-   every turn: exactly `$HOME/.m2/repository`, and only when it is a directory
-   and neither `.m2` nor `repository` is a symbolic link. A missing or linked
-   directory adds no root. `~/.m2/settings.xml`, `MAVEN_OPTS` and the worktree's
-   `.mvn` files never choose the root, because agent sandboxes or pull-request
-   authors can write them; Claude's sandbox may not write `settings.xml` for the
-   same reason (section 8.2). A custom `<localRepository>` therefore gets no
-   root and its writes keep going through native review. Tool network stays
-   disabled, so builds resolve cached dependencies offline. Code the agent runs,
-   including a pull request's tests, can therefore write the shared Maven
-   repository without approval, as Claude sessions already can, and the user's
-   later builds use the artifacts it writes. The root is sent only per turn,
-   because a launch-time `sandbox_workspace_write.writable_roots` flag selects
-   the CI profile; `CI_AUTOFIX` and text-only turns never receive it. Other
-   access outside the permitted roots still goes through native review. The
+   keep both exclusions enabled. Full `AUTO` development and review turns and
+   CI turns also add the fixed `$HOME/.m2`, `$HOME/.gradle`, and `$HOME/.npm`
+   directories as writable roots after path validation on each turn. Missing
+   fixed cache directories are created; linked paths add no root. Maven's
+   `settings.xml` is writable inside `~/.m2`, but a custom `<localRepository>`
+   outside the validated roots gets no extra write access. Code the agent runs
+   can write these shared caches without
+   approval, and the user's later builds may use the artifacts it writes. CI
+   retains its exact Git roots and never receives a broader Git write grant.
+   Text-only turns receive no cache roots. Other access outside the permitted
+   roots requests ByteQuay approval in full worktree turns. The
    thread's persisted `selectedCapabilityRoots` remains empty. Store the returned `turn.id` as the
    `ProviderTurnRef`. Never add
-   `.git`, a worktree pointer target, or the resolved Git directory as an extra
-   writable root.
+   arbitrary `.git` paths as writable roots: attended development and
+   cherry-pick use only the validated linked-worktree Git roots shared with CI.
 8. Send immediate follow-up input with `turn/steer` only when the request names
    the current `threadId` and expected active `turnId`. Steering adds input to
    that run; it cannot change model, effort, approval, or sandbox settings and
@@ -3707,67 +3757,40 @@ The task uses the running App Server's selected sandbox and approval policy.
 Readiness verifies that ordinary built-in tool execution works within the
 selected writable roots and approval boundary. The
 App Server control process still needs provider traffic; ByteQuay supplies the
-selected provider configuration but does not claim that the command sandbox or
-first-release process profile enforces a destination allowlist for that control
-traffic. The driver sets `approvalsReviewer: "auto_review"` at start, resume, and
-turn start for attended development and private-review tasks. A separate native reviewer applies the complete
-pinned native tenant policy from Codex 0.152.1 plus the shared
-`AgentCommandPolicy` instructions through `auto_review.policy`. Private reviews
-select a separate scope that keeps experiments uncommitted and prohibits history
-moves and remote writes, including when a development task enters local review.
-That exact scope is verified at launch and before each turn; resuming cannot
-reuse the broader development policy.
-Routine task-required actions use native risk-based review, including build and
-test commands that need other bounded cache, lock, or temporary-file writes
-outside the permitted roots. The user's task request authorizes its normal
-prerequisites; the user need not separately name cache or temporary paths. The reviewer
-still evaluates the complete action and its side effects, so `AUTO` does not
-promise that every build or test command will be approved.
+selected provider configuration but does not claim that the command sandbox
+enforces a destination allowlist for that control traffic. Attended and CI
+worktree turns use `on-request` approval with reviewer `user` at process,
+thread, and turn scope. Native approval requests reach ByteQuay's task approval
+callback. ByteQuay shows the command, file change, or requested structured
+permissions and sends only the decision for that request. A structured
+permissions approval grants exactly the requested object for the current turn;
+it does not create a persistent task-wide permission. Private review retains
+its separate task instructions and remote-write guard. Text-only and read-only
+turns retain `never`, read-only sandbox, and no command network.
 
 The shared development command policy requires direct explicit authorization
-for GitHub writes, including pushes and pull-request publication, while allowing
-ordinary authenticated Git and GitHub CLI use. Native denials remain in force,
-including their credential-probing and private-data transmission rules;
-persistent grants and blanket future permissions remain prohibited. The native
-resource records its provenance; future native policy changes require review
-of that resource, rather than being silently inherited. Effective config and
-session flags must contain the exact composed policy before any task thread
-starts or resumes. There is no ByteQuay shortcut that auto-accepts a command
-because it looks like a read-only `gh` invocation.
+for GitHub writes, including pushes and pull-request publication. Agent CLI
+processes receive no GitHub credential variables or SSH agent socket. ByteQuay
+owns authenticated GitHub operations through its broker. Commands that are
+already allowed inside the worktree and permitted cache roots do not request
+approval; the sandbox does not enforce application-level GitHub rules on such
+commands. Commands requiring an exception wait for a user decision, including
+CI repair turns. Unsupported or malformed provider requests fail closed.
+Classic `guardian_approval`, experimental `guardianv2`, and `guardian_ext` are
+disabled; the removed native automatic-review policy is not launched. Provider
+review notifications, if emitted by a future compatible App Server, remain
+ordinary redacted activity events rather than approval decisions.
 
-Native review-start and review-completion notifications become normalized tool
-activity with independent review IDs, status, risk, and redacted rationale.
-They do not become pending human approval cards or overwrite command output.
-The profile pins classic `guardian_approval` on and experimental `guardianv2`
-and `guardian_ext` off. In the verified 0.152.1 native source, the classic
-reviewer uses a private delegated session, not a task subagent registered with
-App Server's thread manager. Reviews are emitted on their owning task thread;
-the native parent waits for its reviewer session to shut down. No synthetic
-subagent lineage or separate ByteQuay reviewer process is introduced.
-After denial the native agent must use a safer path or explain the reason and
-ask the user; there is no automatic human-card fallback. Remaining native
-approval requests still use the existing ByteQuay request/decision boundary.
-Text-only title/Better Words helpers keep `never`, reviewer `user`, read-only
-sandbox, disabled tools, and disabled web search. Shell networking remains
-disabled in the sandbox; only attended `AUTO` receives the ordinary temporary
-directory allowances and the Maven local repository root described above.
-
-The approved CI Autofix lane uses the existing `AgentDriver` interface and
-`AgentPermissionPolicy.CI_AUTOFIX`. `CodexCliDriver` pins `never` and reviewer
-`user` at process, thread start/resume, and turn start. Native guardian review,
-web search, and child agents are disabled for CI. Effective configuration and
-session flags must preserve the exact writable roots, disabled command network,
-and excluded generic temporary directories before every turn. Unexpected native
-approval requests are denied locally without creating a human approval card.
-
-`CodexCiSandbox` verifies the canonical linked worktree, Git directory and
-back-pointer, shared object directory, and named task-branch ref. Normal repair
-turns grant write access to the worktree, its private Git directory, shared
-objects, and the exact task branch ref/reflog and their lock files. Other branch
-refs, shared configuration, and hooks stay protected. The shared object store
-is writable so Git can commit; this does not provide complete write isolation
-from objects used by other worktrees. Symlinks and unsafe Git metadata fail
-admission; a branch or Git scope change before another turn fails that session.
+Full `AUTO` and CI worktree turns can fetch build dependencies and write the
+validated `$HOME/.m2`, `$HOME/.gradle`, and `$HOME/.npm` cache roots. Only
+attended `AUTO` receives ordinary temporary-directory allowances. Both
+attended development, cherry-pick, and CI use `GitWorktreeWriteRoots` to verify linked
+worktree Git metadata before granting native writes to its private Git
+directory, shared objects, exact task branch ref/reflog, and lock files.
+Attended development falls back to native approval when this validation fails;
+CI repair fails admission. Other branch refs, shared configuration, and hooks
+stay protected. The shared object store is writable so Git can commit; this
+does not provide complete write isolation from objects used by other worktrees.
 
 A program-owned rebase may have detached HEAD. Exactly one validated
 `rebase-merge` or `rebase-apply` directory with a safe branch name and commit
@@ -3779,8 +3802,11 @@ checks remain necessary because the private Git directory is writable. The turn
 service opens a fresh provider process for every turn, so normal repair,
 conflict staging, and subsequent repair receive their respective roots while
 resuming the task's conversation. Arbitrary detached HEAD stays unsupported.
-Builds needing network or writable caches outside these roots must fail within
-this unattended policy rather than escalate.
+Builds needing writable caches outside these roots require a native approval
+request; ByteQuay checks the request and asks the user when the task scope
+cannot grant it. Network access applies to the whole CI turn, including build
+scripts; it does not grant a ByteQuay GitHub publisher or
+change the exact Git write roots.
 
 Text attachments accept `text/plain` and `text/plain; charset=utf-8`. The driver
 requires each attachment to resolve to a regular file inside the task runtime,
@@ -3791,6 +3817,9 @@ The existing task MCP registration supplies `read_ci_memory` independently of
 CodeGraph and without exposing Claude's permission tool. The CI service already
 passes accepted parent instructions through `managedInstructions`; no provider
 context bridge or new workflow service is needed.
+For DeepSeek, a task-scoped loopback MCP bridge delegates to the same broker
+without passing its bearer into Codex. Its CI turns use the same
+`GitWorktreeWriteRoots` roots and `on-request` approval policy as subscription Codex turns.
 
 The opt-in native check is:
 
@@ -3800,11 +3829,12 @@ python3 scripts/codex-ci-sandbox-probe.py --run-native
 
 On Codex 0.153.4, this keyless local-provider fixture verifies process config,
 thread start/resume and turn policy, local commit success, conflict staging in a
-real detached rebase, and denied writes to other refs, shared config/hooks,
-outside files, and the network. It also verifies
-that native escalation and Default-mode user-input requests do not reach the
-host. It uses disposable local Git data and does not publish to GitHub. This is
-native adapter evidence; it does not claim a live model repairing a real PR.
+real detached rebase, denied writes to other refs, shared config/hooks, and
+outside files, and dependency downloads through both curl and a JVM inside the
+sandbox. It also verifies that a native escalation request reaches ByteQuay and
+is declined, while a Default-mode user-input request remains unavailable. It
+uses disposable local Git data and does not publish to GitHub. This is native
+adapter evidence; it does not claim a live model repairing a real PR.
 
 ByteQuay adds no general
 custom tool router, semantic Git-command policy, or post-turn Git workflow in
@@ -3874,7 +3904,9 @@ invoked by the normal test or CI command. Each requires
 outside the repository that was signed in directly with ChatGPT. It must never
 use the ambient Codex profile or seed a profile by copying `auth.json`. App
 Server verifies through `account/read` that `requiresOpenaiAuth` is true and
-`account.type` is `chatgpt`; API-key fixture support is deferred. App Server
+`account.type` is `chatgpt`; this subscription fixture does not cover API-key
+paths. The separate [DeepSeek lane](deepseek-api-key-lane.md) has its own
+isolated offline and opt-in live gates. App Server
 receives that selected `CODEX_HOME` only for its own
 process and uses a temporary `CODEX_SQLITE_HOME` for database state. A
 profile-local exclusive lock prevents concurrent live gates from sharing the
@@ -4130,11 +4162,11 @@ minute while its approval card remains actionable. Native request cancellation
 is not yet propagated to an individual approval; turn termination and the
 approval deadline still deny pending requests.
 
-Every policy runs `--permission-mode auto`, and the driver readiness check
-requires the running CLI's `--help` output to advertise that mode before the
-lane is usable. Both lanes use the same development authorization scope with
-their own native risk review. An ordinary task request supplies authority for
-bounded local preparation and verification, without promising approval of
+Claude turns run `--permission-mode auto`. The driver readiness check requires
+the running CLI's `--help` output to advertise Auto mode before the lane is
+usable. Both lanes use the same development
+authorization scope with their own native risk review. An ordinary task request
+supplies authority for bounded local preparation and verification, without promising approval of
 every build or identical provider decisions.
 
 For interactive development, the generated settings set
@@ -4148,47 +4180,58 @@ Git/`gh` command denies and usual Git credential-path read denies are removed
 only for eligible development sessions; review and unattended profiles keep
 their restrictions.
 
-Containment is the sandbox, not the card. `allowUnsandboxedCommands` is false
-for every policy, because auto mode grants an explicitly requested unsandboxed
-command without invoking the configured host prompt: measured on Claude 2.1.269,
-a session that set `dangerouslyDisableSandbox` wrote outside its worktree with no
-escalation. With the option off that request is refused and the write fails, so
-no session can waive its own confinement. The sandbox otherwise permits only the
+Full development and CI turns keep ordinary commands sandboxed but set
+`allowUnsandboxedCommands=true` for a command that cannot run within the
+sandbox. `permissions.ask` includes `Bash(dangerouslyDisableSandbox:true)`, so
+every requested unsandboxed retry prompts through ByteQuay in either mode.
+Approval runs that entire command outside Claude's filesystem sandbox; it can
+reach host files, including credentials, and is not limited to the path that
+caused the original failure. Review, cherry-pick, and restricted turns keep
+`allowUnsandboxedCommands=false`. Without an approved retry, the sandbox permits only the
 worktree and `TMPDIR`, which no build can populate a dependency cache from, so
-`filesystem.allowWrite` names the ordinary toolchain caches: `~/.m2/repository`,
-`~/.m2/wrapper`, `~/.gradle`, `~/.npm` and `/var/tmp`. It names Maven's
-repository rather than all of `~/.m2`, so no session can rewrite
-`settings.xml`, which picks where every later build writes. The process
+`filesystem.allowWrite` names the validated `~/.m2`, `~/.gradle`, and
+`~/.npm` cache roots, plus `/var/tmp`. Maven builds can write `settings.xml`
+inside `~/.m2`; cache roots are shared across tasks. Full development, CI,
+and cherry-pick turns with a linked worktree also add only its verified private
+Git directory, shared objects, task branch ref and reflog, and their lock
+files. Malformed linked metadata prevents launch. Review and read-only turns
+do not get these Git write roots. The process
 environment carries `JAVA_HOME`, the backend's own value when it has an
 executable `bin/java` and otherwise its JVM's `java.home`, and none when neither
 does: Claude Code's macOS sandbox limits `sysctl` reads, which
 breaks the `/usr/libexec/java_home` lookup and `/usr/bin/java` stub that builds
 otherwise use to locate Java. Interactive
-development explicitly sets `sandbox.network.allowedDomains` to `["*"]`,
-alongside the optional SSH-agent socket. An omitted domain list is empty and
+development explicitly sets `sandbox.network.allowedDomains` to `["*"]`.
+An omitted domain list is empty and
 triggers a separate proxy approval, so merely allowing the Git command and its
 credentials does not make its remote reachable. Claude 2.1.270 evaluates that
 domain request separately in Auto mode; a denial can report `user denied`
 without a ByteQuay tool-approval card. Development network effects
 are governed by complete-command classification and the shared authorization
-rules; this is not a destination allowlist. Unattended and text-only profiles
-keep an empty domain list. Review sessions permit local test-server binding while
+rules; this is not a destination allowlist. Full CI repair allows all domains
+and local test-server binding for dependency downloads. Cherry-pick and
+restricted profiles keep an empty domain list. Review sessions permit local test-server binding while
 retaining their existing outbound-network policy. Their native classifier receives
 `autoMode.environment` with `$defaults` and the shared private-review instructions,
 including bounded builds, tests, dependency downloads and cache writes. Its
 `hard_deny` retains `$defaults` plus the shared review restrictions, and
 `classifyAllShell=true` prevents sandboxed commands from bypassing classification.
 
-`CI_AUTOFIX` and `CHERRY_PICK` remain unattended; the ByteQuay broker answers
-every escalation from their fixed policy and never waits for a frontend
-decision. The attended `AUTO` policy forwards requests that reach the host
-permission callback to the frontend as durable approval cards. Native review
-and the shared authorization rules govern interactive GitHub writes; these
-writes are no longer categorically denied by generated command rules.
+`CI_AUTOFIX` keeps its unattended workflow. For full development and CI turns,
+the shared ByteQuay check auto-answers concrete file writes inside the leased
+worktree or validated build-cache roots. Other native permission callbacks use
+the same durable frontend approval card. A denied or expired card refuses that
+one tool call. Native Auto mode may still refuse an action before it reaches
+the callback. An approval for an unsandboxed Bash
+retry lifts the sandbox for that command; ordinary approvals do not. Native
+deny rules still apply before the callback. `CHERRY_PICK` still answers
+callbacks from its fixed policy, including its restricted history commands. Native review and the shared authorization
+rules govern interactive GitHub writes.
 
-Containment does not depend on that answer. The generated settings apply the
-selected task sandbox and workspace roots, and keep the task event log and
-settings file outside the writable worktree. Claude's own provider traffic
+The generated settings apply the selected task sandbox and workspace roots to
+ordinary commands and keep the task event log and settings file outside the
+writable worktree. An approved unsandboxed Bash retry is an explicit exception
+to those filesystem limits. Claude's own provider traffic
 remains a separate control-plane trust boundary and is not described as
 destination-allowlisted by this sandbox. The permission-prompt MCP adapter is
 only the provider's approval callback; it is not a model-callable ByteQuay
@@ -4211,8 +4254,9 @@ credentials and therefore would break the supported no-API-key deployment.
 sources, and remain off by default.
 
 The driver probe runs `claude --version` and checks each optional observability
-flag. It also requires `--permission-mode` to list the `auto` token every task
-runs under; a CLI that exposes the flag without that mode is unsupported.
+flag. It also requires `--permission-mode` to list the `auto` token used by
+tasks; a CLI that exposes the flag without Auto mode is
+unsupported.
 It then requires `claude auto-mode defaults` to return one complete JSON object
 with a string-array `hard_deny` field. Probe output is bounded at 256 KiB so the
 native policy fits. Missing or malformed rule support makes the lane unsupported;
@@ -4248,7 +4292,7 @@ process exit.
 | Hook lifecycle | Not advertised in the first-release strict profile; `hooks/list` must be empty | Available with `--include-hook-events` |
 | Nested agent activity | V1 `collabAgentToolCall` spawn edges and V2 `subAgentActivity` paths | CLI 2.1.219+ Agent invocation ownership, forwarded `parent_tool_use_id`, and native task terminal events; execution IDs do not represent resumable sessions |
 | Interactive approvals | App Server JSON-RPC approval requests for attended tasks | ByteQuay MCP permission-prompt tool |
-| CI repairs | `CI_AUTOFIX`, native `never` with scoped local Git writes | `CI_AUTOFIX`, unattended policy and task sandbox |
+| CI repairs | `CI_AUTOFIX`, `on-request` approval with scoped local Git writes | `CI_AUTOFIX`, unattended policy and task sandbox |
 | Image input | Local uploads become model-gated `localImage {path}` inputs; URL `image` is deferred | Capability-gated; hidden when the current CLI/model cannot accept it |
 | Text attachments | Validated task-owned file paths in text input; logs are not inlined | Exact read-only paths inside the task runtime directory |
 | Steering | Stable `turn/steer` against the expected active turn | Unsupported until a native safe equivalent exists |
@@ -4892,9 +4936,10 @@ proved:
    CodeGraph bridge enables exactly its one fixed optional structural tool;
 13. Claude new/resumed invocation fixtures carry each turn's effective model,
    effort, strict MCP config, empty inherited setting sources, and generated
-   sandbox settings; every policy uses CLI `auto` mode with unsandboxed commands
-   refused, so no session can waive its own confinement, and the allocation-free
-   readiness probe rejects a CLI without the `auto` token while verifying the
+   sandbox settings; all policies use CLI `auto` mode, with full development and
+   CI unsandboxed retries forced through a
+   ByteQuay approval card while other profiles refuse them, and the allocation-free
+   readiness probe rejects a CLI without Auto mode while verifying the
    exact executable and authentication contract; and
 14. the release explicitly accepts App Server's documented experimental
    maturity, maintains

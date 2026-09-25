@@ -258,6 +258,8 @@ public class AgentController
             InteractiveAgentHttpContract.CreateTaskRequest request,
             List<StoreAgentAttachmentCommand> uploads)
     {
+        checkArgument(!request.laneId().startsWith("deepseek-key-") || request.issueSource().isEmpty(),
+                "DeepSeek tasks cannot start from a GitHub issue");
         if (request.issueSource().isEmpty()) {
             issueDevelopment.requireUnattachedCreate(TaskId.valueOf(request.taskId()));
         }
@@ -274,6 +276,8 @@ public class AgentController
             Optional<GitHubIssueSource> source)
     {
         String message = request.message();
+        AgentLaneId laneId = new AgentLaneId(request.laneId());
+        Optional<DevelopmentAutomation> requestedAutomation = request.developmentAutomation().map(DevelopmentAutomationDto::toDomain);
         AgentTaskDefaults defaults = new AgentTaskDefaults(
                 request.defaults().model(),
                 request.defaults().effort(),
@@ -285,17 +289,17 @@ public class AgentController
             boolean replay = initialTurnExists(taskId, request.idempotencyKey());
             if (!replay && !uploads.isEmpty()) {
                 uploads.forEach(resourceService::validateAttachment);
-                requireImageInput(new AgentLaneId(request.laneId()), defaults.model(), uploads.stream().map(StoreAgentAttachmentCommand::mediaType).collect(toImmutableList()));
+                requireImageInput(laneId, defaults.model(), uploads.stream().map(StoreAgentAttachmentCommand::mediaType).collect(toImmutableList()));
             }
             AgentTask task = taskCreator.create(
                     taskId,
                     request.workspaceId(),
                     message,
-                    new AgentLaneId(request.laneId()),
+                    laneId,
                     defaults,
                     request.idempotencyKey(),
                     uploads.isEmpty() ? Optional.empty() : Optional.of(attachmentDigest(uploads)),
-                    request.developmentAutomation().map(DevelopmentAutomationDto::toDomain),
+                    requestedAutomation,
                     source,
                     source.map(accepted -> prepared -> issueDevelopment.persistTask(prepared, accepted, request.message())));
             if (!replay && !uploads.isEmpty()) {
@@ -310,7 +314,7 @@ public class AgentController
                     taskId,
                     message,
                     attachments,
-                    request.idempotencyKey()).withDevelopmentAutomation(request.developmentAutomation().map(DevelopmentAutomationDto::toDomain))
+                    request.idempotencyKey()).withDevelopmentAutomation(requestedAutomation)
                     .withRepositoryContext(replay ? Optional.empty() : submissionContext(task)));
             AgentTask responseTask = taskService.get(taskId);
             if (!replay) {

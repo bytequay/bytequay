@@ -70,6 +70,9 @@ it('keeps CI activity in the task header and routes the composer without a statu
   expect(html).toContain('aria-label="Stop automation"');
   expect(html).not.toContain('>Steer<');
   expect(html).not.toContain('>Run next<');
+  const deepSeek = render({ ...paused, task: { ...paused.task, laneId: 'deepseek-key-123' } });
+  expect(deepSeek).toContain('aria-label="Send to CI agent"');
+  expect(deepSeek).toContain('CI needs your input');
   for (const label of ['CI Autofix status', 'CI Autofix run', 'View CI Autofix history', 'Open CI Autofix', 'repair attempts']) {
     expect(html).not.toContain(label);
   }

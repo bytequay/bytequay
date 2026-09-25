@@ -40,6 +40,7 @@ import com.bytequay.agent.core.TitleSource;
 import com.bytequay.agent.core.UpdateAgentTaskDefaultsCommand;
 import com.bytequay.agent.core.WorktreeService;
 import com.bytequay.agent.core.WorktreeSnapshot;
+import com.bytequay.agent.spi.AgentLaneId;
 import com.bytequay.agent.spi.AgentPermissionPolicy;
 import com.bytequay.agent.spi.AgentProviderStatus;
 import com.bytequay.agent.spi.AgentUnavailableException;
@@ -460,6 +461,27 @@ class TestDefaultAgentTaskService
         assertThat(task.codegraph()).isTrue();
         assertThat(codeGraph.prepared).containsExactly(task.taskWorktree().orElseThrow());
         assertThat(codeGraph.preparedResources).containsExactly(resources.require(taskId));
+    }
+
+    @Test
+    void deepSeekTasksDoNotAdvertiseOrPrepareCodeGraph()
+    {
+        AgentLaneId lane = new AgentLaneId("deepseek-key-11111111-1111-1111-1111-111111111111");
+        driver = new DeterministicAgentDriver(lane);
+        service = new DefaultAgentTaskService(
+                stores, managedWorktrees, resources,
+                new StaticAgentDriverRegistry(ImmutableList.of(driver)),
+                codeGraph, () -> codeGraphEnabled, Runnable::run,
+                Clock.fixed(NOW, ZoneOffset.UTC));
+        CreateInteractiveAgentTaskCommand input = interactiveCommand(TaskId.random());
+
+        AgentTask task = service.createInteractive(new CreateInteractiveAgentTaskCommand(
+                input.taskId(), input.workspaceId(), lane, input.physicalRepository(),
+                input.startCommit(), input.generatedBranch(), input.message(), input.defaults(),
+                input.creationFingerprint(), input.names()));
+
+        assertThat(task.codegraph()).isFalse();
+        assertThat(codeGraph.prepared).isEmpty();
     }
 
     @Test

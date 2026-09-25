@@ -14,25 +14,24 @@
 import { useState } from 'react';
 import { LogIn, Plus, RefreshCw } from 'lucide-react';
 import type { AgentModelSettingDto, AgentModelType, ModelSettingsDto } from '../types';
-import { providerStatusLabel } from './model';
+import { isDeepSeekKeyLane, providerStatusLabel } from './model';
 import { AddAction, Dialog, SelectPill, SettingsCard, SettingsRow, StatusDot, dotTone, type PillOption } from './primitives';
 
 /** Chosen when Review should follow Development instead of naming its own model. */
 export const INHERIT_VALUE = '__inherit__';
 
-/** Why an API key cannot back an agent turn; shown on the disabled row and used by the backend's own refusal. */
-export const API_KEY_REASON = 'API keys cannot run agent tasks — no agent driver can drive one yet.';
+/** OpenAI keys remain available for comment rewriting, but not agent tasks. */
+export const API_KEY_REASON = 'Only DeepSeek keys can run attended agent tasks right now.';
 
 export type ModelChoice = { configId: string; model: string; effort: string | null };
 
 /**
- * Every model the pickers offer, grouped by the provider it comes from. API-key
- * models are listed so the set is complete, and disabled because an agent turn
- * runs through a CLI lane that a raw key is not.
+ * Development and Review defaults use CLI lanes. DeepSeek keys are chosen in the
+ * task composer; the other saved keys remain disabled here.
  */
 export function modelOptions(settings: ModelSettingsDto): PillOption[] {
   const options: PillOption[] = [];
-  for (const provider of settings.providers) {
+  for (const provider of settings.providers.filter(candidate => !isDeepSeekKeyLane(candidate.id))) {
     for (const model of provider.models) {
       options.push({
         value: `${provider.id}::${model.id}`,
@@ -42,7 +41,7 @@ export function modelOptions(settings: ModelSettingsDto): PillOption[] {
       });
     }
   }
-  for (const key of settings.apiKeys) {
+  for (const key of settings.apiKeys.filter(candidate => candidate.provider !== 'DeepSeek')) {
     for (const model of key.models) {
       options.push({
         value: `${key.id}::${model}`,
@@ -217,8 +216,8 @@ export default function ModelsPage({ settings, checkedAt, checking, error, onChe
 
       <div className="setw-section"><span className="setw-section-title">Providers</span></div>
       <SettingsCard footer={<AddAction label="Add API key" onClick={() => setAddingKey(true)} />}>
-        {settings.providers.map(provider => {
-          const status = providerStatusLabel(provider.readiness, checking);
+        {settings.providers.filter(provider => !isDeepSeekKeyLane(provider.id)).map(provider => {
+          const status = providerStatusLabel(provider.readiness, checking, provider.id);
           return (
             <SettingsRow
               key={provider.id}
@@ -246,20 +245,24 @@ export default function ModelsPage({ settings, checkedAt, checking, error, onChe
             </SettingsRow>
           );
         })}
-        {settings.apiKeys.map(key => (
-          <SettingsRow
+        {settings.apiKeys.map(key => {
+          const lane = settings.providers.find(provider => isDeepSeekKeyLane(provider.id) && provider.label === `${key.provider} · ${key.alias}`);
+          const status = lane === undefined ? null : providerStatusLabel(lane.readiness, checking, lane.id);
+          return <SettingsRow
             key={key.id}
-            title={`${key.alias} · ${key.provider}`}
+            title={`${key.provider} · ${key.alias}`}
             subtitle={
               <span className="setw-status">
-                <StatusDot tone="ok" />
+                <StatusDot tone={status === null ? 'ok' : dotTone(status.tone)} />
                 <span className="setw-mono">{key.maskedKey}</span>
+                {status !== null && <span title={lane?.diagnostic || undefined}> · {status.label}</span>}
               </span>
             }
           >
+            {lane !== undefined && <button type="button" className="setw-btn" disabled={checking} onClick={onCheck}>Check</button>}
             <button type="button" className="setw-btn is-quiet" onClick={() => onRemoveKey(key.alias)}>Remove</button>
-          </SettingsRow>
-        ))}
+          </SettingsRow>;
+        })}
         {settings.apiKeys.length === 0 && (
           <SettingsRow
             title="API keys"
@@ -328,7 +331,9 @@ function AddKeyDialog({ keyProviders, onAdd, onCancel }: {
         onChange={event => setSecret(event.target.value)}
       />
       <div className="setw-dialog-hint">
-        Stored encrypted on this Mac · used for comment rewriting, not for agent tasks
+        {provider === 'DeepSeek'
+          ? 'Stored encrypted on this Mac · choose this key for an attended task'
+          : 'Stored encrypted on this Mac · used for comment rewriting'}
       </div>
     </Dialog>
   );

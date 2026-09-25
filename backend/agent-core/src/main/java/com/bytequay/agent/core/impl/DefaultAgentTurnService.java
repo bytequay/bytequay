@@ -474,7 +474,8 @@ public final class DefaultAgentTurnService
             if (head.isEmpty()) {
                 return false;
             }
-            AgentTask task = requireReady(requireStartableTaskWithoutReadiness(taskId, Optional.of(sourceTurnId)));
+            AgentTask task = requireReady(requireStartableTaskWithoutReadiness(taskId, Optional.of(sourceTurnId)),
+                    head.orElseThrow().settings().model());
             // The queued turn's claim is stored before releasing this owner. Send never sees an
             // unclaimed gap, including while the next turn captures its baseline outside the lock.
             acceptance = acceptQueuedLocked(task.withDevelopmentContinuation(false, Instant.now(clock)), head.orElseThrow());
@@ -1194,7 +1195,7 @@ public final class DefaultAgentTurnService
         TurnAcceptance acceptance;
         synchronized (runtimeRegistry.taskLock(taskId)) {
             drainPending(outboxStore, eventService, taskId);
-            AgentTask task = requireStartableTask(taskId);
+            AgentTask task = requireStartableTaskWithoutReadiness(taskId);
             if (waitingForDevelopmentAnswer(taskId)) {
                 throw new AgentConflictException("Answer the development question before resuming queued input");
             }
@@ -1203,6 +1204,7 @@ public final class DefaultAgentTurnService
             if (head.state() == QueuedAgentInput.State.UNCERTAIN) {
                 throw new AgentConflictException("The next queued input may already have been delivered; discard it first: " + head.id());
             }
+            requireReady(task, head.settings().model());
             acceptance = acceptQueuedLocked(task, head);
         }
         return launchAccepted(acceptance);
@@ -1240,7 +1242,7 @@ public final class DefaultAgentTurnService
             }
             AgentTask task;
             try {
-                task = requireStartableTask(taskId);
+                task = requireStartableTaskWithoutReadiness(taskId);
             }
             catch (AgentConflictException busy) {
                 // A turn the user sent got there first; the queue waits for it like any other.
@@ -1251,6 +1253,7 @@ public final class DefaultAgentTurnService
                 return;
             }
             try {
+                requireReady(task, head.orElseThrow().settings().model());
                 acceptance = acceptQueuedLocked(task, head.orElseThrow());
             }
             catch (RuntimeException failure) {
@@ -1420,7 +1423,13 @@ public final class DefaultAgentTurnService
 
     private AgentTask requireReady(AgentTask task)
     {
-        AgentProviderStatus status = driverRegistry.require(task.laneId()).probe();
+        return requireReady(task, task.defaults().model());
+    }
+
+    private AgentTask requireReady(AgentTask task, Optional<String> model)
+    {
+        var driver = driverRegistry.require(task.laneId());
+        AgentProviderStatus status = driver.probe(model);
         if (!status.available()) {
             throw new AgentProviderUnavailableException(status);
         }

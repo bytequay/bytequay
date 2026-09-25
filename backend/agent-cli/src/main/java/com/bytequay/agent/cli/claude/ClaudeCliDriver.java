@@ -32,6 +32,7 @@ import com.bytequay.agent.spi.AgentDriver;
 import com.bytequay.agent.spi.AgentEventSink;
 import com.bytequay.agent.spi.AgentLaneId;
 import com.bytequay.agent.spi.AgentPermissionPolicy;
+import com.bytequay.agent.spi.AgentPermissionScope;
 import com.bytequay.agent.spi.AgentProviderStatus;
 import com.bytequay.agent.spi.AgentSession;
 import com.bytequay.agent.spi.AgentSessionContext;
@@ -411,10 +412,9 @@ public final class ClaudeCliDriver
 
     private List<String> argv(
             McpConfigRegistration registration,
-            AgentPermissionPolicy permissionPolicy,
+            AgentPermissionScope permissionScope,
             Optional<String> model,
             Optional<String> effort,
-            SessionAccess access,
             String managedInstructions,
             String sessionId,
             boolean resume,
@@ -439,22 +439,22 @@ public final class ClaudeCliDriver
                 "--strict-mcp-config",
                 "--setting-sources=",
                 "--settings", registration.settingsFile().toString());
-        if (access == SessionAccess.TEXT_ONLY) {
+        if (permissionScope.access() == SessionAccess.TEXT_ONLY) {
             argv.add(
                     "--tools=",
                     "--disable-slash-commands",
                     "--no-session-persistence");
         }
-        else if (access == SessionAccess.READ_ONLY) {
+        else if (permissionScope.access() == SessionAccess.READ_ONLY) {
             // A read-only session reads the checkout and never edits it. Session persistence
             // stays on: a discussion resumes its own conversation for every later question.
             argv.add("--disable-slash-commands", "--tools", "Bash,Glob,Grep,Read");
         }
-        else if (registration.review().isPresent()) {
+        else if (permissionScope.review()) {
             // Keep new provider workflow/delegation tools out of review sessions. Agent starts only the read-only Explore
             // children the broker's gate admits, in an attended review on a release where that gate was verified.
             argv.add("--disable-slash-commands", "--tools", "Bash,Glob,Grep,Read,Edit,Write,NotebookEdit,WebFetch,WebSearch,TodoWrite,TaskOutput,TaskStop"
-                    + (reviewChildAgents && !permissionPolicy.unattended() ? ",Agent" : ""));
+                    + (reviewChildAgents && !permissionScope.unattended() ? ",Agent" : ""));
         }
         if (!attachments.isEmpty()) {
             argv.add("--add-dir");
@@ -471,8 +471,9 @@ public final class ClaudeCliDriver
         }
         registration.toolNames().forEach(name -> allowedTools.add("mcp__bytequay__" + name));
         String instruction = Stream.of(
-                        permissionPolicy.allowsGitHubCommands(access.restricted(), registration.review().isPresent()) ? AgentCommandPolicy.instructions() : "",
-                        access.restricted() ? "" : PLAN_INSTRUCTION,
+                        permissionScope.githubCommands() || permissionScope.policy() == AgentPermissionPolicy.CI_AUTOFIX
+                                ? AgentCommandPolicy.instructions(permissionScope) : "",
+                        permissionScope.access().restricted() ? "" : PLAN_INSTRUCTION,
                         managedInstructions,
                         registration.instruction().orElse(""))
                 .filter(value -> !value.isBlank())
@@ -615,9 +616,7 @@ public final class ClaudeCliDriver
                         Path.of(System.getProperty("user.dir")).toAbsolutePath(),
                         maximumRuntime,
                         OptionalInt.of(MAX_PROBE_OUTPUT_BYTES),
-                        MAX_PROBE_OUTPUT_BYTES,
-                        false,
-                        false))
+                        MAX_PROBE_OUTPUT_BYTES))
                 .start((stream, bytes) -> append(
                         stream == ProcessStream.STDOUT ? stdout : stderr,
                         bytes));
@@ -679,15 +678,13 @@ public final class ClaudeCliDriver
             Path workingDirectory,
             Duration maximumRuntime,
             OptionalInt stdoutCaptureLimit,
-            int maximumStderrBytes,
-            boolean allowGitHubCommands,
-            boolean reviewReads)
+            int maximumStderrBytes)
     {
         return new ProcessSpec(
                 owner,
                 argv,
                 workingDirectory,
-                reviewReads ? GitCliEnvironment.forReview(environment) : GitCliEnvironment.forSession(environment, allowGitHubCommands),
+                GitCliEnvironment.withoutCredentials(environment),
                 stdoutCaptureLimit,
                 maximumStderrBytes,
                 maximumRuntime,
@@ -816,6 +813,7 @@ public final class ClaudeCliDriver
         private final AgentSessionContext context;
         private final AgentEventSink events;
         private final McpConfigRegistration registration;
+        private final AgentPermissionScope permissionScope;
         private final SecretRedactor redactor;
         private ClaudeRunningTurn running;
         private ClaudeRunningTurn lastTurn;
@@ -842,6 +840,7 @@ public final class ClaudeCliDriver
                     ClaudeCliDriver.this.redactor,
                     context.codeGraph(),
                     environment);
+            this.permissionScope = new AgentPermissionScope(context.permissionPolicy(), context.access(), registration.review().isPresent());
             this.redactor = ClaudeCliDriver.this.redactor.withSecret(registration.token());
             this.resume = resume;
         }
@@ -1005,10 +1004,9 @@ public final class ClaudeCliDriver
                             session.context.restricted() ? session.context.taskId() : command.turnId()),
                     argv(
                             session.registration,
-                            session.context.permissionPolicy(),
+                            session.permissionScope,
                             command.model().or(session.context::model),
                             command.effort().or(session.context::effort),
-                            session.context.access(),
                             session.context.managedInstructions(),
                             session.reference.providerValue(),
                             resume,
@@ -1016,9 +1014,7 @@ public final class ClaudeCliDriver
                     session.context.worktree(),
                     command.maximumRuntime(),
                     OptionalInt.empty(),
-                    MAX_STDERR_BYTES,
-                    session.context.permissionPolicy().allowsGitHubCommands(session.context.restricted(), session.registration.review().isPresent()),
-                    session.registration.review().isPresent() && session.context.permissionPolicy().allowsRemoteReads(session.context.restricted()));
+                    MAX_STDERR_BYTES);
             completeSubagentStream = spec.argv().contains("--forward-subagent-text");
             ManagedProcess started = supervisor.prepare(spec).start(this);
             this.process = started;

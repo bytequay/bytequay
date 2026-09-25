@@ -57,6 +57,7 @@ import com.bytequay.agent.core.store.SteerDeliveryStore;
 import com.bytequay.agent.core.store.TaskLogStore;
 import com.bytequay.agent.spi.AgentDriver;
 import com.bytequay.agent.spi.AgentDriverRegistry;
+import com.bytequay.agent.spi.AgentLaneId;
 import com.bytequay.agent.spi.DevelopmentResultBridgeResolver;
 import com.bytequay.agent.spi.IssueContextBridgeResolver;
 import com.bytequay.agent.spi.LocalReviewBridgeResolver;
@@ -83,11 +84,13 @@ import com.bytequay.app.service.settings.CodeGraphMode;
 import com.bytequay.app.workspace.WorkspacePaths;
 import com.bytequay.core.ci.CiAutofixStore;
 import com.bytequay.core.review.AgentReviewStore;
+import com.bytequay.core.store.ModelApiKeyStore;
 import com.bytequay.core.store.PullRequestTaskStore;
 import com.bytequay.core.store.WorkspaceStore;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.google.common.collect.ImmutableList;
 import org.springframework.beans.factory.ObjectProvider;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
 import org.springframework.boot.web.context.WebServerApplicationContext;
@@ -100,6 +103,7 @@ import java.net.URI;
 import java.time.Clock;
 import java.time.Duration;
 import java.util.List;
+import java.util.Optional;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.function.Supplier;
@@ -179,9 +183,34 @@ public class AgentConfiguration
     }
 
     @Bean
-    public AgentDriverRegistry agentDriverRegistry(List<AgentDriver> drivers)
+    public AgentDriverRegistry agentDriverRegistry(
+            List<AgentDriver> drivers,
+            ModelApiKeyStore keys,
+            AgentProperties properties,
+            ObjectMapper objectMapper,
+            ProcessSupervisor supervisor,
+            PermissionBroker permissions,
+            @Value("${bytequay.agent.codex-enabled:false}") boolean codexEnabled)
     {
-        return new StaticAgentDriverRegistry(drivers);
+        AgentDriverRegistry cliDrivers = new StaticAgentDriverRegistry(drivers);
+        if (!codexEnabled) {
+            return cliDrivers;
+        }
+        return new DeepSeekAgentDriverRegistry(cliDrivers, keys, key -> {
+            AgentLaneId laneId = new AgentLaneId(DeepSeekAgentDriverRegistry.PREFIX + key.id());
+            Supplier<Optional<String>> secret = () -> keys.findSecretById(key.id());
+            CodexCliDriver codex = CodexCliDriver.deepSeek(
+                    properties.codexExecutable(),
+                    properties.codexMinimumVersion(),
+                    objectMapper,
+                    supervisor,
+                    properties.codexHome().resolve("deepseek").resolve(key.id()),
+                    permissions,
+                    laneId,
+                    "DeepSeek · " + key.alias(),
+                    secret);
+            return new DeepSeekAgentDriver(codex, secret, objectMapper);
+        });
     }
 
     @Bean

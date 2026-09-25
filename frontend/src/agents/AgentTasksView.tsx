@@ -16,7 +16,8 @@ import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { Archive, ArchiveRestore, Check, ChevronRight, Circle, FilePen, GitCommitHorizontal, LoaderCircle, SquareCheck, Trash2, X } from 'lucide-react';
 import { ConfirmDialog } from '../ConfirmDialog';
 import { relativeTime } from '../relativeTime';
-import { INTERACTIVE_LANE_ID, displayModelName, laneLabel, providerAvailable, providerRemedy, remedyCommand } from '../settings/model';
+import { INTERACTIVE_LANE_ID, displayModelName, isDeepSeekKeyLane, laneLabel, providerAvailable, providerRemedy, remedyCommand } from '../settings/model';
+import { settingsRoute } from '../settings/routes';
 import { getCached, setCached } from '../dataCache';
 import Toast from '../Toast';
 import { notifyIssueDevelopmentChanged, type DevelopmentIssue } from '../workspaces/issueDevelopment';
@@ -166,6 +167,7 @@ export function creationBlocker(
   if (catalog === null) return null;
   const provider = catalog.providers.find((candidate) => candidate.id === laneId) ?? null;
   if (provider === null) {
+    if (isDeepSeekKeyLane(laneId)) return 'DeepSeek key removed. Add a key in Models settings and start a new task.';
     return `${laneLabel(laneId)} is not available in this build.`;
   }
   if (!providerAvailable(provider.readiness)) {
@@ -177,9 +179,18 @@ export function creationBlocker(
       + (provider.diagnostic === '' ? '' : ` ${provider.diagnostic}`);
   }
   if (selection === null || !provider.models.some((model) => model.id === selection.model)) {
-    return `No ${laneLabel(laneId)} model is available yet. Checking the provider in Workspace settings also fetches its models.`;
+    return isDeepSeekKeyLane(laneId)
+      ? 'No DeepSeek model is available yet. Check the key in Models settings.'
+      : `No ${laneLabel(laneId)} model is available yet. Checking the provider in Workspace settings also fetches its models.`;
   }
   return null;
+}
+
+/** Issue starts cannot use the attended-only DeepSeek lane. */
+export function taskCreationCatalog(settings: ModelSettingsDto, sourceIssueNumber: number | null): ModelSettingsDto {
+  return sourceIssueNumber === null
+    ? settings
+    : { ...settings, providers: settings.providers.filter(provider => !isDeepSeekKeyLane(provider.id)) };
 }
 
 /**
@@ -241,29 +252,35 @@ export function useAgentTaskCreation({ workspaceId, initialLaunch, bridge, onOpe
    * blocked start is retried on the lane it failed on.
    */
   const applyCatalog = useCallback((settings: ModelSettingsDto, preferredLaneId = initialLaunch?.laneId) => {
-    setCatalog(settings);
+    const available = taskCreationCatalog(settings, sourceIssueNumber);
+    setCatalog(available);
     // The caller's own choice is taken as made; a retry that lands on another lane takes that lane's own.
     if (initialLaunch !== undefined && preferredLaneId === initialLaunch.laneId
-      && settings.providers.some((candidate) => candidate.id === initialLaunch.laneId)) {
+      && available.providers.some((candidate) => candidate.id === initialLaunch.laneId)) {
       setLaneId(initialLaunch.laneId);
       setSelection({ model: initialLaunch.model, effort: initialLaunch.effort });
       return;
     }
     if (preferredLaneId !== undefined) {
-      const named = settings.providers.find((candidate) => candidate.id === preferredLaneId);
+      const named = available.providers.find((candidate) => candidate.id === preferredLaneId);
       if (named !== undefined && named.selectedModel !== '') {
         setLaneId(named.id);
         setSelection({ model: named.selectedModel, effort: named.selectedEffort === '' ? null : named.selectedEffort });
         return;
       }
+      if (sourceIssueNumber === null && isDeepSeekKeyLane(preferredLaneId) && named === undefined) {
+        setLaneId(preferredLaneId);
+        setSelection(null);
+        return;
+      }
     }
-    const development = settings.agents.find((agent) => agent.type === 'DEVELOPMENT');
-    if (development !== undefined && settings.providers.some((candidate) => candidate.id === development.configId)) {
+    const development = available.agents.find((agent) => agent.type === 'DEVELOPMENT');
+    if (development !== undefined && available.providers.some((candidate) => candidate.id === development.configId)) {
       setLaneId(development.configId);
       setSelection({ model: development.model, effort: development.effort ?? null });
       return;
     }
-    const provider = settings.providers.find((candidate) => candidate.id === (initialLaunch?.laneId ?? INTERACTIVE_LANE_ID)) ?? settings.providers[0];
+    const provider = available.providers.find((candidate) => candidate.id === (initialLaunch?.laneId ?? INTERACTIVE_LANE_ID)) ?? available.providers[0];
     if (provider !== undefined && provider.selectedModel !== '') {
       setLaneId(provider.id);
       setSelection({
@@ -271,7 +288,7 @@ export function useAgentTaskCreation({ workspaceId, initialLaunch, bridge, onOpe
         effort: provider.selectedEffort === '' ? null : provider.selectedEffort,
       });
     }
-  }, [initialLaunch]);
+  }, [initialLaunch, sourceIssueNumber]);
 
   useEffect(() => {
     let active = true;
@@ -347,13 +364,15 @@ export function useAgentTaskCreation({ workspaceId, initialLaunch, bridge, onOpe
   }, [refreshIssue]);
 
   const provider = catalog?.providers.find((candidate) => candidate.id === laneId) ?? null;
+  const deepSeek = isDeepSeekKeyLane(laneId);
+  const taskAutomation = automation;
   const models: ModelOptionDto[] = provider?.models ?? [];
-  const imagesAccepted = acceptsImages(models, selection?.model, provider?.capabilities ?? null);
+  const imagesAccepted = !deepSeek && acceptsImages(models, selection?.model, provider?.capabilities ?? null);
   const blocker = (sourceLoading ? 'Loading issue…' : sourceError)
     ?? (issue?.isGoal ? 'Goals organize work and cannot start development. Unmark this issue as a Goal to run it.' : null)
     ?? creationBlocker(catalog, laneId, selection)
     ?? automationError
-    ?? (automation === null ? 'Loading automation settings…' : null)
+    ?? (taskAutomation === null ? 'Loading automation settings…' : null)
     ?? (images.length > 0 && !imagesAccepted ? 'Choose a model that accepts images or remove the images.' : null);
 
   const selectProvider = useCallback((nextLaneId: string) => {
@@ -404,7 +423,7 @@ export function useAgentTaskCreation({ workspaceId, initialLaunch, bridge, onOpe
 
   const create = useCallback(async () => {
     const message = draft.trim();
-    if (busyRef.current || selection === null || automation === null || blocker !== null || message === '') return;
+    if (busyRef.current || selection === null || taskAutomation === null || blocker !== null || message === '') return;
     busyRef.current = true;
     setOperation('sending');
     setError(null);
@@ -413,8 +432,8 @@ export function useAgentTaskCreation({ workspaceId, initialLaunch, bridge, onOpe
       effort: selection.effort,
       permissionPolicy: 'AUTO',
       serviceTier: selection.serviceTier ?? null,
-      developmentAutomation: automation,
-    }, images.map((image) => image.id), automationForSubmission(automation, localOnly), issue === null ? undefined : {
+      developmentAutomation: taskAutomation,
+    }, images.map((image) => image.id), automationForSubmission(taskAutomation, localOnly), issue === null ? undefined : {
       issueId: issue.id, number: issue.number, updatedAt: issue.updatedAt,
     });
     // The create call blocks until the first turn is running; the backend names the step it is in meanwhile.
@@ -473,7 +492,7 @@ export function useAgentTaskCreation({ workspaceId, initialLaunch, bridge, onOpe
       busyRef.current = false;
       setOperation(null);
     }
-  }, [applyCatalog, automation, blocker, bridge, clearImages, draft, images, issue, laneId, localOnly, onOpenCreatedTask, onOpenTask, selection, submissions, workspaceId]);
+  }, [applyCatalog, blocker, bridge, clearImages, draft, images, issue, laneId, localOnly, onOpenCreatedTask, onOpenTask, selection, submissions, taskAutomation, workspaceId]);
 
   return {
     /** Everything TaskComposer needs, so a screen spreads it instead of re-listing eighteen props. */
@@ -487,7 +506,7 @@ export function useAgentTaskCreation({ workspaceId, initialLaunch, bridge, onOpe
       busy,
       attaching: operation === 'attachment',
       images,
-      automation: automation === null ? null : <AutomationControl value={automation} providers={catalog?.providers ?? []} disabled={busy}
+      automation: taskAutomation === null ? null : <AutomationControl value={taskAutomation} providers={catalog?.providers ?? []} disabled={busy}
         localOnly={localOnly} onChange={setAutomation} onLocalOnlyChange={setLocalOnly} />,
       onAttach: () => { void attach(); },
       onPasteImages: () => { void attach('clipboard'); },
@@ -711,16 +730,23 @@ export function TaskComposer({
   onPasteImages?: () => void;
   onRemoveImage?: (id: string) => void;
 }): React.JSX.Element {
-  const imagesAccepted = acceptsImages(models, selection?.model, providers.find((provider) => provider.id === laneId)?.capabilities ?? null);
+  const imagesAccepted = !isDeepSeekKeyLane(laneId)
+    && acceptsImages(models, selection?.model, providers.find((provider) => provider.id === laneId)?.capabilities ?? null);
+  const openProviderSettings = (providerId: string): void => {
+    if (isDeepSeekKeyLane(providerId)) window.location.hash = settingsRoute('models');
+    else onOpenSettings?.();
+  };
   return (
     <div className="agt-compose-dock">
       {blocker !== null && (
         <div className="agt-compose-blocker" role="status">
           {blocker}
-          {onOpenSettings !== undefined && (
+          {(onOpenSettings !== undefined || isDeepSeekKeyLane(laneId)) && (
             <>
               {' '}
-              <button type="button" className="agt-action" onClick={onOpenSettings}>Open workspace settings</button>
+              <button type="button" className="agt-action" onClick={() => openProviderSettings(laneId)}>
+                Open {isDeepSeekKeyLane(laneId) ? 'Models' : 'workspace'} settings
+              </button>
             </>
           )}
         </div>
@@ -767,7 +793,7 @@ export function TaskComposer({
             providers={providers}
             selectedId={laneId}
             onSelect={onSelectProvider}
-            onOpenSettings={onOpenSettings}
+            onOpenSettings={onOpenSettings !== undefined || providers.some(provider => isDeepSeekKeyLane(provider.id)) ? openProviderSettings : undefined}
           />
           {automation}
           <span className="agt-spacer" />

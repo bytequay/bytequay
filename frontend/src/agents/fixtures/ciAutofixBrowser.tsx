@@ -14,7 +14,7 @@
 
 import { flushSync } from 'react-dom';
 import { createRoot } from 'react-dom/client';
-import type { AgentStreamMessage, AgentTaskDto, AgentTurnDto, CiAutofixRunDto } from '../../types';
+import type { AgentPendingApprovalDto, AgentStreamMessage, AgentTaskDto, AgentTurnDto, CiAutofixRunDto } from '../../types';
 import { AgentTaskList } from '../AgentTasksView';
 import AgentTaskScreen from '../AgentTaskScreen';
 import { CI_PROJECTION, CI_RUN } from './ciAutofix';
@@ -67,7 +67,7 @@ async function ciReplyAndOwnership(): Promise<{ name: string; error?: string }> 
     notify({ subscriptionId: id, taskId: id, kind: 'state', state: 'open' });
     return () => {};
   };
-  bridge.getCiAutofixRun = async () => { throw new Error('The source projection already identifies the CI recipient'); };
+  bridge.getCiAutofixRun = async () => run;
   bridge.sendCiAutofixMessage = async (runId, message, key) => {
     replies.push({ runId, message, key });
     if (failReply) throw new Error('Message transport unavailable');
@@ -153,6 +153,7 @@ async function sourcePolling(): Promise<{ name: string; error?: string }> {
   bridge.getAgentTurn = async () => turn;
   bridge.readAgentHistory = async () => ({ events: [event], beforeCursor: null, afterCursor: null, latestSequence: event.sequence });
   bridge.subscribeAgentTask = async (id, _after, notify) => { notify({ subscriptionId: id, taskId: id, kind: 'state', state: 'open' }); return () => {}; };
+  bridge.getCiAutofixRun = async () => ({ ...CI_RUN, status: 'ACTIVE', activity: 'WATCHING_CI', currentTurnId: null, parentTaskId: task.id });
   const timers = ciTimers();
   const host = document.createElement('div');
   document.body.append(host);
@@ -178,7 +179,59 @@ async function sourcePolling(): Promise<{ name: string; error?: string }> {
 }
 
 export async function runCiAutofixScenarios(): Promise<{ name: string; error?: string }[]> {
-  return [await ciReplyAndOwnership(), await sourcePolling(), await laterRunAndRecovery(), await deleteReferences(), await finishedCiRouting()];
+  return [await ciReplyAndOwnership(), await sourcePolling(), await ciApprovalCard(), await laterRunAndRecovery(), await deleteReferences(), await finishedCiRouting()];
+}
+
+async function ciApprovalCard(): Promise<{ name: string; error?: string }> {
+  const bridge = createPreviewBridge('workspace-1');
+  const event = bridge.events[0];
+  assert(event.turnId !== null, 'Fixture needs a source turn');
+  const task: AgentTaskDto = { ...await bridge.getAgentTask(event.taskId, 'workspace-1'), id: 'source-task', interactive: true,
+    mutationClaim: null, developmentContinuationUnfinished: true,
+    developmentCi: { ...CI_PROJECTION, status: 'ACTIVE', activity: 'FIXING', canMessage: false } };
+  const sourceEvent = { ...event, taskId: task.id };
+  const sourceTurn: AgentTurnDto = { ...await bridge.getAgentTurn(event.turnId), taskId: task.id, state: 'COMPLETED', endedAt: '2026-01-01T12:00:00Z' };
+  const approval: AgentPendingApprovalDto = {
+    approvalId: 'ci-approval', taskId: 'ci-task', turnId: 'ci-turn', source: event.source,
+    occurredAt: event.occurredAt, title: 'Allow Codex command', detail: 'mvn test', approvalKind: 'COMMAND',
+    scope: ['run: mvn test'], availableDecisions: ['ALLOW_ONCE', 'DENY'], actionable: true,
+  };
+  let parentTaskId = 'other-task';
+  let ciApprovalReads = 0;
+  bridge.getAgentTask = async id => { assert(id === task.id, 'The CI child is not an interactive task'); return task; };
+  bridge.getAgentTurn = async () => sourceTurn;
+  bridge.readAgentHistory = async () => ({ events: [sourceEvent], beforeCursor: null, afterCursor: null, latestSequence: 1 });
+  bridge.subscribeAgentTask = async (id, _after, notify) => { notify({ subscriptionId: id, taskId: id, kind: 'state', state: 'open' }); return () => {}; };
+  bridge.getCiAutofixRun = async () => ({ ...CI_RUN, status: 'ACTIVE', activity: 'FIXING', currentTurnId: approval.turnId, parentTaskId });
+  bridge.readAgentPendingApprovals = async (id, turnId) => {
+    if (id === task.id) return [];
+    ciApprovalReads++;
+    assert(id === approval.taskId && turnId === approval.turnId, 'The source must read only its verified CI turn');
+    return [approval];
+  };
+  const timers = ciTimers();
+  const host = document.createElement('div');
+  document.body.append(host);
+  const root = createRoot(host);
+  flushSync(() => root.render(<AgentTaskScreen workspaceId="workspace-1" taskId={task.id} bridge={bridge} onBack={() => {}} />));
+  try {
+    await settle();
+    timers.tick();
+    await settle();
+    assert(host.querySelector('[aria-label="Approval: CI Autofix · Allow Codex command"]') === null, 'A CI run for another parent cannot show a card');
+    assert(ciApprovalReads === 0, 'A mismatched CI run must not read approvals');
+    parentTaskId = task.id;
+    timers.tick();
+    await settle();
+    const allow = host.querySelector<HTMLButtonElement>('button[aria-label="Allow once: CI Autofix · Allow Codex command"]');
+    assert(Number(ciApprovalReads) === 1 && allow !== null && host.querySelector('.agt-status')?.textContent?.includes('Needs approval') === true, 'The source Task screen must show the linked CI approval');
+    allow.click();
+    await settle();
+    assert(bridge.commands.some(command => command.name === 'resolveAgentApproval' && command.args[0] === approval.approvalId && command.args[1] === 'ALLOW'), 'The card must answer the CI approval');
+    assert(host.querySelector('[aria-label="Approval: CI Autofix · Allow Codex command"]') === null, 'The answered card must disappear before the next poll');
+    return { name: 'Source Task screen shows and answers verified CI approvals' };
+  } catch (error) { return { name: 'CI approval card', error: error instanceof Error ? error.message : String(error) }; }
+  finally { flushSync(() => root.unmount()); host.remove(); timers.restore(); }
 }
 
 async function finishedCiRouting(): Promise<{ name: string; error?: string }> {

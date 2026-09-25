@@ -16,9 +16,12 @@ package com.bytequay.persistence.sqlite.credential;
 import org.springframework.data.jpa.repository.JpaRepository;
 
 import java.util.List;
+import java.util.Optional;
 
 interface ModelApiKeyJpaRepository
         extends JpaRepository<ModelApiKeyEntity, String>
 {
     List<ModelApiKeyEntity> findAllByOrderByCreatedAtAsc();
+
+    Optional<ModelApiKeyEntity> findByKeyId(String keyId);
 }

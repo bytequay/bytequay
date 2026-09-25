@@ -66,12 +66,14 @@ final class DeterministicAgentDriver
                     com.bytequay.agent.spi.AgentPermissionPolicy.AUTO),
             ImmutableSet.of());
 
+    private final AgentLaneId laneId;
     private final List<AgentSessionRef> openedReferences = new ArrayList<>();
     private final List<AgentSessionContext> openedContexts = new ArrayList<>();
     private final List<AgentTurnCommand> commands = new ArrayList<>();
     private final List<AgentTurnInput> steers = new ArrayList<>();
     private RuntimeException nextSteerFailure;
     private AgentProviderStatus.Readiness readiness = AgentProviderStatus.Readiness.READY;
+    private Optional<String> unsupportedModel = Optional.empty();
     private int probeCount;
     private RuntimeException probeFailure;
     private RuntimeException nextSessionReferenceAndCloseFailure;
@@ -86,10 +88,20 @@ final class DeterministicAgentDriver
     private Runnable beforeSteer = () -> {};
     private Runnable beforeCancel = () -> {};
 
+    DeterministicAgentDriver()
+    {
+        this(LANE_ID);
+    }
+
+    DeterministicAgentDriver(AgentLaneId laneId)
+    {
+        this.laneId = laneId;
+    }
+
     @Override
     public AgentLaneId id()
     {
-        return LANE_ID;
+        return laneId;
     }
 
     @Override
@@ -106,7 +118,7 @@ final class DeterministicAgentDriver
             throw probeFailure;
         }
         return new AgentProviderStatus(
-                LANE_ID,
+                laneId,
                 readiness,
                 Optional.of("test"),
                 readiness == AgentProviderStatus.Readiness.TEMPORARILY_UNAVAILABLE ? "deterministic lane unavailable" : "ready",
@@ -114,11 +126,27 @@ final class DeterministicAgentDriver
     }
 
     @Override
+    public synchronized AgentProviderStatus probe(Optional<String> model)
+    {
+        AgentProviderStatus status = probe();
+        if (model.isPresent() && model.equals(unsupportedModel)) {
+            return new AgentProviderStatus(laneId, AgentProviderStatus.Readiness.UNSUPPORTED,
+                    status.version(), "model unavailable", CAPABILITIES);
+        }
+        return status;
+    }
+
+    synchronized void unsupportedModel(Optional<String> model)
+    {
+        unsupportedModel = model;
+    }
+
+    @Override
     public synchronized AgentSession open(AgentSessionContext context, AgentEventSink events)
     {
         openedContexts.add(context);
         AgentSessionRef reference = context.sessionReference().orElseGet(() -> new AgentSessionRef(
-                LANE_ID,
+                laneId,
                 1,
                 "session-" + UUID.randomUUID()));
         openedReferences.add(reference);

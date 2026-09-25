@@ -87,6 +87,8 @@ final class CodexAppServerClient
     private final ProcessSupervisor supervisor;
     private final ProcessSpec processSpec;
     private final SecretRedactor redactor;
+    private final Optional<DeepSeekResponsesProxy> deepSeekProxy;
+    private final Optional<DeepSeekTaskMcpBridge> deepSeekTaskMcpBridge;
     private final CodexProtocolCodec codec;
     private final Object lifecycleLock = new Object();
     private final Object writeLock = new Object();
@@ -111,9 +113,22 @@ final class CodexAppServerClient
             ObjectMapper objectMapper,
             SecretRedactor redactor)
     {
+        this(supervisor, processSpec, objectMapper, redactor, Optional.empty(), Optional.empty());
+    }
+
+    CodexAppServerClient(
+            ProcessSupervisor supervisor,
+            ProcessSpec processSpec,
+            ObjectMapper objectMapper,
+            SecretRedactor redactor,
+            Optional<DeepSeekResponsesProxy> deepSeekProxy,
+            Optional<DeepSeekTaskMcpBridge> deepSeekTaskMcpBridge)
+    {
         this.supervisor = requireNonNull(supervisor, "supervisor is null");
         this.processSpec = requireNonNull(processSpec, "processSpec is null");
         this.redactor = requireNonNull(redactor, "redactor is null");
+        this.deepSeekProxy = requireNonNull(deepSeekProxy, "deepSeekProxy is null");
+        this.deepSeekTaskMcpBridge = requireNonNull(deepSeekTaskMcpBridge, "deepSeekTaskMcpBridge is null");
         this.codec = new CodexProtocolCodec(objectMapper);
         this.diagnosticLines = new Utf8LineBuffer(
                 MAX_DIAGNOSTIC_LINE_BYTES,
@@ -314,6 +329,7 @@ final class CodexAppServerClient
 
     private void processExited(ProcessExit result, Throwable failure)
     {
+        deepSeekProxy.ifPresent(DeepSeekResponsesProxy::close);
         if (result != null) {
             // The original exit receipt may arrive after a newer explicit stop verification.
             treeTermination.compareAndSet(null, result.treeTermination());
@@ -382,7 +398,7 @@ final class CodexAppServerClient
         }
         if (envelope.error().isPresent()) {
             response.completeExceptionally(new RequestRefused(
-                    "Codex request failed: " + envelope.error().orElseThrow().message()));
+                    "Codex request failed: " + redactor.redact(envelope.error().orElseThrow().message())));
         }
         else {
             response.complete(envelope);
@@ -453,21 +469,31 @@ final class CodexAppServerClient
     @Override
     public void close()
     {
-        ManagedProcess current;
-        synchronized (lifecycleLock) {
-            current = process;
-            closed = true;
+        try {
+            ManagedProcess current;
+            synchronized (lifecycleLock) {
+                current = process;
+                closed = true;
+            }
+            if (current != null) {
+                try {
+                    awaitVerifiedStop(current);
+                }
+                finally {
+                    current.close();
+                }
+            }
+            disconnect(new AgentUnavailableException("Codex App Server closed"));
+            dispatcher.close();
         }
-        if (current != null) {
+        finally {
             try {
-                awaitVerifiedStop(current);
+                deepSeekTaskMcpBridge.ifPresent(DeepSeekTaskMcpBridge::close);
             }
             finally {
-                current.close();
+                deepSeekProxy.ifPresent(DeepSeekResponsesProxy::close);
             }
         }
-        disconnect(new AgentUnavailableException("Codex App Server closed"));
-        dispatcher.close();
     }
 
     private void awaitVerifiedStop(ManagedProcess current)

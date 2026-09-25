@@ -21,7 +21,7 @@ import type {
   WorkspaceSettingsDto,
 } from '../types';
 import RepoAvatar from '../RepoAvatar';
-import { providerStatusLabel } from './model';
+import { isDeepSeekKeyLane, providerStatusLabel } from './model';
 import { AgentModelControls, typeLabel, type ModelChoice } from './ModelsPage';
 import { AddAction, Badge, SettingsCard, SettingsRow, StatusDot, dotTone } from './primitives';
 
@@ -241,8 +241,8 @@ export function WorkspaceAgentsPage({
           </button>
         </div>
       }>
-        {(models?.providers ?? []).map(provider => {
-          const status = providerStatusLabel(provider.readiness, checking);
+        {(models?.providers ?? []).filter(provider => !isDeepSeekKeyLane(provider.id)).map(provider => {
+          const status = providerStatusLabel(provider.readiness, checking, provider.id);
           return (
             <SettingsRow
               key={provider.id}

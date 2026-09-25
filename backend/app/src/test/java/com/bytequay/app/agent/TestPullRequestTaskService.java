@@ -14,11 +14,14 @@
 package com.bytequay.app.agent;
 
 import com.bytequay.agent.core.AgentTask;
+import com.bytequay.agent.core.AgentTaskDefaults;
 import com.bytequay.agent.core.AgentTaskService;
 import com.bytequay.agent.core.AgentTurn;
 import com.bytequay.agent.core.AgentTurnService;
 import com.bytequay.agent.core.CreateInteractiveAgentTaskCommand;
+import com.bytequay.agent.core.RepositoryIdentity;
 import com.bytequay.agent.core.StartAgentTurnCommand;
+import com.bytequay.agent.core.TaskId;
 import com.bytequay.agent.core.TaskWorktree;
 import com.bytequay.agent.core.TitleSource;
 import com.bytequay.agent.core.store.AgentTaskStore;
@@ -26,6 +29,7 @@ import com.bytequay.agent.spi.AgentCapabilities;
 import com.bytequay.agent.spi.AgentDriver;
 import com.bytequay.agent.spi.AgentDriverRegistry;
 import com.bytequay.agent.spi.AgentLaneId;
+import com.bytequay.agent.spi.AgentPermissionPolicy;
 import com.bytequay.agent.spi.AgentProviderStatus;
 import com.bytequay.app.git.GitCommandRunner;
 import com.bytequay.app.service.credentials.CredentialService;
@@ -79,6 +83,7 @@ class TestPullRequestTaskService
 {
     private static final String HEAD = "a".repeat(40);
     private static final String BASE = "b".repeat(40);
+    private static final AgentLaneId DEEPSEEK_LANE = new AgentLaneId("deepseek-key-123e4567-e89b-12d3-a456-426614174000");
     private static final Path REPOSITORY = Path.of("/tmp/assigned-pr-repository");
     private final PullRequestTaskStore assignments = mock(PullRequestTaskStore.class);
     private final AgentTaskStore taskStore = mock(AgentTaskStore.class);
@@ -201,6 +206,34 @@ class TestPullRequestTaskService
         when(pullRequests.findHeadSha("upstream/repo", 7)).thenReturn(Optional.of("c".repeat(40)));
         assertThatThrownBy(() -> service.assign("workspace", "upstream/repo", 7)).hasMessageContaining("PR changed");
         verify(tasks, never()).createInteractive(any());
+    }
+
+    @Test
+    void refusesDeepSeekAssignmentBeforeReadinessOrProvisioning()
+    {
+        when(models.agentModel(AgentModelType.DEVELOPMENT, Optional.of("workspace")))
+                .thenReturn(new AgentModelSetting(AgentModelType.DEVELOPMENT, false, DEEPSEEK_LANE.value(), "DeepSeek", "deepseek-flash", "DeepSeek Flash", Optional.empty()));
+
+        assertThatThrownBy(() -> service.assign("workspace", "upstream/repo", 7)).hasMessageContaining("DeepSeek key tasks cannot be assigned");
+
+        verifyNoInteractions(drivers, repositories, refresh, git, tasks, turns);
+    }
+
+    @Test
+    void refusesExistingDeepSeekTaskMatchedToPullRequest()
+    {
+        TaskId id = TaskId.random();
+        AgentTask task = AgentTask.created(id, true, "DeepSeek task", TitleSource.USER, DEEPSEEK_LANE,
+                new TaskWorktree(id, "workspace", new RepositoryIdentity("alice", "repo"), Path.of("/tmp").resolve(id.toString()),
+                        "bytequay/task/" + id, HEAD),
+                AgentTaskDefaults.forPermission(AgentPermissionPolicy.AUTO), Instant.now());
+        created.set(task);
+        when(assignments.find("workspace", "upstream/repo", 7))
+                .thenReturn(Optional.of(new PullRequestTask(id.toString(), "workspace", "upstream/repo", 7, "context")));
+
+        assertThatThrownBy(() -> service.assign("workspace", "upstream/repo", 7)).hasMessageContaining("DeepSeek key tasks cannot be assigned");
+
+        verifyNoInteractions(models, drivers, repositories, refresh, git, turns);
     }
 
     @Test

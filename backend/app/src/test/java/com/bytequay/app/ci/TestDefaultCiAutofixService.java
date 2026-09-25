@@ -56,6 +56,7 @@ import com.bytequay.agent.spi.AgentDriverRegistry;
 import com.bytequay.agent.spi.AgentLaneId;
 import com.bytequay.agent.spi.AgentPermissionPolicy;
 import com.bytequay.agent.spi.AgentProviderStatus;
+import com.bytequay.agent.spi.AgentProviderUnavailableException;
 import com.bytequay.agent.spi.AgentTurnFailureKind;
 import com.bytequay.agent.spi.CiDescriptionProposal;
 import com.bytequay.agent.spi.ProviderAgentEvent.MessageKind;
@@ -638,6 +639,44 @@ class TestDefaultCiAutofixService
                 .isInstanceOf(IllegalArgumentException.class)
                 .hasMessageContaining("between 1 and 3");
         verify(gitHub, never()).inspect(any());
+    }
+
+    @Test
+    void rejectsUnreadyDeepSeekDefaultModelBeforeAllocatingACiRun()
+    {
+        AgentLaneId lane = new AgentLaneId("deepseek-key-11111111-1111-1111-1111-111111111111");
+        AgentDriver driver = drivers.require(AgentLaneId.CLAUDE_CLI);
+        AgentCapabilities capabilities = driver.capabilities();
+        when(drivers.require(lane)).thenReturn(driver);
+        when(driver.probe(Optional.empty())).thenReturn(new AgentProviderStatus(lane, AgentProviderStatus.Readiness.UNSUPPORTED,
+                Optional.of("0.156.1"), "This DeepSeek key does not list the selected model deepseek-flash.", capabilities));
+
+        assertThatThrownBy(() -> service.start(startCommand("deepseek-model", lane)))
+                .isInstanceOf(AgentProviderUnavailableException.class).hasMessageContaining("deepseek-flash");
+        assertThat(store.listRecent(10)).isEmpty();
+        verify(gitHub, never()).inspect(any());
+        verify(provisioning, never()).synchronizeCode(any());
+    }
+
+    @Test
+    void startsReadyDeepSeekCiWithTheModelLessChildPolicy()
+    {
+        AgentLaneId lane = new AgentLaneId("deepseek-key-11111111-1111-1111-1111-111111111111");
+        AgentDriver driver = drivers.require(AgentLaneId.CLAUDE_CLI);
+        AgentCapabilities capabilities = driver.capabilities();
+        when(drivers.require(lane)).thenReturn(driver);
+        when(driver.probe(Optional.empty())).thenReturn(new AgentProviderStatus(lane, AgentProviderStatus.Readiness.READY,
+                Optional.of("0.156.1"), "DeepSeek default model ready", capabilities));
+
+        CiAutofixRun run = service.start(startCommand("deepseek-ready", lane));
+
+        assertThat(run.scope().laneId()).isEqualTo(lane.value());
+        ArgumentCaptor<CreateAgentTaskCommand> child = ArgumentCaptor.forClass(CreateAgentTaskCommand.class);
+        verify(taskService).create(child.capture());
+        assertThat(child.getValue().laneId()).isEqualTo(lane);
+        assertThat(child.getValue().defaults().permissionPolicy()).isEqualTo(AgentPermissionPolicy.CI_AUTOFIX);
+        assertThat(child.getValue().defaults().model()).isEmpty();
+        verify(driver).probe(Optional.empty());
     }
 
     @Test
@@ -1751,6 +1790,28 @@ class TestDefaultCiAutofixService
     }
 
     @Test
+    void deepSeekAuthenticationFailurePointsToModelsSettings()
+    {
+        AgentLaneId lane = new AgentLaneId("deepseek-key-11111111-1111-1111-1111-111111111111");
+        AgentDriver driver = drivers.require(AgentLaneId.CLAUDE_CLI);
+        AgentCapabilities capabilities = driver.capabilities();
+        when(drivers.require(lane)).thenReturn(driver);
+        when(driver.probe(Optional.empty())).thenReturn(new AgentProviderStatus(lane, AgentProviderStatus.Readiness.READY,
+                Optional.of("0.156.1"), "ready", capabilities));
+        CiAutofixRun initial = service.start(startCommand("deepseek-auth", lane));
+        when(turnService.get(turnId)).thenReturn(terminalTurn(
+                TurnState.FAILED,
+                Optional.of("DeepSeek key removed"),
+                Optional.of(AgentTurnFailureKind.AUTHENTICATION_REQUIRED)));
+
+        CiAutofixRun paused = service.advance(initial.id());
+
+        assertThat(paused.pauseReason()).contains(PauseReason.AUTHENTICATION_REQUIRED);
+        assertThat(paused.summary()).contains("DeepSeek key needs attention. Check it in Models settings.");
+        assertThat(paused.attemptsUsed()).isEqualTo(1);
+    }
+
+    @Test
     void rejectsMessagesForActiveStaleOrOversizedRuns()
     {
         CiAutofixRun active = service.start(startCommand("message-reject"));
@@ -2265,10 +2326,15 @@ class TestDefaultCiAutofixService
 
     private StartCiAutofixCommand startCommand(String key)
     {
+        return startCommand(key, AgentLaneId.CLAUDE_CLI);
+    }
+
+    private StartCiAutofixCommand startCommand(String key, AgentLaneId lane)
+    {
         return new StartCiAutofixCommand(
                 "workspace-1",
                 PULL_REQUEST.number(),
-                AgentLaneId.CLAUDE_CLI,
+                lane,
                 3,
                 true,
                 true,

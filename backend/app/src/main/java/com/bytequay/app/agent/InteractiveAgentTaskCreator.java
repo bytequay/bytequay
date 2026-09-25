@@ -153,7 +153,7 @@ public final class InteractiveAgentTaskCreator
         if (replay.isPresent()) {
             AgentTask task = requireReplay(replay.orElseThrow(), fingerprint);
             if (turns.findTurnByIdempotencyKey(taskId, idempotencyKey).isEmpty()) {
-                requireReady(drivers, laneId, defaults.permissionPolicy());
+                requireReady(drivers, laneId, defaults.permissionPolicy(), defaults.model());
             }
             return task;
         }
@@ -161,7 +161,7 @@ public final class InteractiveAgentTaskCreator
         settings.validateDevelopmentAutomation(automation);
         initialAutomation.ifPresent(settings::validateDevelopmentAutomation);
         progress.record(taskId, Phase.PROVIDER);
-        requireReady(drivers, laneId, defaults.permissionPolicy());
+        requireReady(drivers, laneId, defaults.permissionPolicy(), defaults.model());
         models.validateSelection(
                 laneId.value(),
                 defaults.model().orElseThrow(() -> new IllegalArgumentException("model must not be blank")),

@@ -28,6 +28,7 @@ import com.bytequay.agent.spi.AgentProviderUnavailableException;
 import com.bytequay.agent.spi.AgentUnavailableException;
 import com.bytequay.core.domain.RepoRef;
 
+import java.util.Optional;
 import java.util.function.Function;
 import java.util.function.Supplier;
 
@@ -85,11 +86,22 @@ public final class WorkflowAgentTasks
             AgentLaneId laneId,
             AgentPermissionPolicy policy)
     {
+        requireReady(drivers, laneId, policy, Optional.empty());
+    }
+
+    public static void requireReady(
+            AgentDriverRegistry drivers,
+            AgentLaneId laneId,
+            AgentPermissionPolicy policy,
+            Optional<String> model)
+    {
         AgentDriver driver = drivers.require(laneId);
         if (!driver.capabilities().permissionPolicies().contains(policy)) {
             throw new AgentUnavailableException("Agent lane " + laneId + " cannot enforce " + policy);
         }
-        AgentProviderStatus status = driver.probe();
+        AgentProviderStatus status = laneId.value().startsWith(DeepSeekAgentDriverRegistry.PREFIX)
+                ? driver.probe(model)
+                : driver.probe();
         if (!status.available()) {
             throw new AgentProviderUnavailableException(status);
         }

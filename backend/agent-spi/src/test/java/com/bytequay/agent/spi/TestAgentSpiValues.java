@@ -99,7 +99,8 @@ class TestAgentSpiValues
                 Optional.empty(),
                 "../secret",
                 ProviderAgentEvent.ChangeKind.MODIFIED,
-                Optional.empty()))
+                Optional.empty(),
+                ProviderAgentEventSource.root()))
                 .isInstanceOf(IllegalArgumentException.class)
                 .hasMessageContaining("unsafe");
     }
@@ -126,7 +127,8 @@ class TestAgentSpiValues
                 AgentTurnResult.State.FAILED,
                 Optional.empty(),
                 Optional.empty(),
-                Duration.ZERO))
+                Duration.ZERO,
+                true))
                 .isInstanceOf(IllegalArgumentException.class)
                 .hasMessageContaining("requires");
     }

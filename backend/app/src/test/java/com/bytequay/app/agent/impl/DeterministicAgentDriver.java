@@ -119,14 +119,17 @@ public final class DeterministicAgentDriver
                         ImmutableList.of("high"),
                         Optional.of("high"),
                         true,
-                        ImmutableList.of("text", "image")),
+                        ImmutableList.of("text", "image"),
+                        ImmutableList.of()),
                 new ProviderModel(
                         "text-only-model",
                         "Text only",
                         "",
                         ImmutableList.of("high"),
                         Optional.of("high"),
-                        false));
+                        false,
+                        ImmutableList.of("text"),
+                        ImmutableList.of()));
     }
 
     /** Keeps the next turn running until {@link #completeHeldTurn()} is called. */
@@ -161,7 +164,8 @@ public final class DeterministicAgentDriver
                     AgentTurnResult.State.INTERRUPTED,
                     Optional.empty(),
                     Optional.of("test reset"),
-                    Duration.ZERO));
+                    Duration.ZERO,
+                    true));
         }
     }
 
@@ -204,7 +208,8 @@ public final class DeterministicAgentDriver
         events.emit(new ProviderAgentEvent.Message(
                 Optional.of("message-" + command.turnId()),
                 ProviderAgentEvent.MessagePhase.FINAL,
-                response));
+                response,
+                ProviderAgentEventSource.root()));
         if (!textOnly) {
             Optional.ofNullable(nextDevelopmentResult.getAndSet(null)).ifPresent(report -> events.emit(new ProviderAgentEvent.DevelopmentResult(
                     Optional.of("report-" + command.turnId()),
@@ -228,7 +233,8 @@ public final class DeterministicAgentDriver
                 AgentTurnResult.State.COMPLETED,
                 Optional.of(response),
                 Optional.empty(),
-                Duration.ZERO);
+                Duration.ZERO,
+                true);
     }
 
     private record DeterministicSession(

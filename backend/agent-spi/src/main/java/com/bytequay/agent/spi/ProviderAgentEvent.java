@@ -76,14 +76,6 @@ public sealed interface ProviderAgentEvent
             ProviderAgentEventSource source)
             implements ProviderAgentEvent
     {
-        public Message(
-                Optional<String> providerEventId,
-                MessagePhase phase,
-                String text)
-        {
-            this(providerEventId, MessageKind.ANSWER, phase, text, root());
-        }
-
         /** An answer, which is what every message was before reasoning summaries and plan text were mapped. */
         public Message(
                 Optional<String> providerEventId,
@@ -110,13 +102,6 @@ public sealed interface ProviderAgentEvent
             ProviderAgentEventSource source)
             implements ProviderAgentEvent
     {
-        public Plan(
-                Optional<String> providerEventId,
-                List<PlanItem> items)
-        {
-            this(providerEventId, items, root());
-        }
-
         public Plan
         {
             checkOptionalText(providerEventId, "providerEventId");
@@ -222,15 +207,6 @@ public sealed interface ProviderAgentEvent
             ProviderAgentEventSource source)
             implements ProviderAgentEvent
     {
-        public FileChange(
-                Optional<String> providerEventId,
-                String relativePath,
-                ChangeKind change,
-                Optional<String> diff)
-        {
-            this(providerEventId, relativePath, change, diff, root());
-        }
-
         public FileChange
         {
             checkOptionalText(providerEventId, "providerEventId");

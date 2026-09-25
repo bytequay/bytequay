@@ -299,6 +299,6 @@ class TestReviewLessonDraftService
     private void completed(String output)
     {
         when(turn.completion()).thenReturn(CompletableFuture.completedFuture(new AgentTurnResult(
-                AgentTurnResult.State.COMPLETED, Optional.of(output), Optional.empty(), Duration.ofMillis(20))));
+                AgentTurnResult.State.COMPLETED, Optional.of(output), Optional.empty(), Duration.ofMillis(20), true)));
     }
 }

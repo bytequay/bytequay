@@ -114,7 +114,7 @@ final class ScriptedAgentDriver
             completion = pendingTurns.remove(turnId);
         }
         checkState(completion != null, "No pending turn " + turnId);
-        completion.complete(new AgentTurnResult(AgentTurnResult.State.COMPLETED, Optional.of(finalResponse), Optional.empty(), Duration.ZERO));
+        completion.complete(new AgentTurnResult(AgentTurnResult.State.COMPLETED, Optional.of(finalResponse), Optional.empty(), Duration.ZERO, true));
     }
 
     synchronized void enqueueCompleted(
@@ -363,7 +363,8 @@ final class ScriptedAgentDriver
                         Optional.of("file-" + command.turnId()),
                         path,
                         ProviderAgentEvent.ChangeKind.MODIFIED,
-                        Optional.empty())));
+                        Optional.empty(),
+                        ProviderAgentEventSource.root())));
                 events.emit(new ProviderAgentEvent.Usage(new ProviderUsageSample(
                         Optional.of("usage-" + command.turnId()),
                         ProviderUsageSample.Semantics.FINAL_FOR_INVOCATION,
@@ -376,7 +377,8 @@ final class ScriptedAgentDriver
                 events.emit(new ProviderAgentEvent.Message(
                         Optional.of("final-" + command.turnId()),
                         ProviderAgentEvent.MessagePhase.FINAL,
-                        action.untrustedFinalResponse().orElseThrow()));
+                        action.untrustedFinalResponse().orElseThrow(),
+                        ProviderAgentEventSource.root()));
             }
             if (!action.waitsForCancellation()) {
                 if (context.permissionPolicy() == AgentPermissionPolicy.AUTO && action.result().state() == AgentTurnResult.State.COMPLETED) {
@@ -450,7 +452,8 @@ final class ScriptedAgentDriver
                     AgentTurnResult.State.CANCELLED,
                     Optional.empty(),
                     Optional.of("cancelled by test"),
-                    Duration.ZERO));
+                    Duration.ZERO,
+                    true));
         }
     }
 
@@ -484,7 +487,8 @@ final class ScriptedAgentDriver
                             AgentTurnResult.State.CANCELLED,
                             Optional.empty(),
                             Optional.of("cancelled by test"),
-                            Duration.ZERO),
+                            Duration.ZERO,
+                            true),
                     true,
                     "blocked",
                     Optional.empty(),
@@ -505,7 +509,8 @@ final class ScriptedAgentDriver
                             AgentTurnResult.State.COMPLETED,
                             Optional.of(untrustedFinalResponse),
                             Optional.empty(),
-                            Duration.ZERO),
+                            Duration.ZERO,
+                            true),
                     false,
                     actionName,
                     memoryQuery,
@@ -518,7 +523,7 @@ final class ScriptedAgentDriver
             return new AgentAction(
                     Optional.empty(),
                     ignored -> {},
-                    new AgentTurnResult(state, Optional.empty(), Optional.of(reason), Duration.ZERO),
+                    new AgentTurnResult(state, Optional.empty(), Optional.of(reason), Duration.ZERO, true),
                     false,
                     state.name().toLowerCase(Locale.ROOT),
                     Optional.empty(),

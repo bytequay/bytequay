@@ -82,7 +82,7 @@ class TestModelSettingsService
                 new ProviderModel(
                         "gpt-5.6-luna", "GPT-5.6-Luna", "Fast and affordable agentic coding model.",
                         ImmutableList.of("low", "medium", "high", "xhigh", "max"),
-                        Optional.of("medium"), false)));
+                        Optional.of("medium"), false, ImmutableList.of("text"), ImmutableList.of())));
         when(drivers.require(CODEX)).thenReturn(codexDriver);
         settingsStore = new InMemoryAppSettingsStore();
         apiKeys = new InMemoryModelApiKeyStore();
@@ -340,7 +340,7 @@ class TestModelSettingsService
         when(codexDriver.models()).thenReturn(ImmutableList.of(
                 new ProviderModel(
                         "gpt-6-sol", "GPT-6-Sol", "Next frontier model.",
-                        ImmutableList.of("low", "high"), Optional.of("low"), true)));
+                        ImmutableList.of("low", "high"), Optional.of("low"), true, ImmutableList.of("text"), ImmutableList.of())));
         service.refreshCatalogs();
 
         var codex = service.get().providers().get(1);
@@ -361,7 +361,7 @@ class TestModelSettingsService
         when(codexDriver.models()).thenReturn(ImmutableList.of(
                 new ProviderModel(
                         "gpt-6-sol", "GPT-6-Sol", "Next frontier model.",
-                        ImmutableList.of("low", "high"), Optional.of("low"), true)));
+                        ImmutableList.of("low", "high"), Optional.of("low"), true, ImmutableList.of("text"), ImmutableList.of())));
 
         // A provider that became usable after startup has no catalog; this is what fills it.
         fresh.refreshMissingCatalogs(drivers.statuses());

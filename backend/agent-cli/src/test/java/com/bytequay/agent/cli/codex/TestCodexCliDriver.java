@@ -287,7 +287,7 @@ class TestCodexCliDriver
         AgentSessionContext linked = ciContext(Optional.empty());
         AgentSessionContext attended = new AgentSessionContext(
                 "development-task", linked.worktree(), linked.runtimeDirectory(), linked.providerDirectory(),
-                AgentPermissionPolicy.AUTO, Optional.empty(), linked.approvals());
+                AgentPermissionPolicy.AUTO, Optional.empty(), linked.approvals(), Optional.empty(), Optional.empty(), SessionAccess.FULL, Optional.empty(), "");
         ScriptedProcessSupervisor supervisor = new ScriptedProcessSupervisor(objectMapper);
         try (AgentSession session = driver(supervisor).open(attended, event -> {})) {
             RunningTurn turn = session.start(command("commit local changes"));
@@ -419,7 +419,7 @@ class TestCodexCliDriver
         Path runtime = Files.createDirectories(worktree.resolve("runtime"));
         return new AgentSessionContext(
                 "ci-task", taskWorktree, runtime, runtime.resolve("provider"), AgentPermissionPolicy.CI_AUTOFIX, reference,
-                handler);
+                handler, Optional.empty(), Optional.empty(), SessionAccess.FULL, Optional.empty(), "");
     }
 
     @Test
@@ -453,7 +453,9 @@ class TestCodexCliDriver
                 plain.approvals(),
                 plain.model(),
                 plain.effort(),
-                SessionAccess.TEXT_ONLY);
+                SessionAccess.TEXT_ONLY,
+                Optional.empty(),
+                "");
 
         AgentSession session = driver.open(textOnly, event -> {});
 
@@ -504,7 +506,9 @@ class TestCodexCliDriver
                 plain.approvals(),
                 plain.model(),
                 plain.effort(),
-                SessionAccess.TEXT_ONLY))
+                SessionAccess.TEXT_ONLY,
+                Optional.empty(),
+                ""))
                 .isInstanceOf(IllegalArgumentException.class)
                 .hasMessageContaining("text-only worktree escapes runtimeDirectory");
 
@@ -1975,7 +1979,8 @@ class TestCodexCliDriver
         Path link = Files.createSymbolicLink(runtime.resolve("linked.log"), external);
         AgentSessionContext context = new AgentSessionContext(
                 "task-1", worktree, runtime, runtime.resolve("provider"), AgentPermissionPolicy.AUTO, Optional.empty(),
-                (request, timeout) -> CompletableFuture.completedFuture(ProviderApprovalDecision.deny()));
+                (request, timeout) -> CompletableFuture.completedFuture(ProviderApprovalDecision.deny()),
+                Optional.empty(), Optional.empty(), SessionAccess.FULL, Optional.empty(), "");
         try (AgentSession session = driver(supervisor).open(context, event -> {})) {
             for (Path rejected : ImmutableList.of(external, link, runtime, runtime.resolve("missing.log"))) {
                 assertThatThrownBy(() -> session.start(new AgentTurnCommand(
@@ -3157,7 +3162,9 @@ class TestCodexCliDriver
                 approvals,
                 model,
                 effort,
-                SessionAccess.FULL);
+                SessionAccess.FULL,
+                Optional.empty(),
+                "");
     }
 
     private static AgentSessionContext context(
@@ -3173,7 +3180,12 @@ class TestCodexCliDriver
                 taskWorktree.resolve("provider"),
                 AgentPermissionPolicy.AUTO,
                 reference,
-                approvals);
+                approvals,
+                Optional.empty(),
+                Optional.empty(),
+                SessionAccess.FULL,
+                Optional.empty(),
+                "");
     }
 
     private static AgentTurnCommand command(String message)

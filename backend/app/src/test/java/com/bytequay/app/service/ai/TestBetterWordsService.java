@@ -99,7 +99,8 @@ class TestBetterWordsService
                 AgentTurnResult.State.COMPLETED,
                 Optional.of("Could we rename this for clarity?"),
                 Optional.empty(),
-                Duration.ofMillis(20))));
+                Duration.ofMillis(20),
+                true)));
 
         BetterWordsService service = service(settings, workspaceStore("ws-1", RepoRef.of("owner", "repo")), drivers, resources);
         assertThat(service.improve("rename this var pls", REPOSITORY, Optional.of("ws-1")))
@@ -152,7 +153,7 @@ class TestBetterWordsService
         when(driver.open(any(), any())).thenReturn(session);
         when(session.start(any())).thenReturn(turn);
         when(turn.completion()).thenReturn(CompletableFuture.completedFuture(
-                new AgentTurnResult(AgentTurnResult.State.COMPLETED, Optional.of("Could you explain this change?"), Optional.empty(), Duration.ofMillis(20))));
+                new AgentTurnResult(AgentTurnResult.State.COMPLETED, Optional.of("Could you explain this change?"), Optional.empty(), Duration.ofMillis(20), true)));
 
         BetterWordsService service = service(settings, workspaceStore("ws-1", RepoRef.of("owner", "repo")), drivers, resources);
 
@@ -191,7 +192,8 @@ class TestBetterWordsService
                 AgentTurnResult.State.COMPLETED,
                 Optional.of("Rewritten comment"),
                 Optional.empty(),
-                Duration.ofMillis(20))));
+                Duration.ofMillis(20),
+                true)));
         doThrow(new AgentUnavailableException("unverifiable process tree")).when(session).close();
 
         BetterWordsService service = service(settings, mock(WorkspaceStore.class), drivers, resources);

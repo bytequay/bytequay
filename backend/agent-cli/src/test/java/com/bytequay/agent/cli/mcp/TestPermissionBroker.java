@@ -76,7 +76,7 @@ class TestPermissionBroker
                 () -> URI.create("http://127.0.0.1:9000/internal/agent/claude/mcp"), objectMapper,
                 (taskId, query) -> "memory",
                 taskId -> taskId.equals("review") ? Optional.of(review) : Optional.empty(),
-                taskId -> taskId.equals("development") ? Optional.of(new DevelopmentResultBridge("turn-1", DevelopmentResultBridge.INSTRUCTION)) : Optional.empty(),
+                taskId -> taskId.equals("development") ? Optional.of(new DevelopmentResultBridge("turn-1", DevelopmentResultBridge.INSTRUCTION, false)) : Optional.empty(),
                 DraftPullRequestPublisher.NONE,
                 taskId -> taskId.equals("development") ? Optional.of(local) : Optional.empty(),
                 taskId -> taskId.equals("development")
@@ -228,7 +228,7 @@ class TestPermissionBroker
         PermissionBroker broker = new PermissionBroker(
                 () -> URI.create("http://127.0.0.1:9000/internal/agent/claude/mcp"), objectMapper,
                 (taskId, query) -> "memory", BridgeResolver.none(),
-                taskId -> taskId.equals("task-1") ? Optional.of(new DevelopmentResultBridge("turn-1", DevelopmentResultBridge.INSTRUCTION)) : Optional.empty(),
+                taskId -> taskId.equals("task-1") ? Optional.of(new DevelopmentResultBridge("turn-1", DevelopmentResultBridge.INSTRUCTION, false)) : Optional.empty(),
                 DraftPullRequestPublisher.NONE,
                 taskId -> taskId.equals("task-1") && available.get() ? Optional.of(local) : Optional.empty());
         SecretRedactor redactor = SecretRedactor.fromEnvironment(ImmutableMap.of("OPENAI_API_KEY", "known-secret"));
@@ -320,7 +320,7 @@ class TestPermissionBroker
             throws Exception
     {
         AtomicReference<Optional<DevelopmentResultBridge>> active = new AtomicReference<>(Optional.of(
-                new DevelopmentResultBridge("turn-1", DevelopmentResultBridge.INSTRUCTION)));
+                new DevelopmentResultBridge("turn-1", DevelopmentResultBridge.INSTRUCTION, false)));
         PermissionBroker broker = new PermissionBroker(
                 () -> URI.create("http://127.0.0.1:9000/internal/agent/claude/mcp"), objectMapper,
                 (taskId, query) -> "memory", BridgeResolver.none(),
@@ -357,7 +357,7 @@ class TestPermissionBroker
             }
             assertThat(codex.instruction()).hasValueSatisfying(instruction -> assertThat(instruction)
                     .contains("readyForDelivery=false", "automation settings control delivery", "explicit user restriction").doesNotContain("stopAfter"));
-            active.set(Optional.of(new DevelopmentResultBridge("turn-2", DevelopmentResultBridge.INSTRUCTION)));
+            active.set(Optional.of(new DevelopmentResultBridge("turn-2", DevelopmentResultBridge.INSTRUCTION, false)));
             assertThat(developmentCall(broker, codex.token(), "{\"readyForDelivery\":true}").at("/error/code").intValue()).isEqualTo(-32602);
         }
         try (McpRegistration helper = broker.register(
@@ -421,7 +421,7 @@ class TestPermissionBroker
         PermissionBroker broker = new PermissionBroker(
                 () -> URI.create("http://127.0.0.1:9000/internal/agent/claude/mcp"), objectMapper,
                 (taskId, query) -> "memory", BridgeResolver.none(),
-                taskId -> Optional.of(new DevelopmentResultBridge("turn-1", DevelopmentResultBridge.INSTRUCTION)),
+                taskId -> Optional.of(new DevelopmentResultBridge("turn-1", DevelopmentResultBridge.INSTRUCTION, false)),
                 (taskId, title, body) -> {
                     if (title.equals("Closed window")) {
                         throw new IllegalStateException("ByteQuay is not requesting a draft pull request for this task right now");

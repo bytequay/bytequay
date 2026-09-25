@@ -124,7 +124,7 @@ class TestDeepSeekLoopback
         PermissionBroker permissions = new PermissionBroker(
                 () -> URI.create("http://127.0.0.1:9527/internal/agent/claude/mcp"), mapper,
                 (taskId, query) -> "memory", BridgeResolver.none(),
-                taskId -> taskId.equals("task") ? Optional.of(new DevelopmentResultBridge("turn", DevelopmentResultBridge.INSTRUCTION)) : Optional.empty());
+                taskId -> taskId.equals("task") ? Optional.of(new DevelopmentResultBridge("turn", DevelopmentResultBridge.INSTRUCTION, false)) : Optional.empty());
         try (McpRegistration registration = permissions.registerTools("task", temporary, AgentPermissionPolicy.AUTO,
                 (request, timeout) -> CompletableFuture.completedFuture(ProviderApprovalDecision.deny()),
                 SecretRedactor.fromEnvironment(ImmutableMap.of()), Optional.empty()).orElseThrow()) {

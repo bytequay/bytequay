@@ -812,7 +812,7 @@ class TestDefaultAgentTurnService
         AgentTurn running = service.start(command("Implement and verify", "plan-scope"));
         List<ProviderAgentEvent.PlanItem> rootItems = ImmutableList.of(new ProviderAgentEvent.PlanItem("Implement", ProviderAgentEvent.PlanItemState.IN_PROGRESS));
         // Claude does not provide a provider turn id; the sink remains bound to the accepted application turn.
-        driver.emit(new ProviderAgentEvent.Plan(Optional.empty(), rootItems));
+        driver.emit(new ProviderAgentEvent.Plan(Optional.empty(), rootItems, ProviderAgentEventSource.root()));
         ProviderAgentEventSource child = new ProviderAgentEventSource(
                 Optional.of("child-thread"), Optional.of("root-thread"), Optional.of("/reviewer"), Optional.of("child-turn"), Optional.empty());
         List<ProviderAgentEvent.PlanItem> childItems = ImmutableList.of(new ProviderAgentEvent.PlanItem("Review", ProviderAgentEvent.PlanItemState.PENDING));

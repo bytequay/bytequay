@@ -35,24 +35,6 @@ public record ProviderModel(
         List<String> inputModalities,
         List<ProviderServiceTier> serviceTiers)
 {
-    public ProviderModel(
-            String id, String label, String description, List<String> efforts, Optional<String> defaultEffort, boolean isDefault, List<String> inputModalities)
-    {
-        this(id, label, description, efforts, defaultEffort, isDefault, inputModalities, ImmutableList.of());
-    }
-
-    /** A text-only model, which is what every model was before input modalities were carried. */
-    public ProviderModel(
-            String id,
-            String label,
-            String description,
-            List<String> efforts,
-            Optional<String> defaultEffort,
-            boolean isDefault)
-    {
-        this(id, label, description, efforts, defaultEffort, isDefault, ImmutableList.of("text"));
-    }
-
     public ProviderModel
     {
         serviceTiers = ImmutableList.copyOf(serviceTiers);

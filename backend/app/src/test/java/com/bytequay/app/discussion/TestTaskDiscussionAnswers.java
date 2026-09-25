@@ -122,7 +122,7 @@ class TestTaskDiscussionAnswers
     {
         store(discussion(Optional.of(new DiscussionSession(1, "session-1")), List.of()));
         driver.result = new AgentTurnResult(AgentTurnResult.State.FAILED, Optional.empty(),
-                Optional.of("The provider stopped"), Duration.ZERO);
+                Optional.of("The provider stopped"), Duration.ZERO, true);
 
         service.ask(new AskDiscussionCommand("w1", TASK.toString(), "d1", "why per thread?"));
 
@@ -218,7 +218,7 @@ class TestTaskDiscussionAnswers
         private boolean failResume;
         private AgentSessionContext lastContext;
         private AgentTurnResult result = new AgentTurnResult(
-                AgentTurnResult.State.COMPLETED, Optional.of("Answered."), Optional.empty(), Duration.ZERO);
+                AgentTurnResult.State.COMPLETED, Optional.of("Answered."), Optional.empty(), Duration.ZERO, true);
 
         @Override
         public AgentLaneId id()

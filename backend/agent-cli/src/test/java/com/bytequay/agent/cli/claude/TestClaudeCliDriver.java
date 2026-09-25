@@ -1112,7 +1112,7 @@ class TestClaudeCliDriver
         PermissionBroker broker = new PermissionBroker(
                 () -> URI.create("http://127.0.0.1:9000/internal/agent/claude/mcp"), objectMapper,
                 (taskId, query) -> "memory", BridgeResolver.none(),
-                taskId -> Optional.of(new DevelopmentResultBridge("turn-1", DevelopmentResultBridge.INSTRUCTION)),
+                taskId -> Optional.of(new DevelopmentResultBridge("turn-1", DevelopmentResultBridge.INSTRUCTION, false)),
                 DraftPullRequestPublisher.NONE, taskId -> Optional.of(local));
         Map<String, String> environment = apiKey ? ImmutableMap.of("ANTHROPIC_API_KEY", "test-api-key") : ImmutableMap.of();
         ClaudeCliDriver driver = new ClaudeCliDriver("/fake/claude", objectMapper, broker, supervisor, claudeHome(), environment);
@@ -1477,7 +1477,8 @@ class TestClaudeCliDriver
         AgentSessionContext context = new AgentSessionContext(
                 plain.taskId(), plain.worktree(), plain.runtimeDirectory(), plain.providerDirectory(), plain.permissionPolicy(),
                 plain.sessionReference(), (request, timeout) -> CompletableFuture.completedFuture(
-                        timedOut ? ProviderApprovalDecision.expired() : ProviderApprovalDecision.deny()));
+                        timedOut ? ProviderApprovalDecision.expired() : ProviderApprovalDecision.deny()),
+                Optional.empty(), Optional.empty(), SessionAccess.FULL, Optional.empty(), "");
         AgentSession session = driver.open(context, event -> {});
         RunningTurn turn = session.start(command("cancel"));
         JsonNode config = objectMapper.readTree(Files.readString(runtimeDirectory().resolve("provider/scratch/bytequay-mcp.json")));
@@ -1525,7 +1526,7 @@ class TestClaudeCliDriver
                 plain.sessionReference(), (request, timeout) -> {
                     requested.countDown();
                     return decision;
-                });
+                }, Optional.empty(), Optional.empty(), SessionAccess.FULL, Optional.empty(), "");
         try (AgentSession session = driver.open(context, event -> {})) {
             RunningTurn first = session.start(command("cancel"));
             JsonNode config = objectMapper.readTree(Files.readString(runtimeDirectory().resolve("provider/scratch/bytequay-mcp.json")));
@@ -1640,7 +1641,9 @@ class TestClaudeCliDriver
                 (request, timeout) -> CompletableFuture.completedFuture(ProviderApprovalDecision.deny()),
                 model,
                 effort,
-                access);
+                access,
+                Optional.empty(),
+                "");
     }
 
     private Path runtimeDirectory()

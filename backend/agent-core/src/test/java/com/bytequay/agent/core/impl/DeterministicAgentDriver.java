@@ -27,6 +27,7 @@ import com.bytequay.agent.spi.AgentTurnInput;
 import com.bytequay.agent.spi.AgentTurnResult;
 import com.bytequay.agent.spi.AgentUnavailableException;
 import com.bytequay.agent.spi.ProviderAgentEvent;
+import com.bytequay.agent.spi.ProviderAgentEventSource;
 import com.bytequay.agent.spi.ProviderApprovalDecision;
 import com.bytequay.agent.spi.ProviderApprovalRequest;
 import com.bytequay.agent.spi.ProviderTurnRef;
@@ -460,7 +461,8 @@ final class DeterministicAgentDriver
                     AgentTurnResult.State.CANCELLED,
                     Optional.empty(),
                     Optional.of("cancelled"),
-                    Duration.ZERO));
+                    Duration.ZERO,
+                    true));
         }
 
         private void emit(ProviderAgentEvent event)
@@ -481,7 +483,8 @@ final class DeterministicAgentDriver
             emit(new ProviderAgentEvent.Message(
                     Optional.of("message-" + command.turnId()),
                     ProviderAgentEvent.MessagePhase.FINAL,
-                    response));
+                    response,
+                    ProviderAgentEventSource.root()));
             emit(new ProviderAgentEvent.Lifecycle(
                     Optional.empty(),
                     ProviderAgentEvent.LifecyclePhase.TURN_COMPLETED,
@@ -490,7 +493,8 @@ final class DeterministicAgentDriver
                     AgentTurnResult.State.COMPLETED,
                     Optional.of(response),
                     Optional.empty(),
-                    Duration.ZERO));
+                    Duration.ZERO,
+                    true));
         }
 
         private void interrupt(String reason, boolean providerQuiescent)

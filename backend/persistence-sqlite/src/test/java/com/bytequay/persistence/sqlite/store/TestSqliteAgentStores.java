@@ -1310,7 +1310,8 @@ class TestSqliteAgentStores
                                     AgentTurnResult.State.CANCELLED,
                                     Optional.empty(),
                                     Optional.of("cancelled"),
-                                    Duration.ZERO));
+                                    Duration.ZERO,
+                                    true));
                         }
                     };
                 }
@@ -1329,7 +1330,8 @@ class TestSqliteAgentStores
                     AgentTurnResult.State.COMPLETED,
                     Optional.of("done"),
                     Optional.empty(),
-                    Duration.ZERO));
+                    Duration.ZERO,
+                    true));
         }
 
         private synchronized List<AgentTurnCommand> commands()

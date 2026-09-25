@@ -24,7 +24,7 @@ import { notifyIssueDevelopmentChanged, type DevelopmentIssue } from '../workspa
 import { workspaceAgentTaskRoute } from '../workspaces/model';
 import { IssueAttachment } from './IssueAttachment';
 import { AutomationControl } from './AutomationControl';
-import { automationForSubmission, NO_AUTOMATIC_DELIVERY } from './developmentAutomation';
+import { automationForSubmission, LOCAL_COMMITS_ONLY } from './developmentAutomation';
 import { ModelPicker } from './ModelPicker';
 import { ProviderPicker } from './ProviderPicker';
 import '../css/agents.css';
@@ -222,6 +222,7 @@ export function useAgentTaskCreation({ workspaceId, initialLaunch, bridge, onOpe
   const sourceRequest = useRef(0);
   const sourceTitle = useRef<string | null>(null);
   const [automation, setAutomation] = useState<DevelopmentAutomationDto | null>(null);
+  const [keyAutomation, setKeyAutomation] = useState<DevelopmentAutomationDto>(LOCAL_COMMITS_ONLY);
   const [localOnly, setLocalOnly] = useState(false);
   const [automationError, setAutomationError] = useState<string | null>(null);
   const [images, setImages] = useState<DraftImage[]>([]);
@@ -365,13 +366,14 @@ export function useAgentTaskCreation({ workspaceId, initialLaunch, bridge, onOpe
 
   const provider = catalog?.providers.find((candidate) => candidate.id === laneId) ?? null;
   const deepSeek = isDeepSeekKeyLane(laneId);
+  const taskAutomation = deepSeek ? keyAutomation : automation;
   const models: ModelOptionDto[] = provider?.models ?? [];
   const imagesAccepted = !deepSeek && acceptsImages(models, selection?.model, provider?.capabilities ?? null);
   const blocker = (sourceLoading ? 'Loading issue…' : sourceError)
     ?? (issue?.isGoal ? 'Goals organize work and cannot start development. Unmark this issue as a Goal to run it.' : null)
     ?? creationBlocker(catalog, laneId, selection)
     ?? (deepSeek ? null : automationError)
-    ?? (automation === null && !deepSeek ? 'Loading automation settings…' : null)
+    ?? (taskAutomation === null ? 'Loading automation settings…' : null)
     ?? (images.length > 0 && !imagesAccepted ? 'Choose a model that accepts images or remove the images.' : null);
 
   const selectProvider = useCallback((nextLaneId: string) => {
@@ -422,18 +424,17 @@ export function useAgentTaskCreation({ workspaceId, initialLaunch, bridge, onOpe
 
   const create = useCallback(async () => {
     const message = draft.trim();
-    if (busyRef.current || selection === null || (automation === null && !isDeepSeekKeyLane(laneId)) || blocker !== null || message === '') return;
+    if (busyRef.current || selection === null || taskAutomation === null || blocker !== null || message === '') return;
     busyRef.current = true;
     setOperation('sending');
     setError(null);
-    const taskAutomation = isDeepSeekKeyLane(laneId) ? NO_AUTOMATIC_DELIVERY : automation;
     const request = submissions.requestFor(workspaceId, message, laneId, {
       model: selection.model,
       effort: selection.effort,
       permissionPolicy: 'AUTO',
       serviceTier: selection.serviceTier ?? null,
       developmentAutomation: taskAutomation,
-    }, images.map((image) => image.id), automationForSubmission(automation ?? NO_AUTOMATIC_DELIVERY, localOnly || isDeepSeekKeyLane(laneId)), issue === null ? undefined : {
+    }, images.map((image) => image.id), automationForSubmission(taskAutomation, localOnly), issue === null ? undefined : {
       issueId: issue.id, number: issue.number, updatedAt: issue.updatedAt,
     });
     // The create call blocks until the first turn is running; the backend names the step it is in meanwhile.
@@ -492,7 +493,7 @@ export function useAgentTaskCreation({ workspaceId, initialLaunch, bridge, onOpe
       busyRef.current = false;
       setOperation(null);
     }
-  }, [applyCatalog, automation, blocker, bridge, clearImages, draft, images, issue, laneId, localOnly, onOpenCreatedTask, onOpenTask, selection, submissions, workspaceId]);
+  }, [applyCatalog, blocker, bridge, clearImages, draft, images, issue, laneId, localOnly, onOpenCreatedTask, onOpenTask, selection, submissions, taskAutomation, workspaceId]);
 
   return {
     /** Everything TaskComposer needs, so a screen spreads it instead of re-listing eighteen props. */
@@ -506,8 +507,8 @@ export function useAgentTaskCreation({ workspaceId, initialLaunch, bridge, onOpe
       busy,
       attaching: operation === 'attachment',
       images,
-      automation: automation === null ? null : <AutomationControl value={automation} providers={catalog?.providers ?? []} disabled={busy}
-        localOnly={localOnly} onChange={setAutomation} onLocalOnlyChange={setLocalOnly} />,
+      automation: taskAutomation === null ? null : <AutomationControl value={taskAutomation} providers={catalog?.providers ?? []} disabled={busy}
+        localOnly={localOnly} onChange={deepSeek ? setKeyAutomation : setAutomation} onLocalOnlyChange={setLocalOnly} />,
       onAttach: () => { void attach(); },
       onPasteImages: () => { void attach('clipboard'); },
       onRemoveImage: removeImage,
@@ -795,7 +796,7 @@ export function TaskComposer({
             onSelect={onSelectProvider}
             onOpenSettings={onOpenSettings !== undefined || providers.some(provider => isDeepSeekKeyLane(provider.id)) ? openProviderSettings : undefined}
           />
-          {isDeepSeekKeyLane(laneId) ? <span className="agt-meta">No automatic delivery</span> : automation}
+          {automation}
           <span className="agt-spacer" />
           <ModelPicker
             ariaLabel="Model and effort for the new task"

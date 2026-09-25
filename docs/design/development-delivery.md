@@ -56,9 +56,13 @@ Generated follow-ups inherit that snapshot. **CI repair agent** defaults to
 provider already chosen for the development task. Task creation resolves an
 explicit task choice first, otherwise the workspace Development setting, then
 the global Development setting. CI does not reread those mutable defaults for
-an existing task. An explicit CI provider overrides that inheritance; Codex and
-Claude Code are eligible when they advertise `CI_AUTOFIX`. This selects the
-agent that repairs code; GitHub Actions remains the CI host.
+an existing task. An explicit CI provider overrides that inheritance; Codex,
+Claude Code, and saved-key DeepSeek lanes are eligible when they advertise
+`CI_AUTOFIX`. A DeepSeek **Same agent as development** selection inherits the
+saved-key lane, not the selected development model. A model-less CI task uses
+the catalog default `deepseek-flash`, which readiness checks before allocating
+the run. This selects the agent that repairs code; GitHub Actions remains the
+CI host.
 The new-task composer's **Automation** control
 sets these choices and **Keep commits local for this turn**, which disables
 draft publication and CI for the first turn while retaining development commits. A started task shows its choices read-only; **Stop automation** stops the
@@ -127,6 +131,13 @@ development summary refinement. A failed turn preserves the task.
 Ordinary attended development also permits explicitly requested `git` and
 `gh` publishing through the provider's native tools and risk review, under
 the [shared command policy](agent-service.md#shared-development-command-policy).
+Provider prompts that reach ByteQuay use its task approval service. ByteQuay
+does not pass ambient GitHub token, `GH_CONFIG_DIR`, or `SSH_AUTH_SOCK` variables
+into the agent; a direct CLI publish can fail when its own authentication is
+unavailable.
+Codex, DeepSeek, and Claude use the same validated linked-worktree Git metadata
+roots for local commits; shared Git configuration and other refs remain under
+their native protections.
 Disabling publication and CI keeps development commits local; summary
 refinement and explicitly requested development actions remain available.
 Private local review has no publication authority. Existing task authorization need not
@@ -453,8 +464,10 @@ Tool publication uses the workspace Git transport credential and the same
 authenticated write client as other PR actions. ByteQuay does not copy that
 credential into the provider process, generated prompt, or agent shell.
 The GitHub CLI is unnecessary for this tool path. Separately, ordinary
-authorized CLI publishing uses the user's normal Git/`gh` authentication;
-ByteQuay's stored token does not supply it. Same-repository pull requests use a branch-only head; forks use
+authorized CLI publishing depends on authentication available to that CLI;
+ByteQuay does not pass ambient GitHub token, `GH_CONFIG_DIR`, or `SSH_AUTH_SOCK` variables
+to it, and its stored token does not supply it. Same-repository pull requests
+use a branch-only head; forks use
 `owner:branch`. Existing PRs keep their current draft status; PRs created by the
 publication follow-up must independently verify as drafts.
 

@@ -39,7 +39,6 @@ final class DeepSeekModelCatalog
         try {
             verifyHome(path.getParent());
             CodexHome.prepare(path.getParent());
-            verifyEmptyUserConfig(path);
             temporary = Files.createTempFile(path.getParent(), ".deepseek-models-", ".json",
                     PosixFilePermissions.asFileAttribute(PosixFilePermissions.fromString("rw-------")));
             Files.write(temporary, contents());
@@ -64,7 +63,6 @@ final class DeepSeekModelCatalog
     {
         try {
             verifyHome(path.getParent());
-            verifyEmptyUserConfig(path);
             if (Files.isSymbolicLink(path) || !Arrays.equals(Files.readAllBytes(path), contents())) {
                 throw new AgentUnavailableException("DeepSeek model catalog does not match ByteQuay's launch profile");
             }
@@ -88,23 +86,9 @@ final class DeepSeekModelCatalog
                 throw new AgentUnavailableException("DeepSeek Codex home is not a directory");
             }
             Path config = home.resolve("config.toml");
-            if (Files.exists(config) || Files.isSymbolicLink(config)) {
-                try {
-                    verifyEmptyUserConfig(home.resolve("deepseek-models.json"));
-                }
-                catch (IOException e) {
-                    throw new AgentUnavailableException("Unable to verify the isolated DeepSeek user configuration", e);
-                }
+            if (Files.isSymbolicLink(config)) {
+                throw new AgentUnavailableException("DeepSeek Codex configuration cannot use a symbolic link");
             }
-        }
-    }
-
-    private static void verifyEmptyUserConfig(Path catalog)
-            throws IOException
-    {
-        Path config = catalog.getParent().resolve("config.toml");
-        if (Files.isSymbolicLink(config) || Files.size(config) != 0) {
-            throw new AgentUnavailableException("DeepSeek Codex home has an unexpected user configuration");
         }
     }
 

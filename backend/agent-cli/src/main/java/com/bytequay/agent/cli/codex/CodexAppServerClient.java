@@ -88,6 +88,7 @@ final class CodexAppServerClient
     private final ProcessSpec processSpec;
     private final SecretRedactor redactor;
     private final Optional<DeepSeekResponsesProxy> deepSeekProxy;
+    private final Optional<DeepSeekTaskMcpBridge> deepSeekTaskMcpBridge;
     private final CodexProtocolCodec codec;
     private final Object lifecycleLock = new Object();
     private final Object writeLock = new Object();
@@ -112,7 +113,7 @@ final class CodexAppServerClient
             ObjectMapper objectMapper,
             SecretRedactor redactor)
     {
-        this(supervisor, processSpec, objectMapper, redactor, Optional.empty());
+        this(supervisor, processSpec, objectMapper, redactor, Optional.empty(), Optional.empty());
     }
 
     CodexAppServerClient(
@@ -120,12 +121,14 @@ final class CodexAppServerClient
             ProcessSpec processSpec,
             ObjectMapper objectMapper,
             SecretRedactor redactor,
-            Optional<DeepSeekResponsesProxy> deepSeekProxy)
+            Optional<DeepSeekResponsesProxy> deepSeekProxy,
+            Optional<DeepSeekTaskMcpBridge> deepSeekTaskMcpBridge)
     {
         this.supervisor = requireNonNull(supervisor, "supervisor is null");
         this.processSpec = requireNonNull(processSpec, "processSpec is null");
         this.redactor = requireNonNull(redactor, "redactor is null");
         this.deepSeekProxy = requireNonNull(deepSeekProxy, "deepSeekProxy is null");
+        this.deepSeekTaskMcpBridge = requireNonNull(deepSeekTaskMcpBridge, "deepSeekTaskMcpBridge is null");
         this.codec = new CodexProtocolCodec(objectMapper);
         this.diagnosticLines = new Utf8LineBuffer(
                 MAX_DIAGNOSTIC_LINE_BYTES,
@@ -479,7 +482,12 @@ final class CodexAppServerClient
             dispatcher.close();
         }
         finally {
-            deepSeekProxy.ifPresent(DeepSeekResponsesProxy::close);
+            try {
+                deepSeekTaskMcpBridge.ifPresent(DeepSeekTaskMcpBridge::close);
+            }
+            finally {
+                deepSeekProxy.ifPresent(DeepSeekResponsesProxy::close);
+            }
         }
     }
 

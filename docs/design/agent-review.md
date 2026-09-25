@@ -284,7 +284,7 @@ message the user typed. Apply the review policy through the managed
 instruction channel on initial and resumed sessions. Do not write
 `AGENTS.md`, `CLAUDE.md`, repository settings, or global provider settings.
 Use the existing attended AUTO sandbox/approval behavior, not CI Autofix's
-or cherry-pick's unattended policy. Workflow-owned does not mean unattended.
+or cherry-pick's narrower task scope. Workflow-owned does not mean unattended.
 Review-specific tool scopes and remote-write restrictions do not require a
 new agent execution loop or a new generic permission-policy framework.
 
@@ -661,12 +661,13 @@ fields and discussions are read without generating replacement prose for
 removed sections.
 
 Every saved card and finding describes the pull request. Scope omissions remain run metadata; outgoing findings do not contain
-agent autobiography or tool/environment commentary. An attended review reads
-the network and never writes to it: it fetches Git objects and remote-tracking
-references, runs read-only `git` and `gh` commands through the user's stored
-login, and fetches or searches documentation and package registries. The agent
+agent autobiography or tool/environment commentary. An attended review is
+instructed to read from the network and never write to it: it fetches Git objects and remote-tracking
+references, runs read-only `git` and `gh` commands when existing CLI
+authentication permits, and fetches or searches documentation and package registries. The agent
 still builds and runs the tests that exercise the change against the local
-dependency caches first; both providers may write `~/.m2/repository`.
+dependency caches first; both providers may write the same validated Maven,
+Gradle, and npm cache roots.
 Only a failed build shows a dependency is missing.
 The caches supply third-party dependencies only. The project's own modules come
 from the worktree, because a cached build of one, such as a Maven SNAPSHOT a
@@ -932,20 +933,24 @@ credential-access requests before offering an approval card; do not let an
 ordinary AUTO approval enable direct `gh` writes or `git push` for a review
 session. A user prompt or PR instruction cannot override that guard. A lane
 without the tested guard is not review-capable. Remote reads do not loosen it.
-The Claude review sandbox opens outbound hosts and the SSH agent socket, lets
-`git`, `gh` and `ssh` read their own login files while the agent's Read tool
-may not, and replaces the blanket `gh` refusal with outright refusals of the
-plain remote-write and credential commands; native review of every shell
-command and the approval-boundary guard cover the forms a prefix rule misses,
-such as a `gh api` request with a write method. The review environment keeps
-the stored login's locators and drops every raw GitHub token variable, because
-the pull request's own tests run in that environment. A Codex review keeps its
-sandboxed network off and its restricted shell environment: a remote read is a
-native escalation that the review policy now permits and the same guard checks,
-so it works through the stored `gh` and Git login but not through the SSH
-agent. Unattended, text-only and read-only sessions keep no network at all.
-The current same-user
-runtime is not an OS-enforced secret-read boundary: do not claim that prompt
+Neither private-review adapter injects ambient GitHub token, `GH_CONFIG_DIR`,
+or `SSH_AUTH_SOCK` variables into its agent process; Codex's model-facing
+shell also excludes them. This does not prevent same-user tools from using
+existing host login files. The Claude review sandbox opens outbound hosts and
+replaces the blanket `gh` refusal with outright refusals of the plain
+remote-write and credential commands. Native review of every Claude shell
+command and the approval-boundary guard cover forms a prefix rule misses,
+such as a `gh api` request with a write method. Codex full `AUTO` review has
+turn-wide command network access so builds can fetch dependencies; read-only
+remote commands no longer need network escalation. This network grant cannot
+distinguish dependency reads from remote writes. The review instructions govern
+commands that stay within the sandbox, while the approval-boundary guard covers
+requests that reach it through ByteQuay's task approval service. The shared
+environment filter does not change either
+CLI's native reviewer. Text-only and read-only sessions keep command network
+disabled; CI uses its separate worktree policy.
+
+The current same-user runtime is not an OS-enforced secret-read boundary: do not claim that prompt
 text or environment stripping prevents every ambient-credential bypass.
 Verify supported native-tool permission paths and keep this limitation
 explicit; do not weaken isolation merely to enable review.
@@ -1059,12 +1064,11 @@ only inside review sessions. Staging, unstaging, patch application, and Git
 reads remain available for experiments; development and other workflow tasks
 retain their existing command policies. These are provider permission guards, not arbitrary
 shell or operating-system isolation. Claude disables sandbox auto-allow and
-adds native commit/history denials. Codex uses `auto_review` for initial and resumed
-reviews, with the private-review scope pinned in both launch and thread configuration.
-Both native reviewers receive shared rules permitting bounded verification while
-prohibiting commits, history moves and remote publication. Build/cache escalations
-use the native automatic reviewer; requests that still reach the host retain the
-existing guard and approval boundary. Review anchors continue to use committed
+adds native commit/history denials. Codex keeps the private-review scope pinned
+in both launch and thread configuration. Both native reviewers receive shared
+rules permitting bounded verification while prohibiting commits, history moves
+and remote publication. Provider prompts that reach ByteQuay retain the
+existing review guard and task approval boundary. Review anchors continue to use committed
 PR revisions, independent of edited experiment files.
 ByteQuay's own controlled remote-head synchronization remains available in
 review mode; it uses verified Git operations outside the agent CLI permission

@@ -18,7 +18,8 @@ export const DEFAULT_DEVELOPMENT_AUTOMATION: DevelopmentAutomationDto = {
   autoDraftPr: true, autoCiFix: true, ciLaneId: null,
 };
 
-export const NO_AUTOMATIC_DELIVERY: DevelopmentAutomationDto = {
+/** The backend still commits development work; these fields only control publication and CI. */
+export const LOCAL_COMMITS_ONLY: DevelopmentAutomationDto = {
   autoDraftPr: false, autoCiFix: false, ciLaneId: null,
 };
 
@@ -28,7 +29,7 @@ export const AUTOMATION_OPTIONS = [
 ] as const;
 
 export function automationForSubmission(settings: DevelopmentAutomationDto, localOnly: boolean): DevelopmentAutomationDto {
-  return localOnly ? NO_AUTOMATIC_DELIVERY : settings;
+  return localOnly ? LOCAL_COMMITS_ONLY : settings;
 }
 
 export function automationSummary(settings: DevelopmentAutomationDto): string {

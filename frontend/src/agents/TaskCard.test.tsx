@@ -232,7 +232,7 @@ describe('new task image composer', () => {
     expect(markup).toMatch(/aria-label="Send — creates the task"[^>]*disabled/);
   });
 
-  it('selects a saved DeepSeek key and model with no automatic delivery controls', () => {
+  it('selects a saved DeepSeek key and model with automation controls', () => {
     const deepSeekModels: ModelOptionDto[] = [
       { id: 'deepseek-flash', name: 'deepseek-flash', description: '', efforts: [], defaultEffort: null, inputModalities: ['text'] },
       { id: 'deepseek-v4-pro', name: 'deepseek-v4-pro', description: '', efforts: [], defaultEffort: null, inputModalities: ['text'] },
@@ -246,8 +246,8 @@ describe('new task image composer', () => {
       automation={<span>Automation controls</span>} />);
     expect(markup).toContain('Provider: DeepSeek · personal');
     expect(markup).toContain('deepseek-v4-pro');
-    expect(markup).toContain('No automatic delivery');
-    expect(markup).not.toContain('Automation controls');
+    expect(markup).toContain('Automation controls');
+    expect(markup).not.toContain('No automatic delivery');
     expect(markup).toMatch(/aria-label="Attach an image"[^>]*disabled/);
   });
 });

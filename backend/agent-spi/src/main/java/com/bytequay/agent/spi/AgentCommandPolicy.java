@@ -32,15 +32,17 @@ public final class AgentCommandPolicy
             """.strip(),
             """
             Block printing, extracting, or transmitting credentials outside the service's normal
-            authentication flow. Existing CLI login, credential helpers, SSH agents, and configured
-            environment credentials may authenticate an authorized action without exposing their values.
+            authentication flow. Existing CLI login and credential helpers may authenticate an authorized
+            action without exposing their values. ByteQuay does not pass GitHub tokens or SSH-agent
+            access from its host environment into agent tools.
             If normal authentication fails, report the missing login; do not search unrelated files,
             browser profiles, or logs for secrets.
             """.strip(),
             """
             Block persistent or reusable permission grants, blanket authorization for future actions,
-            sandbox weakening, and bypassing security controls. Review the one exact proposed action
-            under the existing filesystem boundary and native risk rules; native denials still apply.
+            and bypassing security controls. An exact sandbox retry may proceed only through a
+            one-time ByteQuay approval request; never assume that a prior grant covers it.
+            Review the complete proposed action under the native permissions; native denials still apply.
             """.strip());
     private static final List<String> RESTRICTIONS = ImmutableList.<String>builder()
             .add("""
@@ -74,7 +76,7 @@ public final class AgentCommandPolicy
                     """
                     Allow reading from the network: fetching Git objects and remote-tracking references, read-only gh
                     commands and GitHub API GET requests, and fetching or searching documentation and package
-                    registries. Git and gh use the CLI's stored login without displaying credentials.
+                    registries. Git and gh may use a login already available to the CLI without displaying credentials.
                     Block every remote write, including a gh api request with a write method, fields, or a request
                     body, and block any request that sends repository content, credentials, or other private data.
                     """.strip())
@@ -83,23 +85,32 @@ public final class AgentCommandPolicy
     private static final String VERIFICATION_SCOPE = """
             The user's task request authorizes normal bounded local preparation and verification needed
             for that task, including builds, tests, loopback-only test servers, configured dependency
-            downloads, and writes to development caches and temporary files. Do not require separate
-            approval for each cache or temporary path, such as Maven's ~/.m2 repository locks or Jansi's
-            /var/tmp files. Evaluate the complete command and its side effects under the native risk rules.
+            downloads, and writes to development caches and temporary files. Use the pregranted roots
+            where possible. ByteQuay checks concrete file-write requests against the task scope; an
+            unresolved request needs one-time user approval. Evaluate the complete command and its side effects.
             """;
     private static final String REVIEW_INSTRUCTIONS = """
-            ## ByteQuay Automatic Approval Scope
+            ## ByteQuay Private Review Scope
 
-            This is a private code review. Apply the native risk rules and preserve all native denials;
-            these scope rules do not override them. Authentication by subscription or API key does
+            This is a private code review. Follow the task scope and preserve all native denials;
+            these instructions do not override them. Authentication by subscription or API key does
             not change the task's permissions.
 
             """ + VERIFICATION_SCOPE + "\n" + REVIEW_RESTRICTIONS.stream().map(rule -> "- " + rule).collect(joining("\n"));
-    private static final String INSTRUCTIONS = """
-            ## ByteQuay Automatic Approval Scope
+    private static final String CI_INSTRUCTIONS = """
+            ## ByteQuay CI Repair Scope
 
-            Apply the native risk rules to routine development work. Preserve all native denials;
-            these scope rules do not override them. Authentication by subscription or API key does
+            Use network access for builds, tests, and dependency downloads. Do not read or expose
+            GitHub credentials. Never push, modify GitHub resources, or use raw HTTP to write to
+            GitHub. ByteQuay verifies and publishes an authorized repair after this turn.
+            Use native permission requests for worktree-external side effects that are not pregranted;
+            ByteQuay checks each request and asks the user when it cannot grant it from task scope.
+            """;
+    private static final String INSTRUCTIONS = """
+            ## ByteQuay Development Scope
+
+            Follow the task scope and native permission decisions. Preserve all native denials;
+            these instructions do not override them. Authentication by subscription or API key does
             not change the task's permissions.
 
             Git and gh are available for attended development. Allow task-required local Git commands
@@ -114,6 +125,18 @@ public final class AgentCommandPolicy
     public static String instructions()
     {
         return INSTRUCTIONS;
+    }
+
+    /** Selects the same command rules for every provider from the session's permission scope. */
+    public static String instructions(AgentPermissionScope scope)
+    {
+        if (scope.reviewReads()) {
+            return REVIEW_INSTRUCTIONS;
+        }
+        if (scope.policy() == AgentPermissionPolicy.CI_AUTOFIX) {
+            return CI_INSTRUCTIONS;
+        }
+        return scope.githubCommands() ? INSTRUCTIONS : "";
     }
 
     public static String reviewInstructions()

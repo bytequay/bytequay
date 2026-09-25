@@ -44,7 +44,8 @@ final class DeepSeekAgentDriver
         implements AgentDriver
 {
     private static final Duration REQUEST_TIMEOUT = Duration.ofSeconds(6);
-    private static final Set<String> SUPPORTED_MODELS = ImmutableSet.of("deepseek-flash", "deepseek-v4-pro");
+    private static final String DEFAULT_MODEL = "deepseek-flash";
+    private static final Set<String> SUPPORTED_MODELS = ImmutableSet.of(DEFAULT_MODEL, "deepseek-v4-pro");
 
     private final AgentDriver codex;
     private final Supplier<Optional<String>> secret;
@@ -95,11 +96,16 @@ final class DeepSeekAgentDriver
     @Override
     public AgentProviderStatus probe()
     {
-        return probe(Optional.empty());
+        return probeModels(Optional.empty());
     }
 
     @Override
     public AgentProviderStatus probe(Optional<String> model)
+    {
+        return probeModels(Optional.of(model.orElse(DEFAULT_MODEL)));
+    }
+
+    private AgentProviderStatus probeModels(Optional<String> model)
     {
         AgentProviderStatus local = codex.probe();
         if (!local.available()) {

@@ -259,34 +259,54 @@ class TestInteractiveAgentTaskCreator
     }
 
     @Test
-    void deepSeekCreationForcesLocalOnlyBeforeAllocatingAWorktree()
+    void deepSeekCreationKeepsAcceptedCommitAndCiSettings()
     {
         AgentLaneId lane = new AgentLaneId("deepseek-key-11111111-1111-1111-1111-111111111111");
+        DevelopmentAutomation automation = new DevelopmentAutomation(true, false, true, Optional.of(AgentLaneId.CODEX_CLI));
         when(drivers.require(lane)).thenReturn(driver);
         Path repository = temporaryDirectory.resolve("repository");
         when(workspaces.requireReadyRepository("workspace-1")).thenReturn(workspace(repository));
         when(git.run(repository, "rev-parse", "--verify", "refs/remotes/origin/main^{commit}"))
                 .thenReturn(new GitCommandRunner.Result(0, START_COMMIT, false));
+        when(tasks.createInteractive(any())).thenAnswer(invocation -> {
+            CreateInteractiveAgentTaskCommand command = invocation.getArgument(0);
+            return AgentTask.created(command.taskId(), true, Optional.of(command.creationFingerprint()), "Task", TitleSource.USER,
+                    command.laneId(), new TaskWorktree(command.taskId(), command.workspaceId(), command.physicalRepository(),
+                    temporaryDirectory.resolve(command.taskId().toString()), command.generatedBranch(), START_COMMIT),
+                    command.defaults(), Instant.parse("2026-09-01T00:00:00Z"));
+        });
 
-        creator.create(TASK_ID, "workspace-1", "Task", lane, defaults(), "create-key",
-                Optional.empty(), Optional.of(DevelopmentAutomation.LOCAL_ONLY), Optional.empty(), Optional.empty());
+        AgentTask created = creator.create(TASK_ID, "workspace-1", "Task", lane, defaults().withDevelopmentAutomation(automation), "create-key",
+                Optional.empty(), Optional.of(automation), Optional.empty(), Optional.empty());
 
         ArgumentCaptor<CreateInteractiveAgentTaskCommand> command = ArgumentCaptor.forClass(CreateInteractiveAgentTaskCommand.class);
         verify(tasks).createInteractive(command.capture());
-        assertThat(command.getValue().defaults().developmentAutomation()).contains(DevelopmentAutomation.LOCAL_ONLY);
-        verify(driver).probe(Optional.of("model-a"));
+        assertThat(command.getValue().defaults().developmentAutomation()).contains(automation);
+        doReturn(created).when(tasks).getInteractive("workspace-1", TASK_ID);
+        assertThat(creator.create(TASK_ID, "workspace-1", "Task", lane, defaults().withDevelopmentAutomation(automation), "create-key",
+                Optional.empty(), Optional.of(automation), Optional.empty(), Optional.empty())).isSameAs(created);
+        assertThatThrownBy(() -> creator.create(TASK_ID, "workspace-1", "Task", lane, defaults().withDevelopmentAutomation(automation), "create-key",
+                Optional.empty(), Optional.of(new DevelopmentAutomation(true, false, false, Optional.empty())), Optional.empty(), Optional.empty()))
+                .isInstanceOf(AgentConflictException.class).hasMessageContaining("creation request changed");
+        verify(driver, times(2)).probe(Optional.of("model-a"));
         verify(settings, never()).developmentAutomation();
-        verifyNoInteractions(names);
+        verify(settings, times(2)).validateDevelopmentAutomation(automation);
+        verify(names).generate(eq(lane), any(), eq("Task"));
     }
 
     @Test
-    void deepSeekRejectsAutomaticDeliveryBeforeRepositoryWork()
+    void deepSeekRejectsInvalidSelectedCiLaneBeforeRepositoryWork()
     {
         AgentLaneId lane = new AgentLaneId("deepseek-key-11111111-1111-1111-1111-111111111111");
+        DevelopmentAutomation invalid = new DevelopmentAutomation(true, false, true,
+                Optional.of(new AgentLaneId("unsupported")));
+        doThrow(new IllegalArgumentException("Agent lane unsupported does not support CI Autofix"))
+                .when(settings).validateDevelopmentAutomation(invalid);
+
         assertThatThrownBy(() -> creator.create(TASK_ID, "workspace-1", "Task", lane, defaults(), "create-key",
-                Optional.empty(), Optional.of(DevelopmentAutomation.DEFAULT), Optional.empty(), Optional.empty()))
+                Optional.empty(), Optional.of(invalid), Optional.empty(), Optional.empty()))
                 .isInstanceOf(IllegalArgumentException.class)
-                .hasMessageContaining("automatic delivery");
+                .hasMessageContaining("does not support CI Autofix");
 
         verifyNoInteractions(provisioning, workspaces, git);
         verify(tasks, never()).createInteractive(any());

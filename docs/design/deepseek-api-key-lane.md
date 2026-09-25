@@ -1,9 +1,11 @@
 # DeepSeek API-key task lane
 
 This approved design extends the current [Agent Service](agent-service.md)
-with a DeepSeek key chosen for one agent task. The implementation has passed
-offline verification; its opt-in live-key gate remains open. The current
-Codex and Claude lanes remain the released behavior.
+with a DeepSeek key chosen for one agent task. The saved-key lane, its
+automation paths, and shared Codex permission behavior have passed offline
+verification. A live local-commit check has passed; the remaining opt-in
+live-key checks are tracked in the implementation checklist. The current Codex
+and Claude lanes remain available.
 
 ## Scope
 
@@ -12,17 +14,21 @@ model when creating a task, and runs attended turns in the task's managed
 worktree. The provider lane stays fixed for that task; later turns can change
 to another supported DeepSeek model but cannot silently change keys.
 
-The first release covers manually started, attended worktree tasks. Development
-and Review defaults, PR assignment, CI Autofix, automatic delivery, and other
-unattended starts will not select this lane until their permissions and
-completion behavior have separate live evidence. Comment rewriting stays
-outside this change. OpenAI and Anthropic key lanes follow later.
+The lane is selectable for manually created interactive worktree tasks. When
+the user explicitly selects development automation, DeepSeek uses the existing
+accepted task and turn settings: finished development work is committed locally,
+Auto draft PR can publish the verified revision, and Auto CI fix can attach the
+existing bounded CI Autofix flow. Queued turns retain their accepted settings.
+The behavior when automation settings are omitted remains under user review;
+this design does not set a DeepSeek-specific default.
 
-The task composer presents this lane as **No automatic delivery**. Task creation and
-every later turn, including a queued turn or explicit settings override,
-require DevelopmentAutomation.LOCAL_ONLY. This is a lane-specific check in the
-backend: today's interactive-turn path otherwise enables auto-commit by
-default even when task defaults request local-only work.
+An explicit CI repair-agent choice can select a saved DeepSeek key. **Same agent
+as development** inherits the task's saved-key lane, not its selected development
+model. A model-less CI task uses the catalog default `deepseek-flash`, and the
+readiness gate checks that exact model before run allocation. Development and
+Review provider defaults, issue-backed starts, PR assignment, and other automatic
+task starters do not select DeepSeek in this change. Comment rewriting stays
+outside this change. OpenAI and Anthropic key lanes follow later.
 
 This is an additional configuration of the existing Codex App Server adapter,
 not a new model loop, agent service, or Maven module. The task, turn, worktree,
@@ -72,9 +78,10 @@ DeepSeek's setup script.
 | Wire API | responses |
 | Credential source | Saved key held by ByteQuay's proxy, outside the Codex process |
 | Model catalog | ByteQuay-owned catalog for deepseek-flash and deepseek-v4-pro |
-| Web search | disabled |
+| Web search | Shared Codex launch setting (`live` for attended turns, disabled for CI/text-only); no DeepSeek web-search capability advertised |
 | Child agents | disabled for the first release |
-| Tool filesystem | Named Codex profile: workspace write, minimal runtime reads, broad home reads and ByteQuay app data denied |
+| Tool permissions | Same Codex CLI permission calculation for the selected task scope |
+| Task tools | Task-scoped loopback MCP bridge to the existing fixed ByteQuay tools |
 
 Read the selected secret immediately before launching each App Server process.
 Hold it only in a small task-scoped loopback Responses proxy. The proxy adds
@@ -84,19 +91,38 @@ the App Server session. Codex receives a local provider URL; it never receives
 the DeepSeek key in its environment, arguments, or config file.
 An already running session may finish after its saved key is removed, while
 the next turn fails admission. Provider output, errors, and logs use the
-existing secret redactor. The isolation guard must verify the effective
-provider, local endpoint, catalog, web setting, shell allowlist, and other
-current launch restrictions before a thread starts.
+existing secret redactor. The isolation guard verifies the effective provider,
+local endpoint, catalog, web setting, and common Codex permission settings
+before a thread starts.
 
-The DeepSeek tool profile uses Codex's named permissions: it denies filesystem
-reads by default, allows the minimal system paths needed to run tools, and
-allows worktree writes. It leaves shell networking disabled. App Server thread
-and turn requests select this profile without a legacy sandbox override.
-This keeps ByteQuay's SQLite data and credential master key outside the
-model-facing shell's readable paths. The fixture must prove the effective
-profile and a failed read of a fake ByteQuay credential file while a worktree
-edit still succeeds. An approved command also remains unable to read that
-file; the native fixture checks this before the lane is available.
+`AgentPermissionScope` derives the same provider-neutral decision from policy,
+session access, and review ownership for Claude and both Codex-backed lanes.
+`CodexLaunchProfile` derives the same process, thread, and turn sandbox and
+approval settings for subscription and DeepSeek; `CodexCliDriver` sends
+them without a provider-specific permission branch. Attended development uses
+the current Codex `workspace-write` sandbox, ByteQuay approval routing,
+validated linked-worktree Git roots, temporary-directory allowances, and
+validated Maven, Gradle, and npm cache roots. Full development, review, and CI
+worktree turns have command network access for dependency downloads. CI repair
+uses `on-request` approval and the shared `GitWorktreeWriteRoots`. Text-only
+and read-only scopes stay offline.
+DeepSeek adds no named filesystem profile, developer-tool path exception,
+model-facing shell denial of home or Git configuration, or separate
+shell-network rule. Network access is turn-wide and cannot distinguish a build
+download from a GitHub write; the shared application authorization rules still
+apply. Its separate per-key `CODEX_HOME` and strict provider
+configuration remain validated through Codex's effective configuration check.
+Ordinary entries in the per-key Codex home do not block the lane. The saved API
+key stays outside Codex through the task proxy; that credential boundary does
+not change tool permissions.
+
+The fixed development and CI tools use the existing task-scoped permission
+broker through a loopback MCP bridge. ByteQuay keeps the broker bearer in its
+own process; Codex receives only the local endpoint. The broker applies its
+existing checks for each action: the current task, root readiness for a report,
+the exact publication window for a draft, and the authorized run/job for CI
+tools. The bridge closes with the App Server session. No general tool framework
+or model-selected GitHub destination is added.
 
 The offline Codex 0.156.1 fixture found that a model-requested native
 `exec_command` inherited a key from the App Server environment even when
@@ -105,8 +131,8 @@ that process boundary. This follows OpenAI's guidance to
 [keep long-lived credentials outside self-hosted agent environments](https://developers.openai.com/api/docs/guides/agents-api/environments/security).
 
 DeepSeek's [Codex integration](https://api-docs.deepseek.com/quick_start/agent_integrations/codex/)
-documents the Responses provider and model catalog. ByteQuay will generate
-its own minimal strict profile and point its provider at the task proxy.
+documents the Responses provider and model catalog. ByteQuay supplies those
+provider settings while reusing the current Codex CLI permission calculation.
 
 ## Models, readiness, and ordinary failures
 
@@ -132,24 +158,31 @@ turn automatically.
 
 DeepSeek's [Responses compatibility guide](https://api-docs.deepseek.com/guides/responses_api/)
 says hosted web search is ignored and developer messages are treated as user
-messages. The current attended GitHub scope rules rely partly on provider
-instruction following. The first DeepSeek lane therefore uses the existing
-workspace-write sandbox with shell network disabled and sends command
-escalations to the user reviewer rather than automatic review. The DeepSeek
-profile sets on-request approval and the user reviewer consistently at launch,
-thread start/resume, and turn start; the isolation guard verifies those
-effective values. It does not inject GitHub authentication environment
-variables or run unattended publication. Any network write needs a direct
-user approval. Existing ByteQuay UI actions remain the route for explicit PR
-publication and review. This narrower profile follows DeepSeek's API behavior,
-not API-key authentication itself.
+messages. That limits advertised model capabilities, not task command
+permissions. The native Codex reviewer and the shared
+[development command policy](agent-service.md#shared-development-command-policy)
+govern attended commands for both Codex-backed lanes. Provider authentication
+selects neither shell access nor GitHub authority.
 
-Advertise only capabilities proven by the DeepSeek lane. Start with local
-editing, tool activity, approvals, and resumable turns. Do not advertise web
-search, subagents, image input, or the optional CodeGraph tool in the first
-release. Hidden reasoning text must never enter normalized events, storage, or
-the UI. Broader capabilities require a later design change and a live
-compatibility gate.
+The user-selected automation settings authorize only the existing bounded
+follow-ups. The agent makes the local commit and chooses draft text, while
+ByteQuay verifies the clean worktree, outgoing revision, repository, remote,
+branch, and exact PR before publication. The scoped draft tool uses ByteQuay's
+stored GitHub credential through its broker; it does not pass that stored
+credential to Codex. Codex/DeepSeek agent processes do not receive GitHub token
+variables, GitHub CLI config variables, or the SSH agent socket. CI repair uses
+`on-request` approval and the shared Git worktree filesystem profile; ByteQuay
+validates committed repairs and owns
+exact-lease pushes, permitted reruns, and ready promotion under the
+accepted CI scope and deadline. A missing or changed target stops the action.
+No generated text alone authorizes a GitHub write.
+
+Advertise only capabilities proven by the DeepSeek lane: development and CI
+worktree turns, task-scoped tools, local commits, tool activity, approvals, and
+resumable turns. Do not advertise web search, subagents, image input, or the
+optional CodeGraph tool in this release. Hidden reasoning text must never enter
+normalized events, storage, or the UI. Broader capabilities require a later
+design change and a live compatibility gate.
 
 ## Implementation and acceptance
 
@@ -158,25 +191,30 @@ The change is confined to the current modules:
 1. **core / persistence-sqlite:** durable key ID, encrypted-secret lookup by
    ID, and assignment of IDs to existing saved keys.
 2. **app / agent-core:** live key-lane resolution, provider status, key-aware
-   task selection, enforced local-only turn settings, and deletion/readiness
-   behavior. Keep the existing immutable task lane and worktree admission
-   flow.
+   task and CI selection, accepted automation snapshots, and deletion/readiness
+   behavior. Reuse the existing delivery coordinator and CI Autofix service.
+   Keep the immutable task lane and worktree admission flow.
 3. **agent-cli:** parameterize the Codex driver and launch profile for the
-   DeepSeek lane; add the task-scoped Responses proxy, and update model catalog
-   loading, isolation verification, redaction, and per-key runtime cleanup.
+   DeepSeek lane; add the task-scoped Responses proxy and loopback task-tool
+   bridge; update model catalog loading, common permission verification,
+   redaction, and per-key runtime cleanup.
    The installed Codex binary is version-checked and upgraded once, not once
    per saved key.
-4. **frontend:** show DeepSeek key lanes in the existing picker and render
-   invalid or removed-key recovery without losing historical tasks.
+4. **frontend:** show DeepSeek key lanes in the existing picker, expose the
+   existing Automation and CI controls, and render invalid or removed-key
+   recovery without losing historical tasks.
 
-Offline tests cover lane binding, removal, readiness errors, strict App Server
-configuration, proxy forwarding and closure, the worktree-only tool read
-boundary, secret exclusion from the Codex process and model-facing tools,
-event filtering, and resume against the same lane. An opt-in real-key gate
-must complete a local edit, approval, second turn, cancellation, and an
-attempted network write that cannot proceed without direct user approval.
-Run backend mvn verify and the frontend lint, typecheck, test, and package
-gates for the implementation.
+Offline tests cover lane binding, removal, readiness errors, provider settings,
+permission parity with the current Codex CLI lane for attended and CI tasks,
+proxy forwarding and closure, secret exclusion from the Codex process and
+model-facing tools, task-tool bearer exclusion, attended local commits, broker
+tool calls, accepted automation settings, event filtering, and resume against
+the same lane. Scripted backend tests verify the shared scoped draft and CI
+paths without contacting GitHub. An opt-in real-key gate must complete a
+local edit and commit, approval, second turn, and cancellation. A live
+GitHub-write gate remains separate and needs an explicitly authorized disposable
+destination. Run backend `mvn verify` and the frontend lint, typecheck, test,
+and package gates for the implementation.
 
 ## Later key lanes
 

@@ -15,7 +15,10 @@ package com.bytequay.agent.cli.codex;
 
 import com.bytequay.agent.cli.mcp.CodeGraphRegistration;
 import com.bytequay.agent.cli.mcp.PermissionBroker;
+import com.bytequay.agent.cli.process.AgentPermissionManager;
+import com.bytequay.agent.cli.process.BuildCacheRoots;
 import com.bytequay.agent.cli.process.GitCliEnvironment;
+import com.bytequay.agent.cli.process.GitWorktreeWriteRoots;
 import com.bytequay.agent.cli.process.ManagedProcess;
 import com.bytequay.agent.cli.process.ProcessExit;
 import com.bytequay.agent.cli.process.ProcessOwner;
@@ -30,6 +33,7 @@ import com.bytequay.agent.spi.AgentDriver;
 import com.bytequay.agent.spi.AgentEventSink;
 import com.bytequay.agent.spi.AgentLaneId;
 import com.bytequay.agent.spi.AgentPermissionPolicy;
+import com.bytequay.agent.spi.AgentPermissionScope;
 import com.bytequay.agent.spi.AgentProviderStatus;
 import com.bytequay.agent.spi.AgentSession;
 import com.bytequay.agent.spi.AgentSessionContext;
@@ -60,9 +64,11 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.io.IOException;
+import java.net.URI;
 import java.nio.ByteBuffer;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
+import java.nio.file.InvalidPathException;
 import java.nio.file.Path;
 import java.time.Duration;
 import java.time.Instant;
@@ -98,9 +104,8 @@ import static java.util.stream.Collectors.joining;
 /**
  * Runs Codex tasks, one App Server process per task.
  *
- * <p>The process working directory is the task worktree. Codex uses its workspace-write sandbox;
- * DeepSeek uses a named permission profile that also denies ByteQuay app-data reads. Neither uses a
- * custom execution environment. The launch owner is the task id, so process cleanup
+ * <p>The process working directory is the task worktree. Both Codex-backed lanes use the same
+ * workspace-write sandbox and approval policy. The launch owner is the task id, so process cleanup
  * after a crash remains attributable to that task. Normal completion checks the provider's agent
  * and background-command inventories before stopping the App Server.
  *
@@ -167,7 +172,6 @@ public final class CodexCliDriver
             "LOGNAME",
             "NODE_EXTRA_CA_CERTS",
             "NO_PROXY",
-            "OPENAI_API_KEY",
             "OPENAI_BASE_URL",
             "PATH",
             "SHELL",
@@ -177,9 +181,6 @@ public final class CodexCliDriver
             "TMPDIR",
             "USER",
             "XDG_CONFIG_HOME");
-    // Model-requested commands can inspect their App Server parent's environment on macOS.
-    private static final Set<String> DEEPSEEK_PROCESS_ENVIRONMENT = ImmutableSet.of(
-            "HOME", "LANG", "LC_ALL", "LOGNAME", "PATH", "SHELL", "TERM", "TMPDIR", "USER");
 
     private static final AgentCapabilities CAPABILITIES = new AgentCapabilities(
             true,
@@ -196,7 +197,7 @@ public final class CodexCliDriver
             ImmutableSet.of("image/png", "image/jpeg", "image/gif", "text/plain", "text/plain; charset=utf-8"));
     private static final AgentCapabilities DEEPSEEK_CAPABILITIES = new AgentCapabilities(
             true, true, false, true, true, false, false, true, true, false,
-            ImmutableSet.of(AgentPermissionPolicy.AUTO),
+            ImmutableSet.of(AgentPermissionPolicy.AUTO, AgentPermissionPolicy.CI_AUTOFIX),
             ImmutableSet.of("text/plain", "text/plain; charset=utf-8"));
 
     private final AgentLaneId laneId;
@@ -208,7 +209,6 @@ public final class CodexCliDriver
     private final int[] minimumRelease;
     private final ProcessSupervisor supervisor;
     private final Path codexHome;
-    private final Optional<Path> protectedAppData;
     private final Map<String, String> environment;
     private final PermissionBroker permissions;
     private final SecretRedactor redactor;
@@ -225,7 +225,7 @@ public final class CodexCliDriver
     public CodexCliDriver(String executable, String minimumVersion, ObjectMapper objectMapper, ProcessSupervisor supervisor, Path codexHome, PermissionBroker permissions)
     {
         this(executable, minimumVersion, objectMapper, supervisor, inheritedEnvironment(), codexHome, permissions, DEFAULT_QUIESCENCE_TIMEOUT,
-                LANE_ID, "Codex", Optional.empty(), Optional.empty());
+                LANE_ID, "Codex", Optional.empty());
     }
 
     /** One saved DeepSeek key becomes one Codex App Server lane with its own isolated home. */
@@ -235,7 +235,6 @@ public final class CodexCliDriver
             ObjectMapper objectMapper,
             ProcessSupervisor supervisor,
             Path codexHome,
-            Path protectedAppData,
             PermissionBroker permissions,
             AgentLaneId laneId,
             String label,
@@ -245,7 +244,7 @@ public final class CodexCliDriver
         checkArgument(laneId.value().startsWith("deepseek-key-"), "DeepSeek lane ID must identify a saved key");
         checkArgument(!label.isBlank(), "label is blank");
         return new CodexCliDriver(executable, minimumVersion, objectMapper, supervisor, inheritedEnvironment(), codexHome, permissions,
-                DEFAULT_QUIESCENCE_TIMEOUT, laneId, label, Optional.of(secretSupplier), Optional.of(protectedAppData));
+                DEFAULT_QUIESCENCE_TIMEOUT, laneId, label, Optional.of(secretSupplier));
     }
 
     CodexCliDriver(
@@ -259,7 +258,7 @@ public final class CodexCliDriver
             Duration quiescenceTimeout)
     {
         this(executable, minimumVersion, objectMapper, supervisor, environment, codexHome, permissions, quiescenceTimeout,
-                LANE_ID, "Codex", Optional.empty(), Optional.empty());
+                LANE_ID, "Codex", Optional.empty());
     }
 
     private CodexCliDriver(
@@ -273,15 +272,11 @@ public final class CodexCliDriver
             Duration quiescenceTimeout,
             AgentLaneId laneId,
             String laneLabel,
-            Optional<Supplier<Optional<String>>> deepSeekSecret,
-            Optional<Path> protectedAppData)
+            Optional<Supplier<Optional<String>>> deepSeekSecret)
     {
         this.laneId = requireNonNull(laneId, "laneId is null");
         this.laneLabel = requireNonNull(laneLabel, "laneLabel is null");
         this.deepSeekSecret = requireNonNull(deepSeekSecret, "deepSeekSecret is null");
-        this.protectedAppData = requireNonNull(protectedAppData, "protectedAppData is null")
-                .map(path -> path.toAbsolutePath().normalize());
-        checkArgument(deepSeekSecret.isPresent() == this.protectedAppData.isPresent(), "DeepSeek requires the protected app-data root");
         this.executable = requireNonNull(executable, "executable is null");
         this.minimumVersion = requireNonNull(minimumVersion, "minimumVersion is null");
         checkArgument(minimumVersion.matches("[0-9]+\\.[0-9]+\\.[0-9]+"), "Codex minimum version must be a stable x.y.z release: %s", minimumVersion);
@@ -293,8 +288,7 @@ public final class CodexCliDriver
         // Overrides any inherited value: a shell that exports CODEX_HOME must not redirect ByteQuay's
         // processes into the user's own Codex setup, and the model-facing shell never sees it.
         this.environment = ImmutableMap.<String, String>builder()
-                .putAll(Maps.filterKeys(requireNonNull(environment, "environment is null"), name -> !name.equals("CODEX_HOME")
-                        && (deepSeekSecret.isEmpty() || DEEPSEEK_PROCESS_ENVIRONMENT.contains(name))))
+                .putAll(Maps.filterKeys(requireNonNull(environment, "environment is null"), name -> !name.equals("CODEX_HOME")))
                 .put("CODEX_HOME", this.codexHome.toString())
                 .buildOrThrow();
         this.redactor = SecretRedactor.fromEnvironment(this.environment);
@@ -332,42 +326,53 @@ public final class CodexCliDriver
             Path workingDirectory,
             CodexLaunchProfile.ChildProfile childProfile)
     {
-        return appServerClient(ownerId, workingDirectory, childProfile, Optional.empty(), Optional.empty(), SessionAccess.FULL, ImmutableList.of(), false, false).client();
+        return appServerClient(ownerId, workingDirectory, childProfile, Optional.empty(), SessionAccess.FULL,
+                deepSeekSecret.flatMap(Supplier::get), ImmutableList.of(), false, false,
+                launchEnvironment()).client();
     }
 
     private ClientLaunch appServerClient(
             String ownerId,
             Path workingDirectory,
             CodexLaunchProfile.ChildProfile childProfile,
-            Optional<CodexLaunchProfile.CodeGraphLaunch> codeGraph,
-            Optional<String> codeGraphToken,
+            Optional<CodeGraphRegistration> registration,
             SessionAccess access,
+            Optional<String> savedKey,
             List<String> ciWritableRoots,
             boolean allowGitHubCommands,
-            boolean review)
+            boolean review,
+            Map<String, String> sessionEnvironment)
     {
-        Map<String, String> sessionEnvironment = GitCliEnvironment.forSession(environment, allowGitHubCommands);
-        Optional<String> key = deepSeekSecret.flatMap(Supplier::get);
+        Optional<String> key = requireNonNull(savedKey, "savedKey is null");
         if (deepSeekSecret.isPresent() && (key.isEmpty() || key.orElseThrow().isBlank())) {
             throw new AgentUnavailableException("DeepSeek key removed or unavailable");
         }
         deepSeekCatalog.ifPresent(DeepSeekModelCatalog::prepare);
         ImmutableMap.Builder<String, String> processEnvironment = ImmutableMap.<String, String>builder().putAll(sessionEnvironment);
-        codeGraphToken.ifPresent(token -> processEnvironment.put(CodexLaunchProfile.CodeGraphLaunch.TOKEN_VARIABLE, token));
+        if (deepSeekSecret.isEmpty()) {
+            registration.ifPresent(value -> processEnvironment.put(CodexLaunchProfile.CodeGraphLaunch.TOKEN_VARIABLE, value.token()));
+        }
         Map<String, String> launchEnvironment = processEnvironment.buildOrThrow();
-        SecretRedactor launchRedactor = key.map(SecretRedactor.fromEnvironment(launchEnvironment)::withSecret)
-                .orElseGet(() -> SecretRedactor.fromEnvironment(launchEnvironment));
+        SecretRedactor baseRedactor = key.map(redactor::withSecret).orElse(redactor);
+        SecretRedactor launchRedactor = registration.map(value -> baseRedactor.withSecret(value.token())).orElse(baseRedactor);
         Optional<DeepSeekResponsesProxy> proxy = key.map(DeepSeekResponsesProxy::start);
+        Optional<DeepSeekTaskMcpBridge> taskMcpBridge = Optional.empty();
         try {
+            if (deepSeekSecret.isPresent()) {
+                taskMcpBridge = registration.map(value -> DeepSeekTaskMcpBridge.start(permissions, value, objectMapper));
+            }
+            Optional<DeepSeekTaskMcpBridge> bridge = taskMcpBridge;
+            Optional<CodexLaunchProfile.CodeGraphLaunch> tools = registration.map(value -> new CodexLaunchProfile.CodeGraphLaunch(
+                    bridge.map(DeepSeekTaskMcpBridge::endpoint).orElse(value.endpoint()), value.instruction(), deepSeekSecret.isEmpty()));
             Optional<CodexLaunchProfile.DeepSeekProfile> deepSeek = proxy.map(value ->
-                    new CodexLaunchProfile.DeepSeekProfile(deepSeekCatalog.orElseThrow(), value.baseUrl(), protectedAppData.orElseThrow()));
+                    new CodexLaunchProfile.DeepSeekProfile(deepSeekCatalog.orElseThrow(), value.baseUrl()));
             return new ClientLaunch(new CodexAppServerClient(
                     supervisor,
                     new ProcessSpec(
                             new ProcessOwner(ownerKind(access), ownerId),
                             // TEXT_ONLY alone strips the shell and code tools: a read-only session must
                             // keep them to read the checkout at all, and is contained by its sandbox.
-                            CodexLaunchProfile.arguments(executable, childProfile, codeGraph, access == SessionAccess.TEXT_ONLY,
+                            CodexLaunchProfile.arguments(executable, childProfile, tools, access == SessionAccess.TEXT_ONLY,
                                     ciWritableRoots, allowGitHubCommands, review, deepSeek),
                             workingDirectory,
                             launchEnvironment,
@@ -377,9 +382,11 @@ public final class CodexCliDriver
                             PROCESS_CANCELLATION_GRACE),
                     objectMapper,
                     launchRedactor,
-                    proxy), launchRedactor, deepSeek);
+                    proxy,
+                    taskMcpBridge), launchRedactor, deepSeek, tools.map(CodexLaunchProfile.CodeGraphLaunch::endpoint));
         }
         catch (RuntimeException failure) {
+            taskMcpBridge.ifPresent(DeepSeekTaskMcpBridge::close);
             proxy.ifPresent(DeepSeekResponsesProxy::close);
             throw failure;
         }
@@ -584,23 +591,27 @@ public final class CodexCliDriver
     {
         requireNonNull(context, "context is null");
         requireNonNull(events, "events is null");
-        if (deepSeekSecret.isPresent() && (context.access() != SessionAccess.FULL || context.permissionPolicy() != AgentPermissionPolicy.AUTO)) {
-            throw new AgentUnavailableException("DeepSeek supports attended worktree tasks only");
-        }
         requireAvailable();
         rememberAppServerVersion();
-        // The process runs in the task worktree so its selected sandbox or permission profile
-        // grants writes there without a separately registered execution environment.
+        // The process runs in the task worktree so its sandbox grants writes there
+        // without a separately registered execution environment.
         ModelProfile modelProfile = modelCatalog().select(context.model());
+        Optional<String> savedKey = deepSeekSecret.flatMap(Supplier::get);
+        if (deepSeekSecret.isPresent() && savedKey.filter(key -> !key.isBlank()).isEmpty()) {
+            throw new AgentUnavailableException("DeepSeek key removed or unavailable");
+        }
+        SecretRedactor toolRedactor = savedKey.map(redactor::withSecret).orElse(redactor);
         List<String> ciWritableRoots = context.permissionPolicy() == AgentPermissionPolicy.CI_AUTOFIX
-                ? CodexCiSandbox.writableRoots(context.worktree())
+                ? ciWritableRoots(context.worktree())
                 : ImmutableList.of();
         // A task tool token lives exactly as long as this session; the App Server reaches the
         // ByteQuay task MCP endpoint with it and never learns the task's filesystem identity.
-        Optional<CodeGraphRegistration> codeGraph = context.restricted() || deepSeekSecret.isPresent() ? Optional.empty() : permissions.registerTools(
-                context.taskId(), context.worktree(), context.permissionPolicy(), context.approvals(), redactor, context.codeGraph());
+        Optional<CodeGraphRegistration> codeGraph = context.restricted() ? Optional.empty() : permissions.registerTools(
+                context.taskId(), context.worktree(), context.permissionPolicy(), context.approvals(), toolRedactor,
+                deepSeekSecret.isPresent() ? Optional.empty() : context.codeGraph());
         boolean review = codeGraph.flatMap(CodeGraphRegistration::review).isPresent();
-        boolean allowGitHubCommands = deepSeekSecret.isEmpty() && context.permissionPolicy().allowsGitHubCommands(context.restricted(), review);
+        AgentPermissionScope scope = new AgentPermissionScope(context.permissionPolicy(), context.access(), review);
+        boolean allowGitHubCommands = scope.githubCommands();
         // CI runs the single-agent profile verified by the native sandbox probe.
         CodexLaunchProfile.ChildProfile childProfile = ciWritableRoots.isEmpty()
                 ? childProfile(modelProfile.childProfile(), context.restricted(), review)
@@ -611,12 +622,13 @@ public final class CodexCliDriver
                     context.taskId(),
                     context.worktree(),
                     childProfile,
-                    codeGraph.map(registration -> new CodexLaunchProfile.CodeGraphLaunch(registration.endpoint(), registration.instruction())),
-                    codeGraph.map(CodeGraphRegistration::token),
+                    codeGraph,
                     context.access(),
+                    savedKey,
                     ciWritableRoots,
                     allowGitHubCommands,
-                    review);
+                    review,
+                    launchEnvironment());
         }
         catch (RuntimeException failure) {
             codeGraph.ifPresent(CodeGraphRegistration::close);
@@ -624,7 +636,7 @@ public final class CodexCliDriver
         }
         try {
             return new CodexSession(launch.client(), launch.redactor(), context, events, modelProfile, childProfile,
-                    codeGraph, ciWritableRoots, allowGitHubCommands, launch.deepSeek());
+                    codeGraph, ciWritableRoots, scope, launch.deepSeek(), launch.mcpEndpoint());
         }
         catch (RuntimeException failure) {
             // The process is running by the time anything below it can fail, and nothing else
@@ -633,6 +645,14 @@ public final class CodexCliDriver
             codeGraph.ifPresent(CodeGraphRegistration::close);
             throw failure;
         }
+    }
+
+    private List<String> ciWritableRoots(Path worktree)
+    {
+        return Stream.concat(
+                        GitWorktreeWriteRoots.writableRoots(worktree).stream(),
+                        BuildCacheRoots.writableRoots(environment).stream().map(Path::toString))
+                .collect(toImmutableList());
     }
 
     private OptionalInt compareVersion(String reported)
@@ -773,7 +793,7 @@ public final class CodexCliDriver
                 owner,
                 argv,
                 workingDirectory,
-                GitCliEnvironment.forSession(environment, false),
+                launchEnvironment(),
                 OptionalInt.of(maximumStdoutBytes),
                 maximumStderrBytes,
                 maximumRuntime,
@@ -785,6 +805,12 @@ public final class CodexCliDriver
         synchronized (output) {
             output.append(StandardCharsets.UTF_8.decode(bytes));
         }
+    }
+
+    private Map<String, String> launchEnvironment()
+    {
+        return GitCliEnvironment.withoutCredentials(
+                Maps.filterKeys(environment, name -> !name.equals("OPENAI_API_KEY")));
     }
 
     private static Map<String, String> inheritedEnvironment()
@@ -804,7 +830,8 @@ public final class CodexCliDriver
     private record ClientLaunch(
             CodexAppServerClient client,
             SecretRedactor redactor,
-            Optional<CodexLaunchProfile.DeepSeekProfile> deepSeek) {}
+            Optional<CodexLaunchProfile.DeepSeekProfile> deepSeek,
+            Optional<URI> mcpEndpoint) {}
 
     private record ModelCatalog(List<CodexProtocol.ModelEntry> entries)
     {
@@ -861,8 +888,7 @@ public final class CodexCliDriver
         private final ModelProfile modelProfile;
         private final CodexLaunchProfile.ChildProfile childProfile;
         private final List<String> ciWritableRoots;
-        private final boolean mavenRepositoryRoot;
-        private final boolean allowGitHubCommands;
+        private final AgentPermissionScope permissionScope;
         private final Optional<CodexLaunchProfile.DeepSeekProfile> deepSeek;
         /** Every thread this task's process has shown us, root and subagents alike. */
         private final Set<String> observedThreads = ConcurrentHashMap.newKeySet();
@@ -906,8 +932,9 @@ public final class CodexCliDriver
                 CodexLaunchProfile.ChildProfile childProfile,
                 Optional<CodeGraphRegistration> codeGraph,
                 List<String> ciWritableRoots,
-                boolean allowGitHubCommands,
-                Optional<CodexLaunchProfile.DeepSeekProfile> deepSeek)
+                AgentPermissionScope permissionScope,
+                Optional<CodexLaunchProfile.DeepSeekProfile> deepSeek,
+                Optional<URI> mcpEndpoint)
         {
             this.client = requireNonNull(client, "client is null");
             this.sessionRedactor = requireNonNull(sessionRedactor, "sessionRedactor is null");
@@ -917,18 +944,18 @@ public final class CodexCliDriver
             this.childProfile = requireNonNull(childProfile, "childProfile is null");
             this.codeGraph = requireNonNull(codeGraph, "codeGraph is null");
             this.ciWritableRoots = ImmutableList.copyOf(ciWritableRoots);
-            this.allowGitHubCommands = allowGitHubCommands;
+            this.permissionScope = requireNonNull(permissionScope, "permissionScope is null");
             this.deepSeek = requireNonNull(deepSeek, "deepSeek is null");
             this.eventMapper = new CodexEventMapper(context.worktree(), sessionRedactor, deepSeekSecret.isEmpty());
             this.isolation = new CodexIsolationGuard(
                     client,
                     codexHome,
                     childProfile,
-                    codeGraph.map(CodeGraphRegistration::endpoint),
+                    mcpEndpoint,
                     context.textOnly(),
                     ciWritableRoots,
-                    allowGitHubCommands,
-                    codeGraph.flatMap(CodeGraphRegistration::review).isPresent(),
+                    permissionScope.githubCommands(),
+                    permissionScope.review(),
                     deepSeek);
             // Attached before the process is started, so nothing App Server emits can arrive
             // before there is a session to receive it.
@@ -936,7 +963,6 @@ public final class CodexCliDriver
             client.start();
             Path worktree = canonicalWorktree();
             // Sent only as a turn root: a launch-time writable root is what selects the CI profile.
-            this.mavenRepositoryRoot = deepSeekSecret.isEmpty() && context.permissionPolicy() == AgentPermissionPolicy.AUTO && !context.restricted();
             verifyCiWorktree(worktree);
             isolation.verify(worktree);
             String threadId = openThread(context, worktree);
@@ -961,8 +987,7 @@ public final class CodexCliDriver
             String sandbox = context.restricted() ? "read-only" : "workspace-write";
             // Explicitly replace saved guidance on resume, including an empty value after a skill is removed.
             String developerInstructions = Stream.of(
-                            codeGraph.flatMap(CodeGraphRegistration::review).isPresent() ? AgentCommandPolicy.reviewInstructions()
-                                    : allowGitHubCommands ? AgentCommandPolicy.instructions() : "",
+                            AgentCommandPolicy.instructions(permissionScope),
                             context.restricted() ? "" : PLAN_INSTRUCTION,
                             context.managedInstructions(),
                             codeGraph.map(CodeGraphRegistration::instruction).orElse(""))
@@ -973,8 +998,8 @@ public final class CodexCliDriver
                     codeGraph.isPresent(),
                     context.textOnly(),
                     ciWritableRoots,
-                    allowGitHubCommands,
-                    codeGraph.flatMap(CodeGraphRegistration::review).isPresent(),
+                    permissionScope.githubCommands(),
+                    permissionScope.review(),
                     deepSeek);
             String method = existing.isPresent() ? "thread/resume" : "thread/start";
             existing.ifPresent(previous -> {
@@ -983,27 +1008,7 @@ public final class CodexCliDriver
                 }
             });
             Object params;
-            if (deepSeek.isPresent()) {
-                ImmutableMap.Builder<String, Object> request = ImmutableMap.<String, Object>builder()
-                        .put("cwd", worktree.toString())
-                        .put("model", modelProfile.id())
-                        .put("approvalPolicy", approvalPolicy)
-                        .put("approvalsReviewer", approvalsReviewer())
-                        .put("config", config)
-                        .put("permissions", CodexLaunchProfile.DEEPSEEK_PERMISSIONS)
-                        .put("developerInstructions", developerInstructions);
-                if (existing.isPresent()) {
-                    request.put("threadId", existing.orElseThrow().providerValue());
-                }
-                else {
-                    request.put("ephemeral", context.textOnly())
-                            .put("serviceName", "ByteQuay")
-                            .put("dynamicTools", ImmutableList.of())
-                            .put("selectedCapabilityRoots", ImmutableList.of());
-                }
-                params = request.buildOrThrow();
-            }
-            else if (existing.isPresent()) {
+            if (existing.isPresent()) {
                 params = new CodexProtocol.ThreadResumeParams(
                         existing.orElseThrow().providerValue(),
                         worktree.toString(),
@@ -1029,18 +1034,6 @@ public final class CodexCliDriver
                         ImmutableList.of());
             }
             try {
-                if (deepSeek.isPresent()) {
-                    JsonNode response = client.request(method, params, JsonNode.class, REQUEST_TIMEOUT);
-                    if (!response.path("activePermissionProfile").path("id").asText("")
-                            .equals(CodexLaunchProfile.DEEPSEEK_PERMISSIONS)) {
-                        throw new AgentUnavailableException("Codex did not activate the DeepSeek permission profile");
-                    }
-                    String threadId = response.path("thread").path("id").asText("");
-                    if (threadId.isBlank()) {
-                        throw new AgentUnavailableException("Codex omitted the DeepSeek thread identifier");
-                    }
-                    return threadId;
-                }
                 return client.request(method, params, CodexProtocol.ThreadResponse.class, REQUEST_TIMEOUT).thread().id();
             }
             catch (RuntimeException failure) {
@@ -1082,26 +1075,10 @@ public final class CodexCliDriver
             });
             // The turn carries the settings snapshotted when accepted, even if defaults changed.
             Optional<String> effort = command.effort().or(context::effort);
-            Object params;
-            if (deepSeek.isPresent()) {
-                ImmutableMap.Builder<String, Object> request = ImmutableMap.<String, Object>builder()
-                        .put("threadId", reference.providerValue())
-                        .put("input", input)
-                        .put("model", modelProfile.id())
-                        .put("serviceTierForTurn", command.serviceTier().orElse("default"))
-                        .put("approvalPolicy", approvalPolicy())
-                        .put("approvalsReviewer", approvalsReviewer())
-                        .put("cwd", worktree.toString())
-                        .put("permissions", CodexLaunchProfile.DEEPSEEK_PERMISSIONS);
-                effort.ifPresent(value -> request.put("effort", value));
-                params = request.buildOrThrow();
-            }
-            else {
-                params = new CodexProtocol.TurnStartParams(
-                        reference.providerValue(), input, Optional.of(modelProfile.id()), effort,
-                        command.serviceTier().orElse("default"), approvalPolicy(), approvalsReviewer(),
-                        worktree.toString(), sandboxPolicy(worktree));
-            }
+            CodexProtocol.TurnStartParams params = new CodexProtocol.TurnStartParams(
+                    reference.providerValue(), input, Optional.of(modelProfile.id()), effort,
+                    command.serviceTier().orElse("default"), approvalPolicy(), approvalsReviewer(),
+                    worktree.toString(), sandboxPolicy(worktree));
             rememberAppServerVersion();
             CodexProtocol.TurnStartResponse response;
             try {
@@ -1126,12 +1103,12 @@ public final class CodexCliDriver
 
         private String approvalPolicy()
         {
-            return context.restricted() || !ciWritableRoots.isEmpty() ? "never" : "on-request";
+            return context.restricted() ? "never" : "on-request";
         }
 
         private String approvalsReviewer()
         {
-            return deepSeekSecret.isPresent() || context.restricted() || !ciWritableRoots.isEmpty() ? "user" : "auto_review";
+            return "user";
         }
 
         private Map<String, Object> sandboxPolicy(Path worktree)
@@ -1144,14 +1121,31 @@ public final class CodexCliDriver
             return ImmutableMap.of(
                     "type", "workspaceWrite",
                     "writableRoots", ciWritableRoots.isEmpty()
-                            // Checked on every turn, so a repository replaced by a link during the session is dropped.
-                            ? Stream.concat(Stream.of(worktree), mavenRepositoryRoot ? CodexMavenRepository.resolve(environment).stream() : Stream.<Path>empty())
-                                    .map(Path::toString)
-                                    .collect(toImmutableList())
+                            ? attendedWritableRoots(worktree)
                             : ciWritableRoots,
-                    "networkAccess", false,
-                    "excludeTmpdirEnvVar", context.permissionPolicy().unattended(),
-                    "excludeSlashTmp", context.permissionPolicy().unattended());
+                    "networkAccess", permissionScope.buildNetwork(),
+                    "excludeTmpdirEnvVar", permissionScope.unattended(),
+                    "excludeSlashTmp", permissionScope.unattended());
+        }
+
+        private List<String> attendedWritableRoots(Path worktree)
+        {
+            List<String> gitRoots = ImmutableList.of();
+            if (permissionScope.githubCommands() && Files.isRegularFile(worktree.resolve(".git"))) {
+                try {
+                    // Linked-worktree Git metadata is outside the worktree directory. Recheck it on
+                    // every turn; an invalid or changed layout falls back to native approval.
+                    List<String> verified = GitWorktreeWriteRoots.writableRoots(worktree);
+                    gitRoots = verified.subList(1, verified.size());
+                }
+                catch (RuntimeException failure) {
+                    log.debug("Attended Git metadata cannot be granted without approval", failure);
+                }
+            }
+            return Stream.concat(
+                    Stream.concat(Stream.of(worktree.toString()), gitRoots.stream()),
+                    permissionScope.remoteReads() ? BuildCacheRoots.writableRoots(environment).stream().map(Path::toString) : Stream.empty())
+                    .collect(toImmutableList());
         }
 
         private Path canonicalWorktree()
@@ -1166,7 +1160,7 @@ public final class CodexCliDriver
 
         private void verifyCiWorktree(Path worktree)
         {
-            if (!ciWritableRoots.isEmpty() && !ciWritableRoots.equals(CodexCiSandbox.writableRoots(worktree))) {
+            if (!ciWritableRoots.isEmpty() && !ciWritableRoots.equals(CodexCliDriver.this.ciWritableRoots(worktree))) {
                 throw new AgentUnavailableException("CI worktree Git metadata or branch changed during the Codex session");
             }
         }
@@ -1944,15 +1938,6 @@ public final class CodexCliDriver
                 CodexProtocol.ServerRequest serverRequest,
                 CodexRunningTurn expectedTurn)
         {
-            if (!ciWritableRoots.isEmpty()) {
-                // The native CI profile never escalates; an unexpected request cannot widen it or wait on a user.
-                try {
-                    return CompletableFuture.completedFuture(approvalResponse(serverRequest, ProviderApprovalDecision.deny(), expectedTurn));
-                }
-                catch (AgentUnavailableException failure) {
-                    return CompletableFuture.failedFuture(failure);
-                }
-            }
             ProviderApprovalRequest.Kind kind;
             String title;
             String detail;
@@ -1960,11 +1945,6 @@ public final class CodexCliDriver
             List<ProviderApprovalRequest.Decision> availableDecisions;
             long startedAtMs;
             if (serverRequest instanceof CodexProtocol.CommandApprovalRequest approval) {
-                if (approval.params().additionalPermissions().isPresent()
-                        || approval.params().networkApprovalContext().isPresent()) {
-                    return CompletableFuture.failedFuture(
-                            new AgentUnavailableException("Codex command approval requests permissions ByteQuay cannot represent"));
-                }
                 if (approval.params().kind().filter(commandKind -> !commandKind.equals("command")).isPresent()) {
                     return CompletableFuture.failedFuture(
                             new AgentUnavailableException("Unsupported Codex command approval kind"));
@@ -1988,26 +1968,61 @@ public final class CodexCliDriver
                         return CompletableFuture.failedFuture(failure);
                     }
                 }
-                detail = sessionRedactor.redact(rawCommand);
+                StringBuilder requested = new StringBuilder(rawCommand);
+                approval.params().additionalPermissions().ifPresent(value -> requested.append("\nAdditional permissions: ").append(value));
+                approval.params().networkApprovalContext().ifPresent(value -> requested.append("\nNetwork approval: ").append(value));
+                detail = sessionRedactor.redact(requested.toString());
                 itemId = approval.params().itemId();
                 availableDecisions = supportedCommandDecisions(approval.params().availableDecisions());
                 startedAtMs = approval.params().startedAtMs();
             }
             else if (serverRequest instanceof CodexProtocol.FileChangeApprovalRequest approval) {
-                if (approval.params().grantRoot().isPresent()) {
+                if (approval.params().grantRoot().filter(String::isBlank).isPresent()) {
                     return CompletableFuture.failedFuture(
-                            new AgentUnavailableException("Codex file approval requests a scoped grant ByteQuay cannot represent"));
+                            new AgentUnavailableException("Codex file approval has a blank write root"));
+                }
+                if (approval.params().grantRoot().isPresent()) {
+                    try {
+                        Path requested = Path.of(approval.params().grantRoot().orElseThrow());
+                        if (AgentPermissionManager.allowsFileWrite(requested, context.worktree(), environment, permissionScope)) {
+                            return CompletableFuture.completedFuture(
+                                    approvalResponse(serverRequest, ProviderApprovalDecision.allow(Optional.empty()), expectedTurn));
+                        }
+                    }
+                    catch (InvalidPathException ignored) {
+                        // An unrecognized root needs an explicit user decision.
+                    }
+                    catch (AgentUnavailableException failure) {
+                        return CompletableFuture.failedFuture(failure);
+                    }
                 }
                 kind = ProviderApprovalRequest.Kind.FILE_CHANGE;
                 title = "Allow Codex file change";
                 detail = approval.params().reason()
                         .filter(value -> !value.isBlank())
                         .orElse("File change approval");
+                if (approval.params().grantRoot().isPresent()) {
+                    detail += "\nRequested write root: " + approval.params().grantRoot().orElseThrow();
+                }
                 detail = sessionRedactor.redact(detail);
                 itemId = approval.params().itemId();
                 availableDecisions = ImmutableList.of(
                         ALLOW_ONCE,
                         DENY);
+                startedAtMs = approval.params().startedAtMs();
+            }
+            else if (serverRequest instanceof CodexProtocol.PermissionsApprovalRequest approval) {
+                if (!approval.params().permissions().isObject()) {
+                    return CompletableFuture.failedFuture(
+                            new AgentUnavailableException("Codex requested permissions have an unsupported shape"));
+                }
+                kind = ProviderApprovalRequest.Kind.OTHER;
+                title = "Allow Codex requested permissions";
+                detail = sessionRedactor.redact(approval.params().reason().filter(value -> !value.isBlank())
+                        .orElse("Permission request") + "\nWorking directory: " + approval.params().cwd()
+                        + "\nPermissions: " + approval.params().permissions());
+                itemId = approval.params().itemId();
+                availableDecisions = ImmutableList.of(ALLOW_ONCE, DENY);
                 startedAtMs = approval.params().startedAtMs();
             }
             else {
@@ -2162,6 +2177,12 @@ public final class CodexCliDriver
                 }
                 if (serverRequest instanceof CodexProtocol.FileChangeApprovalRequest) {
                     return new CodexProtocol.FileChangeApprovalResponse(wireDecision);
+                }
+                if (serverRequest instanceof CodexProtocol.PermissionsApprovalRequest permissions) {
+                    return new CodexProtocol.PermissionsApprovalResponse(
+                            allow ? permissions.params().permissions() : objectMapper.createObjectNode(),
+                            allow ? Optional.of("turn") : Optional.empty(),
+                            Optional.empty());
                 }
                 throw new AgentUnavailableException("Unsupported Codex approval response");
             }

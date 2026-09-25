@@ -1341,9 +1341,7 @@ public final class DefaultAgentTurnService
     private AgentTask requireReady(AgentTask task, Optional<String> model)
     {
         var driver = driverRegistry.require(task.laneId());
-        AgentProviderStatus status = task.laneId().value().startsWith("deepseek-key-")
-                ? driver.probe(model)
-                : driver.probe();
+        AgentProviderStatus status = driver.probe(model);
         if (!status.available()) {
             throw new AgentProviderUnavailableException(status);
         }
@@ -1724,7 +1722,7 @@ public final class DefaultAgentTurnService
                         settings.effort(),
                         SessionAccess.FULL,
                         codeGraphBridge(task, resources),
-                        managedInstructions.apply(task) + developmentInstructions(task, settings)),
+                        managedInstructions.apply(task) + developmentInstructions(settings)),
                 event -> routeEvent(task.id(), turnId, event)), "opened session is null");
         AgentSession registered = runtimeRegistry.registerSession(task.id(), opened);
         try {
@@ -1798,18 +1796,10 @@ public final class DefaultAgentTurnService
         eventService.append(new UnsequencedAgentEvent(taskId, Optional.of(turn.id()), event));
     }
 
-    private static String developmentInstructions(AgentTask task, AgentTurnSettings settings)
+    private static String developmentInstructions(AgentTurnSettings settings)
     {
         return settings.developmentAutomation().map(automation -> {
             if (!automation.enabled()) {
-                if (task.laneId().value().startsWith("deepseek-key-")) {
-                    return """
-
-                            DeepSeek local task: investigate, edit, and test in this worktree as requested.
-                            Do not automatically commit, push, publish, or create a pull request.
-                            A local commit requires a direct user request. Any GitHub write requires direct user authorization.
-                            """;
-                }
                 return """
 
                         Private local review: investigate, edit local experiments, and run tests as requested.
@@ -2242,13 +2232,7 @@ public final class DefaultAgentTurnService
             throw new InvalidAgentRequestException("Development automation requires an interactive task");
         }
         Optional<DevelopmentAutomation> effective = automation.or(task.defaults()::developmentAutomation);
-        if (task.laneId().value().startsWith("deepseek-key-")) {
-            if (automation.isPresent() && !automation.orElseThrow().equals(DevelopmentAutomation.LOCAL_ONLY)) {
-                throw new InvalidAgentRequestException("DeepSeek tasks do not support automatic delivery");
-            }
-            effective = Optional.of(DevelopmentAutomation.LOCAL_ONLY);
-        }
-        else if (task.interactive()) {
+        if (task.interactive()) {
             effective = Optional.of(task.localReviewHead().isPresent() ? DevelopmentAutomation.LOCAL_ONLY
                     : effective.orElse(DevelopmentAutomation.DEFAULT).forDevelopment());
         }

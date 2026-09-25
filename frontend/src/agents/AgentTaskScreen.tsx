@@ -80,7 +80,7 @@ import { useReviewCardFocus } from './reviewCardNavigation';
 import { pullRequestDiffRevision, usePullRequestChanges } from '../pulls/usePullRequestChanges';
 import { usePullRequestDetail } from '../pulls/usePullRequestDetail';
 import { AutomationControl } from './AutomationControl';
-import { developmentQuestion, NO_AUTOMATIC_DELIVERY, stoppingEndsDevelopment } from './developmentAutomation';
+import { developmentQuestion, stoppingEndsDevelopment } from './developmentAutomation';
 import { ciActivity, ciMessage, ciMessageUnavailable } from './ciAutofix';
 import { AgentMark } from './AgentMark';
 import { taskArchived } from './AgentTasksView';
@@ -1002,6 +1002,7 @@ export function AgentTaskBody({
   pullRequestLoading = false,
   pullRequestChecked = false,
   ciPollingError = null,
+  ciApprovalError = null,
   ciSubmissionBlocked = false,
   onRefreshPullRequests,
   pullRequestDetail = NO_PULL_REQUEST_DETAIL,
@@ -1119,6 +1120,7 @@ export function AgentTaskBody({
   pullRequestLoading?: boolean;
   pullRequestChecked?: boolean;
   ciPollingError?: string | null;
+  ciApprovalError?: string | null;
   ciSubmissionBlocked?: boolean;
   onRefreshPullRequests?: () => void;
   /** What the wrapper has read for the panel's pull request; this body reads nothing itself. */
@@ -1204,7 +1206,7 @@ export function AgentTaskBody({
   };
   const status = runtimeStatus(state);
   const keyLane = isDeepSeekKeyLane(state.task?.laneId ?? '');
-  const routedToCi = !keyLane && !localReviewActive && ciMessage(state.composer) !== null;
+  const routedToCi = !localReviewActive && ciMessage(state.composer) !== null;
   const ciUnavailable = ciMessageUnavailable(state);
   const automationActive = state.task?.developmentContinuationUnfinished === true;
   const currentCi = state.task?.developmentCi?.status === 'FINISHED' ? null : state.task?.developmentCi;
@@ -1221,7 +1223,9 @@ export function AgentTaskBody({
   const generatedActivity = state.turn?.developmentOrigin?.kind === 'AUTO_COMMIT' ? 'Committing'
     : state.turn?.developmentOrigin?.kind === 'CREATE_DRAFT_PR' ? 'Creating draft PR'
     : state.turn?.developmentOrigin?.kind === 'REFINE_SUMMARY' ? 'Refining summary…' : null;
-  const statusLabel = question !== null ? 'Waiting for your answer' : status === 'running' && waiting ? 'Needs approval'
+  const ciWaiting = pendingApprovals?.some(approval => approval.taskId !== state.task?.id) ?? false;
+  const statusLabel = question !== null ? 'Waiting for your answer'
+    : (status === 'running' && waiting) || (status === 'idle' && automationActive && ciWaiting) ? 'Needs approval'
     : status === 'running' && generatedActivity !== null ? generatedActivity
     : status === 'idle' && automationActive && currentCi != null ? ciActivity(currentCi)
     : status === 'idle' && automationActive ? 'Automation running' : STATUS_LABELS[status];
@@ -1346,6 +1350,7 @@ export function AgentTaskBody({
       {terminal && state.task !== null && <TerminalSummary task={state.task} repository={repository} onCleanup={onCleanup} />}
 
       {automationActive && ciPollingError !== null && <div className="agt-notice" role="alert">{ciPollingError}</div>}
+      {automationActive && ciApprovalError !== null && <div className="agt-notice" role="alert">{ciApprovalError}</div>}
 
       {automationFailure !== null && recordedCiFailure === null && <div className="agt-notice" role="alert">
         {automationFailure}
@@ -1415,7 +1420,7 @@ export function AgentTaskBody({
       {!terminal && status !== 'recovery' && !providerRecoveryRequired && (
         <ConversationComposer
           automation={automation}
-          ciMention={state.task?.interactive === true && !localReviewActive && !keyLane} routedToCi={routedToCi}
+          ciMention={state.task?.interactive === true && !localReviewActive} routedToCi={routedToCi}
           ciMessageHint={routedToCi ? ciUnavailable ?? 'Send to CI Autofix' : undefined}
           placeholder={question !== null ? 'Waiting for your answer…' : undefined}
           value={state.composer} onChange={onCompose} onSend={onSend} onStop={automationActive ? onStopServer : onCancel} onSteer={onSteer} onQueue={onQueue}
@@ -1625,6 +1630,7 @@ export default function AgentTaskScreen({
   const historyLoadingRef = useRef(false);
   const followingHistory = useRef(true);
   const [pendingApprovals, setPendingApprovals] = useState<AgentPendingApprovalDto[] | null>(null);
+  const [ciApprovalState, setCiApprovalState] = useState<{ runId: string; approvals: AgentPendingApprovalDto[]; error: string | null } | null>(null);
   const stateRef = useRef(state);
   stateRef.current = state;
   // Object URLs are browser resources: created when an image's bytes arrive, revoked when the
@@ -1699,7 +1705,7 @@ export default function AgentTaskScreen({
   }, []);
 
   const taskKeyLane = isDeepSeekKeyLane(state.task?.laneId ?? '');
-  const automationEligible = !taskKeyLane && state.task?.interactive === true && state.task.localReviewHead == null;
+  const automationEligible = state.task?.interactive === true && state.task.localReviewHead == null;
   useEffect(() => {
     if (!automationEligible) return;
     let active = true;
@@ -1709,7 +1715,7 @@ export default function AgentTaskScreen({
   }, [automationEligible, live]);
   const automationSelection = state.task?.defaults.developmentAutomation ?? automationDefaults;
   const automationBlocked = automationEligible && automationSelection === null;
-  const submissionAutomation = taskKeyLane ? NO_AUTOMATIC_DELIVERY : automationEligible && automationSelection !== null ? automationSelection : undefined;
+  const submissionAutomation = automationEligible && automationSelection !== null ? automationSelection : undefined;
 
   const taskLaneId = state.task?.laneId ?? null;
   useEffect(() => {
@@ -1846,7 +1852,7 @@ export default function AgentTaskScreen({
   const continuationUnfinished = state.task?.developmentContinuationUnfinished ?? false;
   const pollContinuation = continuationUnfinished && state.task?.state === 'OPEN';
   useEffect(() => {
-    if (!pollContinuation) return;
+    if (!pollContinuation) { setCiApprovalState(null); return; }
     let active = true;
     let timer: ReturnType<typeof setTimeout> | undefined;
     const read = async () => {
@@ -1855,7 +1861,21 @@ export default function AgentTaskScreen({
         if (!active) return;
         dispatch({ type: 'task/loaded', task });
         setCiPollingError(null);
-        if (task.state !== 'OPEN' || !task.developmentContinuationUnfinished) return;
+        if (task.state !== 'OPEN' || !task.developmentContinuationUnfinished) { setCiApprovalState(null); return; }
+        const ci = task.developmentCi;
+        if (ci?.status === 'ACTIVE' && ci.agentTaskId !== null) {
+          try {
+            const run = await live().getCiAutofixRun(ci.runId);
+            if (!active) return;
+            if (run.id !== ci.runId || run.parentTaskId !== taskId || run.workspaceId !== workspaceId || run.agentTaskId !== ci.agentTaskId) {
+              throw new Error('CI run no longer belongs to this task');
+            }
+            const approvals = run.currentTurnId === null ? [] : await live().readAgentPendingApprovals(ci.agentTaskId, run.currentTurnId);
+            if (active) setCiApprovalState({ runId: ci.runId, approvals, error: null });
+          } catch (failure) {
+            if (active) setCiApprovalState({ runId: ci.runId, approvals: [], error: `Could not load CI approvals. ${failureText(failure)}` });
+          }
+        } else setCiApprovalState(null);
       } catch (failure) {
         if (active) setCiPollingError(`Could not refresh CI activity. ${failureText(failure)}`);
       }
@@ -2054,7 +2074,7 @@ export default function AgentTaskScreen({
 
   const send = useCallback(() => run(async () => {
     const draft = stateRef.current;
-    const ciText = !isDeepSeekKeyLane(draft.task?.laneId ?? '') && draft.task?.localReviewHead == null ? ciMessage(draft.composer) : null;
+    const ciText = draft.task?.localReviewHead == null ? ciMessage(draft.composer) : null;
     if (ciText !== null) {
       if (ciSending.current || attachmentPendingRef.current || confirmation !== null || confirming || ciPollingError !== null || ciMessageUnavailable(draft) !== null) return;
       const ci = draft.task?.developmentCi;
@@ -2083,7 +2103,7 @@ export default function AgentTaskScreen({
     }
     if (attachmentPendingRef.current || automationBlocked || !canSend(stateRef.current)) return;
     const message = state.composer.trim();
-    if (!taskKeyLane && state.task?.localReviewHead == null && ciMessage(message) !== null) return;
+    if (state.task?.localReviewHead == null && ciMessage(message) !== null) return;
     const task = state.task;
     if (message.length === 0 || task === null) return;
     const attachmentIds = state.attachments.map((attachment) => attachment.id);
@@ -2106,7 +2126,7 @@ export default function AgentTaskScreen({
       dispatch({ type: 'attachments/added', attachments: state.attachments });
       throw failure;
     }
-  }), [automationBlocked, ciPollingError, confirmation, confirming, live, refreshProjection, run, startTurn, state.attachments, state.composer, state.latestTurnId, state.task, submissionAutomation, submissions, taskId, taskKeyLane, workspaceId]);
+  }), [automationBlocked, ciPollingError, confirmation, confirming, live, refreshProjection, run, startTurn, state.attachments, state.composer, state.latestTurnId, state.task, submissionAutomation, submissions, taskId, workspaceId]);
 
   const taskCommentDisabled = state.task?.state !== 'OPEN' ? 'This task is closed.'
     : state.task?.developmentContinuationUnfinished ? 'Wait for the current follow-up to finish.'
@@ -2161,7 +2181,7 @@ export default function AgentTaskScreen({
   const steer = useCallback(() => run(async () => {
     if (attachmentPendingRef.current || !canSteer(stateRef.current)) return;
     const message = state.composer.trim();
-    if (!taskKeyLane && state.task?.localReviewHead == null && ciMessage(message) !== null) return;
+    if (state.task?.localReviewHead == null && ciMessage(message) !== null) return;
     const turn = state.turn;
     if (message.length === 0 || turn === null) return;
     const attachmentIds = state.attachments.map((attachment) => attachment.id);
@@ -2189,12 +2209,12 @@ export default function AgentTaskScreen({
     finally {
       dispatch({ type: 'composer/sending', sending: false });
     }
-  }), [live, run, state.attachments, state.composer, state.task, state.turn, submissions, taskId, taskKeyLane]);
+  }), [live, run, state.attachments, state.composer, state.task, state.turn, submissions, taskId]);
 
   const queueNext = useCallback(() => run(async () => {
     if (attachmentPendingRef.current || automationBlocked || !canQueue(stateRef.current)) return;
     const message = state.composer.trim();
-    if (!taskKeyLane && state.task?.localReviewHead == null && ciMessage(message) !== null) return;
+    if (state.task?.localReviewHead == null && ciMessage(message) !== null) return;
     const task = state.task;
     if (message.length === 0 || task === null) return;
     const attachmentIds = state.attachments.map((attachment) => attachment.id);
@@ -2220,7 +2240,7 @@ export default function AgentTaskScreen({
     finally {
       dispatch({ type: 'composer/sending', sending: false });
     }
-  }), [applyQueuedInput, automationBlocked, live, refreshProjection, run, state.attachments, state.composer, state.latestTurnId, state.task, submissionAutomation, submissions, taskId, taskKeyLane, workspaceId]);
+  }), [applyQueuedInput, automationBlocked, live, refreshProjection, run, state.attachments, state.composer, state.latestTurnId, state.task, submissionAutomation, submissions, taskId, workspaceId]);
 
   const removeQueued = useCallback((queuedInputId: string) => run(async () => {
     await live().removeAgentQueuedInput(taskId, workspaceId, queuedInputId);
@@ -2482,9 +2502,14 @@ export default function AgentTaskScreen({
 
   const decide = useCallback((approvalId: string, decision: AgentApprovalDecision, answers?: Record<string, string>) => run(async () => {
     await live().resolveAgentApproval(approvalId, decision, undefined, answers);
+    setCiApprovalState(current => current === null ? null : {
+      ...current, approvals: current.approvals.filter(approval => approval.approvalId !== approvalId),
+    });
     // The buttons that had focus disappear with the decision; the composer is the next thing to do.
     composerRef.current?.focus();
   }), [live, run]);
+
+  const currentCiApprovals = ciApprovalState?.runId === state.task?.developmentCi?.runId ? ciApprovalState : null;
 
   return (<>
     {signingIn !== null && (
@@ -2517,8 +2542,7 @@ export default function AgentTaskScreen({
         refreshKey={state.lifecycleEpoch} refining={state.task.developmentContinuationUnfinished && state.turn?.developmentOrigin?.kind === 'REFINE_SUMMARY'}
         disabledReason={taskCommentDisabled}
         localReview={localReview} bridge={live()} />}
-      automation={taskKeyLane ? <span className="agt-meta">No automatic delivery</span>
-        : automationEligible && automationSelection !== null ? <AutomationControl value={automationSelection} providers={automationProviders} disabled />
+      automation={automationEligible && automationSelection !== null ? <AutomationControl value={automationSelection} providers={automationProviders} disabled />
         : automationEligible ? <span className="agt-meta">Loading automation settings…</span> : undefined}
       historyLoading={historyLoading}
       onLoadHistory={(direction) => { void loadHistory(direction); }}
@@ -2527,7 +2551,10 @@ export default function AgentTaskScreen({
         followingHistory.current = following;
         if (resumed && stateRef.current.lastSequence > (stateRef.current.events.at(-1)?.sequence ?? 0)) void loadHistory('latest');
       }}
-      pendingApprovals={pendingApprovals}
+      pendingApprovals={[...(pendingApprovals ?? []), ...((currentCiApprovals?.approvals ?? []).map(approval => ({
+        ...approval, title: `CI Autofix · ${approval.title}`,
+      })))]}
+      ciApprovalError={currentCiApprovals?.error}
       models={models}
       provider={provider}
       providerStatus={providerStatus}

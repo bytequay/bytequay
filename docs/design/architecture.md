@@ -302,15 +302,20 @@ extension point currently justified.
 5. `persistence-sqlite` never exposes JPA entities across its public ports.
 6. `agent-cli` never writes SQLite or publishes SSE.
 7. Native tools follow the selected task sandbox and approval policy. Shared
-   `AgentCommandPolicy` instructions and restrictions belong in `agent-spi`;
-   adapters translate them into native model and reviewer configuration without
-   a second shell command parser. Attended development may use authenticated
-   `git` and `gh`, with GitHub writes requiring direct explicit authorization
-   from user input or accepted automation. Review, CI, cherry-pick, and helpers
-   retain narrower profiles. Fixed task tools are defined by their feature
-   designs: CodeGraph exploration, review/local reporting, task-scoped CI
-   evidence, and the bounded development publication tool. They do not create
-   a general product-tool framework.
+   `AgentPermissionScope` derives one provider-neutral decision from task
+   policy, session access, and review ownership; shared `AgentCommandPolicy`
+   instructions and restrictions belong in `agent-spi`. Codex and Claude
+   adapters translate that decision into their own native sandbox and reviewer
+   settings without a second shell command parser. Provider prompts that reach
+   ByteQuay use its existing task approval service. Attended development may
+   use `git` and `gh`, but ByteQuay does not pass ambient GitHub token,
+   `GH_CONFIG_DIR`, or `SSH_AUTH_SOCK` variables into agent processes. GitHub
+   writes require direct explicit authorization from user input or accepted
+   automation. Review, CI, cherry-pick, and helpers retain narrower profiles.
+   Fixed task tools are
+   defined by their feature designs: CodeGraph exploration, review/local
+   reporting, task-scoped CI evidence, and the bounded development publication
+   tool. They do not create a general product-tool framework.
 8. Java Platform Module System descriptors are unnecessary; Maven dependency
    direction is sufficient.
 
@@ -509,8 +514,8 @@ React projection implement this end-to-end flow:
     the separately defined CodeGraph, review, local-comment, and development
     delivery contracts. Generated draft publication uses its task-bound tool
     and backend-verified destination and lease; an ordinary user turn may
-    instead perform explicitly authorized CLI publishing under the shared
-    command policy.
+    instead attempt explicitly authorized CLI publishing under the shared
+    command policy when its own CLI authentication is available.
 
 The detailed backend contract is in
 [Agent Service Design](agent-service.md); the frontend behavior is in
@@ -569,13 +574,16 @@ renderer crashes detach the native surface and expose a reload action.
   Shared scope rules require authorization and verification of the actual
   repository, remote, task branch, outgoing changes, and complete shell action.
   These are model-based checks, not OS-enforced remote or branch capabilities.
-  Existing filesystem isolation and native denials remain. Codex keeps shell
-  networking off until native escalation; Claude sends interactive Bash through
-  native classification and keeps sandbox escape disabled. Provider decisions
-  can differ while following the same ByteQuay scope.
-  A finite shared Git CLI environment allowlist supports existing CLI login,
-  credential helpers, SSH-agent routing, and configured GitHub environment
-  tokens in eligible sessions. ByteQuay never injects its stored GitHub token.
+  Codex and DeepSeek use the native workspace-write sandbox; Claude uses its
+  native sandbox and classifies interactive Bash. Provider prompts that remain
+  after native review are routed through ByteQuay approval cards, including
+  unresolved CI repair prompts. Claude Auto mode retains its native classifier;
+  full development and CI sandbox-escape retries require a ByteQuay approval,
+  while restricted profiles refuse them. Full development and CI turns allow
+  command networking for builds. A shared filter removes ambient
+  GitHub token, `GH_CONFIG_DIR`, and `SSH_AUTH_SOCK` variables from agent process
+  environments; ByteQuay never injects its stored GitHub token. Same-user
+  filesystem access is still not a complete credential boundary.
   Provider authentication does not select permissions; Claude subscription and
   API-key use share the same policy, and no new API driver is introduced.
 - Stock provider tool workloads run through the selected sandbox and approval
@@ -600,13 +608,13 @@ renderer crashes detach the native surface and expose a reload action.
   optional feature, enable native live web for ordinary tasks (disabled for
   text-only helpers), expose no MCP server, and apply the minimal
   shell environment without inherited setters, exclusions, or filters.
-  Ordinary tasks use native automatic approval review with ByteQuay's exact
-  pinned policy. Native risk rules govern routine task prerequisites, including
-  bounded build/test cache and temporary writes; the task request supplies
-  authorization without a separate approval naming each cache path. Every
-  GitHub write still requires direct explicit user authorization. Native
-  denials and the prohibition on persistent or blanket future grants remain;
-  `AUTO` does not guarantee approval of every test command.
+  Ordinary tasks use native on-request approval review. ByteQuay checks
+  provider prompts against the task scope and presents unresolved supported
+  requests as one-time approval cards. Validated worktree Git metadata and
+  build-cache roots are configured before launch. Every GitHub write still
+  requires direct explicit user authorization. Native denials and the
+  prohibition on persistent or blanket future grants remain; `AUTO` does not
+  guarantee approval of every test command.
   `hooks/list` must be empty. `skills/list` may contain only bundled system
   skills canonically beneath the isolated `CODEX_HOME/skills/.system`, never a
   repository, user, admin, plugin-owned, or out-of-root skill. The completed
@@ -649,9 +657,15 @@ renderer crashes detach the native surface and expose a reload action.
 - A task's process working directory is its explicit sandbox root. Attended
   Codex `AUTO` keeps ordinary `/tmp` and `$TMPDIR` allowances by setting both
   temporary-directory exclusions to false; other policies retain the exclusions.
-  Attended Codex development and review turns also make `~/.m2/repository`, the user's Maven local
-  repository, a writable root, with network still off; other cache directories
-  are not writable roots, and native review handles those escalations. No
+  Full Codex development, review, and CI turns allow command network access.
+  Codex, DeepSeek, and Claude select the same validated
+  `$HOME/.m2`, `$HOME/.gradle`, and `$HOME/.npm`
+  writable cache roots; Claude also retains `/var/tmp` for temporary files.
+  Full development, CI, and cherry-pick turns use one validated selection of linked-worktree
+  Git metadata roots for local commits; other Git refs and shared configuration
+  retain their normal native protections.
+  The optional managed network proxy stays disabled
+  because the native macOS JVM fixture cannot use it for dependency fetches. No
   separate execution environment is registered and no loopback listener is
   opened. Initialization declares
   `experimentalApi: true` for parent-filtered

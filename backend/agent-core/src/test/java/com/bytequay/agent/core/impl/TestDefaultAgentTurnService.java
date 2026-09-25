@@ -420,7 +420,7 @@ class TestDefaultAgentTurnService
     }
 
     @Test
-    void deepSeekTurnsRejectDeliveryOverridesAndKeepQueuedWorkLocalOnly()
+    void deepSeekTurnsUseNormalAutomationAndPreserveQueuedSettings()
     {
         AgentLaneId lane = new AgentLaneId("deepseek-key-11111111-1111-1111-1111-111111111111");
         driver = new DeterministicAgentDriver(lane);
@@ -437,26 +437,20 @@ class TestDefaultAgentTurnService
                         .withDevelopmentAutomation(DevelopmentAutomation.DEFAULT),
                 "deepseek-fingerprint", Optional.empty()));
 
-        assertThat(service.effectiveSettings(deepSeek.id()).developmentAutomation()).contains(DevelopmentAutomation.LOCAL_ONLY);
-        assertThatThrownBy(() -> service.start(new StartAgentTurnCommand(
-                deepSeek.id(), "invalid", ImmutableList.of(), "invalid-automation")
-                .withDevelopmentAutomation(Optional.of(DevelopmentAutomation.DEFAULT))))
-                .isInstanceOf(InvalidAgentRequestException.class).hasMessageContaining("automatic delivery");
+        assertThat(service.effectiveSettings(deepSeek.id()).developmentAutomation()).contains(DevelopmentAutomation.DEFAULT);
 
         AgentTurn first = service.start(new StartAgentTurnCommand(
-                deepSeek.id(), "first", ImmutableList.of(), "deepseek-first"));
-        assertThat(first.settings().orElseThrow().developmentAutomation()).contains(DevelopmentAutomation.LOCAL_ONLY);
+                deepSeek.id(), "first", ImmutableList.of(), "deepseek-first")
+                .withDevelopmentAutomation(Optional.of(DevelopmentAutomation.LOCAL_ONLY)));
+        assertThat(first.settings().orElseThrow().developmentAutomation()).contains(DevelopmentAutomation.LOCAL_ONLY.forDevelopment());
         assertThat(driver.openedContexts().getLast().managedInstructions())
-                .contains("DeepSeek local task", "A local commit requires a direct user request")
+                .contains("Commit finished development work: true", "Auto draft PR: false")
                 .doesNotContain("Private local review");
         long version = taskService.get(deepSeek.id()).version();
-        assertThatThrownBy(() -> service.enqueue(new QueueAgentInputCommand(
-                deepSeek.id(), version, "invalid queued", ImmutableList.of(), "invalid-queue",
-                Optional.of(DevelopmentAutomation.DEFAULT))))
-                .isInstanceOf(InvalidAgentRequestException.class).hasMessageContaining("automatic delivery");
         QueuedAgentInput queued = service.enqueue(new QueueAgentInputCommand(
-                deepSeek.id(), version, "queued", ImmutableList.of(), "deepseek-queue"));
-        assertThat(queued.settings().developmentAutomation()).contains(DevelopmentAutomation.LOCAL_ONLY);
+                deepSeek.id(), version, "queued", ImmutableList.of(), "deepseek-queue",
+                Optional.of(DevelopmentAutomation.DEFAULT)));
+        assertThat(queued.settings().developmentAutomation()).contains(DevelopmentAutomation.DEFAULT);
 
         AgentTask current = taskService.get(deepSeek.id());
         taskService.updateDefaults(new UpdateAgentTaskDefaultsCommand(

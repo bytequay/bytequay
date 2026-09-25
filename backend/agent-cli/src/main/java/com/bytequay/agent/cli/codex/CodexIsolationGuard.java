@@ -233,7 +233,9 @@ final class CodexIsolationGuard
             throw unavailable("config/read omitted the launch policy");
         }
         boolean ci = !ciWritableRoots.isEmpty();
-        requireTextValue(config, "web_search", deepSeek.isPresent() || textOnly || ci ? "disabled" : "live");
+        requireTextValue(config, "web_search", textOnly || ci ? "disabled" : "live");
+        requireTextValue(config, "approval_policy", textOnly ? "never" : "on-request");
+        requireTextValue(config, "approvals_reviewer", "user");
         if (deepSeek.isPresent()) {
             requireTextValue(config, "cli_auth_credentials_store", "ephemeral");
             JsonNode forcedLogin = config.path("forced_login_method");
@@ -255,37 +257,9 @@ final class CodexIsolationGuard
             if (!retries.isIntegralNumber() || retries.asInt() != 0) {
                 throw unavailable("DeepSeek provider could retry a failed request");
             }
-            requireTextValue(config, "approval_policy", "on-request");
-            requireTextValue(config, "approvals_reviewer", "user");
-            requireTextValue(config, "default_permissions", CodexLaunchProfile.DEEPSEEK_PERMISSIONS);
-            JsonNode profile = config.path("permissions").path(CodexLaunchProfile.DEEPSEEK_PERMISSIONS);
-            requireTextValue(profile, "extends", ":workspace");
-            JsonNode filesystem = profile.path("filesystem");
-            requireTextValue(filesystem, ":root", "deny");
-            requireTextValue(filesystem, ":minimal", "read");
-            requireTextValue(filesystem, deepSeek.orElseThrow().protectedAppData().toString(), "deny");
-            Set<String> allowedPaths = Set.of(":root", ":minimal", deepSeek.orElseThrow().protectedAppData().toString());
-            filesystem.fields().forEachRemaining(entry -> {
-                if (!allowedPaths.contains(entry.getKey()) && !entry.getValue().isNull()) {
-                    throw unavailable("DeepSeek permission profile contains an unexpected filesystem grant");
-                }
-            });
-            requireBooleanValue(profile.path("network"), "enabled", false);
-            if (config.path("sandbox_mode").isTextual() || config.path("sandbox_workspace_write").isObject()) {
-                throw unavailable("DeepSeek launch mixed legacy sandbox settings with the permission profile");
-            }
-            JsonNode autoReview = config.path("auto_review").path("policy");
-            if (!autoReview.isMissingNode() && !autoReview.isNull()) {
-                throw unavailable("DeepSeek launch inherited automatic approval review");
-            }
             DeepSeekModelCatalog.verify(deepSeek.orElseThrow().catalog());
         }
-        else if (!textOnly && !ci) {
-            requireTextValue(config.path("auto_review"), "policy", CodexApprovalPolicy.policy(review));
-        }
         if (ci) {
-            requireTextValue(config, "approval_policy", "never");
-            requireTextValue(config, "approvals_reviewer", "user");
             JsonNode sandbox = config.path("sandbox_workspace_write");
             JsonNode roots = sandbox.path("writable_roots");
             if (!roots.isArray() || roots.size() != ciWritableRoots.size()) {
@@ -298,18 +272,24 @@ final class CodexIsolationGuard
             }
             for (String field : ImmutableList.of("network_access", "exclude_tmpdir_env_var", "exclude_slash_tmp")) {
                 JsonNode value = sandbox.path(field);
-                if (!value.isBoolean() || value.asBoolean() != !field.equals("network_access")) {
+                if (!value.isBoolean() || !value.asBoolean()) {
                     throw unavailable("Codex CI sandbox " + field + " does not match the launch profile");
                 }
             }
+        }
+        else if (allowGitHubCommands || review) {
+            requireBooleanValue(config.path("sandbox_workspace_write"), "network_access", true);
         }
 
         JsonNode features = config.path("features");
         if (!features.isObject()) {
             throw unavailable("config/read omitted the feature policy");
         }
-        for (Map.Entry<String, Boolean> feature : CodexLaunchProfile.expectedFeatures(childProfile, textOnly, ci, deepSeek.isPresent()).entrySet()) {
+        for (Map.Entry<String, Boolean> feature : CodexLaunchProfile.expectedFeatures(childProfile, textOnly).entrySet()) {
             JsonNode value = features.path(feature.getKey());
+            if (feature.getKey().equals("network_proxy") && value.isObject()) {
+                value = value.path("enabled");
+            }
             if (!value.isBoolean() || value.asBoolean() != feature.getValue()) {
                 throw unavailable("Codex feature " + feature.getKey() + " does not match the launch profile");
             }
@@ -325,16 +305,16 @@ final class CodexIsolationGuard
         if (!shell.isObject()) {
             throw unavailable("config/read omitted the shell environment policy");
         }
-        requireTextValue(shell, "inherit", allowGitHubCommands ? "all" : "core");
-        requireBooleanValue(shell, "ignore_default_excludes", allowGitHubCommands);
+        requireTextValue(shell, "inherit", "core");
+        requireBooleanValue(shell, "ignore_default_excludes", false);
         requireBooleanValue(shell, "experimental_use_profile", false);
         JsonNode includeOnly = shell.path("include_only");
         if (!includeOnly.isArray()
-                || includeOnly.size() != CodexLaunchProfile.expectedShellEnvironmentIncludeOnly(allowGitHubCommands).size()) {
+                || includeOnly.size() != CodexLaunchProfile.expectedShellEnvironmentIncludeOnly().size()) {
             throw unavailable("Codex shell environment allowlist does not match the launch profile");
         }
         int index = 0;
-        for (String expected : CodexLaunchProfile.expectedShellEnvironmentIncludeOnly(allowGitHubCommands)) {
+        for (String expected : CodexLaunchProfile.expectedShellEnvironmentIncludeOnly()) {
             if (!includeOnly.get(index++).isTextual()
                     || !includeOnly.get(index - 1).asText().equals(expected)) {
                 throw unavailable("Codex shell environment allowlist does not match the launch profile");
@@ -416,6 +396,10 @@ final class CodexIsolationGuard
             throw unavailable("config/read does not expose exactly the ByteQuay task MCP endpoint");
         }
         requireTextValue(servers.path("bytequay"), "default_tools_approval_mode", "approve");
+        JsonNode bearer = servers.path("bytequay").path("bearer_token_env_var");
+        if (deepSeek.isPresent() && !bearer.isMissingNode() && !bearer.isNull()) {
+            throw unavailable("DeepSeek task tools exposed a bearer token to Codex");
+        }
     }
 
     private static void requireTextValue(JsonNode object, String field, String expected)

@@ -22,9 +22,11 @@ historical checkpoint evidence and explicitly deferred future work.
   App Server and Claude implementation and specifies the task, turn, event,
   approval, queue, attachment, and subagent contracts used by the rich task
   surface.
-- [DeepSeek API-key task lane](deepseek-api-key-lane.md) is the approved,
-  unimplemented saved-key choice for attended agent tasks using the existing
-  Codex App Server adapter. Its
+- [DeepSeek API-key task lane](deepseek-api-key-lane.md) is the saved-key
+  choice for interactive development and CI repair using the existing Codex
+  App Server adapter and the same Codex CLI task permissions. Its automation
+  paths have passed offline verification; permission parity is implemented,
+  while the full opt-in real-key gate remains open. Its
   [implementation checklist](deepseek-api-key-lane-impl-tmp.md) tracks
   checkpoints and verification.
 - [Managed Worktree Service](worktree-service.md) specifies the approved
@@ -129,13 +131,16 @@ repository builds.
   tool. Agent Review separately authorizes its fixed context/local-reporting
   tools for review-owned tasks, subject to its implementation gates. Neither
   creates a general tool framework or model-callable GitHub publisher.
-- Attended development allows authenticated `git` and `gh` under a shared
+- Attended development allows `git` and `gh` under a shared
   provider-independent authorization policy and the provider's native risk
-  review. Every GitHub write needs explicit authority from user input or
-  accepted automation. Complete action and target checks are model-based;
-  sandbox boundaries remain enforced separately. Review, CI, cherry-pick, and
-  text-only sessions retain narrower profiles. Provider login versus API-key
-  authentication does not change permissions. See
+  review. ByteQuay does not pass ambient GitHub token, `GH_CONFIG_DIR`, or
+  `SSH_AUTH_SOCK` variables into agent processes. Provider prompts that
+  reach ByteQuay use its task approval service. Every GitHub write needs
+  explicit authority from user input or accepted automation. Complete action
+  and target checks are model-based; native sandbox boundaries remain enforced
+  separately. Review, CI, cherry-pick, and text-only sessions retain narrower
+  profiles. Provider login versus API-key authentication does not change
+  permissions. See
   [the shared command policy](agent-service.md#shared-development-command-policy).
 - A project-aware command, such as running one test, needs a validation profile:
   a preflight that names what is missing and an argv builder from a validated
@@ -274,7 +279,8 @@ Codex-home instruction files, and removes its run-scoped rollout, writer-lock,
 shell-snapshot, and trust records after every owned process stops. The fixture's
 model-requested tool processes remain credential-free: commands must prove that `CODEX_API_KEY`,
 `OPENAI_API_KEY`, `CODEX_HOME`, and the App Server-only sentinel are absent.
-API-key fixture support is deferred. The live paths' presence is not evidence;
+API-key support in this subscription fixture is deferred; the DeepSeek lane has
+its own fixture. The live paths' presence is not evidence;
 both the no-child `--live` fixture and recursive `--live-children` fixture
 passed locally with that subscription-backed profile. CP0
 through CP11 recorded completion of the workspace-scoped task/turn contract, typed

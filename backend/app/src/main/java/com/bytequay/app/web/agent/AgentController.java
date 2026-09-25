@@ -254,7 +254,7 @@ public class AgentController
             InteractiveAgentHttpContract.CreateTaskRequest request,
             List<StoreAgentAttachmentCommand> uploads)
     {
-        checkArgument(!deepSeekLane(new AgentLaneId(request.laneId())) || request.issueSource().isEmpty(),
+        checkArgument(!request.laneId().startsWith("deepseek-key-") || request.issueSource().isEmpty(),
                 "DeepSeek tasks cannot start from a GitHub issue");
         if (request.issueSource().isEmpty()) {
             issueDevelopment.requireUnattachedCreate(TaskId.valueOf(request.taskId()));
@@ -273,13 +273,13 @@ public class AgentController
     {
         String message = request.message();
         AgentLaneId laneId = new AgentLaneId(request.laneId());
-        Optional<DevelopmentAutomation> requestedAutomation = submissionAutomation(laneId, request.developmentAutomation());
+        Optional<DevelopmentAutomation> requestedAutomation = request.developmentAutomation().map(DevelopmentAutomationDto::toDomain);
         AgentTaskDefaults defaults = new AgentTaskDefaults(
                 request.defaults().model(),
                 request.defaults().effort(),
                 AgentPermissionPolicy.valueOf(request.defaults().permissionPolicy()),
                 request.defaults().serviceTier(),
-                submissionAutomation(laneId, request.defaults().developmentAutomation()));
+                request.defaults().developmentAutomation().map(DevelopmentAutomationDto::toDomain));
         TaskId taskId = TaskId.valueOf(request.taskId());
         try {
             boolean replay = initialTurnExists(taskId, request.idempotencyKey());
@@ -377,7 +377,7 @@ public class AgentController
                 request.defaults().serviceTier());
         // A started task keeps the automation it was created with; this update only retunes its model.
         Optional<DevelopmentAutomation> automation = task.defaults().developmentAutomation();
-        checkArgument(submissionAutomation(task.laneId(), request.defaults().developmentAutomation()).or(() -> automation).equals(automation),
+        checkArgument(request.defaults().developmentAutomation().map(DevelopmentAutomationDto::toDomain).or(() -> automation).equals(automation),
                 "Automation settings cannot change after a task starts");
         return taskResponse(taskService.updateDefaults(new UpdateAgentTaskDefaultsCommand(
                 id,
@@ -647,9 +647,6 @@ public class AgentController
             checkArgument(requested.isEmpty(), "Development automation requires an interactive task");
             return Optional.empty();
         }
-        if (deepSeekLane(task.laneId())) {
-            return submissionAutomation(task.laneId(), requested);
-        }
         if (task.localReviewHead().isPresent()) {
             return Optional.of(DevelopmentAutomation.LOCAL_ONLY);
         }
@@ -658,24 +655,6 @@ public class AgentController
                 .orElseGet(appSettings::developmentAutomation);
         appSettings.validateDevelopmentAutomation(automation);
         return Optional.of(automation);
-    }
-
-    static Optional<DevelopmentAutomation> submissionAutomation(
-            AgentLaneId laneId,
-            Optional<DevelopmentAutomationDto> requested)
-    {
-        if (!deepSeekLane(laneId)) {
-            return requested.map(DevelopmentAutomationDto::toDomain);
-        }
-        requested.ifPresent(value -> checkArgument(
-                !value.autoDraftPr() && !value.autoCiFix() && value.ciLaneId().isEmpty(),
-                "DeepSeek tasks do not support automatic delivery"));
-        return Optional.of(DevelopmentAutomation.LOCAL_ONLY);
-    }
-
-    private static boolean deepSeekLane(AgentLaneId laneId)
-    {
-        return laneId.value().startsWith("deepseek-key-");
     }
 
     /** The stored images a message names, resolved to the provider inputs only the backend may build. */

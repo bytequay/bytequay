@@ -32,59 +32,72 @@ class TestCodexLaunchProfile
     private Path temporary;
 
     @Test
-    void pinsDeepSeekProviderAndUserReviewedLocalTools()
+    void sharesInteractiveCodexPermissionsWithDeepSeek()
+            throws Exception
     {
         Path catalog = temporary.resolve("home/deepseek-models.json");
         DeepSeekModelCatalog.prepare(catalog);
         DeepSeekModelCatalog.verify(catalog);
         URI proxy = URI.create("http://127.0.0.1:12345/fixture/");
-        Path appData = temporary.resolve("Library/Application Support/ByteQuay");
-        CodexLaunchProfile.DeepSeekProfile deepSeek = new CodexLaunchProfile.DeepSeekProfile(catalog, proxy, appData);
+        CodexLaunchProfile.DeepSeekProfile deepSeek = new CodexLaunchProfile.DeepSeekProfile(catalog, proxy);
         List<String> arguments = CodexLaunchProfile.arguments(
-                "codex", CodexLaunchProfile.ChildProfile.NONE, Optional.empty(), false, ImmutableList.of(), false, false, Optional.of(deepSeek));
+                "codex", CodexLaunchProfile.ChildProfile.V1, Optional.empty(), false, ImmutableList.of(), true, false, Optional.of(deepSeek));
+        List<String> codexArguments = CodexLaunchProfile.arguments(
+                "codex", CodexLaunchProfile.ChildProfile.V1, Optional.empty(), false, ImmutableList.of(), true, false);
         assertThat(arguments).containsSequence("-c", "model_provider=\"deepseek\"");
         assertThat(arguments).containsSequence("-c", "model_providers.deepseek.base_url=\"" + proxy + "\"");
-        assertThat(arguments).containsSequence("-c", "approval_policy=\"on-request\"");
-        assertThat(arguments).containsSequence("-c", "approvals_reviewer=\"user\"");
-        assertThat(arguments).containsSequence("-c", "default_permissions=\"bytequay-deepseek\"");
-        assertThat(arguments).containsSequence("-c", "permissions.bytequay-deepseek.extends=\":workspace\"");
-        assertThat(arguments).containsSequence("-c", "permissions.bytequay-deepseek.network.enabled=false");
         assertThat(arguments).containsSequence("-c", "model_providers.deepseek.request_max_retries=0");
-        assertThat(arguments).containsSequence("-c", "web_search=\"disabled\"");
-        assertThat(arguments).containsSequence("--disable", "multi_agent");
-        assertThat(arguments).containsSequence("--disable", "multi_agent_v2");
-        assertThat(arguments).containsSequence("--disable", "guardian_approval");
+        assertThat(arguments.subList(arguments.indexOf("web_search=\"live\"") - 1, arguments.size()))
+                .containsExactlyElementsOf(codexArguments.subList(codexArguments.indexOf("web_search=\"live\"") - 1, codexArguments.size()));
         assertThat(arguments).noneMatch(value -> value.contains("DEEPSEEK_API_KEY") || value.contains("sk-secret")
-                || value.contains("experimental_bearer_token") || value.contains("chatgpt")
-                || value.contains("sandbox_workspace_write"));
-        assertThat(CodexLaunchProfile.expectedShellEnvironmentIncludeOnly(false))
-                .doesNotContain("DEEPSEEK_API_KEY", "OPENAI_API_KEY", "GH_TOKEN", "CODEX_HOME");
-        assertThat(CodexLaunchProfile.threadConfig(
-                CodexLaunchProfile.ChildProfile.NONE, false, false, ImmutableList.of(), false, false, Optional.of(deepSeek)))
+                || value.contains("experimental_bearer_token") || value.contains("chatgpt") || value.contains("default_permissions"));
+        assertThat(CodexLaunchProfile.expectedShellEnvironmentIncludeOnly())
+                .doesNotContain("DEEPSEEK_API_KEY", "OPENAI_API_KEY", "CODEX_HOME");
+        var threadConfig = CodexLaunchProfile.threadConfig(
+                CodexLaunchProfile.ChildProfile.V1, false, false, ImmutableList.of(), true, false, Optional.of(deepSeek));
+        var codexThreadConfig = CodexLaunchProfile.threadConfig(
+                CodexLaunchProfile.ChildProfile.V1, false, false, ImmutableList.of(), true, false);
+        assertThat(threadConfig)
                 .containsEntry("model_provider", "deepseek")
                 .containsEntry("model_catalog_json", catalog.toString())
-                .containsEntry("approval_policy", "on-request")
-                .containsEntry("approvals_reviewer", "user")
-                .containsEntry("default_permissions", CodexLaunchProfile.DEEPSEEK_PERMISSIONS)
-                .containsEntry("permissions", java.util.Map.of(CodexLaunchProfile.DEEPSEEK_PERMISSIONS,
-                        CodexLaunchProfile.deepSeekPermissionsConfig(deepSeek)))
-                .containsEntry("web_search", "disabled");
-        assertThatThrownBy(() -> CodexLaunchProfile.arguments(
-                "codex", CodexLaunchProfile.ChildProfile.V1, Optional.empty(), false, ImmutableList.of(), false, false, Optional.of(deepSeek)))
-                .isInstanceOf(IllegalArgumentException.class);
+                .containsAllEntriesOf(codexThreadConfig)
+                .hasSize(codexThreadConfig.size() + 3)
+                .doesNotContainKeys("default_permissions", "permissions");
         assertThatThrownBy(() -> {
             Files.writeString(catalog, "{}");
             DeepSeekModelCatalog.verify(catalog);
         }).hasMessageContaining("does not match ByteQuay");
-        assertThatThrownBy(() -> {
-            Files.writeString(catalog.getParent().resolve("config.toml"), "web_search = \"live\"\n");
-            DeepSeekModelCatalog.prepare(catalog);
-        }).hasMessageContaining("unexpected user configuration");
+        Files.writeString(catalog.getParent().resolve("config.toml"), "web_search = \"live\"\n");
+        DeepSeekModelCatalog.prepare(catalog);
+        DeepSeekModelCatalog.verify(catalog);
         Path linkedHome = temporary.resolve("linked-home");
         assertThatThrownBy(() -> {
             Files.createSymbolicLink(linkedHome, catalog.getParent());
             DeepSeekModelCatalog.verifyHome(linkedHome);
         }).hasMessageContaining("cannot use a symbolic link");
+    }
+
+    @Test
+    void acceptsCodexProjectTrustAndOtherUserConfiguration()
+            throws Exception
+    {
+        Path catalog = temporary.resolve("home/deepseek-models.json");
+        DeepSeekModelCatalog.prepare(catalog);
+        Path config = catalog.getParent().resolve("config.toml");
+        String trustedProjects = "[projects.\"" + temporary.resolve("repository") + "\"]\n"
+                + "trust_level = \"trusted\"\n\n"
+                + "[projects.\"" + temporary.resolve("other-repository") + "\"]\n"
+                + "trust_level = \"trusted\"\n";
+        Files.writeString(config, trustedProjects);
+
+        DeepSeekModelCatalog.verifyHome(catalog.getParent());
+        DeepSeekModelCatalog.prepare(catalog);
+        DeepSeekModelCatalog.verify(catalog);
+
+        Files.writeString(config, trustedProjects + "web_search = \"live\"\n");
+        DeepSeekModelCatalog.verifyHome(catalog.getParent());
+        DeepSeekModelCatalog.prepare(catalog);
+        DeepSeekModelCatalog.verify(catalog);
     }
 
     @Test
@@ -99,6 +112,40 @@ class TestCodexLaunchProfile
         assertThat(CodexCliDriver.deepSeekFailure("model_not_found: deepseek-old"))
                 .contains("selected model")
                 .doesNotContain("deepseek-old");
+    }
+
+    @Test
+    void keepsTaskMcpBearerOutOfCodexArguments()
+    {
+        CodexLaunchProfile.DeepSeekProfile profile = new CodexLaunchProfile.DeepSeekProfile(
+                temporary.resolve("deepseek-models.json"), URI.create("http://127.0.0.1:12345/responses/"));
+        CodexLaunchProfile.CodeGraphLaunch tools = new CodexLaunchProfile.CodeGraphLaunch(
+                URI.create("http://127.0.0.1:12346/task/mcp"), "Task tools", false);
+        List<String> arguments = CodexLaunchProfile.arguments("codex", CodexLaunchProfile.ChildProfile.NONE,
+                Optional.of(tools), false, ImmutableList.of(), false, false, Optional.of(profile));
+        assertThat(arguments).containsSequence("-c", "mcp_servers.bytequay.url=\"" + tools.endpoint() + "\"");
+        assertThat(arguments).noneMatch(argument -> argument.contains("bearer_token_env_var") || argument.contains("BYTEQUAY_CODEGRAPH_TOKEN"));
+    }
+
+    @Test
+    void sharesCiCodexPermissionsWithDeepSeek()
+    {
+        List<String> roots = ImmutableList.of("/task", "/repo/.git/worktrees/task", "/repo/.git/refs/heads/task.lock");
+        CodexLaunchProfile.DeepSeekProfile profile = new CodexLaunchProfile.DeepSeekProfile(
+                temporary.resolve("deepseek-models.json"), URI.create("http://127.0.0.1:12345/responses/"));
+        List<String> arguments = CodexLaunchProfile.arguments("codex", CodexLaunchProfile.ChildProfile.NONE,
+                Optional.empty(), false, roots, false, false, Optional.of(profile));
+        List<String> codexArguments = CodexLaunchProfile.arguments("codex", CodexLaunchProfile.ChildProfile.NONE,
+                Optional.empty(), false, roots, false, false);
+        assertThat(arguments).containsSequence("-c", "approval_policy=\"on-request\"");
+        assertThat(arguments.subList(arguments.indexOf("web_search=\"disabled\"") - 1, arguments.size()))
+                .containsExactlyElementsOf(codexArguments.subList(codexArguments.indexOf("web_search=\"disabled\"") - 1, codexArguments.size()));
+        var codexThreadConfig = CodexLaunchProfile.threadConfig(CodexLaunchProfile.ChildProfile.NONE, false, false, roots, false, false);
+        assertThat(CodexLaunchProfile.threadConfig(CodexLaunchProfile.ChildProfile.NONE, false, false, roots, false, false, Optional.of(profile)))
+                .containsEntry("approval_policy", "on-request")
+                .containsAllEntriesOf(codexThreadConfig)
+                .hasSize(codexThreadConfig.size() + 3)
+                .doesNotContainKeys("default_permissions", "permissions");
     }
 
     @Test
@@ -149,7 +196,7 @@ class TestCodexLaunchProfile
                 .containsEntry("web_search", "disabled");
         for (String feature : List.of("code_mode", "js_repl", "shell_snapshot", "shell_tool", "unified_exec")) {
             assertThat(arguments).containsSequence("--disable", feature);
-            assertThat(CodexLaunchProfile.expectedFeatures(CodexLaunchProfile.ChildProfile.NONE, true, false))
+            assertThat(CodexLaunchProfile.expectedFeatures(CodexLaunchProfile.ChildProfile.NONE, true))
                     .containsEntry(feature, false);
         }
     }
@@ -171,21 +218,21 @@ class TestCodexLaunchProfile
         List<String> roots = ImmutableList.of("/task", "/repo/.git/worktrees/task", "/repo/.git/refs/heads/task.lock");
         for (CodexLaunchProfile.ChildProfile childProfile : CodexLaunchProfile.ChildProfile.values()) {
             List<String> arguments = CodexLaunchProfile.arguments("/usr/local/bin/codex", childProfile, Optional.empty(), false, roots, false, false);
-            assertThat(arguments).containsSequence("-c", "approval_policy=\"never\"");
+            assertThat(arguments).containsSequence("-c", "approval_policy=\"on-request\"");
             assertThat(arguments).containsSequence("-c", "approvals_reviewer=\"user\"");
             assertThat(arguments).containsSequence("-c", "web_search=\"disabled\"");
             assertThat(arguments).containsSequence("--disable", "guardian_approval");
-            assertThat(arguments).containsSequence("-c", "sandbox_workspace_write.network_access=false");
+            assertThat(arguments).containsSequence("-c", "sandbox_workspace_write.network_access=true");
             assertThat(arguments).containsSequence("-c", "sandbox_workspace_write.exclude_tmpdir_env_var=true");
             assertThat(arguments).containsSequence("-c", "sandbox_workspace_write.exclude_slash_tmp=true");
             assertThat(arguments).noneMatch(argument -> argument.startsWith("auto_review.policy="));
             assertThat(CodexLaunchProfile.threadConfig(childProfile, true, false, roots, false, false))
-                    .containsEntry("approval_policy", "never")
+                    .containsEntry("approval_policy", "on-request")
                     .containsEntry("approvals_reviewer", "user")
                     .containsEntry("web_search", "disabled")
                     .containsEntry("sandbox_workspace_write", CodexLaunchProfile.ciSandboxConfig(roots))
                     .doesNotContainKey("auto_review");
-            assertThat(CodexLaunchProfile.expectedFeatures(childProfile, false, true)).containsEntry("guardian_approval", false);
+            assertThat(CodexLaunchProfile.expectedFeatures(childProfile, false)).containsEntry("guardian_approval", false);
         }
     }
 
@@ -198,17 +245,34 @@ class TestCodexLaunchProfile
     }
 
     @Test
-    void permitsOnlyNormalGitAuthenticationInTheInteractiveShell()
+    void keepsCredentialsOutOfTheInteractiveShell()
     {
         List<String> arguments = CodexLaunchProfile.arguments("codex", CodexLaunchProfile.ChildProfile.V1, Optional.empty(), false, ImmutableList.of(), true, false);
-        assertThat(arguments).contains("shell_environment_policy.inherit=\"all\"", "shell_environment_policy.ignore_default_excludes=true");
-        assertThat(CodexLaunchProfile.expectedShellEnvironmentIncludeOnly(true))
-                .contains("GH_TOKEN", "GITHUB_TOKEN", "GH_ENTERPRISE_TOKEN", "GITHUB_ENTERPRISE_TOKEN", "GH_HOST", "GH_CONFIG_DIR", "XDG_CONFIG_HOME", "SSH_AUTH_SOCK")
-                .doesNotContain("OPENAI_API_KEY", "CODEX_API_KEY", "ANTHROPIC_API_KEY", "CODEX_HOME", "BYTEQUAY_CODEGRAPH_TOKEN", "GH_REPO", "GIT_DIR");
+        assertThat(arguments).contains("shell_environment_policy.inherit=\"core\"", "shell_environment_policy.ignore_default_excludes=false");
+        assertThat(arguments).containsSequence("-c", "sandbox_workspace_write.network_access=true");
+        assertThat(CodexLaunchProfile.expectedShellEnvironmentIncludeOnly())
+                .doesNotContain("GH_TOKEN", "GITHUB_TOKEN", "GH_ENTERPRISE_TOKEN", "GITHUB_ENTERPRISE_TOKEN", "GH_HOST", "GH_CONFIG_DIR", "XDG_CONFIG_HOME", "SSH_AUTH_SOCK",
+                        "OPENAI_API_KEY", "CODEX_API_KEY", "ANTHROPIC_API_KEY", "CODEX_HOME", "BYTEQUAY_CODEGRAPH_TOKEN", "GH_REPO", "GIT_DIR");
         assertThat(CodexLaunchProfile.threadConfig(CodexLaunchProfile.ChildProfile.V1, false, false, ImmutableList.of(), true, false))
-                .containsEntry("shell_environment_policy", CodexLaunchProfile.expectedShellEnvironmentPolicy(true));
-        assertThat(CodexLaunchProfile.expectedShellEnvironmentIncludeOnly(false))
+                .containsEntry("shell_environment_policy", CodexLaunchProfile.expectedShellEnvironmentPolicy());
+        assertThat(CodexLaunchProfile.expectedShellEnvironmentIncludeOnly())
                 .doesNotContain("GH_TOKEN", "GITHUB_TOKEN", "GH_CONFIG_DIR", "SSH_AUTH_SOCK", "XDG_CONFIG_HOME");
+    }
+
+    @Test
+    void privateReviewKeepsCredentialsOutOfTheShell()
+    {
+        List<String> arguments = CodexLaunchProfile.arguments("codex", CodexLaunchProfile.ChildProfile.NONE,
+                Optional.empty(), false, ImmutableList.of(), false, true);
+        assertThat(arguments).contains("shell_environment_policy.inherit=\"core\"",
+                "shell_environment_policy.ignore_default_excludes=false");
+        assertThat(CodexLaunchProfile.expectedShellEnvironmentIncludeOnly())
+                .doesNotContain("GH_HOST", "GH_CONFIG_DIR", "SSH_AUTH_SOCK", "XDG_CONFIG_HOME",
+                        "GH_TOKEN", "GITHUB_TOKEN", "GH_ENTERPRISE_TOKEN", "GITHUB_ENTERPRISE_TOKEN",
+                        "OPENAI_API_KEY", "CODEX_HOME", "BYTEQUAY_CODEGRAPH_TOKEN");
+        assertThat(CodexLaunchProfile.threadConfig(CodexLaunchProfile.ChildProfile.NONE, false, false,
+                ImmutableList.of(), false, true))
+                .containsEntry("shell_environment_policy", CodexLaunchProfile.expectedShellEnvironmentPolicy());
     }
 
     private static void assertCommonIsolation(List<String> arguments)
@@ -217,14 +281,14 @@ class TestCodexLaunchProfile
         // Launching without these would accept whatever the host installation defaults to.
         assertThat(arguments).contains("--strict-config");
         assertThat(arguments).containsSequence("--enable", "skip_host_skill_discovery");
-        assertThat(arguments).containsSequence("--enable", "guardian_approval");
+        assertThat(arguments).containsSequence("--disable", "guardian_approval");
         assertThat(arguments).containsSequence("--disable", "guardianv2");
         assertThat(arguments).containsSequence("--disable", "guardian_ext");
         assertThat(arguments).containsSequence("-c", "web_search=\"live\"");
         assertThat(arguments).contains(
                 "shell_environment_policy.include_only=[\"HOME\",\"LANG\",\"LC_ALL\",\"LOGNAME\","
                         + "\"PATH\",\"SHELL\",\"TERM\",\"TMPDIR\",\"USER\"]");
-        for (String feature : List.of("apps", "hooks", "plugins", "computer_use", "browser_use", "skill_search")) {
+        for (String feature : List.of("apps", "hooks", "plugins", "computer_use", "browser_use", "network_proxy", "skill_search")) {
             assertThat(arguments).containsSequence("--disable", feature);
         }
     }

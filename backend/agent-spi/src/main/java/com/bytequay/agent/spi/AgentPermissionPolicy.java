@@ -20,41 +20,15 @@ public enum AgentPermissionPolicy
     CHERRY_PICK;
 
     /**
-     * Reports whether the policy decides tool calls from a fixed rule instead of asking the user.
+     * Reports whether the workflow runs without an attending user by default.
      *
-     * <p>{@link #AUTO} uses provider-native risk review and permits user decisions. Attended
-     * development follows {@link AgentCommandPolicy}, including direct explicit authorization for
-     * GitHub writes. The remaining policies never reach a user, so ByteQuay answers every escalation itself.
+     * <p>Providers may still raise a request that ByteQuay cannot decide from its fixed rules.
+     * CI repair can then pause for user approval. Cherry-pick retains its narrower fixed scope.
      *
-     * @return true when no user decision is ever requested
+     * @return true for background workflows
      */
     public boolean unattended()
     {
         return this != AUTO;
-    }
-
-    /**
-     * Keeps authenticated Git and GitHub commands within attended development sessions.
-     *
-     * @param restricted whether the session withholds write capability, which is every
-     *         {@link SessionAccess} level but {@code FULL}
-     */
-    public boolean allowsGitHubCommands(boolean restricted, boolean reviewSession)
-    {
-        return this == AUTO && !restricted && !reviewSession;
-    }
-
-    /**
-     * Keeps authenticated remote reads within attended sessions that own a worktree: development and private review.
-     *
-     * <p>A private review reads the network, including through {@code git} and {@code gh}, while
-     * {@link ReviewBridge#deniedReason(String)} and {@link AgentCommandPolicy#reviewRestrictions()} refuse every remote write.
-     *
-     * @param restricted whether the session withholds write capability, which is every
-     *         {@link SessionAccess} level but {@code FULL}
-     */
-    public boolean allowsRemoteReads(boolean restricted)
-    {
-        return this == AUTO && !restricted;
     }
 }

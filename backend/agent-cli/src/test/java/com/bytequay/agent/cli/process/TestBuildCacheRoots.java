@@ -11,7 +11,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-package com.bytequay.agent.cli.codex;
+package com.bytequay.agent.cli.process;
 
 import com.google.common.collect.ImmutableMap;
 import org.junit.jupiter.api.BeforeEach;
@@ -21,11 +21,11 @@ import org.junit.jupiter.api.io.TempDir;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.util.Optional;
+import java.util.List;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
-class TestCodexMavenRepository
+class TestBuildCacheRoots
 {
     @TempDir
     private Path root;
@@ -39,46 +39,38 @@ class TestCodexMavenRepository
     }
 
     @Test
-    void usesOnlyTheRepositoryUnderHome()
+    void createsOnlyFixedBuildDirectoriesUnderHome()
             throws IOException
     {
-        assertThat(resolve()).isEmpty();
-        Path repository = Files.createDirectories(home.resolve(".m2/repository"));
-
-        assertThat(resolve()).contains(repository);
-        assertThat(CodexMavenRepository.resolve(ImmutableMap.of())).isEmpty();
-        assertThat(CodexMavenRepository.resolve(ImmutableMap.of("HOME", "relative/home"))).isEmpty();
+        assertThat(resolve()).containsExactly(
+                home.resolve(".m2"), home.resolve(".gradle"), home.resolve(".npm"));
+        assertThat(Files.exists(home.resolve(".m2/settings.xml"))).isFalse();
+        assertThat(BuildCacheRoots.writableRoots(ImmutableMap.of())).isEmpty();
+        assertThat(BuildCacheRoots.writableRoots(ImmutableMap.of("HOME", "relative/home"))).isEmpty();
     }
 
     @Test
     void ignoresSettingsThatNameAnotherRepository()
             throws IOException
     {
-        Path repository = Files.createDirectories(home.resolve(".m2/repository"));
+        Path maven = resolve().getFirst();
         Path elsewhere = Files.createDirectories(root.resolve("LaunchAgents"));
         Files.writeString(home.resolve(".m2/settings.xml"), "<settings><localRepository>%s</localRepository></settings>".formatted(elsewhere));
 
-        assertThat(resolve()).contains(repository);
+        assertThat(resolve()).contains(maven).doesNotContain(elsewhere);
     }
 
     @Test
-    void refusesALinkedRepositoryOrMavenDirectory()
+    void refusesALinkedMavenDirectory()
             throws IOException
     {
         Path target = Files.createDirectories(root.resolve("LaunchAgents"));
-        Files.createDirectories(home.resolve(".m2"));
-        Files.createSymbolicLink(home.resolve(".m2/repository"), target);
-        assertThat(resolve()).isEmpty();
-
-        Files.delete(home.resolve(".m2/repository"));
-        Files.delete(home.resolve(".m2"));
-        Path mavenHome = Files.createDirectories(root.resolve("m2/repository")).getParent();
-        Files.createSymbolicLink(home.resolve(".m2"), mavenHome);
-        assertThat(resolve()).isEmpty();
+        Files.createSymbolicLink(home.resolve(".m2"), target);
+        assertThat(resolve()).doesNotContain(home.resolve(".m2"), target);
     }
 
-    private Optional<Path> resolve()
+    private List<Path> resolve()
     {
-        return CodexMavenRepository.resolve(ImmutableMap.of("HOME", home.toString()));
+        return BuildCacheRoots.writableRoots(ImmutableMap.of("HOME", home.toString()));
     }
 }

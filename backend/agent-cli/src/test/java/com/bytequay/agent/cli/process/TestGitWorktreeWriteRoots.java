@@ -11,7 +11,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-package com.bytequay.agent.cli.codex;
+package com.bytequay.agent.cli.process;
 
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -26,7 +26,7 @@ import java.nio.file.Path;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
-class TestCodexCiSandbox
+class TestGitWorktreeWriteRoots
 {
     @TempDir
     private Path temporary;
@@ -53,7 +53,7 @@ class TestCodexCiSandbox
     @Test
     void grantsOnlyLinkedMetadataAndExactBranchFiles()
     {
-        assertThat(CodexCiSandbox.writableRoots(worktree)).containsExactly(
+        assertThat(GitWorktreeWriteRoots.writableRoots(worktree)).containsExactly(
                 worktree.toString(),
                 gitDirectory.toString(),
                 common.resolve("objects").toString(),
@@ -67,9 +67,9 @@ class TestCodexCiSandbox
     void branchChangeProducesDifferentSnapshot()
             throws IOException
     {
-        var original = CodexCiSandbox.writableRoots(worktree);
+        var original = GitWorktreeWriteRoots.writableRoots(worktree);
         Files.writeString(gitDirectory.resolve("HEAD"), "ref: refs/heads/bytequay/another\n");
-        assertThat(CodexCiSandbox.writableRoots(worktree)).isNotEqualTo(original);
+        assertThat(GitWorktreeWriteRoots.writableRoots(worktree)).isNotEqualTo(original);
     }
 
     @ParameterizedTest
@@ -78,7 +78,7 @@ class TestCodexCiSandbox
             throws IOException
     {
         createRebase(directory);
-        assertThat(CodexCiSandbox.writableRoots(worktree)).containsExactly(worktree.toString(), gitDirectory.toString(), common.resolve("objects").toString());
+        assertThat(GitWorktreeWriteRoots.writableRoots(worktree)).containsExactly(worktree.toString(), gitDirectory.toString(), common.resolve("objects").toString());
     }
 
     @Test
@@ -86,7 +86,7 @@ class TestCodexCiSandbox
             throws IOException
     {
         Files.writeString(gitDirectory.resolve("HEAD"), "a".repeat(40));
-        assertThatThrownBy(() -> CodexCiSandbox.writableRoots(worktree)).hasMessageContaining("exactly one rebase state");
+        assertThatThrownBy(() -> GitWorktreeWriteRoots.writableRoots(worktree)).hasMessageContaining("exactly one rebase state");
     }
 
     @Test
@@ -95,7 +95,7 @@ class TestCodexCiSandbox
     {
         createRebase("rebase-merge");
         createRebase("rebase-apply");
-        assertThatThrownBy(() -> CodexCiSandbox.writableRoots(worktree)).hasMessageContaining("exactly one rebase state");
+        assertThatThrownBy(() -> GitWorktreeWriteRoots.writableRoots(worktree)).hasMessageContaining("exactly one rebase state");
     }
 
     @ParameterizedTest
@@ -107,7 +107,7 @@ class TestCodexCiSandbox
         Path replacement = temporary.resolve(name);
         Files.move(rebase.resolve(name), replacement);
         Files.createSymbolicLink(rebase.resolve(name), replacement);
-        assertThatThrownBy(() -> CodexCiSandbox.writableRoots(worktree)).hasMessageContaining("regular file");
+        assertThatThrownBy(() -> GitWorktreeWriteRoots.writableRoots(worktree)).hasMessageContaining("regular file");
     }
 
     @Test
@@ -118,7 +118,7 @@ class TestCodexCiSandbox
         Path replacement = temporary.resolve("rebase");
         Files.move(rebase, replacement);
         Files.createSymbolicLink(rebase, replacement);
-        assertThatThrownBy(() -> CodexCiSandbox.writableRoots(worktree)).hasMessageContaining("symbolic link");
+        assertThatThrownBy(() -> GitWorktreeWriteRoots.writableRoots(worktree)).hasMessageContaining("symbolic link");
     }
 
     @ParameterizedTest
@@ -128,7 +128,7 @@ class TestCodexCiSandbox
     {
         Path rebase = createRebase("rebase-merge");
         Files.writeString(rebase.resolve(name), "refs/heads/../main");
-        assertThatThrownBy(() -> CodexCiSandbox.writableRoots(worktree)).hasMessageContaining("unsafe");
+        assertThatThrownBy(() -> GitWorktreeWriteRoots.writableRoots(worktree)).hasMessageContaining("unsafe");
     }
 
     @ParameterizedTest
@@ -139,7 +139,7 @@ class TestCodexCiSandbox
             throws IOException
     {
         Files.writeString(gitDirectory.resolve("HEAD"), head);
-        assertThatThrownBy(() -> CodexCiSandbox.writableRoots(worktree)).isInstanceOf(IllegalStateException.class);
+        assertThatThrownBy(() -> GitWorktreeWriteRoots.writableRoots(worktree)).isInstanceOf(IllegalStateException.class);
     }
 
     @ParameterizedTest
@@ -151,7 +151,7 @@ class TestCodexCiSandbox
         Path replacement = temporary.resolve(name);
         Files.move(metadata, replacement);
         Files.createSymbolicLink(metadata, replacement);
-        assertThatThrownBy(() -> CodexCiSandbox.writableRoots(worktree)).hasMessageContaining("regular file");
+        assertThatThrownBy(() -> GitWorktreeWriteRoots.writableRoots(worktree)).hasMessageContaining("regular file");
     }
 
     @Test
@@ -161,7 +161,7 @@ class TestCodexCiSandbox
         Path replacement = temporary.resolve("pointer");
         Files.move(worktree.resolve(".git"), replacement);
         Files.createSymbolicLink(worktree.resolve(".git"), replacement);
-        assertThatThrownBy(() -> CodexCiSandbox.writableRoots(worktree)).hasMessageContaining("regular file");
+        assertThatThrownBy(() -> GitWorktreeWriteRoots.writableRoots(worktree)).hasMessageContaining("regular file");
     }
 
     @Test
@@ -170,7 +170,7 @@ class TestCodexCiSandbox
     {
         Path alias = Files.createSymbolicLink(temporary.resolve("alias"), gitDirectory);
         Files.writeString(worktree.resolve(".git"), "gitdir: " + alias + "\n");
-        assertThatThrownBy(() -> CodexCiSandbox.writableRoots(worktree)).hasMessageContaining("symbolic link");
+        assertThatThrownBy(() -> GitWorktreeWriteRoots.writableRoots(worktree)).hasMessageContaining("symbolic link");
     }
 
     @ParameterizedTest
@@ -181,7 +181,7 @@ class TestCodexCiSandbox
         Path path = common.resolve(name);
         Files.deleteIfExists(path);
         Files.createSymbolicLink(path, Files.createDirectory(temporary.resolve("outside")));
-        assertThatThrownBy(() -> CodexCiSandbox.writableRoots(worktree)).hasMessageContaining("symbolic link");
+        assertThatThrownBy(() -> GitWorktreeWriteRoots.writableRoots(worktree)).hasMessageContaining("symbolic link");
     }
 
     @Test
@@ -191,7 +191,7 @@ class TestCodexCiSandbox
         Path branch = common.resolve("refs/heads/bytequay/task");
         Files.createDirectories(branch.getParent());
         Files.createSymbolicLink(branch, Files.writeString(temporary.resolve("main"), "protected"));
-        assertThatThrownBy(() -> CodexCiSandbox.writableRoots(worktree)).hasMessageContaining("symbolic link");
+        assertThatThrownBy(() -> GitWorktreeWriteRoots.writableRoots(worktree)).hasMessageContaining("symbolic link");
     }
 
     @Test
@@ -200,7 +200,7 @@ class TestCodexCiSandbox
     {
         Path other = Files.writeString(temporary.resolve("other"), "other");
         Files.writeString(gitDirectory.resolve("gitdir"), other.toString());
-        assertThatThrownBy(() -> CodexCiSandbox.writableRoots(worktree)).hasMessageContaining("back-pointer");
+        assertThatThrownBy(() -> GitWorktreeWriteRoots.writableRoots(worktree)).hasMessageContaining("back-pointer");
     }
 
     @Test
@@ -209,7 +209,7 @@ class TestCodexCiSandbox
     {
         Path other = Files.createDirectory(temporary.resolve("other"));
         Files.writeString(gitDirectory.resolve("commondir"), other.toString());
-        assertThatThrownBy(() -> CodexCiSandbox.writableRoots(worktree)).hasMessageContaining("outside the common worktrees directory");
+        assertThatThrownBy(() -> GitWorktreeWriteRoots.writableRoots(worktree)).hasMessageContaining("outside the common worktrees directory");
     }
 
     @Test
@@ -217,7 +217,7 @@ class TestCodexCiSandbox
             throws IOException
     {
         Files.writeString(worktree.resolve(".git"), "x".repeat(4097));
-        assertThatThrownBy(() -> CodexCiSandbox.writableRoots(worktree)).hasMessageContaining("too large");
+        assertThatThrownBy(() -> GitWorktreeWriteRoots.writableRoots(worktree)).hasMessageContaining("too large");
     }
 
     @Test
@@ -225,7 +225,7 @@ class TestCodexCiSandbox
             throws IOException
     {
         Files.createDirectories(common.resolve("refs/heads/bytequay/task"));
-        assertThatThrownBy(() -> CodexCiSandbox.writableRoots(worktree)).hasMessageContaining("branch metadata is not a regular file");
+        assertThatThrownBy(() -> GitWorktreeWriteRoots.writableRoots(worktree)).hasMessageContaining("branch metadata is not a regular file");
     }
 
     private Path createRebase(String name)

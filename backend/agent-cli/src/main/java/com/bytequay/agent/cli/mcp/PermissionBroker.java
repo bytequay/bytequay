@@ -14,10 +14,14 @@
 package com.bytequay.agent.cli.mcp;
 
 import com.bytequay.agent.cli.development.DevelopmentResultTool;
+import com.bytequay.agent.cli.process.AgentPermissionManager;
+import com.bytequay.agent.cli.process.BuildCacheRoots;
+import com.bytequay.agent.cli.process.GitWorktreeWriteRoots;
 import com.bytequay.agent.cli.process.SecretRedactor;
 import com.bytequay.agent.spi.AgentApprovalHandler;
 import com.bytequay.agent.spi.AgentCommandPolicy;
 import com.bytequay.agent.spi.AgentPermissionPolicy;
+import com.bytequay.agent.spi.AgentPermissionScope;
 import com.bytequay.agent.spi.AgentUnavailableException;
 import com.bytequay.agent.spi.CiDescriptionProposal;
 import com.bytequay.agent.spi.CodeGraphBridge;
@@ -54,6 +58,7 @@ import java.io.UncheckedIOException;
 import java.net.URI;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
+import java.nio.file.LinkOption;
 import java.nio.file.Path;
 import java.nio.file.attribute.PosixFilePermissions;
 import java.security.SecureRandom;
@@ -278,7 +283,7 @@ public final class PermissionBroker
         Path settingsFile = providerDirectory.resolve("sandbox-settings.json");
         Path childGateFile = providerDirectory.resolve("review-child-gate.sh");
         requireNonNull(codeGraph, "codeGraph is null");
-        PermissionContext context = resolveContext(taskId, worktree, permissionPolicy, approvals, redactor.withSecret(token), codeGraph, access, true);
+        PermissionContext context = resolveContext(taskId, worktree, permissionPolicy, approvals, redactor.withSecret(token), codeGraph, access, true, environment);
         contexts.put(token, context);
         Optional<Path> childGate = context.reviewChildren() ? Optional.of(childGateFile) : Optional.empty();
         try {
@@ -298,7 +303,7 @@ public final class PermissionBroker
                 Files.setPosixFilePermissions(childGateFile, PosixFilePermissions.fromString("rwx------"));
             }
             writeOwnerOnly(settingsFile, sandboxSettings(
-                    permissionPolicy, access, context.review().isPresent(), runtimeDirectory.toRealPath(), worktree, environment, childGate));
+                    context.scope(), runtimeDirectory.toRealPath(), worktree, environment, childGate));
             List<String> toolNames = tools(context).stream()
                     .map(ToolDefinition::name)
                     .filter(name -> !name.equals("permission_prompt"))
@@ -318,6 +323,13 @@ public final class PermissionBroker
             delete(settingsFile);
             delete(childGateFile);
             throw new AgentUnavailableException("Unable to write Claude MCP configuration", e);
+        }
+        catch (RuntimeException failure) {
+            contexts.remove(token);
+            delete(configFile);
+            delete(settingsFile);
+            delete(childGateFile);
+            throw failure;
         }
     }
 
@@ -341,7 +353,8 @@ public final class PermissionBroker
         requireNonNull(redactor, "redactor is null");
         requireNonNull(codeGraph, "codeGraph is null");
         String token = token();
-        PermissionContext context = resolveContext(taskId, worktree, permissionPolicy, approvals, redactor.withSecret(token), codeGraph, SessionAccess.FULL, false);
+        PermissionContext context = resolveContext(
+                taskId, worktree, permissionPolicy, approvals, redactor.withSecret(token), codeGraph, SessionAccess.FULL, false, ImmutableMap.of());
         // A policy-only review still needs registration to select the provider's review execution profile.
         if (context.review().isEmpty() && tools(context).isEmpty()) {
             return Optional.empty();
@@ -360,7 +373,8 @@ public final class PermissionBroker
             SecretRedactor redactor,
             Optional<CodeGraphBridge> codeGraph,
             SessionAccess access,
-            boolean permissionTools)
+            boolean permissionTools,
+            Map<String, String> environment)
     {
         boolean restricted = access.restricted();
         // A restricted session may carry a real task id, so every bridge is withheld by access
@@ -368,17 +382,20 @@ public final class PermissionBroker
         // Only the read-only axis withholds review: a text-only caller invents its own task id, and
         // changing what it resolves is not this axis's business.
         Optional<ReviewBridge> review = access == SessionAccess.READ_ONLY ? Optional.empty() : reviews.resolve(taskId);
+        AgentPermissionScope scope = new AgentPermissionScope(permissionPolicy, access, review.isPresent());
         Optional<DevelopmentResultBridge> development = restricted || review.isPresent() ? Optional.empty() : developments.resolve(taskId);
         Optional<LocalReviewBridge> localReview = restricted ? Optional.empty() : localReviews.resolve(taskId);
-        Optional<PullRequestCiBridge> pullRequestCi = !restricted && (permissionPolicy == AgentPermissionPolicy.CI_AUTOFIX
-                || permissionPolicy.allowsGitHubCommands(false, review.isPresent()))
+        Optional<PullRequestCiBridge> pullRequestCi = !restricted && (permissionPolicy == AgentPermissionPolicy.CI_AUTOFIX || scope.githubCommands())
                 ? pullRequestChecks.resolve(taskId) : Optional.empty();
         Optional<IssueContextBridge> issueContext = restricted ? Optional.empty() : issueContexts.resolve(taskId);
         // Exploration children exist only in an attended Claude review that owns its worktree, where the child gate
         // keeps every ByteQuay write tool with the root. Codex registers no permission tools and keeps its no-child profile.
-        boolean reviewChildren = permissionTools && review.isPresent() && !permissionPolicy.unattended() && !restricted;
+        boolean reviewChildren = permissionTools && scope.reviewReads();
+        Map<String, String> fileWriteEnvironment = Optional.ofNullable(environment.get("HOME"))
+                .map(home -> ImmutableMap.of("HOME", home)).orElse(ImmutableMap.of());
         return new PermissionContext(
-                taskId, worktree, permissionPolicy, approvals, redactor, permissionTools, codeGraph, review, development, localReview, pullRequestCi, issueContext,
+                taskId, worktree, scope, fileWriteEnvironment, approvals, redactor, permissionTools,
+                codeGraph, review, development, localReview, pullRequestCi, issueContext,
                 reviewChildren);
     }
 
@@ -476,7 +493,7 @@ public final class PermissionBroker
     private McpHttpResponse proposeCiDescription(JsonNode id, JsonNode arguments, PermissionContext context)
     {
         var proposer = context.pullRequestCi().flatMap(PullRequestCiBridge::proposeDescription);
-        if (context.permissionPolicy() != AgentPermissionPolicy.CI_AUTOFIX || proposer.isEmpty()) {
+        if (context.scope().policy() != AgentPermissionPolicy.CI_AUTOFIX || proposer.isEmpty()) {
             return error(id, -32602, "Unknown tool");
         }
         CiDescriptionProposal proposal;
@@ -502,7 +519,7 @@ public final class PermissionBroker
     private McpHttpResponse requestCiRerun(JsonNode id, JsonNode arguments, PermissionContext context)
     {
         var requester = context.pullRequestCi().flatMap(PullRequestCiBridge::requestRerun);
-        if (context.permissionPolicy() != AgentPermissionPolicy.CI_AUTOFIX || requester.isEmpty()) {
+        if (context.scope().policy() != AgentPermissionPolicy.CI_AUTOFIX || requester.isEmpty()) {
             return error(id, -32602, "Unknown tool");
         }
         try {
@@ -763,18 +780,29 @@ public final class PermissionBroker
             PermissionResult denied = new PermissionResult("deny", Optional.empty(), refused);
             return response(id, new ToolResult(ImmutableList.of(new TextContent("text", objectMapper.writeValueAsString(denied))), false));
         }
-        if (context.permissionPolicy().unattended()) {
-            PermissionResult decision = sandboxedPermission(
-                    arguments, context.worktree(), context.permissionPolicy());
+        boolean unsandboxed = arguments.toolName().equalsIgnoreCase("Bash")
+                && Optional.ofNullable(arguments.input().get("dangerouslyDisableSandbox"))
+                        .filter(JsonNode::isBoolean).map(JsonNode::asBoolean).orElse(false);
+        if (context.scope().policy() == AgentPermissionPolicy.CHERRY_PICK) {
+            PermissionResult decision = sandboxedPermission(arguments, context, unsandboxed);
             return response(id, new ToolResult(
                     ImmutableList.of(new TextContent("text", objectMapper.writeValueAsString(decision))),
                     false));
         }
+        Optional<PermissionResult> allowed = precheckedFileEditPermission(arguments, context);
+        if (allowed.isPresent()) {
+            return response(id, new ToolResult(
+                    ImmutableList.of(new TextContent("text", objectMapper.writeValueAsString(allowed.orElseThrow()))),
+                    false));
+        }
         String detail = bounded(context.redactor().redact(objectMapper.writeValueAsString(arguments.input())));
+        if (unsandboxed) {
+            detail = "Runs outside Claude's filesystem sandbox with host file access.\n" + detail;
+        }
         ProviderApprovalRequest approval = new ProviderApprovalRequest(
                 UUID.randomUUID().toString(),
                 kind(arguments.toolName()),
-                "Allow Claude " + arguments.toolName(),
+                unsandboxed ? "Allow Claude unsandboxed command" : "Allow Claude " + arguments.toolName(),
                 detail,
                 ImmutableList.of(arguments.toolName()),
                 ImmutableList.of(ALLOW_ONCE, DENY),
@@ -833,7 +861,7 @@ public final class PermissionBroker
 
     private McpHttpResponse readCiMemory(JsonNode id, JsonNode arguments, PermissionContext context)
     {
-        if (context.permissionPolicy() != AgentPermissionPolicy.CI_AUTOFIX || !validMemoryArguments(arguments)) {
+        if (context.scope().policy() != AgentPermissionPolicy.CI_AUTOFIX || !validMemoryArguments(arguments)) {
             return error(id, -32602, "Invalid read_ci_memory arguments");
         }
         Optional<String> query = Optional.ofNullable(arguments.get("query"))
@@ -948,7 +976,7 @@ public final class PermissionBroker
                             "required", ImmutableList.of("logId"),
                             "additionalProperties", false)));
         });
-        if (context.permissionPolicy() == AgentPermissionPolicy.CI_AUTOFIX && context.pullRequestCi().flatMap(PullRequestCiBridge::proposeDescription).isPresent()) {
+        if (context.scope().policy() == AgentPermissionPolicy.CI_AUTOFIX && context.pullRequestCi().flatMap(PullRequestCiBridge::proposeDescription).isPresent()) {
             tools.add(new ToolDefinition(CiDescriptionProposal.TOOL_NAME,
                     "Propose a minimal PR-description repair for a current failed job. Read the complete description first. " +
                             "ByteQuay applies it after the turn and verifies a new check",
@@ -958,7 +986,7 @@ public final class PermissionBroker
                             "body", ImmutableMap.of("type", "string", "minLength", 1, "maxLength", 60_000)),
                             "required", ImmutableList.of("jobId", "expectedBody", "body"), "additionalProperties", false)));
         }
-        if (context.permissionPolicy() == AgentPermissionPolicy.CI_AUTOFIX && context.pullRequestCi().flatMap(PullRequestCiBridge::requestRerun).isPresent()) {
+        if (context.scope().policy() == AgentPermissionPolicy.CI_AUTOFIX && context.pullRequestCi().flatMap(PullRequestCiBridge::requestRerun).isPresent()) {
             tools.add(new ToolDefinition(PullRequestCiBridge.RERUN_TOOL_NAME,
                     "Request one failed-job rerun only after diagnosing evidence of a flaky test or transient infrastructure failure. " +
                             "Give the current failed jobId and an evidence-based reason; repair deterministic failures instead",
@@ -1007,7 +1035,7 @@ public final class PermissionBroker
                                 "body", ImmutableMap.of("type", "string", "maxLength", MAXIMUM_BODY_CHARACTERS)),
                         "required", ImmutableList.of("title", "body"),
                         "additionalProperties", false))));
-        if (context.permissionPolicy() == AgentPermissionPolicy.CI_AUTOFIX) {
+        if (context.scope().policy() == AgentPermissionPolicy.CI_AUTOFIX) {
             tools.add(new ToolDefinition(
                     "read_ci_memory",
                     "Read recent or matching CI Autofix history for this task",
@@ -1020,21 +1048,16 @@ public final class PermissionBroker
         return tools.build();
     }
 
-    private static PermissionResult sandboxedPermission(
-            PermissionArguments arguments,
-            Path worktree,
-            AgentPermissionPolicy permissionPolicy)
+    private static PermissionResult sandboxedPermission(PermissionArguments arguments, PermissionContext context, boolean unsandboxed)
     {
-        if (arguments.toolName().equalsIgnoreCase("Edit")
-                || arguments.toolName().equalsIgnoreCase("Write")
-                || arguments.toolName().equalsIgnoreCase("NotebookEdit")) {
-            Optional<Path> requested = requestedPath(arguments.input(), worktree);
-            if (requested.isPresent() && requested.orElseThrow().startsWith(worktree.toAbsolutePath().normalize())) {
-                return new PermissionResult("allow", Optional.of(arguments.input()), Optional.empty());
-            }
+        if (unsandboxed) {
+            return new PermissionResult("deny", Optional.empty(), Optional.of("Cherry-pick commands must remain sandboxed"));
         }
-        if (arguments.toolName().equalsIgnoreCase("Bash")
-                && permissionPolicy == AgentPermissionPolicy.CHERRY_PICK) {
+        Optional<PermissionResult> allowed = precheckedFileEditPermission(arguments, context);
+        if (allowed.isPresent()) {
+            return allowed.orElseThrow();
+        }
+        if (arguments.toolName().equalsIgnoreCase("Bash")) {
             String command = Optional.ofNullable(arguments.input().get("command"))
                     .filter(JsonNode::isTextual)
                     .map(JsonNode::asText)
@@ -1056,21 +1079,39 @@ public final class PermissionBroker
                 Optional.of("This task permits only sandboxed commands and file edits inside its leased worktree"));
     }
 
-    private static Optional<Path> requestedPath(JsonNode input, Path worktree)
+    private static Optional<PermissionResult> precheckedFileEditPermission(PermissionArguments arguments, PermissionContext context)
     {
-        for (String field : ImmutableList.of("file_path", "notebook_path", "path")) {
-            JsonNode value = input.get(field);
-            if (value != null && value.isTextual() && !value.asText().isBlank()) {
-                try {
-                    Path path = Path.of(value.asText());
-                    return Optional.of((path.isAbsolute() ? path : worktree.resolve(path)).toAbsolutePath().normalize());
-                }
-                catch (RuntimeException ignored) {
-                    return Optional.empty();
-                }
-            }
+        Optional<Path> requested = requestedPath(arguments, context.worktree());
+        if (requested.isPresent() && AgentPermissionManager.allowsFileWrite(
+                requested.orElseThrow(), context.worktree(), context.fileWriteEnvironment(), context.scope())) {
+            return Optional.of(new PermissionResult("allow", Optional.of(arguments.input()), Optional.empty()));
         }
         return Optional.empty();
+    }
+
+    private static Optional<Path> requestedPath(PermissionArguments arguments, Path worktree)
+    {
+        String field;
+        if (arguments.toolName().equalsIgnoreCase("Edit") || arguments.toolName().equalsIgnoreCase("Write")) {
+            field = "file_path";
+        }
+        else if (arguments.toolName().equalsIgnoreCase("NotebookEdit")) {
+            field = "notebook_path";
+        }
+        else {
+            return Optional.empty();
+        }
+        JsonNode value = arguments.input().get(field);
+        if (value == null || !value.isTextual() || value.asText().isBlank()) {
+            return Optional.empty();
+        }
+        try {
+            Path path = Path.of(value.asText());
+            return Optional.of((path.isAbsolute() ? path : worktree.resolve(path)).toAbsolutePath().normalize());
+        }
+        catch (RuntimeException ignored) {
+            return Optional.empty();
+        }
     }
 
     private static boolean validMemoryArguments(JsonNode arguments)
@@ -1083,18 +1124,19 @@ public final class PermissionBroker
     }
 
     private String sandboxSettings(
-            AgentPermissionPolicy permissionPolicy,
-            SessionAccess access,
-            boolean reviewSession,
+            AgentPermissionScope scope,
             Path runtimeDirectory,
             Path worktree,
             Map<String, String> environment,
             Optional<Path> childGate)
             throws IOException
     {
-        boolean gitHubCommands = permissionPolicy.allowsGitHubCommands(access.restricted(), reviewSession);
+        AgentPermissionPolicy permissionPolicy = scope.policy();
+        SessionAccess access = scope.access();
+        boolean reviewSession = scope.review();
+        boolean gitHubCommands = scope.githubCommands();
         // An attended review reads remotes with the user's stored Git and gh login; it never writes to them.
-        boolean reviewReads = reviewSession && permissionPolicy.allowsRemoteReads(access.restricted());
+        boolean reviewReads = scope.reviewReads();
         ImmutableList.Builder<String> deny = ImmutableList.builder();
         ImmutableList.Builder<String> denyRead = ImmutableList.builder();
         if (reviewReads) {
@@ -1122,22 +1164,29 @@ public final class PermissionBroker
                 deny.add("Bash(git " + command + ")", "Bash(git " + command + ":*)");
             }
         }
+        boolean allowUnsandboxedRetry = access == SessionAccess.FULL && !reviewSession
+                && (permissionPolicy == AgentPermissionPolicy.AUTO || permissionPolicy == AgentPermissionPolicy.CI_AUTOFIX);
+        ImmutableList.Builder<String> allowWrite = ImmutableList.builder();
+        allowWrite.addAll(BuildCacheRoots.writableRoots(environment).stream().map(Path::toString).collect(toImmutableList()));
+        if (access == SessionAccess.FULL && !reviewSession
+                && Files.exists(worktree.resolve(".git"), LinkOption.NOFOLLOW_LINKS)) {
+            List<String> gitRoots = GitWorktreeWriteRoots.writableRoots(worktree);
+            allowWrite.addAll(gitRoots.subList(1, gitRoots.size()));
+        }
+        allowWrite.add("/var/tmp");
         ImmutableMap.Builder<String, Object> sandbox = ImmutableMap.builder();
         sandbox.put("enabled", true)
                 .put("failIfUnavailable", true)
                 .put("autoAllowBashIfSandboxed", !gitHubCommands && !reviewSession && permissionPolicy != AgentPermissionPolicy.CHERRY_PICK)
-                // Auto mode grants an unsandboxed command without asking, so the agent could
-                // waive its own confinement for any path. The sandbox is the containment boundary
-                // and nothing may opt out of it.
-                .put("allowUnsandboxedCommands", false)
+                // An explicit ask rule below sends every unsandboxed retry to ByteQuay, even in Auto mode.
+                .put("allowUnsandboxedCommands", allowUnsandboxedRetry)
                 .put("excludedCommands", ImmutableList.of())
                 .put("filesystem", ImmutableMap.of(
                         // The sandbox otherwise permits only the worktree and TMPDIR, so a build
                         // cannot populate its dependency cache.
-                        // ponytail: add a root here when a task toolchain needs one.
-                        // Only Maven's repository and wrapper, never ~/.m2/settings.xml, which names the repository for every build and would
-                        // let one session choose where the next session's Maven writes.
-                        "allowWrite", ImmutableList.of("~/.m2/repository", "~/.m2/wrapper", "~/.gradle", "~/.npm", "/var/tmp"),
+                        // ponytail: add a vetted root in BuildCacheRoots when a task toolchain needs one.
+                        // Share Codex's fixed, validated cache roots. /var/tmp remains Claude's existing temp allowance.
+                        "allowWrite", allowWrite.build(),
                         "denyRead", denyRead.build(),
                         // The task runtime directory holds the CI logs, the event log, and this
                         // settings file. The agent reads its attachments from there and must not
@@ -1149,32 +1198,20 @@ public final class PermissionBroker
                         "denyWrite", access == SessionAccess.READ_ONLY
                                 ? ImmutableList.of(runtimeDirectory.toString(), worktree.toRealPath().toString())
                                 : ImmutableList.of(runtimeDirectory.toString())));
-        if (permissionPolicy.unattended() || access.restricted()) {
+        if (scope.unattended() || access.restricted()) {
             deny.add("WebFetch", "WebSearch");
-            sandbox.put("network", ImmutableMap.of("allowedDomains", ImmutableList.of()));
         }
-        else if (gitHubCommands) {
-            // An omitted domain list is empty, so even reviewed commands need a separate proxy approval.
-            // Development egress is governed by complete-command review, including the shared remote-write rules.
-            ImmutableMap.Builder<String, Object> network = ImmutableMap.<String, Object>builder()
-                    .put("allowedDomains", ImmutableList.of("*"));
-            Optional.ofNullable(environment.get("SSH_AUTH_SOCK")).filter(value -> !value.isBlank())
-                    .ifPresent(socket -> network.put("allowUnixSockets", ImmutableList.of(socket)));
-            sandbox.put("network", network.buildOrThrow());
-        }
-        else if (reviewSession) {
-            // Review tests may start localhost servers. Outbound reads are open; REVIEW_REMOTE_WRITES, the approval
-            // boundary and native review of every shell command refuse a remote write.
-            ImmutableMap.Builder<String, Object> network = ImmutableMap.<String, Object>builder()
-                    .put("allowedDomains", ImmutableList.of("*"))
-                    .put("allowLocalBinding", true);
-            Optional.ofNullable(environment.get("SSH_AUTH_SOCK")).filter(value -> !value.isBlank())
-                    .ifPresent(socket -> network.put("allowUnixSockets", ImmutableList.of(socket)));
-            sandbox.put("network", network.buildOrThrow());
+        sandbox.put("network", scope.buildNetwork()
+                ? ImmutableMap.of("allowedDomains", ImmutableList.of("*"), "allowLocalBinding", true)
+                : ImmutableMap.of("allowedDomains", ImmutableList.of()));
+        ImmutableMap.Builder<String, Object> permissions = ImmutableMap.<String, Object>builder()
+                .put("deny", deny.build());
+        if (allowUnsandboxedRetry) {
+            permissions.put("ask", ImmutableList.of("Bash(dangerouslyDisableSandbox:true)"));
         }
         ImmutableMap.Builder<String, Object> settings = ImmutableMap.<String, Object>builder()
                 .put("autoMemoryEnabled", false)
-                .put("permissions", ImmutableMap.of("deny", deny.build()))
+                .put("permissions", permissions.buildOrThrow())
                 .put("sandbox", sandbox.buildOrThrow());
         if (gitHubCommands) {
             // Native allow rules must not skip review, and native exceptions must not waive ByteQuay's authorization scope.
@@ -1263,7 +1300,8 @@ public final class PermissionBroker
     private record PermissionContext(
             String taskId,
             Path worktree,
-            AgentPermissionPolicy permissionPolicy,
+            AgentPermissionScope scope,
+            Map<String, String> fileWriteEnvironment,
             AgentApprovalHandler approvals,
             SecretRedactor redactor,
             boolean permissionTools,
@@ -1279,7 +1317,8 @@ public final class PermissionBroker
         {
             requireNonNull(taskId, "taskId is null");
             requireNonNull(worktree, "worktree is null");
-            requireNonNull(permissionPolicy, "permissionPolicy is null");
+            requireNonNull(scope, "scope is null");
+            fileWriteEnvironment = ImmutableMap.copyOf(fileWriteEnvironment);
             requireNonNull(approvals, "approvals is null");
             requireNonNull(redactor, "redactor is null");
             requireNonNull(codeGraph, "codeGraph is null");

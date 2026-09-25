@@ -95,7 +95,6 @@ import org.springframework.context.annotation.Configuration;
 
 import java.io.IOException;
 import java.net.URI;
-import java.nio.file.Path;
 import java.time.Clock;
 import java.time.Duration;
 import java.util.List;
@@ -199,7 +198,6 @@ public class AgentConfiguration
                     objectMapper,
                     supervisor,
                     properties.codexHome().resolve("deepseek").resolve(key.id()),
-                    Path.of(System.getProperty("user.home"), "Library", "Application Support", "ByteQuay"),
                     permissions,
                     laneId,
                     "DeepSeek · " + key.alias(),

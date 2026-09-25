@@ -2,14 +2,19 @@
 
 The approved behavior is in [DeepSeek API-key task lane](deepseek-api-key-lane.md).
 This temporary file tracks implementation and verification; it is not another
-design. The approved design is committed as 2e3b3b935. CP1–CP4 have passed
-their offline gates. The opt-in live-key gate in CP5 remains open.
+design. The approved design is committed as 2e3b3b935. CP1–CP4 recorded the
+initial saved-key lane and expanded automation evidence. The shared Codex
+permission gate has passed. The omitted-settings default and remaining opt-in
+live-key checks remain open.
 
 ## Working rules
 
 - Check a box only after the behavior exists and its checkpoint gate passes.
   Record commands and evidence below that gate when work is done. An offline
   fixture does not count as a live DeepSeek turn.
+- Historical initial-lane evidence remains labeled separately from the new
+  automation probes. Earlier restricted-profile checks do not prove the shared
+  Codex permission behavior.
 - Keep one task-owned worktree and one Codex App Server process per active
   turn. Reuse the current modules and task contracts; add no agent engine,
   provider framework, or migration-history system.
@@ -19,9 +24,10 @@ their offline gates. The opt-in live-key gate in CP5 remains open.
 - Use fake keys and disposable repositories for default tests. A live-key
   smoke is opt-in and must not write to GitHub; test the network-write gate
   with a disposable remote or a denied request.
-- OpenAI and Anthropic key lanes, comment rewriting, automatic delivery,
-  PR assignment, CI Autofix, web search, images, CodeGraph, and subagents are
-  outside this implementation.
+- OpenAI and Anthropic key lanes, comment rewriting, issue starts, PR
+  assignment, web search, images, CodeGraph, and subagents are outside this
+  implementation. Explicitly accepted draft delivery and CI Autofix use their
+  existing bounded workflows.
 
 ## CP0 — Align the canonical design
 
@@ -29,17 +35,17 @@ their offline gates. The opt-in live-key gate in CP5 remains open.
   relevant provider, readiness, permission, and settings sections.
 - [x] Resolve statements that defer all Codex API-key task support while
   preserving descriptions of the current shipped Codex and Claude lanes.
-- [x] Keep the design index and temporary checklist links accurate. Do not
-  describe the DeepSeek lane as implemented until its release gate passes.
+- [x] Keep the design index and temporary checklist links accurate. Distinguish
+  offline implementation evidence from the open real-key gate.
 
 Gate:
 
 - [x] Canonical design, approved extension, and index have no conflicting
   claims; documentation links and whitespace checks pass.
 
-Evidence: the canonical design distinguishes the approved extension from
-shipped Codex/Claude behavior, links the approved design, and identifies the
-separate DeepSeek fixture. The design index links this checklist.
+Evidence: the canonical design links the saved-key lane and identifies the
+separate DeepSeek fixture. The design index links this checklist and states
+that real-key verification remains open.
 `git diff --check` passed.
 
 ## CP1 — Stable keys and selectable lanes
@@ -72,54 +78,67 @@ tests retain duplicate-alias rejection and encrypted-secret behavior.
 - [x] Parameterize the existing Codex driver for the DeepSeek lane ID,
   session references, model catalog, and per-key ByteQuay-owned Codex home.
   Keep the installed Codex version check/update process-wide.
-- [x] Launch strict App Server with DeepSeek as a Responses provider, a
-  task-scoped loopback proxy to the official DeepSeek URL, a curated catalog
-  for deepseek-flash and deepseek-v4-pro, disabled web search, and no child
-  agents.
+- [x] Launch App Server with DeepSeek as a Responses provider, a
+  task-scoped loopback proxy to the official DeepSeek URL, and a curated catalog
+  for deepseek-flash and deepseek-v4-pro. Do not advertise unsupported hosted
+  web search or child agents.
 - [x] Fetch the selected key at process start. Pass it through
   the task-scoped proxy only; exclude it from the Codex process environment,
   arguments, configuration files, the model-facing shell, events, and logs.
-- [x] Use on-request approval with the user reviewer at process, thread,
-  and turn boundaries. Use a named profile that denies non-worktree reads and
-  shell networking, and prove the effective thread/turn profile. Disable
-  automatic review and GitHub credential environment injection for this lane.
-- [x] Extend the isolation guard to verify provider, endpoint, catalog,
-  web/child settings, shell environment, and reviewer profile. Include
-  per-key runtime retention and secret redaction.
+- [x] Derive `AgentPermissionScope` from task policy, access, and review status
+  for Claude and both Codex-backed lanes. Use one `CodexLaunchProfile` for
+  subscription and DeepSeek to match the attended sandbox, ByteQuay approval routing,
+  Git/`gh` command permissions, model-facing shell environment policy,
+  web-search launch setting, and thread/turn settings.
+  Keep provider, model, and credential settings separate from permission choice.
+- [x] Verify the effective common permissions alongside provider, endpoint,
+  catalog, and web/child settings. Retain per-key runtime cleanup and secret
+  redaction.
+- [x] Expose existing fixed task tools through a task-scoped loopback MCP
+  bridge. Keep its broker bearer in ByteQuay; Codex receives only the endpoint.
+- [x] Use the same `GitWorktreeWriteRoots` roots and `on-request` approval for both
+  Codex-backed CI lanes. Remove DeepSeek-only named profiles and Git/Xcode
+  filesystem exceptions.
 
 Gate:
 
-- [x] An offline fixture using the supported installed Codex binary and a
-  fake Responses server starts the strict DeepSeek profile, lists only the
-  curated models, verifies the effective isolation settings, and proves the
-  proxy adds the key upstream while no key reaches Codex or a model-facing
-  shell or normalized event. A native model-requested command must fail to
-  read a fake ByteQuay credential file outside the worktree but succeed at a
-  worktree edit, including after a direct user approval of that read attempt.
-  The proxy closes with the session. No plaintext auth file is created.
+- [x] An offline fixture using the supported Codex binary and fake Responses
+  server compares the effective attended and CI permissions between DeepSeek
+  and subscription Codex tasks. It verifies the same Git configuration and
+  ordinary local commit behavior, including linked-worktree CI commits. The
+  proxy must still add the key upstream while no key reaches Codex or a
+  model-facing shell or normalized event. The fixed task MCP must complete a
+  tool round trip without a broker bearer in Codex. Both loopback servers
+  close with the session. No plaintext auth file is created.
 
-Evidence: final `mvn verify` passed 358 agent-cli tests with no
-failures. `python3 -B scripts/codex-deepseek-key-probe.py --run-native` passed
-with Codex 0.156.1 and fake keys; `--escalate-read accept` and
-`--escalate-read decline` both passed. The fixture observed two authenticated
-fake Responses requests, a worktree edit, no key in the model-facing shell,
-and denied reads of a fake ByteQuay credential file, including after approval.
-Proxy and event-mapping tests cover listener closure, redaction, and reasoning
-text. A final review also passed the native fixture with the production-style
-thread permissions override.
+Evidence: `TestCodexLaunchProfile` compares attended and CI launch arguments
+and thread settings across both Codex-backed lanes. Full `mvn -q verify`
+passed. The native fake-key probe passed in local, attended commit, and CI
+modes on Codex 0.156.1. It verified the effective Codex sandbox and reviewer,
+an attended Git commit through the shared workspace-write roots, a CI commit with the
+shared Git roots, a task MCP round trip, proxy authentication, secret exclusion,
+and thread resume. The native probe also loaded a nonempty per-key Codex user
+configuration while the shared launch settings remained effective. Earlier
+restricted-profile evidence is superseded.
 
-## CP3 — Admission, turns, and failures
+## CP3 — Admission, automation, and failures
 
 - [x] Use authenticated DeepSeek GET /models as a key/model preflight.
   Codex login status must not decide DeepSeek readiness. Distinguish
   invalid key, missing key, and temporary API failure without leaking data.
 - [x] Recheck readiness before task resource allocation and every later
   turn. A rejected request creates no worktree or failed turn.
-- [x] Enforce DevelopmentAutomation.LOCAL_ONLY at task creation and for
-  later, queued, and overridden turns. Reject automatic delivery,
-  PR assignment, and CI Autofix entry points for the DeepSeek lane.
+- [x] Carry explicit accepted development automation through task creation,
+  later turns, queued turns, and generated follow-ups. Use the existing local
+  commit, scoped draft-PR, and CI Autofix paths without a lane-specific
+  local-only override.
+- [x] Admit DeepSeek as an explicit CI lane or as **Same agent as development**.
+  Inheritance keeps the saved-key lane, not the development model; a model-less
+  CI task selects and preflights `deepseek-flash` before run allocation.
 - [x] Keep the automatic Development/Review default chooser CLI-only and
-  reject DeepSeek in those setting updates.
+  reject DeepSeek in those setting updates. Keep issue starts and PR assignment
+  outside this change.
+- [ ] Record the user-approved behavior when automation settings are omitted.
 - [x] Classify invalid-key, balance, and model failures during a turn.
   Preserve history, require an explicit retry, and never auto-resend.
   Ignore hidden reasoning text in provider event mapping.
@@ -127,64 +146,109 @@ thread permissions override.
 Gate:
 
 - [x] Backend flow tests prove admission fails before resource allocation,
-  automation cannot be enabled through any turn path, removed keys cannot
-  start another turn, and failed turns retain readable history.
+  accepted automation survives task and queued-turn paths, CI preflights its
+  exact default model, removed keys cannot start another turn, and failed
+  turns retain readable history.
 
-Evidence: focused `agent-core` and `app` test runs passed, including
+Evidence: focused `agent-core` and `app` tests and the full backend gate passed.
 `TestDefaultAgentTaskService`, `TestDefaultAgentTurnService`,
-`TestInteractiveAgentTaskCreator`, `TestDeepSeekTaskAutomation`, and
-`TestDeepSeekAgentDriver`. They cover admission ordering, queued settings,
-removed-lane rejection, and typed key/API errors without secret echoing. The
-malformed saved-key regression test proves readiness returns an actionable key
-status before sending a request.
+`TestInteractiveAgentTaskCreator`, `TestDefaultCiAutofixService`, and
+`TestDeepSeekAgentDriver` cover admission ordering, accepted/queued settings,
+CI model-less readiness, removed-lane rejection, and typed key/API errors
+without secret echoing. The malformed saved-key regression test proves
+readiness returns an actionable key status before sending a request.
 
 ## CP4 — Settings and task UI
 
 - [x] Show each saved DeepSeek key once in the task provider picker with
-  its alias, supported model choices, and **No automatic delivery** hint.
+  its alias, supported model choices, and the existing Automation control.
   Keep key management in Models settings.
 - [x] Replace stale DeepSeek model names in settings and avoid presenting
   a duplicate disabled key option beside the working lane.
 - [x] Show actionable invalid-key and removed-key states. Historical
   tasks must render when their lane no longer appears in provider status.
   Do not offer a Codex sign-in remedy for a DeepSeek-key error.
-- [x] Hide unsupported web, image, child-agent, CodeGraph, and automation
-  controls for this lane through its advertised capabilities and task scope.
+- [x] Show CI selection and `@ci` routing when the saved-key lane advertises
+  `CI_AUTOFIX`. Keep unsupported web, image, child-agent, and CodeGraph
+  controls hidden through advertised capabilities.
 
 Gate:
 
-- [x] Focused frontend tests cover add/select/model choice, local-only
-  display, invalid-key recovery, and an old task after key removal.
+- [x] Focused frontend tests cover add/select/model choice, Automation and CI
+  controls, invalid-key recovery, and an old task after key removal.
   Existing direct comment rewriting still accepts the updated DeepSeek
   model names in a focused backend regression test.
 
-Evidence: `npm test` passed 100 files and 1,106 tests, including the provider
-picker, Models settings, task screen, and task-card cases. The focused backend
-run passed `TestBetterWordsService` with the updated model names.
+Evidence: `npm test` passed 100 files and 1,106 tests after the Automation and
+CI UI changes, including the provider picker, task screen, and task-card cases.
+The focused backend run passed `TestBetterWordsService` with the updated model
+names.
 
 ## CP5 — Full verification and live gate
 
-- [x] Run backend mvn verify.
+- [x] Run backend mvn verify after the shared-permission change.
 - [x] Run frontend npm run lint, npx tsc --noEmit, npm test, and
   npm run package.
-- [x] Run the offline Codex profile/isolation fixture and inspect
-  redacted logs and task events for secret or reasoning leakage.
-- [ ] With an opt-in real DeepSeek key, complete a local edit, a user
-  approval, and a second turn that resumes the same task with another
-  supported model. Cancel a separate active turn with Stop. Confirm a
-  network write cannot proceed without direct user approval; perform no
-  GitHub mutation during this test.
+- [x] Run the offline Codex attended/CI permission-parity and task MCP
+  fixtures, and inspect redacted logs and task events for secret or reasoning
+  leakage.
+- [x] Verify CI sandbox dependency downloads with a real JVM and Gradle/Maven
+  against disposable local artifacts; keep restricted turns offline.
+- [x] Run the existing scoped draft-publication and CI coordinator regression
+  tests alongside DeepSeek-specific admission and native commit/CI probes.
+- [ ] With an opt-in real DeepSeek key, complete a local edit and commit under
+  ByteQuay approval routing, then resume the same task with
+  another supported model. Cancel a separate active turn with Stop. Perform
+  no GitHub mutation during this test.
+- [ ] If a live GitHub delivery or CI check is requested, use a disposable
+  destination with explicit user authorization for its exact writes.
 - [x] Confirm a removed or invalid key blocks a later turn and preserves
   the previous transcript. Record which checks used a fake key and which
   actually contacted DeepSeek.
 
-Evidence: full `mvn verify` passed on the final runtime edit. Frontend lint,
-typecheck, tests (100 files, 1,106 tests), and package all passed. The native
-Codex fixture and backend key/removal tests used fake keys and local test
-servers. No check in this implementation contacted the real DeepSeek API.
-The live-key smoke above remains unchecked until the user opts in with a key.
+Evidence: before permission unification, backend `mvn verify` and frontend
+lint, typecheck, tests, and package passed. Native Codex and task MCP probes
+used fake keys and local servers. An opt-in `ds-001` task contacted DeepSeek
+Flash, created a file in its Trino worktree, and committed it locally as
+`8cd01cc3c07763e0f201626abfb8707f1efc4519`. Later V4 Pro turns resumed
+the task and ran ordinary Git status commands. A separate Flash turn was
+stopped while `/bin/sleep 90` ran; the previous local commit remained. These
+checks used the superseded restricted profile and do not prove permission
+parity. No live test pushed or created a pull request. The live GitHub-write
+check remains open.
+
+After permission unification, `mvn -q verify` passed and all three native
+fake-key probe modes passed. The rebuilt backend resumed the existing `ds-001`
+task under the shared Codex permission path. DeepSeek Flash appended one line
+to `bytequay-deepseek-smoke.md` and made local commit
+`b31a4e8d85604cdb3e72f86ba1f9d39ecf263489` using the available Git author
+settings. The task worktree is clean; no pull request or CI follow-up exists.
+The broader live gate remains open for a post-unification model switch and
+Stop check.
+
+Sandbox-network follow-up: Codex and DeepSeek full worktree turns now share
+network access for builds, while Claude CI uses its sandbox network setting.
+The native Codex CI fixture downloaded a local artifact through both curl and
+Java and confirmed a restricted command stayed offline. Separate disposable
+Maven and Gradle CI-shaped fixtures fetched POM/JAR artifacts into the allowed
+cache roots with no approval requests. Codex's optional network proxy is
+disabled because its macOS socket policy blocked JVM downloads in the same
+fixture. These checks used local servers and fake provider credentials. The
+final backend `mvn verify` passed after the shared network and CI guidance
+changes.
+
+Permission unification follow-up: `mvn clean verify -q` passed. The native
+DeepSeek fixture used a fake key and confirmed authenticated Responses calls,
+secret-free model shell commands, and workspace-write edits. The native Codex
+CI fixture confirmed that an out-of-root command requests approval and a
+decline lets the turn finish. A new `ds-001` task in the Trino workspace used
+the saved key to get a one-word `READY` reply from DeepSeek Flash; its turn
+completed and the temporary task and managed worktree were deleted. Delivery
+automation was disabled for that connectivity check. These checks do not
+exercise a live CI repair or GitHub write.
 
 Final gate:
 
-- [ ] All earlier gates pass, the canonical design describes the delivered
-  scope accurately, and no unverified capability is shown as available.
+- [ ] Resolve the omitted-settings default, complete the real-key gate, and
+  confirm the canonical design describes the delivered scope without claiming
+  unverified capabilities.

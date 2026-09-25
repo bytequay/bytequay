@@ -38,10 +38,6 @@ const referenceBindingsPath = fileURLToPath(new URL(
   "../backend/agent-cli/src/test/resources/com/bytequay/agent/cli/codex/app-server-v0.151.0-bindings.json",
   import.meta.url,
 ));
-const autoReviewPolicy = readFileSync(new URL(
-  "../backend/agent-cli/src/main/resources/com/bytequay/agent/cli/codex/codex-auto-review-policy.md",
-  import.meta.url,
-), "utf8");
 
 function schemaSource(bundle, definition, discriminatorField, discriminatorValue) {
   return {
@@ -2377,8 +2373,9 @@ function assertLaunchPolicy(response, launchProfile) {
   const config = response?.config;
   assert.ok(config && typeof config === "object", "config/read omitted effective config");
   assert.equal(config.web_search, "live", "native web search was not enabled");
-  assert.equal(config.auto_review?.policy, autoReviewPolicy, "automatic review omitted the ByteQuay policy");
-  assert.equal(config.features?.guardian_approval, true, "native automatic review was not enabled");
+  assert.equal(config.approval_policy, "on-request", "native approval policy changed");
+  assert.equal(config.approvals_reviewer, "user", "native approvals no longer route to ByteQuay");
+  assert.equal(config.features?.guardian_approval, false, "native automatic review was enabled");
   if (launchProfile.codeGraph === undefined) {
     assert.deepEqual(config.mcp_servers, {}, "isolated launch inherited MCP servers");
   } else {
@@ -2454,8 +2451,9 @@ function assertLaunchPolicy(response, launchProfile) {
   );
   const sessionFlags = sessionFlagLayer.config;
   assert.equal(sessionFlags.web_search, "live", "session flags omitted web-search policy");
-  assert.equal(sessionFlags.auto_review?.policy, autoReviewPolicy, "session flags omitted automatic-review policy");
-  assert.equal(sessionFlags.features?.guardian_approval, true, "session flags omitted native automatic review");
+  assert.equal(sessionFlags.approval_policy, "on-request", "session flags omitted approval policy");
+  assert.equal(sessionFlags.approvals_reviewer, "user", "session flags omitted ByteQuay approval routing");
+  assert.equal(sessionFlags.features?.guardian_approval, false, "session flags enabled native automatic review");
   assert.equal(
     sessionFlags.features?.skip_host_skill_discovery,
     true,
@@ -3056,7 +3054,7 @@ function appServerArguments(launchProfile) {
     "--strict-config",
     "--enable",
     "skip_host_skill_discovery",
-    "--enable",
+    "--disable",
     "guardian_approval",
     "-c",
     'cli_auth_credentials_store="file"',
@@ -3065,7 +3063,9 @@ function appServerArguments(launchProfile) {
     "-c",
     'web_search="live"',
     "-c",
-    `auto_review.policy=${JSON.stringify(autoReviewPolicy)}`,
+    'approval_policy="on-request"',
+    "-c",
+    'approvals_reviewer="user"',
     "-c",
     'shell_environment_policy.inherit="core"',
     "-c",
@@ -3979,7 +3979,7 @@ async function liveCompatibilityCheck() {
       cwd: cwdB,
       model: model.model,
       approvalPolicy: "never",
-      approvalsReviewer: "auto_review",
+      approvalsReviewer: "user",
       sandbox: "workspace-write",
       ephemeral: false,
       serviceName: "ByteQuay CP1 compatibility fixture task B",
@@ -4132,7 +4132,7 @@ async function liveCompatibilityCheck() {
       threadId: threadAId,
       cwd: cwdA,
       approvalPolicy: "never",
-      approvalsReviewer: "auto_review",
+      approvalsReviewer: "user",
       sandbox: "workspace-write",
       excludeTurns: false,
     }));
@@ -4160,7 +4160,7 @@ async function liveCompatibilityCheck() {
       model: model.model,
       effort: model.defaultReasoningEffort,
       approvalPolicy: "never",
-      approvalsReviewer: "auto_review",
+      approvalsReviewer: "user",
       cwd: cwdA,
       sandboxPolicy: {
         type: "workspaceWrite",
@@ -4289,7 +4289,7 @@ async function liveCompatibilityCheck() {
       model: model.model,
       effort: model.defaultReasoningEffort,
       approvalPolicy: "never",
-      approvalsReviewer: "auto_review",
+      approvalsReviewer: "user",
       cwd: cwdB,
       sandboxPolicy: {
         type: "workspaceWrite",
@@ -4572,7 +4572,7 @@ async function liveCompatibilityCheck() {
       threadId: threadAId,
       cwd: cwdA,
       approvalPolicy: "never",
-      approvalsReviewer: "auto_review",
+      approvalsReviewer: "user",
       sandbox: "workspace-write",
       excludeTurns: false,
     }));
@@ -4876,7 +4876,7 @@ async function liveChildrenCompatibilityCheck() {
       cwd,
       model: selectedModel.model,
       approvalPolicy: "never",
-      approvalsReviewer: "auto_review",
+      approvalsReviewer: "user",
       sandbox: "workspace-write",
       ephemeral: false,
       serviceName: "ByteQuay CP1 recursive-child fixture",
@@ -4899,7 +4899,7 @@ async function liveChildrenCompatibilityCheck() {
       model: selectedModel.model,
       effort: selectedModel.defaultReasoningEffort,
       approvalPolicy: "never",
-      approvalsReviewer: "auto_review",
+      approvalsReviewer: "user",
       cwd,
       sandboxPolicy: {
         type: "workspaceWrite",

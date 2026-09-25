@@ -157,26 +157,9 @@ public final class InteractiveAgentTaskCreator
             }
             return task;
         }
-        boolean deepSeek = laneId.value().startsWith("deepseek-key-");
-        if (deepSeek) {
-            defaults.developmentAutomation().ifPresent(value -> {
-                if (!value.equals(DevelopmentAutomation.LOCAL_ONLY)) {
-                    throw new IllegalArgumentException("DeepSeek tasks do not support automatic delivery");
-                }
-            });
-            initialAutomation.ifPresent(value -> {
-                if (!value.equals(DevelopmentAutomation.LOCAL_ONLY)) {
-                    throw new IllegalArgumentException("DeepSeek tasks do not support automatic delivery");
-                }
-            });
-        }
-        DevelopmentAutomation automation = deepSeek
-                ? DevelopmentAutomation.LOCAL_ONLY
-                : defaults.developmentAutomation().orElseGet(settings::developmentAutomation);
+        DevelopmentAutomation automation = defaults.developmentAutomation().orElseGet(settings::developmentAutomation);
         settings.validateDevelopmentAutomation(automation);
-        if (!deepSeek) {
-            initialAutomation.ifPresent(settings::validateDevelopmentAutomation);
-        }
+        initialAutomation.ifPresent(settings::validateDevelopmentAutomation);
         progress.record(taskId, Phase.PROVIDER);
         requireReady(drivers, laneId, defaults.permissionPolicy(), defaults.model());
         models.validateSelection(
@@ -198,8 +181,7 @@ public final class InteractiveAgentTaskCreator
         progress.record(taskId, Phase.NAMING);
         String context = issueSource.map(source -> "GitHub issue #" + source.number() + ": " + source.title() + "\n" + source.body()
                 + "\n\nUser request:\n" + message).orElse(message);
-        // DeepSeek's attended profile cannot open the text-only naming helper.
-        Optional<TaskNames> generated = deepSeek ? Optional.empty() : names.generate(laneId, defaults, context);
+        Optional<TaskNames> generated = names.generate(laneId, defaults, context);
         String branch = TaskBranches.prefix(credentials.resolveGitHubCredential().profile().login())
                 + generated.map(TaskNames::branch).orElse("task-" + taskId.toString().substring(0, 8));
         progress.record(taskId, Phase.WORKTREE);

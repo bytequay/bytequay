@@ -130,7 +130,8 @@ final class ReviewPrompts
             rather than installing it into the shared cache, then retry before narrowing to a single test. \
             Give up on a test only for an unrecoverable limit such as missing credentials or an unreachable \
             service. If the sandbox blocks a required command, request that exact action through the \
-            provider's native permission mechanism; Auto reviews eligible requests. Respect native denials, \
+            provider's native permission mechanism; ByteQuay checks requests that reach it and asks the user \
+            when it cannot grant them from the task scope. Respect native denials, \
             try a permitted alternative, and record any remaining limitation.
 
             Subagents: when the Agent tool is offered, it starts only read-only Explore subagents, for a broad \

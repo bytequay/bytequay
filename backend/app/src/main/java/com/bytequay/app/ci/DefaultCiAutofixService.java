@@ -778,7 +778,7 @@ public class DefaultCiAutofixService
                             ? PauseReason.AUTHENTICATION_REQUIRED
                             : PauseReason.TURN_FAILED,
                     turn.failureKind().filter(AgentTurnFailureKind.AUTHENTICATION_REQUIRED::equals).isPresent()
-                            ? "Agent provider sign-in required"
+                            ? authenticationRecovery(run)
                             : terminalSummary("Agent turn failed", turn),
                     now);
             case INTERRUPTED -> observed.pause(
@@ -792,6 +792,13 @@ public class DefaultCiAutofixService
             case ACCEPTED, RUNNING -> throw new AssertionError("active turn reached terminal reconciliation");
         };
         return store.update(observed);
+    }
+
+    private static String authenticationRecovery(CiAutofixRun run)
+    {
+        return run.scope().laneId().startsWith("deepseek-key-")
+                ? "DeepSeek key needs attention. Check it in Models settings."
+                : "Agent provider sign-in required";
     }
 
     private CiAutofixRun inspectCompletedAttempt(

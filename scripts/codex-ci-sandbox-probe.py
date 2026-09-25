@@ -16,7 +16,6 @@ import os
 from pathlib import Path
 import shlex
 import shutil
-import socket
 import subprocess
 import sys
 import tempfile
@@ -28,6 +27,8 @@ spec = importlib.util.spec_from_file_location("completion_probe", Path(__file__)
 probe = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(probe)
 
+DEPENDENCY_POM = b"<project><modelVersion>4.0.0</modelVersion></project>\n"
+
 
 class LocalProvider:
     def __init__(self, output):
@@ -37,6 +38,16 @@ class LocalProvider:
         class Handler(http.server.BaseHTTPRequestHandler):
             def log_message(self, *args):
                 pass
+
+            def do_GET(self):
+                if self.path != "/maven/fixture.pom":
+                    self.send_error(404)
+                    return
+                self.send_response(200)
+                self.send_header("Content-Type", "application/xml")
+                self.send_header("Content-Length", str(len(DEPENDENCY_POM)))
+                self.end_headers()
+                self.wfile.write(DEPENDENCY_POM)
 
             def do_POST(self):
                 payload = json.loads(self.rfile.read(int(self.headers["Content-Length"])))
@@ -91,13 +102,16 @@ def verify_config(app, workspace, roots, phase):
     flags = [layer["config"] for layer in result["layers"] if layer["name"]["type"] == "sessionFlags"]
     probe.require(len(flags) == 1, "Expected one sessionFlags config layer")
     for config in (result["config"], flags[0]):
-        probe.require(config["approval_policy"] == "never" and config["approvals_reviewer"] == "user", "Unexpected approval policy")
+        probe.require(config["approval_policy"] == "on-request" and config["approvals_reviewer"] == "user", "Unexpected approval policy")
         probe.require(config["web_search"] == "disabled", "Web search became available")
         for name in ("guardian_approval", "multi_agent", "multi_agent_v2"):
             probe.require(config["features"][name] is False, "Unexpected enabled feature: " + name)
+        proxy = config["features"]["network_proxy"]
+        probe.require((proxy["enabled"] if isinstance(proxy, dict) else proxy) is False,
+                      "Managed network proxy would block JVM builds")
         sandbox = config["sandbox_workspace_write"]
         probe.require(sandbox["writable_roots"] == roots, "Config roots changed")
-        probe.require(sandbox["network_access"] is False, "Network permission changed")
+        probe.require(sandbox["network_access"] is True, "CI build network permission changed")
         probe.require(sandbox["exclude_tmpdir_env_var"] and sandbox["exclude_slash_tmp"], "Temporary directories became writable")
 
 
@@ -139,19 +153,21 @@ def main():
     protected = [common / "refs/heads/ci/sibling", common / "config", common / "hooks/ci-probe",
                  common / "refs/heads/main", log, output / "outside.txt"]
     before = {path: path.read_bytes() if path.exists() else None for path in protected}
-    policy = {"type": "workspaceWrite", "writableRoots": roots, "networkAccess": False,
+    policy = {"type": "workspaceWrite", "writableRoots": roots, "networkAccess": True,
               "excludeTmpdirEnvVar": True, "excludeSlashTmp": True}
-    thread_config = {"web_search": "disabled", "features": {"guardian_approval": False, "multi_agent": False, "multi_agent_v2": False},
-                     "sandbox_workspace_write": {"writable_roots": roots, "network_access": False,
+    thread_config = {"web_search": "disabled", "features": {"guardian_approval": False, "multi_agent": False,
+                                                              "multi_agent_v2": False, "network_proxy": False},
+                     "sandbox_workspace_write": {"writable_roots": roots, "network_access": True,
                                                  "exclude_tmpdir_env_var": True, "exclude_slash_tmp": True}}
     with LocalProvider(output) as provider:
         arguments = [str(Path(options.codex).absolute()), "app-server", "--listen", "stdio://", "--strict-config",
-                     "--enable", "skip_host_skill_discovery", "--disable", "guardian_approval", "--disable", "multi_agent", "--disable", "multi_agent_v2"]
+                     "--enable", "skip_host_skill_discovery", "--disable", "guardian_approval", "--disable", "multi_agent",
+                     "--disable", "multi_agent_v2", "--disable", "network_proxy"]
         config = {"model_provider": "fixture", "model": "fixture-model", "model_providers.fixture.name": "Local CI fixture",
                   "model_providers.fixture.base_url": "http://127.0.0.1:" + str(provider.server.server_port) + "/v1",
                   "model_providers.fixture.wire_api": "responses", "model_providers.fixture.requires_openai_auth": False,
                   "model_providers.fixture.supports_websockets": False, "model_providers.fixture.request_max_retries": 0,
-                  "approval_policy": "never", "approvals_reviewer": "user", "sandbox_mode": "workspace-write",
+                  "approval_policy": "on-request", "approvals_reviewer": "user", "sandbox_mode": "workspace-write",
                   "shell_environment_policy.inherit": "none", "shell_environment_policy.set.PATH": environment["PATH"],
                   "shell_environment_policy.set.GIT_CONFIG_GLOBAL": "/dev/null", "shell_environment_policy.set.GIT_CONFIG_NOSYSTEM": "1",
                   **thread_config}
@@ -179,36 +195,70 @@ def main():
                 result = command("printf forbidden > " + shlex.quote(str(path)), "protected-path-" + str(index))
                 probe.require(result["exitCode"] != 0, "Protected path accepted writes: " + str(path))
                 probe.require((path.read_bytes() if path.exists() else None) == before[path], "Protected path changed: " + str(path))
-            with socket.socket() as listener:
-                listener.bind(("127.0.0.1", 0))
-                listener.listen(1)
-                program = "import socket; socket.create_connection(('127.0.0.1'," + str(listener.getsockname()[1]) + "),2)"
-                result = command("/usr/bin/python3 -c " + shlex.quote(program), "network-denial")
-                probe.require(result["exitCode"] != 0 and "Operation not permitted" in result["stderr"], "Native network denial was not proven")
-            start = {"cwd": str(workspace), "model": "fixture-model", "modelProvider": "fixture", "approvalPolicy": "never",
+            artifact_url = "http://127.0.0.1:" + str(provider.server.server_port) + "/maven/fixture.pom"
+            result = command("/usr/bin/curl -fsS " + artifact_url + " -o dependency.pom", "dependency-download")
+            probe.require(result["exitCode"] == 0 and (workspace / "dependency.pom").read_bytes() == DEPENDENCY_POM,
+                          "CI sandbox could not fetch a local dependency artifact")
+            java = shutil.which("java")
+            javac = shutil.which("javac")
+            probe.require(java is not None and javac is not None, "A JDK is needed for the JVM network fixture")
+            source = output / "FetchArtifact.java"
+            source.write_text("""
+                    import java.net.URL;
+                    import java.nio.file.Files;
+                    import java.nio.file.Path;
+                    class FetchArtifact {
+                        public static void main(String[] args) throws Exception {
+                            try (var input = new URL(args[0]).openStream()) {
+                                Files.write(Path.of(args[1]), input.readAllBytes());
+                            }
+                        }
+                    }
+                    """)
+            subprocess.run([javac, str(source)], cwd=output, check=True, capture_output=True, text=True)
+            result = command(" ".join(shlex.quote(value) for value in
+                                      (java, "-cp", str(output), "FetchArtifact", artifact_url, "dependency-java.pom")),
+                             "jvm-dependency-download")
+            probe.require(result["exitCode"] == 0 and (workspace / "dependency-java.pom").read_bytes() == DEPENDENCY_POM,
+                          "CI sandbox could not fetch a local dependency artifact through the JVM")
+            restricted = app.request("command/exec", {"cwd": str(workspace), "command": ["/usr/bin/curl", "-fsS", artifact_url],
+                                                      "sandboxPolicy": {"type": "readOnly", "networkAccess": False},
+                                                      "timeoutMs": 15000, "outputBytesCap": 5000}, "restricted-network")["result"]
+            probe.require(restricted["exitCode"] != 0, "Restricted sandbox unexpectedly fetched a dependency artifact")
+            start = {"cwd": str(workspace), "model": "fixture-model", "modelProvider": "fixture", "approvalPolicy": "on-request",
                      "approvalsReviewer": "user", "sandbox": "workspace-write", "config": thread_config}
             started = app.request("thread/start", {**start, "ephemeral": False}, "thread-start")["result"]
             thread_id = started["thread"]["id"]
             turn = app.request("turn/start", {"threadId": thread_id, "input": [{"type": "text", "text": "Run the local denial fixture."}],
-                                               "cwd": str(workspace), "approvalPolicy": "never", "approvalsReviewer": "user",
+                                               "cwd": str(workspace), "approvalPolicy": "on-request", "approvalsReviewer": "user",
                                                "sandboxPolicy": policy}, "turn-start")["result"]["turn"]["id"]
             deadline = time.monotonic() + 15
-            while not any(item.get("method") == "turn/completed" and item["params"]["turn"]["id"] == turn for item in app.notifications):
-                probe.require(time.monotonic() < deadline, "Fixture turn did not complete without human input")
-                time.sleep(0.01)
-            completed = next(item["params"]["turn"] for item in app.notifications if item.get("method") == "turn/completed" and item["params"]["turn"]["id"] == turn)
+            approvals = []
+            while True:
+                probe.require(time.monotonic() < deadline, "Fixture turn did not complete after approval response")
+                event = app.incoming.get(timeout=max(0.01, deadline - time.monotonic()))
+                probe.require(not event.get("closed"), "App Server closed during fixture turn")
+                if event.get("method") == "item/commandExecution/requestApproval":
+                    probe.require(event["params"]["turnId"] == turn, "Approval belongs to another turn")
+                    approvals.append(event)
+                    app.send({"id": event["id"], "result": {"decision": "decline"}})
+                elif event.get("method") == "turn/completed" and event["params"]["turn"]["id"] == turn:
+                    completed = event["params"]["turn"]
+                    break
+                else:
+                    probe.require("method" not in event or "id" not in event, "Unexpected server request: " + json.dumps(event))
             probe.require(completed["status"] == "completed", "Fixture turn failed")
             resumed = app.request("thread/resume", {**start, "threadId": thread_id}, "thread-resume")["result"]
             for response in (started, resumed):
-                probe.require(response["approvalPolicy"] == "never" and response["approvalsReviewer"] == "user", "Thread approval binding changed")
+                probe.require(response["approvalPolicy"] == "on-request" and response["approvalsReviewer"] == "user", "Thread approval binding changed")
                 probe.require(response["sandbox"] == {**policy, "writableRoots": roots[1:]}, "Thread sandbox binding changed")
             verify_config(app, workspace, roots, "resumed-config")
-            probe.require(not any("method" in item and "id" in item for item in app.notifications), "Unexpected server approval/input request")
+            probe.require(len(approvals) == 1, "Expected one ByteQuay-routed command approval")
             probe.require(len(provider.requests) == 3, "Expected three local provider requests")
             tool_names = {tool.get("name") for tool in provider.requests[0]["body"]["tools"]}
             probe.require(not tool_names.intersection({"spawn_agent", "web_search", "web"}), "Child agents or web tools became available")
             outputs = {item["call_id"]: item["output"] for item in provider.requests[-1]["body"]["input"] if item.get("type") == "function_call_output"}
-            probe.require("approval policy is Never" in outputs["call_1"], "Escalated command was not rejected locally")
+            probe.require("rejected by user" in outputs["call_1"], "Escalated command was not denied by the approval response")
             probe.require("request_user_input is unavailable in Default mode" in outputs["call_2"], "Human input was not rejected locally")
             probe.require(not (output / "escaped.txt").exists(), "Escalated command executed")
 
@@ -250,8 +300,9 @@ def main():
                 result = rebase_command("printf forbidden > " + shlex.quote(str(path)), "rebase-protected-path-" + str(index))
                 probe.require(result["exitCode"] != 0, "Rebase sandbox accepted a protected write: " + str(path))
                 probe.require((path.read_bytes() if path.exists() else None) == before[path], "Rebase changed protected metadata: " + str(path))
-    print("PASS: exact Git roots permit edits and commits; shared refs/config/hooks, CI logs, outside writes and network stay protected; "
-          "never/user survives start/turn/resume, escalation and human input are rejected locally, and child agents are disabled; "
+    print("PASS: exact Git roots permit edits and commits; shared refs/config/hooks, CI logs and outside writes stay protected; "
+          "curl and JVM fetch a local dependency inside CI while a restricted command remains offline; "
+          "on-request/user survives start/turn/resume, escalation is routed and denied, human input is unavailable, and child agents are disabled; "
           "a detached rebase conflict can be staged with no writable branch refs and remains open for ByteQuay.", flush=True)
 
 

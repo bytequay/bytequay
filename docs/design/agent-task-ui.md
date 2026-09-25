@@ -362,20 +362,18 @@ starting its turn. A safe explicit resume after a known pre-send failure reuses
 that message identity and adds a new delivery-attempt event instead of
 duplicating the user's text.
 
-For Codex, **Auto** maps to App Server's generated on-request approval value
-(`approvalPolicy: "on-request"` in the v0.151 reference schema) plus a
-workspace-write sandbox rooted at the generated task worktree, ordinary `/tmp`
-and `$TMPDIR` allowances, and the native `auto_review` approval reviewer.
-The pinned native policy reviews routine task prerequisites by risk, including
-build/test cache, lock, and temporary writes. A task request authorizes those
-normal prerequisites without making the user name each cache path. The user's
-Maven local repository (`~/.m2/repository`) is also a writable root, so offline builds and tests can
-use and update it without review; other cache directories still require native
-review. GitHub writes continue to require direct explicit user
-authorization, and native denials and the prohibition on persistent or blanket
-future grants remain. **Auto** does not guarantee that every test command will
-be approved. Normal tasks also enable Codex's native
-web tool, independently of the disabled shell network. `thread/start` receives
+For Codex and DeepSeek, **Auto** maps to App Server's generated on-request
+approval value (`approvalPolicy: "on-request"` in the v0.151 reference schema)
+and reviewer `user`. The workspace-write sandbox is rooted at the generated
+task worktree and retains ordinary `/tmp` and `$TMPDIR` allowances. The
+validated Maven, Gradle, and npm cache roots and linked-worktree Git metadata
+roots permit routine builds and local commits; the cache content is shared
+with later local builds. Full worktree turns allow command network access for
+dependency downloads. Provider prompts that reach ByteQuay appear as approval
+cards; native denials remain in force. GitHub writes require direct explicit
+user authorization, and persistent or blanket future grants remain prohibited.
+**Auto** does not guarantee that every test command will be approved. Normal
+tasks also enable Codex's native web tool. `thread/start` receives
 the legacy `sandbox: "workspace-write"` field; `turn/start` receives the
 structured `sandboxPolicy` for the effective turn. A subagent inherits the
 active parent turn's effective sandbox and approval choices. The task-owned App
@@ -457,12 +455,14 @@ when a final answer is available, unless the user explicitly chose its fold stat
 
 ### 2.4 Approvals
 
-Codex automatic reviews appear as ordinary activity with their status, risk,
-and rationale. A review uses its own identity so its result cannot replace the
-reviewed command's output. Denials, timeouts, and aborted reviews stay visible;
-the native agent handles the next step or asks for user authorization. They do
-not create a pending manual approval card. The cards below handle remaining
-native user requests and the Claude lane.
+Provider permission requests that reach ByteQuay appear as task approval
+cards for Codex, DeepSeek, and Claude. Native provider denials can stop an
+action before it reaches a card. Denials, timeouts, and aborted requests stay
+visible, and the agent handles the next step or asks the user.
+Pending CI Autofix requests appear on the linked development Task screen. A
+standalone CI run started from a cherry-pick delivery shows its pending cards
+in that Commits delivery view. Both surfaces answer through the same task
+approval endpoint.
 
 An approval card identifies the source task, child agent when applicable,
 turn, item, request kind, reason, and product-permitted available decisions.

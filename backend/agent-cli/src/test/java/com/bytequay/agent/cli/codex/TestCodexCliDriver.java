@@ -14,6 +14,8 @@
 package com.bytequay.agent.cli.codex;
 
 import com.bytequay.agent.cli.mcp.PermissionBroker;
+import com.bytequay.agent.cli.process.BuildCacheRoots;
+import com.bytequay.agent.cli.process.GitWorktreeWriteRoots;
 import com.bytequay.agent.cli.process.ManagedProcess;
 import com.bytequay.agent.cli.process.OwnedProcessRecovery;
 import com.bytequay.agent.cli.process.PreparedProcess;
@@ -28,6 +30,7 @@ import com.bytequay.agent.spi.AgentApprovalHandler;
 import com.bytequay.agent.spi.AgentAttachment;
 import com.bytequay.agent.spi.AgentCommandPolicy;
 import com.bytequay.agent.spi.AgentDeliveryUncertainException;
+import com.bytequay.agent.spi.AgentLaneId;
 import com.bytequay.agent.spi.AgentPermissionPolicy;
 import com.bytequay.agent.spi.AgentProviderStatus;
 import com.bytequay.agent.spi.AgentSession;
@@ -90,6 +93,7 @@ import java.util.function.BooleanSupplier;
 import java.util.function.Consumer;
 import java.util.function.Function;
 import java.util.function.Supplier;
+import java.util.stream.Stream;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -103,23 +107,38 @@ class TestCodexCliDriver
     private Path worktree;
 
     @Test
+    void deepSeekAdvertisesCiAutofix()
+    {
+        CodexCliDriver driver = CodexCliDriver.deepSeek(
+                "/fake/codex", "0.156.1", objectMapper, new ScriptedProcessSupervisor(objectMapper),
+                codexHome(),
+                new PermissionBroker(() -> URI.create(MCP_ENDPOINT), objectMapper, (taskId, query) -> ""),
+                new AgentLaneId("deepseek-key-123e4567-e89b-12d3-a456-426614174000"), "DeepSeek", () -> Optional.of("fake-key"));
+
+        assertThat(driver.capabilities().permissionPolicies())
+                .containsExactly(AgentPermissionPolicy.AUTO, AgentPermissionPolicy.CI_AUTOFIX);
+    }
+
+    @Test
     void probesResumesAndMapsAnAuthoritativeRedactedResult()
             throws Exception
     {
         ScriptedProcessSupervisor supervisor = new ScriptedProcessSupervisor(objectMapper);
         CodexCliDriver driver = driver(supervisor);
-        Path mavenRepository = Files.createDirectories(worktree.resolve(".m2/repository")).toRealPath();
+        List<String> writableRoots = Stream.concat(
+                Stream.of(worktree.toRealPath()), BuildCacheRoots.writableRoots(ImmutableMap.of("HOME", worktree.toString())).stream())
+                .map(Path::toString).toList();
         List<ProviderAgentEvent> events = new CopyOnWriteArrayList<>();
         AtomicReference<ProviderApprovalRequest> approval = new AtomicReference<>();
 
         assertThat(driver.probe().readiness()).isEqualTo(AgentProviderStatus.Readiness.READY);
         assertThat(supervisor.environments()).allSatisfy(environment -> assertThat(environment).doesNotContainKeys("GH_TOKEN", "GH_CONFIG_DIR"));
         AgentSession initial = driver.open(context(Optional.empty(), approval), events::add);
-        assertThat(supervisor.environments().getLast()).containsEntry("GH_TOKEN", "github-sentinel").containsKey("GH_CONFIG_DIR");
+        assertThat(supervisor.environments().getLast()).doesNotContainKeys("GH_TOKEN", "GH_CONFIG_DIR", "OPENAI_API_KEY");
         AgentSessionRef reference = initial.reference();
         initial.close();
         AgentSession resumed = driver.open(context(Optional.of(reference), approval), events::add);
-        assertThat(supervisor.environments().getLast()).containsEntry("GH_TOKEN", "github-sentinel");
+        assertThat(supervisor.environments().getLast()).doesNotContainKeys("GH_TOKEN", "GH_CONFIG_DIR", "OPENAI_API_KEY");
         // Each session owns its own process, so the resume is served by a second one.
         assertThat(supervisor.servers()).hasSize(2);
         AppServerProcess resumedServer = supervisor.servers().getLast();
@@ -128,29 +147,31 @@ class TestCodexCliDriver
         RunningTurn turn = resumed.start(command("complete"));
         JsonNode startedThread = supervisor.servers().getFirst().threadRequests().getFirst();
         assertThat(startedThread.path("model").asText()).isEqualTo("gpt-5");
-        assertThat(startedThread.path("approvalsReviewer").asText()).isEqualTo("auto_review");
+        assertThat(startedThread.path("approvalsReviewer").asText()).isEqualTo("user");
         assertThat(startedThread.path("config").path("web_search").asText()).isEqualTo("live");
-        assertThat(startedThread.path("config").path("auto_review").path("policy").asText()).isEqualTo(CodexApprovalPolicy.policy(false));
+        assertThat(startedThread.path("config").has("auto_review")).isFalse();
         assertThat(startedThread.path("ephemeral").asBoolean()).isFalse();
         assertThat(startedThread.path("dynamicTools")).isEmpty();
         assertThat(startedThread.path("selectedCapabilityRoots")).isEmpty();
         assertThat(startedThread.path("config").path("mcp_servers")).isEmpty();
         assertThat(startedThread.path("config").path("features").path("multi_agent").asBoolean()).isTrue();
+        assertThat(startedThread.path("config").path("sandbox_workspace_write").path("network_access").asBoolean()).isTrue();
 
         JsonNode resumedThread = resumedServer.threadRequests().getFirst();
         assertThat(resumedThread.path("model").asText()).isEqualTo("gpt-5");
-        assertThat(resumedThread.path("approvalsReviewer").asText()).isEqualTo("auto_review");
-        assertThat(resumedThread.path("config").path("auto_review").path("policy").asText()).isEqualTo(CodexApprovalPolicy.policy(false));
+        assertThat(resumedThread.path("approvalsReviewer").asText()).isEqualTo("user");
+        assertThat(resumedThread.path("config").has("auto_review")).isFalse();
+        assertThat(resumedThread.path("config").path("sandbox_workspace_write").path("network_access").asBoolean()).isTrue();
         assertThat(resumedThread.path("config").path("mcp_servers")).isEmpty();
 
         JsonNode startedTurn = resumedServer.turnRequests().getFirst();
         assertThat(startedTurn.path("approvalPolicy").asText()).isEqualTo("on-request");
-        assertThat(startedTurn.path("approvalsReviewer").asText()).isEqualTo("auto_review");
+        assertThat(startedTurn.path("approvalsReviewer").asText()).isEqualTo("user");
         assertThat(Path.of(startedTurn.path("cwd").asText())).isEqualTo(worktree.toRealPath());
         assertThat(startedTurn.path("sandboxPolicy").path("type").asText()).isEqualTo("workspaceWrite");
         assertThat(startedTurn.path("sandboxPolicy").path("writableRoots"))
-                .isEqualTo(objectMapper.valueToTree(ImmutableList.of(worktree.toRealPath().toString(), mavenRepository.toString())));
-        assertThat(startedTurn.path("sandboxPolicy").path("networkAccess").asBoolean()).isFalse();
+                .isEqualTo(objectMapper.valueToTree(writableRoots));
+        assertThat(startedTurn.path("sandboxPolicy").path("networkAccess").asBoolean()).isTrue();
         assertThat(startedTurn.path("sandboxPolicy").path("excludeTmpdirEnvVar").booleanValue()).isFalse();
         assertThat(startedTurn.path("sandboxPolicy").path("excludeSlashTmp").booleanValue()).isFalse();
         resumedServer.completeTurn();
@@ -197,56 +218,90 @@ class TestCodexCliDriver
     }
 
     @Test
-    void pinsCiPermissionsOnStartResumeAndTurnsWithoutHumanApprovals()
+    void routesCiApprovalsThroughByteQuayOnStartResumeAndTurns()
             throws Exception
     {
         ScriptedProcessSupervisor supervisor = ciSupervisor();
         CodexCliDriver driver = driver(supervisor);
-        // CI keeps its exact pinned roots even when the user has a Maven repository.
+        // CI pins both its Git writes and the fixed build caches across fresh and resumed sessions.
         Files.createDirectories(worktree.resolve(".m2/repository"));
+        List<ProviderApprovalRequest> approvals = new CopyOnWriteArrayList<>();
+        AgentApprovalHandler handler = (request, timeout) -> {
+            approvals.add(request);
+            return CompletableFuture.completedFuture(ProviderApprovalDecision.deny());
+        };
         Optional<AgentSessionRef> reference = Optional.empty();
         for (int attempt = 0; attempt < 2; attempt++) {
-            AgentSessionContext context = ciContext(reference);
+            AgentSessionContext context = ciContext(reference, handler);
             try (AgentSession session = driver.open(context, event -> {})) {
                 assertThat(supervisor.environments().getLast()).doesNotContainKeys("GH_TOKEN", "GH_CONFIG_DIR");
                 RunningTurn turn = session.start(command("repair CI"));
                 AppServerProcess server = supervisor.servers().getLast();
                 JsonNode thread = server.threadRequests().getFirst();
-                assertThat(thread.path("approvalPolicy").asText()).isEqualTo("never");
+                assertThat(thread.path("approvalPolicy").asText()).isEqualTo("on-request");
                 assertThat(thread.path("approvalsReviewer").asText()).isEqualTo("user");
                 assertThat(thread.path("config").path("web_search").asText()).isEqualTo("disabled");
+                assertThat(thread.path("developerInstructions").asText()).contains("ByteQuay CI Repair Scope", "Never push");
                 assertThat(thread.path("config").path("features").path("guardian_approval").asBoolean()).isFalse();
                 assertThat(thread.path("config").path("features").path("multi_agent").asBoolean()).isFalse();
                 assertThat(thread.path("config").path("features").path("multi_agent_v2").asBoolean()).isFalse();
                 assertThat(thread.path("config").has("mcp_servers")).isFalse();
                 JsonNode request = server.turnRequests().getFirst();
-                assertThat(request.path("approvalPolicy").asText()).isEqualTo("never");
+                assertThat(request.path("approvalPolicy").asText()).isEqualTo("on-request");
                 assertThat(request.path("approvalsReviewer").asText()).isEqualTo("user");
                 JsonNode sandbox = request.path("sandboxPolicy");
-                assertThat(sandbox.path("writableRoots")).isEqualTo(objectMapper.valueToTree(CodexCiSandbox.writableRoots(context.worktree())));
-                assertThat(sandbox.path("networkAccess").asBoolean()).isFalse();
+                assertThat(sandbox.path("writableRoots")).isEqualTo(objectMapper.valueToTree(ciWritableRoots(context.worktree())));
+                assertThat(sandbox.path("networkAccess").asBoolean()).isTrue();
                 assertThat(sandbox.path("excludeTmpdirEnvVar").asBoolean()).isTrue();
                 assertThat(sandbox.path("excludeSlashTmp").asBoolean()).isTrue();
                 server.emit("""
                         {"id":92,"method":"item/commandExecution/requestApproval","params":{
                         "threadId":"thread-1","turnId":"%s","itemId":"exec-network",
-                        "command":"git push","networkApprovalContext":{"host":"github.com","protocol":"https"},
+                        "command":"mvn test",
                         "startedAtMs":1786884871461}}
                         """.formatted(server.activeTurn()));
                 server.emit("""
                         {"id":93,"method":"item/fileChange/requestApproval","params":{
                         "threadId":"thread-1","turnId":"%s","itemId":"patch-scoped",
-                        "grantRoot":"/outside","startedAtMs":1786884871462}}
+                        "reason":"Write generated test result","startedAtMs":1786884871462}}
                         """.formatted(server.activeTurn()));
                 awaitCondition(() -> server.results.containsKey(92L) && server.results.containsKey(93L));
                 assertThat(server.results.get(92L).path("decision").asText()).isEqualTo("decline");
                 assertThat(server.results.get(93L).path("decision").asText()).isEqualTo("decline");
+                assertThat(approvals.stream().filter(value -> value.providerRequestId().equals("92")).toList())
+                        .hasSize(attempt + 1)
+                        .allSatisfy(value -> assertThat(value.kind()).isEqualTo(ProviderApprovalRequest.Kind.COMMAND));
+                assertThat(approvals.stream().filter(value -> value.providerRequestId().equals("93")).toList())
+                        .hasSize(attempt + 1)
+                        .allSatisfy(value -> assertThat(value.kind()).isEqualTo(ProviderApprovalRequest.Kind.FILE_CHANGE));
                 server.completeTurn();
                 assertThat(turn.completion().toCompletableFuture().get(5, TimeUnit.SECONDS).state()).isEqualTo(AgentTurnResult.State.COMPLETED);
                 reference = Optional.of(session.reference());
             }
         }
         assertThat(supervisor.servers().getLast().resumes.get()).isEqualTo(1);
+    }
+
+    @Test
+    void attendedDevelopmentCanWriteItsLinkedWorktreeGitMetadata()
+            throws Exception
+    {
+        AgentSessionContext linked = ciContext(Optional.empty());
+        AgentSessionContext attended = new AgentSessionContext(
+                "development-task", linked.worktree(), linked.runtimeDirectory(), linked.providerDirectory(),
+                AgentPermissionPolicy.AUTO, Optional.empty(), linked.approvals());
+        ScriptedProcessSupervisor supervisor = new ScriptedProcessSupervisor(objectMapper);
+        try (AgentSession session = driver(supervisor).open(attended, event -> {})) {
+            RunningTurn turn = session.start(command("commit local changes"));
+            JsonNode roots = supervisor.server().turnRequests().getFirst().path("sandboxPolicy").path("writableRoots");
+            assertThat(roots).isEqualTo(objectMapper.valueToTree(Stream.concat(
+                    GitWorktreeWriteRoots.writableRoots(attended.worktree()).stream(),
+                    BuildCacheRoots.writableRoots(ImmutableMap.of("HOME", worktree.toString())).stream().map(Path::toString))
+                    .toList()));
+            supervisor.server().completeTurn();
+            assertThat(turn.completion().toCompletableFuture().get(5, TimeUnit.SECONDS).state())
+                    .isEqualTo(AgentTurnResult.State.COMPLETED);
+        }
     }
 
     @Test
@@ -258,7 +313,7 @@ class TestCodexCliDriver
         Optional<AgentSessionRef> reference = Optional.empty();
         for (int attempt = 0; attempt < 3; attempt++) {
             AgentSessionContext context = ciContext(reference);
-            Path gitDirectory = Path.of(CodexCiSandbox.writableRoots(context.worktree()).get(1));
+            Path gitDirectory = Path.of(GitWorktreeWriteRoots.writableRoots(context.worktree()).get(1));
             Path rebase = gitDirectory.resolve("rebase-merge");
             if (attempt == 1) {
                 Files.createDirectory(rebase);
@@ -277,8 +332,8 @@ class TestCodexCliDriver
                 RunningTurn turn = session.start(command("repair CI"));
                 AppServerProcess server = supervisor.servers().getLast();
                 JsonNode sandbox = server.turnRequests().getFirst().path("sandboxPolicy");
-                assertThat(sandbox.path("writableRoots")).hasSize(attempt == 1 ? 3 : 7);
-                assertThat(sandbox.path("networkAccess").asBoolean()).isFalse();
+                assertThat(sandbox.path("writableRoots")).hasSize(attempt == 1 ? 6 : 10);
+                assertThat(sandbox.path("networkAccess").asBoolean()).isTrue();
                 server.completeTurn();
                 assertThat(turn.completion().toCompletableFuture().get(5, TimeUnit.SECONDS).state()).isEqualTo(AgentTurnResult.State.COMPLETED);
                 reference = Optional.of(session.reference());
@@ -295,7 +350,7 @@ class TestCodexCliDriver
         ScriptedProcessSupervisor supervisor = ciSupervisor();
         AgentSessionContext context = ciContext(Optional.empty());
         try (AgentSession session = driver(supervisor).open(context, event -> {})) {
-            Path gitDirectory = Path.of(CodexCiSandbox.writableRoots(context.worktree()).get(1));
+            Path gitDirectory = Path.of(GitWorktreeWriteRoots.writableRoots(context.worktree()).get(1));
             Files.writeString(gitDirectory.resolve("HEAD"), "ref: refs/heads/another\n");
             assertThatThrownBy(() -> session.start(command("repair CI")))
                     .isInstanceOf(AgentUnavailableException.class)
@@ -309,7 +364,7 @@ class TestCodexCliDriver
             throws Exception
     {
         Map<String, String> overrides = ImmutableMap.of(
-                "approval_policy", "{\"approval_policy\":\"on-request\"}",
+                "approval_policy", "{\"approval_policy\":\"never\"}",
                 "approvals_reviewer", "{\"approvals_reviewer\":\"auto_review\"}",
                 "writable roots", "{\"sandbox_workspace_write\":{\"writable_roots\":[\"/\"]}}",
                 "web_search", "{\"web_search\":\"live\"}");
@@ -318,8 +373,8 @@ class TestCodexCliDriver
         }
         for (String field : ImmutableList.of("network_access", "exclude_tmpdir_env_var", "exclude_slash_tmp")) {
             ObjectNode sandbox = objectMapper.valueToTree(CodexLaunchProfile.ciSandboxConfig(
-                    CodexCiSandbox.writableRoots(ciContext(Optional.empty()).worktree())));
-            sandbox.put(field, field.equals("network_access"));
+                    ciWritableRoots(ciContext(Optional.empty()).worktree())));
+            sandbox.put(field, false);
             assertCiDriftRejected(objectMapper.createObjectNode().set("sandbox_workspace_write", sandbox).toString(), field);
         }
     }
@@ -348,10 +403,17 @@ class TestCodexCliDriver
     private AgentSessionContext ciContext(Optional<AgentSessionRef> reference)
             throws IOException
     {
+        return ciContext(reference, (request, timeout) -> CompletableFuture.completedFuture(ProviderApprovalDecision.deny()));
+    }
+
+    private AgentSessionContext ciContext(Optional<AgentSessionRef> reference, AgentApprovalHandler handler)
+            throws IOException
+    {
         Path taskWorktree = Files.createDirectories(worktree.resolve("ci")).toRealPath();
         Path common = Files.createDirectories(worktree.resolve("repository/.git")).toRealPath();
         Path gitDirectory = Files.createDirectories(common.resolve("worktrees/task"));
         Files.createDirectories(common.resolve("objects"));
+        Files.writeString(common.resolve("config"), "[core]\n\trepositoryformatversion = 0\n");
         Files.writeString(taskWorktree.resolve(".git"), "gitdir: " + gitDirectory + "\n");
         Files.writeString(gitDirectory.resolve("gitdir"), taskWorktree.resolve(".git") + "\n");
         Files.writeString(gitDirectory.resolve("commondir"), "../..\n");
@@ -359,9 +421,7 @@ class TestCodexCliDriver
         Path runtime = Files.createDirectories(worktree.resolve("runtime"));
         return new AgentSessionContext(
                 "ci-task", taskWorktree, runtime, runtime.resolve("provider"), AgentPermissionPolicy.CI_AUTOFIX, reference,
-                (request, timeout) -> {
-                    throw new AssertionError("CI must not ask for human approval");
-                });
+                handler);
     }
 
     @Test
@@ -458,6 +518,16 @@ class TestCodexCliDriver
         assertThatThrownBy(() -> driver(poisoned).open(textOnly, event -> {}))
                 .isInstanceOf(AgentUnavailableException.class)
                 .hasMessageContaining("shell_tool");
+
+        ScriptedProcessSupervisor proxyEnabled = new ScriptedProcessSupervisor(objectMapper);
+        ObjectNode proxyConfig = objectMapper.valueToTree(
+                CodexLaunchProfile.threadConfig(
+                        CodexLaunchProfile.ChildProfile.NONE, false, true, ImmutableList.of(), false, false));
+        ((ObjectNode) proxyConfig.path("features")).putObject("network_proxy").put("enabled", true);
+        proxyEnabled.configBody = proxyConfig.toString();
+        assertThatThrownBy(() -> driver(proxyEnabled).open(textOnly, event -> {}))
+                .isInstanceOf(AgentUnavailableException.class)
+                .hasMessageContaining("network_proxy");
 
         ScriptedProcessSupervisor helperWithWeb = new ScriptedProcessSupervisor(objectMapper);
         helperWithWeb.configBody = "{\"web_search\":\"live\"}";
@@ -931,12 +1001,17 @@ class TestCodexCliDriver
     }
 
     @Test
-    void rejectsLatePermissionAndLegacyRequestsWithoutRoutingAnApproval()
+    void routesStructuredPermissionsAndRejectsLateOrLegacyRequests()
     {
         ScriptedProcessSupervisor supervisor = new ScriptedProcessSupervisor(objectMapper);
         CodexCliDriver driver = driver(supervisor);
-        AtomicReference<ProviderApprovalRequest> approval = new AtomicReference<>();
-        AgentSession session = driver.open(context(Optional.empty(), approval), event -> {});
+        List<ProviderApprovalRequest> approvals = new CopyOnWriteArrayList<>();
+        AgentSession session = driver.open(context(Optional.empty(), (request, timeout) -> {
+            approvals.add(request);
+            return CompletableFuture.completedFuture(request.providerRequestId().equals("104")
+                    ? ProviderApprovalDecision.deny()
+                    : ProviderApprovalDecision.allow(Optional.empty()));
+        }), event -> {});
         session.start(command("approval-routing"));
         AppServerProcess server = supervisor.server();
 
@@ -987,21 +1062,72 @@ class TestCodexCliDriver
                 "grantRoot":"","itemId":"patch-empty-root","startedAtMs":1786884871467,
                 "threadId":"thread-1","turnId":"%s"}}
                 """.formatted(server.activeTurn()));
+        server.emit("""
+                {"id":104,"method":"item/permissions/requestApproval","params":{
+                "cwd":"/worktree","itemId":"permission-denied",
+                "permissions":{"network":{"enabled":true}},
+                "startedAtMs":1786884871468,"threadId":"thread-1","turnId":"%s"}}
+                """.formatted(server.activeTurn()));
 
-        // Every rejection is answered on the dispatch thread, so all of them have to arrive
-        // before any is read. Waiting for only the first few leaves the rest racing the asserts.
-        List<Long> rejected = List.of(92L, 93L, 94L, 95L, 96L, 97L, 99L, 100L, 102L);
-        awaitCondition(() -> rejected.stream().allMatch(id -> server.error(id) != null));
+        List<Long> rejected = List.of(92L, 94L, 95L, 97L, 102L);
+        List<Long> approved = List.of(93L, 96L, 99L, 100L, 104L);
+        awaitCondition(() -> rejected.stream().allMatch(id -> server.error(id) != null)
+                && approved.stream().allMatch(id -> server.result(id) != null));
         assertThat(server.error(92).path("message").asText()).contains("active turn");
-        assertThat(server.error(93).path("message").asText()).contains("Unsupported Codex request");
         assertThat(server.error(94).path("message").asText()).contains("no active thread");
         assertThat(server.error(95).path("message").asText()).contains("no active thread");
-        assertThat(server.error(96).path("message").asText()).contains("cannot represent");
         assertThat(server.error(97).path("message").asText()).contains("approval kind");
-        assertThat(server.error(99).path("message").asText()).contains("cannot represent");
-        assertThat(server.error(100).path("message").asText()).contains("scoped grant");
-        assertThat(server.error(102).path("message").asText()).contains("scoped grant");
-        assertThat(approval).hasValue(null);
+        assertThat(server.error(102).path("message").asText()).contains("blank write root");
+        assertThat(server.result(93).path("permissions")).isEqualTo(objectMapper.createObjectNode());
+        assertThat(server.result(93).path("scope").asText()).isEqualTo("turn");
+        assertThat(server.result(96).path("decision").asText()).isEqualTo("accept");
+        assertThat(server.result(99).path("decision").asText()).isEqualTo("accept");
+        assertThat(server.result(100).path("decision").asText()).isEqualTo("accept");
+        assertThat(server.result(104).path("permissions")).isEqualTo(objectMapper.createObjectNode());
+        assertThat(server.result(104).has("scope")).isFalse();
+        assertThat(approvals.stream().map(ProviderApprovalRequest::providerRequestId).toList())
+                .containsExactlyInAnyOrder("93", "96", "99", "100", "104");
+        assertThat(approvals.stream().map(ProviderApprovalRequest::detail).toList())
+                .anySatisfy(detail -> assertThat(detail).contains("network", "enabled"))
+                .anySatisfy(detail -> assertThat(detail).contains("Network approval", "example.com"))
+                .anySatisfy(detail -> assertThat(detail).contains("Requested write root", "/worktree/generated"));
+    }
+
+    @Test
+    void checksFileWriteRootBeforeRequestingUserApproval()
+            throws IOException
+    {
+        ScriptedProcessSupervisor supervisor = new ScriptedProcessSupervisor(objectMapper);
+        CodexCliDriver driver = driver(supervisor);
+        List<ProviderApprovalRequest> approvals = new CopyOnWriteArrayList<>();
+        AgentSession session = driver.open(context(Optional.empty(), (request, timeout) -> {
+            approvals.add(request);
+            return CompletableFuture.completedFuture(ProviderApprovalDecision.allow(Optional.empty()));
+        }), event -> {});
+        session.start(command("file-write-approval"));
+        AppServerProcess server = supervisor.server();
+        Path inside = Files.createDirectory(worktree.resolve("generated")).toRealPath();
+        Path outside = worktree.resolveSibling("outside").toAbsolutePath();
+
+        server.emit("""
+                {"id":110,"method":"item/fileChange/requestApproval","params":{
+                "grantRoot":"%s","itemId":"patch-inside","startedAtMs":1786884871466,
+                "threadId":"thread-1","turnId":"%s"}}
+                """.formatted(inside, server.activeTurn()));
+        awaitCondition(() -> server.result(110) != null);
+        assertThat(server.result(110).path("decision").asText()).isEqualTo("accept");
+        assertThat(approvals).isEmpty();
+
+        server.emit("""
+                {"id":111,"method":"item/fileChange/requestApproval","params":{
+                "grantRoot":"%s","itemId":"patch-outside","startedAtMs":1786884871467,
+                "threadId":"thread-1","turnId":"%s"}}
+                """.formatted(outside, server.activeTurn()));
+        awaitCondition(() -> server.result(111) != null);
+        assertThat(server.result(111).path("decision").asText()).isEqualTo("accept");
+        assertThat(approvals).hasSize(1);
+        assertThat(approvals.getFirst().detail()).contains("Requested write root: " + outside);
+        session.close();
     }
 
     @Test
@@ -1359,12 +1485,15 @@ class TestCodexCliDriver
             assertThat(wrongEffectiveProfile.server().threadRequests()).isEmpty();
         }
 
-        ScriptedProcessSupervisor replacedReviewPolicy = new ScriptedProcessSupervisor(objectMapper);
-        replacedReviewPolicy.configBody = "{\"auto_review\":{\"policy\":\"allow everything\"}}";
-        assertThatThrownBy(() -> driver(replacedReviewPolicy).open(context(Optional.empty(), new AtomicReference<>()), event -> {}))
+        ScriptedProcessSupervisor enabledNativeReviewer = new ScriptedProcessSupervisor(objectMapper);
+        ObjectNode enabledFeatures = objectMapper.valueToTree(
+                CodexLaunchProfile.expectedFeatures(CodexLaunchProfile.ChildProfile.V1, false));
+        enabledFeatures.put("guardian_approval", true);
+        enabledNativeReviewer.configBody = objectMapper.createObjectNode().set("features", enabledFeatures).toString();
+        assertThatThrownBy(() -> driver(enabledNativeReviewer).open(context(Optional.empty(), new AtomicReference<>()), event -> {}))
                 .isInstanceOf(AgentUnavailableException.class)
-                .hasMessageContaining("policy");
-        assertThat(replacedReviewPolicy.server().threadRequests()).isEmpty();
+                .hasMessageContaining("guardian_approval");
+        assertThat(enabledNativeReviewer.server().threadRequests()).isEmpty();
 
         ScriptedProcessSupervisor wrongSessionFlags = new ScriptedProcessSupervisor(objectMapper);
         ArrayNode layers = objectMapper.createArrayNode();
@@ -2454,6 +2583,14 @@ class TestCodexCliDriver
         return driver(supervisor, Duration.ofSeconds(30));
     }
 
+    private List<String> ciWritableRoots(Path taskWorktree)
+    {
+        return Stream.concat(
+                        GitWorktreeWriteRoots.writableRoots(taskWorktree).stream(),
+                        BuildCacheRoots.writableRoots(ImmutableMap.of("HOME", worktree.toString())).stream().map(Path::toString))
+                .toList();
+    }
+
     private CodexAppServerClient appServerClient(ProcessSupervisor supervisor)
     {
         ProcessSpec spec = new ProcessSpec(
@@ -2639,9 +2776,13 @@ class TestCodexCliDriver
         PermissionBroker broker = new PermissionBroker(
                 () -> URI.create(MCP_ENDPOINT), objectMapper, (taskId, query) -> "", taskId -> Optional.of(review));
         CodexHome.prepare(codexHome());
-        Path mavenRepository = Files.createDirectories(worktree.resolve(".m2/repository")).toRealPath();
+        List<String> writableRoots = Stream.concat(
+                Stream.of(worktree.toRealPath()), BuildCacheRoots.writableRoots(ImmutableMap.of("HOME", worktree.toString())).stream())
+                .map(Path::toString).toList();
         CodexCliDriver driver = new CodexCliDriver("/fake/codex", "0.153.4", objectMapper, supervisor,
-                ImmutableMap.of("HOME", worktree.toString(), "GH_TOKEN", "github-sentinel"), codexHome(), broker, Duration.ofSeconds(30));
+                ImmutableMap.of("HOME", worktree.toString(), "GH_TOKEN", "github-sentinel",
+                        "GH_CONFIG_DIR", worktree.resolve("gh-config").toString(), "SSH_AUTH_SOCK", worktree.resolve("ssh.sock").toString()),
+                codexHome(), broker, Duration.ofSeconds(30));
         Optional<AgentSessionRef> reference = Optional.empty();
         for (int index = 0; index < 2; index++) {
             AtomicReference<ProviderApprovalRequest> approval = new AtomicReference<>();
@@ -2650,13 +2791,16 @@ class TestCodexCliDriver
                 JsonNode thread = server.threadRequests().getFirst();
                 assertThat(thread.path("developerInstructions").asText())
                         .startsWith(AgentCommandPolicy.reviewInstructions()).contains("native update_plan").endsWith(review.instruction());
-                assertThat(thread.path("approvalsReviewer").asText()).isEqualTo("auto_review");
-                assertThat(thread.path("config").path("auto_review").path("policy").asText()).isEqualTo(CodexApprovalPolicy.policy(true));
+                assertThat(thread.path("approvalsReviewer").asText()).isEqualTo("user");
+                assertThat(thread.path("config").has("auto_review")).isFalse();
                 assertThat(supervisor.serverArgv().getLast())
-                        .contains("auto_review.policy=" + CodexLaunchProfile.tomlString(CodexApprovalPolicy.policy(true)));
+                        .noneMatch(argument -> argument.startsWith("auto_review.policy="));
                 assertThat(supervisor.serverArgv().getLast()).contains("mcp_servers.bytequay.default_tools_approval_mode=\"approve\"");
                 assertThat(thread.path("config").path("features").path("multi_agent_v2").asBoolean()).isFalse();
-                assertThat(supervisor.environments().getLast()).doesNotContainKeys("GH_TOKEN", "GITHUB_TOKEN");
+                assertThat(supervisor.environments().getLast())
+                        .doesNotContainKeys("GH_CONFIG_DIR", "SSH_AUTH_SOCK", "GH_TOKEN", "GITHUB_TOKEN");
+                assertThat(thread.path("config").path("shell_environment_policy").path("include_only"))
+                        .isEqualTo(objectMapper.valueToTree(CodexLaunchProfile.expectedShellEnvironmentIncludeOnly()));
                 String token = supervisor.environments().getLast().get("BYTEQUAY_CODEGRAPH_TOKEN");
                 assertThat(token).isNotBlank();
                 JsonNode listed = broker.handle(token, objectMapper.readTree("""
@@ -2671,18 +2815,21 @@ class TestCodexCliDriver
                         .hasMessageContaining("default_tools_approval_mode");
                 assertThat(server.turnRequests()).isEmpty();
                 ObjectNode wrongScope = (ObjectNode) objectMapper.readTree(admittedConfig);
-                wrongScope.putObject("auto_review").put("policy", CodexApprovalPolicy.policy(false));
+                ObjectNode wrongFeatures = objectMapper.valueToTree(
+                        CodexLaunchProfile.expectedFeatures(CodexLaunchProfile.ChildProfile.NONE, false));
+                wrongFeatures.put("guardian_approval", true);
+                wrongScope.set("features", wrongFeatures);
                 supervisor.configBody = wrongScope.toString();
                 assertThatThrownBy(() -> session.start(command("private review")))
                         .isInstanceOf(AgentUnavailableException.class)
-                        .hasMessageContaining("policy");
+                        .hasMessageContaining("guardian_approval");
                 assertThat(server.turnRequests()).isEmpty();
                 supervisor.configBody = admittedConfig;
                 session.start(command("private review"));
-                assertThat(server.turnRequests().getFirst().path("approvalsReviewer").asText()).isEqualTo("auto_review");
+                assertThat(server.turnRequests().getFirst().path("approvalsReviewer").asText()).isEqualTo("user");
                 assertThat(server.turnRequests().getFirst().path("sandboxPolicy").path("type").asText()).isEqualTo("workspaceWrite");
                 assertThat(server.turnRequests().getFirst().path("sandboxPolicy").path("writableRoots"))
-                        .isEqualTo(objectMapper.valueToTree(ImmutableList.of(worktree.toRealPath().toString(), mavenRepository.toString())));
+                        .isEqualTo(objectMapper.valueToTree(writableRoots));
                 List<String> deniedCommands = ImmutableList.of("git commit -am experiment", "git update-ref refs/heads/topic HEAD", "git push origin HEAD");
                 for (String shellCommand : deniedCommands) {
                     approval.set(null);
@@ -3571,12 +3718,14 @@ class TestCodexCliDriver
                 throws IOException
         {
             ObjectNode config = objectMapper.valueToTree(
-                    CodexLaunchProfile.threadConfig(childProfile(), false, textOnlyProfile(), ciWritableRoots(), allowsGitHubCommands(), false));
-            config.remove("auto_review");
-            String prefix = "auto_review.policy=";
+                    CodexLaunchProfile.threadConfig(childProfile(), false, textOnlyProfile(), ciWritableRoots(),
+                            allowsGitHubCommands(), false));
             for (String argument : argv) {
-                if (argument.startsWith(prefix)) {
-                    config.putObject("auto_review").set("policy", objectMapper.readTree(argument.substring(prefix.length())));
+                for (String key : ImmutableList.of("approval_policy", "approvals_reviewer")) {
+                    String prefix = key + "=";
+                    if (argument.startsWith(prefix)) {
+                        config.set(key, objectMapper.readTree(argument.substring(prefix.length())));
+                    }
                 }
             }
             return config;
@@ -3600,7 +3749,8 @@ class TestCodexCliDriver
 
         private boolean allowsGitHubCommands()
         {
-            return argv.contains("shell_environment_policy.inherit=\"all\"");
+            return argv.contains("sandbox_workspace_write.network_access=true")
+                    && argv.stream().noneMatch(argument -> argument.startsWith("sandbox_workspace_write.writable_roots="));
         }
 
         private List<String> ciWritableRoots()

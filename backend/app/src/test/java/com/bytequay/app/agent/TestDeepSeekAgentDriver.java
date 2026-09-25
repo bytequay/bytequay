@@ -70,6 +70,20 @@ class TestDeepSeekAgentDriver
     }
 
     @Test
+    void modelLessReadinessRequiresTheCatalogDefault()
+    {
+        Harness onlyV4 = harness(200, "{\"data\":[{\"id\":\"deepseek-v4-pro\"}]}", () -> Optional.of(SECRET));
+        AgentProviderStatus unsupported = onlyV4.driver().probe(Optional.empty());
+        assertThat(unsupported.readiness()).isEqualTo(AgentProviderStatus.Readiness.UNSUPPORTED);
+        assertThat(unsupported.diagnostic()).contains("deepseek-flash").doesNotContain(SECRET);
+        assertThat(onlyV4.driver().probe().readiness()).isEqualTo(AgentProviderStatus.Readiness.READY);
+        assertThat(onlyV4.driver().probe(Optional.of("deepseek-v4-pro")).readiness()).isEqualTo(AgentProviderStatus.Readiness.READY);
+
+        Harness flash = harness(200, "{\"data\":[{\"id\":\"deepseek-flash\"}]}", () -> Optional.of(SECRET));
+        assertThat(flash.driver().probe(Optional.empty()).readiness()).isEqualTo(AgentProviderStatus.Readiness.READY);
+    }
+
+    @Test
     void classifiesInvalidKeyWithoutEchoingTheResponseBody()
     {
         Harness harness = harness(401, "secret=" + SECRET, () -> Optional.of(SECRET));

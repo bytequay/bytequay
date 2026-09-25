@@ -17,7 +17,6 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.util.List;
-import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.function.Consumer;
 
 import static java.util.Objects.requireNonNull;
@@ -27,27 +26,11 @@ public final class MonitorLoop
 {
     private final Logger log;
     private final String what;
-    private final AtomicBoolean running = new AtomicBoolean();
 
     public MonitorLoop(Class<?> job, String what)
     {
         this.log = LoggerFactory.getLogger(requireNonNull(job, "job is null"));
         this.what = requireNonNull(what, "what is null");
-    }
-
-    /** Runs one pass, unless a previous pass is still running. */
-    public void pass(Runnable body)
-    {
-        requireNonNull(body, "body is null");
-        if (!running.compareAndSet(false, true)) {
-            return;
-        }
-        try {
-            body.run();
-        }
-        finally {
-            running.set(false);
-        }
     }
 
     /**

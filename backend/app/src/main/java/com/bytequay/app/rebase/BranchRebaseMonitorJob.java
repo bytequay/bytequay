@@ -59,7 +59,7 @@ final class BranchRebaseMonitorJob
         if (!servingGate.isReady()) {
             return;
         }
-        loop.pass(() -> loop.advanceEach(running(), service::advance));
+        loop.advanceEach(running(), service::advance);
     }
 
     private List<BranchRebaseId> running()

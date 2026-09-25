@@ -36,16 +36,10 @@ import java.time.Duration;
 import java.time.Instant;
 import java.time.ZoneOffset;
 import java.util.Optional;
-import java.util.concurrent.CountDownLatch;
-import java.util.concurrent.Executors;
-import java.util.concurrent.TimeUnit;
 
 import static com.bytequay.app.agent.AgentServingGates.readyAgentServingGate;
-import static org.assertj.core.api.Assertions.assertThat;
-import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.mock;
-import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
@@ -70,36 +64,6 @@ class TestCiAutofixMonitorJob
 
         verify(service).advance(first.id());
         verify(service).advance(second.id());
-    }
-
-    @Test
-    void skipsAnOverlappingMonitorPass()
-            throws Exception
-    {
-        CiAutofixStore store = mock(CiAutofixStore.class);
-        AgentTaskStore taskStore = mock(AgentTaskStore.class);
-        CiAutofixService service = mock(CiAutofixService.class);
-        CiAutofixRun run = run();
-        when(store.listStandaloneNonFinished(1)).thenReturn(ImmutableList.of(run));
-        CountDownLatch entered = new CountDownLatch(1);
-        CountDownLatch release = new CountDownLatch(1);
-        doAnswer(invocation -> {
-            entered.countDown();
-            assertThat(release.await(5, TimeUnit.SECONDS)).isTrue();
-            return run;
-        }).when(service).advance(run.id());
-        CiAutofixMonitorJob job = new CiAutofixMonitorJob(store, taskStore, service, readyAgentServingGate(), CLOCK, 1);
-
-        try (var executor = Executors.newVirtualThreadPerTaskExecutor()) {
-            var firstPass = executor.submit(job::monitor);
-            assertThat(entered.await(5, TimeUnit.SECONDS)).isTrue();
-            job.monitor();
-            release.countDown();
-            firstPass.get();
-        }
-
-        verify(store, times(1)).listStandaloneNonFinished(1);
-        verify(service, times(1)).advance(run.id());
     }
 
     @Test

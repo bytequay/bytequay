@@ -218,11 +218,9 @@ class TestManagedWorktreeService
                 workspace(), worktree.generatedBranch(), startCommit))
                 .isInstanceOf(ManagedWorkspaceGit.Failure.class)
                 .hasMessageContaining("Generated branch does not match");
-        WorkspaceBranchPusher.Push pushed = workspaceGit.pushBranch(
-                workspace(), worktree.generatedBranch(), expectedSha);
+        workspaceGit.pushBranch(workspace(), worktree.generatedBranch(), expectedSha);
 
         assertThat(worktree.canonicalWorktree()).doesNotExist();
-        assertThat(pushed.sha()).isEqualTo(expectedSha);
         assertThat(run(remote, "rev-parse", "refs/heads/" + worktree.generatedBranch()).output().strip())
                 .isEqualTo(expectedSha);
     }

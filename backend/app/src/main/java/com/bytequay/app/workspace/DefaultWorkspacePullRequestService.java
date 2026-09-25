@@ -21,7 +21,6 @@ import com.bytequay.app.repository.github.GitHubAccountClient;
 import com.bytequay.app.repository.github.GitHubPullRequestWriteClient;
 import com.bytequay.app.service.credentials.CredentialService;
 import com.bytequay.app.service.pr.PullRequestService;
-import com.bytequay.app.workspace.WorkspaceBranchPusher.Push;
 import com.bytequay.app.workspace.WorkspacePullRequestService.CiAutofixStatus;
 import com.bytequay.core.cherrypick.CherryPickExecution;
 import com.bytequay.core.cherrypick.CherryPickExecution.Delivery;
@@ -56,7 +55,7 @@ public final class DefaultWorkspacePullRequestService
     private final GitHubAccountClient repositories;
     private final GitHubPullRequestWriteClient pullRequests;
     private final CredentialService credentials;
-    private final WorkspaceBranchPusher git;
+    private final ManagedWorkspaceGit git;
     private final PullRequestService pullRequestCatalog;
     private final CiAutofixService ciAutofix;
     private final CiAutofixStore ciAutofixStore;
@@ -70,7 +69,7 @@ public final class DefaultWorkspacePullRequestService
             GitHubAccountClient repositories,
             GitHubPullRequestWriteClient pullRequests,
             CredentialService credentials,
-            WorkspaceBranchPusher git,
+            ManagedWorkspaceGit git,
             PullRequestService pullRequestCatalog,
             CiAutofixService ciAutofix,
             CiAutofixStore ciAutofixStore,
@@ -136,15 +135,14 @@ public final class DefaultWorkspacePullRequestService
             if (!selected.viewerCanPush()) {
                 throw WorkspaceException.pushNotWritable();
             }
-            Push pushed;
+            String branch = execution.workspace().workBranch();
             try {
-                pushed = git.pushBranch(workspace, execution.workspace().workBranch(), execution.currentTargetSha());
+                git.pushBranch(workspace, branch, execution.currentTargetSha());
             }
             catch (ManagedWorkspaceGit.Failure failure) {
                 throw WorkspaceException.deliveryFailed(failure.safeMessage());
             }
-            CherryPickExecution saved = executions.save(execution.recordPush(
-                    pushed.remote(), pushed.head(), pushed.sha(), clock.instant()));
+            CherryPickExecution saved = executions.save(execution.recordPush("origin", branch, execution.currentTargetSha(), clock.instant()));
             return pushResult(saved.delivery().orElseThrow());
         }
         finally {

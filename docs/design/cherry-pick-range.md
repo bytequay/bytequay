@@ -461,7 +461,7 @@ events drain before worktree removal. Cancellation has no destructive cleanup
 mode: the shared service refuses dirty or open Git state, uses non-force
 removal, and always retains the generated branch.
 
-`WorkspaceBranchPusher` therefore accepts the workspace plus retained local
+The managed workspace push therefore accepts the workspace plus retained local
 branch/ref and verifies it through the managed repository. It no longer
 requires the removed worktree path or requires that branch to be checked out.
 

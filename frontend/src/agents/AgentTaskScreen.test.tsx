@@ -1819,6 +1819,28 @@ describe('agent task detail', () => {
     expect(opened).toContain('Back to all subagents');
   });
 
+  it('shows a fresh subagent answer without claiming its empty activity log expired', () => {
+    const source = { ...events[1].source, providerThreadId: 'child-answer', parentProviderThreadId: 'thread-root', logicalAgentPath: '/root/ui_smoke_child' };
+    const childEvents: AgentEventEnvelope[] = [
+      { ...events[1], eventId: 'child-started', source, type: 'lifecycle', payload: { phase: 'AGENT_STARTED', message: '/root/ui_smoke_child' } },
+      { ...events[1], eventId: 'child-answer', source, type: 'assistant_message', payload: { messageKind: 'ANSWER', phase: 'FINAL', text: 'SUBAGENT_UI_OK: 323' } },
+      { ...events[1], eventId: 'child-completed', source, type: 'lifecycle', payload: { phase: 'AGENT_COMPLETED', message: 'Agent completed' } },
+    ];
+    const opened = renderToStaticMarkup(
+      <AgentTaskBody
+        state={{ ...initialAgentTaskState(), task: task('t-1', 'OPEN', 'x'), events: childEvents, connection: 'open', capabilities: CAPABILITIES }}
+        panelOpen
+        panelTab="agents"
+        openAgent="child-answer"
+        models={MODELS}
+        {...TASK_BODY_NOOPS}
+      />);
+    expect(opened).toContain('SUBAGENT_UI_OK: 323');
+    expect(opened).not.toContain('Activity expired');
+    expect(opened).not.toContain('retention window');
+    expect(opened).not.toContain('Result — kept');
+  });
+
   it('keeps a cleaned-up agent listed from the summary and says its activity expired', () => {
     const completed: AgentTaskDto = {
       ...task('t-1', 'COMPLETED', 'Shipped'),

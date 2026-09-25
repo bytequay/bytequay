@@ -849,6 +849,7 @@ function SidePanel({
   if (openAgent !== null) {
     const agent = agents.find((node) => node.threadId === openAgent);
     const expired = expiredChildren.find((child) => child.threadId === openAgent);
+    const activityExpired = agent === undefined && expired !== undefined && !historyUnloaded;
     const blocks = transcript.flatMap((turn) => turn.blocks);
     const label = agent?.label ?? expired?.label ?? 'Agent';
     const result = agent?.result ?? expired?.result ?? null;
@@ -888,7 +889,7 @@ function SidePanel({
             <Chevron open={logOpen} size={11} />
           </button>
         )}
-        {blocks.length === 0 && (
+        {blocks.length === 0 && (historyUnloaded || activityExpired) && (
           <div className="agt-panel__expired">
             <div className="agt-panel__expired-title">{historyUnloaded ? 'Activity is not loaded' : 'Activity expired'}</div>
             {historyUnloaded ? <button type="button" className="agt-action" disabled={historyLoading} onClick={onLoadEarlier}>Load earlier activity</button> : <div className="agt-panel__expired-body">
@@ -923,7 +924,7 @@ function SidePanel({
         )}
         {result !== null && (
           <>
-            <div className="agt-label agt-panel__section">Result{blocks.length === 0 ? ' — kept' : ''}</div>
+            <div className="agt-label agt-panel__section">Result{activityExpired ? ' — kept' : ''}</div>
             <div className="agt-panel__result">{renderMarkdown(result, repository)}</div>
           </>
         )}

@@ -23,10 +23,10 @@ public interface GitHubActionsClient
     /**
      * Reads the current PR head, target branch, and latest check attempts.
      *
-     * @param query repository and PR number
+     * @param pullRequest repository and PR number
      * @return one current GitHub snapshot
      */
-    CiHeadSnapshot inspect(InspectCiHeadQuery query);
+    CiHeadSnapshot inspect(PullRequestRef pullRequest);
 
     /**
      * Caches a complete credential-redacted job log and selects intact diagnostic blocks.

@@ -590,19 +590,19 @@ class TestCiGitOperations
                 "bytequay/ci-base/test-run");
     }
 
-    private static InspectAgentResultCommand inspect(Repository fixture)
+    private static CiWorktreeRange inspect(Repository fixture)
     {
-        return new InspectAgentResultCommand(
+        return new CiWorktreeRange(
                 fixture.worktree(),
                 REPOSITORY,
                 HEAD_REF,
-                fixture.inputSha(),
-                fixture.baseSha());
+                fixture.baseSha(),
+                fixture.inputSha());
     }
 
-    private static CheckFixupPositionsCommand check(Repository fixture)
+    private static CiWorktreeRange check(Repository fixture)
     {
-        return new CheckFixupPositionsCommand(
+        return new CiWorktreeRange(
                 fixture.worktree(),
                 REPOSITORY,
                 HEAD_REF,

@@ -25,7 +25,6 @@ import com.bytequay.app.ci.CiRawLogStore;
 import com.bytequay.app.ci.CiRerunResult;
 import com.bytequay.app.ci.CiStep;
 import com.bytequay.app.ci.CiWorkflowRun;
-import com.bytequay.app.ci.InspectCiHeadQuery;
 import com.bytequay.app.ci.ReadCiLogQuery;
 import com.bytequay.app.ci.RerunFailedJobsCommand;
 import com.bytequay.app.service.credentials.CredentialService;
@@ -295,11 +294,10 @@ public class GitHubActionsClient
     }
 
     @Override
-    public CiHeadSnapshot inspect(InspectCiHeadQuery query)
+    public CiHeadSnapshot inspect(PullRequestRef pullRequest)
     {
-        requireNonNull(query, "query is null");
+        requireNonNull(pullRequest, "pullRequest is null");
         String pat = token();
-        PullRequestRef pullRequest = query.pullRequest();
         PullRequestResponse response = fetchPullRequest(pat, pullRequest);
         if (response.user() == null || response.head() == null || response.base() == null
                 || response.user().login() == null || response.head().sha() == null

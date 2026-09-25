@@ -352,10 +352,10 @@ public interface GitHubActionsClient
     /**
      * Reads the current PR head, target branch, and latest check attempts.
      *
-     * @param query repository and PR number
+     * @param pullRequest repository and PR number
      * @return one current GitHub snapshot
      */
-    CiHeadSnapshot inspect(InspectCiHeadQuery query);
+    CiHeadSnapshot inspect(PullRequestRef pullRequest);
 
     /**
      * Caches one complete credential-redacted job log and selects diagnostic blocks.
@@ -433,10 +433,10 @@ public interface CiGitService
      * PR range is linear, and the local head can be published from the expected
      * remote head. It does not choose or validate the semantic fixup target.
      *
-     * @param command worktree, input SHA, fetched base SHA, and PR range
+     * @param range worktree, fetched base SHA, and expected remote head as the attempt input
      * @return no change, ready local head, or bounded rejection
      */
-    CiGitInspection inspectAgentResult(InspectAgentResultCommand command);
+    CiGitInspection inspectAgentResult(CiWorktreeRange range);
 
     /**
      * Pushes one inspected local head with an exact lease.
@@ -464,10 +464,10 @@ public interface CiGitService
      * This check validates placement, not whether the agent chose the best
      * semantic target.
      *
-     * @param command worktree, current head, and PR range
+     * @param range worktree, PR base, and the head to check
      * @return valid or bounded position diagnostics
      */
-    FixupPositionCheck checkFixupPositions(CheckFixupPositionsCommand command);
+    FixupPositionCheck checkFixupPositions(CiWorktreeRange range);
 }
 ```
 

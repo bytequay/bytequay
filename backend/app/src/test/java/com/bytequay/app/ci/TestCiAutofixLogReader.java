@@ -154,4 +154,65 @@ class TestCiAutofixLogReader
         }
         return new CiWorkflowRun(workflowId, workflowId, "Build", 1, "completed", Optional.of("failure"), HEAD_SHA, "https://github.com/actions/runs/" + workflowId, jobs.build());
     }
+
+    @Test
+    void computesStableBoundedSignatureFromProgramFacts()
+    {
+        CiJob job = failedJob();
+        CiWorkflowRun workflow = failedWorkflow(job);
+        BoundedCiLog firstLog = errorLog(ImmutableList.of("error: cannot find symbol", "build failed"));
+        BoundedCiLog sameLog = errorLog(ImmutableList.of("error: cannot find symbol", "build failed"));
+
+        String first = CiAutofixLogReader.failureSignature(workflow, job, firstLog);
+        String second = CiAutofixLogReader.failureSignature(workflow, job, sameLog);
+        String changed = CiAutofixLogReader.failureSignature(
+                workflow,
+                job,
+                errorLog(ImmutableList.of("error: incompatible types", "build failed")));
+
+        assertThat(first).isEqualTo(second);
+        assertThat(first).isEqualTo("ci-d92f27942a14baa8c53c3021492e7eb7ab62d7ed5d69d24e7d0671fe99a0a06b");
+        assertThat(changed).isNotEqualTo(first);
+        assertThat(CiAutofixLogReader.failureSignature(workflow, job, errorLog(ImmutableList.of("错误: café 😀"))))
+                .isEqualTo("ci-b23706f0dba15d1f83dab5c3f8978948bb92e07ef60a99afe00c3f87cde14a46");
+    }
+
+    private static CiWorkflowRun failedWorkflow(CiJob job)
+    {
+        return new CiWorkflowRun(
+                900,
+                80,
+                "Build",
+                2,
+                "completed",
+                Optional.of("failure"),
+                HEAD_SHA,
+                "https://github.com/actions/runs/900",
+                ImmutableList.of(job));
+    }
+
+    private static CiJob failedJob()
+    {
+        return new CiJob(
+                902,
+                900,
+                "Compile",
+                2,
+                "completed",
+                Optional.of("failure"),
+                "https://github.com/actions/jobs/902",
+                ImmutableList.of(new CiStep(3, "Compile Java", "completed", Optional.of("failure"))));
+    }
+
+    private static BoundedCiLog errorLog(List<String> errors)
+    {
+        return new BoundedCiLog(
+                Optional.of(new BlobRef("blobs/log", "text/plain", 10)),
+                10,
+                false,
+                false,
+                false,
+                errors,
+                Optional.empty(), Optional.empty(), true);
+    }
 }

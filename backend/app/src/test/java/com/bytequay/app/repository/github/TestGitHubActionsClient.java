@@ -25,7 +25,6 @@ import com.bytequay.app.ci.CiRawLogStore;
 import com.bytequay.app.ci.CiRerunResult;
 import com.bytequay.app.ci.CiStep;
 import com.bytequay.app.ci.CiWorkflowRun;
-import com.bytequay.app.ci.InspectCiHeadQuery;
 import com.bytequay.app.ci.ReadCiLogQuery;
 import com.bytequay.app.ci.RerunFailedJobsCommand;
 import com.bytequay.core.domain.PrCheckRunState;
@@ -99,7 +98,7 @@ class TestGitHubActionsClient
                 {"total_count":1,"jobs":[{"id":902,"name":"check-description","run_attempt":1,
                   "status":"completed","conclusion":"success","steps":[]}]}
                 """, MediaType.APPLICATION_JSON));
-        CiHeadSnapshot snapshot = fixture.client.inspect(new InspectCiHeadQuery(PULL_REQUEST));
+        CiHeadSnapshot snapshot = fixture.client.inspect(PULL_REQUEST);
         assertThat(snapshot.workflowRuns()).extracting(CiWorkflowRun::id).containsExactly(901L);
         assertThat(snapshot.green()).isTrue();
         fixture.verify();
@@ -123,7 +122,7 @@ class TestGitHubActionsClient
                       "status":"completed","conclusion":"%s","steps":[]}]}
                     """.formatted(runId + 10, runId == 900 ? "failure" : "success"), MediaType.APPLICATION_JSON));
         }
-        CiHeadSnapshot snapshot = fixture.client.inspect(new InspectCiHeadQuery(PULL_REQUEST));
+        CiHeadSnapshot snapshot = fixture.client.inspect(PULL_REQUEST);
         assertThat(snapshot.workflowRuns()).hasSize(2);
         assertThat(snapshot.green()).isFalse();
         fixture.verify();
@@ -179,7 +178,7 @@ class TestGitHubActionsClient
                         ]}
                         """, MediaType.APPLICATION_JSON));
 
-        CiHeadSnapshot snapshot = fixture.client.inspect(new InspectCiHeadQuery(PULL_REQUEST));
+        CiHeadSnapshot snapshot = fixture.client.inspect(PULL_REQUEST);
 
         assertThat(snapshot.open()).isTrue();
         assertThat(snapshot.author()).isEqualTo("author");
@@ -205,7 +204,7 @@ class TestGitHubActionsClient
         fixture.apiServer.expect(requestTo(runsUrl(1)))
                 .andRespond(withSuccess("{\"total_count\":0,\"workflow_runs\":[]}", MediaType.APPLICATION_JSON));
 
-        CiHeadSnapshot snapshot = fixture.client.inspect(new InspectCiHeadQuery(PULL_REQUEST));
+        CiHeadSnapshot snapshot = fixture.client.inspect(PULL_REQUEST);
 
         assertThat(snapshot.pullRequest()).isEqualTo(PULL_REQUEST);
         assertThat(snapshot.headRepository()).isEqualTo(RepoRef.of("author", "fork"));
@@ -225,7 +224,7 @@ class TestGitHubActionsClient
                          "html_url":"https://github.com/owner/repo/pull/7"}
                         """.formatted(HEAD_SHA, BASE_SHA), MediaType.APPLICATION_JSON));
 
-        assertThatThrownBy(() -> fixture.client.inspect(new InspectCiHeadQuery(PULL_REQUEST)))
+        assertThatThrownBy(() -> fixture.client.inspect(PULL_REQUEST))
                 .hasMessageContaining("incomplete pull-request head facts");
         fixture.verify();
     }
@@ -236,7 +235,7 @@ class TestGitHubActionsClient
         Fixture fixture = fixture();
         expectSingleHead(fixture, "in_progress", null, "queued", null);
 
-        CiHeadSnapshot snapshot = fixture.client.inspect(new InspectCiHeadQuery(PULL_REQUEST));
+        CiHeadSnapshot snapshot = fixture.client.inspect(PULL_REQUEST);
 
         assertThat(snapshot.actionableFailures()).isEmpty();
         assertThat(snapshot.pending()).isTrue();
@@ -250,7 +249,7 @@ class TestGitHubActionsClient
         Fixture fixture = fixture();
         expectSingleHead(fixture, "completed", "success", "completed", "success");
 
-        CiHeadSnapshot snapshot = fixture.client.inspect(new InspectCiHeadQuery(PULL_REQUEST));
+        CiHeadSnapshot snapshot = fixture.client.inspect(PULL_REQUEST);
 
         assertThat(snapshot.actionableFailures()).isEmpty();
         assertThat(snapshot.pending()).isFalse();
@@ -265,7 +264,7 @@ class TestGitHubActionsClient
         expectPullRequest(fixture);
         fixture.apiServer.expect(requestTo(runsUrl(1))).andRespond(withSuccess("{\"total_count\":1,\"workflow_runs\":[]}", MediaType.APPLICATION_JSON));
 
-        assertThatThrownBy(() -> fixture.client.inspect(new InspectCiHeadQuery(PULL_REQUEST))).hasMessageContaining("incomplete workflow-run pages");
+        assertThatThrownBy(() -> fixture.client.inspect(PULL_REQUEST)).hasMessageContaining("incomplete workflow-run pages");
         fixture.verify();
     }
 
@@ -284,7 +283,7 @@ class TestGitHubActionsClient
         fixture.apiServer.expect(requestTo(runsUrl(1))).andRespond(withSuccess(response, MediaType.APPLICATION_JSON));
         fixture.apiServer.expect(requestTo(runsUrl(2))).andRespond(withSuccess(response, MediaType.APPLICATION_JSON));
 
-        assertThatThrownBy(() -> fixture.client.inspect(new InspectCiHeadQuery(PULL_REQUEST))).hasMessageContaining("duplicate workflow attempts");
+        assertThatThrownBy(() -> fixture.client.inspect(PULL_REQUEST)).hasMessageContaining("duplicate workflow attempts");
         fixture.verify();
     }
 
@@ -309,7 +308,7 @@ class TestGitHubActionsClient
         fixture.apiServer.expect(requestTo(jobsUrl(900, 1))).andRespond(withSuccess(response, MediaType.APPLICATION_JSON));
         fixture.apiServer.expect(requestTo(jobsUrl(900, 2))).andRespond(withSuccess(response, MediaType.APPLICATION_JSON));
 
-        assertThatThrownBy(() -> fixture.client.inspect(new InspectCiHeadQuery(PULL_REQUEST))).hasMessageContaining("duplicate workflow jobs");
+        assertThatThrownBy(() -> fixture.client.inspect(PULL_REQUEST)).hasMessageContaining("duplicate workflow jobs");
         fixture.verify();
     }
 
@@ -320,7 +319,7 @@ class TestGitHubActionsClient
             Fixture fixture = fixture();
             expectPullRequest(fixture);
             fixture.apiServer.expect(requestTo(runsUrl(1))).andRespond(withSuccess(response, MediaType.APPLICATION_JSON));
-            assertThatThrownBy(() -> fixture.client.inspect(new InspectCiHeadQuery(PULL_REQUEST))).hasMessageContaining("incomplete workflow-run evidence");
+            assertThatThrownBy(() -> fixture.client.inspect(PULL_REQUEST)).hasMessageContaining("incomplete workflow-run evidence");
             fixture.verify();
         }
     }

@@ -22,20 +22,25 @@ import static com.bytequay.core.domain.Checks.checkText;
 import static com.google.common.base.Preconditions.checkArgument;
 import static java.util.Objects.requireNonNull;
 
-public record InspectAgentResultCommand(
+/**
+ * A CI Autofix worktree's pull-request range.
+ *
+ * @param remoteHeadSha the remote head the run expects, which is also the attempt input
+ */
+public record CiWorktreeRange(
         Path worktree,
         RepositoryIdentity repository,
         String localBranch,
-        String inputSha,
-        String baseSha)
+        String baseSha,
+        String remoteHeadSha)
 {
-    public InspectAgentResultCommand
+    public CiWorktreeRange
     {
         requireNonNull(worktree, "worktree is null");
         checkArgument(worktree.isAbsolute(), "worktree is not absolute");
         requireNonNull(repository, "repository is null");
         checkText(localBranch, "localBranch", 255);
-        checkSha(inputSha, "inputSha");
         checkSha(baseSha, "baseSha");
+        checkSha(remoteHeadSha, "remoteHeadSha");
     }
 }

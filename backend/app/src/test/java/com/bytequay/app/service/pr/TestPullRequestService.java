@@ -17,7 +17,6 @@ import com.bytequay.app.ci.CiHeadSnapshot;
 import com.bytequay.app.ci.CiJob;
 import com.bytequay.app.ci.CiRerunResult;
 import com.bytequay.app.ci.CiWorkflowRun;
-import com.bytequay.app.ci.InspectCiHeadQuery;
 import com.bytequay.app.ci.RerunFailedJobsCommand;
 import com.bytequay.app.repository.github.ConditionalList;
 import com.bytequay.app.repository.github.GitHubAccountClient;
@@ -477,7 +476,7 @@ class TestPullRequestService
                 "https://github.com/owner/repo/actions/runs/101/job/302", ImmutableList.of());
         CiWorkflowRun run = new CiWorkflowRun(101, 201, "CI", 3, "completed", Optional.of("failure"), headSha,
                 "https://github.com/owner/repo/actions/runs/101", ImmutableList.of(failed, passing));
-        when(actions.inspect(new InspectCiHeadQuery(ref))).thenReturn(new CiHeadSnapshot(
+        when(actions.inspect(ref)).thenReturn(new CiHeadSnapshot(
                 ref, true, "alice", RepoRef.of("owner", "repo"), "feature", headSha, "main",
                 "2222222222222222222222222222222222222222", "https://github.com/owner/repo/pull/7", ImmutableList.of(run)));
         when(actions.readJobLog(ref, 301)).thenReturn("test failed");
@@ -504,7 +503,7 @@ class TestPullRequestService
         CiWorkflowRun failedRun = new CiWorkflowRun(
                 101, 201, "CI", 3, "completed", Optional.of("failure"), headSha,
                 "https://github.com/owner/repo/actions/runs/101", ImmutableList.of(failedJob));
-        when(actions.inspect(new InspectCiHeadQuery(ref))).thenReturn(new CiHeadSnapshot(
+        when(actions.inspect(ref)).thenReturn(new CiHeadSnapshot(
                 ref, true, "alice", RepoRef.of("owner", "repo"), "feature", headSha, "main",
                 "2222222222222222222222222222222222222222",
                 "https://github.com/owner/repo/pull/7", ImmutableList.of(failedRun)));

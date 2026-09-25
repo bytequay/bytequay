@@ -33,7 +33,6 @@ import com.bytequay.app.ci.CiRawLogPage;
 import com.bytequay.app.ci.CiRawLogStore;
 import com.bytequay.app.ci.CiWorkflowRun;
 import com.bytequay.app.ci.GitHubActionsClient;
-import com.bytequay.app.ci.InspectCiHeadQuery;
 import com.bytequay.app.ci.ReadCiLogQuery;
 import com.bytequay.app.service.pr.PullRequestService;
 import com.bytequay.app.workspace.ManagedWorktreeService;
@@ -166,7 +165,7 @@ public class PullRequestCiBridgeResolverImpl
             Scope scope = resolved.orElseThrow();
             List<Candidate> candidates;
             if (scope.pullRequest().isPresent()) {
-                CiHeadSnapshot head = actions.inspect(new InspectCiHeadQuery(scope.pullRequest().orElseThrow()));
+                CiHeadSnapshot head = actions.inspect(scope.pullRequest().orElseThrow());
                 if (!head.pullRequest().equals(scope.pullRequest().orElseThrow()) || !matches(scope, head)) {
                     return message("stale", "The CI Autofix pull request no longer matches this task's authorized head.");
                 }
@@ -210,7 +209,7 @@ public class PullRequestCiBridgeResolverImpl
         ImmutableList.Builder<Candidate> matches = ImmutableList.builder();
         for (PullRequest row : rows) {
             PullRequestRef ref = PullRequestRef.of(scope.repository().owner(), scope.repository().repo(), row.number());
-            CiHeadSnapshot head = actions.inspect(new InspectCiHeadQuery(ref));
+            CiHeadSnapshot head = actions.inspect(ref);
             if (head.pullRequest().equals(ref) && matches(scope, head)) {
                 matches.add(new Candidate(row.id(), head));
             }
@@ -314,7 +313,7 @@ public class PullRequestCiBridgeResolverImpl
         BoundedCiLog fetched = actions.readLog(new ReadCiLogQuery(taskId, head.pullRequest(), run, job, MAXIMUM_LOG_BYTES));
         String contents = fetched.rawLogId().map(logId -> rawLogs.read(taskId, logId))
                 .orElseGet(() -> fetched.blob().map(blob -> StandardCharsets.UTF_8.decode(logs.readBlob(taskId, blob)).toString()).orElse(""));
-        CiHeadSnapshot after = actions.inspect(new InspectCiHeadQuery(head.pullRequest()));
+        CiHeadSnapshot after = actions.inspect(head.pullRequest());
         if (!scope(taskId).filter(scope::equals).isPresent()) {
             return message("unavailable", "The task or worktree changed while reading the CI log.");
         }

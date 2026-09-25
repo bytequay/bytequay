@@ -43,7 +43,7 @@ public interface CiGitService
      * @param command authorized worktree and exact PR range
      * @return no change, ready local head, or bounded rejection
      */
-    CiGitInspection inspectAgentResult(InspectAgentResultCommand command);
+    CiGitInspection inspectAgentResult(CiWorktreeRange command);
 
     /**
      * Pushes one previously inspected local head with an exact lease.
@@ -69,5 +69,5 @@ public interface CiGitService
      * @param command worktree, current head, and exact PR range
      * @return valid or bounded position diagnostics
      */
-    FixupPositionCheck checkFixupPositions(CheckFixupPositionsCommand command);
+    FixupPositionCheck checkFixupPositions(CiWorktreeRange command);
 }

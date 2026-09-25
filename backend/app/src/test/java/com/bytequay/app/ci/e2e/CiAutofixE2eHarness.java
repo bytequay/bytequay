@@ -28,7 +28,6 @@ import com.bytequay.app.ci.CiJob;
 import com.bytequay.app.ci.CiRerunResult;
 import com.bytequay.app.ci.CiStep;
 import com.bytequay.app.ci.CiWorkflowRun;
-import com.bytequay.app.ci.InspectCiHeadQuery;
 import com.bytequay.app.ci.ReadCiLogQuery;
 import com.bytequay.app.ci.RerunFailedJobsCommand;
 import com.bytequay.app.web.agent.AgentController;
@@ -703,7 +702,7 @@ final class CiAutofixE2eHarness
             CiAutofixRun run,
             Optional<String> taskState,
             Optional<String> turnState,
-            List<InspectCiHeadQuery> inspectCalls,
+            List<PullRequestRef> inspectCalls,
             List<ReadCiLogQuery> logCalls,
             List<RerunFailedJobsCommand> rerunCalls,
             List<ScriptedAgentDriver.TurnCall> agentTurns,

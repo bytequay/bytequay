@@ -19,7 +19,6 @@ import com.bytequay.app.ci.BoundedCiLog;
 import com.bytequay.app.ci.CiHeadSnapshot;
 import com.bytequay.app.ci.CiRerunResult;
 import com.bytequay.app.ci.GitHubActionsClient;
-import com.bytequay.app.ci.InspectCiHeadQuery;
 import com.bytequay.app.ci.ReadCiLogQuery;
 import com.bytequay.app.ci.RerunFailedJobsCommand;
 import com.bytequay.core.domain.PullRequestRef;
@@ -45,7 +44,7 @@ final class ScriptedGitHubActionsClient
     private final Map<PullRequestRef, CiHeadSnapshot> snapshots = new HashMap<>();
     private final Map<LogKey, ScriptedLog> jobLogs = new HashMap<>();
     private final Map<RerunKey, ArrayDeque<CiRerunResult>> reruns = new HashMap<>();
-    private final List<InspectCiHeadQuery> inspectCalls = new ArrayList<>();
+    private final List<PullRequestRef> inspectCalls = new ArrayList<>();
     private final List<ReadCiLogQuery> logCalls = new ArrayList<>();
     private final List<RerunFailedJobsCommand> rerunCalls = new ArrayList<>();
 
@@ -90,7 +89,7 @@ final class ScriptedGitHubActionsClient
         reruns.computeIfAbsent(RerunKey.from(command), ignored -> new ArrayDeque<>()).add(result);
     }
 
-    synchronized List<InspectCiHeadQuery> inspectCalls()
+    synchronized List<PullRequestRef> inspectCalls()
     {
         return ImmutableList.copyOf(inspectCalls);
     }
@@ -112,12 +111,12 @@ final class ScriptedGitHubActionsClient
     }
 
     @Override
-    public synchronized CiHeadSnapshot inspect(InspectCiHeadQuery query)
+    public synchronized CiHeadSnapshot inspect(PullRequestRef pullRequest)
     {
-        requireNonNull(query, "query is null");
-        inspectCalls.add(query);
-        CiHeadSnapshot snapshot = snapshots.get(query.pullRequest());
-        checkState(snapshot != null, "No GitHub Actions snapshot scripted for " + query.pullRequest().fullName());
+        requireNonNull(pullRequest, "pullRequest is null");
+        inspectCalls.add(pullRequest);
+        CiHeadSnapshot snapshot = snapshots.get(pullRequest);
+        checkState(snapshot != null, "No GitHub Actions snapshot scripted for " + pullRequest.fullName());
         return snapshot;
     }
 

@@ -23,7 +23,6 @@ import com.bytequay.agent.core.TaskId;
 import com.bytequay.agent.core.TaskState;
 import com.bytequay.agent.core.store.TaskLogStore;
 import com.bytequay.app.ByteQuayApplication;
-import com.bytequay.app.ci.CheckFixupPositionsCommand;
 import com.bytequay.app.ci.CiAutofixMonitorTestDriver;
 import com.bytequay.app.ci.CiAutofixService;
 import com.bytequay.app.ci.CiBaseSynchronization;
@@ -33,8 +32,8 @@ import com.bytequay.app.ci.CiGitService;
 import com.bytequay.app.ci.CiMemoryService;
 import com.bytequay.app.ci.CiMemoryView;
 import com.bytequay.app.ci.CiPushResult;
+import com.bytequay.app.ci.CiWorktreeRange;
 import com.bytequay.app.ci.FixupPositionCheck;
-import com.bytequay.app.ci.InspectAgentResultCommand;
 import com.bytequay.app.ci.PushCiHeadCommand;
 import com.bytequay.app.ci.ReadCiMemoryCommand;
 import com.bytequay.app.ci.RoutedGitCommandRunner;
@@ -410,7 +409,7 @@ class TestCiAutofixRestartEndToEnd
         }
 
         @Override
-        public CiGitInspection inspectAgentResult(InspectAgentResultCommand command)
+        public CiGitInspection inspectAgentResult(CiWorktreeRange command)
         {
             return delegate.inspectAgentResult(command);
         }
@@ -433,7 +432,7 @@ class TestCiAutofixRestartEndToEnd
         }
 
         @Override
-        public FixupPositionCheck checkFixupPositions(CheckFixupPositionsCommand command)
+        public FixupPositionCheck checkFixupPositions(CiWorktreeRange command)
         {
             return delegate.checkFixupPositions(command);
         }

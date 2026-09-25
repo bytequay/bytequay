@@ -128,18 +128,18 @@ public final class CiGitOperations
     }
 
     @Override
-    public CiGitInspection inspectAgentResult(InspectAgentResultCommand command)
+    public CiGitInspection inspectAgentResult(CiWorktreeRange command)
     {
         requireNonNull(command, "command is null");
         try {
             Path worktree = validateWorktree(command.worktree(), command.repository(), command.localBranch());
             String head = requiredOutput(worktree, "rev-parse", "HEAD");
-            requireCommit(worktree, command.inputSha(), "attempt input");
+            requireCommit(worktree, command.remoteHeadSha(), "attempt input");
             requireCommit(worktree, command.baseSha(), "pull request base");
             requireCleanAndResolved(worktree);
             requireLinearRange(worktree, command.baseSha(), head);
             requireDiffCheck(worktree, command.baseSha(), head);
-            if (head.equals(command.inputSha())) {
+            if (head.equals(command.remoteHeadSha())) {
                 return CiGitInspection.noChange();
             }
             List<String> changedPaths = changedPaths(worktree, command.baseSha(), head);
@@ -225,14 +225,14 @@ public final class CiGitOperations
     }
 
     @Override
-    public FixupPositionCheck checkFixupPositions(CheckFixupPositionsCommand command)
+    public FixupPositionCheck checkFixupPositions(CiWorktreeRange command)
     {
         requireNonNull(command, "command is null");
         try {
             Path worktree = validateWorktree(command.worktree(), command.repository(), command.localBranch());
             requireCleanAndResolved(worktree);
             String head = requiredOutput(worktree, "rev-parse", "HEAD");
-            if (!head.equals(command.headSha())) {
+            if (!head.equals(command.remoteHeadSha())) {
                 throw problem("Local HEAD differs from the head selected for the final check");
             }
             requireCommit(worktree, command.baseSha(), "pull request base");
@@ -259,7 +259,7 @@ public final class CiGitOperations
             return FixupPositionCheck.valid(head);
         }
         catch (GitProblem problem) {
-            return FixupPositionCheck.invalid(command.headSha(), problem.getMessage());
+            return FixupPositionCheck.invalid(command.remoteHeadSha(), problem.getMessage());
         }
     }
 

@@ -602,10 +602,9 @@ class TestDefaultCiAutofixService
 
         run = service.advance(run.id());
 
-        ArgumentCaptor<InspectAgentResultCommand> inspection =
-                ArgumentCaptor.forClass(InspectAgentResultCommand.class);
+        ArgumentCaptor<CiWorktreeRange> inspection = ArgumentCaptor.forClass(CiWorktreeRange.class);
         verify(gitService).inspectAgentResult(inspection.capture());
-        assertThat(inspection.getValue().inputSha()).isEqualTo(HEAD);
+        assertThat(inspection.getValue().remoteHeadSha()).isEqualTo(HEAD);
         assertThat(inspection.getValue().baseSha()).isEqualTo(BASE);
         assertThat(run.pushJournal()).isPresent();
         verify(rebaseService, times(2)).start(any());
@@ -725,9 +724,9 @@ class TestDefaultCiAutofixService
             assertThat(command.sourceRemote()).isEqualTo("upstream");
             assertThat(command.remoteRepository()).isEqualTo(REPOSITORY);
         });
-        ArgumentCaptor<InspectCiHeadQuery> inspect = ArgumentCaptor.forClass(InspectCiHeadQuery.class);
+        ArgumentCaptor<PullRequestRef> inspect = ArgumentCaptor.forClass(PullRequestRef.class);
         verify(gitHub, times(4)).inspect(inspect.capture());
-        assertThat(inspect.getAllValues()).extracting(InspectCiHeadQuery::pullRequest).containsOnly(PULL_REQUEST);
+        assertThat(inspect.getAllValues()).containsOnly(PULL_REQUEST);
     }
 
     @ParameterizedTest

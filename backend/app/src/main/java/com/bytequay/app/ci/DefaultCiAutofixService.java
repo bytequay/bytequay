@@ -227,7 +227,7 @@ public class DefaultCiAutofixService
                 AgentTurn turn = turnService.get(turnId);
                 checkState(turn.taskId().equals(taskId) && turn.state().active(), "CI repair turn is no longer active");
                 inspectWorktree(requireOpenTask(run), run);
-                CiHeadSnapshot snapshot = gitHub.inspect(new InspectCiHeadQuery(run.scope().pullRequest()));
+                CiHeadSnapshot snapshot = gitHub.inspect(run.scope().pullRequest());
                 checkState(snapshot.open() && matchesPullRequestScope(run, snapshot) && snapshot.headSha().equals(run.expectedRemoteHead()), "CI pull request changed");
                 update.accept(run, snapshot);
                 return null;
@@ -279,7 +279,7 @@ public class DefaultCiAutofixService
                 workspace.monitoredRepository().owner(),
                 workspace.monitoredRepository().repo(),
                 command.pullRequestNumber());
-        CiHeadSnapshot snapshot = gitHub.inspect(new InspectCiHeadQuery(pullRequest));
+        CiHeadSnapshot snapshot = gitHub.inspect(pullRequest);
         String currentUser = currentUser();
         validatePullRequest(snapshot, pullRequest, currentUser);
         validateStartWorkspace(workspace, snapshot);
@@ -552,7 +552,7 @@ public class DefaultCiAutofixService
             }
         }
 
-        CiHeadSnapshot snapshot = gitHub.inspect(new InspectCiHeadQuery(run.scope().pullRequest()));
+        CiHeadSnapshot snapshot = gitHub.inspect(run.scope().pullRequest());
         validatePullRequest(snapshot, run.scope().pullRequest(), currentUser());
         if (!snapshot.headRepository().fullName().equalsIgnoreCase(run.scope().headRepository().fullName())
                 || !snapshot.headRef().equals(run.scope().headRef())
@@ -673,7 +673,7 @@ public class DefaultCiAutofixService
                     now);
         }
 
-        CiHeadSnapshot snapshot = gitHub.inspect(new InspectCiHeadQuery(run.scope().pullRequest()));
+        CiHeadSnapshot snapshot = gitHub.inspect(run.scope().pullRequest());
         Optional<CiAutofixRun> rejected = rejectChangedPullRequest(run, snapshot, now);
         if (rejected.isPresent()) {
             return rejected.orElseThrow();
@@ -805,12 +805,12 @@ public class DefaultCiAutofixService
             Instant now)
     {
         WorktreeSnapshot worktree = inspectWorktree(requireOpenTask(run), run);
-        CiGitInspection inspection = gitService.inspectAgentResult(new InspectAgentResultCommand(
+        CiGitInspection inspection = gitService.inspectAgentResult(new CiWorktreeRange(
                 worktree.worktree().canonicalWorktree(),
                 worktree.worktree().physicalRepository(),
                 worktree.worktree().generatedBranch(),
-                run.expectedRemoteHead(),
-                snapshot.baseSha()));
+                snapshot.baseSha(),
+                run.expectedRemoteHead()));
         return switch (inspection.outcome()) {
             case READY -> journalPush(run, attempt, inspection, now);
             case NO_CHANGE -> handleNoChange(run, attempt, snapshot, now);
@@ -881,8 +881,8 @@ public class DefaultCiAutofixService
             };
         }
         WorktreeSnapshot worktree = inspectWorktree(requireOpenTask(run), run);
-        CiGitInspection inspection = gitService.inspectAgentResult(new InspectAgentResultCommand(worktree.worktree().canonicalWorktree(),
-                worktree.worktree().physicalRepository(), worktree.worktree().generatedBranch(), run.expectedRemoteHead(), snapshot.baseSha()));
+        CiGitInspection inspection = gitService.inspectAgentResult(new CiWorktreeRange(worktree.worktree().canonicalWorktree(),
+                worktree.worktree().physicalRepository(), worktree.worktree().generatedBranch(), snapshot.baseSha(), run.expectedRemoteHead()));
         if (inspection.outcome() == CiGitInspection.Outcome.INVALID) {
             return pauseAndRefresh(run, PauseReason.INVALID_GIT_RESULT, summary("Agent Git result is invalid", inspection.diagnostics()), now);
         }
@@ -900,7 +900,7 @@ public class DefaultCiAutofixService
         if (!currentBody.equals(change.expectedBody())) {
             return pauseAndRefresh(run, PauseReason.ERROR, "PR description changed after the repair was proposed; no edit was applied", now);
         }
-        CiHeadSnapshot latest = gitHub.inspect(new InspectCiHeadQuery(run.scope().pullRequest()));
+        CiHeadSnapshot latest = gitHub.inspect(run.scope().pullRequest());
         Optional<CiAutofixRun> rejected = rejectChangedPullRequest(run, latest, now);
         if (rejected.isPresent()) {
             return rejected.orElseThrow();
@@ -1007,7 +1007,7 @@ public class DefaultCiAutofixService
         if (latest.version() != run.version() || latest.status() != Status.ACTIVE) {
             return latest;
         }
-        CiHeadSnapshot snapshot = gitHub.inspect(new InspectCiHeadQuery(run.scope().pullRequest()));
+        CiHeadSnapshot snapshot = gitHub.inspect(run.scope().pullRequest());
         Optional<CiAutofixRun> rejected = rejectChangedPullRequest(run, snapshot, now);
         if (rejected.isPresent()) {
             return rejected.orElseThrow();
@@ -1069,7 +1069,7 @@ public class DefaultCiAutofixService
     private CiAutofixRun reconcileRerun(CiAutofixRun run, Instant now)
     {
         RerunJournal journal = run.rerunJournal().orElseThrow();
-        CiHeadSnapshot snapshot = gitHub.inspect(new InspectCiHeadQuery(run.scope().pullRequest()));
+        CiHeadSnapshot snapshot = gitHub.inspect(run.scope().pullRequest());
         Optional<CiAutofixRun> rejected = rejectChangedPullRequest(run, snapshot, now);
         if (rejected.isPresent()) {
             return rejected.orElseThrow();
@@ -1131,7 +1131,7 @@ public class DefaultCiAutofixService
     {
         if (run.finalFixupCheck().isEmpty()) {
             WorktreeSnapshot worktree = inspectWorktree(requireOpenTask(run), run);
-            FixupPositionCheck check = gitService.checkFixupPositions(new CheckFixupPositionsCommand(
+            FixupPositionCheck check = gitService.checkFixupPositions(new CiWorktreeRange(
                     worktree.worktree().canonicalWorktree(),
                     worktree.worktree().physicalRepository(),
                     worktree.worktree().generatedBranch(),

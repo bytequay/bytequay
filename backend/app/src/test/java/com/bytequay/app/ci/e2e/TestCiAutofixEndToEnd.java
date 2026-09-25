@@ -37,7 +37,6 @@ import com.bytequay.agent.spi.DevelopmentResultBridge;
 import com.bytequay.app.ci.CiAutofixMonitorTestDriver;
 import com.bytequay.app.ci.CiAutofixService;
 import com.bytequay.app.ci.CiMemoryService;
-import com.bytequay.app.ci.InspectCiHeadQuery;
 import com.bytequay.app.ci.RerunFailedJobsCommand;
 import com.bytequay.app.ci.RoutedGitCommandRunner;
 import com.bytequay.app.git.GitCommandRunner;
@@ -986,7 +985,7 @@ class TestCiAutofixEndToEnd
             throws Exception
     {
         PullRequestRef unknown = PullRequestRef.of("bytequay", "unknown", 91);
-        assertThatThrownBy(() -> gitHub.inspect(new InspectCiHeadQuery(unknown)))
+        assertThatThrownBy(() -> gitHub.inspect(unknown))
                 .isInstanceOf(IllegalStateException.class)
                 .hasMessageContaining(unknown.fullName());
 

@@ -235,26 +235,6 @@ class TestModelSettingsService
     }
 
     @Test
-    void aLegacyMainModelBecomesDevelopmentAndLeavesReviewInheriting()
-    {
-        settingsStore.put("model.selection.codex", "{\"model\":\"gpt-5.6-sol\",\"effort\":\"high\"}");
-        settingsStore.put("model.main", "codex");
-
-        service.migrateLegacyMainModel();
-
-        AgentModelSetting development = service.agentModel(AgentModelType.DEVELOPMENT);
-        assertThat(development.explicit()).isTrue();
-        assertThat(development.configId()).isEqualTo("codex");
-        assertThat(development.model()).isEqualTo("gpt-5.6-sol");
-        assertThat(service.agentModel(AgentModelType.REVIEW).explicit()).isFalse();
-        assertThat(settingsStore.get("model.main")).isEmpty();
-
-        // Idempotent: a second pass has nothing to move and must not clobber the value.
-        service.migrateLegacyMainModel();
-        assertThat(service.agentModel(AgentModelType.DEVELOPMENT).model()).isEqualTo("gpt-5.6-sol");
-    }
-
-    @Test
     void unknownProvidersAndDuplicateAliasesAreRejected()
     {
         service.addApiKey("OpenAI", "team", "sk-secret");

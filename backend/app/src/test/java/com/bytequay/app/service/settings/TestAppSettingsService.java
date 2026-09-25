@@ -152,12 +152,4 @@ class TestAppSettingsService
 
         assertThat(settings.preferences()).isEqualTo(AppPreferences.DEFAULT);
     }
-
-    @Test
-    void readsTheBooleanSettingWrittenBeforeTheModeExisted()
-    {
-        rows.put("codegraph.enabled", "false");
-
-        assertThat(settings.codeGraphMode()).isEqualTo(CodeGraphMode.OFF);
-    }
 }

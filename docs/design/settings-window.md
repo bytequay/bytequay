@@ -129,12 +129,10 @@ sending an explicit model for this reason.
 
 ### 3.4 Migration
 
-There is no migration machinery: `app_settings` is untyped key/value and
-Hibernate owns the schema. An existing `model.main` plus its
-`model.selection.<configId>` is read once and written into
-`model.agent.DEVELOPMENT`; `model.agent.REVIEW` is left absent so Review starts
-out inheriting. The old keys are then deleted. Per-workspace overrides migrate
-to the `.DEVELOPMENT` suffix by the same read-once rule.
+There is no migration: `app_settings` is untyped key/value, Hibernate owns
+the schema, and no released database carries `model.main` or
+`model.selection.<configId>`, so neither key is read. A provider or API key
+with no agent-type value shows its catalog default.
 
 ### 3.5 Two existing defects this touches
 

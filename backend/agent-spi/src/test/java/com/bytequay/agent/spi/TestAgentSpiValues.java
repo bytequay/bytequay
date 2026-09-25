@@ -19,7 +19,6 @@ import org.junit.jupiter.api.Test;
 
 import java.math.BigDecimal;
 import java.time.Duration;
-import java.time.Instant;
 import java.util.Optional;
 import java.util.Set;
 
@@ -79,8 +78,7 @@ class TestAgentSpiValues
                 10,
                 2,
                 4,
-                Optional.empty(),
-                Instant.parse("2026-08-16T00:00:00Z"));
+                Optional.empty());
 
         assertThat(sample.cost()).isEmpty();
         assertThatThrownBy(() -> new ProviderUsageSample(
@@ -89,8 +87,7 @@ class TestAgentSpiValues
                 0,
                 0,
                 0,
-                Optional.of(new BigDecimal("-0.01")),
-                Instant.parse("2026-08-16T00:00:00Z")))
+                Optional.of(new BigDecimal("-0.01"))))
                 .isInstanceOf(IllegalArgumentException.class)
                 .hasMessageContaining("cost must not be negative");
     }
@@ -99,7 +96,6 @@ class TestAgentSpiValues
     void providerEventsRejectEscapingFilePaths()
     {
         assertThatThrownBy(() -> new ProviderAgentEvent.FileChange(
-                Optional.empty(),
                 Optional.empty(),
                 "../secret",
                 ProviderAgentEvent.ChangeKind.MODIFIED,

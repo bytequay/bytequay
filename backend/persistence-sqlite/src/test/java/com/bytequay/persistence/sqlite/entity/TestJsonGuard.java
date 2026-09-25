@@ -106,7 +106,6 @@ class TestJsonGuard
                 TaskId.random(),
                 TurnId.random(),
                 new ProviderApprovalRequest(
-                        "provider-1",
                         ProviderApprovalRequest.Kind.COMMAND,
                         "Allow Codex command",
                         "/bin/zsh -lc 'gh issue list --repo t/t'",

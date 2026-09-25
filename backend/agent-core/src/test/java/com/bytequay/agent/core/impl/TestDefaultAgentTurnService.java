@@ -770,7 +770,7 @@ class TestDefaultAgentTurnService
             assertThat(accepted.providerTurnReference()).isEmpty();
             ProviderAgentEventSource source = new ProviderAgentEventSource(
                     Optional.of("root-thread"), Optional.empty(), Optional.of("/"), Optional.of("turn-" + accepted.id()), Optional.empty());
-            driver.emit(new ProviderAgentEvent.Plan(Optional.empty(), Optional.empty(), items, source));
+            driver.emit(new ProviderAgentEvent.Plan(Optional.empty(), items, source));
         });
         AgentTurn running = service.start(command("Implement", "early-plan"));
         assertThat(running.state()).isEqualTo(TurnState.RUNNING);
@@ -785,7 +785,7 @@ class TestDefaultAgentTurnService
         List<ProviderAgentEvent.PlanItem> initial = ImmutableList.of(new ProviderAgentEvent.PlanItem("Implement", ProviderAgentEvent.PlanItemState.IN_PROGRESS));
         ProviderAgentEventSource source = new ProviderAgentEventSource(
                 Optional.of("root-thread"), Optional.empty(), Optional.of("/"), running.providerTurnReference().map(ProviderTurnRef::value), Optional.empty());
-        ProviderAgentEvent.Plan update = new ProviderAgentEvent.Plan(Optional.of("plan"), Optional.empty(), initial, source);
+        ProviderAgentEvent.Plan update = new ProviderAgentEvent.Plan(Optional.of("plan"), initial, source);
         stores.failOutboxInsert(AgentEventPayload.Kind.PLAN_UPDATED, new AgentStorageException("blocked plan outbox"));
         assertThatThrownBy(() -> driver.emit(update)).isInstanceOf(AgentStorageException.class).hasMessage("blocked plan outbox");
         assertThat(stores.find(running.id()).orElseThrow().plan()).isEmpty();
@@ -794,9 +794,9 @@ class TestDefaultAgentTurnService
         driver.emit(update);
         assertThat(stores.find(running.id()).orElseThrow().plan()).contains(initial);
         List<ProviderAgentEvent.PlanItem> completed = ImmutableList.of(new ProviderAgentEvent.PlanItem("Implement", ProviderAgentEvent.PlanItemState.COMPLETED));
-        driver.emit(new ProviderAgentEvent.Plan(Optional.of("plan"), Optional.empty(), completed, source));
+        driver.emit(new ProviderAgentEvent.Plan(Optional.of("plan"), completed, source));
         assertThat(stores.find(running.id()).orElseThrow().plan()).contains(completed);
-        driver.emit(new ProviderAgentEvent.Plan(Optional.of("plan"), Optional.empty(), ImmutableList.of(), source));
+        driver.emit(new ProviderAgentEvent.Plan(Optional.of("plan"), ImmutableList.of(), source));
         assertThat(stores.find(running.id()).orElseThrow().plan()).contains(ImmutableList.of());
         assertThat(events.readAfter(task.id(), 0, 100)).filteredOn(event -> event.type() == AgentEventPayload.Kind.PLAN_UPDATED).hasSize(3);
         driver.complete("Finished");
@@ -812,18 +812,18 @@ class TestDefaultAgentTurnService
         AgentTurn running = service.start(command("Implement and verify", "plan-scope"));
         List<ProviderAgentEvent.PlanItem> rootItems = ImmutableList.of(new ProviderAgentEvent.PlanItem("Implement", ProviderAgentEvent.PlanItemState.IN_PROGRESS));
         // Claude does not provide a provider turn id; the sink remains bound to the accepted application turn.
-        driver.emit(new ProviderAgentEvent.Plan(Optional.empty(), Optional.empty(), rootItems));
+        driver.emit(new ProviderAgentEvent.Plan(Optional.empty(), rootItems));
         ProviderAgentEventSource child = new ProviderAgentEventSource(
                 Optional.of("child-thread"), Optional.of("root-thread"), Optional.of("/reviewer"), Optional.of("child-turn"), Optional.empty());
         List<ProviderAgentEvent.PlanItem> childItems = ImmutableList.of(new ProviderAgentEvent.PlanItem("Review", ProviderAgentEvent.PlanItemState.PENDING));
-        driver.emit(new ProviderAgentEvent.Plan(Optional.empty(), Optional.empty(), childItems, child));
+        driver.emit(new ProviderAgentEvent.Plan(Optional.empty(), childItems, child));
         assertThat(stores.find(running.id()).orElseThrow().plan()).contains(rootItems);
         assertThat(events.readAfter(task.id(), 0, 100)).filteredOn(event -> event.type() == AgentEventPayload.Kind.PLAN_UPDATED)
                 .anySatisfy(event -> assertThat(event.source().parentProviderThreadId()).contains("root-thread"));
 
         ProviderAgentEventSource stale = new ProviderAgentEventSource(
                 Optional.of("root-thread"), Optional.empty(), Optional.of("/"), Optional.of("older-turn"), Optional.empty());
-        assertThatThrownBy(() -> driver.emit(new ProviderAgentEvent.Plan(Optional.empty(), Optional.empty(), childItems, stale)))
+        assertThatThrownBy(() -> driver.emit(new ProviderAgentEvent.Plan(Optional.empty(), childItems, stale)))
                 .isInstanceOf(IllegalArgumentException.class).hasMessageContaining("another provider turn");
         assertThat(stores.find(running.id()).orElseThrow().plan()).contains(rootItems);
         driver.complete("Finished");
@@ -869,7 +869,9 @@ class TestDefaultAgentTurnService
         assertThatThrownBy(() -> driver.emit(child)).isInstanceOf(IllegalArgumentException.class).hasMessageContaining("root agent");
 
         ProviderAgentEvent.DevelopmentResult stale = new ProviderAgentEvent.DevelopmentResult(
-                Optional.empty(), Optional.empty(), ready, new ProviderAgentEventSource(
+                Optional.empty(),
+                ready,
+                new ProviderAgentEventSource(
                         Optional.of("root-thread"), Optional.empty(), Optional.of("/"), Optional.of("older-turn"), Optional.of("report-1")));
         assertThatThrownBy(() -> driver.emit(stale)).isInstanceOf(IllegalArgumentException.class).hasMessageContaining("another provider turn");
         assertThat(stores.find(running.id()).orElseThrow().developmentResult()).isEmpty();
@@ -1732,7 +1734,7 @@ class TestDefaultAgentTurnService
     private static ProviderAgentEvent.DevelopmentResult developmentReport(
             AgentTurn turn, String itemId, DevelopmentResultReport report, Optional<String> parentThreadId)
     {
-        return new ProviderAgentEvent.DevelopmentResult(Optional.empty(), Optional.empty(), report, new ProviderAgentEventSource(
+        return new ProviderAgentEvent.DevelopmentResult(Optional.empty(), report, new ProviderAgentEventSource(
                 Optional.of("root-thread"), parentThreadId, Optional.of("/"), turn.providerTurnReference().map(ProviderTurnRef::value), Optional.of(itemId)));
     }
 
@@ -1881,8 +1883,7 @@ class TestDefaultAgentTurnService
                 4,
                 1,
                 2,
-                Optional.empty(),
-                NOW);
+                Optional.empty());
 
         driver.emitUsage(sample);
         driver.emitUsage(sample);
@@ -2220,7 +2221,6 @@ class TestDefaultAgentTurnService
         AgentTurn running = service.start(command("first", "key-1"));
         driver.beforeCancel(() -> CompletableFuture.runAsync(() -> assertThatThrownBy(() -> driver.requestApproval(
                 new ProviderApprovalRequest(
-                        "provider-request",
                         ProviderApprovalRequest.Kind.COMMAND,
                         "Run command",
                         "git status",
@@ -2373,7 +2373,6 @@ class TestDefaultAgentTurnService
     {
         AgentTurn running = service.start(command("approval", "key-1"));
         ProviderApprovalRequest request = new ProviderApprovalRequest(
-                "provider-request",
                 ProviderApprovalRequest.Kind.COMMAND,
                 "Run command",
                 "Run tests",
@@ -2405,7 +2404,6 @@ class TestDefaultAgentTurnService
 
         assertThat(service.get(running.id()).state()).isEqualTo(TurnState.COMPLETED);
         assertThatThrownBy(() -> driver.requestApproval(new ProviderApprovalRequest(
-                "late-request",
                 ProviderApprovalRequest.Kind.COMMAND,
                 "Run command",
                 "Run tests",
@@ -3455,14 +3453,12 @@ class TestDefaultAgentTurnService
                 input,
                 cached,
                 output,
-                Optional.<BigDecimal>empty(),
-                NOW);
+                Optional.<BigDecimal>empty());
     }
 
     private static ProviderApprovalRequest approvalRequest(String requestId)
     {
         return new ProviderApprovalRequest(
-                requestId,
                 ProviderApprovalRequest.Kind.COMMAND,
                 "Run command",
                 "git status",

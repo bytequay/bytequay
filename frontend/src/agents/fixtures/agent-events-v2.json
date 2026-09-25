@@ -22,8 +22,7 @@
         "logicalAgentPath": null,
         "providerTurnId": "turn-1",
         "providerItemId": "user-1",
-        "providerEventId": "event-1",
-        "providerOccurredAt": "2026-08-20T10:00:00Z"
+        "providerEventId": "event-1"
       },
       "occurredAt": "2026-08-20T10:00:00Z",
       "type": "user_message",
@@ -51,8 +50,7 @@
         "logicalAgentPath": null,
         "providerTurnId": "turn-1",
         "providerItemId": null,
-        "providerEventId": "event-2",
-        "providerOccurredAt": "2026-08-20T10:00:01Z"
+        "providerEventId": "event-2"
       },
       "occurredAt": "2026-08-20T10:00:01Z",
       "type": "lifecycle",
@@ -73,8 +71,7 @@
         "logicalAgentPath": null,
         "providerTurnId": "turn-1",
         "providerItemId": "message-1",
-        "providerEventId": "event-3",
-        "providerOccurredAt": "2026-08-20T10:00:02Z"
+        "providerEventId": "event-3"
       },
       "occurredAt": "2026-08-20T10:00:02Z",
       "type": "assistant_message",
@@ -96,8 +93,7 @@
         "logicalAgentPath": null,
         "providerTurnId": "turn-1",
         "providerItemId": "plan-1",
-        "providerEventId": "event-4",
-        "providerOccurredAt": "2026-08-20T10:00:03Z"
+        "providerEventId": "event-4"
       },
       "occurredAt": "2026-08-20T10:00:03Z",
       "type": "plan_updated",
@@ -130,8 +126,7 @@
         "logicalAgentPath": null,
         "providerTurnId": "turn-1",
         "providerItemId": "command-1",
-        "providerEventId": "event-5",
-        "providerOccurredAt": "2026-08-20T10:00:04Z"
+        "providerEventId": "event-5"
       },
       "occurredAt": "2026-08-20T10:00:04Z",
       "type": "command",
@@ -158,8 +153,7 @@
         "logicalAgentPath": null,
         "providerTurnId": "turn-1",
         "providerItemId": "file-1",
-        "providerEventId": "event-6",
-        "providerOccurredAt": "2026-08-20T10:00:05Z"
+        "providerEventId": "event-6"
       },
       "occurredAt": "2026-08-20T10:00:05Z",
       "type": "file_change",
@@ -182,8 +176,7 @@
         "logicalAgentPath": null,
         "providerTurnId": "turn-1",
         "providerItemId": "tool-1",
-        "providerEventId": "event-7",
-        "providerOccurredAt": "2026-08-20T10:00:06Z"
+        "providerEventId": "event-7"
       },
       "occurredAt": "2026-08-20T10:00:06Z",
       "type": "tool",
@@ -205,8 +198,7 @@
         "logicalAgentPath": null,
         "providerTurnId": "turn-1",
         "providerItemId": "approval-1",
-        "providerEventId": "event-8",
-        "providerOccurredAt": "2026-08-20T10:00:07Z"
+        "providerEventId": "event-8"
       },
       "occurredAt": "2026-08-20T10:00:07Z",
       "type": "approval_requested",
@@ -237,8 +229,7 @@
         "logicalAgentPath": null,
         "providerTurnId": "turn-1",
         "providerItemId": "approval-1",
-        "providerEventId": "event-9",
-        "providerOccurredAt": "2026-08-20T10:00:08Z"
+        "providerEventId": "event-9"
       },
       "occurredAt": "2026-08-20T10:00:08Z",
       "type": "approval_resolved",
@@ -259,8 +250,7 @@
         "logicalAgentPath": null,
         "providerTurnId": "turn-1",
         "providerItemId": "approval-2",
-        "providerEventId": "event-14",
-        "providerOccurredAt": "2026-08-20T10:00:08Z"
+        "providerEventId": "event-14"
       },
       "occurredAt": "2026-08-20T10:00:08Z",
       "type": "approval_requested",
@@ -292,8 +282,7 @@
         "logicalAgentPath": null,
         "providerTurnId": "turn-1",
         "providerItemId": null,
-        "providerEventId": "event-10",
-        "providerOccurredAt": "2026-08-20T10:00:09Z"
+        "providerEventId": "event-10"
       },
       "occurredAt": "2026-08-20T10:00:09Z",
       "type": "error",
@@ -315,8 +304,7 @@
         "logicalAgentPath": null,
         "providerTurnId": "turn-1",
         "providerItemId": "message-1",
-        "providerEventId": "event-11",
-        "providerOccurredAt": "2026-08-20T10:00:10Z"
+        "providerEventId": "event-11"
       },
       "occurredAt": "2026-08-20T10:00:10Z",
       "type": "usage",
@@ -340,8 +328,7 @@
         "logicalAgentPath": null,
         "providerTurnId": "turn-1",
         "providerItemId": "message-1",
-        "providerEventId": "event-12",
-        "providerOccurredAt": "2026-08-20T10:00:11Z"
+        "providerEventId": "event-12"
       },
       "occurredAt": "2026-08-20T10:00:11Z",
       "type": "assistant_message",
@@ -363,8 +350,7 @@
         "logicalAgentPath": null,
         "providerTurnId": "turn-1",
         "providerItemId": null,
-        "providerEventId": "event-13",
-        "providerOccurredAt": "2026-08-20T10:00:12Z"
+        "providerEventId": "event-13"
       },
       "occurredAt": "2026-08-20T10:00:12Z",
       "type": "lifecycle",

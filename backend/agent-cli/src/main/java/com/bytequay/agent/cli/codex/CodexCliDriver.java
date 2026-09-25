@@ -1143,7 +1143,7 @@ public final class CodexCliDriver
                 observe(notification);
                 // Routing is in place before a discovery event is published: the child is already
                 // in the lineage and the thread set when anything about it reaches the log.
-                announceChildren(notification.emittedAtMs().map(Instant::ofEpochMilli));
+                announceChildren();
                 flushPendingNotifications();
                 if (!rootThread && !routableThread(notification.threadId())) {
                     if (!(notification instanceof CodexProtocol.ThreadStartedNotification)) {
@@ -1480,7 +1480,7 @@ public final class CodexCliDriver
         }
 
         /** Publishes one discovery event per child, after its lineage is in place. */
-        private void announceChildren(Optional<Instant> timestamp)
+        private void announceChildren()
         {
             for (Map.Entry<String, ChildFacts> child : children.entrySet()) {
                 if (!routableThread(child.getKey())) {
@@ -1490,7 +1490,6 @@ public final class CodexCliDriver
                 if (announcedChildren.add(child.getKey())) {
                     events.emit(new ProviderAgentEvent.Lifecycle(
                             Optional.of(child.getKey() + ":agent-started"),
-                            timestamp,
                             ProviderAgentEvent.LifecyclePhase.AGENT_STARTED,
                             label,
                             childSource(child.getKey())));
@@ -1500,11 +1499,9 @@ public final class CodexCliDriver
                 if (child.getValue().purpose().isPresent() && promptedChildren.add(child.getKey())) {
                     events.emit(new ProviderAgentEvent.Message(
                             Optional.of(child.getKey() + ":agent-prompt"),
-                            timestamp,
                             ProviderAgentEvent.MessageKind.PROMPT,
                             ProviderAgentEvent.MessagePhase.FINAL,
                             sessionRedactor.redact(child.getValue().purpose().orElseThrow()),
-                            Optional.empty(),
                             childSource(child.getKey())));
                 }
             }
@@ -1964,7 +1961,6 @@ public final class CodexCliDriver
             }
 
             ProviderApprovalRequest approvalRequest = new ProviderApprovalRequest(
-                    String.valueOf(serverRequest.id()),
                     kind,
                     title,
                     detail,

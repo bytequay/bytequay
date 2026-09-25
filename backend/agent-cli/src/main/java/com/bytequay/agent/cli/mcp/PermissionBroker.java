@@ -66,7 +66,6 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
-import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.TimeUnit;
@@ -837,7 +836,6 @@ public final class PermissionBroker
             detail = "Runs outside Claude's filesystem sandbox with host file access.\n" + detail;
         }
         ProviderApprovalRequest approval = new ProviderApprovalRequest(
-                UUID.randomUUID().toString(),
                 kind(arguments.toolName()),
                 unsandboxed ? "Allow Claude unsandboxed command" : "Allow Claude " + arguments.toolName(),
                 detail,

@@ -154,8 +154,7 @@ final class ClaudeProtocol
             ApiMessage message,
             @JsonProperty("parent_tool_use_id") Optional<String> parentToolUseId,
             @JsonProperty("session_id") String sessionIdValue,
-            Optional<String> uuid,
-            Optional<String> timestamp)
+            Optional<String> uuid)
             implements Message
     {
         AssistantMessage
@@ -164,7 +163,6 @@ final class ClaudeProtocol
             requireNonNull(parentToolUseId, "parentToolUseId is null");
             requireNonNull(sessionIdValue, "sessionId is null");
             requireNonNull(uuid, "uuid is null");
-            requireNonNull(timestamp, "timestamp is null");
         }
 
         @Override
@@ -179,8 +177,7 @@ final class ClaudeProtocol
             @JsonProperty("tool_use_result") Optional<JsonNode> toolUseResult,
             @JsonProperty("parent_tool_use_id") Optional<String> parentToolUseId,
             @JsonProperty("session_id") Optional<String> sessionIdValue,
-            Optional<String> uuid,
-            Optional<String> timestamp)
+            Optional<String> uuid)
             implements Message
     {
         UserMessage
@@ -190,7 +187,6 @@ final class ClaudeProtocol
             requireNonNull(parentToolUseId, "parentToolUseId is null");
             requireNonNull(sessionIdValue, "sessionId is null");
             requireNonNull(uuid, "uuid is null");
-            requireNonNull(timestamp, "timestamp is null");
         }
 
         @Override

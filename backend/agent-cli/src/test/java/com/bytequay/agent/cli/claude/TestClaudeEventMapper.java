@@ -244,7 +244,7 @@ class TestClaudeEventMapper
                 "description":"checking files","parent_tool_use_id":"parent-1",
                 "session_id":"session-1","uuid":"task-event-1"}
                 """, ProviderAgentEvent.Tool.class);
-        assertThat(nested.parentToolUseId()).contains("parent-1");
+        assertThat(nested.source().providerItemId()).contains("task-1");
         assertThat(nested.state()).isEqualTo(ProviderAgentEvent.ActivityState.PROGRESS);
     }
 
@@ -413,7 +413,7 @@ class TestClaudeEventMapper
             assertThat(message.source().providerItemId()).isEqualTo(grandchild.source().providerItemId());
         }));
         assertThat(events).anySatisfy(event -> assertThat(event).isInstanceOfSatisfying(ProviderAgentEvent.Tool.class, tool -> {
-            assertThat(tool.toolCallId()).isEqualTo("tool-2");
+            assertThat(tool.source().providerItemId()).contains("tool-2");
             assertThat(tool.source().providerThreadId()).contains("claude-agent:tool-1");
             assertThat(tool.source().parentProviderThreadId()).contains("session-1");
         }));

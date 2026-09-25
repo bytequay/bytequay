@@ -23,7 +23,7 @@ type Command = Extract<AgentEventEnvelope, { type: 'command' }>;
 function command(sequence: number, changes: Partial<Command['payload']> = {}): Command {
   return {
     schemaVersion: 2, eventId: `event-${sequence}`, sequence, taskId: 'task', turnId: 'turn', occurredAt: `2026-09-08T00:00:${String(sequence % 60).padStart(2, '0')}Z`,
-    source: { providerThreadId: 'thread', parentProviderThreadId: null, providerTurnId: 'provider-turn', providerItemId: 'command', providerEventId: null, logicalAgentPath: '/', providerOccurredAt: null },
+    source: { providerThreadId: 'thread', parentProviderThreadId: null, providerTurnId: 'provider-turn', providerItemId: 'command', providerEventId: null, logicalAgentPath: '/' },
     type: 'command',
     payload: { state: 'PROGRESS', argv: [], output: `Line ${sequence}\n`, exitCode: null, truncated: false, cwd: null, durationMs: null, actions: [], description: null, ...changes },
   };

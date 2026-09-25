@@ -634,7 +634,7 @@ class TestLocalRunService
     private AgentEventEnvelope command(ActivityState state, String argv, Optional<String> output, Optional<Integer> exitCode, Optional<Long> durationMs, boolean background,
             String itemId, Instant occurredAt, boolean truncated)
     {
-        AgentEventSource source = new AgentEventSource(Optional.empty(), Optional.empty(), Optional.empty(), Optional.empty(), Optional.of(itemId), Optional.empty(), Optional.empty());
+        AgentEventSource source = new AgentEventSource(Optional.empty(), Optional.empty(), Optional.empty(), Optional.empty(), Optional.of(itemId), Optional.empty());
         return new AgentEventEnvelope(AgentEventEnvelope.CURRENT_SCHEMA_VERSION, EventId.random(), 1, worktree.taskId(), Optional.empty(), source, occurredAt,
                 new AgentEventPayload.CommandActivity(state, ImmutableList.of(argv), output, exitCode, truncated, Optional.empty(), durationMs, ImmutableList.of(), background, Optional.empty()));
     }

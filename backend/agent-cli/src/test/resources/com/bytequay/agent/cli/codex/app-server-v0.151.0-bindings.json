@@ -32,13 +32,6 @@
               "status": "completed"
             }
           }
-        },
-        {
-          "javaName": "emittedAtMs",
-          "wireName": "emittedAtMs",
-          "required": false,
-          "nullable": false,
-          "sample": 1
         }
       ]
     },
@@ -66,13 +59,6 @@
               "status": "completed"
             }
           }
-        },
-        {
-          "javaName": "emittedAtMs",
-          "wireName": "emittedAtMs",
-          "required": false,
-          "nullable": false,
-          "sample": 1
         }
       ]
     },
@@ -105,13 +91,6 @@
             "threadId": "value",
             "turnId": "value"
           }
-        },
-        {
-          "javaName": "emittedAtMs",
-          "wireName": "emittedAtMs",
-          "required": false,
-          "nullable": false,
-          "sample": 1
         }
       ]
     },
@@ -144,13 +123,6 @@
             "threadId": "value",
             "turnId": "value"
           }
-        },
-        {
-          "javaName": "emittedAtMs",
-          "wireName": "emittedAtMs",
-          "required": false,
-          "nullable": false,
-          "sample": 1
         }
       ]
     },
@@ -176,13 +148,6 @@
             "threadId": "value",
             "turnId": "value"
           }
-        },
-        {
-          "javaName": "emittedAtMs",
-          "wireName": "emittedAtMs",
-          "required": false,
-          "nullable": false,
-          "sample": 1
         }
       ]
     },
@@ -208,13 +173,6 @@
             "threadId": "value",
             "turnId": "value"
           }
-        },
-        {
-          "javaName": "emittedAtMs",
-          "wireName": "emittedAtMs",
-          "required": false,
-          "nullable": false,
-          "sample": 1
         }
       ]
     },
@@ -240,13 +198,6 @@
             "threadId": "value",
             "turnId": "value"
           }
-        },
-        {
-          "javaName": "emittedAtMs",
-          "wireName": "emittedAtMs",
-          "required": false,
-          "nullable": false,
-          "sample": 1
         }
       ]
     },
@@ -288,13 +239,6 @@
               "updatedAt": 1
             }
           }
-        },
-        {
-          "javaName": "emittedAtMs",
-          "wireName": "emittedAtMs",
-          "required": false,
-          "nullable": false,
-          "sample": 1
         }
       ]
     },
@@ -354,13 +298,6 @@
             "threadId": "value",
             "turnId": "value"
           }
-        },
-        {
-          "javaName": "emittedAtMs",
-          "wireName": "emittedAtMs",
-          "required": false,
-          "nullable": false,
-          "sample": 1
         }
       ]
     },
@@ -400,13 +337,6 @@
             },
             "turnId": "value"
           }
-        },
-        {
-          "javaName": "emittedAtMs",
-          "wireName": "emittedAtMs",
-          "required": false,
-          "nullable": false,
-          "sample": 1
         }
       ]
     },
@@ -434,13 +364,6 @@
             "turnId": "value",
             "willRetry": false
           }
-        },
-        {
-          "javaName": "emittedAtMs",
-          "wireName": "emittedAtMs",
-          "required": false,
-          "nullable": false,
-          "sample": 1
         }
       ]
     },
@@ -474,13 +397,6 @@
             "threadId": "value",
             "turnId": "value"
           }
-        },
-        {
-          "javaName": "emittedAtMs",
-          "wireName": "emittedAtMs",
-          "required": false,
-          "nullable": false,
-          "sample": 1
         }
       ]
     },
@@ -516,13 +432,6 @@
             "threadId": "value",
             "turnId": "value"
           }
-        },
-        {
-          "javaName": "emittedAtMs",
-          "wireName": "emittedAtMs",
-          "required": false,
-          "nullable": false,
-          "sample": 1
         }
       ]
     },

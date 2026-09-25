@@ -349,7 +349,6 @@ final class DeterministicAgentDriver
                 running = new DeterministicRunningTurn(context, events, command, beforeCancel, turnFailure);
                 running.emit(new ProviderAgentEvent.Lifecycle(
                         Optional.empty(),
-                        Optional.empty(),
                         ProviderAgentEvent.LifecyclePhase.TURN_STARTED,
                         "turn started"));
                 afterStart.run();
@@ -455,7 +454,6 @@ final class DeterministicAgentDriver
             beforeCancel.run();
             emit(new ProviderAgentEvent.Lifecycle(
                     Optional.empty(),
-                    Optional.empty(),
                     ProviderAgentEvent.LifecyclePhase.INTERRUPTED,
                     "turn cancelled"));
             completion.complete(new AgentTurnResult(
@@ -482,12 +480,9 @@ final class DeterministicAgentDriver
             checkState(!completion.isDone(), "deterministic turn is already complete");
             emit(new ProviderAgentEvent.Message(
                     Optional.of("message-" + command.turnId()),
-                    Optional.empty(),
                     ProviderAgentEvent.MessagePhase.FINAL,
-                    response,
-                    Optional.empty()));
+                    response));
             emit(new ProviderAgentEvent.Lifecycle(
-                    Optional.empty(),
                     Optional.empty(),
                     ProviderAgentEvent.LifecyclePhase.TURN_COMPLETED,
                     "turn completed"));

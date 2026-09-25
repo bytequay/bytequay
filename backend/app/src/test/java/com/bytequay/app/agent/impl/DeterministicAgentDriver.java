@@ -203,13 +203,12 @@ public final class DeterministicAgentDriver
         String response = textOnly ? "{\"title\":\"Name first task\",\"branch\":\"name-first-task\"}" : "deterministic: " + command.message();
         events.emit(new ProviderAgentEvent.Message(
                 Optional.of("message-" + command.turnId()),
-                Optional.empty(),
                 ProviderAgentEvent.MessagePhase.FINAL,
-                response,
-                Optional.empty()));
+                response));
         if (!textOnly) {
             Optional.ofNullable(nextDevelopmentResult.getAndSet(null)).ifPresent(report -> events.emit(new ProviderAgentEvent.DevelopmentResult(
-                    Optional.of("report-" + command.turnId()), Optional.empty(), report,
+                    Optional.of("report-" + command.turnId()),
+                    report,
                     new ProviderAgentEventSource(Optional.empty(), Optional.empty(), Optional.empty(),
                             Optional.of("deterministic-" + command.turnId()), Optional.of("report-" + command.turnId())))));
         }

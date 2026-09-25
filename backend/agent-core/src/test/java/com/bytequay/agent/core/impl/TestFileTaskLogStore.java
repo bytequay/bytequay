@@ -77,15 +77,13 @@ class TestFileTaskLogStore
     @Test
     void flushesAndReadsEveryEventTypeInSequence()
     {
-        Instant providerTime = Instant.parse("2026-08-16T00:00:00Z");
         AgentEventSource source = new AgentEventSource(
                 Optional.of("thread-1"),
                 Optional.empty(),
                 Optional.of("root/reviewer"),
                 Optional.of("provider-turn-1"),
                 Optional.of("item-1"),
-                Optional.of("provider-event-1"),
-                Optional.of(providerTime));
+                Optional.of("provider-event-1"));
         List<AgentEventPayload> payloads = ImmutableList.of(
                 new AgentEventPayload.UserMessage(
                         "review this",

@@ -1011,7 +1011,6 @@ public final class ClaudeCliDriver
                 }
                 session.events.emit(new ProviderAgentEvent.Error(
                         Optional.empty(),
-                        Optional.empty(),
                         "claude_stream",
                         session.redactor.redact(failureMessage(failure)),
                         true));
@@ -1178,7 +1177,6 @@ public final class ClaudeCliDriver
             try {
                 session.events.emit(new ProviderAgentEvent.Lifecycle(
                         result == null ? Optional.empty() : result.uuid().map(value -> value + ":completed"),
-                        Optional.empty(),
                         phase,
                         message));
             }
@@ -1241,7 +1239,6 @@ public final class ClaudeCliDriver
                                 : result.uuid().map(value -> value + (authenticationRequired
                                         ? ":authentication-required"
                                         : ":error")),
-                        Optional.empty(),
                         authenticationRequired ? "AUTHENTICATION_REQUIRED" : "claude_result",
                         authenticationRequired
                                 ? "Claude sign-in required"

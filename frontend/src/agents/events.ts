@@ -69,7 +69,6 @@ type AgentEventSource = {
   providerTurnId: string | null;
   providerItemId: string | null;
   providerEventId: string | null;
-  providerOccurredAt: string | null;
 };
 
 type AgentEvent<Tag extends string, Payload> = {
@@ -252,7 +251,6 @@ function validateSource(value: unknown, index: number): void {
   nullableString(source.providerTurnId, `${prefix}.providerTurnId`);
   nullableString(source.providerItemId, `${prefix}.providerItemId`);
   nullableString(source.providerEventId, `${prefix}.providerEventId`);
-  nullableString(source.providerOccurredAt, `${prefix}.providerOccurredAt`);
 }
 
 function validatePayload(type: typeof EVENT_TYPES[number], value: unknown, index: number): void {

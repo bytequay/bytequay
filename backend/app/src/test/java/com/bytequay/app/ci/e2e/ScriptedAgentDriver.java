@@ -45,7 +45,6 @@ import com.google.common.collect.ImmutableSet;
 
 import java.nio.file.Path;
 import java.time.Duration;
-import java.time.Instant;
 import java.util.ArrayDeque;
 import java.util.ArrayList;
 import java.util.HashMap;
@@ -339,7 +338,6 @@ final class ScriptedAgentDriver
             TurnCall call = started.call();
             events.emit(new ProviderAgentEvent.Lifecycle(
                     Optional.of("started-" + command.turnId()),
-                    Optional.empty(),
                     ProviderAgentEvent.LifecyclePhase.TURN_STARTED,
                     "Scripted agent turn started"));
             action.memoryQuery().ifPresent(query -> {
@@ -353,18 +351,16 @@ final class ScriptedAgentDriver
                 recordGitAction(new GitAction(script.pullRequest(), context.worktree(), action.actionName()));
                 events.emit(new ProviderAgentEvent.Command(
                         Optional.of("command-" + command.turnId()),
-                        Optional.empty(),
-                        "command-" + command.turnId(),
                         action.result().state() == AgentTurnResult.State.COMPLETED
                                 ? ProviderAgentEvent.ActivityState.COMPLETED
                                 : ProviderAgentEvent.ActivityState.FAILED,
                         ImmutableList.of("ci-e2e", action.actionName()),
                         Optional.empty(),
                         Optional.of(action.result().state() == AgentTurnResult.State.COMPLETED ? 0 : 1),
-                        false));
+                        false,
+                        ProviderAgentEventSource.item("command-" + command.turnId())));
                 action.changedPath().ifPresent(path -> events.emit(new ProviderAgentEvent.FileChange(
                         Optional.of("file-" + command.turnId()),
-                        Optional.empty(),
                         path,
                         ProviderAgentEvent.ChangeKind.MODIFIED,
                         Optional.empty())));
@@ -374,16 +370,13 @@ final class ScriptedAgentDriver
                         1,
                         0,
                         1,
-                        Optional.empty(),
-                        Instant.EPOCH)));
+                        Optional.empty())));
             }
             if (action.untrustedFinalResponse().isPresent()) {
                 events.emit(new ProviderAgentEvent.Message(
                         Optional.of("final-" + command.turnId()),
-                        Optional.empty(),
                         ProviderAgentEvent.MessagePhase.FINAL,
-                        action.untrustedFinalResponse().orElseThrow(),
-                        Optional.empty()));
+                        action.untrustedFinalResponse().orElseThrow()));
             }
             if (!action.waitsForCancellation()) {
                 if (context.permissionPolicy() == AgentPermissionPolicy.AUTO && action.result().state() == AgentTurnResult.State.COMPLETED) {
@@ -400,14 +393,13 @@ final class ScriptedAgentDriver
                                     "Read the synchronized committed diff.",
                                     ImmutableList.of("This scripted report does not execute tests.")));
                     events.emit(new ProviderAgentEvent.DevelopmentResult(
-                            Optional.of("report-" + command.turnId()), Optional.empty(),
+                            Optional.of("report-" + command.turnId()),
                             new DevelopmentResultReport(true, Optional.empty(), learningSummary),
                             new ProviderAgentEventSource(Optional.empty(), Optional.empty(), Optional.empty(),
                                     Optional.of("ci-e2e-" + command.turnId()), Optional.of("report-" + command.turnId()))));
                 }
                 events.emit(new ProviderAgentEvent.Lifecycle(
                         Optional.of("finished-" + command.turnId()),
-                        Optional.empty(),
                         lifecycle(action.result().state()),
                         action.result().state().name()));
             }

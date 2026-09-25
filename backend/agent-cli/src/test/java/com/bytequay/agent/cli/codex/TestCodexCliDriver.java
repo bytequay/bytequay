@@ -266,10 +266,10 @@ class TestCodexCliDriver
                 awaitCondition(() -> server.results.containsKey(92L) && server.results.containsKey(93L));
                 assertThat(server.results.get(92L).path("decision").asText()).isEqualTo("decline");
                 assertThat(server.results.get(93L).path("decision").asText()).isEqualTo("decline");
-                assertThat(approvals.stream().filter(value -> value.providerRequestId().equals("92")).toList())
+                assertThat(approvals.stream().filter(value -> value.source().providerItemId().equals(Optional.of("exec-network"))).toList())
                         .hasSize(attempt + 1)
                         .allSatisfy(value -> assertThat(value.kind()).isEqualTo(ProviderApprovalRequest.Kind.COMMAND));
-                assertThat(approvals.stream().filter(value -> value.providerRequestId().equals("93")).toList())
+                assertThat(approvals.stream().filter(value -> value.source().providerItemId().equals(Optional.of("patch-scoped"))).toList())
                         .hasSize(attempt + 1)
                         .allSatisfy(value -> assertThat(value.kind()).isEqualTo(ProviderApprovalRequest.Kind.FILE_CHANGE));
                 server.completeTurn();
@@ -1007,7 +1007,7 @@ class TestCodexCliDriver
         List<ProviderApprovalRequest> approvals = new CopyOnWriteArrayList<>();
         AgentSession session = driver.open(context(Optional.empty(), (request, timeout) -> {
             approvals.add(request);
-            return CompletableFuture.completedFuture(request.providerRequestId().equals("104")
+            return CompletableFuture.completedFuture(request.source().providerItemId().equals(Optional.of("permission-denied"))
                     ? ProviderApprovalDecision.deny()
                     : ProviderApprovalDecision.allow(Optional.empty()));
         }), event -> {});
@@ -1090,8 +1090,8 @@ class TestCodexCliDriver
         assertThat(server.result(100).path("decision").asText()).isEqualTo("accept");
         assertThat(server.result(104).path("permissions")).isEqualTo(objectMapper.createObjectNode());
         assertThat(server.result(104).has("scope")).isFalse();
-        assertThat(approvals.stream().map(ProviderApprovalRequest::providerRequestId).toList())
-                .containsExactlyInAnyOrder("93", "96", "99", "100", "104");
+        assertThat(approvals.stream().map(value -> value.source().providerItemId().orElseThrow()).toList())
+                .containsExactlyInAnyOrder("permission-1", "exec-permission", "exec-network", "patch-scoped", "permission-denied");
         assertThat(approvals.stream().map(ProviderApprovalRequest::detail).toList())
                 .anySatisfy(detail -> assertThat(detail).contains("network", "enabled"))
                 .anySatisfy(detail -> assertThat(detail).contains("Network approval", "example.com"))

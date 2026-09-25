@@ -4332,7 +4332,6 @@ Every envelope has:
 | `source.providerItemId` | Opaque item key for deltas and authoritative completion |
 | `type` | Typed payload family listed below |
 | `occurredAt` | Backend receipt time; used for ByteQuay timing |
-| `source.providerOccurredAt` | Optional source timestamp; never required for ordering |
 | `source.providerEventId` | Optional provider event key; ByteQuay's `eventId` remains authoritative |
 | `payload` | Type-specific normalized data or a typed relative blob reference |
 

@@ -81,7 +81,6 @@ class TestDefaultAgentApprovalService
     void providerApprovalMustOfferDeny()
     {
         assertThatThrownBy(() -> new ProviderApprovalRequest(
-                "provider-request",
                 ProviderApprovalRequest.Kind.COMMAND,
                 "Run command",
                 "git status",
@@ -647,7 +646,6 @@ class TestDefaultAgentApprovalService
                 taskId,
                 turnId,
                 new ProviderApprovalRequest(
-                        "provider-request-" + turnId,
                         ProviderApprovalRequest.Kind.COMMAND,
                         "Run command",
                         "git status",

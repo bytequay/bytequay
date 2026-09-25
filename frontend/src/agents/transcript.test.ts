@@ -63,7 +63,6 @@ function event(
       providerTurnId: 'codex-turn-1',
       providerItemId: options.itemId ?? null,
       providerEventId: options.complete === false ? null : `provider-${sequence}`,
-      providerOccurredAt: null,
     },
     occurredAt: options.at ?? `2026-08-20T10:00:${String(sequence).padStart(2, '0')}Z`,
     type,

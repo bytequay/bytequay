@@ -434,7 +434,7 @@ public final class DefaultAgentApprovalService
                 eventId,
                 request.taskId(),
                 Optional.of(request.turnId()),
-                source(providerRequest, Optional.of(providerRequest.requestedAt())),
+                source(providerRequest),
                 new AgentEventPayload.ApprovalRequested(
                         request.id().toString(),
                         approvalKind(providerRequest.kind()),
@@ -456,7 +456,7 @@ public final class DefaultAgentApprovalService
                 eventId,
                 request.taskId(),
                 Optional.of(request.turnId()),
-                source(request.providerRequest(), Optional.empty()),
+                source(request.providerRequest()),
                 new AgentEventPayload.ApprovalResolved(
                         request.id().toString(),
                         outcome,
@@ -475,9 +475,7 @@ public final class DefaultAgentApprovalService
                 .collect(toImmutableList());
     }
 
-    private static AgentEventSource source(
-            ProviderApprovalRequest request,
-            Optional<Instant> providerOccurredAt)
+    private static AgentEventSource source(ProviderApprovalRequest request)
     {
         ProviderAgentEventSource source = request.source();
         return new AgentEventSource(
@@ -486,8 +484,7 @@ public final class DefaultAgentApprovalService
                 source.logicalAgentPath(),
                 source.providerTurnId(),
                 source.providerItemId(),
-                Optional.empty(),
-                providerOccurredAt);
+                Optional.empty());
     }
 
     private static AgentEventPayload.ApprovalKind approvalKind(ProviderApprovalRequest.Kind kind)

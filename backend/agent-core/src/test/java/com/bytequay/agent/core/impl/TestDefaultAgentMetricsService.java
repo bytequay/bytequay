@@ -231,8 +231,7 @@ class TestDefaultAgentMetricsService
                 inputTokens,
                 cachedInputTokens,
                 outputTokens,
-                Optional.empty(),
-                NOW);
+                Optional.empty());
     }
 
     private static ProviderUsageSample sample(
@@ -249,8 +248,7 @@ class TestDefaultAgentMetricsService
                 inputTokens,
                 cachedInputTokens,
                 outputTokens,
-                Optional.of(new BigDecimal(cost)),
-                NOW);
+                Optional.of(new BigDecimal(cost)));
     }
 
     private static AgentMetrics metrics(long inputTokens, long cachedInputTokens, long outputTokens, String cost)

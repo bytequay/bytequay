@@ -42,6 +42,8 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 
+import static com.bytequay.persistence.sqlite.entity.JsonGuard.REVIEW;
+
 @Entity
 @Table(name = "agent_review_run", indexes = @Index(name = "idx_agent_review_run_review", columnList = "review_id"))
 public class AgentReviewRunEntity
@@ -159,18 +161,18 @@ public class AgentReviewRunEntity
         mergeBaseSha = run.mergeBaseSha();
         headSha = run.headSha();
         priorHeadSha = run.priorHeadSha().orElse(null);
-        commitsJson = AgentReviewJson.encode(run.commits());
-        diffJson = AgentReviewJson.encode(run.diff());
-        turnIdsJson = AgentReviewJson.encode(run.turnIds());
+        commitsJson = REVIEW.write(run.commits(), "review commits");
+        diffJson = REVIEW.write(run.diff(), "review diff");
+        turnIdsJson = REVIEW.write(run.turnIds(), "review turn ids");
         state = run.state();
-        summaryJson = run.summary().map(AgentReviewJson::encode).orElse(null);
-        coverageJson = run.coverage().map(AgentReviewJson::encode).orElse(null);
-        investigationJson = run.investigation().map(AgentReviewJson::encode).orElse(null);
-        stepsJson = AgentReviewJson.encode(run.steps());
+        summaryJson = run.summary().map(value -> REVIEW.write(value, "review summary")).orElse(null);
+        coverageJson = run.coverage().map(value -> REVIEW.write(value, "review coverage")).orElse(null);
+        investigationJson = run.investigation().map(value -> REVIEW.write(value, "review investigation")).orElse(null);
+        stepsJson = REVIEW.write(run.steps(), "review steps");
         completionRepairUsed = run.completionRepairUsed();
-        operationsJson = AgentReviewJson.encode(run.operations());
-        evidenceJson = AgentReviewJson.encode(run.evidence());
-        contextJson = run.context().map(AgentReviewJson::encode).orElse(null);
+        operationsJson = REVIEW.write(run.operations(), "review operations");
+        evidenceJson = REVIEW.write(run.evidence(), "review evidence");
+        contextJson = run.context().map(value -> REVIEW.write(value, "review context")).orElse(null);
         outcome = run.outcome().orElse(null);
         createdAt = run.createdAt();
         updatedAt = run.updatedAt();
@@ -189,18 +191,18 @@ public class AgentReviewRunEntity
                 mergeBaseSha,
                 headSha,
                 Optional.ofNullable(priorHeadSha),
-                AgentReviewJson.decode(commitsJson, COMMITS),
-                AgentReviewJson.decode(diffJson, DIFF),
-                AgentReviewJson.decode(turnIdsJson, STRINGS),
+                REVIEW.read(commitsJson, COMMITS, "review commits"),
+                REVIEW.read(diffJson, DIFF, "review diff"),
+                REVIEW.read(turnIdsJson, STRINGS, "review turn ids"),
                 state,
-                Optional.ofNullable(summaryJson).map(json -> AgentReviewJson.decode(json, ReviewSummary.class)),
-                Optional.ofNullable(coverageJson).map(json -> AgentReviewJson.decode(json, ReviewCoverage.class)),
-                Optional.ofNullable(investigationJson).map(json -> AgentReviewJson.decode(json, ReviewInvestigation.class)),
-                Optional.ofNullable(stepsJson).map(json -> AgentReviewJson.decode(json, STEPS)).orElseGet(ImmutableList::of),
+                Optional.ofNullable(summaryJson).map(json -> REVIEW.read(json, ReviewSummary.class, "review summary")),
+                Optional.ofNullable(coverageJson).map(json -> REVIEW.read(json, ReviewCoverage.class, "review coverage")),
+                Optional.ofNullable(investigationJson).map(json -> REVIEW.read(json, ReviewInvestigation.class, "review investigation")),
+                Optional.ofNullable(stepsJson).map(json -> REVIEW.read(json, STEPS, "review steps")).orElseGet(ImmutableList::of),
                 completionRepairUsed,
-                AgentReviewJson.decode(operationsJson, OPERATIONS),
-                AgentReviewJson.decode(evidenceJson, EVIDENCE),
-                Optional.ofNullable(contextJson).map(json -> AgentReviewJson.decode(json, ReviewContextSnapshot.class)),
+                REVIEW.read(operationsJson, OPERATIONS, "review operations"),
+                REVIEW.read(evidenceJson, EVIDENCE, "review evidence"),
+                Optional.ofNullable(contextJson).map(json -> REVIEW.read(json, ReviewContextSnapshot.class, "review context")),
                 Optional.ofNullable(outcome),
                 version,
                 createdAt,

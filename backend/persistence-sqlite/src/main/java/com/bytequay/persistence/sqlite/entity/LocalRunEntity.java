@@ -33,6 +33,8 @@ import java.util.Optional;
 import java.util.OptionalInt;
 import java.util.OptionalLong;
 
+import static com.bytequay.persistence.sqlite.entity.JsonGuard.REVIEW;
+
 @Entity
 @Table(name = "local_run", indexes = @Index(name = "idx_local_run_task", columnList = "task_id, ordinal"))
 public class LocalRunEntity
@@ -155,7 +157,7 @@ public class LocalRunEntity
         module = run.module().orElse(null);
         command = run.command();
         sourceHeadSha = run.sourceHeadSha().orElse(null);
-        localPathsJson = AgentReviewJson.encode(run.localPaths());
+        localPathsJson = REVIEW.write(run.localPaths(), "local run paths");
         sourceFingerprint = run.sourceFingerprint().orElse(null);
         status = run.status();
         startedAt = run.startedAt();
@@ -167,7 +169,7 @@ public class LocalRunEntity
         skipped = run.counts().map(LocalRun.Counts::skipped).orElse(null);
         outputTruncated = run.outputTruncated();
         omittedBytes = run.omittedBytes().isPresent() ? run.omittedBytes().getAsLong() : null;
-        resultsJson = AgentReviewJson.encode(run.results());
+        resultsJson = REVIEW.write(run.results(), "local run results");
         agentEventId = run.agentEventId().orElse(null);
         launchId = run.launchId().orElse(null);
         treeUnverified = run.treeUnverified();
@@ -188,7 +190,7 @@ public class LocalRunEntity
                 Optional.ofNullable(module),
                 command,
                 Optional.ofNullable(sourceHeadSha),
-                AgentReviewJson.decode(localPathsJson, STRINGS),
+                REVIEW.read(localPathsJson, STRINGS, "local run paths"),
                 Optional.ofNullable(sourceFingerprint),
                 status,
                 startedAt,
@@ -197,7 +199,7 @@ public class LocalRunEntity
                 tests == null ? Optional.empty() : Optional.of(new LocalRun.Counts(tests, failures, errors, skipped)),
                 outputTruncated,
                 omittedBytes == null ? OptionalLong.empty() : OptionalLong.of(omittedBytes),
-                AgentReviewJson.decode(resultsJson, RESULTS),
+                REVIEW.read(resultsJson, RESULTS, "local run results"),
                 Optional.ofNullable(agentEventId),
                 Optional.ofNullable(launchId),
                 treeUnverified,

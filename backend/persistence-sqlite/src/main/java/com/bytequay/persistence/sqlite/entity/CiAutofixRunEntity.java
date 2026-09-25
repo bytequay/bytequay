@@ -27,10 +27,13 @@ import com.bytequay.core.ci.CiAutofixRun.RerunCounter;
 import com.bytequay.core.ci.CiAutofixRun.RerunJournal;
 import com.bytequay.core.ci.CiAutofixRun.Scope;
 import com.bytequay.core.ci.CiAutofixRun.Status;
+import com.bytequay.core.ci.CiAutofixRun.Warning;
 import com.bytequay.core.ci.CiAutofixRunId;
 import com.bytequay.core.domain.PullRequestRef;
 import com.bytequay.core.domain.RepoRef;
 import com.bytequay.persistence.sqlite.converter.InstantToTextConverter;
+import com.fasterxml.jackson.core.type.TypeReference;
+import com.google.common.collect.ImmutableList;
 import jakarta.persistence.Column;
 import jakarta.persistence.Convert;
 import jakarta.persistence.Entity;
@@ -46,6 +49,7 @@ import java.time.Instant;
 import java.util.List;
 import java.util.Optional;
 
+import static com.bytequay.persistence.sqlite.entity.JsonGuard.CI_AUTOFIX;
 import static com.google.common.base.Preconditions.checkArgument;
 
 @Entity
@@ -53,6 +57,8 @@ import static com.google.common.base.Preconditions.checkArgument;
 public class CiAutofixRunEntity
         extends AssignedIdEntity<String>
 {
+    private static final TypeReference<List<Warning>> WARNINGS = new TypeReference<>() {};
+
     @Id
     @Getter(onMethod_ = @Override)
     private String id;
@@ -279,7 +285,7 @@ public class CiAutofixRunEntity
         currentRebaseId = run.currentRebaseId().orElse(null);
         updatePushJournal(run.pushJournal());
         updateRerunJournal(run.rerunJournal());
-        warningsJson = CiAutofixJson.encodeWarnings(run.warnings());
+        warningsJson = CI_AUTOFIX.write(run.warnings(), "CI Autofix warnings");
         createdAt = run.createdAt();
         updatedAt = run.updatedAt();
         terminalAt = run.terminalAt().orElse(null);
@@ -324,7 +330,7 @@ public class CiAutofixRunEntity
                 Optional.ofNullable(currentRebaseId),
                 pushJournal(),
                 rerunJournal(),
-                CiAutofixJson.decodeWarnings(warningsJson),
+                warningsJson == null || warningsJson.isBlank() ? ImmutableList.of() : CI_AUTOFIX.read(warningsJson, WARNINGS, "CI Autofix warnings"),
                 attempts,
                 version,
                 createdAt,

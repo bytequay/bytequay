@@ -13,6 +13,7 @@
  */
 package com.bytequay.persistence.sqlite.entity;
 
+import com.bytequay.agent.core.AgentAttachmentReference;
 import com.bytequay.agent.core.AgentMetrics;
 import com.bytequay.agent.core.AgentStorageException;
 import com.bytequay.agent.core.AgentTurn;
@@ -26,10 +27,12 @@ import com.bytequay.agent.core.TurnState;
 import com.bytequay.agent.spi.AgentPermissionPolicy;
 import com.bytequay.agent.spi.AgentTurnFailureKind;
 import com.bytequay.agent.spi.DevelopmentResultReport;
+import com.bytequay.agent.spi.ProviderAgentEvent.PlanItem;
 import com.bytequay.agent.spi.ProviderTurnRef;
 import com.bytequay.persistence.sqlite.converter.DevelopmentAutomationConverter;
 import com.bytequay.persistence.sqlite.converter.DevelopmentResultReportConverter;
 import com.bytequay.persistence.sqlite.converter.InstantToTextConverter;
+import com.fasterxml.jackson.core.type.TypeReference;
 import jakarta.persistence.Column;
 import jakarta.persistence.Convert;
 import jakarta.persistence.Entity;
@@ -47,13 +50,19 @@ import lombok.Getter;
 import java.math.BigDecimal;
 import java.time.Duration;
 import java.time.Instant;
+import java.util.List;
 import java.util.Optional;
+
+import static com.bytequay.persistence.sqlite.entity.JsonGuard.AGENT;
 
 @Entity
 @Table(name = "agent_turn")
 public class AgentTurnEntity
         extends AssignedIdEntity<String>
 {
+    private static final TypeReference<List<AgentAttachmentReference>> ATTACHMENTS = new TypeReference<>() {};
+    private static final TypeReference<List<PlanItem>> PLAN = new TypeReference<>() {};
+
     @Id
     @Getter(onMethod_ = @Override)
     private String id;
@@ -211,11 +220,11 @@ public class AgentTurnEntity
         maximumRuntimeMillis = turn.settings().map(settings -> settings.maximumRuntime().toMillis()).orElse(null);
         attachmentsJson = turn.settings()
                 .map(AgentTurnSettings::attachments)
-                .map(AgentAttachmentReferenceJson::encode)
+                .map(attachments -> AGENT.write(attachments, "turn attachment references"))
                 .orElse(null);
         terminalReason = turn.terminalReason().orElse(null);
         developmentResult = turn.developmentResult().orElse(null);
-        planJson = turn.plan().map(AgentPlanJson::encode).orElse(null);
+        planJson = turn.plan().map(plan -> AGENT.write(plan, "turn plan")).orElse(null);
         Optional<DevelopmentTurnOrigin> deliveryOrigin = turn.developmentOrigin().filter(origin -> origin.kind() != DevelopmentTurnOrigin.Kind.REFINE_SUMMARY);
         developmentOriginKind = deliveryOrigin.map(DevelopmentTurnOrigin::kind).orElse(null);
         parentUserTurnId = deliveryOrigin.map(DevelopmentTurnOrigin::parentUserTurnId).map(TurnId::toString).orElse(null);
@@ -242,7 +251,7 @@ public class AgentTurnEntity
                         Optional.ofNullable(effort),
                         permissionPolicy,
                         Duration.ofMillis(runtime),
-                        AgentAttachmentReferenceJson.decode(attachmentsJson),
+                        AGENT.read(attachmentsJson, ATTACHMENTS, "turn attachment references"),
                         Optional.ofNullable(serviceTier),
                         Optional.ofNullable(developmentAutomation),
                         !Boolean.FALSE.equals(useRepositoryContext)));
@@ -271,7 +280,7 @@ public class AgentTurnEntity
                         counters()),
                 Optional.ofNullable(developmentResult),
                 developmentOrigin(),
-                Optional.ofNullable(planJson).map(AgentPlanJson::decode));
+                Optional.ofNullable(planJson).map(json -> AGENT.read(json, PLAN, "turn plan")));
     }
 
     private Optional<DevelopmentTurnOrigin> developmentOrigin()

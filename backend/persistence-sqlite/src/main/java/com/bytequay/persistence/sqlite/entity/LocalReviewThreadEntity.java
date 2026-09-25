@@ -14,8 +14,6 @@
 package com.bytequay.persistence.sqlite.entity;
 
 import com.bytequay.core.localreview.LocalReviewThread;
-import com.bytequay.persistence.sqlite.converter.JsonColumns;
-import com.fasterxml.jackson.databind.ObjectMapper;
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
 import jakarta.persistence.Id;
@@ -33,8 +31,6 @@ import static com.bytequay.persistence.sqlite.entity.JsonGuard.AGENT;
 public class LocalReviewThreadEntity
         extends AssignedIdEntity<String>
 {
-    private static final ObjectMapper MAPPER = JsonColumns.mapper();
-
     @Id
     @Getter(onMethod_ = @Override)
     private String id;
@@ -71,11 +67,11 @@ public class LocalReviewThreadEntity
         taskId = thread.taskId();
         repo = thread.repo();
         number = thread.number();
-        payload = AGENT.guard("Cannot serialize local review", () -> MAPPER.writeValueAsString(thread));
+        payload = AGENT.write(thread, "local review");
     }
 
     public LocalReviewThread toDomain()
     {
-        return AGENT.guard("Cannot read local review", () -> MAPPER.readValue(payload, LocalReviewThread.class)).withVersion(version);
+        return AGENT.read(payload, LocalReviewThread.class, "local review").withVersion(version);
     }
 }

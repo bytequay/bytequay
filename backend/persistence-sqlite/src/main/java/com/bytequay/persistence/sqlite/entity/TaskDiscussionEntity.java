@@ -14,8 +14,6 @@
 package com.bytequay.persistence.sqlite.entity;
 
 import com.bytequay.core.discussion.TaskDiscussion;
-import com.bytequay.persistence.sqlite.converter.JsonColumns;
-import com.fasterxml.jackson.databind.ObjectMapper;
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
 import jakarta.persistence.Id;
@@ -42,8 +40,6 @@ import static com.bytequay.persistence.sqlite.entity.JsonGuard.AGENT;
 public class TaskDiscussionEntity
         extends AssignedIdEntity<String>
 {
-    private static final ObjectMapper MAPPER = JsonColumns.mapper();
-
     @Id
     @Getter(onMethod_ = @Override)
     private String id;
@@ -85,11 +81,11 @@ public class TaskDiscussionEntity
         turnId = discussion.anchor().turnId();
         quoteHash = discussion.anchor().quoteHash();
         createdAt = discussion.createdAt();
-        payload = AGENT.guard("Cannot serialize discussion", () -> MAPPER.writeValueAsString(discussion));
+        payload = AGENT.write(discussion, "discussion");
     }
 
     public TaskDiscussion toDomain()
     {
-        return AGENT.guard("Cannot read discussion", () -> MAPPER.readValue(payload, TaskDiscussion.class)).withVersion(version);
+        return AGENT.read(payload, TaskDiscussion.class, "discussion").withVersion(version);
     }
 }

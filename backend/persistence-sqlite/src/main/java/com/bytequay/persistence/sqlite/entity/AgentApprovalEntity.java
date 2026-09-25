@@ -29,6 +29,8 @@ import jakarta.persistence.Table;
 import java.time.Instant;
 import java.util.Optional;
 
+import static com.bytequay.persistence.sqlite.entity.JsonGuard.AGENT;
+
 @Entity
 @Table(name = "agent_approval")
 public class AgentApprovalEntity
@@ -74,7 +76,7 @@ public class AgentApprovalEntity
         entity.id = request.id().toString();
         entity.taskId = request.taskId().toString();
         entity.turnId = request.turnId().toString();
-        entity.requestJson = AgentApprovalJson.encode(request);
+        entity.requestJson = AGENT.write(request, "approval request");
         entity.requestedAt = request.requestedAt();
         approval.decision().ifPresent(value -> {
             entity.decision = value.decision();
@@ -89,7 +91,7 @@ public class AgentApprovalEntity
 
     public AgentApproval toDomain()
     {
-        ApprovalRequest request = AgentApprovalJson.decode(requestJson);
+        ApprovalRequest request = AGENT.read(requestJson, ApprovalRequest.class, "approval request");
         Optional<ApprovalDecision> approvalDecision = Optional.ofNullable(decision)
                 .map(value -> new ApprovalDecision(
                         request.id(),

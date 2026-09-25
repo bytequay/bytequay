@@ -20,17 +20,12 @@ import com.bytequay.core.context.ContextUsageEvent;
 import com.bytequay.core.context.ReviewContextSnapshot;
 import com.bytequay.core.domain.PullRequest;
 import com.bytequay.core.review.AgentReview;
-import com.bytequay.core.review.ReviewCommit;
-import com.bytequay.core.review.ReviewCoverage;
 import com.bytequay.core.review.ReviewDraft;
 import com.bytequay.core.review.ReviewEvidence;
 import com.bytequay.core.review.ReviewFinding;
-import com.bytequay.core.review.ReviewInvestigation;
 import com.bytequay.core.review.ReviewMessage;
 import com.bytequay.core.review.ReviewOperation;
 import com.bytequay.core.review.ReviewRun;
-import com.bytequay.core.review.ReviewStep;
-import com.bytequay.core.review.ReviewSummary;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -97,37 +92,17 @@ public record AgentReviewProjection(
         }
     }
 
+    /** A stored run with the context views read from its receipts and its task's turns. */
     public record RunView(
-            String id,
-            int ordinal,
-            ReviewRun.Scope scope,
-            String baseRef,
-            String baseSha,
-            String mergeBaseSha,
-            String headSha,
-            Optional<String> priorHeadSha,
-            List<ReviewCommit> commits,
-            int changedFiles,
-            List<String> turnIds,
-            ReviewRun.State state,
-            Optional<ReviewSummary> summary,
-            Optional<ReviewCoverage> coverage,
-            Optional<ReviewInvestigation> investigation,
-            List<ReviewStep> steps,
-            List<ReviewEvidence> evidence,
-            Optional<ReviewContextSnapshot> context,
+            ReviewRun run,
             Map<String, ContextDeliveryState> contextDeliveryStates,
             List<ContextPreparationActivity> contextPreparationActivities,
             List<ContextNoteRead> contextNoteReads,
-            List<ContextNoteSearch> contextNoteSearches,
-            boolean completionRepairUsed,
-            Optional<String> outcome,
-            Instant createdAt,
-            Instant updatedAt,
-            Optional<Instant> endedAt)
+            List<ContextNoteSearch> contextNoteSearches)
     {
         public RunView
         {
+            requireNonNull(run, "run is null");
             contextDeliveryStates = ImmutableMap.copyOf(contextDeliveryStates);
             contextPreparationActivities = ImmutableList.copyOf(contextPreparationActivities);
             contextNoteReads = ImmutableList.copyOf(contextNoteReads);
@@ -136,34 +111,7 @@ public record AgentReviewProjection(
 
         public static RunView of(ReviewRun run, Map<String, ContextDeliveryState> deliveryStates, List<ContextUsageEvent> usage, boolean usageTruncated)
         {
-            return new RunView(
-                    run.id(),
-                    run.ordinal(),
-                    run.scope(),
-                    run.baseRef(),
-                    run.baseSha(),
-                    run.mergeBaseSha(),
-                    run.headSha(),
-                    run.priorHeadSha(),
-                    run.commits(),
-                    run.diff().size(),
-                    run.turnIds(),
-                    run.state(),
-                    run.summary(),
-                    run.coverage(),
-                    run.investigation(),
-                    run.steps(),
-                    ImmutableList.copyOf(run.evidence().values()),
-                    run.context(),
-                    deliveryStates,
-                    preparationActivities(run.id(), run.operations()),
-                    noteReads(run),
-                    noteSearches(run, usage, usageTruncated),
-                    run.completionRepairUsed(),
-                    run.outcome(),
-                    run.createdAt(),
-                    run.updatedAt(),
-                    run.endedAt());
+            return new RunView(run, deliveryStates, preparationActivities(run.id(), run.operations()), noteReads(run), noteSearches(run, usage, usageTruncated));
         }
     }
 

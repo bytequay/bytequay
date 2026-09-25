@@ -200,7 +200,7 @@ class TestDefaultAgentReviewService
 
         AgentReviewProjection projection = fixture.service.start(WORKSPACE, REPO, NUMBER);
 
-        ReviewContextSnapshot captured = projection.runs().getFirst().context().orElseThrow();
+        ReviewContextSnapshot captured = projection.runs().getFirst().run().context().orElseThrow();
         assertThat(captured.bootstrap()).isEqualTo(snapshot.bootstrap());
         assertThat(captured.deliveries()).hasSize(1);
         assertThat(projection.runs().getFirst().contextDeliveryStates().get(TURN_ONE.toString()).outcome())
@@ -250,8 +250,8 @@ class TestDefaultAgentReviewService
         assertThat(projection.review().observedHeadSha()).contains(HEAD);
         assertThat(projection.review().state()).isEqualTo(AgentReview.State.OPEN);
         assertThat(projection.runs()).hasSize(1);
-        assertThat(projection.runs().getFirst().state()).isEqualTo(ReviewRun.State.RUNNING);
-        assertThat(projection.runs().getFirst().scope()).isEqualTo(ReviewRun.Scope.FULL);
+        assertThat(projection.runs().getFirst().run().state()).isEqualTo(ReviewRun.State.RUNNING);
+        assertThat(projection.runs().getFirst().run().scope()).isEqualTo(ReviewRun.Scope.FULL);
         assertThat(projection.byteQuayTurnIds()).containsExactly(TURN_ONE.toString());
 
         ArgumentCaptor<CreateAgentTaskCommand> created = ArgumentCaptor.forClass(CreateAgentTaskCommand.class);
@@ -291,14 +291,14 @@ class TestDefaultAgentReviewService
     void projectionKeepsValidationEvidenceOutsideTheInitialContextSelection()
     {
         Fixture fixture = new Fixture();
-        ReviewRun run = fixture.store.findRun(fixture.service.start(WORKSPACE, REPO, NUMBER).runs().getFirst().id()).orElseThrow();
+        ReviewRun run = fixture.store.findRun(fixture.service.start(WORKSPACE, REPO, NUMBER).runs().getFirst().run().id()).orElseThrow();
         ReviewEvidence context = new ReviewEvidence("E1", "src/App.java", "frozen head", "parse(input)", "");
         ReviewEvidence validation = new ReviewEvidence("E2", "command output: regression test", "validation turn", "HEAD passed; old condition failed", "");
         ReviewInvestigation investigation = new ReviewInvestigation("Parser behavior", ImmutableList.of("src/App.java"),
                 ImmutableList.of("E1"), ImmutableList.of(), ImmutableList.of(), ImmutableList.of());
         fixture.store.updateRun(run.withInvestigation(investigation, NOW).withEvidence("E1", context, NOW).withEvidence("E2", validation, NOW));
 
-        assertThat(fixture.service.get(run.reviewId()).runs().getFirst().evidence()).containsExactly(context, validation);
+        assertThat(fixture.service.get(run.reviewId()).runs().getFirst().run().evidence().values()).containsExactly(context, validation);
     }
 
     @Test
@@ -558,7 +558,7 @@ class TestDefaultAgentReviewService
                 var localComment = executor.submit(() -> fixture.service.sendMessage(reviewId, 0, "Explain this line", "local-comment", false));
                 assertThatThrownBy(() -> localComment.get(100, TimeUnit.MILLISECONDS)).isInstanceOf(TimeoutException.class);
                 continueStartup.countDown();
-                assertThat(started.get(5, TimeUnit.SECONDS).runs().getLast().state()).isEqualTo(ReviewRun.State.RUNNING);
+                assertThat(started.get(5, TimeUnit.SECONDS).runs().getLast().run().state()).isEqualTo(ReviewRun.State.RUNNING);
                 reconciled.get(5, TimeUnit.SECONDS);
                 localComment.get(5, TimeUnit.SECONDS);
                 ArgumentCaptor<StartAgentTurnCommand> startedTurns = ArgumentCaptor.forClass(StartAgentTurnCommand.class);

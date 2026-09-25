@@ -42,12 +42,14 @@ import com.bytequay.agent.spi.DevelopmentResultBridge;
 import com.bytequay.agent.spi.DevelopmentResultBridgeResolver;
 import com.bytequay.agent.spi.DraftPullRequestPublisher;
 import com.bytequay.agent.spi.IssueContextBridge;
+import com.bytequay.agent.spi.IssueContextBridgeResolver;
 import com.bytequay.agent.spi.LocalReviewBridge;
 import com.bytequay.agent.spi.LocalReviewBridgeResolver;
 import com.bytequay.agent.spi.ProviderAgentEvent;
 import com.bytequay.agent.spi.ProviderApprovalDecision;
 import com.bytequay.agent.spi.PullRequestCiBridge;
 import com.bytequay.agent.spi.PullRequestCiBridgeResolver;
+import com.bytequay.agent.spi.RepositoryContextBridge;
 import com.bytequay.agent.spi.ReviewBridge;
 import com.bytequay.agent.spi.ReviewBridgeResolver;
 import com.bytequay.agent.spi.ReviewTool;
@@ -319,6 +321,34 @@ class TestClaudeCliDriver
         assertThat(plainSpec.argv()).containsSequence("--append-system-prompt", AgentCommandPolicy.instructions() + "\n\n" + ClaudeCliDriver.PLAN_INSTRUCTION);
         assertThat(plainSpec.argv()).noneMatch(argument -> argument.contains("codegraph_explore"));
         unbridged.close();
+    }
+
+    @Test
+    void transportsLargeReviewReferenceInputOnInitialAndResumedTurns()
+            throws Exception
+    {
+        ScriptedProcessSupervisor supervisor = new ScriptedProcessSupervisor();
+        ClaudeCliDriver driver = driver(supervisor);
+        String instructions = "p".repeat(100_000);
+        String reference = "reference-body-marker\n" + "知".repeat(10_000);
+        String input = "Review this change.\n<repository-context>\n" + reference + "\n</repository-context>\n";
+        input += "x".repeat(256 * 1024 - input.getBytes(StandardCharsets.UTF_8).length);
+        assertThat(input.getBytes(StandardCharsets.UTF_8)).hasSize(256 * 1024);
+        Optional<AgentSessionRef> sessionReference = Optional.empty();
+        for (int index = 0; index < 2; index++) {
+            try (AgentSession session = driver.open(context(sessionReference, instructions), event -> {})) {
+                assertThat(await(session.start(new AgentTurnCommand("context-turn-" + index, input, ImmutableList.of(), Duration.ofMinutes(1)))).state())
+                        .isEqualTo(AgentTurnResult.State.COMPLETED);
+                ScriptedTurn turn = supervisor.turns().getLast();
+                assertThat(turn.prompt()).isEqualTo(input + "\n");
+                assertThat(turn.spec().argv().get(turn.spec().argv().indexOf("--append-system-prompt") + 1))
+                        .contains(AgentCommandPolicy.instructions(), instructions);
+                assertThat(turn.spec().argv()).noneMatch(argument -> argument.contains("reference-body-marker"));
+                assertThat(turn.spec().argv().contains("--resume")).isEqualTo(index == 1);
+                sessionReference = Optional.of(session.reference());
+            }
+        }
+        driver.close();
     }
 
     @Test
@@ -786,7 +816,7 @@ class TestClaudeCliDriver
         AgentProviderStatus status = loggedOutDriver.probe();
 
         assertThat(status.readiness()).isEqualTo(AgentProviderStatus.Readiness.AUTHENTICATION_REQUIRED);
-        assertThat(status.signInCommand()).contains("CLAUDE_CONFIG_DIR=\"" + claudeHome().toAbsolutePath() + "\" /fake/claude auth login");
+        assertThat(status.signInCommand()).contains("CLAUDE_CONFIG_DIR='" + claudeHome().toAbsolutePath() + "' /fake/claude auth login");
         assertThat(status.diagnostic()).doesNotContain("/secret/path", "authMethod");
         loggedOutDriver.close();
 
@@ -838,6 +868,32 @@ class TestClaudeCliDriver
         assertThat(truncatedDriver.probe().readiness())
                 .isEqualTo(AgentProviderStatus.Readiness.TEMPORARILY_UNAVAILABLE);
         truncatedDriver.close();
+    }
+
+    @Test
+    void usesTheConfiguredClaudeProfileForReadinessTurnsAndSignIn()
+            throws Exception
+    {
+        Path profile = worktree.resolve("ByteQuay's Claude home");
+        String executable = worktree.resolve("Claude CLI's bin/claude").toString();
+        ScriptedProcessSupervisor supervisor = new ScriptedProcessSupervisor();
+        supervisor.authentication("{\"loggedIn\":false}", "", 1);
+        PermissionBroker broker = new PermissionBroker(
+                () -> URI.create("http://127.0.0.1:9000/internal/agent/claude/mcp"), objectMapper, (taskId, query) -> "memory");
+        try (ClaudeCliDriver driver = new ClaudeCliDriver(executable, objectMapper, broker, supervisor, profile,
+                ImmutableMap.of("HOME", worktree.resolve("ambient-home").toString(), "CLAUDE_CONFIG_DIR", worktree.resolve("ambient-config").toString()))) {
+            AgentProviderStatus status = driver.probe();
+            assertThat(status.readiness()).isEqualTo(AgentProviderStatus.Readiness.AUTHENTICATION_REQUIRED);
+            assertThat(status.signInCommand().orElseThrow()).isEqualTo("CLAUDE_CONFIG_DIR='" + profile.toString().replace("'", "'\"'\"'")
+                    + "' '" + executable.replace("'", "'\"'\"'") + "' auth login");
+            assertThat(supervisor.specs()).isNotEmpty().allSatisfy(spec ->
+                    assertThat(spec.environment()).containsEntry("CLAUDE_CONFIG_DIR", profile.toString()));
+
+            try (AgentSession session = driver.open(context(Optional.empty()), event -> {})) {
+                assertThat(await(session.start(command("profile-check"))).state()).isEqualTo(AgentTurnResult.State.COMPLETED);
+            }
+            assertThat(supervisor.turns().getFirst().spec().environment()).containsEntry("CLAUDE_CONFIG_DIR", profile.toString());
+        }
     }
 
     @Test
@@ -1007,6 +1063,32 @@ class TestClaudeCliDriver
                 assertThat(argv).doesNotContain("--disable-slash-commands", "--tools");
                 assertThat(argv.get(argv.indexOf("--allowedTools") + 1)).contains("mcp__bytequay__" + PullRequestCiBridge.TOOL_NAME);
                 assertThat(argv.get(argv.indexOf("--append-system-prompt") + 1)).contains(PullRequestCiBridge.INSTRUCTION);
+            }
+        }
+    }
+
+    @Test
+    void repositoryContextLookupIsAllowedOnOpenAndResume()
+            throws Exception
+    {
+        ScriptedProcessSupervisor supervisor = new ScriptedProcessSupervisor();
+        RepositoryContextBridge notebook = new RepositoryContextBridge(query -> "{}", "Search saved workspace notes when relevant");
+        PermissionBroker broker = new PermissionBroker(
+                () -> URI.create("http://127.0.0.1:9000/internal/agent/claude/mcp"), objectMapper, (taskId, query) -> "memory",
+                ReviewBridgeResolver.NONE, DevelopmentResultBridgeResolver.NONE, DraftPullRequestPublisher.NONE,
+                LocalReviewBridgeResolver.NONE, PullRequestCiBridgeResolver.NONE, IssueContextBridgeResolver.NONE,
+                taskId -> Optional.of(notebook));
+        try (ClaudeCliDriver driver = new ClaudeCliDriver(
+                "/fake/claude", objectMapper, broker, supervisor, claudeHome(), ImmutableMap.of())) {
+            Optional<AgentSessionRef> reference = Optional.empty();
+            for (int index = 0; index < 2; index++) {
+                try (AgentSession session = driver.open(context(reference), event -> {})) {
+                    assertThat(await(session.start(command("notes-" + index))).state()).isEqualTo(AgentTurnResult.State.COMPLETED);
+                    reference = Optional.of(session.reference());
+                    List<String> argv = supervisor.turns().getLast().spec().argv();
+                    assertThat(argv.get(argv.indexOf("--allowedTools") + 1)).contains("mcp__bytequay__" + RepositoryContextBridge.TOOL_NAME);
+                    assertThat(argv.get(argv.indexOf("--append-system-prompt") + 1)).contains(notebook.instruction());
+                }
             }
         }
     }
@@ -1623,6 +1705,11 @@ class TestClaudeCliDriver
         {
             specs.add(spec);
             return new ScriptedLaunch(spec);
+        }
+
+        private List<ProcessSpec> specs()
+        {
+            return specs;
         }
 
         @Override

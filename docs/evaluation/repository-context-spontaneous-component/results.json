@@ -1,0 +1,166 @@
+{
+  "schemaVersion": 1,
+  "backendJarSha256": "7addad7aa102ec8937809e353af8bb037a34489f63f5c5231e657c30d6553dd7",
+  "provider": {
+    "lane": "codex",
+    "model": "gpt-6-sol",
+    "effort": "high"
+  },
+  "learnedNote": {
+    "id": "knowledge:window",
+    "version": 2,
+    "kind": "KNOWLEDGE",
+    "scopeId": "window",
+    "origin": "GENERATED",
+    "recordedDecisionClaim": true
+  },
+  "fixture": {
+    "repository": "contextfixture/history-case",
+    "baselineSha": "35089cdc274efee74d89682271c3b15f6ba12bdb",
+    "developmentHeadSha": "aedc3d9eb56df040e9d7d9385aa91538c73c4284",
+    "promptIdentical": true,
+    "noPromptHint": true,
+    "cachedPr7RemoteFetches": 0
+  },
+  "arms": {
+    "off": {
+      "taskId": "2c715d66-14b9-48da-9991-815edb693f78",
+      "userTurnId": "b29b692e-c0ed-49c3-ac41-59a787118ade",
+      "refineTurnId": "731263c2-e405-4b2d-b52a-673528e657ed",
+      "contextEnabled": false,
+      "startSha": "aedc3d9eb56df040e9d7d9385aa91538c73c4284",
+      "endSha": "eaca33c2f00a6309680bbbac274c72f52d2c01f8",
+      "taskState": "OPEN",
+      "turnsCompleted": 2,
+      "answer": "Restored inclusive end bounds for neighboring dashboard panels, matching the pre-cleanup dashboard change. Added a shared-boundary regression test that failed before the fix and passed afterward. Ran python3 -B sensors/test_window.py (2 tests passed) and git diff --check. Committed as eaca33c.",
+      "context": {
+        "cards": [],
+        "dynamicSearches": 0,
+        "exactNoteReads": 0,
+        "usageSummary": {
+          "eligibleDevelopmentTasks": 1,
+          "eligibleReviewRuns": 0,
+          "contextOffTasks": 1,
+          "tasksProvidedOrOpened": 0,
+          "activeNotesWithoutConfirmedDeliveryOrOpen": 1,
+          "scopesDemandedWhileMissing": 0,
+          "scopesStillMissingAfterDemand": 0,
+          "searchesWithNoMatchingScope": 0,
+          "searchesWithScopeButNoNote": 0
+        },
+        "noteUsage": {
+          "selectedTasks": 0,
+          "providedTasks": 0,
+          "searchHits": 0,
+          "foundTasks": 0,
+          "openedTasks": 0,
+          "citedReviews": 0
+        }
+      },
+      "code": {
+        "changedPaths": [
+          "sensors/test_window.py",
+          "sensors/window.py"
+        ],
+        "diff": "diff --git a/sensors/test_window.py b/sensors/test_window.py\nindex 6e07ed8..5861167 100644\n--- a/sensors/test_window.py\n+++ b/sensors/test_window.py\n@@ -8,6 +8,10 @@ class WindowTest(unittest.TestCase):\n         self.assertTrue(contains(10, 20, 15))\n         self.assertFalse(contains(10, 20, 21))\n \n+    def test_shared_boundary_is_in_both_neighboring_panels(self):\n+        self.assertTrue(contains(10, 20, 20))\n+        self.assertTrue(contains(20, 30, 20))\n+\n \n if __name__ == \"__main__\":\n     unittest.main()\ndiff --git a/sensors/window.py b/sensors/window.py\nindex cf918d6..214b15e 100644\n--- a/sensors/window.py\n+++ b/sensors/window.py\n@@ -1,2 +1,2 @@\n def contains(start, end, sample):\n-    return start <= sample < end\n+    return start <= sample <= end\n",
+        "cleanWorktree": true
+      },
+      "verification": {
+        "focusedCommand": "python3 -B sensors/test_window.py",
+        "passingTests": 2,
+        "newTestFailsAgainstOriginalHead": true
+      },
+      "providerMetrics": {
+        "inputTokens": 558246,
+        "cachedInputTokens": 531072,
+        "outputTokens": 4234,
+        "cost": null,
+        "elapsed": "PT1M34.107S",
+        "counters": {
+          "toolCalls": 18,
+          "exploreActions": 4,
+          "codegraphCalls": 0,
+          "codegraphMillis": 0,
+          "codegraphFailures": 0
+        }
+      }
+    },
+    "on": {
+      "taskId": "13a00096-198b-435a-b2cd-934610361da8",
+      "userTurnId": "11168c3f-864b-4a72-86cc-a1ad51872881",
+      "refineTurnId": "e97d5cd0-596a-4c82-8adc-9237ac4500a5",
+      "contextEnabled": true,
+      "startSha": "aedc3d9eb56df040e9d7d9385aa91538c73c4284",
+      "endSha": "194f139ae79522b53e71fbdef68ba0571b391bbe",
+      "taskState": "OPEN",
+      "turnsCompleted": 2,
+      "answer": "Restored inclusive end boundaries in sensors/window.py based on commit 35089cd, added a shared-boundary regression test, confirmed it failed before the fix and both tests pass after. Committed as 194f139. No open decisions.",
+      "context": {
+        "cards": [
+          {
+            "kind": "OFFER",
+            "delivery": "CONFIRMED",
+            "bytes": 0,
+            "entries": [],
+            "scopeStates": [
+              {
+                "scopeId": "project",
+                "preparation": "NOT_PREPARED",
+                "missingKnowledge": true
+              }
+            ]
+          }
+        ],
+        "dynamicSearches": 0,
+        "exactNoteReads": 0,
+        "usageSummary": {
+          "eligibleDevelopmentTasks": 1,
+          "eligibleReviewRuns": 0,
+          "contextOffTasks": 0,
+          "tasksProvidedOrOpened": 0,
+          "activeNotesWithoutConfirmedDeliveryOrOpen": 1,
+          "scopesDemandedWhileMissing": 1,
+          "scopesStillMissingAfterDemand": 1,
+          "searchesWithNoMatchingScope": 0,
+          "searchesWithScopeButNoNote": 0
+        },
+        "noteUsage": {
+          "selectedTasks": 0,
+          "providedTasks": 0,
+          "searchHits": 0,
+          "foundTasks": 0,
+          "openedTasks": 0,
+          "citedReviews": 0
+        }
+      },
+      "code": {
+        "changedPaths": [
+          "sensors/test_window.py",
+          "sensors/window.py"
+        ],
+        "diff": "diff --git a/sensors/test_window.py b/sensors/test_window.py\nindex 6e07ed8..aa7c800 100644\n--- a/sensors/test_window.py\n+++ b/sensors/test_window.py\n@@ -8,6 +8,10 @@ class WindowTest(unittest.TestCase):\n         self.assertTrue(contains(10, 20, 15))\n         self.assertFalse(contains(10, 20, 21))\n \n+    def test_shared_boundary_appears_in_both_panels(self):\n+        self.assertTrue(contains(10, 20, 20))\n+        self.assertTrue(contains(20, 30, 20))\n+\n \n if __name__ == \"__main__\":\n     unittest.main()\ndiff --git a/sensors/window.py b/sensors/window.py\nindex cf918d6..214b15e 100644\n--- a/sensors/window.py\n+++ b/sensors/window.py\n@@ -1,2 +1,2 @@\n def contains(start, end, sample):\n-    return start <= sample < end\n+    return start <= sample <= end\n",
+        "cleanWorktree": true
+      },
+      "verification": {
+        "focusedCommand": "python3 -B sensors/test_window.py",
+        "passingTests": 2,
+        "newTestFailsAgainstOriginalHead": true
+      },
+      "providerMetrics": {
+        "inputTokens": 591330,
+        "cachedInputTokens": 539136,
+        "outputTokens": 4325,
+        "cost": null,
+        "elapsed": "PT1M38.11S",
+        "counters": {
+          "toolCalls": 21,
+          "exploreActions": 6,
+          "codegraphCalls": 0,
+          "codegraphMillis": 0,
+          "codegraphFailures": 0
+        }
+      }
+    }
+  },
+  "proposedOracleHumanApproved": false
+}

@@ -91,6 +91,7 @@ import org.springframework.http.HttpMethod;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
+import org.springframework.http.client.JdkClientHttpRequestFactory;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.context.bean.override.mockito.MockitoSpyBean;
 import org.springframework.util.LinkedMultiValueMap;
@@ -125,6 +126,7 @@ import java.util.stream.StreamSupport;
 import static com.google.common.base.Preconditions.checkState;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.awaitility.Awaitility.await;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.doReturn;
 import static org.mockito.Mockito.mock;
@@ -270,6 +272,8 @@ class TestAgentHttpApi
     void setUp()
             throws IOException, InterruptedException
     {
+        // The documentation dependency must not make this client retry a rejected HTTP action.
+        rest.getRestTemplate().setRequestFactory(new JdkClientHttpRequestFactory());
         driver.reset();
         claudeDriver.reset();
         reset(provisioning);
@@ -1582,10 +1586,22 @@ class TestAgentHttpApi
 
     private void awaitContinuationSettled(String taskId)
     {
-        awaitCondition(() -> {
-            JsonNode current = get("/agent/tasks/" + taskId + "?workspaceId=" + workspaceId).getBody();
-            return !current.path("developmentContinuationUnfinished").asBoolean() && current.path("mutationClaim").isNull();
-        });
+        // A terminal provider turn still has real Git inspections to finish across the four test JVMs.
+        // This is an integration completion bound, separate from the short in-memory fixture waits.
+        await().alias("development continuation for task " + taskId)
+                .pollInSameThread()
+                .pollDelay(Duration.ZERO)
+                .pollInterval(Duration.ofMillis(50))
+                .atMost(Duration.ofSeconds(30))
+                .untilAsserted(() -> {
+                    ResponseEntity<JsonNode> response = get("/agent/tasks/" + taskId + "?workspaceId=" + workspaceId);
+                    assertThat(response.getStatusCode()).isEqualTo(HttpStatus.OK);
+                    JsonNode current = response.getBody();
+                    assertThat(current.required("developmentContinuationUnfinished").asBoolean())
+                            .as("Unfinished continuation; last task response: %s", current).isFalse();
+                    assertThat(current.required("mutationClaim").isNull())
+                            .as("Retained mutation claim; last task response: %s", current).isTrue();
+                });
     }
 
     @Test

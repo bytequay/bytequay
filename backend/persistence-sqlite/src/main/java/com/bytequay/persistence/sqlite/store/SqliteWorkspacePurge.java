@@ -21,8 +21,7 @@ import com.bytequay.persistence.sqlite.entity.WorkspaceEntity;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import jakarta.persistence.EntityManager;
-import org.springframework.jdbc.core.JdbcTemplate;
-import org.springframework.jdbc.core.namedparam.NamedParameterJdbcTemplate;
+import jakarta.persistence.Query;
 import org.springframework.stereotype.Component;
 
 import java.util.LinkedHashMap;
@@ -43,12 +42,10 @@ final class SqliteWorkspacePurge
                 (SELECT local_repository_path FROM watched_repo_workspaces WHERE id = :workspaceId)))
             """;
 
-    private final NamedParameterJdbcTemplate sql;
     private final EntityManager entities;
 
-    SqliteWorkspacePurge(JdbcTemplate jdbc, EntityManager entities)
+    SqliteWorkspacePurge(EntityManager entities)
     {
-        sql = new NamedParameterJdbcTemplate(requireNonNull(jdbc, "jdbc is null"));
         this.entities = requireNonNull(entities, "entities is null");
     }
 
@@ -75,7 +72,7 @@ final class SqliteWorkspacePurge
                      )
                     """;
         }
-        return Boolean.TRUE.equals(sql.queryForObject(query, parameters, Boolean.class));
+        return exists(query, parameters);
     }
 
     void delete(Workspace workspace)
@@ -84,10 +81,9 @@ final class SqliteWorkspacePurge
         Map<String, Object> parameters = ImmutableMap.of("workspaceId", id);
         entities.flush();
         // Acquire SQLite's writer lock before checking that no task/workflow was started during filesystem cleanup.
-        sql.update("UPDATE watched_repo_workspaces SET watched = watched WHERE id = :workspaceId", parameters);
+        update("UPDATE watched_repo_workspaces SET watched = watched WHERE id = :workspaceId", parameters);
         checkState(!hasActiveWorkflows(id), "Workspace has an active workflow: %s", id);
-        checkState(!Boolean.TRUE.equals(sql.queryForObject(
-                "SELECT EXISTS (SELECT 1 FROM agent_task WHERE id IN (" + workspaceTaskIds() + "))", parameters, Boolean.class)),
+        checkState(!exists("SELECT EXISTS (SELECT 1 FROM agent_task WHERE id IN (" + workspaceTaskIds() + "))", parameters),
                 "Workspace still has agent tasks: %s", id);
 
         List<Workspace> others = entities.createQuery("FROM WorkspaceEntity WHERE id <> :id", WorkspaceEntity.class)
@@ -101,23 +97,24 @@ final class SqliteWorkspacePurge
         remotes.stream().filter(remote -> remote.workspaceId().equals(id)).forEach(remote -> remote.repositoryId()
                 .ifPresent(repositoryId -> repositories.put(repositoryId, remote.repository().orElseThrow())));
 
-        sql.update("DELETE FROM branch_rebase WHERE agent_task_id IN (" + workspaceTaskIds() + ")", parameters);
-        sql.update("DELETE FROM ci_autofix_attempt WHERE run_id IN (SELECT id FROM ci_autofix_run WHERE " + CI_WORKSPACE + ")", parameters);
-        sql.update("DELETE FROM ci_autofix_run WHERE " + CI_WORKSPACE, parameters);
-        sql.update("DELETE FROM cherry_pick_execution WHERE workspace_id = :workspaceId", parameters);
+        update("DELETE FROM branch_rebase WHERE agent_task_id IN (" + workspaceTaskIds() + ")", parameters);
+        update("DELETE FROM ci_autofix_attempt WHERE run_id IN (SELECT id FROM ci_autofix_run WHERE " + CI_WORKSPACE + ")", parameters);
+        update("DELETE FROM ci_autofix_run WHERE " + CI_WORKSPACE, parameters);
+        update("DELETE FROM cherry_pick_execution WHERE workspace_id = :workspaceId", parameters);
         if (hasMappedEntity("LocalRunEntity")) {
-            sql.update("DELETE FROM local_run_output WHERE run_id IN (SELECT id FROM local_run WHERE workspace_id = :workspaceId)", parameters);
-            sql.update("DELETE FROM local_run WHERE workspace_id = :workspaceId", parameters);
+            update("DELETE FROM local_run_output WHERE run_id IN (SELECT id FROM local_run WHERE workspace_id = :workspaceId)", parameters);
+            update("DELETE FROM local_run WHERE workspace_id = :workspaceId", parameters);
         }
+        update("DELETE FROM context_usage_fact WHERE workspace_id = :workspaceId", parameters);
         if (hasReviewData()) {
             for (String table : ImmutableList.of("agent_review_finding", "agent_review_message", "agent_review_run")) {
-                sql.update("DELETE FROM " + table + " WHERE review_id IN (SELECT id FROM agent_review WHERE workspace_id = :workspaceId)", parameters);
+                update("DELETE FROM " + table + " WHERE review_id IN (SELECT id FROM agent_review WHERE workspace_id = :workspaceId)", parameters);
             }
-            sql.update("DELETE FROM agent_review WHERE workspace_id = :workspaceId", parameters);
+            update("DELETE FROM agent_review WHERE workspace_id = :workspaceId", parameters);
         }
-        sql.update("DELETE FROM recent_text WHERE item_key IN (SELECT item_key FROM recent_touch WHERE workspace_id = :workspaceId AND item_type = 'TASK')", parameters);
-        sql.update("DELETE FROM recent_touch WHERE workspace_id = :workspaceId AND item_type IN ('TASK', 'COMMIT')", parameters);
-        sql.update("""
+        update("DELETE FROM recent_text WHERE item_key IN (SELECT item_key FROM recent_touch WHERE workspace_id = :workspaceId AND item_type = 'TASK')", parameters);
+        update("DELETE FROM recent_touch WHERE workspace_id = :workspaceId AND item_type IN ('TASK', 'COMMIT')", parameters);
+        update("""
                 UPDATE recent_touch SET workspace_id = (
                     SELECT id FROM watched_repo_workspaces w WHERE w.id <> :workspaceId
                         AND lower(w.monitored_owner || '/' || w.monitored_repo) = lower(recent_touch.repo)
@@ -125,12 +122,12 @@ final class SqliteWorkspacePurge
                 ) WHERE workspace_id = :workspaceId
                 """, parameters);
         for (String table : ImmutableList.of("workspace_remote_sources", "workspace_credentials", "commit_refresh_metadata")) {
-            sql.update("DELETE FROM " + table + " WHERE workspace_id = :workspaceId", parameters);
+            update("DELETE FROM " + table + " WHERE workspace_id = :workspaceId", parameters);
         }
         // Matched by prefix, not by exact key: these settings are per workspace and now also per
         // agent type, so an exact list silently leaks every suffix a later type adds.
-        for (String prefix : ImmutableList.of("workspace.agentModel." + id, "workspace.commitsTargetBranch." + id)) {
-            sql.update(
+        for (String prefix : ImmutableList.of("workspace.agentModel." + id, "workspace.commitsTargetBranch." + id, "workspace.contextUsageTrackingSince." + id)) {
+            update(
                     "DELETE FROM app_settings WHERE setting_key = :key OR setting_key LIKE :pattern",
                     ImmutableMap.of("key", prefix, "pattern", prefix + ".%"));
         }
@@ -139,7 +136,7 @@ final class SqliteWorkspacePurge
                 deleteRepositoryData(repository.getKey(), repository.getValue());
             }
         }
-        sql.update("DELETE FROM watched_repo_workspaces WHERE id = :workspaceId", parameters);
+        update("DELETE FROM watched_repo_workspaces WHERE id = :workspaceId", parameters);
         entities.clear();
     }
 
@@ -180,10 +177,10 @@ final class SqliteWorkspacePurge
     {
         Map<String, Object> parameters = ImmutableMap.of("repositoryId", repositoryId, "repo", repository.fullName().toLowerCase(Locale.ROOT));
         for (String table : ImmutableList.of("repository_issue_details", "repository_issue_rows", "repository_issue_sync", "repository_metadata", "commit_enrichment")) {
-            sql.update("DELETE FROM " + table + " WHERE repository_id = :repositoryId", parameters);
+            update("DELETE FROM " + table + " WHERE repository_id = :repositoryId", parameters);
         }
         for (String table : ImmutableList.of("recent_touch", "recent_text")) {
-            sql.update("DELETE FROM " + table + " WHERE item_type = 'ISSUE' AND lower(repo) = :repo", parameters);
+            update("DELETE FROM " + table + " WHERE item_type = 'ISSUE' AND lower(repo) = :repo", parameters);
         }
         // Dashboard rows, explicitly monitored PRs, and local review drafts belong to the account independently of watching.
         String pullRequests = "SELECT p.id FROM pull_requests p WHERE lower(p.repo) = :repo AND p.dashboard_visible = 0 AND p.monitored_at IS NULL";
@@ -194,14 +191,32 @@ final class SqliteWorkspacePurge
             pullRequests += " AND NOT EXISTS (SELECT 1 FROM agent_review r WHERE lower(r.repo) = lower(p.repo) AND r.number = p.number)";
         }
         for (String table : ImmutableList.of("recent_touch", "recent_text")) {
-            sql.update("DELETE FROM " + table + " WHERE item_type = 'PULL_REQUEST' AND lower(item_key) IN "
+            update("DELETE FROM " + table + " WHERE item_type = 'PULL_REQUEST' AND lower(item_key) IN "
                     + "(SELECT 'pr:' || lower(repo) || '#' || number FROM pull_requests WHERE id IN (" + pullRequests + "))", parameters);
         }
         for (String table : ImmutableList.of("pr_check_runs", "pr_reviews", "pr_timeline", "pr_diff", "pr_detail", "pr_view_state")) {
-            sql.update("DELETE FROM " + table + " WHERE pr_id IN (" + pullRequests + ")", parameters);
+            update("DELETE FROM " + table + " WHERE pr_id IN (" + pullRequests + ")", parameters);
         }
-        sql.update("DELETE FROM pull_requests WHERE id IN (" + pullRequests + ")", parameters);
-        sql.update("UPDATE pull_requests SET workspace_visible = 0, workspace_sync_marker = NULL WHERE lower(repo) = :repo", parameters);
+        update("DELETE FROM pull_requests WHERE id IN (" + pullRequests + ")", parameters);
+        update("UPDATE pull_requests SET workspace_visible = 0, workspace_sync_marker = NULL WHERE lower(repo) = :repo", parameters);
+    }
+
+    private boolean exists(String statement, Map<String, Object> parameters)
+    {
+        Object result = query(statement, parameters).getSingleResult();
+        return result instanceof Boolean value ? value : ((Number) result).intValue() != 0;
+    }
+
+    private void update(String statement, Map<String, Object> parameters)
+    {
+        query(statement, parameters).executeUpdate();
+    }
+
+    private Query query(String statement, Map<String, Object> parameters)
+    {
+        Query query = entities.createNativeQuery(statement);
+        query.getParameters().forEach(parameter -> query.setParameter(parameter.getName(), parameters.get(parameter.getName())));
+        return query;
     }
 
     private boolean hasReviewData()

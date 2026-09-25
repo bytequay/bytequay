@@ -1,0 +1,201 @@
+{
+  "fixture": {
+    "repository": "contextfixture/review-case",
+    "pullRequest": 1,
+    "baseSha": "99dac517a7758debe9005eec0b910109c7ce8d32",
+    "headSha": "a8cd427b4b6b04af139b329269fdc3aa231d0c2e",
+    "expectedBug": "window.py accepts the excluded end boundary"
+  },
+  "provider": {
+    "name": "Claude",
+    "model": "Sonnet",
+    "effort": "high",
+    "cliVersion": "2.1.281"
+  },
+  "backendJarSha256": "1204933b67c0aa171ba4f10d224a6c2bd42e1b158f898e785feefd441a58ad2d",
+  "arms": {
+    "off": {
+      "reviewId": "6fe0bdf5-555f-4769-8704-66a8d4c8699e",
+      "runId": "11d1654a-1868-454d-a180-e9d269319081",
+      "runState": "ACCEPTED",
+      "contextEnabled": false,
+      "coverage": {
+        "complete": true,
+        "omissions": [],
+        "recordedAt": "2026-09-24T04:10:35.862115Z"
+      },
+      "summary": {
+        "revision": 1,
+        "purpose": "Changes the end comparison in window.contains. The repository contract, README and test say windows are half-open [start, end), so the end must be excluded.",
+        "commits": [
+          {
+            "sha": "a8cd427b4b6b04af139b329269fdc3aa231d0c2e",
+            "explanation": "Replaces `value < end` with `value <= end` in contains, so the end boundary is now accepted. This reverses the previous commit's half-open behavior and contradicts the README contract and test_window_end."
+          }
+        ],
+        "combinedResult": "",
+        "evidence": null,
+        "criticalFindingIds": []
+      },
+      "findings": [
+        {
+          "title": "contains accepts the window end, breaking the half-open contract",
+          "severity": "High",
+          "path": "window.py",
+          "line": 2,
+          "body": "`value <= end` makes `contains(10, 20, 20)` return True. The README defines windows as `[start, end)` and requires that adjacent windows never both accept a shared boundary. With this change, `contains(10, 20, 20)` and `contains(20, 30, 20)` are both True, and `test_window_end` fails.\n\n```suggestion\n    return start <= value < end\n```",
+          "evidenceExplanations": [
+            "At head a8cd427, `python3 -B test_contract.py` exits 1 with `AssertionError: True is not false : END_EXCLUSIVE`. Adjacent windows [10,20) and [20,30) both accept 20 (True True). The previous commit's window.py returns False for contains(10,20,20).\n\nValidation: Reproduced at the frozen head. The failing test and the adjacent-window check both violate the documented contract, and the previous commit (99dac51) behaves correctly. I found no guard, override or other owner that would make `<=` intentional; the PR body says only 'Adjust the end comparison'.",
+            "README.md states 'Windows include their start and exclude their end: [start, end)' and 'Adjacent windows must not both accept their shared boundary.' test_contract.py asserts contains(10, 20, 20) is False."
+          ]
+        }
+      ],
+      "context": {
+        "selectedEntries": [],
+        "bootstrapUtf8Bytes": 0,
+        "deliveries": [],
+        "dynamicNoteReads": []
+      },
+      "usageDashboard": {
+        "summary": {
+          "eligibleDevelopmentTasks": 0,
+          "eligibleReviewRuns": 1,
+          "contextOffTasks": 1,
+          "tasksProvidedOrOpened": 0,
+          "activeNotesWithoutConfirmedDeliveryOrOpen": 1,
+          "scopesDemandedWhileMissing": 0,
+          "scopesStillMissingAfterDemand": 0,
+          "searchesWithNoMatchingScope": 0,
+          "searchesWithScopeButNoNote": 0
+        },
+        "entries": [
+          {
+            "entryId": "knowledge:project",
+            "currentVersionCounts": {
+              "selectedTasks": 0,
+              "providedTasks": 0,
+              "searchHits": 0,
+              "foundTasks": 0,
+              "openedTasks": 0,
+              "citedReviews": 0
+            }
+          }
+        ]
+      },
+      "provider": {
+        "completedTurns": 2,
+        "turnSpanSeconds": 44.7,
+        "inputTokens": 354286,
+        "cachedInputTokens": 318683,
+        "outputTokens": 3247,
+        "reportedCost": 0.404058,
+        "rateLimitWarnings": 2
+      }
+    },
+    "warmOn": {
+      "reviewId": "d1d27689-04ba-4605-8414-d000b9616f68",
+      "runId": "7e2b713f-aee1-4094-8c62-d05062e5b039",
+      "runState": "ACCEPTED",
+      "contextEnabled": true,
+      "coverage": {
+        "complete": true,
+        "omissions": [],
+        "recordedAt": "2026-09-24T04:13:13.062650Z"
+      },
+      "summary": {
+        "revision": 1,
+        "purpose": "Changes the window containment check in window.py. The repository contract is half-open windows [start, end), so the end must be excluded.",
+        "commits": [
+          {
+            "sha": "a8cd427b4b6b04af139b329269fdc3aa231d0c2e",
+            "explanation": "Changes contains() from `start <= value < end` to `start <= value <= end`, which makes the end boundary inclusive. This reverses the previous half-open behavior and contradicts the README and the END_EXCLUSIVE test assertion."
+          }
+        ],
+        "combinedResult": "",
+        "evidence": null,
+        "criticalFindingIds": []
+      },
+      "findings": [
+        {
+          "title": "contains() makes the window end inclusive, breaking the half-open contract",
+          "severity": "High",
+          "path": "window.py",
+          "line": 2,
+          "body": "`start <= value <= end` accepts `end`, but windows are documented as `[start, end)`. `contains(10, 20, 20)` now returns True, so adjacent windows such as `[10, 20)` and `[20, 30)` both accept 20, and the existing `END_EXCLUSIVE` test fails.\n\n```suggestion\n    return start <= value < end\n```",
+          "evidenceExplanations": [
+            "Head window.py line 2 is `return start <= value <= end`.\n\nValidation: Reproduced at the frozen head: the suite fails on the END_EXCLUSIVE assertion and the adjacent-window check shows a double-accepted boundary. With the base one-line version and identical test files, the suite passes. The README states the half-open contract, so the change is a regression, not intended behavior. Only the `<` to `<=` edit differs. I ran the control from a copy in $TMPDIR and left the worktree unchanged.",
+            "At head, `python3 -B test_contract.py` fails test_window_end: `AssertionError: True is not false : END_EXCLUSIVE` (contains(10, 20, 20) is True).",
+            "At head the suite exits 1, and both contains(10,20,20) and contains(20,30,20) return True, so adjacent windows share the boundary.",
+            "Control: the base window.py (`start <= value < end`) with the same tests passes, exit 0.",
+            "README states 'Windows include their start and exclude their end: [start, end)' and 'Adjacent windows must not both accept their shared boundary.'"
+          ]
+        }
+      ],
+      "context": {
+        "selectedEntries": [
+          {
+            "entryId": "knowledge:project",
+            "version": 1,
+            "inclusion": "INCLUDED",
+            "applicability": "VERSION_MISMATCH",
+            "matchReasons": [
+              "Repository-wide scope",
+              "Source identity VERSION_MISMATCH: Recorded source or dependency input differs at the frozen reviewed head: git:window.py; recorded=100644 blob e11b4c6578c724e0ea53df6b60f82be14a4746b1; reviewed=100644 blob 85f2e159917fc4b1b60575eeae02bb6bceada279. Effective dependency versions remain UNVERIFIED."
+            ]
+          }
+        ],
+        "bootstrapUtf8Bytes": 6100,
+        "deliveries": [
+          {
+            "turnId": "8458a32a-3b5f-4cec-95f8-6d9c34f569bd",
+            "utf8Bytes": 6100,
+            "packetDigest": "sha256:825a484731b8d3772433840abd7e2aefb6a4e8b4a24d1a14fc29d0946a2d0045",
+            "outcome": "CONFIRMED"
+          },
+          {
+            "turnId": "85ccaab1-8aee-4bac-ae91-0ef797b21be2",
+            "utf8Bytes": 1644,
+            "packetDigest": "sha256:6f3cb6e47abc4432c833e8ab19c6129967998a07f4c002eea4de48a6fbfa2fd9",
+            "outcome": "CONFIRMED"
+          }
+        ],
+        "dynamicNoteReads": []
+      },
+      "usageDashboard": {
+        "summary": {
+          "eligibleDevelopmentTasks": 0,
+          "eligibleReviewRuns": 1,
+          "contextOffTasks": 0,
+          "tasksProvidedOrOpened": 1,
+          "activeNotesWithoutConfirmedDeliveryOrOpen": 0,
+          "scopesDemandedWhileMissing": 0,
+          "scopesStillMissingAfterDemand": 0,
+          "searchesWithNoMatchingScope": 0,
+          "searchesWithScopeButNoNote": 0
+        },
+        "entries": [
+          {
+            "entryId": "knowledge:project",
+            "currentVersionCounts": {
+              "selectedTasks": 1,
+              "providedTasks": 1,
+              "searchHits": 0,
+              "foundTasks": 0,
+              "openedTasks": 0,
+              "citedReviews": 0
+            }
+          }
+        ]
+      },
+      "provider": {
+        "completedTurns": 2,
+        "turnSpanSeconds": 59.6,
+        "inputTokens": 461722,
+        "cachedInputTokens": 395527,
+        "outputTokens": 4493,
+        "reportedCost": 0.58121,
+        "rateLimitWarnings": 3
+      }
+    }
+  }
+}

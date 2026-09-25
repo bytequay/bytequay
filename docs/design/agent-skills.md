@@ -165,6 +165,22 @@ discard historical skill settings after a scope edit, disable, or removal.
 System resources remain active independently of the user
 collection.
 
+## Repository reference guidance
+
+Enabled review runs append the small trusted `ReviewPrompts.CONTEXT_INSTRUCTION`
+policy to the existing review bridge. It directs original-source/code checks,
+counterevidence, exact-version deferred-note retrieval and honest gaps. Notebook
+text, captured documentation, history and discussion excerpts travel only as
+untrusted turn input or tool results. They are never managed instructions, user
+skills or permission grants. Matching source identities verifies neither a claim
+nor effective dependency resolution. Context Off retains the original review
+policy and authority while bypassing repository-context inputs and tools.
+
+Standalone Learn uses a saved `ContextBuild` binding and a restricted research
+bridge. It receives common guidance and Global user skills; noninteractive AUTO
+alone does not confer development or PR publication authority. It cannot save a
+user memory lesson automatically. Save lesson remains an explicit user action.
+
 ## Storage and management
 
 `AgentSkillService` owns the ordered user skill collection in the existing

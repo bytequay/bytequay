@@ -133,6 +133,8 @@ class TestAgentHttpErrors
         localReviewSessions = mock(LocalReviewSessionService.class);
         AppSettingsService appSettings = mock(AppSettingsService.class);
         when(appSettings.developmentAutomation()).thenReturn(DevelopmentAutomation.DEFAULT);
+        com.bytequay.app.context.RepositoryContextService repositoryContext = mock(com.bytequay.app.context.RepositoryContextService.class);
+        when(repositoryContext.getNotebook(org.mockito.ArgumentMatchers.anyString())).thenReturn(com.bytequay.core.context.RepositoryNotebook.empty());
         AgentTaskStartupProgress startupProgress = new AgentTaskStartupProgress();
         AgentController controller = new AgentController(
                 taskService,
@@ -170,7 +172,8 @@ class TestAgentHttpErrors
                 startupProgress,
                 localReviewSessions,
                 new AgentStreamRegistry(),
-                mock(IssueDevelopmentService.class));
+                mock(IssueDevelopmentService.class),
+                repositoryContext);
         mvc = standaloneSetup(controller)
                 .setControllerAdvice(new GlobalExceptionHandler())
                 .build();

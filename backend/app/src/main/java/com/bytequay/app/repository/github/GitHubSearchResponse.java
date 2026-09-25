@@ -22,7 +22,8 @@ import java.util.List;
 @JsonIgnoreProperties(ignoreUnknown = true)
 public record GitHubSearchResponse(
         @JsonProperty("total_count") int totalCount,
-        @JsonProperty("items") List<Item> items)
+        @JsonProperty("items") List<Item> items,
+        @JsonProperty("incomplete_results") Boolean incompleteResults)
 {
     @JsonIgnoreProperties(ignoreUnknown = true)
     public record Item(
@@ -38,7 +39,9 @@ public record GitHubSearchResponse(
             User user,
             List<Label> labels,
             boolean draft,
-            @JsonProperty("pull_request") PullRequestLink pullRequest) {}
+            @JsonProperty("pull_request") PullRequestLink pullRequest,
+            String body,
+            @JsonProperty("state_reason") String stateReason) {}
 
     /** Search reports a merged PR as {@code state=closed}; {@code merged_at}
      *  lives only in this nested object, and is null for a plain close. */

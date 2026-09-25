@@ -14,7 +14,12 @@
 package com.bytequay.app.web.review;
 
 import com.bytequay.app.review.AgentReviewProjection;
+import com.bytequay.app.review.AgentReviewProjection.ContextDeliveryState;
+import com.bytequay.app.review.AgentReviewProjection.ContextNoteRead;
+import com.bytequay.app.review.AgentReviewProjection.ContextNoteSearch;
+import com.bytequay.app.review.AgentReviewProjection.ContextPreparationActivity;
 import com.bytequay.app.review.ReviewPublicationService;
+import com.bytequay.core.context.ReviewContextSnapshot;
 import com.bytequay.core.review.AgentReview;
 import com.bytequay.core.review.ReviewAnchor;
 import com.bytequay.core.review.ReviewCommit;
@@ -28,9 +33,11 @@ import com.bytequay.core.review.ReviewMessage;
 import com.bytequay.core.review.ReviewStep;
 import com.bytequay.core.review.ReviewSummary;
 import com.google.common.collect.ImmutableList;
+import com.google.common.collect.ImmutableMap;
 
 import java.time.Instant;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.OptionalInt;
 import java.util.OptionalLong;
@@ -90,6 +97,11 @@ final class ReviewHttpModels
                 run.investigation(),
                 run.steps(),
                 run.evidence().stream().map(ReviewHttpModels::evidence).collect(toImmutableList()),
+                run.context(),
+                run.contextDeliveryStates(),
+                run.contextPreparationActivities(),
+                run.contextNoteReads(),
+                run.contextNoteSearches(),
                 run.outcome(),
                 run.createdAt(),
                 run.endedAt());
@@ -253,9 +265,24 @@ final class ReviewHttpModels
             Optional<ReviewInvestigation> investigation,
             List<ReviewStep> steps,
             List<EvidenceResponse> evidence,
+            Optional<ReviewContextSnapshot> context,
+            Map<String, ContextDeliveryState> contextDeliveryStates,
+            List<ContextPreparationActivity> contextPreparationActivities,
+            List<ContextNoteRead> contextNoteReads,
+            List<ContextNoteSearch> contextNoteSearches,
             Optional<String> outcome,
             Instant createdAt,
-            Optional<Instant> endedAt) {}
+            Optional<Instant> endedAt)
+    {
+        RunResponse
+        {
+            requireNonNull(context, "context is null");
+            contextDeliveryStates = ImmutableMap.copyOf(contextDeliveryStates);
+            contextPreparationActivities = ImmutableList.copyOf(contextPreparationActivities);
+            contextNoteReads = ImmutableList.copyOf(contextNoteReads);
+            contextNoteSearches = ImmutableList.copyOf(contextNoteSearches);
+        }
+    }
 
     record SummaryResponse(
             int revision,

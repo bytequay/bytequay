@@ -17,6 +17,7 @@ import com.bytequay.core.rebase.BranchRebase.Status;
 import com.bytequay.persistence.sqlite.entity.BranchRebaseEntity;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.data.jpa.repository.Query;
 
 import java.util.List;
@@ -36,4 +37,10 @@ public interface BranchRebaseJpaRepository
             order by rebase.updatedAt asc
             """)
     List<BranchRebaseEntity> findIndependentlyRunning(Status status, Pageable pageable);
+
+    boolean existsByAgentTaskIdAndTerminalAtIsNull(String agentTaskId);
+
+    @Modifying
+    @Query("DELETE FROM BranchRebaseEntity rebase WHERE rebase.agentTaskId = :taskId")
+    void deleteByAgentTaskId(String taskId);
 }

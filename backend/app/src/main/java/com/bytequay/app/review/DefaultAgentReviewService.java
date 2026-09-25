@@ -35,6 +35,7 @@ import com.bytequay.agent.core.TurnId;
 import com.bytequay.agent.core.WorktreeMutationClaim;
 import com.bytequay.agent.core.WorktreeService;
 import com.bytequay.agent.core.WorktreeSnapshot;
+import com.bytequay.agent.core.store.AgentTurnStore;
 import com.bytequay.agent.core.store.QueuedInputStore;
 import com.bytequay.agent.spi.AgentCapabilities;
 import com.bytequay.agent.spi.AgentDriverRegistry;
@@ -42,6 +43,7 @@ import com.bytequay.agent.spi.AgentLaneId;
 import com.bytequay.agent.spi.AgentPermissionPolicy;
 import com.bytequay.agent.spi.AgentProviderUnavailableException;
 import com.bytequay.app.agent.WorkflowAgentTasks;
+import com.bytequay.app.context.ReviewContextService;
 import com.bytequay.app.git.GitCommandRunner;
 import com.bytequay.app.git.ReviewExperiments;
 import com.bytequay.app.service.credentials.CredentialService;
@@ -52,6 +54,7 @@ import com.bytequay.app.service.settings.AgentModelType;
 import com.bytequay.app.service.settings.ModelSettingsService;
 import com.bytequay.app.workspace.WorkspaceRepositoryContext;
 import com.bytequay.app.workspace.WorkspaceRepositoryService;
+import com.bytequay.core.context.ContextUsageEvent;
 import com.bytequay.core.domain.DiffFile;
 import com.bytequay.core.domain.PullRequestDetail;
 import com.bytequay.core.review.AgentReview;
@@ -69,6 +72,7 @@ import com.bytequay.core.review.ReviewNotFoundException;
 import com.bytequay.core.review.ReviewRun;
 import com.bytequay.core.review.ReviewStep;
 import com.bytequay.core.review.ReviewValidation;
+import com.bytequay.core.store.ContextUsageStore;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.util.concurrent.Striped;
@@ -97,6 +101,7 @@ import static com.bytequay.app.review.DefaultAgentReviewService.CompletionAction
 import static com.bytequay.app.review.DefaultAgentReviewService.CompletionAction.REPAIR;
 import static com.bytequay.app.review.DefaultAgentReviewService.CompletionAction.VALIDATE;
 import static com.google.common.collect.ImmutableList.toImmutableList;
+import static com.google.common.collect.ImmutableMap.toImmutableMap;
 import static java.util.Objects.requireNonNull;
 
 @Service
@@ -109,6 +114,7 @@ public class DefaultAgentReviewService
     private final ReviewDraftStore drafts;
     private final AgentTaskService tasks;
     private final AgentTurnService turns;
+    private final AgentTurnStore turnStore;
     private final QueuedInputStore queueStore;
     private final AgentCompletionService completions;
     private final AgentApprovalService approvals;
@@ -122,6 +128,9 @@ public class DefaultAgentReviewService
     private final PullRequestRefreshService refresh;
     private final CredentialService credentials;
     private final ReviewTaskObserver observer;
+    private final ReviewContextService context;
+    private final ReviewContextPreparationCleanup preparationCleanup;
+    private final ContextUsageStore contextUsage;
     private final Clock clock;
     private final Striped<Lock> startLocks = Striped.lock(32);
     private final ReviewLocks locks;
@@ -131,6 +140,7 @@ public class DefaultAgentReviewService
             ReviewDraftStore drafts,
             AgentTaskService tasks,
             AgentTurnService turns,
+            AgentTurnStore turnStore,
             QueuedInputStore queueStore,
             AgentCompletionService completions,
             AgentApprovalService approvals,
@@ -145,12 +155,16 @@ public class DefaultAgentReviewService
             CredentialService credentials,
             ReviewTaskObserver observer,
             ReviewLocks locks,
+            ReviewContextService context,
+            ReviewContextPreparationCleanup preparationCleanup,
+            ContextUsageStore contextUsage,
             Clock clock)
     {
         this.store = requireNonNull(store, "store is null");
         this.drafts = requireNonNull(drafts, "drafts is null");
         this.tasks = requireNonNull(tasks, "tasks is null");
         this.turns = requireNonNull(turns, "turns is null");
+        this.turnStore = requireNonNull(turnStore, "turnStore is null");
         this.queueStore = requireNonNull(queueStore, "queueStore is null");
         this.completions = requireNonNull(completions, "completions is null");
         this.approvals = requireNonNull(approvals, "approvals is null");
@@ -164,6 +178,9 @@ public class DefaultAgentReviewService
         this.refresh = requireNonNull(refresh, "refresh is null");
         this.credentials = requireNonNull(credentials, "credentials is null");
         this.observer = requireNonNull(observer, "observer is null");
+        this.context = requireNonNull(context, "context is null");
+        this.preparationCleanup = requireNonNull(preparationCleanup, "preparationCleanup is null");
+        this.contextUsage = requireNonNull(contextUsage, "contextUsage is null");
         this.clock = requireNonNull(clock, "clock is null");
         this.locks = requireNonNull(locks, "locks is null");
     }
@@ -314,10 +331,17 @@ public class DefaultAgentReviewService
                     throw new ReviewConflictException("Discard saved edits before ending the review");
                 }
             }
+            try {
+                observer.confirmRetainedUsage(review);
+            }
+            catch (RuntimeException failure) {
+                log.warn("Review {} could not confirm retained context use before closing; unconfirmed receipts remain prepared: {}", reviewId, failure.toString());
+            }
             observer.unwatch(reviewId);
             if (task.state() == TaskState.OPEN) {
                 completions.complete(new CompleteAgentTaskCommand(taskId, Optional.of("Agent review ended by the user")));
             }
+            preparationCleanup.reconcile(review);
             latestRun(reviewId).filter(ReviewRun::active)
                     .ifPresent(run -> store.updateRun(run.ended(ReviewRun.State.STOPPED, Optional.of("Review ended"), Instant.now(clock))));
             store.updateReview(store.findReview(reviewId).orElseThrow().closed(Instant.now(clock)));
@@ -374,15 +398,8 @@ public class DefaultAgentReviewService
             String messageId = UUID.randomUUID().toString();
             TaskId taskId = TaskId.valueOf(review.taskId());
             AgentTask task = tasks.get(taskId);
-            Optional<String> turnId = Optional.empty();
-            Optional<String> queuedId = Optional.empty();
-            if (idle(task)) {
-                turnId = Optional.of(turns.start(new StartAgentTurnCommand(taskId, prompt, ImmutableList.of(), "review-ask:" + messageId)).id().toString());
-            }
-            else {
-                queuedId = Optional.of(turns.enqueue(new QueueAgentInputCommand(taskId, task.version(), prompt, ImmutableList.of(), "review-ask:" + messageId)).id().toString());
-            }
-            return store.insertMessage(new ReviewMessage(
+            // A synchronous launch can resolve this discussion before start returns its turn ID.
+            ReviewMessage question = store.insertMessage(new ReviewMessage(
                     messageId,
                     reviewId,
                     findingId,
@@ -391,11 +408,56 @@ public class DefaultAgentReviewService
                     text,
                     targetRevision,
                     runId,
-                    turnId,
-                    queuedId,
+                    Optional.empty(),
+                    Optional.empty(),
                     0,
                     Instant.now(clock)));
+            String requestKey = "review-ask:" + messageId;
+            boolean queued = !idle(task);
+            try {
+                if (queued) {
+                    QueuedAgentInput input = turns.enqueue(new QueueAgentInputCommand(taskId, task.version(), prompt, ImmutableList.of(), requestKey));
+                    return attachQuestionDelivery(question, Optional.empty(), Optional.of(input.id().toString()));
+                }
+                AgentTurn turn = turns.start(new StartAgentTurnCommand(taskId, prompt, ImmutableList.of(), requestKey));
+                return attachQuestionDelivery(question, Optional.of(turn.id().toString()), Optional.empty());
+            }
+            catch (RuntimeException failure) {
+                try {
+                    if (queued) {
+                        turns.findQueuedByIdempotencyKey(taskId, requestKey)
+                                .ifPresent(input -> attachQuestionDelivery(question, Optional.empty(), Optional.of(input.id().toString())));
+                    }
+                    else {
+                        turns.findTurnByIdempotencyKey(taskId, requestKey)
+                                .ifPresent(turn -> attachQuestionDelivery(question, Optional.of(turn.id().toString()), Optional.empty()));
+                    }
+                }
+                catch (RuntimeException recoveryFailure) {
+                    if (failure != recoveryFailure) {
+                        failure.addSuppressed(recoveryFailure);
+                    }
+                }
+                throw failure;
+            }
         });
+    }
+
+    private ReviewMessage attachQuestionDelivery(ReviewMessage question, Optional<String> turnId, Optional<String> queuedId)
+    {
+        return store.updateMessage(new ReviewMessage(
+                question.id(),
+                question.reviewId(),
+                question.findingId(),
+                question.cardId(),
+                question.author(),
+                question.body(),
+                question.targetRevision(),
+                question.runId(),
+                turnId,
+                queuedId,
+                question.version(),
+                question.createdAt()));
     }
 
     @Override
@@ -476,6 +538,7 @@ public class DefaultAgentReviewService
                 return null;
             }
             AgentReview review = stored.orElseThrow();
+            preparationCleanup.reconcile(review);
             AgentTask task = tasks.get(TaskId.valueOf(review.taskId()));
             Optional<ReviewRun> active = latestRun(reviewId).filter(ReviewRun::active);
             if (active.isPresent()) {
@@ -488,6 +551,15 @@ public class DefaultAgentReviewService
                 }
                 return null;
             }
+            return null;
+        });
+    }
+
+    @Override
+    public void reconcilePreparation(String reviewId)
+    {
+        locked(reviewId, () -> {
+            preparationCleanup.reconcile(requireReview(reviewId));
             return null;
         });
     }
@@ -512,6 +584,7 @@ public class DefaultAgentReviewService
     /** Applies only the current assignment's accepted turn after its runtime has stopped. */
     private AgentReview settle(AgentReview review, ReviewRun run, AgentTask task)
     {
+        preparationCleanup.reconcile(review);
         if (run.currentStep().isEmpty()) {
             return incomplete(review, run, "The review has no current assignment; start a new review run");
         }
@@ -663,7 +736,21 @@ public class DefaultAgentReviewService
         String key = run.currentStep().orElseThrow().key(run.id());
         AgentTurn accepted;
         try {
-            accepted = startAssignment(run, new StartAgentTurnCommand(task.id(), ReviewPrompts.stepRequest(run), ImmutableList.of(), key));
+            Optional<AgentTurn> existing = turns.findTurnByIdempotencyKey(task.id(), key);
+            if (existing.isPresent()) {
+                accepted = existing.orElseThrow();
+            }
+            else {
+                if (run.currentStep().orElseThrow().equals(ReviewStep.initial()) && run.turnIds().isEmpty() && run.context().isEmpty()) {
+                    AgentReview review = requireReview(run.reviewId());
+                    Optional<ReviewRun> previous = run.priorHeadSha().flatMap(head -> store.listRuns(review.id()).stream()
+                            .filter(prior -> prior.state() == ReviewRun.State.ACCEPTED && prior.headSha().equals(head)
+                                    && prior.hasCompleteSummary() && prior.coverage().filter(coverage -> coverage.complete() && coverage.omissions().isEmpty()).isPresent())
+                            .reduce((first, last) -> last));
+                    run = context.prepareRun(review, run, workspaces.requireReadableRepository(review.workspaceId()), previous);
+                }
+                accepted = startAssignment(run, new StartAgentTurnCommand(task.id(), ReviewPrompts.stepRequest(run), ImmutableList.of(), key));
+            }
         }
         catch (RuntimeException failure) {
             if (turns.findTurnByIdempotencyKey(task.id(), key).isEmpty()) {
@@ -828,12 +915,14 @@ public class DefaultAgentReviewService
                 ImmutableMap.of(),
                 ImmutableMap.of(),
                 Optional.empty(),
+                Optional.empty(),
                 0,
                 now,
                 now,
                 Optional.empty()));
         AgentTurn turn;
         try {
+            run = context.prepareRun(review, run, workspace, previous);
             ReviewDiffAnchors anchors = ReviewDiffAnchors.of(snapshot.diff());
             for (ReviewFinding finding : findings) {
                 if (finding.state() == ReviewFinding.State.WITHDRAWN || finding.validatedHeadSha().equals(snapshot.headSha())) {
@@ -856,14 +945,18 @@ public class DefaultAgentReviewService
                     run.currentStep().orElseThrow().key(run.id())));
         }
         catch (RuntimeException failure) {
-            if (turns.findTurnByIdempotencyKey(TaskId.valueOf(review.taskId()), run.currentStep().orElseThrow().key(run.id())).isEmpty()) {
-                store.updateRun(run.ended(ReviewRun.State.FAILED, Optional.of("Cannot start the review turn: " + failure.getMessage()), Instant.now(clock)));
+            ReviewRun current = store.findRun(run.id()).orElse(run);
+            if (turns.findTurnByIdempotencyKey(TaskId.valueOf(review.taskId()), current.currentStep().orElseThrow().key(current.id())).isEmpty()) {
+                store.updateRun(current.ended(ReviewRun.State.FAILED, Optional.of("Cannot start the review turn: " + failure.getMessage()), Instant.now(clock)));
                 store.updateReview(store.findReview(review.id()).orElseThrow().withFollowUpPaused(true, Instant.now(clock)));
             }
             throw failure;
         }
         // If this write fails after turn acceptance, reconciliation reattaches that same request.
-        store.updateRun(run.withTurn(turn.id().toString(), Instant.now(clock)));
+        ReviewRun current = store.findRun(run.id()).orElseThrow();
+        if (!current.turnIds().contains(turn.id().toString())) {
+            store.updateRun(current.withTurn(turn.id().toString(), Instant.now(clock)));
+        }
     }
 
     private static ReviewFinding relocated(ReviewFinding finding, ReviewAnchor anchor, String headSha, Instant now)
@@ -966,6 +1059,9 @@ public class DefaultAgentReviewService
     {
         AgentReview review = requireReview(reviewId);
         List<ReviewRun> runs = store.listRuns(reviewId);
+        List<ContextUsageEvent> usage = runs.stream().anyMatch(run -> run.operations().keySet().stream()
+                .anyMatch(key -> key.startsWith("context-search:"))) ? contextUsage.listTask(review.workspaceId(), review.taskId(), 1001) : ImmutableList.of();
+        boolean usageTruncated = usage.size() > 1000;
         TaskId taskId = TaskId.valueOf(review.taskId());
         AgentTask task = tasks.get(taskId);
         Optional<AgentTurn> active = activeTurn(task);
@@ -976,7 +1072,10 @@ public class DefaultAgentReviewService
                 : ImmutableList.of();
         return new AgentReviewProjection(
                 review,
-                runs.stream().map(AgentReviewProjection.RunView::of).collect(toImmutableList()),
+                runs.stream().map(run -> AgentReviewProjection.RunView.of(run, run.context().stream().flatMap(snapshot -> snapshot.deliveries().stream())
+                        .collect(toImmutableMap(delivery -> delivery.turnId(), delivery -> AgentReviewProjection.ContextDeliveryState.of(
+                                turnStore.find(TurnId.valueOf(delivery.turnId())).filter(turn -> turn.taskId().equals(taskId))))),
+                        usage, usageTruncated)).collect(toImmutableList()),
                 store.listFindings(reviewId),
                 store.listMessages(reviewId).stream().map(this::messageView).collect(toImmutableList()),
                 new AgentReviewProjection.TaskView(

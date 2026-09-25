@@ -21,7 +21,9 @@ import com.bytequay.agent.core.store.AgentTaskStore;
 import com.bytequay.agent.spi.AgentLaneId;
 import com.bytequay.agent.spi.AgentPermissionPolicy;
 import com.bytequay.agent.spi.ReviewBridge;
+import com.bytequay.app.context.ContextBuildTools;
 import com.google.common.collect.ImmutableList;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.support.DefaultListableBeanFactory;
 
@@ -39,8 +41,27 @@ class TestReviewBridgeResolverImpl
     private static final Instant NOW = Instant.parse("2026-09-01T00:00:00Z");
     private static final String HEAD = "a".repeat(40);
     private final ReviewTools tools = mock(ReviewTools.class);
+    private final ContextBuildTools builders = mock(ContextBuildTools.class);
     private final AgentTaskStore tasks = mock(AgentTaskStore.class);
     private final DefaultListableBeanFactory beans = new DefaultListableBeanFactory();
+
+    @BeforeEach
+    void registerBuilder()
+    {
+        beans.registerSingleton("contextBuildTools", builders);
+    }
+
+    @Test
+    void explicitLearningRetainsItsRestrictedBridgeWithoutCreatingAReview()
+    {
+        AgentTask task = task();
+        ReviewBridge learning = new ReviewBridge(ImmutableList.of(), "Read selected repository context sources");
+        when(builders.bridge(task.id().toString())).thenReturn(Optional.of(learning));
+        ReviewBridgeResolverImpl resolver = new ReviewBridgeResolverImpl(beans.getBeanProvider(ReviewTools.class), beans.getBeanProvider(ContextBuildTools.class), tasks);
+
+        assertThat(resolver.resolve(task.id().toString())).contains(learning);
+        verifyNoInteractions(tools, tasks);
+    }
 
     @Test
     void authoredLocalReviewGetsPolicyWithoutFabricatedReportTools()
@@ -49,7 +70,7 @@ class TestReviewBridgeResolverImpl
         AgentTask privateReview = development.withLocalReviewHead(Optional.of(HEAD), NOW);
         when(tasks.find(development.id())).thenReturn(Optional.of(privateReview));
         beans.registerSingleton("reviewTools", tools);
-        ReviewBridgeResolverImpl resolver = new ReviewBridgeResolverImpl(beans.getBeanProvider(ReviewTools.class), tasks);
+        ReviewBridgeResolverImpl resolver = new ReviewBridgeResolverImpl(beans.getBeanProvider(ReviewTools.class), beans.getBeanProvider(ContextBuildTools.class), tasks);
 
         ReviewBridge bridge = resolver.resolve(privateReview.id().toString()).orElseThrow();
 
@@ -66,7 +87,7 @@ class TestReviewBridgeResolverImpl
         ReviewBridge review = new ReviewBridge(ImmutableList.of(), "The existing PR review policy");
         when(tools.bridge(task.id().toString())).thenReturn(Optional.of(review));
         beans.registerSingleton("reviewTools", tools);
-        ReviewBridgeResolverImpl resolver = new ReviewBridgeResolverImpl(beans.getBeanProvider(ReviewTools.class), tasks);
+        ReviewBridgeResolverImpl resolver = new ReviewBridgeResolverImpl(beans.getBeanProvider(ReviewTools.class), beans.getBeanProvider(ContextBuildTools.class), tasks);
 
         assertThat(resolver.resolve(task.id().toString())).contains(review);
         verifyNoInteractions(tasks);
@@ -78,7 +99,7 @@ class TestReviewBridgeResolverImpl
         AgentTask review = task().withLocalReviewHead(Optional.of(HEAD), NOW);
         when(tasks.find(review.id())).thenReturn(Optional.of(review.fail("Task ended", NOW, NOW.plusSeconds(60))));
         beans.registerSingleton("reviewTools", tools);
-        ReviewBridgeResolverImpl resolver = new ReviewBridgeResolverImpl(beans.getBeanProvider(ReviewTools.class), tasks);
+        ReviewBridgeResolverImpl resolver = new ReviewBridgeResolverImpl(beans.getBeanProvider(ReviewTools.class), beans.getBeanProvider(ContextBuildTools.class), tasks);
 
         assertThat(resolver.resolve(review.id().toString())).isEmpty();
     }

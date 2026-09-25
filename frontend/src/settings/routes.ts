@@ -24,6 +24,7 @@ export type SettingsSection =
   | 'github'
   | 'ws-repository'
   | 'ws-agents'
+  | 'ws-context'
   | 'ws-token'
   | 'ws-advanced';
 
@@ -94,6 +95,7 @@ export const SETTINGS_ENTRIES: SettingsEntry[] = [
     rows: ['Development', 'Review', 'Providers'],
   },
   { section: 'ws-token', group: 'Workspace', label: 'Token', slug: 'token', rows: ['GitHub token'] },
+  { section: 'ws-context', group: 'Workspace', label: 'Repository context', slug: 'repository-context', rows: ['Learn / Refresh', 'Knowledge', 'Saved lessons', 'Documentation sources', 'Matching scopes', 'Usage', 'Use repository context in reviews', 'Use repository context in development'] },
   {
     section: 'ws-advanced',
     group: 'Workspace',

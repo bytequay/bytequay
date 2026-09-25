@@ -30,16 +30,24 @@ public record QueueAgentInputCommand(
         String message,
         List<AgentAttachment> attachments,
         String idempotencyKey,
-        Optional<DevelopmentAutomation> developmentAutomation)
+        Optional<DevelopmentAutomation> developmentAutomation,
+        Optional<Boolean> useRepositoryContext)
 {
+    public QueueAgentInputCommand(TaskId taskId, long expectedVersion, String message, List<AgentAttachment> attachments,
+            String idempotencyKey, Optional<DevelopmentAutomation> developmentAutomation)
+    {
+        this(taskId, expectedVersion, message, attachments, idempotencyKey, developmentAutomation, Optional.empty());
+    }
+
     public QueueAgentInputCommand(TaskId taskId, long expectedVersion, String message, List<AgentAttachment> attachments, String idempotencyKey)
     {
-        this(taskId, expectedVersion, message, attachments, idempotencyKey, Optional.empty());
+        this(taskId, expectedVersion, message, attachments, idempotencyKey, Optional.empty(), Optional.empty());
     }
 
     public QueueAgentInputCommand
     {
         requireNonNull(developmentAutomation, "developmentAutomation is null");
+        requireNonNull(useRepositoryContext, "useRepositoryContext is null");
         requireNonNull(taskId, "taskId is null");
         checkArgument(expectedVersion >= 0, "expectedVersion is negative");
         checkNotBlank(message, "message");

@@ -548,6 +548,9 @@ class TestReviewPublicationService
         public List<ReviewRun> listRuns(String reviewId) { throw new UnsupportedOperationException(); }
 
         @Override
+        public List<ReviewRun> listRecentRuns(String workspaceId, String repo, int limit) { throw new UnsupportedOperationException(); }
+
+        @Override
         public ReviewFinding insertFinding(ReviewFinding finding) { throw new UnsupportedOperationException(); }
 
         @Override
@@ -558,6 +561,16 @@ class TestReviewPublicationService
 
         @Override
         public ReviewMessage insertMessage(ReviewMessage message) { throw new UnsupportedOperationException(); }
+
+        @Override
+        public ReviewMessage updateMessage(ReviewMessage message) { throw new UnsupportedOperationException(); }
+
+        @Override
+        public Optional<ReviewMessage> findMessage(String messageId) { throw new UnsupportedOperationException(); }
+
+        @Override
+        public List<ReviewMessage> listEarlierMessages(String reviewId, String runId, Optional<String> findingId, Optional<String> cardId,
+                int targetRevision, Instant createdAt, String messageId, int limit) { throw new UnsupportedOperationException(); }
 
         @Override
         public List<ReviewMessage> listMessages(String reviewId) { throw new UnsupportedOperationException(); }

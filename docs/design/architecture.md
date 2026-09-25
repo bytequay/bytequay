@@ -42,6 +42,140 @@ with GitHub, stores durable local state in SQLite, and hosts the implemented
 worktree-scoped agent service. Its implemented rich task surface is specified
 in [Agent Task UI Design](agent-task-ui.md).
 
+[Repository Context](repository-context.md) stores the workspace notebook in the
+existing application-settings port. Bounded values live in core; local editing,
+source capture from retained review evidence, and HTTP live in app. Explicit
+workspace deletion clears the notebook after existing ownership checks.
+Review startup captures bounded local selection and retained evidence on the
+existing review run, whose nullable context JSON is mapped by persistence-sqlite.
+Matching and history reuse existing Git, repository enrichment, PR, issue,
+review and task services/stores. Enabled scope rules gate notes; within those
+matches, saved lessons rank by distinct title/summary words shared with PR text
+or changed basenames. Knowledge leads within each scope rank, and lessons with
+only a scope match remain lower-priority candidates. Match reasons disclose this
+lexical heuristic; applicability remains unverified and packet budgets are
+unchanged. Completed task-summary lookup scopes workspace and the selected
+physical repository before its row limit; task and review
+excerpts share one three-item cap. Snapshot capture occurs before provider admission and records
+prepared text and bounded baseline input fingerprints, not confirmed delivery.
+Input identities are read from frozen Git objects outside notebook mutations;
+failed or partial inventories retain gaps instead of reusable digests.
+Selected baseline-file and document reads append bounded typed source receipts
+to that context, with exact excerpts stored once in existing run evidence.
+Core validates receipt identity, bounds and evidence references; persistence
+serializes the closed receipt types in the existing run JSON. App reads pinned
+local baseline blobs or registered documents, then rechecks turn ownership and
+retains receipt/evidence in one run update. These reads do not mutate the shared
+notebook or certify source applicability or completed knowledge preparation.
+The Electron bridge exposes typed notebook reads and revision-guarded edits.
+Workspace settings renders knowledge, lessons, scopes and documentation sources;
+private review messages can be saved as user-edited lessons bound to their original
+run, with an explicit scope choice before saving. Review details renders the
+retained packet, sealed investigation brief and collection supplements, source
+receipts, and per-turn input bindings with gaps and provenance. Delivery labels
+are derived from existing turn facts; preparation alone is never acceptance.
+Opening either surface performs no generation or remote
+fetch. Review-owned generation now uses `RepositoryContextPreparation` through
+one fixed BEGIN/SUBMIT tool on enabled initial investigation turns. Git/input
+inspection and report validation run outside locks; accepted ownership/results
+and the exact run operation journal commit under the workspace lock in the existing
+AgentUnitOfWork transaction. One workspace owner fences concurrent generation;
+READY/EMPTY reuse compares full input inventories and preserves checked blank
+receipts. Reconciliation clears only a terminal turn with no task runtime claim,
+recording FAILED and preserving saved notes. Settings displays these retained
+outcomes. Accepted preparation responses expose their saved operation key as
+receiptRef, so investigation reports can validate citations to the same run.
+
+The framework-free ReviewTurnInputResolver port in agent-core composes reference
+input after turn acceptance, outside the task monitor and before provider launch.
+Its app implementation uses the existing review assignment fence to select the
+saved run setting and immutable packet prefix. Core rechecks cancellation and
+worktree ownership, then sends the composed AgentTurnCommand message through the
+existing provider transport. Original accepted input/transcript text stays intact;
+source bodies do not enter managed instructions or process arguments. Direct,
+queued and resumed turns use this same boundary, including old-card discussions
+bound to their original run. Off and absent historical snapshots add no input.
+
+ContextContribution and ContextDelivery are bounded core values in the existing
+run JSON. Investigation seals the first contribution atomically with its report
+and replay receipt; at most two collection supplements append. Each rendered
+contribution fits 8 KiB, every packet fits 32 KiB, and composed message text fits
+256 KiB UTF-8. A maximum of 128 turn bindings stores exact packet prefix/digest
+and input digest/size, not another lifecycle state. contextDeliveryStates in the
+run projection derives acceptance from AgentTurn provider references, startedAt
+and knownUnsent; a missing receipt is uncertain. No automatic uncertain resend
+or model acknowledgment is introduced.
+
+Selected historical-source learning extends the existing source/preparation
+boundary: one merged PR or closed issue yields a bounded typed ContextHistoryRead
+and exact retained run evidence. BEGIN can admit up to ten already captured
+history IDs into scope input fingerprints; SUBMIT validates those same identities.
+History-backed generated knowledge also needs nonblank captured monitored-baseline
+evidence. History cannot prove EMPTY or automatically become user-owned memory.
+Closed-issue discovery remains separate from selected reads and the open cache.
+
+The implemented Find suggestions and Use selected suggestions actions precede
+Learn. The implementation checklist records verification. Discovery inspects a
+frozen monitored baseline only in an existing
+local repository; it does not provision, clone, Git-fetch or start an agent.
+Optional remote history search remains bounded and separate. Acceptance rederives
+selected proposal IDs outside locks, rejects moved baseline/routing, then appends
+configuration under the existing revision/owner guard. Scope and source
+discoveryEvidenceRef values point to application-captured RepositoryFile excerpts
+in notebook sourceEvidence, retained even before notes exist. BEGIN does not
+register proposals or expand the accepted Learn source assignment.
+Repository traversal is bounded breadth-first across eligible directories at any
+depth, including below manifest directories. Queries prioritize children and
+filter scope proposals without pruning nonmatching ancestors. The existing eight
+manifest names, 24-directory/24-file caps, first-100-entry directory pages and
+safe-path/hidden/generated/vendor exclusions remain. Symlinks and submodules are
+not followed. No workspace parser, build execution or dependency is added;
+discovered configuration still requires captured evidence and user acceptance.
+Preview/apply carry a required repositoryFingerprint over routing and
+lastCodeSyncAt. Metadata is captured and rechecked under the workspace lock,
+alongside a final bounded local rev-parse before notebook registration. That
+two-second/no-lazy-fetch ref check catches a failed sync that moved the ref
+without recording lastCodeSyncAt; it holds no notebook transaction or task
+monitor. Candidate Git reads and all network/model work stay outside that lock.
+These guards reject preview transfer to another upstream at the same commit
+and synchronization completed while acceptance awaited the lock.
+Local history uses bounded GitBrowseService.localLog with no lazy fetch or
+replacement objects. Repository source reads share the configurable
+`bytequay.repository-context.discovery-timeout=30s` budget: one Stopwatch supplies
+remaining time to Guava SimpleTimeLimiter on the existing ioExecutor. Only the
+caller mutates the scan; timeout preserves completed suggestions with a gap,
+and late worker results are not merged. Interruption restores the flag and aborts
+before history or configuration saving. No scheduler is added. Git command limits
+and history budgets remain separate; this is not a thirty-second HTTP latency
+or measured-performance guarantee.
+
+Cold-start implementation includes this historical-source path, standalone Learn
+and Refresh knowledge, scope/root proposals and bounded resolved-history
+discovery. Fresh discussion-source supplements and selected deferred-note
+exact-version reads are next. The user starts a visible,
+stoppable ordinary task with selected scopes; it reads repository files, directory
+structure, repository documentation and registered docs by default, including
+the first run. Those sources are part of the assignment, not optional switches.
+Selected merged-PR/closed-issue references add optional history. Opening the app,
+workspace or settings, startup recovery and source synchronization never start
+or resume learning; there is no background learning scheduler.
+ContextBuildStore keeps the latest accepted task/source binding in existing
+settings, separately from notebook content. ReviewBridgeResolver selects its
+fixed context tools and restricted profile from that binding, never from prompt
+text or a synthetic review. Shared preparation retains mandatory task/turn
+ownership with review/run IDs either both present or both absent. Existing task
+events drive settlement; a terminal task keeps its binding until recorded
+worktree removal permits replacement. Reconciliation leaves already-FAILED
+tasks' worktrees for explicit purpose-scoped cleanup; GET and startup cannot
+infer safe removal from a recovery claim discarded by Mark failed. Project input
+fingerprints include root entry names/modes without hashing every unrelated
+repository content change.
+Project overview is a default scope before any note exists; its generated content
+belongs under Knowledge. Save lesson remains the explicit user-owned memory
+action. Selected deferred-note exact-version reads and fresh
+discussion-source supplements follow cold start. Citation navigation, folded
+activity and measured provider/performance/quality retain their acceptance gates.
+
 [Development delivery](development-delivery.md) extends the current agent core
 through one application coordinator. Core reserves its source owner after a
 verified stopped turn, and the coordinator drives generated commit/publication
@@ -638,6 +772,9 @@ renderer crashes detach the native surface and expose a reload action.
   the user with the command readiness shows. The user's `~/.codex` is never
   read, copied, or linked, and the variable is set on ByteQuay's processes
   only, so the user's own Codex sessions are unaffected.
+- Every Claude CLI process ByteQuay starts uses `CLAUDE_CONFIG_DIR` pointing
+  to `claude-home` under that same application-support directory. The sign-in
+  command shown by readiness uses the same path; the CLI owns the credentials.
 - There is one Codex App Server process per active Codex turn, launched with
   the task ID as its owner and the task worktree as its working directory. Its
   loss interrupts only that task's turn; stored thread IDs remain resumable by

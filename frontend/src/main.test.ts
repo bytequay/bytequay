@@ -16,6 +16,8 @@ import { afterEach, expect, it, vi } from 'vitest';
 import { CI_RUN } from './agents/fixtures/ciAutofix';
 import { parseAgentReview } from './pulls/agent-review/contracts';
 import { runningReviewFixture } from './pulls/agent-review/fixtures/review';
+import type { ContextBuildViewDto, ContextDiscoveryDto, ContextUsageActivitiesDto, ContextUsageOverviewDto, RepositoryNotebookDto } from './repository-context/contracts';
+import type { AgentRuntimeStopImpactDto } from './types';
 
 const desktop = vi.hoisted(() => ({
   listeners: new Map<string, () => Promise<void>>(),
@@ -164,4 +166,135 @@ it('routes Code & Tests reads and writes to the review or the development task t
   const calls = fetch.mock.calls.length;
   await expect(handler('code:files')({ kind: 'task', taskId: 'task/one' })).rejects.toThrow('Malformed Code & Tests host');
   expect(fetch).toHaveBeenCalledTimes(calls);
+});
+
+const emptyNotebook: RepositoryNotebookDto = { schemaVersion: 1, revision: 7, useInReviews: true, useInDevelopment: true, sources: [], activePreparation: null,
+  scopes: [{ id: 'project', title: 'Project', match: { kind: 'REPOSITORY' }, enabled: true, preparation: null, discoveryEvidenceRef: null }],
+  entries: [], suppressedKnowledgeIds: [], sourceEvidence: [] };
+
+it('reads bounded usage and a selected note’s activities through authenticated workspace endpoints', async () => {
+  await import('./main');
+  await expect(desktop.listeners.get('ready')?.()).rejects.toThrow('End test startup');
+  const overview: ContextUsageOverviewDto = { trackingSince: null, window: '30d', coverage: 'RETAINED_TASKS_AND_REVIEWS',
+    summary: { eligibleDevelopmentTasks: 0, eligibleReviewRuns: 0, contextOffTasks: 0, tasksProvidedOrOpened: 0,
+      activeNotesWithoutConfirmedDeliveryOrOpen: 0, scopesDemandedWhileMissing: 0, scopesStillMissingAfterDemand: 0,
+      searchesWithNoMatchingScope: 0, searchesWithScopeButNoNote: 0 },
+    byTaskAndNoteKind: [], entries: [], scopeGaps: [], hasMoreEntries: false, hasMoreScopeGaps: false };
+  const activities: ContextUsageActivitiesDto = { entryId: 'knowledge:path:plugin/trino-iceberg/', activities: [{ taskId: 'task', reviewRunId: null, turnId: 'turn',
+    taskKind: 'DEVELOPMENT', entryVersion: 2, stage: 'OPENED', delivery: 'CONFIRMED', occurredAt: '2026-09-02T00:00:00Z',
+    receiptRef: 'context-read:1' }], hasMore: false };
+  const fetch = vi.fn(async () => new Response(JSON.stringify(overview)));
+  vi.stubGlobal('fetch', fetch);
+  const base = 'http://127.0.0.1:9527/api/workspaces/workspace%2Fone/repository-context/usage';
+  await expect(desktop.handlers.get('repository-context:usage')?.({}, 'workspace/one', '30d', 0)).resolves.toEqual(overview);
+  expect(fetch).toHaveBeenLastCalledWith(base + '?window=30d&page=0',
+    expect.objectContaining({ headers: { 'X-ByteQuay-Session': 'test-session' } }));
+  fetch.mockImplementation(async () => new Response(JSON.stringify(activities)));
+  await expect(desktop.handlers.get('repository-context:usage:entry')?.({}, 'workspace/one', activities.entryId, '30d', 1)).resolves.toEqual(activities);
+  expect(fetch).toHaveBeenLastCalledWith(base + '/activities?entryId=knowledge%3Apath%3Aplugin%2Ftrino-iceberg%2F&window=30d&page=1',
+    expect.objectContaining({ headers: { 'X-ByteQuay-Session': 'test-session' } }));
+  fetch.mockClear();
+  expect(() => desktop.handlers.get('repository-context:usage')?.({}, 'workspace/one', 'year', 0)).toThrow('Malformed repository context');
+  expect(() => desktop.handlers.get('repository-context:usage:entry')?.({}, 'workspace/one', 'knowledge:project', '30d', -1)).toThrow('Malformed repository context');
+  expect(fetch).not.toHaveBeenCalled();
+  fetch.mockImplementation(async () => new Response(JSON.stringify({ ...overview, window: 'all' })));
+  await expect(desktop.handlers.get('repository-context:usage')?.({}, 'workspace/one', '30d', 0)).rejects.toThrow('Malformed repository context');
+});
+
+it('routes notebook actions through authenticated workspace-scoped endpoints with exact revision and lesson bindings', async () => {
+  await import('./main');
+  await expect(desktop.listeners.get('ready')?.()).rejects.toThrow('End test startup');
+  const fetch = vi.fn(async () => new Response(JSON.stringify(emptyNotebook), { headers: { 'Content-Type': 'application/json' } }));
+  vi.stubGlobal('fetch', fetch);
+  const base = 'http://127.0.0.1:9527/api/workspaces/workspace%2Fone/repository-context';
+  await expect(desktop.handlers.get('repository-context:get')?.({}, 'workspace/one')).resolves.toEqual(emptyNotebook);
+  expect(fetch).toHaveBeenLastCalledWith(base, expect.objectContaining({ headers: { 'X-ByteQuay-Session': 'test-session' } }));
+  const actions: Array<{ action: string; path: string; method: string; request: Record<string, unknown> }> = [
+    { action: 'configure', path: '/configuration', method: 'PUT', request: { expectedRevision: 7, useInReviews: false } },
+    { action: 'configure', path: '/configuration', method: 'PUT', request: { expectedRevision: 7, useInDevelopment: false } },
+    { action: 'edit', path: '/entries', method: 'PUT', request: { expectedRevision: 7, id: 'knowledge:project', scopeId: 'project',
+      title: 'Project', summary: 'Summary', body: 'Corrected text', claims: [], sourceIds: [] } },
+    { action: 'enabled', path: '/entries/enabled', method: 'PUT', request: { expectedRevision: 7, entryId: 'knowledge:project', enabled: false } },
+    { action: 'remove', path: '/entries', method: 'DELETE', request: { expectedRevision: 7, entryId: 'knowledge:project' } },
+    { action: 'reset', path: '/reset', method: 'POST', request: { expectedRevision: 7, scopeIds: ['project'] } },
+    { action: 'lesson', path: '/lessons', method: 'POST', request: { expectedRevision: 7, scopeId: 'project',
+      title: 'Lesson', summary: 'Summary', body: 'Conditional lesson', reviewId: 'review', runId: 'old-run', evidenceRefs: ['E2'], messageId: 'old-message' } },
+  ];
+  for (const { action, path, method, request } of actions) {
+    await expect(desktop.handlers.get(`repository-context:${action}`)?.({}, 'workspace/one', request)).resolves.toEqual(emptyNotebook);
+    expect(fetch).toHaveBeenLastCalledWith(base + path, expect.objectContaining({ method, body: JSON.stringify(request),
+      headers: { 'Content-Type': 'application/json', 'X-ByteQuay-Session': 'test-session' } }));
+  }
+  expect(fetch).toHaveBeenCalledTimes(8);
+});
+
+it('rejects forged notebook mutation fields before sending and surfaces stale revisions without an automatic retry', async () => {
+  await import('./main');
+  await expect(desktop.listeners.get('ready')?.()).rejects.toThrow('End test startup');
+  const fetch = vi.fn(async () => new Response(JSON.stringify({ message: 'Notebook changed; reload before saving.' }), { status: 409 }));
+  vi.stubGlobal('fetch', fetch);
+  const configure = desktop.handlers.get('repository-context:configure');
+  expect(() => configure?.({}, 'workspace', { expectedRevision: 7, sourceEvidence: [] })).toThrow('unsupported request field');
+  expect(fetch).not.toHaveBeenCalled();
+  await expect(configure?.({}, 'workspace', { expectedRevision: 7, useInReviews: false })).rejects.toThrow('Notebook changed; reload before saving.');
+  expect(fetch).toHaveBeenCalledTimes(1);
+});
+
+it('refuses malformed notebook responses instead of returning a fabricated empty notebook', async () => {
+  await import('./main');
+  await expect(desktop.listeners.get('ready')?.()).rejects.toThrow('End test startup');
+  vi.stubGlobal('fetch', vi.fn(async () => new Response(JSON.stringify({ ...emptyNotebook, useInReviews: 'false' }))));
+  await expect(desktop.handlers.get('repository-context:get')?.({}, 'workspace')).rejects.toThrow('Malformed repository context');
+});
+
+it('routes explicit learning and recovery through the authenticated purpose-bound API', async () => {
+  await import('./main');
+  await expect(desktop.listeners.get('ready')?.()).rejects.toThrow('End test startup');
+  const view: ContextBuildViewDto = { buildRequestSequence: 0, notebookRevision: 7, canStart: true, build: null };
+  const fetch = vi.fn(async () => new Response(JSON.stringify(view)));
+  vi.stubGlobal('fetch', fetch);
+  const base = 'http://127.0.0.1:9527/api/workspaces/workspace%2Fone/repository-context/build';
+  await expect(desktop.handlers.get('repository-context:build:get')?.({}, 'workspace/one')).resolves.toEqual(view);
+  expect(fetch).toHaveBeenLastCalledWith(base, expect.objectContaining({ headers: { 'X-ByteQuay-Session': 'test-session' } }));
+  const request = { requestKey: 'learn-key', expectedRevision: 7, expectedBuildSequence: 0, scopeIds: ['project'], history: [{ kind: 'PR', number: 18 }] };
+  const cases = [
+    { name: 'start', path: '', args: [request], body: request },
+    { name: 'stop', path: '/stop', args: ['task'], body: { taskId: 'task' } },
+    { name: 'stop-runtime', path: '/runtime/stop', args: ['task', 'generation'], body: { taskId: 'task', generation: 'generation' } },
+    { name: 'fail', path: '/mark-failed', args: ['task', 'User stopped learning'], body: { taskId: 'task', reason: 'User stopped learning' } },
+    { name: 'cleanup', path: '/cleanup', args: ['task'], body: { taskId: 'task' } },
+  ];
+  for (const item of cases) {
+    await expect(desktop.handlers.get(`repository-context:build:${item.name}`)?.({}, 'workspace/one', ...item.args)).resolves.toEqual(view);
+    expect(fetch).toHaveBeenLastCalledWith(base + item.path, expect.objectContaining({ method: 'POST', body: JSON.stringify(item.body),
+      headers: { 'Content-Type': 'application/json', 'X-ByteQuay-Session': 'test-session' } }));
+  }
+  const impact: AgentRuntimeStopImpactDto = { taskId: 'task/one', generation: 'generation', activeTurnId: null, liveProcess: true };
+  fetch.mockImplementation(async () => new Response(JSON.stringify(impact)));
+  await expect(desktop.handlers.get('repository-context:build:stop-impact')?.({}, 'workspace/one', 'task/one')).resolves.toEqual(impact);
+  expect(fetch).toHaveBeenLastCalledWith(base + '/runtime/stop-impact?taskId=task%2Fone', expect.objectContaining({ headers: { 'X-ByteQuay-Session': 'test-session' } }));
+  fetch.mockClear();
+  expect(() => desktop.handlers.get('repository-context:build:start')?.({}, 'workspace/one', { ...request, prompt: 'forged' })).toThrow('unsupported request field');
+  expect(fetch).not.toHaveBeenCalled();
+});
+
+it('routes explicit discovery and chosen suggestions without learning or forwarding configuration evidence', async () => {
+  await import('./main');
+  await expect(desktop.listeners.get('ready')?.()).rejects.toThrow('End test startup');
+  const found: ContextDiscoveryDto = { workspaceId: 'workspace/one', notebookRevision: 7, baselineSha: 'a'.repeat(40), repositoryFingerprint: 'c'.repeat(64), query: 'Iceberg', scopes: [], sources: [], history: [], gaps: [],
+    inspected: { directories: 0, files: 0, pullRequests: 0, issues: 0 } };
+  const fetch = vi.fn(async () => new Response(JSON.stringify(found))); vi.stubGlobal('fetch', fetch);
+  const base = 'http://127.0.0.1:9527/api/workspaces/workspace%2Fone/repository-context/discovery';
+  const request = { expectedRevision: 7, scopeIds: ['project'], query: 'Iceberg', includeRemote: false };
+  await expect(desktop.handlers.get('repository-context:discover')?.({}, 'workspace/one', request)).resolves.toEqual(found);
+  expect(fetch).toHaveBeenLastCalledWith(base, expect.objectContaining({ method: 'POST', body: JSON.stringify(request),
+    headers: { 'Content-Type': 'application/json', 'X-ByteQuay-Session': 'test-session' } }));
+  fetch.mockImplementation(async () => new Response(JSON.stringify(emptyNotebook)));
+  const apply = { expectedRevision: 7, baselineSha: found.baselineSha, repositoryFingerprint: found.repositoryFingerprint, query: 'Iceberg', scopeIds: ['component'], sourceIds: ['docs'] };
+  await expect(desktop.handlers.get('repository-context:discovery:apply')?.({}, 'workspace/one', apply)).resolves.toEqual(emptyNotebook);
+  expect(fetch).toHaveBeenLastCalledWith(base + '/apply', expect.objectContaining({ method: 'POST', body: JSON.stringify(apply),
+    headers: { 'Content-Type': 'application/json', 'X-ByteQuay-Session': 'test-session' } }));
+  expect(fetch).toHaveBeenCalledTimes(2);
+  expect(() => desktop.handlers.get('repository-context:discovery:apply')?.({}, 'workspace/one', { ...apply, sourceEvidence: [] })).toThrow('unsupported request field');
+  expect(fetch).toHaveBeenCalledTimes(2);
 });

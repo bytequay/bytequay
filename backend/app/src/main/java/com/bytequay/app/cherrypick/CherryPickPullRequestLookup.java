@@ -36,6 +36,7 @@ import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
 import java.util.function.Supplier;
 
+import static com.google.common.base.Preconditions.checkState;
 import static com.google.common.collect.ImmutableList.toImmutableList;
 import static java.util.Objects.requireNonNull;
 
@@ -52,11 +53,12 @@ public class CherryPickPullRequestLookup
     /** Bounded so a 300-commit range cannot open 300 simultaneous requests. */
     private static final int CONCURRENCY = 8;
     private static final int MAX_CACHED = 2000;
+    private static final int ASSOCIATION_PAGE_SIZE = 100;
 
     private final RestClient gitHub;
     private final Supplier<String> tokenSupplier;
     /** Read from eight threads at once, so it has to be thread-safe on its own. */
-    private final Cache<String, Optional<PullRequestAssociation>> cache = CacheBuilder.newBuilder()
+    private final Cache<CacheKey, PullRequestAssociation> cache = CacheBuilder.newBuilder()
             .maximumSize(MAX_CACHED)
             .build();
 
@@ -122,6 +124,7 @@ public class CherryPickPullRequestLookup
         ambiguous = sourceShas.size() - associations.size() - failedShas.size();
         if (!failedShas.isEmpty()) {
             warnings.add(failedShas.size() + " commit(s) could not be checked against GitHub. "
+                    + "Responses were unavailable or incomplete, including responses reaching the " + ASSOCIATION_PAGE_SIZE + "-item page limit. "
                     + "They are listed individually and stay selectable.");
         }
         if (ambiguous > 0) {
@@ -137,13 +140,14 @@ public class CherryPickPullRequestLookup
             String sourceBranch,
             String token)
     {
-        String key = repository.fullName() + "@" + sha;
-        Optional<PullRequestAssociation> cached = cache.getIfPresent(key);
-        if (cached != null) {
+        CacheKey key = new CacheKey(repository, sha, sourceBranch);
+        Optional<PullRequestAssociation> cached = Optional.ofNullable(cache.getIfPresent(key));
+        if (cached.isPresent()) {
             return cached;
         }
         Optional<PullRequestAssociation> association = choose(fetch(repository, sha, token), sourceBranch);
-        cache.put(key, association);
+        // Durable enrichment owns negative retry timing; memoizing a miss here would suppress a due retry.
+        association.ifPresent(value -> cache.put(key, value));
         return association;
     }
 
@@ -151,12 +155,14 @@ public class CherryPickPullRequestLookup
     {
         AssociatedPullRequest[] response = gitHub.get()
                 .uri(uri -> uri.path("/repos/{owner}/{repo}/commits/{sha}/pulls")
-                        .queryParam("per_page", 100)
+                        .queryParam("per_page", ASSOCIATION_PAGE_SIZE)
                         .build(repository.owner(), repository.repo(), sha))
                 .header("Authorization", "Bearer " + token)
                 .retrieve()
                 .body(AssociatedPullRequest[].class);
-        return response == null ? ImmutableList.of() : ImmutableList.copyOf(response);
+        requireNonNull(response, "GitHub association response is null");
+        checkState(response.length < ASSOCIATION_PAGE_SIZE, "GitHub association response reached the page limit");
+        return ImmutableList.copyOf(response);
     }
 
     /**
@@ -200,6 +206,8 @@ public class CherryPickPullRequestLookup
     }
 
     private record PendingLookup(String sha, Future<Lookup> future) {}
+
+    private record CacheKey(RepoRef repository, String sha, String sourceBranch) {}
 
     @JsonIgnoreProperties(ignoreUnknown = true)
     private record AssociatedPullRequest(

@@ -58,10 +58,14 @@ historical checkpoint evidence and explicitly deferred future work.
   selected turn, one thread per passage, a reply-count footer in the transcript
   and a task side-panel tab. A discussion is not an agent task and never enters
   the task's own conversation, event log, outbox or stream.
-- [Repository Context](repository-context.md) proposes shared workspace knowledge,
+- [Repository Context](repository-context.md) defines shared workspace knowledge,
   user-saved lessons, and source-linked input for the existing review flow.
   Start with its overall flow; its [temporary checklist](repository-context-impl-tmp.md)
-  tracks design review and future implementation/enablement gates.
+  tracks implementation and enablement gates.
+- [Repository Context agent discovery](repository-context-agent-discovery.md)
+  defines the implemented read-only search and exact-note retrieval extension
+  for development tasks and active reviews, with a usage and coverage view.
+  Provider quality and performance acceptance remains open.
 - [Code & Tests](code-tests.md) specifies the PR detail tab for reading whole
   files, following symbols, running tests, editing test source, and a terminal
   in the Agent review working copy. Its [implementation checklist](code-tests-impl-tmp.md)

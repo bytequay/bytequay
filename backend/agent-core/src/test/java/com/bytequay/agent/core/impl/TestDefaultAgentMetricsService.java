@@ -105,6 +105,44 @@ class TestDefaultAgentMetricsService
     }
 
     @Test
+    void keepsResumedInvocationUsageWithoutSubtractingEarlierProcessCounters()
+    {
+        AgentMetrics previousMetrics = new AgentMetrics(59_857, 24_960, 234, Optional.empty(), Duration.ZERO);
+        AgentTurn previous = AgentTurn.accepted(TurnId.random(), task.id(), "previous", turnSettings(), NOW)
+                .markDeliveryStarted(NOW)
+                .running(new ProviderTurnRef("previous"), Optional.empty())
+                .finish(TurnState.COMPLETED, previousMetrics, Optional.empty(), NOW.plusSeconds(1));
+        stores.insert(previous);
+        AgentTurn current = AgentTurn.accepted(TurnId.random(), task.id(), "resumed", turnSettings(), NOW.plusSeconds(2));
+        stores.insert(current);
+
+        AgentMetrics first = service.record(task.id(), current.id(), invocationUsage("usage-1", 20_759, 20_224, 73));
+        service.record(task.id(), current.id(), invocationUsage("usage-2", 42_682, 40_832, 179));
+        AgentMetrics latest = service.record(task.id(), current.id(), invocationUsage("usage-3", 64_844, 62_592, 252));
+        service = new DefaultAgentMetricsService(stores, stores, logStore, clock);
+        AgentMetrics duplicate = service.record(task.id(), current.id(), invocationUsage("usage-3", 64_844, 62_592, 252));
+        AgentMetrics older = service.record(task.id(), current.id(), invocationUsage("usage-2", 42_682, 40_832, 179));
+
+        assertThat(first).isEqualTo(new AgentMetrics(20_759, 20_224, 73, Optional.empty(), Duration.ZERO));
+        assertThat(latest).isEqualTo(new AgentMetrics(64_844, 62_592, 252, Optional.empty(), Duration.ZERO));
+        assertThat(duplicate).isEqualTo(latest);
+        assertThat(older).isEqualTo(latest);
+        assertThat(service.taskTotals(task.id())).isEqualTo(new AgentMetrics(124_701, 87_552, 486, Optional.empty(), Duration.ZERO));
+    }
+
+    @Test
+    void replacesInvocationCostWithoutAddingRepeatedTotals()
+    {
+        AgentTurn turn = AgentTurn.accepted(TurnId.random(), task.id(), "request", turnSettings(), NOW);
+        stores.insert(turn);
+        service.record(task.id(), turn.id(), sample("first", ProviderUsageSample.Semantics.CUMULATIVE_FOR_INVOCATION, 100, 90, 10, "1.00"));
+
+        AgentMetrics latest = service.record(task.id(), turn.id(), sample("latest", ProviderUsageSample.Semantics.CUMULATIVE_FOR_INVOCATION, 150, 120, 30, "1.75"));
+
+        assertThat(latest).isEqualTo(metrics(150, 120, 30, "1.75"));
+    }
+
+    @Test
     void addsDeltaAndFinalInvocationUsage()
     {
         AgentTurn turn = AgentTurn.accepted(TurnId.random(), task.id(), "request", turnSettings(), NOW);
@@ -183,6 +221,18 @@ class TestDefaultAgentMetricsService
                 cachedInputTokens,
                 outputTokens,
                 cost);
+    }
+
+    private static ProviderUsageSample invocationUsage(String eventId, long inputTokens, long cachedInputTokens, long outputTokens)
+    {
+        return new ProviderUsageSample(
+                Optional.of(eventId),
+                ProviderUsageSample.Semantics.CUMULATIVE_FOR_INVOCATION,
+                inputTokens,
+                cachedInputTokens,
+                outputTokens,
+                Optional.empty(),
+                NOW);
     }
 
     private static ProviderUsageSample sample(

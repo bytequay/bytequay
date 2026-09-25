@@ -50,6 +50,7 @@ import com.bytequay.agent.core.QueueAgentInputCommand;
 import com.bytequay.agent.core.QueuedAgentInput;
 import com.bytequay.agent.core.QueuedInputId;
 import com.bytequay.agent.core.QueuedInputNotFoundException;
+import com.bytequay.agent.core.ReviewTurnInputResolver;
 import com.bytequay.agent.core.StartAgentTurnCommand;
 import com.bytequay.agent.core.SteerAgentTurnCommand;
 import com.bytequay.agent.core.TaskId;
@@ -142,6 +143,7 @@ public final class DefaultAgentTurnService
     private final AgentRuntimeRegistry runtimeRegistry;
     private final CodeGraphService codeGraph;
     private final Function<AgentTask, String> managedInstructions;
+    private final ReviewTurnInputResolver reviewTurnInput;
     private final Clock clock;
     private final Duration maximumTurnRuntime;
     /** Runs the queue's next turn off the thread that finished the last one, which may be the provider's own. */
@@ -172,6 +174,82 @@ public final class DefaultAgentTurnService
             Function<AgentTask, String> managedInstructions,
             Clock clock,
             Duration maximumTurnRuntime,
+            Executor queueStarter)
+    {
+        this(
+                taskStore,
+                turnStore,
+                queueStore,
+                steerStore,
+                unitOfWork,
+                outboxStore,
+                logStore,
+                resourceService,
+                driverRegistry,
+                eventService,
+                metricsService,
+                approvalService,
+                runtimeRegistry,
+                codeGraph,
+                managedInstructions,
+                ReviewTurnInputResolver.NONE,
+                clock,
+                maximumTurnRuntime,
+                queueStarter,
+                task -> false,
+                (task, turn) -> {},
+                ignored -> {},
+                ignored -> {});
+    }
+
+    public DefaultAgentTurnService(
+            AgentTaskStore taskStore,
+            AgentTurnStore turnStore,
+            QueuedInputStore queueStore,
+            SteerDeliveryStore steerStore,
+            AgentUnitOfWork unitOfWork,
+            AgentEventOutboxStore outboxStore,
+            TaskLogStore logStore,
+            AgentResourceService resourceService,
+            AgentDriverRegistry driverRegistry,
+            AgentEventService eventService,
+            AgentMetricsService metricsService,
+            AgentApprovalService approvalService,
+            AgentRuntimeRegistry runtimeRegistry,
+            CodeGraphService codeGraph,
+            Function<AgentTask, String> managedInstructions,
+            Clock clock,
+            Duration maximumTurnRuntime,
+            Executor queueStarter,
+            Predicate<AgentTask> developmentEligibility,
+            BiConsumer<AgentTask, AgentTurn> developmentAccepted,
+            Consumer<DevelopmentTurnCompletion> developmentCompletion,
+            Consumer<TaskId> stopChildren)
+    {
+        this(taskStore, turnStore, queueStore, steerStore, unitOfWork, outboxStore, logStore, resourceService, driverRegistry, eventService, metricsService,
+                approvalService, runtimeRegistry, codeGraph, managedInstructions, ReviewTurnInputResolver.NONE, clock, maximumTurnRuntime, queueStarter,
+                developmentEligibility, developmentAccepted, developmentCompletion, stopChildren);
+    }
+
+    public DefaultAgentTurnService(
+            AgentTaskStore taskStore,
+            AgentTurnStore turnStore,
+            QueuedInputStore queueStore,
+            SteerDeliveryStore steerStore,
+            AgentUnitOfWork unitOfWork,
+            AgentEventOutboxStore outboxStore,
+            TaskLogStore logStore,
+            AgentResourceService resourceService,
+            AgentDriverRegistry driverRegistry,
+            AgentEventService eventService,
+            AgentMetricsService metricsService,
+            AgentApprovalService approvalService,
+            AgentRuntimeRegistry runtimeRegistry,
+            CodeGraphService codeGraph,
+            Function<AgentTask, String> managedInstructions,
+            ReviewTurnInputResolver reviewTurnInput,
+            Clock clock,
+            Duration maximumTurnRuntime,
             Executor queueStarter,
             Predicate<AgentTask> developmentEligibility,
             BiConsumer<AgentTask, AgentTurn> developmentAccepted,
@@ -194,6 +272,7 @@ public final class DefaultAgentTurnService
         this.runtimeRegistry = requireNonNull(runtimeRegistry, "runtimeRegistry is null");
         this.codeGraph = requireNonNull(codeGraph, "codeGraph is null");
         this.managedInstructions = requireNonNull(managedInstructions, "managedInstructions is null");
+        this.reviewTurnInput = requireNonNull(reviewTurnInput, "reviewTurnInput is null");
         this.clock = requireNonNull(clock, "clock is null");
         this.maximumTurnRuntime = requireNonNull(maximumTurnRuntime, "maximumTurnRuntime is null");
         checkArgument(!maximumTurnRuntime.isZero() && !maximumTurnRuntime.isNegative(), "maximumTurnRuntime must be positive");
@@ -650,7 +729,7 @@ public final class DefaultAgentTurnService
         }
     }
 
-    /** Captures accepted development scope without holding the task lock or starting a provider. */
+    /** Prepares accepted review input and development scope outside the task lock, before provider launch. */
     private AgentTurn launchAccepted(TurnAcceptance acceptance)
     {
         AgentTurn turn = acceptance.turn();
@@ -665,6 +744,8 @@ public final class DefaultAgentTurnService
                 // the accepted message first so the transcript shows it while Send is still waiting.
                 eventService.drain(acceptance.deliveryEventId());
             }
+            String message = reviewTurnInput.prepare(task, turn, acceptance.message());
+            checkNotBlank(message, "prepared review input");
             if (developmentTurnEligible(task, turn)) {
                 developmentAccepted.accept(task, turn);
             }
@@ -674,7 +755,7 @@ public final class DefaultAgentTurnService
                     task = taskStore.update(task.withDevelopmentContinuation(false, Instant.now(clock)));
                 }
                 launchAttempted = true;
-                launch = launchLocked(task, acceptance);
+                launch = launchLocked(task, new TurnAcceptance(turn, acceptance.deliveryEventId(), message, acceptance.attachments()));
             }
         }
         catch (RuntimeException failure) {
@@ -747,6 +828,12 @@ public final class DefaultAgentTurnService
                     settings.serviceTier()));
             started = Optional.of(runningTurn);
             registerRunningTurn(accepted, runningTurn, session.reference());
+            try {
+                reviewTurnInput.delivered(task, requireTurn(accepted.id()));
+            }
+            catch (RuntimeException ignored) {
+                // Provider delivery is already durable; usage projection may be retried from the saved offer.
+            }
             return new Launch(accepted, started, Optional.empty());
         }
         catch (RuntimeException failure) {
@@ -1020,7 +1107,8 @@ public final class DefaultAgentTurnService
                     command.idempotencyKey(),
                     textBlob,
                     command.message(),
-                    turnSettings(task, references(command.attachments()), command.developmentAutomation()),
+                    turnSettings(task, references(command.attachments()), command.developmentAutomation())
+                            .withRepositoryContext(command.useRepositoryContext().orElse(true)),
                     queuedAt);
             return eventCommitter.commit(
                     pendingLifecycle(
@@ -1350,7 +1438,8 @@ public final class DefaultAgentTurnService
     private TurnAcceptance acceptTurnLocked(AgentTask task, StartAgentTurnCommand command)
     {
         return acceptTurnLocked(task, command.idempotencyKey(), command.message(), command.attachments(),
-                turnSettings(task, references(command.attachments()), command.developmentAutomation()), Optional.empty());
+                turnSettings(task, references(command.attachments()), command.developmentAutomation())
+                        .withRepositoryContext(command.useRepositoryContext().orElse(true)), Optional.empty());
     }
 
     private TurnAcceptance acceptTurnLocked(

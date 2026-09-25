@@ -81,6 +81,7 @@ public final class DefaultAgentMetricsService
         }
         AgentMetrics updated = switch (sample.semantics()) {
             case CUMULATIVE -> cumulativeMetrics(baselineTotals(taskId, turnId), turn.metrics(), sample);
+            case CUMULATIVE_FOR_INVOCATION -> cumulativeMetrics(AgentMetrics.empty(), turn.metrics(), sample);
             case DELTA, FINAL_FOR_INVOCATION -> addMetrics(turn.metrics(), sample);
         };
         if (updated.equals(turn.metrics())) {

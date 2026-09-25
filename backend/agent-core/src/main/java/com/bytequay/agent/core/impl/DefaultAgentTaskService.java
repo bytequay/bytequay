@@ -26,6 +26,7 @@ import com.bytequay.agent.core.CreateInteractiveAgentTaskCommand;
 import com.bytequay.agent.core.InvalidAgentRequestException;
 import com.bytequay.agent.core.ProvisionWorktreeCommand;
 import com.bytequay.agent.core.RenameAgentTaskCommand;
+import com.bytequay.agent.core.RepositoryIdentity;
 import com.bytequay.agent.core.TaskId;
 import com.bytequay.agent.core.TaskNames;
 import com.bytequay.agent.core.TaskResources;
@@ -219,6 +220,17 @@ public final class DefaultAgentTaskService
             throw new InvalidAgentRequestException("limit must be positive");
         }
         return taskStore.listRecentInteractive(workspaceId, limit);
+    }
+
+    @Override
+    public List<AgentTask> listCompleted(String workspaceId, RepositoryIdentity repository, int limit)
+    {
+        checkWorkspaceId(workspaceId);
+        requireNonNull(repository, "repository is null");
+        if (limit <= 0) {
+            throw new InvalidAgentRequestException("limit must be positive");
+        }
+        return taskStore.listRecentCompletedInteractive(workspaceId, repository, limit);
     }
 
     private static void checkWorkspaceId(String workspaceId)

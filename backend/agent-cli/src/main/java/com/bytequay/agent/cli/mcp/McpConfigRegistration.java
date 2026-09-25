@@ -18,6 +18,7 @@ import com.bytequay.agent.spi.DevelopmentResultBridge;
 import com.bytequay.agent.spi.IssueContextBridge;
 import com.bytequay.agent.spi.LocalReviewBridge;
 import com.bytequay.agent.spi.PullRequestCiBridge;
+import com.bytequay.agent.spi.RepositoryContextBridge;
 import com.bytequay.agent.spi.ReviewBridge;
 import com.google.common.collect.ImmutableList;
 
@@ -41,6 +42,7 @@ public final class McpConfigRegistration
     private final Optional<LocalReviewBridge> localReview;
     private final Optional<PullRequestCiBridge> pullRequestCi;
     private final Optional<IssueContextBridge> issueContext;
+    private final Optional<RepositoryContextBridge> notebook;
     private final Runnable release;
 
     McpConfigRegistration(
@@ -54,6 +56,7 @@ public final class McpConfigRegistration
             Optional<LocalReviewBridge> localReview,
             Optional<PullRequestCiBridge> pullRequestCi,
             Optional<IssueContextBridge> issueContext,
+            Optional<RepositoryContextBridge> notebook,
             Runnable release)
     {
         this.configFile = requireNonNull(configFile, "configFile is null");
@@ -66,6 +69,7 @@ public final class McpConfigRegistration
         this.localReview = requireNonNull(localReview, "localReview is null");
         this.pullRequestCi = requireNonNull(pullRequestCi, "pullRequestCi is null");
         this.issueContext = requireNonNull(issueContext, "issueContext is null");
+        this.notebook = requireNonNull(notebook, "notebook is null");
         this.release = requireNonNull(release, "release is null");
     }
 
@@ -84,6 +88,11 @@ public final class McpConfigRegistration
         return localReview;
     }
 
+    public Optional<RepositoryContextBridge> notebook()
+    {
+        return notebook;
+    }
+
     /** The review capability this token exposes, resolved from the task when it registered. */
     public Optional<ReviewBridge> review()
     {
@@ -93,7 +102,7 @@ public final class McpConfigRegistration
     /** The managed guidance this session's instruction channel carries, if any tool needs one. */
     public Optional<String> instruction()
     {
-        return PermissionBroker.managedInstruction(codeGraph, review, development, localReview, pullRequestCi, issueContext);
+        return PermissionBroker.managedInstruction(codeGraph, review, development, localReview, pullRequestCi, issueContext, notebook);
     }
 
     public Path configFile()

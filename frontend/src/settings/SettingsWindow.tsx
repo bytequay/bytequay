@@ -33,6 +33,7 @@ import ProviderSignInDialog from '../agents/ProviderSignInDialog';
 import SkillsPage from './SkillsPage';
 import WorkflowPage from './WorkflowPage';
 import CodeGraphPage from './CodeGraphPage';
+import RepositoryContextPage from './RepositoryContextPage';
 import GitHubPage from './GitHubPage';
 import { AppearancePage, BrowserPage, GeneralPage } from './PersonalPages';
 import {
@@ -385,6 +386,7 @@ export default function SettingsWindow({ section, workspace, onWorkspacesChanged
               onCopy={() => copyToken(window.bridge.copyWorkspaceGitHubToken(workspace.id))}
             />
           )}
+          {section === 'ws-context' && workspace !== null && <RepositoryContextPage key={workspace.id} workspace={workspace} />}
           {section === 'ws-advanced' && workspace !== null && (
             <WorkspaceAdvancedPage
               workspace={workspace}

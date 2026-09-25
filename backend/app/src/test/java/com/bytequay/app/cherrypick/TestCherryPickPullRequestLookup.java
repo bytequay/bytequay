@@ -16,6 +16,8 @@ package com.bytequay.app.cherrypick;
 import com.bytequay.core.domain.RepoRef;
 import com.google.common.collect.ImmutableList;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
 import org.springframework.test.web.client.MockRestServiceServer;
@@ -23,10 +25,13 @@ import org.springframework.web.client.RestClient;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.stream.IntStream;
 
+import static java.util.stream.Collectors.joining;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.springframework.http.HttpMethod.GET;
 import static org.springframework.test.web.client.ExpectedCount.manyTimes;
+import static org.springframework.test.web.client.ExpectedCount.times;
 import static org.springframework.test.web.client.match.MockRestRequestMatchers.method;
 import static org.springframework.test.web.client.match.MockRestRequestMatchers.requestTo;
 import static org.springframework.test.web.client.response.MockRestResponseCreators.withServerError;
@@ -167,6 +172,77 @@ class TestCherryPickPullRequestLookup
         assertThat(association(
                 lookup.lookUpResult(REPOSITORY, ImmutableList.of(SHA), "master", warnings), SHA).number())
                 .isEqualTo(5);
+        server.verify();
+    }
+
+    @ParameterizedTest
+    @ValueSource(booleans = {false, true})
+    void negativeAndAmbiguousResultsCanBecomePositive(boolean ambiguous)
+    {
+        RestClient.Builder builder = RestClient.builder().baseUrl("https://api.github.com");
+        MockRestServiceServer server = MockRestServiceServer.bindTo(builder).build();
+        server.expect(requestTo(url(SHA)))
+                .andRespond(withStatus(HttpStatus.OK).contentType(MediaType.APPLICATION_JSON).body(ambiguous ? """
+                        [{"number":1,"title":"First","html_url":"u1",
+                          "merged_at":"2026-08-01T00:00:00Z","base":{"ref":"release-477"}},
+                         {"number":2,"title":"Second","html_url":"u2",
+                          "merged_at":"2026-08-02T00:00:00Z","base":{"ref":"release-478"}}]
+                        """ : "[]"));
+        server.expect(requestTo(url(SHA)))
+                .andRespond(withStatus(HttpStatus.OK).contentType(MediaType.APPLICATION_JSON).body("""
+                        [{"number":3,"title":"Merged","html_url":"u3",
+                          "merged_at":"2026-08-03T00:00:00Z","base":{"ref":"master"}}]
+                        """));
+        CherryPickPullRequestLookup lookup = lookup(builder);
+        PullRequestLookupResult first = lookup.lookUpResult(REPOSITORY, ImmutableList.of(SHA), "master", new ArrayList<>());
+
+        assertThat(first.associations()).isEmpty();
+        assertThat(first.failedShas()).isEmpty();
+        assertThat(association(lookup.lookUpResult(REPOSITORY, ImmutableList.of(SHA), "master", new ArrayList<>()), SHA).number()).isEqualTo(3);
+        server.verify();
+    }
+
+    @Test
+    void positiveMemoizationRetainsTheSourceBranchUsedToDisambiguate()
+    {
+        RestClient.Builder builder = RestClient.builder().baseUrl("https://api.github.com");
+        MockRestServiceServer server = MockRestServiceServer.bindTo(builder).build();
+        server.expect(times(2), requestTo(url(SHA)))
+                .andRespond(withStatus(HttpStatus.OK).contentType(MediaType.APPLICATION_JSON).body("""
+                        [{"number":1,"title":"Backport","html_url":"u1",
+                          "merged_at":"2026-08-01T00:00:00Z","base":{"ref":"release-477"}},
+                         {"number":2,"title":"Original","html_url":"u2",
+                          "merged_at":"2026-08-02T00:00:00Z","base":{"ref":"master"}}]
+                        """));
+        CherryPickPullRequestLookup lookup = lookup(builder);
+
+        assertThat(association(lookup.lookUpResult(REPOSITORY, ImmutableList.of(SHA), "master", new ArrayList<>()), SHA).number()).isEqualTo(2);
+        assertThat(association(lookup.lookUpResult(REPOSITORY, ImmutableList.of(SHA), "release-477", new ArrayList<>()), SHA).number()).isEqualTo(1);
+        assertThat(association(lookup.lookUpResult(REPOSITORY, ImmutableList.of(SHA), "master", new ArrayList<>()), SHA).number()).isEqualTo(2);
+        server.verify();
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"missing-body", "full-negative-page", "full-page-with-single-merged"})
+    void incompleteResponsesAreFailuresInsteadOfCheckedAssociations(String kind)
+    {
+        RestClient.Builder builder = RestClient.builder().baseUrl("https://api.github.com");
+        MockRestServiceServer server = MockRestServiceServer.bindTo(builder).build();
+        String body = kind.equals("missing-body") ? "" : IntStream.rangeClosed(1, 100)
+                .mapToObj(number -> """
+                        {"number":%s,"title":"Candidate %s","html_url":"u%s","merged_at":%s,"base":{"ref":"master"}}
+                        """.formatted(number, number, number, kind.equals("full-page-with-single-merged") && number == 1 ? "\"2026-08-01T00:00:00Z\"" : "null"))
+                .collect(joining(",", "[", "]"));
+        server.expect(requestTo(url(SHA)))
+                .andRespond(withStatus(HttpStatus.OK).contentType(MediaType.APPLICATION_JSON).body(body));
+        List<String> warnings = new ArrayList<>();
+
+        PullRequestLookupResult result = lookup(builder).lookUpResult(REPOSITORY, ImmutableList.of(SHA), "master", warnings);
+
+        assertThat(result.associations()).isEmpty();
+        assertThat(result.failedShas()).containsExactly(SHA);
+        assertThat(warnings).anyMatch(warning -> warning.contains("unavailable or incomplete"));
+        assertThat(warnings).noneMatch(warning -> warning.contains("no single merged pull request"));
         server.verify();
     }
 

@@ -26,6 +26,7 @@ import com.google.common.collect.ImmutableList;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
+import java.time.Duration;
 import java.time.Instant;
 import java.util.Optional;
 
@@ -68,6 +69,26 @@ class TestRepositoryEnrichmentService
 
         verify(commitHistory).findEnrichment(166_515_022L, ImmutableList.of("abc123"));
         verify(commitHistory).upsertEnrichment(ImmutableList.of(value));
+    }
+
+    @Test
+    void sharesPositiveReuseAndDailyRecentNegativeRetryBoundaries()
+    {
+        CommitEnrichment positive = association(Optional.of(42), Optional.empty());
+        assertThat(RepositoryEnrichmentService.associationDue(null, Optional.of(positive), NOW)).isFalse();
+        String oldCommit = NOW.minus(Duration.ofDays(100)).toString();
+        assertThat(RepositoryEnrichmentService.associationDue(oldCommit, Optional.empty(), NOW)).isTrue();
+        assertThat(RepositoryEnrichmentService.associationDue(oldCommit, Optional.of(association(Optional.empty(), Optional.empty())), NOW)).isTrue();
+
+        CommitEnrichment due = association(Optional.empty(), Optional.of(NOW.minus(Duration.ofDays(1))));
+        String windowStart = NOW.minus(Duration.ofDays(7)).toString();
+        assertThat(RepositoryEnrichmentService.associationDue(windowStart, Optional.of(due), NOW)).isTrue();
+        assertThat(RepositoryEnrichmentService.associationDue(NOW.minus(Duration.ofDays(7)).minusNanos(1).toString(), Optional.of(due), NOW)).isFalse();
+        CommitEnrichment fresh = association(Optional.empty(), Optional.of(NOW.minus(Duration.ofDays(1)).plusNanos(1)));
+        assertThat(RepositoryEnrichmentService.associationDue(windowStart, Optional.of(fresh), NOW)).isFalse();
+        assertThat(RepositoryEnrichmentService.associationDue(null, Optional.of(due), NOW)).isTrue();
+        assertThat(RepositoryEnrichmentService.associationDue("malformed", Optional.of(due), NOW)).isTrue();
+        assertThat(RepositoryEnrichmentService.associationDue("malformed", Optional.of(fresh), NOW)).isFalse();
     }
 
     @Test
@@ -132,6 +153,12 @@ class TestRepositoryEnrichmentService
                 renamed.withRepositoryIdentity(202, current));
 
         verify(remoteSources).save(renamed.withRepositoryIdentity(202, current));
+    }
+
+    private static CommitEnrichment association(Optional<Integer> number, Optional<Instant> checkedAt)
+    {
+        return new CommitEnrichment(42, "a".repeat(40), Optional.empty(), Optional.empty(), Optional.empty(), Optional.empty(),
+                number, Optional.empty(), Optional.empty(), Optional.empty(), checkedAt, NOW);
     }
 
     private static CommitEnrichment enrichment(long repositoryId, String sha)

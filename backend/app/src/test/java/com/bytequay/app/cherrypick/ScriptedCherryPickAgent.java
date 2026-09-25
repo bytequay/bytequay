@@ -35,6 +35,7 @@ import com.bytequay.agent.core.QueueAgentInputCommand;
 import com.bytequay.agent.core.QueuedAgentInput;
 import com.bytequay.agent.core.QueuedInputId;
 import com.bytequay.agent.core.RenameAgentTaskCommand;
+import com.bytequay.agent.core.RepositoryIdentity;
 import com.bytequay.agent.core.StartAgentTurnCommand;
 import com.bytequay.agent.core.SteerAgentTurnCommand;
 import com.bytequay.agent.core.TaskId;
@@ -261,6 +262,12 @@ final class ScriptedCherryPickAgent
         return task != null && task.interactive() && task.workspaceId().stream().anyMatch(workspaceId::equals)
                 ? ImmutableList.of(task)
                 : ImmutableList.of();
+    }
+
+    @Override
+    public List<AgentTask> listCompleted(String workspaceId, RepositoryIdentity repository, int limit)
+    {
+        throw new UnsupportedOperationException("this test does not discover task summaries");
     }
 
     @Override

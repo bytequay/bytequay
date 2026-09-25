@@ -15,6 +15,7 @@ package com.bytequay.agent.cli.codex;
 
 import com.bytequay.agent.cli.process.SecretRedactor;
 import com.bytequay.agent.spi.ProviderAgentEvent;
+import com.bytequay.agent.spi.ProviderUsageSample;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.google.common.collect.ImmutableList;
@@ -79,6 +80,7 @@ class TestCodexEventMapper
                 "emittedAtMs":1786884871458}
                 """, ProviderAgentEvent.Usage.class);
         assertThat(usage.sample().inputTokens()).isEqualTo(64841);
+        assertThat(usage.sample().semantics()).isEqualTo(ProviderUsageSample.Semantics.CUMULATIVE_FOR_INVOCATION);
         assertThat(usage.sample().outputTokens()).isEqualTo(471);
         assertThat(usage.source().providerThreadId()).contains("thread-1");
         assertThat(usage.source().providerTurnId()).contains("turn-1");
@@ -389,6 +391,24 @@ class TestCodexEventMapper
                 "threadId":"thread-1","turnId":"turn-1"}}
                 """, ProviderAgentEvent.Tool.class);
         assertThat(mcp.duration()).contains(Duration.ofMillis(20));
+    }
+
+    @Test
+    void completedByteQuayContextToolCarriesOnlyItsSavedReceipt()
+            throws Exception
+    {
+        String ref = "context-search:" + "a".repeat(64);
+        String content = new ObjectMapper().writeValueAsString(java.util.Map.of("content", List.of(
+                java.util.Map.of("type", "text", "text", "{\"searchRef\":\"" + ref + "\",\"hits\":[]}"))));
+        String notification = """
+                {"method":"item/completed","params":{"item":{"type":"mcpToolCall","id":"mcp-context",
+                "server":"bytequay","tool":"review_get_context","status":"completed","result":%s},
+                "threadId":"thread-1","turnId":"turn-1"}}
+                """.formatted(content);
+        ProviderAgentEvent.Tool completed = only(notification, ProviderAgentEvent.Tool.class);
+        assertThat(completed.name()).isEqualTo("bytequay/review_get_context");
+        assertThat(completed.summary()).isEqualTo("context-receipt:" + ref);
+        assertThat(completed.state()).isEqualTo(ProviderAgentEvent.ActivityState.COMPLETED);
     }
 
     @Test

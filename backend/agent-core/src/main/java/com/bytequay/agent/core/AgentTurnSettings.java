@@ -32,8 +32,15 @@ public record AgentTurnSettings(
         Duration maximumRuntime,
         List<AgentAttachmentReference> attachments,
         Optional<String> serviceTier,
-        Optional<DevelopmentAutomation> developmentAutomation)
+        Optional<DevelopmentAutomation> developmentAutomation,
+        boolean useRepositoryContext)
 {
+    public AgentTurnSettings(Optional<String> model, Optional<String> effort, AgentPermissionPolicy permissionPolicy, Duration maximumRuntime,
+            List<AgentAttachmentReference> attachments, Optional<String> serviceTier, Optional<DevelopmentAutomation> developmentAutomation)
+    {
+        this(model, effort, permissionPolicy, maximumRuntime, attachments, serviceTier, developmentAutomation, true);
+    }
+
     public AgentTurnSettings(
             Optional<String> model,
             Optional<String> effort,
@@ -41,7 +48,7 @@ public record AgentTurnSettings(
             Duration maximumRuntime,
             List<AgentAttachmentReference> attachments)
     {
-        this(model, effort, permissionPolicy, maximumRuntime, attachments, Optional.empty(), Optional.empty());
+        this(model, effort, permissionPolicy, maximumRuntime, attachments, Optional.empty(), Optional.empty(), true);
     }
 
     public AgentTurnSettings(
@@ -52,7 +59,12 @@ public record AgentTurnSettings(
             List<AgentAttachmentReference> attachments,
             Optional<String> serviceTier)
     {
-        this(model, effort, permissionPolicy, maximumRuntime, attachments, serviceTier, Optional.empty());
+        this(model, effort, permissionPolicy, maximumRuntime, attachments, serviceTier, Optional.empty(), true);
+    }
+
+    public AgentTurnSettings withRepositoryContext(boolean enabled)
+    {
+        return new AgentTurnSettings(model, effort, permissionPolicy, maximumRuntime, attachments, serviceTier, developmentAutomation, enabled);
     }
 
     public AgentTurnSettings

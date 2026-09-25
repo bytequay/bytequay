@@ -155,8 +155,8 @@ public final class ClaudeCliDriver
             "XDG_CONFIG_HOME");
 
     private final String executable;
-    private final ProcessSupervisor supervisor;
     private final Path claudeHome;
+    private final ProcessSupervisor supervisor;
     private final Map<String, String> environment;
     private final SecretRedactor redactor;
     private final ObjectMapper objectMapper;
@@ -190,8 +190,8 @@ public final class ClaudeCliDriver
             Map<String, String> environment)
     {
         this.executable = requireNonNull(executable, "executable is null");
+        this.claudeHome = requireNonNull(claudeHome, "claudeHome is null").toAbsolutePath().normalize();
         this.supervisor = requireNonNull(supervisor, "supervisor is null");
-        this.claudeHome = requireNonNull(claudeHome, "claudeHome is null").toAbsolutePath();
         // Overrides any inherited value: a shell that exports CLAUDE_CONFIG_DIR must not redirect
         // ByteQuay's processes into the user's own Claude setup.
         this.environment = ImmutableMap.<String, String>builder()
@@ -516,6 +516,7 @@ public final class ClaudeCliDriver
             String diagnostic)
     {
         String message = diagnostic == null || diagnostic.isBlank() ? readiness.name().toLowerCase() : diagnostic;
+        String command = executable.matches("[A-Za-z0-9_./-]+") ? executable : shellQuote(executable);
         return new AgentProviderStatus(
                 LANE_ID,
                 readiness,
@@ -523,14 +524,13 @@ public final class ClaudeCliDriver
                 redactor.redact(message),
                 capabilities(),
                 readiness == AgentProviderStatus.Readiness.AUTHENTICATION_REQUIRED
-                        ? Optional.of(signInCommand())
+                        ? Optional.of("CLAUDE_CONFIG_DIR=" + shellQuote(claudeHome.toString()) + " " + command + " auth login")
                         : Optional.empty());
     }
 
-    /** The one command that signs ByteQuay's Claude home in; a plain {@code claude auth login} would not. */
-    private String signInCommand()
+    private static String shellQuote(String value)
     {
-        return "CLAUDE_CONFIG_DIR=\"" + claudeHome + "\" " + executable + " auth login";
+        return "'" + value.replace("'", "'\"'\"'") + "'";
     }
 
     private AuthenticationProbe probeAuthentication()

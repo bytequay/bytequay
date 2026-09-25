@@ -1,0 +1,84 @@
+{
+  "schemaVersion": 1,
+  "case": "explicitly learn a closed issue, then reuse its recorded decision in a fresh development task",
+  "fixture": {
+    "repository": "contextfixture/issue-case",
+    "repositoryId": 207,
+    "workspaceId": "issue-case",
+    "baselineSha": "8e89742548b392e1f4d903b838f2303041313607",
+    "files": ["README.md", "window.py", "test_window.py"],
+    "ordinaryTestExit": 0,
+    "sharedEndIncluded": true,
+    "issue": {
+      "number": 12,
+      "isPullRequest": false,
+      "observedState": "CLOSED",
+      "updatedAt": "2026-01-15T10:00:00Z",
+      "activityRefreshedAt": "2026-01-15T10:01:00Z",
+      "recordedOutcomeCommentId": 1201,
+      "closedEventId": 1202,
+      "outcome": "Closed as documented behavior without a code fix; keep the end inclusive until a new product decision."
+    }
+  },
+  "learn": {
+    "taskId": "fc054533-da42-497b-85b6-c5621f32e5ba",
+    "request": {"scopeIds": ["project"], "history": [{"kind": "ISSUE", "number": 12}]},
+    "outcome": "READY",
+    "notebookRevision": 1,
+    "note": {
+      "id": "knowledge:project",
+      "version": 1,
+      "kind": "KNOWLEDGE",
+      "title": "Sensor windows: inclusive-end contains() helper",
+      "recordedDecisionBasis": "RECORDED_DECISION",
+      "recordedDecision": "The maintainer closed issue 12 as documented behavior with no code fix, and asked to keep the end inclusive so a boundary sample appears in both adjacent panels, until a new product decision.",
+      "inference": "The README does not state the inclusive-end rule, so it is unclear where the behavior is documented. The issue's closure does not prove the decision still applies."
+    },
+    "sourceEvidence": {
+      "id": "context-read:5b874acf-0c82-4622-ab89-3445c1651619",
+      "kind": "ISSUE",
+      "repositoryId": 207,
+      "repository": "contextfixture/issue-case",
+      "number": 12,
+      "contentHash": "6cd25807efc59f8be93c00e221945e4a2776fa3e73b55144a4dd85a2338ff296",
+      "capture": "BYTEQUAY_READ",
+      "sourceRevision": null,
+      "truncated": false,
+      "activityCompleteness": "unknown"
+    },
+    "inputFingerprint": "history:ISSUE:207:12 = 15a7dc3122ab5d3219762d8efb4733c6ee0bd70f7a1a996ded33444b6067ca22",
+    "checkedReads": ["README.md", "window.py", "test_window.py", "ISSUE:207:12"]
+  },
+  "reuse": {
+    "taskId": "08d17203-ee8c-4f4e-82c4-f5486800a242",
+    "turnId": "ed5c85fa-074e-4816-bc35-6e0784c4509e",
+    "provider": "Claude Sonnet, High effort",
+    "turnState": "COMPLETED",
+    "receipts": [
+      {"kind": "OFFER", "delivery": "CONFIRMED", "entryId": "knowledge:project", "entryVersion": 1, "bytes": 2041},
+      {"kind": "SEARCH", "delivery": "CONFIRMED", "query": "sensor window inclusive end", "entryId": "knowledge:project", "entryVersion": 1, "bytes": 742},
+      {"kind": "READ", "delivery": "CONFIRMED", "entryId": "knowledge:project", "entryVersion": 1, "bytes": 9645}
+    ],
+    "usage": {"eligibleDevelopmentTasks": 1, "tasksProvidedOrOpened": 1, "knowledgeSearchHits": 1, "knowledgeOpenedTasks": 1},
+    "answer": "Changing window.py to an exclusive end would reverse the issue's recorded outcome. Keep the inclusive end unless a new product decision says otherwise; add an end-boundary test. No files were edited or published.",
+    "answerLimits": [
+      "The agent treated the issue as untrusted history and did not infer that closed means fixed.",
+      "The README does not state the rule, despite the issue calling it documented behavior.",
+      "No newer product decision was verified."
+    ]
+  },
+  "environment": {
+    "backendJarSha256": "7addad7aa102ec8937809e353af8bb037a34489f63f5c5231e657c30d6553dd7",
+    "github": "read-only localhost fake API and HTTPS Git server; no real GitHub writes",
+    "fakeGithubRequests": {"total": 15, "nonGet": 0},
+    "localGitRequests": {"total": 6, "nonGetOrHead": 0},
+    "requestLogsIncludeSetupRetries": true,
+    "database": "disposable isolated SQLite database",
+    "credentials": "fake GitHub token and session values kept outside this directory"
+  },
+  "limits": [
+    "One synthetic closed issue and one provider run; this does not measure general answer quality.",
+    "The issue activity cache cannot prove pagination completeness or a newer upstream decision.",
+    "The read-only development task had no code change, so ByteQuay's development-result automation reported no valid development result after the provider turn completed."
+  ]
+}

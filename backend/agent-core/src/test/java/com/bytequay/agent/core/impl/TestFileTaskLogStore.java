@@ -221,6 +221,12 @@ class TestFileTaskLogStore
                         9_984,
                         11,
                         Optional.empty()),
+                new AgentEventPayload.UsageUpdated(
+                        AgentEventPayload.UsageSemantics.CUMULATIVE_FOR_INVOCATION,
+                        20_759,
+                        20_224,
+                        73,
+                        Optional.empty()),
                 new AgentEventPayload.Lifecycle(
                         AgentEventPayload.LifecyclePhase.TURN_COMPLETED,
                         "completed"));

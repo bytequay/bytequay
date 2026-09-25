@@ -31,7 +31,9 @@ public interface AgentMetricsService
      * provider event identifiers before invoking this method. Only the turn is
      * written; task totals fold into the task when the turn finishes.
      *
-     * <p>Cumulative samples subtract the durable totals of the task's other turns.
+     * <p>Task-wide cumulative samples subtract the durable totals of the task's
+     * other turns. Invocation-wide cumulative samples already belong to this
+     * turn and replace its counters without subtracting earlier invocations.
      *
      * @param taskId task that owns the provider session
      * @param turnId turn receiving the sample

@@ -50,6 +50,7 @@ import com.bytequay.agent.spi.PullRequestCiBridge;
 import com.bytequay.agent.spi.PullRequestCiBridgeResolver;
 import com.bytequay.agent.spi.ReviewBridge;
 import com.bytequay.agent.spi.ReviewBridgeResolver;
+import com.bytequay.agent.spi.ReviewTool;
 import com.bytequay.agent.spi.RunningTurn;
 import com.bytequay.agent.spi.SessionAccess;
 import com.fasterxml.jackson.databind.JsonNode;
@@ -171,7 +172,7 @@ class TestCodexCliDriver
             assertThat(event).isInstanceOf(ProviderAgentEvent.Usage.class);
             ProviderAgentEvent.Usage usage = (ProviderAgentEvent.Usage) event;
             assertThat(usage.sample().semantics()).isEqualTo(
-                    com.bytequay.agent.spi.ProviderUsageSample.Semantics.CUMULATIVE);
+                    com.bytequay.agent.spi.ProviderUsageSample.Semantics.CUMULATIVE_FOR_INVOCATION);
             assertThat(usage.sample().inputTokens()).isEqualTo(80);
             assertThat(usage.sample().outputTokens()).isEqualTo(20);
         });
@@ -418,6 +419,7 @@ class TestCodexCliDriver
         assertThat(supervisor.serverArgv().getFirst()).containsSequence("--disable", "js_repl");
         assertThat(supervisor.serverArgv().getFirst()).containsSequence("--disable", "shell_snapshot");
         assertThat(supervisor.serverArgv().getFirst()).containsSequence("--disable", "unified_exec");
+        assertThat(supervisor.serverArgv().getFirst()).contains("forced_login_method=\"chatgpt\"");
         RunningTurn turn = session.start(command("read only"));
         JsonNode request = supervisor.server().turnRequests().getFirst();
         assertThat(request.path("approvalPolicy").asText()).isEqualTo("never");
@@ -987,10 +989,14 @@ class TestCodexCliDriver
                 "grantRoot":"","itemId":"patch-empty-root","startedAtMs":1786884871467,
                 "threadId":"thread-1","turnId":"%s"}}
                 """.formatted(server.activeTurn()));
+        server.emit("""
+                {"id":103,"method":"item/tool/requestUserInput","params":{
+                "threadId":"thread-1","turnId":"%s","itemId":"unregistered-input","questions":[]}}
+                """.formatted(server.activeTurn()));
 
         // Every rejection is answered on the dispatch thread, so all of them have to arrive
         // before any is read. Waiting for only the first few leaves the rest racing the asserts.
-        List<Long> rejected = List.of(92L, 93L, 94L, 95L, 96L, 97L, 99L, 100L, 102L);
+        List<Long> rejected = ImmutableList.of(92L, 93L, 94L, 95L, 96L, 97L, 99L, 100L, 102L, 103L);
         awaitCondition(() -> rejected.stream().allMatch(id -> server.error(id) != null));
         assertThat(server.error(92).path("message").asText()).contains("active turn");
         assertThat(server.error(93).path("message").asText()).contains("Unsupported Codex request");
@@ -1001,6 +1007,7 @@ class TestCodexCliDriver
         assertThat(server.error(99).path("message").asText()).contains("cannot represent");
         assertThat(server.error(100).path("message").asText()).contains("scoped grant");
         assertThat(server.error(102).path("message").asText()).contains("scoped grant");
+        assertThat(server.error(103).path("message").asText()).contains("active turn");
         assertThat(approval).hasValue(null);
     }
 
@@ -1329,6 +1336,16 @@ class TestCodexCliDriver
                 "{\"requirements\":null,\"futurePolicy\":{}}")))
                 .isInstanceOf(AgentUnavailableException.class)
                 .hasMessageContaining("unknown managed-policy field");
+
+        assertThatThrownBy(() -> startTurnWith(supervisor -> supervisor.reportAccount(
+                "{\"requiresOpenaiAuth\":true,\"account\":{\"type\":\"apiKey\"}}")))
+                .isInstanceOf(AgentUnavailableException.class)
+                .hasMessageContaining("isolated ChatGPT account");
+
+        assertThatThrownBy(() -> startTurnWith(supervisor -> supervisor.reportAccount(
+                "{\"requiresOpenaiAuth\":false,\"account\":{\"type\":\"chatgpt\"}}")))
+                .isInstanceOf(AgentUnavailableException.class)
+                .hasMessageContaining("isolated ChatGPT account");
 
         // A lifecycle hook sits in the approval path that ByteQuay assumes it owns.
         assertThatThrownBy(() -> startTurnWith(supervisor -> supervisor.reportHooks("[{\"name\":\"stop\"}]")))
@@ -2663,6 +2680,7 @@ class TestCodexCliDriver
                         {"jsonrpc":"2.0","id":1,"method":"tools/list","params":{}}
                         """)).body().orElseThrow();
                 assertThat(listed.at("/result/tools")).isEmpty();
+                assertThat(supervisor.serverArgv().getLast()).contains("mcp_servers.bytequay.tools={}");
 
                 String admittedConfig = supervisor.configBody;
                 supervisor.configBody = admittedConfig.replace("approve", "prompt");
@@ -2710,6 +2728,42 @@ class TestCodexCliDriver
                 awaitCondition(() -> server.result(98) != null);
                 assertThat(server.result(98).path("decision").asText()).isEqualTo("accept");
                 assertThat(approval.get().detail()).contains("git add TestExperiment.java");
+                reference = Optional.of(session.reference());
+            }
+        }
+    }
+
+    @Test
+    void approvesOnlyTheFixedLearningToolsOnInitialAndResumedSessions()
+            throws Exception
+    {
+        ScriptedProcessSupervisor supervisor = new ScriptedProcessSupervisor(objectMapper);
+        supervisor.configBody = "{\"mcp_servers\":{\"bytequay\":{\"url\":\"" + MCP_ENDPOINT + "\",\"default_tools_approval_mode\":\"approve\"}}}";
+        supervisor.mcpStatuses = "{\"data\":[{\"name\":\"bytequay\",\"pluginId\":null}],\"nextCursor\":null}";
+        List<String> names = ImmutableList.of("repository_context_read", "repository_context_prepare");
+        ReviewBridge review = new ReviewBridge(names.stream()
+                .map(name -> new ReviewTool(name, "Fixed task tool", ImmutableMap.of("type", "object"), arguments -> "captured"))
+                .collect(ImmutableList.toImmutableList()), "Learn the frozen repository");
+        PermissionBroker broker = new PermissionBroker(
+                () -> URI.create(MCP_ENDPOINT), objectMapper, (taskId, query) -> "", taskId -> Optional.of(review));
+        CodexHome.prepare(codexHome());
+        CodexCliDriver driver = new CodexCliDriver("/fake/codex", "0.153.4", objectMapper, supervisor,
+                ImmutableMap.of("HOME", worktree.toString()), codexHome(), broker, Duration.ofSeconds(30));
+        Optional<AgentSessionRef> reference = Optional.empty();
+        for (int index = 0; index < 2; index++) {
+            try (AgentSession session = driver.open(context(reference, new AtomicReference<>()), event -> {})) {
+                List<String> arguments = supervisor.serverArgv().getLast();
+                assertThat(arguments).filteredOn(argument -> argument.startsWith("mcp_servers.bytequay.tools="))
+                        .containsExactly("mcp_servers.bytequay.tools={"
+                                + "\"repository_context_read\"={approval_mode=\"approve\"},\"repository_context_prepare\"={approval_mode=\"approve\"}}");
+                assertThat(arguments).contains("mcp_servers.bytequay.default_tools_approval_mode=\"approve\"");
+                assertThat(arguments).noneMatch(argument -> argument.startsWith("approval_policy="));
+                String token = supervisor.environments().getLast().get("BYTEQUAY_CODEGRAPH_TOKEN");
+                JsonNode listed = broker.handle(token, objectMapper.readTree("""
+                        {"jsonrpc":"2.0","id":1,"method":"tools/list","params":{}}
+                        """)).body().orElseThrow();
+                assertThat(listed.at("/result/tools").findValuesAsText("name")).containsExactlyElementsOf(names);
+                assertThat(supervisor.servers().getLast().threadRequests().getFirst().path("approvalsReviewer").asText()).isEqualTo("auto_review");
                 reference = Optional.of(session.reference());
             }
         }
@@ -2826,6 +2880,40 @@ class TestCodexCliDriver
                 .startsWith(AgentCommandPolicy.instructions()).contains("native update_plan").endsWith("Keep explanations concise\n\nuse the graph");
         // Opening ran the isolation guard against the effective config, which exposes exactly this server.
         session.close();
+    }
+
+    @Test
+    void transportsLargeReviewReferenceInputOnInitialAndResumedTurns()
+            throws Exception
+    {
+        ScriptedProcessSupervisor supervisor = new ScriptedProcessSupervisor(objectMapper);
+        CodexCliDriver driver = driver(supervisor);
+        String instructions = "p".repeat(100_000);
+        String reference = "reference-body-marker\n" + "知".repeat(10_000);
+        String input = "Review this change.\n<repository-context>\n" + reference + "\n</repository-context>\n";
+        input += "x".repeat(256 * 1024 - input.getBytes(StandardCharsets.UTF_8).length);
+        assertThat(input.getBytes(StandardCharsets.UTF_8)).hasSize(256 * 1024);
+        Optional<AgentSessionRef> sessionReference = Optional.empty();
+        for (int index = 0; index < 2; index++) {
+            AgentSessionContext plain = context(sessionReference, new AtomicReference<>());
+            AgentSessionContext configured = new AgentSessionContext(
+                    plain.taskId(), plain.worktree(), plain.runtimeDirectory(), plain.providerDirectory(), plain.permissionPolicy(),
+                    plain.sessionReference(), plain.approvals(), plain.model(), plain.effort(), plain.access(), plain.codeGraph(), instructions);
+            try (AgentSession session = driver.open(configured, event -> {})) {
+                RunningTurn turn = session.start(new AgentTurnCommand("context-turn-" + index, input, ImmutableList.of(), Duration.ofMinutes(1)));
+                AppServerProcess server = supervisor.servers().getLast();
+                JsonNode submitted = server.turnRequests().getFirst().path("input");
+                assertThat(submitted).hasSize(1);
+                assertThat(submitted.get(0).path("text").asText()).isEqualTo(input);
+                assertThat(server.threadRequests().getFirst().path("developerInstructions").asText())
+                        .contains(instructions).doesNotContain("reference-body-marker");
+                assertThat(supervisor.serverArgv().getLast()).noneMatch(argument -> argument.contains("reference-body-marker"));
+                assertThat(server.resumeCount()).isEqualTo(index);
+                server.completeTurn();
+                assertThat(turn.completion().toCompletableFuture().get(10, TimeUnit.SECONDS).state()).isEqualTo(AgentTurnResult.State.COMPLETED);
+                sessionReference = Optional.of(session.reference());
+            }
+        }
     }
 
     @Test
@@ -2964,6 +3052,7 @@ class TestCodexCliDriver
         /** The environment of every process launched, App Server and probe alike, in launch order. */
         private final List<Map<String, String>> environments = new CopyOnWriteArrayList<>();
         private volatile String managedRequirements = "{\"requirements\":null}";
+        private volatile String account = "{\"requiresOpenaiAuth\":true,\"account\":{\"type\":\"chatgpt\"}}";
         private volatile String hooks = "[]";
         private volatile String configLayers;
         private volatile String configBody = "{}";
@@ -3204,6 +3293,11 @@ class TestCodexCliDriver
             managedRequirements = response;
         }
 
+        private void reportAccount(String response)
+        {
+            account = response;
+        }
+
         private void reportHooks(String discovered)
         {
             hooks = discovered;
@@ -3308,6 +3402,7 @@ class TestCodexCliDriver
                     Path.of(spec.environment().getOrDefault("CODEX_HOME", spec.workingDirectory().toString())),
                     spec.argv(),
                     () -> managedRequirements,
+                    () -> account,
                     () -> hooks,
                     () -> configLayers,
                     () -> configBody,
@@ -3401,6 +3496,7 @@ class TestCodexCliDriver
         private final AtomicInteger resumes = new AtomicInteger();
         private final List<String> approvalPolicies = new CopyOnWriteArrayList<>();
         private final Supplier<String> managedRequirements;
+        private final Supplier<String> account;
         private final Supplier<String> hooks;
         private final Supplier<String> configLayers;
         private final Supplier<String> configBody;
@@ -3460,6 +3556,7 @@ class TestCodexCliDriver
                 Path codexHome,
                 List<String> argv,
                 Supplier<String> managedRequirements,
+                Supplier<String> account,
                 Supplier<String> hooks,
                 Supplier<String> configLayers,
                 Supplier<String> configBody,
@@ -3478,6 +3575,7 @@ class TestCodexCliDriver
             this.codexHome = codexHome;
             this.argv = ImmutableList.copyOf(argv);
             this.managedRequirements = managedRequirements;
+            this.account = account;
             this.hooks = hooks;
             this.configLayers = configLayers;
             this.configBody = configBody;
@@ -3672,6 +3770,7 @@ class TestCodexCliDriver
                             .toString());
                 }
                 case "configRequirements/read" -> respond(id, managedRequirements.get());
+                case "account/read" -> respond(id, account.get());
                 case "config/read" -> respond(id, configReadResponse().toString());
                 case "skills/list" -> respond(id, "{\"data\":[{\"cwd\":\""
                         + message.path("params").path("cwds").get(0).asText()

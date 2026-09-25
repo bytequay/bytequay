@@ -17,9 +17,27 @@ import type { AskDiscussionRequest, DiscussionQuery, OpenDiscussionRequest, Reso
 import type { CreateDevelopmentLearningCommentRequest, CreateLocalReviewRequest, LocalReviewQuery, ReplyLocalReviewRequest, ResolveLocalReviewRequest, RetryLocalReviewRequest } from './pulls/local-review/contracts';
 import type { LocalReviewThreadDto } from './pulls/local-review/types';
 import type {
+  ApplyContextDiscoveryRequest,
+  ConfigureRepositoryContextRequest,
+  ContextBuildViewDto,
+  ContextUsageActivitiesDto,
+  ContextUsageOverviewDto,
+  ContextUsageWindow,
+  ContextDiscoveryDto,
+  DiscoverRepositoryContextRequest,
+  EditRepositoryContextEntryRequest,
+  RemoveRepositoryContextEntryRequest,
+  RepositoryNotebookDto,
+  ResetRepositoryContextRequest,
+  SaveRepositoryContextLessonRequest,
+  SetRepositoryContextEntryEnabledRequest,
+  StartContextBuildRequest,
+} from './repository-context/contracts';
+import type {
   AgentReviewDto,
   ReviewDraftDto,
   ReviewEvent,
+  ReviewLessonDraftDto,
   ReviewSide,
 } from './pulls/agent-review/contracts';
 import type { CodeHostRef, LocalRunDto, LocalRunOutputDto, ReviewCodeFileDto, ReviewCodeFilesDto, ReviewCodeSymbolsDto, RunRefusalDto, SaveConflictDto } from './pulls/code-tests/contracts';
@@ -1310,6 +1328,34 @@ export type RecentDraftRequest = {
   body: string;
 };
 
+export interface DevelopmentContextActivityDto {
+  cards: Array<{
+    reference: string;
+    turnId: string;
+    kind: 'OFFER' | 'SEARCH' | 'READ';
+    createdAt: string;
+    notebookRevision: number;
+    delivery: 'PREPARED' | 'CONFIRMED' | 'UNCERTAIN' | 'UNKNOWN';
+    bytes: number;
+    query: string;
+    paths: string[];
+    entries: Array<{
+      id: string;
+      version: number;
+      kind: string;
+      scopeId: string;
+      title: string;
+      matchReasons: string[];
+      included: boolean;
+    }>;
+    omittedCount: number;
+    scopeStates: Array<{ scopeId: string; preparation: string; missingKnowledge: boolean }>;
+    warnings: string[];
+  }>;
+  hasMore: boolean;
+  usageTruncated: boolean;
+}
+
 export type Bridge = {
   savePat: (pat: string) => Promise<boolean>;
   hasPat: () => Promise<boolean>;
@@ -1539,6 +1585,24 @@ export type Bridge = {
   deleteGitHubToken: () => Promise<void>;
 
   getWorkspaceSettings: (workspaceId: string) => Promise<WorkspaceSettingsDto>;
+  getRepositoryContext: (workspaceId: string) => Promise<RepositoryNotebookDto>;
+  getRepositoryContextUsage: (workspaceId: string, window: ContextUsageWindow, page: number) => Promise<ContextUsageOverviewDto>;
+  getRepositoryContextEntryUsage: (workspaceId: string, entryId: string, window: ContextUsageWindow, page: number) => Promise<ContextUsageActivitiesDto>;
+  discoverRepositoryContext: (workspaceId: string, request: DiscoverRepositoryContextRequest) => Promise<ContextDiscoveryDto>;
+  applyRepositoryContextDiscovery: (workspaceId: string, request: ApplyContextDiscoveryRequest) => Promise<RepositoryNotebookDto>;
+  getRepositoryContextBuild: (workspaceId: string) => Promise<ContextBuildViewDto>;
+  startRepositoryContextBuild: (workspaceId: string, request: StartContextBuildRequest) => Promise<ContextBuildViewDto>;
+  stopRepositoryContextBuild: (workspaceId: string, taskId: string) => Promise<ContextBuildViewDto>;
+  getRepositoryContextBuildStopImpact: (workspaceId: string, taskId: string) => Promise<AgentRuntimeStopImpactDto>;
+  stopRepositoryContextBuildRuntime: (workspaceId: string, taskId: string, generation: string) => Promise<ContextBuildViewDto>;
+  failRepositoryContextBuild: (workspaceId: string, taskId: string, reason: string) => Promise<ContextBuildViewDto>;
+  cleanupRepositoryContextBuild: (workspaceId: string, taskId: string) => Promise<ContextBuildViewDto>;
+  configureRepositoryContext: (workspaceId: string, request: ConfigureRepositoryContextRequest) => Promise<RepositoryNotebookDto>;
+  editRepositoryContextEntry: (workspaceId: string, request: EditRepositoryContextEntryRequest) => Promise<RepositoryNotebookDto>;
+  setRepositoryContextEntryEnabled: (workspaceId: string, request: SetRepositoryContextEntryEnabledRequest) => Promise<RepositoryNotebookDto>;
+  removeRepositoryContextEntry: (workspaceId: string, request: RemoveRepositoryContextEntryRequest) => Promise<RepositoryNotebookDto>;
+  resetRepositoryContext: (workspaceId: string, request: ResetRepositoryContextRequest) => Promise<RepositoryNotebookDto>;
+  saveRepositoryContextLesson: (workspaceId: string, request: SaveRepositoryContextLessonRequest) => Promise<RepositoryNotebookDto>;
   setWorkspaceCommitsTarget: (workspaceId: string, branch: string) => Promise<WorkspaceCommitsTargetDto>;
   clearWorkspaceCommitsTarget: (workspaceId: string) => Promise<WorkspaceCommitsTargetDto>;
   renameWorkspace: (workspaceId: string, name: string) => Promise<WorkspaceDto>;
@@ -1567,6 +1631,7 @@ export type Bridge = {
   listAgentTasks: (workspaceId: string, limit?: number) => Promise<AgentTaskDto[]>;
   createAgentTask: (request: CreateAgentTaskRequest) => Promise<AgentTaskDto>;
   getAgentTask: (taskId: string, workspaceId: string) => Promise<AgentTaskDto>;
+  getAgentTaskRepositoryContext: (taskId: string, workspaceId: string) => Promise<DevelopmentContextActivityDto>;
   /** Polled while createAgentTask is in flight; the task may not exist yet, so it takes no workspace. */
   getAgentTaskStartup: (taskId: string) => Promise<AgentTaskStartupDto>;
   /** Version-checked, so a stale screen cannot overwrite a change it never saw. */
@@ -1648,6 +1713,7 @@ export type Bridge = {
   /** Starts a private review, or returns the open one: one review per workspace and pull request. */
   startAgentReview: (workspaceId: string, repo: string, number: number) => Promise<AgentReviewDto>;
   getAgentReview: (reviewId: string) => Promise<AgentReviewDto>;
+  draftReviewLesson: (reviewId: string, messageId: string) => Promise<ReviewLessonDraftDto>;
   stopAgentReview: (reviewId: string) => Promise<AgentReviewDto>;
   getAgentReviewRuntimeStopImpact: (reviewId: string) => Promise<AgentRuntimeStopImpactDto>;
   /** Verifies only this review's retained runtime, keeping its conversation and worktree. */

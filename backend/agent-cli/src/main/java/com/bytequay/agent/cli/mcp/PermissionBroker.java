@@ -33,6 +33,8 @@ import com.bytequay.agent.spi.ProviderApprovalDecision;
 import com.bytequay.agent.spi.ProviderApprovalRequest;
 import com.bytequay.agent.spi.PullRequestCiBridge;
 import com.bytequay.agent.spi.PullRequestCiBridgeResolver;
+import com.bytequay.agent.spi.RepositoryContextBridge;
+import com.bytequay.agent.spi.RepositoryContextBridgeResolver;
 import com.bytequay.agent.spi.ReviewBridge;
 import com.bytequay.agent.spi.ReviewBridgeResolver;
 import com.bytequay.agent.spi.ReviewTool;
@@ -128,6 +130,7 @@ public final class PermissionBroker
     private final LocalReviewBridgeResolver localReviews;
     private final PullRequestCiBridgeResolver pullRequestChecks;
     private final IssueContextBridgeResolver issueContexts;
+    private final RepositoryContextBridgeResolver repositoryContext;
     private final Map<String, PermissionContext> contexts = new ConcurrentHashMap<>();
 
     public PermissionBroker(
@@ -190,7 +193,8 @@ public final class PermissionBroker
             LocalReviewBridgeResolver localReviews,
             PullRequestCiBridgeResolver pullRequestChecks)
     {
-        this(endpoint, objectMapper, ciMemoryReader, reviews, developments, draftPullRequests, localReviews, pullRequestChecks, IssueContextBridgeResolver.NONE);
+        this(endpoint, objectMapper, ciMemoryReader, reviews, developments, draftPullRequests, localReviews, pullRequestChecks,
+                IssueContextBridgeResolver.NONE, RepositoryContextBridgeResolver.NONE);
     }
 
     public PermissionBroker(
@@ -204,6 +208,22 @@ public final class PermissionBroker
             PullRequestCiBridgeResolver pullRequestChecks,
             IssueContextBridgeResolver issueContexts)
     {
+        this(endpoint, objectMapper, ciMemoryReader, reviews, developments, draftPullRequests, localReviews, pullRequestChecks,
+                issueContexts, RepositoryContextBridgeResolver.NONE);
+    }
+
+    public PermissionBroker(
+            Supplier<URI> endpoint,
+            ObjectMapper objectMapper,
+            CiMemoryReader ciMemoryReader,
+            ReviewBridgeResolver reviews,
+            DevelopmentResultBridgeResolver developments,
+            DraftPullRequestPublisher draftPullRequests,
+            LocalReviewBridgeResolver localReviews,
+            PullRequestCiBridgeResolver pullRequestChecks,
+            IssueContextBridgeResolver issueContexts,
+            RepositoryContextBridgeResolver repositoryContext)
+    {
         this.endpoint = requireNonNull(endpoint, "endpoint is null");
         this.objectMapper = requireNonNull(objectMapper, "objectMapper is null")
                 .copy()
@@ -216,6 +236,7 @@ public final class PermissionBroker
         this.localReviews = requireNonNull(localReviews, "localReviews is null");
         this.pullRequestChecks = requireNonNull(pullRequestChecks, "pullRequestChecks is null");
         this.issueContexts = requireNonNull(issueContexts, "issueContexts is null");
+        this.repositoryContext = requireNonNull(repositoryContext, "repositoryContext is null");
     }
 
     McpConfigRegistration register(
@@ -305,7 +326,7 @@ public final class PermissionBroker
                     .collect(toImmutableList());
             return new McpConfigRegistration(
                     configFile, settingsFile, token, toolNames, codeGraph, context.review(), context.development(), context.localReview(), context.pullRequestCi(),
-                    context.issueContext(), () -> {
+                    context.issueContext(), context.notebook(), () -> {
                         contexts.remove(token);
                         delete(configFile);
                         delete(settingsFile);
@@ -347,9 +368,11 @@ public final class PermissionBroker
             return Optional.empty();
         }
         contexts.put(token, context);
+        List<String> toolNames = tools(context).stream().map(ToolDefinition::name).collect(toImmutableList());
         return Optional.of(new CodeGraphRegistration(
                 token, requireNonNull(endpoint.get(), "endpoint URI is null"), codeGraph,
-                context.review(), context.development(), context.localReview(), context.pullRequestCi(), context.issueContext(), () -> contexts.remove(token)));
+                context.review(), context.development(), context.localReview(), context.pullRequestCi(), context.issueContext(), context.notebook(),
+                toolNames, () -> contexts.remove(token)));
     }
 
     private PermissionContext resolveContext(
@@ -374,18 +397,20 @@ public final class PermissionBroker
                 || permissionPolicy.allowsGitHubCommands(false, review.isPresent()))
                 ? pullRequestChecks.resolve(taskId) : Optional.empty();
         Optional<IssueContextBridge> issueContext = restricted ? Optional.empty() : issueContexts.resolve(taskId);
+        Optional<RepositoryContextBridge> notebook = restricted || review.isPresent() ? Optional.empty() : repositoryContext.resolve(taskId);
         // Exploration children exist only in an attended Claude review that owns its worktree, where the child gate
         // keeps every ByteQuay write tool with the root. Codex registers no permission tools and keeps its no-child profile.
         boolean reviewChildren = permissionTools && review.isPresent() && !permissionPolicy.unattended() && !restricted;
         return new PermissionContext(
-                taskId, worktree, permissionPolicy, approvals, redactor, permissionTools, codeGraph, review, development, localReview, pullRequestCi, issueContext,
-                reviewChildren);
+                taskId, worktree, permissionPolicy, approvals, redactor, permissionTools, codeGraph, review, development, localReview, pullRequestCi,
+                issueContext, notebook, reviewChildren);
     }
 
     /** Combines the fixed capabilities' guidance for the session's instruction channel. */
     static Optional<String> managedInstruction(
             Optional<CodeGraphBridge> codeGraph, Optional<ReviewBridge> review, Optional<DevelopmentResultBridge> development,
-            Optional<LocalReviewBridge> localReview, Optional<PullRequestCiBridge> pullRequestCi, Optional<IssueContextBridge> issueContext)
+            Optional<LocalReviewBridge> localReview, Optional<PullRequestCiBridge> pullRequestCi, Optional<IssueContextBridge> issueContext,
+            Optional<RepositoryContextBridge> notebook)
     {
         String joined = Stream.of(
                         review.map(ReviewBridge::instruction),
@@ -393,7 +418,8 @@ public final class PermissionBroker
                         development.map(DevelopmentResultBridge::instruction),
                         localReview.map(LocalReviewBridge::instruction),
                         pullRequestCi.map(PullRequestCiBridge::instruction),
-                        issueContext.map(IssueContextBridge::instruction))
+                        issueContext.map(IssueContextBridge::instruction),
+                        notebook.map(RepositoryContextBridge::instruction))
                 .flatMap(Optional::stream)
                 .collect(Collectors.joining("\n\n"));
         return joined.isBlank() ? Optional.empty() : Optional.of(joined);
@@ -442,6 +468,7 @@ public final class PermissionBroker
             case "read_ci_memory" -> readCiMemory(request.id(), params.arguments(), context);
             case CodeGraphBridge.TOOL_NAME -> codeGraphExplore(request.id(), params.arguments(), context);
             case IssueContextBridge.TOOL_NAME -> readIssueContext(request.id(), params.arguments(), context);
+            case RepositoryContextBridge.TOOL_NAME -> repositoryContext(request.id(), params.arguments(), context);
             case DevelopmentResultBridge.TOOL_NAME -> developmentResult(request.id(), params.arguments(), context);
             case DevelopmentResultBridge.PUBLISH_TOOL_NAME -> createDraftPullRequest(request.id(), params.arguments(), context);
             case CiDescriptionProposal.TOOL_NAME -> proposeCiDescription(request.id(), params.arguments(), context);
@@ -733,6 +760,24 @@ public final class PermissionBroker
         return response(id, new ToolResult(ImmutableList.of(new TextContent("text", context.redactor().redact(text))), failed));
     }
 
+    private McpHttpResponse repositoryContext(JsonNode id, JsonNode arguments, PermissionContext context)
+            throws JsonProcessingException
+    {
+        if (context.notebook().isEmpty()) {
+            return error(id, -32602, "Unknown tool");
+        }
+        try {
+            RepositoryContextBridge bridge = repositoryContext.resolve(context.taskId())
+                    .orElseThrow(() -> new IllegalStateException("Repository context is unavailable for this turn"));
+            String result = bridge.lookup().apply(objectMapper.writeValueAsString(arguments));
+            return response(id, new ToolResult(ImmutableList.of(new TextContent("text", context.redactor().redact(result))), false));
+        }
+        catch (RuntimeException failure) {
+            String detail = Optional.ofNullable(failure.getMessage()).orElse(failure.getClass().getSimpleName());
+            return response(id, new ToolResult(ImmutableList.of(new TextContent("text", context.redactor().redact("Context lookup failed: " + detail))), true));
+        }
+    }
+
     private McpHttpResponse permission(JsonNode id, JsonNode input, PermissionContext context)
             throws JsonProcessingException
     {
@@ -929,6 +974,21 @@ public final class PermissionBroker
                 IssueContextBridge.TOOL_NAME,
                 "Read the accepted issue snapshot and locally cached source observations for this task; missing or stale context is marked. Read-only; no remote fetch",
                 ImmutableMap.of("type", "object", "properties", ImmutableMap.of(), "additionalProperties", false))));
+        context.notebook().ifPresent(ignored -> tools.add(new ToolDefinition(
+                RepositoryContextBridge.TOOL_NAME,
+                "Search saved workspace knowledge and lessons, then read an exact returned version. Read-only; verify sources against current code.",
+                ImmutableMap.of(
+                        "type", "object",
+                        "properties", ImmutableMap.of(
+                                "action", ImmutableMap.of("type", "string", "enum", ImmutableList.of("SEARCH", "READ")),
+                                "query", ImmutableMap.of("type", "string", "maxLength", 200),
+                                "paths", ImmutableMap.of("type", "array", "items", ImmutableMap.of("type", "string"), "maxItems", 20),
+                                "operationKey", ImmutableMap.of("type", "string", "maxLength", 100),
+                                "searchRef", ImmutableMap.of("type", "string"),
+                                "entryId", ImmutableMap.of("type", "string"),
+                                "entryVersion", ImmutableMap.of("type", "integer", "minimum", 1)),
+                        "required", ImmutableList.of("action"),
+                        "additionalProperties", false))));
         context.pullRequestCi().ifPresent(ignored -> {
             tools.add(new ToolDefinition(
                     PullRequestCiBridge.TOOL_NAME,
@@ -1273,6 +1333,7 @@ public final class PermissionBroker
             Optional<LocalReviewBridge> localReview,
             Optional<PullRequestCiBridge> pullRequestCi,
             Optional<IssueContextBridge> issueContext,
+            Optional<RepositoryContextBridge> notebook,
             boolean reviewChildren)
     {
         private PermissionContext
@@ -1288,6 +1349,7 @@ public final class PermissionBroker
             requireNonNull(localReview, "localReview is null");
             requireNonNull(pullRequestCi, "pullRequestCi is null");
             requireNonNull(issueContext, "issueContext is null");
+            requireNonNull(notebook, "notebook is null");
         }
     }
 

@@ -17,6 +17,7 @@ import com.bytequay.agent.core.AgentConflictException;
 import com.bytequay.agent.core.AgentTask;
 import com.bytequay.agent.core.AgentTaskNotFoundException;
 import com.bytequay.agent.core.CleanupState;
+import com.bytequay.agent.core.RepositoryIdentity;
 import com.bytequay.agent.core.TaskId;
 import com.bytequay.agent.core.TaskState;
 import com.bytequay.agent.core.store.AgentTaskStore;
@@ -30,9 +31,15 @@ import com.bytequay.persistence.sqlite.repository.AgentProcessLaunchJpaRepositor
 import com.bytequay.persistence.sqlite.repository.AgentQueuedInputJpaRepository;
 import com.bytequay.persistence.sqlite.repository.AgentTaskJpaRepository;
 import com.bytequay.persistence.sqlite.repository.AgentTurnJpaRepository;
+import com.bytequay.persistence.sqlite.repository.BranchRebaseJpaRepository;
+import com.bytequay.persistence.sqlite.repository.ContextUsageFactJpaRepository;
+import com.bytequay.persistence.sqlite.repository.DevelopmentContextReceiptJpaRepository;
+import com.bytequay.persistence.sqlite.repository.LocalReviewThreadJpaRepository;
+import com.bytequay.persistence.sqlite.repository.RecentTextJpaRepository;
+import com.bytequay.persistence.sqlite.repository.RecentTouchJpaRepository;
 import com.google.common.collect.ImmutableList;
+import jakarta.persistence.EntityManager;
 import org.springframework.data.domain.PageRequest;
-import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Repository;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -63,7 +70,13 @@ public class SqliteAgentTaskStore
     private final AgentInputDeliveryJpaRepository deliveries;
     private final AgentEventOutboxJpaRepository outbox;
     private final AgentProcessLaunchJpaRepository launches;
-    private final JdbcTemplate jdbc;
+    private final BranchRebaseJpaRepository rebases;
+    private final RecentTouchJpaRepository recentTouches;
+    private final RecentTextJpaRepository recentTexts;
+    private final LocalReviewThreadJpaRepository reviewThreads;
+    private final ContextUsageFactJpaRepository usage;
+    private final DevelopmentContextReceiptJpaRepository contextReceipts;
+    private final EntityManager entities;
 
     public SqliteAgentTaskStore(
             AgentTaskJpaRepository repository,
@@ -73,7 +86,13 @@ public class SqliteAgentTaskStore
             AgentInputDeliveryJpaRepository deliveries,
             AgentEventOutboxJpaRepository outbox,
             AgentProcessLaunchJpaRepository launches,
-            JdbcTemplate jdbc)
+            BranchRebaseJpaRepository rebases,
+            RecentTouchJpaRepository recentTouches,
+            RecentTextJpaRepository recentTexts,
+            LocalReviewThreadJpaRepository reviewThreads,
+            ContextUsageFactJpaRepository usage,
+            DevelopmentContextReceiptJpaRepository contextReceipts,
+            EntityManager entities)
     {
         this.repository = requireNonNull(repository, "repository is null");
         this.turns = requireNonNull(turns, "turns is null");
@@ -82,7 +101,13 @@ public class SqliteAgentTaskStore
         this.deliveries = requireNonNull(deliveries, "deliveries is null");
         this.outbox = requireNonNull(outbox, "outbox is null");
         this.launches = requireNonNull(launches, "launches is null");
-        this.jdbc = requireNonNull(jdbc, "jdbc is null");
+        this.rebases = requireNonNull(rebases, "rebases is null");
+        this.recentTouches = requireNonNull(recentTouches, "recentTouches is null");
+        this.recentTexts = requireNonNull(recentTexts, "recentTexts is null");
+        this.reviewThreads = requireNonNull(reviewThreads, "reviewThreads is null");
+        this.usage = requireNonNull(usage, "usage is null");
+        this.contextReceipts = requireNonNull(contextReceipts, "contextReceipts is null");
+        this.entities = requireNonNull(entities, "entities is null");
     }
 
     @Override
@@ -130,6 +155,20 @@ public class SqliteAgentTaskStore
         checkArgument(!workspaceId.isBlank(), "workspaceId is blank");
         checkLimit(limit);
         return repository.findByWorkspaceIdAndInteractiveTrueOrderByUpdatedAtDesc(workspaceId, PageRequest.of(0, limit)).stream()
+                .map(AgentTaskEntity::toDomain)
+                .collect(toImmutableList());
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public List<AgentTask> listRecentCompletedInteractive(String workspaceId, RepositoryIdentity repositoryIdentity, int limit)
+    {
+        requireNonNull(workspaceId, "workspaceId is null");
+        checkArgument(!workspaceId.isBlank(), "workspaceId is blank");
+        requireNonNull(repositoryIdentity, "repositoryIdentity is null");
+        checkLimit(limit);
+        return repository.findRecentCompletedInteractive(
+                        workspaceId, repositoryIdentity.owner(), repositoryIdentity.name(), TaskState.COMPLETED, PageRequest.of(0, limit)).stream()
                 .map(AgentTaskEntity::toDomain)
                 .collect(toImmutableList());
     }
@@ -205,20 +244,23 @@ public class SqliteAgentTaskStore
     {
         requireNonNull(taskId, "taskId is null");
         String id = taskId.toString();
-        if (Boolean.TRUE.equals(jdbc.queryForObject(
-                "SELECT EXISTS (SELECT 1 FROM branch_rebase WHERE agent_task_id = ? AND terminal_at IS NULL)", Boolean.class, id))) {
+        if (rebases.existsByAgentTaskIdAndTerminalAtIsNull(id)) {
             throw new AgentConflictException("Task has an active branch rebase: " + taskId);
         }
-        jdbc.update("DELETE FROM branch_rebase WHERE agent_task_id = ?", id);
-        jdbc.update("DELETE FROM recent_touch WHERE item_key = ?", "task:" + id);
-        jdbc.update("DELETE FROM recent_text WHERE item_key = ?", "task:" + id);
-        jdbc.update("DELETE FROM local_review_thread WHERE task_id = ?", id);
+        rebases.deleteByAgentTaskId(id);
+        recentTouches.deleteByItemKey("task:" + id);
+        recentTexts.deleteByItemKey("task:" + id);
+        reviewThreads.deleteByTaskId(id);
+        usage.deleteByTaskId(id);
+        contextReceipts.deleteByTaskId(id);
         // A development task's local runs go with it; an Agent review's runs outlive its task, like the review's other records.
-        jdbc.update("DELETE FROM local_run_output WHERE run_id IN (SELECT id FROM local_run WHERE task_id = ?)"
-                + " AND NOT EXISTS (SELECT 1 FROM agent_review WHERE task_id = ?)", id, id);
-        jdbc.update("DELETE FROM local_run WHERE task_id = ? AND NOT EXISTS (SELECT 1 FROM agent_review WHERE task_id = ?)", id, id);
-        jdbc.update("DELETE FROM pull_request_task WHERE id = ?", id);
-        jdbc.update("DELETE FROM issue_task WHERE id = ?", id);
+        entities.createNativeQuery("DELETE FROM local_run_output WHERE run_id IN (SELECT id FROM local_run WHERE task_id = :taskId)"
+                        + " AND NOT EXISTS (SELECT 1 FROM agent_review WHERE task_id = :taskId)")
+                .setParameter("taskId", id).executeUpdate();
+        entities.createNativeQuery("DELETE FROM local_run WHERE task_id = :taskId AND NOT EXISTS (SELECT 1 FROM agent_review WHERE task_id = :taskId)")
+                .setParameter("taskId", id).executeUpdate();
+        entities.createNativeQuery("DELETE FROM pull_request_task WHERE id = :taskId").setParameter("taskId", id).executeUpdate();
+        entities.createNativeQuery("DELETE FROM issue_task WHERE id = :taskId").setParameter("taskId", id).executeUpdate();
         // A launch names its owner, the task or one of its turns; nothing else ties it to the task.
         List<String> owners = Stream.concat(Stream.of(id), turns.findByTaskIdOrderByCreatedAtAsc(id).stream().map(AgentTurnEntity::getId))
                 .collect(toImmutableList());

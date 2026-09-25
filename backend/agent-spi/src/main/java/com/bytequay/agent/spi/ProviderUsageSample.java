@@ -42,7 +42,10 @@ public record ProviderUsageSample(
 
     public enum Semantics
     {
+        /** Totals across the task's provider session, including earlier turns. */
         CUMULATIVE,
+        /** Totals for the current invocation, whose provider process starts afresh for this turn. */
+        CUMULATIVE_FOR_INVOCATION,
         DELTA,
         FINAL_FOR_INVOCATION
     }

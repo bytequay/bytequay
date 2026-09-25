@@ -31,12 +31,20 @@ public record StartAgentTurnCommand(
         List<AgentAttachment> attachments,
         String idempotencyKey,
         boolean useTrustedTaskCreationReadiness,
-        Optional<DevelopmentAutomation> developmentAutomation)
+        Optional<DevelopmentAutomation> developmentAutomation,
+        Optional<Boolean> useRepositoryContext)
 {
+    public StartAgentTurnCommand(TaskId taskId, OptionalLong expectedTaskVersion, String message, List<AgentAttachment> attachments,
+            String idempotencyKey, boolean useTrustedTaskCreationReadiness, Optional<DevelopmentAutomation> developmentAutomation)
+    {
+        this(taskId, expectedTaskVersion, message, attachments, idempotencyKey, useTrustedTaskCreationReadiness, developmentAutomation, Optional.empty());
+    }
+
     public StartAgentTurnCommand
     {
         requireNonNull(taskId, "taskId is null");
         requireNonNull(developmentAutomation, "developmentAutomation is null");
+        requireNonNull(useRepositoryContext, "useRepositoryContext is null");
         requireNonNull(expectedTaskVersion, "expectedTaskVersion is null");
         expectedTaskVersion.ifPresent(version -> checkArgument(version >= 0, "expectedTaskVersion is negative"));
         checkNotBlank(message, "message");
@@ -62,12 +70,18 @@ public record StartAgentTurnCommand(
                 attachments,
                 idempotencyKey,
                 true,
+                Optional.empty(),
                 Optional.empty());
     }
 
     public StartAgentTurnCommand withDevelopmentAutomation(Optional<DevelopmentAutomation> automation)
     {
-        return new StartAgentTurnCommand(taskId, expectedTaskVersion, message, attachments, idempotencyKey, useTrustedTaskCreationReadiness, automation);
+        return new StartAgentTurnCommand(taskId, expectedTaskVersion, message, attachments, idempotencyKey, useTrustedTaskCreationReadiness, automation, useRepositoryContext);
+    }
+
+    public StartAgentTurnCommand withRepositoryContext(Optional<Boolean> enabled)
+    {
+        return new StartAgentTurnCommand(taskId, expectedTaskVersion, message, attachments, idempotencyKey, useTrustedTaskCreationReadiness, developmentAutomation, enabled);
     }
 
     /** Starts against an exact task snapshot, for callers that validated its mutable defaults. */

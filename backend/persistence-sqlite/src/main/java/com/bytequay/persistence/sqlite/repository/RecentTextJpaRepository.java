@@ -36,4 +36,8 @@ public interface RecentTextJpaRepository
     @Modifying
     @Query("DELETE FROM RecentTextEntity e WHERE e.writtenAt < :cutoff")
     int deleteByWrittenAtBefore(@Param("cutoff") Instant cutoff);
+
+    @Modifying
+    @Query("DELETE FROM RecentTextEntity text WHERE text.itemKey = :itemKey")
+    void deleteByItemKey(@Param("itemKey") String itemKey);
 }

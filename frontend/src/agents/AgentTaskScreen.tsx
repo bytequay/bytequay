@@ -71,6 +71,7 @@ import AgentReviewTab, { type ReviewNavigationTarget } from '../pulls/agent-revi
 import type { AgentReviewDto } from '../pulls/agent-review/contracts';
 import { workspaceReviewTaskRoute } from '../workspaces/model';
 import DevelopmentLearningPanel from './DevelopmentLearningPanel';
+import DevelopmentContextActivityPanel from './DevelopmentContextActivityPanel';
 import LocalReviewThreadCard from '../pulls/local-review/LocalReviewThreadCard';
 import { IssueAttachment } from './IssueAttachment';
 import type { ReviewCardFocus, ReviewRequestTarget } from './ReviewRequestCard';
@@ -1016,7 +1017,7 @@ export function AgentTaskBody({
   automation,
   headerAction,
   submissionBlocked = false,
-  onAskAgent, onAskAgentDisabled, localReview, learning, reviewFocus, onOpenReview,
+  onAskAgent, onAskAgentDisabled, localReview, learning, contextActivity, reviewFocus, onOpenReview,
 }: {
   state: AgentTaskState;
   automation?: React.ReactNode;
@@ -1033,6 +1034,7 @@ export function AgentTaskBody({
   onJumpToPassage?: (target: { turnId: string; discussionId?: string }) => void;
   onHoverDiscussion?: (discussionId: string | null) => void;
   learning?: React.ReactNode;
+  contextActivity?: React.ReactNode;
   reviewFocus?: ReviewCardFocus | null;
   onOpenReview?: (target: ReviewRequestTarget) => void;
   models: ModelOptionDto[];
@@ -1300,6 +1302,8 @@ export function AgentTaskBody({
         </div>
       )}
       {state.notice !== null && <div className="agt-notice" role="alert">{state.notice}</div>}
+      {contextActivity}
+
       <AgentConversation
         turns={turns} repository={repository} durableTurns={state.turns} models={models} now={now} scroll={scroll}
         localReview={localReview} onOpenReview={onOpenReview} issueSource={state.task?.issueSource}
@@ -2473,6 +2477,10 @@ export default function AgentTaskScreen({
         refreshKey={state.lifecycleEpoch} refining={state.task.developmentContinuationUnfinished && state.turn?.developmentOrigin?.kind === 'REFINE_SUMMARY'}
         disabledReason={taskCommentDisabled}
         localReview={localReview} bridge={live()} />}
+      contextActivity={state.task?.interactive && state.task.localReviewHead == null && live().getAgentTaskRepositoryContext
+        ? <DevelopmentContextActivityPanel taskId={taskId} workspaceId={workspaceId} bridge={live() as Required<Pick<AgentBridgePort, 'getAgentTaskRepositoryContext'>>}
+          refreshKey={`${state.lifecycleEpoch}:${state.events.filter(event => event.type === 'tool' && event.payload.state === 'COMPLETED'
+            && event.payload.summary.startsWith('context-receipt:')).at(-1)?.sequence ?? 0}`} /> : undefined}
       automation={automationEligible && automationSelection !== null ? <AutomationControl value={automationSelection} providers={automationProviders} disabled />
         : automationEligible ? <span className="agt-meta">Loading automation settings…</span> : undefined}
       historyLoading={historyLoading}

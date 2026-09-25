@@ -650,6 +650,7 @@ class TestPermissionBroker
                     {"jsonrpc":"2.0","id":1,"method":"tools/list","params":{}}
                     """)).body().orElseThrow();
             assertThat(listed.at("/result/tools").findValuesAsText("name")).containsExactly("review_context");
+            assertThat(registration.toolNames()).containsExactlyElementsOf(listed.at("/result/tools").findValuesAsText("name"));
             JsonNode denied = broker.handle(registration.token(), objectMapper.readTree("""
                     {"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"read_ci_memory","arguments":{}}}
                     """)).body().orElseThrow();
@@ -991,6 +992,7 @@ class TestPermissionBroker
                                 SecretRedactor.fromEnvironment(environment), Optional.empty(), environment)) {
                             String json = Files.readString(registration.settingsFile());
                             JsonNode settings = objectMapper.readTree(json);
+                            assertThat(settings.path("autoMemoryEnabled")).isEqualTo(objectMapper.valueToTree(false));
                             assertThat(json).doesNotContain("provider-secret", "github-secret");
                             assertThat(settings.at("/sandbox/allowUnsandboxedCommands").asBoolean()).isFalse();
                             assertThat(settings.at("/sandbox/network/allowLocalBinding").asBoolean()).isEqualTo(reviewSession && access == SessionAccess.FULL && !policy.unattended());

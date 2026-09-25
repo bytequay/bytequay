@@ -32,6 +32,17 @@ or treats a confidence score as proof. The agent chooses context and verificatio
 techniques; ByteQuay supplies frozen scope, on-demand tools and optional CodeGraph.
 There is no task per finding, new execution engine, or configurable pipeline.
 
+[Repository Context](repository-context.md) owns shared notebook selection and
+preparation. Each run can retain its captured On/Off setting, exact prepared
+packet, matching reasons, limitations and source excerpts. These are saved before
+initial provider admission and survive notebook edits and source-cache eviction.
+At actual accepted turn launch, the application adds the saved bootstrap or
+completed brief with collection supplements to provider input, while preserving
+the original accepted transcript message. Old-card questions use their source
+run's captured setting and context, including when queued. The run projection
+shows exact bindings and derives delivery status from existing provider receipts;
+snapshot presence alone establishes no acceptance, comprehension or finding proof.
+
 The user can watch activity, steer supported active turns, challenge the
 summary or individual findings, resolve findings privately, and explicitly
 promote selected comments into their own outgoing review. Agent output never
@@ -229,7 +240,7 @@ this is not a second task engine:
 | Record | Required facts |
 | --- | --- |
 | Review | Workspace and logical PR identity, physical repository/head-branch identity, agent task ID, latest completed run, latest observed remote head, follow-up execution enabled/paused, optimistic version, explicit closure |
-| Run | Review ID, full/incremental scope, frozen base tip and merge base, head SHA, prior successful reviewed head if any, turn IDs, ordered assignments, latest investigation, accepted result/coverage, terminal outcome |
+| Run | Review ID, full/incremental scope, frozen base tip and merge base, head SHA, prior successful reviewed head if any, turn IDs, ordered assignments, latest investigation, optional context snapshot with sealed contributions and immutable delivery bindings, accepted result/coverage, terminal outcome |
 | Assignment | Consecutive number, investigation/validation/evidence-collection kind, reporting-repair attempt, immutable report when sealed |
 | Investigation | Change map, distinct assessed changed-file paths, captured supporting context refs, numbered hypotheses, evidence-request answers, latest validation conclusions |
 | Validation | Sealed investigation step number, assessment of every candidate, newly discovered hypotheses, coverage, blocking omissions and verification warnings |
@@ -401,15 +412,143 @@ review.
 
 ## 5. Context, anchors, and evidence
 
-The initial request is small: review purpose, PR identity, frozen scope,
-previous review reference where applicable, and available capabilities. The
-agent requests additional context as needed:
+Review details includes a Repository context disclosure from the selected run's
+saved snapshot. It shows Prepared, Off for this run, or Not recorded, exact packet
+text and bytes, selected note versions/reasons, history, input fingerprints,
+retained source reads and gaps. It also shows the completed brief, collection
+supplements and each turn's exact packet/input binding. The projection derives
+PREPARED, SUBMITTED, CONFIRMED or UNCERTAIN from existing AgentTurn receipts;
+missing receipts remain uncertain. Prepared does not imply acceptance, and
+acceptance does not imply comprehension. Notebook edits never rewrite this
+historical display. Source links show saved validation conclusions, including
+rejected hypotheses, and navigate to current findings when available. Folded
+preparation activity derives from saved operation receipts/observations, with
+actual outcomes and elapsed time. Unknown token/cache metrics stay unavailable;
+reconnect and runtime cleanup do not require the current notebook or PR cache.
+
+Enabled initial investigation turns also expose `repository_context_prepare`
+BEGIN/SUBMIT for existing configured scopes. Assignment metadata supplies current
+scope IDs and revision; typed baseline/document and admitted historical reads
+supply retained source identities.
+The review bridge resolves the accepted task/turn/run and rechecks it after unlocked
+input inspection. Notebook mutation and the exact operation receipt commit together
+in the existing local transaction. One workspace owner admits work; matching consumers
+receive immediate JOINED or actual reused note text. Stop and terminal-turn cleanup
+preserve uncertain runtime ownership until existing recovery clears its claim.
+Persisted BEGIN/SUBMIT results return receiptRef for the saved run operation.
+Discussions, validation, collection and disabled snapshots cannot prepare.
+The enabled `history` context selector reads one selected merged PR or closed
+issue, including available activity, into a bounded typed receipt and exact run
+evidence. BEGIN may include up to ten captured same-run historyReadIds in the
+admitted fingerprints; SUBMIT cannot substitute other historical observations.
+History-backed READY requires nonblank captured monitored-baseline evidence too,
+and history cannot prove EMPTY. Generated notes retain conditional claims and
+source limitations; a merge or closure never creates an automatic saved lesson.
+
+Cold-start implementation includes this history-source learning path, explicit
+Learn and Refresh knowledge, scope/root proposals and bounded resolved-history
+discovery. Learn starts
+a visible, stoppable ordinary task and includes repository files, directory
+structure, repository documentation and registered docs by default, including
+the first run. The user selects scopes and may add optional merged-PR/closed-issue
+references; default source kinds have no optional switches. Opening, sync and
+startup never trigger learning, and no learning scheduler is introduced. Output
+is standalone Knowledge; Save lesson remains the user's explicit memory action.
+The learning task has a separate saved ContextBuild purpose binding and fixed
+context tools. It reuses preparation with task/turn ownership and absent paired
+review/run IDs, without manufacturing PR reporting authority. Its lifecycle and
+cleanup remain with the ordinary task services. Live provider, performance and
+On/Off judgment acceptance remain pending.
+Project overview starts as a matching
+scope; its note appears under Knowledge only when created. The `note` selector
+lists originally selected entries or reads an exact entryId/entryVersion. It
+retains successful text and source evidence before returning, replays saved reads,
+and reports VERSION_UNAVAILABLE when an uncaptured version has changed or vanished.
+
+Find suggestions and Use selected suggestions provide explicit pre-Learn
+scope/source preview and acceptance. Verification is recorded in the implementation
+checklist. Discovery
+reads frozen local repository evidence, and only
+literal captured links can propose documentation locations. Accepted IDs are
+rederived before append-only, revision-checked configuration saving; active
+preparation rejects acceptance. Optional history search stays bounded. Discovery
+starts no review or agent, does not clone or Git-fetch, and never registers new
+sources inside BEGIN or changes a frozen review/learning assignment.
+Repository traversal is bounded breadth-first at any depth, including below a
+manifest directory. A query prioritizes children and filters scope proposals,
+while nonmatching ancestors remain eligible. The same eight manifest names,
+24-directory/24-file caps, first 100 directory entries and safety exclusions apply;
+no workspace parser or build execution is involved. Suggestions remain captured
+evidence for explicit user acceptance, not automatic scope changes.
+Acceptance also carries the preview's repositoryFingerprint for routing and
+recorded code-sync state; its metadata is rechecked under the workspace lock.
+A final two-second/no-lazy-fetch rev-parse shares that lock before registration
+to catch ref changes from failed synchronization. It holds no notebook transaction
+or task monitor; candidate source reads stay outside the workspace lock.
+Repository source reads share the configurable discovery timeout, defaulting to
+thirty seconds, on the existing I/O executor. Timeout keeps completed suggestions
+with a coverage gap; late results cannot change the preview. Interruption aborts
+before history discovery or configuration saving. Separate history and Git limits
+mean this is not a whole-request latency guarantee.
+
+For enabled snapshots, review_save_investigation requires contextBrief,
+contextPreparationRefs and contextLimitations, alongside existing
+contextEvidenceRefs. Evidence must exist in this run, and preparation references
+must name its saved BEGIN/SUBMIT receipts. The entire rendered contribution,
+including labels, references and limitations, fits 8 KiB UTF-8. The first accepted
+investigation seals the original brief; each of at most two later collection
+reports appends an immutable contribution keyed to its step. Report, contribution
+and replay result persist together. Invalid fields, references or bounds leave
+the assignment unsealed for the existing repair path. Off and historical
+absent-context runs use the original report and reject the added fields.
+
+Automatic delivery resolves the accepted assignment at provider launch, outside
+the task lock, and persists an immutable binding before submission. Initial
+investigation receives the bootstrap. Validation and collection require the
+completed brief and receive its exact contribution prefix; later additions
+cannot rewrite an earlier binding. Saved initial preparation gaps remain in
+later packets even if the agent reports no limitations; any gaps that do not
+fit are explicitly counted with an incomplete-coverage notice. Packets fit
+32 KiB and complete composed message text fits 256 KiB UTF-8, with at most
+128 bindings per run. Core rechecks
+cancellation and worktree ownership before launch. Reference text is delimited
+untrusted input, never managed instructions or provider process arguments.
+A small trusted context policy is added only for enabled snapshots.
+
+Old-card discussion launches reuse their original run's saved context and setting,
+not today's notebook. At first execution a separate 8 KiB supplement captures
+up to three same-target private messages and three cached PR comment excerpts,
+with timestamps, observed head, excerpt hashes and explicit cache/coverage gaps.
+It does not refresh GitHub. The assignment is rechecked before atomic retention;
+replay cannot silently read newer comments. Delivery and report fixtures establish transport/structure only;
+provider/performance and review-quality acceptance remain tracked separately.
+
+Each retained private discussion message with a known source run offers **Save
+lesson**. Its local editor lets the user accept or rewrite the text, choose a
+notebook scope, and select additional evidence from that original run. The backend
+retains the original message source even when a newer review run exists. Saving
+uses the notebook revision, preserves failed drafts, and starts no agent turn or
+GitHub write. An explicit **Draft with agent** action can fill editable title,
+summary and details from that saved discussion and its retained evidence through
+a structured proposal in a disposable isolated text-only provider session, without
+adding a review turn. The user still chooses scope and evidence; malformed
+or failed proposals leave the editor draft intact for retry or manual completion.
+Drafting from an open editor keeps the user's scope and evidence choices; a
+successful proposal replaces only its text fields.
+Only **Save lesson** creates a lesson from this proposal. The settings notebook
+is the place to edit or remove the saved lesson.
+
+The accepted review request contains purpose, PR identity, frozen scope,
+previous review reference where applicable, and available capabilities. Enabled
+runs append their bounded saved reference packet at launch. The agent requests
+additional context as needed:
 
 - PR title, author description, base/head identities and actual commits;
 - PR timeline, remote discussions, checks, and previous local findings;
 - referenced issues and related PRs that ByteQuay can read;
 - paginated diff hunks, source windows at the frozen head, merge base, or
-  previous reviewed head, and evidence/output references.
+  previous reviewed head, and evidence/output references; context-enabled runs
+  can also read the captured monitored baseline.
 
 Reuse ByteQuay's read services and credentials inside the backend. Mark
 cached/unavailable/truncated data explicitly. Validate repository/number
@@ -485,13 +624,76 @@ for that lane; failure does not disable ordinary agent tasks.
 
 | Tool | Purpose |
 | --- | --- |
-| `review_get_context` | Bounded typed reads of current PR, linked issue/PR, diff, source, evidence, summary, finding, or discussion; supports pagination |
+| `review_get_context` | Bounded typed reads of current PR, linked issue/PR, selected commit-to-PR associations, diff, source, registered document, evidence, summary, finding, or discussion; supports pagination |
 | `review_save_summary` | Save the intention and exactly one explanation for every actual commit |
 | `review_save_investigation` | Save the change map, assessed changed files, supporting context refs, and numbered candidate hypotheses |
 | `review_save_finding` | Create a finding, or update a returned finding ID with its expected revision |
 | `review_reply` | Append a private answer to a summary/finding discussion using its returned target/message identity |
 | `review_withdraw_finding` | Withdraw an agent finding with expected revision and an explanation |
 | `review_finish` | Seal candidate assessments, concrete evidence requests, frozen investigation identity, coverage and omissions |
+
+The pr, timeline and checks reads select the current PR by default; an optional
+number selects a related PR in the same repository. They reuse persisted data
+and hydrate selected missing or outdated detail through existing PR refresh
+services. Responses and retained excerpts expose cache/source times, missing
+sections, refresh failure and the observed head. An unchanged conditional PR
+response cannot repair an unavailable discussion section; that selected gap
+uses the existing full-detail refresh. Failed refreshes retain cached evidence.
+The current PR's code coordinates and diff remain frozen to its ReviewRun.
+Checks for a separately observed head do not establish checks for the reviewed
+head. The issue read prefers a known cached PR or issue before its existing
+exact remote preview fallback. None of these reads performs repository-wide
+discovery or regenerates notebook knowledge.
+
+The commit_prs read resolves up to ten selected full commit IDs within the
+backend-bound monitored repository. It reuses durable associations, checks
+local commit metadata for unresolved IDs and calls the existing GitHub lookup
+only when the shared negative-result retry policy permits it. Returned mapping
+evidence distinguishes a checked lack of a single merged PR from failed or
+unavailable lookup, and exposes cache persistence failures. Commit-title PR
+suffixes never establish this association. The read retains per-item evidence
+in one run update and cannot change frozen review coordinates or its saved
+context snapshot.
+
+The diff read also accepts a related same-repository PR number. Omitted/current
+numbers retain the frozen reviewed diff and its finding anchors. Related reads
+reuse the default PR diff cache, hydrating a missing artifact through the
+existing refresh service. The first file-list page returns a content
+fingerprint; later pages and selected paths must present it and fail if the
+cache changes or disappears. Explicit refresh applies only to an initial
+related file-list read. Related patch pages are bounded Unicode text fragments
+retained exactly as evidence, with no current-review anchor IDs. The observed
+PR head is separate metadata: cached patches have no verified revision pair,
+fetch time or completeness, and cannot certify the final merged change.
+
+The document read requires an enabled context snapshot on its bound run. Without
+sourceId it lists configured notebook sources locally; otherwise it captures
+one selected relative page under that registered source. The fixed reader checks
+every redirect and the actual connection's resolved public addresses, and uses
+no GitHub credentials, cookies or ambient proxy. A temporary bounded capture
+returns a captureId that subsequent pages must present; source changes or a
+missing/replaced capture require a new initial read. Explicit refresh is limited
+to an initial read. Failed refresh may return a visibly marked earlier capture.
+Each successful selected page retains a typed source receipt; a nonblank page
+also retains its exact text as run evidence in the same update, without finding
+anchors. A blank page has a receipt but no invented evidence. Captured text is
+untrusted reference data: content hash/read time do
+not establish the documentation's version, freshness, truth or applicability.
+The [Repository Context source contract](repository-context.md#33-selected-documentation-reads)
+defines limits, cache lifetime, error behavior and remaining preparation gates.
+
+The source read accepts revision=baseline on context-enabled bound runs. It
+reads only regular UTF-8 file blobs at the snapshot's captured monitored commit,
+independent of current worktree, index or PR edits, without lazy fetch or Git
+replacement objects. Complete blobs are limited to 128 KiB; numbered windows
+to 200 lines and 16 KiB. Each success retains commit/blob/range metadata and
+optional exact evidence together. A successful empty file has a receipt;
+missing, unsupported or incomplete reads do not. Baseline and document reads
+share a 128-receipt limit per run. The application rechecks the accepted turn
+after source work before appending; initial context text and code identities
+stay frozen. A receipt establishes what was read, not reusable knowledge,
+source applicability or completed preparation. See the
+[baseline source contract](repository-context.md#34-frozen-baseline-source-reads-and-receipts).
 
 These are fixed application operations, not a model-controlled registry.
 Tool declarations carry strict JSON schemas and bounded fields; the backend

@@ -29,4 +29,8 @@ public interface RecentTouchJpaRepository
     @Modifying
     @Query("DELETE FROM RecentTouchEntity e WHERE e.touchDay < :cutoff")
     int deleteByTouchDayBefore(@Param("cutoff") String cutoff);
+
+    @Modifying
+    @Query("DELETE FROM RecentTouchEntity touch WHERE touch.itemKey = :itemKey")
+    void deleteByItemKey(@Param("itemKey") String itemKey);
 }

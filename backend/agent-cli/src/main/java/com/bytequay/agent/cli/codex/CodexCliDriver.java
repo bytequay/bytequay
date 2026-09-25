@@ -512,7 +512,7 @@ public final class CodexCliDriver
                     context.taskId(),
                     context.worktree(),
                     childProfile,
-                    codeGraph.map(registration -> new CodexLaunchProfile.CodeGraphLaunch(registration.endpoint(), registration.instruction())),
+                    codeGraph.map(registration -> new CodexLaunchProfile.CodeGraphLaunch(registration.endpoint(), registration.instruction(), registration.toolNames())),
                     codeGraph.map(CodeGraphRegistration::token),
                     context.access(),
                     ciWritableRoots,

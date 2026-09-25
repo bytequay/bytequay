@@ -13,7 +13,14 @@
  */
 package com.bytequay.persistence.sqlite.entity;
 
+import com.bytequay.core.context.ContextDocumentRead;
+import com.bytequay.core.context.ContextHistoryRead;
+import com.bytequay.core.context.ContextReference;
+import com.bytequay.core.context.ContextRepositoryRead;
+import com.bytequay.core.context.ContextSourceRead;
 import com.bytequay.persistence.sqlite.converter.JsonColumns;
+import com.fasterxml.jackson.annotation.JsonSubTypes;
+import com.fasterxml.jackson.annotation.JsonTypeInfo;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.DeserializationFeature;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -25,6 +32,8 @@ final class AgentReviewJson
 {
     // Stored runs keep fields the review record has since dropped, such as summary and coverage limitations.
     private static final ObjectMapper OBJECT_MAPPER = JsonColumns.mapper()
+            .addMixIn(ContextSourceRead.class, SourceReadJson.class)
+            .addMixIn(ContextReference.class, ReferenceJson.class)
             .disable(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES);
 
     private AgentReviewJson() {}
@@ -43,4 +52,21 @@ final class AgentReviewJson
     {
         return REVIEW.guard("Cannot deserialize review data", () -> OBJECT_MAPPER.readValue(json, type));
     }
+
+    @JsonTypeInfo(use = JsonTypeInfo.Id.NAME, include = JsonTypeInfo.As.EXISTING_PROPERTY, property = "kind")
+    @JsonSubTypes({
+            @JsonSubTypes.Type(value = ContextRepositoryRead.class, name = "REPOSITORY_FILE"),
+            @JsonSubTypes.Type(value = ContextDocumentRead.class, name = "DOCUMENT"),
+            @JsonSubTypes.Type(value = ContextHistoryRead.class, name = "HISTORY")})
+    private interface SourceReadJson {}
+
+    @JsonTypeInfo(use = JsonTypeInfo.Id.NAME, include = JsonTypeInfo.As.EXISTING_PROPERTY, property = "kind")
+    @JsonSubTypes({
+            @JsonSubTypes.Type(value = ContextReference.RepositoryFile.class, name = "REPOSITORY_FILE"),
+            @JsonSubTypes.Type(value = ContextReference.PullRequest.class, name = "PR"),
+            @JsonSubTypes.Type(value = ContextReference.Issue.class, name = "ISSUE"),
+            @JsonSubTypes.Type(value = ContextReference.Task.class, name = "TASK"),
+            @JsonSubTypes.Type(value = ContextReference.Review.class, name = "REVIEW"),
+            @JsonSubTypes.Type(value = ContextReference.Document.class, name = "DOCUMENT")})
+    private interface ReferenceJson {}
 }

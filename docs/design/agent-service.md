@@ -166,6 +166,121 @@ state. A failed or unsafe head move fails the request. The task stays in private
 review. Finishing explicitly discards experiments without creating a stash.
 See [development delivery](development-delivery.md#2-settings-and-scope).
 
+## Explicit repository learning
+
+[Repository Context](repository-context.md#23-explicit-learnrefresh-without-a-review)
+adds an explicit Learn/Refresh action through the current task service. The first
+run includes repository files, directory structure, repository documentation and
+registered docs by default. Users choose scopes and may add selected merged PRs
+or closed issues. The result is shared Knowledge; user-owned memory still requires
+Save lesson. The task is visible with its transcript, Stop and existing recovery.
+Task details use the required TaskView.worktreePath string to display its actual
+managed worktree, including a retained tree that still needs explicit cleanup.
+
+The implemented Find suggestions / Use selected suggestions flow precedes Learn
+and has no task lifecycle. The implementation checklist records completed gates
+and current refinements; live provider, performance and review-quality acceptance
+remain separate.
+It previews bounded scopes and literal documentation links from one frozen local
+repository baseline, with optional bounded history search. It never provisions a
+repository, clones, Git-fetches or starts/resumes an agent. Acceptance rederives
+selected IDs outside mutation locks, then appends configuration and captured
+provenance under the notebook revision guard; active preparation blocks it.
+Discovery evidence stays in notebook sourceEvidence through server-owned scope
+and source discoveryEvidenceRef fields. BEGIN remains
+limited to the accepted task's already configured scope/document assignment.
+Local discovery uses bounded breadth-first traversal at any depth and below
+manifest directories. Queries prioritize child traversal and filter scope
+proposals without dropping nonmatching ancestors. The same eight manifest names,
+24-directory/24-file caps, first 100 entries per directory and hidden/generated/
+vendor exclusions apply; symlinks and submodules are not followed. No build tool
+or workspace parser runs, and no additional dependency or task authority is added.
+Preview and Apply require repositoryFingerprint, derived from routing and the
+recorded lastCodeSyncAt. The service rechecks that metadata under the workspace
+lock before saving, with one final two-second/no-lazy-fetch rev-parse to catch a
+failed sync that moved the ref without updating its timestamp. This narrow guard
+precedes notebook registration and holds no notebook transaction or task monitor.
+Other Git inspection and all file/network/model work remain outside that lock.
+Repository source reads use Guava SimpleTimeLimiter on the existing ioExecutor
+with one Stopwatch and the configurable
+`bytequay.repository-context.discovery-timeout=30s` shared budget. This adds no
+scheduler or durable job. Only the request mutates its scan; timed-out late results
+are discarded, while completed suggestions retain an explicit coverage gap.
+Interruption restores the request's flag and aborts before history or configuration
+saving. Per-command Git and history limits are separate; the setting is not a
+thirty-second end-to-end HTTP performance guarantee.
+
+ContextBuildService checks the configured Review provider/model before allocation,
+freezes the local monitored baseline, and stores a reserved task ID plus accepted
+source selection in ContextBuild before creating a noninteractive AUTO task and
+starting its root turn. ContextBuildStore uses the existing AppSettingsStore key
+`workspace.repositoryContextBuild.<workspaceId>` for the latest binding, captured
+sources and exact operation receipts. Task/turn records remain the lifecycle
+authority. No PR, review run or parallel build-job state is manufactured.
+
+Purpose is resolved from the current saved task binding, never from the task's
+title, user message or model-authored field. ReviewBridgeResolver gives that root
+the existing restricted/no-child profile with only repository_context_read and
+repository_context_prepare. Global user skills apply; AUTO does not grant
+development delivery, PR-reporting or publication authority. Source bodies remain
+untrusted tool results, separate from the trusted policy. Shared preparation uses
+mandatory task/turn ownership and paired optional review/run IDs; standalone
+learning has neither review nor run ID.
+
+ContextBuildCoordinator observes existing task events. Startup restores that
+observation and settles existing work only; opening a surface, synchronization
+and startup never start or resume learning. There is no learning scheduler.
+An accepted structured result still waits for a terminal, quiescent turn before
+the application explicitly completes the task and invokes verified clean-worktree
+cleanup. Stop/failure preserves prior notes. The latest binding remains until
+the task is terminal and worktree removal is recorded, so cleanup controls and
+purpose fencing remain reachable. Missing-task provisioning failures remain
+attached to their request; uncertain accepted input is never resent automatically.
+A task already FAILED when reconciliation begins keeps its worktree until the
+user invokes purpose-scoped cleanup. Mark failed can discard an unverified
+recovery claim, so GET and startup do not automatically remove that worktree.
+A claim-free OPEN task whose turn just cancelled or failed may be abandoned and
+checked for safe cleanup in the same reconciliation pass.
+
+## Review reference input
+
+[Repository Context](repository-context.md) extends accepted review turn input
+through the narrow framework-free ReviewTurnInputResolver port. Agent core calls
+it outside the task monitor, before opening the provider session, after the
+original accepted message is saved and its transcript event drained. The app's
+RepositoryContextTurnInput resolves the current accepted assignment with the
+existing review fence and retains the exact saved packet binding on its source
+run. It returns the original message plus delimited untrusted reference data.
+Core then rechecks cancellation and worktree ownership and supplies that message
+through AgentTurnCommand. A preparation error fails the accepted turn as known
+unsent; no provider session starts. The accepted message/transcript stays unchanged.
+
+Direct starts and queued/resumed turns share this launch path. Initial enabled
+investigation receives the captured bootstrap; validation and collection require
+a sealed brief and receive its immutable contribution prefix. Old-card questions
+resolve the original run's snapshot and saved setting at execution, including
+when queued, without reading today's notebook or moving the worktree. The first
+launch appends a separately retained local discussion capture (up to 8 KiB and
+six excerpts) from same-target private messages and the current PR cache. No
+remote refresh runs in this launch path; cache freshness and selection gaps are
+explicit. Replays reuse the saved capture. Off, absent historical context
+and ordinary non-review tasks add no reference input. Source bodies travel in
+message/tool-result transport, never managed instructions or process arguments;
+only the small trusted policy is added to enabled review bridge instructions.
+
+Existing turn facts remain the transport authority. Context bindings store turn
+ID, packet prefix/digest/bytes, composed-input digest/bytes and optional discussion
+message identity plus its optional exact discussion supplement/evidence references.
+The review projection derives delivery state from AgentTurn's
+provider reference, startedAt and knownUnsent; a missing receipt is uncertain.
+There is no second delivery status store, acknowledgment turn or automatic resend
+of uncertain input. Packets are bounded to 32 KiB UTF-8, complete composed message
+text to 256 KiB, and bindings to 128 per run. Each completed context contribution
+fits 8 KiB including references/limitations, with one original brief and at most
+two collection supplements. The existing report operation and run update seal
+these values together. Transport fixtures and live provider/quality measurements
+retain their own acceptance gates; stored context does not prove comprehension.
+
 ## Development-agent CI evidence
 
 CI Autofix sessions additionally expose `propose_ci_description` through the
@@ -315,6 +430,9 @@ receive private review guidance through their existing review bridge, with
 executable proof as the first priority and at most ten qualifying findings per
 round. User skills combine Global with the matching task scope; open review
 ownership selects Review, and helpers receive only Global user skills.
+Explicit repository-learning tasks also receive only Global user skills; their
+saved ContextBuild binding selects the separate trusted research policy and
+fixed tool bridge, not development guidance or an invented review ownership.
 Scope and native
 child inheritance are specified in the linked skills design.
 
@@ -732,6 +850,9 @@ The implementation must enforce these invariants:
   not exec-policy sources. This is not described as a per-thread rule override.
   Separately, `configRequirements/read` must prove there are no applicable
   managed requirements; non-null or uninspectable requirements fail closed.
+  The task App Server does not set `forced_login_method`, because that setting
+  itself produces a non-null managed requirement. Before any turn, `account/read`
+  must instead report `requiresOpenaiAuth: true` and `account.type: chatgpt`.
 - Definite terminal operations release their matching claim in the same unit
   of work as their terminal state. An unknown provider delivery, orphaned
   process, or active descendant retains the blocking turn or claim and projects
@@ -855,6 +976,21 @@ public interface AgentTaskService
      * @throws InvalidAgentRequestException when {@code limit} is not positive
      */
     List<AgentTask> list(String workspaceId, int limit);
+
+    /**
+     * Reads completed interactive tasks with retained summaries for one workspace and physical repository.
+     *
+     * <p>All predicates apply before the row limit. Archived tasks and summaries surviving runtime
+     * cleanup remain eligible. Results use descending update time and ascending task ID for ties.
+     * This reads durable agent conclusions, never transcripts or provider state; it does not verify them.
+     *
+     * @param workspaceId exact owning workspace
+     * @param repository physical repository recorded at task creation, including a selected fork
+     * @param limit positive maximum matching row count
+     * @return at most {@code limit} tasks; repository owner and name match without case sensitivity
+     * @throws InvalidAgentRequestException when the workspace or limit is invalid
+     */
+    List<AgentTask> listCompleted(String workspaceId, RepositoryIdentity repository, int limit);
 }
 ```
 
@@ -878,6 +1014,11 @@ that marker immediately before launching the provider through the serialized
 path, allowing ordinary active-turn steering/queueing. Generated turns do not
 recapture the baseline and retain their continuation owner. Stop or shutdown
 during capture prevents late launch; startup never replays a lost capture.
+The review reference-input hook also runs outside the task monitor before launch
+for each accepted direct or queued turn. Its application-owned run binding is
+saved before provider submission; the subsequent ownership/cancellation check
+can leave that binding prepared but unsent. Original transcript input remains
+unchanged and existing turn receipts describe delivery.
 
 ```java
 package com.bytequay.agent.core;
@@ -1370,9 +1511,14 @@ exact replay deduplication. When a provider omits identity, ByteQuay still
 records and displays the callback, but cannot deduplicate a repeated delta
 callback across replay.
 
-For cumulative samples, `record` derives the baseline from the durable metrics
-of the task's other turns. No separate startup snapshot is needed, so the same
-calculation applies after a service restart.
+For task-wide `CUMULATIVE` samples, `record` derives the baseline from the durable
+metrics of the task's other turns. `CUMULATIVE_FOR_INVOCATION` samples instead
+replace the current turn's counters with no earlier-turn subtraction. Codex
+uses this scope because each ByteQuay turn opens a fresh App Server process;
+resuming the saved provider thread does not preserve its usage counters across
+processes. Both scopes ignore older counter samples and survive a service
+restart using the stored turn metrics. Neither adds repeated cumulative
+callbacks together.
 
 ```java
 package com.bytequay.agent.core;
@@ -2975,7 +3121,7 @@ coordinates the narrower interfaces shown in the last column.
 | 1. Create and send | `POST /agent/tasks` with `workspaceId`, first `message`, and idempotency key, never a path | `InteractiveAgentTaskCreator.create(...)` calls `AgentTaskTitleService.generate(...)` before provisioning, then the controller calls `AgentTurnService.start(...)` | `app` verifies readiness, resolves the exact starting commit, and uses a bounded isolated text-only helper to infer intent from the full request and accepted issue context. It freezes a validated clean branch and persists the generated title as `AGENT` with the task. Failure uses a neutral `<login>/bytequay/task-<short-id>` branch and a 36-character provisional label. Replays reuse recorded names; no background rename races with a user rename |
 | 2. Attach | Optional authenticated image upload | `AgentResourceService.storeAttachment(...)` | Validates content and limits, writes a task-owned blob, and returns an opaque `AttachmentRef`; arbitrary renderer paths are rejected |
 | 3. Observe | Open a recent page, scroll for adjacent pages, and subscribe at the latest sequence | `AgentEventService.readHistory(...)`, `subscribe(TaskId, afterSequence)`, and `AgentApprovalService.listPending(TurnId)` | Reads a bounded history window and streams later events under demand; current approvals remain available independently of unloaded history |
-| 4. Start turn | `POST /agent/tasks/{taskId}/turns` | `AgentTurnService.start(StartAgentTurnCommand)` | Rechecks lane readiness before accepting input and writes the bounded message blob. One short `AgentUnitOfWork` reserves the idempotency key and worktree-mutation claim as `ACCEPTED` with the user-message outbox entry. The event drains before provider send; the service opens/resumes the session, persists its reference, begins metrics, persists `startedAt`, starts the run, and records `RUNNING` with its provider reference. Failed readiness creates no turn |
+| 4. Start turn | `POST /agent/tasks/{taskId}/turns` | `AgentTurnService.start(StartAgentTurnCommand)` | Rechecks lane readiness before accepting input and writes the bounded message blob. One short `AgentUnitOfWork` reserves the idempotency key and worktree-mutation claim as `ACCEPTED` with the user-message outbox entry. The event drains before provider send; the review-input resolver prepares a saved reference binding outside the task monitor, then core rechecks ownership/cancellation, opens/resumes the session, persists its reference, begins metrics, persists `startedAt`, starts the run, and records `RUNNING` with its provider reference. Failed readiness creates no turn |
 | 5. Run | Keep SSE open; steer, queue, cancel, or resolve approvals | `AgentTurnService` and `AgentApprovalService` operations | Display-only provider events pass through `AgentEventService.append(...)`; any provider observation coupled to SQLite state uses `AgentUnitOfWork` plus the event outbox; steer persists and drains its input event before delivery; enqueue conditionally updates the task version with its row/event so it cannot race Complete and does not call the provider; approval resolution and its event commit and drain before the provider callback completes |
 | 6. Finish turn | Read turn state as needed | `AgentTurnService.get(TurnId)` | The root answer remains visible while recursive native status, latest-turn status, child inventory, and background checks verify work has finished. The driver durably records that fact before closing the per-turn App Server. Verified cleanup releases the claim; failed cleanup preserves a proven provider result and retains the claim. A failed provider check supplies no proof and triggers conservative shutdown. Core atomically finalizes metrics/state and terminal events; only a quiescent success may claim the FIFO head |
 | 7. Continue | Send or resume queued input on the same task | `AgentTurnService.start(...)` or `resumeQueued(...)` | Reuses the stored `AgentSessionRef`, creates one new `TurnId`, and launches a new matching-profile process; non-success leaves queued work paused |
@@ -4429,6 +4575,15 @@ Failed tasks use the same seven-day period, measured from their terminal
 timestamp. The product owner accepted this seven-day detailed-runtime window
 for the first release.
 
+Repository notebooks and the latest explicit-learning binding use the existing
+SQLite-backed AppSettingsStore. Context selections, discussion packets, exact
+note/source evidence and preparation activity belong to retained review runs and
+their operation journal. Ordinary task-runtime cleanup does not remove these
+records or rewrite old context. Source-cache eviction likewise leaves captured
+excerpts intact. Explicit confirmed workspace deletion purges workspace-owned
+notebooks/build bindings and reviews through the existing deletion path; Unwatch
+preserves them. No second database or separate retention scheduler is introduced.
+
 ### Explicit workspace deletion
 
 The Workspaces Delete action uses the existing confirmed task-deletion path for every retained
@@ -4570,8 +4725,10 @@ machine-readable status rather than by parsing diagnostic text:
 - degraded but usable; and
 - temporarily unavailable, including failed or empty Codex version reads.
 
-For Claude CLI, the authentication portion runs `claude auth status --json`
-with the same executable and allowlisted environment used for turns. Opening
+For Claude CLI, ByteQuay sets `CLAUDE_CONFIG_DIR` to its configured
+`…/ByteQuay/claude-home` for every probe, update, and turn, overriding any
+ambient value. The authentication portion runs `claude auth status --json`
+with that same executable and allowlisted environment used for turns. Opening
 the interactive `claude` screen is not an authentication check. The CP11
 reference executable (2.1.259) returns one JSON object whose required
 `loggedIn` member is boolean; fields such as `authMethod`, `apiProvider`, and
@@ -4635,7 +4792,8 @@ selected provider can work in this workspace.
 | Unavailable | Redacted actionable diagnostic | Check again |
 
 The sign-in action is a direct user action. In the first release ByteQuay shows
-the provider-owned command (for Claude, `claude auth login`) for the user to run
+the provider-owned command (for Claude,
+`CLAUDE_CONFIG_DIR='<ByteQuay Claude home>' claude auth login`) for the user to run
 in a visible terminal; it does not launch, script, or infer completion of an
 interactive login. The row provides **Check again**, which invokes the shared
 typed readiness-refresh bridge operation and replaces the displayed status and
@@ -4654,8 +4812,9 @@ CP11 closed the release blocker after automated tests demonstrated:
    task/turn creation, worktree provisioning, and CI attempt consumption.
 2. Workspace settings renders the typed authentication-required state and its
    sign-in action without exposing credentials.
-3. Successful login plus readiness refresh enables task start without an app
-   restart.
+3. Successful login in ByteQuay's configured Claude profile plus readiness
+   refresh enables task start without an app restart. The probe and turn
+   receive that same profile path even when an ambient Claude profile differs.
 4. Authentication expiry during a turn pauses the workflow, preserves its
    retry budget and task resources, and supports an explicit retry after login.
 5. Provider authentication failures are logged once with task/run context and

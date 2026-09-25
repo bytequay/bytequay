@@ -326,7 +326,7 @@ claude_executable="${BYTEQUAY_AGENT_E2E_CLAUDE_EXECUTABLE:-claude}"
 claude_enabled=false
 # The app's own Codex home, so the shell reuses the login ByteQuay already holds.
 codex_home="${BYTEQUAY_AGENT_E2E_CODEX_HOME:-$HOME/Library/Application Support/ByteQuay/codex-home}"
-claude_home="${BYTEQUAY_AGENT_E2E_CLAUDE_HOME:-$HOME}"
+claude_home="${BYTEQUAY_AGENT_E2E_CLAUDE_HOME:-$HOME/Library/Application Support/ByteQuay/claude-home}"
 case "$provider" in
     codex)
         codex_executable="$(command -v "$codex_executable")" || {
@@ -367,11 +367,6 @@ cp "$backend_root/app/target/bytequay-backend.jar" "$temporary_directory/bytequa
 
 (
     export BYTEQUAY_DESKTOP_SESSION_TOKEN="$session_token"
-    if [[ "$provider" == claude ]]; then
-        # Claude owns its login under HOME. The driver still supplies empty inherited
-        # setting sources and a generated task-local settings file for every turn.
-        export HOME="$claude_home"
-    fi
     exec java --enable-native-access=ALL-UNNAMED -jar "$temporary_directory/bytequay-backend.jar" \
         --server.port="$port" \
         --server.shutdown=immediate \
@@ -387,7 +382,8 @@ cp "$backend_root/app/target/bytequay-backend.jar" "$temporary_directory/bytequa
         --bytequay.agent.codex-executable="$codex_executable" \
         --bytequay.agent.codex-home="$codex_home" \
         --bytequay.agent.claude-enabled="$claude_enabled" \
-        --bytequay.agent.claude-executable="$claude_executable"
+        --bytequay.agent.claude-executable="$claude_executable" \
+        --bytequay.agent.claude-home="$claude_home"
 ) > "$process_log" 2>&1 &
 backend_pid=$!
 

@@ -691,6 +691,7 @@ class TestDefaultProcessSupervisor
         finally {
             Files.delete(blockedWrite);
             process.stopAndVerify().toCompletableFuture().get(15, TimeUnit.SECONDS);
+            process.exit().toCompletableFuture().get(15, TimeUnit.SECONDS);
         }
     }
 

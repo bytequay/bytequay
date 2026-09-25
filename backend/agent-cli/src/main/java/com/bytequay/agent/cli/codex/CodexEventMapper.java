@@ -14,6 +14,7 @@
 package com.bytequay.agent.cli.codex;
 
 import com.bytequay.agent.cli.development.DevelopmentResultTool;
+import com.bytequay.agent.cli.mcp.ContextReceiptRef;
 import com.bytequay.agent.cli.process.SecretRedactor;
 import com.bytequay.agent.spi.DevelopmentResultBridge;
 import com.bytequay.agent.spi.ProviderAgentEvent;
@@ -272,7 +273,11 @@ final class CodexEventMapper
                     timestamp,
                     started,
                     source,
-                    tool.durationMs()));
+                    tool.durationMs(),
+                    !started && tool.server().equals("bytequay")
+                            && (tool.tool().equals("review_get_context") || tool.tool().equals("repository_context_lookup"))
+                            && tool.status() == CodexProtocol.ActivityStatus.COMPLETED && tool.error().isEmpty()
+                            ? tool.result().flatMap(ContextReceiptRef::fromResult).map(ContextReceiptRef.SUMMARY_PREFIX::concat) : Optional.empty()));
             case CodexProtocol.DynamicToolCallItem tool -> ImmutableList.of(tool(
                     tool.id(),
                     tool.tool(),
@@ -281,6 +286,7 @@ final class CodexEventMapper
                     timestamp,
                     started,
                     source,
+                    Optional.empty(),
                     Optional.empty()));
             // Spawning is shown as the subagent it creates, not as a tool row; the other
             // collaboration tools are activity like any other.
@@ -294,6 +300,7 @@ final class CodexEventMapper
                             timestamp,
                             started,
                             source,
+                            Optional.empty(),
                             Optional.empty()));
             case CodexProtocol.ReasoningItem reasoning -> {
                 // Only the readable summary is mapped; the hidden reasoning text was never decoded.
@@ -381,7 +388,8 @@ final class CodexEventMapper
             Optional<Instant> timestamp,
             boolean started,
             ProviderAgentEventSource source,
-            Optional<Long> durationMs)
+            Optional<Long> durationMs,
+            Optional<String> summary)
     {
         return new ProviderAgentEvent.Tool(
                 Optional.of(eventId),
@@ -391,7 +399,7 @@ final class CodexEventMapper
                 started
                         ? ProviderAgentEvent.ActivityState.STARTED
                         : activityState(status),
-                redactor.redact(name),
+                redactor.redact(summary.orElse(name)),
                 Optional.empty(),
                 source,
                 durationMs.map(Duration::ofMillis));
@@ -535,7 +543,7 @@ final class CodexEventMapper
         CodexProtocol.TokenUsageBreakdown total = params.tokenUsage().total();
         return ImmutableList.of(new ProviderAgentEvent.Usage(new ProviderUsageSample(
                 Optional.of(params.turnId() + ":usage:" + total.totalTokens()),
-                ProviderUsageSample.Semantics.CUMULATIVE,
+                ProviderUsageSample.Semantics.CUMULATIVE_FOR_INVOCATION,
                 total.inputTokens(),
                 total.cachedInputTokens(),
                 total.outputTokens(),

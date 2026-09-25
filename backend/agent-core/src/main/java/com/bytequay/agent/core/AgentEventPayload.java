@@ -379,6 +379,7 @@ public sealed interface AgentEventPayload
     enum UsageSemantics
     {
         CUMULATIVE,
+        CUMULATIVE_FOR_INVOCATION,
         DELTA,
         FINAL_FOR_INVOCATION
     }

@@ -18,6 +18,7 @@ import com.bytequay.agent.core.TaskState;
 import com.bytequay.agent.core.store.AgentTaskStore;
 import com.bytequay.agent.spi.ReviewBridge;
 import com.bytequay.agent.spi.ReviewBridgeResolver;
+import com.bytequay.app.context.ContextBuildTools;
 import com.google.common.collect.ImmutableList;
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.stereotype.Component;
@@ -27,7 +28,7 @@ import java.util.Optional;
 import static java.util.Objects.requireNonNull;
 
 /**
- * Answers the provider broker from durable review facts. Looked up lazily: the broker is built
+ * Answers the provider broker from durable review or explicit learning ownership. Looked up lazily: the broker is built
  * before the review service, whose task execution depends on the drivers the broker serves.
  */
 @Component
@@ -35,18 +36,20 @@ public class ReviewBridgeResolverImpl
         implements ReviewBridgeResolver
 {
     private final ObjectProvider<ReviewTools> tools;
+    private final ObjectProvider<ContextBuildTools> builders;
     private final AgentTaskStore tasks;
 
-    public ReviewBridgeResolverImpl(ObjectProvider<ReviewTools> tools, AgentTaskStore tasks)
+    public ReviewBridgeResolverImpl(ObjectProvider<ReviewTools> tools, ObjectProvider<ContextBuildTools> builders, AgentTaskStore tasks)
     {
         this.tools = requireNonNull(tools, "tools is null");
+        this.builders = requireNonNull(builders, "builders is null");
         this.tasks = requireNonNull(tasks, "tasks is null");
     }
 
     @Override
     public Optional<ReviewBridge> resolve(String taskId)
     {
-        return tools.getObject().bridge(taskId).or(() -> tasks.find(TaskId.valueOf(taskId))
+        return builders.getObject().bridge(taskId).or(() -> tools.getObject().bridge(taskId)).or(() -> tasks.find(TaskId.valueOf(taskId))
                 .filter(task -> task.interactive() && task.state() == TaskState.OPEN)
                 .flatMap(task -> task.localReviewHead().map(head -> new ReviewBridge(ImmutableList.of(),
                         "This task is in private local review of commit " + head + ". "

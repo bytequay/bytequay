@@ -82,6 +82,8 @@ public class AgentQueuedInputEntity
     @Convert(converter = DevelopmentAutomationConverter.class)
     private DevelopmentAutomation developmentAutomation;
 
+    private Boolean useRepositoryContext;
+
     @Column(nullable = false)
     @Enumerated(EnumType.STRING)
     private AgentPermissionPolicy permissionPolicy;
@@ -135,6 +137,7 @@ public class AgentQueuedInputEntity
         effort = input.settings().effort().orElse(null);
         serviceTier = input.settings().serviceTier().orElse(null);
         developmentAutomation = input.settings().developmentAutomation().orElse(null);
+        useRepositoryContext = input.settings().useRepositoryContext();
         permissionPolicy = input.settings().permissionPolicy();
         maximumRuntimeMillis = input.settings().maximumRuntime().toMillis();
         attachmentsJson = AgentAttachmentReferenceJson.encode(input.settings().attachments());
@@ -162,7 +165,8 @@ public class AgentQueuedInputEntity
                         Duration.ofMillis(maximumRuntimeMillis),
                         AgentAttachmentReferenceJson.decode(attachmentsJson),
                         Optional.ofNullable(serviceTier),
-                        Optional.ofNullable(developmentAutomation)),
+                        Optional.ofNullable(developmentAutomation),
+                        !Boolean.FALSE.equals(useRepositoryContext)),
                 Optional.ofNullable(messageEventId).map(EventId::valueOf),
                 Optional.ofNullable(turnId).map(TurnId::valueOf),
                 Optional.ofNullable(pauseReason),

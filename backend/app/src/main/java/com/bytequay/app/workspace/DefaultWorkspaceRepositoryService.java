@@ -206,6 +206,22 @@ public class DefaultWorkspaceRepositoryService
         return repositoryContext(requireSynchronizedWorkspace(workspaceId));
     }
 
+    @Override
+    public WorkspaceRepositoryContext requireReadableRepository(String workspaceId)
+    {
+        return repositoryContext(requireSynchronizedWorkspace(workspaceId));
+    }
+
+    @Override
+    public WorkspaceRepositoryContext requireLocalRepository(String workspaceId)
+    {
+        Workspace workspace = requireWorkspace(workspaceId);
+        if (workspace.lastCodeSyncAt().isEmpty()) {
+            throw WorkspaceException.repositoryNotReady();
+        }
+        return repositoryContext(workspace);
+    }
+
     private Workspace requireSynchronizedWorkspace(String workspaceId)
     {
         Workspace workspace = requireWorkspace(workspaceId);

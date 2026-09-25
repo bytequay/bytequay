@@ -12,22 +12,24 @@
  * limitations under the License.
  */
 import MarkdownBody from '../MarkdownBody';
-import type { ReviewCandidateValidationDto, ReviewInvestigationDto, ReviewRunDto } from './contracts';
+import ReviewContextDetails from './ReviewContextDetails';
+import { evidenceTarget, validationTarget, ReviewEvidenceLink } from './ReviewEvidenceLinks';
+import type { ReviewCandidateValidationDto, ReviewFindingDto, ReviewInvestigationDto, ReviewRunDto } from './contracts';
 import { shortSha } from './model';
 
 const OUTCOMES = { SUPPORTED: 'Supported', REJECTED: 'Rejected', NEEDS_EVIDENCE: 'Needs evidence', UNRESOLVED: 'Unresolved' } as const;
 
-function ValidationConclusions({ validations, repository }: { validations: ReviewCandidateValidationDto[]; repository: string }) {
+function ValidationConclusions({ validations, repository, runId, step }: { validations: ReviewCandidateValidationDto[]; repository: string; runId: string; step: number }) {
   const counts = Object.entries(OUTCOMES).flatMap(([outcome, label]) => {
     const count = validations.filter(validation => validation.outcome === outcome).length;
     return count > 0 ? [`${count} ${label.toLowerCase()}`] : [];
   });
   return <>
     {counts.length > 0 && <p>{counts.join(' · ')}</p>}
-    <ol className="agr-review-details__conclusions">{validations.map(validation => <li key={validation.candidate} value={validation.candidate}>
+    <ol className="agr-review-details__conclusions">{validations.map(validation => <li key={validation.candidate} value={validation.candidate} id={validationTarget(runId, step, validation.candidate)} tabIndex={-1}>
       <strong>{OUTCOMES[validation.outcome]}</strong>
       <MarkdownBody body={validation.conclusion} repository={repository} />
-      {validation.evidenceRefs.length > 0 && <p>Evidence: <code>{validation.evidenceRefs.join(', ')}</code></p>}
+      {validation.evidenceRefs.length > 0 && <p>Evidence: {validation.evidenceRefs.map(reference => <ReviewEvidenceLink key={reference} target={evidenceTarget(runId, reference)}>{reference}</ReviewEvidenceLink>)}</p>}
       {validation.counterevidence && <><strong>Counterevidence considered</strong>
         <MarkdownBody body={validation.counterevidence} repository={repository} /></>}
       {validation.request !== null && <>
@@ -47,7 +49,7 @@ function EvidenceAnswers({ answers, repository }: { answers: ReviewInvestigation
   </li>)}</ol>;
 }
 
-export default function ReviewDetails({ run, repository }: { run: ReviewRunDto; repository: string }) {
+export default function ReviewDetails({ run, repository, findings = [] }: { run: ReviewRunDto; repository: string; findings?: ReviewFindingDto[] }) {
   const investigation = run.investigation;
   const validations = investigation?.validations ?? [];
   const evidence = run.evidence;
@@ -59,6 +61,7 @@ export default function ReviewDetails({ run, repository }: { run: ReviewRunDto; 
       <p className="agr-learning-cards__scope">
         {run.scope === 'FULL' ? 'Full review' : 'Incremental review'} · {run.priorHeadSha === null ? run.baseRef : shortSha(run.priorHeadSha)} → {shortSha(run.headSha)}
       </p>
+      <ReviewContextDetails run={run} findings={findings} />
       {investigation !== null && <>
         <h3>Change understanding</h3>
         <MarkdownBody body={investigation.changeMap} repository={repository} />
@@ -70,7 +73,7 @@ export default function ReviewDetails({ run, repository }: { run: ReviewRunDto; 
       <details>
         <summary>Context &amp; validation evidence · {evidence.length} {evidence.length === 1 ? 'reference' : 'references'}</summary>
         {evidence.length === 0 && <p>No context or validation evidence was recorded.</p>}
-        {evidence.map(item => <details className="agr-evidence__item" key={item.ref}>
+        {evidence.map(item => <details className="agr-evidence__item" key={item.ref} id={evidenceTarget(run.id, item.ref)} tabIndex={-1}>
           <summary className="agr-evidence__head"><span className="agr-card__refs">{item.ref}</span>
             <span className="agr-evidence__source" title={item.source}>{item.source}</span></summary>
           <div className="agr-evidence__head">{item.provenance}</div>
@@ -95,7 +98,7 @@ export default function ReviewDetails({ run, repository }: { run: ReviewRunDto; 
               <ul>{step.validation.newCandidates.map(candidate => <li key={candidate}><MarkdownBody body={candidate} repository={repository} /></li>)}</ul>
             </>}
             {step.validation.candidates.length === 0 && <p>No candidate defects required validation.</p>}
-            <ValidationConclusions validations={step.validation.candidates} repository={repository} />
+            <ValidationConclusions validations={step.validation.candidates} repository={repository} runId={run.id} step={step.number} />
           </>}
         </details>)}
       </details>}
@@ -103,7 +106,7 @@ export default function ReviewDetails({ run, repository }: { run: ReviewRunDto; 
           <summary>Validation · {validations.length} of {investigation.candidates.length} {investigation.candidates.length === 1 ? 'candidate' : 'candidates'} checked</summary>
           {validations.length === 0 && <p>{run.coverage !== null && investigation.candidates.length === 0
             ? 'No candidate defects required validation.' : 'Validation has not been recorded.'}</p>}
-          <ValidationConclusions validations={validations} repository={repository} />
+          <ValidationConclusions validations={validations} repository={repository} runId={run.id} step={0} />
       </details>}
       <p>{run.coverage?.complete === true && run.coverage.omissions.length === 0
         ? 'Complete coverage was recorded for the review scope.' : 'Complete coverage has not been recorded.'}</p>

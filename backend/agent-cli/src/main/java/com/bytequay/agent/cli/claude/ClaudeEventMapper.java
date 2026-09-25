@@ -14,6 +14,7 @@
 package com.bytequay.agent.cli.claude;
 
 import com.bytequay.agent.cli.development.DevelopmentResultTool;
+import com.bytequay.agent.cli.mcp.ContextReceiptRef;
 import com.bytequay.agent.cli.process.SecretRedactor;
 import com.bytequay.agent.spi.DevelopmentResultBridge;
 import com.bytequay.agent.spi.ProviderAgentEvent;
@@ -490,13 +491,17 @@ final class ClaudeEventMapper
                     call.background(),
                     commandLabel(call));
         }
+        String summary = !result.error() && (call.name().equals("mcp__bytequay__review_get_context")
+                || call.name().equals("mcp__bytequay__repository_context_lookup"))
+                ? ContextReceiptRef.fromResult(result.content()).map(ContextReceiptRef.SUMMARY_PREFIX::concat).orElseGet(() -> bounded(result.text()))
+                : bounded(result.text());
         return new ProviderAgentEvent.Tool(
                 eventId,
                 timestamp,
                 result.toolUseId(),
                 call.name(),
                 state,
-                bounded(result.text()),
+                summary,
                 call.parentToolUseId(),
                 source(call.parentToolUseId(), Optional.of(result.toolUseId())));
     }

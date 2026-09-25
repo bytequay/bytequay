@@ -1349,3 +1349,25 @@ complete.
   queue API.
 - Raw chain-of-thought, raw provider protocol inspection, or a second event
   store in the renderer.
+
+## Repository context in review activity
+
+The existing Review details disclosure shows the selected run's prepared text,
+source/version and selection facts, retained exact note/source reads, completed
+briefs and per-turn delivery receipts. Private questions retain their original
+run and show a separate local discussion capture for the executing turn. A new
+comment capture never rewrites the review head or notebook. Reconnect uses the
+saved run projection; missing provider receipts remain uncertain.
+
+Folded preparation entries use durable BEGIN/SUBMIT outcomes and bounded
+JOINED/DEFERRED observations, with actual elapsed time when recorded. Prepared,
+provided, retrieved and cited are separate facts. Source links lead to saved
+validation conclusions (including rejected hypotheses) and available current
+findings. Byte/read counts are retained-data measurements; unavailable token or
+provider-cache attribution is labeled unavailable. None implies comprehension
+or an improved review judgment.
+
+Workspace settings owns Repository context and the explicit Learn/Refresh
+controls. Learning runs through the existing task transcript, Stop and recovery
+controls. Opening settings, synchronizing comments or restoring the app cannot
+launch learning. This does not add another task UI or background learning job.

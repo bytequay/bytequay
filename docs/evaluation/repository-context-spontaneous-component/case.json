@@ -1,0 +1,34 @@
+{
+  "schemaVersion": 1,
+  "purpose": "Unprompted Codex development comparison for component-scope dynamic lookup",
+  "repository": "contextfixture/history-case",
+  "revisions": {
+    "pre": "5dc334b92a4633dc6f772093f4b15cc30c9e3252",
+    "base": "35089cdc274efee74d89682271c3b15f6ba12bdb",
+    "head": "aedc3d9eb56df040e9d7d9385aa91538c73c4284"
+  },
+  "historicalPr": 7,
+  "scope": {
+    "id": "window",
+    "match": {
+      "kind": "SELECTED",
+      "pathPrefixes": [
+        "sensors/"
+      ],
+      "terms": [
+        "window"
+      ]
+    }
+  },
+  "prompt": "A customer reports that neighboring dashboard panels changed their sample counts after the latest cleanup. Investigate the intended behavior from this repository, make the smallest justified correction if needed, add a focused regression test, and run it. Explain your evidence.",
+  "provider": {
+    "lane": "codex",
+    "model": "gpt-6-sol",
+    "effort": "high"
+  },
+  "proposedOracle": {
+    "expected": "Restore inclusive end in sensors/window.py and add an exact-endpoint regression assertion, using the cached merged PR #7 decision as historical evidence but checking it against current code.",
+    "focusedTest": "python3 -B sensors/test_window.py",
+    "humanApproved": false
+  }
+}

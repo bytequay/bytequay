@@ -74,6 +74,8 @@ import com.bytequay.agent.spi.DevelopmentResultReport;
 import com.bytequay.agent.spi.ProviderAgentEvent;
 import com.bytequay.agent.spi.ProviderTurnRef;
 import com.bytequay.agent.spi.RunningTurn;
+import com.bytequay.core.context.ContextUsageEvent;
+import com.bytequay.core.context.DevelopmentContextReceipt;
 import com.bytequay.core.domain.PullRequestTask;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
@@ -118,6 +120,12 @@ class TestSqliteAgentStores
 
     @Autowired
     private SqlitePullRequestTaskStore pullRequestTasks;
+
+    @Autowired
+    private SqliteContextUsageStore usageStore;
+
+    @Autowired
+    private SqliteDevelopmentContextReceiptStore contextReceipts;
 
     @Autowired
     private SqliteAgentTurnStore turnStore;
@@ -379,6 +387,55 @@ class TestSqliteAgentStores
         assertThat(taskStore.listRecentInteractive("workspace-a", 10)).containsExactly(expected);
         assertThat(taskStore.listByWorkspace("workspace-a")).containsExactly(expected, internal);
         assertThat(taskStore.listByWorkspace("workspace-b")).containsExactly(otherWorkspace);
+    }
+
+    @Test
+    void scopesCompletedSummariesBeforeLimitingOrDecodingRows()
+    {
+        Instant now = Instant.parse("2026-08-16T00:00:00Z");
+        RepositoryIdentity repository = new RepositoryIdentity("bytequay", "sample");
+        AgentTask expected = completedTask(TaskId.random(), "workspace-a", true, repository, now);
+        AgentTask otherWorkspace = completedTask(TaskId.random(), "workspace-b", true, repository, now.plusSeconds(1));
+        AgentTask otherOwner = completedTask(TaskId.random(), "workspace-a", true, new RepositoryIdentity("other", "sample"), now.plusSeconds(2));
+        AgentTask otherName = completedTask(TaskId.random(), "workspace-a", true, new RepositoryIdentity("bytequay", "other"), now.plusSeconds(3));
+        AgentTask internal = completedTask(TaskId.random(), "workspace-a", false, repository, now.plusSeconds(4));
+        AgentTask open = newTask(now.plusSeconds(5), Optional.of("workspace-a"), true);
+        AgentTask missingSummary = completedTask(TaskId.random(), "workspace-a", true, repository, now.plusSeconds(6));
+        AgentTask failed = newTask(now.plusSeconds(7), Optional.of("workspace-a"), true)
+                .fail("failed", now.plusSeconds(8), now.plusSeconds(100));
+        ImmutableList.of(expected, otherWorkspace, otherOwner, otherName, internal, open, missingSummary, failed).forEach(taskStore::insert);
+        entityManager.flush();
+        // Excluded rows must never be decoded, even when their retained payload is unreadable.
+        for (AgentTask excluded : ImmutableList.of(otherWorkspace, otherOwner, otherName, internal, open, failed)) {
+            jdbc.update("UPDATE agent_task SET summary_json = ? WHERE id = ?", "invalid-json", excluded.id().toString());
+        }
+        jdbc.update("UPDATE agent_task SET summary_json = NULL WHERE id = ?", missingSummary.id().toString());
+        entityManager.clear();
+
+        assertThat(taskStore.listRecentCompletedInteractive("workspace-a", new RepositoryIdentity("ByteQuay", "SAMPLE"), 1)).containsExactly(expected);
+        assertThat(taskStore.listRecentCompletedInteractive("workspace-a", repository, 10)).containsExactly(expected);
+        assertThat(taskStore.listRecentCompletedInteractive("WORKSPACE-A", repository, 1)).isEmpty();
+    }
+
+    @Test
+    void ordersCompletedSummariesWithStableTiesAndRetainsArchivedCleanedTasks()
+    {
+        Instant now = Instant.parse("2026-08-16T00:00:00Z");
+        RepositoryIdentity repository = new RepositoryIdentity("bytequay", "sample");
+        AgentTask first = completedTask(TaskId.valueOf("00000000-0000-0000-0000-000000000001"), "workspace-a", true, repository, now)
+                .withArchived(true, now)
+                .withCleanupState(CleanupState.DELETE_DUE, Optional.empty(), now)
+                .withCleanupState(CleanupState.DELETED, Optional.empty(), now);
+        AgentTask second = completedTask(TaskId.valueOf("00000000-0000-0000-0000-000000000002"), "workspace-a", true, repository, now);
+        AgentTask newest = completedTask(TaskId.random(), "workspace-a", true, repository, now.plusSeconds(1));
+        ImmutableList.of(second, first, newest).forEach(taskStore::insert);
+        entityManager.flush();
+        entityManager.clear();
+
+        assertThat(taskStore.listRecentCompletedInteractive("workspace-a", repository, 2)).containsExactly(newest, first);
+        assertThat(taskStore.listRecentCompletedInteractive("workspace-a", repository, 3)).containsExactly(newest, first, second);
+        assertThatThrownBy(() -> taskStore.listRecentCompletedInteractive("workspace-a", repository, 0)).isInstanceOf(IllegalArgumentException.class);
+        assertThatThrownBy(() -> taskStore.listRecentCompletedInteractive(" ", repository, 1)).isInstanceOf(IllegalArgumentException.class);
     }
 
     @Test
@@ -774,6 +831,12 @@ class TestSqliteAgentStores
         AgentTask other = newTask(now);
         taskStore.insert(other);
         launchStore.insert(new AgentProcessLaunch("launch-other", LaunchOwnerKind.APP_SERVER, other.id().toString(), true, "/usr/bin/codex", "digest", now));
+        usageStore.record(new ContextUsageEvent("workspace-a", task.id().toString(), Optional.of(turn.id().toString()), Optional.empty(),
+                ContextUsageEvent.TaskKind.DEVELOPMENT, ContextUsageEvent.Stage.ELIGIBLE, ContextUsageEvent.Delivery.CONFIRMED,
+                "context-eligible:" + turn.id(), Optional.empty(), Optional.empty(), Optional.of(true), now));
+        DevelopmentContextReceipt receipt = new DevelopmentContextReceipt(task.id().toString(), turn.id().toString(), "search:one",
+                "context-search:one", DevelopmentContextReceipt.Kind.SEARCH, "request", "{\"hits\":[]}", "payload", now);
+        contextReceipts.insert(receipt);
         entityManager.clear();
         PullRequestTask assignment = new PullRequestTask(task.id().toString(), "workspace", "Owner/Repo", 7, "Load PR context");
         pullRequestTasks.insert(assignment);
@@ -798,11 +861,12 @@ class TestSqliteAgentStores
         assertThat(taskStore.find(task.id())).isEmpty();
         assertThat(pullRequestTasks.findByTaskId(task.id().toString())).isEmpty();
         assertThat(turnStore.find(turn.id())).isEmpty();
-        for (String table : ImmutableList.of("agent_turn", "agent_queued_input", "agent_input_delivery", "agent_event_outbox")) {
+        for (String table : ImmutableList.of("agent_turn", "agent_queued_input", "agent_input_delivery", "agent_event_outbox", "context_usage_fact")) {
             assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM " + table + " WHERE task_id = ?", Integer.class, task.id().toString()))
                     .as(table).isZero();
         }
         assertThat(launchStore.list()).extracting(AgentProcessLaunch::launchId).containsExactly("launch-other");
+        assertThat(contextReceipts.find(task.id().toString(), turn.id().toString(), "search:one")).isEmpty();
         assertThat(taskStore.find(other.id())).isPresent();
 
         taskStore.delete(task.id());
@@ -1104,6 +1168,13 @@ class TestSqliteAgentStores
                         Optional.of("medium"),
                         AgentPermissionPolicy.AUTO),
                 now);
+    }
+
+    private static AgentTask completedTask(TaskId id, String workspaceId, boolean interactive, RepositoryIdentity repository, Instant now)
+    {
+        return AgentTask.created(id, Optional.of(workspaceId), interactive, "Task conclusion", AgentLaneId.CODEX_CLI, repository,
+                        Path.of("/tmp/bytequay-worktree"), AgentPermissionPolicy.AUTO, now)
+                .complete(new TaskSummary("Retained agent conclusion", Optional.empty(), AgentMetrics.empty(), Optional.empty()), now, now.plus(Duration.ofDays(7)));
     }
 
     private static AgentTurnSettings turnSettings()

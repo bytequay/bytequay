@@ -291,6 +291,7 @@ class TestInteractiveAgentHttpContract
                 Optional.empty(),
                 Optional.empty(),
                 Optional.empty(),
+                Optional.empty(),
                 AgentMetrics.empty());
 
         JsonNode taskJson = objectMapper.valueToTree(InteractiveAgentHttpContract.task(task, task.metrics(), Optional.empty(), Optional.empty(), Optional.empty()));

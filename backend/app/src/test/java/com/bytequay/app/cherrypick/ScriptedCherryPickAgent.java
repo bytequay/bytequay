@@ -497,6 +497,7 @@ final class ScriptedCherryPickAgent
                 state == TurnState.COMPLETED
                         ? Optional.empty()
                         : Optional.of("Everything is fine and validation passed."),
+                Optional.empty(),
                 new AgentMetrics(0, 0, 0, Optional.empty(), java.time.Duration.ZERO));
     }
 

@@ -135,7 +135,7 @@ class TestPullRequestCiBridgeResolverImpl
                 "master", "https://github.com/alice/trino.git", Optional.of("master"), Optional.of("https://github.com/trinodb/trino.git"),
                 "/tmp/trino", Optional.of(NOW), Optional.of(NOW), 0, NOW, NOW)));
         when(worktrees.currentBranch(worktree)).thenReturn(Optional.of(BRANCH));
-        when(worktrees.inspect(worktree)).thenReturn(new WorktreeSnapshot(worktree, HEAD, false, false));
+        when(worktrees.inspect(worktree)).thenReturn(new WorktreeSnapshot(worktree, HEAD, false, false, false));
         when(pullRequests.findByHeadRef(UPSTREAM.fullName(), BRANCH)).thenReturn(ImmutableList.of(row(PR)));
         when(actions.inspect(PR)).thenReturn(failing);
     }

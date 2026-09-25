@@ -64,7 +64,7 @@ class TestBranchRebaseMonitorJob
                 git,
                 Clock.fixed(Instant.parse("2026-08-20T00:00:00Z"), ZoneOffset.UTC),
                 new DevelopmentCiOwnership(mock(CiAutofixStore.class), mock(AgentTaskStore.class), mock(AgentTurnStore.class), mock(AgentEventService.class),
-                        new AgentRuntimeRegistry(), Clock.systemUTC()));
+                        new AgentRuntimeRegistry(ignored -> {}), Clock.systemUTC()));
 
         new BranchRebaseMonitorJob(store, service, readyAgentServingGate(), 20).monitor();
 

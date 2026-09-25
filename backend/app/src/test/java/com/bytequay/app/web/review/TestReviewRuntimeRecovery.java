@@ -319,7 +319,7 @@ class TestReviewRuntimeRecovery
         return new AgentMaintenance(
                 taskStore, turnStore, mock(QueuedInputStore.class), mock(SteerDeliveryStore.class), mock(AgentUnitOfWork.class),
                 mock(AgentEventOutboxStore.class), mock(AgentApprovalService.class), mock(AgentMetricsService.class), mock(AgentCompletionService.class),
-                new AgentRuntimeRegistry(), Clock.fixed(NOW, ZoneOffset.UTC));
+                new AgentRuntimeRegistry(ignored -> {}), Clock.fixed(NOW, ZoneOffset.UTC));
     }
 
     private static AgentTask task()

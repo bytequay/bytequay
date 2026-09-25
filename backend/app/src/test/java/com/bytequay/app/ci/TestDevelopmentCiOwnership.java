@@ -73,7 +73,7 @@ class TestDevelopmentCiOwnership
     private final AgentTaskStore tasks = mock(AgentTaskStore.class);
     private final AgentTurnStore turns = mock(AgentTurnStore.class);
     private final AgentEventService events = mock(AgentEventService.class);
-    private final AgentRuntimeRegistry runtimes = new AgentRuntimeRegistry();
+    private final AgentRuntimeRegistry runtimes = new AgentRuntimeRegistry(ignored -> {});
     private final DevelopmentCiOwnership ownership = new DevelopmentCiOwnership(store, tasks, turns, events, runtimes, Clock.fixed(NOW, ZoneOffset.UTC));
 
     @ParameterizedTest

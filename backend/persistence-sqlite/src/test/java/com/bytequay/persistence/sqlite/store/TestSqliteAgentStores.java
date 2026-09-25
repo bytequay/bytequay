@@ -190,7 +190,8 @@ class TestSqliteAgentStores
                 "finished",
                 Optional.of(snapshot),
                 metrics,
-                Optional.of("reviewed"));
+                Optional.of("reviewed"),
+                ImmutableList.of());
         AgentTask task = AgentTask.created(
                         taskId,
                         true,
@@ -352,7 +353,8 @@ class TestSqliteAgentStores
                 "finished",
                 Optional.empty(),
                 AgentMetrics.empty(),
-                Optional.empty());
+                Optional.empty(),
+                ImmutableList.of());
         AgentTask task = newTask(now).complete(
                 summary,
                 now.plusSeconds(1),
@@ -688,7 +690,7 @@ class TestSqliteAgentStores
                 EventId.random(), task.id(), Optional.empty(), AgentEventPayload.LifecyclePhase.TURN_STARTED, "started", now);
         AgentEventOutboxEntry development = AgentEventOutboxEntry.pendingInline(
                 EventId.random(), task.id(), Optional.empty(), root(),
-                new AgentEventPayload.DevelopmentResult(false, Optional.of("Which implementation should I use?")), now);
+                new AgentEventPayload.DevelopmentResult(false, Optional.of("Which implementation should I use?"), Optional.empty()), now);
 
         outboxStore.insert(lifecycle);
         outboxStore.insert(development);
@@ -979,7 +981,7 @@ class TestSqliteAgentStores
         RecordingDriver firstProcess = new RecordingDriver();
         DefaultAgentTurnService beforeRestart = turnService(
                 firstProcess,
-                new AgentRuntimeRegistry(),
+                new AgentRuntimeRegistry(ignored -> {}),
                 new DefaultAgentEventService(logs, outboxStore, taskStore, clock),
                 logs,
                 resources,
@@ -994,7 +996,7 @@ class TestSqliteAgentStores
         entityManager.flush();
         entityManager.clear();
 
-        AgentRuntimeRegistry restartedRuntime = new AgentRuntimeRegistry();
+        AgentRuntimeRegistry restartedRuntime = new AgentRuntimeRegistry(ignored -> {});
         AgentMaintenance maintenance = new AgentMaintenance(
                 taskStore,
                 turnStore,
@@ -1174,7 +1176,8 @@ class TestSqliteAgentStores
     {
         return AgentTask.created(id, Optional.of(workspaceId), interactive, "Task conclusion", AgentLaneId.CODEX_CLI, repository,
                         Path.of("/tmp/bytequay-worktree"), AgentPermissionPolicy.AUTO, now)
-                .complete(new TaskSummary("Retained agent conclusion", Optional.empty(), AgentMetrics.empty(), Optional.empty()), now, now.plus(Duration.ofDays(7)));
+                .complete(new TaskSummary("Retained agent conclusion", Optional.empty(), AgentMetrics.empty(), Optional.empty(),
+                        ImmutableList.of()), now, now.plus(Duration.ofDays(7)));
     }
 
     private static AgentTurnSettings turnSettings()
@@ -1185,7 +1188,8 @@ class TestSqliteAgentStores
                 AgentPermissionPolicy.AUTO,
                 Duration.ofMinutes(5),
                 ImmutableList.of(new AgentAttachmentReference("attachment-1", "image.png", "image/png")),
-                Optional.of("priority"));
+                Optional.of("priority"),
+                Optional.empty());
     }
 
     /** These store tests never touch the graph; the turn service only needs a service that reports itself unavailable. */

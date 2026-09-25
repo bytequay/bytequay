@@ -244,7 +244,7 @@ class TestReviewCodeService
     void readsTheFrozenHeadOnceTheWorkingCopyIsGone()
     {
         write(checkout, TEST_PATH, "unsaved experiment\n");
-        AgentTask completed = openTask().complete(new TaskSummary("done", Optional.empty(), AgentMetrics.empty(), Optional.empty()), NOW, NOW.plusSeconds(60));
+        AgentTask completed = openTask().complete(new TaskSummary("done", Optional.empty(), AgentMetrics.empty(), Optional.empty(), ImmutableList.of()), NOW, NOW.plusSeconds(60));
         when(reviews.task(REVIEW_ID)).thenReturn(completed.withWorktreeRemovedAt(NOW));
 
         CodeFiles files = service.files(REVIEW_ID);
@@ -360,7 +360,7 @@ class TestReviewCodeService
                 new LineChange(LineChange.Kind.ADDED, 8, 1));
         assertThat(service.file(REVIEW_ID, "src/test/java/TestUntracked.java").lineChanges()).isEmpty();
 
-        AgentTask completed = openTask().complete(new TaskSummary("done", Optional.empty(), AgentMetrics.empty(), Optional.empty()), NOW, NOW.plusSeconds(60));
+        AgentTask completed = openTask().complete(new TaskSummary("done", Optional.empty(), AgentMetrics.empty(), Optional.empty(), ImmutableList.of()), NOW, NOW.plusSeconds(60));
         when(reviews.task(REVIEW_ID)).thenReturn(completed.withWorktreeRemovedAt(NOW));
         assertThat(service.file(REVIEW_ID, path).lineChanges()).containsExactly(
                 new LineChange(LineChange.Kind.MODIFIED, 2, 1),
@@ -417,7 +417,7 @@ class TestReviewCodeService
 
         assertThat(service.file(REVIEW_ID, "src/test/java/TestAfter.java").lineChanges()).containsExactly(new LineChange(LineChange.Kind.MODIFIED, 3, 1));
 
-        AgentTask completed = openTask().complete(new TaskSummary("done", Optional.empty(), AgentMetrics.empty(), Optional.empty()), NOW, NOW.plusSeconds(60));
+        AgentTask completed = openTask().complete(new TaskSummary("done", Optional.empty(), AgentMetrics.empty(), Optional.empty(), ImmutableList.of()), NOW, NOW.plusSeconds(60));
         when(reviews.task(REVIEW_ID)).thenReturn(completed.withWorktreeRemovedAt(NOW));
         assertThat(service.file(REVIEW_ID, "src/test/java/TestAfter.java").lineChanges()).containsExactly(new LineChange(LineChange.Kind.MODIFIED, 3, 1));
     }
@@ -565,7 +565,7 @@ class TestReviewCodeService
     {
         assertThat(service.terminalDirectory(REVIEW_ID)).isEqualTo(checkout);
 
-        AgentTask completed = openTask().complete(new TaskSummary("done", Optional.empty(), AgentMetrics.empty(), Optional.empty()), NOW, NOW.plusSeconds(60));
+        AgentTask completed = openTask().complete(new TaskSummary("done", Optional.empty(), AgentMetrics.empty(), Optional.empty(), ImmutableList.of()), NOW, NOW.plusSeconds(60));
         when(reviews.task(REVIEW_ID)).thenReturn(completed.withWorktreeRemovedAt(NOW.plusSeconds(60)));
         assertThatThrownBy(() -> service.terminalDirectory(REVIEW_ID)).isInstanceOf(ReviewConflictException.class).hasMessage("The working copy is gone");
 
@@ -674,7 +674,7 @@ class TestReviewCodeService
         assertThat(service.symbols(REVIEW_ID, "simple", 20)).isEqualTo(CodeSymbolResult.UNAVAILABLE);
         assertThat(service.outline(REVIEW_ID, TEST_PATH)).isEqualTo(new CodeOutline(CodeSymbolResult.Status.UNAVAILABLE, ImmutableList.of()));
 
-        AgentTask completed = openTask().complete(new TaskSummary("done", Optional.empty(), AgentMetrics.empty(), Optional.empty()), NOW, NOW.plusSeconds(60));
+        AgentTask completed = openTask().complete(new TaskSummary("done", Optional.empty(), AgentMetrics.empty(), Optional.empty(), ImmutableList.of()), NOW, NOW.plusSeconds(60));
         when(reviews.task(REVIEW_ID)).thenReturn(completed.withWorktreeRemovedAt(NOW));
         assertThat(service.files(REVIEW_ID).codeGraph()).isEqualTo(CodeGraphState.UNAVAILABLE);
         assertThat(service.symbols(REVIEW_ID, "simple", 20)).isEqualTo(CodeSymbolResult.UNAVAILABLE);
@@ -768,7 +768,8 @@ class TestReviewCodeService
     {
         assertThat(service.terminalDirectory(taskHost())).isEqualTo(checkout);
 
-        AgentTask completed = developmentTask().complete(new TaskSummary("done", Optional.empty(), AgentMetrics.empty(), Optional.empty()), NOW, NOW.plusSeconds(60));
+        AgentTask completed = developmentTask().complete(new TaskSummary("done", Optional.empty(), AgentMetrics.empty(), Optional.empty(),
+                ImmutableList.of()), NOW, NOW.plusSeconds(60));
         when(tasks.getInteractive(WORKSPACE_ID, worktree.taskId())).thenReturn(completed);
         assertThat(service.file(taskHost(), MAIN_PATH).readOnlyReason()).contains("This task has ended — read-only");
         assertThatThrownBy(() -> service.terminalDirectory(taskHost())).isInstanceOf(ReviewConflictException.class).hasMessage("The task has ended");

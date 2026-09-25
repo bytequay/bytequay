@@ -60,11 +60,6 @@ public final class AgentRuntimeRegistry
     private final Consumer<AgentTask> branchAdmission;
     private volatile boolean closing;
 
-    public AgentRuntimeRegistry()
-    {
-        this(task -> {});
-    }
-
     public AgentRuntimeRegistry(Consumer<AgentTask> branchAdmission)
     {
         this.branchAdmission = requireNonNull(branchAdmission, "branchAdmission is null");

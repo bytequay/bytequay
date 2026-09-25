@@ -1256,7 +1256,7 @@ class TestDefaultAgentReviewService
         fixture.service.reconcile(reviewId);
         pushHead(fixture, NEW_HEAD);
         when(fixture.git.run(REPOSITORY, "merge-base", "--is-ancestor", HEAD, NEW_HEAD)).thenReturn(ok(""));
-        when(fixture.worktrees.inspect(taskWorktree())).thenReturn(new WorktreeSnapshot(taskWorktree(), NEW_HEAD, false, false));
+        when(fixture.worktrees.inspect(taskWorktree())).thenReturn(new WorktreeSnapshot(taskWorktree(), NEW_HEAD, false, false, false));
         fixture.service.update(reviewId);
         ReviewRun validating = beginValidation(fixture, fixture.store.listRuns(reviewId).getLast());
         fixture.store.updateRun(validating.withCoverage(new ReviewCoverage(false, ImmutableList.of("The parser integration path was not reviewed"),
@@ -1388,7 +1388,7 @@ class TestDefaultAgentReviewService
         when(fixture.git.run(REPOSITORY, "log", "--reverse", "--format=%H%x1f%an%x1f%s", MERGE_BASE + ".." + NEW_HEAD))
                 .thenReturn(ok(NEW_HEAD + FIELD + "Alice" + FIELD + "Address review\n"));
         when(fixture.git.run(REPOSITORY, "merge-base", "--is-ancestor", HEAD, NEW_HEAD)).thenReturn(ok(""));
-        when(fixture.worktrees.inspect(taskWorktree())).thenReturn(new WorktreeSnapshot(taskWorktree(), NEW_HEAD, false, false));
+        when(fixture.worktrees.inspect(taskWorktree())).thenReturn(new WorktreeSnapshot(taskWorktree(), NEW_HEAD, false, false, false));
         TurnId updateTurn = TurnId.valueOf("55555555-5555-4555-8555-555555555555");
         when(fixture.turns.start(any(StartAgentTurnCommand.class))).thenReturn(AgentTurn.accepted(updateTurn, TASK_ID, "review-update", SETTINGS, NOW));
 
@@ -1741,7 +1741,7 @@ class TestDefaultAgentReviewService
         assertThat(fixture.service.mutateWorkingCopy(reviewId, mutation)).isEqualTo("saved " + TASK_ID + " 1");
         verify(fixture.turns).synchronizeWorktree(eq(TASK_ID), eq(idleTask().version()), any());
 
-        AgentTask completed = idleTask().complete(new TaskSummary("done", Optional.empty(), AgentMetrics.empty(), Optional.empty()), NOW, NOW.plusSeconds(60));
+        AgentTask completed = idleTask().complete(new TaskSummary("done", Optional.empty(), AgentMetrics.empty(), Optional.empty(), ImmutableList.of()), NOW, NOW.plusSeconds(60));
         when(fixture.tasks.get(TASK_ID)).thenReturn(completed.withWorktreeRemovedAt(NOW));
         assertWorkingCopyBusy(fixture, reviewId, mutation, "The working copy is gone");
         when(fixture.tasks.get(TASK_ID)).thenReturn(idleTask());
@@ -1844,7 +1844,7 @@ class TestDefaultAgentReviewService
 
         // Ignored build output from the agent's test runs marks the snapshot dirty without blocking the move.
         when(fixture.worktrees.inspect(taskWorktree()))
-                .thenReturn(new WorktreeSnapshot(taskWorktree(), HEAD, true, false), new WorktreeSnapshot(taskWorktree(), NEW_HEAD, true, false));
+                .thenReturn(new WorktreeSnapshot(taskWorktree(), HEAD, true, false, true), new WorktreeSnapshot(taskWorktree(), NEW_HEAD, true, false, true));
         List<String> move = rewritten ? realign(NEW_HEAD) : fastForward(NEW_HEAD);
         when(fixture.git.run(taskWorktree().canonicalWorktree(), move)).thenReturn(ok(""));
 
@@ -1894,7 +1894,7 @@ class TestDefaultAgentReviewService
         pushHead(fixture, mid);
         when(fixture.git.run(REPOSITORY, "merge-base", "--is-ancestor", HEAD, mid)).thenReturn(ok(""));
         when(fixture.worktrees.inspect(taskWorktree()))
-                .thenReturn(new WorktreeSnapshot(taskWorktree(), HEAD, false, false), new WorktreeSnapshot(taskWorktree(), mid, false, false));
+                .thenReturn(new WorktreeSnapshot(taskWorktree(), HEAD, false, false, false), new WorktreeSnapshot(taskWorktree(), mid, false, false, false));
         when(fixture.git.run(worktree, fastForward(mid))).thenReturn(ok(""));
 
         fixture.service.resume(reviewId);
@@ -1908,7 +1908,7 @@ class TestDefaultAgentReviewService
         pushHead(fixture, NEW_HEAD);
         when(fixture.git.run(REPOSITORY, "merge-base", "--is-ancestor", mid, NEW_HEAD)).thenReturn(new GitCommandRunner.Result(1, "", false));
         when(fixture.worktrees.inspect(taskWorktree()))
-                .thenReturn(new WorktreeSnapshot(taskWorktree(), mid, false, false), new WorktreeSnapshot(taskWorktree(), NEW_HEAD, false, false));
+                .thenReturn(new WorktreeSnapshot(taskWorktree(), mid, false, false, false), new WorktreeSnapshot(taskWorktree(), NEW_HEAD, false, false, false));
         when(fixture.git.run(worktree, realign(NEW_HEAD))).thenReturn(ok(""));
 
         fixture.service.update(reviewId);
@@ -1924,7 +1924,7 @@ class TestDefaultAgentReviewService
         String reviewId = fixture.store.listOpenReviews().getFirst().id();
         String localCommit = "c3d4e5f6a70123456789abcdef0123456789abcd";
         when(fixture.worktrees.inspect(taskWorktree()))
-                .thenReturn(new WorktreeSnapshot(taskWorktree(), HEAD, true, true), new WorktreeSnapshot(taskWorktree(), localCommit, false, false));
+                .thenReturn(new WorktreeSnapshot(taskWorktree(), HEAD, true, true, true), new WorktreeSnapshot(taskWorktree(), localCommit, false, false, false));
         // Even if the remote incorporated a local commit, only the recorded review baseline may move.
         when(fixture.git.run(REPOSITORY, "merge-base", "--is-ancestor", localCommit, NEW_HEAD)).thenReturn(ok(""));
 
@@ -1944,7 +1944,7 @@ class TestDefaultAgentReviewService
         String reviewId = fixture.store.listOpenReviews().getFirst().id();
         when(fixture.git.run(REPOSITORY, "merge-base", "--is-ancestor", HEAD, NEW_HEAD)).thenReturn(ok(""));
         when(fixture.worktrees.inspect(taskWorktree()))
-                .thenReturn(new WorktreeSnapshot(taskWorktree(), HEAD, true, false), new WorktreeSnapshot(taskWorktree(), NEW_HEAD, true, false));
+                .thenReturn(new WorktreeSnapshot(taskWorktree(), HEAD, true, false, true), new WorktreeSnapshot(taskWorktree(), NEW_HEAD, true, false, true));
         when(fixture.git.run(taskWorktree().canonicalWorktree(), fastForward(NEW_HEAD))).thenReturn(ok(""));
 
         fixture.service.update(reviewId);
@@ -1965,7 +1965,7 @@ class TestDefaultAgentReviewService
         Fixture fixture = rewrittenHistory();
         String reviewId = fixture.store.listOpenReviews().getFirst().id();
         when(fixture.worktrees.inspect(taskWorktree()))
-                .thenReturn(new WorktreeSnapshot(taskWorktree(), HEAD, true, false), new WorktreeSnapshot(taskWorktree(), NEW_HEAD, false, false));
+                .thenReturn(new WorktreeSnapshot(taskWorktree(), HEAD, true, false, true), new WorktreeSnapshot(taskWorktree(), NEW_HEAD, false, false, false));
         when(fixture.git.run(taskWorktree().canonicalWorktree(), realign(NEW_HEAD))).thenReturn(ok(""));
         doAnswer(invocation -> {
             invocation.getArgument(3, Runnable.class).run();
@@ -1986,7 +1986,7 @@ class TestDefaultAgentReviewService
     {
         Fixture fixture = rewrittenHistory();
         String reviewId = fixture.store.listOpenReviews().getFirst().id();
-        when(fixture.worktrees.inspect(taskWorktree())).thenReturn(new WorktreeSnapshot(taskWorktree(), HEAD, true, false));
+        when(fixture.worktrees.inspect(taskWorktree())).thenReturn(new WorktreeSnapshot(taskWorktree(), HEAD, true, false, true));
         doThrow(new IllegalStateException("Cannot preserve private experiments for synchronization"))
                 .when(fixture.experiments).synchronize(eq(taskWorktree()), eq(HEAD), eq(NEW_HEAD), any(Runnable.class));
 
@@ -2069,6 +2069,7 @@ class TestDefaultAgentReviewService
                 Optional.empty(),
                 Optional.of(SETTINGS),
                 terminalReason,
+                Optional.empty(),
                 AgentMetrics.empty());
     }
 
@@ -2326,7 +2327,7 @@ class TestDefaultAgentReviewService
                     .thenReturn(ImmutableList.of(new DiffFile("src/App.java", "modified", 1, 0, "@@ -1,2 +1,3 @@\n context\n+added\n")));
             when(tasks.create(any(CreateAgentTaskCommand.class))).thenReturn(idleTask());
             when(tasks.get(TASK_ID)).thenReturn(idleTask());
-            when(worktrees.inspect(taskWorktree())).thenReturn(new WorktreeSnapshot(taskWorktree(), HEAD, false, false));
+            when(worktrees.inspect(taskWorktree())).thenReturn(new WorktreeSnapshot(taskWorktree(), HEAD, false, false, false));
             when(turns.start(any(StartAgentTurnCommand.class)))
                     .thenAnswer(invocation -> acceptTurn(invocation.getArgument(0)));
             when(turns.findTurnByIdempotencyKey(eq(TASK_ID), anyString()))

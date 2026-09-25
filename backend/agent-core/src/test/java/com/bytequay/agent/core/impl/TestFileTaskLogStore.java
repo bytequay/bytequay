@@ -99,13 +99,19 @@ class TestFileTaskLogStore
                 new AgentEventPayload.ToolActivity(
                         "Read",
                         ActivityState.COMPLETED,
-                        "read a file"),
+                        "read a file",
+                        Optional.empty()),
                 new AgentEventPayload.CommandActivity(
                         ActivityState.COMPLETED,
                         ImmutableList.of("git", "status"),
                         Optional.of("clean"),
                         Optional.of(0),
-                        false),
+                        false,
+                        Optional.empty(),
+                        Optional.empty(),
+                        ImmutableList.of(),
+                        false,
+                        Optional.empty()),
                 new AgentEventPayload.FileActivity(
                         ActivityState.COMPLETED,
                         "README.md",
@@ -132,7 +138,7 @@ class TestFileTaskLogStore
                 new AgentEventPayload.Lifecycle(
                         AgentEventPayload.LifecyclePhase.TURN_COMPLETED,
                         "complete"),
-                new AgentEventPayload.DevelopmentResult(false, Optional.of("Which implementation should I use?")),
+                new AgentEventPayload.DevelopmentResult(false, Optional.of("Which implementation should I use?"), Optional.empty()),
                 new AgentEventPayload.Error(
                         "failed",
                         "failure",
@@ -170,7 +176,9 @@ class TestFileTaskLogStore
                         CommandActionKind.READ,
                         Optional.of("OpenAI Docs skill"),
                         Optional.empty(),
-                        Optional.empty()))));
+                        Optional.empty())),
+                false,
+                Optional.empty()));
         store.append(named);
         assertThat(store.readAfter(taskId, 0, 10)).containsExactly(named);
 

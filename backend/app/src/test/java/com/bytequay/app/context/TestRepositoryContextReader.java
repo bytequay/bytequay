@@ -457,7 +457,9 @@ class TestRepositoryContextReader
     {
         AgentTask open = openTask(1, WORKSPACE, true, PHYSICAL, "Completed task");
         TaskWorktree worktree = new TaskWorktree(open.id(), WORKSPACE, PHYSICAL, open.worktree(), "bytequay/task/" + open.id(), DIFF_BASE);
-        TaskSummary summary = new TaskSummary("Investigated behavior", Optional.of(new WorktreeSnapshot(worktree, HEAD, false, false)), AgentMetrics.empty(), Optional.empty());
+        TaskSummary summary = new TaskSummary("Investigated behavior", Optional.of(new WorktreeSnapshot(worktree, HEAD, false, false,
+                false)), AgentMetrics.empty(), Optional.empty(),
+                ImmutableList.of());
         AgentTask completed = open.complete(summary, Instant.EPOCH.plusSeconds(1), Instant.EPOCH.plusSeconds(100));
         stored(pr(1, "task:" + completed.id(), 0));
         when(tasks.getInteractive(WORKSPACE, completed.id())).thenReturn(completed);
@@ -579,7 +581,7 @@ class TestRepositoryContextReader
 
     private static AgentTask complete(AgentTask task, String response, Optional<String> notes, long seconds)
     {
-        return task.complete(new TaskSummary(response, Optional.empty(), AgentMetrics.empty(), notes),
+        return task.complete(new TaskSummary(response, Optional.empty(), AgentMetrics.empty(), notes, ImmutableList.of()),
                 Instant.EPOCH.plusSeconds(seconds), Instant.EPOCH.plusSeconds(seconds + 100));
     }
 

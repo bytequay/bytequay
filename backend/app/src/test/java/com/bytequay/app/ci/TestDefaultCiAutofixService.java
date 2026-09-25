@@ -275,7 +275,7 @@ class TestDefaultCiAutofixService
                 ImmutableList.of("error: compilation failed"),
                 Optional.empty(), Optional.empty(), true));
         when(worktreeService.inspect(any())).thenAnswer(invocation ->
-                new WorktreeSnapshot(invocation.getArgument(0), HEAD, false, false));
+                new WorktreeSnapshot(invocation.getArgument(0), HEAD, false, false, false));
         when(taskService.create(any())).thenAnswer(invocation -> task(invocation.getArgument(0)));
         when(taskService.get(any())).thenAnswer(invocation -> {
             TaskId requested = invocation.getArgument(0);
@@ -308,7 +308,7 @@ class TestDefaultCiAutofixService
         };
         taskStore = mock(AgentTaskStore.class);
         turnStore = mock(AgentTurnStore.class);
-        runtimes = new AgentRuntimeRegistry();
+        runtimes = new AgentRuntimeRegistry(ignored -> {});
         ownership = new DevelopmentCiOwnership(store, taskStore, turnStore, eventService, runtimes, Clock.fixed(NOW, ZoneOffset.UTC));
         service = new DefaultCiAutofixService(
                 store,
@@ -2343,7 +2343,7 @@ class TestDefaultCiAutofixService
 
     private WorktreeSnapshot worktree(boolean dirty, String head)
     {
-        return new WorktreeSnapshot(taskWorktree, head, dirty, false);
+        return new WorktreeSnapshot(taskWorktree, head, dirty, false, dirty);
     }
 
     private Optional<WorktreeSnapshot> summaryWorktree(String head)
@@ -2436,7 +2436,8 @@ class TestDefaultCiAutofixService
                 "completed",
                 summaryWorktree(head),
                 AgentMetrics.empty(),
-                Optional.empty());
+                Optional.empty(),
+                ImmutableList.of());
         return openTask.complete(summary, NOW, NOW.plus(Duration.ofDays(7)));
     }
 
@@ -2629,7 +2630,8 @@ class TestDefaultCiAutofixService
                 "untrusted agent response",
                 summaryWorktree(head),
                 AgentMetrics.empty(),
-                Optional.of("verified"));
+                Optional.of("verified"),
+                ImmutableList.of());
         return new TaskCompletion(taskId, summary, NOW, NOW.plus(Duration.ofDays(7)));
     }
 

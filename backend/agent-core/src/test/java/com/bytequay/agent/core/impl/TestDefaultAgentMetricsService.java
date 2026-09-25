@@ -189,7 +189,7 @@ class TestDefaultAgentMetricsService
         TurnId otherTurn = TurnId.random();
         for (int sequence = 1; sequence <= 24; sequence++) {
             logStore.append(event(sequence, sequence % 2 == 0 ? turn.id() : otherTurn,
-                    new AgentEventPayload.ToolActivity("Read", ActivityState.COMPLETED, "read")));
+                    new AgentEventPayload.ToolActivity("Read", ActivityState.COMPLETED, "read", Optional.empty())));
         }
 
         AgentMetrics result = service.finishTurn(turn.id(), TurnState.COMPLETED);
@@ -267,8 +267,8 @@ class TestDefaultAgentMetricsService
         TurnId turn = TurnId.random();
         TurnId other = TurnId.random();
         List<AgentEventEnvelope> events = ImmutableList.of(
-                event(1, turn, new AgentEventPayload.ToolActivity("Read", ActivityState.STARTED, "reading")),
-                event(2, turn, new AgentEventPayload.ToolActivity("Read", ActivityState.COMPLETED, "read")),
+                event(1, turn, new AgentEventPayload.ToolActivity("Read", ActivityState.STARTED, "reading", Optional.empty())),
+                event(2, turn, new AgentEventPayload.ToolActivity("Read", ActivityState.COMPLETED, "read", Optional.empty())),
                 event(3, turn, new AgentEventPayload.ToolActivity("mcp__bytequay__codegraph_explore", ActivityState.COMPLETED, "graph", Optional.of(1200L))),
                 event(4, turn, new AgentEventPayload.ToolActivity("bytequay/codegraph_explore", ActivityState.FAILED, "graph", Optional.of(300L))),
                 event(5, turn, new AgentEventPayload.CommandActivity(
@@ -281,8 +281,10 @@ class TestDefaultAgentMetricsService
                         Optional.of(40L),
                         ImmutableList.of(
                                 new CommandAction(CommandActionKind.SEARCH, Optional.empty(), Optional.empty(), Optional.of("cleanup")),
-                                new CommandAction(CommandActionKind.OTHER, Optional.empty(), Optional.empty(), Optional.empty())))),
-                event(6, other, new AgentEventPayload.ToolActivity("Grep", ActivityState.COMPLETED, "elsewhere")));
+                                new CommandAction(CommandActionKind.OTHER, Optional.empty(), Optional.empty(), Optional.empty())),
+                        false,
+                        Optional.empty())),
+                event(6, other, new AgentEventPayload.ToolActivity("Grep", ActivityState.COMPLETED, "elsewhere", Optional.empty())));
 
         ToolCounters counters = DefaultAgentMetricsService.foldCounters(events, turn);
 

@@ -33,10 +33,4 @@ public record WorktreeSnapshot(
         requireNonNull(worktree, "worktree is null");
         ProvisionWorktreeCommand.checkObjectId(head, "head");
     }
-
-    /** A snapshot that treats every dirty file as uncommitted work. */
-    public WorktreeSnapshot(TaskWorktree worktree, String head, boolean dirty, boolean gitOperationInProgress)
-    {
-        this(worktree, head, dirty, gitOperationInProgress, dirty);
-    }
 }

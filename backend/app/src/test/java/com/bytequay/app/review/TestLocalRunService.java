@@ -288,7 +288,8 @@ class TestLocalRunService
         assertTaskBusy(LocalRunService.TASK_RECOVERY_NEEDED);
         when(tasks.getInteractive(WORKSPACE_ID, worktree.taskId())).thenReturn(developmentTask(Optional.empty()).withDevelopmentContinuation(true, NOW));
         assertTaskBusy("Development automation is working");
-        AgentTask completed = developmentTask(Optional.empty()).complete(new TaskSummary("done", Optional.empty(), AgentMetrics.empty(), Optional.empty()), NOW, NOW.plusSeconds(60));
+        AgentTask completed = developmentTask(Optional.empty()).complete(new TaskSummary("done", Optional.empty(), AgentMetrics.empty(), Optional.empty(),
+                ImmutableList.of()), NOW, NOW.plusSeconds(60));
         when(tasks.getInteractive(WORKSPACE_ID, worktree.taskId())).thenReturn(completed);
         assertTaskBusy("The task has ended");
         when(tasks.getInteractive(WORKSPACE_ID, worktree.taskId())).thenReturn(completed.withWorktreeRemovedAt(NOW));

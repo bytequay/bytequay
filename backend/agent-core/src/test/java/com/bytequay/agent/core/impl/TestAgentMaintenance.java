@@ -583,7 +583,7 @@ class TestAgentMaintenance
                 approvals,
                 new DefaultAgentMetricsService(stores, stores, new InMemoryTaskLogStore(), clock),
                 completion,
-                new AgentRuntimeRegistry(),
+                new AgentRuntimeRegistry(ignored -> {}),
                 clock);
     }
 
@@ -614,7 +614,7 @@ class TestAgentMaintenance
 
     private static TaskSummary summary()
     {
-        return new TaskSummary("done", Optional.empty(), AgentMetrics.empty(), Optional.empty());
+        return new TaskSummary("done", Optional.empty(), AgentMetrics.empty(), Optional.empty(), ImmutableList.of());
     }
 
     private static AgentTask managedTask(TaskId taskId, AgentPermissionPolicy permissionPolicy)

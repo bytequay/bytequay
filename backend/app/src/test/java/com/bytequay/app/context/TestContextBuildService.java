@@ -205,7 +205,7 @@ class TestContextBuildService
                 (id, task) -> task.fail(call.getArgument(1), NOW, DELETE_AFTER)));
         when(completions.complete(any(CompleteAgentTaskCommand.class))).thenAnswer(call -> {
             CompleteAgentTaskCommand command = call.getArgument(0);
-            TaskSummary summary = new TaskSummary("Learned repository", Optional.empty(), AgentMetrics.empty(), command.notes());
+            TaskSummary summary = new TaskSummary("Learned repository", Optional.empty(), AgentMetrics.empty(), command.notes(), ImmutableList.of());
             savedTasks.compute(command.taskId(), (id, task) -> task.complete(summary, NOW, DELETE_AFTER));
             return new TaskCompletion(command.taskId(), summary, NOW, DELETE_AFTER);
         });
@@ -403,7 +403,7 @@ class TestContextBuildService
         when(resources.require(any())).thenReturn(new TaskResources(runtime, runtime.resolve("events"), runtime.resolve("blobs"), runtime.resolve("provider")));
         service = createService(new DefaultAgentCompletionService(taskStore, turnStore, mock(QueuedInputStore.class), unit,
                 mock(AgentEventOutboxStore.class), mock(AgentEventService.class), mock(TaskLogStore.class), managed, resources,
-                new AgentRuntimeRegistry(), metrics, mock(CodeGraphService.class), () -> Duration.ofDays(7), Clock.fixed(NOW, ZoneOffset.UTC)));
+                new AgentRuntimeRegistry(ignored -> {}), metrics, mock(CodeGraphService.class), () -> Duration.ofDays(7), Clock.fixed(NOW, ZoneOffset.UTC)));
         RepositoryNotebook saved = notebooks.editEntry(WORKSPACE, 0, new EditContextEntry("knowledge:project", "project", "Project", "Summary",
                 "Keep the accepted knowledge", ImmutableList.of(), ImmutableList.of()));
         ContextBuild bound = start();

@@ -1444,7 +1444,7 @@ class TestCherryPickExecutionService
                     .map(name -> git(worktree.canonicalWorktree(), "rev-parse", "--git-path", name))
                     .map(Path::of)
                     .anyMatch(Files::exists);
-            return new WorktreeSnapshot(worktree, head, dirty, operationInProgress);
+            return new WorktreeSnapshot(worktree, head, dirty, operationInProgress, dirty);
         }
 
         @Override

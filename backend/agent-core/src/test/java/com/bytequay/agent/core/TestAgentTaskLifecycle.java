@@ -194,8 +194,10 @@ class TestAgentTaskLifecycle
                         worktree,
                         "1123456789012345678901234567890123456789",
                         true,
-                        false)),
+                        false,
+                        true)),
                 AgentMetrics.empty(),
-                Optional.empty());
+                Optional.empty(),
+                ImmutableList.of());
     }
 }

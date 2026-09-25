@@ -102,11 +102,6 @@ public sealed interface AgentEventPayload
             this(report.readyForDelivery(), report.message(), report.learningSummary());
         }
 
-        public DevelopmentResult(boolean readyForDelivery, Optional<String> message)
-        {
-            this(readyForDelivery, message, Optional.empty());
-        }
-
         public DevelopmentResult
         {
             new DevelopmentResultReport(readyForDelivery, message, learningSummary);
@@ -132,31 +127,6 @@ public sealed interface AgentEventPayload
             Optional<String> description)
             implements AgentEventPayload
     {
-        /** A command that runs in the foreground; a stored row written before the flag existed reads the same way. */
-        public CommandActivity(
-                ActivityState state,
-                List<String> argv,
-                Optional<String> output,
-                Optional<Integer> exitCode,
-                boolean truncated,
-                Optional<String> cwd,
-                Optional<Long> durationMs,
-                List<CommandAction> actions)
-        {
-            this(state, argv, output, exitCode, truncated, cwd, durationMs, actions, false, Optional.empty());
-        }
-
-        /** The shape stored before the working directory, duration, and parsed actions were carried. */
-        public CommandActivity(
-                ActivityState state,
-                List<String> argv,
-                Optional<String> output,
-                Optional<Integer> exitCode,
-                boolean truncated)
-        {
-            this(state, argv, output, exitCode, truncated, Optional.empty(), Optional.empty(), ImmutableList.of());
-        }
-
         public CommandActivity
         {
             requireNonNull(state, "state is null");
@@ -206,12 +176,6 @@ public sealed interface AgentEventPayload
     record ToolActivity(String name, ActivityState state, String summary, Optional<Long> durationMs)
             implements AgentEventPayload
     {
-        /** The shape stored before a tool's duration was carried. */
-        public ToolActivity(String name, ActivityState state, String summary)
-        {
-            this(name, state, summary, Optional.empty());
-        }
-
         public ToolActivity
         {
             checkNotBlank(name, "name");

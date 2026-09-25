@@ -104,7 +104,7 @@ class TestDefaultAgentCompletionService
         resources = new RecordingResources();
         worktrees = new RecordingWorktreeService();
         codeGraph = new RecordingCodeGraphService();
-        runtimeRegistry = new AgentRuntimeRegistry();
+        runtimeRegistry = new AgentRuntimeRegistry(ignored -> {});
         taskId = TaskId.random();
         stores.insert(managedTask(taskId, "Completion test"));
     }

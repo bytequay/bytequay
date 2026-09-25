@@ -157,7 +157,7 @@ class TestBranchRebaseService
                 GIT,
                 Clock.fixed(NOW, ZoneOffset.UTC),
                 new DevelopmentCiOwnership(ciRuns, mock(AgentTaskStore.class), mock(AgentTurnStore.class), mock(AgentEventService.class),
-                        new AgentRuntimeRegistry(), Clock.fixed(NOW, ZoneOffset.UTC)));
+                        new AgentRuntimeRegistry(ignored -> {}), Clock.fixed(NOW, ZoneOffset.UTC)));
     }
 
     @Test
@@ -616,7 +616,8 @@ class TestBranchRebaseService
                 taskWorktree,
                 head(),
                 !status.isBlank(),
-                false);
+                false,
+                !status.isBlank());
     }
 
     private String workBranch()

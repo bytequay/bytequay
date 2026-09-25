@@ -28,16 +28,6 @@ public record TaskSummary(
         Optional<String> notes,
         List<ChildSummary> children)
 {
-    /** A summary of a task that delegated nothing, which is what every task was before subagents. */
-    public TaskSummary(
-            String finalResponse,
-            Optional<WorktreeSnapshot> worktree,
-            AgentMetrics metrics,
-            Optional<String> notes)
-    {
-        this(finalResponse, worktree, metrics, notes, ImmutableList.of());
-    }
-
     public TaskSummary
     {
         children = ImmutableList.copyOf(children);

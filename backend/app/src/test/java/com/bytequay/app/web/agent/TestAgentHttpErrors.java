@@ -451,7 +451,7 @@ class TestAgentHttpErrors
                 mock(AgentApprovalService.class),
                 mock(AgentMetricsService.class),
                 mock(AgentCompletionService.class),
-                new AgentRuntimeRegistry(),
+                new AgentRuntimeRegistry(ignored -> {}),
                 Clock.systemUTC());
         return new AgentStartupRecovery(
                 outboxStore,

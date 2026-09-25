@@ -2909,7 +2909,12 @@ class TestReviewTools
                         ImmutableList.of("mvn", "-Dtest=TestWidget#rejectsNull", "test"),
                         Optional.of(output),
                         Optional.of(1),
-                        false));
+                        false,
+                        Optional.empty(),
+                        Optional.empty(),
+                        ImmutableList.of(),
+                        false,
+                        Optional.empty()));
         when(events.readHistory(TaskId.valueOf(TASK_ID), OptionalLong.empty(), OptionalLong.empty()))
                 .thenReturn(new AgentHistoryPage(ImmutableList.of(completed), OptionalLong.empty(), OptionalLong.empty(), 1));
     }

@@ -113,6 +113,6 @@ class TestDevelopmentContextUsageObserver
     {
         return new AgentEventEnvelope(AgentEventEnvelope.CURRENT_SCHEMA_VERSION, EventId.random(), 1, taskId,
                 Optional.of(turn), AgentEventSource.root(), Instant.EPOCH,
-                new AgentEventPayload.ToolActivity(name, state, "context-receipt:" + reference));
+                new AgentEventPayload.ToolActivity(name, state, "context-receipt:" + reference, Optional.empty()));
     }
 }

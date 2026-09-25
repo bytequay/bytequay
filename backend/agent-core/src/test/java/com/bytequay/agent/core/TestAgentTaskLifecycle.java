@@ -146,11 +146,7 @@ class TestAgentTaskLifecycle
         Instant completedAt = CREATED_AT.plusSeconds(4);
         AgentTask completed = newTask().complete(summary(), completedAt, completedAt.plus(7, ChronoUnit.DAYS));
 
-        AgentTask due = completed.withCleanupState(
-                CleanupState.DELETE_DUE,
-                Optional.empty(),
-                completedAt.plus(7, ChronoUnit.DAYS));
-        AgentTask retry = due.withCleanupState(
+        AgentTask retry = completed.withCleanupState(
                 CleanupState.RETRY_PENDING,
                 Optional.of("disk busy"),
                 completedAt.plus(7, ChronoUnit.DAYS).plusSeconds(1));

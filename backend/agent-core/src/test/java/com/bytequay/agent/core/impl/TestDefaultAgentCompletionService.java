@@ -549,14 +549,14 @@ class TestDefaultAgentCompletionService
         DefaultAgentCompletionService dueService = service(
                 Clock.fixed(NOW.plus(Duration.ofDays(8)), ZoneOffset.UTC));
 
-        assertThat(dueService.cleanup(taskId).state()).isEqualTo(CleanupState.RETRY_PENDING);
+        assertThat(cleanup(dueService)).isEqualTo(CleanupState.RETRY_PENDING);
         AgentTask retry = stores.find(taskId).orElseThrow();
         assertThat(retry.state()).isEqualTo(completed.state());
         assertThat(retry.summary()).isEqualTo(completed.summary());
 
         resources.failDeletion = false;
-        assertThat(dueService.cleanup(taskId).state()).isEqualTo(CleanupState.DELETED);
-        assertThat(dueService.cleanup(taskId).state()).isEqualTo(CleanupState.DELETED);
+        assertThat(cleanup(dueService)).isEqualTo(CleanupState.DELETED);
+        assertThat(cleanup(dueService)).isEqualTo(CleanupState.DELETED);
         assertThat(resources.deletions).isEqualTo(2);
     }
 
@@ -567,11 +567,11 @@ class TestDefaultAgentCompletionService
         DefaultAgentCompletionService dueService = service(Clock.fixed(NOW.plus(Duration.ofDays(8)), ZoneOffset.UTC));
         worktrees.failCleanup = true;
 
-        assertThat(dueService.cleanup(taskId).state()).isEqualTo(CleanupState.RETRY_PENDING);
+        assertThat(cleanup(dueService)).isEqualTo(CleanupState.RETRY_PENDING);
         assertThat(resources.deletions).isZero();
 
         worktrees.failCleanup = false;
-        assertThat(dueService.cleanup(taskId).state()).isEqualTo(CleanupState.DELETED);
+        assertThat(cleanup(dueService)).isEqualTo(CleanupState.DELETED);
         assertThat(resources.deletions).isOne();
     }
 
@@ -611,15 +611,21 @@ class TestDefaultAgentCompletionService
                 Clock.fixed(NOW.plus(Duration.ofDays(8)), ZoneOffset.UTC),
                 log);
 
-        assertThat(due.cleanup(taskId).state()).isEqualTo(CleanupState.RETRY_PENDING);
+        assertThat(cleanup(due)).isEqualTo(CleanupState.RETRY_PENDING);
         assertThat(worktrees.cleaned).isEmpty();
         assertThat(resources.deletions).isZero();
         assertThat(stores.listPending(taskId, 10)).hasSize(1);
 
-        assertThat(due.cleanup(taskId).state()).isEqualTo(CleanupState.DELETED);
+        assertThat(cleanup(due)).isEqualTo(CleanupState.DELETED);
         assertThat(worktrees.cleaned).hasSize(1);
         assertThat(resources.deletions).isOne();
         assertThat(stores.listPending(taskId, 10)).isEmpty();
+    }
+
+    private CleanupState cleanup(DefaultAgentCompletionService service)
+    {
+        service.cleanup(taskId);
+        return stores.find(taskId).orElseThrow().cleanupState();
     }
 
     private DefaultAgentCompletionService service(Clock clock)

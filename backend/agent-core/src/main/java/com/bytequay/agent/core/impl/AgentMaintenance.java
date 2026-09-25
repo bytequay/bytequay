@@ -23,7 +23,6 @@ import com.bytequay.agent.core.AgentMetricsService;
 import com.bytequay.agent.core.AgentTask;
 import com.bytequay.agent.core.AgentTaskNotFoundException;
 import com.bytequay.agent.core.AgentTurn;
-import com.bytequay.agent.core.CleanupResult;
 import com.bytequay.agent.core.EventId;
 import com.bytequay.agent.core.QueuedAgentInput;
 import com.bytequay.agent.core.TaskId;
@@ -39,7 +38,6 @@ import com.bytequay.agent.core.store.SteerDeliveryStore;
 import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
-import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
@@ -48,7 +46,6 @@ import static com.bytequay.agent.core.AgentEventOutboxEntry.pendingInline;
 import static com.bytequay.agent.core.AgentEventOutboxEntry.pendingLifecycle;
 import static com.bytequay.agent.core.AgentEventSource.root;
 import static com.google.common.base.Preconditions.checkArgument;
-import static com.google.common.collect.ImmutableList.toImmutableList;
 import static java.util.Objects.requireNonNull;
 
 public final class AgentMaintenance
@@ -406,13 +403,10 @@ public final class AgentMaintenance
         return archived;
     }
 
-    public List<CleanupResult> cleanupDue(int limit)
+    public void cleanupDue(int limit)
     {
         checkArgument(limit > 0, "limit must be positive");
         Instant now = Instant.now(clock);
-        return taskStore.listCleanupDue(now, now.minus(CLEANUP_RETRY_DELAY), limit).stream()
-                .map(AgentTask::id)
-                .map(completionService::cleanup)
-                .collect(toImmutableList());
+        taskStore.listCleanupDue(now, now.minus(CLEANUP_RETRY_DELAY), limit).forEach(task -> completionService.cleanup(task.id()));
     }
 }

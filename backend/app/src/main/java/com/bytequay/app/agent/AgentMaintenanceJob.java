@@ -13,10 +13,7 @@
  */
 package com.bytequay.app.agent;
 
-import com.bytequay.agent.core.CleanupState;
 import com.bytequay.agent.core.impl.AgentMaintenance;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.context.event.ApplicationReadyEvent;
 import org.springframework.context.event.EventListener;
@@ -30,7 +27,6 @@ import static java.util.Objects.requireNonNull;
 @Component
 public final class AgentMaintenanceJob
 {
-    private static final Logger log = LoggerFactory.getLogger(AgentMaintenanceJob.class);
     private static final int CLEANUP_BATCH_SIZE = 100;
 
     private final AgentMaintenance maintenance;
@@ -60,11 +56,6 @@ public final class AgentMaintenanceJob
             return;
         }
         maintenance.archiveDue(autoArchiveWindow, CLEANUP_BATCH_SIZE);
-        maintenance.cleanupDue(CLEANUP_BATCH_SIZE).stream()
-                .filter(result -> result.state() == CleanupState.RETRY_PENDING)
-                .forEach(result -> log.warn(
-                        "Agent runtime cleanup remains pending for task {}: {}",
-                        result.taskId(),
-                        result.failure().orElse("unknown failure")));
+        maintenance.cleanupDue(CLEANUP_BATCH_SIZE);
     }
 }

@@ -441,9 +441,8 @@ final class ScriptedCherryPickAgent
     }
 
     @Override
-    public com.bytequay.agent.core.CleanupResult cleanup(TaskId taskId)
+    public void cleanup(TaskId taskId)
     {
-        return null;
     }
 
     @Override

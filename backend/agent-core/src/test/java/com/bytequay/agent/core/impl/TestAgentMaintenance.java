@@ -26,7 +26,6 @@ import com.bytequay.agent.core.AgentTurnSettings;
 import com.bytequay.agent.core.ApprovalDecision;
 import com.bytequay.agent.core.ApprovalRequest;
 import com.bytequay.agent.core.BlobRef;
-import com.bytequay.agent.core.CleanupResult;
 import com.bytequay.agent.core.CleanupState;
 import com.bytequay.agent.core.CompleteAgentTaskCommand;
 import com.bytequay.agent.core.EventId;
@@ -496,14 +495,9 @@ class TestAgentMaintenance
                 completion,
                 maintenanceTime);
 
-        List<CleanupResult> results = maintenance.cleanupDue(10);
+        maintenance.cleanupDue(10);
 
         assertThat(completion.cleaned).containsExactly(failed.id());
-        assertThat(results).containsExactly(new CleanupResult(
-                failed.id(),
-                CleanupState.DELETED,
-                Optional.of(maintenanceTime),
-                Optional.empty()));
     }
 
     @Test
@@ -513,7 +507,6 @@ class TestAgentMaintenance
         InMemoryAgentStores stores = new InMemoryAgentStores();
         AgentTask retryPending = managedTask(TaskId.random())
                 .fail("failed", NOW, NOW.plus(Duration.ofDays(7)))
-                .withCleanupState(CleanupState.DELETE_DUE, Optional.empty(), maintenanceTime.minusSeconds(30))
                 .withCleanupState(CleanupState.RETRY_PENDING, Optional.of("still dirty"), maintenanceTime.minusSeconds(30));
         AgentTask due = managedTask(TaskId.random()).fail(
                 "failed",
@@ -537,14 +530,8 @@ class TestAgentMaintenance
         stores.insert(workflowTask);
         RecordingCompletion completion = new RecordingCompletion();
 
-        List<CleanupResult> results = maintenance(
-                stores,
-                new RecordingApprovals(),
-                completion,
-                NOW.plus(Duration.ofDays(8)))
-                .cleanupDue(10);
+        maintenance(stores, new RecordingApprovals(), completion, NOW.plus(Duration.ofDays(8))).cleanupDue(10);
 
-        assertThat(results).isEmpty();
         assertThat(completion.cleaned).isEmpty();
     }
 
@@ -697,14 +684,9 @@ class TestAgentMaintenance
         }
 
         @Override
-        public CleanupResult cleanup(TaskId taskId)
+        public void cleanup(TaskId taskId)
         {
             cleaned.add(taskId);
-            return new CleanupResult(
-                    taskId,
-                    CleanupState.DELETED,
-                    Optional.of(NOW.plus(Duration.ofDays(8))),
-                    Optional.empty());
         }
 
         @Override

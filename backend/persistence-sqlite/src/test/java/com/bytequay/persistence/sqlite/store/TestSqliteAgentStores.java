@@ -245,7 +245,6 @@ class TestSqliteAgentStores
         Instant terminalAt = now.minus(Duration.ofDays(8));
         AgentTask retryPending = managedTask(terminalAt.minusSeconds(1))
                 .fail("failed", terminalAt, terminalAt.plus(Duration.ofDays(7)))
-                .withCleanupState(CleanupState.DELETE_DUE, Optional.empty(), now.minusSeconds(30))
                 .withCleanupState(CleanupState.RETRY_PENDING, Optional.of("still dirty"), now.minusSeconds(30));
         AgentTask due = managedTask(terminalAt)
                 .fail("failed", terminalAt.plusSeconds(1), terminalAt.plus(Duration.ofDays(7)).plusSeconds(1));
@@ -426,7 +425,6 @@ class TestSqliteAgentStores
         RepositoryIdentity repository = new RepositoryIdentity("bytequay", "sample");
         AgentTask first = completedTask(TaskId.valueOf("00000000-0000-0000-0000-000000000001"), "workspace-a", true, repository, now)
                 .withArchived(true, now)
-                .withCleanupState(CleanupState.DELETE_DUE, Optional.empty(), now)
                 .withCleanupState(CleanupState.DELETED, Optional.empty(), now);
         AgentTask second = completedTask(TaskId.valueOf("00000000-0000-0000-0000-000000000002"), "workspace-a", true, repository, now);
         AgentTask newest = completedTask(TaskId.random(), "workspace-a", true, repository, now.plusSeconds(1));

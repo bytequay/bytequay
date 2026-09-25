@@ -22,7 +22,6 @@ import com.bytequay.agent.core.AgentMetricsService;
 import com.bytequay.agent.core.AgentResourceService;
 import com.bytequay.agent.core.AgentTask;
 import com.bytequay.agent.core.AgentTaskNotFoundException;
-import com.bytequay.agent.core.CleanupResult;
 import com.bytequay.agent.core.CleanupState;
 import com.bytequay.agent.core.CodeGraphService;
 import com.bytequay.agent.core.CompleteAgentTaskCommand;
@@ -61,6 +60,8 @@ import static java.util.Objects.requireNonNull;
 public final class DefaultAgentCompletionService
         implements AgentCompletionService
 {
+    private static final System.Logger log = System.getLogger(DefaultAgentCompletionService.class.getName());
+
     private final AgentTaskStore taskStore;
     private final AgentTurnStore turnStore;
     private final QueuedInputStore queueStore;
@@ -326,7 +327,7 @@ public final class DefaultAgentCompletionService
     }
 
     @Override
-    public CleanupResult cleanup(TaskId taskId)
+    public void cleanup(TaskId taskId)
     {
         requireNonNull(taskId, "taskId is null");
         synchronized (runtimeRegistry.taskLock(taskId)) {
@@ -335,15 +336,10 @@ public final class DefaultAgentCompletionService
                 throw new AgentConflictException("Cannot clean up a live task: " + taskId);
             }
             if (task.cleanupState() == CleanupState.DELETED) {
-                return new CleanupResult(taskId, CleanupState.DELETED, Optional.of(task.updatedAt()), Optional.empty());
+                return;
             }
-
-            Instant now = Instant.now(clock);
-            if (task.deleteAfter().orElseThrow().isAfter(now)) {
+            if (task.deleteAfter().orElseThrow().isAfter(Instant.now(clock))) {
                 throw new AgentConflictException("Task retention deadline has not passed: " + taskId);
-            }
-            if (task.cleanupState() == CleanupState.RETAINED) {
-                task = taskStore.update(task.withCleanupState(CleanupState.DELETE_DUE, Optional.empty(), now));
             }
             try {
                 drainPending(outboxStore, eventService, taskId);
@@ -351,19 +347,11 @@ public final class DefaultAgentCompletionService
                 resourceService.delete(taskId);
             }
             catch (RuntimeException failure) {
-                AgentTask retry = taskStore.update(task.withCleanupState(
-                        CleanupState.RETRY_PENDING,
-                        Optional.of(message(failure)),
-                        Instant.now(clock)));
-                return new CleanupResult(taskId, retry.cleanupState(), Optional.empty(), retry.cleanupFailure());
+                taskStore.update(task.withCleanupState(CleanupState.RETRY_PENDING, Optional.of(message(failure)), Instant.now(clock)));
+                log.log(System.Logger.Level.WARNING, "Agent runtime cleanup remains pending for task " + taskId + ": " + message(failure));
+                return;
             }
-            AgentTask deleted = taskStore.update(
-                    task.withCleanupState(CleanupState.DELETED, Optional.empty(), Instant.now(clock)));
-            return new CleanupResult(
-                    taskId,
-                    CleanupState.DELETED,
-                    Optional.of(deleted.updatedAt()),
-                    Optional.empty());
+            taskStore.update(task.withCleanupState(CleanupState.DELETED, Optional.empty(), Instant.now(clock)));
         }
     }
 

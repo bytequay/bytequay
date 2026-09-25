@@ -783,9 +783,9 @@ Turn: ACCEPTED -> RUNNING -> COMPLETED
       |             +-----> INTERRUPTED
       +-------------------> FAILED | CANCELLED | INTERRUPTED
 
-Runtime cleanup: RETAINED -> DELETE_DUE -> DELETED
-                                 |
-                                 +--------> RETRY_PENDING -> DELETED
+Runtime cleanup: RETAINED -> DELETED
+                    |
+                    +--------> RETRY_PENDING -> DELETED
 
 Queued input: QUEUED -> STARTING -> STARTED
               PAUSED -> STARTING
@@ -1678,10 +1678,9 @@ public interface AgentCompletionService
      * their owning workflow has completed worktree cleanup.
      *
      * @param taskId terminal task whose retention deadline has passed
-     * @return the updated cleanup result
      * @throws AgentConflictException when the task is nonterminal or its retention deadline has not passed
      */
-    CleanupResult cleanup(TaskId taskId);
+    void cleanup(TaskId taskId);
 }
 ```
 

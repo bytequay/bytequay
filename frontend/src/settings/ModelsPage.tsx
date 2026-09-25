@@ -20,7 +20,7 @@ import { AddAction, Dialog, SelectPill, SettingsCard, SettingsRow, StatusDot, do
 /** Chosen when Review should follow Development instead of naming its own model. */
 export const INHERIT_VALUE = '__inherit__';
 
-/** OpenAI keys remain available for comment rewriting, but not agent tasks. */
+/** Saved OpenAI keys are kept, but nothing runs on them yet. */
 export const API_KEY_REASON = 'Only DeepSeek keys can run attended agent tasks right now.';
 
 export type ModelChoice = { configId: string; model: string; effort: string | null };
@@ -333,7 +333,7 @@ function AddKeyDialog({ keyProviders, onAdd, onCancel }: {
       <div className="setw-dialog-hint">
         {provider === 'DeepSeek'
           ? 'Stored encrypted on this Mac · choose this key for an attended task'
-          : 'Stored encrypted on this Mac · used for comment rewriting'}
+          : 'Stored encrypted on this Mac · not used by any feature yet'}
       </div>
     </Dialog>
   );

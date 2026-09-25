@@ -177,13 +177,9 @@ Gate:
 
 - [x] Focused frontend tests cover add/select/model choice, Automation and CI
   controls, invalid-key recovery, and an old task after key removal.
-  Existing direct comment rewriting still accepts the updated DeepSeek
-  model names in a focused backend regression test.
 
 Evidence: `npm test` passed 100 files and 1,106 tests after the Automation and
 CI UI changes, including the provider picker, task screen, and task-card cases.
-The focused backend run passed `TestBetterWordsService` with the updated model
-names.
 
 ## CP5 — Full verification and live gate
 

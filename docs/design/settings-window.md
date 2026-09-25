@@ -113,11 +113,9 @@ existing definition of agent type and is reused rather than re-invented.
 Three places pick a model today. Two must change; one needs a decision.
 
 - `DefaultAgentReviewService.selectModel` — switch to the Review value.
-- `BetterWordsService.selectedModel` — rewriting a review comment is review work, so it
-  resolves through the Review value too. A consequence: because an agent-type value
-  cannot be an API key, its API-key branch is now unreachable and stored API keys are
-  inert until an API-key lane exists or comment rewriting gets its own setting. The
-  branch is marked rather than deleted.
+- `BetterWordsService.selectedModel` — rewriting is the user's own writing, so it
+  resolves through the Development value, including a workspace override, and opens
+  that lane's driver like any agent session. It has no separate API-key path.
 - Development tasks resolve **no model on the backend at all**. The renderer
   picks it in `useAgentTaskCreation.applyCatalog` from
   `providers[].selectedModel`, and `CreateTaskRequest` rejects an empty model.

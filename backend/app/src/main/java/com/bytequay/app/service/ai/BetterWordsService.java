@@ -31,25 +31,16 @@ import com.bytequay.app.service.settings.AgentModelSetting;
 import com.bytequay.app.service.settings.AgentModelType;
 import com.bytequay.app.service.settings.AgentSkillService;
 import com.bytequay.app.service.settings.ModelSettingsService;
-import com.bytequay.core.domain.ModelApiKey;
-import com.bytequay.core.store.ModelApiKeyStore;
 import com.bytequay.core.store.WorkspaceStore;
-import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
-import com.fasterxml.jackson.annotation.JsonProperty;
 import com.google.common.collect.ImmutableList;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.stereotype.Service;
-import org.springframework.web.client.RestClient;
-import org.springframework.web.client.RestClientException;
-import org.springframework.web.client.RestClientResponseException;
 
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.Duration;
-import java.util.List;
 import java.util.Optional;
 import java.util.concurrent.CompletionException;
 
@@ -59,9 +50,7 @@ import static java.util.Objects.requireNonNull;
 public class BetterWordsService
 {
     private static final Logger log = LoggerFactory.getLogger(BetterWordsService.class);
-    private static final String API_KEY_PREFIX = "key:";
     private static final int MAXIMUM_INPUT_CHARACTERS = 20_000;
-    private static final int MAXIMUM_OUTPUT_TOKENS = 1_200;
     private static final Duration MAXIMUM_RUNTIME = Duration.ofSeconds(45);
     private static final String INSTRUCTIONS = """
             Rewrite the developer-authored comment for a GitHub code review or related issue discussion.
@@ -85,31 +74,22 @@ public class BetterWordsService
 
     private final ModelSettingsService modelSettings;
     private final WorkspaceStore workspaces;
-    private final ModelApiKeyStore apiKeys;
     private final AgentDriverRegistry drivers;
     private final AgentResourceService resources;
     private final AgentSkillService skills;
-    private final RestClient openAi;
-    private final RestClient deepSeek;
 
     public BetterWordsService(
             ModelSettingsService modelSettings,
             WorkspaceStore workspaces,
-            ModelApiKeyStore apiKeys,
             AgentDriverRegistry drivers,
             AgentResourceService resources,
-            AgentSkillService skills,
-            @Qualifier("openAiRestClient") RestClient openAi,
-            @Qualifier("deepSeekRestClient") RestClient deepSeek)
+            AgentSkillService skills)
     {
         this.modelSettings = requireNonNull(modelSettings, "modelSettings is null");
         this.workspaces = requireNonNull(workspaces, "workspaces is null");
-        this.apiKeys = requireNonNull(apiKeys, "apiKeys is null");
         this.drivers = requireNonNull(drivers, "drivers is null");
         this.resources = requireNonNull(resources, "resources is null");
         this.skills = requireNonNull(skills, "skills is null");
-        this.openAi = requireNonNull(openAi, "openAi is null");
-        this.deepSeek = requireNonNull(deepSeek, "deepSeek is null");
     }
 
     public String improve(String comment, String repository, Optional<String> workspaceId)
@@ -126,22 +106,14 @@ public class BetterWordsService
         }
         String requestedRepository = repository.trim();
 
-        SelectedModel model = selectedModel(requestedRepository, workspaceId);
-        String managedInstructions = skills.instructions();
-        // ponytail: the API-key branch is currently unreachable — the Review setting only accepts a
-        // CLI lane, because no agent driver can run against a raw key. It is kept, not deleted,
-        // because it is the working half of an API-key lane; the branch comes back the moment one
-        // exists, or the moment comment rewriting gets a model setting of its own.
-        String improved = model.configId().startsWith(API_KEY_PREFIX)
-                ? improveWithApiKey(model, comment, managedInstructions)
-                : improveWithCli(model, comment, managedInstructions);
+        String improved = rewrite(selectedModel(requestedRepository, workspaceId), comment, skills.instructions());
         if (improved.isBlank()) {
             throw new AgentUnavailableException("The selected model returned no rewritten comment.");
         }
         return improved;
     }
 
-    private SelectedModel selectedModel(String repository, Optional<String> workspaceId)
+    private AgentModelSetting selectedModel(String repository, Optional<String> workspaceId)
     {
         Optional<String> validWorkspaceId = workspaceId.map(id -> {
             String monitoredRepository = workspaces.findById(id)
@@ -153,12 +125,11 @@ public class BetterWordsService
             }
             return id;
         });
-        // Rewriting a review comment is review work, so it runs on the same model the reviews do.
-        AgentModelSetting model = modelSettings.agentModel(AgentModelType.REVIEW, validWorkspaceId);
-        return new SelectedModel(model.configId(), model.model(), model.effort());
+        // The user's own writing runs on the development default, which a workspace may override.
+        return modelSettings.agentModel(AgentModelType.DEVELOPMENT, validWorkspaceId);
     }
 
-    private String improveWithCli(SelectedModel model, String comment, String managedInstructions)
+    private String rewrite(AgentModelSetting model, String comment, String managedInstructions)
     {
         TaskId taskId = TaskId.random();
         boolean processMayBeRunning = false;
@@ -234,139 +205,4 @@ public class BetterWordsService
             return false;
         }
     }
-
-    private String improveWithApiKey(SelectedModel model, String comment, String managedInstructions)
-    {
-        String alias = model.configId().substring(API_KEY_PREFIX.length());
-        ModelApiKey key = apiKeys.findAll().stream()
-                .filter(candidate -> candidate.alias().equals(alias))
-                .findFirst()
-                .orElseThrow(() -> new AgentUnavailableException("The selected model API key no longer exists."));
-        String secret = apiKeys.findSecret(alias)
-                .orElseThrow(() -> new AgentUnavailableException("The selected model API key is unavailable."));
-        String instructions = managedInstructions + "\n\n" + INSTRUCTIONS;
-        return switch (key.provider()) {
-            case "OpenAI" -> improveWithOpenAi(model.model(), secret, comment, instructions);
-            case "DeepSeek" -> improveWithDeepSeek(model.model(), secret, comment, instructions);
-            default -> throw new AgentUnavailableException("The selected model provider is not supported.");
-        };
-    }
-
-    private String improveWithOpenAi(String model, String secret, String comment, String instructions)
-    {
-        try {
-            OpenAiResponse response = openAi.post()
-                    .uri("/v1/responses")
-                    .header("Authorization", "Bearer " + secret)
-                    .body(new OpenAiRequest(
-                            model, instructions, comment, MAXIMUM_OUTPUT_TOKENS, false))
-                    .retrieve()
-                    .body(OpenAiResponse.class);
-            if (response != null && !"completed".equals(response.status())) {
-                throw new AgentUnavailableException(
-                        "OpenAI stopped before finishing the rewrite. Try a shorter comment.");
-            }
-            return openAiText(response);
-        }
-        catch (RestClientResponseException e) {
-            log.warn("OpenAI rejected better-words request with status {}", e.getStatusCode().value());
-            throw new AgentUnavailableException(
-                    "OpenAI rejected the request (" + e.getStatusCode().value() + "). Check the selected API key and model.", e);
-        }
-        catch (RestClientException e) {
-            throw new AgentUnavailableException("OpenAI did not respond. Try again.", e);
-        }
-    }
-
-    private String improveWithDeepSeek(String model, String secret, String comment, String instructions)
-    {
-        try {
-            DeepSeekResponse response = deepSeek.post()
-                    .uri("/chat/completions")
-                    .header("Authorization", "Bearer " + secret)
-                    .body(new DeepSeekRequest(
-                            model,
-                            ImmutableList.of(
-                                    new Message("system", instructions),
-                                    new Message("user", comment)),
-                            MAXIMUM_OUTPUT_TOKENS,
-                            false))
-                    .retrieve()
-                    .body(DeepSeekResponse.class);
-            if (response == null || response.choices() == null || response.choices().isEmpty()
-                    || response.choices().getFirst().message() == null) {
-                return "";
-            }
-            DeepSeekChoice choice = response.choices().getFirst();
-            if (!"stop".equals(choice.finishReason())) {
-                throw new AgentUnavailableException(
-                        "DeepSeek stopped before finishing the rewrite. Try a shorter comment.");
-            }
-            return Optional.ofNullable(choice.message().content()).orElse("");
-        }
-        catch (RestClientResponseException e) {
-            log.warn("DeepSeek rejected better-words request with status {}", e.getStatusCode().value());
-            throw new AgentUnavailableException(
-                    "DeepSeek rejected the request (" + e.getStatusCode().value() + "). Check the selected API key and model.", e);
-        }
-        catch (RestClientException e) {
-            throw new AgentUnavailableException("DeepSeek did not respond. Try again.", e);
-        }
-    }
-
-    private static String openAiText(OpenAiResponse response)
-    {
-        if (response == null) {
-            return "";
-        }
-        if (response.outputText() != null && !response.outputText().isBlank()) {
-            return response.outputText();
-        }
-        if (response.output() == null) {
-            return "";
-        }
-        return response.output().stream()
-                .filter(output -> output.content() != null)
-                .flatMap(output -> output.content().stream())
-                .filter(content -> "output_text".equals(content.type()) && content.text() != null)
-                .map(OpenAiContent::text)
-                .reduce("", (left, right) -> left + right);
-    }
-
-    private record SelectedModel(String configId, String model, Optional<String> effort) {}
-
-    private record OpenAiRequest(
-            String model,
-            String instructions,
-            String input,
-            @JsonProperty("max_output_tokens") int maximumOutputTokens,
-            boolean store) {}
-
-    @JsonIgnoreProperties(ignoreUnknown = true)
-    private record OpenAiResponse(
-            String status,
-            @JsonProperty("output_text") String outputText,
-            List<OpenAiOutput> output) {}
-
-    @JsonIgnoreProperties(ignoreUnknown = true)
-    private record OpenAiOutput(List<OpenAiContent> content) {}
-
-    @JsonIgnoreProperties(ignoreUnknown = true)
-    private record OpenAiContent(String type, String text) {}
-
-    private record DeepSeekRequest(
-            String model,
-            List<Message> messages,
-            @JsonProperty("max_tokens") int maximumTokens,
-            boolean stream) {}
-
-    private record Message(String role, String content) {}
-
-    @JsonIgnoreProperties(ignoreUnknown = true)
-    private record DeepSeekResponse(List<DeepSeekChoice> choices) {}
-
-    @JsonIgnoreProperties(ignoreUnknown = true)
-    private record DeepSeekChoice(
-            @JsonProperty("finish_reason") String finishReason,
-            Message message) {}
 }

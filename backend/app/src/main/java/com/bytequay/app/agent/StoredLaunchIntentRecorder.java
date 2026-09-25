@@ -83,7 +83,6 @@ public class StoredLaunchIntentRecorder
     {
         return switch (kind) {
             case APP_SERVER -> LaunchOwnerKind.APP_SERVER;
-            case TASK_EXEC_SERVER -> LaunchOwnerKind.TASK_EXEC_SERVER;
             case CLAUDE_TURN -> LaunchOwnerKind.CLAUDE_TURN;
             case CLI_PROBE -> LaunchOwnerKind.CLI_PROBE;
             case DISCUSSION -> LaunchOwnerKind.DISCUSSION;

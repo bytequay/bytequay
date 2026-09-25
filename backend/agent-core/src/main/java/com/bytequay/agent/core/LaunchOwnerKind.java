@@ -23,7 +23,6 @@ package com.bytequay.agent.core;
 public enum LaunchOwnerKind
 {
     APP_SERVER,
-    TASK_EXEC_SERVER,
     CLAUDE_TURN,
     CLI_PROBE,
     DISCUSSION,

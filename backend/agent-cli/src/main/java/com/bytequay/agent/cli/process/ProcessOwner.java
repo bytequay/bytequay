@@ -40,8 +40,6 @@ public record ProcessOwner(Kind kind, String id)
     {
         /** The one shared Codex App Server process of a backend runtime. */
         APP_SERVER,
-        /** One task-owned Codex exec-server process. */
-        TASK_EXEC_SERVER,
         /** One Claude turn process. */
         CLAUDE_TURN,
         /** One short-lived provider control command or isolated text-only helper. */

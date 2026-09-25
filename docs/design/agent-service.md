@@ -2051,9 +2051,7 @@ sandbox text:
   worktree's Maven wrapper, with the test selector as positional arguments. It
   runs with the user's login-shell environment minus every `BYTEQUAY_*`
   variable, and under no provider sandbox or approval
-  ([Code & Tests](code-tests.md) §5.3);
-- `TASK_EXEC_SERVER` is retained only to recover markers written by the
-  superseded loopback-executor design; no current launch selects it.
+  ([Code & Tests](code-tests.md) §5.3).
 
 `CLI_PROBE` identifies short-lived provider control commands and validated
 text-only helpers. The exact `APP_SERVER/codex-model-catalog` owner is also
@@ -2261,9 +2259,7 @@ any other experimental method.
 
 The launch owner is the task id, so a recovered orphan is attributable to the
 task that leaked it rather than to a single process shared by the backend.
-`ProcessOwner.Kind.APP_SERVER` carries that id; the persisted
-`LaunchOwnerKind.TASK_EXEC_SERVER` constant is retained only so launch markers
-and `agent_process_launch` rows written before this change still deserialize.
+`ProcessOwner.Kind.APP_SERVER` carries that id.
 
 A per-turn session owns its task's process. After root completion and bounded
 recursive provider reconciliation, or after that reconciliation fails, the
@@ -2626,16 +2622,17 @@ invent missing provider status or historical identities. An unresolved receipt
 keeps its existing task-local recovery claim and worktree. A crash after the
 proof uses that same receipt to finish cleanup; it never replays the user input.
 
-Legacy marker formats 1 and 2 remain readable. An absent descendant map means
-incomplete tracking; an empty map means no descendants were recorded. Neither
-implies `workFinished`. Do not backfill proof into an unresolved old launch or
-reopen already-settled tasks merely to manufacture new receipts. The upgrade
-adds no task lifecycle state or whole-workspace migration gate.
+Recovery reads only the current launch-marker format. A marker in any other
+format, or one without its descendant map, is undecodable and fails closed as
+unverifiable. An empty map means no descendants were recorded, and incomplete
+tracking is an explicit flag; neither implies `workFinished`. Do not backfill
+proof into an unresolved old launch or reopen already-settled tasks merely to
+manufacture new receipts.
 
 An unresolved old run can recover after an independently verified operating
-system restart. Format-4 launch markers retain an optional macOS boot-session
-UUID. For an older marker without that observation, recovery durably records
-the current `kern.bootsessionuuid` in the existing marker and retains its claim.
+system restart. Launch markers retain an optional macOS boot-session UUID. For
+a marker without that observation, recovery durably records the current
+`kern.bootsessionuuid` in the existing marker and retains its claim.
 Repeated Stop or a backend/app restart during that same boot cannot release it.
 Only a later, valid, different boot-session UUID establishes that every process
 which could have existed at the recorded observation has stopped. Recovery

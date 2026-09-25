@@ -348,7 +348,7 @@ public final class AgentStartupRecovery
             case APP_SERVER, DISCUSSION -> parseTaskId(owner.id());
             case CLAUDE_TURN -> parseTurnTask(owner.id());
             case LOCAL_RUN -> parseRunTask(owner.id());
-            case TASK_EXEC_SERVER, CLI_PROBE -> Optional.empty();
+            case CLI_PROBE -> Optional.empty();
         };
     }
 
@@ -358,7 +358,7 @@ public final class AgentStartupRecovery
             case APP_SERVER, DISCUSSION -> parseTaskId(launch.ownerId());
             case CLAUDE_TURN -> parseTurnTask(launch.ownerId());
             case LOCAL_RUN -> parseRunTask(launch.ownerId());
-            case TASK_EXEC_SERVER, CLI_PROBE -> Optional.empty();
+            case CLI_PROBE -> Optional.empty();
         };
     }
 

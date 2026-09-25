@@ -13,10 +13,13 @@
  */
 package com.bytequay.agent.cli.claude;
 
+import com.bytequay.agent.spi.AgentUnavailableException;
 import com.fasterxml.jackson.annotation.JsonProperty;
 import com.fasterxml.jackson.annotation.JsonSubTypes;
 import com.fasterxml.jackson.annotation.JsonTypeInfo;
+import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import com.google.common.collect.ImmutableList;
 
 import java.math.BigDecimal;
@@ -29,6 +32,17 @@ import static java.util.Objects.requireNonNull;
 final class ClaudeProtocol
 {
     private ClaudeProtocol() {}
+
+    /** Decodes one stream-json line with a mapper that reads {@code Optional} fields and ignores unknown properties. */
+    static Message decode(ObjectMapper mapper, String line)
+    {
+        try {
+            return mapper.readValue(line, Message.class);
+        }
+        catch (JsonProcessingException e) {
+            throw new AgentUnavailableException("Invalid Claude stream message", e);
+        }
+    }
 
     @JsonTypeInfo(use = JsonTypeInfo.Id.NAME, property = "type", defaultImpl = UnknownMessage.class)
     @JsonSubTypes({

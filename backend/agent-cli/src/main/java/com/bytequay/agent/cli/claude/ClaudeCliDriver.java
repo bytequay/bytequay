@@ -48,8 +48,10 @@ import com.bytequay.agent.spi.ProviderApprovalRequest;
 import com.bytequay.agent.spi.ProviderTurnRef;
 import com.bytequay.agent.spi.RunningTurn;
 import com.bytequay.agent.spi.SessionAccess;
+import com.fasterxml.jackson.databind.DeserializationFeature;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.datatype.jdk8.Jdk8Module;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
@@ -163,7 +165,6 @@ public final class ClaudeCliDriver
     private final Map<String, String> environment;
     private final SecretRedactor redactor;
     private final ObjectMapper objectMapper;
-    private final ClaudeProtocolCodec codec;
     private final PermissionBroker permissions;
     private final Set<ClaudeSession> sessions = ConcurrentHashMap.newKeySet();
     private volatile boolean forwardSubagentText = true;
@@ -202,8 +203,9 @@ public final class ClaudeCliDriver
                 .put("CLAUDE_CONFIG_DIR", this.claudeHome.toString())
                 .buildOrThrow();
         this.redactor = SecretRedactor.fromEnvironment(this.environment);
-        this.objectMapper = requireNonNull(objectMapper, "objectMapper is null");
-        this.codec = new ClaudeProtocolCodec(objectMapper);
+        this.objectMapper = requireNonNull(objectMapper, "objectMapper is null").copy()
+                .registerModule(new Jdk8Module())
+                .disable(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES);
         this.permissions = requireNonNull(permissions, "permissions is null");
     }
 
@@ -1019,7 +1021,7 @@ public final class ClaudeCliDriver
         {
             ClaudeProtocol.Message message = null;
             try {
-                message = codec.decode(line);
+                message = ClaudeProtocol.decode(objectMapper, line);
                 if (message.sessionId().isPresent()
                         && !message.sessionId().orElseThrow().equals(session.reference.providerValue())) {
                     protocolFailure = "Claude returned a different session ID";

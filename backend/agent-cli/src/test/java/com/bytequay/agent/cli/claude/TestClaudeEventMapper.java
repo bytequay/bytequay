@@ -15,7 +15,9 @@ package com.bytequay.agent.cli.claude;
 
 import com.bytequay.agent.cli.process.SecretRedactor;
 import com.bytequay.agent.spi.ProviderAgentEvent;
+import com.fasterxml.jackson.databind.DeserializationFeature;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.datatype.jdk8.Jdk8Module;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import org.junit.jupiter.api.Test;
@@ -36,7 +38,7 @@ import static org.assertj.core.groups.Tuple.tuple;
 
 class TestClaudeEventMapper
 {
-    private final ClaudeProtocolCodec codec = new ClaudeProtocolCodec(new ObjectMapper());
+    private final ObjectMapper objectMapper = new ObjectMapper().registerModule(new Jdk8Module()).disable(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES);
     private final ClaudeEventMapper mapper = new ClaudeEventMapper(
             SecretRedactor.fromEnvironment(ImmutableMap.of("ANTHROPIC_API_KEY", "known-secret")));
 
@@ -363,7 +365,7 @@ class TestClaudeEventMapper
     @Test
     void rejectsMissingRequiredFieldsAndIgnoresUnknownMessages()
     {
-        assertThatThrownBy(() -> codec.decode("""
+        assertThatThrownBy(() -> ClaudeProtocol.decode(objectMapper, """
                 {"type":"assistant","message":{"role":"assistant","content":[]}}
                 """))
                 .hasRootCauseMessage("sessionId is null");
@@ -716,7 +718,7 @@ class TestClaudeEventMapper
 
     private List<ProviderAgentEvent> map(String json)
     {
-        return mapper.map(codec.decode(json));
+        return mapper.map(ClaudeProtocol.decode(objectMapper, json));
     }
 
     private <T extends ProviderAgentEvent> T only(String json, Class<T> type)

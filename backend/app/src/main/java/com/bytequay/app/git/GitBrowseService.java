@@ -43,7 +43,6 @@ import static java.util.Objects.requireNonNull;
 @Component
 public class GitBrowseService
 {
-    private static final Duration FETCH_TIMEOUT = Duration.ofMinutes(3);
     private static final Pattern PULL_REQUEST_SUFFIX = Pattern.compile("\\(#(\\d+)\\)\\s*$");
     private static final char FIELD = '\u001f';
     private static final char RECORD = '\u001e';
@@ -254,17 +253,6 @@ public class GitBrowseService
             files.add(new DiffFile(path, "A", additions, 0, patch));
         }
         return new WorktreeStatus(branch, files.build());
-    }
-
-    public void fetch(Path repository, List<String> remotes)
-    {
-        checkArgument(!remotes.isEmpty(), "remotes is empty");
-        for (String remote : remotes) {
-            Result result = git.run(repository, FETCH_TIMEOUT, ImmutableList.of("fetch", remote));
-            if (!result.successful()) {
-                throw new IllegalArgumentException("Fetching " + remote + " failed: " + result.output().strip());
-            }
-        }
     }
 
     public String commit(Path repository, String summary, String description)

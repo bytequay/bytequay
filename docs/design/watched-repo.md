@@ -678,7 +678,6 @@ GET    /api/workspaces/{workspaceId}/git/branches
 GET    /api/workspaces/{workspaceId}/git/commits
 GET    /api/workspaces/{workspaceId}/git/diff
 GET    /api/workspaces/{workspaceId}/git/status
-POST   /api/workspaces/{workspaceId}/git/fetch
 POST   /api/workspaces/{workspaceId}/git/commit
 POST   /api/workspaces/{workspaceId}/git/reword
 POST   /api/workspaces/{workspaceId}/git/squash

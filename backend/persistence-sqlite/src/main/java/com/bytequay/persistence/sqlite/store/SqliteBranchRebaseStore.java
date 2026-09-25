@@ -17,8 +17,8 @@ import com.bytequay.core.rebase.BranchRebase;
 import com.bytequay.core.rebase.BranchRebase.Status;
 import com.bytequay.core.rebase.BranchRebaseId;
 import com.bytequay.core.rebase.BranchRebaseNotFoundException;
-import com.bytequay.core.rebase.BranchRebaseStorageException;
 import com.bytequay.core.rebase.BranchRebaseStore;
+import com.bytequay.core.store.StorageException;
 import com.bytequay.persistence.sqlite.entity.BranchRebaseEntity;
 import com.bytequay.persistence.sqlite.repository.BranchRebaseJpaRepository;
 import org.springframework.data.domain.PageRequest;
@@ -68,7 +68,7 @@ public class SqliteBranchRebaseStore
         requireNonNull(idempotencyKey, "idempotencyKey is null");
         return read("Cannot read branch rebase idempotency key",
                 () -> repository.findByStartIdempotencyKey(idempotencyKey).map(BranchRebaseEntity::toRebase),
-                BranchRebaseStorageException::new);
+                StorageException::new);
     }
 
     @Override
@@ -78,7 +78,7 @@ public class SqliteBranchRebaseStore
         requireNonNull(rebaseId, "rebaseId is null");
         return read("Cannot read branch rebase " + rebaseId,
                 () -> repository.findById(rebaseId.toString()).map(BranchRebaseEntity::toRebase),
-                BranchRebaseStorageException::new);
+                StorageException::new);
     }
 
     @Override
@@ -91,7 +91,7 @@ public class SqliteBranchRebaseStore
                 () -> repository.findByStatusOrderByUpdatedAtAsc(Status.RUNNING, PageRequest.of(0, limit)).stream()
                         .map(BranchRebaseEntity::toRebase)
                         .collect(toImmutableList()),
-                BranchRebaseStorageException::new);
+                StorageException::new);
     }
 
     @Override
@@ -103,7 +103,7 @@ public class SqliteBranchRebaseStore
                 () -> repository.findIndependentlyRunning(Status.RUNNING, PageRequest.of(0, limit)).stream()
                         .map(BranchRebaseEntity::toRebase)
                         .collect(toImmutableList()),
-                BranchRebaseStorageException::new);
+                StorageException::new);
     }
 
     @Override

@@ -19,8 +19,8 @@ import com.bytequay.core.ci.CiAutofixNotFoundException;
 import com.bytequay.core.ci.CiAutofixRun;
 import com.bytequay.core.ci.CiAutofixRun.Status;
 import com.bytequay.core.ci.CiAutofixRunId;
-import com.bytequay.core.ci.CiAutofixStorageException;
 import com.bytequay.core.ci.CiAutofixStore;
+import com.bytequay.core.store.StorageException;
 import com.bytequay.persistence.sqlite.entity.CiAutofixAttemptEntity;
 import com.bytequay.persistence.sqlite.entity.CiAutofixRunEntity;
 import com.bytequay.persistence.sqlite.entity.WorkspaceEntity;
@@ -95,7 +95,7 @@ public class SqliteCiAutofixStore
         requireNonNull(runId, "runId is null");
         return read("Cannot read CI Autofix run " + runId,
                 () -> runRepository.findById(runId.toString()).map(this::toProjection),
-                CiAutofixStorageException::new);
+                StorageException::new);
     }
 
     @Override
@@ -106,7 +106,7 @@ public class SqliteCiAutofixStore
         checkArgument(!key.isBlank() && key.length() <= 200, "key must contain between 1 and 200 characters");
         return read("Cannot read CI Autofix idempotency key",
                 () -> runRepository.findByStartIdempotencyKey(key).map(this::toProjection),
-                CiAutofixStorageException::new);
+                StorageException::new);
     }
 
     @Override
@@ -117,7 +117,7 @@ public class SqliteCiAutofixStore
         checkArgument(!taskId.isBlank() && taskId.length() <= 128, "taskId must contain between 1 and 128 characters");
         return read("Cannot read CI Autofix agent task",
                 () -> runRepository.findByAgentTaskId(taskId).map(this::toProjection),
-                CiAutofixStorageException::new);
+                StorageException::new);
     }
 
     @Override
@@ -128,7 +128,7 @@ public class SqliteCiAutofixStore
         checkArgument(!parentTaskId.isBlank(), "parentTaskId is blank");
         return read("Cannot list development-owned CI Autofix runs",
                 () -> runRepository.findByParentTaskIdOrderByCreatedAtAsc(parentTaskId).stream().map(this::toProjection).collect(toImmutableList()),
-                CiAutofixStorageException::new);
+                StorageException::new);
     }
 
     @Override
@@ -139,7 +139,7 @@ public class SqliteCiAutofixStore
         requireNonNull(headRef, "headRef is null");
         return read("Cannot read CI Autofix branch reservation",
                 () -> runRepository.findByActiveBranchSlot(headRepositoryFullName.toLowerCase(Locale.ROOT) + ":" + headRef).map(this::toProjection),
-                CiAutofixStorageException::new);
+                StorageException::new);
     }
 
     @Override
@@ -151,7 +151,7 @@ public class SqliteCiAutofixStore
                 () -> runRepository.findAllByOrderByUpdatedAtDesc(PageRequest.of(0, limit)).stream()
                         .map(this::toProjection)
                         .collect(toImmutableList()),
-                CiAutofixStorageException::new);
+                StorageException::new);
     }
 
     @Override
@@ -163,7 +163,7 @@ public class SqliteCiAutofixStore
                 () -> runRepository.findByStatusInAndParentTaskIdIsNullOrderByUpdatedAtAsc(NON_FINISHED, PageRequest.of(0, limit)).stream()
                         .map(this::toProjection)
                         .collect(toImmutableList()),
-                CiAutofixStorageException::new);
+                StorageException::new);
     }
 
     @Override
@@ -236,11 +236,11 @@ public class SqliteCiAutofixStore
                                             + " does not belong to a managed workspace")));
             return entity.toDomain(attempts, workspaceId);
         }
-        catch (CiAutofixStorageException e) {
+        catch (StorageException e) {
             throw e;
         }
         catch (RuntimeException e) {
-            throw new CiAutofixStorageException("Cannot reconstruct CI Autofix run " + entity.getId(), e);
+            throw new StorageException("Cannot reconstruct CI Autofix run " + entity.getId(), e);
         }
     }
 
@@ -248,7 +248,7 @@ public class SqliteCiAutofixStore
     {
         return isConstraintViolation(failure)
                 ? new CiAutofixConflictException(message, failure)
-                : new CiAutofixStorageException(message, failure);
+                : new StorageException(message, failure);
     }
 
     private static void checkLimit(int limit)

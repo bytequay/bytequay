@@ -11,12 +11,12 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-package com.bytequay.core.rebase;
+package com.bytequay.core.store;
 
-public class BranchRebaseStorageException
-        extends BranchRebaseException
+public class StorageException
+        extends RuntimeException
 {
-    public BranchRebaseStorageException(String message, Throwable cause)
+    public StorageException(String message, Throwable cause)
     {
         super(message, cause);
     }

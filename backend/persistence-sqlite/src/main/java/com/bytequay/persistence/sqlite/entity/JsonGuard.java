@@ -14,14 +14,13 @@
 package com.bytequay.persistence.sqlite.entity;
 
 import com.bytequay.agent.core.AgentStorageException;
-import com.bytequay.core.cherrypick.CherryPickStorageException;
-import com.bytequay.core.ci.CiAutofixStorageException;
 import com.bytequay.core.context.ContextDocumentRead;
 import com.bytequay.core.context.ContextHistoryRead;
 import com.bytequay.core.context.ContextReference;
 import com.bytequay.core.context.ContextRepositoryRead;
 import com.bytequay.core.context.ContextSourceRead;
 import com.bytequay.core.review.ReviewConflictException;
+import com.bytequay.core.store.StorageException;
 import com.bytequay.persistence.sqlite.converter.JsonColumns;
 import com.fasterxml.jackson.annotation.JsonSubTypes;
 import com.fasterxml.jackson.annotation.JsonTypeInfo;
@@ -47,9 +46,8 @@ final class JsonGuard<E extends RuntimeException>
             .addMixIn(ContextSourceRead.class, SourceReadJson.class)
             .addMixIn(ContextReference.class, ReferenceJson.class)
             .disable(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES));
-    static final JsonGuard<CherryPickStorageException> CHERRY_PICK = new JsonGuard<>(CherryPickStorageException.class, CherryPickStorageException::new, JsonColumns.mapper());
-    static final JsonGuard<CiAutofixStorageException> CI_AUTOFIX = new JsonGuard<>(
-            CiAutofixStorageException.class, CiAutofixStorageException::new, JsonColumns.mapper().disable(WRITE_DATES_AS_TIMESTAMPS));
+    static final JsonGuard<StorageException> CHERRY_PICK = new JsonGuard<>(StorageException.class, StorageException::new, JsonColumns.mapper());
+    static final JsonGuard<StorageException> CI_AUTOFIX = new JsonGuard<>(StorageException.class, StorageException::new, JsonColumns.mapper().disable(WRITE_DATES_AS_TIMESTAMPS));
 
     private final Class<E> failureType;
     private final BiFunction<String, Throwable, E> newFailure;

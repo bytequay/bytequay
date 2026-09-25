@@ -32,7 +32,6 @@ import com.bytequay.core.ci.CiAutofixRun.RerunJournal;
 import com.bytequay.core.ci.CiAutofixRun.Scope;
 import com.bytequay.core.ci.CiAutofixRun.Warning;
 import com.bytequay.core.ci.CiAutofixRunId;
-import com.bytequay.core.ci.CiAutofixStorageException;
 import com.bytequay.core.ci.CiDescriptionChange;
 import com.bytequay.core.ci.CiRerunAssessment;
 import com.bytequay.core.domain.PullRequestRef;
@@ -42,6 +41,7 @@ import com.bytequay.core.domain.Workspace.Topology;
 import com.bytequay.core.rebase.BranchRebase;
 import com.bytequay.core.rebase.BranchRebaseId;
 import com.bytequay.core.rebase.BranchRebaseStore;
+import com.bytequay.core.store.StorageException;
 import com.bytequay.persistence.sqlite.entity.CiAutofixAttemptEntity;
 import com.bytequay.persistence.sqlite.entity.WorkspaceEntity;
 import com.bytequay.persistence.sqlite.repository.CiAutofixAttemptJpaRepository;
@@ -289,7 +289,7 @@ class TestSqliteCiAutofixStore
         jdbc.update("UPDATE ci_autofix_run SET fork_repository_owner = 'author' WHERE id = ?", run.id().toString());
         entityManager.clear();
 
-        assertThatThrownBy(() -> store.find(run.id())).isInstanceOf(CiAutofixStorageException.class)
+        assertThatThrownBy(() -> store.find(run.id())).isInstanceOf(StorageException.class)
                 .hasRootCauseInstanceOf(AgentStorageException.class).hasStackTraceContaining("head repository is incomplete");
     }
 
@@ -384,7 +384,7 @@ class TestSqliteCiAutofixStore
         entityManager.clear();
 
         assertThatThrownBy(() -> store.find(run.id()))
-                .isInstanceOf(CiAutofixStorageException.class)
+                .isInstanceOf(StorageException.class)
                 .hasRootCauseInstanceOf(AgentStorageException.class)
                 .hasStackTraceContaining("physical repository is incomplete");
     }

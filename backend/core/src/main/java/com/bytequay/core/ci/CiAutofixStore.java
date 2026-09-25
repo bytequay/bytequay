@@ -13,6 +13,8 @@
  */
 package com.bytequay.core.ci;
 
+import com.bytequay.core.store.StorageException;
+
 import java.util.List;
 import java.util.Optional;
 
@@ -25,7 +27,7 @@ public interface CiAutofixStore
      *
      * @param run new version-zero run
      * @throws CiAutofixConflictException when an identifier, idempotency key, or active branch conflicts
-     * @throws CiAutofixStorageException when persistence fails
+     * @throws StorageException when persistence fails
      */
     void insert(CiAutofixRun run);
 
@@ -34,7 +36,7 @@ public interface CiAutofixStore
      *
      * @param runId run identifier
      * @return run with attempts ordered by attempt number, or empty
-     * @throws CiAutofixStorageException when persistence fails
+     * @throws StorageException when persistence fails
      */
     Optional<CiAutofixRun> find(CiAutofixRunId runId);
 
@@ -43,7 +45,7 @@ public interface CiAutofixStore
      *
      * @param key bounded start idempotency key
      * @return matching complete run projection, or empty
-     * @throws CiAutofixStorageException when persistence fails
+     * @throws StorageException when persistence fails
      */
     Optional<CiAutofixRun> findByIdempotencyKey(String key);
 
@@ -52,7 +54,7 @@ public interface CiAutofixStore
      *
      * @param taskId durable agent task identifier
      * @return matching complete run projection, or empty
-     * @throws CiAutofixStorageException when persistence fails
+     * @throws StorageException when persistence fails
      */
     Optional<CiAutofixRun> findByAgentTaskId(String taskId);
 
@@ -68,7 +70,7 @@ public interface CiAutofixStore
      * @param limit positive result limit
      * @return at most {@code limit} complete run projections
      * @throws IllegalArgumentException when limit is not positive
-     * @throws CiAutofixStorageException when persistence fails
+     * @throws StorageException when persistence fails
      */
     List<CiAutofixRun> listRecent(int limit);
 
@@ -86,7 +88,7 @@ public interface CiAutofixStore
      * @return stored projection carrying the next version
      * @throws CiAutofixNotFoundException when the run does not exist
      * @throws CiAutofixConflictException when the version or a durable constraint changed
-     * @throws CiAutofixStorageException when persistence fails
+     * @throws StorageException when persistence fails
      */
     CiAutofixRun update(CiAutofixRun run);
 }

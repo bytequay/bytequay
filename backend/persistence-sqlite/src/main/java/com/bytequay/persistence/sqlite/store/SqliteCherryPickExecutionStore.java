@@ -18,7 +18,7 @@ import com.bytequay.core.cherrypick.CherryPickExecution.Status;
 import com.bytequay.core.cherrypick.CherryPickExecutionId;
 import com.bytequay.core.cherrypick.CherryPickExecutionStore;
 import com.bytequay.core.cherrypick.CherryPickNotFoundException;
-import com.bytequay.core.cherrypick.CherryPickStorageException;
+import com.bytequay.core.store.StorageException;
 import com.bytequay.persistence.sqlite.entity.CherryPickExecutionEntity;
 import com.bytequay.persistence.sqlite.repository.CherryPickExecutionJpaRepository;
 import org.springframework.data.domain.PageRequest;
@@ -68,7 +68,7 @@ public class SqliteCherryPickExecutionStore
         requireNonNull(idempotencyKey, "idempotencyKey is null");
         return read("Cannot read cherry-pick idempotency key",
                 () -> repository.findByStartIdempotencyKey(idempotencyKey).map(CherryPickExecutionEntity::toExecution),
-                CherryPickStorageException::new);
+                StorageException::new);
     }
 
     @Override
@@ -78,7 +78,7 @@ public class SqliteCherryPickExecutionStore
         requireNonNull(executionId, "executionId is null");
         return read("Cannot read cherry-pick execution " + executionId,
                 () -> repository.findById(executionId.toString()).map(CherryPickExecutionEntity::toExecution),
-                CherryPickStorageException::new);
+                StorageException::new);
     }
 
     @Override
@@ -88,7 +88,7 @@ public class SqliteCherryPickExecutionStore
         requireNonNull(taskId, "taskId is null");
         return read("Cannot read cherry-pick execution for agent task " + taskId,
                 () -> repository.findByAgentTaskId(taskId).map(CherryPickExecutionEntity::toExecution),
-                CherryPickStorageException::new);
+                StorageException::new);
     }
 
     @Override
@@ -100,7 +100,7 @@ public class SqliteCherryPickExecutionStore
                 () -> repository.findAllByOrderByUpdatedAtDesc(PageRequest.of(0, limit)).stream()
                         .map(CherryPickExecutionEntity::toExecution)
                         .collect(toImmutableList()),
-                CherryPickStorageException::new);
+                StorageException::new);
     }
 
     @Override
@@ -112,7 +112,7 @@ public class SqliteCherryPickExecutionStore
                 () -> repository.findByStatusOrderByUpdatedAtAsc(Status.RUNNING, PageRequest.of(0, limit)).stream()
                         .map(CherryPickExecutionEntity::toExecution)
                         .collect(toImmutableList()),
-                CherryPickStorageException::new);
+                StorageException::new);
     }
 
     @Override

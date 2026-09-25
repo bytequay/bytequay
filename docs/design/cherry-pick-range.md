@@ -333,18 +333,12 @@ only history action is `git commit --amend --no-edit`; it replaces `F` and may
 not append a third commit. There are at most three total turns. Wrong history
 pauses instead of guessing.
 
-### 7.5 Validation and pair finalization
+### 7.5 Pair finalization
 
-After structural checks, ByteQuay calls:
-
-```java
-validate(worktree, F)
-```
-
-The first implementation intentionally makes this a successful no-op.
-ByteQuay cannot infer how an arbitrary project builds. A future feature may
-store and run a user-approved validation profile; until then the agent's build
-attempt is useful user information, not a program control fact.
+ByteQuay runs no project validation on `F`: it cannot infer how an arbitrary
+project builds. A future feature may store and run a user-approved validation
+profile; until then the agent's build attempt is useful user information, not
+a program control fact.
 
 Before starting the next source commit, the program verifies and retains this
 history without rewriting either commit:
@@ -365,9 +359,8 @@ resolution, so dropping both would erase that history.
 
 This history shape has a conscious cost. `C` captures Git's unresolved snapshot
 and may not compile or even be marker-free when checked out by itself. ByteQuay
-does not claim that `C` is an independently valid boundary; it validates and
-accounts for `C` plus its immediately adjacent `F` as one conflict-resolution
-unit. Consumers that test every commit must likewise recognize that pair. The
+does not claim that `C` is an independently valid boundary; it accounts for
+`C` plus its immediately adjacent `F` as one conflict-resolution unit. Consumers that test every commit must likewise recognize that pair. The
 benefit is that the source target and the agent-authored resolution remain
 separately reviewable and attributable.
 
@@ -383,7 +376,7 @@ which SHA is expected, and actual Git objects explain whether the action ran.
 | Journal says snapshot, conflict still open at `H0` | Recheck saved stages, create `C` once |
 | Journal says snapshot, one valid `C` already exists | Adopt `C`; do not continue again |
 | Journal says agent turn, HEAD is `C` | Start or retry the fixup turn |
-| Journal says agent turn, one valid `F` exists | Adopt and validate `F`; do not ask for another commit |
+| Journal says agent turn, one valid `F` exists | Adopt `F`; do not ask for another commit |
 | Journal says repair, HEAD is the expected `F` | Ask the agent to amend that same fixup |
 | Journal says repair, one valid amended `F` exists | Adopt the replacement; reject a third commit |
 | Journal says finalize, HEAD is the expected `F` and `C/F` remain valid | Atomically record `targetSha=C` and `currentTargetSha=F` |
@@ -578,8 +571,7 @@ public final class GitSequencerDriver
 ## 11. Rebase reuse
 
 Rebase can reuse the low-level observation vocabulary, command runner, agent
-task/turn lifecycle, retry rules, validation hook shape, and action-journal
-pattern. It must not reuse the cherry-pick retained-`C/F` policy.
+task/turn lifecycle, retry rules, and action-journal pattern. It must not reuse the cherry-pick retained-`C/F` policy.
 
 During a rebase conflict the agent edits and stages only; the program runs
 `git rebase --continue`. A rebase may replay multiple commits and Git owns its

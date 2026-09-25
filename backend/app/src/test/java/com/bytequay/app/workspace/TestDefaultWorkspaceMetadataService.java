@@ -165,8 +165,7 @@ class TestDefaultWorkspaceMetadataService
                 pullRequests,
                 avatarCache,
                 credentials,
-                Clock.fixed(NOW, ZoneOffset.UTC),
-                Runnable::run);
+                Clock.fixed(NOW, ZoneOffset.UTC));
     }
 
     @Test

@@ -457,10 +457,6 @@ public class CherryPickExecutionService
             return pause(execution, PauseReason.UNSAFE_GIT_STATE,
                     "A created commit still contains a conflict marker");
         }
-        if (applied.isPresent() && execution.pendingItems().getFirst().agentTurnCount() > 0) {
-            validate(worktree, after.head());
-        }
-
         CherryPickExecution updated = applied
                 .map(commit -> store.save(execution.recordApplied(
                         commit.sourceSha().orElseThrow(), commit.targetSha(), clock.instant())))
@@ -794,7 +790,6 @@ public class CherryPickExecutionService
                     journal.sourceSha(),
                     fixupCommit), clock.instant()));
         }
-        validate(worktree, fixupCommit);
         return store.save(execution.withJournal(journal(
                 ActionType.FINALIZE_CONFLICT_PAIR,
                 journal.sourceSha(),
@@ -868,11 +863,6 @@ public class CherryPickExecutionService
                                 .map(stage -> new IndexStage(stage.stage(), stage.mode(), stage.blobSha()))
                                 .collect(toImmutableList())))
                 .collect(toImmutableList());
-    }
-
-    private static void validate(Path worktree, String targetSha)
-    {
-        // ponytail: successful no-op until a user-approved project validation command exists.
     }
 
     private static CherryPickItem itemOf(CherryPickExecution execution, String sourceSha)

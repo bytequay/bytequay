@@ -31,7 +31,6 @@ import com.google.common.collect.ImmutableList;
 import com.google.common.util.concurrent.Striped;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.stereotype.Service;
 
 import java.time.Clock;
@@ -40,10 +39,8 @@ import java.time.Instant;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
-import java.util.concurrent.Executor;
 import java.util.concurrent.locks.Lock;
 
-import static com.bytequay.app.config.AsyncConfig.IO_EXECUTOR;
 import static com.bytequay.app.workspace.WorkspaceException.requireWorkspace;
 import static java.util.Objects.requireNonNull;
 
@@ -64,7 +61,6 @@ public final class DefaultWorkspaceMetadataService
     private final AvatarCache avatarCache;
     private final CredentialService credentials;
     private final Clock clock;
-    private final Executor ioExecutor;
     private final Striped<Lock> locks = Striped.lock(64);
 
     public DefaultWorkspaceMetadataService(
@@ -74,8 +70,7 @@ public final class DefaultWorkspaceMetadataService
             GitHubPullRequestReadClient pullRequests,
             AvatarCache avatarCache,
             CredentialService credentials,
-            Clock clock,
-            @Qualifier(IO_EXECUTOR) Executor ioExecutor)
+            Clock clock)
     {
         this.workspaces = requireNonNull(workspaces, "workspaces is null");
         this.metadata = requireNonNull(metadata, "metadata is null");
@@ -84,7 +79,6 @@ public final class DefaultWorkspaceMetadataService
         this.avatarCache = requireNonNull(avatarCache, "avatarCache is null");
         this.credentials = requireNonNull(credentials, "credentials is null");
         this.clock = requireNonNull(clock, "clock is null");
-        this.ioExecutor = requireNonNull(ioExecutor, "ioExecutor is null");
     }
 
     @Override

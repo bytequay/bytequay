@@ -113,10 +113,9 @@ also true when `tree(F)` equals the previous target tree, because the pair is
 the durable attribution for how the conflict was settled. The tradeoff is
 deliberate: `C` may contain conflict markers or an incomplete selected side and
 therefore may not build when checked out alone; only the `C` plus `F` boundary
-is the validated result. The first implementation keeps the ByteQuay validation
-hook as a successful no-op; a project-aware command needs an explicit
-user-selected validation profile because ByteQuay cannot infer how an arbitrary
-repository builds.
+is the verified result. ByteQuay runs no project validation hook; a
+project-aware command needs an explicit user-selected validation profile
+because ByteQuay cannot infer how an arbitrary repository builds.
 
 ## Design principles
 

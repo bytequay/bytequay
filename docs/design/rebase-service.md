@@ -137,7 +137,6 @@ Current step, which applies only to the commit the sequencer stopped on:
 ```text
 REPLAYING
 RESOLVING
-VALIDATING
 ```
 
 The service maintains no per-commit result list. Git's sequencer is the plan:
@@ -207,17 +206,16 @@ same service without nested worktrees.
      because the sequencer, not a user selection, owns the commit list;
    - `STOPPED_CONFLICT` with attempts below the limit → start another turn with
      the actual diagnostics;
-   - `COMPLETED` → validate;
+   - `COMPLETED` → `FINISHED` with the result tip;
    - `UNSAFE` → `PAUSED`.
    - a moved HEAD, changed `REBASE_HEAD`, or closed rebase after an agent turn
      → pause because the agent or a person advanced history outside the
      program-owned command.
-7. **Validation.** After the rebase completes, call the explicit ByteQuay
-   validation hook once against the final tree. The hook is a successful no-op
-   until a user-approved project validation profile supplies a command. The
-   intermediate commits of a rebase are not individually validated.
-8. **Limit.** At most three agent turns per conflicted commit. Exhaustion
+7. **Limit.** At most three agent turns per conflicted commit. Exhaustion
    pauses.
+
+ByteQuay runs no project validation on the result: it cannot infer how an
+arbitrary repository builds, so that needs a user-approved validation profile.
 
 ## 6. Recovery, pause, and cancellation
 

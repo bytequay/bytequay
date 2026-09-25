@@ -36,7 +36,6 @@ import com.bytequay.core.rebase.BranchRebase.ActionType;
 import com.bytequay.core.rebase.BranchRebase.FinishReason;
 import com.bytequay.core.rebase.BranchRebase.PauseReason;
 import com.bytequay.core.rebase.BranchRebase.Status;
-import com.bytequay.core.rebase.BranchRebase.Step;
 import com.bytequay.core.rebase.BranchRebaseException;
 import com.bytequay.core.rebase.BranchRebaseId;
 import com.bytequay.core.rebase.BranchRebaseNotFoundException;
@@ -485,13 +484,9 @@ public class BranchRebaseService
             return pause(rebase, PauseReason.RECONCILIATION_MISMATCH,
                     "Final work branch is not a clean descendant of the frozen base");
         }
-        BranchRebase validating = rebase.currentStep().filter(Step.VALIDATING::equals).isPresent()
-                ? rebase
-                : store.save(rebase.validating(clock.instant()));
-        validate(validating.worktree(), state.head());
-        return store.save(validating.finish(
+        return store.save(rebase.finish(
                 FinishReason.COMPLETED,
-                "Rebased " + validating.workBranch() + " onto " + validating.baseBranch(),
+                "Rebased " + rebase.workBranch() + " onto " + rebase.baseBranch(),
                 Optional.of(state.head()),
                 clock.instant()));
     }
@@ -625,10 +620,5 @@ public class BranchRebaseService
     {
         log.info("Branch rebase {} paused: {}", rebase.id(), diagnostic);
         return store.save(rebase.pause(reason, diagnostic, clock.instant()));
-    }
-
-    private static void validate(Path worktree, String resultTip)
-    {
-        // ponytail: successful no-op until a user-approved project validation command exists.
     }
 }

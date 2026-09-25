@@ -14,7 +14,6 @@
 package com.bytequay.app.context;
 
 import com.bytequay.app.git.GitCommandRunner;
-import com.bytequay.app.workspace.WorkspaceDetails;
 import com.bytequay.app.workspace.WorkspaceRepositoryContext;
 import com.bytequay.app.workspace.WorkspaceRepositoryService;
 import com.bytequay.app.workspace.WorkspaceSummary;
@@ -281,9 +280,9 @@ class TestContextDiscoveryService
         ContextDiscoveryService.Preview preview = service.discover(WORKSPACE, request(""));
         assertThatThrownBy(() -> service.apply(WORKSPACE, apply(preview, 1, "path:module/"))).isInstanceOf(ContextConflictException.class);
         assertThatIllegalArgumentException().isThrownBy(() -> service.apply(WORKSPACE, apply(preview, 0, "path:forged/"))).withMessageContaining("unavailable");
-        when(workspaces.getWorkspace(WORKSPACE)).thenReturn(details(NOW.plusSeconds(1)));
+        when(workspaces.getWorkspace(WORKSPACE)).thenReturn(summary(NOW.plusSeconds(1)));
         assertThatIllegalArgumentException().isThrownBy(() -> service.apply(WORKSPACE, apply(preview, 0, "path:module/"))).withMessageContaining("sync state changed");
-        when(workspaces.getWorkspace(WORKSPACE)).thenReturn(details(NOW));
+        when(workspaces.getWorkspace(WORKSPACE)).thenReturn(summary(NOW));
         write("README.md", "new baseline");
         freeze();
         assertThatIllegalArgumentException().isThrownBy(() -> service.apply(WORKSPACE, apply(preview, 0, "path:module/"))).withMessageContaining("baseline changed");
@@ -299,9 +298,9 @@ class TestContextDiscoveryService
         freeze();
         ContextDiscoveryService service = service(RepositoryNotebook.empty());
         ContextDiscoveryService.Preview preview = service.discover(WORKSPACE, request(""));
-        when(workspaces.getWorkspace(WORKSPACE)).thenReturn(details(NOW), details(NOW.plusSeconds(1)));
+        when(workspaces.getWorkspace(WORKSPACE)).thenReturn(summary(NOW), summary(NOW.plusSeconds(1)));
         assertThatIllegalArgumentException().isThrownBy(() -> service.apply(WORKSPACE, apply(preview, 0, "path:module/"))).withMessageContaining("sync state changed");
-        when(workspaces.getWorkspace(WORKSPACE)).thenReturn(details(NOW));
+        when(workspaces.getWorkspace(WORKSPACE)).thenReturn(summary(NOW));
         WorkspaceRepositoryContext changed = new WorkspaceRepositoryContext(WORKSPACE, repository, 1, RepoRef.of("fork", "trino"), OptionalLong.of(8),
                 RepoRef.of("another", "trino"), "upstream", "origin", "main", ImmutableList.of());
         when(workspaces.requireLocalRepository(WORKSPACE)).thenReturn(changed);
@@ -326,7 +325,7 @@ class TestContextDiscoveryService
             if (observations.incrementAndGet() == 2) {
                 command("update-ref", "refs/remotes/upstream/main", fetched);
             }
-            return details(NOW);
+            return summary(NOW);
         });
 
         assertThatIllegalArgumentException().isThrownBy(() -> service.apply(WORKSPACE, apply(preview, 0, "path:module/")))
@@ -490,15 +489,14 @@ class TestContextDiscoveryService
     {
         when(notebooks.getNotebook(WORKSPACE)).thenReturn(notebook);
         when(workspaces.requireLocalRepository(WORKSPACE)).thenReturn(workspace());
-        when(workspaces.getWorkspace(WORKSPACE)).thenReturn(details(NOW));
+        when(workspaces.getWorkspace(WORKSPACE)).thenReturn(summary(NOW));
         return new ContextDiscoveryService(notebooks, workspaces, git, reader, history, executor, timeout);
     }
 
-    private WorkspaceDetails details(Instant syncedAt)
+    private WorkspaceSummary summary(Instant syncedAt)
     {
-        WorkspaceSummary summary = new WorkspaceSummary(WORKSPACE, "Trino", 1, "fork", "trino", 7L, "trino", "trino", 7, "trino", "trino",
+        return new WorkspaceSummary(WORKSPACE, "Trino", 1, "fork", "trino", 7L, "trino", "trino", 7, "trino", "trino",
                 Workspace.Topology.FORK, "main", "main", repository.toString(), syncedAt, null, 0);
-        return new WorkspaceDetails(summary, "", null, NOW, NOW);
     }
 
     private static ContextDiscoveryService.Request request(String query)

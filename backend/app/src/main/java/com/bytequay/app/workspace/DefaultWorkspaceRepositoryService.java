@@ -195,9 +195,9 @@ public class DefaultWorkspaceRepositoryService
     }
 
     @Override
-    public WorkspaceDetails getWorkspace(String workspaceId)
+    public WorkspaceSummary getWorkspace(String workspaceId)
     {
-        return WorkspaceDetails.of(requireWorkspace(workspaceId));
+        return WorkspaceSummary.of(requireWorkspace(workspaceId));
     }
 
     @Override

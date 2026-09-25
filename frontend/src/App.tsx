@@ -217,8 +217,8 @@ export default function App() {
       if (workspaceRef.current?.id === workspaceLocation.workspaceId) return;
       updateWorkspace(null);
       void window.bridge.getWorkspace(workspaceLocation.workspaceId)
-        .then(details => {
-          if (request === current) updateWorkspace(details.summary);
+        .then(summary => {
+          if (request === current) updateWorkspace(summary);
         })
         .catch(() => {
           if (request === current) {

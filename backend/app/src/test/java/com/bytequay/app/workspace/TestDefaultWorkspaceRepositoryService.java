@@ -160,7 +160,7 @@ class TestDefaultWorkspaceRepositoryService
 
         assertThat(service.listWorkspaces()).isEmpty();
         assertThat(service.listRetiredWorkspaces()).containsExactly(WorkspaceSummary.of(workspace));
-        assertThat(service.getWorkspace(workspace.id())).isEqualTo(WorkspaceDetails.of(workspace));
+        assertThat(service.getWorkspace(workspace.id())).isEqualTo(WorkspaceSummary.of(workspace));
         assertThat(store.findAllRetained()).containsExactly(workspace);
         assertThat(service.previewWatch(100).existingWorkspaceId()).isEmpty();
         assertThat(Files.readString(taskWorktree.resolve("unfinished.txt"))).isEqualTo("local work");
@@ -197,7 +197,7 @@ class TestDefaultWorkspaceRepositoryService
 
         assertThat(service.listRetiredWorkspaces()).containsExactly(WorkspaceSummary.of(retired));
         assertThat(service.listWorkspaces()).containsExactly(WorkspaceSummary.of(watched));
-        assertThat(service.getWorkspace(retired.id())).isEqualTo(WorkspaceDetails.of(retired));
+        assertThat(service.getWorkspace(retired.id())).isEqualTo(WorkspaceSummary.of(retired));
         assertThat(store.isWatched(retired.id())).isFalse();
         assertThat(queued).isEmpty();
         verifyNoInteractions(enrichment, gitHub, credentials, provisioning, metadata, refresh);

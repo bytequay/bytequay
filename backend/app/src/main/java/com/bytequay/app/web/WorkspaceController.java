@@ -25,7 +25,6 @@ import com.bytequay.app.workspace.WatchRepositoryPreview;
 import com.bytequay.app.workspace.WorkspaceCommitsSettingsService;
 import com.bytequay.app.workspace.WorkspaceCommitsTarget;
 import com.bytequay.app.workspace.WorkspaceDeletionService;
-import com.bytequay.app.workspace.WorkspaceDetails;
 import com.bytequay.app.workspace.WorkspaceIssueRefreshService;
 import com.bytequay.app.workspace.WorkspaceIssueService;
 import com.bytequay.app.workspace.WorkspaceMetadataService;
@@ -135,7 +134,7 @@ public class WorkspaceController
     }
 
     @GetMapping("/{workspaceId}")
-    public WorkspaceDetails get(@PathVariable String workspaceId)
+    public WorkspaceSummary get(@PathVariable String workspaceId)
     {
         return workspaces.getWorkspace(workspaceId);
     }
@@ -146,7 +145,7 @@ public class WorkspaceController
             @RequestParam(defaultValue = "0") int page,
             @RequestParam(defaultValue = "50") int size)
     {
-        WorkspaceSummary workspace = workspaces.getWorkspace(workspaceId).summary();
+        WorkspaceSummary workspace = workspaces.getWorkspace(workspaceId);
         return pullRequests.listPullRequests(RepoRef.of(workspace.monitoredOwner(), workspace.monitoredRepo()), page, size, "");
     }
 

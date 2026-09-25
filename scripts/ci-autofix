@@ -134,7 +134,7 @@ print_event()
 }
 
 workspace="$(api "$base_url/api/workspaces/$workspace_id")"
-workspace_repository="$(jq -er '.summary.monitoredOwner + "/" + .summary.monitoredRepo' <<<"$workspace")"
+workspace_repository="$(jq -er '.monitoredOwner + "/" + .monitoredRepo' <<<"$workspace")"
 shopt -s nocasematch
 if [[ "$repository" != "$workspace_repository" ]]; then
     echo "Requested repository $repository does not match workspace $workspace_id ($workspace_repository)" >&2

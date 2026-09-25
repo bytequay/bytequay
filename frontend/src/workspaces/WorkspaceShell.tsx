@@ -145,7 +145,7 @@ export default function WorkspaceShell({ workspace, tab, onSelectTab, onWorkspac
     if (!workspaceIsUpdating(workspace)) return;
     const timer = window.setTimeout(() => {
       void window.bridge.getWorkspace(workspace.id)
-        .then(details => onWorkspaceChanged(details.summary))
+        .then(onWorkspaceChanged)
         .catch(() => {});
     }, 1500);
     return () => window.clearTimeout(timer);

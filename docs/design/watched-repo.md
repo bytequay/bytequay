@@ -374,10 +374,10 @@ public interface WorkspaceRepositoryService
      * Loads workspace home data, including routing and independent sync states.
      *
      * @param workspaceId ByteQuay workspace ID
-     * @return workspace details suitable for Workspace Home
+     * @return workspace summary suitable for Workspace Home
      * @throws WorkspaceNotFoundException if the workspace does not exist
      */
-    WorkspaceDetails getWorkspace(String workspaceId);
+    WorkspaceSummary getWorkspace(String workspaceId);
 
     /**
      * Resolves the trusted repository path and routing for a code operation.

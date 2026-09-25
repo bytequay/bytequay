@@ -151,13 +151,6 @@ class TestCherryPickExecutionService
                 false,
                 false,
                 false,
-                false,
-                false,
-                false,
-                false,
-                false,
-                false,
-                false,
                 ImmutableSet.of(AgentPermissionPolicy.CHERRY_PICK),
                 ImmutableSet.of());
         driver = mock(AgentDriver.class);

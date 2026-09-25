@@ -52,15 +52,8 @@ final class DeterministicAgentDriver
     static final AgentLaneId LANE_ID = new AgentLaneId("deterministic");
 
     private static final AgentCapabilities CAPABILITIES = new AgentCapabilities(
-            true,
             false,
             false,
-            true,
-            false,
-            false,
-            false,
-            true,
-            true,
             true,
             ImmutableSet.of(
                     com.bytequay.agent.spi.AgentPermissionPolicy.AUTO,

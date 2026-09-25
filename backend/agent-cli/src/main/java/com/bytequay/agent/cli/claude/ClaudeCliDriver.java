@@ -247,14 +247,7 @@ public final class ClaudeCliDriver
         // Forwarded child messages identify the Agent invocation that owns their execution.
         return new AgentCapabilities(
                 true,
-                true,
-                true,
-                true,
-                false,
-                true,
                 forwardSubagentText,
-                true,
-                true,
                 false,
                 ImmutableSet.copyOf(AgentPermissionPolicy.values()),
                 ImmutableSet.of("text/plain", "text/plain; charset=utf-8"));

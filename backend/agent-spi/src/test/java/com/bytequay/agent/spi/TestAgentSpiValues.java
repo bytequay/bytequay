@@ -48,13 +48,6 @@ class TestAgentSpiValues
         AgentCapabilities capabilities = new AgentCapabilities(
                 true,
                 true,
-                true,
-                true,
-                true,
-                false,
-                true,
-                true,
-                true,
                 false,
                 permissionPolicies,
                 mediaTypes);

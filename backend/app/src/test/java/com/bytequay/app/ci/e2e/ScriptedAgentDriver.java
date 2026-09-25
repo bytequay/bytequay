@@ -187,15 +187,8 @@ final class ScriptedAgentDriver
     public AgentCapabilities capabilities()
     {
         return new AgentCapabilities(
-                true,
                 false,
                 false,
-                true,
-                false,
-                false,
-                false,
-                false,
-                true,
                 false,
                 ImmutableSet.of(AgentPermissionPolicy.AUTO, AgentPermissionPolicy.CI_AUTOFIX),
                 ImmutableSet.of("text/plain"));

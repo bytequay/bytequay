@@ -139,13 +139,6 @@ class TestModelSettingsService
                 true,
                 true,
                 true,
-                true,
-                true,
-                true,
-                true,
-                true,
-                true,
-                true,
                 ImmutableSet.of(AgentPermissionPolicy.AUTO, AgentPermissionPolicy.CI_AUTOFIX),
                 ImmutableSet.of("image/png", "image/jpeg"));
         when(drivers.statuses()).thenReturn(ImmutableList.of(new AgentProviderStatus(

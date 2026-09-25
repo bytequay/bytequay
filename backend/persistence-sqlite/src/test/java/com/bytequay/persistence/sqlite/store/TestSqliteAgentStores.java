@@ -1235,13 +1235,6 @@ class TestSqliteAgentStores
             implements AgentDriver
     {
         private static final AgentCapabilities CAPABILITIES = new AgentCapabilities(
-                true,
-                false,
-                false,
-                false,
-                false,
-                false,
-                false,
                 false,
                 false,
                 false,

@@ -80,8 +80,11 @@ class TestAppSettingsService
         AgentDriver driver = mock(AgentDriver.class);
         when(drivers.require(lane)).thenReturn(driver);
         when(driver.capabilities()).thenReturn(new AgentCapabilities(
-                false, false, false, false, false, false, false, false, false, false,
-                ImmutableSet.of(AgentPermissionPolicy.CI_AUTOFIX), ImmutableSet.of()));
+                false,
+                false,
+                false,
+                ImmutableSet.of(AgentPermissionPolicy.CI_AUTOFIX),
+                ImmutableSet.of()));
         DevelopmentAutomation chosen = new DevelopmentAutomation(false, true, true, Optional.of(lane));
 
         settings.saveDevelopmentAutomation(chosen);

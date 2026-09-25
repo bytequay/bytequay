@@ -541,15 +541,8 @@ export type AgentProviderReadiness =
 
 /** Provider facts that control what the shared task UI may truthfully offer or render. */
 export type AgentCapabilitiesDto = {
-  sessionResume: boolean;
-  partialAssistantText: boolean;
   structuredPlans: boolean;
-  toolLifecycle: boolean;
-  incrementalCommandOutput: boolean;
-  hookLifecycle: boolean;
   nestedAgentActivity: boolean;
-  interactiveApprovals: boolean;
-  tokenUsage: boolean;
   steering: boolean;
   permissionPolicies: string[];
   attachmentMediaTypes: string[];

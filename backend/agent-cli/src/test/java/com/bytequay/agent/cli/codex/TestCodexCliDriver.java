@@ -202,7 +202,6 @@ class TestCodexCliDriver
                 .containsExactly(AgentPermissionPolicy.AUTO, AgentPermissionPolicy.CI_AUTOFIX);
         assertThat(driver.capabilities().attachmentMediaTypes())
                 .containsExactlyInAnyOrder("image/png", "image/jpeg", "image/gif", "text/plain", "text/plain; charset=utf-8");
-        assertThat(driver.capabilities().partialAssistantText()).isTrue();
         assertThat(driver.capabilities().nestedAgentActivity()).isTrue();
         assertThat(supervisor.servers())
                 .allSatisfy(server -> assertThat(server.approvalPolicies()).containsExactly("on-request"));

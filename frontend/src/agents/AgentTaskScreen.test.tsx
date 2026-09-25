@@ -44,7 +44,6 @@ const events = parseAgentEventSequence(fixture.events);
 
 const CAPABILITIES: AgentCapabilitiesDto = {
   ...NO_AGENT_CAPABILITIES,
-  partialAssistantText: true,
   structuredPlans: true,
   nestedAgentActivity: true,
   steering: true,

@@ -183,17 +183,10 @@ public final class CodexCliDriver
             true,
             true,
             true,
-            true,
-            true,
-            false,
-            true,
-            true,
-            true,
-            true,
             ImmutableSet.of(AgentPermissionPolicy.AUTO, AgentPermissionPolicy.CI_AUTOFIX),
             ImmutableSet.of("image/png", "image/jpeg", "image/gif", "text/plain", "text/plain; charset=utf-8"));
     private static final AgentCapabilities DEEPSEEK_CAPABILITIES = new AgentCapabilities(
-            true, true, false, true, true, false, false, true, true, false,
+            false, false, false,
             ImmutableSet.of(AgentPermissionPolicy.AUTO, AgentPermissionPolicy.CI_AUTOFIX),
             ImmutableSet.of("text/plain", "text/plain; charset=utf-8"));
 

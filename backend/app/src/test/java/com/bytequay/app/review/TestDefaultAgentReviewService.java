@@ -239,8 +239,11 @@ class TestDefaultAgentReviewService
     {
         Fixture fixture = new Fixture();
         when(fixture.driver.capabilities()).thenReturn(new AgentCapabilities(
-                true, true, true, true, true, true, true, true, true, true,
-                ImmutableSet.of(AgentPermissionPolicy.AUTO), ImmutableSet.of("text/plain")));
+                true,
+                true,
+                true,
+                ImmutableSet.of(AgentPermissionPolicy.AUTO),
+                ImmutableSet.of("text/plain")));
 
         AgentReviewProjection projection = fixture.service.start(WORKSPACE, REPO, NUMBER);
 

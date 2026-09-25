@@ -241,13 +241,6 @@ class TestDefaultCiAutofixService
                 false,
                 false,
                 false,
-                false,
-                false,
-                false,
-                false,
-                false,
-                false,
-                false,
                 Set.of(AgentPermissionPolicy.CI_AUTOFIX),
                 Set.of());
         AgentProviderStatus providerStatus = new AgentProviderStatus(

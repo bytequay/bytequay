@@ -80,13 +80,6 @@ public final class DeterministicAgentDriver
         return new AgentCapabilities(
                 false,
                 false,
-                false,
-                false,
-                false,
-                false,
-                false,
-                false,
-                false,
                 true,
                 ImmutableSet.of(AgentPermissionPolicy.AUTO),
                 imageAttachments.get() ? ImmutableSet.of("image/png") : ImmutableSet.of());

@@ -16,15 +16,8 @@ import type { AgentCapabilitiesDto } from '../types';
 
 /** An absent or malformed capability never becomes permission to expose a control. */
 export const NO_AGENT_CAPABILITIES: AgentCapabilitiesDto = {
-  sessionResume: false,
-  partialAssistantText: false,
   structuredPlans: false,
-  toolLifecycle: false,
-  incrementalCommandOutput: false,
-  hookLifecycle: false,
   nestedAgentActivity: false,
-  interactiveApprovals: false,
-  tokenUsage: false,
   steering: false,
   permissionPolicies: ['AUTO'],
   attachmentMediaTypes: [],

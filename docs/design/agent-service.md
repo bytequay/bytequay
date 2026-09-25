@@ -4276,8 +4276,10 @@ process exit.
 
 ### 8.3 Capability differences
 
-`AgentCapabilities` advertises event fidelity rather than one generic
-"streaming" boolean:
+Providers differ in event fidelity rather than in one generic "streaming"
+boolean. `AgentCapabilities` advertises only the differences that services or
+the UI act on: structured checklists, nested agent activity, steering,
+permission policies, and attachment media types.
 
 | Capability | Codex App Server | Claude Code CLI |
 | --- | --- | --- |

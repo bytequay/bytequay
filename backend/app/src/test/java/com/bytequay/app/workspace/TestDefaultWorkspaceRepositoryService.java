@@ -25,6 +25,7 @@ import com.bytequay.core.domain.Workspace;
 import com.bytequay.core.domain.Workspace.Topology;
 import com.bytequay.core.store.WorkspaceStore;
 import com.google.common.collect.ImmutableList;
+import com.google.common.collect.ImmutableSet;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
@@ -272,7 +273,7 @@ class TestDefaultWorkspaceRepositoryService
         reset(provisioning);
         when(provisioning.synchronizeCode(unsynced.id())).thenAnswer(ignored -> {
             Workspace synced = store.save(unsynced.withCodeSyncAt(Optional.of(NOW), NOW));
-            return WorkspaceCodeSyncResult.success(synced);
+            return WorkspaceCodeSyncResult.success(synced, ImmutableSet.of());
         });
 
         assertThat(service.requireReadyRepository(unsynced.id()).repository())
@@ -411,7 +412,7 @@ class TestDefaultWorkspaceRepositoryService
         when(provisioning.synchronizeCode(anyString())).thenAnswer(invocation -> {
             Workspace saved = store.findById(invocation.getArgument(0)).orElseThrow();
             observed.set(saved.lastCodeSyncAt());
-            return WorkspaceCodeSyncResult.success(saved);
+            return WorkspaceCodeSyncResult.success(saved, ImmutableSet.of());
         });
         DefaultWorkspaceRepositoryService service = new DefaultWorkspaceRepositoryService(
                 store,

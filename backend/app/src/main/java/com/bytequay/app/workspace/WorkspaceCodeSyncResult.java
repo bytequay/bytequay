@@ -45,12 +45,6 @@ public record WorkspaceCodeSyncResult(
         this(workspaceId, successful, lastCodeSyncAt, ImmutableSet.of());
     }
 
-    public static WorkspaceCodeSyncResult success(Workspace workspace)
-    {
-        return new WorkspaceCodeSyncResult(
-                workspace.id(), true, workspace.lastCodeSyncAt(), ImmutableSet.of());
-    }
-
     public static WorkspaceCodeSyncResult success(Workspace workspace, Set<String> failedRemoteSources)
     {
         return new WorkspaceCodeSyncResult(

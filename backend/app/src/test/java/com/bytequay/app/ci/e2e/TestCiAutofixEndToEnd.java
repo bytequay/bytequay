@@ -63,6 +63,7 @@ import com.bytequay.persistence.sqlite.repository.PullRequestJpaRepository;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.google.common.collect.ImmutableList;
+import com.google.common.collect.ImmutableSet;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -1068,7 +1069,7 @@ class TestCiAutofixEndToEnd
                 @Override
                 public WorkspaceCodeSyncResult synchronizeCode(String workspaceId)
                 {
-                    return WorkspaceCodeSyncResult.success(store.findById(workspaceId).orElseThrow());
+                    return WorkspaceCodeSyncResult.success(store.findById(workspaceId).orElseThrow(), ImmutableSet.of());
                 }
             };
         }

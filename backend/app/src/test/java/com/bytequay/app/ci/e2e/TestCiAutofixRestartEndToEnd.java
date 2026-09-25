@@ -55,6 +55,7 @@ import com.bytequay.core.store.WorkspaceCredentialStore;
 import com.bytequay.core.store.WorkspaceStore;
 import com.bytequay.persistence.sqlite.repository.PullRequestJpaRepository;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.google.common.collect.ImmutableSet;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 import org.junit.jupiter.api.parallel.Execution;
@@ -371,7 +372,7 @@ class TestCiAutofixRestartEndToEnd
                         public WorkspaceCodeSyncResult synchronizeCode(String workspaceId)
                         {
                             WorkspaceStore store = context.getBean(WorkspaceStore.class);
-                            return WorkspaceCodeSyncResult.success(store.findById(workspaceId).orElseThrow());
+                            return WorkspaceCodeSyncResult.success(store.findById(workspaceId).orElseThrow(), ImmutableSet.of());
                         }
                     },
                     bean -> bean.setPrimary(true));

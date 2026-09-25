@@ -37,6 +37,7 @@ import com.bytequay.core.domain.Workspace;
 import com.bytequay.core.domain.Workspace.Topology;
 import com.bytequay.core.store.WorkspaceStore;
 import com.google.common.collect.ImmutableList;
+import com.google.common.collect.ImmutableSet;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
@@ -233,7 +234,7 @@ class TestDefaultWorkspacePullRequestService
         when(provisioning.synchronizeCode("workspace")).thenAnswer(ignored -> {
             Workspace synced = storedWorkspace.get().withCodeSyncAt(Optional.of(NOW), NOW);
             storedWorkspace.set(synced);
-            return WorkspaceCodeSyncResult.success(synced);
+            return WorkspaceCodeSyncResult.success(synced, ImmutableSet.of());
         });
         GitHubAccountClient repositories = mock(GitHubAccountClient.class);
         when(repositories.fetchRepository("token", workspace.selectedRepositoryId()))

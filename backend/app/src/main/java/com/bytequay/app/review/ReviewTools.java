@@ -94,6 +94,7 @@ import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.DeserializationFeature;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.databind.cfg.JsonNodeFeature;
 import com.fasterxml.jackson.databind.exc.ValueInstantiationException;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 import com.google.common.base.Stopwatch;
@@ -104,6 +105,7 @@ import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Component;
 import org.springframework.web.server.ResponseStatusException;
 
+import java.io.UncheckedIOException;
 import java.net.URI;
 import java.nio.charset.StandardCharsets;
 import java.time.Clock;
@@ -117,7 +119,6 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.OptionalLong;
 import java.util.Set;
-import java.util.TreeMap;
 import java.util.UUID;
 import java.util.concurrent.locks.Lock;
 import java.util.function.Function;
@@ -2833,21 +2834,14 @@ public class ReviewTools
         }
     }
 
-    private static String canonical(JsonNode node)
+    private String canonical(JsonNode node)
     {
-        if (node.isObject()) {
-            TreeMap<String, String> sorted = new TreeMap<>();
-            node.fields().forEachRemaining(entry -> sorted.put(entry.getKey(), canonical(entry.getValue())));
-            StringBuilder out = new StringBuilder("{");
-            sorted.forEach((key, value) -> out.append('"').append(key).append("\":").append(value).append(','));
-            return out.append('}').toString();
+        try {
+            return objectMapper.writer().with(JsonNodeFeature.WRITE_PROPERTIES_SORTED).writeValueAsString(node);
         }
-        if (node.isArray()) {
-            StringBuilder out = new StringBuilder("[");
-            node.forEach(item -> out.append(canonical(item)).append(','));
-            return out.append(']').toString();
+        catch (JsonProcessingException e) {
+            throw new UncheckedIOException(e);
         }
-        return node.toString();
     }
 
     private static String text(JsonNode node, String field, int maximum, boolean required)

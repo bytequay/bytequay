@@ -59,6 +59,7 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.Executor;
 import java.util.concurrent.Executors;
 
+import static com.google.common.base.Preconditions.checkArgument;
 import static com.google.common.base.Preconditions.checkState;
 import static com.google.common.collect.ImmutableList.toImmutableList;
 import static java.util.Objects.requireNonNull;
@@ -126,7 +127,7 @@ public class DefaultTaskDiscussionService
         requireNonNull(command, "command is null");
         AgentTask task = askableTask(command.workspaceId(), command.taskId());
         String normalized = DiscussionQuotes.normalize(command.quote());
-        checkQuote(normalized.length() >= DiscussionQuotes.MINIMUM_QUOTE_CHARACTERS, "Select more of the passage to discuss it");
+        checkArgument(normalized.length() >= DiscussionQuotes.MINIMUM_QUOTE_CHARACTERS, "Select more of the passage to discuss it");
 
         String hash = DiscussionQuotes.hash(command.quote(), command.occurrence());
         Optional<TaskDiscussion> existing = store.findByAnchor(command.taskId(), command.turnId(), hash);
@@ -206,7 +207,7 @@ public class DefaultTaskDiscussionService
             throw new AgentConflictException("This task already holds the most discussions it can");
         }
         Seeded seeded = seed(task.id(), TurnId.valueOf(command.turnId()));
-        checkQuote(DiscussionQuotes.occursIn(command.quote(), seeded.answer()), "That passage is not in the answer being discussed");
+        checkArgument(DiscussionQuotes.occursIn(command.quote(), seeded.answer()), "That passage is not in the answer being discussed");
         Instant now = clock.instant();
         return store.insertOrGet(new TaskDiscussion(
                 UUID.randomUUID().toString(),
@@ -464,13 +465,6 @@ public class DefaultTaskDiscussionService
         catch (RuntimeException failure) {
             log.warn("Could not verify the discussion provider stopped for {}", discussionId, failure);
             return false;
-        }
-    }
-
-    private static void checkQuote(boolean condition, String message)
-    {
-        if (!condition) {
-            throw new IllegalArgumentException(message);
         }
     }
 

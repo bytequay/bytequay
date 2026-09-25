@@ -1895,6 +1895,17 @@ class TestReviewTools
         assertThat(replayed.toString()).isEqualTo(first.toString());
         assertThat(store.listFindings(REVIEW_ID)).hasSize(1);
 
+        // Field order is not content: the same arguments in another order, nested ones included, still replay.
+        Map<String, Object> reordered = ImmutableMap.of(
+                "evidence", ImmutableList.of(ImmutableMap.of("explanation", "the frozen source window shows the missing check", "ref", "E1")),
+                "startAnchor", "A2",
+                "validation", "The source establishes a reachable unchecked input and no caller guard prevents it.",
+                "body", "The added line is used without any validation.",
+                "title", "Missing null check",
+                "operationKey", "save-1");
+        assertThat(call("review_save_finding", reordered).toString()).isEqualTo(first.toString());
+        assertThat(store.listFindings(REVIEW_ID)).hasSize(1);
+
         JsonNode conflict = call("review_save_finding", finding("save-1", "A different claim entirely", "A2", ImmutableList.of(evidence("E1"))));
 
         assertThat(conflict.path("error").path("field").asText()).isEqualTo("operationKey");

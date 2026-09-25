@@ -84,13 +84,6 @@ class ManagedWorkspaceGit
         fetchConfiguredRemotes(current, repository, environment);
     }
 
-    void validate(Workspace previous, Workspace current)
-    {
-        validateRouting(current);
-        Path repository = requireOwnedCheckout(current);
-        reconcileRemotes(previous, current, repository);
-    }
-
     Set<String> synchronize(Workspace previous, Workspace current)
     {
         validateRouting(current);

@@ -75,8 +75,8 @@ class TestDefaultWorkspaceProvisioningService
         Workspace fork = store.createOrGet(workspace("fork", true));
         DefaultWorkspaceProvisioningService service = service(store, git);
 
-        WorkspaceProvisioningResult directResult = service.provision(direct.id());
-        WorkspaceProvisioningResult forkResult = service.provision(fork.id());
+        WorkspaceCodeSyncResult directResult = service.synchronizeCode(direct.id());
+        WorkspaceCodeSyncResult forkResult = service.synchronizeCode(fork.id());
 
         assertThat(directResult.successful()).isTrue();
         assertThat(git(directPath(direct), "remote").lines()).containsExactly("origin");
@@ -112,7 +112,7 @@ class TestDefaultWorkspaceProvisioningService
                 temporary.resolve("git-commands.log"));
         InMemoryWorkspaceStore store = new InMemoryWorkspaceStore();
         Workspace workspace = store.createOrGet(workspace("fork", true));
-        assertThat(service(store, routed).provision(workspace.id()).successful()).isTrue();
+        assertThat(service(store, routed).synchronizeCode(workspace.id()).successful()).isTrue();
         Path repository = directPath(workspace);
         git(repository, "checkout", "-b", "contribution", "--track", "upstream/main");
 
@@ -134,9 +134,9 @@ class TestDefaultWorkspaceProvisioningService
         InMemoryWorkspaceStore store = new InMemoryWorkspaceStore();
         Workspace workspace = store.createOrGet(workspace("concurrent", false));
         DefaultWorkspaceProvisioningService service = service(store, git);
-        ImmutableList.Builder<Callable<WorkspaceProvisioningResult>> calls = ImmutableList.builder();
+        ImmutableList.Builder<Callable<WorkspaceCodeSyncResult>> calls = ImmutableList.builder();
         for (int index = 0; index < 8; index++) {
-            calls.add(() -> service.provision(workspace.id()));
+            calls.add(() -> service.synchronizeCode(workspace.id()));
         }
 
         try (var executor = Executors.newFixedThreadPool(8)) {
@@ -156,7 +156,7 @@ class TestDefaultWorkspaceProvisioningService
         assertThat(Files.readAllLines(commandLog, StandardCharsets.UTF_8).stream()
                 .filter(line -> line.contains(" clone ")))
                 .hasSize(1);
-        assertThat(service.provision(workspace.id()).successful()).isTrue();
+        assertThat(service.synchronizeCode(workspace.id()).successful()).isTrue();
         assertThat(Files.readAllLines(commandLog, StandardCharsets.UTF_8).stream()
                 .filter(line -> line.contains(" clone ")))
                 .hasSize(1);
@@ -178,18 +178,18 @@ class TestDefaultWorkspaceProvisioningService
         Files.writeString(unexpected, "keep", StandardCharsets.UTF_8);
         DefaultWorkspaceProvisioningService service = service(store, git);
 
-        assertThat(service.provision(unknown.id()).successful()).isFalse();
+        assertThat(service.synchronizeCode(unknown.id()).successful()).isFalse();
         assertThat(unexpected).hasContent("keep");
 
         InMemoryWorkspaceStore mismatchStore = new InMemoryWorkspaceStore();
         Workspace mismatch = mismatchStore.createOrGet(workspace("mismatch", false));
         DefaultWorkspaceProvisioningService mismatchService = service(mismatchStore, git);
-        assertThat(mismatchService.provision(mismatch.id()).successful()).isTrue();
+        assertThat(mismatchService.synchronizeCode(mismatch.id()).successful()).isTrue();
         git(directPath(mismatch), "remote", "set-url", "origin", "https://github.test/other/project.git");
         mismatchStore.save(mismatchStore.findById(mismatch.id()).orElseThrow()
                 .withCodeSyncAt(Optional.empty(), NOW));
 
-        assertThat(mismatchService.provision(mismatch.id()).successful()).isFalse();
+        assertThat(mismatchService.synchronizeCode(mismatch.id()).successful()).isFalse();
         assertThat(git(directPath(mismatch), "remote", "get-url", "origin"))
                 .isEqualTo("https://github.test/other/project.git");
         assertThat(directPath(mismatch)).isDirectory();
@@ -206,7 +206,7 @@ class TestDefaultWorkspaceProvisioningService
         InMemoryWorkspaceStore store = new InMemoryWorkspaceStore();
         Workspace workspace = store.createOrGet(workspace("preserve", false));
         DefaultWorkspaceProvisioningService service = service(store, git);
-        assertThat(service.provision(workspace.id()).successful()).isTrue();
+        assertThat(service.synchronizeCode(workspace.id()).successful()).isTrue();
         Path repository = directPath(workspace);
         git(repository, "checkout", "-b", "local-work");
         Path localFile = Files.writeString(repository.resolve("local.txt"), "local", StandardCharsets.UTF_8);
@@ -241,7 +241,7 @@ class TestDefaultWorkspaceProvisioningService
         InMemoryWorkspaceStore store = new InMemoryWorkspaceStore();
         Workspace workspace = store.createOrGet(workspace("preserve-fork", true));
         DefaultWorkspaceProvisioningService service = service(store, git);
-        assertThat(service.provision(workspace.id()).successful()).isTrue();
+        assertThat(service.synchronizeCode(workspace.id()).successful()).isTrue();
         Path repository = directPath(workspace);
         String localMainHead = git(repository, "rev-parse", "refs/heads/main");
         Path localFile = Files.writeString(repository.resolve("local.txt"), "local work", StandardCharsets.UTF_8);
@@ -289,7 +289,7 @@ class TestDefaultWorkspaceProvisioningService
         when(gitHub.fetchRepository("token", 100L))
                 .thenReturn(Optional.of(direct("contributor", ORIGIN_URL)));
         DefaultWorkspaceProvisioningService service = service(store, git, gitHub, remoteSources);
-        assertThat(service.provision(workspace.id()).successful()).isTrue();
+        assertThat(service.synchronizeCode(workspace.id()).successful()).isTrue();
         remoteSources.save(new RemoteSource(workspace.id(), "oss", CUSTOM_URL));
 
         WorkspaceCodeSyncResult result = service.synchronizeCode(workspace.id());
@@ -315,7 +315,7 @@ class TestDefaultWorkspaceProvisioningService
                 .thenReturn(Optional.of(direct("contributor", ORIGIN_URL)))
                 .thenReturn(Optional.of(direct("new-owner", renamedUrl)));
         DefaultWorkspaceProvisioningService service = service(store, git, gitHub);
-        service.provision(workspace.id());
+        service.synchronizeCode(workspace.id());
 
         WorkspaceCodeSyncResult result = service.synchronizeCode(workspace.id());
 

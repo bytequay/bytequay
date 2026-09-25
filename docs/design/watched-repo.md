@@ -438,21 +438,12 @@ package com.bytequay.app.workspace;
 public interface WorkspaceProvisioningService
 {
     /**
-     * Creates or recovers the managed checkout for a saved workspace.
-     *
-     * <p>The operation clones the selected repository as {@code origin}; when an upstream
-     * repository is selected it also configures and fetches {@code upstream}. A failure leaves the
-     * last successful synchronization timestamp unchanged and never deletes an unknown directory.</p>
-     *
-     * @param workspaceId saved workspace to provision
-     * @return the final provisioning result
-     */
-    WorkspaceProvisioningResult provision(String workspaceId);
-
-    /**
      * Creates the managed checkout when needed, otherwise fetches and prunes the configured remotes.
      *
-     * <p>This operation never resets a branch, discards local changes, rebases,
+     * <p>Creating clones the selected repository as {@code origin}; when an upstream repository is
+     * selected it also configures and fetches {@code upstream}. A failure leaves the last
+     * successful synchronization timestamp unchanged and never deletes an unknown directory.
+     * This operation never resets a branch, discards local changes, rebases,
      * force-pushes, or changes the selected pull-request base.</p>
      *
      * @param workspaceId saved workspace to synchronize

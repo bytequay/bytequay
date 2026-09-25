@@ -50,7 +50,6 @@ import com.bytequay.app.service.credentials.CredentialService;
 import com.bytequay.app.service.github.GhCliService;
 import com.bytequay.app.workspace.WorkspaceCodeSyncResult;
 import com.bytequay.app.workspace.WorkspacePaths;
-import com.bytequay.app.workspace.WorkspaceProvisioningResult;
 import com.bytequay.app.workspace.WorkspaceProvisioningService;
 import com.bytequay.core.ci.CiAutofixAttempt.CiResult;
 import com.bytequay.core.ci.CiAutofixRun;
@@ -1067,12 +1066,6 @@ class TestCiAutofixEndToEnd
         {
             return new WorkspaceProvisioningService()
             {
-                @Override
-                public WorkspaceProvisioningResult provision(String workspaceId)
-                {
-                    return WorkspaceProvisioningResult.success(store.findById(workspaceId).orElseThrow());
-                }
-
                 @Override
                 public WorkspaceCodeSyncResult synchronizeCode(String workspaceId)
                 {

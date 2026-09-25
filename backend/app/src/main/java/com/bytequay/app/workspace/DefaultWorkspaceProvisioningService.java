@@ -20,6 +20,7 @@ import com.bytequay.core.domain.RepoRef;
 import com.bytequay.core.domain.UserRepo;
 import com.bytequay.core.domain.Workspace;
 import com.bytequay.core.store.WorkspaceStore;
+import com.google.common.collect.ImmutableSet;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
@@ -60,49 +61,21 @@ public final class DefaultWorkspaceProvisioningService
     }
 
     @Override
-    public WorkspaceProvisioningResult provision(String workspaceId)
-    {
-        return WorkspaceOperationLocks.withLock(workspaceId, () -> {
-            Workspace workspace = requireWorkspace(workspaceId);
-            try {
-                boolean alreadyReady = workspace.lastCodeSyncAt().isPresent();
-                Workspace previousRouting = workspace;
-                Workspace currentRouting = refreshRouting(workspace);
-                if (alreadyReady) {
-                    managedGit.validate(previousRouting, currentRouting);
-                }
-                else {
-                    managedGit.provision(previousRouting, currentRouting);
-                }
-                Instant now = clock.instant();
-                Workspace latest = mergeRouting(requireWorkspace(workspaceId), currentRouting, now);
-                Workspace synced = store.save(latest.withCodeSyncAt(Optional.of(now), now));
-                baselines.refreshAfterFetch(synced);
-                return WorkspaceProvisioningResult.success(synced);
-            }
-            catch (RuntimeException failure) {
-                logFailure(workspace, failure);
-                return WorkspaceProvisioningResult.failure(requireWorkspace(workspaceId));
-            }
-        });
-    }
-
-    @Override
     public WorkspaceCodeSyncResult synchronizeCode(String workspaceId)
     {
         return WorkspaceOperationLocks.withLock(workspaceId, () -> {
             Workspace workspace = requireWorkspace(workspaceId);
-            if (workspace.lastCodeSyncAt().isEmpty()) {
-                WorkspaceProvisioningResult result = provision(workspaceId);
-                Workspace latest = requireWorkspace(result.workspaceId());
-                return result.successful()
-                        ? WorkspaceCodeSyncResult.success(latest)
-                        : WorkspaceCodeSyncResult.failure(latest);
-            }
             try {
                 Workspace previousRouting = workspace;
                 Workspace currentRouting = refreshRouting(workspace);
-                Set<String> failedRemoteSources = managedGit.synchronize(previousRouting, currentRouting);
+                Set<String> failedRemoteSources;
+                if (workspace.lastCodeSyncAt().isEmpty()) {
+                    managedGit.provision(previousRouting, currentRouting);
+                    failedRemoteSources = ImmutableSet.of();
+                }
+                else {
+                    failedRemoteSources = managedGit.synchronize(previousRouting, currentRouting);
+                }
                 Instant now = clock.instant();
                 Workspace latest = mergeRouting(requireWorkspace(workspaceId), currentRouting, now);
                 Workspace synced = store.save(latest.withCodeSyncAt(Optional.of(now), now));

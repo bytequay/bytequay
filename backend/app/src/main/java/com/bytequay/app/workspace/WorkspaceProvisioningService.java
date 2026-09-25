@@ -17,20 +17,12 @@ package com.bytequay.app.workspace;
 public interface WorkspaceProvisioningService
 {
     /**
-     * Creates or safely resumes the backend-owned checkout for a saved workspace.
+     * Creates the managed checkout when needed, otherwise fetches and prunes every configured remote
+     * without changing branches or local files.
      *
      * <p>The selected repository is {@code origin}. Fork workspaces also configure their
      * persisted canonical source as {@code upstream}. Unknown directories and mismatched remotes
      * fail without deletion.</p>
-     *
-     * @param workspaceId saved workspace to provision
-     * @return success and the last successful synchronization time
-     */
-    WorkspaceProvisioningResult provision(String workspaceId);
-
-    /**
-     * Creates the managed checkout when needed, otherwise fetches and prunes every configured remote
-     * without changing branches or local files.
      *
      * @param workspaceId saved workspace to synchronize
      * @return success, the last successful synchronization time, and failed optional remotes

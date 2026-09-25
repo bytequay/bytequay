@@ -170,7 +170,7 @@ class TestDefaultWorkspaceRepositoryService
         assertThat(service.listWorkspaces()).extracting(WorkspaceSummary::id).containsExactly(workspace.id());
         assertThat(service.listRetiredWorkspaces()).isEmpty();
         assertThat(Files.readString(taskWorktree.resolve("unfinished.txt"))).isEqualTo("local work");
-        verify(provisioning).provision(workspace.id());
+        verify(provisioning).synchronizeCode(workspace.id());
     }
 
     @Test
@@ -387,11 +387,10 @@ class TestDefaultWorkspaceRepositoryService
 
         service.recoverIncompleteWork();
 
-        verify(provisioning).provision(pending.id());
+        verify(provisioning).synchronizeCode(pending.id());
         verify(provisioning).synchronizeCode(syncing.id());
         verify(metadata).synchronize(pending.id());
         verify(metadata).synchronize(syncing.id());
-        verify(provisioning, never()).provision(fresh.id());
         verify(provisioning, never()).synchronizeCode(fresh.id());
         verify(metadata).synchronize(fresh.id());
     }
@@ -409,10 +408,10 @@ class TestDefaultWorkspaceRepositoryService
         WorkspaceProvisioningService provisioning = mock(WorkspaceProvisioningService.class);
         PullRequestRefreshService pullRequestRefresh = mock(PullRequestRefreshService.class);
         AtomicReference<Optional<Instant>> observed = new AtomicReference<>();
-        when(provisioning.provision(anyString())).thenAnswer(invocation -> {
+        when(provisioning.synchronizeCode(anyString())).thenAnswer(invocation -> {
             Workspace saved = store.findById(invocation.getArgument(0)).orElseThrow();
             observed.set(saved.lastCodeSyncAt());
-            return WorkspaceProvisioningResult.success(saved);
+            return WorkspaceCodeSyncResult.success(saved);
         });
         DefaultWorkspaceRepositoryService service = new DefaultWorkspaceRepositoryService(
                 store,

@@ -46,7 +46,6 @@ import com.bytequay.app.service.github.GhCliService;
 import com.bytequay.app.web.agent.AgentRequestFilter;
 import com.bytequay.app.workspace.WorkspaceCodeSyncResult;
 import com.bytequay.app.workspace.WorkspacePaths;
-import com.bytequay.app.workspace.WorkspaceProvisioningResult;
 import com.bytequay.app.workspace.WorkspaceProvisioningService;
 import com.bytequay.core.ci.CiAutofixRun;
 import com.bytequay.core.ci.CiAutofixRunId;
@@ -369,13 +368,6 @@ class TestCiAutofixRestartEndToEnd
                     WorkspaceProvisioningService.class,
                     () -> new WorkspaceProvisioningService()
                     {
-                        @Override
-                        public WorkspaceProvisioningResult provision(String workspaceId)
-                        {
-                            WorkspaceStore store = context.getBean(WorkspaceStore.class);
-                            return WorkspaceProvisioningResult.success(store.findById(workspaceId).orElseThrow());
-                        }
-
                         @Override
                         public WorkspaceCodeSyncResult synchronizeCode(String workspaceId)
                         {

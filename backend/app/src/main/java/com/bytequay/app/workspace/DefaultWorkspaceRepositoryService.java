@@ -597,9 +597,7 @@ public class DefaultWorkspaceRepositoryService
         }
         Instant now = clock.instant();
         if (forceCode || stale(workspace.lastCodeSyncAt(), now, CODE_FRESHNESS)) {
-            submitUnique(codeRefreshes, workspace.id(), workspace.lastCodeSyncAt().isPresent()
-                    ? () -> provisioning.synchronizeCode(workspace.id())
-                    : () -> provisioning.provision(workspace.id()));
+            submitUnique(codeRefreshes, workspace.id(), () -> provisioning.synchronizeCode(workspace.id()));
         }
         // The metadata service owns each projection's TTL. Always schedule its cheap local
         // freshness check so newly added projections are populated after an app upgrade.

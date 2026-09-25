@@ -487,16 +487,6 @@ export type FindResult = {
   matches: number;
 };
 
-/** One conflicted path a simulated pick would hit. */
-type CherryPickConflictFile = {
-  path: string;
-  /** CONTENT | ADD_ADD | MODIFY_DELETE | BINARY | SUBMODULE | UNKNOWN */
-  type: string;
-  module?: string;
-  /** Real `[startLine, endLine]` marker ranges; empty when Git gave none. */
-  sections: Array<[number, number]>;
-};
-
 export type CherryPickPreviewCommit = {
   position: number;
   sourceSha: string;
@@ -509,7 +499,8 @@ export type CherryPickPreviewCommit = {
   targetMatchKind?: string;
   /** CLEAN | CONFLICT | NOT_ANALYZED */
   conflictStatus: string;
-  conflictFiles: CherryPickConflictFile[];
+  /** Paths a simulated pick would conflict on. */
+  conflictFiles: string[];
   pullRequestNumber?: number;
   pullRequestTitle?: string;
   pullRequestUrl?: string;

@@ -121,7 +121,7 @@ export default function FlowView({
       unchecked: skipped,
       effective: !already && !viaPr && !skipped,
       conflict: commit.conflictStatus === 'CONFLICT'
-        ? `conflict likely — ${commit.conflictFiles.map(file => file.path.split('/').pop()).join(' · ')}`
+        ? `conflict likely — ${commit.conflictFiles.map(path => path.split('/').pop()).join(' · ')}`
         : null,
     };
   }), [preview, unchecked, skippedPrs]);

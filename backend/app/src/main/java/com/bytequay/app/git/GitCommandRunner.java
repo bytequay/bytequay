@@ -204,7 +204,7 @@ public class GitCommandRunner
                 : Optional.empty();
     }
 
-    List<ConflictedPath> conflicts(Path worktree)
+    public List<ConflictedPath> conflicts(Path worktree)
     {
         Result unmerged = run(worktree, "ls-files", "-u");
         if (!unmerged.successful() || unmerged.output().isBlank()) {

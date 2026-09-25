@@ -138,8 +138,7 @@ same commit checkboxes underneath it. Confirmed skips are transmitted as source
 SHAs, so grouping can never reorder or silently add commits.
 
 Conflict preview uses a temporary local worktree and native Git operations.
-It reports paths, conflict types, nearby text sections when available, and the
-nearest Maven module. Exact simulation stops at the first unresolved conflict;
+It reports the conflicted paths. Exact simulation stops at the first unresolved conflict;
 later results are labelled not analyzed because the chosen resolution changes
 what those commits will meet.
 

@@ -43,6 +43,7 @@ import java.util.List;
 import java.util.Set;
 import java.util.concurrent.locks.Lock;
 
+import static com.bytequay.app.workspace.WorkspaceException.requireWorkspace;
 import static com.google.common.collect.ImmutableSet.toImmutableSet;
 import static java.nio.file.LinkOption.NOFOLLOW_LINKS;
 import static java.util.Objects.requireNonNull;
@@ -88,7 +89,7 @@ public class WorkspaceDeletionService
 
     public void delete(String workspaceId, boolean confirmed, String repositoryName)
     {
-        Workspace workspace = requireWorkspace(workspaceId);
+        Workspace workspace = requireWorkspace(workspaces, workspaceId);
         if (!confirmed || !workspace.selectedRepository().fullName().equals(repositoryName)) {
             throw WorkspaceException.invalidRepository("Confirm deletion and enter the exact repository name before deleting this workspace.");
         }
@@ -113,7 +114,7 @@ public class WorkspaceDeletionService
 
         lock.lock();
         try {
-            Workspace current = requireWorkspace(workspaceId);
+            Workspace current = requireWorkspace(workspaces, workspaceId);
             if (!current.selectedRepository().equals(workspace.selectedRepository()) || !tasks.listByWorkspace(workspaceId).isEmpty()) {
                 throw WorkspaceException.busy();
             }
@@ -277,11 +278,6 @@ public class WorkspaceDeletionService
             throw unsafeDirectory();
         }
         return result.output();
-    }
-
-    private Workspace requireWorkspace(String workspaceId)
-    {
-        return workspaces.findById(workspaceId).orElseThrow(() -> WorkspaceException.notFound(workspaceId));
     }
 
     private static void requireDirectory(Path path)

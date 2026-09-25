@@ -36,6 +36,7 @@ import java.util.UUID;
 import java.util.concurrent.locks.Lock;
 
 import static com.bytequay.app.repository.github.GitHubRateLimitException.isRateLimit;
+import static com.bytequay.app.workspace.WorkspaceException.requireWorkspace;
 import static com.google.common.base.Preconditions.checkArgument;
 import static com.google.common.collect.ImmutableList.toImmutableList;
 import static java.util.Objects.requireNonNull;
@@ -81,7 +82,7 @@ public class WorkspaceIssueRefreshService
 
     private RepositoryIssuePage refreshIssuesLocked(String workspaceId)
     {
-        Workspace workspace = requireWorkspace(workspaceId);
+        Workspace workspace = requireWorkspace(workspaces, workspaceId);
         Lock lock = locks.get(workspace.monitoredRepositoryId());
         lock.lock();
         try {
@@ -104,7 +105,7 @@ public class WorkspaceIssueRefreshService
 
     private RepositoryIssueDetail refreshDetailLocked(String workspaceId, int issueNumber)
     {
-        Workspace workspace = requireWorkspace(workspaceId);
+        Workspace workspace = requireWorkspace(workspaces, workspaceId);
         checkArgument(issueNumber > 0, "issueNumber must be positive");
         Lock lock = locks.get(workspace.monitoredRepositoryId() + ":" + issueNumber);
         lock.lock();
@@ -176,12 +177,5 @@ public class WorkspaceIssueRefreshService
     {
         return PullRequestRef.of(
                 workspace.monitoredRepository().owner(), workspace.monitoredRepository().repo(), issueNumber);
-    }
-
-    private Workspace requireWorkspace(String workspaceId)
-    {
-        requireNonNull(workspaceId, "workspaceId is null");
-        return workspaces.findById(workspaceId)
-                .orElseThrow(() -> WorkspaceException.notFound(workspaceId));
     }
 }

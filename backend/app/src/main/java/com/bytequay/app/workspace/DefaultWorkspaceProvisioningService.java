@@ -30,6 +30,7 @@ import java.time.Instant;
 import java.util.Optional;
 import java.util.Set;
 
+import static com.bytequay.app.workspace.WorkspaceException.requireWorkspace;
 import static java.util.Objects.requireNonNull;
 
 @Service
@@ -64,7 +65,7 @@ public final class DefaultWorkspaceProvisioningService
     public WorkspaceCodeSyncResult synchronizeCode(String workspaceId)
     {
         return WorkspaceOperationLocks.withLock(workspaceId, () -> {
-            Workspace workspace = requireWorkspace(workspaceId);
+            Workspace workspace = requireWorkspace(store, workspaceId);
             try {
                 Workspace previousRouting = workspace;
                 Workspace currentRouting = refreshRouting(workspace);
@@ -77,14 +78,14 @@ public final class DefaultWorkspaceProvisioningService
                     failedRemoteSources = managedGit.synchronize(previousRouting, currentRouting);
                 }
                 Instant now = clock.instant();
-                Workspace latest = mergeRouting(requireWorkspace(workspaceId), currentRouting, now);
+                Workspace latest = mergeRouting(requireWorkspace(store, workspaceId), currentRouting, now);
                 Workspace synced = store.save(latest.withCodeSyncAt(Optional.of(now), now));
                 baselines.refreshAfterFetch(synced);
                 return WorkspaceCodeSyncResult.success(synced, failedRemoteSources);
             }
             catch (RuntimeException failure) {
                 logFailure(workspace, failure);
-                return WorkspaceCodeSyncResult.failure(requireWorkspace(workspaceId));
+                return WorkspaceCodeSyncResult.failure(requireWorkspace(store, workspaceId));
             }
         });
     }
@@ -143,12 +144,6 @@ public final class DefaultWorkspaceProvisioningService
                 routing.upstreamDefaultBranch(),
                 routing.upstreamCloneUrl(),
                 now);
-    }
-
-    private Workspace requireWorkspace(String workspaceId)
-    {
-        return store.findById(workspaceId)
-                .orElseThrow(() -> WorkspaceException.notFound(workspaceId));
     }
 
     private static ManagedWorkspaceGit.Failure routingChanged(String internalMessage)

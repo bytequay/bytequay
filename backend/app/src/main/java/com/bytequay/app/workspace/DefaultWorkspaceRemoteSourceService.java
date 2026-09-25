@@ -26,6 +26,7 @@ import java.util.List;
 import java.util.regex.Pattern;
 
 import static com.bytequay.app.git.RepositoryUrls.isPlainHttps;
+import static com.bytequay.app.workspace.WorkspaceException.requireWorkspace;
 import static java.util.Objects.requireNonNull;
 
 @Service
@@ -54,13 +55,13 @@ public class DefaultWorkspaceRemoteSourceService
     @Override
     public List<WorkspaceRemote> list(String workspaceId)
     {
-        return remotes(requireWorkspace(workspaceId));
+        return remotes(requireWorkspace(workspaces, workspaceId));
     }
 
     @Override
     public List<WorkspaceRemote> add(String workspaceId, String name, String url)
     {
-        Workspace workspace = requireWorkspace(workspaceId);
+        Workspace workspace = requireWorkspace(workspaces, workspaceId);
         String remoteName = requireValidName(name);
         String remoteUrl = requireValidUrl(url);
         if (store.findByWorkspace(workspace.id()).stream()
@@ -86,7 +87,7 @@ public class DefaultWorkspaceRemoteSourceService
     @Override
     public List<WorkspaceRemote> remove(String workspaceId, String name)
     {
-        Workspace workspace = requireWorkspace(workspaceId);
+        Workspace workspace = requireWorkspace(workspaces, workspaceId);
         String remoteName = requireValidName(name);
         store.delete(workspace.id(), remoteName);
         repositoryService.requestSyncAfterConfigurationChange(workspace.id());
@@ -102,15 +103,6 @@ public class DefaultWorkspaceRemoteSourceService
         store.findByWorkspace(workspace.id()).forEach(source ->
                 remotes.add(new WorkspaceRemote(source.name(), source.url(), Role.CUSTOM)));
         return remotes.build();
-    }
-
-    private Workspace requireWorkspace(String workspaceId)
-    {
-        if (workspaceId == null || workspaceId.isBlank()) {
-            throw WorkspaceException.notFound(String.valueOf(workspaceId));
-        }
-        return workspaces.findById(workspaceId)
-                .orElseThrow(() -> WorkspaceException.notFound(workspaceId));
     }
 
     private static String requireValidName(String name)

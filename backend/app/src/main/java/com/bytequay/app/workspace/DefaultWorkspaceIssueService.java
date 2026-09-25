@@ -35,6 +35,7 @@ import java.util.Optional;
 
 import static com.bytequay.app.utils.StringInputUtil.normalizeNames;
 import static com.bytequay.app.utils.StringInputUtil.requireNotBlank;
+import static com.bytequay.app.workspace.WorkspaceException.requireWorkspace;
 import static com.google.common.base.Preconditions.checkArgument;
 import static java.util.Objects.requireNonNull;
 
@@ -71,7 +72,7 @@ public final class DefaultWorkspaceIssueService
     @Override
     public RepositoryIssuePage list(String workspaceId, int page, int pageSize)
     {
-        Workspace workspace = requireWorkspace(workspaceId);
+        Workspace workspace = requireWorkspace(workspaces, workspaceId);
         checkArgument(page >= 0, "page is negative");
         checkArgument(pageSize > 0 && pageSize <= 100, "pageSize must be between 1 and 100");
         return issues.findPage(
@@ -84,7 +85,7 @@ public final class DefaultWorkspaceIssueService
     @Override
     public Optional<RepositoryIssue> find(String workspaceId, int issueNumber)
     {
-        Workspace workspace = requireWorkspace(workspaceId);
+        Workspace workspace = requireWorkspace(workspaces, workspaceId);
         checkArgument(issueNumber > 0, "issueNumber must be positive");
         return issues.find(workspace.monitoredRepositoryId(), issueNumber);
     }
@@ -92,7 +93,7 @@ public final class DefaultWorkspaceIssueService
     @Override
     public RepositoryIssueDetail detail(String workspaceId, int issueNumber)
     {
-        Workspace workspace = requireWorkspace(workspaceId);
+        Workspace workspace = requireWorkspace(workspaces, workspaceId);
         checkArgument(issueNumber > 0, "issueNumber must be positive");
         return details.find(workspace.monitoredRepositoryId(), issueNumber)
                 .orElseGet(() -> RepositoryIssueDetail.empty(workspace.monitoredRepositoryId(), issueNumber));
@@ -103,7 +104,7 @@ public final class DefaultWorkspaceIssueService
     {
         return WorkspaceOperationLocks.withLock(workspaceId, () -> {
             requireNotBlank(body, "comment body must not be blank");
-            Workspace workspace = requireWorkspace(workspaceId);
+            Workspace workspace = requireWorkspace(workspaces, workspaceId);
             PrTimelineEvent created = issueWrites.createIssueComment(
                     credentials.resolveGitHubToken(), issueRef(workspace, issueNumber), body.trim());
             RepositoryIssueDetail current = details.find(workspace.monitoredRepositoryId(), issueNumber)
@@ -124,7 +125,7 @@ public final class DefaultWorkspaceIssueService
     public void close(String workspaceId, int issueNumber)
     {
         WorkspaceOperationLocks.withLock(workspaceId, () -> {
-            Workspace workspace = requireWorkspace(workspaceId);
+            Workspace workspace = requireWorkspace(workspaces, workspaceId);
             issueWrites.closeIssue(credentials.resolveGitHubToken(), issueRef(workspace, issueNumber));
             recent.issueAction(workspaceId, issueNumber, RecentReason.EDITED);
             issues.delete(workspace.monitoredRepositoryId(), issueNumber);
@@ -135,7 +136,7 @@ public final class DefaultWorkspaceIssueService
     public IssueTypeOptions updateIssueType(String workspaceId, int issueNumber, String type)
     {
         return WorkspaceOperationLocks.withLock(workspaceId, () -> {
-            Workspace workspace = requireWorkspace(workspaceId);
+            Workspace workspace = requireWorkspace(workspaces, workspaceId);
             String normalized = type;
             if (normalized != null) {
                 requireNotBlank(normalized, "issue type must not be blank");
@@ -160,7 +161,7 @@ public final class DefaultWorkspaceIssueService
             List<String> labels)
     {
         return WorkspaceOperationLocks.withLock(workspaceId, () -> {
-            Workspace workspace = requireWorkspace(workspaceId);
+            Workspace workspace = requireWorkspace(workspaces, workspaceId);
             List<String> normalizedAssignees = normalizeNames(assignees, "assignees");
             List<String> normalizedLabels = normalizeNames(labels, "labels");
             GitHubPullRequestWriteClient.IssueMetadata updated = issueWrites.updateIssueMetadata(
@@ -184,12 +185,5 @@ public final class DefaultWorkspaceIssueService
         checkArgument(issueNumber > 0, "issueNumber must be positive");
         return PullRequestRef.of(
                 workspace.monitoredRepository().owner(), workspace.monitoredRepository().repo(), issueNumber);
-    }
-
-    private Workspace requireWorkspace(String workspaceId)
-    {
-        requireNonNull(workspaceId, "workspaceId is null");
-        return workspaces.findById(workspaceId)
-                .orElseThrow(() -> WorkspaceException.notFound(workspaceId));
     }
 }

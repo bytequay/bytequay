@@ -44,6 +44,7 @@ import java.util.concurrent.Executor;
 import java.util.concurrent.locks.Lock;
 
 import static com.bytequay.app.config.AsyncConfig.IO_EXECUTOR;
+import static com.bytequay.app.workspace.WorkspaceException.requireWorkspace;
 import static java.util.Objects.requireNonNull;
 
 @Service
@@ -94,7 +95,7 @@ public final class DefaultWorkspaceMetadataService
 
     private void synchronizeLocked(String workspaceId)
     {
-        Workspace workspace = requireWorkspace(workspaceId);
+        Workspace workspace = requireWorkspace(workspaces, workspaceId);
         Lock lock = locks.get(workspace.monitoredRepositoryId());
         lock.lock();
         try {
@@ -109,7 +110,7 @@ public final class DefaultWorkspaceMetadataService
             }
             refreshExpired(workspace);
             now = clock.instant();
-            Workspace latest = requireWorkspace(workspaceId);
+            Workspace latest = requireWorkspace(workspaces, workspaceId);
             workspaces.save(latest.withMetadataSyncAt(Optional.of(now), now));
         }
         catch (RuntimeException failure) {
@@ -124,7 +125,7 @@ public final class DefaultWorkspaceMetadataService
     @Override
     public RepositoryMetadataSnapshot getSnapshot(String workspaceId)
     {
-        return snapshot(requireWorkspace(workspaceId));
+        return snapshot(requireWorkspace(workspaces, workspaceId));
     }
 
     @Override
@@ -220,13 +221,6 @@ public final class DefaultWorkspaceMetadataService
         return metadata.find(workspace.monitoredRepositoryId())
                 .orElseGet(() -> RepositoryMetadataSnapshot.empty(
                         workspace.monitoredRepositoryId(), workspace.monitoredRepository()));
-    }
-
-    private Workspace requireWorkspace(String workspaceId)
-    {
-        requireNonNull(workspaceId, "workspaceId is null");
-        return workspaces.findById(workspaceId)
-                .orElseThrow(() -> WorkspaceException.notFound(workspaceId));
     }
 
     private Optional<Workspace> findWorkspace(RepoRef repository)

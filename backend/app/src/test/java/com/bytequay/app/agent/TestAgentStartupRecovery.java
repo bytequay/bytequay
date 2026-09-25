@@ -67,6 +67,7 @@ import java.util.stream.Stream;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.CALLS_REAL_METHODS;
 import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.inOrder;
 import static org.mockito.Mockito.mock;
@@ -158,7 +159,7 @@ class TestAgentStartupRecovery
     @Test
     void verifiedRecoveredStopKeepsTaskAfterEndingLostDevelopment()
     {
-        AgentTaskStore taskStore = mock(AgentTaskStore.class);
+        AgentTaskStore taskStore = mock(AgentTaskStore.class, CALLS_REAL_METHODS);
         AgentTurnStore turnStore = mock(AgentTurnStore.class);
         AgentTurnService turns = mock(AgentTurnService.class);
         Instant now = Instant.parse("2026-09-01T00:00:00Z");
@@ -188,7 +189,7 @@ class TestAgentStartupRecovery
     @Test
     void unverifiedRecoveredSourceStillStopsOwnedChildrenAndRetainsBothFailures()
     {
-        AgentTaskStore taskStore = mock(AgentTaskStore.class);
+        AgentTaskStore taskStore = mock(AgentTaskStore.class, CALLS_REAL_METHODS);
         AgentTurnStore turnStore = mock(AgentTurnStore.class);
         AgentTurnService turns = mock(AgentTurnService.class);
         Instant now = Instant.parse("2026-09-01T00:00:00Z");
@@ -664,7 +665,7 @@ class TestAgentStartupRecovery
         AgentEventOutboxStore outboxStore = mock(AgentEventOutboxStore.class);
         AgentEventService eventService = mock(AgentEventService.class);
         AgentTurnStore turnStore = mock(AgentTurnStore.class);
-        AgentTaskStore taskStore = mock(AgentTaskStore.class);
+        AgentTaskStore taskStore = mock(AgentTaskStore.class, CALLS_REAL_METHODS);
         TaskId taskId = TaskId.random();
         AgentTask blocked = openTask(taskId).claimWorktreeMutation(
                 WorktreeMutationClaim.recovery("launch-1", Instant.parse("2026-09-01T00:00:00Z")),
@@ -699,7 +700,7 @@ class TestAgentStartupRecovery
     void explicitRetryKeepsTheTaskBlockedByAnotherUnverifiableLaunch()
     {
         AgentTurnStore turnStore = mock(AgentTurnStore.class);
-        AgentTaskStore taskStore = mock(AgentTaskStore.class);
+        AgentTaskStore taskStore = mock(AgentTaskStore.class, CALLS_REAL_METHODS);
         TaskId taskId = TaskId.random();
         AgentTask blocked = openTask(taskId).claimWorktreeMutation(
                 WorktreeMutationClaim.recovery("launch-1", Instant.parse("2026-09-01T00:00:00Z")),
@@ -735,7 +736,7 @@ class TestAgentStartupRecovery
     void explicitRetryRejectsConflictingOwnersBeforeSettlingOrAcknowledgingAnyLaunch(OwnedProcessRecovery.Outcome outcome)
     {
         AgentTurnStore turnStore = mock(AgentTurnStore.class);
-        AgentTaskStore taskStore = mock(AgentTaskStore.class);
+        AgentTaskStore taskStore = mock(AgentTaskStore.class, CALLS_REAL_METHODS);
         TaskId taskId = TaskId.random();
         AgentTask blocked = openTask(taskId).claimWorktreeMutation(
                 WorktreeMutationClaim.recovery("launch-1", Instant.parse("2026-09-01T00:00:00Z")),
@@ -769,7 +770,7 @@ class TestAgentStartupRecovery
     void explicitRetryRejectsAClaimWhoseMarkerBelongsToAnotherTask(boolean launchRowPresent)
     {
         AgentTurnStore turnStore = mock(AgentTurnStore.class);
-        AgentTaskStore taskStore = mock(AgentTaskStore.class);
+        AgentTaskStore taskStore = mock(AgentTaskStore.class, CALLS_REAL_METHODS);
         TaskId taskId = TaskId.random();
         TaskId otherTaskId = TaskId.random();
         AgentTask blocked = openTask(taskId).claimWorktreeMutation(

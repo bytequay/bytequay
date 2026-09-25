@@ -109,6 +109,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.Mockito.CALLS_REAL_METHODS;
 import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.inOrder;
 import static org.mockito.Mockito.mock;
@@ -135,7 +136,7 @@ class TestContextBuildService
     private final ObjectMapper mapper = new ObjectMapper().registerModule(new Jdk8Module()).registerModule(new JavaTimeModule());
     private final WorkspaceStore workspaceStore = mock(WorkspaceStore.class);
     private final AgentReviewStore reviews = mock(AgentReviewStore.class);
-    private final AgentTaskStore taskStore = mock(AgentTaskStore.class);
+    private final AgentTaskStore taskStore = mock(AgentTaskStore.class, CALLS_REAL_METHODS);
     private final AgentTurnStore turnStore = mock(AgentTurnStore.class);
     private final AgentTaskService tasks = mock(AgentTaskService.class);
     private final AgentTurnService turns = mock(AgentTurnService.class);

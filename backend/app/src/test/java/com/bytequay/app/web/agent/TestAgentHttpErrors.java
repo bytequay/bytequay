@@ -86,6 +86,7 @@ import java.time.Instant;
 import java.util.Optional;
 
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.CALLS_REAL_METHODS;
 import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.inOrder;
 import static org.mockito.Mockito.mock;
@@ -437,7 +438,7 @@ class TestAgentHttpErrors
 
     private static AgentStartupRecovery startupRecovery()
     {
-        AgentTaskStore taskStore = mock(AgentTaskStore.class);
+        AgentTaskStore taskStore = mock(AgentTaskStore.class, CALLS_REAL_METHODS);
         AgentTurnStore turnStore = mock(AgentTurnStore.class);
         AgentEventOutboxStore outboxStore = mock(AgentEventOutboxStore.class);
         AgentEventService eventService = mock(AgentEventService.class);

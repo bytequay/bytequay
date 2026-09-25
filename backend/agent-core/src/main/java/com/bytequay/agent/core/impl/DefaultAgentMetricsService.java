@@ -20,9 +20,7 @@ import com.bytequay.agent.core.AgentMetrics;
 import com.bytequay.agent.core.AgentMetricsService;
 import com.bytequay.agent.core.AgentStorageException;
 import com.bytequay.agent.core.AgentTask;
-import com.bytequay.agent.core.AgentTaskNotFoundException;
 import com.bytequay.agent.core.AgentTurn;
-import com.bytequay.agent.core.AgentTurnNotFoundException;
 import com.bytequay.agent.core.TaskId;
 import com.bytequay.agent.core.ToolCounters;
 import com.bytequay.agent.core.TurnId;
@@ -74,7 +72,7 @@ public final class DefaultAgentMetricsService
         requireNonNull(taskId, "taskId is null");
         requireNonNull(turnId, "turnId is null");
         requireNonNull(sample, "sample is null");
-        AgentTurn turn = requireTurn(turnId);
+        AgentTurn turn = turnStore.require(turnId);
         requireOwnership(taskId, turn);
         if (!turn.state().active()) {
             throw new AgentConflictException("Cannot record usage for terminal turn " + turnId);
@@ -100,7 +98,7 @@ public final class DefaultAgentMetricsService
         if (!terminalState.terminal()) {
             throw new AgentConflictException("Turn state is not terminal: " + terminalState);
         }
-        AgentTurn turn = requireTurn(turnId);
+        AgentTurn turn = turnStore.require(turnId);
         Instant startedAt = turn.startedAt().orElse(turn.createdAt());
         Duration elapsed = Duration.between(startedAt, Instant.now(clock));
         if (elapsed.isNegative()) {
@@ -124,13 +122,13 @@ public final class DefaultAgentMetricsService
     public AgentMetrics taskTotals(TaskId taskId)
     {
         requireNonNull(taskId, "taskId is null");
-        requireTask(taskId);
+        taskStore.require(taskId);
         return calculateTaskTotals(turnStore.list(taskId));
     }
 
     private void persistTaskTotals(TaskId taskId)
     {
-        AgentTask task = requireTask(taskId);
+        AgentTask task = taskStore.require(taskId);
         AgentMetrics totals = calculateTaskTotals(turnStore.list(taskId));
         taskStore.update(task.withMetrics(totals, Instant.now(clock)));
     }
@@ -298,16 +296,6 @@ public final class DefaultAgentMetricsService
                     counters);
         }
         return new AgentMetrics(inputTokens, cachedInputTokens, outputTokens, cost, elapsed, counters);
-    }
-
-    private AgentTask requireTask(TaskId taskId)
-    {
-        return taskStore.find(taskId).orElseThrow(() -> new AgentTaskNotFoundException(taskId));
-    }
-
-    private AgentTurn requireTurn(TurnId turnId)
-    {
-        return turnStore.find(turnId).orElseThrow(() -> new AgentTurnNotFoundException(turnId));
     }
 
     private static void requireOwnership(TaskId taskId, AgentTurn turn)

@@ -81,6 +81,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.argThat;
+import static org.mockito.Mockito.CALLS_REAL_METHODS;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
@@ -100,7 +101,7 @@ class TestReviewRuntimeRecovery
     private final AgentReviewService reviews = mock(AgentReviewService.class);
     private final AgentTurnService turns = mock(AgentTurnService.class);
     private final ProcessSupervisor supervisor = mock(ProcessSupervisor.class);
-    private final AgentTaskStore taskStore = mock(AgentTaskStore.class);
+    private final AgentTaskStore taskStore = mock(AgentTaskStore.class, CALLS_REAL_METHODS);
     private final AgentTurnStore turnStore = mock(AgentTurnStore.class);
     private final AgentProcessLaunchStore launchStore = mock(AgentProcessLaunchStore.class);
     private final AgentStartupRecovery recovery = new AgentStartupRecovery(

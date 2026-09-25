@@ -21,7 +21,6 @@ import com.bytequay.agent.core.AgentInputDelivery;
 import com.bytequay.agent.core.AgentMetrics;
 import com.bytequay.agent.core.AgentMetricsService;
 import com.bytequay.agent.core.AgentTask;
-import com.bytequay.agent.core.AgentTaskNotFoundException;
 import com.bytequay.agent.core.AgentTurn;
 import com.bytequay.agent.core.EventId;
 import com.bytequay.agent.core.QueuedAgentInput;
@@ -270,7 +269,7 @@ public final class AgentMaintenance
         requireNonNull(remainingUnverifiableLaunch, "remainingUnverifiableLaunch is null");
         remainingUnverifiableLaunch.ifPresent(launchId -> checkArgument(!launchId.isBlank(), "remainingUnverifiableLaunch is blank"));
         synchronized (runtimeRegistry.taskLock(taskId)) {
-            AgentTask task = taskStore.find(taskId).orElseThrow(() -> new AgentTaskNotFoundException(taskId));
+            AgentTask task = taskStore.require(taskId);
             if (task.state().terminal()) {
                 throw new AgentConflictException("Task is already terminal: " + taskId);
             }

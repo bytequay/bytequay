@@ -21,7 +21,6 @@ import com.bytequay.agent.core.AgentMetrics;
 import com.bytequay.agent.core.AgentMetricsService;
 import com.bytequay.agent.core.AgentResourceService;
 import com.bytequay.agent.core.AgentTask;
-import com.bytequay.agent.core.AgentTaskNotFoundException;
 import com.bytequay.agent.core.CleanupState;
 import com.bytequay.agent.core.CodeGraphService;
 import com.bytequay.agent.core.CompleteAgentTaskCommand;
@@ -138,7 +137,7 @@ public final class DefaultAgentCompletionService
     private AgentTask claimCompletion(TaskId taskId)
     {
         synchronized (runtimeRegistry.taskLock(taskId)) {
-            AgentTask task = requireTask(taskId);
+            AgentTask task = taskStore.require(taskId);
             if (task.state() == TaskState.COMPLETED) {
                 return task;
             }
@@ -194,7 +193,7 @@ public final class DefaultAgentCompletionService
         Instant deleteAfter = completedAt.plus(retentionPeriod.get());
         EventId eventId = EventId.random();
         return unitOfWork.execute(() -> {
-            AgentTask current = requireTask(taskId);
+            AgentTask current = taskStore.require(taskId);
             AgentTask terminal = taskStore.update(current.complete(summary, completedAt, deleteAfter, claim));
             outboxStore.insert(pendingLifecycle(
                     eventId,
@@ -228,7 +227,7 @@ public final class DefaultAgentCompletionService
             return eventCommitter.commit(
                     pendingLifecycle(EventId.random(), taskId, Optional.empty(), AgentEventPayload.LifecyclePhase.TASK_FAILED, reason, failedAt),
                     () -> {
-                        AgentTask current = requireTask(taskId);
+                        AgentTask current = taskStore.require(taskId);
                         settleQueueForFailedTask(taskId, failedAt);
                         // The worktree is kept, not cleaned: the reason this task is stuck is that
                         // something may still have been writing to it, and that evidence is the point.
@@ -270,7 +269,7 @@ public final class DefaultAgentCompletionService
      */
     private void requireAbandonable(TaskId taskId)
     {
-        AgentTask task = requireTask(taskId);
+        AgentTask task = taskStore.require(taskId);
         if (task.state().terminal()) {
             throw new AgentConflictException("Task is already terminal: " + taskId);
         }
@@ -287,7 +286,7 @@ public final class DefaultAgentCompletionService
     {
         synchronized (runtimeRegistry.taskLock(taskId)) {
             suppressFailure(failure, () -> unitOfWork.execute(() -> {
-                AgentTask task = requireTask(taskId);
+                AgentTask task = taskStore.require(taskId);
                 if (!task.state().terminal() && task.worktreeMutationClaim().equals(Optional.of(claim))) {
                     taskStore.update(task.releaseWorktreeMutation(claim, Instant.now(clock)));
                 }
@@ -301,7 +300,7 @@ public final class DefaultAgentCompletionService
     {
         requireNonNull(taskId, "taskId is null");
         synchronized (runtimeRegistry.taskLock(taskId)) {
-            AgentTask task = requireTask(taskId);
+            AgentTask task = taskStore.require(taskId);
             if (!task.state().terminal()) {
                 throw new AgentConflictException("Cannot clean up a live task worktree: " + taskId);
             }
@@ -319,7 +318,7 @@ public final class DefaultAgentCompletionService
     private void recordFailedWorktreeCleanup(TaskId taskId, RuntimeException failure)
     {
         suppressFailure(failure, () -> {
-            AgentTask current = requireTask(taskId);
+            AgentTask current = taskStore.require(taskId);
             if (current.worktreeRemovedAt().isEmpty()) {
                 taskStore.update(current.withWorktreeCleanupAttemptAt(Instant.now(clock)));
             }
@@ -331,7 +330,7 @@ public final class DefaultAgentCompletionService
     {
         requireNonNull(taskId, "taskId is null");
         synchronized (runtimeRegistry.taskLock(taskId)) {
-            AgentTask task = requireTask(taskId);
+            AgentTask task = taskStore.require(taskId);
             if (!task.state().terminal()) {
                 throw new AgentConflictException("Cannot clean up a live task: " + taskId);
             }
@@ -370,7 +369,7 @@ public final class DefaultAgentCompletionService
             if (!deletable(taskId)) {
                 return;
             }
-            AgentTask task = requireTask(taskId);
+            AgentTask task = taskStore.require(taskId);
             TaskResources resources = resourceService.pathsForDeletion(taskId);
             task.taskWorktree().ifPresent(worktreeService::delete);
             // Wait for an in-flight graph preparation before removing its runtime files.
@@ -423,11 +422,6 @@ public final class DefaultAgentCompletionService
         // Only after the worktree is gone: a refused cleanup keeps the index for the retry, and retention covers the rest.
         task.taskWorktree().ifPresent(ignored -> codeGraph.deleteIndex(resourceService.require(task.id())));
         return taskStore.update(task.withWorktreeRemovedAt(Instant.now(clock)));
-    }
-
-    private AgentTask requireTask(TaskId taskId)
-    {
-        return taskStore.find(taskId).orElseThrow(() -> new AgentTaskNotFoundException(taskId));
     }
 
     private static TaskCompletion completion(AgentTask task)

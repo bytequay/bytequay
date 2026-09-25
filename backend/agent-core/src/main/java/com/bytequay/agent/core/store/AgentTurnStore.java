@@ -14,6 +14,7 @@
 package com.bytequay.agent.core.store;
 
 import com.bytequay.agent.core.AgentTurn;
+import com.bytequay.agent.core.AgentTurnNotFoundException;
 import com.bytequay.agent.core.TaskId;
 import com.bytequay.agent.core.TurnId;
 
@@ -44,6 +45,11 @@ public interface AgentTurnStore
      * @return stored turn, or empty when absent
      */
     Optional<AgentTurn> find(TurnId turnId);
+
+    default AgentTurn require(TurnId turnId)
+    {
+        return find(turnId).orElseThrow(() -> new AgentTurnNotFoundException(turnId));
+    }
 
     /**
      * Finds the turn previously accepted for a task and idempotency key.

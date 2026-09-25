@@ -27,9 +27,7 @@ import com.bytequay.agent.core.AgentResourceService;
 import com.bytequay.agent.core.AgentRuntimeStopImpact;
 import com.bytequay.agent.core.AgentStorageException;
 import com.bytequay.agent.core.AgentTask;
-import com.bytequay.agent.core.AgentTaskNotFoundException;
 import com.bytequay.agent.core.AgentTurn;
-import com.bytequay.agent.core.AgentTurnNotFoundException;
 import com.bytequay.agent.core.AgentTurnService;
 import com.bytequay.agent.core.AgentTurnSettings;
 import com.bytequay.agent.core.ApprovalDecision;
@@ -342,7 +340,7 @@ public final class DefaultAgentTurnService
         requireNonNull(action, "action is null");
         updateIdleWorktree(taskId, expectedVersion, false, claimed -> {
             action.accept(claimed);
-            return requireTask(taskId).localReviewHead();
+            return taskStore.require(taskId).localReviewHead();
         });
     }
 
@@ -366,7 +364,7 @@ public final class DefaultAgentTurnService
         requireNonNull(taskId, "taskId is null");
         requireNonNull(runId, "runId is null");
         synchronized (runtimeRegistry.taskLock(taskId)) {
-            AgentTask task = requireTask(taskId);
+            AgentTask task = taskStore.require(taskId);
             task.worktreeMutationClaim()
                     .filter(claim -> claim.kind() == WorktreeMutationClaim.Kind.LOCAL_RUN && claim.ownerId().equals(runId))
                     .ifPresent(claim -> taskStore.update(task.releaseWorktreeMutation(claim, Instant.now(clock))));
@@ -394,13 +392,13 @@ public final class DefaultAgentTurnService
             AgentTask claimed = taskStore.update(task.claimWorktreeMutation(claim, now));
             try {
                 Optional<String> head = requireNonNull(action.apply(claimed), "local review action result is null");
-                AgentTask current = requireTask(taskId);
+                AgentTask current = taskStore.require(taskId);
                 Instant finishedAt = Instant.now(clock);
                 return taskStore.update(current.withLocalReviewHead(head, finishedAt).releaseWorktreeMutation(claim, finishedAt));
             }
             catch (RuntimeException failure) {
                 suppressFailure(failure, () -> {
-                    AgentTask current = requireTask(taskId);
+                    AgentTask current = taskStore.require(taskId);
                     if (current.worktreeMutationClaim().equals(Optional.of(claim))) {
                         taskStore.update(current.releaseWorktreeMutation(claim, Instant.now(clock)));
                     }
@@ -419,7 +417,7 @@ public final class DefaultAgentTurnService
         Launch launch;
         CompletableFuture<DevelopmentTurnCompletion> completion;
         synchronized (runtimeRegistry.taskLock(taskId)) {
-            if (requireTask(taskId).localReviewHead().isPresent()) {
+            if (taskStore.require(taskId).localReviewHead().isPresent()) {
                 throw new AgentConflictException("Private review cannot start development follow-ups");
             }
             requireDevelopmentOwner(taskId, origin.parentUserTurnId());
@@ -467,7 +465,7 @@ public final class DefaultAgentTurnService
         TurnAcceptance acceptance;
         synchronized (runtimeRegistry.taskLock(taskId)) {
             requireDevelopmentOwner(taskId, sourceTurnId);
-            boolean delivery = requireTurn(sourceTurnId).settings().flatMap(AgentTurnSettings::developmentAutomation).filter(DevelopmentAutomation::enabled).isPresent();
+            boolean delivery = turnStore.require(sourceTurnId).settings().flatMap(AgentTurnSettings::developmentAutomation).filter(DevelopmentAutomation::enabled).isPresent();
             requireContinuationReady(taskId, sourceTurnId, delivery);
             checkArgument(!waitingForDevelopmentAnswer(taskId), "Development work is waiting for a user answer");
             Optional<QueuedAgentInput> head = queueHead(taskId).filter(input -> input.state() == QueuedAgentInput.State.QUEUED);
@@ -516,7 +514,7 @@ public final class DefaultAgentTurnService
         synchronized (runtimeRegistry.stopLock(taskId)) {
             List<CompletableFuture<DevelopmentTurnCompletion>> pending;
             synchronized (runtimeRegistry.taskLock(taskId)) {
-                AgentTask task = requireTask(taskId);
+                AgentTask task = taskStore.require(taskId);
                 if (runtimeRegistry.closing() || task.state().terminal() || !task.developmentContinuationUnfinished()) {
                     return task;
                 }
@@ -537,7 +535,7 @@ public final class DefaultAgentTurnService
     {
         synchronized (runtimeRegistry.stopLock(taskId)) {
             synchronized (runtimeRegistry.taskLock(taskId)) {
-                AgentTask task = requireTask(taskId);
+                AgentTask task = taskStore.require(taskId);
                 if (task.state().terminal() || !task.developmentContinuationUnfinished() || runtimeRegistry.hasDevelopmentOwner(taskId) || runtimeRegistry.closing()) {
                     return task;
                 }
@@ -545,7 +543,7 @@ public final class DefaultAgentTurnService
             }
             stopChildren.accept(taskId);
             synchronized (runtimeRegistry.taskLock(taskId)) {
-                AgentTask task = requireTask(taskId);
+                AgentTask task = taskStore.require(taskId);
                 if (task.worktreeMutationClaim().isPresent() || turnStore.findActive(taskId).isPresent() || runtimeRegistry.unverifiedClose(taskId).isPresent()) {
                     return task;
                 }
@@ -558,7 +556,7 @@ public final class DefaultAgentTurnService
     {
         Optional<AgentTurn> active;
         synchronized (runtimeRegistry.taskLock(taskId)) {
-            AgentTask task = requireTask(taskId);
+            AgentTask task = taskStore.require(taskId);
             if (task.state().terminal() || runtimeRegistry.closing() || !task.developmentContinuationUnfinished()) {
                 return task;
             }
@@ -576,8 +574,8 @@ public final class DefaultAgentTurnService
     {
         AgentTask stopped;
         synchronized (runtimeRegistry.taskLock(taskId)) {
-            releaseStaleTurnClaim(requireTask(taskId));
-            AgentTask task = requireTask(taskId);
+            releaseStaleTurnClaim(taskStore.require(taskId));
+            AgentTask task = taskStore.require(taskId);
             if (task.worktreeMutationClaim().isPresent() || turnStore.findActive(taskId).isPresent() || runtimeRegistry.unverifiedClose(taskId).isPresent()) {
                 throw new AgentConflictException("Development automation stopped, but its provider could not be verified stopped: " + taskId);
             }
@@ -587,7 +585,7 @@ public final class DefaultAgentTurnService
             String message = reason.startsWith("Automation stopped.") ? reason : "Automation stopped. " + reason;
             stopped = unitOfWork.execute(() -> {
                 Instant now = Instant.now(clock);
-                runtimeRegistry.latestAcceptedTurn(taskId).map(this::requireTurn)
+                runtimeRegistry.latestAcceptedTurn(taskId).map(turnStore::require)
                         .or(() -> turnStore.list(taskId).reversed().stream().findFirst())
                         .filter(turn -> turn.developmentOrigin().filter(origin -> origin.kind() == DevelopmentTurnOrigin.Kind.REFINE_SUMMARY).isPresent())
                         .filter(turn -> turn.developmentResult().flatMap(DevelopmentResultReport::learningSummary).isPresent())
@@ -610,7 +608,7 @@ public final class DefaultAgentTurnService
 
     private boolean latestDevelopmentSource(TaskId taskId, TurnId sourceTurnId)
     {
-        return runtimeRegistry.latestAcceptedTurn(taskId).map(this::requireTurn)
+        return runtimeRegistry.latestAcceptedTurn(taskId).map(turnStore::require)
                 .map(turn -> turn.developmentOrigin().map(DevelopmentTurnOrigin::parentUserTurnId).orElse(turn.id()))
                 .filter(sourceTurnId::equals).isPresent();
     }
@@ -700,7 +698,7 @@ public final class DefaultAgentTurnService
 
     private AgentTurn requireContinuationReady(TaskId taskId, TurnId sourceTurnId, boolean requireDeliveryReport)
     {
-        AgentTurn source = requireTurn(sourceTurnId);
+        AgentTurn source = turnStore.require(sourceTurnId);
         checkArgument(source.taskId().equals(taskId) && source.developmentOrigin().isEmpty(), "Invalid development source turn");
         for (AgentTurn prior : continuationTurns(taskId, sourceTurnId)) {
             checkArgument(prior.state() == TurnState.COMPLETED, "Development turn did not complete successfully");
@@ -725,7 +723,7 @@ public final class DefaultAgentTurnService
         requireNonNull(taskId, "taskId is null");
         checkNotBlank(idempotencyKey, "idempotencyKey");
         synchronized (runtimeRegistry.taskLock(taskId)) {
-            requireTask(taskId);
+            taskStore.require(taskId);
             return turnStore.findByIdempotencyKey(taskId, idempotencyKey);
         }
     }
@@ -768,8 +766,8 @@ public final class DefaultAgentTurnService
                     throw failure;
                 }
                 recordKnownUnsentFailure(turn, failure, runtimeRegistry.unverifiedClose(taskId).isEmpty());
-                if (developmentTurnEligible(requireTask(taskId), turn)) {
-                    reserveDevelopmentContinuation(requireTurn(turn.id()));
+                if (developmentTurnEligible(taskStore.require(taskId), turn)) {
+                    reserveDevelopmentContinuation(turnStore.require(turn.id()));
                 }
                 launch = new Launch(turn, Optional.empty(), Optional.of(failure));
             }
@@ -779,8 +777,8 @@ public final class DefaultAgentTurnService
 
     private AgentTask requireAcceptedLaunch(AgentTurn accepted)
     {
-        AgentTask task = requireTask(accepted.taskId());
-        AgentTurn turn = requireTurn(accepted.id());
+        AgentTask task = taskStore.require(accepted.taskId());
+        AgentTurn turn = turnStore.require(accepted.id());
         if (runtimeRegistry.closing()) {
             throw new AgentConflictException("Backend is shutting down");
         }
@@ -830,7 +828,7 @@ public final class DefaultAgentTurnService
             started = Optional.of(runningTurn);
             registerRunningTurn(accepted, runningTurn, session.reference());
             try {
-                reviewTurnInput.delivered(task, requireTurn(accepted.id()));
+                reviewTurnInput.delivered(task, turnStore.require(accepted.id()));
             }
             catch (RuntimeException ignored) {
                 // Provider delivery is already durable; usage projection may be retried from the saved offer.
@@ -854,11 +852,11 @@ public final class DefaultAgentTurnService
                 recordKnownUnsentFailure(accepted, failure, providerQuiescent);
             }
             if (developmentTurnEligible(task, accepted)) {
-                AgentTurn current = requireTurn(accepted.id());
+                AgentTurn current = turnStore.require(accepted.id());
                 if (current.state().active()) {
                     persistTerminalTurn(current, TurnState.INTERRUPTED, Optional.of(failureMessage(failure)), false);
                 }
-                reserveDevelopmentContinuation(requireTurn(accepted.id()));
+                reserveDevelopmentContinuation(turnStore.require(accepted.id()));
             }
             return new Launch(accepted, started, Optional.of(failure));
         }
@@ -875,8 +873,8 @@ public final class DefaultAgentTurnService
                 suppressFailure(failure, running::cancel);
             });
             suppressFailure(failure, () -> approvalService.denyPending(turn.id()));
-            AgentTurn terminal = requireTurn(turn.id());
-            if (terminal.state().terminal() && developmentTurnEligible(requireTask(turn.taskId()), terminal)) {
+            AgentTurn terminal = turnStore.require(turn.id());
+            if (terminal.state().terminal() && developmentTurnEligible(taskStore.require(turn.taskId()), terminal)) {
                 notifyDevelopmentCompletion(terminal.id(), Optional.of(failureMessage(failure)));
             }
             throw failure;
@@ -893,14 +891,14 @@ public final class DefaultAgentTurnService
             suppressFailure(failure, () -> approvalService.denyPending(turn.id()));
             throw failure;
         }
-        return requireTurn(turn.id());
+        return turnStore.require(turn.id());
     }
 
     @Override
     public AgentInputDelivery steer(SteerAgentTurnCommand command)
     {
         requireNonNull(command, "command is null");
-        TaskId taskId = requireTurn(command.turnId()).taskId();
+        TaskId taskId = turnStore.require(command.turnId()).taskId();
         retryCompletedTurn(taskId);
         // The provider has no steer idempotency key. Keep acceptance and the corresponding send in
         // one task-local order, while leaving the task state lock free during provider I/O.
@@ -925,13 +923,13 @@ public final class DefaultAgentTurnService
                         return existing;
                     }
                 }
-                AgentTurn turn = requireTurn(command.turnId());
+                AgentTurn turn = turnStore.require(command.turnId());
                 // The turn the user was looking at, and only that one: a turn that has since ended
                 // is stale, and its successor must not receive input meant for it.
                 if (turn.state() != TurnState.RUNNING) {
                     throw new AgentConflictException("Turn is not running: " + turn.id());
                 }
-                AgentTask task = requireTask(taskId);
+                AgentTask task = taskStore.require(taskId);
                 requireNoDevelopmentContinuation(task);
                 if (!driverRegistry.require(task.laneId()).capabilities().steering()) {
                     throw new AgentUnavailableException("Provider " + task.laneId() + " cannot add input to a running turn");
@@ -967,7 +965,7 @@ public final class DefaultAgentTurnService
     {
         requireNonNull(turnId, "turnId is null");
         checkNotBlank(idempotencyKey, "idempotencyKey");
-        AgentTurn requestedTurn = requireTurn(turnId);
+        AgentTurn requestedTurn = turnStore.require(turnId);
         TaskId taskId = requestedTurn.taskId();
         synchronized (runtimeRegistry.taskLock(taskId)) {
             Optional<AgentInputDelivery> found = steerStore.findSteerByIdempotencyKey(taskId, idempotencyKey);
@@ -1074,7 +1072,7 @@ public final class DefaultAgentTurnService
             if (repeated.isPresent()) {
                 return displayInput(repeated.orElseThrow());
             }
-            AgentTask task = requireTask(command.taskId());
+            AgentTask task = taskStore.require(command.taskId());
             if (task.state() != TaskState.OPEN) {
                 throw new AgentConflictException("Task cannot queue input in state " + task.state());
             }
@@ -1134,7 +1132,7 @@ public final class DefaultAgentTurnService
         requireNonNull(taskId, "taskId is null");
         checkNotBlank(idempotencyKey, "idempotencyKey");
         synchronized (runtimeRegistry.taskLock(taskId)) {
-            requireTask(taskId);
+            taskStore.require(taskId);
             return queueStore.findQueuedByIdempotencyKey(taskId, idempotencyKey).map(this::displayInput);
         }
     }
@@ -1143,7 +1141,7 @@ public final class DefaultAgentTurnService
     public List<QueuedAgentInput> queued(TaskId taskId)
     {
         requireNonNull(taskId, "taskId is null");
-        requireTask(taskId);
+        taskStore.require(taskId);
         return queueStore.listQueued(taskId).stream()
                 .filter(input -> !input.state().historical())
                 .map(this::displayInput)
@@ -1157,7 +1155,7 @@ public final class DefaultAgentTurnService
         requireNonNull(queuedInputId, "queuedInputId is null");
         synchronized (runtimeRegistry.taskLock(taskId)) {
             drainPending(outboxStore, eventService, taskId);
-            requireTask(taskId);
+            taskStore.require(taskId);
             QueuedAgentInput input = requireQueued(queuedInputId);
             if (!input.taskId().equals(taskId)) {
                 throw new AgentConflictException("Queued input does not belong to task " + taskId + ": " + queuedInputId);
@@ -1397,7 +1395,7 @@ public final class DefaultAgentTurnService
 
     private AgentTask requireStartableTaskWithoutReadiness(TaskId taskId, Optional<TurnId> continuationOwner)
     {
-        AgentTask task = requireTask(taskId);
+        AgentTask task = taskStore.require(taskId);
         if (runtimeRegistry.closing()) {
             throw new AgentConflictException("Backend is shutting down");
         }
@@ -1441,7 +1439,7 @@ public final class DefaultAgentTurnService
     {
         requireNonNull(taskId, "taskId is null");
         // Attachments belong to a message, not to a task, so a described turn carries none.
-        return turnSettings(requireTask(taskId), ImmutableList.of());
+        return turnSettings(taskStore.require(taskId), ImmutableList.of());
     }
 
     private TurnAcceptance acceptTurnLocked(AgentTask task, StartAgentTurnCommand command)
@@ -1511,13 +1509,13 @@ public final class DefaultAgentTurnService
                 .findFirst();
         Optional<EventId> queueEventId = queuedInput.map(input -> EventId.random());
         AgentTurn running = unitOfWork.execute(() -> {
-            AgentTurn updated = turnStore.update(requireTurn(accepted.id()).running(
+            AgentTurn updated = turnStore.update(turnStore.require(accepted.id()).running(
                     providerTurnReference,
                     Optional.empty()));
             // The thread reference is persisted only now that a turn has run on it. A thread that
             // was opened but never turned has no rollout, so resuming it after a restart fails
             // forever; forgetting it means the next turn starts a fresh thread instead.
-            AgentTask task = requireTask(updated.taskId());
+            AgentTask task = taskStore.require(updated.taskId());
             if (task.sessionReference().isEmpty()) {
                 taskStore.update(task.withSessionReference(reference, acknowledgedAt));
             }
@@ -1557,25 +1555,25 @@ public final class DefaultAgentTurnService
                         AgentEventPayload.LifecyclePhase.TURN_STARTED,
                         "Turn started",
                         startedAt),
-                () -> turnStore.update(requireTurn(accepted.id()).markDeliveryStarted(startedAt)));
+                () -> turnStore.update(turnStore.require(accepted.id()).markDeliveryStarted(startedAt)));
     }
 
     @Override
     public AgentTurn cancel(TurnId turnId)
     {
         requireNonNull(turnId, "turnId is null");
-        AgentTurn initial = requireTurn(turnId);
+        AgentTurn initial = turnStore.require(turnId);
         retryCompletedTurn(initial);
         RunningTurn running = null;
         Optional<TurnId> cancelledDevelopment = Optional.empty();
         List<CompletableFuture<DevelopmentTurnCompletion>> pending = ImmutableList.of();
         synchronized (runtimeRegistry.taskLock(initial.taskId())) {
-            AgentTurn turn = requireTurn(turnId);
+            AgentTurn turn = turnStore.require(turnId);
             if (turn.state().terminal()) {
                 TurnId sourceTurnId = turn.developmentOrigin().map(DevelopmentTurnOrigin::parentUserTurnId).orElse(turn.id());
                 Optional<TurnId> owner = runtimeRegistry.developmentOwner(turn.taskId());
                 boolean settlingLiveTurn = initial.state().active() && owner.isEmpty()
-                        && requireTask(turn.taskId()).developmentContinuationUnfinished()
+                        && taskStore.require(turn.taskId()).developmentContinuationUnfinished()
                         && runtimeRegistry.latestAcceptedTurn(turn.taskId()).filter(turn.id()::equals).isPresent();
                 if (!owner.filter(sourceTurnId::equals).isPresent() && !settlingLiveTurn) {
                     return turn;
@@ -1595,7 +1593,7 @@ public final class DefaultAgentTurnService
         if (cancelledDevelopment.isPresent()) {
             pending.forEach(future -> future.completeExceptionally(new AgentConflictException("Development automation cancelled")));
             failDevelopmentContinuation(initial.taskId(), cancelledDevelopment.orElseThrow(), "The current request was cancelled. Send another message to continue.");
-            return requireTurn(turnId);
+            return turnStore.require(turnId);
         }
         // Approval and provider cancellation may complete callbacks that
         // re-enter this service, so both run after releasing the task lock.
@@ -1608,16 +1606,16 @@ public final class DefaultAgentTurnService
             throw failure;
         }
         requireNonNull(running, "running is null").cancel();
-        return requireTurn(turnId);
+        return turnStore.require(turnId);
     }
 
     @Override
     public AgentTurn get(TurnId turnId)
     {
         requireNonNull(turnId, "turnId is null");
-        AgentTurn turn = requireTurn(turnId);
+        AgentTurn turn = turnStore.require(turnId);
         retryCompletedTurn(turn);
-        return requireTurn(turnId);
+        return turnStore.require(turnId);
     }
 
     @Override
@@ -1626,7 +1624,7 @@ public final class DefaultAgentTurnService
         requireNonNull(taskId, "taskId is null");
         retryCompletedTurn(taskId);
         synchronized (runtimeRegistry.taskLock(taskId)) {
-            AgentTask task = requireTask(taskId);
+            AgentTask task = taskStore.require(taskId);
             Optional<AgentTurn> active = turnStore.findActive(taskId);
             return new AgentRuntimeStopImpact(
                     taskId,
@@ -1656,7 +1654,7 @@ public final class DefaultAgentTurnService
             List<CompletableFuture<DevelopmentTurnCompletion>> pending;
             boolean development;
             synchronized (runtimeRegistry.taskLock(taskId)) {
-                AgentTask task = requireTask(taskId);
+                AgentTask task = taskStore.require(taskId);
                 if (task.state().terminal()) {
                     throw new AgentConflictException("Task is already terminal: " + taskId);
                 }
@@ -1667,7 +1665,7 @@ public final class DefaultAgentTurnService
                 if (!task.developmentContinuationUnfinished() && active.filter(turn -> developmentTurnEligible(task, turn)).isPresent()) {
                     updateDevelopmentMarker(task, true, "Development automation stopped");
                 }
-                development = requireTask(taskId).developmentContinuationUnfinished();
+                development = taskStore.require(taskId).developmentContinuationUnfinished();
                 pending = development ? runtimeRegistry.stopDevelopment(taskId) : ImmutableList.of();
                 active.ifPresent(turn -> {
                     AgentTurn cancellation = turn.requestCancellation(Instant.now(clock));
@@ -1681,7 +1679,7 @@ public final class DefaultAgentTurnService
             pending.forEach(future -> future.completeExceptionally(new AgentConflictException("Development automation stopped")));
             if (development) {
                 synchronized (runtimeRegistry.taskLock(taskId)) {
-                    AgentTask task = requireTask(taskId);
+                    AgentTask task = taskStore.require(taskId);
                     // A synchronous completion callback may already have settled this stop.
                     if (!task.developmentContinuationUnfinished() || !runtimeRegistry.developmentStopped(taskId)) {
                         return task;
@@ -1693,8 +1691,8 @@ public final class DefaultAgentTurnService
             stopProviderRuntime(taskId, active);
             AgentTask stopped;
             synchronized (runtimeRegistry.taskLock(taskId)) {
-                releaseStaleTurnClaim(requireTask(taskId));
-                stopped = requireTask(taskId);
+                releaseStaleTurnClaim(taskStore.require(taskId));
+                stopped = taskStore.require(taskId);
             }
             return stopped;
         }
@@ -1715,7 +1713,7 @@ public final class DefaultAgentTurnService
             // turn failed before a provider run existed. In the second case the closed process
             // was all there was, so the verified stop is what settles it.
             synchronized (runtimeRegistry.taskLock(turn.taskId())) {
-                AgentTurn current = requireTurn(turn.id());
+                AgentTurn current = turnStore.require(turn.id());
                 if (current.state().active()) {
                     persistTerminalTurn(
                             current,
@@ -1759,7 +1757,7 @@ public final class DefaultAgentTurnService
             return;
         }
         Instant releasedAt = Instant.now(clock);
-        unitOfWork.execute(() -> taskStore.update(requireTask(task.id()).releaseWorktreeMutation(claim.orElseThrow(), releasedAt)));
+        unitOfWork.execute(() -> taskStore.update(taskStore.require(task.id()).releaseWorktreeMutation(claim.orElseThrow(), releasedAt)));
     }
 
     /**
@@ -1819,7 +1817,7 @@ public final class DefaultAgentTurnService
             if (!reference.laneId().equals(task.laneId())) {
                 throw new AgentUnavailableException("Provider returned a session reference for another lane");
             }
-            AgentTask current = requireTask(task.id());
+            AgentTask current = taskStore.require(task.id());
             if (current.sessionReference().isPresent()
                     && !current.sessionReference().orElseThrow().equals(reference)) {
                 throw new AgentUnavailableException("Provider resumed a different session reference");
@@ -2001,7 +1999,7 @@ public final class DefaultAgentTurnService
         // waiting for this callback. Reserve follow-up admission before releasing the task lock.
         try {
             synchronized (runtimeRegistry.taskLock(observedTurn.taskId())) {
-                AgentTurn turn = requireTurn(observedTurn.id());
+                AgentTurn turn = turnStore.require(observedTurn.id());
                 if (!turn.state().terminal()) {
                     if (completionFailure == null) {
                         AgentTurnResult result = requireNonNull(providerResult, "providerResult is null");
@@ -2013,7 +2011,7 @@ public final class DefaultAgentTurnService
                     }
                 }
                 if (liveCompletion) {
-                    notifyDevelopment = reserveDevelopmentContinuation(requireTurn(turn.id()));
+                    notifyDevelopment = reserveDevelopmentContinuation(turnStore.require(turn.id()));
                 }
             }
         }
@@ -2045,7 +2043,7 @@ public final class DefaultAgentTurnService
     {
         TurnId sourceTurnId = turn.developmentOrigin().map(DevelopmentTurnOrigin::parentUserTurnId).orElse(turn.id());
         synchronized (runtimeRegistry.taskLock(turn.taskId())) {
-            AgentTask task = requireTask(turn.taskId());
+            AgentTask task = taskStore.require(turn.taskId());
             if (!developmentTurnEligible(task, turn) || runtimeRegistry.closing() || task.state().terminal() || !latestDevelopmentSource(task.id(), sourceTurnId)) {
                 return;
             }
@@ -2064,7 +2062,7 @@ public final class DefaultAgentTurnService
 
     private boolean reserveDevelopmentContinuation(AgentTurn turn)
     {
-        AgentTask task = requireTask(turn.taskId());
+        AgentTask task = taskStore.require(turn.taskId());
         if (turn.developmentOrigin().isPresent() || runtimeRegistry.developmentStopped(task.id())
                 || !developmentTurnEligible(task, turn) || runtimeRegistry.closing()
                 || task.state() != TaskState.OPEN || runtimeRegistry.hasDevelopmentOwner(task.id())
@@ -2090,9 +2088,9 @@ public final class DefaultAgentTurnService
         DevelopmentTurnCompletion outcome;
         Optional<CompletableFuture<DevelopmentTurnCompletion>> generated;
         boolean sourceOwned;
-        synchronized (runtimeRegistry.taskLock(requireTurn(turnId).taskId())) {
-            AgentTurn turn = requireTurn(turnId);
-            AgentTask task = requireTask(turn.taskId());
+        synchronized (runtimeRegistry.taskLock(turnStore.require(turnId).taskId())) {
+            AgentTurn turn = turnStore.require(turnId);
+            AgentTask task = taskStore.require(turn.taskId());
             boolean quiescent = task.worktreeMutationClaim().isEmpty() && runtimeRegistry.unverifiedClose(task.id()).isEmpty();
             outcome = new DevelopmentTurnCompletion(task, turn, quiescent, failure.or(turn::terminalReason));
             generated = turn.developmentOrigin().flatMap(origin -> runtimeRegistry.developmentTurn(task.id(), origin));
@@ -2112,8 +2110,8 @@ public final class DefaultAgentTurnService
     private boolean queueMayStart(AgentTurn observedTurn)
     {
         synchronized (runtimeRegistry.taskLock(observedTurn.taskId())) {
-            AgentTask task = requireTask(observedTurn.taskId());
-            return observedTurn.developmentOrigin().isEmpty() && requireTurn(observedTurn.id()).state() == TurnState.COMPLETED && task.state() == TaskState.OPEN
+            AgentTask task = taskStore.require(observedTurn.taskId());
+            return observedTurn.developmentOrigin().isEmpty() && turnStore.require(observedTurn.id()).state() == TurnState.COMPLETED && task.state() == TaskState.OPEN
                     && task.worktreeMutationClaim().isEmpty() && !task.developmentContinuationUnfinished()
                     && !runtimeRegistry.hasDevelopmentOwner(task.id()) && !runtimeRegistry.closing() && !waitingForDevelopmentAnswer(task.id());
         }
@@ -2162,7 +2160,7 @@ public final class DefaultAgentTurnService
             boolean providerQuiescent)
     {
         suppressFailure(failure, () -> {
-            AgentTurn turn = requireTurn(acceptedTurn.id());
+            AgentTurn turn = turnStore.require(acceptedTurn.id());
             if (!turn.state().terminal()) {
                 Optional<String> reason = Optional.of(failureMessage(failure));
                 persistTerminalTurn(turn, TurnState.FAILED, reason, providerQuiescent, Optional.empty(), true);
@@ -2200,13 +2198,13 @@ public final class DefaultAgentTurnService
         unitOfWork.execute(() -> {
             AgentMetrics finalMetrics = metricsService.finishTurn(turn.id(), terminalState);
             Instant endedAt = Instant.now(clock);
-            AgentTurn latest = requireTurn(turn.id());
+            AgentTurn latest = turnStore.require(turn.id());
             AgentTurn finished = knownUnsent
                     ? latest.finishKnownUnsent(finalMetrics, reason.orElseThrow(), endedAt)
                     : latest.finish(terminalState, finalMetrics, reason, failureKind, endedAt);
             AgentTurn terminal = turnStore.update(finished);
             WorktreeMutationClaim claim = WorktreeMutationClaim.turn(latest.id(), latest.createdAt());
-            AgentTask task = requireTask(terminal.taskId());
+            AgentTask task = taskStore.require(terminal.taskId());
             AgentTask updated = providerQuiescent ? task.releaseWorktreeMutation(claim, endedAt) : task;
             if (terminal.developmentOrigin().isEmpty() && developmentTurnEligible(task, terminal) && !runtimeRegistry.closing()) {
                 updated = updated.withDevelopmentContinuation(true, endedAt);
@@ -2263,7 +2261,7 @@ public final class DefaultAgentTurnService
             String outcome,
             Instant endedAt)
     {
-        boolean deliveryGate = developmentTurnEligible(requireTask(terminal.taskId()), terminal)
+        boolean deliveryGate = developmentTurnEligible(taskStore.require(terminal.taskId()), terminal)
                 && terminal.settings().flatMap(AgentTurnSettings::developmentAutomation).filter(DevelopmentAutomation::enabled).isPresent();
         boolean ready = terminal.developmentResult().filter(DevelopmentResultReport::readyForDelivery).isPresent();
         boolean success = terminal.state() == TurnState.COMPLETED && providerQuiescent && (!deliveryGate || ready);
@@ -2333,16 +2331,6 @@ public final class DefaultAgentTurnService
                 attachments,
                 task.defaults().serviceTier(),
                 effective);
-    }
-
-    private AgentTask requireTask(TaskId taskId)
-    {
-        return taskStore.find(taskId).orElseThrow(() -> new AgentTaskNotFoundException(taskId));
-    }
-
-    private AgentTurn requireTurn(TurnId turnId)
-    {
-        return turnStore.find(turnId).orElseThrow(() -> new AgentTurnNotFoundException(turnId));
     }
 
     private AgentTurn requireActiveTurn(TaskId taskId)

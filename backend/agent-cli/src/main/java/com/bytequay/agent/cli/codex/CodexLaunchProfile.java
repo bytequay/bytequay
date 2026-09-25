@@ -135,9 +135,8 @@ final class CodexLaunchProfile
                     "-c", "model_providers.deepseek.request_max_retries=0");
         }
         else {
-            arguments.add(
-                    "-c", "cli_auth_credentials_store=\"file\"",
-                    "-c", "forced_login_method=\"chatgpt\"");
+            // forced_login_method synthesizes managed requirements; the isolation guard checks account/read instead.
+            arguments.add("-c", "cli_auth_credentials_store=\"file\"");
         }
         arguments.add(
                 "-c",

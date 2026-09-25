@@ -479,7 +479,7 @@ class TestCodexCliDriver
         assertThat(supervisor.serverArgv().getFirst()).containsSequence("--disable", "js_repl");
         assertThat(supervisor.serverArgv().getFirst()).containsSequence("--disable", "shell_snapshot");
         assertThat(supervisor.serverArgv().getFirst()).containsSequence("--disable", "unified_exec");
-        assertThat(supervisor.serverArgv().getFirst()).contains("forced_login_method=\"chatgpt\"");
+        assertThat(supervisor.serverArgv().getFirst()).noneMatch(argument -> argument.startsWith("forced_login_method="));
         RunningTurn turn = session.start(command("read only"));
         JsonNode request = supervisor.server().turnRequests().getFirst();
         assertThat(request.path("approvalPolicy").asText()).isEqualTo("never");
@@ -1455,6 +1455,11 @@ class TestCodexCliDriver
         // Managed policy applies, so an exec rule could be inherited without ByteQuay seeing it.
         assertThatThrownBy(() -> startTurnWith(supervisor -> supervisor.reportManagedRequirements(
                 "{\"requirements\":{\"allowLoginShell\":true}}")))
+                .isInstanceOf(AgentUnavailableException.class)
+                .hasMessageContaining("managed requirements apply");
+
+        assertThatThrownBy(() -> startTurnWith(supervisor -> supervisor.reportManagedRequirements(
+                "{\"requirements\":{\"allowedLoginMethods\":[\"chatgpt\"]}}")))
                 .isInstanceOf(AgentUnavailableException.class)
                 .hasMessageContaining("managed requirements apply");
 
@@ -3920,7 +3925,14 @@ class TestCodexCliDriver
                             .put("codexHome", codexHome.toString())
                             .toString());
                 }
-                case "configRequirements/read" -> respond(id, managedRequirements.get());
+                case "configRequirements/read" -> {
+                    String requirements = managedRequirements.get();
+                    // Native Codex reports the forced login setting as a requirement even without host policy.
+                    if (argv.contains("forced_login_method=\"chatgpt\"") && requirements.equals("{\"requirements\":null}")) {
+                        requirements = "{\"requirements\":{\"allowedLoginMethods\":[\"chatgpt\"]}}";
+                    }
+                    respond(id, requirements);
+                }
                 case "account/read" -> respond(id, account.get());
                 case "config/read" -> respond(id, configReadResponse().toString());
                 case "skills/list" -> respond(id, "{\"data\":[{\"cwd\":\""

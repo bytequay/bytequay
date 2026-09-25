@@ -3059,8 +3059,6 @@ function appServerArguments(launchProfile) {
     "-c",
     'cli_auth_credentials_store="file"',
     "-c",
-    'forced_login_method="chatgpt"',
-    "-c",
     'web_search="live"',
     "-c",
     'approval_policy="on-request"',

@@ -592,6 +592,16 @@ class TestClaudeCliDriver
     }
 
     @Test
+    void parsesAndOrdersReleasesNumerically()
+    {
+        assertThat(ClaudeCliDriver.parseVersion("2.1.0 (Claude Code)").map(Object::toString)).contains("2.1.0");
+        assertThat(ClaudeCliDriver.parseVersion("2.1.10").orElseThrow()).isGreaterThan(ClaudeCliDriver.parseVersion("2.1.9").orElseThrow());
+        assertThat(ClaudeCliDriver.parseVersion("2.1.278").orElseThrow()).isEqualByComparingTo(ClaudeCliDriver.parseVersion("2.1.278\n").orElseThrow());
+        assertThat(ClaudeCliDriver.parseVersion("2.1")).isEmpty();
+        assertThat(ClaudeCliDriver.parseVersion("2.1.0-beta")).isEmpty();
+    }
+
+    @Test
     void rejectsClaudeWithoutAutoPermissionMode()
     {
         ScriptedProcessSupervisor supervisor = new ScriptedProcessSupervisor();

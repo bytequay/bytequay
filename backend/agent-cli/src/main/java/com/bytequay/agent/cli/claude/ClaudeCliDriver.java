@@ -60,6 +60,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.io.IOException;
+import java.lang.module.ModuleDescriptor.Version;
 import java.nio.ByteBuffer;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.DirectoryStream;
@@ -84,6 +85,7 @@ import java.util.concurrent.ExecutionException;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.regex.Pattern;
 import java.util.stream.Stream;
 
 import static com.bytequay.agent.cli.process.ProviderCli.failureMessage;
@@ -96,10 +98,11 @@ public final class ClaudeCliDriver
     private static final Logger log = LoggerFactory.getLogger(ClaudeCliDriver.class);
     private static final AgentLaneId LANE_ID = new AgentLaneId("claude");
     private static final int CONTRACT_VERSION = 1;
-    private static final Version MINIMUM_VERSION = new Version(2, 1, 200);
-    private static final Version SUBAGENT_TEXT_VERSION = new Version(2, 1, 219);
+    private static final Pattern RELEASE = Pattern.compile("\\d+\\.\\d+\\.\\d+");
+    private static final Version MINIMUM_VERSION = Version.parse("2.1.200");
+    private static final Version SUBAGENT_TEXT_VERSION = Version.parse("2.1.219");
     // The release whose PreToolUse hook input was verified to mark a child's tool call with agent_id, which the review child gate reads.
-    private static final Version REVIEW_CHILD_VERSION = new Version(2, 1, 278);
+    private static final Version REVIEW_CHILD_VERSION = Version.parse("2.1.278");
     private static final Duration PROBE_TIMEOUT = Duration.ofSeconds(10);
     private static final Duration UPDATE_TIMEOUT = Duration.ofMinutes(5);
     private static final Duration PROCESS_CANCELLATION_GRACE = Duration.ofSeconds(3);
@@ -280,7 +283,7 @@ public final class ClaudeCliDriver
                         Optional.empty(),
                         versionResult.combinedOutput());
             }
-            Optional<Version> parsed = Version.parse(versionResult.stdout());
+            Optional<Version> parsed = parseVersion(versionResult.stdout());
             if (parsed.isEmpty()) {
                 return status(
                         AgentProviderStatus.Readiness.TEMPORARILY_UNAVAILABLE,
@@ -538,6 +541,13 @@ public final class ClaudeCliDriver
         return "'" + value.replace("'", "'\"'\"'") + "'";
     }
 
+    /** The release that {@code claude --version} reports, such as {@code 2.1.278 (Claude Code)}. */
+    static Optional<Version> parseVersion(String output)
+    {
+        String first = output.strip().split("\\s+", 2)[0];
+        return RELEASE.matcher(first).matches() ? Optional.of(Version.parse(first)) : Optional.empty();
+    }
+
     private AuthenticationProbe probeAuthentication()
             throws InterruptedException
     {
@@ -674,46 +684,6 @@ public final class ClaudeCliDriver
         private static AuthenticationProbe unavailable(String diagnostic)
         {
             return new AuthenticationProbe(AgentProviderStatus.Readiness.TEMPORARILY_UNAVAILABLE, diagnostic);
-        }
-    }
-
-    private record Version(int major, int minor, int patch)
-            implements Comparable<Version>
-    {
-        private static Optional<Version> parse(String text)
-        {
-            String first = text.strip().split("\\s+", 2)[0];
-            String[] parts = first.split("\\.");
-            if (parts.length != 3) {
-                return Optional.empty();
-            }
-            try {
-                return Optional.of(new Version(
-                        Integer.parseInt(parts[0]),
-                        Integer.parseInt(parts[1]),
-                        Integer.parseInt(parts[2])));
-            }
-            catch (NumberFormatException ignored) {
-                return Optional.empty();
-            }
-        }
-
-        @Override
-        public int compareTo(Version other)
-        {
-            requireNonNull(other, "other is null");
-            int majorComparison = Integer.compare(major, other.major);
-            if (majorComparison != 0) {
-                return majorComparison;
-            }
-            int minorComparison = Integer.compare(minor, other.minor);
-            return minorComparison != 0 ? minorComparison : Integer.compare(patch, other.patch);
-        }
-
-        @Override
-        public String toString()
-        {
-            return major + "." + minor + "." + patch;
         }
     }
 

@@ -32,6 +32,7 @@ import com.bytequay.agent.spi.AgentCommandPolicy;
 import com.bytequay.agent.spi.AgentDeliveryUncertainException;
 import com.bytequay.agent.spi.AgentLaneId;
 import com.bytequay.agent.spi.AgentPermissionPolicy;
+import com.bytequay.agent.spi.AgentPermissionScope;
 import com.bytequay.agent.spi.AgentProviderStatus;
 import com.bytequay.agent.spi.AgentSession;
 import com.bytequay.agent.spi.AgentSessionContext;
@@ -98,6 +99,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 class TestCodexCliDriver
 {
+    private static final String DEVELOPMENT_POLICY = AgentCommandPolicy.instructions(new AgentPermissionScope(AgentPermissionPolicy.AUTO, SessionAccess.FULL, false));
     private static final String MCP_ENDPOINT = "http://127.0.0.1:9000/internal/agent/claude/mcp";
     private final ObjectMapper objectMapper = new ObjectMapper();
 
@@ -3026,7 +3028,7 @@ class TestCodexCliDriver
         // The thread leaves the MCP map to the launch flags instead of emptying it.
         assertThat(supervisor.server().threadRequests().getFirst().path("config").has("mcp_servers")).isFalse();
         assertThat(supervisor.server().threadRequests().getFirst().path("developerInstructions").asText())
-                .startsWith(AgentCommandPolicy.instructions()).contains("native update_plan").endsWith("Keep explanations concise\n\nuse the graph");
+                .startsWith(DEVELOPMENT_POLICY).contains("native update_plan").endsWith("Keep explanations concise\n\nuse the graph");
         // Opening ran the isolation guard against the effective config, which exposes exactly this server.
         session.close();
     }
@@ -3081,7 +3083,7 @@ class TestCodexCliDriver
             JsonNode request = server.threadRequests().getFirst();
             assertThat(request.has("developerInstructions")).isTrue();
             assertThat(request.path("developerInstructions").asText())
-                    .startsWith(AgentCommandPolicy.instructions()).contains("native update_plan", "Do not repeat the checklist");
+                    .startsWith(DEVELOPMENT_POLICY).contains("native update_plan", "Do not repeat the checklist");
             if (!instruction.isEmpty()) {
                 assertThat(request.path("developerInstructions").asText()).endsWith(instruction);
             }

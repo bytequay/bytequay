@@ -122,11 +122,6 @@ public final class AgentCommandPolicy
 
     private AgentCommandPolicy() {}
 
-    public static String instructions()
-    {
-        return INSTRUCTIONS;
-    }
-
     /** Selects the same command rules for every provider from the session's permission scope. */
     public static String instructions(AgentPermissionScope scope)
     {

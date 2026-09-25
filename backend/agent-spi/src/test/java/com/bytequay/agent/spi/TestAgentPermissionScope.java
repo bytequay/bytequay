@@ -19,6 +19,8 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 class TestAgentPermissionScope
 {
+    private static final String DEVELOPMENT_POLICY = AgentCommandPolicy.instructions(new AgentPermissionScope(AgentPermissionPolicy.AUTO, SessionAccess.FULL, false));
+
     @Test
     void derivesCommandAccessForEveryTaskScope()
     {
@@ -61,7 +63,7 @@ class TestAgentPermissionScope
         else {
             assertThat(AgentCommandPolicy.instructions(scope))
                     .as("command guidance for %s / %s / review=%s", policy, access, review)
-                    .isEqualTo(reviewReads ? AgentCommandPolicy.reviewInstructions() : githubCommands ? AgentCommandPolicy.instructions() : "");
+                    .isEqualTo(reviewReads ? AgentCommandPolicy.reviewInstructions() : githubCommands ? DEVELOPMENT_POLICY : "");
         }
     }
 }

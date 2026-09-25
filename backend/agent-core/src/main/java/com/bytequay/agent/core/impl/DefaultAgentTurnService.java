@@ -1376,11 +1376,6 @@ public final class DefaultAgentTurnService
         return requireReady(task);
     }
 
-    private AgentTask requireStartableTask(TaskId taskId)
-    {
-        return requireReady(requireStartableTaskWithoutReadiness(taskId));
-    }
-
     private void requireNoDevelopmentContinuation(AgentTask task)
     {
         if (task.developmentContinuationUnfinished() || runtimeRegistry.hasDevelopmentOwner(task.id())) {

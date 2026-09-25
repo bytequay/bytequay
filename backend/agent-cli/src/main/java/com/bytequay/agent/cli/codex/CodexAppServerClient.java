@@ -87,8 +87,7 @@ final class CodexAppServerClient
     private final ProcessSupervisor supervisor;
     private final ProcessSpec processSpec;
     private final SecretRedactor redactor;
-    private final Optional<DeepSeekResponsesProxy> deepSeekProxy;
-    private final Optional<DeepSeekTaskMcpBridge> deepSeekTaskMcpBridge;
+    private final Optional<DeepSeekLoopback> deepSeekLoopback;
     private final CodexProtocolCodec codec;
     private final Object lifecycleLock = new Object();
     private final Object writeLock = new Object();
@@ -113,7 +112,7 @@ final class CodexAppServerClient
             ObjectMapper objectMapper,
             SecretRedactor redactor)
     {
-        this(supervisor, processSpec, objectMapper, redactor, Optional.empty(), Optional.empty());
+        this(supervisor, processSpec, objectMapper, redactor, Optional.empty());
     }
 
     CodexAppServerClient(
@@ -121,14 +120,12 @@ final class CodexAppServerClient
             ProcessSpec processSpec,
             ObjectMapper objectMapper,
             SecretRedactor redactor,
-            Optional<DeepSeekResponsesProxy> deepSeekProxy,
-            Optional<DeepSeekTaskMcpBridge> deepSeekTaskMcpBridge)
+            Optional<DeepSeekLoopback> deepSeekLoopback)
     {
         this.supervisor = requireNonNull(supervisor, "supervisor is null");
         this.processSpec = requireNonNull(processSpec, "processSpec is null");
         this.redactor = requireNonNull(redactor, "redactor is null");
-        this.deepSeekProxy = requireNonNull(deepSeekProxy, "deepSeekProxy is null");
-        this.deepSeekTaskMcpBridge = requireNonNull(deepSeekTaskMcpBridge, "deepSeekTaskMcpBridge is null");
+        this.deepSeekLoopback = requireNonNull(deepSeekLoopback, "deepSeekLoopback is null");
         this.codec = new CodexProtocolCodec(objectMapper);
         this.diagnosticLines = new Utf8LineBuffer(
                 MAX_DIAGNOSTIC_LINE_BYTES,
@@ -329,7 +326,7 @@ final class CodexAppServerClient
 
     private void processExited(ProcessExit result, Throwable failure)
     {
-        deepSeekProxy.ifPresent(DeepSeekResponsesProxy::close);
+        deepSeekLoopback.ifPresent(DeepSeekLoopback::close);
         if (result != null) {
             // The original exit receipt may arrive after a newer explicit stop verification.
             treeTermination.compareAndSet(null, result.treeTermination());
@@ -487,12 +484,7 @@ final class CodexAppServerClient
             dispatcher.close();
         }
         finally {
-            try {
-                deepSeekTaskMcpBridge.ifPresent(DeepSeekTaskMcpBridge::close);
-            }
-            finally {
-                deepSeekProxy.ifPresent(DeepSeekResponsesProxy::close);
-            }
+            deepSeekLoopback.ifPresent(DeepSeekLoopback::close);
         }
     }
 

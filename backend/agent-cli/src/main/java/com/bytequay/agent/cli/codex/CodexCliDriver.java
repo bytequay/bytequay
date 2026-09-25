@@ -355,16 +355,11 @@ public final class CodexCliDriver
         Map<String, String> launchEnvironment = processEnvironment.buildOrThrow();
         SecretRedactor baseRedactor = key.map(redactor::withSecret).orElse(redactor);
         SecretRedactor launchRedactor = registration.map(value -> baseRedactor.withSecret(value.token())).orElse(baseRedactor);
-        Optional<DeepSeekResponsesProxy> proxy = key.map(DeepSeekResponsesProxy::start);
-        Optional<DeepSeekTaskMcpBridge> taskMcpBridge = Optional.empty();
+        Optional<DeepSeekLoopback> loopback = key.map(value -> DeepSeekLoopback.start(value, permissions, registration, objectMapper));
         try {
-            if (deepSeekSecret.isPresent()) {
-                taskMcpBridge = registration.map(value -> DeepSeekTaskMcpBridge.start(permissions, value, objectMapper));
-            }
-            Optional<DeepSeekTaskMcpBridge> bridge = taskMcpBridge;
             Optional<CodexLaunchProfile.CodeGraphLaunch> tools = registration.map(value -> new CodexLaunchProfile.CodeGraphLaunch(
-                    bridge.map(DeepSeekTaskMcpBridge::endpoint).orElse(value.endpoint()), value.instruction().orElse(""), value.toolNames(), deepSeekSecret.isEmpty()));
-            Optional<CodexLaunchProfile.DeepSeekProfile> deepSeek = proxy.map(value ->
+                    loopback.map(DeepSeekLoopback::mcpEndpoint).orElse(value.endpoint()), value.instruction().orElse(""), value.toolNames(), deepSeekSecret.isEmpty()));
+            Optional<CodexLaunchProfile.DeepSeekProfile> deepSeek = loopback.map(value ->
                     new CodexLaunchProfile.DeepSeekProfile(deepSeekCatalog.orElseThrow(), value.baseUrl()));
             return new ClientLaunch(new CodexAppServerClient(
                     supervisor,
@@ -382,12 +377,10 @@ public final class CodexCliDriver
                             PROCESS_CANCELLATION_GRACE),
                     objectMapper,
                     launchRedactor,
-                    proxy,
-                    taskMcpBridge), launchRedactor, deepSeek, tools.map(CodexLaunchProfile.CodeGraphLaunch::endpoint));
+                    loopback), launchRedactor, deepSeek, tools.map(CodexLaunchProfile.CodeGraphLaunch::endpoint));
         }
         catch (RuntimeException failure) {
-            taskMcpBridge.ifPresent(DeepSeekTaskMcpBridge::close);
-            proxy.ifPresent(DeepSeekResponsesProxy::close);
+            loopback.ifPresent(DeepSeekLoopback::close);
             throw failure;
         }
     }

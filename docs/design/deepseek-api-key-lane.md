@@ -194,9 +194,9 @@ The change is confined to the current modules:
    behavior. Reuse the existing delivery coordinator and CI Autofix service.
    Keep the immutable task lane and worktree admission flow.
 3. **agent-cli:** parameterize the Codex driver and launch profile for the
-   DeepSeek lane; add the task-scoped Responses proxy and loopback task-tool
-   bridge; update model catalog loading, common permission verification,
-   redaction, and per-key runtime cleanup.
+   DeepSeek lane; add one task-scoped loopback server holding the Responses
+   proxy and the task-tool bridge; update model catalog loading, common
+   permission verification, redaction, and per-key runtime cleanup.
    The installed Codex binary is version-checked and upgraded once, not once
    per saved key.
 4. **frontend:** show DeepSeek key lanes in the existing picker, expose the

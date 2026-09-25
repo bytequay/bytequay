@@ -19,13 +19,13 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import jakarta.persistence.AttributeConverter;
 
 /**
- * Base for the JPA attribute converters that persist a small collection as a
- * JSON text column. Every converter carried the same null/empty guards and
- * try/catch around {@link ObjectMapper}; subclasses now only declare the
- * element type, the human-readable label for error messages, and the values
- * used when the column or the value is empty.
+ * Base for the JPA attribute converters that persist a value as a JSON text
+ * column. Every converter carried the same null/empty guards and try/catch
+ * around {@link ObjectMapper}; subclasses now only declare the value type, the
+ * human-readable label for error messages, and the values used when the column
+ * or the value is empty.
  *
- * @param <T> the attribute type (a {@code List} or {@code Map})
+ * @param <T> the attribute type
  */
 public abstract class JsonColumnConverter<T>
         implements AttributeConverter<T, String>
@@ -36,23 +36,30 @@ public abstract class JsonColumnConverter<T>
     private final String label;
     private final String emptyColumn;
     private final T emptyValue;
+    private final ObjectMapper mapper;
 
     JsonColumnConverter(TypeReference<T> type, String label, String emptyColumn, T emptyValue)
+    {
+        this(type, label, emptyColumn, emptyValue, MAPPER);
+    }
+
+    JsonColumnConverter(TypeReference<T> type, String label, String emptyColumn, T emptyValue, ObjectMapper mapper)
     {
         this.type = type;
         this.label = label;
         this.emptyColumn = emptyColumn;
         this.emptyValue = emptyValue;
+        this.mapper = mapper;
     }
 
     @Override
     public String convertToDatabaseColumn(T value)
     {
-        if (value == null || emptyValue.equals(value)) {
+        if (value == null || value.equals(emptyValue)) {
             return emptyColumn;
         }
         try {
-            return MAPPER.writeValueAsString(value);
+            return mapper.writeValueAsString(value);
         }
         catch (JsonProcessingException e) {
             throw new IllegalArgumentException("Failed to serialize " + label, e);
@@ -66,10 +73,16 @@ public abstract class JsonColumnConverter<T>
             return emptyValue;
         }
         try {
-            return MAPPER.readValue(json, type);
+            return read(json);
         }
         catch (JsonProcessingException e) {
             throw new IllegalArgumentException("Failed to deserialize " + label, e);
         }
+    }
+
+    T read(String json)
+            throws JsonProcessingException
+    {
+        return mapper.readValue(json, type);
     }
 }

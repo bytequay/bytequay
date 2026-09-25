@@ -14,45 +14,18 @@
 package com.bytequay.persistence.sqlite.converter;
 
 import com.bytequay.agent.core.DevelopmentAutomation;
-import com.fasterxml.jackson.core.JsonProcessingException;
+import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.DeserializationFeature;
-import com.fasterxml.jackson.databind.ObjectMapper;
-import jakarta.persistence.AttributeConverter;
 import jakarta.persistence.Converter;
 
 @Converter
 public class DevelopmentAutomationConverter
-        implements AttributeConverter<DevelopmentAutomation, String>
+        extends JsonColumnConverter<DevelopmentAutomation>
 {
-    private static final ObjectMapper MAPPER = JsonColumns.mapper()
-            .enable(DeserializationFeature.FAIL_ON_MISSING_CREATOR_PROPERTIES)
-            .enable(DeserializationFeature.FAIL_ON_NULL_FOR_PRIMITIVES);
-
-    @Override
-    public String convertToDatabaseColumn(DevelopmentAutomation value)
+    DevelopmentAutomationConverter()
     {
-        if (value == null) {
-            return null;
-        }
-        try {
-            return MAPPER.writeValueAsString(value);
-        }
-        catch (JsonProcessingException failure) {
-            throw new IllegalArgumentException("Cannot serialize development automation", failure);
-        }
-    }
-
-    @Override
-    public DevelopmentAutomation convertToEntityAttribute(String json)
-    {
-        if (json == null) {
-            return null;
-        }
-        try {
-            return MAPPER.readValue(json, DevelopmentAutomation.class);
-        }
-        catch (JsonProcessingException failure) {
-            throw new IllegalArgumentException("Cannot deserialize development automation", failure);
-        }
+        super(new TypeReference<>() {}, "development automation", null, null, JsonColumns.mapper()
+                .enable(DeserializationFeature.FAIL_ON_MISSING_CREATOR_PROPERTIES)
+                .enable(DeserializationFeature.FAIL_ON_NULL_FOR_PRIMITIVES));
     }
 }

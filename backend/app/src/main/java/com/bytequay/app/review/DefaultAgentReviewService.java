@@ -373,7 +373,7 @@ public class DefaultAgentReviewService
             ReviewRun run = cardId.map(id -> ReviewCards.requireRun(store, reviewId, id))
                     .orElseGet(() -> latestRun(reviewId).orElseThrow(() -> new ReviewConflictException("The review has no run yet")));
             String label;
-            String runId = run.id();
+            String reassessmentNote = "";
             if (findingId.isPresent()) {
                 ReviewFinding finding = requireFinding(review, findingId.orElseThrow());
                 if (finding.state() == ReviewFinding.State.WITHDRAWN) {
@@ -383,7 +383,10 @@ public class DefaultAgentReviewService
                     throw new ReviewConflictException("The finding was revised to revision " + finding.revision() + "; reload before asking");
                 }
                 label = finding.id();
-                runId = finding.runId();
+                if (finding.outdated()) {
+                    reassessmentNote = "\n\nThis finding is pending reassessment in the current review scope. "
+                            + "Check its claim against the current base and head before standing behind it.";
+                }
             }
             else {
                 int revision = run.summary().map(summary -> summary.revision()).orElse(1);
@@ -392,9 +395,9 @@ public class DefaultAgentReviewService
                 }
                 label = cardId.orElse("summary");
             }
-            ReviewRun targetRun = store.findRun(runId).orElseThrow();
-            String prompt = ReviewPrompts.question(label, targetRevision, targetRun.headSha(), text)
-                    + cardId.map(id -> "\n\nSelected card:\n" + ReviewCards.content(targetRun, id)).orElse("");
+            String prompt = ReviewPrompts.question(label, targetRevision, run.headSha(), text)
+                    + reassessmentNote
+                    + cardId.map(id -> "\n\nSelected card:\n" + ReviewCards.content(run, id)).orElse("");
             String messageId = UUID.randomUUID().toString();
             TaskId taskId = TaskId.valueOf(review.taskId());
             AgentTask task = tasks.get(taskId);
@@ -407,7 +410,7 @@ public class DefaultAgentReviewService
                     ReviewMessage.Author.USER,
                     text,
                     targetRevision,
-                    runId,
+                    run.id(),
                     Optional.empty(),
                     Optional.empty(),
                     0,
@@ -720,7 +723,11 @@ public class DefaultAgentReviewService
                 }
             }
         }
-        return true;
+        return !validation.coverage().complete() || store.listFindings(run.reviewId()).stream()
+                .filter(finding -> finding.state() == ReviewFinding.State.OPEN)
+                .allMatch(finding -> validation.candidates().stream()
+                        .anyMatch(candidate -> candidate.outcome() == ReviewCandidateValidation.Outcome.SUPPORTED
+                                && candidate.findingId().equals(Optional.of(finding.id()))));
     }
 
     private AgentReview incomplete(AgentReview review, ReviewRun run, String reason)
@@ -806,10 +813,6 @@ public class DefaultAgentReviewService
             return;
         }
         String head = review.observedHeadSha().orElseThrow();
-        boolean newHead = latest.map(run -> !run.headSha().equals(head)).orElse(true);
-        if (!newHead && !retry) {
-            return;
-        }
         TaskId taskId = TaskId.valueOf(review.taskId());
         AgentTask task = tasks.get(taskId);
         if (!idle(task) || !turns.queued(taskId).isEmpty()) {
@@ -817,6 +820,16 @@ public class DefaultAgentReviewService
         }
         WorkspaceRepositoryContext workspace = workspaces.requireReadyRepository(review.workspaceId());
         Snapshot snapshot = snapshot(workspace, review.repo(), review.number());
+        boolean changed = latest.map(run -> !run.headSha().equals(snapshot.headSha())
+                || !run.baseRef().equals(snapshot.baseRef())
+                || !run.baseSha().equals(snapshot.baseSha())
+                || !run.mergeBaseSha().equals(snapshot.mergeBaseSha())).orElse(true);
+        List<ReviewFinding> findings = store.listFindings(review.id());
+        boolean needsReassessment = findings.stream().anyMatch(finding -> finding.state() == ReviewFinding.State.OPEN
+                && (finding.outdated() || !finding.validatedHeadSha().equals(snapshot.headSha())));
+        if (!changed && !retry && !needsReassessment) {
+            return;
+        }
         if (!snapshot.headSha().equals(head)) {
             store.updateReview(review.withObservedHead(snapshot.headSha(), Instant.now(clock)));
         }
@@ -833,7 +846,6 @@ public class DefaultAgentReviewService
             store.updateReview(store.findReview(review.id()).orElseThrow().withFollowUpPaused(true, Instant.now(clock)));
             throw new ReviewConflictException(refusal.getMessage(), refusal);
         }
-        List<ReviewFinding> findings = store.listFindings(review.id());
         startRun(store.findReview(review.id()).orElseThrow(), snapshot, workspace, runs.size() + 1, previous, findings);
     }
 
@@ -889,6 +901,7 @@ public class DefaultAgentReviewService
     {
         Instant now = Instant.now(clock);
         boolean incremental = previous.isPresent()
+                && !previous.orElseThrow().headSha().equals(snapshot.headSha())
                 && previous.orElseThrow().baseRef().equals(snapshot.baseRef())
                 && previous.orElseThrow().baseSha().equals(snapshot.baseSha())
                 && previous.orElseThrow().mergeBaseSha().equals(snapshot.mergeBaseSha())
@@ -925,17 +938,17 @@ public class DefaultAgentReviewService
             run = context.prepareRun(review, run, workspace, previous);
             ReviewDiffAnchors anchors = ReviewDiffAnchors.of(snapshot.diff());
             for (ReviewFinding finding : findings) {
-                if (finding.state() == ReviewFinding.State.WITHDRAWN || finding.validatedHeadSha().equals(snapshot.headSha())) {
+                if (finding.state() == ReviewFinding.State.WITHDRAWN) {
                     continue;
                 }
                 if (finding.anchor().isEmpty()) {
-                    // A finding about the whole pull request has no lines to lose; the review reassesses it like any other.
-                    store.updateFinding(finding.withMapping(snapshot.headSha(), false, now));
+                    // A finding about the whole pull request has no lines to lose, but its claim still needs reassessment.
+                    store.updateFinding(finding.pendingReassessment(now));
                     continue;
                 }
                 Optional<ReviewAnchor> mapped = anchors.remap(finding.anchor().orElseThrow());
-                store.updateFinding(mapped.map(anchor -> relocated(finding, anchor, snapshot.headSha(), now))
-                        .orElseGet(() -> finding.withMapping(finding.validatedHeadSha(), true, now)));
+                store.updateFinding(mapped.map(anchor -> relocated(finding, anchor, now))
+                        .orElseGet(() -> finding.pendingReassessment(now)));
             }
             String login = credentials.resolveGitHubCredential().profile().login();
             turn = startAssignment(run, new StartAgentTurnCommand(
@@ -959,7 +972,7 @@ public class DefaultAgentReviewService
         }
     }
 
-    private static ReviewFinding relocated(ReviewFinding finding, ReviewAnchor anchor, String headSha, Instant now)
+    private static ReviewFinding relocated(ReviewFinding finding, ReviewAnchor anchor, Instant now)
     {
         return new ReviewFinding(
                 finding.id(),
@@ -974,11 +987,24 @@ public class DefaultAgentReviewService
                 finding.revision(),
                 finding.state(),
                 finding.stateReason(),
-                headSha,
-                false,
+                finding.validatedHeadSha(),
+                true,
                 finding.version(),
                 finding.createdAt(),
                 now);
+    }
+
+    /** Re-reads the remote scope before a user sends a finding from an accepted run. */
+    boolean currentScopeMatches(ReviewRun run)
+    {
+        AgentReview review = requireReview(run.reviewId());
+        refresh.refreshAllDetail(review.repo(), review.number());
+        WorkspaceRepositoryContext workspace = workspaces.requireReadyRepository(review.workspaceId());
+        Snapshot current = snapshot(workspace, review.repo(), review.number());
+        return run.headSha().equals(current.headSha())
+                && run.baseRef().equals(current.baseRef())
+                && run.baseSha().equals(current.baseSha())
+                && run.mergeBaseSha().equals(current.mergeBaseSha());
     }
 
     /**
@@ -1088,7 +1114,8 @@ public class DefaultAgentReviewService
                         task.defaults().model(),
                         task.worktreeMutationClaim().map(claim -> claim.kind().name()),
                         capabilities.steering(),
-                        capabilities.nestedAgentActivity() && drivers.require(task.laneId()).reviewChildAgents()),
+                        capabilities.nestedAgentActivity() && drivers.require(task.laneId())
+                                .reviewChildAgents(task.sessionReference(), task.defaults().model())),
                 active.map(turn -> new AgentReviewProjection.TurnView(turn.id().toString(), turn.state().name(), turn.startedAt(), turn.cancellationRequestedAt())),
                 queued,
                 pendingApprovals,

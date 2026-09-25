@@ -235,8 +235,8 @@ export default function ReviewFindingCard({
             <div className="agr-notice is-outdated">
               <span aria-hidden="true">⚠</span>
               <span>
-                New commits moved these lines and no unambiguous mapping was found. The recorded snapshot above is the
-                version reviewed; it is not publishable until Update review re-anchors it.
+                This finding needs reassessment against the current review scope. A matching line alone does not confirm
+                the claim; its location may also need a new anchor. It cannot be published yet.
               </span>
             </div>
           )}

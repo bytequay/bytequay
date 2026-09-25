@@ -53,6 +53,12 @@ public interface AgentDriver
         return false;
     }
 
+    /** Answers for the saved session and selected model without opening a provider session. */
+    default boolean reviewChildAgents(Optional<AgentSessionRef> reference, Optional<String> model)
+    {
+        return reviewChildAgents();
+    }
+
     /**
      * Describes event fidelity and features supported by this driver version.
      *

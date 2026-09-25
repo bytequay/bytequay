@@ -195,7 +195,7 @@ describe('the same finding in Changes', () => {
     expect(changes(talking)).toContain('Is the leaf name really ambiguous?');
   });
 
-  it('leaves an outdated finding out of the diff, since its lines no longer map', () => {
+  it('leaves an outdated finding out of the diff until reassessment, even when its lines map', () => {
     const outdated = reviewFixture({ findings: [{ ...review.findings[0], outdated: true }] });
     expect(changes(outdated)).not.toContain('data-finding-id');
   });

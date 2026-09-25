@@ -47,7 +47,6 @@ final class CodexLaunchProfile
             "computer_use",
             "guardian_ext",
             "guardianv2",
-            "hooks",
             "image_generation",
             "in_app_browser",
             "memories",
@@ -112,10 +111,12 @@ final class CodexLaunchProfile
         requireNonNull(codeGraph, "codeGraph is null");
         requireNonNull(deepSeek, "deepSeek is null");
         boolean ci = !ciWritableRoots.isEmpty();
+        boolean reviewChildren = review && childProfile != ChildProfile.NONE;
         checkArgument(!allowGitHubCommands || (!textOnly && !ci && !review), "Restricted Codex profiles cannot use attended network scope");
         checkArgument(!review || (!textOnly && !ci), "Restricted Codex profiles cannot run private review");
-        ImmutableList.Builder<String> arguments = ImmutableList.<String>builder().add(
-                executable,
+        checkArgument(!reviewChildren || codeGraph.flatMap(CodeGraphLaunch::reviewGate).isPresent(), "Review children require the ByteQuay hook gate");
+        ImmutableList.Builder<String> arguments = ImmutableList.<String>builder().add(executable);
+        arguments.add(
                 "app-server",
                 "--listen",
                 "stdio://",
@@ -156,6 +157,7 @@ final class CodexLaunchProfile
                 "-c",
                 "approvals_reviewer=\"user\"");
         DISABLED_FEATURES.forEach(feature -> arguments.add("--disable", feature));
+        arguments.add(reviewChildren ? "--enable" : "--disable", "hooks");
         arguments.add("--disable", "guardian_approval");
         if (ci) {
             arguments.add(
@@ -170,6 +172,10 @@ final class CodexLaunchProfile
         arguments.add(childProfile == ChildProfile.V2 ? "--enable" : "--disable", "multi_agent_v2");
         if (childProfile == ChildProfile.V1) {
             arguments.add("-c", "agents.max_depth=" + MULTI_AGENT_MAX_DEPTH);
+        }
+        if (reviewChildren) {
+            arguments.add("-c", "hooks.PreToolUse=[{matcher=\".*\",hooks=[{type=\"command\",command="
+                    + tomlString(CodexReviewGate.command(codeGraph.orElseThrow().reviewGate().orElseThrow())) + ",timeout=5}]}]");
         }
         // The broker admits only this task's authorized tools; Codex must not ask a second approval question for them.
         codeGraph.ifPresent(launch -> {
@@ -221,8 +227,12 @@ final class CodexLaunchProfile
         checkArgument(!review || (!textOnly && !ci), "Restricted Codex profiles cannot run private review");
         ImmutableMap.Builder<String, Object> config = ImmutableMap.<String, Object>builder()
                 .put("web_search", textOnly || ci ? "disabled" : "live")
-                .put("features", expectedFeatures(childProfile, textOnly))
+                .put("features", expectedFeatures(childProfile, textOnly, review))
                 .put("shell_environment_policy", expectedShellEnvironmentPolicy());
+        if (review && childProfile != ChildProfile.NONE) {
+            // App Server applies hook trust to each thread, not to its process flags.
+            config.put("bypass_hook_trust", true);
+        }
         if (deepSeek.isPresent()) {
             config.put("model_provider", "deepseek")
                     .put("model_catalog_json", deepSeek.orElseThrow().catalog().toString())
@@ -247,11 +257,17 @@ final class CodexLaunchProfile
 
     static Map<String, Boolean> expectedFeatures(ChildProfile childProfile, boolean textOnly)
     {
+        return expectedFeatures(childProfile, textOnly, false);
+    }
+
+    static Map<String, Boolean> expectedFeatures(ChildProfile childProfile, boolean textOnly, boolean review)
+    {
         requireNonNull(childProfile, "childProfile is null");
         ImmutableMap.Builder<String, Boolean> features = ImmutableMap.builder();
         features.put("skip_host_skill_discovery", true);
         features.put("guardian_approval", false);
         DISABLED_FEATURES.forEach(feature -> features.put(feature, false));
+        features.put("hooks", review && childProfile != ChildProfile.NONE);
         if (textOnly) {
             TEXT_ONLY_DISABLED_FEATURES.forEach(feature -> features.put(feature, false));
         }
@@ -287,13 +303,18 @@ final class CodexLaunchProfile
     }
 
     /** What a launch needs to expose the CodeGraph tool: where the task MCP endpoint is and what to tell the model. */
-    record CodeGraphLaunch(URI endpoint, String instruction, List<String> toolNames, boolean bearerTokenInEnvironment)
+    record CodeGraphLaunch(URI endpoint, String instruction, List<String> toolNames, boolean bearerTokenInEnvironment, Optional<Path> reviewGate)
     {
         static final String TOKEN_VARIABLE = "BYTEQUAY_CODEGRAPH_TOKEN";
 
         CodeGraphLaunch(URI endpoint, String instruction, List<String> toolNames)
         {
-            this(endpoint, instruction, toolNames, true);
+            this(endpoint, instruction, toolNames, true, Optional.empty());
+        }
+
+        CodeGraphLaunch(URI endpoint, String instruction, List<String> toolNames, boolean bearerTokenInEnvironment)
+        {
+            this(endpoint, instruction, toolNames, bearerTokenInEnvironment, Optional.empty());
         }
 
         CodeGraphLaunch
@@ -301,6 +322,7 @@ final class CodexLaunchProfile
             requireNonNull(endpoint, "endpoint is null");
             requireNonNull(instruction, "instruction is null");
             toolNames = ImmutableList.copyOf(toolNames);
+            requireNonNull(reviewGate, "reviewGate is null");
         }
     }
 

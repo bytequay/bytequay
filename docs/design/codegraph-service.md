@@ -434,8 +434,9 @@ a general application-tool framework.
 
 Both lanes reach the tool through the same ByteQuay task MCP endpoint, the
 strict, capability-token-protected boundary that already serves Claude's
-permission prompt. Claude sees the tool through the existing broker, allowed
-as `mcp__bytequay__codegraph_explore` for the root agent. The pinned Codex
+permission prompt. Claude sees the tool through the existing broker as
+`mcp__bytequay__codegraph_explore`; review explorer access additionally needs
+the review child gate. The pinned Codex
 0.151.0 bindings carry the `dynamicToolCall` item but no dynamic-tool
 registration method, while Codex 0.152.1 supports streamable-HTTP MCP
 servers, so a bridged Codex launch adds one `mcp_servers.bytequay` entry as
@@ -463,9 +464,12 @@ provider failures remain provider failures. CodeGraph is not part of
 `AgentDriver.probe()` or lane readiness, so an absent helper never disables
 a lane.
 
-The initial version guarantees the bridge for the task's root agent only.
-Provider-managed child agents continue with normal source tools unless a
-later provider-specific compatibility test proves task-bound inheritance.
+The ordinary-task bridge guarantees the root agent. A review session may let
+provider-native children exploring read-only call the same task-bound
+`codegraph_explore` only behind its verified provider-specific child gate;
+absence of that gate leaves children unavailable. The Codex task bridge
+enforces root ownership of review state mutations; the Claude lane uses its
+provider child gate. This changes no index ownership or query synchronization.
 
 ## 7. Managed instructions
 
@@ -478,8 +482,11 @@ The managed instruction is:
 
 > ByteQuay provides an optional CodeGraph for the current task worktree. Use
 > `codegraph_explore` when callers, callees, implementations, routes,
-> dependencies, or cross-file structure would help. You decide whether and
-> when it is useful. ByteQuay keeps the index current before every query,
+> dependencies, or cross-file structure would help. For a changed contract,
+> it can suggest indirect callers, sibling implementations, registration
+> paths, or configuration consumers to inspect. Query a specific symbol or
+> relationship; do not assume graph coverage is complete. You decide whether
+> and when it is useful. ByteQuay keeps the index current before every query,
 > including your own uncommitted edits, so there is nothing to refresh. The
 > first call in a task may take longer while the index is prepared. Graph
 > results are navigation help; inspect current source and use compiler,

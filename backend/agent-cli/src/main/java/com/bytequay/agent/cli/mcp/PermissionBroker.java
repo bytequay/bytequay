@@ -76,6 +76,7 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
+import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.Supplier;
 import java.util.regex.Pattern;
 import java.util.stream.Collectors;
@@ -388,6 +389,57 @@ public final class PermissionBroker
                 toolNames, () -> contexts.remove(token)));
     }
 
+    /** Keeps a review child's shared MCP token read-only; the root receives other tools through App Server. */
+    public CodexReviewTools guardCodexReviewToken(CodeGraphRegistration registration)
+    {
+        requireNonNull(registration, "registration is null");
+        PermissionContext context = requireNonNull(contexts.get(registration.token()), "review token is not registered");
+        checkArgument(context.review().isPresent(), "Only a review token may use the Codex child gate");
+        Set<String> readable = Stream.concat(
+                        context.review().orElseThrow().tools().stream().filter(ReviewTool::childCallable).map(ReviewTool::name),
+                        context.codeGraph().stream().map(ignored -> CodeGraphBridge.TOOL_NAME))
+                .filter(name -> name.equals("review_get_context") || name.equals(CodeGraphBridge.TOOL_NAME))
+                .collect(ImmutableSet.toImmutableSet());
+        checkArgument(readable.contains("review_get_context"), "Review children need readable context");
+        List<ToolDefinition> all = tools(context);
+        List<String> mcpNames = all.stream().map(ToolDefinition::name).filter(readable::contains).collect(toImmutableList());
+        List<Map<String, Object>> rootTools = all.stream().filter(tool -> !readable.contains(tool.name()))
+                .map(tool -> ImmutableMap.<String, Object>of(
+                        "type", "function", "name", tool.name(), "description", tool.description(), "inputSchema", tool.inputSchema()))
+                .collect(toImmutableList());
+        CodexReviewTools guarded = new CodexReviewTools(mcpNames, rootTools,
+                all.stream().map(ToolDefinition::name).filter(name -> !readable.contains(name)).collect(ImmutableSet.toImmutableSet()));
+        context.codexReviewTools().set(guarded);
+        return guarded;
+    }
+
+    /** Calls one withheld task tool after App Server has proven its caller is the root review turn. */
+    public McpHttpResponse callCodexReviewRootTool(String token, String name, JsonNode arguments)
+    {
+        PermissionContext context = contexts.get(requireNonNull(token, "token is null"));
+        CodexReviewTools guarded = context == null ? null : context.codexReviewTools().get();
+        if (guarded == null || context == null || !guarded.rootNames().contains(name) || arguments == null || !arguments.isObject()) {
+            return error(null, -32602, "Unknown tool or invalid arguments");
+        }
+        try {
+            return callTool(new McpRequest("2.0", objectMapper.valueToTree(1), "tools/call",
+                    objectMapper.valueToTree(new ToolCallParams(name, arguments))), context);
+        }
+        catch (JsonProcessingException | RuntimeException failure) {
+            return error(null, -32603, "Task tool failed");
+        }
+    }
+
+    public record CodexReviewTools(List<String> mcpNames, List<Map<String, Object>> rootTools, Set<String> rootNames)
+    {
+        public CodexReviewTools
+        {
+            mcpNames = ImmutableList.copyOf(mcpNames);
+            rootTools = ImmutableList.copyOf(rootTools);
+            rootNames = ImmutableSet.copyOf(rootNames);
+        }
+    }
+
     private PermissionContext resolveContext(
             String taskId,
             Path worktree,
@@ -412,15 +464,15 @@ public final class PermissionBroker
                 ? pullRequestChecks.resolve(taskId) : Optional.empty();
         Optional<IssueContextBridge> issueContext = restricted ? Optional.empty() : issueContexts.resolve(taskId);
         Optional<RepositoryContextBridge> notebook = restricted || review.isPresent() ? Optional.empty() : repositoryContext.resolve(taskId);
-        // Exploration children exist only in an attended Claude review that owns its worktree, where the child gate
-        // keeps every ByteQuay write tool with the root. Codex registers no permission tools and keeps its no-child profile.
+        // Claude's attended review gate uses this flag. Codex registers no permission tools and
+        // gates its children through its own launch-time PreToolUse hook.
         boolean reviewChildren = permissionTools && scope.reviewReads();
         Map<String, String> fileWriteEnvironment = Optional.ofNullable(environment.get("HOME"))
                 .map(home -> ImmutableMap.of("HOME", home)).orElse(ImmutableMap.of());
         return new PermissionContext(
                 taskId, worktree, scope, fileWriteEnvironment, approvals, redactor, permissionTools,
                 codeGraph, review, development, localReview, pullRequestCi, issueContext, notebook,
-                reviewChildren);
+                reviewChildren, new AtomicReference<>());
     }
 
     /** Combines the fixed capabilities' guidance for the session's instruction channel. */
@@ -457,6 +509,7 @@ public final class PermissionBroker
         if (context == null) {
             return new McpHttpResponse(401, Optional.empty());
         }
+        CodexReviewTools guarded = context.codexReviewTools().get();
         try {
             McpRequest request = objectMapper.treeToValue(body, McpRequest.class);
             return switch (request.method()) {
@@ -466,8 +519,11 @@ public final class PermissionBroker
                         new ServerInfo("bytequay", "1")));
                 case "notifications/initialized" -> new McpHttpResponse(202, Optional.empty());
                 case "ping" -> response(request.id(), ImmutableMap.of());
-                case "tools/list" -> response(request.id(), new ToolsResult(tools(context)));
-                case "tools/call" -> callTool(request, context);
+                case "tools/list" -> response(request.id(), new ToolsResult(tools(context).stream()
+                        .filter(tool -> guarded == null || guarded.mcpNames().contains(tool.name()))
+                        .collect(toImmutableList())));
+                case "tools/call" -> guarded != null && !guarded.mcpNames().contains(request.params().path("name").asText(""))
+                        ? error(request.id(), -32602, "Unknown tool") : callTool(request, context);
                 default -> error(request.id(), -32601, "Method not found");
             };
         }
@@ -1372,7 +1428,8 @@ public final class PermissionBroker
             Optional<PullRequestCiBridge> pullRequestCi,
             Optional<IssueContextBridge> issueContext,
             Optional<RepositoryContextBridge> notebook,
-            boolean reviewChildren)
+            boolean reviewChildren,
+            AtomicReference<CodexReviewTools> codexReviewTools)
     {
         private PermissionContext
         {
@@ -1382,6 +1439,7 @@ public final class PermissionBroker
             fileWriteEnvironment = ImmutableMap.copyOf(fileWriteEnvironment);
             requireNonNull(approvals, "approvals is null");
             requireNonNull(redactor, "redactor is null");
+            requireNonNull(codexReviewTools, "codexReviewTools is null");
             requireNonNull(codeGraph, "codeGraph is null");
             requireNonNull(review, "review is null");
             requireNonNull(development, "development is null");

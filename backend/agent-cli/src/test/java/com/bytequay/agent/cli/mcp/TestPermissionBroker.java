@@ -660,6 +660,66 @@ class TestPermissionBroker
     }
 
     @Test
+    void codexReviewChildTokenCanOnlyCallReadsWhileRootDynamicToolCanSave()
+            throws Exception
+    {
+        AtomicInteger reads = new AtomicInteger();
+        AtomicInteger writes = new AtomicInteger();
+        ReviewBridge review = new ReviewBridge(ImmutableList.of(
+                new ReviewTool("review_get_context", "Read review context", ImmutableMap.of("type", "object"), arguments -> {
+                    reads.incrementAndGet();
+                    return "context";
+                }, true),
+                new ReviewTool("review_finish", "Finish the review", ImmutableMap.of("type", "object"), arguments -> {
+                    writes.incrementAndGet();
+                    return "saved known-secret";
+                })), "Review only");
+        PermissionBroker broker = new PermissionBroker(
+                () -> URI.create("http://127.0.0.1:9000/mcp"), objectMapper, (taskId, query) -> "", taskId -> Optional.of(review));
+        String token;
+        try (CodeGraphRegistration registration = broker.registerTools(
+                "task-review", temporaryDirectory, AgentPermissionPolicy.AUTO,
+                (request, timeout) -> CompletableFuture.completedFuture(ProviderApprovalDecision.deny()),
+                SecretRedactor.fromEnvironment(ImmutableMap.of("OPENAI_API_KEY", "known-secret")), Optional.empty()).orElseThrow()) {
+            token = registration.token();
+            PermissionBroker.CodexReviewTools guarded = broker.guardCodexReviewToken(registration);
+            assertThat(guarded.mcpNames()).containsExactly("review_get_context");
+            assertThat(guarded.rootNames()).containsExactly("review_finish");
+            assertThat(guarded.rootTools()).singleElement().satisfies(tool ->
+                    assertThat(tool).containsEntry("type", "function")
+                            .containsEntry("name", "review_finish")
+                            .containsEntry("inputSchema", ImmutableMap.of("type", "object")));
+            JsonNode listed = broker.handle(registration.token(), objectMapper.readTree("""
+                    {"jsonrpc":"2.0","id":1,"method":"tools/list","params":{}}
+                    """)).body().orElseThrow();
+            assertThat(listed.at("/result/tools").findValuesAsText("name")).containsExactly("review_get_context");
+            JsonNode read = localReviewCall(broker, token, "review_get_context", "{}");
+            assertThat(read.at("/result/content/0/text").asText()).isEqualTo("context");
+            JsonNode blocked = broker.handle(registration.token(), objectMapper.readTree("""
+                    {"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"review_finish","arguments":{}}}
+                    """)).body().orElseThrow();
+            assertThat(blocked.at("/error/code").asInt()).isEqualTo(-32602);
+            assertThat(writes).hasValue(0);
+            assertThat(broker.callCodexReviewRootTool(token, "review_finish", objectMapper.readTree("[]"))
+                    .body().orElseThrow().at("/error/code").asInt()).isEqualTo(-32602);
+            assertThat(broker.callCodexReviewRootTool(token, "unknown", objectMapper.createObjectNode())
+                    .body().orElseThrow().at("/error/code").asInt()).isEqualTo(-32602);
+            assertThat(broker.callCodexReviewRootTool(token, "review_get_context", objectMapper.createObjectNode())
+                    .body().orElseThrow().at("/error/code").asInt()).isEqualTo(-32602);
+            assertThat(writes).hasValue(0);
+            JsonNode saved = broker.callCodexReviewRootTool(token, "review_finish", objectMapper.createObjectNode())
+                    .body().orElseThrow();
+            assertThat(saved.at("/result/content/0/text").asText()).isEqualTo("saved [REDACTED]");
+            assertThat(reads).hasValue(1);
+            assertThat(writes).hasValue(1);
+        }
+        assertThat(broker.handle(token, objectMapper.readTree("{}")).status()).isEqualTo(401);
+        assertThat(broker.callCodexReviewRootTool(token, "review_finish", objectMapper.createObjectNode())
+                .body().orElseThrow().at("/error/code").asInt()).isEqualTo(-32602);
+        assertThat(writes).hasValue(1);
+    }
+
+    @Test
     void writesOwnerOnlyConfigAndBridgesTypedApprovalRequests()
             throws Exception
     {

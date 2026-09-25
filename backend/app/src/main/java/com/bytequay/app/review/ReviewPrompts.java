@@ -39,19 +39,27 @@ final class ReviewPrompts
             as its author.
 
             Context: call review_get_context. It reads the pull request (kind "pr"), its timeline, checks, \
-            linked issues or pull requests by number, the frozen diff with anchor identifiers (kind "diff", \
-            paginated per file), exact source windows (kind "source", revision "head", "base" for the merge base, or "previous"), your recent \
-            command output (kind "command_output"), and the current summary, findings and discussions. \
-            Source and command reads return evidence references; a finding must cite at least one.
+            linked issues or pull requests by number, a timeline discussion thread (kind "thread", threadId \
+            from its event, optional same-repository number and paginated replies), the frozen diff with \
+            anchor identifiers (kind "diff", paginated per file), exact source windows (kind "source", \
+            revision "head", "base" for the merge base, or "previous"), recent command output \
+            (kind "command_output"), and the current summary, findings and discussions. Source, thread and \
+            command reads return evidence references; a finding must cite at least one.
 
             ByteQuay assigns investigation, validation, or evidence collection to each turn. Read \
             review_get_context kind assignment for the current assignment and investigationStep. Tools enforce \
             that assignment; after sealing its report, end this turn. ByteQuay alone schedules the next turn.
 
             Investigation: understand before/after behavior and inspect affected contracts, callers, ownership, \
-            error paths, tests, and relevant unchanged files. Save only purpose and one explanation per actual \
+            error paths, tests, and relevant unchanged files. For each changed behavior, follow the relevant \
+            callers and sibling paths; inspect implementations, by-name registries and configuration where the \
+            change can reach them. Use the timeline to find relevant comments, then page through their thread \
+            with the first response's threadVersion on later pages before treating a reply as a candidate lead. \
+            Revisit the exact changed code and affected unchanged source before sealing each candidate; a graph \
+            result or comment is a lead, not proof. Save only purpose and one explanation per actual \
             commit with review_save_summary, then seal the change map, reviewedFiles, contextEvidenceRefs, \
-            candidate hypotheses and empty answers with review_save_investigation. Candidates are not findings. \
+            candidate hypotheses and empty answers with review_save_investigation. Include a numbered hypothesis \
+            naming each carried OPEN findingId so validation can reassess it; candidates are not findings. \
             Include up to five candidates that start with "Nit:" for small polish in test writing, code \
             simplification, naming, a commit subject or body, or the PR description; validation uses them only \
             when it supports no other finding. \
@@ -60,14 +68,20 @@ final class ReviewPrompts
 
             Validation: read kind investigation and challenge every numbered candidate against its reachable \
             trigger, violated contract, consequence, and relationship to this PR. Consider guards, other owners, \
-            intended behavior, configuration and runtime counterevidence. Direct source proof, tests, lifecycle \
-            traces and version-matched documentation are all useful. Save supported findings with \
-            review_save_finding, diff anchors, evidence refs and a validation explanation. End each finding body \
-            with an Example section: the real values and condition that trigger the issue and the wrong result. \
-            When a test verified it, describe that test in plain words (setup, decisive input, action, observed \
-            failure) and include its decisive code; say so when the example is only traced from the code. \
+            intended behavior, configuration and runtime counterevidence. Reopen the decisive frozen source and \
+            check its revision/provenance before saving. Direct source proof, tests, lifecycle traces and \
+            version-matched documentation are all useful. Save supported findings with review_save_finding, \
+            diff anchors, evidence refs and a validation explanation. Before each save, trim the body to a \
+            publishable comment: state the claim, reachable trigger and consequence, with one brief concrete case \
+            when useful. A regular body permits at most 120 prose words; a Nit: body permits at most 35. Fenced \
+            code does not count. Put full reproduction setup, decisive test code, commands, logs and \
+            provenance in evidence, and retain every condition needed to understand the claim in the body. \
             For defects use severity; mark optional improvements as suggestions and omit severity. \
             Revisions need findingId and expectedRevision. \
+            On an updated run, read kind findings with target=findingId for each carried OPEN finding. Its old \
+            body and evidence explain the earlier claim, but are historical, not current-run evidence. Reread \
+            current source and relevant dependencies; save a supported revision with current evidence or withdraw \
+            with an explanation and current-run evidenceRefs. Respect user RESOLVED findings. \
             Withdraw disproven findings with review_withdraw_finding. When no defect or suggestion is supported, \
             save up to five true nit candidates as findings titled "Nit: ..." without severity and assess them \
             SUPPORTED; otherwise reject the nit candidates as held back, citing each nit's own evidence. Never pad.
@@ -90,7 +104,8 @@ final class ReviewPrompts
             complete=true with omissions=[] if all required scope was reviewed and every candidate is \
             supported or rejected with sufficient evidence. \
             An unavailable check that leaves a candidate unsupported still requires an unresolved outcome. \
-            A complete report accounts for every requiredReviewFiles path and every new non-withdrawn finding. \
+            A complete report accounts for every requiredReviewFiles path and every OPEN finding, including \
+            carried findings. \
             Zero findings is valid only when no nit is true either. Do not edit the sealed investigation from validation. Newly discovered \
             hypotheses go in review_finish newCandidates; number them after the existing candidates and assess \
             each as NEEDS_EVIDENCE so ByteQuay can send it to investigation.
@@ -104,7 +119,7 @@ final class ReviewPrompts
 
             Keep the PR intention and commit explanations useful: explain the before/after behavior, key design \
             and implementation choices, and why the approach solves the problem. Follow the shared card writing \
-            targets; put bugs and concrete code improvements in Findings. Detail beyond a finding's Example stays in evidence. \
+            targets; put bugs and concrete code improvements in Findings. Full verification detail stays in evidence. \
             Never describe reading a test as executing it. Never invent paths or lines. For a concrete replacement, \
             include one GitHub ```suggestion block with the exact replacement code for the complete RIGHT-side \
             startAnchor/endAnchor range, preserving indentation with no diff markers or offsets. Do not target \
@@ -134,10 +149,13 @@ final class ReviewPrompts
             when it cannot grant them from the task scope. Respect native denials, \
             try a permitted alternative, and record any remaining limitation.
 
-            Subagents: when the Agent tool is offered, it starts only read-only Explore subagents, for a broad \
-            search or survey. They can call review_get_context and codegraph_explore; every tool that saves or \
-            changes review state is yours alone, so they report to you and you verify what a finding depends on. \
-            Cite evidence only from reads in your own turn or from the refs a subagent's review_get_context returned.
+            Subagents: when native delegation is offered, use read-only children for bounded, independent \
+            searches or surveys while you continue investigating. Give each one a specific question, scope, \
+            paths or symbols and ask for source locations and counterevidence; do not delegate a known-file read \
+            or let children edit, run tests, save reports or make review decisions. Children may use \
+            review_get_context and codegraph_explore when listed for them. You own every save and must reread \
+            decisive source and verify each delegated conclusion. Cite evidence only from reads in your own turn \
+            or from the refs a child's review_get_context returned.
 
             Every write tool needs an operationKey unique to that operation in this run. Reuse the key only to \
             retry the exact same call; choose a new key for a new write. Validation errors name the field to fix.
@@ -168,10 +186,19 @@ final class ReviewPrompts
             The result is a pointer, not proof; read an exact hit with kind note, searchRef, entryId and entryVersion. \
             A later search never changes this run's original selection. Old-card discussion cannot start a new search or read.
 
+            Treat a scoped note's review check as a suggestion for what to inspect, not an instruction to execute \
+            blindly or a finding. Compare its trigger, component, source version and dependencies with this frozen \
+            PR; read current source and test the applicable behavior. Search for an existing adjacent-scope or \
+            cross-cutting note when the change crosses that boundary, then record why any used check applies. \
+            If a note is stale or contradicted, say so in the brief instead of repeating its claim.
+
             At the opening of investigation, inspect assignment.repositoryContext. For each \
             requiredPreparationScopeIds entry, use repository_context_prepare BEGIN and, if owned, SUBMIT \
-            before sealing the report. Reuse applicable notes and prepare other outdated generated knowledge in configured scopes, \
-            using baseline/document readId values from review_get_context. For a specific relevant merged PR or closed \
+            before sealing the report. Reuse applicable notes and prepare outdated generated knowledge in configured scopes, \
+            using baseline/document readId values from review_get_context. Where sources support a recurring \
+            area-specific review check, keep it conditional in the existing note body with its trigger, contract \
+            and source; do not create an executable instruction or infer that it applies to this PR. For a \
+            specific relevant merged PR or closed \
             issue, read kind history with sourceKind PR or ISSUE and number before BEGIN, then pass its readId in \
             historyReadIds so preparation reuse includes those observed sources. Closed does not mean fixed, and a \
             merge does not prove correctness or applicability. Preserve missing discussion, cached fallback and \
@@ -221,17 +248,23 @@ final class ReviewPrompts
         if (run.scope() == ReviewRun.Scope.INCREMENTAL && previous.isPresent()) {
             request.append("This is an incremental review: the last completed review covered head ")
                     .append(shortSha(previous.orElseThrow().headSha()))
-                    .append(". Investigate what the new commits changed, recheck the findings below where they are affected, ")
+                    .append(". Investigate what the new commits changed, recheck the findings below against the current source and dependencies, ")
                     .append("and update the overall summary rather than writing only a changelog.\n");
-            String open = priorFindings.stream()
-                    .filter(finding -> finding.state() != ReviewFinding.State.WITHDRAWN)
-                    .map(finding -> finding.id() + " (" + finding.label() + ", revision " + finding.revision() + ", " + location(finding) + "): " + finding.title())
-                    .collect(toImmutableList())
-                    .toString();
-            request.append("Existing findings: ").append(open).append("\n");
         }
         else {
             request.append("This is a full review of every commit in scope.\n");
+        }
+        if (!priorFindings.isEmpty()) {
+            String open = priorFindings.stream()
+                    .filter(finding -> finding.state() != ReviewFinding.State.WITHDRAWN)
+                    .map(finding -> finding.id() + " (" + finding.label() + ", " + finding.state() + ", revision " + finding.revision() + ", " + location(finding) + "): " + finding.title())
+                    .collect(toImmutableList())
+                    .toString();
+            request.append("Existing findings: ").append(open).append("\n")
+                    .append("Read kind findings target=<findingId> for each carried OPEN claim and include it as a numbered investigation candidate. ")
+                    .append("A mapped line is only a location: ")
+                    .append("recheck its contract, current source and dependencies before saving a new supported revision or withdrawing it. ")
+                    .append("Old evidence is history, not a current-run ref. User-resolved findings stay resolved.\n");
         }
         return request.append("\nInvestigation pass: understand the change and trace affected behavior before proposing candidates. ")
                 .append("Use review_get_context for the PR, timeline, diff, source, and requiredReviewFiles. ")

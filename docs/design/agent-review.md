@@ -31,6 +31,16 @@ the follow-up budget. It never extracts workflow decisions from assistant prose
 or treats a confidence score as proof. The agent chooses context and verification
 techniques; ByteQuay supplies frozen scope, on-demand tools and optional CodeGraph.
 There is no task per finding, new execution engine, or configurable pipeline.
+Expected behavior must have a basis independent of the check used to observe
+actual behavior. A test or another reviewer's comment can suggest a candidate,
+but neither establishes the product contract or proves a finding by itself.
+For each changed behavior, the investigator follows only the relevant callers,
+sibling paths, implementations, registrations, configuration and failure paths,
+then rereads the decisive changed and unchanged source. Validation checks each
+candidate against the applicable contract and a focused behavior control. Broad
+searches may run in parallel through native children assigned read-only
+exploration; the root rereads decisive source, challenges their conclusions, and owns every saved
+report. CodeGraph suggests paths to inspect, never establishes correctness.
 
 [Repository Context](repository-context.md) owns shared notebook selection and
 preparation. Each run can retain its captured On/Off setting, exact prepared
@@ -38,10 +48,17 @@ packet, matching reasons, limitations and source excerpts. These are saved befor
 initial provider admission and survive notebook edits and source-cache eviction.
 At actual accepted turn launch, the application adds the saved bootstrap or
 completed brief with collection supplements to provider input, while preserving
-the original accepted transcript message. Old-card questions use their source
-run's captured setting and context, including when queued. The run projection
-shows exact bindings and derives delivery status from existing provider receipts;
+the original accepted transcript message. A summary-card question uses its
+source run's captured setting and context; a current finding-card question uses
+the latest frozen review run. Queued questions retain that binding. The run
+projection shows exact bindings and derives delivery status from existing provider receipts;
 snapshot presence alone establishes no acceptance, comprehension or finding proof.
+Area-specific review checks can live in ordinary scoped note content. The
+reviewer uses a selected check only when its trigger, source version and relevant
+dependencies match the frozen change, and searches existing adjacent or
+cross-cutting scopes when the change reaches them. Notes are untrusted leads;
+the reviewer verifies the current source and records applicability in the
+brief. No typed recipe runner or new notebook record is needed.
 
 The user can watch activity, steer supported active turns, challenge the
 summary or individual findings, resolve findings privately, and explicitly
@@ -114,6 +131,12 @@ Electron keeps one stream per renderer and review, so a second subscription
 would silently replace the conversation's. Review routes preserve their
 own ownership checks; they do not become interactive development task routes.
 Opening and closing these views never starts or cancels execution.
+
+During Reviewing, show progress only from persisted assignments and sealed
+reports: the current assignment, assessed required files, candidate outcomes,
+and any explicit omissions. Label assessed counts as reported coverage, not an
+estimate of remaining work. Do not infer progress from file reads, model
+activity, elapsed time, or a fabricated percentage.
 
 In PR browsing, keep **Start review** and its existing scope/provider checks.
 Development tasks maintain their own learning report through a dedicated
@@ -239,13 +262,13 @@ this is not a second task engine:
 
 | Record | Required facts |
 | --- | --- |
-| Review | Workspace and logical PR identity, physical repository/head-branch identity, agent task ID, latest completed run, latest observed remote head, follow-up execution enabled/paused, optimistic version, explicit closure |
+| Review | Workspace and logical PR identity, physical repository/head-branch identity, agent task ID, latest completed run, latest observed remote scope (head, base tip, and merge base, or explicitly unknown), follow-up execution enabled/paused, optimistic version, explicit closure |
 | Run | Review ID, full/incremental scope, frozen base tip and merge base, head SHA, prior successful reviewed head if any, turn IDs, ordered assignments, latest investigation, optional context snapshot with sealed contributions and immutable delivery bindings, accepted result/coverage, terminal outcome |
 | Assignment | Consecutive number, investigation/validation/evidence-collection kind, reporting-repair attempt, immutable report when sealed |
 | Investigation | Change map, distinct assessed changed-file paths, captured supporting context refs, numbered hypotheses, evidence-request answers, latest validation conclusions |
 | Validation | Sealed investigation step number, assessment of every candidate, newly discovered hypotheses, coverage, blocking omissions and verification warnings |
 | Summary | Run ID, revision, purpose, actual commit explanations |
-| Finding | Stable ID, source run, immutable anchor mapping, title/body, evidence references, current revision, local resolution/withdrawal and reason, revalidation result for later runs |
+| Finding | Stable ID, origin run ID, current anchor, title/body, copied evidence, current revision, local resolution/withdrawal and reason, last validated head SHA and outdated flag; current-run validation binds the exact finding revision |
 | Discussion message | Stable ID, review and summary-card/finding target, author, body, target revision/run, correlated task input/turn or reply, delivery outcome |
 | Outgoing draft/publication | PR/account-owned draft usable without Agent Review; stable item ID, MANUAL or AGENT_FINDING source, optional finding ID/revision, frozen location, user-editable body/version, inclusion, review body/event, exact publication attempt/payload and returned remote identities |
 | Local run | Task (a review's runs are its task's runs), ordinal, USER or AGENT initiator, class/method/command scope and selector, source head/local paths/fingerprint at start, status from runner facts only, bounded output and per-test results |
@@ -312,11 +335,21 @@ must say what was changed and be checked against the original snapshot.
 
 ### Updating the mapped branch
 
-An active review observes remote heads through the existing backend PR-refresh
-path and shows when new commits are available. Refresh does not move the checkout
-or start another review. Only an explicit user **Update review** or **Resume**
-action may synchronize it. Fetch the newest head for that action; never interrupt
-an active investigation or move its worktree beneath it.
+An active review of an open PR must observe the remote head, base tip, and merge
+base as one scope. The existing PR-detail refresh event reports only the head;
+extend that observation with a read-only base-tip resolution and merge-base
+calculation, or report scope freshness as unknown. An unchanged observed head
+alone cannot establish that the base is unchanged. Show when any observed part
+differs from the accepted run's frozen scope, including a changed base with an
+unchanged head. Retained closed/merged runs stay bound to their historical
+scope. Refresh does not move the checkout or start another review. Only an
+explicit user **Update review** or **Resume** action may synchronize it. Fetch
+the newest head and base for that action; never interrupt an active
+investigation or move its worktree beneath it.
+When the head is unchanged but the base tip or merge base changed, keep the
+verified worktree head and start a full review against the newly frozen scope.
+That unchanged-head worktree is not a merged-result checkout: interactions with
+changed base code need source or executable evidence, or remain unresolved.
 
 Before syncing, require the existing task execution boundary to exclude turn
 start, queued start, tools, and cleanup. Verify provider quiescence, generated
@@ -409,6 +442,10 @@ best-effort index deletion after successful worktree cleanup. No
 review-specific graph lifecycle, forced graph use, or extra refresh tool. Graph
 failure never fails review execution or invalidates an otherwise complete
 review.
+The review prompt recommends a focused graph query when a changed contract may
+have indirect callers, sibling implementations, registration paths or
+configuration consumers. The agent still opens the current source and checks
+coverage; an absent graph does not narrow the review obligation.
 
 ## 5. Context, anchors, and evidence
 
@@ -426,10 +463,11 @@ preparation activity derives from saved operation receipts/observations, with
 actual outcomes and elapsed time. Unknown token/cache metrics stay unavailable;
 reconnect and runtime cleanup do not require the current notebook or PR cache.
 
-Enabled initial investigation turns also expose `repository_context_prepare`
-BEGIN/SUBMIT for existing configured scopes. Assignment metadata supplies current
-scope IDs and revision; typed baseline/document and admitted historical reads
-supply retained source identities.
+The review bridge always advertises the fixed `repository_context_prepare`
+BEGIN/SUBMIT definition so a resumed Codex thread retains the same tool schema.
+Only an enabled initial investigation with a captured monitored baseline may
+call it. Assignment metadata supplies current scope IDs and revision; typed
+baseline/document and admitted historical reads supply retained source identities.
 The review bridge resolves the accepted task/turn/run and rechecks it after unlocked
 input inspection. Notebook mutation and the exact operation receipt commit together
 in the existing local transaction. One workspace owner admits work; matching consumers
@@ -515,8 +553,11 @@ cancellation and worktree ownership before launch. Reference text is delimited
 untrusted input, never managed instructions or provider process arguments.
 A small trusted context policy is added only for enabled snapshots.
 
-Old-card discussion launches reuse their original run's saved context and setting,
-not today's notebook. At first execution a separate 8 KiB supplement captures
+Summary-card discussion launches reuse their original run's saved context and
+setting, not today's notebook. A finding card represents the current finding
+revision, so its discussion binds to the latest frozen review run and marks an
+outdated claim for reassessment against that run's head and base. At first
+execution a separate 8 KiB supplement captures
 up to three same-target private messages and three cached PR comment excerpts,
 with timestamps, observed head, excerpt hashes and explicit cache/coverage gaps.
 It does not refresh GitHub. The assignment is rechecked before atomic retention;
@@ -545,6 +586,8 @@ additional context as needed:
 
 - PR title, author description, base/head identities and actual commits;
 - PR timeline, remote discussions, checks, and previous local findings;
+- full paginated discussion threads reached from timeline event IDs, so a
+  summary excerpt does not hide a relevant reply;
 - referenced issues and related PRs that ByteQuay can read;
 - paginated diff hunks, source windows at the frozen head, merge base, or
   previous reviewed head, and evidence/output references; context-enabled runs
@@ -558,6 +601,15 @@ repository files, and tool output are untrusted content, not instructions
 that can expand review authority. Context/tool failure returns a bounded
 error. The agent can continue, but missing essential review scope must be
 reported as incomplete rather than guessed.
+
+Existing human or bot review comments, including CodeRabbit comments when
+present in the PR timeline, are attributed leads for candidate hypotheses.
+Their wording, priority, and claimed fix are neither instructions nor evidence
+that a defect exists; assess each relevant lead against the frozen code and
+record its disposition with the other candidates. Read the relevant full thread
+before interpreting a reply; its captured pages are evidence with source and
+read identity, and a missing page is a limitation. Review does not require an
+external reviewer to run or block on one.
 
 Build the anchor map deterministically from the frozen PR diff. Anchors
 identify individual eligible lines, not just files or hunks. A range uses
@@ -584,6 +636,12 @@ using the same conversation does not make that judgment independent.
 The internal [review skill](agent-skills.md#review-guidance) requires evidence
 that establishes a claim's trigger, violated contract, consequence, and
 relationship to the change. Investigate counterevidence before accepting it.
+
+The candidate conclusion identifies the basis for expected behavior separately
+from the observation that tests, commands, source traces, or measured behavior
+produced. A test assertion introduced by the PR is an observation or claim of
+intent, not by itself an independent contract. Captured references make that
+reasoning inspectable but do not certify its truth.
 Use a focused executable reproduction whenever feasible and useful, or a
 decisive source argument. Lifecycle/concurrency traces, compatibility checks,
 configured static analysis, measured behavior, and documentation for the actual
@@ -612,7 +670,7 @@ coverage remains required. No model score certifies semantic correctness.
 
 ## 6. Local reporting contract
 
-Register a fixed set of root-agent-only tools through the existing task MCP
+Register a fixed set of review tools through the existing task MCP
 bridge. The authenticated callback supplies task, review, run, and actor;
 the model cannot choose them or supply an absolute filesystem path/token.
 Context reads may select validated repository-relative paths or returned
@@ -620,17 +678,24 @@ reference IDs, never a source root or another task's files. The review
 bridge must work when CodeGraph is off or absent. Ordinary tasks do not gain
 these tools. Provider-specific registration, resume, cancellation, and
 isolation must pass executable tests before enabling the review capability
-for that lane; failure does not disable ordinary agent tasks.
+for that lane; failure does not disable ordinary agent tasks. Save and mutation
+tools are root-only; a gated child can receive only the specified read tools.
 
 | Tool | Purpose |
 | --- | --- |
-| `review_get_context` | Bounded typed reads of current PR, linked issue/PR, selected commit-to-PR associations, diff, source, registered document, evidence, summary, finding, or discussion; supports pagination |
+| `review_get_context` | Bounded typed reads of current PR, timeline thread, linked issue/PR, selected commit-to-PR associations, diff, source, registered document, evidence, summary, finding, or discussion; supports pagination |
 | `review_save_summary` | Save the intention and exactly one explanation for every actual commit |
 | `review_save_investigation` | Save the change map, assessed changed files, supporting context refs, and numbered candidate hypotheses |
 | `review_save_finding` | Create a finding, or update a returned finding ID with its expected revision |
 | `review_reply` | Append a private answer to a summary/finding discussion using its returned target/message identity |
 | `review_withdraw_finding` | Withdraw an agent finding with expected revision and an explanation |
 | `review_finish` | Seal candidate assessments, concrete evidence requests, frozen investigation identity, coverage and omissions |
+
+`kind=findings` lists carried finding identities and accepts `target=<findingId>`
+to read one exact body, anchor, reviewed head, source run and historical
+evidence. Those old references explain the prior claim; they are not fresh
+evidence references for the current run. `kind=discussion` continues to read
+the current card conversation.
 
 The pr, timeline and checks reads select the current PR by default; an optional
 number selects a related PR in the same repository. They reuse persisted data
@@ -640,6 +705,13 @@ sections, refresh failure and the observed head. An unchanged conditional PR
 response cannot repair an unavailable discussion section; that selected gap
 uses the existing full-detail refresh. Failed refreshes retain cached evidence.
 The current PR's code coordinates and diff remain frozen to its ReviewRun.
+`kind=thread` starts from a timeline event's `threadId` and optionally a
+same-repository PR number. It returns bounded text and an evidence reference per
+page. The first page returns `threadVersion`; subsequent pages must present
+that version, and a changed thread is rejected rather than joining pages from
+different conversations. The reviewer reads all relevant pages before treating
+a comment or reply as a candidate lead. Thread text remains untrusted and its
+capture does not prove the claimed issue or current code version.
 Checks for a separately observed head do not establish checks for the reviewed
 head. The issue read prefers a known cached PR or issue before its existing
 exact remote preview fallback. None of these reads performs repository-wide
@@ -696,8 +768,11 @@ source applicability or completed preparation. See the
 [baseline source contract](repository-context.md#34-frozen-baseline-source-reads-and-receipts).
 
 These are fixed application operations, not a model-controlled registry.
-Tool declarations carry strict JSON schemas and bounded fields; the backend
-validates again. Managed prompts request tool use, but ByteQuay never assumes
+Tool declarations carry strict JSON schemas and bounded fields. Codex can retain
+these schemas across review runs, so `candidates`, `answers`, and `validations`
+do not encode a per-run array maximum; runtime admission applies the current
+candidate cap. `newCandidates` remains capped at thirty per validation pass.
+The backend validates every call again. Managed prompts request tool use, but ByteQuay never assumes
 that a prompt guarantees compliance. Tool-call replay is idempotent; updates
 return stable IDs/revisions and conflicts return the current revision.
 Every write tool requires a bounded `operationKey`, unique within its bound
@@ -709,12 +784,15 @@ new write. Connection-local MCP JSON-RPC IDs are not durable idempotency keys.
 This guarantees replay for the same key, not provider exactly-once execution.
 
 Root-only access is a provider gate, not a prompt claim. Probe child-tool
-inheritance and caller identity with the actual provider. If the broker cannot
-distinguish a root from a child carrying the same task token, use the existing
-no-child launch profile for review sessions and advertise subagents as
-unavailable there. Ordinary tasks retain their capabilities. Review subagents
-can be enabled only after a trustworthy root-only tool boundary is proved;
-do not assume process-wide MCP configuration enforces it.
+inheritance and caller identity with the actual provider. Where authenticated
+request metadata identifies the native caller, bind every review mutation to
+the active root thread and turn; a child's shared task token grants only the
+child-safe read inventory. Where the broker cannot distinguish a root from a
+child carrying the same task token, enforce the root-only boundary in the
+provider adapter and deny native child approvals before any root permission
+shortcut. Use the no-child review launch profile if that boundary cannot be
+verified. Ordinary tasks retain their capabilities. Process-wide MCP
+configuration alone does not establish caller identity.
 
 That boundary is proved for the Claude lane. A probe of the Claude CLI with a
 stand-in MCP write tool showed that a read-only `Explore` child inherits every
@@ -741,10 +819,41 @@ under the gate above. It disables slash commands and refuses Skill, Workflow
 and SendMessage before approval, and refuses Agent and Task wherever the gate
 is absent: unattended, text-only and read-only sessions. Other native
 delegation, resumed children, and newly introduced provider workflow tools are
-therefore not inherited from the ordinary task profile. Codex reviews keep
-their no-child launch profile until the same boundary is proved for Codex. The
-review projection reports nested agents from the lane: available for a gated
-Claude review, unavailable for Codex.
+therefore not inherited from the ordinary task profile.
+
+Codex separates child-readable context from root reporting. From Codex 0.156.1,
+`PreToolUse` supplies `agent_id` to distinguish
+child calls. The app-server `thread/start` and `thread/resume` config sets the
+runtime-only `bypass_hook_trust=true` override for this isolated review session;
+the Codex process launch flag alone does not activate the hook in an app-server
+thread. Before each review turn, ByteQuay verifies that its review hook is the
+sole discovered hook and that effective MCP isolation still holds. Hook discovery
+may still label it untrusted because that listing does not include the thread's
+runtime override. On successful execution, the hook allows a child only
+`review_get_context` and optional `codegraph_explore` and refuses shell,
+edit, save, other MCP and delegation calls. A Codex child explores through
+those bounded tools. In a guarded review, the task MCP endpoint advertises
+only those child-safe reads; ByteQuay registers root-only review operations as
+App Server dynamic tools and binds each call to the root thread and exact active
+turn. Native child approval requests
+are refused before any root-only file-grant shortcut. This is a layered tool
+boundary in the shared workspace-write sandbox, not filesystem isolation:
+Codex 0.156.1 may continue a tool call if its `PreToolUse` hook fails or times
+out. V2 role selection is not a reliable gate, so the policy checks caller
+identity rather than trusting an explorer role label. Unsupported versions use
+the no-child review profile. A failed hook or isolation verification on an
+otherwise supported version aborts that review session rather than relaunching
+with weaker settings. The projection reports nested agents as available only
+when the provider gate is active. In either lane, the root agent rereads
+decisive code, validates child conclusions and owns all review writes.
+
+A new guarded Codex review stores session contract version 2 for the dynamic
+root tools. Codex cannot add those tool definitions to an already saved thread:
+an existing version 1 review resumes with its original MCP tool layout and the
+no-child profile. A review without a supported child gate also uses version 1.
+Resume accepts only the matching saved contract version and tool layout; a
+version 2 review fails clearly if the installed Codex version no longer supports
+its child gate.
 
 A new inline finding has this logical shape:
 
@@ -778,7 +887,10 @@ The model does not supply GitHub request parameters, path/side/line mappings,
 commit SHA for publication, or publication authority.
 
 `review_save_investigation` seals a bounded change map, distinct paths from the
-frozen scope, captured evidence IDs, and up to thirty candidate hypotheses.
+frozen scope, captured evidence IDs, and candidate hypotheses. A run permits
+thirty new hypotheses plus one slot for each finding originating in a prior run,
+including resolved or withdrawn findings so its capacity cannot shrink during
+the run. The tool schema stays stable while runtime admission enforces this cap.
 Only an investigation or evidence-collection assignment can call it. The
 summary must account for every actual commit first. Subsequent collection
 preserves candidate text and one-based numbering, appends hypotheses requested
@@ -788,7 +900,9 @@ limitation. An answer without evidence must explain why it is unavailable.
 
 A validation assignment cannot rewrite its sealed input. `review_finish` names
 that investigation's step number and assesses every candidate with an outcome,
-conclusion, evidence references, and counterevidence considered:
+conclusion, evidence references, and counterevidence considered. The conclusion
+separates the expected contract's basis from the observed behavior and notes
+when either remains uncertain:
 
 - `SUPPORTED` names the exact saved finding ID and revision. Its references
   include every artifact cited by that finding.
@@ -828,15 +942,16 @@ suggestions in intention or commit explanations. The editable outgoing draft
 preserves the block and selected range. Publication still requires a direct
 user action.
 
-A finding body ends with an **Example** section that makes the issue concrete:
-the real values and condition that trigger it and the wrong result, for a defect
-in the changed code or in existing code the change exposes. When a test or
-reproduction verified the issue, the example describes that test in plain words,
-such as the table and column used, the boundary value, the statement run, and
-the error returned, and is followed by the decisive test code in a fenced block.
-An example that was only traced from the code says so. The example is part of
-the Markdown body, so it renders in the card and travels with a published
-comment; it needs no separate field.
+Before the first save, the agent rereads each finding body as a publishable
+comment: specific claim, reachable trigger, consequence, and a brief real case
+when it helps. It retains material conditions but moves full reproduction setup,
+test code, commands, logs and source provenance into evidence. The backend
+rejects a regular body over 120 prose words or a `Nit:` body over 35, excluding
+fenced code, with a recoverable instruction to shorten it before
+storage. The existing 6000-character field bound remains. An `**Example**`
+heading is optional; no test code is required in the outgoing body. Evidence
+distinguishes executed behavior from source tracing. Replies follow the same
+clear claim/condition style without a separate length cap.
 
 When validation supports no defect and no suggestion, the review reports up to
 five nits instead of an empty result: small, concrete polish in test writing,
@@ -919,7 +1034,7 @@ states are introduced.
 Every tool closure captures the trusted accepted turn at registration. Calls
 must still belong to that active, uncancelled turn and its exact current
 assignment. An earlier turn cannot gain the next step's permissions. User
-question turns bind to their source run and selected discussion; generic user
+question turns bind to their selected discussion and its assigned run; generic user
 turns have discussion privileges only. Tools and orchestration share one review
 lock. The review permission profile remains enabled even when no active turn
 can receive a reporting assignment.
@@ -960,7 +1075,10 @@ Findings from unfinished/failed runs remain provisional.
 ## 7. Discussion and progress
 
 **Ask agent** includes the selected summary-card/finding identity and revision,
-reviewed code version, user message, and relevant discussion context. It does
+reviewed code version, user message, and relevant discussion context. A summary
+card uses its source run; a current finding card uses the latest frozen review
+run. When a finding is outdated, the question explicitly asks the agent to
+reassess its claim against the current base and head before standing behind it. It does
 not dump every PR comment into every prompt. Idle input starts a turn; busy
 input goes into the existing durable queue with a visible queued status.
 Route answers back to the selected discussion through `review_reply`; do not
@@ -995,7 +1113,8 @@ Classify each accepted input as a review-run request or a targeted discussion.
 A discussion turn replies to its recorded target and may revise that summary
 or finding; it does not need to resubmit the entire PR review or call
 `review_finish`, and it cannot advance the successful-head cursor. Bind its
-tools to that target's source run and current permitted revisions. If the
+tools to the summary target's source run or the current finding target's latest
+frozen run, with that run's permitted revisions. If the
 worktree has advanced, retrieve old source through the frozen snapshot
 instead of claiming the current working files are the version under debate.
 
@@ -1048,12 +1167,27 @@ anchor space; the incremental delta alone is not that space.
 
 Use a full review when there is no successful predecessor, ancestry cannot
 be proved, history was rewritten, or the base/merge base changed. Full-scope
-selection does not authorize unsafe worktree replacement (Section 4).
+selection does not authorize unsafe worktree replacement (Section 4). An
+unchanged head or identical PR patch does not establish that the reviewed
+behavior is unchanged when the base tree or a relevant dependency changed.
 
-Reuse unchanged finding locations only when deterministic mapping and source
-validation prove them. An ambiguous/missing mapping is outdated and not
-publishable until re-anchored and revalidated. Disappearance from an agent's
-new report is not resolution. Ask the agent to update/withdraw existing IDs;
+Treat anchor mapping and semantic reassessment as separate checks. Deterministic
+mapping and source validation may recover a finding's location in the current
+diff, but do not establish that its trigger, violated contract, or consequence
+still holds. The agent reads each carried OPEN finding's exact prior body and
+evidence, includes it as a numbered investigation candidate, then rereads
+current source and relevant dependencies. It saves a supported revision with
+current-run evidence or withdraws the claim with an explanation and current-run
+evidence references; a user RESOLVED finding remains resolved. A finding from an
+earlier reviewed tree remains pending and is not
+publishable until the agent reassesses it against the current frozen head, base,
+and relevant source dependencies with evidence. An ambiguous/missing mapping is
+outdated and also needs re-anchoring. If dependency evidence is unavailable,
+retain the finding as unresolved rather than treating its mapped line as proof.
+If the user reopens a pending finding, explicit Update or Resume starts its
+reassessment even when the observed head and base have not changed again.
+Disappearance from an agent's new report is not resolution. Ask the agent to
+update/withdraw existing IDs;
 deduplicate exact repeats and surface possible semantic duplicates instead
 of silently merging different findings.
 
@@ -1087,16 +1221,30 @@ has a separate stable item identity and body. Editing the draft never edits
 the agent's finding. In Changes, show the finding card with its linked draft
 state/preview rather than another indistinguishable pending clone. Manual
 comments remain ordinary draft items. Both PR views show the same link state.
+An unanchored whole-PR suggestion or nit can become editable review prose in
+the outgoing review body. That prose is not a finding-backed inline draft and
+does not carry a finding-specific send-time reassessment gate. It still belongs
+to the user's exact final preview and direct submit action.
 
-At publication, validate the exact PR/account, current remote head, finding
-revision, body, and diff location again. A changed head/revision requires
-revalidation and renewed user confirmation, not best-effort line guessing.
+Before publication, obtain a fresh remote scope for the exact PR/account:
+head, base tip, merge base, and the overall publication diff. A locally cached
+head or a previously displayed draft is not a fresh remote check. Validate
+each inline item's body, revision and diff location against that scope; validate
+the exact review prose and event as part of the final preview. For a
+finding-backed inline draft, compare the current scope with its last accepted
+review and its last validated head/outdated state. A changed scope or finding
+revision requires evidence-backed semantic reassessment and renewed user
+confirmation, not best-effort line guessing. A
+current mapped anchor without that reassessment is not eligible. A manual draft
+needs deterministic location revalidation and renewed user confirmation after
+a scope change, but no agent reassessment.
 Derive GitHub path, side, line/range, and commit parameters in code.
 Resolve the PR's local ID and repository/number together server-side; reject
-a mixed-PR or mixed-head batch. Apply these guards to manual draft comments
-in the same outgoing review as well as promoted agent findings.
-Publication requests identify local draft/item IDs, expected versions, and
-the user's chosen review text/event, not raw agent-generated GitHub fields.
+a mixed-PR or mixed-head batch. Apply the common PR and location guards to
+manual draft comments in the same outgoing review as promoted agent findings.
+Publication requests identify the prepared preview, local draft/item IDs,
+expected versions, and the user's chosen review text/event, not raw
+agent-generated GitHub fields.
 For a manual comment created in a selected commit-range view, require a
 deterministic mapping to the current overall PR publication diff and confirm
 that location before inclusion; otherwise keep it local and non-publishable.
@@ -1110,6 +1258,17 @@ it. Store returned remote IDs. An uncertain result requires reconciliation,
 not automatic reposting. Once actually published, local resolution does not
 delete or resolve the GitHub thread; remote changes require a separate user
 action.
+
+Add an application-prepared final preview for both send routes. It must contain
+the exact payload to be reserved: destination PR/account, review body and event,
+included item bodies, and resolved locations and revisions. Bind the user's
+Submit review or Post comment now action to that preview and its draft version.
+Immediately before reservation, recheck the remote scope and derive the payload
+again. If the scope, input, or derived location differs, refuse the send, show a
+refreshed preview, and require a new direct user action. A preview assembled
+only from renderer-held comments, or a draft-version check against a cached
+head, does not meet this authorization boundary. Saving a draft or approving an
+earlier version grants no send authority.
 
 Single Post comment now and batch Submit review use the same item reservation.
 If the finding already has a draft item, preview that user-edited body and
@@ -1183,7 +1342,6 @@ activity, capability-based queue/steer, incremental runs, and explicit user
 publication. Reuse existing PR refresh cadence for observed head changes.
 
 Defer a fourth column, new global review inbox, cross-PR agent memory,
-Codex review subagents, which lack a proved root-only tool boundary,
 independent reviewer/verifier multi-agent execution, arbitrary application tool
 registry, automatic force-push worktree repair, automatic commit/push,
 provider-history editing, and a new scheduler or graph framework. Do not

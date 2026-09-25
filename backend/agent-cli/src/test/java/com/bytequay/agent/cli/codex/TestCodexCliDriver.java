@@ -246,6 +246,7 @@ class TestCodexCliDriver
                 assertThat(thread.path("config").path("features").path("guardian_approval").asBoolean()).isFalse();
                 assertThat(thread.path("config").path("features").path("multi_agent").asBoolean()).isFalse();
                 assertThat(thread.path("config").path("features").path("multi_agent_v2").asBoolean()).isFalse();
+                assertThat(thread.path("config").path("features").path("hooks").asBoolean()).isFalse();
                 assertThat(thread.path("config").has("mcp_servers")).isFalse();
                 JsonNode request = server.turnRequests().getFirst();
                 assertThat(request.path("approvalPolicy").asText()).isEqualTo("on-request");
@@ -2791,7 +2792,7 @@ class TestCodexCliDriver
     void privateReviewPolicyRestrictsInitialAndResumedSessionsWithoutReportingTools()
             throws Exception
     {
-        ScriptedProcessSupervisor supervisor = new ScriptedProcessSupervisor(objectMapper);
+        ScriptedProcessSupervisor supervisor = new ScriptedProcessSupervisor(objectMapper, "codex-cli 0.156.1", false);
         supervisor.reportModelVersion(Optional.of("v2"));
         supervisor.configBody = "{\"mcp_servers\":{\"bytequay\":{\"url\":\"" + MCP_ENDPOINT + "\",\"default_tools_approval_mode\":\"approve\"}}}";
         supervisor.mcpStatuses = "{\"data\":[{\"name\":\"bytequay\",\"pluginId\":null}],\"nextCursor\":null}";
@@ -2820,6 +2821,7 @@ class TestCodexCliDriver
                         .noneMatch(argument -> argument.startsWith("auto_review.policy="));
                 assertThat(supervisor.serverArgv().getLast()).contains("mcp_servers.bytequay.default_tools_approval_mode=\"approve\"");
                 assertThat(thread.path("config").path("features").path("multi_agent_v2").asBoolean()).isFalse();
+                assertThat(thread.path("config").path("features").path("hooks").asBoolean()).isFalse();
                 assertThat(supervisor.environments().getLast())
                         .doesNotContainKeys("GH_CONFIG_DIR", "SSH_AUTH_SOCK", "GH_TOKEN", "GITHUB_TOKEN");
                 assertThat(thread.path("config").path("shell_environment_policy").path("include_only"))
@@ -2887,10 +2889,79 @@ class TestCodexCliDriver
     }
 
     @Test
+    void guardedReviewUsesReadOnlyMcpAndStickyRootToolsAcrossResume()
+            throws Exception
+    {
+        ScriptedProcessSupervisor supervisor = new ScriptedProcessSupervisor(objectMapper, "codex-cli 0.156.1", false);
+        supervisor.reportModelVersion(Optional.of("v2"));
+        supervisor.configBody = "{\"mcp_servers\":{\"bytequay\":{\"url\":\"" + MCP_ENDPOINT + "\",\"default_tools_approval_mode\":\"approve\"}}}";
+        supervisor.mcpStatuses = "{\"data\":[{\"name\":\"bytequay\",\"pluginId\":null}],\"nextCursor\":null}";
+        ReviewBridge review = new ReviewBridge(ImmutableList.of(
+                new ReviewTool("review_get_context", "Read review context", ImmutableMap.of("type", "object"), arguments -> "context", true),
+                new ReviewTool("review_finish", "Finish review", ImmutableMap.of("type", "object"), arguments -> "finished")), "Review privately");
+        PermissionBroker broker = new PermissionBroker(
+                () -> URI.create(MCP_ENDPOINT), objectMapper, (taskId, query) -> "", taskId -> Optional.of(review));
+        CodexHome.prepare(codexHome());
+        CodexCliDriver driver = new CodexCliDriver("/fake/codex", "0.153.4", objectMapper, supervisor,
+                ImmutableMap.of("HOME", worktree.toString()), codexHome(), broker, Duration.ofSeconds(30));
+        Optional<AgentSessionRef> reference = Optional.empty();
+        for (int index = 0; index < 2; index++) {
+            AtomicReference<ProviderApprovalRequest> approval = new AtomicReference<>();
+            try (AgentSession session = driver.open(context(reference, approval), event -> {})) {
+                assertThat(session.reference().contractVersion()).isEqualTo(2);
+                assertThat(driver.reviewChildAgents(Optional.of(session.reference()), Optional.empty())).isTrue();
+                assertThat(driver.reviewChildAgents(Optional.of(new AgentSessionRef(
+                        session.reference().laneId(), 1, session.reference().providerValue())), Optional.empty())).isFalse();
+                assertThat(driver.reviewChildAgents(Optional.of(session.reference()), Optional.of("unknown-model"))).isFalse();
+                JsonNode thread = supervisor.servers().getLast().threadRequests().getFirst();
+                assertThat(thread.path("config").path("bypass_hook_trust").asBoolean()).isTrue();
+                assertThat(thread.path("config").path("features").path("multi_agent_v2").asBoolean()).isTrue();
+                if (index == 0) {
+                    assertThat(thread.path("dynamicTools").findValuesAsText("name")).containsExactly("review_finish");
+                }
+                else {
+                    assertThat(thread.path("dynamicTools").isMissingNode()).isTrue();
+                }
+                List<String> arguments = supervisor.serverArgv().getLast();
+                assertThat(arguments).contains("mcp_servers.bytequay.tools={\"review_get_context\"={approval_mode=\"approve\"}}");
+                String token = supervisor.environments().getLast().get("BYTEQUAY_CODEGRAPH_TOKEN");
+                JsonNode listed = broker.handle(token, objectMapper.readTree("""
+                        {"jsonrpc":"2.0","id":1,"method":"tools/list","params":{}}
+                        """)).body().orElseThrow();
+                assertThat(listed.at("/result/tools").findValuesAsText("name")).containsExactly("review_get_context");
+                AppServerProcess server = supervisor.servers().getLast();
+                session.start(command("Review privately"));
+                server.emit("{\"id\":201,\"method\":\"item/tool/call\",\"params\":{"
+                        + "\"threadId\":\"thread-1\",\"turnId\":\"" + server.activeTurn() + "\","
+                        + "\"callId\":\"root-write\",\"tool\":\"review_finish\",\"namespace\":null,\"arguments\":{}}}");
+                awaitCondition(() -> server.result(201) != null);
+                assertThat(server.result(201).path("success").asBoolean()).isTrue();
+                assertThat(server.result(201).at("/contentItems/0/text").asText()).isEqualTo("finished");
+                server.emit("{\"id\":203,\"method\":\"item/tool/call\",\"params\":{"
+                        + "\"threadId\":\"thread-1\",\"turnId\":\"stale-turn\","
+                        + "\"callId\":\"stale-write\",\"tool\":\"review_finish\",\"namespace\":null,\"arguments\":{}}}");
+                awaitCondition(() -> server.error(203) != null);
+                server.emitV2Started("child-thread", "/fixture-child");
+                server.emit("{\"id\":202,\"method\":\"item/tool/call\",\"params\":{"
+                        + "\"threadId\":\"child-thread\",\"turnId\":\"child-turn\","
+                        + "\"callId\":\"child-write\",\"tool\":\"review_finish\",\"namespace\":null,\"arguments\":{}}}");
+                awaitCondition(() -> server.error(202) != null);
+                server.emit("{\"id\":204,\"method\":\"item/commandExecution/requestApproval\",\"params\":{"
+                        + "\"threadId\":\"child-thread\",\"turnId\":\"child-turn\",\"itemId\":\"child-shell\","
+                        + "\"command\":\"touch file\",\"availableDecisions\":[\"accept\",\"decline\"],"
+                        + "\"startedAtMs\":1786884871461}}");
+                awaitCondition(() -> server.error(204) != null);
+                assertThat(approval.get()).isNull();
+                reference = Optional.of(session.reference());
+            }
+        }
+    }
+
+    @Test
     void approvesOnlyTheFixedLearningToolsOnInitialAndResumedSessions()
             throws Exception
     {
-        ScriptedProcessSupervisor supervisor = new ScriptedProcessSupervisor(objectMapper);
+        ScriptedProcessSupervisor supervisor = new ScriptedProcessSupervisor(objectMapper, "codex-cli 0.156.1", false);
         supervisor.configBody = "{\"mcp_servers\":{\"bytequay\":{\"url\":\"" + MCP_ENDPOINT + "\",\"default_tools_approval_mode\":\"approve\"}}}";
         supervisor.mcpStatuses = "{\"data\":[{\"name\":\"bytequay\",\"pluginId\":null}],\"nextCursor\":null}";
         List<String> names = ImmutableList.of("repository_context_read", "repository_context_prepare");
@@ -3823,7 +3894,7 @@ class TestCodexCliDriver
         {
             ObjectNode config = objectMapper.valueToTree(
                     CodexLaunchProfile.threadConfig(childProfile(), false, textOnlyProfile(), ciWritableRoots(),
-                            allowsGitHubCommands(), false));
+                            allowsGitHubCommands() && !hasArguments("--enable", "hooks"), hasArguments("--enable", "hooks")));
             for (String argument : argv) {
                 for (String key : ImmutableList.of("approval_policy", "approvals_reviewer")) {
                     String prefix = key + "=";
@@ -3883,6 +3954,25 @@ class TestCodexCliDriver
             return false;
         }
 
+        private String hookInventory()
+        {
+            if (!hooks.get().equals("[]") || !hasArguments("--enable", "hooks")) {
+                return hooks.get();
+            }
+            ArrayNode inventory = objectMapper.createArrayNode();
+            inventory.addObject()
+                    .put("eventName", "preToolUse")
+                    .put("handlerType", "command")
+                    .put("command", CodexReviewGate.command(CodexReviewGate.path(codexHome)))
+                    .put("matcher", ".*")
+                    .put("source", "sessionFlags")
+                    .put("sourcePath", "/<session-flags>/config.toml")
+                    .put("enabled", true)
+                    .put("async", false)
+                    .put("timeoutSec", 5);
+            return inventory.toString();
+        }
+
         @Override
         public String launchId()
         {
@@ -3940,7 +4030,7 @@ class TestCodexCliDriver
                         + "\",\"skills\":" + skills.get() + ",\"errors\":[]}]}");
                 case "hooks/list" -> respond(id, "{\"data\":[{\"cwd\":\""
                         + message.path("params").path("cwds").get(0).asText()
-                        + "\",\"hooks\":" + hooks.get() + ",\"errors\":[],\"warnings\":[]}]}");
+                        + "\",\"hooks\":" + hookInventory() + ",\"errors\":[],\"warnings\":[]}]}");
                 case "thread/list" -> {
                     String parent = message.path("params").path("parentThreadId").asText();
                     ObjectNode response = objectMapper.createObjectNode();

@@ -49,6 +49,12 @@ type ReviewStatusView = {
   busy: boolean;
 };
 
+type ReviewProgressView = {
+  phase: string;
+  facts: string[];
+  gaps: string[];
+};
+
 export function latestRun(review: AgentReviewDto): ReviewRunDto | null {
   return review.runs.length === 0 ? null : review.runs[review.runs.length - 1];
 }
@@ -155,6 +161,57 @@ export function reviewStatus(review: AgentReviewDto): ReviewStatusView {
   return { status: 'running', label: 'Reviewing', tone: 'running', detail: 'preparing the review', chip: 'Reviewing', busy: true };
 }
 
+/** Summarizes saved reports from the latest attempt without estimating work or treating file counts as proof. */
+export function reviewProgress(review: AgentReviewDto): ReviewProgressView | null {
+  const run = latestRun(review);
+  if (run === null) return null;
+  const step = run.steps.at(-1);
+  const phaseName = step === undefined ? 'Preparation' : {
+    INVESTIGATE: 'Investigation', COLLECT_EVIDENCE: 'Evidence collection', VALIDATE: 'Validation',
+  }[step.kind];
+  const phase = step === undefined && run.state !== 'RUNNING' ? 'Review pass not recorded'
+    : `${run.state === 'RUNNING' ? 'Current pass' : 'Last pass'}: ${phaseName}${step?.repair ? ' · correcting report' : ''}`;
+  const commits = new Set(run.commits.map(commit => commit.sha));
+  const explained = new Set(run.summary?.commits.filter(commit => commits.has(commit.sha)).map(commit => commit.sha) ?? []);
+  const facts = [`${explained.size} of ${run.commits.length} commit explanations saved`];
+  const investigationStep = run.steps.findLast(value => value.investigation !== null);
+  const investigation = investigationStep?.investigation ?? run.investigation;
+  if (investigation !== null) {
+    facts.push(`${investigation.reviewedFiles.length} changed ${investigation.reviewedFiles.length === 1 ? 'file' : 'files'} reported assessed in this run`);
+  }
+  // A new validation assignment supersedes a sealed report being corrected, even before it has a replacement.
+  const validation = step?.kind === 'VALIDATE' && step.validation === null ? undefined : run.steps.findLast(value => value.validation !== null
+    && (investigationStep === undefined || value.validation?.investigationStep === investigationStep.number))?.validation;
+  const conclusions = validation?.candidates ?? (run.steps.length === 0 ? investigation?.validations : undefined);
+  if (investigation !== null) {
+    const candidates = conclusions?.length ?? investigation.candidates.length;
+    facts.push(`${candidates} candidate ${candidates === 1 ? 'claim' : 'claims'} recorded`);
+  }
+  if (conclusions !== undefined) {
+    const supported = conclusions.filter(value => value.outcome === 'SUPPORTED').length;
+    const rejected = conclusions.filter(value => value.outcome === 'REJECTED').length;
+    if (supported + rejected > 0) facts.push(`${supported} supported · ${rejected} rejected`);
+  }
+  const coverage = run.coverage ?? validation?.coverage;
+  const gaps: string[] = [];
+  const requested = conclusions?.filter(value => value.outcome === 'NEEDS_EVIDENCE').length ?? 0;
+  if (requested > 0) gaps.push(`${requested} specific ${requested === 1 ? 'check' : 'checks'} requested`);
+  if (coverage !== undefined && coverage !== null) {
+    if (coverage.warnings.length > 0) gaps.push(`${coverage.warnings.length} unavailable ${coverage.warnings.length === 1 ? 'check' : 'checks'}`);
+    if (coverage.omissions.length > 0) gaps.push(`${coverage.omissions.length} unresolved or unreviewed ${coverage.omissions.length === 1 ? 'item' : 'items'}`);
+  }
+  if (run.state === 'ACCEPTED' && coverage?.complete === true && coverage.omissions.length === 0) {
+    facts.push('Complete review scope recorded');
+  }
+  else if (run.state === 'INCOMPLETE' || run.state === 'FAILED') {
+    gaps.push('Complete review result not accepted');
+  }
+  else if (run.state === 'STOPPED') {
+    gaps.push('Review stopped before acceptance');
+  }
+  return { phase, facts, gaps };
+}
+
 /**
  * The run's own clock: how long it has been working, or when it finished. Measured from the run's
  * recorded timestamps, never from a timer the renderer keeps.
@@ -210,16 +267,25 @@ type FindingPublication =
 /**
  * What the finding's outgoing state is, and why it cannot be published when it cannot.
  *
- * <p>Publishing is refused for a provisional result, a locally resolved or withdrawn finding, and
- * one whose lines no longer map. The backend refuses the same cases again at the send boundary.
+ * <p>Publishing is refused until the latest scope is accepted at the finding's reviewed head, or
+ * when the current pull request head has moved. The backend checks again at send time.
  */
 export function findingPublication(review: AgentReviewDto, finding: ReviewFindingDto): FindingPublication {
   const item = draftItemFor(review.draft, finding.id);
   if (item !== null && item.published) return { kind: 'published', item };
   if (finding.state === 'WITHDRAWN') return { kind: 'blocked', reason: 'The agent withdrew this finding' };
   if (finding.state === 'RESOLVED') return { kind: 'blocked', reason: 'Excluded from publication' };
-  if (finding.outdated) return { kind: 'blocked', reason: 'Not publishable until re-anchored' };
-  if (provisional(review)) return { kind: 'blocked', reason: 'Publishing unlocks when validation and complete coverage are accepted' };
+  if (finding.outdated) return { kind: 'blocked', reason: 'Not publishable until reassessed' };
+  const latest = latestRun(review);
+  if (latest === null || latest.state !== 'ACCEPTED' || !completeCoverage(latest)) {
+    return { kind: 'blocked', reason: 'Publishing unlocks when validation and complete coverage are accepted' };
+  }
+  if (latest.headSha !== finding.validatedHeadSha) {
+    return { kind: 'blocked', reason: 'This finding needs an accepted review of the current scope before publication' };
+  }
+  if (review.observedHeadSha !== null && review.observedHeadSha !== finding.validatedHeadSha) {
+    return { kind: 'blocked', reason: 'The pull request head changed; update the review before publishing' };
+  }
   if (item !== null) return { kind: 'draft', item };
   // A finding about the whole pull request has no line to comment on: it joins the review's own text instead of becoming an item.
   if (finding.path === null && review.draft !== null && review.draft.body.includes(finding.body.trim())) return { kind: 'inReviewText' };
@@ -232,7 +298,7 @@ export function findingPill(review: AgentReviewDto, finding: ReviewFindingDto): 
   if (finding.state === 'WITHDRAWN') return { text: 'Withdrawn', tone: 'neutral' };
   if (finding.state === 'RESOLVED') return { text: 'Resolved locally', tone: 'neutral' };
   if (publication.kind === 'published') return { text: 'Published', tone: 'ready' };
-  if (finding.outdated) return { text: 'Outdated', tone: 'warn' };
+  if (finding.outdated) return { text: 'Needs reassessment', tone: 'warn' };
   if (publication.kind === 'draft' || publication.kind === 'inReviewText') return { text: 'Pending · in your review', tone: 'warn' };
   return { text: 'Private', tone: 'neutral' };
 }

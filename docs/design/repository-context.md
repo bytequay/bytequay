@@ -925,6 +925,12 @@ Field rules:
   rewrite of the whole note. basis is DOCUMENTED, RECORDED_DECISION, INFERENCE,
   QUESTION, or USER_LESSON. Source IDs must resolve to retained source evidence.
   An unsupported assertion must become a QUESTION or explicitly marked inference.
+- Ordinary scope note text may include a concise conditional review check:
+  the component or change that triggers it, the contract or failure path to
+  inspect, and the source that suggests it. This is content inside the existing
+  note and claim/source structure, not a new executable recipe or checklist
+  type. Preparation must not invent a command or claim a historical fix applies
+  to the current PR.
 - Sources and quotes prove provenance, not semantic correctness. Whole-note
   citations must not conceal unsupported decisive claims.
 - Editing a generated entry makes origin USER. Generation cannot replace it.
@@ -1441,6 +1447,12 @@ notes rather than accumulating every component's content.
 Selection means relevant enough to inspect. Before a finding relies on a
 contract, the agent must check its version and conditions against original
 sources and the actual reviewed code.
+The reviewer treats a selected area-specific check as a candidate inspection,
+not as a command or validated finding. When a change crosses a component or
+configuration boundary, it may use existing `note_search` for a relevant
+adjacent or cross-cutting scope and then read the exact note version. It records
+why the check applies to the frozen PR, or why it is stale. A search hit does not
+alter the original selection or bypass source verification.
 
 ### 5.2 History algorithm
 
@@ -1880,8 +1892,12 @@ This does not delete retained provider sessions or disable model pretraining.
 Record live provider enforcement in acceptance before enabling a lane. Current
 snapshot identity and source revalidation remain required.
 
-Review remains no-child. This design makes no guarantee of independent context
-delivery to future development subagents.
+Review may use gated children for read-only exploration in a supported provider
+session. The saved review packet remains bound to the accepted root turn;
+children are directed to their allowed task-bound reads, with no independent
+context delivery guarantee for future development subagents. Codex review
+mutations require the root thread and turn; Claude uses its provider child gate
+for root-only review writes.
 
 ## 9. Storage, transactions, and cleanup
 
@@ -2548,6 +2564,11 @@ public class RepositoryContextPreparation
 notebook revision, frozen baseline and retained read IDs to the enabled initial
 investigation. `repository_context_prepare` has exactly BEGIN and SUBMIT:
 
+The review bridge advertises that fixed tool definition throughout a review,
+including disabled or later runs, because a resumed Codex thread retains its
+tool schema. Its handler admits calls only from the active initial investigation
+when the captured context is enabled and has a monitored baseline.
+
 - BEGIN accepts requestKey, expectedRevision and existing scopeIds, plus optional
   historyReadIds naming at most ten already captured same-run historical receipts.
   The selected observations participate in the admitted scope fingerprints. It
@@ -2897,7 +2918,7 @@ The implemented review boundary reuses the existing task MCP broker:
 | --- | --- | --- |
 | review_get_context | Existing review-bound turns; baseline/document/history selectors require an enabled snapshot | Read assignment, selected baseline files/documents, one merged PR or closed issue history bundle, related candidates and retained evidence |
 | repository_context_read | Root turn of the current explicit Learn task | Read its saved selection, frozen repository files/tree, registered documents and optional selected history; retain source attempts/receipts and gaps |
-| repository_context_prepare | Enabled initial review investigation or root turn of the current explicit Learn task | BEGIN existing scopes with selected source receipts, or SUBMIT a generated report using stable attempt/operation keys; retain exact operation receipts |
+| repository_context_prepare | Callable from an enabled initial review investigation with captured monitored baseline, or the root turn of the current explicit Learn task; its review definition remains advertised across runs | BEGIN existing scopes with selected source receipts, or SUBMIT a generated report using stable attempt/operation keys; retain exact operation receipts |
 | review_save_investigation | Assigned investigation or evidence collection | Seal the report and its bounded context contribution together |
 
 The operation discriminator is a closed schema, not a registry.

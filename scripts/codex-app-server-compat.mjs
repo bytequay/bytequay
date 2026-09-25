@@ -277,6 +277,21 @@ const referenceRecordBindings = [
   recordBinding("PermissionsApprovalRequest", "decode", [
     schemaSource("all", "ServerRequest", "method", "item/permissions/requestApproval"),
   ], [component("id"), component("params")]),
+  recordBinding("DynamicToolCallRequest", "decode", [
+    schemaSource("all", "ServerRequest", "method", "item/tool/call"),
+  ], [component("id"), component("params", "params", {
+    threadId: "root-thread", turnId: "root-turn", callId: "tool-call", tool: "review_finish", arguments: {},
+  })]),
+  recordBinding("DynamicToolCallParams", "decode", [
+    schemaSource("all", "DynamicToolCallParams"),
+  ], [
+    component("threadId"),
+    component("turnId"),
+    component("callId"),
+    component("tool"),
+    component("namespace"),
+    component("arguments", "arguments", {}),
+  ]),
   recordBinding("CommandApprovalParams", "decode", [
     schemaSource("all", "CommandExecutionRequestApprovalParams"),
   ], [
@@ -567,6 +582,12 @@ const referenceRecordBindings = [
   recordBinding("CommandApprovalResponse", "encode", [
     schemaSource("all", "CommandExecutionRequestApprovalResponse"),
   ], [sampledComponent("decision")]),
+  recordBinding("DynamicToolCallResponse", "encode", [
+    schemaSource("all", "DynamicToolCallResponse"),
+  ], [component("contentItems", "contentItems", [{ type: "inputText", text: "value" }]), component("success")]),
+  recordBinding("DynamicToolTextContent", "encode", [
+    schemaSource("v2", "DynamicToolCallOutputContentItem", "type", "inputText"),
+  ], [component("type", "type", "inputText"), component("text")]),
   recordBinding("FileChangeApprovalResponse", "encode", [
     schemaSource("all", "FileChangeRequestApprovalResponse"),
   ], [sampledComponent("decision")]),

@@ -28,8 +28,9 @@ import static java.util.Objects.requireNonNull;
  *
  * @param anchor the diff lines the finding is about, or empty for a finding about the whole pull
  *        request, such as a commit message or the description, which has no lines
- * @param validatedHeadSha the head at which the anchor last mapped deterministically; a later head
- *        without a proved mapping leaves the finding outdated and unpublishable
+ * @param validatedHeadSha the head at which the agent last supported this claim with evidence;
+ *        mapping its anchor to a later head does not advance that verification
+ * @param outdated whether the finding needs reassessment or a new anchor before publication
  */
 public record ReviewFinding(
         String id,
@@ -98,8 +99,15 @@ public record ReviewFinding(
                 updatedAt);
     }
 
-    /** An agent revision: new content at the next revision, in the same place and state. */
-    public ReviewFinding revised(String updatedTitle, String updatedBody, Optional<String> updatedSeverity, List<ReviewEvidence> updatedEvidence, Instant now)
+    /** An evidence-backed agent revision at the current reviewed scope clears pending reassessment. */
+    public ReviewFinding revised(
+            String updatedTitle,
+            String updatedBody,
+            Optional<String> updatedSeverity,
+            Optional<ReviewAnchor> updatedAnchor,
+            List<ReviewEvidence> updatedEvidence,
+            String verifiedHeadSha,
+            Instant now)
     {
         return new ReviewFinding(
                 id,
@@ -109,13 +117,13 @@ public record ReviewFinding(
                 updatedTitle,
                 updatedBody,
                 updatedSeverity,
-                anchor,
+                updatedAnchor,
                 updatedEvidence,
                 revision + 1,
                 state,
                 stateReason,
-                validatedHeadSha,
-                outdated,
+                verifiedHeadSha,
+                false,
                 version,
                 createdAt,
                 now);
@@ -143,7 +151,8 @@ public record ReviewFinding(
                 now);
     }
 
-    public ReviewFinding withMapping(String headSha, boolean nowOutdated, Instant now)
+    /** A new source scope requires another conclusion even when the location maps exactly. */
+    public ReviewFinding pendingReassessment(Instant now)
     {
         return new ReviewFinding(
                 id,
@@ -158,8 +167,8 @@ public record ReviewFinding(
                 revision,
                 state,
                 stateReason,
-                headSha,
-                nowOutdated,
+                validatedHeadSha,
+                true,
                 version,
                 createdAt,
                 now);

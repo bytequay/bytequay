@@ -94,6 +94,23 @@ describe('starting a review', () => {
 });
 
 describe('the status strip', () => {
+  it('shows the saved review pass and scope facts beside the status', () => {
+    const running = runningReviewFixture();
+    const investigation: ReviewInvestigationDto = { changeMap: 'Trace the changed path.', reviewedFiles: ['src/A.java'],
+      contextEvidenceRefs: [], candidates: ['Check the boundary'], validations: [], answers: [] };
+    const review: AgentReviewDto = { ...running, runs: [{ ...running.runs[0], investigation, steps: [
+      { number: 1, kind: 'INVESTIGATE', repair: false, investigation, validation: null },
+      { number: 2, kind: 'VALIDATE', repair: false, investigation: null, validation: null },
+    ] }] };
+    const html = tab(review);
+    expect(html).toContain('aria-label="Review progress"');
+    expect(html).toContain('Current pass: Validation');
+    expect(html).toContain('2 of 5 commit explanations saved');
+    expect(html).toContain('1 changed file reported assessed in this run');
+    expect(html).toContain('1 candidate claim recorded');
+    expect(html).not.toContain('100%');
+  });
+
   it('offers Stop while running, and never Update or End at the same time', () => {
     const html = tab(runningReviewFixture());
     expect(html).toContain('>Stop</button>');
@@ -459,10 +476,10 @@ describe('the finding card', () => {
   it('shows an outdated finding its recorded snapshot and refuses publication', () => {
     const outdated = { ...finding, outdated: true };
     const html = card(reviewFixture({ findings: [outdated] }), outdated);
-    expect(html).toContain('no unambiguous mapping was found');
+    expect(html).toContain('A matching line alone does not confirm');
     expect(html).toContain('pr-commented-code-line');
     expect(html).toContain('resolveNestedFieldId');
-    expect(html).toContain('Not publishable until re-anchored');
+    expect(html).toContain('Not publishable until reassessed');
     expect(html).not.toContain('Post comment now');
   });
 

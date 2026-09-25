@@ -44,7 +44,7 @@ import { useFindingActions } from './useFindingActions';
 import ReviewSummaryCard from './ReviewSummaryCard';
 import { findingLines } from './contracts';
 import type { AgentReviewDto, ReviewFindingDto } from './contracts';
-import { latestRun, newCommits, openFindings, provisional, reviewElapsed, reviewRecoveryRequired, reviewRunning, reviewStatus, shortSha, shownRun } from './model';
+import { latestRun, newCommits, openFindings, provisional, reviewElapsed, reviewProgress, reviewRecoveryRequired, reviewRunning, reviewStatus, shortSha, shownRun } from './model';
 
 export type ReviewNavigationTarget = {
   path: string;
@@ -143,6 +143,7 @@ export default function AgentReviewTab({
     : resuming && !running
       ? { status: 'running', label: 'Reviewing', tone: 'running', detail: 'starting the review', chip: null, busy: true }
       : reviewStatus(review);
+  const progress = review === null ? null : reviewProgress(review);
   const currentRun = review === null ? null : shownRun(review);
   const run = review?.runs.find(item => item.id === reportRunId) ?? currentRun;
   const findings = review === null ? [] : openFindings(review);
@@ -488,6 +489,12 @@ export default function AgentReviewTab({
             onClick={() => { void run_(async () => onReviewChange(await window.bridge.endAgentReview(review.id))); }}>End review</button>
         )}
       </div>}
+
+      {mode === 'cards' && progress !== null && <section className="agr-progress" aria-label="Review progress">
+        <div className="agr-progress__phase"><strong>Review progress</strong><span>{progress.phase}</span></div>
+        <div className="agr-progress__facts">{progress.facts.map(fact => <span key={fact}>{fact}</span>)}</div>
+        {progress.gaps.length > 0 && <div className="agr-progress__gaps">{progress.gaps.map(gap => <span key={gap}>{gap}</span>)}</div>}
+      </section>}
 
       {error !== null && <div className="agr-error" role="alert">{error}</div>}
       {findingActions.error !== null && <div className="agr-error" role="alert">{findingActions.error}</div>}

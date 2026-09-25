@@ -197,7 +197,7 @@ class TestReviewLessonDraftService
     {
         ReviewFinding finding = reviews.findFinding("finding-1").orElseThrow();
         when(reviews.findFinding("finding-1")).thenReturn(Optional.of(finding.revised(
-                finding.title(), finding.body(), finding.severity(), finding.evidence(), finding.updatedAt().plusSeconds(1))));
+                finding.title(), finding.body(), finding.severity(), finding.anchor(), finding.evidence(), finding.validatedHeadSha(), finding.updatedAt().plusSeconds(1))));
         ReviewRun run = reviews.findRun("run-1").orElseThrow();
         ReviewSummary summary = new ReviewSummary(1, "Unrelated summary purpose", ImmutableList.of(),
                 "Unrelated summary outcome", Optional.empty(), ImmutableList.of());

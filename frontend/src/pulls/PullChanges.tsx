@@ -53,8 +53,8 @@ export type DiffAgentComment = {
  * The Agent review findings projected onto this diff.
  *
  * <p>A finding renders at the validated end line of its range, as the same card the Agent review
- * tab draws: one finding ID and one discussion, shown in two places. An outdated finding has no
- * trustworthy location here, so it stays in the tab with its recorded snapshot instead.
+ * tab draws: one finding ID and one discussion, shown in two places. An outdated finding may have
+ * a mapped location but still needs reassessment, so it stays in the tab with its recorded snapshot.
  */
 export type AgentReviewProjection = {
   review: AgentReviewDto;
@@ -761,8 +761,8 @@ function DiffFileCard({
     && diffSideLines(hunks, thread.side === 'LEFT' ? oldLines : newLines,
       thread.side, thread.startLine ?? thread.line, thread.line)?.join('\n') === thread.code);
   const placedLocalThreads = new Set<string>();
-  // An outdated finding has no trustworthy line here; its card stays in Agent review with its
-  // recorded snapshot rather than pointing at an unrelated line of the current diff.
+  // A mapped line alone does not clear an outdated finding; its card stays in Agent review
+  // until the claim is reassessed against the current scope.
   const fileFindings = (fullDiff && agentReview !== undefined
     ? agentReview.review.findings.filter(finding =>
       finding.path === file.filename && finding.state !== 'WITHDRAWN' && !finding.outdated)

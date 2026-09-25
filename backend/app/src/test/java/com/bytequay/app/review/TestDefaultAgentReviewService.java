@@ -234,17 +234,19 @@ class TestDefaultAgentReviewService
         verify(fixture.turns, never()).start(any(StartAgentTurnCommand.class));
     }
 
-    @Test
-    void startCreatesOneTaskAndOneRunningRunDrivenByAByteQuayRequest()
+    @ParameterizedTest
+    @ValueSource(booleans = {false, true})
+    void startCreatesOneTaskAndOneRunningRunDrivenByAByteQuayRequest(boolean children)
     {
         Fixture fixture = new Fixture();
         when(fixture.driver.capabilities()).thenReturn(new AgentCapabilities(
                 true, true, true, true, true, true, true, true, true, true,
                 ImmutableSet.of(AgentPermissionPolicy.AUTO), ImmutableSet.of("text/plain")));
+        when(fixture.driver.reviewChildAgents(idleTask().sessionReference(), idleTask().defaults().model())).thenReturn(children);
 
         AgentReviewProjection projection = fixture.service.start(WORKSPACE, REPO, NUMBER);
 
-        assertThat(projection.task().nestedAgents()).isFalse();
+        assertThat(projection.task().nestedAgents()).isEqualTo(children);
         assertThat(projection.task().steering()).isTrue();
         assertThat(projection.review().repo()).isEqualTo(REPO);
         assertThat(projection.review().observedHeadSha()).contains(HEAD);
@@ -783,8 +785,9 @@ class TestDefaultAgentReviewService
         Fixture fixture = new Fixture();
         String reviewId = fixture.service.start(WORKSPACE, REPO, NUMBER).review().id();
         String runId = fixture.store.listRuns(reviewId).getLast().id();
+        ReviewFinding original = finding("finding-1", reviewId, runId, 1, ReviewFinding.State.OPEN);
         ReviewFinding revised = fixture.store.insertFinding(
-                finding("finding-1", reviewId, runId, 1, ReviewFinding.State.OPEN).revised("Reset the parser again", "Body", Optional.of("major"), ImmutableList.of(), NOW));
+                original.revised("Reset the parser again", "Body", Optional.of("major"), original.anchor(), ImmutableList.of(), HEAD, NOW));
         ReviewFinding withdrawn = fixture.store.insertFinding(finding("finding-2", reviewId, runId, 2, ReviewFinding.State.WITHDRAWN));
 
         assertThat(revised.revision()).isEqualTo(2);
@@ -1058,6 +1061,41 @@ class TestDefaultAgentReviewService
     }
 
     @Test
+    void aCarriedFindingCanRequestEvidenceWithoutPrematureReportRepair()
+    {
+        Fixture fixture = new Fixture();
+        ReviewRun validating = beginCandidateValidation(fixture);
+        ReviewFinding carried = finding("carried", validating.reviewId(), "earlier-run", 1, ReviewFinding.State.OPEN).pendingReassessment(NOW);
+        fixture.store.insertFinding(carried);
+        submitCandidateValidation(fixture, validating, ReviewCandidateValidation.Outcome.NEEDS_EVIDENCE);
+
+        fixture.service.reconcile(validating.reviewId());
+
+        ReviewRun collecting = fixture.store.findRun(validating.id()).orElseThrow();
+        assertThat(collecting.currentStep().orElseThrow().kind()).isEqualTo(ReviewStep.Kind.COLLECT_EVIDENCE);
+        assertThat(collecting.completionRepairUsed()).isFalse();
+        assertThat(fixture.store.findFinding(carried.id()).orElseThrow().outdated()).isTrue();
+    }
+
+    @Test
+    void aCompleteReportCannotSilentlyDropACarriedOpenFinding()
+    {
+        Fixture fixture = new Fixture();
+        ReviewRun validating = beginCandidateValidation(fixture);
+        ReviewFinding carried = finding("carried", validating.reviewId(), "earlier-run", 1, ReviewFinding.State.OPEN).pendingReassessment(NOW);
+        fixture.store.insertFinding(carried);
+        submitCandidateValidation(fixture, validating, ReviewCandidateValidation.Outcome.REJECTED);
+
+        fixture.service.reconcile(validating.reviewId());
+
+        ReviewRun repairing = fixture.store.findRun(validating.id()).orElseThrow();
+        assertThat(repairing.state()).isEqualTo(ReviewRun.State.RUNNING);
+        assertThat(repairing.currentStep().orElseThrow().kind()).isEqualTo(ReviewStep.Kind.VALIDATE);
+        assertThat(repairing.currentStep().orElseThrow().repair()).isTrue();
+        assertThat(fixture.store.findReview(validating.reviewId()).orElseThrow().latestCompletedRunId()).isEmpty();
+    }
+
+    @Test
     void evidenceLoopStopsAfterTwoCollectionsWithoutAdvancingTheBaseline()
     {
         Fixture fixture = new Fixture();
@@ -1176,7 +1214,7 @@ class TestDefaultAgentReviewService
                 ImmutableList.of("E1"), "No caller cleanup exists", Optional.of(finding.id()), Optional.of(finding.revision()), Optional.empty());
         ReviewValidation report = new ReviewValidation(1, ImmutableList.of(candidate), coverage(), ImmutableList.of());
         fixture.store.updateRun(validating.replaceCurrentStep(validating.currentStep().orElseThrow().withValidation(report), NOW).withCoverage(coverage(), NOW));
-        fixture.store.updateFinding(finding.revised("Different claim", "Different behavior", Optional.empty(), ImmutableList.of(), NOW));
+        fixture.store.updateFinding(finding.revised("Different claim", "Different behavior", Optional.empty(), finding.anchor(), ImmutableList.of(), validating.headSha(), NOW));
         settleCurrentTurn(fixture, validating);
 
         fixture.service.reconcile(validating.reviewId());
@@ -1374,11 +1412,24 @@ class TestDefaultAgentReviewService
         assertThat(baseline.priorHeadSha()).isEmpty();
         assertThat(fixture.store.listRuns(reviewId).getFirst().state()).isEqualTo(ReviewRun.State.FAILED);
         assertThat(fixture.store.listRuns(reviewId).getFirst().summary()).contains(summary());
-        assertThat(fixture.store.findFinding(originalFinding.id())).contains(originalFinding);
+        assertThat(fixture.store.findFinding(originalFinding.id()).orElseThrow().outdated()).isTrue();
         assertThat(fixture.store.findReview(reviewId).orElseThrow().latestCompletedRunId()).isEmpty();
 
-        ReviewRun validating = beginValidation(fixture, baseline);
-        completeValidation(fixture, validating);
+        ReviewEvidence evidence = new ReviewEvidence("E1", "src/App.java", "frozen head", "Parser state is reset", "The original trigger remains");
+        ReviewFinding mapped = fixture.store.findFinding(originalFinding.id()).orElseThrow();
+        ReviewFinding revalidated = mapped.revised(mapped.title(), mapped.body(), mapped.severity(), mapped.anchor(), ImmutableList.of(evidence), baseline.headSha(), NOW);
+        fixture.store.updateFinding(revalidated);
+        ReviewRun evidenced = fixture.store.updateRun(baseline.withEvidence("E1", evidence, NOW));
+        ReviewInvestigation assessment = new ReviewInvestigation("Parser lifetime", ImmutableList.of("src/App.java"), ImmutableList.of("E1"),
+                ImmutableList.of("Does the earlier finding still hold?"), ImmutableList.of(), ImmutableList.of());
+        ReviewRun validating = beginValidation(fixture, evidenced, assessment);
+        ReviewCandidateValidation supported = new ReviewCandidateValidation(1, ReviewCandidateValidation.Outcome.SUPPORTED,
+                "The original trigger and contract still hold", ImmutableList.of("E1"), "No counterexample found",
+                Optional.of(revalidated.id()), Optional.of(revalidated.revision()), Optional.empty());
+        ReviewValidation report = new ReviewValidation(1, ImmutableList.of(supported), coverage(), ImmutableList.of());
+        fixture.store.updateRun(validating.withCoverage(coverage(), NOW)
+                .replaceCurrentStep(validating.currentStep().orElseThrow().withValidation(report), NOW));
+        settleCurrentTurn(fixture, validating);
         fixture.service.reconcile(reviewId);
         assertThat(fixture.store.findReview(reviewId).orElseThrow().latestCompletedRunId()).contains(baseline.id());
 
@@ -1399,8 +1450,85 @@ class TestDefaultAgentReviewService
         assertThat(incremental.priorHeadSha()).contains(HEAD);
         assertThat(incremental.headSha()).isEqualTo(NEW_HEAD);
         assertThat(fixture.store.listFindings(reviewId)).extracting(ReviewFinding::id).containsExactly(originalFinding.id());
+        ReviewFinding pending = fixture.store.findFinding(originalFinding.id()).orElseThrow();
+        assertThat(pending.outdated()).isTrue();
+        assertThat(pending.validatedHeadSha()).isEqualTo(HEAD);
         verify(fixture.tasks, times(1)).create(any(CreateAgentTaskCommand.class));
         verify(fixture.completions, never()).complete(any(CompleteAgentTaskCommand.class));
+    }
+
+    @Test
+    void aChangedBaseStartsAFullReviewEvenWhenThePullRequestHeadIsUnchanged()
+    {
+        Fixture fixture = new Fixture();
+        String reviewId = fixture.service.start(WORKSPACE, REPO, NUMBER).review().id();
+        ReviewRun first = fixture.store.listRuns(reviewId).getFirst();
+        ReviewRun validating = beginValidation(fixture, first);
+        completeValidation(fixture, validating);
+        fixture.service.reconcile(reviewId);
+        ReviewFinding finding = fixture.store.insertFinding(finding("finding-1", reviewId, first.id(), 1, ReviewFinding.State.OPEN));
+        String newerBase = "3".repeat(40);
+        when(fixture.git.run(REPOSITORY, "rev-parse", "--verify", "refs/remotes/origin/main^{commit}")).thenReturn(ok(newerBase));
+        when(fixture.git.run(REPOSITORY, "merge-base", HEAD, newerBase)).thenReturn(ok(MERGE_BASE));
+
+        assertThat(fixture.service.currentScopeMatches(first)).isFalse();
+
+        fixture.service.update(reviewId);
+
+        ReviewRun updated = fixture.store.listRuns(reviewId).getLast();
+        assertThat(fixture.store.listRuns(reviewId)).hasSize(2);
+        assertThat(updated.headSha()).isEqualTo(HEAD);
+        assertThat(updated.baseSha()).isEqualTo(newerBase);
+        assertThat(updated.scope()).isEqualTo(ReviewRun.Scope.FULL);
+        ReviewFinding pending = fixture.store.findFinding(finding.id()).orElseThrow();
+        assertThat(pending.outdated()).isTrue();
+        assertThat(pending.validatedHeadSha()).isEqualTo(HEAD);
+
+        ReviewMessage question = fixture.service.ask(reviewId, Optional.of(finding.id()), Optional.empty(), pending.revision(), "Still valid?");
+        assertThat(question.runId()).isEqualTo(updated.id());
+        assertThat(question.runId()).isNotEqualTo(first.id());
+        ArgumentCaptor<StartAgentTurnCommand> started = ArgumentCaptor.forClass(StartAgentTurnCommand.class);
+        verify(fixture.turns, times(4)).start(started.capture());
+        assertThat(started.getValue().message()).contains("reviewed head " + HEAD.substring(0, 7),
+                "pending reassessment in the current review scope", "current base and head");
+    }
+
+    @Test
+    void reopeningAResolvedFindingCanStartExplicitReassessmentAtTheSameHeadAndBase()
+    {
+        Fixture fixture = new Fixture();
+        String reviewId = fixture.service.start(WORKSPACE, REPO, NUMBER).review().id();
+        ReviewRun first = fixture.store.listRuns(reviewId).getFirst();
+        completeValidation(fixture, beginValidation(fixture, first));
+        fixture.service.reconcile(reviewId);
+        ReviewFinding finding = fixture.store.insertFinding(finding("finding-1", reviewId, first.id(), 1, ReviewFinding.State.OPEN));
+        fixture.service.resolveFinding(reviewId, finding.id(), finding.version(), "Addressed locally");
+        String newerBase = "3".repeat(40);
+        when(fixture.git.run(REPOSITORY, "rev-parse", "--verify", "refs/remotes/origin/main^{commit}")).thenReturn(ok(newerBase));
+        when(fixture.git.run(REPOSITORY, "merge-base", HEAD, newerBase)).thenReturn(ok(MERGE_BASE));
+
+        fixture.service.update(reviewId);
+        ReviewRun second = fixture.store.listRuns(reviewId).getLast();
+        ReviewFinding resolved = fixture.store.findFinding(finding.id()).orElseThrow();
+        assertThat(resolved.state()).isEqualTo(ReviewFinding.State.RESOLVED);
+        assertThat(resolved.outdated()).isTrue();
+        completeValidation(fixture, beginValidation(fixture, second));
+        fixture.service.reconcile(reviewId);
+        assertThat(fixture.store.findRun(second.id()).orElseThrow().state()).isEqualTo(ReviewRun.State.ACCEPTED);
+
+        ReviewFinding reopened = fixture.service.reopenFinding(reviewId, finding.id(), resolved.version());
+        assertThat(reopened.outdated()).isTrue();
+        assertThat(fixture.store.listRuns(reviewId)).hasSize(2);
+
+        fixture.service.update(reviewId);
+
+        ReviewRun reassessment = fixture.store.listRuns(reviewId).getLast();
+        assertThat(fixture.store.listRuns(reviewId)).hasSize(3);
+        assertThat(reassessment.id()).isNotEqualTo(second.id());
+        assertThat(reassessment.headSha()).isEqualTo(HEAD);
+        assertThat(reassessment.baseSha()).isEqualTo(newerBase);
+        assertThat(reassessment.scope()).isEqualTo(ReviewRun.Scope.FULL);
+        assertThat(fixture.store.findFinding(finding.id()).orElseThrow().outdated()).isTrue();
     }
 
     @Test
@@ -2144,10 +2272,15 @@ class TestDefaultAgentReviewService
 
     private static ReviewRun beginValidation(Fixture fixture, ReviewRun run)
     {
+        return beginValidation(fixture, run, investigation());
+    }
+
+    private static ReviewRun beginValidation(Fixture fixture, ReviewRun run, ReviewInvestigation investigation)
+    {
         ReviewSummary summary = new ReviewSummary(1, "Fix the parser reset", run.commits().stream()
                 .map(commit -> new ReviewSummary.CommitExplanation(commit.sha(), "Reset state before parsing each file")).collect(toImmutableList()),
                 "", Optional.empty(), ImmutableList.of());
-        fixture.store.updateRun(sealInvestigation(run.withSummary(summary, NOW).withInvestigation(investigation(), NOW)));
+        fixture.store.updateRun(sealInvestigation(run.withSummary(summary, NOW).withInvestigation(investigation, NOW)));
         when(fixture.turns.get(TurnId.valueOf(run.turnIds().getLast())))
                 .thenReturn(settledTurn(TurnId.valueOf(run.turnIds().getLast()), TurnState.COMPLETED, Optional.empty()));
         fixture.service.reconcile(run.reviewId());

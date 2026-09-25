@@ -78,6 +78,7 @@ import com.bytequay.core.context.RegisteredContextSource;
 import com.bytequay.core.context.RepositoryNotebook;
 import com.bytequay.core.context.ReviewContextSnapshot;
 import com.bytequay.core.domain.DiffFile;
+import com.bytequay.core.domain.PrTimelineComment;
 import com.bytequay.core.domain.PrTimelineEvent;
 import com.bytequay.core.domain.PrTimelinePayload;
 import com.bytequay.core.domain.PullRequest;
@@ -287,17 +288,19 @@ class TestReviewTools
     }
 
     @Test
-    void preparationIsOnlyRegisteredForAnEnabledInvestigation()
+    void preparationKeepsAStableDefinitionButOnlyAdmitsAnEnabledInvestigation()
     {
-        assertThat(bridge.tool("repository_context_prepare")).isEmpty();
+        assertThat(bridge.tool("repository_context_prepare")).isPresent();
+        assertThat(call("repository_context_prepare", beginPreparation()).at("/error/field").asText()).isEqualTo("preparation");
         preparationContext();
         assertThat(bridge.tool("repository_context_prepare")).isPresent();
         advance(COLLECT_EVIDENCE);
-        assertThat(tools.bridge(TASK_ID).orElseThrow().tool("repository_context_prepare")).isEmpty();
+        assertThat(tools.bridge(TASK_ID).orElseThrow().tool("repository_context_prepare")).isPresent();
+        assertThat(call("repository_context_prepare", beginPreparation()).at("/error/field").asText()).isEqualTo("preparation");
         preparationContext();
         store.updateRun(run(RUN_ID, 1, PATCH, false).withVersion(store.findRun(RUN_ID).orElseThrow().version()));
         documentContext(false);
-        assertThat(tools.bridge(TASK_ID).orElseThrow().tool("repository_context_prepare")).isEmpty();
+        assertThat(tools.bridge(TASK_ID).orElseThrow().tool("repository_context_prepare")).isPresent();
         assertThat(call("repository_context_prepare", beginPreparation()).at("/error/field").asText()).isEqualTo("preparation");
         verifyNoInteractions(preparation);
     }
@@ -784,7 +787,8 @@ class TestReviewTools
         doThrow(new ReviewConflictException("turn: stopped")).when(assignments).resolve(REVIEW_ID, Optional.of(capturedTurn));
         ReviewBridge stopped = tools.bridge(TASK_ID).orElseThrow();
         assertThat(stopped.instruction()).isEqualTo(ReviewPrompts.INSTRUCTION);
-        assertThat(stopped.tool("repository_context_prepare")).isEmpty();
+        assertThat(stopped.tool("repository_context_prepare")).isPresent();
+        assertThat(call("repository_context_prepare", beginPreparation()).at("/error/field").asText()).isEqualTo("turn");
     }
 
     private static Map<String, Object> contextInvestigation(Map<String, Object> report, String brief, List<String> receipts, List<String> limitations)
@@ -1499,6 +1503,51 @@ class TestReviewTools
     }
 
     @Test
+    void reviewThreadsExposeAllRepliesAndRejectChangedPageVersions()
+    {
+        String rootBody = "Please preserve both paths. " + "🙂".repeat(2300);
+        String replyBody = "The first path is fixed; the second still needs a check.";
+        List<PrTimelineComment> comments = ImmutableList.of(
+                new PrTimelineComment(51L, "reviewer", null, false, NOW, rootBody, null, 7L, null, ImmutableList.of()),
+                new PrTimelineComment(52L, "author", null, false, NOW, replyBody, null, 7L, 51L, ImmutableList.of()));
+        PullRequestDetail.ActivityItem thread = new PullRequestDetail.ActivityItem("reviewer", "review_thread", NOW, null, 51L,
+                PrTimelinePayload.builder().path(DIFF_PATH).line(2).side("RIGHT").resolved(true).outdated(true).comments(comments).build());
+        when(selectedPullRequests.read(REPO, 42, SelectedPullRequestReader.Section.TIMELINE))
+                .thenReturn(selected(pullRequestDetail(42, "Metadata", ImmutableList.of(thread), ImmutableList.of(), ImmutableList.of()), Optional.of(HEAD_SHA), false));
+
+        JsonNode timeline = call("review_get_context", ImmutableMap.of("kind", "timeline"));
+        assertThat(timeline.at("/items/0/threadId").asText()).isEqualTo("51");
+        assertThat(timeline.at("/items/0/commentCount").asInt()).isEqualTo(2);
+        assertThat(timeline.at("/items/0/body").asText()).startsWith("Please preserve both paths.");
+        JsonNode first = call("review_get_context", ImmutableMap.of("kind", "thread", "threadId", "51"));
+        assertThat(first.path("resolved").asBoolean()).isTrue();
+        assertThat(first.path("outdated").asBoolean()).isTrue();
+        String version = first.path("threadVersion").asText();
+        StringBuilder complete = new StringBuilder(first.path("text").asText());
+        for (int page = 2; page <= first.path("pages").asInt(); page++) {
+            JsonNode next = call("review_get_context", ImmutableMap.of("kind", "thread", "threadId", "51", "page", page, "threadVersion", version));
+            complete.append(next.path("text").asText());
+            ReviewEvidence evidence = store.findRun(RUN_ID).orElseThrow().evidence().get(next.path("evidenceRef").asText());
+            assertThat(evidence.excerpt()).isEqualTo(next.path("text").asText());
+            assertThat(evidence.provenance()).contains("threadVersion=" + version, "resolved=true", "outdated=true");
+        }
+        assertThat(complete.toString()).contains(rootBody, replyBody, "Comment 52 by author", "replyTo=51");
+        assertThat(call("review_get_context", ImmutableMap.of("kind", "thread", "threadId", "51", "page", 2)).at("/error/field").asText())
+                .isEqualTo("threadVersion");
+        assertThat(call("review_get_context", ImmutableMap.of("kind", "thread", "threadId", "not-this-pr")).at("/error/field").asText())
+                .isEqualTo("threadId");
+
+        PullRequestDetail.ActivityItem changed = new PullRequestDetail.ActivityItem("reviewer", "review_thread", NOW, null, 51L,
+                PrTimelinePayload.builder(thread.payload()).resolved(false).build());
+        when(selectedPullRequests.read(REPO, 42, SelectedPullRequestReader.Section.TIMELINE))
+                .thenReturn(selected(pullRequestDetail(42, "Metadata", ImmutableList.of(changed), ImmutableList.of(), ImmutableList.of()), Optional.of(HEAD_SHA), false));
+        int writes = store.runUpdates;
+        assertThat(call("review_get_context", ImmutableMap.of("kind", "thread", "threadId", "51", "page", 2, "threadVersion", version))
+                .at("/error/field").asText()).isEqualTo("threadVersion");
+        assertThat(store.runUpdates).isEqualTo(writes);
+    }
+
+    @Test
     void knownPullRequestRequestedAsIssueUsesOneSelectedPrRead()
     {
         PullRequest row = new PullRequest(7, REPO, 7, "Known pull request", "alice", "https://example.com/7", NOW, NOW, PullRequest.Origin.OTHER,
@@ -1670,15 +1719,16 @@ class TestReviewTools
                 "review_save_finding",
                 "review_reply",
                 "review_withdraw_finding",
-                "review_finish");
-        assertThat(bridge.tools()).allSatisfy(tool -> assertThat(tool.name()).startsWith(ReviewTool.NAME_PREFIX));
+                "review_finish",
+                "repository_context_prepare");
         try (InputStream resource = ReviewPrompts.class.getResourceAsStream("/agent-skills/bytequay-review.md")) {
             assertThat(resource).isNotNull();
             String policy = new String(resource.readAllBytes(), UTF_8).strip();
             assertThat(policy).isNotBlank();
             assertThat(bridge.instruction()).startsWith(policy + "\n\n");
         }
-        assertThat(bridge.tools()).allSatisfy(tool -> assertThat(bridge.instruction()).contains(tool.name()));
+        assertThat(bridge.tools()).filteredOn(tool -> tool.name().startsWith(ReviewTool.NAME_PREFIX))
+                .allSatisfy(tool -> assertThat(bridge.instruction()).contains(tool.name()));
         ReviewTool summary = bridge.tools().stream().filter(tool -> tool.name().equals("review_save_summary")).findFirst().orElseThrow();
         JsonNode schema = objectMapper.valueToTree(summary.inputSchema());
         assertThat(schema.path("properties").size()).isEqualTo(3);
@@ -1687,16 +1737,16 @@ class TestReviewTools
         assertThat(bridge.instruction()).contains("only purpose", "design", "implementation", "exact replacement code", "RIGHT-side", "omit severity");
         assertThat(bridge.instruction()).contains("build that module from this worktree", "rebuilt from the worktree, not reported", "the recovery that was tried");
         assertThat(bridge.instruction()).contains("drive the changed code end", "Never call a test unavailable without running it", "never attempted is not unavailable");
-        assertThat(bridge.instruction()).contains("End each finding body", "add an **Example**", "only traced from the code");
+        assertThat(bridge.instruction()).contains("at most 120 prose words", "at most 35", "executed or only traced from source");
         assertThat(bridge.instruction()).contains("Warnings are only for checks that could not run", "stays in that candidate's conclusion");
         assertThat(bridge.instruction()).contains("up to five nit candidates", "reject the nit candidates as held back", "Never pad", "save it with scope pull_request");
-        assertThat(bridge.instruction()).contains("starts only read-only Explore subagents", "every tool that saves or changes review state is yours alone");
+        assertThat(bridge.instruction()).contains("read-only children for bounded, independent", "You own every save", "verify each delegated conclusion");
         // Only the tool that reads may be called by an exploration child; the child gate refuses the rest.
         assertThat(bridge.tools().stream().filter(ReviewTool::childCallable)).extracting(ReviewTool::name).containsExactly("review_get_context");
         ReviewTool finish = bridge.tools().stream().filter(tool -> tool.name().equals("review_finish")).findFirst().orElseThrow();
         assertThat(finish.description()).contains("Caveats about evidence strength stay with the candidate").doesNotContain("Put unavailable tests");
         ReviewTool finding = bridge.tools().stream().filter(tool -> tool.name().equals("review_save_finding")).findFirst().orElseThrow();
-        assertThat(finding.description()).contains("Example section");
+        assertThat(finding.description()).contains("Polish before saving", "full reproduction code, commands and results in captured evidence");
         assertContextToolSchema();
     }
 
@@ -1802,6 +1852,28 @@ class TestReviewTools
     }
 
     @Test
+    void findingsMustBePolishedBeforeTheirFirstVisibleSave()
+    {
+        readSource();
+        Map<String, Object> draft = new LinkedHashMap<>(finding("draft", "Unchecked input", "A2", ImmutableList.of(evidence("E1"))));
+        draft.put("body", "word ".repeat(121));
+        int writes = store.runUpdates;
+        assertThat(call("review_save_finding", draft).at("/error/message").asText()).contains("121 prose words", "120", "polish");
+        assertThat(store.listFindings(REVIEW_ID)).isEmpty();
+        assertThat(store.runUpdates).isEqualTo(writes);
+
+        draft.put("title", "Nit: shorten the name");
+        draft.put("body", "word ".repeat(36));
+        assertThat(call("review_save_finding", draft).at("/error/message").asText()).contains("36 prose words", "35");
+        draft.put("body", "Use this name.\n```suggestion\n" + "replacement ".repeat(130));
+        assertThat(call("review_save_finding", draft).at("/error/message").asText()).contains("close the code fence");
+        String polished = "Use this name.\n```suggestion\n" + "replacement ".repeat(130) + "\n```";
+        draft.put("body", polished);
+        assertThat(call("review_save_finding", draft).path("status").asText()).isEqualTo("accepted");
+        assertThat(store.listFindings(REVIEW_ID).getFirst().body()).isEqualTo(polished);
+    }
+
+    @Test
     void suggestionPreservesExactReplacementAndValidatesItsDiffRange()
     {
         readSource();
@@ -1852,6 +1924,18 @@ class TestReviewTools
                 .isEqualTo("Earlier discussion answer");
         assertThat(call("review_get_context", ImmutableMap.of("kind", "summary", "target", limitations)).path("body").asText())
                 .contains("original card body is not retained", "saved discussion messages");
+    }
+
+    @Test
+    void previousRunCommandResultsCannotBecomeFreshEvidence()
+    {
+        commandRan(TurnId.random(), "Old head passed the check");
+        store.updateRun(run().withVersion(store.findRun(RUN_ID).orElseThrow().version()));
+
+        JsonNode commands = call("review_get_context", ImmutableMap.of("kind", "command_output")).path("commands");
+
+        assertThat(commands).isEmpty();
+        assertThat(store.findRun(RUN_ID).orElseThrow().evidence()).isEmpty();
     }
 
     @Test
@@ -1971,6 +2055,12 @@ class TestReviewTools
         assertThat(stale.path("error").path("message").asText()).contains("revision 1");
         assertThat(store.findFinding(findingId).orElseThrow().state()).isEqualTo(ReviewFinding.State.OPEN);
 
+        Map<String, Object> unsupported = ImmutableMap.<String, Object>builder().putAll(withdrawal("withdraw", findingId, 1))
+                .put("evidenceRefs", ImmutableList.of()).buildKeepingLast();
+        assertThat(call("review_withdraw_finding", unsupported).path("error").path("field").asText()).isEqualTo("evidenceRefs");
+        assertThat(store.findFinding(findingId).orElseThrow().state()).isEqualTo(ReviewFinding.State.OPEN);
+        assertThat(store.listMessages(REVIEW_ID)).isEmpty();
+
         JsonNode withdrawn = call("review_withdraw_finding", withdrawal("withdraw", findingId, 1));
 
         assertThat(withdrawn.path("state").asText()).isEqualTo("WITHDRAWN");
@@ -2014,6 +2104,7 @@ class TestReviewTools
     void withdrawFindingLeavesAUserResolutionStanding()
     {
         store.insertFinding(resolvedFinding());
+        readSource();
 
         JsonNode withdrawn = call("review_withdraw_finding", withdrawal("withdraw", "finding-resolved", 1));
 
@@ -2022,7 +2113,7 @@ class TestReviewTools
         ReviewFinding stored = store.findFinding("finding-resolved").orElseThrow();
         assertThat(stored.state()).isEqualTo(ReviewFinding.State.RESOLVED);
         assertThat(stored.stateReason()).contains("the user resolved this locally");
-        assertThat(store.listMessages(REVIEW_ID)).extracting(ReviewMessage::body).containsExactly("Withdrawn: the concern no longer holds");
+        assertThat(store.listMessages(REVIEW_ID)).extracting(ReviewMessage::body).containsExactly("Withdrawn: the concern no longer holds\n\nEvidence: E1");
     }
 
     @Test
@@ -2828,6 +2919,67 @@ class TestReviewTools
     }
 
     @Test
+    void carriedFindingNeedsCurrentEvidenceAndAssessmentBeforeCompletion()
+    {
+        ReviewFinding original = resolvedFinding();
+        ReviewFinding carried = new ReviewFinding("carried", REVIEW_ID, "earlier-run", 1, original.title(), original.body(), original.severity(),
+                original.anchor(), original.evidence(), 1, ReviewFinding.State.OPEN, Optional.empty(), "a".repeat(40), true, 0, NOW, NOW);
+        store.insertFinding(carried);
+        JsonNode old = call("review_get_context", ImmutableMap.of("kind", "findings", "target", "carried"));
+        assertThat(old.path("body").asText()).isEqualTo(carried.body());
+        assertThat(old.path("sourceRunId").asText()).isEqualTo("earlier-run");
+        assertThat(old.path("historicalEvidence")).hasSize(1);
+        assertThat(old.at("/historicalEvidence/0/ref").isMissingNode()).isTrue();
+        call("review_save_summary", summary("summary", "Reject unchecked input"));
+        readSource();
+        assertThat(call("review_finish", finish("ignore-carried", ImmutableList.of(assessment(1, "REJECTED")))).at("/error/field").asText())
+                .isEqualTo("validations");
+        assertThat(call("review_finish", finish("claim-carried", ImmutableList.of(supported(1, "carried", 1)))).at("/error/field").asText())
+                .isEqualTo("findingId");
+        Map<String, Object> revision = ImmutableMap.<String, Object>builder().putAll(finding("reassess", carried.title(), "A3", ImmutableList.of(evidence("E1"))))
+                .put("findingId", "carried").put("expectedRevision", 1).buildOrThrow();
+        assertThat(call("review_save_finding", revision).path("status").asText()).isEqualTo("accepted");
+        ReviewFinding current = store.findFinding("carried").orElseThrow();
+        assertThat(current.validatedHeadSha()).isEqualTo(HEAD_SHA);
+        assertThat(current.outdated()).isFalse();
+        assertThat(current.anchor().orElseThrow().startLine()).isEqualTo(3);
+        assertThat(current.runId()).isEqualTo("earlier-run");
+        assertThat(call("review_reply", ImmutableMap.of("operationKey", "explain-reassessment", "target", "carried", "body", "The current source still reaches this path."))
+                .path("status").asText()).isEqualTo("accepted");
+        assertThat(store.listMessages(REVIEW_ID)).extracting(ReviewMessage::runId).containsExactly(RUN_ID);
+        assertThat(call("review_finish", finish("reassessed", ImmutableList.of(supported(1, "carried", 2)))).path("status").asText()).isEqualTo("accepted");
+    }
+
+    @Test
+    void aLargeCarriedReviewHasRoomToReassessEveryOpenFinding()
+    {
+        List<Map<String, Object>> initialSchemas = bridge.tools().stream().map(ReviewTool::inputSchema).collect(toImmutableList());
+        store.updateRun(run(RUN_ID, 1, PATCH, false));
+        ReviewFinding original = resolvedFinding();
+        for (int index = 1; index <= 31; index++) {
+            store.insertFinding(new ReviewFinding("carried-" + index, REVIEW_ID, "earlier-run", index, "Concern " + index,
+                    original.body(), original.severity(), original.anchor(), original.evidence(), 1, ReviewFinding.State.OPEN,
+                    Optional.empty(), "a".repeat(40), true, 0, NOW, NOW));
+        }
+        bridge = tools.bridge(TASK_ID).orElseThrow();
+        assertThat(bridge.tools().stream().map(ReviewTool::inputSchema).collect(toImmutableList())).isEqualTo(initialSchemas);
+        call("review_save_summary", summary("summary", "Reassess prior claims"));
+        readSource();
+        List<String> candidates = IntStream.rangeClosed(1, 31).mapToObj(index -> "Reassess carried-" + index).collect(toImmutableList());
+        assertThat(call("review_save_investigation", investigation("investigate", ImmutableList.of(DIFF_PATH), ImmutableList.of("E1"), candidates))
+                .path("status").asText()).isEqualTo("accepted");
+        advance(VALIDATE);
+        for (int index = 1; index <= 31; index++) {
+            Map<String, Object> revision = ImmutableMap.<String, Object>builder()
+                    .putAll(finding("reassess-" + index, "Concern " + index, "A3", ImmutableList.of(evidence("E1"))))
+                    .put("findingId", "carried-" + index).put("expectedRevision", 1).buildOrThrow();
+            assertThat(call("review_save_finding", revision).path("status").asText()).isEqualTo("accepted");
+        }
+        List<Map<String, Object>> validations = IntStream.rangeClosed(1, 31).mapToObj(index -> supported(index, "carried-" + index, 2)).collect(toImmutableList());
+        assertThat(call("review_finish", finish("complete", validations)).path("status").asText()).isEqualTo("accepted");
+    }
+
+    @Test
     void rejectedHypothesisCanProduceACompleteZeroFindingReview()
     {
         call("review_save_summary", summary("summary", "Guarded input behavior"));
@@ -2885,6 +3037,7 @@ class TestReviewTools
 
     private void commandRan(TurnId turnId, String output)
     {
+        store.updateRun(store.findRun(RUN_ID).orElseThrow().withTurn(turnId.toString(), NOW));
         AgentEventEnvelope completed = new AgentEventEnvelope(
                 AgentEventEnvelope.CURRENT_SCHEMA_VERSION,
                 EventId.random(),
@@ -3326,6 +3479,7 @@ class TestReviewTools
                 "operationKey", operationKey,
                 "findingId", findingId,
                 "expectedRevision", expectedRevision,
+                "evidenceRefs", ImmutableList.of("E1"),
                 "explanation", "the concern no longer holds");
     }
 

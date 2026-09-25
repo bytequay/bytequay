@@ -718,7 +718,7 @@ exactly one optional, fail-open structural-exploration tool,
 general tool registry. Every other business MCP, dynamic tool, and workflow
 action remains outside this contract.
 
-[Agent Review](agent-review.md) is a separately locked, not yet implemented
+[Agent Review](agent-review.md) is a separately owned
 extension for PR-owned tasks. It authorizes only its fixed context-read and
 local-reporting tools through the task bridge and reuses this service's
 turns, events, approvals, queue, and quiescence. Review owns its PR/run facts
@@ -727,6 +727,20 @@ claim, fixed review-session native-tool guard, and provider tool-isolation
 gates. Its implementation must preserve ordinary
 task isolation and interactive-only routes; it adds no model-callable
 GitHub write and does not make CodeGraph mandatory.
+Attended review sessions can offer provider-native children for read-only
+exploration in both Claude and Codex only when that provider's review-specific
+caller-identity hook and MCP isolation checks are active. Claude Explore can
+use allowed native reads. Codex's hook directs children to bounded
+`review_get_context` and optional `codegraph_explore`; native shell and edit
+remain in the shared workspace-write sandbox, and a failed or timed-out hook
+can let those calls proceed. ByteQuay denies native child approvals; its Codex
+task bridge supplies review mutations as App Server dynamic tools and requires
+root thread/turn ownership for their calls. Existing Codex review threads with
+MCP-only tool definitions resume with the no-child profile; a guarded new thread
+stores a distinct session contract version because dynamic tool definitions are
+fixed at thread start.
+Unsupported versions retain the review no-child profile without changing
+ordinary task behavior.
 
 SQLite stores durable task/turn lifecycle facts, provider session references,
 per-turn metrics, task totals, runtime-retention state, and the final summary. Detailed active-task

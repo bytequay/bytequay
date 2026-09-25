@@ -168,7 +168,7 @@ export function useCodeComments(options: CodeCommentsOptions | undefined, contex
       && lines.slice((thread.startLine ?? thread.line) - 1, thread.line).join('\n') === thread.code)
     : [];
 
-  // An outdated finding has no trustworthy line in any file view, so like Changes it stays in Review & Learning.
+  // A mapped line still needs semantic reassessment before an outdated finding returns to file views.
   const findingsHere = findings?.review.findings.filter(finding => finding.path === path && finding.state !== 'WITHDRAWN' && !finding.outdated) ?? [];
   const placedFindings = findingsHere.filter(finding => findingOnLines(finding, clean, context.reviewedHead, lines));
   const findingCard = (finding: ReviewFindingDto) => findings === undefined ? null : (

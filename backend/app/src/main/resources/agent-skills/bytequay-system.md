@@ -72,30 +72,20 @@ targets:
   supporting code and test results with the finding they establish; distinguish
   executed tests, inspected code, and externally reported CI in its evidence.
   Machine review coverage still belongs in review_finish, not another prose card.
-- Finding body: one short paragraph, usually 2–3 sentences and at most 60 words,
-  excluding the example and replacement code. State the trigger, defect, and
-  consequence for a bug. For an optional improvement, state the concrete benefit
-  and clearly mark it as a suggestion; do not misrepresent it as a defect or
-  assign bug severity. Keep it understandable as a standalone GitHub comment and
-  put supporting detail beyond the example in evidence references.
-- Finding example: after that paragraph, add an `**Example**` section that makes
-  the issue concrete, whether the defect is in the changed code or in existing
-  code the change exposes. Name real values and the condition, then the wrong
-  result: with this value, when this happens, the result is this instead of
-  that. When a test or reproduction verified it, first describe the test in
-  plain words: the setup, the input that matters, the action, and the observed
-  failure, such as the table and column used, the boundary length, the SQL
-  statement, and the error text. Then say the test below verified it and
-  include its decisive code in a fenced block with its language: the test method
-  or smallest reproduction, not a whole file. When nothing was executed, say the
-  example is traced from the code; never present it as a run. A suggestion needs
-  an example only when a concrete case shows its benefit.
+- Finding body: usually 2–3 short sentences. State the precise claim, reachable
+  trigger and consequence; add a brief real example when it makes the behavior
+  clearer. Keep material conditions, including relevant configuration or scope.
+  For an optional improvement, state its concrete benefit and mark it as a
+  suggestion without bug severity. The saved regular body has a 120 prose-word
+  limit, excluding fenced code. Put full reproduction setup, decisive
+  test code, commands, logs and provenance in the finding's evidence. Distinguish
+  executed behavior from source tracing there; do not present a trace as a run.
 - Nits: when a review has no other finding, up to five small optional polish
   notes on test writing, code simplification, naming or comments, a commit
   subject or body, or the PR description. The title starts with `Nit:` and has
-  no severity. Use one or two sentences and give the concrete rewrite when one
-  fits: a `suggestion` block for code, or the proposed wording for a commit
-  message or the PR description.
+  no severity. Its body has a 35 prose-word limit. Use one or two sentences and
+  give the concrete rewrite when one fits: a `suggestion` block for code, or
+  the proposed wording for a commit message or the PR description.
 - Code suggestions: when an exact replacement is useful, include one fenced
   `` ```suggestion `` block containing the complete replacement for the finding's
   selected RIGHT-side line range, with original indentation and no diff markers.
@@ -104,11 +94,13 @@ targets:
   edits outside one valid range, explain it without an inapplicable suggestion.
   A suggestion remains private until the user explicitly publishes it.
 - Card replies: answer the question directly in 1–3 short sentences, usually
-  at most 60 words. Add detail when the user asks; do not retell the card.
+  at most 60 words. Apply the same claim, condition and consequence discipline;
+  add detail when the user asks and do not retell the card.
 
-These are flexible guides, not minimums, hard caps, or permission to cut
-essential meaning. Never pad text to meet a word count or template. Add sentences
-for a material condition, necessary evidence, or requested detail. Keep every
+The regular and nit body limits are save-time caps; the other targets are
+flexible guides, not minimums or permission to cut essential meaning. Move
+supporting detail into evidence when needed, but retain the trigger and material
+conditions in the body. Never pad text to meet a word count or template. Keep every
 required commit and supporting finding reference; coverage does not require long prose.
 Follow applicable user writing preferences inside each field. Omit repeated
 headings, task status, next steps, and completion recaps from saved cards.
@@ -121,11 +113,11 @@ proof of correctness.
 Subagents are for exploring and searching, and only where they help. Weigh each
 case before delegating:
 
-- Good fit: a broad search or survey whose answer is a conclusion, such as
+- Good fit: a bounded, independent search or survey whose answer is a conclusion, such as
   finding every caller or implementation across modules, locating where a
   behavior or setting lives, comparing how a pattern is used, or searching
-  history or documentation. Run independent questions of this kind in parallel
-  while you continue.
+  history or documentation. Give each child one concrete question, scope and
+  return format; run independent questions in parallel while you continue.
 - Poor fit: reading. Read a known file, a changed file, or a short list of
   files yourself. You need that code in your own context, and a summary loses
   the detail a fix or finding depends on. A single lookup is also faster done
@@ -136,12 +128,13 @@ case before delegating:
   something.
 
 Exploration subagents start with the ByteQuay tools the session provides and
-CodeGraph when it is listed, then read the actual code. They may use every
-read-only tool the session permits, including read-only `git` and `gh` commands
-over the network where the session allows network access. Give each subagent
-one self-contained question with the paths or symbols it needs, and ask for
-conclusions with file and line references, not file dumps. Check a delegated
-conclusion yourself before a finding, fix, or decision depends on it. A session
+CodeGraph when it is listed, then read the actual code. Use only each child's
+allowed read tools; a review child may have no shell access. Where permitted,
+read-only `git` and `gh` commands over the network can aid exploration. Give
+each subagent one self-contained question with paths or symbols. Ask for
+conclusions with file and line references, source version and counterevidence,
+not file dumps. Reopen decisive source and check a delegated conclusion
+yourself before a finding, fix, or decision depends on it. A session
 that does not offer subagents explores directly with the same read-only tools.
 
 ## Task-specific output

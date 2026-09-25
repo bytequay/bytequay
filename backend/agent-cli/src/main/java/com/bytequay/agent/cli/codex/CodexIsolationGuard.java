@@ -96,7 +96,7 @@ final class CodexIsolationGuard
         verifyReportedCodexHome();
         verifyNoManagedRequirements();
         verifyChatGptAccount();
-        verifyNoLifecycleHooks(cwd);
+        verifyLifecycleHooks(cwd);
         verifyNoAmbientExecPolicyRules(cwd);
         verifySkillOrigin(cwd);
     }
@@ -286,7 +286,7 @@ final class CodexIsolationGuard
         if (!features.isObject()) {
             throw unavailable("config/read omitted the feature policy");
         }
-        for (Map.Entry<String, Boolean> feature : CodexLaunchProfile.expectedFeatures(childProfile, textOnly).entrySet()) {
+        for (Map.Entry<String, Boolean> feature : CodexLaunchProfile.expectedFeatures(childProfile, textOnly, review).entrySet()) {
             JsonNode value = features.path(feature.getKey());
             if (feature.getKey().equals("network_proxy") && value.isObject()) {
                 value = value.path("enabled");
@@ -503,7 +503,7 @@ final class CodexIsolationGuard
         }
     }
 
-    private void verifyNoLifecycleHooks(Path cwd)
+    private void verifyLifecycleHooks(Path cwd)
     {
         CodexProtocol.HooksListResponse response = client.request(
                 "hooks/list",
@@ -516,6 +516,25 @@ final class CodexIsolationGuard
                 .orElseThrow(() -> unavailable("hooks/list reported nothing for the task worktree"));
         if (!entry.errors().isEmpty()) {
             throw unavailable("Codex hook discovery failed for the task worktree");
+        }
+        if (review && childProfile != CodexLaunchProfile.ChildProfile.NONE) {
+            CodexReviewGate.verify(codexHome);
+            if (!entry.warnings().isEmpty() || entry.hooks().size() != 1) {
+                throw unavailable("Codex review child gate is not the only lifecycle hook");
+            }
+            JsonNode hook = entry.hooks().getFirst();
+            if (!hook.path("eventName").asText("").equals("preToolUse")
+                    || !hook.path("handlerType").asText("").equals("command")
+                    || !hook.path("command").asText("").equals(CodexReviewGate.command(CodexReviewGate.path(codexHome)))
+                    || !hook.path("matcher").asText("").equals(".*")
+                    || !hook.path("source").asText("").equals("sessionFlags")
+                    || !hook.path("sourcePath").asText("").equals("/<session-flags>/config.toml")
+                    || !hook.path("enabled").asBoolean(false)
+                    || hook.path("async").asBoolean(true)
+                    || hook.path("timeoutSec").asInt() != 5) {
+                throw unavailable("Codex review child gate does not match the launch profile");
+            }
+            return;
         }
         if (!entry.hooks().isEmpty()) {
             throw unavailable("Codex lifecycle hooks apply to the task worktree");

@@ -19,7 +19,10 @@ public final class CodeGraphInstructions
     public static final String MANAGED = """
             ByteQuay provides an optional CodeGraph for the current task worktree. Use \
             codegraph_explore when callers, callees, implementations, routes, dependencies, or \
-            cross-file structure would help. You decide whether and when it is useful. ByteQuay \
+            cross-file structure would help. For a changed contract, it can suggest indirect \
+            callers, sibling implementations, registration paths, or configuration consumers to \
+            inspect. Query a specific symbol or relationship; do not assume graph coverage is \
+            complete. You decide whether and when it is useful. ByteQuay \
             keeps the index current before every query, including your own uncommitted edits, so \
             there is nothing to refresh. The first call in a task may take longer while the index \
             is prepared. Graph results are navigation help; inspect current source and use \

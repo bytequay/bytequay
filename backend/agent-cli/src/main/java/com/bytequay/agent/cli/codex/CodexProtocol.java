@@ -104,7 +104,7 @@ final class CodexProtocol
             extends Params
             permits ItemNotificationParams, ItemDeltaParams, PlanUpdatedParams, TokenUsageParams,
             ErrorParams, AutoApprovalReviewParams, CommandApprovalParams, FileChangeApprovalParams,
-            PermissionsApprovalParams
+            PermissionsApprovalParams, DynamicToolCallParams
     {
         String turnId();
 
@@ -812,9 +812,12 @@ final class CodexProtocol
             @JsonSubTypes.Type(
                     name = "item/permissions/requestApproval",
                     value = PermissionsApprovalRequest.class),
+            @JsonSubTypes.Type(
+                    name = "item/tool/call",
+                    value = DynamicToolCallRequest.class),
     })
     sealed interface ServerRequest
-            permits CommandApprovalRequest, FileChangeApprovalRequest, PermissionsApprovalRequest,
+            permits CommandApprovalRequest, FileChangeApprovalRequest, PermissionsApprovalRequest, DynamicToolCallRequest,
             UnknownServerRequest
     {
         Object id();
@@ -859,6 +862,49 @@ final class CodexProtocol
         {
             requireNonNull(id, "id is null");
             requireNonNull(params, "params is null");
+        }
+    }
+
+    record DynamicToolCallRequest(Object id, DynamicToolCallParams params)
+            implements ServerRequest
+    {
+        DynamicToolCallRequest
+        {
+            requireNonNull(id, "id is null");
+            requireNonNull(params, "params is null");
+        }
+    }
+
+    record DynamicToolCallParams(
+            String threadId, String turnId, String callId, String tool, Optional<String> namespace, JsonNode arguments)
+            implements TurnScopedParams
+    {
+        DynamicToolCallParams
+        {
+            checkIdentifier(threadId, "threadId");
+            checkIdentifier(turnId, "turnId");
+            checkIdentifier(callId, "callId");
+            checkIdentifier(tool, "tool");
+            requireNonNull(namespace, "namespace is null");
+            requireNonNull(arguments, "arguments is null");
+            checkArgument(arguments.isObject(), "arguments must be an object");
+        }
+    }
+
+    record DynamicToolCallResponse(List<DynamicToolTextContent> contentItems, boolean success)
+    {
+        DynamicToolCallResponse
+        {
+            contentItems = ImmutableList.copyOf(contentItems);
+        }
+    }
+
+    record DynamicToolTextContent(String type, String text)
+    {
+        DynamicToolTextContent
+        {
+            checkIdentifier(type, "type");
+            requireNonNull(text, "text is null");
         }
     }
 
@@ -1140,7 +1186,7 @@ final class CodexProtocol
      * <p>Discovered hooks and discovery errors both fail the isolation check: a hook that applies is
      * unsafe, and a directory that could not be scanned is unproven.
      */
-    record HooksListEntry(String cwd, List<Object> hooks, List<Object> errors, List<String> warnings)
+    record HooksListEntry(String cwd, List<JsonNode> hooks, List<Object> errors, List<String> warnings)
     {
         HooksListEntry
         {

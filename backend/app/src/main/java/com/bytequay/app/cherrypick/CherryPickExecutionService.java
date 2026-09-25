@@ -453,7 +453,7 @@ public class CherryPickExecutionService
             }
             applied = Optional.of(commit);
         }
-        if (applied.isPresent() && !sequencer.withoutConflictMarkers(worktree, expectedHead, after.head())) {
+        if (applied.isPresent() && !git.withoutConflictMarkers(worktree, expectedHead, after.head())) {
             return pause(execution, PauseReason.UNSAFE_GIT_STATE,
                     "A created commit still contains a conflict marker");
         }
@@ -524,10 +524,7 @@ public class CherryPickExecutionService
         if (!git.run(worktree, "ls-files", "-u").output().isBlank()) {
             return true;
         }
-        return git.gitPaths(worktree, ImmutableList.of(
-                        "CHERRY_PICK_HEAD", "MERGE_HEAD", "REVERT_HEAD", "rebase-merge", "rebase-apply"))
-                .stream()
-                .anyMatch(java.nio.file.Files::exists);
+        return !git.openMarkers(worktree, GitCommandRunner.OPERATION_MARKERS).isEmpty();
     }
 
     private static Optional<String> originSha(String message)
@@ -791,7 +788,7 @@ public class CherryPickExecutionService
         }
         String originalHead = parentOf(worktree, conflictCommit);
         if (!sequencer.cleanAndResolved(worktree)
-                || !sequencer.withoutConflictMarkers(worktree, originalHead, fixupCommit)) {
+                || !git.withoutConflictMarkers(worktree, originalHead, fixupCommit)) {
             return store.save(execution.withJournal(journal(
                     ActionType.AGENT_REPAIR,
                     journal.sourceSha(),
@@ -1038,7 +1035,7 @@ public class CherryPickExecutionService
                     "The work branch holds " + (created.size() - createdIndex)
                             + " unrecorded commit(s)");
         }
-        if (!sequencer.withoutConflictMarkers(worktree, execution.range().initialTargetSha(), state.head())) {
+        if (!git.withoutConflictMarkers(worktree, execution.range().initialTargetSha(), state.head())) {
             return pause(execution, PauseReason.UNSAFE_GIT_STATE,
                     "A created commit still contains a conflict marker");
         }

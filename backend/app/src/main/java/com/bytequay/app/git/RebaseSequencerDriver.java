@@ -22,7 +22,6 @@ import org.springframework.stereotype.Component;
 
 import java.nio.file.Path;
 import java.util.Arrays;
-import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Optional;
 import java.util.Set;
@@ -36,8 +35,6 @@ public final class RebaseSequencerDriver
 {
     private static final Set<String> UNMERGED_CODES = ImmutableSet.of(
             "DD", "AU", "UD", "UA", "DU", "AA", "UU");
-    private static final List<String> OPERATION_MARKERS = ImmutableList.of(
-            "CHERRY_PICK_HEAD", "MERGE_HEAD", "REVERT_HEAD", "rebase-merge", "rebase-apply");
 
     private final GitCommandRunner git;
 
@@ -194,27 +191,9 @@ public final class RebaseSequencerDriver
         return unsafe(head, "Rebase resolution is only partly staged");
     }
 
-    /** Reports whether the rebased range contains no conflict marker. */
-    public boolean withoutConflictMarkers(Path worktree, String baseSha, String headSha)
-    {
-        return git.run(worktree, ImmutableList.of(
-                "-c",
-                "core.whitespace=-trailing-space,-space-before-tab,-indent-with-non-tab,-tab-in-indent",
-                "diff",
-                "--check",
-                baseSha + ".." + headSha)).successful();
-    }
-
     private Set<String> openMarkers(Path worktree)
     {
-        List<Path> paths = git.gitPaths(worktree, OPERATION_MARKERS);
-        Set<String> open = new LinkedHashSet<>();
-        for (int marker = 0; marker < paths.size(); marker++) {
-            if (java.nio.file.Files.exists(paths.get(marker))) {
-                open.add(OPERATION_MARKERS.get(marker));
-            }
-        }
-        return open;
+        return git.openMarkers(worktree, GitCommandRunner.OPERATION_MARKERS);
     }
 
     private static boolean unsafeWorktreeChanges(String status)

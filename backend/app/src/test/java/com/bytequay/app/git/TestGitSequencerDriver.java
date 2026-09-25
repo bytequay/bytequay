@@ -207,25 +207,6 @@ class TestGitSequencerDriver
     }
 
     @Test
-    void failsOnlyOnLeftoverMarkersNotOnWhitespaceTheAuthorWrote()
-    {
-        write("file.txt", "one\n");
-        commit("Base");
-        String before = head();
-
-        write("file.txt", "one\ntrailing space here   \n\n");
-        commit("Faithful copy of untidy upstream content");
-        assertThat(driver.withoutConflictMarkers(repository, before, head()))
-                .as("upstream whitespace must not fail a faithful pick")
-                .isTrue();
-
-        String beforeMarkers = head();
-        write("file.txt", "<<<<<<< HEAD\nours\n=======\ntheirs\n>>>>>>> other\n");
-        commit("Left a resolution unfinished");
-        assertThat(driver.withoutConflictMarkers(repository, beforeMarkers, head())).isFalse();
-    }
-
-    @Test
     void commitsTheConflictSnapshotWithItsCherryPickOrigin()
     {
         write("file.txt", "base\n");

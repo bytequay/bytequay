@@ -481,7 +481,7 @@ public class BranchRebaseService
                 || state.kind() != SequenceState.Kind.COMPLETED
                 || !originalHeadMatches(rebase)
                 || !isAncestor(rebase.worktree(), rebase.baseSha(), state.head())
-                || !sequencer.withoutConflictMarkers(rebase.worktree(), rebase.baseSha(), state.head())) {
+                || !git.withoutConflictMarkers(rebase.worktree(), rebase.baseSha(), state.head())) {
             return pause(rebase, PauseReason.RECONCILIATION_MISMATCH,
                     "Final work branch is not a clean descendant of the frozen base");
         }

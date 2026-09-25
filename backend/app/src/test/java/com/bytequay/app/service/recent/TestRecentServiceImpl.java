@@ -416,7 +416,7 @@ class TestRecentServiceImpl
                 "abc123",
                 "head",
                 "main");
-        return new StoredPrDetail(raw, ImmutableList.of(), timeline, checkRuns);
+        return new StoredPrDetail(raw, ImmutableList.of(), timeline, checkRuns, ImmutableList.of());
     }
 
     private static RecentTouch touch(String itemKey, LocalDate day, Instant at, RecentReason reason, int count)

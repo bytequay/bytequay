@@ -293,7 +293,7 @@ class TestPullRequestService
     {
         Instant latestReviewAt = REVIEWED_AT.plusSeconds(30);
         PrReviewState review = new PrReviewState(1L, "me", null, false, "APPROVED", latestReviewAt, null, null, "head");
-        StoredPrDetail latest = new StoredPrDetail(raw(), ImmutableList.of(review), ImmutableList.of(), ImmutableList.of());
+        StoredPrDetail latest = new StoredPrDetail(raw(), ImmutableList.of(review), ImmutableList.of(), ImmutableList.of(), ImmutableList.of());
         when(store.findIdByRepoAndNumber("owner/repo", 7)).thenReturn(Optional.of(12L));
         when(store.findById(12L)).thenReturn(Optional.of(storedPullRequest()));
         when(detailStore.find(12L)).thenReturn(Optional.of(latest));
@@ -330,12 +330,12 @@ class TestPullRequestService
     @Test
     void activityFingerprintDetectsIndividualCheckChangesEvenWithSameAggregateAndUpdateTime()
     {
-        PrCheckRunState first = new PrCheckRunState(1L, "one", "completed", "failure");
-        PrCheckRunState second = new PrCheckRunState(2L, "two", "completed", "success");
-        StoredPrDetail baseline = new StoredPrDetail(raw(), ImmutableList.of(), ImmutableList.of(), ImmutableList.of(first, second));
-        StoredPrDetail reordered = new StoredPrDetail(raw(), ImmutableList.of(), ImmutableList.of(), ImmutableList.of(second, first));
+        PrCheckRunState first = new PrCheckRunState(1L, "one", "completed", "failure", null, "check_run", null, null);
+        PrCheckRunState second = new PrCheckRunState(2L, "two", "completed", "success", null, "check_run", null, null);
+        StoredPrDetail baseline = new StoredPrDetail(raw(), ImmutableList.of(), ImmutableList.of(), ImmutableList.of(first, second), ImmutableList.of());
+        StoredPrDetail reordered = new StoredPrDetail(raw(), ImmutableList.of(), ImmutableList.of(), ImmutableList.of(second, first), ImmutableList.of());
         StoredPrDetail changed = new StoredPrDetail(raw(), ImmutableList.of(), ImmutableList.of(),
-                ImmutableList.of(first, new PrCheckRunState(2L, "two", "completed", "failure")));
+                ImmutableList.of(first, new PrCheckRunState(2L, "two", "completed", "failure", null, "check_run", null, null)), ImmutableList.of());
         assertThat(PullRequestService.activityFingerprints(reordered)).isEqualTo(PullRequestService.activityFingerprints(baseline));
         assertThat(PullRequestService.activityFingerprints(changed)).isNotEqualTo(PullRequestService.activityFingerprints(baseline));
         assertThat(PullRequestDetailMapper.aggregateCiStatus(changed.checkRuns())).isEqualTo(PullRequestDetailMapper.aggregateCiStatus(baseline.checkRuns()));
@@ -352,9 +352,9 @@ class TestPullRequestService
                 "title", "url", "open", "author", null, REVIEWED_AT, REVIEWED_AT, null, "body",
                 ImmutableList.of("b", "a"), ImmutableMap.of("b", "222", "a", "111"), ImmutableList.of("b", "a"), null,
                 false, true, "clean", 0, 0, 0, 2, ImmutableList.of("b", "a"), "head", "feature", "main");
-        StoredPrDetail baseline = new StoredPrDetail(first, ImmutableList.of(), ImmutableList.of(), ImmutableList.of());
+        StoredPrDetail baseline = new StoredPrDetail(first, ImmutableList.of(), ImmutableList.of(), ImmutableList.of(), ImmutableList.of());
         StoredPrDetail partial = new StoredPrDetail(reordered, ImmutableList.of(), ImmutableList.of(),
-                ImmutableList.of(new PrCheckRunState(1L, "ci", "completed", "failure")), ImmutableList.of(StoredPrDetail.TIMELINE));
+                ImmutableList.of(new PrCheckRunState(1L, "ci", "completed", "failure", null, "check_run", null, null)), ImmutableList.of(StoredPrDetail.TIMELINE));
 
         assertThat(PullRequestService.activityFingerprints(partial)).containsKey("checks").doesNotContainKey("timeline");
         assertThat(PullRequestService.activityFingerprints(partial).get("raw")).isEqualTo(PullRequestService.activityFingerprints(baseline).get("raw"));
@@ -365,13 +365,13 @@ class TestPullRequestService
     void reviewDecisionUsesActualLatestVerdictsAndDismissals()
     {
         assertThat(PullRequestService.reviewDecision(ImmutableList.of(
-                new PrReviewState("reviewer", "CHANGES_REQUESTED", REVIEWED_AT),
-                new PrReviewState("reviewer", "APPROVED", REVIEWED_AT.plusSeconds(1)),
-                new PrReviewState("reviewer", "COMMENTED", REVIEWED_AT.plusSeconds(2)))))
+                new PrReviewState(null, "reviewer", null, false, "CHANGES_REQUESTED", REVIEWED_AT, null, null, null),
+                new PrReviewState(null, "reviewer", null, false, "APPROVED", REVIEWED_AT.plusSeconds(1), null, null, null),
+                new PrReviewState(null, "reviewer", null, false, "COMMENTED", REVIEWED_AT.plusSeconds(2), null, null, null))))
                 .contains("APPROVED");
         assertThat(PullRequestService.reviewDecision(ImmutableList.of(
-                new PrReviewState("reviewer", "CHANGES_REQUESTED", REVIEWED_AT),
-                new PrReviewState("reviewer", "DISMISSED", REVIEWED_AT.plusSeconds(1)))))
+                new PrReviewState(null, "reviewer", null, false, "CHANGES_REQUESTED", REVIEWED_AT, null, null, null),
+                new PrReviewState(null, "reviewer", null, false, "DISMISSED", REVIEWED_AT.plusSeconds(1), null, null, null))))
                 .isEmpty();
     }
 
@@ -938,7 +938,7 @@ class TestPullRequestService
     void statusRefreshUsesThePrEtagAndRefreshesCiAfterNotModified()
     {
         PullRequestRef ref = PullRequestRef.of("owner", "repo", 7);
-        PrCheckRunState latest = new PrCheckRunState(2L, "build", "completed", "failure");
+        PrCheckRunState latest = new PrCheckRunState(2L, "build", "completed", "failure", null, "check_run", null, null);
         when(detailStore.find(12L)).thenReturn(Optional.of(stored()));
         when(detailStore.findEtag(12L)).thenReturn(Optional.of("\"etag-1\""));
         when(gitHub.getPullRequest("pat", ref, Optional.of("\"etag-1\"")))
@@ -950,7 +950,7 @@ class TestPullRequestService
         StoredPrDetail refreshed = snapshots.refreshStatus("pat", ref, 12L);
 
         assertThat(refreshed.raw().mergeable()).isTrue();
-        assertThat(refreshed.reviews()).containsExactly(new PrReviewState("alice", "APPROVED"));
+        assertThat(refreshed.reviews()).containsExactly(new PrReviewState(null, "alice", null, false, "APPROVED", null, null, null, null));
         assertThat(refreshed.checkRuns()).containsExactly(latest);
         verify(detailStore).saveStatus(12L, refreshed);
         verify(detailStore, never()).updateEtag(anyLong(), any());
@@ -1216,7 +1216,7 @@ class TestPullRequestService
                 .build();
         return new StoredPrDetail(
                 raw(),
-                ImmutableList.of(new PrReviewState("alice", "APPROVED"), review(41L, "COMMENTED", reviewBody)),
+                ImmutableList.of(new PrReviewState(null, "alice", null, false, "APPROVED", null, null, null, null), review(41L, "COMMENTED", reviewBody)),
                 ImmutableList.of(
                         new PrTimelineEvent(41L, "commented", "me", REVIEWED_AT, commentBody, Optional.empty()),
                         new PrTimelineEvent(41L, "reviewed", "me", REVIEWED_AT, reviewBody, PrTimelinePayload.builder().state("COMMENTED").build(), Optional.empty()),
@@ -1472,17 +1472,17 @@ class TestPullRequestService
     void derivesTheCurrentUsersLatestReviewVerdict()
     {
         assertThat(PullRequestService.deriveHandledActionFromReviews(ImmutableList.of(
-                new PrReviewState("me", "APPROVED"),
-                new PrReviewState("me", "DISMISSED"),
-                new PrReviewState("me", "CHANGES_REQUESTED")), "me"))
+                new PrReviewState(null, "me", null, false, "APPROVED", null, null, null, null),
+                new PrReviewState(null, "me", null, false, "DISMISSED", null, null, null, null),
+                new PrReviewState(null, "me", null, false, "CHANGES_REQUESTED", null, null, null, null)), "me"))
                 .isEqualTo(HandledAction.CHANGES_REQUESTED);
         assertThat(PullRequestService.deriveHandledActionFromReviews(
-                ImmutableList.of(new PrReviewState("me", "COMMENTED")), "me"))
+                ImmutableList.of(new PrReviewState(null, "me", null, false, "COMMENTED", null, null, null, null)), "me"))
                 .isEqualTo(HandledAction.COMMENTED);
         assertThat(PullRequestService.deriveHandledActionFromReviews(ImmutableList.of(
-                new PrReviewState("ME", "APPROVED"),
-                new PrReviewState("me", "DISMISSED"),
-                new PrReviewState("other", "APPROVED")), "me"))
+                new PrReviewState(null, "ME", null, false, "APPROVED", null, null, null, null),
+                new PrReviewState(null, "me", null, false, "DISMISSED", null, null, null, null),
+                new PrReviewState(null, "other", null, false, "APPROVED", null, null, null, null)), "me"))
                 .isNull();
     }
 
@@ -1509,8 +1509,8 @@ class TestPullRequestService
     private static StoredPrDetail stored()
     {
         return new StoredPrDetail(
-                raw(), ImmutableList.of(new PrReviewState("alice", "APPROVED")), ImmutableList.of(),
-                ImmutableList.of(new PrCheckRunState(1L, "build", "completed", "success")),
+                raw(), ImmutableList.of(new PrReviewState(null, "alice", null, false, "APPROVED", null, null, null, null)), ImmutableList.of(),
+                ImmutableList.of(new PrCheckRunState(1L, "build", "completed", "success", null, "check_run", null, null)),
                 ImmutableList.of(),
                 true);
     }
@@ -1538,8 +1538,8 @@ class TestPullRequestService
     private static PrRawDetail raw()
     {
         return new PrRawDetail(
-                "body", ImmutableList.of(), false, true, "clean", 4, 2, 1, 0, ImmutableList.of(),
-                "head", "feature");
+                null, null, null, null, null, null, null, null, "body", ImmutableList.of(), null, ImmutableList.of(), null, false, true, "clean", 4, 2, 1, 0, ImmutableList.of(),
+                "head", "feature", null);
     }
 
     private static PullRequest storedPullRequest()

@@ -68,8 +68,8 @@ class TestPullRequestDetailFetcher
     @Test
     void assemblesDetailFromAllFetches()
     {
-        PrReviewState review = new PrReviewState("alice", "APPROVED");
-        PrCheckRunState check = new PrCheckRunState(1L, "build", "completed", "success");
+        PrReviewState review = new PrReviewState(null, "alice", null, false, "APPROVED", null, null, null, null);
+        PrCheckRunState check = new PrCheckRunState(1L, "build", "completed", "success", null, "check_run", null, null);
         when(gitHub.fetchPrDetail("pat", REF)).thenReturn(raw("head"));
         when(gitHub.fetchPrReviews("pat", REF)).thenReturn(ImmutableList.of(review));
         when(gitHub.fetchPrTimeline("pat", REF)).thenReturn(ImmutableList.of());
@@ -177,8 +177,8 @@ class TestPullRequestDetailFetcher
     private static PrRawDetail raw(String headSha)
     {
         return new PrRawDetail(
-                "body", ImmutableList.of(), false, true, "clean", 4, 2, 1, 0, ImmutableList.of(),
-                headSha, "feature");
+                null, null, null, null, null, null, null, null, "body", ImmutableList.of(), null, ImmutableList.of(), null, false, true, "clean", 4, 2, 1, 0, ImmutableList.of(),
+                headSha, "feature", null);
     }
 
     private static PrTimelineEvent comment(Long githubId, String actor, Instant timestamp, String body)

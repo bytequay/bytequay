@@ -57,15 +57,6 @@ public record StoredPrDetail(
         this(raw, reviews, timeline, checkRuns, unavailableSections, false);
     }
 
-    public StoredPrDetail(
-            PrRawDetail raw,
-            List<PrReviewState> reviews,
-            List<PrTimelineEvent> timeline,
-            List<PrCheckRunState> checkRuns)
-    {
-        this(raw, reviews, timeline, checkRuns, ImmutableList.of(), false);
-    }
-
     /**
      * Whether every source behind a section answered. A section that failed
      * arrives as an empty list, which is indistinguishable from "GitHub says

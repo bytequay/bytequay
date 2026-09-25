@@ -152,8 +152,9 @@ class TestContextDiscussionReader
                 PullRequest.Origin.OTHER, ImmutableList.of(), ImmutableMap.of(), false, null, null, null, ImmutableList.of(), null,
                 0, 0, 0, "OPEN", null, null, null, null, null, "branch", null, null, null, null);
         when(pullRequests.findStored("example/repository", 42)).thenReturn(Optional.of(row));
-        PrRawDetail raw = new PrRawDetail("Body", ImmutableList.of(), false, null, "unknown", 0, 0, 0, 0, ImmutableList.of(), "b".repeat(40), "branch");
-        when(details.find(1)).thenReturn(Optional.of(new StoredPrDetail(raw, ImmutableList.of(), events, ImmutableList.of())));
+        PrRawDetail raw = new PrRawDetail(null, null, null, null, null, null, null, null, "Body", ImmutableList.of(), null, ImmutableList.of(), null, false, null, "unknown", 0, 0,
+                0, 0, ImmutableList.of(), "b".repeat(40), "branch", null);
+        when(details.find(1)).thenReturn(Optional.of(new StoredPrDetail(raw, ImmutableList.of(), events, ImmutableList.of(), ImmutableList.of())));
         when(details.findSyncedAt("example/repository", 42)).thenReturn(Optional.of(NOW));
     }
 

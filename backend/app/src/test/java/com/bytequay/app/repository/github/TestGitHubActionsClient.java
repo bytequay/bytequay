@@ -858,8 +858,8 @@ class TestGitHubActionsClient
                 .andExpect(header(HttpHeaders.IF_NONE_MATCH, "\"statuses-1\""))
                 .andRespond(withStatus(HttpStatus.NOT_MODIFIED).header(HttpHeaders.ETAG, "\"statuses-1\""));
         List<PrCheckRunState> existing = ImmutableList.of(
-                new PrCheckRunState(1L, "build", "completed", "success", null, "check_run"),
-                new PrCheckRunState(2L, "license", "completed", "success", null, "status"));
+                new PrCheckRunState(1L, "build", "completed", "success", null, "check_run", null, null),
+                new PrCheckRunState(2L, "license", "completed", "success", null, "status", null, null));
 
         GitHubActionsClient.PrCheckRunsFetch result = fixture.client.refreshPrCheckRuns(
                 "pat",
@@ -923,7 +923,7 @@ class TestGitHubActionsClient
     private static List<PrCheckRunState> storedCheckRuns(int count)
     {
         return IntStream.rangeClosed(1, count)
-                .mapToObj(id -> new PrCheckRunState((long) id, "check-" + id, "completed", "success", null, "check_run"))
+                .mapToObj(id -> new PrCheckRunState((long) id, "check-" + id, "completed", "success", null, "check_run", null, null))
                 .toList();
     }
 

@@ -163,8 +163,9 @@ class TestRepositoryContextReader
     void multibyteDescriptionTruncationIsDisclosed()
     {
         stored(pr(1, "Current change", 0));
-        PrRawDetail raw = new PrRawDetail("你".repeat(45_000), ImmutableList.of(), false, null, null, 0, 0, 1, 0, ImmutableList.of(), HEAD, "branch");
-        when(details.find(1)).thenReturn(Optional.of(new StoredPrDetail(raw, ImmutableList.of(), ImmutableList.of(), ImmutableList.of())));
+        PrRawDetail raw = new PrRawDetail(null, null, null, null, null, null, null, null, "你".repeat(45_000), ImmutableList.of(), null, ImmutableList.of(), null, false, null,
+                null, 0, 0, 1, 0, ImmutableList.of(), HEAD, "branch", null);
+        when(details.find(1)).thenReturn(Optional.of(new StoredPrDetail(raw, ImmutableList.of(), ImmutableList.of(), ImmutableList.of(), ImmutableList.of())));
 
         assertThat(select(RepositoryNotebook.empty()).gaps()).contains("Text matching is bounded to the PR description preview and the first 100 commit messages.");
     }

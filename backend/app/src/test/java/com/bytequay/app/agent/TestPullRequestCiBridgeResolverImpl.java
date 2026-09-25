@@ -551,7 +551,8 @@ class TestPullRequestCiBridgeResolverImpl
 
     private static StoredPrDetail cached(String head)
     {
-        PrRawDetail raw = new PrRawDetail("", ImmutableList.of(), true, false, "blocked", 1, 0, 1, 0, ImmutableList.of(), head, BRANCH);
+        PrRawDetail raw = new PrRawDetail(null, null, null, null, null, null, null, null, "", ImmutableList.of(), null, ImmutableList.of(), null, true, false, "blocked", 1, 0, 1,
+                0, ImmutableList.of(), head, BRANCH, null);
         PrCheckRunState check = new PrCheckRunState(400L, "external-style-check", "completed", "failure", "https://ci.example.invalid/400", "status", NOW, NOW);
         return new StoredPrDetail(raw, ImmutableList.of(), ImmutableList.of(), ImmutableList.of(check), ImmutableList.of(StoredPrDetail.CHECKS));
     }

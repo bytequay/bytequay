@@ -64,28 +64,6 @@ public record PrRawDetail(
         labelColors = labelColors == null ? ImmutableMap.of() : ImmutableMap.copyOf(labelColors);
     }
 
-    public PrRawDetail(
-            String body,
-            List<String> labels,
-            boolean draft,
-            Boolean mergeable,
-            String mergeableState,
-            int additions,
-            int deletions,
-            int changedFiles,
-            int requestedReviewerCount,
-            List<String> requestedReviewers,
-            String headSha,
-            String headRef)
-    {
-        this(
-                null, null, null, null, null, null, null, null,
-                body, labels, ImmutableMap.of(), ImmutableList.of(), null, draft, mergeable,
-                mergeableState, additions, deletions, changedFiles,
-                requestedReviewerCount, requestedReviewers, headSha, headRef,
-                null);
-    }
-
     public PrRawDetail withMergeability(Boolean latestMergeable, String latestMergeableState)
     {
         return new PrRawDetail(

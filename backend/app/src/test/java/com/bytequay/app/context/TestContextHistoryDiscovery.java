@@ -130,7 +130,7 @@ class TestContextHistoryDiscovery
                 "Merged after the list refresh", ImmutableList.of(), ImmutableMap.of(), ImmutableList.of(), null, false, null, null,
                 0, 0, 0, 0, ImmutableList.of(), SHA, "head", "main");
         when(pullRequests.listPullRequests(REPO, 0, 20, "")).thenReturn(page(ImmutableList.of(row)));
-        when(details.find(row.id())).thenReturn(Optional.of(new StoredPrDetail(raw, ImmutableList.of(), ImmutableList.of(), ImmutableList.of())));
+        when(details.find(row.id())).thenReturn(Optional.of(new StoredPrDetail(raw, ImmutableList.of(), ImmutableList.of(), ImmutableList.of(), ImmutableList.of())));
 
         var result = discovery.discover(WORKSPACE, SHA, ImmutableList.of(ContextScope.project()), "", false);
 

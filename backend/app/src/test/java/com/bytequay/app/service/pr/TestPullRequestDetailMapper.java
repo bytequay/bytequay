@@ -36,12 +36,12 @@ class TestPullRequestDetailMapper
     {
         assertThat(PullRequestDetailMapper.aggregateCiStatus(ImmutableList.of())).isEqualTo(PullRequestDetail.CiStatus.NONE);
         assertThat(PullRequestDetailMapper.aggregateCiStatus(ImmutableList.of(
-                new PrCheckRunState(2L, "build", "completed", "success"),
-                new PrCheckRunState(1L, "build", "completed", "failure")))).isEqualTo(PullRequestDetail.CiStatus.PASSING);
+                new PrCheckRunState(2L, "build", "completed", "success", null, "check_run", null, null),
+                new PrCheckRunState(1L, "build", "completed", "failure", null, "check_run", null, null)))).isEqualTo(PullRequestDetail.CiStatus.PASSING);
         // The store returns the first-seen run first, so an older failure precedes its re-run.
         assertThat(PullRequestDetailMapper.aggregateCiStatus(ImmutableList.of(
-                new PrCheckRunState(1L, "build", "completed", "failure"),
-                new PrCheckRunState(2L, "build", "completed", "success")))).isEqualTo(PullRequestDetail.CiStatus.PASSING);
+                new PrCheckRunState(1L, "build", "completed", "failure", null, "check_run", null, null),
+                new PrCheckRunState(2L, "build", "completed", "success", null, "check_run", null, null)))).isEqualTo(PullRequestDetail.CiStatus.PASSING);
         assertThat(PullRequestDetailMapper.aggregateCiStatus(ImmutableList.of(
                 check("build", "completed", "success"),
                 check("test", "in_progress", null)))).isEqualTo(PullRequestDetail.CiStatus.PENDING);
@@ -64,7 +64,7 @@ class TestPullRequestDetailMapper
         Instant completedAt = Instant.parse("2026-01-01T00:01:00Z");
         StoredPrDetail stored = new StoredPrDetail(
                 raw(),
-                ImmutableList.of(new PrReviewState("alice", "APPROVED")),
+                ImmutableList.of(new PrReviewState(null, "alice", null, false, "APPROVED", null, null, null, null)),
                 ImmutableList.of(new PrTimelineEvent(
                         null,
                         "ci_autofix",
@@ -73,7 +73,8 @@ class TestPullRequestDetailMapper
                         "verified push",
                         Optional.of("ci-autofix:event"))),
                 ImmutableList.of(new PrCheckRunState(
-                        1L, "build", "completed", "success", null, "check_run", startedAt, completedAt)));
+                        1L, "build", "completed", "success", null, "check_run", startedAt, completedAt)),
+                ImmutableList.of());
 
         PullRequestDetail detail = PullRequestDetailMapper.toPullRequestDetail(12L, "owner/repo", 5, stored, true);
 
@@ -106,14 +107,14 @@ class TestPullRequestDetailMapper
         StoredPrDetail stored = new StoredPrDetail(
                 richRaw(),
                 ImmutableList.of(
-                        new PrReviewState("bob", "APPROVED", Instant.parse("2026-08-20T10:00:00Z")),
-                        new PrReviewState("bob", "CHANGES_REQUESTED", Instant.parse("2026-08-20T11:00:00Z"))),
+                        new PrReviewState(null, "bob", null, false, "APPROVED", Instant.parse("2026-08-20T10:00:00Z"), null, null, null),
+                        new PrReviewState(null, "bob", null, false, "CHANGES_REQUESTED", Instant.parse("2026-08-20T11:00:00Z"), null, null, null)),
                 ImmutableList.of(
                         new PrTimelineEvent(2L, "renamed", "alice", Instant.parse("2026-08-20T10:02:00Z"), null, java.util.Optional.empty()),
                         new PrTimelineEvent(1L, "labeled", "github-actions[bot]", Instant.parse("2026-08-20T10:01:00Z"), null, label, java.util.Optional.empty())),
                 ImmutableList.of(
-                        new PrCheckRunState(1L, "build", "completed", "failure"),
-                        new PrCheckRunState(2L, "license", "completed", "success")),
+                        new PrCheckRunState(1L, "build", "completed", "failure", null, "check_run", null, null),
+                        new PrCheckRunState(2L, "license", "completed", "success", null, "check_run", null, null)),
                 ImmutableList.of("reviewThreads"));
 
         PullRequestDetail detail = PullRequestDetailMapper.toPullRequestDetail(12L, "owner/repo", 42, stored, false);
@@ -133,14 +134,14 @@ class TestPullRequestDetailMapper
 
     private static PrCheckRunState check(String name, String status, String conclusion)
     {
-        return new PrCheckRunState(1L, name, status, conclusion);
+        return new PrCheckRunState(1L, name, status, conclusion, null, "check_run", null, null);
     }
 
     private static PrRawDetail raw()
     {
         return new PrRawDetail(
-                "body", ImmutableList.of(), false, true, "clean", 10, 2, 3, 0, ImmutableList.of(),
-                "head", "feature");
+                null, null, null, null, null, null, null, null, "body", ImmutableList.of(), null, ImmutableList.of(), null, false, true, "clean", 10, 2, 3, 0, ImmutableList.of(),
+                "head", "feature", null);
     }
 
     private static PrRawDetail richRaw()

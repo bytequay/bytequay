@@ -31,7 +31,6 @@ import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 import java.util.Optional;
 import java.util.concurrent.CompletableFuture;
-import java.util.concurrent.CompletionException;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
 import java.util.concurrent.ExecutionException;
@@ -41,6 +40,7 @@ import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.atomic.AtomicReference;
 
+import static com.bytequay.agent.cli.process.ProviderCli.failureMessage;
 import static com.google.common.base.Preconditions.checkState;
 import static java.util.Objects.requireNonNull;
 
@@ -534,17 +534,6 @@ final class CodexAppServerClient
         catch (TimeoutException e) {
             throw new AgentUnavailableException("Timed out waiting for Codex " + operation, e);
         }
-    }
-
-    private static String failureMessage(Throwable failure)
-    {
-        Throwable cause = failure;
-        while ((cause instanceof CompletionException || cause instanceof ExecutionException)
-                && cause.getCause() != null) {
-            cause = cause.getCause();
-        }
-        String message = cause.getMessage();
-        return message == null || message.isBlank() ? cause.getClass().getSimpleName() : message;
     }
 
     private static long responseId(Object id)

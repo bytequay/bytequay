@@ -19,11 +19,10 @@ import com.bytequay.agent.cli.process.AgentPermissionManager;
 import com.bytequay.agent.cli.process.BuildCacheRoots;
 import com.bytequay.agent.cli.process.GitCliEnvironment;
 import com.bytequay.agent.cli.process.GitWorktreeWriteRoots;
-import com.bytequay.agent.cli.process.ManagedProcess;
-import com.bytequay.agent.cli.process.ProcessExit;
 import com.bytequay.agent.cli.process.ProcessOwner;
 import com.bytequay.agent.cli.process.ProcessSpec;
 import com.bytequay.agent.cli.process.ProcessSupervisor;
+import com.bytequay.agent.cli.process.ProviderCli;
 import com.bytequay.agent.cli.process.SecretRedactor;
 import com.bytequay.agent.spi.AgentAttachment;
 import com.bytequay.agent.spi.AgentCapabilities;
@@ -65,8 +64,6 @@ import org.slf4j.LoggerFactory;
 
 import java.io.IOException;
 import java.net.URI;
-import java.nio.ByteBuffer;
-import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.InvalidPathException;
 import java.nio.file.Path;
@@ -224,8 +221,8 @@ public final class CodexCliDriver
      */
     public CodexCliDriver(String executable, String minimumVersion, ObjectMapper objectMapper, ProcessSupervisor supervisor, Path codexHome, PermissionBroker permissions)
     {
-        this(executable, minimumVersion, objectMapper, supervisor, inheritedEnvironment(), codexHome, permissions, DEFAULT_QUIESCENCE_TIMEOUT,
-                LANE_ID, "Codex", Optional.empty());
+        this(executable, minimumVersion, objectMapper, supervisor, ProviderCli.inheritedEnvironment(System.getenv(), INHERITED_ENVIRONMENT), codexHome, permissions,
+                DEFAULT_QUIESCENCE_TIMEOUT, LANE_ID, "Codex", Optional.empty());
     }
 
     /** One saved DeepSeek key becomes one Codex App Server lane with its own isolated home. */
@@ -243,8 +240,8 @@ public final class CodexCliDriver
         requireNonNull(secretSupplier, "secretSupplier is null");
         checkArgument(laneId.value().startsWith("deepseek-key-"), "DeepSeek lane ID must identify a saved key");
         checkArgument(!label.isBlank(), "label is blank");
-        return new CodexCliDriver(executable, minimumVersion, objectMapper, supervisor, inheritedEnvironment(), codexHome, permissions,
-                DEFAULT_QUIESCENCE_TIMEOUT, laneId, label, Optional.of(secretSupplier));
+        return new CodexCliDriver(executable, minimumVersion, objectMapper, supervisor, ProviderCli.inheritedEnvironment(System.getenv(), INHERITED_ENVIRONMENT),
+                codexHome, permissions, DEFAULT_QUIESCENCE_TIMEOUT, laneId, label, Optional.of(secretSupplier));
     }
 
     CodexCliDriver(
@@ -416,9 +413,9 @@ public final class CodexCliDriver
             return Optional.empty();
         }
         try {
-            CommandResult result = run(UPDATE_TIMEOUT, "npm", "install", "--global", "@openai/codex@" + minimumVersion);
+            ProviderCli.Result result = run(UPDATE_TIMEOUT, "npm", "install", "--global", "@openai/codex@" + minimumVersion);
             if (result.exitCode() != 0) {
-                throw new AgentUnavailableException("Codex CLI upgrade to " + minimumVersion + " failed: " + redactor.redact(result.output()));
+                throw new AgentUnavailableException("Codex CLI upgrade to " + minimumVersion + " failed: " + redactor.redact(result.combinedOutput()));
             }
             AgentProviderStatus after = probe();
             OptionalInt upgraded = after.version().map(this::compareVersion).orElse(OptionalInt.empty());
@@ -440,18 +437,18 @@ public final class CodexCliDriver
     public AgentProviderStatus probe()
     {
         try {
-            CommandResult versionResult = run(executable, "--version");
+            ProviderCli.Result versionResult = run(executable, "--version");
             if (versionResult.exitCode() != 0) {
                 return status(
                         AgentProviderStatus.Readiness.TEMPORARILY_UNAVAILABLE,
                         Optional.empty(),
-                        "codex --version failed: " + versionResult.output());
+                        "codex --version failed: " + versionResult.combinedOutput());
             }
-            String version = versionResult.output().lines()
+            String version = versionResult.combinedOutput().lines()
                     .filter(line -> line.startsWith("codex-cli "))
                     .map(line -> line.substring("codex-cli ".length()).trim())
                     .findFirst()
-                    .orElseGet(() -> versionResult.output().lines()
+                    .orElseGet(() -> versionResult.combinedOutput().lines()
                             .map(String::trim)
                             .filter(line -> !line.isBlank())
                             .findFirst()
@@ -480,7 +477,7 @@ public final class CodexCliDriver
                 CodexIsolationGuard.rejectRuleFiles(codexHome);
                 return status(AgentProviderStatus.Readiness.READY, Optional.of(version), "DeepSeek Codex profile is available");
             }
-            CommandResult login = run(executable, "login", "status");
+            ProviderCli.Result login = run(executable, "login", "status");
             if (login.exitCode() != 0) {
                 // ByteQuay's home is signed in separately from the user's, so the generic login
                 // command would land in the wrong place; readiness carries the exact one.
@@ -488,7 +485,7 @@ public final class CodexCliDriver
                         laneId,
                         AgentProviderStatus.Readiness.AUTHENTICATION_REQUIRED,
                         Optional.of(version),
-                        "Codex CLI " + version + " is not signed in for ByteQuay: " + login.output(),
+                        "Codex CLI " + version + " is not signed in for ByteQuay: " + login.combinedOutput(),
                         capabilities(),
                         Optional.of(signInCommand()));
             }
@@ -504,7 +501,7 @@ public final class CodexCliDriver
                         "Codex CLI " + version + " is signed in, but " + rules.getMessage()
                                 + ". ByteQuay tasks refuse inherited exec-policy rules; move that rules folder aside, then check again.");
             }
-            return status(AgentProviderStatus.Readiness.READY, Optional.of(version), login.output());
+            return status(AgentProviderStatus.Readiness.READY, Optional.of(version), login.combinedOutput());
         }
         catch (InterruptedException e) {
             Thread.currentThread().interrupt();
@@ -737,67 +734,24 @@ public final class CodexCliDriver
         return "CODEX_HOME=\"" + codexHome + "\" " + executable + " login";
     }
 
-    private CommandResult run(String... command)
+    private ProviderCli.Result run(String... command)
             throws InterruptedException
     {
         return run(PROBE_TIMEOUT, command);
     }
 
-    private CommandResult run(Duration maximumRuntime, String... command)
+    private ProviderCli.Result run(Duration maximumRuntime, String... command)
             throws InterruptedException
     {
-        StringBuilder output = new StringBuilder();
-        ManagedProcess process = supervisor.prepare(
-                processSpec(
-                        new ProcessOwner(ProcessOwner.Kind.CLI_PROBE, "codex-cli"),
-                        ImmutableList.copyOf(command),
-                        Path.of(System.getProperty("user.dir")).toAbsolutePath(),
-                        maximumRuntime,
-                        MAX_PROBE_OUTPUT_BYTES,
-                        MAX_PROBE_OUTPUT_BYTES))
-                .start((stream, bytes) -> append(output, bytes));
-        try {
-            ProcessExit result = process.exit().toCompletableFuture()
-                    .get(maximumRuntime.toMillis() + 2000, TimeUnit.MILLISECONDS);
-            if (result.treeTermination() != ProcessExit.TreeTermination.VERIFIED_STOPPED) {
-                return new CommandResult(-1, "Codex CLI process tree could not be verified stopped");
-            }
-            supervisor.acknowledge(process.launchId());
-            if (result.reason() == ProcessExit.Reason.TIMED_OUT) {
-                return new CommandResult(-1, "Codex CLI command timed out");
-            }
-            return new CommandResult(result.exitCode(), output.toString().trim());
-        }
-        catch (java.util.concurrent.ExecutionException | java.util.concurrent.TimeoutException e) {
-            process.cancel();
-            return new CommandResult(-1, "Codex CLI command failed: " + e.getMessage());
-        }
-    }
-
-    private ProcessSpec processSpec(
-            ProcessOwner owner,
-            List<String> argv,
-            Path workingDirectory,
-            Duration maximumRuntime,
-            int maximumStdoutBytes,
-            int maximumStderrBytes)
-    {
-        return new ProcessSpec(
-                owner,
-                argv,
-                workingDirectory,
+        return ProviderCli.run(supervisor, new ProcessSpec(
+                new ProcessOwner(ProcessOwner.Kind.CLI_PROBE, "codex-cli"),
+                ImmutableList.copyOf(command),
+                Path.of(System.getProperty("user.dir")).toAbsolutePath(),
                 launchEnvironment(),
-                OptionalInt.of(maximumStdoutBytes),
-                maximumStderrBytes,
+                OptionalInt.of(MAX_PROBE_OUTPUT_BYTES),
+                MAX_PROBE_OUTPUT_BYTES,
                 maximumRuntime,
-                PROCESS_CANCELLATION_GRACE);
-    }
-
-    private static void append(StringBuilder output, ByteBuffer bytes)
-    {
-        synchronized (output) {
-            output.append(StandardCharsets.UTF_8.decode(bytes));
-        }
+                PROCESS_CANCELLATION_GRACE), "Codex CLI");
     }
 
     private Map<String, String> launchEnvironment()
@@ -805,20 +759,6 @@ public final class CodexCliDriver
         return GitCliEnvironment.withoutCredentials(
                 Maps.filterKeys(environment, name -> !name.equals("OPENAI_API_KEY")));
     }
-
-    private static Map<String, String> inheritedEnvironment()
-    {
-        ImmutableMap.Builder<String, String> environment = ImmutableMap.builder();
-        for (String name : ImmutableSet.<String>builder().addAll(INHERITED_ENVIRONMENT).addAll(GitCliEnvironment.variables()).build()) {
-            String value = System.getenv(name);
-            if (value != null) {
-                environment.put(name, value);
-            }
-        }
-        return environment.buildOrThrow();
-    }
-
-    private record CommandResult(int exitCode, String output) {}
 
     private record ClientLaunch(
             CodexAppServerClient client,

@@ -23,6 +23,7 @@ import com.bytequay.agent.cli.process.ProcessOwner;
 import com.bytequay.agent.cli.process.ProcessSpec;
 import com.bytequay.agent.cli.process.ProcessStream;
 import com.bytequay.agent.cli.process.ProcessSupervisor;
+import com.bytequay.agent.cli.process.ProviderCli;
 import com.bytequay.agent.cli.process.SecretRedactor;
 import com.bytequay.agent.cli.process.Utf8LineBuffer;
 import com.bytequay.agent.spi.AgentAttachment;
@@ -83,6 +84,7 @@ import java.util.concurrent.TimeoutException;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.stream.Stream;
 
+import static com.bytequay.agent.cli.process.ProviderCli.failureMessage;
 import static java.util.Objects.requireNonNull;
 import static java.util.stream.Collectors.joining;
 
@@ -221,7 +223,7 @@ public final class ClaudeCliDriver
     public Optional<String> update()
     {
         try {
-            CommandResult result = run(UPDATE_TIMEOUT, executable, "update");
+            ProviderCli.Result result = run(UPDATE_TIMEOUT, executable, "update");
             if (result.exitCode() != 0) {
                 throw new AgentUnavailableException(
                         "Claude CLI update failed: " + redactor.redact(result.combinedOutput()));
@@ -263,7 +265,7 @@ public final class ClaudeCliDriver
     public AgentProviderStatus probe()
     {
         try {
-            CommandResult versionResult = run(executable, "--version");
+            ProviderCli.Result versionResult = run(executable, "--version");
             if (versionResult.truncated()) {
                 return status(
                         AgentProviderStatus.Readiness.TEMPORARILY_UNAVAILABLE,
@@ -291,7 +293,7 @@ public final class ClaudeCliDriver
                         "Unsupported Claude CLI version; expected " + MINIMUM_VERSION + " or newer");
             }
 
-            CommandResult help = run(executable, "--help");
+            ProviderCli.Result help = run(executable, "--help");
             if (help.truncated()) {
                 return status(
                         AgentProviderStatus.Readiness.TEMPORARILY_UNAVAILABLE,
@@ -323,7 +325,7 @@ public final class ClaudeCliDriver
                     && help.stdout().contains("--forward-subagent-text");
             // A review child is visible only through forwarded text, and gated only on a release with the verified hook input.
             reviewChildAgents = forwardSubagentText && version.compareTo(REVIEW_CHILD_VERSION) >= 0;
-            CommandResult defaults = run(executable, "auto-mode", "defaults");
+            ProviderCli.Result defaults = run(executable, "auto-mode", "defaults");
             if (defaults.timedOut()) {
                 return status(
                         AgentProviderStatus.Readiness.TEMPORARILY_UNAVAILABLE,
@@ -537,7 +539,7 @@ public final class ClaudeCliDriver
     private AuthenticationProbe probeAuthentication()
             throws InterruptedException
     {
-        CommandResult result = run(executable, "auth", "status", "--json");
+        ProviderCli.Result result = run(executable, "auth", "status", "--json");
         if (result.timedOut()) {
             return AuthenticationProbe.unavailable("Claude authentication status timed out");
         }
@@ -598,78 +600,22 @@ public final class ClaudeCliDriver
         }
     }
 
-    private CommandResult run(String... command)
+    private ProviderCli.Result run(String... command)
             throws InterruptedException
     {
         return run(PROBE_TIMEOUT, command);
     }
 
-    private CommandResult run(Duration maximumRuntime, String... command)
+    private ProviderCli.Result run(Duration maximumRuntime, String... command)
             throws InterruptedException
     {
-        StringBuilder stdout = new StringBuilder();
-        StringBuilder stderr = new StringBuilder();
-        ManagedProcess process = supervisor.prepare(
-                processSpec(
-                        new ProcessOwner(ProcessOwner.Kind.CLI_PROBE, "claude-cli"),
-                        ImmutableList.copyOf(command),
-                        Path.of(System.getProperty("user.dir")).toAbsolutePath(),
-                        maximumRuntime,
-                        OptionalInt.of(MAX_PROBE_OUTPUT_BYTES),
-                        MAX_PROBE_OUTPUT_BYTES))
-                .start((stream, bytes) -> append(
-                        stream == ProcessStream.STDOUT ? stdout : stderr,
-                        bytes));
-        try {
-            ProcessExit result = process.exit().toCompletableFuture()
-                    .get(maximumRuntime.toMillis() + 2000, TimeUnit.MILLISECONDS);
-            if (result.treeTermination() != ProcessExit.TreeTermination.VERIFIED_STOPPED) {
-                return new CommandResult(
-                        -1,
-                        stdout.toString().trim(),
-                        "Claude CLI process tree could not be verified stopped",
-                        false,
-                        result.stdoutTruncated(),
-                        result.stderrTruncated());
-            }
-            supervisor.acknowledge(process.launchId());
-            if (result.reason() == ProcessExit.Reason.TIMED_OUT) {
-                return new CommandResult(
-                        -1,
-                        stdout.toString().trim(),
-                        stderr.toString().trim(),
-                        true,
-                        result.stdoutTruncated(),
-                        result.stderrTruncated());
-            }
-            return new CommandResult(
-                    result.exitCode(),
-                    stdout.toString().trim(),
-                    stderr.toString().trim(),
-                    false,
-                    result.stdoutTruncated(),
-                    result.stderrTruncated());
-        }
-        catch (TimeoutException e) {
-            process.cancel();
-            return new CommandResult(
-                    -1,
-                    stdout.toString().trim(),
-                    stderr.toString().trim(),
-                    true,
-                    false,
-                    false);
-        }
-        catch (ExecutionException e) {
-            process.cancel();
-            return new CommandResult(
-                    -1,
-                    stdout.toString().trim(),
-                    "Claude CLI command failed: " + e.getMessage(),
-                    false,
-                    false,
-                    false);
-        }
+        return ProviderCli.run(supervisor, processSpec(
+                new ProcessOwner(ProcessOwner.Kind.CLI_PROBE, "claude-cli"),
+                ImmutableList.copyOf(command),
+                Path.of(System.getProperty("user.dir")).toAbsolutePath(),
+                maximumRuntime,
+                OptionalInt.of(MAX_PROBE_OUTPUT_BYTES),
+                MAX_PROBE_OUTPUT_BYTES), "Claude CLI");
     }
 
     private ProcessSpec processSpec(
@@ -691,13 +637,6 @@ public final class ClaudeCliDriver
                 PROCESS_CANCELLATION_GRACE);
     }
 
-    private static void append(StringBuilder output, ByteBuffer bytes)
-    {
-        synchronized (output) {
-            output.append(StandardCharsets.UTF_8.decode(bytes));
-        }
-    }
-
     private static Map<String, String> inheritedEnvironment()
     {
         return inheritedEnvironment(System.getenv(), Optional.ofNullable(System.getProperty("java.home")));
@@ -705,13 +644,8 @@ public final class ClaudeCliDriver
 
     static Map<String, String> inheritedEnvironment(Map<String, String> processEnvironment, Optional<String> javaHome)
     {
-        ImmutableMap.Builder<String, String> environment = ImmutableMap.builder();
-        for (String name : ImmutableSet.<String>builder().addAll(INHERITED_ENVIRONMENT).addAll(GitCliEnvironment.variables()).build()) {
-            String value = processEnvironment.get(name);
-            if (value != null) {
-                environment.put(name, value);
-            }
-        }
+        ImmutableMap.Builder<String, String> environment = ImmutableMap.<String, String>builder()
+                .putAll(ProviderCli.inheritedEnvironment(processEnvironment, INHERITED_ENVIRONMENT));
         // Claude Code's macOS sandbox limits sysctl reads, which breaks /usr/libexec/java_home and the /usr/bin/java stub.
         Stream.of(Optional.ofNullable(processEnvironment.get("JAVA_HOME")), javaHome)
                 .flatMap(Optional::stream)
@@ -725,31 +659,6 @@ public final class ClaudeCliDriver
     {
         Path java = Path.of(home, "bin", "java");
         return java.isAbsolute() && Files.isRegularFile(java) && Files.isExecutable(java);
-    }
-
-    private record CommandResult(
-            int exitCode,
-            String stdout,
-            String stderr,
-            boolean timedOut,
-            boolean stdoutTruncated,
-            boolean stderrTruncated)
-    {
-        private boolean truncated()
-        {
-            return stdoutTruncated || stderrTruncated;
-        }
-
-        private String combinedOutput()
-        {
-            if (stdout.isBlank()) {
-                return stderr;
-            }
-            if (stderr.isBlank()) {
-                return stdout;
-            }
-            return stdout + "\n" + stderr;
-        }
     }
 
     private record AuthenticationProbe(AgentProviderStatus.Readiness readiness, String diagnostic)
@@ -1503,16 +1412,5 @@ public final class ClaudeCliDriver
     private static String absoluteReadRule(Path path)
     {
         return "Read(/" + path + ")";
-    }
-
-    private static String failureMessage(Throwable failure)
-    {
-        Throwable cause = failure;
-        while ((cause instanceof java.util.concurrent.CompletionException || cause instanceof ExecutionException)
-                && cause.getCause() != null) {
-            cause = cause.getCause();
-        }
-        String message = cause.getMessage();
-        return message == null || message.isBlank() ? cause.getClass().getSimpleName() : message;
     }
 }

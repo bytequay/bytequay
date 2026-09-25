@@ -62,16 +62,11 @@ final class SqliteWorkspacePurge
                     WHERE (%s OR agent_task_id IN (%s)) AND terminal_at IS NULL
                 ) OR EXISTS (
                     SELECT 1 FROM branch_rebase WHERE agent_task_id IN (%s) AND terminal_at IS NULL
+                ) OR EXISTS (
+                    SELECT 1 FROM agent_review_run r JOIN agent_review v ON v.id = r.review_id
+                    WHERE v.workspace_id = :workspaceId AND r.state = 'RUNNING'
                 )
                 """.formatted(tasks, CI_WORKSPACE, tasks, tasks);
-        if (hasReviewData()) {
-            query += """
-                     OR EXISTS (
-                         SELECT 1 FROM agent_review_run r JOIN agent_review v ON v.id = r.review_id
-                         WHERE v.workspace_id = :workspaceId AND r.state = 'RUNNING'
-                     )
-                    """;
-        }
         return exists(query, parameters);
     }
 
@@ -101,17 +96,13 @@ final class SqliteWorkspacePurge
         update("DELETE FROM ci_autofix_attempt WHERE run_id IN (SELECT id FROM ci_autofix_run WHERE " + CI_WORKSPACE + ")", parameters);
         update("DELETE FROM ci_autofix_run WHERE " + CI_WORKSPACE, parameters);
         update("DELETE FROM cherry_pick_execution WHERE workspace_id = :workspaceId", parameters);
-        if (hasMappedEntity("LocalRunEntity")) {
-            update("DELETE FROM local_run_output WHERE run_id IN (SELECT id FROM local_run WHERE workspace_id = :workspaceId)", parameters);
-            update("DELETE FROM local_run WHERE workspace_id = :workspaceId", parameters);
-        }
+        update("DELETE FROM local_run_output WHERE run_id IN (SELECT id FROM local_run WHERE workspace_id = :workspaceId)", parameters);
+        update("DELETE FROM local_run WHERE workspace_id = :workspaceId", parameters);
         update("DELETE FROM context_usage_fact WHERE workspace_id = :workspaceId", parameters);
-        if (hasReviewData()) {
-            for (String table : ImmutableList.of("agent_review_finding", "agent_review_message", "agent_review_run")) {
-                update("DELETE FROM " + table + " WHERE review_id IN (SELECT id FROM agent_review WHERE workspace_id = :workspaceId)", parameters);
-            }
-            update("DELETE FROM agent_review WHERE workspace_id = :workspaceId", parameters);
+        for (String table : ImmutableList.of("agent_review_finding", "agent_review_message", "agent_review_run")) {
+            update("DELETE FROM " + table + " WHERE review_id IN (SELECT id FROM agent_review WHERE workspace_id = :workspaceId)", parameters);
         }
+        update("DELETE FROM agent_review WHERE workspace_id = :workspaceId", parameters);
         update("DELETE FROM recent_text WHERE item_key IN (SELECT item_key FROM recent_touch WHERE workspace_id = :workspaceId AND item_type = 'TASK')", parameters);
         update("DELETE FROM recent_touch WHERE workspace_id = :workspaceId AND item_type IN ('TASK', 'COMMIT')", parameters);
         update("""
@@ -142,12 +133,12 @@ final class SqliteWorkspacePurge
 
     private String workspaceTaskIds()
     {
-        String query = """
+        return """
                 SELECT id FROM agent_task WHERE workspace_id = :workspaceId
                 UNION SELECT agent_task_id FROM ci_autofix_run WHERE %s
                 UNION SELECT agent_task_id FROM cherry_pick_execution WHERE workspace_id = :workspaceId
+                UNION SELECT task_id FROM agent_review WHERE workspace_id = :workspaceId
                 """.formatted(CI_WORKSPACE);
-        return hasReviewData() ? query + "UNION SELECT task_id FROM agent_review WHERE workspace_id = :workspaceId" : query;
     }
 
     private static boolean referencedElsewhere(String workspaceId, long repositoryId, RepoRef repository, List<Workspace> others, List<RemoteSource> remotes)
@@ -183,13 +174,9 @@ final class SqliteWorkspacePurge
             update("DELETE FROM " + table + " WHERE item_type = 'ISSUE' AND lower(repo) = :repo", parameters);
         }
         // Dashboard rows, explicitly monitored PRs, and local review drafts belong to the account independently of watching.
-        String pullRequests = "SELECT p.id FROM pull_requests p WHERE lower(p.repo) = :repo AND p.dashboard_visible = 0 AND p.monitored_at IS NULL";
-        if (hasMappedEntity("PrReviewDraftEntity")) {
-            pullRequests += " AND NOT EXISTS (SELECT 1 FROM pr_review_draft d WHERE lower(d.repo) = lower(p.repo) AND d.number = p.number)";
-        }
-        if (hasReviewData()) {
-            pullRequests += " AND NOT EXISTS (SELECT 1 FROM agent_review r WHERE lower(r.repo) = lower(p.repo) AND r.number = p.number)";
-        }
+        String pullRequests = "SELECT p.id FROM pull_requests p WHERE lower(p.repo) = :repo AND p.dashboard_visible = 0 AND p.monitored_at IS NULL"
+                + " AND NOT EXISTS (SELECT 1 FROM pr_review_draft d WHERE lower(d.repo) = lower(p.repo) AND d.number = p.number)"
+                + " AND NOT EXISTS (SELECT 1 FROM agent_review r WHERE lower(r.repo) = lower(p.repo) AND r.number = p.number)";
         for (String table : ImmutableList.of("recent_touch", "recent_text")) {
             update("DELETE FROM " + table + " WHERE item_type = 'PULL_REQUEST' AND lower(item_key) IN "
                     + "(SELECT 'pr:' || lower(repo) || '#' || number FROM pull_requests WHERE id IN (" + pullRequests + "))", parameters);
@@ -217,15 +204,5 @@ final class SqliteWorkspacePurge
         Query query = entities.createNativeQuery(statement);
         query.getParameters().forEach(parameter -> query.setParameter(parameter.getName(), parameters.get(parameter.getName())));
         return query;
-    }
-
-    private boolean hasReviewData()
-    {
-        return hasMappedEntity("AgentReviewEntity");
-    }
-
-    private boolean hasMappedEntity(String name)
-    {
-        return entities.getMetamodel().getEntities().stream().anyMatch(entity -> entity.getName().equals(name));
     }
 }

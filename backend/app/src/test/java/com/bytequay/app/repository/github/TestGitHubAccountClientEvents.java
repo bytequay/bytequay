@@ -22,7 +22,7 @@ import java.time.Instant;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNull;
 
-class TestGitHubEventMapper
+class TestGitHubAccountClientEvents
 {
     @Test
     void mapsActorAvatarAndPushCommitDetail()
@@ -39,7 +39,7 @@ class TestGitHubEventMapper
                         new GitHubEventItem.CommitPayload("fix: inbox ack\n\nLong body"),
                         new GitHubEventItem.CommitPayload("test: ack behavior"))));
 
-        RecentEvent mapped = GitHubEventMapper.toRecentEvent(event);
+        RecentEvent mapped = GitHubAccountClient.toRecentEvent(event);
 
         assertEquals("https://avatars.githubusercontent.com/u/1?v=4", mapped.actorAvatarUrl());
         assertEquals("fix: inbox ack · +1 more", mapped.detail());
@@ -59,7 +59,7 @@ class TestGitHubEventMapper
                 new GitHubEventItem.ReviewPayload("approved"),
                 null));
 
-        RecentEvent mapped = GitHubEventMapper.toRecentEvent(event);
+        RecentEvent mapped = GitHubAccountClient.toRecentEvent(event);
 
         assertEquals(36, mapped.prNumber());
         assertEquals("Inline comment drafts", mapped.prTitle());

@@ -14,6 +14,8 @@
 package com.bytequay.app.discussion;
 
 import com.bytequay.agent.core.AgentConflictException;
+import com.bytequay.agent.core.AgentEventEnvelope;
+import com.bytequay.agent.core.AgentEventPayload;
 import com.bytequay.agent.core.AgentResourceService;
 import com.bytequay.agent.core.AgentTask;
 import com.bytequay.agent.core.AgentTaskService;
@@ -28,6 +30,9 @@ import com.bytequay.agent.spi.AgentSessionContext;
 import com.bytequay.agent.spi.AgentSessionRef;
 import com.bytequay.agent.spi.AgentTurnCommand;
 import com.bytequay.agent.spi.AgentTurnResult;
+import com.bytequay.agent.spi.AgentUnavailableException;
+import com.bytequay.agent.spi.ProviderAgentEvent.MessageKind;
+import com.bytequay.agent.spi.ProviderAgentEvent.MessagePhase;
 import com.bytequay.agent.spi.ProviderApprovalDecision;
 import com.bytequay.agent.spi.SessionAccess;
 import com.bytequay.core.discussion.DiscussionAnchor;
@@ -54,6 +59,7 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.Executor;
 import java.util.concurrent.Executors;
 
+import static com.google.common.base.Preconditions.checkState;
 import static com.google.common.collect.ImmutableList.toImmutableList;
 import static java.util.Objects.requireNonNull;
 
@@ -70,12 +76,13 @@ public class DefaultTaskDiscussionService
 {
     private static final Logger log = LoggerFactory.getLogger(DefaultTaskDiscussionService.class);
     private static final Duration MAXIMUM_RUNTIME = Duration.ofMinutes(3);
+    private static final int EVENT_PAGE_SIZE = 1000;
 
     private final TaskDiscussionStore store;
     private final AgentTaskService tasks;
     private final AgentResourceService resources;
     private final AgentDriverRegistry drivers;
-    private final DiscussionSeed seeds;
+    private final TaskLogStore logStore;
     private final Clock clock;
     // In flight is not durable: after a restart nothing is running, and a persisted running row
     // would be a lie needing a recovery sweep. The read route projects this set instead.
@@ -109,7 +116,7 @@ public class DefaultTaskDiscussionService
         this.tasks = requireNonNull(tasks, "tasks is null");
         this.resources = requireNonNull(resources, "resources is null");
         this.drivers = requireNonNull(drivers, "drivers is null");
-        this.seeds = new DiscussionSeed(requireNonNull(logStore, "logStore is null"));
+        this.logStore = requireNonNull(logStore, "logStore is null");
         this.clock = requireNonNull(clock, "clock is null");
     }
 
@@ -198,7 +205,7 @@ public class DefaultTaskDiscussionService
         if (store.listByTask(command.taskId()).size() >= MAXIMUM_DISCUSSIONS_PER_TASK) {
             throw new AgentConflictException("This task already holds the most discussions it can");
         }
-        DiscussionSeed.Seeded seeded = seeds.build(task.id(), TurnId.valueOf(command.turnId()));
+        Seeded seeded = seed(task.id(), TurnId.valueOf(command.turnId()));
         checkQuote(DiscussionQuotes.occursIn(command.quote(), seeded.answer()), "That passage is not in the answer being discussed");
         Instant now = clock.instant();
         return store.insertOrGet(new TaskDiscussion(
@@ -214,6 +221,65 @@ public class DefaultTaskDiscussionService
                 now,
                 now,
                 0));
+    }
+
+    /**
+     * Renders the task's conversation through {@code upTo}, the completed turn being discussed, as the
+     * starting context a discussion inherits; that turn's own final answer is the last thing in it.
+     *
+     * <p>Only the reader's messages and the root thread's final answers are kept. Streaming deltas,
+     * tool calls, tool output, plans and activity are excluded: they are the overwhelming majority of
+     * the volume and the discussion can read the repository instead. Bodies are carried verbatim as the
+     * markdown they already are.
+     *
+     * <p>The result is snapshotted when a discussion is created and never recomputed, because the task
+     * runtime log is deleted after its retention period while the thread outlives it.
+     *
+     * @throws AgentUnavailableException when that turn has no recorded final answer, which is the
+     *         only honest response to an anchor this task's history cannot support
+     */
+    private Seeded seed(TaskId taskId, TurnId upTo)
+    {
+        StringBuilder seed = new StringBuilder("--- conversation so far ---\n");
+        long afterSequence = 0;
+        while (true) {
+            List<AgentEventEnvelope> page = logStore.readAfter(taskId, afterSequence, EVENT_PAGE_SIZE);
+            for (AgentEventEnvelope envelope : page) {
+                boolean anchored = envelope.turnId().filter(upTo::equals).isPresent();
+                if (envelope.payload() instanceof AgentEventPayload.UserMessage message) {
+                    append(seed, "[user]", message.text());
+                }
+                else if (isRootAnswer(envelope)) {
+                    String answer = ((AgentEventPayload.AssistantMessage) envelope.payload()).text();
+                    append(seed, "[agent]", answer);
+                    if (anchored) {
+                        checkState(seed.length() <= TaskDiscussion.MAX_SEED_CHARACTERS,
+                                "This task's history is too long to discuss; start from an earlier turn");
+                        return new Seeded(seed.toString().stripTrailing(), answer);
+                    }
+                }
+            }
+            if (page.size() < EVENT_PAGE_SIZE) {
+                throw new AgentUnavailableException("That turn has no recorded answer to discuss");
+            }
+            afterSequence = page.getLast().sequence();
+        }
+    }
+
+    /** A subagent's answer is its own; only the root thread answers for the task. */
+    private static boolean isRootAnswer(AgentEventEnvelope envelope)
+    {
+        return envelope.source().parentProviderThreadId().isEmpty()
+                && envelope.payload() instanceof AgentEventPayload.AssistantMessage message
+                && message.messageKind() == MessageKind.ANSWER
+                && message.phase() == MessagePhase.FINAL;
+    }
+
+    private static void append(StringBuilder seed, String label, String body)
+    {
+        if (!body.isBlank()) {
+            seed.append('\n').append(label).append('\n').append(body.strip()).append('\n');
+        }
     }
 
     /** Records the question, then answers it on a virtual thread so the caller is not held. */
@@ -407,4 +473,11 @@ public class DefaultTaskDiscussionService
             throw new IllegalArgumentException(message);
         }
     }
+
+    /**
+     * The starting context a discussion inherits, and the answer its quote must occur in. Both come
+     * from one pass, because the log is read from disk and the quote check needs the same answer the
+     * seed ends with.
+     */
+    private record Seeded(String text, String answer) {}
 }

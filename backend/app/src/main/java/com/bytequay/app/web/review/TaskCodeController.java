@@ -117,17 +117,6 @@ public class TaskCodeController
                 .collect(toImmutableList()));
     }
 
-    @GetMapping("/runs/{runId}")
-    public ReviewCodeHttpModels.RunResponse run(
-            @PathVariable String taskId,
-            @PathVariable String runId,
-            @RequestParam String workspaceId,
-            @RequestParam String repo,
-            @RequestParam int number)
-    {
-        return ReviewCodeHttpModels.run(localRuns.get(new TaskCodeHost(workspaceId, taskId, repo, number), runId));
-    }
-
     @PostMapping("/runs")
     @ResponseStatus(HttpStatus.CREATED)
     public ReviewCodeHttpModels.RunResponse startRun(

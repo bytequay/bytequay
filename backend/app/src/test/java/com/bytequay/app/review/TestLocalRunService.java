@@ -266,8 +266,7 @@ class TestLocalRunService
         assertThat(run.workspaceId()).isEqualTo(WORKSPACE_ID);
         assertThat(supervisor.specs.getFirst().owner()).isEqualTo(new ProcessOwner(ProcessOwner.Kind.LOCAL_RUN, worktree.taskId() + "/" + run.id()));
         assertThat(service.list(taskHost())).containsExactly(run);
-        assertThat(service.get(taskHost(), run.id())).isEqualTo(run);
-        assertThatThrownBy(() -> service.get(taskHost(), "other-task")).isInstanceOf(ReviewNotFoundException.class);
+        assertThatThrownBy(() -> service.output(taskHost(), "other-task", 0)).isInstanceOf(ReviewNotFoundException.class);
         // A review's runs are the runs of the task it owns.
         assertThat(service.list(REVIEW_ID)).containsExactly(run);
 

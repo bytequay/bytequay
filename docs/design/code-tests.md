@@ -656,8 +656,8 @@ otherwise fail the new review run.
   task, including run launches.
 - Rows still `RUNNING` at startup become `INTERRUPTED`.
 
-**Routes:** `GET …/runs`, `GET …/runs/{runId}`, `POST …/runs`,
-`POST …/runs/{runId}/stop`, `GET …/runs/{runId}/output?after=`.
+**Routes:** `GET …/runs`, `POST …/runs`, `POST …/runs/{runId}/stop`,
+`GET …/runs/{runId}/output?after=`.
 
 ### 5.4 Mirroring agent runs
 

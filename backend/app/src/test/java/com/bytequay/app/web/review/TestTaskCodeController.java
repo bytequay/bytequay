@@ -120,7 +120,6 @@ class TestTaskCodeController
                 "./mvnw -B -Dtest=TestCode -Dsurefire.failIfNoSpecifiedTests=false test", HEAD, ImmutableList.of(), "fingerprint", "launch-1",
                 Instant.parse("2026-09-15T10:00:00.123Z"));
         when(localRuns.list(HOST)).thenReturn(ImmutableList.of(run));
-        when(localRuns.get(HOST, "run-1")).thenReturn(run);
         when(localRuns.start(HOST, "src/test/java/TestCode.java", Optional.empty())).thenReturn(run);
         when(localRuns.start(HOST, "src/test/java/TestNoWrapper.java", Optional.empty())).thenThrow(new LocalRunRefusedException("No Maven wrapper (mvnw) in this working copy", true));
         when(localRuns.stop(HOST, "run-1")).thenReturn(run);
@@ -130,7 +129,6 @@ class TestTaskCodeController
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.runs[0].id").value("run-1"))
                 .andExpect(jsonPath("$.runs[0].ordinal").value(1));
-        mvc.perform(withPullRequest(get(BASE + "/runs/run-1"))).andExpect(status().isOk()).andExpect(jsonPath("$.status").value("RUNNING"));
         mvc.perform(withPullRequest(post(BASE + "/runs")).contentType(MediaType.APPLICATION_JSON).content("{\"path\": \"src/test/java/TestCode.java\"}"))
                 .andExpect(status().isCreated())
                 .andExpect(jsonPath("$.id").value("run-1"));

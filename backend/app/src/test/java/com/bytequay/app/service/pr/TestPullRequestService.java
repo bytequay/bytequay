@@ -143,7 +143,7 @@ class TestPullRequestService
         snapshots = new PullRequestSnapshotService(gitHub, actions, detailStore, diffStore);
         service = new PullRequestService(
                 gitHub, writes, repositories, merges, accounts, store, snapshots,
-                new PullRequestDetailFetcher(gitHub, actions, detailStore, Runnable::run),
+                new PullRequestDetailFetcher(gitHub, actions, Runnable::run),
                 viewStateStore, recent, credentialService, metadata, Runnable::run, applicationContext);
         org.mockito.Mockito.lenient().when(diffStore.findDefaultEtags(anyLong())).thenReturn(PrDiffEtags.none());
         org.mockito.Mockito.lenient().when(credentialService.resolveGitHubToken()).thenReturn("pat");

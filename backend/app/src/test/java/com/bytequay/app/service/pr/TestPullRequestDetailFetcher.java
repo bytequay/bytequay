@@ -21,7 +21,6 @@ import com.bytequay.core.domain.PrReviewState;
 import com.bytequay.core.domain.PrTimelineEvent;
 import com.bytequay.core.domain.PullRequestRef;
 import com.bytequay.core.domain.StoredPrDetail;
-import com.bytequay.core.store.PrDetailStore;
 import com.google.common.collect.ImmutableList;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -51,14 +50,13 @@ class TestPullRequestDetailFetcher
 
     @Mock private GitHubPullRequestReadClient gitHub;
     @Mock private GitHubActionsClient actions;
-    @Mock private PrDetailStore detailStore;
 
     private PullRequestDetailFetcher fetcher;
 
     @BeforeEach
     void setUp()
     {
-        fetcher = new PullRequestDetailFetcher(gitHub, actions, detailStore, Runnable::run);
+        fetcher = new PullRequestDetailFetcher(gitHub, actions, Runnable::run);
         lenient().when(gitHub.fetchPrCommits("pat", REF)).thenReturn(ImmutableList.of());
         lenient().when(gitHub.fetchPrReviewThreads("pat", REF)).thenReturn(ImmutableList.of());
         lenient().when(gitHub.enrichTimelineReferences(eq("pat"), eq(REF), anyList()))

@@ -23,24 +23,19 @@ import com.bytequay.agent.spi.AgentCommandPolicy;
 import com.bytequay.agent.spi.AgentPermissionPolicy;
 import com.bytequay.agent.spi.AgentPermissionScope;
 import com.bytequay.agent.spi.AgentUnavailableException;
+import com.bytequay.agent.spi.BridgeResolver;
 import com.bytequay.agent.spi.CiDescriptionProposal;
 import com.bytequay.agent.spi.CodeGraphBridge;
 import com.bytequay.agent.spi.DevelopmentResultBridge;
-import com.bytequay.agent.spi.DevelopmentResultBridgeResolver;
 import com.bytequay.agent.spi.DevelopmentResultReport;
 import com.bytequay.agent.spi.DraftPullRequestPublisher;
 import com.bytequay.agent.spi.IssueContextBridge;
-import com.bytequay.agent.spi.IssueContextBridgeResolver;
 import com.bytequay.agent.spi.LocalReviewBridge;
-import com.bytequay.agent.spi.LocalReviewBridgeResolver;
 import com.bytequay.agent.spi.ProviderApprovalDecision;
 import com.bytequay.agent.spi.ProviderApprovalRequest;
 import com.bytequay.agent.spi.PullRequestCiBridge;
-import com.bytequay.agent.spi.PullRequestCiBridgeResolver;
 import com.bytequay.agent.spi.RepositoryContextBridge;
-import com.bytequay.agent.spi.RepositoryContextBridgeResolver;
 import com.bytequay.agent.spi.ReviewBridge;
-import com.bytequay.agent.spi.ReviewBridgeResolver;
 import com.bytequay.agent.spi.ReviewTool;
 import com.bytequay.agent.spi.SessionAccess;
 import com.fasterxml.jackson.annotation.JsonProperty;
@@ -129,13 +124,13 @@ public final class PermissionBroker
     private final Supplier<URI> endpoint;
     private final ObjectMapper objectMapper;
     private final CiMemoryReader ciMemoryReader;
-    private final ReviewBridgeResolver reviews;
-    private final DevelopmentResultBridgeResolver developments;
+    private final BridgeResolver<ReviewBridge> reviews;
+    private final BridgeResolver<DevelopmentResultBridge> developments;
     private final DraftPullRequestPublisher draftPullRequests;
-    private final LocalReviewBridgeResolver localReviews;
-    private final PullRequestCiBridgeResolver pullRequestChecks;
-    private final IssueContextBridgeResolver issueContexts;
-    private final RepositoryContextBridgeResolver repositoryContext;
+    private final BridgeResolver<LocalReviewBridge> localReviews;
+    private final BridgeResolver<PullRequestCiBridge> pullRequestChecks;
+    private final BridgeResolver<IssueContextBridge> issueContexts;
+    private final BridgeResolver<RepositoryContextBridge> repositoryContext;
     private final Map<String, PermissionContext> contexts = new ConcurrentHashMap<>();
 
     public PermissionBroker(
@@ -143,24 +138,24 @@ public final class PermissionBroker
             ObjectMapper objectMapper,
             CiMemoryReader ciMemoryReader)
     {
-        this(endpoint, objectMapper, ciMemoryReader, ReviewBridgeResolver.NONE);
+        this(endpoint, objectMapper, ciMemoryReader, BridgeResolver.none());
     }
 
     public PermissionBroker(
             Supplier<URI> endpoint,
             ObjectMapper objectMapper,
             CiMemoryReader ciMemoryReader,
-            ReviewBridgeResolver reviews)
+            BridgeResolver<ReviewBridge> reviews)
     {
-        this(endpoint, objectMapper, ciMemoryReader, reviews, DevelopmentResultBridgeResolver.NONE);
+        this(endpoint, objectMapper, ciMemoryReader, reviews, BridgeResolver.none());
     }
 
     public PermissionBroker(
             Supplier<URI> endpoint,
             ObjectMapper objectMapper,
             CiMemoryReader ciMemoryReader,
-            ReviewBridgeResolver reviews,
-            DevelopmentResultBridgeResolver developments)
+            BridgeResolver<ReviewBridge> reviews,
+            BridgeResolver<DevelopmentResultBridge> developments)
     {
         this(endpoint, objectMapper, ciMemoryReader, reviews, developments, DraftPullRequestPublisher.NONE);
     }
@@ -169,65 +164,65 @@ public final class PermissionBroker
             Supplier<URI> endpoint,
             ObjectMapper objectMapper,
             CiMemoryReader ciMemoryReader,
-            ReviewBridgeResolver reviews,
-            DevelopmentResultBridgeResolver developments,
+            BridgeResolver<ReviewBridge> reviews,
+            BridgeResolver<DevelopmentResultBridge> developments,
             DraftPullRequestPublisher draftPullRequests)
     {
-        this(endpoint, objectMapper, ciMemoryReader, reviews, developments, draftPullRequests, LocalReviewBridgeResolver.NONE);
+        this(endpoint, objectMapper, ciMemoryReader, reviews, developments, draftPullRequests, BridgeResolver.none());
     }
 
     public PermissionBroker(
             Supplier<URI> endpoint,
             ObjectMapper objectMapper,
             CiMemoryReader ciMemoryReader,
-            ReviewBridgeResolver reviews,
-            DevelopmentResultBridgeResolver developments,
+            BridgeResolver<ReviewBridge> reviews,
+            BridgeResolver<DevelopmentResultBridge> developments,
             DraftPullRequestPublisher draftPullRequests,
-            LocalReviewBridgeResolver localReviews)
+            BridgeResolver<LocalReviewBridge> localReviews)
     {
-        this(endpoint, objectMapper, ciMemoryReader, reviews, developments, draftPullRequests, localReviews, PullRequestCiBridgeResolver.NONE);
+        this(endpoint, objectMapper, ciMemoryReader, reviews, developments, draftPullRequests, localReviews, BridgeResolver.none());
     }
 
     public PermissionBroker(
             Supplier<URI> endpoint,
             ObjectMapper objectMapper,
             CiMemoryReader ciMemoryReader,
-            ReviewBridgeResolver reviews,
-            DevelopmentResultBridgeResolver developments,
+            BridgeResolver<ReviewBridge> reviews,
+            BridgeResolver<DevelopmentResultBridge> developments,
             DraftPullRequestPublisher draftPullRequests,
-            LocalReviewBridgeResolver localReviews,
-            PullRequestCiBridgeResolver pullRequestChecks)
-    {
-        this(endpoint, objectMapper, ciMemoryReader, reviews, developments, draftPullRequests, localReviews, pullRequestChecks,
-                IssueContextBridgeResolver.NONE, RepositoryContextBridgeResolver.NONE);
-    }
-
-    public PermissionBroker(
-            Supplier<URI> endpoint,
-            ObjectMapper objectMapper,
-            CiMemoryReader ciMemoryReader,
-            ReviewBridgeResolver reviews,
-            DevelopmentResultBridgeResolver developments,
-            DraftPullRequestPublisher draftPullRequests,
-            LocalReviewBridgeResolver localReviews,
-            PullRequestCiBridgeResolver pullRequestChecks,
-            IssueContextBridgeResolver issueContexts)
+            BridgeResolver<LocalReviewBridge> localReviews,
+            BridgeResolver<PullRequestCiBridge> pullRequestChecks)
     {
         this(endpoint, objectMapper, ciMemoryReader, reviews, developments, draftPullRequests, localReviews, pullRequestChecks,
-                issueContexts, RepositoryContextBridgeResolver.NONE);
+                BridgeResolver.none(), BridgeResolver.none());
     }
 
     public PermissionBroker(
             Supplier<URI> endpoint,
             ObjectMapper objectMapper,
             CiMemoryReader ciMemoryReader,
-            ReviewBridgeResolver reviews,
-            DevelopmentResultBridgeResolver developments,
+            BridgeResolver<ReviewBridge> reviews,
+            BridgeResolver<DevelopmentResultBridge> developments,
             DraftPullRequestPublisher draftPullRequests,
-            LocalReviewBridgeResolver localReviews,
-            PullRequestCiBridgeResolver pullRequestChecks,
-            IssueContextBridgeResolver issueContexts,
-            RepositoryContextBridgeResolver repositoryContext)
+            BridgeResolver<LocalReviewBridge> localReviews,
+            BridgeResolver<PullRequestCiBridge> pullRequestChecks,
+            BridgeResolver<IssueContextBridge> issueContexts)
+    {
+        this(endpoint, objectMapper, ciMemoryReader, reviews, developments, draftPullRequests, localReviews, pullRequestChecks,
+                issueContexts, BridgeResolver.none());
+    }
+
+    public PermissionBroker(
+            Supplier<URI> endpoint,
+            ObjectMapper objectMapper,
+            CiMemoryReader ciMemoryReader,
+            BridgeResolver<ReviewBridge> reviews,
+            BridgeResolver<DevelopmentResultBridge> developments,
+            DraftPullRequestPublisher draftPullRequests,
+            BridgeResolver<LocalReviewBridge> localReviews,
+            BridgeResolver<PullRequestCiBridge> pullRequestChecks,
+            BridgeResolver<IssueContextBridge> issueContexts,
+            BridgeResolver<RepositoryContextBridge> repositoryContext)
     {
         this.endpoint = requireNonNull(endpoint, "endpoint is null");
         this.objectMapper = requireNonNull(objectMapper, "objectMapper is null")

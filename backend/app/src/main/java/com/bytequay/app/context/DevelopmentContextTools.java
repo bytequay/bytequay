@@ -22,8 +22,8 @@ import com.bytequay.agent.core.WorktreeMutationClaim;
 import com.bytequay.agent.core.store.AgentTaskStore;
 import com.bytequay.agent.core.store.AgentTurnStore;
 import com.bytequay.agent.core.store.AgentUnitOfWork;
+import com.bytequay.agent.spi.BridgeResolver;
 import com.bytequay.agent.spi.RepositoryContextBridge;
-import com.bytequay.agent.spi.RepositoryContextBridgeResolver;
 import com.bytequay.app.context.ContextNotebookLookup.Hit;
 import com.bytequay.app.context.ContextNotebookLookup.ScopeState;
 import com.bytequay.app.context.ContextNotebookLookup.SearchQuery;
@@ -71,7 +71,7 @@ import static java.util.Objects.requireNonNull;
 /** Offers and retrieves bounded notebook notes for an accepted ordinary development turn. */
 @Component
 public class DevelopmentContextTools
-        implements RepositoryContextBridgeResolver
+        implements BridgeResolver<RepositoryContextBridge>
 {
     private static final int OFFER_BYTES = 8 * 1024;
     private static final int OFFER_CONTENT_BYTES = OFFER_BYTES - 160;

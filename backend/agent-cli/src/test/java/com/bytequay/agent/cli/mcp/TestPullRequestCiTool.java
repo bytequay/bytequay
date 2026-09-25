@@ -15,15 +15,12 @@ package com.bytequay.agent.cli.mcp;
 
 import com.bytequay.agent.cli.process.SecretRedactor;
 import com.bytequay.agent.spi.AgentPermissionPolicy;
+import com.bytequay.agent.spi.BridgeResolver;
 import com.bytequay.agent.spi.CiDescriptionProposal;
-import com.bytequay.agent.spi.DevelopmentResultBridgeResolver;
 import com.bytequay.agent.spi.DraftPullRequestPublisher;
-import com.bytequay.agent.spi.LocalReviewBridgeResolver;
 import com.bytequay.agent.spi.ProviderApprovalDecision;
 import com.bytequay.agent.spi.PullRequestCiBridge;
-import com.bytequay.agent.spi.PullRequestCiBridgeResolver;
 import com.bytequay.agent.spi.ReviewBridge;
-import com.bytequay.agent.spi.ReviewBridgeResolver;
 import com.bytequay.agent.spi.ReviewTool;
 import com.bytequay.agent.spi.SessionAccess;
 import com.fasterxml.jackson.databind.JsonNode;
@@ -61,7 +58,7 @@ class TestPullRequestCiTool
             reads.add(jobId);
             return jobId.isPresent() ? "failed log known-secret" : "No pull request associated yet";
         }, (logId, offset) -> "raw", PullRequestCiBridge.INSTRUCTION, Optional.empty(), Optional.empty())));
-        PermissionBroker broker = broker(taskId -> taskId.equals("task-1") ? current.get() : Optional.empty(), ReviewBridgeResolver.NONE);
+        PermissionBroker broker = broker(taskId -> taskId.equals("task-1") ? current.get() : Optional.empty(), BridgeResolver.none());
         String expiredToken;
         try (CodeGraphRegistration codex = broker.registerTools(
                 "task-1", temporaryDirectory, AgentPermissionPolicy.AUTO,
@@ -102,7 +99,7 @@ class TestPullRequestCiTool
         PermissionBroker broker = broker(taskId -> Optional.of(new PullRequestCiBridge(jobId -> "error excerpt", (id, offset) -> {
             reads.add(id + ":" + offset);
             return "complete raw page known-secret";
-        }, PullRequestCiBridge.INSTRUCTION, Optional.empty(), Optional.empty())), ReviewBridgeResolver.NONE);
+        }, PullRequestCiBridge.INSTRUCTION, Optional.empty(), Optional.empty())), BridgeResolver.none());
         try (CodeGraphRegistration codex = broker.registerTools(
                 "ci-task", temporaryDirectory, AgentPermissionPolicy.CI_AUTOFIX,
                 (request, timeout) -> CompletableFuture.completedFuture(ProviderApprovalDecision.deny()), redactor, Optional.empty()).orElseThrow();
@@ -130,7 +127,7 @@ class TestPullRequestCiTool
     {
         PermissionBroker broker = broker(taskId -> Optional.of(new PullRequestCiBridge(jobId -> {
             throw new AssertionError("Invalid tool arguments reached the CI reader");
-        }, (logId, offset) -> "raw", PullRequestCiBridge.INSTRUCTION, Optional.empty(), Optional.empty())), ReviewBridgeResolver.NONE);
+        }, (logId, offset) -> "raw", PullRequestCiBridge.INSTRUCTION, Optional.empty(), Optional.empty())), BridgeResolver.none());
         try (CodeGraphRegistration registration = broker.registerTools(
                 "task-1", temporaryDirectory, AgentPermissionPolicy.AUTO,
                 (request, timeout) -> CompletableFuture.completedFuture(ProviderApprovalDecision.deny()), redactor, Optional.empty()).orElseThrow()) {
@@ -147,10 +144,10 @@ class TestPullRequestCiTool
     void restrictedProfilesNeverExposeTheCiReader()
             throws Exception
     {
-        PullRequestCiBridgeResolver reader = taskId -> {
+        BridgeResolver<PullRequestCiBridge> reader = taskId -> {
             throw new AssertionError("Restricted profile must not resolve pull-request CI");
         };
-        PermissionBroker broker = broker(reader, ReviewBridgeResolver.NONE);
+        PermissionBroker broker = broker(reader, BridgeResolver.none());
         for (AgentPermissionPolicy policy : ImmutableList.of(AgentPermissionPolicy.CHERRY_PICK)) {
             try (McpConfigRegistration claude = broker.register(
                     "task-1", temporaryDirectory, temporaryDirectory, temporaryDirectory, policy, SessionAccess.FULL,
@@ -192,7 +189,7 @@ class TestPullRequestCiTool
     {
         PermissionBroker broker = broker(taskId -> Optional.of(new PullRequestCiBridge(jobId -> {
             throw new IllegalStateException("known-secret " + "x".repeat(PullRequestCiBridge.MAXIMUM_OUTPUT_LENGTH));
-        }, (logId, offset) -> "raw", PullRequestCiBridge.INSTRUCTION, Optional.empty(), Optional.empty())), ReviewBridgeResolver.NONE);
+        }, (logId, offset) -> "raw", PullRequestCiBridge.INSTRUCTION, Optional.empty(), Optional.empty())), BridgeResolver.none());
         try (CodeGraphRegistration registration = broker.registerTools(
                 "task-1", temporaryDirectory, AgentPermissionPolicy.AUTO,
                 (request, timeout) -> CompletableFuture.completedFuture(ProviderApprovalDecision.deny()), redactor, Optional.empty()).orElseThrow()) {
@@ -211,7 +208,7 @@ class TestPullRequestCiTool
                 PullRequestCiBridge.INSTRUCTION, Optional.of(proposal -> {
                     proposals.add(proposal);
                     return "Saved";
-                }), Optional.empty())), ReviewBridgeResolver.NONE);
+                }), Optional.empty())), BridgeResolver.none());
         for (AgentPermissionPolicy policy : ImmutableList.of(AgentPermissionPolicy.AUTO, AgentPermissionPolicy.CI_AUTOFIX)) {
             try (CodeGraphRegistration codex = broker.registerTools("task-1", temporaryDirectory, policy,
                     (request, timeout) -> CompletableFuture.completedFuture(ProviderApprovalDecision.deny()), redactor, Optional.empty()).orElseThrow();
@@ -246,7 +243,7 @@ class TestPullRequestCiTool
                 PullRequestCiBridge.INSTRUCTION, Optional.empty(), Optional.of((jobId, reason) -> {
                     requests.add(jobId);
                     return "Assessment saved";
-                }))), ReviewBridgeResolver.NONE);
+                }))), BridgeResolver.none());
         for (AgentPermissionPolicy policy : ImmutableList.of(AgentPermissionPolicy.AUTO, AgentPermissionPolicy.CI_AUTOFIX)) {
             try (CodeGraphRegistration codex = broker.registerTools("task-1", temporaryDirectory, policy,
                     (request, timeout) -> CompletableFuture.completedFuture(ProviderApprovalDecision.deny()), redactor, Optional.empty()).orElseThrow();
@@ -273,10 +270,10 @@ class TestPullRequestCiTool
         assertThat(requests).containsExactly(7L, 7L);
     }
 
-    private PermissionBroker broker(PullRequestCiBridgeResolver ci, ReviewBridgeResolver review)
+    private PermissionBroker broker(BridgeResolver<PullRequestCiBridge> ci, BridgeResolver<ReviewBridge> review)
     {
         return new PermissionBroker(() -> URI.create("http://127.0.0.1:9000/internal/agent/claude/mcp"), objectMapper,
-                (taskId, query) -> "memory", review, DevelopmentResultBridgeResolver.NONE, DraftPullRequestPublisher.NONE, LocalReviewBridgeResolver.NONE, ci);
+                (taskId, query) -> "memory", review, BridgeResolver.none(), DraftPullRequestPublisher.NONE, BridgeResolver.none(), ci);
     }
 
     private JsonNode list(PermissionBroker broker, String token)

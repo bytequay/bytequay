@@ -17,19 +17,16 @@ import com.bytequay.agent.cli.process.SecretRedactor;
 import com.bytequay.agent.spi.AgentApprovalHandler;
 import com.bytequay.agent.spi.AgentCommandPolicy;
 import com.bytequay.agent.spi.AgentPermissionPolicy;
+import com.bytequay.agent.spi.BridgeResolver;
 import com.bytequay.agent.spi.CodeGraphBridge;
 import com.bytequay.agent.spi.DevelopmentResultBridge;
-import com.bytequay.agent.spi.DevelopmentResultBridgeResolver;
 import com.bytequay.agent.spi.DraftPullRequestPublisher;
 import com.bytequay.agent.spi.IssueContextBridge;
 import com.bytequay.agent.spi.LocalReviewBridge;
-import com.bytequay.agent.spi.LocalReviewBridgeResolver;
 import com.bytequay.agent.spi.ProviderApprovalDecision;
 import com.bytequay.agent.spi.ProviderApprovalRequest;
 import com.bytequay.agent.spi.PullRequestCiBridge;
-import com.bytequay.agent.spi.PullRequestCiBridgeResolver;
 import com.bytequay.agent.spi.ReviewBridge;
-import com.bytequay.agent.spi.ReviewBridgeResolver;
 import com.bytequay.agent.spi.ReviewTool;
 import com.bytequay.agent.spi.SessionAccess;
 import com.fasterxml.jackson.databind.JsonNode;
@@ -138,8 +135,8 @@ class TestPermissionBroker
                 }, IssueContextBridge.INSTRUCTION)));
         PermissionBroker broker = new PermissionBroker(
                 () -> URI.create("http://127.0.0.1:9000/internal/agent/claude/mcp"), objectMapper,
-                (taskId, query) -> "memory", ReviewBridgeResolver.NONE, DevelopmentResultBridgeResolver.NONE,
-                DraftPullRequestPublisher.NONE, LocalReviewBridgeResolver.NONE, PullRequestCiBridgeResolver.NONE,
+                (taskId, query) -> "memory", BridgeResolver.none(), BridgeResolver.none(),
+                DraftPullRequestPublisher.NONE, BridgeResolver.none(), BridgeResolver.none(),
                 taskId -> taskId.equals("task-1") ? current.get() : Optional.empty());
         SecretRedactor redactor = SecretRedactor.fromEnvironment(ImmutableMap.of("OPENAI_API_KEY", "known-secret"));
         AgentApprovalHandler approvals = (request, timeout) -> CompletableFuture.completedFuture(ProviderApprovalDecision.deny());
@@ -230,7 +227,7 @@ class TestPermissionBroker
                 LocalReviewBridge.INSTRUCTION);
         PermissionBroker broker = new PermissionBroker(
                 () -> URI.create("http://127.0.0.1:9000/internal/agent/claude/mcp"), objectMapper,
-                (taskId, query) -> "memory", ReviewBridgeResolver.NONE,
+                (taskId, query) -> "memory", BridgeResolver.none(),
                 taskId -> taskId.equals("task-1") ? Optional.of(new DevelopmentResultBridge("turn-1", DevelopmentResultBridge.INSTRUCTION)) : Optional.empty(),
                 DraftPullRequestPublisher.NONE,
                 taskId -> taskId.equals("task-1") && available.get() ? Optional.of(local) : Optional.empty());
@@ -301,7 +298,7 @@ class TestPermissionBroker
         }
         PermissionBroker localOnly = new PermissionBroker(
                 () -> URI.create("http://127.0.0.1:9000/internal/agent/claude/mcp"), objectMapper,
-                (taskId, query) -> "memory", ReviewBridgeResolver.NONE, DevelopmentResultBridgeResolver.NONE, DraftPullRequestPublisher.NONE,
+                (taskId, query) -> "memory", BridgeResolver.none(), BridgeResolver.none(), DraftPullRequestPublisher.NONE,
                 taskId -> Optional.of(local));
         try (CodeGraphRegistration registration = localOnly.registerTools(
                 "task-1", temporaryDirectory, AgentPermissionPolicy.AUTO,
@@ -326,7 +323,7 @@ class TestPermissionBroker
                 new DevelopmentResultBridge("turn-1", DevelopmentResultBridge.INSTRUCTION)));
         PermissionBroker broker = new PermissionBroker(
                 () -> URI.create("http://127.0.0.1:9000/internal/agent/claude/mcp"), objectMapper,
-                (taskId, query) -> "memory", ReviewBridgeResolver.NONE,
+                (taskId, query) -> "memory", BridgeResolver.none(),
                 taskId -> taskId.equals("task-1") ? active.get() : Optional.empty());
         SecretRedactor redactor = SecretRedactor.fromEnvironment(ImmutableMap.of("OPENAI_API_KEY", "known-secret"));
         try (CodeGraphRegistration codex = broker.registerTools(
@@ -379,7 +376,7 @@ class TestPermissionBroker
             DevelopmentResultBridge bridge = new DevelopmentResultBridge("turn-1", DevelopmentResultBridge.INSTRUCTION, allowed);
             PermissionBroker broker = new PermissionBroker(
                     () -> URI.create("http://127.0.0.1:9000/internal/agent/claude/mcp"), objectMapper,
-                    (taskId, query) -> "memory", ReviewBridgeResolver.NONE, taskId -> Optional.of(bridge));
+                    (taskId, query) -> "memory", BridgeResolver.none(), taskId -> Optional.of(bridge));
             SecretRedactor redactor = SecretRedactor.fromEnvironment(ImmutableMap.of("OPENAI_API_KEY", "known-secret"));
             try (CodeGraphRegistration codex = broker.registerTools(
                     "task-1", temporaryDirectory, AgentPermissionPolicy.AUTO,
@@ -422,7 +419,7 @@ class TestPermissionBroker
         List<String> published = new ArrayList<>();
         PermissionBroker broker = new PermissionBroker(
                 () -> URI.create("http://127.0.0.1:9000/internal/agent/claude/mcp"), objectMapper,
-                (taskId, query) -> "memory", ReviewBridgeResolver.NONE,
+                (taskId, query) -> "memory", BridgeResolver.none(),
                 taskId -> Optional.of(new DevelopmentResultBridge("turn-1", DevelopmentResultBridge.INSTRUCTION)),
                 (taskId, title, body) -> {
                     if (title.equals("Closed window")) {

@@ -26,10 +26,10 @@ import com.bytequay.agent.spi.AgentSessionContext;
 import com.bytequay.agent.spi.AgentSessionRef;
 import com.bytequay.agent.spi.AgentTurnCommand;
 import com.bytequay.agent.spi.AgentTurnResult;
+import com.bytequay.agent.spi.BridgeResolver;
 import com.bytequay.agent.spi.DevelopmentLearningCommit;
 import com.bytequay.agent.spi.DevelopmentLearningSummary;
 import com.bytequay.agent.spi.DevelopmentResultBridge;
-import com.bytequay.agent.spi.DevelopmentResultBridgeResolver;
 import com.bytequay.agent.spi.DevelopmentResultReport;
 import com.bytequay.agent.spi.ProviderAgentEvent;
 import com.bytequay.agent.spi.ProviderAgentEventSource;
@@ -73,14 +73,14 @@ final class ScriptedAgentDriver
     private final List<GitAction> gitActions = new ArrayList<>();
     private final List<TurnCall> cancellations = new ArrayList<>();
     private final CiMemoryService memory;
-    private final DevelopmentResultBridgeResolver developmentResults;
+    private final BridgeResolver<DevelopmentResultBridge> developmentResults;
 
     ScriptedAgentDriver(CiMemoryService memory)
     {
-        this(memory, DevelopmentResultBridgeResolver.NONE);
+        this(memory, BridgeResolver.none());
     }
 
-    ScriptedAgentDriver(CiMemoryService memory, DevelopmentResultBridgeResolver developmentResults)
+    ScriptedAgentDriver(CiMemoryService memory, BridgeResolver<DevelopmentResultBridge> developmentResults)
     {
         this.memory = requireNonNull(memory, "memory is null");
         this.developmentResults = requireNonNull(developmentResults, "developmentResults is null");

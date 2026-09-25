@@ -250,7 +250,7 @@ sources and exact operation receipts. Task/turn records remain the lifecycle
 authority. No PR, review run or parallel build-job state is manufactured.
 
 Purpose is resolved from the current saved task binding, never from the task's
-title, user message or model-authored field. ReviewBridgeResolver gives that root
+title, user message or model-authored field. ReviewBridgeResolverImpl gives that root
 the existing restricted/no-child profile with only repository_context_read and
 repository_context_prepare. Global user skills apply; AUTO does not grant
 development delivery, PR-reporting or publication authority. Source bodies remain

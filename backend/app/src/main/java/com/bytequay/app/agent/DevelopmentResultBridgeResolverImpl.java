@@ -20,8 +20,8 @@ import com.bytequay.agent.core.TaskId;
 import com.bytequay.agent.core.TaskState;
 import com.bytequay.agent.core.store.AgentTaskStore;
 import com.bytequay.agent.core.store.AgentTurnStore;
+import com.bytequay.agent.spi.BridgeResolver;
 import com.bytequay.agent.spi.DevelopmentResultBridge;
-import com.bytequay.agent.spi.DevelopmentResultBridgeResolver;
 import com.bytequay.core.review.AgentReviewStore;
 import org.springframework.stereotype.Component;
 
@@ -32,7 +32,7 @@ import static java.util.Objects.requireNonNull;
 /** Resolves only the accepted turn's selection, never mutable application or task defaults. */
 @Component
 public class DevelopmentResultBridgeResolverImpl
-        implements DevelopmentResultBridgeResolver
+        implements BridgeResolver<DevelopmentResultBridge>
 {
     private final AgentTaskStore tasks;
     private final AgentTurnStore turns;

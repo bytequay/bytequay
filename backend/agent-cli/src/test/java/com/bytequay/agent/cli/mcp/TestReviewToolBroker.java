@@ -15,8 +15,8 @@ package com.bytequay.agent.cli.mcp;
 
 import com.bytequay.agent.cli.process.SecretRedactor;
 import com.bytequay.agent.spi.AgentPermissionPolicy;
+import com.bytequay.agent.spi.BridgeResolver;
 import com.bytequay.agent.spi.CodeGraphBridge;
-import com.bytequay.agent.spi.DevelopmentResultBridgeResolver;
 import com.bytequay.agent.spi.DraftPullRequestPublisher;
 import com.bytequay.agent.spi.LocalReviewBridge;
 import com.bytequay.agent.spi.ProviderApprovalDecision;
@@ -128,7 +128,7 @@ class TestReviewToolBroker
         LocalReviewBridge local = new LocalReviewBridge(id -> "[]", reply -> "saved", resolution -> "resolved", LocalReviewBridge.INSTRUCTION);
         PermissionBroker broker = new PermissionBroker(
                 () -> URI.create("http://127.0.0.1:9000/internal/agent/claude/mcp"), objectMapper, (taskId, query) -> "memory",
-                taskId -> Optional.of(bridge(new AtomicReference<>())), DevelopmentResultBridgeResolver.NONE, DraftPullRequestPublisher.NONE,
+                taskId -> Optional.of(bridge(new AtomicReference<>())), BridgeResolver.none(), DraftPullRequestPublisher.NONE,
                 taskId -> Optional.of(local));
         SecretRedactor redactor = SecretRedactor.fromEnvironment(ImmutableMap.of());
         try (CodeGraphRegistration registration = broker.registerTools("review-task", temporaryDirectory, AgentPermissionPolicy.AUTO,

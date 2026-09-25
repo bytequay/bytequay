@@ -32,7 +32,8 @@ import com.bytequay.agent.core.TurnState;
 import com.bytequay.agent.core.store.AgentTurnStore;
 import com.bytequay.agent.core.store.TaskLogStore;
 import com.bytequay.agent.spi.AgentPermissionPolicy;
-import com.bytequay.agent.spi.DevelopmentResultBridgeResolver;
+import com.bytequay.agent.spi.BridgeResolver;
+import com.bytequay.agent.spi.DevelopmentResultBridge;
 import com.bytequay.app.ci.CiAutofixMonitorTestDriver;
 import com.bytequay.app.ci.CiAutofixService;
 import com.bytequay.app.ci.CiMemoryService;
@@ -1021,7 +1022,7 @@ class TestCiAutofixEndToEnd
         }
 
         @Bean
-        ScriptedAgentDriver scriptedAgentDriver(CiMemoryService memory, DevelopmentResultBridgeResolver developmentResults)
+        ScriptedAgentDriver scriptedAgentDriver(CiMemoryService memory, BridgeResolver<DevelopmentResultBridge> developmentResults)
         {
             return new ScriptedAgentDriver(memory, developmentResults);
         }

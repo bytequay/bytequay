@@ -15,11 +15,19 @@ package com.bytequay.agent.spi;
 
 import java.util.Optional;
 
-/** Resolves the currently running development turn on each authenticated tool call. */
+/**
+ * Names a capability a task's provider session must expose, by task identity alone.
+ *
+ * <p>The application answers from durable facts, so a resumed session after a restart receives the same tools and
+ * instruction as the first one. Tasks without the capability resolve to nothing.
+ */
 @FunctionalInterface
-public interface RepositoryContextBridgeResolver
+public interface BridgeResolver<B>
 {
-    RepositoryContextBridgeResolver NONE = taskId -> Optional.empty();
+    static <B> BridgeResolver<B> none()
+    {
+        return taskId -> Optional.empty();
+    }
 
-    Optional<RepositoryContextBridge> resolve(String taskId);
+    Optional<B> resolve(String taskId);
 }

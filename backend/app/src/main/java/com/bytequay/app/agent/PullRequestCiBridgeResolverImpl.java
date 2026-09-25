@@ -21,9 +21,9 @@ import com.bytequay.agent.core.store.AgentTaskStore;
 import com.bytequay.agent.core.store.AgentTurnStore;
 import com.bytequay.agent.core.store.TaskLogStore;
 import com.bytequay.agent.spi.AgentPermissionPolicy;
+import com.bytequay.agent.spi.BridgeResolver;
 import com.bytequay.agent.spi.CiDescriptionProposal;
 import com.bytequay.agent.spi.PullRequestCiBridge;
-import com.bytequay.agent.spi.PullRequestCiBridgeResolver;
 import com.bytequay.app.ci.BoundedCiLog;
 import com.bytequay.app.ci.CiAutofixService;
 import com.bytequay.app.ci.CiHeadSnapshot;
@@ -69,7 +69,7 @@ import static java.util.Objects.requireNonNull;
 /** Reads GitHub evidence through the task's existing worktree and upstream PR association. */
 @Component
 public class PullRequestCiBridgeResolverImpl
-        implements PullRequestCiBridgeResolver
+        implements BridgeResolver<PullRequestCiBridge>
 {
     private static final int MAXIMUM_CANDIDATES = 20;
     private static final int MAXIMUM_LOG_BYTES = 1024 * 1024;

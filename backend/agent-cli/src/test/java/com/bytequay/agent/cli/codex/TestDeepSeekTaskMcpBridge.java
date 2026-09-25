@@ -17,9 +17,9 @@ import com.bytequay.agent.cli.mcp.CodeGraphRegistration;
 import com.bytequay.agent.cli.mcp.PermissionBroker;
 import com.bytequay.agent.cli.process.SecretRedactor;
 import com.bytequay.agent.spi.AgentPermissionPolicy;
+import com.bytequay.agent.spi.BridgeResolver;
 import com.bytequay.agent.spi.DevelopmentResultBridge;
 import com.bytequay.agent.spi.ProviderApprovalDecision;
-import com.bytequay.agent.spi.ReviewBridgeResolver;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.google.common.collect.ImmutableMap;
 import org.junit.jupiter.api.Test;
@@ -49,7 +49,7 @@ class TestDeepSeekTaskMcpBridge
         ObjectMapper mapper = new ObjectMapper();
         PermissionBroker permissions = new PermissionBroker(
                 () -> URI.create("http://127.0.0.1:9527/internal/agent/claude/mcp"), mapper,
-                (taskId, query) -> "memory", ReviewBridgeResolver.NONE,
+                (taskId, query) -> "memory", BridgeResolver.none(),
                 taskId -> taskId.equals("task") ? Optional.of(new DevelopmentResultBridge("turn", DevelopmentResultBridge.INSTRUCTION)) : Optional.empty());
         try (CodeGraphRegistration registration = permissions.registerTools("task", temporary, AgentPermissionPolicy.AUTO,
                 (request, timeout) -> CompletableFuture.completedFuture(ProviderApprovalDecision.deny()),
@@ -85,7 +85,7 @@ class TestDeepSeekTaskMcpBridge
         ObjectMapper mapper = new ObjectMapper();
         PermissionBroker permissions = new PermissionBroker(
                 () -> URI.create("http://127.0.0.1:9527/internal/agent/claude/mcp"), mapper,
-                (taskId, query) -> taskId + ": " + query.orElse(""), ReviewBridgeResolver.NONE);
+                (taskId, query) -> taskId + ": " + query.orElse(""), BridgeResolver.none());
         try (CodeGraphRegistration registration = permissions.registerTools("ci-task", temporary, AgentPermissionPolicy.CI_AUTOFIX,
                 (request, timeout) -> CompletableFuture.completedFuture(ProviderApprovalDecision.deny()),
                 SecretRedactor.fromEnvironment(ImmutableMap.of()), Optional.empty()).orElseThrow();

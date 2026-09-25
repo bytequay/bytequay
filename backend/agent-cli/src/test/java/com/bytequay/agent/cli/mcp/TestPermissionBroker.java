@@ -85,7 +85,7 @@ class TestPermissionBroker
         for (String taskId : ImmutableList.of("plain", "review", "development", "graph", "ci")) {
             AgentPermissionPolicy policy = taskId.equals("ci") ? AgentPermissionPolicy.CI_AUTOFIX : AgentPermissionPolicy.AUTO;
             Optional<CodeGraphBridge> graph = taskId.equals("graph") ? Optional.of(new CodeGraphBridge(query -> "graph", "Use the graph")) : Optional.empty();
-            try (McpConfigRegistration registration = broker.register(
+            try (McpRegistration registration = broker.register(
                     taskId, temporaryDirectory, temporaryDirectory, temporaryDirectory, policy, SessionAccess.FULL,
                     (request, timeout) -> CompletableFuture.completedFuture(ProviderApprovalDecision.deny()),
                     SecretRedactor.fromEnvironment(ImmutableMap.of()), graph)) {
@@ -103,7 +103,7 @@ class TestPermissionBroker
                 if (taskId.equals("review")) {
                     assertThat(registration.toolNames()).containsExactly("review_extra_evidence");
                 }
-                Optional<CodeGraphRegistration> codex = broker.registerTools(
+                Optional<McpRegistration> codex = broker.registerTools(
                         taskId, temporaryDirectory, policy,
                         (request, timeout) -> CompletableFuture.completedFuture(ProviderApprovalDecision.deny()),
                         SecretRedactor.fromEnvironment(ImmutableMap.of()), graph);
@@ -111,12 +111,12 @@ class TestPermissionBroker
                     assertThat(codex).isEmpty();
                 }
                 else {
-                    try (CodeGraphRegistration tools = codex.orElseThrow()) {
+                    try (McpRegistration tools = codex.orElseThrow()) {
                         JsonNode codexListed = broker.handle(tools.token(), objectMapper.readTree("""
                                 {"jsonrpc":"2.0","id":1,"method":"tools/list","params":{}}
                                 """)).body().orElseThrow();
                         assertThat(codexListed.at("/result/tools").findValuesAsText("name")).as(taskId).containsExactlyElementsOf(registration.toolNames());
-                        assertThat(tools.instruction()).isEqualTo(registration.instruction().orElse(""));
+                        assertThat(tools.instruction()).isEqualTo(registration.instruction());
                     }
                 }
             }
@@ -142,14 +142,14 @@ class TestPermissionBroker
         AgentApprovalHandler approvals = (request, timeout) -> CompletableFuture.completedFuture(ProviderApprovalDecision.deny());
         String codexToken;
         String claudeToken;
-        try (CodeGraphRegistration codex = broker.registerTools(
+        try (McpRegistration codex = broker.registerTools(
                 "task-1", temporaryDirectory, AgentPermissionPolicy.AUTO, approvals, redactor, Optional.empty()).orElseThrow();
-                McpConfigRegistration claude = broker.register(
+                McpRegistration claude = broker.register(
                         "task-1", temporaryDirectory, temporaryDirectory, temporaryDirectory, AgentPermissionPolicy.AUTO,
                         SessionAccess.FULL, approvals, redactor, Optional.empty())) {
             codexToken = codex.token();
             claudeToken = claude.token();
-            assertThat(codex.instruction()).isEqualTo(IssueContextBridge.INSTRUCTION);
+            assertThat(codex.instruction()).contains(IssueContextBridge.INSTRUCTION);
             assertThat(claude.instruction()).contains(IssueContextBridge.INSTRUCTION);
             assertThat(claude.toolNames()).containsExactly(IssueContextBridge.TOOL_NAME);
             assertThat(reads).hasValue(0);
@@ -190,13 +190,13 @@ class TestPermissionBroker
         assertThat(broker.handle(claudeToken, objectMapper.readTree("{}")).status()).isEqualTo(401);
         current.set(Optional.of(new IssueContextBridge(() -> "bound", IssueContextBridge.INSTRUCTION)));
         assertThat(broker.registerTools("task-2", temporaryDirectory, AgentPermissionPolicy.AUTO, approvals, redactor, Optional.empty())).isEmpty();
-        try (McpConfigRegistration unbound = broker.register(
+        try (McpRegistration unbound = broker.register(
                 "task-2", temporaryDirectory, temporaryDirectory, temporaryDirectory, AgentPermissionPolicy.AUTO,
                 SessionAccess.FULL, approvals, redactor, Optional.empty())) {
             assertThat(unbound.toolNames()).isEmpty();
             assertThat(localReviewCall(broker, unbound.token(), IssueContextBridge.TOOL_NAME, "{}").at("/error/code").intValue()).isEqualTo(-32602);
         }
-        try (McpConfigRegistration helper = broker.register(
+        try (McpRegistration helper = broker.register(
                 "task-1", temporaryDirectory, temporaryDirectory, temporaryDirectory, AgentPermissionPolicy.AUTO,
                 SessionAccess.TEXT_ONLY, approvals, redactor, Optional.empty())) {
             assertThat(helper.toolNames()).isEmpty();
@@ -233,10 +233,10 @@ class TestPermissionBroker
                 taskId -> taskId.equals("task-1") && available.get() ? Optional.of(local) : Optional.empty());
         SecretRedactor redactor = SecretRedactor.fromEnvironment(ImmutableMap.of("OPENAI_API_KEY", "known-secret"));
         String closedToken;
-        try (CodeGraphRegistration codex = broker.registerTools(
+        try (McpRegistration codex = broker.registerTools(
                 "task-1", temporaryDirectory, AgentPermissionPolicy.AUTO,
                 (request, timeout) -> CompletableFuture.completedFuture(ProviderApprovalDecision.deny()), redactor, Optional.empty()).orElseThrow();
-                McpConfigRegistration claude = broker.register(
+                McpRegistration claude = broker.register(
                         "task-1", temporaryDirectory, temporaryDirectory, temporaryDirectory, AgentPermissionPolicy.AUTO,
                         SessionAccess.FULL, (request, timeout) -> CompletableFuture.completedFuture(ProviderApprovalDecision.deny()), redactor, Optional.empty())) {
             closedToken = codex.token();
@@ -244,7 +244,7 @@ class TestPermissionBroker
             assertThat(claude.review()).isEmpty();
             assertThat(codex.development()).isPresent();
             assertThat(claude.development()).isPresent();
-            assertThat(codex.instruction()).contains(LocalReviewBridge.INSTRUCTION, DevelopmentResultBridge.INSTRUCTION);
+            assertThat(codex.instruction()).hasValueSatisfying(instruction -> assertThat(instruction).contains(LocalReviewBridge.INSTRUCTION, DevelopmentResultBridge.INSTRUCTION));
             for (String token : ImmutableList.of(codex.token(), claude.token())) {
                 JsonNode listed = broker.handle(token, objectMapper.readTree("""
                         {"jsonrpc":"2.0","id":1,"method":"tools/list","params":{}}
@@ -290,20 +290,20 @@ class TestPermissionBroker
         assertThat(broker.registerTools("task-2", temporaryDirectory, AgentPermissionPolicy.AUTO,
                 (request, timeout) -> CompletableFuture.completedFuture(ProviderApprovalDecision.deny()), redactor, Optional.empty())).isEmpty();
         available.set(true);
-        try (McpConfigRegistration helper = broker.register(
+        try (McpRegistration helper = broker.register(
                 "task-1", temporaryDirectory, temporaryDirectory, temporaryDirectory, AgentPermissionPolicy.AUTO,
                 SessionAccess.TEXT_ONLY, (request, timeout) -> CompletableFuture.completedFuture(ProviderApprovalDecision.deny()), redactor, Optional.empty())) {
-            assertThat(helper.localReview()).isEmpty();
+            assertThat(helper.instruction()).isEmpty();
             assertThat(helper.toolNames()).isEmpty();
         }
         PermissionBroker localOnly = new PermissionBroker(
                 () -> URI.create("http://127.0.0.1:9000/internal/agent/claude/mcp"), objectMapper,
                 (taskId, query) -> "memory", BridgeResolver.none(), BridgeResolver.none(), DraftPullRequestPublisher.NONE,
                 taskId -> Optional.of(local));
-        try (CodeGraphRegistration registration = localOnly.registerTools(
+        try (McpRegistration registration = localOnly.registerTools(
                 "task-1", temporaryDirectory, AgentPermissionPolicy.AUTO,
                 (request, timeout) -> CompletableFuture.completedFuture(ProviderApprovalDecision.deny()), redactor, Optional.empty()).orElseThrow()) {
-            assertThat(registration.instruction()).isEqualTo(LocalReviewBridge.INSTRUCTION);
+            assertThat(registration.instruction()).contains(LocalReviewBridge.INSTRUCTION);
         }
     }
 
@@ -326,10 +326,10 @@ class TestPermissionBroker
                 (taskId, query) -> "memory", BridgeResolver.none(),
                 taskId -> taskId.equals("task-1") ? active.get() : Optional.empty());
         SecretRedactor redactor = SecretRedactor.fromEnvironment(ImmutableMap.of("OPENAI_API_KEY", "known-secret"));
-        try (CodeGraphRegistration codex = broker.registerTools(
+        try (McpRegistration codex = broker.registerTools(
                 "task-1", temporaryDirectory, AgentPermissionPolicy.AUTO,
                 (request, timeout) -> CompletableFuture.completedFuture(ProviderApprovalDecision.deny()), redactor, Optional.empty()).orElseThrow();
-                McpConfigRegistration claude = broker.register(
+                McpRegistration claude = broker.register(
                         "task-1", temporaryDirectory, temporaryDirectory, temporaryDirectory, AgentPermissionPolicy.AUTO,
                         SessionAccess.FULL, (request, timeout) -> CompletableFuture.completedFuture(ProviderApprovalDecision.deny()), redactor, Optional.empty())) {
             for (String token : ImmutableList.of(codex.token(), claude.token())) {
@@ -355,11 +355,12 @@ class TestPermissionBroker
                     assertThat(developmentCall(broker, token, input).at("/error/code").intValue()).isEqualTo(-32602);
                 }
             }
-            assertThat(codex.instruction()).contains("readyForDelivery=false", "automation settings control delivery", "explicit user restriction").doesNotContain("stopAfter");
+            assertThat(codex.instruction()).hasValueSatisfying(instruction -> assertThat(instruction)
+                    .contains("readyForDelivery=false", "automation settings control delivery", "explicit user restriction").doesNotContain("stopAfter"));
             active.set(Optional.of(new DevelopmentResultBridge("turn-2", DevelopmentResultBridge.INSTRUCTION)));
             assertThat(developmentCall(broker, codex.token(), "{\"readyForDelivery\":true}").at("/error/code").intValue()).isEqualTo(-32602);
         }
-        try (McpConfigRegistration helper = broker.register(
+        try (McpRegistration helper = broker.register(
                 "task-1", temporaryDirectory, temporaryDirectory, temporaryDirectory, AgentPermissionPolicy.AUTO,
                 SessionAccess.TEXT_ONLY, (request, timeout) -> CompletableFuture.completedFuture(ProviderApprovalDecision.deny()), redactor, Optional.empty())) {
             assertThat(helper.development()).isEmpty();
@@ -378,10 +379,10 @@ class TestPermissionBroker
                     () -> URI.create("http://127.0.0.1:9000/internal/agent/claude/mcp"), objectMapper,
                     (taskId, query) -> "memory", BridgeResolver.none(), taskId -> Optional.of(bridge));
             SecretRedactor redactor = SecretRedactor.fromEnvironment(ImmutableMap.of("OPENAI_API_KEY", "known-secret"));
-            try (CodeGraphRegistration codex = broker.registerTools(
+            try (McpRegistration codex = broker.registerTools(
                     "task-1", temporaryDirectory, AgentPermissionPolicy.AUTO,
                     (request, timeout) -> CompletableFuture.completedFuture(ProviderApprovalDecision.deny()), redactor, Optional.empty()).orElseThrow();
-                    McpConfigRegistration claude = broker.register(
+                    McpRegistration claude = broker.register(
                             "task-1", temporaryDirectory, temporaryDirectory, temporaryDirectory, AgentPermissionPolicy.AUTO,
                             SessionAccess.FULL, (request, timeout) -> CompletableFuture.completedFuture(ProviderApprovalDecision.deny()), redactor, Optional.empty())) {
                 for (String token : ImmutableList.of(codex.token(), claude.token())) {
@@ -429,7 +430,7 @@ class TestPermissionBroker
                     return "Pushed abc; created draft pull request https://github.com/owner/repo/pull/7 known-secret";
                 });
         SecretRedactor redactor = SecretRedactor.fromEnvironment(ImmutableMap.of("OPENAI_API_KEY", "known-secret"));
-        try (McpConfigRegistration claude = broker.register(
+        try (McpRegistration claude = broker.register(
                 "task-1", temporaryDirectory, temporaryDirectory, temporaryDirectory, AgentPermissionPolicy.AUTO,
                 SessionAccess.FULL, (request, timeout) -> CompletableFuture.completedFuture(ProviderApprovalDecision.deny()), redactor, Optional.empty())) {
             String token = claude.token();
@@ -490,7 +491,7 @@ class TestPermissionBroker
                 objectMapper,
                 (taskId, query) -> "memory");
         SecretRedactor redactor = SecretRedactor.fromEnvironment(ImmutableMap.of("ANTHROPIC_API_KEY", "known-secret"));
-        McpConfigRegistration bridged = broker.register(
+        McpRegistration bridged = broker.register(
                 "task-1",
                 temporaryDirectory,
                 temporaryDirectory,
@@ -500,7 +501,7 @@ class TestPermissionBroker
                 (request, timeout) -> CompletableFuture.completedFuture(ProviderApprovalDecision.deny()),
                 redactor,
                 Optional.of(new CodeGraphBridge(query -> "graph for " + query + " known-secret", "use the graph")));
-        McpConfigRegistration plain = broker.register(
+        McpRegistration plain = broker.register(
                 "task-2",
                 temporaryDirectory,
                 temporaryDirectory,
@@ -547,7 +548,7 @@ class TestPermissionBroker
                 () -> URI.create("http://127.0.0.1:9000/internal/agent/claude/mcp"),
                 objectMapper,
                 (taskId, query) -> "memory");
-        CodeGraphRegistration registration = broker.registerTools(
+        McpRegistration registration = broker.registerTools(
                 "task-3",
                 temporaryDirectory,
                 AgentPermissionPolicy.AUTO,
@@ -594,10 +595,10 @@ class TestPermissionBroker
         AgentApprovalHandler approvals = (request, timeout) -> {
             throw new AssertionError("Codex must not invoke Claude permission callbacks");
         };
-        try (CodeGraphRegistration first = broker.registerTools(
+        try (McpRegistration first = broker.registerTools(
                 "task-ci-first", temporaryDirectory, AgentPermissionPolicy.CI_AUTOFIX,
                 approvals, redactor, Optional.empty()).orElseThrow();
-                CodeGraphRegistration second = broker.registerTools(
+                McpRegistration second = broker.registerTools(
                         "task-ci-second", temporaryDirectory, AgentPermissionPolicy.CI_AUTOFIX,
                         approvals, redactor, Optional.empty()).orElseThrow()) {
             JsonNode listRequest = objectMapper.readTree("""
@@ -640,7 +641,7 @@ class TestPermissionBroker
                     throw new AssertionError("Review tasks must not read CI memory");
                 },
                 taskId -> Optional.of(review));
-        try (CodeGraphRegistration registration = broker.registerTools(
+        try (McpRegistration registration = broker.registerTools(
                 "task-review", temporaryDirectory, AgentPermissionPolicy.AUTO,
                 (request, timeout) -> CompletableFuture.completedFuture(ProviderApprovalDecision.deny()),
                 SecretRedactor.fromEnvironment(ImmutableMap.of()), Optional.empty()).orElseThrow()) {
@@ -666,7 +667,7 @@ class TestPermissionBroker
                 (taskId, query) -> "memory");
         AtomicReference<ProviderApprovalRequest> approval = new AtomicReference<>();
         AtomicReference<Duration> approvalTimeout = new AtomicReference<>();
-        McpConfigRegistration registration = broker.register(
+        McpRegistration registration = broker.register(
                 "task-1",
                 temporaryDirectory,
                 temporaryDirectory,
@@ -679,10 +680,10 @@ class TestPermissionBroker
                 },
                 SecretRedactor.fromEnvironment(ImmutableMap.of("ANTHROPIC_API_KEY", "known-secret")));
 
-        JsonNode config = objectMapper.readTree(Files.readString(registration.configFile()));
+        JsonNode config = objectMapper.readTree(Files.readString(registration.configFile().orElseThrow()));
         String authorization = config.at("/mcpServers/bytequay/headers/Authorization").asText();
         String token = authorization.substring("Bearer ".length());
-        assertThat(PosixFilePermissions.toString(Files.getPosixFilePermissions(registration.configFile())))
+        assertThat(PosixFilePermissions.toString(Files.getPosixFilePermissions(registration.configFile().orElseThrow())))
                 .isEqualTo("rw-------");
 
         McpHttpResponse initialized = broker.handle(token, objectMapper.readTree("""
@@ -718,7 +719,7 @@ class TestPermissionBroker
 
         assertThat(broker.handle("wrong", objectMapper.createObjectNode()).status()).isEqualTo(401);
         registration.close();
-        assertThat(registration.configFile()).doesNotExist();
+        assertThat(registration.configFile().orElseThrow()).doesNotExist();
         assertThat(broker.handle(token, objectMapper.createObjectNode()).status()).isEqualTo(401);
     }
 
@@ -733,7 +734,7 @@ class TestPermissionBroker
         Map<String, String> answers = ImmutableMap.of(
                 "Which issue should I work on?", "Both",
                 "Never asked", "Ignored");
-        try (McpConfigRegistration registration = broker.register(
+        try (McpRegistration registration = broker.register(
                 "task-1",
                 temporaryDirectory,
                 temporaryDirectory,
@@ -741,7 +742,7 @@ class TestPermissionBroker
                 AgentPermissionPolicy.AUTO,
                 (request, timeout) -> CompletableFuture.completedFuture(ProviderApprovalDecision.allow(Optional.empty(), answers)),
                 SecretRedactor.fromEnvironment(ImmutableMap.of()))) {
-            String token = objectMapper.readTree(Files.readString(registration.configFile()))
+            String token = objectMapper.readTree(Files.readString(registration.configFile().orElseThrow()))
                     .at("/mcpServers/bytequay/headers/Authorization").asText().substring("Bearer ".length());
             String questions = "[{\"question\":\"Which issue should I work on?\",\"header\":\"Issue\",\"options\":[{\"label\":\"Both\"}]}]";
             McpHttpResponse called = broker.handle(token, objectMapper.readTree(
@@ -787,7 +788,7 @@ class TestPermissionBroker
         Path provider = temporaryDirectory.resolve("provider");
         AtomicReference<ProviderApprovalRequest> requestedApproval = new AtomicReference<>();
         AtomicInteger approvalCount = new AtomicInteger();
-        McpConfigRegistration registration = broker.register(
+        McpRegistration registration = broker.register(
                 "task-ci",
                 worktree,
                 temporaryDirectory,
@@ -801,7 +802,7 @@ class TestPermissionBroker
                 SecretRedactor.fromEnvironment(ImmutableMap.of()));
         String token = token(registration);
 
-        JsonNode settings = objectMapper.readTree(Files.readString(registration.settingsFile()));
+        JsonNode settings = objectMapper.readTree(Files.readString(registration.settingsFile().orElseThrow()));
         assertThat(settings.at("/sandbox/enabled").asBoolean()).isTrue();
         assertThat(settings.at("/sandbox/autoAllowBashIfSandboxed").asBoolean()).isTrue();
         assertThat(settings.at("/sandbox/failIfUnavailable").asBoolean()).isTrue();
@@ -860,9 +861,9 @@ class TestPermissionBroker
         assertThat(requestedApproval.get().kind()).isEqualTo(ProviderApprovalRequest.Kind.COMMAND);
         assertThat(approvalCount).hasValue(3);
 
-        Path settingsFile = registration.settingsFile();
+        Path settingsFile = registration.settingsFile().orElseThrow();
         registration.close();
-        assertThat(registration.configFile()).doesNotExist();
+        assertThat(registration.configFile().orElseThrow()).doesNotExist();
         assertThat(settingsFile).doesNotExist();
         assertThat(broker.handle(token, objectMapper.createObjectNode()).status()).isEqualTo(401);
     }
@@ -877,7 +878,7 @@ class TestPermissionBroker
                 (taskId, query) -> "");
         Path worktree = Files.createDirectories(temporaryDirectory.resolve("ci-approval-worktree"));
         AtomicReference<ProviderApprovalRequest> requestedApproval = new AtomicReference<>();
-        try (McpConfigRegistration registration = broker.register(
+        try (McpRegistration registration = broker.register(
                 "task-ci-approval",
                 worktree,
                 temporaryDirectory,
@@ -910,7 +911,7 @@ class TestPermissionBroker
                 objectMapper,
                 (taskId, query) -> "memory must not reach cherry-pick");
         Path worktree = Files.createDirectories(temporaryDirectory.resolve("cherry-pick-worktree"));
-        McpConfigRegistration registration = broker.register(
+        McpRegistration registration = broker.register(
                 "task-cherry-pick",
                 worktree,
                 temporaryDirectory,
@@ -920,7 +921,7 @@ class TestPermissionBroker
                 SecretRedactor.fromEnvironment(ImmutableMap.of()));
         String token = token(registration);
 
-        JsonNode settings = objectMapper.readTree(Files.readString(registration.settingsFile()));
+        JsonNode settings = objectMapper.readTree(Files.readString(registration.settingsFile().orElseThrow()));
         assertThat(settings.at("/sandbox/enabled").asBoolean()).isTrue();
         assertThat(settings.at("/sandbox/autoAllowBashIfSandboxed").asBoolean()).isFalse();
         assertThat(settings.at("/sandbox/allowUnsandboxedCommands").asBoolean()).isFalse();
@@ -976,7 +977,7 @@ class TestPermissionBroker
                 (taskId, query) -> "memory must not reach auto");
         Path worktree = Files.createDirectories(temporaryDirectory.resolve("auto-worktree"));
         AtomicReference<ProviderApprovalRequest> approval = new AtomicReference<>();
-        McpConfigRegistration registration = broker.register(
+        McpRegistration registration = broker.register(
                 "task-auto",
                 worktree,
                 temporaryDirectory,
@@ -989,7 +990,7 @@ class TestPermissionBroker
                 SecretRedactor.fromEnvironment(ImmutableMap.of()));
         String token = token(registration);
 
-        JsonNode settings = objectMapper.readTree(Files.readString(registration.settingsFile()));
+        JsonNode settings = objectMapper.readTree(Files.readString(registration.settingsFile().orElseThrow()));
         assertThat(settings.at("/sandbox/enabled").asBoolean()).isTrue();
         assertThat(settings.at("/sandbox/autoAllowBashIfSandboxed").asBoolean()).isFalse();
         assertThat(settings.at("/sandbox/allowUnsandboxedCommands").asBoolean()).isTrue();
@@ -1052,14 +1053,14 @@ class TestPermissionBroker
         Files.createSymbolicLink(worktree.resolve("linked"), external);
         for (AgentPermissionPolicy policy : ImmutableList.of(AgentPermissionPolicy.AUTO, AgentPermissionPolicy.CI_AUTOFIX)) {
             AtomicInteger approvalCount = new AtomicInteger();
-            try (McpConfigRegistration registration = broker.register(
+            try (McpRegistration registration = broker.register(
                     "build-" + policy, worktree, runtime, runtime.resolve("build-provider-" + policy), policy, SessionAccess.FULL,
                     (request, timeout) -> {
                         approvalCount.incrementAndGet();
                         return CompletableFuture.completedFuture(ProviderApprovalDecision.deny());
                     },
                     SecretRedactor.fromEnvironment(environment), Optional.empty(), environment)) {
-                JsonNode settings = objectMapper.readTree(Files.readString(registration.settingsFile()));
+                JsonNode settings = objectMapper.readTree(Files.readString(registration.settingsFile().orElseThrow()));
                 List<String> expected = ImmutableList.of(home.resolve(".m2").toString(), home.resolve(".gradle").toString(),
                         home.resolve(".npm").toString(), "/var/tmp");
                 assertThat(settings.at("/sandbox/filesystem/allowWrite"))
@@ -1085,12 +1086,12 @@ class TestPermissionBroker
             }
         }
         var linkedEnvironment = ImmutableMap.of("HOME", linkedHome.toString());
-        try (McpConfigRegistration registration = broker.register(
+        try (McpRegistration registration = broker.register(
                 "linked-build", worktree, runtime, runtime.resolve("linked-provider"),
                 AgentPermissionPolicy.AUTO, SessionAccess.FULL,
                 (request, timeout) -> CompletableFuture.completedFuture(ProviderApprovalDecision.deny()),
                 SecretRedactor.fromEnvironment(linkedEnvironment), Optional.empty(), linkedEnvironment)) {
-            JsonNode settings = objectMapper.readTree(Files.readString(registration.settingsFile()));
+            JsonNode settings = objectMapper.readTree(Files.readString(registration.settingsFile().orElseThrow()));
             List<String> expected = ImmutableList.of(linkedHome.resolve(".gradle").toString(),
                     linkedHome.resolve(".npm").toString(), "/var/tmp");
             assertThat(settings.at("/sandbox/filesystem/allowWrite"))
@@ -1127,22 +1128,22 @@ class TestPermissionBroker
                 (taskId, query) -> "", taskId -> taskId.equals("review") ? Optional.of(review) : Optional.empty());
         for (AgentPermissionPolicy policy : AgentPermissionPolicy.values()) {
             String taskId = policy.name().toLowerCase();
-            try (McpConfigRegistration registration = broker.register(
+            try (McpRegistration registration = broker.register(
                     taskId, worktree, runtime, root.resolve("provider-" + taskId), policy, SessionAccess.FULL,
                     (request, timeout) -> CompletableFuture.completedFuture(ProviderApprovalDecision.deny()),
                     SecretRedactor.fromEnvironment(ImmutableMap.of()), Optional.empty(), ImmutableMap.of())) {
-                JsonNode settings = objectMapper.readTree(Files.readString(registration.settingsFile()));
+                JsonNode settings = objectMapper.readTree(Files.readString(registration.settingsFile().orElseThrow()));
                 assertThat(settings.at("/sandbox/filesystem/allowWrite"))
                         .isEqualTo(objectMapper.valueToTree(expected));
             }
         }
         for (String taskId : ImmutableList.of("review", "read-only")) {
             SessionAccess access = taskId.equals("read-only") ? SessionAccess.READ_ONLY : SessionAccess.FULL;
-            try (McpConfigRegistration registration = broker.register(
+            try (McpRegistration registration = broker.register(
                     taskId, worktree, runtime, root.resolve("provider-" + taskId), AgentPermissionPolicy.AUTO, access,
                     (request, timeout) -> CompletableFuture.completedFuture(ProviderApprovalDecision.deny()),
                     SecretRedactor.fromEnvironment(ImmutableMap.of()), Optional.empty(), ImmutableMap.of())) {
-                JsonNode settings = objectMapper.readTree(Files.readString(registration.settingsFile()));
+                JsonNode settings = objectMapper.readTree(Files.readString(registration.settingsFile().orElseThrow()));
                 assertThat(settings.at("/sandbox/filesystem/allowWrite"))
                         .isEqualTo(objectMapper.valueToTree(ImmutableList.of("/var/tmp")));
                 assertThat(settings.at("/sandbox/allowUnsandboxedCommands").asBoolean()).isFalse();
@@ -1197,7 +1198,7 @@ class TestPermissionBroker
                         try (var registration = broker.register("task-auth", worktree, runtime, runtime.resolve("provider"), policy, access,
                                 (request, timeout) -> CompletableFuture.completedFuture(ProviderApprovalDecision.deny()),
                                 SecretRedactor.fromEnvironment(environment), Optional.empty(), environment)) {
-                            String json = Files.readString(registration.settingsFile());
+                            String json = Files.readString(registration.settingsFile().orElseThrow());
                             JsonNode settings = objectMapper.readTree(json);
                             assertThat(settings.path("autoMemoryEnabled")).isEqualTo(objectMapper.valueToTree(false));
                             assertThat(json).doesNotContain("provider-secret", "github-secret");
@@ -1244,7 +1245,7 @@ class TestPermissionBroker
                                     assertThat(settings.at("/permissions/deny").toString().contains("\"Agent\"")).isNotEqualTo(children);
                                     assertThat(settings.at("/permissions/deny").toString().contains("\"Task\"")).isNotEqualTo(children);
                                     assertThat(settings.path("hooks").isMissingNode()).isNotEqualTo(children);
-                                    assertThat(Files.exists(registration.settingsFile().resolveSibling("review-child-gate.sh"))).isEqualTo(children);
+                                    assertThat(Files.exists(registration.settingsFile().orElseThrow().resolveSibling("review-child-gate.sh"))).isEqualTo(children);
                                 }
                                 else {
                                     assertThat(settings.path("autoMode").isMissingNode()).isTrue();
@@ -1291,8 +1292,8 @@ class TestPermissionBroker
         try (var registration = broker.register("task-gate", worktree, runtime, runtime.resolve("provider"), AgentPermissionPolicy.AUTO, SessionAccess.FULL,
                 (request, timeout) -> CompletableFuture.completedFuture(ProviderApprovalDecision.deny()),
                 SecretRedactor.fromEnvironment(ImmutableMap.of()), Optional.of(new CodeGraphBridge(query -> "graph", "Use the graph")), ImmutableMap.of())) {
-            gate = registration.settingsFile().resolveSibling("review-child-gate.sh");
-            JsonNode hook = objectMapper.readTree(Files.readString(registration.settingsFile())).at("/hooks/PreToolUse/0");
+            gate = registration.settingsFile().orElseThrow().resolveSibling("review-child-gate.sh");
+            JsonNode hook = objectMapper.readTree(Files.readString(registration.settingsFile().orElseThrow())).at("/hooks/PreToolUse/0");
             assertThat(hook.path("matcher").asText()).isEqualTo("^(Agent|Task|mcp__bytequay__.*)$");
             String command = hook.at("/hooks/0/command").asText();
             assertThat(command).isEqualTo("'" + gate + "'");
@@ -1357,10 +1358,10 @@ class TestPermissionBroker
         return objectMapper.readTree(result).get("behavior").asText();
     }
 
-    private String token(McpConfigRegistration registration)
+    private String token(McpRegistration registration)
             throws Exception
     {
-        JsonNode config = objectMapper.readTree(Files.readString(registration.configFile()));
+        JsonNode config = objectMapper.readTree(Files.readString(registration.configFile().orElseThrow()));
         return config.at("/mcpServers/bytequay/headers/Authorization").asText().substring("Bearer ".length());
     }
 }

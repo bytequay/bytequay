@@ -13,7 +13,7 @@
  */
 package com.bytequay.agent.cli.claude;
 
-import com.bytequay.agent.cli.mcp.McpConfigRegistration;
+import com.bytequay.agent.cli.mcp.McpRegistration;
 import com.bytequay.agent.cli.mcp.PermissionBroker;
 import com.bytequay.agent.cli.process.GitCliEnvironment;
 import com.bytequay.agent.cli.process.ManagedProcess;
@@ -411,7 +411,7 @@ public final class ClaudeCliDriver
     }
 
     private List<String> argv(
-            McpConfigRegistration registration,
+            McpRegistration registration,
             AgentPermissionScope permissionScope,
             Optional<String> model,
             Optional<String> effort,
@@ -438,7 +438,7 @@ public final class ClaudeCliDriver
         argv.add(
                 "--strict-mcp-config",
                 "--setting-sources=",
-                "--settings", registration.settingsFile().toString());
+                "--settings", registration.settingsFile().orElseThrow().toString());
         if (permissionScope.access() == SessionAccess.TEXT_ONLY) {
             argv.add(
                     "--tools=",
@@ -490,7 +490,7 @@ public final class ClaudeCliDriver
         }
         argv.add(
                 "--permission-mode", "auto",
-                "--mcp-config", registration.configFile().toString(),
+                "--mcp-config", registration.configFile().orElseThrow().toString(),
                 "--permission-prompt-tool", "mcp__bytequay__permission_prompt",
                 resume ? "--resume" : "--session-id", sessionId);
         return argv.build();
@@ -812,7 +812,7 @@ public final class ClaudeCliDriver
         private final AgentSessionRef reference;
         private final AgentSessionContext context;
         private final AgentEventSink events;
-        private final McpConfigRegistration registration;
+        private final McpRegistration registration;
         private final AgentPermissionScope permissionScope;
         private final SecretRedactor redactor;
         private ClaudeRunningTurn running;

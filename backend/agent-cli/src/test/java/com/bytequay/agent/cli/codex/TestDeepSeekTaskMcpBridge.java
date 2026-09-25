@@ -13,7 +13,7 @@
  */
 package com.bytequay.agent.cli.codex;
 
-import com.bytequay.agent.cli.mcp.CodeGraphRegistration;
+import com.bytequay.agent.cli.mcp.McpRegistration;
 import com.bytequay.agent.cli.mcp.PermissionBroker;
 import com.bytequay.agent.cli.process.SecretRedactor;
 import com.bytequay.agent.spi.AgentPermissionPolicy;
@@ -51,7 +51,7 @@ class TestDeepSeekTaskMcpBridge
                 () -> URI.create("http://127.0.0.1:9527/internal/agent/claude/mcp"), mapper,
                 (taskId, query) -> "memory", BridgeResolver.none(),
                 taskId -> taskId.equals("task") ? Optional.of(new DevelopmentResultBridge("turn", DevelopmentResultBridge.INSTRUCTION)) : Optional.empty());
-        try (CodeGraphRegistration registration = permissions.registerTools("task", temporary, AgentPermissionPolicy.AUTO,
+        try (McpRegistration registration = permissions.registerTools("task", temporary, AgentPermissionPolicy.AUTO,
                 (request, timeout) -> CompletableFuture.completedFuture(ProviderApprovalDecision.deny()),
                 SecretRedactor.fromEnvironment(ImmutableMap.of()), Optional.empty()).orElseThrow()) {
             HttpClient client = HttpClient.newHttpClient();
@@ -86,7 +86,7 @@ class TestDeepSeekTaskMcpBridge
         PermissionBroker permissions = new PermissionBroker(
                 () -> URI.create("http://127.0.0.1:9527/internal/agent/claude/mcp"), mapper,
                 (taskId, query) -> taskId + ": " + query.orElse(""), BridgeResolver.none());
-        try (CodeGraphRegistration registration = permissions.registerTools("ci-task", temporary, AgentPermissionPolicy.CI_AUTOFIX,
+        try (McpRegistration registration = permissions.registerTools("ci-task", temporary, AgentPermissionPolicy.CI_AUTOFIX,
                 (request, timeout) -> CompletableFuture.completedFuture(ProviderApprovalDecision.deny()),
                 SecretRedactor.fromEnvironment(ImmutableMap.of()), Optional.empty()).orElseThrow();
                 DeepSeekTaskMcpBridge bridge = DeepSeekTaskMcpBridge.start(permissions, registration, mapper)) {

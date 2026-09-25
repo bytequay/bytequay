@@ -239,7 +239,7 @@ public final class PermissionBroker
         this.repositoryContext = requireNonNull(repositoryContext, "repositoryContext is null");
     }
 
-    McpConfigRegistration register(
+    McpRegistration register(
             String taskId,
             Path worktree,
             Path runtimeDirectory,
@@ -260,7 +260,7 @@ public final class PermissionBroker
                 Optional.empty());
     }
 
-    McpConfigRegistration register(
+    McpRegistration register(
             String taskId,
             Path worktree,
             Path runtimeDirectory,
@@ -274,7 +274,7 @@ public final class PermissionBroker
         return register(taskId, worktree, runtimeDirectory, providerDirectory, permissionPolicy, access, approvals, redactor, codeGraph, ImmutableMap.of());
     }
 
-    public McpConfigRegistration register(
+    public McpRegistration register(
             String taskId,
             Path worktree,
             Path runtimeDirectory,
@@ -304,12 +304,13 @@ public final class PermissionBroker
         Optional<Path> childGate = context.reviewChildren() ? Optional.of(childGateFile) : Optional.empty();
         try {
             Files.createDirectories(providerDirectory);
+            URI uri = requireNonNull(endpoint.get(), "endpoint URI is null");
             // Claude's HTTP first-response deadline otherwise expires after 60 seconds, before the approval card.
             String json = objectMapper.writeValueAsString(new McpConfiguration(ImmutableMap.of(
                     "bytequay",
                     new McpServer(
                             "http",
-                            requireNonNull(endpoint.get(), "endpoint URI is null").toString(),
+                            uri.toString(),
                             ImmutableMap.of("Authorization", "Bearer " + token),
                             APPROVAL_TIMEOUT.plusSeconds(30).toMillis(),
                             true))));
@@ -324,9 +325,9 @@ public final class PermissionBroker
                     .map(ToolDefinition::name)
                     .filter(name -> !name.equals("permission_prompt"))
                     .collect(toImmutableList());
-            return new McpConfigRegistration(
-                    configFile, settingsFile, token, toolNames, codeGraph, context.review(), context.development(), context.localReview(), context.pullRequestCi(),
-                    context.issueContext(), context.notebook(), () -> {
+            return new McpRegistration(
+                    token, uri, toolNames, managedInstruction(context), context.review(), context.development(),
+                    Optional.of(configFile), Optional.of(settingsFile), () -> {
                         contexts.remove(token);
                         delete(configFile);
                         delete(settingsFile);
@@ -354,7 +355,7 @@ public final class PermissionBroker
      * configuration, exposing its CI memory, graph, review, development, or local discussion capability. Empty
      * when the task has no local tools.
      */
-    public Optional<CodeGraphRegistration> registerTools(
+    public Optional<McpRegistration> registerTools(
             String taskId,
             Path worktree,
             AgentPermissionPolicy permissionPolicy,
@@ -377,10 +378,9 @@ public final class PermissionBroker
         }
         contexts.put(token, context);
         List<String> toolNames = tools(context).stream().map(ToolDefinition::name).collect(toImmutableList());
-        return Optional.of(new CodeGraphRegistration(
-                token, requireNonNull(endpoint.get(), "endpoint URI is null"), codeGraph,
-                context.review(), context.development(), context.localReview(), context.pullRequestCi(), context.issueContext(), context.notebook(),
-                toolNames, () -> contexts.remove(token)));
+        return Optional.of(new McpRegistration(
+                token, requireNonNull(endpoint.get(), "endpoint URI is null"), toolNames, managedInstruction(context), context.review(), context.development(),
+                Optional.empty(), Optional.empty(), () -> contexts.remove(token)));
     }
 
     private PermissionContext resolveContext(
@@ -419,19 +419,16 @@ public final class PermissionBroker
     }
 
     /** Combines the fixed capabilities' guidance for the session's instruction channel. */
-    static Optional<String> managedInstruction(
-            Optional<CodeGraphBridge> codeGraph, Optional<ReviewBridge> review, Optional<DevelopmentResultBridge> development,
-            Optional<LocalReviewBridge> localReview, Optional<PullRequestCiBridge> pullRequestCi, Optional<IssueContextBridge> issueContext,
-            Optional<RepositoryContextBridge> notebook)
+    private static Optional<String> managedInstruction(PermissionContext context)
     {
         String joined = Stream.of(
-                        review.map(ReviewBridge::instruction),
-                        codeGraph.map(CodeGraphBridge::instruction),
-                        development.map(DevelopmentResultBridge::instruction),
-                        localReview.map(LocalReviewBridge::instruction),
-                        pullRequestCi.map(PullRequestCiBridge::instruction),
-                        issueContext.map(IssueContextBridge::instruction),
-                        notebook.map(RepositoryContextBridge::instruction))
+                        context.review().map(ReviewBridge::instruction),
+                        context.codeGraph().map(CodeGraphBridge::instruction),
+                        context.development().map(DevelopmentResultBridge::instruction),
+                        context.localReview().map(LocalReviewBridge::instruction),
+                        context.pullRequestCi().map(PullRequestCiBridge::instruction),
+                        context.issueContext().map(IssueContextBridge::instruction),
+                        context.notebook().map(RepositoryContextBridge::instruction))
                 .flatMap(Optional::stream)
                 .collect(Collectors.joining("\n\n"));
         return joined.isBlank() ? Optional.empty() : Optional.of(joined);

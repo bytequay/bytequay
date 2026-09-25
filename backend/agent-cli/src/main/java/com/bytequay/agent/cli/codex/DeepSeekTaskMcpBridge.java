@@ -13,8 +13,8 @@
  */
 package com.bytequay.agent.cli.codex;
 
-import com.bytequay.agent.cli.mcp.CodeGraphRegistration;
 import com.bytequay.agent.cli.mcp.McpHttpResponse;
+import com.bytequay.agent.cli.mcp.McpRegistration;
 import com.bytequay.agent.cli.mcp.PermissionBroker;
 import com.bytequay.agent.spi.AgentUnavailableException;
 import com.fasterxml.jackson.core.JsonProcessingException;
@@ -47,7 +47,7 @@ final class DeepSeekTaskMcpBridge
     private final URI endpoint;
     private final AtomicBoolean closed = new AtomicBoolean();
 
-    static DeepSeekTaskMcpBridge start(PermissionBroker permissions, CodeGraphRegistration registration, ObjectMapper mapper)
+    static DeepSeekTaskMcpBridge start(PermissionBroker permissions, McpRegistration registration, ObjectMapper mapper)
     {
         try {
             return new DeepSeekTaskMcpBridge(permissions, registration, mapper);
@@ -57,7 +57,7 @@ final class DeepSeekTaskMcpBridge
         }
     }
 
-    private DeepSeekTaskMcpBridge(PermissionBroker permissions, CodeGraphRegistration registration, ObjectMapper mapper)
+    private DeepSeekTaskMcpBridge(PermissionBroker permissions, McpRegistration registration, ObjectMapper mapper)
             throws IOException
     {
         this.permissions = requireNonNull(permissions, "permissions is null");

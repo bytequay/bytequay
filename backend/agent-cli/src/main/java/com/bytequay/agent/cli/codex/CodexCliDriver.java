@@ -13,7 +13,7 @@
  */
 package com.bytequay.agent.cli.codex;
 
-import com.bytequay.agent.cli.mcp.CodeGraphRegistration;
+import com.bytequay.agent.cli.mcp.McpRegistration;
 import com.bytequay.agent.cli.mcp.PermissionBroker;
 import com.bytequay.agent.cli.process.AgentPermissionManager;
 import com.bytequay.agent.cli.process.BuildCacheRoots;
@@ -335,7 +335,7 @@ public final class CodexCliDriver
             String ownerId,
             Path workingDirectory,
             CodexLaunchProfile.ChildProfile childProfile,
-            Optional<CodeGraphRegistration> registration,
+            Optional<McpRegistration> registration,
             SessionAccess access,
             Optional<String> savedKey,
             List<String> ciWritableRoots,
@@ -363,7 +363,7 @@ public final class CodexCliDriver
             }
             Optional<DeepSeekTaskMcpBridge> bridge = taskMcpBridge;
             Optional<CodexLaunchProfile.CodeGraphLaunch> tools = registration.map(value -> new CodexLaunchProfile.CodeGraphLaunch(
-                    bridge.map(DeepSeekTaskMcpBridge::endpoint).orElse(value.endpoint()), value.instruction(), value.toolNames(), deepSeekSecret.isEmpty()));
+                    bridge.map(DeepSeekTaskMcpBridge::endpoint).orElse(value.endpoint()), value.instruction().orElse(""), value.toolNames(), deepSeekSecret.isEmpty()));
             Optional<CodexLaunchProfile.DeepSeekProfile> deepSeek = proxy.map(value ->
                     new CodexLaunchProfile.DeepSeekProfile(deepSeekCatalog.orElseThrow(), value.baseUrl()));
             return new ClientLaunch(new CodexAppServerClient(
@@ -606,10 +606,10 @@ public final class CodexCliDriver
                 : ImmutableList.of();
         // A task tool token lives exactly as long as this session; the App Server reaches the
         // ByteQuay task MCP endpoint with it and never learns the task's filesystem identity.
-        Optional<CodeGraphRegistration> codeGraph = context.restricted() ? Optional.empty() : permissions.registerTools(
+        Optional<McpRegistration> codeGraph = context.restricted() ? Optional.empty() : permissions.registerTools(
                 context.taskId(), context.worktree(), context.permissionPolicy(), context.approvals(), toolRedactor,
                 deepSeekSecret.isPresent() ? Optional.empty() : context.codeGraph());
-        boolean review = codeGraph.flatMap(CodeGraphRegistration::review).isPresent();
+        boolean review = codeGraph.flatMap(McpRegistration::review).isPresent();
         AgentPermissionScope scope = new AgentPermissionScope(context.permissionPolicy(), context.access(), review);
         boolean allowGitHubCommands = scope.githubCommands();
         // CI runs the single-agent profile verified by the native sandbox probe.
@@ -631,7 +631,7 @@ public final class CodexCliDriver
                     launchEnvironment());
         }
         catch (RuntimeException failure) {
-            codeGraph.ifPresent(CodeGraphRegistration::close);
+            codeGraph.ifPresent(McpRegistration::close);
             throw failure;
         }
         try {
@@ -642,7 +642,7 @@ public final class CodexCliDriver
             // The process is running by the time anything below it can fail, and nothing else
             // holds a reference that would ever close it.
             launch.client().close();
-            codeGraph.ifPresent(CodeGraphRegistration::close);
+            codeGraph.ifPresent(McpRegistration::close);
             throw failure;
         }
     }
@@ -883,7 +883,7 @@ public final class CodexCliDriver
         private final AgentEventSink events;
         private final CodexEventMapper eventMapper;
         private final CodexIsolationGuard isolation;
-        private final Optional<CodeGraphRegistration> codeGraph;
+        private final Optional<McpRegistration> codeGraph;
         private final AgentSessionRef reference;
         private final ModelProfile modelProfile;
         private final CodexLaunchProfile.ChildProfile childProfile;
@@ -930,7 +930,7 @@ public final class CodexCliDriver
                 AgentEventSink events,
                 ModelProfile modelProfile,
                 CodexLaunchProfile.ChildProfile childProfile,
-                Optional<CodeGraphRegistration> codeGraph,
+                Optional<McpRegistration> codeGraph,
                 List<String> ciWritableRoots,
                 AgentPermissionScope permissionScope,
                 Optional<CodexLaunchProfile.DeepSeekProfile> deepSeek,
@@ -990,7 +990,7 @@ public final class CodexCliDriver
                             AgentCommandPolicy.instructions(permissionScope),
                             context.restricted() ? "" : PLAN_INSTRUCTION,
                             context.managedInstructions(),
-                            codeGraph.map(CodeGraphRegistration::instruction).orElse(""))
+                            codeGraph.flatMap(McpRegistration::instruction).orElse(""))
                     .filter(instruction -> !instruction.isBlank())
                     .collect(joining("\n\n"));
             Map<String, Object> config = CodexLaunchProfile.threadConfig(
@@ -1092,7 +1092,7 @@ public final class CodexCliDriver
                 throw appServerFailure("turn/start", failure);
             }
             String turnId = response.turn().id();
-            development = codeGraph.flatMap(CodeGraphRegistration::development)
+            development = codeGraph.flatMap(McpRegistration::development)
                     .filter(bridge -> bridge.turnId().equals(command.turnId()));
             running = new CodexRunningTurn(client, sessionRedactor, reference.providerValue(), turnId, this::userInput);
             CodexRunningTurn started = running;
@@ -1957,7 +1957,7 @@ public final class CodexCliDriver
                 kind = ProviderApprovalRequest.Kind.COMMAND;
                 title = "Allow Codex command";
                 String rawCommand = command.orElseThrow();
-                if (codeGraph.flatMap(CodeGraphRegistration::review).isPresent()
+                if (codeGraph.flatMap(McpRegistration::review).isPresent()
                         && ReviewBridge.deniedReason(rawCommand).isPresent()) {
                     // A review session's remote-write guard answers before any card exists.
                     try {
@@ -2131,7 +2131,7 @@ public final class CodexCliDriver
                 closed = true;
                 running = null;
             }
-            codeGraph.ifPresent(CodeGraphRegistration::close);
+            codeGraph.ifPresent(McpRegistration::close);
             try {
                 client.close();
             }

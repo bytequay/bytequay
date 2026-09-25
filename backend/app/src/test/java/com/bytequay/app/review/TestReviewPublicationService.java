@@ -30,6 +30,7 @@ import com.bytequay.core.review.ReviewMessage;
 import com.bytequay.core.review.ReviewPublication;
 import com.bytequay.core.review.ReviewRun;
 import com.google.common.collect.ImmutableList;
+import com.google.common.collect.ImmutableMap;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
@@ -44,7 +45,6 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.OptionalInt;
 
-import static com.google.common.collect.ImmutableMap.toImmutableMap;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
@@ -88,21 +88,6 @@ class TestReviewPublicationService
     }
 
     @Test
-    void aPullRequestWithoutADraftGetsAnEmptyCommentReview()
-    {
-        ReviewDraft draft = service.draft(REPO, NUMBER);
-
-        assertThat(draft.repo()).isEqualTo(REPO);
-        assertThat(draft.number()).isEqualTo(NUMBER);
-        assertThat(draft.items()).isEmpty();
-        assertThat(draft.body()).isEmpty();
-        assertThat(draft.version()).isZero();
-        assertThat(draft.event()).isEqualTo("COMMENT").isNotEqualTo("APPROVE");
-        assertThat(ReviewDraft.DEFAULT_EVENT).isEqualTo("COMMENT");
-        verifyNoInteractions(pullRequests);
-    }
-
-    @Test
     void everyLocalEditBumpsTheVersionAndNeverReachesGitHub()
     {
         reviews.put(finding(FINDING_ID, 1, "src/Service.java", 118, 131, "Guard the null case"));
@@ -110,11 +95,10 @@ class TestReviewPublicationService
         ReviewDraft afterManual = service.addManual(REPO, NUMBER, 0, manual("src/Main.java", 12, "Rename this"));
         ReviewDraft afterFinding = service.addFinding(REPO, NUMBER, afterManual.version(), REVIEW_ID, FINDING_ID);
         ReviewDraft afterEdit = service.editItem(REPO, NUMBER, afterFinding.version(), lastItemId(afterFinding), "Reworded", true);
-        ReviewDraft afterSave = service.saveReview(REPO, NUMBER, afterEdit.version(), "Overall notes", "REQUEST_CHANGES");
-        ReviewDraft afterRemove = service.removeItem(REPO, NUMBER, afterSave.version(), lastItemId(afterSave));
+        ReviewDraft afterRemove = service.removeItem(REPO, NUMBER, afterEdit.version(), lastItemId(afterEdit));
 
-        assertThat(ImmutableList.of(afterManual.version(), afterFinding.version(), afterEdit.version(), afterSave.version(), afterRemove.version()))
-                .containsExactly(1L, 2L, 3L, 4L, 5L);
+        assertThat(ImmutableList.of(afterManual.version(), afterFinding.version(), afterEdit.version(), afterRemove.version()))
+                .containsExactly(1L, 2L, 3L, 4L);
         assertThat(afterRemove.items()).hasSize(1);
         verifyNoInteractions(pullRequests);
     }
@@ -139,7 +123,7 @@ class TestReviewPublicationService
                 .isInstanceOf(ReviewConflictException.class)
                 .hasMessageContaining("New commits moved these lines");
 
-        assertThat(service.draft(REPO, NUMBER).items()).isEmpty();
+        assertThat(drafts.find(REPO, NUMBER)).isEmpty();
         verifyNoInteractions(pullRequests);
     }
 
@@ -151,16 +135,17 @@ class TestReviewPublicationService
                 Optional.empty(), ImmutableList.of(), 1, ReviewFinding.State.OPEN, Optional.empty(), REVIEWED_HEAD, false, 0, NOW, NOW);
         reviews.put(lines);
         reviews.put(whole);
+        reviews.put(new ReviewFinding("f-thanks", REVIEW_ID, RUN_ID, 3, "Praise", "Thanks for the fix.", Optional.empty(),
+                Optional.empty(), ImmutableList.of(), 1, ReviewFinding.State.OPEN, Optional.empty(), REVIEWED_HEAD, false, 0, NOW, NOW));
 
-        ReviewDraft first = service.addFinding(REPO, NUMBER, 0, REVIEW_ID, "f-whole");
+        ReviewDraft first = service.addFinding(REPO, NUMBER, 0, REVIEW_ID, "f-thanks");
         assertThat(first.items()).isEmpty();
-        assertThat(first.body()).isEqualTo("Commit message: name the behavior, not the file.");
-        assertThatThrownBy(() -> service.addFinding(REPO, NUMBER, first.version(), REVIEW_ID, "f-whole"))
+        assertThat(first.body()).isEqualTo("Thanks for the fix.");
+        assertThatThrownBy(() -> service.addFinding(REPO, NUMBER, first.version(), REVIEW_ID, "f-thanks"))
                 .isInstanceOf(ReviewConflictException.class).hasMessageContaining("already in your review");
 
-        // It follows text the user already wrote, and a finding with lines still becomes an inline comment.
-        ReviewDraft written = service.saveReview(REPO, NUMBER, first.version(), "Thanks for the fix.", "COMMENT");
-        ReviewDraft second = service.addFinding(REPO, NUMBER, written.version(), REVIEW_ID, "f-whole");
+        // It follows the text already in the review, and a finding with lines still becomes an inline comment.
+        ReviewDraft second = service.addFinding(REPO, NUMBER, first.version(), REVIEW_ID, "f-whole");
         assertThat(second.body()).isEqualTo("Thanks for the fix.\n\nCommit message: name the behavior, not the file.");
         assertThat(service.addFinding(REPO, NUMBER, second.version(), REVIEW_ID, FINDING_ID).items()).hasSize(1);
         verifyNoInteractions(pullRequests);
@@ -204,7 +189,7 @@ class TestReviewPublicationService
     }
 
     @Test
-    void ineligibleExplainsEveryItemWhoseFindingMovedOn()
+    void publishingExplainsEveryItemWhoseFindingMovedOn()
     {
         ReviewFinding resolved = finding("f-resolved", 1, "src/A.java", 10, 10, "Resolved later");
         ReviewFinding withdrawn = finding("f-withdrawn", 2, "src/B.java", 20, 20, "Withdrawn later");
@@ -212,9 +197,7 @@ class TestReviewPublicationService
         ReviewFinding revised = finding("f-revised", 4, "src/D.java", 40, 40, "Revised later");
         ImmutableList.of(resolved, withdrawn, outdated, revised).forEach(reviews::put);
 
-        ReviewDraft draft = service.addManual(REPO, NUMBER, 0, manual("src/Main.java", 12, "Still fine"));
-        String manualItem = lastItemId(draft);
-        draft = service.addFinding(REPO, NUMBER, draft.version(), REVIEW_ID, "f-resolved");
+        ReviewDraft draft = service.addFinding(REPO, NUMBER, 0, REVIEW_ID, "f-resolved");
         String resolvedItem = lastItemId(draft);
         draft = service.addFinding(REPO, NUMBER, draft.version(), REVIEW_ID, "f-withdrawn");
         String withdrawnItem = lastItemId(draft);
@@ -228,14 +211,15 @@ class TestReviewPublicationService
         reviews.put(outdated.withMapping(CURRENT_HEAD, true, NOW));
         reviews.put(revised.revised("Revised title", "Rewritten body", Optional.empty(), ImmutableList.of(), NOW));
 
-        Map<String, String> reasons = service.ineligible(REPO, NUMBER).stream()
-                .collect(toImmutableMap(ReviewPublicationService.Ineligible::itemId, ReviewPublicationService.Ineligible::reason));
-
-        assertThat(reasons).hasSize(4).doesNotContainKey(manualItem);
-        assertThat(reasons.get(resolvedItem)).contains("You resolved this finding locally");
-        assertThat(reasons.get(withdrawnItem)).contains("The agent withdrew this finding");
-        assertThat(reasons.get(outdatedItem)).contains("New commits moved these lines");
-        assertThat(reasons.get(revisedItem)).contains("The agent revised this finding after you added it");
+        long version = draft.version();
+        Map<String, String> reasons = ImmutableMap.of(
+                resolvedItem, "You resolved this finding locally",
+                withdrawnItem, "The agent withdrew this finding",
+                outdatedItem, "New commits moved these lines",
+                revisedItem, "The agent revised this finding after you added it");
+        reasons.forEach((itemId, reason) -> assertThatThrownBy(() -> service.publishItem(REPO, NUMBER, version, itemId))
+                .isInstanceOf(ReviewConflictException.class)
+                .hasMessageContaining(reason));
         verifyNoInteractions(pullRequests);
     }
 
@@ -368,7 +352,7 @@ class TestReviewPublicationService
                 .isInstanceOf(IllegalStateException.class)
                 .hasMessage("github is unreachable");
 
-        ReviewDraft after = service.draft(REPO, NUMBER);
+        ReviewDraft after = drafts.find(REPO, NUMBER).orElseThrow();
         assertThat(after.items().getFirst().publication().orElseThrow().state()).isEqualTo(ReviewPublication.State.UNCERTAIN);
         // A send whose outcome is unknown is never retried from here; the refusal is what keeps a duplicate comment off GitHub.
         assertThatThrownBy(() -> service.publishItem(REPO, NUMBER, after.version(), itemId)).isInstanceOf(ReviewConflictException.class);
@@ -380,7 +364,6 @@ class TestReviewPublicationService
     {
         ReviewDraft draft = service.addManual(REPO, NUMBER, 0, manual("src/A.java", 10, "Rename this"));
         String itemId = lastItemId(draft);
-        draft = service.saveReview(REPO, NUMBER, draft.version(), "Please fix these", "REQUEST_CHANGES");
         when(pullRequests.findHeadSha(REPO, NUMBER)).thenReturn(Optional.of(CURRENT_HEAD));
         when(pullRequests.getPullRequestDetail(REPO, NUMBER)).thenReturn(detail());
         when(pullRequests.submitReview(eq(REPO), eq(NUMBER), eq(PR_ID), eq("APPROVE"), eq("Looks good"), any())).thenReturn(detail());
@@ -393,7 +376,7 @@ class TestReviewPublicationService
         ReviewDraftItem item = published.draft().items().getFirst();
         assertThat(item.published()).isTrue();
         assertThat(item.publication().orElseThrow().state()).isEqualTo(ReviewPublication.State.PUBLISHED);
-        assertThat(service.draft(REPO, NUMBER)).isEqualTo(published.draft());
+        assertThat(drafts.find(REPO, NUMBER)).contains(published.draft());
     }
 
     private static ReviewDraftItem manual(String path, int line, String body)

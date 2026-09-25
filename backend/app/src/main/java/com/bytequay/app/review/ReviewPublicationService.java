@@ -28,8 +28,6 @@ import java.util.Optional;
  */
 public interface ReviewPublicationService
 {
-    ReviewDraft draft(String repo, int number);
-
     /** Adds a manual inline comment to the draft. */
     ReviewDraft addManual(String repo, int number, long expectedVersion, ReviewDraftItem item);
 
@@ -43,19 +41,11 @@ public interface ReviewPublicationService
 
     ReviewDraft removeItem(String repo, int number, long expectedVersion, String itemId);
 
-    /** Persists the review text and event the sheet holds; new drafts default to COMMENT. */
-    ReviewDraft saveReview(String repo, int number, long expectedVersion, String body, String event);
-
     /** Publishes exactly one previewed item, reserving it first so no other route can send it twice. */
     Publication publishItem(String repo, int number, long expectedVersion, String itemId);
 
     /** Publishes the included, eligible items with the user's chosen review text and event. */
     Publication submit(String repo, int number, long expectedVersion, String body, String event);
 
-    /** Why each draft item cannot be sent right now, by item id; an eligible item is absent. */
-    List<Ineligible> ineligible(String repo, int number);
-
     record Publication(ReviewDraft draft, List<String> publishedItemIds, Optional<String> uncertainReason) {}
-
-    record Ineligible(String itemId, String reason) {}
 }

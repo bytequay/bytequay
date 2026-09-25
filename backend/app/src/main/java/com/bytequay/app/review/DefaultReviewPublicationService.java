@@ -75,12 +75,6 @@ public class DefaultReviewPublicationService
     }
 
     @Override
-    public ReviewDraft draft(String repo, int number)
-    {
-        return stored(repo, number);
-    }
-
-    @Override
     public ReviewDraft addManual(String repo, int number, long expectedVersion, ReviewDraftItem item)
     {
         requireNonNull(item, "item is null");
@@ -171,13 +165,6 @@ public class DefaultReviewPublicationService
     }
 
     @Override
-    public ReviewDraft saveReview(String repo, int number, long expectedVersion, String body, String event)
-    {
-        String chosen = requireEvent(event);
-        return locked(repo, number, () -> drafts.save(expect(repo, number, expectedVersion).withReview(body == null ? "" : body.strip(), chosen, now())));
-    }
-
-    @Override
     public Publication publishItem(String repo, int number, long expectedVersion, String itemId)
     {
         Reservation reservation = locked(repo, number, () -> {
@@ -229,20 +216,6 @@ public class DefaultReviewPublicationService
             Publication published = settle(repo, number, reservation, remoteReviewId(detail), detail);
             return new Publication(drafts.save(published.draft().withReview("", ReviewDraft.DEFAULT_EVENT, now())), published.publishedItemIds(), published.uncertainReason());
         });
-    }
-
-    @Override
-    public List<Ineligible> ineligible(String repo, int number)
-    {
-        ReviewDraft draft = stored(repo, number);
-        List<Ineligible> blocked = new ArrayList<>();
-        for (ReviewDraftItem item : draft.items()) {
-            if (item.published()) {
-                continue;
-            }
-            reason(item).ifPresent(reason -> blocked.add(new Ineligible(item.id(), reason)));
-        }
-        return ImmutableList.copyOf(blocked);
     }
 
     /**

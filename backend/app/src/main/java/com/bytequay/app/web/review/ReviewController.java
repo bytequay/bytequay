@@ -248,17 +248,6 @@ public class ReviewController
 
     // ---- activity, scoped to the review's own task ----
 
-    @GetMapping("/{reviewId}/events")
-    public List<AgentHttpModels.EventResponse> events(
-            @PathVariable String reviewId,
-            @RequestParam(defaultValue = "0") long after,
-            @RequestParam(defaultValue = "100") int limit)
-    {
-        return events.readAfter(reviews.task(reviewId).id(), after, limit).stream()
-                .map(AgentHttpModels::event)
-                .collect(toImmutableList());
-    }
-
     @GetMapping("/{reviewId}/history")
     public AgentHttpModels.HistoryResponse history(
             @PathVariable String reviewId,
@@ -316,13 +305,6 @@ public class ReviewController
     }
 
     // ---- the user's local pending review ----
-
-    @GetMapping("/drafts")
-    public ReviewHttpModels.DraftResponse draft(@RequestParam String repo, @RequestParam int number)
-    {
-        PullRequestRefUtil.parseRef(repo, number);
-        return ReviewHttpModels.draft(publications.draft(repo, number));
-    }
 
     @PostMapping("/drafts/items")
     public ReviewHttpModels.DraftResponse addManual(
@@ -394,21 +376,6 @@ public class ReviewController
         return ReviewHttpModels.draft(publications.removeItem(repo, number, expectedVersion, itemId));
     }
 
-    @PutMapping("/drafts/review")
-    public ReviewHttpModels.DraftResponse saveReview(
-            @RequestParam String repo,
-            @RequestParam int number,
-            @RequestBody ReviewHttpModels.DraftReviewRequest request)
-    {
-        PullRequestRefUtil.parseRef(repo, number);
-        return ReviewHttpModels.draft(publications.saveReview(
-                repo,
-                number,
-                required(request.expectedVersion(), "expectedVersion"),
-                request.body(),
-                Optional.ofNullable(request.event()).orElse("COMMENT")));
-    }
-
     @PostMapping("/drafts/items/{itemId}/publish")
     public ReviewHttpModels.PublishResponse publishItem(
             @RequestParam String repo,
@@ -433,13 +400,6 @@ public class ReviewController
                 required(request.expectedVersion(), "expectedVersion"),
                 request.body(),
                 Optional.ofNullable(request.event()).orElse("COMMENT")));
-    }
-
-    @GetMapping("/drafts/ineligible")
-    public List<ReviewPublicationService.Ineligible> ineligible(@RequestParam String repo, @RequestParam int number)
-    {
-        PullRequestRefUtil.parseRef(repo, number);
-        return publications.ineligible(repo, number);
     }
 
     private AgentTurn activeTurn(AgentTask task)

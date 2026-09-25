@@ -24,7 +24,7 @@ import { notifyIssueDevelopmentChanged, type DevelopmentIssue } from '../workspa
 import { workspaceAgentTaskRoute } from '../workspaces/model';
 import { IssueAttachment } from './IssueAttachment';
 import { AutomationControl } from './AutomationControl';
-import { automationForSubmission, LOCAL_COMMITS_ONLY } from './developmentAutomation';
+import { automationForSubmission } from './developmentAutomation';
 import { ModelPicker } from './ModelPicker';
 import { ProviderPicker } from './ProviderPicker';
 import '../css/agents.css';
@@ -222,7 +222,6 @@ export function useAgentTaskCreation({ workspaceId, initialLaunch, bridge, onOpe
   const sourceRequest = useRef(0);
   const sourceTitle = useRef<string | null>(null);
   const [automation, setAutomation] = useState<DevelopmentAutomationDto | null>(null);
-  const [keyAutomation, setKeyAutomation] = useState<DevelopmentAutomationDto>(LOCAL_COMMITS_ONLY);
   const [localOnly, setLocalOnly] = useState(false);
   const [automationError, setAutomationError] = useState<string | null>(null);
   const [images, setImages] = useState<DraftImage[]>([]);
@@ -366,13 +365,13 @@ export function useAgentTaskCreation({ workspaceId, initialLaunch, bridge, onOpe
 
   const provider = catalog?.providers.find((candidate) => candidate.id === laneId) ?? null;
   const deepSeek = isDeepSeekKeyLane(laneId);
-  const taskAutomation = deepSeek ? keyAutomation : automation;
+  const taskAutomation = automation;
   const models: ModelOptionDto[] = provider?.models ?? [];
   const imagesAccepted = !deepSeek && acceptsImages(models, selection?.model, provider?.capabilities ?? null);
   const blocker = (sourceLoading ? 'Loading issue…' : sourceError)
     ?? (issue?.isGoal ? 'Goals organize work and cannot start development. Unmark this issue as a Goal to run it.' : null)
     ?? creationBlocker(catalog, laneId, selection)
-    ?? (deepSeek ? null : automationError)
+    ?? automationError
     ?? (taskAutomation === null ? 'Loading automation settings…' : null)
     ?? (images.length > 0 && !imagesAccepted ? 'Choose a model that accepts images or remove the images.' : null);
 
@@ -508,7 +507,7 @@ export function useAgentTaskCreation({ workspaceId, initialLaunch, bridge, onOpe
       attaching: operation === 'attachment',
       images,
       automation: taskAutomation === null ? null : <AutomationControl value={taskAutomation} providers={catalog?.providers ?? []} disabled={busy}
-        localOnly={localOnly} onChange={deepSeek ? setKeyAutomation : setAutomation} onLocalOnlyChange={setLocalOnly} />,
+        localOnly={localOnly} onChange={setAutomation} onLocalOnlyChange={setLocalOnly} />,
       onAttach: () => { void attach(); },
       onPasteImages: () => { void attach('clipboard'); },
       onRemoveImage: removeImage,

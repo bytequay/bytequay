@@ -14,13 +14,12 @@ model when creating a task, and runs attended turns in the task's managed
 worktree. The provider lane stays fixed for that task; later turns can change
 to another supported DeepSeek model but cannot silently change keys.
 
-The lane is selectable for manually created interactive worktree tasks. When
-the user explicitly selects development automation, DeepSeek uses the existing
-accepted task and turn settings: finished development work is committed locally,
-Auto draft PR can publish the verified revision, and Auto CI fix can attach the
-existing bounded CI Autofix flow. Queued turns retain their accepted settings.
-The behavior when automation settings are omitted remains under user review;
-this design does not set a DeepSeek-specific default.
+The lane is selectable for manually created interactive worktree tasks. Its
+new-task automation choices inherit the saved Workflow settings, like other
+lanes. Finished development work is committed locally; Auto draft PR can
+publish the verified revision, and Auto CI fix can attach the existing bounded
+CI Autofix flow. The user can change these choices before starting the task,
+and queued turns retain their accepted settings.
 
 An explicit CI repair-agent choice can select a saved DeepSeek key. **Same agent
 as development** inherits the task's saved-key lane, not its selected development

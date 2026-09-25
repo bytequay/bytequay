@@ -96,28 +96,26 @@ async function createDeepSeekTask(): Promise<{ name: string; error?: string }[]>
   flushSync(() => root.render(<Harness />));
   try {
     await settle();
-    assert(host.textContent?.includes('Local commits') === true, 'DeepSeek must show its first task automation choice');
+    assert(host.textContent?.includes('draft PR · CI fix') === true, 'DeepSeek must inherit the saved automation defaults');
     const ciOption = [...host.querySelectorAll<HTMLLabelElement>('.agt-automation-option')]
       .find(label => label.textContent?.includes('Auto CI fix'))?.querySelector<HTMLInputElement>('input');
-    assert(ciOption !== undefined && ciOption !== null && !ciOption.checked, 'DeepSeek must offer an initially off CI choice');
-    ciOption.click();
-    await settle();
+    assert(ciOption !== undefined && ciOption !== null && ciOption.checked, 'DeepSeek must start with saved Auto CI fix enabled');
     const input = host.querySelector<HTMLTextAreaElement>('textarea[aria-label="Describe a task"]');
     assert(input !== null, 'DeepSeek task composer must exist');
     changeInput(input, 'Fix failing checks');
     await settle();
     const send = host.querySelector<HTMLButtonElement>('.agt-send');
-    assert(send !== null && !send.disabled, 'Ready DeepSeek task must be sendable with CI enabled');
+    assert(send !== null && !send.disabled, 'Ready DeepSeek task must be sendable with saved automation');
     send.click();
     await settle();
     const command = bridge.commands.find(item => item.name === 'createAgentTask');
     assert(command !== undefined, 'DeepSeek creation must submit one task');
     const request = command.args[0] as CreateAgentTaskRequest;
     assert(request.laneId === laneId && request.defaults.developmentAutomation?.autoCiFix === true
-      && request.developmentAutomation?.autoCiFix === true, 'DeepSeek must submit the selected CI policy for task and first turn');
-    assert(request.defaults.developmentAutomation?.autoDraftPr === false && request.developmentAutomation?.autoDraftPr === false,
-      'Enabling CI must not silently enable draft publication');
-    return [{ name: 'DeepSeek automation control submits the selected task and first-turn CI policy' }];
+      && request.developmentAutomation?.autoCiFix === true, 'DeepSeek must inherit saved Auto CI fix for task and first turn');
+    assert(request.defaults.developmentAutomation?.autoDraftPr === true && request.developmentAutomation?.autoDraftPr === true,
+      'DeepSeek must inherit saved draft publication for task and first turn');
+    return [{ name: 'DeepSeek creation inherits saved automation for task and first turn' }];
   }
   catch (error) { return [{ name: 'DeepSeek automation submission', error: error instanceof Error ? error.message : String(error) }]; }
   finally { flushSync(() => root.unmount()); host.remove(); }

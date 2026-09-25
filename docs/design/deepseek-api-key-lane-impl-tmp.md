@@ -4,8 +4,8 @@ The approved behavior is in [DeepSeek API-key task lane](deepseek-api-key-lane.m
 This temporary file tracks implementation and verification; it is not another
 design. The approved design is committed as 2e3b3b935. CP1–CP4 recorded the
 initial saved-key lane and expanded automation evidence. The shared Codex
-permission gate has passed. The omitted-settings default and remaining opt-in
-live-key checks remain open.
+permission gate has passed. New tasks inherit saved Workflow automation
+settings; the remaining opt-in live-key checks remain open.
 
 ## Working rules
 
@@ -138,7 +138,8 @@ restricted-profile evidence is superseded.
 - [x] Keep the automatic Development/Review default chooser CLI-only and
   reject DeepSeek in those setting updates. Keep issue starts and PR assignment
   outside this change.
-- [ ] Record the user-approved behavior when automation settings are omitted.
+- [x] Inherit saved Workflow automation settings for new DeepSeek tasks when
+  the user does not choose a task-specific override.
 - [x] Classify invalid-key, balance, and model failures during a turn.
   Preserve history, require an explicit retry, and never auto-resend.
   Ignore hidden reasoning text in provider event mapping.
@@ -249,6 +250,9 @@ exercise a live CI repair or GitHub write.
 
 Final gate:
 
-- [ ] Resolve the omitted-settings default, complete the real-key gate, and
-  confirm the canonical design describes the delivered scope without claiming
-  unverified capabilities.
+- [x] Resolve the omitted-settings default. The new-task composer now uses the
+  saved Workflow choices for DeepSeek, and its browser fixture verifies both
+  task and first-turn settings. Frontend lint, typecheck, tests, package, and
+  backend verification passed.
+- [ ] Complete the real-key gate and confirm the canonical design describes
+  the delivered scope without claiming unverified capabilities.

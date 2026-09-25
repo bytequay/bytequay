@@ -427,7 +427,7 @@ class TestInteractiveAgentTaskCreator
                 .thenReturn(new GitCommandRunner.Result(0, "", false));
         PullRequest previous = new PullRequest(1, "selected/fork", 1, "Fix samples", "user", "https://github.com/selected/fork/pull/1",
                 Instant.EPOCH, Instant.EPOCH, PullRequest.Origin.AUTHORED, ImmutableList.of(), ImmutableMap.of(), false, null, null, null,
-                ImmutableList.of(), null, 0, 0, 0, null, "closed", Instant.EPOCH, null, null, null, null, "chenjian2664/bytequay/fix-samples", null, null, null, null);
+                ImmutableList.of(), null, 0, 0, 0, "closed", Instant.EPOCH, null, null, null, null, "chenjian2664/bytequay/fix-samples", null, null, null, null);
         when(pullRequests.findByHeadRef("selected/fork", "chenjian2664/bytequay/fix-samples")).thenReturn(ImmutableList.of(previous));
         create(defaults());
         verify(tasks, times(2)).createInteractive(command.capture());

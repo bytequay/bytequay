@@ -13,7 +13,6 @@
  */
 package com.bytequay.core.store;
 
-import com.bytequay.core.domain.AttentionReason;
 import com.bytequay.core.domain.FetchedPullRequest;
 import com.bytequay.core.domain.PrRawDetail;
 import com.bytequay.core.domain.PullRequest;
@@ -76,7 +75,6 @@ public interface PullRequestStore
             int additions,
             int deletions,
             int commentCount,
-            AttentionReason attentionReason,
             Boolean mergeable,
             String mergeableState,
             Instant headPushedAt,

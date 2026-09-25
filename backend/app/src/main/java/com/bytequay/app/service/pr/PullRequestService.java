@@ -1297,16 +1297,13 @@ public class PullRequestService
         viewState = viewStateStore.findByPrIds(ImmutableSet.of(prId)).get(prId);
         if (needsReviewAgain(pullRequest, detail, currentLogin, viewState)) {
             viewStateStore.markNeedsReview(prId);
-            viewState = viewStateStore.findByPrIds(ImmutableSet.of(prId)).get(prId);
         }
-        Instant viewedAt = viewState != null ? viewState.viewedAt() : null;
         store.updateEnrichment(
                 prId,
-                detail.checkRunsComplete() ? PrAttention.aggregateCiStatus(detail) : pullRequest.ciStatus(),
+                detail.checkRunsComplete() ? PullRequestDetailMapper.aggregateCiStatus(detail.checkRuns()) : pullRequest.ciStatus(),
                 detail.raw().additions(),
                 detail.raw().deletions(),
-                detail.timelineComplete() ? PrAttention.countComments(detail) : pullRequest.commentCount(),
-                PrAttention.promoteReason(pullRequest, detail, currentLogin, viewedAt, Instant.now()),
+                detail.timelineComplete() ? PullRequestDetailMapper.countComments(detail.timeline()) : pullRequest.commentCount(),
                 detail.raw().mergeable(),
                 detail.raw().mergeableState(),
                 detail.timelineComplete() ? PullRequestDetailMapper.latestPushAt(detail.timeline()) : pullRequest.headPushedAt(),

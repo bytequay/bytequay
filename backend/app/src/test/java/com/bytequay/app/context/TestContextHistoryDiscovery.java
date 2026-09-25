@@ -221,7 +221,7 @@ class TestContextHistoryDiscovery
     {
         return new PullRequest(number, REPO.fullName(), number, title, "author", "https://github.com/owner/repo/pull/" + number, Instant.EPOCH,
                 Instant.EPOCH.plusSeconds(number), PullRequest.Origin.OTHER, ImmutableList.of(), ImmutableMap.of(), false, null, null, null, ImmutableList.of(), null,
-                0, 0, 0, null, state, Instant.EPOCH, mergedAt, null, null, null, null, null, null, null, null);
+                0, 0, 0, state, Instant.EPOCH, mergedAt, null, null, null, null, null, null, null, null);
     }
 
     private static GitHubSearchResponse.Item item(int number, boolean pr, String reason, String repositoryUrl, String url)

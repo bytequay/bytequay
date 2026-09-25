@@ -41,7 +41,7 @@ function publishedPullRequest(draft: boolean): PullRequestDto {
     id: CI_PROJECTION.pullRequestNumber, repo: 'acme/demo', number: CI_PROJECTION.pullRequestNumber, title: 'Preserve the public API',
     author: 'alice', htmlUrl: CI_PROJECTION.pullRequestUrl, createdAt: '2026-01-01T12:10:00Z', updatedAt: '2026-01-01T12:10:00Z',
     origin: 'AUTHORED', labels: [], labelColors: null, draft, viewedAt: null, reviewedAt: null, handledAction: null,
-    requestedReviewers: [], ciStatus: null, additions: 3, deletions: 1, commentCount: 0, attentionReason: null, state: 'open',
+    requestedReviewers: [], ciStatus: null, additions: 3, deletions: 1, commentCount: 0, state: 'open',
     mergeable: null, mergeableState: null, headPushedAt: '2026-01-01T12:10:00Z', headRef: CI_PROJECTION.headRef,
   };
 }

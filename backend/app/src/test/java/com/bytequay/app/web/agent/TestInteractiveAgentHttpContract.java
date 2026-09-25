@@ -385,6 +385,6 @@ class TestInteractiveAgentHttpContract
     {
         return new PullRequest(number, "owner/repo", number, "Change " + number, "owner", "https://github.com/owner/repo/pull/" + number, Instant.EPOCH, Instant.EPOCH,
                 PullRequest.Origin.AUTHORED, ImmutableList.of(), ImmutableMap.of(), draft, null, null, null, ImmutableList.of(), null, 1, 1, 0,
-                null, state, null, null, null, null, Instant.EPOCH, "owner/branch", null, null, null, null);
+                state, null, null, null, null, Instant.EPOCH, "owner/branch", null, null, null, null);
     }
 }

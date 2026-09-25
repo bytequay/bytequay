@@ -65,7 +65,6 @@ export type PullRequestDto = {
   additions: number;
   deletions: number;
   commentCount: number;
-  attentionReason: string | null;
   state: string | null;
   mergeable: boolean | null;
   mergeableState: string | null;

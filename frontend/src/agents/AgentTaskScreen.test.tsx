@@ -523,7 +523,6 @@ function pullRequest(number: number, title: string, state = 'open', draft = fals
     additions: 0,
     deletions: 0,
     commentCount: 0,
-    attentionReason: null,
     state,
     mergeable: null,
     mergeableState: null,

@@ -37,7 +37,6 @@ export function pr(overrides: Partial<PullRequestDto>): PullRequestDto {
     additions: 1,
     deletions: 0,
     commentCount: 0,
-    attentionReason: null,
     state: 'open',
     mergeable: true,
     mergeableState: 'clean',

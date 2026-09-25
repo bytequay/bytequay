@@ -13,7 +13,6 @@
  */
 package com.bytequay.persistence.sqlite.store;
 
-import com.bytequay.core.domain.AttentionReason;
 import com.bytequay.core.domain.FetchedPullRequest;
 import com.bytequay.core.domain.PrRawDetail;
 import com.bytequay.core.domain.PrViewState;
@@ -386,7 +385,6 @@ public class SqlitePullRequestStore
             int additions,
             int deletions,
             int commentCount,
-            AttentionReason attentionReason,
             Boolean mergeable,
             String mergeableState,
             Instant headPushedAt,
@@ -418,7 +416,6 @@ public class SqlitePullRequestStore
             entity.setAdditions(additions);
             entity.setDeletions(deletions);
             entity.setCommentCount(commentCount);
-            entity.setAttentionReason(attentionReason);
             entity.setMergeable(mergeable);
             entity.setMergeableState(mergeableState);
             entity.setHeadPushedAt(headPushedAt);

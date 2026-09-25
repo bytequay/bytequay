@@ -231,7 +231,7 @@ class TestPullRequestService
         var order = inOrder(detailStore, store);
         order.verify(detailStore).save(row.id(), baseline);
         order.verify(store).updateEnrichment(
-                eq(row.id()), any(), anyInt(), anyInt(), anyInt(), any(), any(), any(), any(), any(), anyList(), any(), any(), any(),
+                eq(row.id()), any(), anyInt(), anyInt(), anyInt(), any(), any(), any(), any(), anyList(), any(), any(), any(),
                 eq(PullRequestService.activityFingerprints(baseline)));
         order.verify(store).setMonitored(row.id(), true);
         verify(gitHub).fetchPrDetail("pat", ref);
@@ -338,7 +338,7 @@ class TestPullRequestService
                 ImmutableList.of(first, new PrCheckRunState(2L, "two", "completed", "failure")));
         assertThat(PullRequestService.activityFingerprints(reordered)).isEqualTo(PullRequestService.activityFingerprints(baseline));
         assertThat(PullRequestService.activityFingerprints(changed)).isNotEqualTo(PullRequestService.activityFingerprints(baseline));
-        assertThat(PrAttention.aggregateCiStatus(changed)).isEqualTo(PrAttention.aggregateCiStatus(baseline));
+        assertThat(PullRequestDetailMapper.aggregateCiStatus(changed.checkRuns())).isEqualTo(PullRequestDetailMapper.aggregateCiStatus(baseline.checkRuns()));
     }
 
     @Test
@@ -600,7 +600,7 @@ class TestPullRequestService
         verify(store).completeDashboardSync(anyString(), eq("me"));
         verify(store, never()).findUpdatedAtByIds(any());
         verify(store, never()).updateEnrichment(
-                eq(12L), any(), anyInt(), anyInt(), anyInt(), any(), any(), any(), any(), any(), anyList(), any(), any(), any(), any());
+                eq(12L), any(), anyInt(), anyInt(), anyInt(), any(), any(), any(), any(), anyList(), any(), any(), any(), any());
         verify(accounts, never()).fetchViewerCanWrite(anyString(), any());
         verify(gitHub, never()).fetchPrDetail(anyString(), any());
         verify(actions, never()).fetchPrCheckRuns(anyString(), anyString(), anyString(), anyString());
@@ -1560,7 +1560,7 @@ class TestPullRequestService
                 12L, fetched.repo(), fetched.number(), fetched.title(), fetched.author(), fetched.htmlUrl(),
                 fetched.createdAt(), fetched.updatedAt(), fetched.origin(), fetched.labels(),
                 fetched.labelColors(), fetched.draft(), null, null, null, fetched.requestedReviewers(),
-                null, 0, 0, 0, null, fetched.state(), fetched.closedAt(), fetched.mergedAt(),
+                null, 0, 0, 0, fetched.state(), fetched.closedAt(), fetched.mergedAt(),
                 fetched.mergeable(), fetched.mergeableState(), null, fetched.headRef(), null, null, null, null);
     }
 

@@ -88,7 +88,7 @@ function reviewThreads(activities: PullRequestDetailDto['recentActivity']): NonN
     htmlUrl: 'https://github.com/owner/repo/pull/42', createdAt: '2026-08-25T09:00:00Z',
     updatedAt: '2026-08-25T10:00:00Z', origin: 'AUTHORED', labels: [], labelColors: {}, draft: false,
     viewedAt: null, reviewedAt: null, handledAction: null, requestedReviewers: [], ciStatus: 'PASSING',
-    additions: 1, deletions: 1, commentCount: activities.length, attentionReason: null, state: 'open',
+    additions: 1, deletions: 1, commentCount: activities.length, state: 'open',
     mergeable: true, mergeableState: 'clean', headPushedAt: null, headRef: 'feature/review',
   };
   return { activities, pr, unavailable: false, onRefresh: async () => {}, onDetailUpdate: () => {} };

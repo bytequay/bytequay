@@ -49,6 +49,15 @@ class TestPullRequestDetailMapper
     }
 
     @Test
+    void countsTimelineComments()
+    {
+        assertThat(PullRequestDetailMapper.countComments(ImmutableList.of(
+                new PrTimelineEvent(null, "commented", "bob", Instant.EPOCH, "one", Optional.empty()),
+                new PrTimelineEvent(null, "reviewed", "carol", Instant.EPOCH, "two", Optional.empty()),
+                new PrTimelineEvent(null, "commented", "carol", Instant.EPOCH, "three", Optional.empty())))).isEqualTo(2);
+    }
+
+    @Test
     void mapsOnlyTheDetailFieldsTheRendererUses()
     {
         Instant startedAt = Instant.parse("2026-01-01T00:00:30Z");

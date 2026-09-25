@@ -532,7 +532,7 @@ class TestRepositoryContextReader
     {
         return new PullRequest(number, MONITORED.fullName(), number, title, "author", "url", Instant.EPOCH, Instant.EPOCH.plusSeconds(seconds),
                 PullRequest.Origin.OTHER, ImmutableList.of(), ImmutableMap.of(), false, null, null, null, ImmutableList.of(), null,
-                0, 0, 0, null, "merged", null, null, null, null, null, null, null, null, null, null);
+                0, 0, 0, "merged", null, null, null, null, null, null, null, null, null, null);
     }
 
     private static CommitEnrichment mapping(long repositoryId, String sha, int number)

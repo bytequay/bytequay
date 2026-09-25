@@ -1503,7 +1503,7 @@ class TestReviewTools
     {
         PullRequest row = new PullRequest(7, REPO, 7, "Known pull request", "alice", "https://example.com/7", NOW, NOW, PullRequest.Origin.OTHER,
                 ImmutableList.of(), ImmutableMap.of(), false, null, null, null, ImmutableList.of(), PullRequestDetail.CiStatus.NONE,
-                1, 0, 0, null, "merged", null, NOW, null, null, null, null, null, null, null, null);
+                1, 0, 0, "merged", null, NOW, null, null, null, null, null, null, null, null);
         when(pullRequests.findStored(REPO, 7)).thenReturn(Optional.of(row));
         PullRequestDetail detail = pullRequestDetail(7, "Cached PR body", ImmutableList.of(), ImmutableList.of(), ImmutableList.of());
         when(selectedPullRequests.read(REPO, 7, SelectedPullRequestReader.Section.PR)).thenReturn(selected(detail, Optional.empty(), false));

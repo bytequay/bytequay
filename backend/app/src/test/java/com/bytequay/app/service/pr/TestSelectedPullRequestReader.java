@@ -374,7 +374,7 @@ class TestSelectedPullRequestReader
     private static PullRequest row(String repo, int number, Instant updatedAt, String state, Instant monitoredAt)
     {
         return new PullRequest(ID, repo, number, "PR title", "octocat", "https://github.com/owner/repo/pull/7", UPDATED, updatedAt, PullRequest.Origin.OTHER,
-                ImmutableList.of(), ImmutableMap.of(), false, null, null, null, ImmutableList.of(), PullRequestDetail.CiStatus.NONE, 1, 0, 0, null,
+                ImmutableList.of(), ImmutableMap.of(), false, null, null, null, ImmutableList.of(), PullRequestDetail.CiStatus.NONE, 1, 0, 0,
                 state, "closed".equals(state) ? updatedAt : null, null, true, "clean", null, "feature", monitoredAt, null, null, null);
     }
 }

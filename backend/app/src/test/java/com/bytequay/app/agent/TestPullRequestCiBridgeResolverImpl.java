@@ -560,7 +560,7 @@ class TestPullRequestCiBridgeResolverImpl
     {
         return new PullRequest(ref.number(), ref.owner() + "/" + ref.repo(), ref.number(), "Fix Delta Lake metadata", "alice", url(ref), NOW, NOW,
                 PullRequest.Origin.AUTHORED, ImmutableList.of(), ImmutableMap.of(), true, null, null, null, ImmutableList.of(), PullRequestDetail.CiStatus.FAILING,
-                1, 0, 0, null, "open", null, null, false, "blocked", NOW, BRANCH, null, null, null, null);
+                1, 0, 0, "open", null, null, false, "blocked", NOW, BRANCH, null, null, null, null);
     }
 
     private static String url(PullRequestRef ref)

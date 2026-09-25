@@ -106,7 +106,7 @@ class TestTaskPullRequestOwnership
     private PullRequest pullRequest(int number, String state, PullRequest.Origin origin)
     {
         return new PullRequest(number, "owner/repo", number, "Task", "owner", "https://github.com/owner/repo/pull/" + number, NOW, NOW, origin,
-                ImmutableList.of(), ImmutableMap.of(), false, null, null, null, ImmutableList.of(), null, 1, 1, 0, null, state, null, null, null, null, NOW,
+                ImmutableList.of(), ImmutableMap.of(), false, null, null, null, ImmutableList.of(), null, 1, 1, 0, state, null, null, null, null, NOW,
                 worktree.generatedBranch(), null, null, null, null);
     }
 }

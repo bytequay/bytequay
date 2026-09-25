@@ -152,6 +152,14 @@ final class PullRequestDetailMapper
                 .collect(toImmutableList());
     }
 
+    /** Approximation: count "commented" events in the stored timeline window. */
+    static int countComments(List<PrTimelineEvent> timeline)
+    {
+        return (int) timeline.stream()
+                .filter(event -> "commented".equals(event.event()))
+                .count();
+    }
+
     static Instant latestPushAt(List<PrTimelineEvent> timeline)
     {
         if (timeline == null) {

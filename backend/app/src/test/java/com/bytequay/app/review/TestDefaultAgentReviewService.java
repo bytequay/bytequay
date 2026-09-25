@@ -1669,7 +1669,7 @@ class TestDefaultAgentReviewService
         PullRequest stored = new PullRequest(
                 1L, REPO, NUMBER, "Avoid duplicate field index lookup", "alice", "url", NOW, NOW, PullRequest.Origin.AUTHORED,
                 ImmutableList.of(), null, false, null, null, null, ImmutableList.of(), null,
-                0, 0, 0, null, "merged", null, null, null, null, null, null, null, null, null, null);
+                0, 0, 0, "merged", null, null, null, null, null, null, null, null, null, null);
         when(fixture.pullRequests.findStored(REPO, NUMBER)).thenReturn(Optional.of(stored));
 
         assertThat(fixture.service.start(WORKSPACE, REPO, NUMBER).pullRequest()).contains(stored);

@@ -251,7 +251,7 @@ class TestCiAutofixEndToEnd
                 pr, "https://github.com/" + pr.fullName(), repo, branch, remoteHead.get(), repo, E2eGitRepository.BASE_REF,
                 repository.baseSha(), GitHubPullRequestIdentity.State.OPEN, draft.get(), "author");
         when(gh.findBinary()).thenReturn(Optional.of("/fixture/gh"));
-        when(gh.readCredential()).thenReturn(new GhCliService.CliCredential("test-token", "author"));
+        when(gh.readToken()).thenReturn("test-token");
         when(publicationReads.fetchPullRequestIdentities("test-token", repo, repo, branch))
                 .thenAnswer(ignored -> published.get() ? ImmutableList.of(identity.get()) : ImmutableList.of());
         when(publicationReads.fetchPullRequestIdentity("test-token", pr)).thenAnswer(ignored -> identity.get());

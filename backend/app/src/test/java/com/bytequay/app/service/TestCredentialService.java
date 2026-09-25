@@ -80,7 +80,7 @@ class TestCredentialService
         CredentialStore store = mock(CredentialStore.class);
         GhCliService ghCli = mock(GhCliService.class);
         GitHubAccountClient accounts = mock(GitHubAccountClient.class);
-        when(ghCli.readCredential()).thenReturn(new GhCliService.CliCredential("gho_secret", "octocat"));
+        when(ghCli.readToken()).thenReturn("gho_secret");
         when(accounts.fetchUserProfile("gho_secret")).thenReturn(profile("octocat"));
 
         var result = new CredentialService(store, new InMemoryWorkspaceCredentialStore(), ghCli, accounts).importGitHubCliToken();

@@ -30,25 +30,21 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 /**
- * The gh-CLI adapter is one subprocess pair away from a bearer, so the
+ * The gh-CLI adapter is one subprocess away from a bearer, so the
  * checks that matter are the returned values and preserved failure text.
  */
 class TestGhCliService
 {
     @Test
-    void credentialReadReturnsTheTrimmedTokenAndLogin()
+    void tokenReadReturnsTheTrimmedToken()
             throws Exception
     {
         GitCommandRunner runner = mock(GitCommandRunner.class);
         when(runner.runCommand(any(), eq(ImmutableList.of("/fake/gh", "auth", "token")), eq(Duration.ofSeconds(20)), eq(8192)))
                 .thenReturn(new GitCommandRunner.Result(0, "gho_secret\n", false));
-        when(runner.runCommand(any(), eq(ImmutableList.of("/fake/gh", "api", "user", "--jq", ".login")), eq(Duration.ofSeconds(20)), eq(8192)))
-                .thenReturn(new GitCommandRunner.Result(0, "octocat\n", false));
 
-        var credential = new GhCliService(runner).readCredential("/fake/gh");
-
-        assertThat(credential.token()).isEqualTo("gho_secret");
-        assertThat(credential.login()).isEqualTo("octocat");
+        assertThat(new GhCliService(runner).readToken("/fake/gh")).isEqualTo("gho_secret");
+        verify(runner, times(1)).runCommand(any(), any(), any(), eq(8192));
     }
 
     @Test
@@ -87,7 +83,7 @@ class TestGhCliService
                 .thenReturn(new GitCommandRunner.Result(
                         1, "To get started with GitHub CLI, please run: gh auth login", false));
 
-        assertThatThrownBy(() -> new GhCliService(runner).readCredential("/fake/gh"))
+        assertThatThrownBy(() -> new GhCliService(runner).readToken("/fake/gh"))
                 .isInstanceOf(ResponseStatusException.class)
                 .hasMessageContaining("gh auth login");
     }

@@ -41,13 +41,13 @@ import com.bytequay.app.workspace.WorkspaceRepositoryContext;
 import com.bytequay.app.workspace.WorkspaceRepositoryService;
 import com.bytequay.core.domain.GitHubIssueSource;
 import com.bytequay.core.store.PullRequestStore;
+import com.google.common.hash.Hasher;
+import com.google.common.hash.Hashing;
+import com.google.common.primitives.Ints;
 import com.google.common.util.concurrent.Striped;
 import org.springframework.stereotype.Component;
 
 import java.nio.charset.StandardCharsets;
-import java.security.MessageDigest;
-import java.security.NoSuchAlgorithmException;
-import java.util.HexFormat;
 import java.util.Optional;
 import java.util.concurrent.locks.Lock;
 import java.util.function.Consumer;
@@ -237,7 +237,7 @@ public final class InteractiveAgentTaskCreator
         return task;
     }
 
-    private static String fingerprint(
+    static String fingerprint(
             String workspaceId,
             String message,
             AgentLaneId laneId,
@@ -247,13 +247,7 @@ public final class InteractiveAgentTaskCreator
             Optional<DevelopmentAutomation> initialAutomation,
             Optional<String> issueIdentity)
     {
-        MessageDigest digest;
-        try {
-            digest = MessageDigest.getInstance("SHA-256");
-        }
-        catch (NoSuchAlgorithmException impossible) {
-            throw new AssertionError("SHA-256 is unavailable", impossible);
-        }
+        Hasher digest = Hashing.sha256().newHasher();
         add(digest, workspaceId);
         add(digest, message);
         add(digest, laneId.value());
@@ -266,16 +260,13 @@ public final class InteractiveAgentTaskCreator
         issueIdentity.ifPresent(value -> add(digest, "issueSource=" + value));
         add(digest, idempotencyKey);
         attachmentDigest.ifPresent(value -> add(digest, value));
-        return HexFormat.of().formatHex(digest.digest());
+        return digest.hash().toString();
     }
 
-    private static void add(MessageDigest digest, String value)
+    private static void add(Hasher digest, String value)
     {
         byte[] bytes = value.getBytes(StandardCharsets.UTF_8);
-        digest.update((byte) (bytes.length >>> 24));
-        digest.update((byte) (bytes.length >>> 16));
-        digest.update((byte) (bytes.length >>> 8));
-        digest.update((byte) bytes.length);
-        digest.update(bytes);
+        // Big-endian length prefix: persisted fingerprints depend on this exact layout.
+        digest.putBytes(Ints.toByteArray(bytes.length)).putBytes(bytes);
     }
 }

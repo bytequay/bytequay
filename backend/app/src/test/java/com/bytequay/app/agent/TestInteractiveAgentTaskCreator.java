@@ -131,6 +131,22 @@ class TestInteractiveAgentTaskCreator
     }
 
     @Test
+    void keepsThePersistedCreationFingerprintLayout()
+    {
+        String fingerprint = InteractiveAgentTaskCreator.fingerprint(
+                "workspace-1",
+                "Fix the bug",
+                new AgentLaneId("codex-cli"),
+                new AgentTaskDefaults(Optional.of("gpt-5"), Optional.of("high"), AgentPermissionPolicy.AUTO, Optional.of("fast")),
+                "key-1",
+                Optional.of("attachments-digest"),
+                Optional.empty(),
+                Optional.of("owner/repo#7"));
+
+        assertThat(fingerprint).isEqualTo("a72d5dcc35062057b813e16e1d1c7867d1a599563d83d5aa86020e3510fb6c70");
+    }
+
+    @Test
     void resolvesSelectedOriginDefaultBranchAndCreatesManagedTask()
     {
         Path repository = temporaryDirectory.resolve("repository");

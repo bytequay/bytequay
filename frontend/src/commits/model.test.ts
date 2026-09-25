@@ -82,6 +82,7 @@ const COMMITS = [commit('aaaa111'), commit('bbbb222'), commit('cccc333'), commit
 function execution(status: string, finishReason?: string): CherryPickExecution {
   return {
     executionId: `exec-${status}-${finishReason ?? ''}`,
+    workspaceId: 'workspace-1',
     repository: 'bytequay/trino-fork',
     workBranch: 'bytequay/cp-1',
     localTargetBranch: 'master',

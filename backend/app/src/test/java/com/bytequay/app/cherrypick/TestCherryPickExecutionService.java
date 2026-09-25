@@ -1297,7 +1297,7 @@ class TestCherryPickExecutionService
     {
         return previews.preview(new PreviewCherryPickRangeCommand(
                 clone,
-                Optional.of(WORKSPACE_ID),
+                WORKSPACE_ID,
                 OptionalLong.empty(),
                 "origin",
                 baseRef,

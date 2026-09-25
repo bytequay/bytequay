@@ -31,7 +31,7 @@ import static java.util.Objects.requireNonNull;
  */
 public record CherryPickExecutionResponse(
         String executionId,
-        Optional<String> workspaceId,
+        String workspaceId,
         String repository,
         String workBranch,
         String localTargetBranch,

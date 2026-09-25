@@ -545,14 +545,10 @@ public class CherryPickPreviewService
 
     private Map<String, String> authenticationEnvironment(
             Path repository,
-            Optional<String> workspaceId,
+            String workspaceId,
             List<String> remotes)
     {
-        if (workspaceId.isEmpty()) {
-            return ImmutableMap.of();
-        }
-        String id = workspaceId.orElseThrow();
-        Map<String, String> configured = remoteSources.list(id).stream()
+        Map<String, String> configured = remoteSources.list(workspaceId).stream()
                 .collect(ImmutableMap.toImmutableMap(WorkspaceRemote::name, WorkspaceRemote::url));
         List<String> urls = remotes.stream()
                 .map(remote -> {
@@ -566,9 +562,7 @@ public class CherryPickPreviewService
                     return expected;
                 })
                 .collect(toImmutableList());
-        return credentials.gitAuthenticationEnvironment(
-                id,
-                urls);
+        return credentials.gitAuthenticationEnvironment(workspaceId, urls);
     }
 
     private String remoteUrl(Path repository, String remote)

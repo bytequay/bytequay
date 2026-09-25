@@ -13,7 +13,6 @@
  */
 package com.bytequay.persistence.sqlite.store;
 
-import com.bytequay.agent.core.AgentStorageException;
 import com.bytequay.core.cherrypick.CherryPickConflictException;
 import com.bytequay.core.cherrypick.CherryPickExecution;
 import com.bytequay.core.cherrypick.CherryPickExecution.ActionJournal;
@@ -34,7 +33,6 @@ import com.bytequay.core.cherrypick.CherryPickItem.PullRequestRefView;
 import com.bytequay.core.cherrypick.CherryPickItem.Result;
 import com.bytequay.core.domain.RepoRef;
 import com.google.common.collect.ImmutableList;
-import jakarta.persistence.EntityManager;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.jdbc.core.JdbcTemplate;
@@ -69,9 +67,6 @@ class TestSqliteCherryPickExecutionStore
     @Autowired
     private JdbcTemplate jdbc;
 
-    @Autowired
-    private EntityManager entityManager;
-
     @DynamicPropertySource
     static void configureDatabase(DynamicPropertyRegistry registry)
     {
@@ -93,21 +88,6 @@ class TestSqliteCherryPickExecutionStore
         assertThat(loaded.pullRequestDraft()).isEqualTo(created.pullRequestDraft());
         assertThat(loaded.range()).isEqualTo(created.range());
         assertThat(loaded.cursor().orElseThrow().position()).isEqualTo(1);
-    }
-
-    @Test
-    void rejectsAnIncompletePhysicalRepository()
-    {
-        CherryPickExecution execution = store.createOrGet(execution(
-                "incomplete-repository", ImmutableList.of(planned(1, Disposition.TO_CHERRY_PICK))));
-        jdbc.update(
-                "UPDATE cherry_pick_execution SET physical_repository_owner = NULL WHERE id = ?",
-                execution.id().toString());
-        entityManager.clear();
-
-        assertThatThrownBy(() -> store.find(execution.id()))
-                .isInstanceOf(AgentStorageException.class)
-                .hasMessageContaining("physical repository is incomplete");
     }
 
     @Test
@@ -273,9 +253,9 @@ class TestSqliteCherryPickExecutionStore
                 CherryPickExecutionId.random(),
                 key,
                 new Workspace(
-                        Optional.of("workspace-id"),
+                        "workspace-id",
                         RepoRef.of("trinodb", "trino"),
-                        Optional.of(RepoRef.of("fork", "trino")),
+                        RepoRef.of("fork", "trino"),
                         "origin",
                         "fork",
                         "master",

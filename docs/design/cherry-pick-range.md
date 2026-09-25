@@ -178,8 +178,7 @@ Cancellation does not write `FINISHED` unless the exact preassigned task is
 present or can be safely created; a verification failure leaves the execution
 retryable. A create race rereads and validates the exact winning task. The
 persisted physical repository prevents a workspace selection change from
-routing recovery into another clone; legacy rows with neither an existing task
-nor that frozen fact are preserved and rejected.
+routing recovery into another clone.
 
 ## 6. Durable ownership and results
 

@@ -212,7 +212,7 @@ public final class DefaultWorkspacePullRequestService
         requireNonNull(executionId, "executionId is null");
         CherryPickExecution execution = executions.find(executionId)
                 .orElseThrow(() -> new CherryPickNotFoundException(executionId));
-        if (!execution.workspace().workspaceId().filter(workspace.id()::equals).isPresent()
+        if (!execution.workspace().workspaceId().equals(workspace.id())
                 || !execution.workspace().repository().equals(workspace.monitoredRepository())) {
             throw WorkspaceException.deliveryUnavailable("The execution does not belong to this workspace.");
         }

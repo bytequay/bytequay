@@ -32,7 +32,6 @@ import com.bytequay.agent.core.TurnState;
 import com.bytequay.agent.spi.AgentDriverRegistry;
 import com.bytequay.agent.spi.AgentLaneId;
 import com.bytequay.agent.spi.AgentPermissionPolicy;
-import com.bytequay.app.agent.WorkflowAgentTasks;
 import com.bytequay.app.git.GitCommandRunner;
 import com.bytequay.app.git.GitSequencerDriver;
 import com.bytequay.app.git.SequenceState;
@@ -198,9 +197,9 @@ public class CherryPickExecutionService
                 CherryPickExecutionId.random(),
                 command.idempotencyKey(),
                 new Workspace(
-                        Optional.of(workspaceId),
+                        workspaceId,
                         preview.repository(),
-                        Optional.of(RepoRef.of(physicalRepository.owner(), physicalRepository.name())),
+                        RepoRef.of(physicalRepository.owner(), physicalRepository.name()),
                         preview.sourceRemote(),
                         preview.targetRemote(),
                         preview.targetBranch(),
@@ -581,9 +580,7 @@ public class CherryPickExecutionService
     private void requireNoLiveExecution(CherryPickPreview preview, String workspaceId)
     {
         boolean live = store.listRunning(CherryPickExecutionStore.MAX_LIST_LIMIT).stream()
-                .anyMatch(execution -> execution.workspace().workspaceId()
-                        .map(workspaceId::equals)
-                        .orElseGet(() -> execution.workspace().repository().equals(preview.repository()))
+                .anyMatch(execution -> execution.workspace().workspaceId().equals(workspaceId)
                         && execution.workspace().localTargetBranch().equals(preview.localTargetBranch()));
         if (live) {
             throw new CherryPickConflictException(
@@ -591,9 +588,9 @@ public class CherryPickExecutionService
         }
     }
 
-    private static void requireWorkspace(Optional<String> actualWorkspaceId, String expectedWorkspaceId)
+    private static void requireWorkspace(String actualWorkspaceId, String expectedWorkspaceId)
     {
-        if (actualWorkspaceId.filter(expectedWorkspaceId::equals).isEmpty()) {
+        if (!actualWorkspaceId.equals(expectedWorkspaceId)) {
             throw new CherryPickInvalidRequestException("Cherry-pick data does not belong to this workspace");
         }
     }
@@ -935,43 +932,26 @@ public class CherryPickExecutionService
     private AgentTask ensureAgentTask(CherryPickExecution execution, AgentTaskDefaults defaults)
     {
         TaskId taskId = TaskId.valueOf(execution.agentTaskId().orElseThrow());
-        String workspaceId = requireWorkspaceId(execution);
+        String workspaceId = execution.workspace().workspaceId();
         RepositoryIdentity selectedRepository = repositoryIdentity(
                 workspaceRepositories.requireReadyRepository(workspaceId).selectedRepository());
+        RepositoryIdentity repository = repositoryIdentity(execution.workspace().physicalRepository());
+        requireSelectedRepository(selectedRepository, repository, CherryPickConflictException::new);
         AgentTask task;
-        RepositoryIdentity repository;
         try {
             task = tasks.get(taskId);
-            repository = frozenRepository(execution).orElse(task.repository());
         }
         catch (AgentTaskNotFoundException ignored) {
-            repository = frozenRepository(execution).orElseThrow(() -> new CherryPickConflictException(
-                    "Legacy cherry-pick execution has no frozen physical repository"));
-            requireSelectedRepository(selectedRepository, repository, CherryPickConflictException::new);
-            RepositoryIdentity created = repository;
             task = createOrGet(tasks, taskId, () -> agentTask(
                     taskId,
                     workspaceId,
                     new AgentLaneId(execution.workspace().laneId()),
-                    created,
+                    repository,
                     execution.range().initialTargetSha(),
                     execution.workspace().workBranch(),
                     defaults));
-            return requireAgentTask(execution, task, repository);
         }
-        requireSelectedRepository(selectedRepository, repository, CherryPickConflictException::new);
         return requireAgentTask(execution, task, repository);
-    }
-
-    private static Optional<RepositoryIdentity> frozenRepository(CherryPickExecution execution)
-    {
-        return execution.workspace().physicalRepository().map(WorkflowAgentTasks::repositoryIdentity);
-    }
-
-    private static String requireWorkspaceId(CherryPickExecution execution)
-    {
-        return execution.workspace().workspaceId().orElseThrow(() ->
-                new CherryPickConflictException("Cherry-pick execution has no managed workspace"));
     }
 
     private static AgentTask requireAgentTask(
@@ -980,7 +960,7 @@ public class CherryPickExecutionService
             RepositoryIdentity repository)
     {
         TaskId taskId = TaskId.valueOf(execution.agentTaskId().orElseThrow());
-        String workspaceId = requireWorkspaceId(execution);
+        String workspaceId = execution.workspace().workspaceId();
         TaskWorktree worktree = task.taskWorktree().orElseThrow(() ->
                 new CherryPickConflictException("Cherry-pick agent task has no managed worktree"));
         if (!task.id().equals(taskId)

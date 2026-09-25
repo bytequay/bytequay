@@ -952,7 +952,7 @@ export type CherryPickExecutionItem = {
 
 export type CherryPickExecution = {
   executionId: string;
-  workspaceId?: string | null;
+  workspaceId: string;
   repository: string;
   workBranch: string;
   localTargetBranch: string;

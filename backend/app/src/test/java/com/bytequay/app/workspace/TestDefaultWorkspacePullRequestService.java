@@ -285,9 +285,9 @@ class TestDefaultWorkspacePullRequestService
                         CherryPickExecutionId.random(),
                         "idempotency-key",
                         new CherryPickExecution.Workspace(
-                                Optional.of("workspace"),
+                                "workspace",
                                 workspace.monitoredRepository(),
-                                Optional.empty(),
+                                workspace.selectedRepository(),
                                 workspace.upstreamRepositoryId().isPresent() ? "upstream" : "origin",
                                 workspace.upstreamRepositoryId().isPresent() ? "upstream" : "origin",
                                 targetBranch,

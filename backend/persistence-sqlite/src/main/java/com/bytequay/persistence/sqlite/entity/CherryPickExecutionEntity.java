@@ -13,7 +13,6 @@
  */
 package com.bytequay.persistence.sqlite.entity;
 
-import com.bytequay.agent.core.AgentStorageException;
 import com.bytequay.core.cherrypick.CherryPickExecution;
 import com.bytequay.core.cherrypick.CherryPickExecution.Delivery;
 import com.bytequay.core.cherrypick.CherryPickExecution.FinishReason;
@@ -55,6 +54,7 @@ public class CherryPickExecutionEntity
     @Column(nullable = false, unique = true)
     private String startIdempotencyKey;
 
+    @Column(nullable = false)
     private String workspaceId;
 
     @Column(nullable = false)
@@ -63,10 +63,10 @@ public class CherryPickExecutionEntity
     @Column(nullable = false)
     private String repositoryName;
 
-    // Nullable only for executions written before task provisioning became restart-safe.
+    @Column(nullable = false)
     private String physicalRepositoryOwner;
 
-    // Nullable only for executions written before task provisioning became restart-safe.
+    @Column(nullable = false)
     private String physicalRepositoryName;
 
     @Column(nullable = false)
@@ -183,11 +183,11 @@ public class CherryPickExecutionEntity
         Workspace workspace = execution.workspace();
         Range range = execution.range();
         startIdempotencyKey = execution.startIdempotencyKey();
-        workspaceId = workspace.workspaceId().orElse(null);
+        workspaceId = workspace.workspaceId();
         repositoryOwner = workspace.repository().owner();
         repositoryName = workspace.repository().repo();
-        physicalRepositoryOwner = workspace.physicalRepository().map(RepoRef::owner).orElse(null);
-        physicalRepositoryName = workspace.physicalRepository().map(RepoRef::repo).orElse(null);
+        physicalRepositoryOwner = workspace.physicalRepository().owner();
+        physicalRepositoryName = workspace.physicalRepository().repo();
         sourceRemote = workspace.sourceRemote();
         targetRemote = workspace.targetRemote();
         targetBranch = workspace.targetBranch();
@@ -229,9 +229,9 @@ public class CherryPickExecutionEntity
                 CherryPickExecutionId.valueOf(id),
                 startIdempotencyKey,
                 new Workspace(
-                        Optional.ofNullable(workspaceId),
+                        workspaceId,
                         RepoRef.of(repositoryOwner, repositoryName),
-                        physicalRepository(),
+                        RepoRef.of(physicalRepositoryOwner, physicalRepositoryName),
                         sourceRemote,
                         targetRemote,
                         targetBranch,
@@ -265,16 +265,5 @@ public class CherryPickExecutionEntity
                 createdAt,
                 updatedAt,
                 Optional.ofNullable(terminalAt));
-    }
-
-    private Optional<RepoRef> physicalRepository()
-    {
-        if (physicalRepositoryOwner == null && physicalRepositoryName == null) {
-            return Optional.empty();
-        }
-        if (physicalRepositoryOwner == null || physicalRepositoryName == null) {
-            throw new AgentStorageException("Stored cherry-pick physical repository is incomplete: " + id);
-        }
-        return Optional.of(RepoRef.of(physicalRepositoryOwner, physicalRepositoryName));
     }
 }

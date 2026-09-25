@@ -18,7 +18,6 @@ import com.google.common.collect.ImmutableList;
 
 import java.time.Instant;
 import java.util.List;
-import java.util.Optional;
 
 import static java.util.Objects.requireNonNull;
 
@@ -31,7 +30,7 @@ import static java.util.Objects.requireNonNull;
  */
 public record CherryPickPreview(
         String previewId,
-        Optional<String> workspaceId,
+        String workspaceId,
         RepoRef repository,
         String sourceRemote,
         String targetRemote,

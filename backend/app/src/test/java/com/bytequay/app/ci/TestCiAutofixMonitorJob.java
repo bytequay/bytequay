@@ -235,7 +235,7 @@ class TestCiAutofixMonitorJob
                         PullRequestRef.of("bytequay", "sample", 1),
                         RepoRef.of("bytequay", "sample"),
                         "workspace-1",
-                        Optional.empty(),
+                        RepoRef.of("bytequay", "sample"),
                         "author",
                         "feature",
                         "main",

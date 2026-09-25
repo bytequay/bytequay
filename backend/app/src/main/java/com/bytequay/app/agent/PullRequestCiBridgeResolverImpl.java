@@ -143,7 +143,7 @@ public class PullRequestCiBridgeResolverImpl
             if (task.permissionPolicy() == AgentPermissionPolicy.CI_AUTOFIX) {
                 return ciRuns.findByAgentTaskId(taskId.toString())
                         .filter(run -> run.status() != CiAutofixRun.Status.FINISHED && run.scope().workspaceId().equals(worktree.workspaceId()))
-                        .filter(run -> run.scope().physicalRepository().orElse(run.scope().headRepository()).equals(physicalRepository(worktree)))
+                        .filter(run -> run.scope().physicalRepository().equals(physicalRepository(worktree)))
                         .map(run -> new Scope(worktree, RepoRef.of(run.scope().pullRequest().owner(), run.scope().pullRequest().repo()), run.scope().headRepository(),
                                 ImmutableList.of(run.scope().headRef()), Optional.of(run.scope().pullRequest()), Optional.of(run.expectedRemoteHead())));
             }

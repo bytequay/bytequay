@@ -492,7 +492,7 @@ class TestPullRequestCiBridgeResolverImpl
         AgentTask autofix = AgentTask.created(taskId, false, "Fix CI", TitleSource.USER, AgentLaneId.CODEX_CLI,
                 worktree, AgentTaskDefaults.forPermission(AgentPermissionPolicy.CI_AUTOFIX), NOW);
         CiAutofixRun run = mock(CiAutofixRun.class, withSettings().mockMaker(MockMakers.INLINE));
-        when(run.scope()).thenReturn(new CiAutofixRun.Scope(PR, FORK, "workspace", Optional.of(FORK), "alice", BRANCH, "master", "codex-cli", Optional.empty()));
+        when(run.scope()).thenReturn(new CiAutofixRun.Scope(PR, FORK, "workspace", FORK, "alice", BRANCH, "master", "codex-cli", Optional.empty()));
         when(run.expectedRemoteHead()).thenReturn(HEAD);
         when(run.status()).thenReturn(CiAutofixRun.Status.ACTIVE);
         when(tasks.find(taskId)).thenReturn(Optional.of(autofix));

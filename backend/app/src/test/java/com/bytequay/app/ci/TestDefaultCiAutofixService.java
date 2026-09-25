@@ -462,7 +462,7 @@ class TestDefaultCiAutofixService
             return completedRebase(command);
         }).when(rebaseService).start(any());
         CiAutofixRun run = service.start(startCommand("base-moves-before-turn"));
-        assertThat(run.taskStartCommit()).contains(HEAD);
+        assertThat(run.taskStartCommit()).isEqualTo(HEAD);
         BranchRebase rebase = firstRebase.get();
         when(rebaseService.get(rebase.id())).thenReturn(rebase);
         when(rebaseService.advance(rebase.id())).thenReturn(rebase.finish(
@@ -481,7 +481,7 @@ class TestDefaultCiAutofixService
 
         assertThat(run.latestObservedBaseSha()).isEqualTo(movedBase);
         assertThat(run.attempts().getFirst().inputSha()).isEqualTo(FIXED_HEAD);
-        assertThat(run.taskStartCommit()).contains(HEAD);
+        assertThat(run.taskStartCommit()).isEqualTo(HEAD);
         assertThat(run.currentTurnId()).isEmpty();
         run = service.advance(run.id());
         assertThat(run.currentTurnId()).contains(turnId.toString());
@@ -701,7 +701,7 @@ class TestDefaultCiAutofixService
         useForkWorkspace(forkHead);
         CiAutofixRun run = service.start(startCommand("fork-routing"));
         assertThat(run.scope().headRepository()).isEqualTo(snapshot.headRepository());
-        assertThat(run.scope().physicalRepository()).contains(FORK);
+        assertThat(run.scope().physicalRepository()).isEqualTo(FORK);
         when(turnService.get(turnId)).thenReturn(terminalTurn(TurnState.COMPLETED, Optional.empty()));
         run = service.advance(run.id());
         when(gitService.inspectAgentResult(any())).thenReturn(CiGitInspection.ready(

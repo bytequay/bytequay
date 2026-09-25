@@ -97,14 +97,13 @@ public class CiAutofixRunEntity
     @Column(nullable = false)
     private String worktree;
 
-    // Nullable only for rows written before CI Autofix used managed workspaces.
-    @Column
+    @Column(nullable = false)
     private String workspaceId;
 
-    // Nullable only for rows written before task provisioning became restart-safe.
+    @Column(nullable = false)
     private String physicalRepositoryOwner;
 
-    // Nullable only for rows written before task provisioning became restart-safe.
+    @Column(nullable = false)
     private String physicalRepositoryName;
 
     @Column(nullable = false)
@@ -115,7 +114,7 @@ public class CiAutofixRunEntity
 
     private String parentTaskId;
 
-    // Nullable only for rows written before task provisioning became restart-safe.
+    @Column(nullable = false)
     private String taskStartCommit;
 
     @Column(nullable = false)
@@ -251,8 +250,8 @@ public class CiAutofixRunEntity
         pullRequestNumber = scope.pullRequest().number();
         workspaceId = scope.workspaceId();
         worktree = scope.workspaceId();
-        physicalRepositoryOwner = scope.physicalRepository().map(RepoRef::owner).orElse(null);
-        physicalRepositoryName = scope.physicalRepository().map(RepoRef::repo).orElse(null);
+        physicalRepositoryOwner = scope.physicalRepository().owner();
+        physicalRepositoryName = scope.physicalRepository().repo();
         author = scope.author();
         headRef = scope.headRef();
         baseRef = scope.baseRef();
@@ -267,7 +266,7 @@ public class CiAutofixRunEntity
         pauseReason = run.pauseReason().orElse(null);
         finishReason = run.finishReason().orElse(null);
         summary = run.summary().orElse(null);
-        taskStartCommit = run.taskStartCommit().orElse(null);
+        taskStartCommit = run.taskStartCommit();
         expectedRemoteHead = run.expectedRemoteHead();
         latestObservedBaseSha = run.latestObservedBaseSha();
         Authorization authorization = run.authorization();
@@ -291,13 +290,13 @@ public class CiAutofixRunEntity
         terminalAt = run.terminalAt().orElse(null);
     }
 
-    public CiAutofixRun toDomain(List<CiAutofixAttempt> attempts, String resolvedWorkspaceId)
+    public CiAutofixRun toDomain(List<CiAutofixAttempt> attempts)
     {
         Scope scope = new Scope(
                 PullRequestRef.of(repositoryOwner, repositoryName, pullRequestNumber),
                 headRepository(),
-                resolvedWorkspaceId,
-                physicalRepository(),
+                workspaceId,
+                RepoRef.of(physicalRepositoryOwner, physicalRepositoryName),
                 author,
                 headRef,
                 baseRef,
@@ -319,7 +318,7 @@ public class CiAutofixRunEntity
                 Optional.ofNullable(pauseReason),
                 Optional.ofNullable(finishReason),
                 Optional.ofNullable(summary),
-                Optional.ofNullable(taskStartCommit),
+                taskStartCommit,
                 expectedRemoteHead,
                 latestObservedBaseSha,
                 authorization,
@@ -338,16 +337,6 @@ public class CiAutofixRunEntity
                 Optional.ofNullable(terminalAt));
     }
 
-    public Optional<String> workspaceId()
-    {
-        return Optional.ofNullable(workspaceId);
-    }
-
-    public String legacyWorktree()
-    {
-        return worktree;
-    }
-
     private RepoRef headRepository()
     {
         if (forkRepositoryOwner == null && forkRepositoryName == null) {
@@ -357,17 +346,6 @@ public class CiAutofixRunEntity
             throw new AgentStorageException("Stored CI Autofix head repository is incomplete: " + id);
         }
         return RepoRef.of(forkRepositoryOwner, forkRepositoryName);
-    }
-
-    private Optional<RepoRef> physicalRepository()
-    {
-        if (physicalRepositoryOwner == null && physicalRepositoryName == null) {
-            return Optional.empty();
-        }
-        if (physicalRepositoryOwner == null || physicalRepositoryName == null) {
-            throw new AgentStorageException("Stored CI Autofix physical repository is incomplete: " + id);
-        }
-        return Optional.of(RepoRef.of(physicalRepositoryOwner, physicalRepositoryName));
     }
 
     private void updateFinalCheck(Optional<FinalFixupCheck> check)

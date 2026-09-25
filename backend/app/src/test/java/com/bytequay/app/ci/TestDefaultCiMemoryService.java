@@ -204,7 +204,7 @@ class TestDefaultCiMemoryService
                         new PullRequestRef("bytequay", "bytequay", 123),
                         RepoRef.of("bytequay", "bytequay"),
                         "workspace-1",
-                        Optional.empty(),
+                        RepoRef.of("bytequay", "bytequay"),
                         "author",
                         "feature",
                         "main",

@@ -37,11 +37,6 @@ import static java.util.Objects.requireNonNull;
 @Component
 final class SqliteWorkspacePurge
 {
-    private static final String CI_WORKSPACE = """
-            (workspace_id = :workspaceId OR (workspace_id IS NULL AND worktree =
-                (SELECT local_repository_path FROM watched_repo_workspaces WHERE id = :workspaceId)))
-            """;
-
     private final EntityManager entities;
 
     SqliteWorkspacePurge(EntityManager entities)
@@ -59,14 +54,14 @@ final class SqliteWorkspacePurge
                     WHERE (workspace_id = :workspaceId OR agent_task_id IN (%s)) AND terminal_at IS NULL
                 ) OR EXISTS (
                     SELECT 1 FROM ci_autofix_run
-                    WHERE (%s OR agent_task_id IN (%s)) AND terminal_at IS NULL
+                    WHERE (workspace_id = :workspaceId OR agent_task_id IN (%s)) AND terminal_at IS NULL
                 ) OR EXISTS (
                     SELECT 1 FROM branch_rebase WHERE agent_task_id IN (%s) AND terminal_at IS NULL
                 ) OR EXISTS (
                     SELECT 1 FROM agent_review_run r JOIN agent_review v ON v.id = r.review_id
                     WHERE v.workspace_id = :workspaceId AND r.state = 'RUNNING'
                 )
-                """.formatted(tasks, CI_WORKSPACE, tasks, tasks);
+                """.formatted(tasks, tasks, tasks);
         return exists(query, parameters);
     }
 
@@ -93,8 +88,8 @@ final class SqliteWorkspacePurge
                 .ifPresent(repositoryId -> repositories.put(repositoryId, remote.repository().orElseThrow())));
 
         update("DELETE FROM branch_rebase WHERE agent_task_id IN (" + workspaceTaskIds() + ")", parameters);
-        update("DELETE FROM ci_autofix_attempt WHERE run_id IN (SELECT id FROM ci_autofix_run WHERE " + CI_WORKSPACE + ")", parameters);
-        update("DELETE FROM ci_autofix_run WHERE " + CI_WORKSPACE, parameters);
+        update("DELETE FROM ci_autofix_attempt WHERE run_id IN (SELECT id FROM ci_autofix_run WHERE workspace_id = :workspaceId)", parameters);
+        update("DELETE FROM ci_autofix_run WHERE workspace_id = :workspaceId", parameters);
         update("DELETE FROM cherry_pick_execution WHERE workspace_id = :workspaceId", parameters);
         update("DELETE FROM local_run_output WHERE run_id IN (SELECT id FROM local_run WHERE workspace_id = :workspaceId)", parameters);
         update("DELETE FROM local_run WHERE workspace_id = :workspaceId", parameters);
@@ -135,10 +130,10 @@ final class SqliteWorkspacePurge
     {
         return """
                 SELECT id FROM agent_task WHERE workspace_id = :workspaceId
-                UNION SELECT agent_task_id FROM ci_autofix_run WHERE %s
+                UNION SELECT agent_task_id FROM ci_autofix_run WHERE workspace_id = :workspaceId
                 UNION SELECT agent_task_id FROM cherry_pick_execution WHERE workspace_id = :workspaceId
                 UNION SELECT task_id FROM agent_review WHERE workspace_id = :workspaceId
-                """.formatted(CI_WORKSPACE);
+                """;
     }
 
     private static boolean referencedElsewhere(String workspaceId, long repositoryId, RepoRef repository, List<Workspace> others, List<RemoteSource> remotes)

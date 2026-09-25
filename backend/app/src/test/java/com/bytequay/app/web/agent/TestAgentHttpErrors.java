@@ -348,7 +348,7 @@ class TestAgentHttpErrors
         Instant now = task.createdAt();
         String head = "a".repeat(40);
         CiAutofixRun run = CiAutofixRun.create(CiAutofixRunId.random(), "owned-ci",
-                new CiAutofixRun.Scope(new PullRequestRef("bytequay", "sample", 42), RepoRef.of("bytequay", "sample"), "workspace-1", Optional.empty(), "author",
+                new CiAutofixRun.Scope(new PullRequestRef("bytequay", "sample", 42), RepoRef.of("bytequay", "sample"), "workspace-1", RepoRef.of("bytequay", "sample"), "author",
                         task.taskWorktree().orElseThrow().generatedBranch(), "main", "claude-cli", Optional.of(task.id().toString())),
                 head, head, head, new CiAutofixRun.Authorization(true, true, true, 3, now, now.plusSeconds(28_800)), now);
         when(taskService.getInteractive("workspace-1", task.id())).thenReturn(task);

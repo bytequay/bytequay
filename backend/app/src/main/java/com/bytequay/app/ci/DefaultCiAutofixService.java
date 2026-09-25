@@ -40,7 +40,6 @@ import com.bytequay.agent.spi.AgentPermissionPolicy;
 import com.bytequay.agent.spi.AgentTurnFailureKind;
 import com.bytequay.agent.spi.CiDescriptionProposal;
 import com.bytequay.app.agent.AgentStartupRecovery;
-import com.bytequay.app.agent.WorkflowAgentTasks;
 import com.bytequay.app.pr.PullRequestTimelineService;
 import com.bytequay.app.rebase.BranchRebaseService;
 import com.bytequay.app.rebase.StartBranchRebaseCommand;
@@ -299,9 +298,7 @@ public class DefaultCiAutofixService
                         pullRequest,
                         snapshot.headRepository(),
                         command.workspaceId(),
-                        Optional.of(RepoRef.of(
-                                workspace.selectedRepository().owner(),
-                                workspace.selectedRepository().repo())),
+                        RepoRef.of(workspace.selectedRepository().owner(), workspace.selectedRepository().repo()),
                         currentUser,
                         snapshot.headRef(),
                         snapshot.baseRef(),
@@ -1626,28 +1623,16 @@ public class DefaultCiAutofixService
         TaskId taskId = TaskId.valueOf(run.agentTaskId().orElseThrow());
         RepositoryIdentity selectedRepository = repositoryIdentity(
                 workspaces.requireReadyRepository(run.scope().workspaceId()).selectedRepository());
+        RepositoryIdentity repository = repositoryIdentity(run.scope().physicalRepository());
+        requireSelectedRepository(selectedRepository, repository, CiAutofixConflictException::new);
         AgentTask task;
-        RepositoryIdentity repository;
         try {
             task = taskService.get(taskId);
-            repository = frozenRepository(run).orElse(task.repository());
         }
         catch (AgentTaskNotFoundException ignored) {
-            repository = frozenRepository(run).orElseThrow(() -> new CiAutofixConflictException(
-                    "Legacy CI Autofix run has no frozen physical repository"));
-            requireSelectedRepository(selectedRepository, repository, CiAutofixConflictException::new);
-            String startCommit = run.taskStartCommit().orElseGet(() -> legacyTaskStartCommit(run));
-            RepositoryIdentity created = repository;
-            task = createOrGet(taskService, taskId, () -> createAgentTask(run, created, startCommit));
-            return requireAgentTask(run, task, repository);
+            task = createOrGet(taskService, taskId, () -> createAgentTask(run, repository, run.taskStartCommit()));
         }
-        requireSelectedRepository(selectedRepository, repository, CiAutofixConflictException::new);
         return requireAgentTask(run, task, repository);
-    }
-
-    private static Optional<RepositoryIdentity> frozenRepository(CiAutofixRun run)
-    {
-        return run.scope().physicalRepository().map(WorkflowAgentTasks::repositoryIdentity);
     }
 
     private AgentTask createAgentTask(CiAutofixRun run, RepositoryIdentity repository, String startCommit)
@@ -1682,24 +1667,10 @@ public class DefaultCiAutofixService
                 || !task.repository().equals(repository)
                 || !worktree.workspaceId().equals(run.scope().workspaceId())
                 || !worktree.physicalRepository().equals(repository)
-                || run.taskStartCommit().stream()
-                        .anyMatch(startCommit -> !worktree.startCommit().equals(startCommit))) {
+                || !worktree.startCommit().equals(run.taskStartCommit())) {
             throw new CiAutofixConflictException("CI Autofix agent task does not match the run");
         }
         return task;
-    }
-
-    private static String legacyTaskStartCommit(CiAutofixRun run)
-    {
-        if (!run.attempts().isEmpty()
-                || run.currentTurnId().isPresent()
-                || run.currentRebaseId().isPresent()
-                || run.pushJournal().isPresent()
-                || run.rerunJournal().isPresent()
-                || run.finalFixupCheck().isPresent()) {
-            throw new CiAutofixConflictException("Legacy CI Autofix run progressed without its agent task");
-        }
-        return run.expectedRemoteHead();
     }
 
     private WorktreeSnapshot inspectWorktree(AgentTask task, CiAutofixRun run)
@@ -1791,7 +1762,7 @@ public class DefaultCiAutofixService
                             && run.scope().headRepository().fullName().equalsIgnoreCase(value.expectedPr().headRepository().fullName())
                             && run.scope().headRef().equals(value.expectedPr().headBranch())
                             && run.scope().baseRef().equals(value.expectedPr().baseBranch())
-                            && run.taskStartCommit().filter(value.expectedPr().headSha()::equals).isPresent(),
+                            && run.taskStartCommit().equals(value.expectedPr().headSha()),
                     "CI Autofix start belongs to another published revision");
         });
     }

@@ -27,6 +27,7 @@ import com.bytequay.agent.spi.AgentTurnInput;
 import com.bytequay.agent.spi.AgentTurnResult;
 import com.bytequay.agent.spi.AgentUnavailableException;
 import com.bytequay.agent.spi.ProviderAgentEvent;
+import com.bytequay.agent.spi.ProviderAgentEventSource;
 import com.bytequay.agent.spi.ProviderApprovalDecision;
 import com.bytequay.agent.spi.ProviderApprovalRequest;
 import com.bytequay.agent.spi.ProviderTurnRef;
@@ -51,15 +52,8 @@ final class DeterministicAgentDriver
     static final AgentLaneId LANE_ID = new AgentLaneId("deterministic");
 
     private static final AgentCapabilities CAPABILITIES = new AgentCapabilities(
-            true,
             false,
             false,
-            true,
-            false,
-            false,
-            false,
-            true,
-            true,
             true,
             ImmutableSet.of(
                     com.bytequay.agent.spi.AgentPermissionPolicy.AUTO,
@@ -349,7 +343,6 @@ final class DeterministicAgentDriver
                 running = new DeterministicRunningTurn(context, events, command, beforeCancel, turnFailure);
                 running.emit(new ProviderAgentEvent.Lifecycle(
                         Optional.empty(),
-                        Optional.empty(),
                         ProviderAgentEvent.LifecyclePhase.TURN_STARTED,
                         "turn started"));
                 afterStart.run();
@@ -455,14 +448,14 @@ final class DeterministicAgentDriver
             beforeCancel.run();
             emit(new ProviderAgentEvent.Lifecycle(
                     Optional.empty(),
-                    Optional.empty(),
                     ProviderAgentEvent.LifecyclePhase.INTERRUPTED,
                     "turn cancelled"));
             completion.complete(new AgentTurnResult(
                     AgentTurnResult.State.CANCELLED,
                     Optional.empty(),
                     Optional.of("cancelled"),
-                    Duration.ZERO));
+                    Duration.ZERO,
+                    true));
         }
 
         private void emit(ProviderAgentEvent event)
@@ -482,12 +475,10 @@ final class DeterministicAgentDriver
             checkState(!completion.isDone(), "deterministic turn is already complete");
             emit(new ProviderAgentEvent.Message(
                     Optional.of("message-" + command.turnId()),
-                    Optional.empty(),
                     ProviderAgentEvent.MessagePhase.FINAL,
                     response,
-                    Optional.empty()));
+                    ProviderAgentEventSource.root()));
             emit(new ProviderAgentEvent.Lifecycle(
-                    Optional.empty(),
                     Optional.empty(),
                     ProviderAgentEvent.LifecyclePhase.TURN_COMPLETED,
                     "turn completed"));
@@ -495,7 +486,8 @@ final class DeterministicAgentDriver
                     AgentTurnResult.State.COMPLETED,
                     Optional.of(response),
                     Optional.empty(),
-                    Duration.ZERO));
+                    Duration.ZERO,
+                    true));
         }
 
         private void interrupt(String reason, boolean providerQuiescent)

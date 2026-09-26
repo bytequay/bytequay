@@ -14,6 +14,7 @@
 package com.bytequay.agent.core.store;
 
 import com.bytequay.agent.core.AgentTask;
+import com.bytequay.agent.core.AgentTaskNotFoundException;
 import com.bytequay.agent.core.RepositoryIdentity;
 import com.bytequay.agent.core.TaskId;
 import com.bytequay.agent.spi.AgentPermissionPolicy;
@@ -46,6 +47,11 @@ public interface AgentTaskStore
      * @return stored task, or empty when absent
      */
     Optional<AgentTask> find(TaskId taskId);
+
+    default AgentTask require(TaskId taskId)
+    {
+        return find(taskId).orElseThrow(() -> new AgentTaskNotFoundException(taskId));
+    }
 
     /**
      * Replaces a task using optimistic version checking.

@@ -13,17 +13,16 @@
  */
 package com.bytequay.agent.cli.codex;
 
-import com.bytequay.agent.cli.mcp.CodeGraphRegistration;
+import com.bytequay.agent.cli.mcp.McpRegistration;
 import com.bytequay.agent.cli.mcp.PermissionBroker;
 import com.bytequay.agent.cli.process.AgentPermissionManager;
 import com.bytequay.agent.cli.process.BuildCacheRoots;
 import com.bytequay.agent.cli.process.GitCliEnvironment;
 import com.bytequay.agent.cli.process.GitWorktreeWriteRoots;
-import com.bytequay.agent.cli.process.ManagedProcess;
-import com.bytequay.agent.cli.process.ProcessExit;
 import com.bytequay.agent.cli.process.ProcessOwner;
 import com.bytequay.agent.cli.process.ProcessSpec;
 import com.bytequay.agent.cli.process.ProcessSupervisor;
+import com.bytequay.agent.cli.process.ProviderCli;
 import com.bytequay.agent.cli.process.SecretRedactor;
 import com.bytequay.agent.spi.AgentAttachment;
 import com.bytequay.agent.spi.AgentCapabilities;
@@ -65,8 +64,6 @@ import org.slf4j.LoggerFactory;
 
 import java.io.IOException;
 import java.net.URI;
-import java.nio.ByteBuffer;
-import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.InvalidPathException;
 import java.nio.file.Path;
@@ -188,17 +185,10 @@ public final class CodexCliDriver
             true,
             true,
             true,
-            true,
-            true,
-            false,
-            true,
-            true,
-            true,
-            true,
             ImmutableSet.of(AgentPermissionPolicy.AUTO, AgentPermissionPolicy.CI_AUTOFIX),
             ImmutableSet.of("image/png", "image/jpeg", "image/gif", "text/plain", "text/plain; charset=utf-8"));
     private static final AgentCapabilities DEEPSEEK_CAPABILITIES = new AgentCapabilities(
-            true, true, false, true, true, false, false, true, true, false,
+            false, false, false,
             ImmutableSet.of(AgentPermissionPolicy.AUTO, AgentPermissionPolicy.CI_AUTOFIX),
             ImmutableSet.of("text/plain", "text/plain; charset=utf-8"));
 
@@ -226,8 +216,8 @@ public final class CodexCliDriver
      */
     public CodexCliDriver(String executable, String minimumVersion, ObjectMapper objectMapper, ProcessSupervisor supervisor, Path codexHome, PermissionBroker permissions)
     {
-        this(executable, minimumVersion, objectMapper, supervisor, inheritedEnvironment(), codexHome, permissions, DEFAULT_QUIESCENCE_TIMEOUT,
-                LANE_ID, "Codex", Optional.empty());
+        this(executable, minimumVersion, objectMapper, supervisor, ProviderCli.inheritedEnvironment(System.getenv(), INHERITED_ENVIRONMENT), codexHome, permissions,
+                DEFAULT_QUIESCENCE_TIMEOUT, LANE_ID, "Codex", Optional.empty());
     }
 
     /** One saved DeepSeek key becomes one Codex App Server lane with its own isolated home. */
@@ -245,8 +235,8 @@ public final class CodexCliDriver
         requireNonNull(secretSupplier, "secretSupplier is null");
         checkArgument(laneId.value().startsWith("deepseek-key-"), "DeepSeek lane ID must identify a saved key");
         checkArgument(!label.isBlank(), "label is blank");
-        return new CodexCliDriver(executable, minimumVersion, objectMapper, supervisor, inheritedEnvironment(), codexHome, permissions,
-                DEFAULT_QUIESCENCE_TIMEOUT, laneId, label, Optional.of(secretSupplier));
+        return new CodexCliDriver(executable, minimumVersion, objectMapper, supervisor, ProviderCli.inheritedEnvironment(System.getenv(), INHERITED_ENVIRONMENT),
+                codexHome, permissions, DEFAULT_QUIESCENCE_TIMEOUT, laneId, label, Optional.of(secretSupplier));
     }
 
     CodexCliDriver(
@@ -334,7 +324,7 @@ public final class CodexCliDriver
             String ownerId,
             Path workingDirectory,
             CodexLaunchProfile.ChildProfile childProfile,
-            Optional<CodeGraphRegistration> registration,
+            Optional<McpRegistration> registration,
             SessionAccess access,
             Optional<String> savedKey,
             List<String> ciWritableRoots,
@@ -355,20 +345,15 @@ public final class CodexCliDriver
         Map<String, String> launchEnvironment = processEnvironment.buildOrThrow();
         SecretRedactor baseRedactor = key.map(redactor::withSecret).orElse(redactor);
         SecretRedactor launchRedactor = registration.map(value -> baseRedactor.withSecret(value.token())).orElse(baseRedactor);
-        Optional<DeepSeekResponsesProxy> proxy = key.map(DeepSeekResponsesProxy::start);
-        Optional<DeepSeekTaskMcpBridge> taskMcpBridge = Optional.empty();
+        Optional<DeepSeekLoopback> loopback = key.map(value -> DeepSeekLoopback.start(value, permissions, registration, objectMapper));
         try {
-            if (deepSeekSecret.isPresent()) {
-                taskMcpBridge = registration.map(value -> DeepSeekTaskMcpBridge.start(permissions, value, objectMapper));
-            }
-            Optional<DeepSeekTaskMcpBridge> bridge = taskMcpBridge;
             Optional<Path> reviewGate = review && childProfile != CodexLaunchProfile.ChildProfile.NONE
                     ? Optional.of(CodexReviewGate.install(codexHome)) : Optional.empty();
             Optional<CodexLaunchProfile.CodeGraphLaunch> tools = registration.map(value -> new CodexLaunchProfile.CodeGraphLaunch(
-                    bridge.map(DeepSeekTaskMcpBridge::endpoint).orElse(value.endpoint()), value.instruction(),
+                    loopback.map(DeepSeekLoopback::mcpEndpoint).orElse(value.endpoint()), value.instruction().orElse(""),
                     guardedReviewTools.map(PermissionBroker.CodexReviewTools::mcpNames).orElse(value.toolNames()),
                     deepSeekSecret.isEmpty(), reviewGate));
-            Optional<CodexLaunchProfile.DeepSeekProfile> deepSeek = proxy.map(value ->
+            Optional<CodexLaunchProfile.DeepSeekProfile> deepSeek = loopback.map(value ->
                     new CodexLaunchProfile.DeepSeekProfile(deepSeekCatalog.orElseThrow(), value.baseUrl()));
             return new ClientLaunch(new CodexAppServerClient(
                     supervisor,
@@ -386,12 +371,10 @@ public final class CodexCliDriver
                             PROCESS_CANCELLATION_GRACE),
                     objectMapper,
                     launchRedactor,
-                    proxy,
-                    taskMcpBridge), launchRedactor, deepSeek, tools.map(CodexLaunchProfile.CodeGraphLaunch::endpoint));
+                    loopback), launchRedactor, deepSeek, tools.map(CodexLaunchProfile.CodeGraphLaunch::endpoint));
         }
         catch (RuntimeException failure) {
-            taskMcpBridge.ifPresent(DeepSeekTaskMcpBridge::close);
-            proxy.ifPresent(DeepSeekResponsesProxy::close);
+            loopback.ifPresent(DeepSeekLoopback::close);
             throw failure;
         }
     }
@@ -427,9 +410,9 @@ public final class CodexCliDriver
             return Optional.empty();
         }
         try {
-            CommandResult result = run(UPDATE_TIMEOUT, "npm", "install", "--global", "@openai/codex@" + minimumVersion);
+            ProviderCli.Result result = run(UPDATE_TIMEOUT, "npm", "install", "--global", "@openai/codex@" + minimumVersion);
             if (result.exitCode() != 0) {
-                throw new AgentUnavailableException("Codex CLI upgrade to " + minimumVersion + " failed: " + redactor.redact(result.output()));
+                throw new AgentUnavailableException("Codex CLI upgrade to " + minimumVersion + " failed: " + redactor.redact(result.combinedOutput()));
             }
             AgentProviderStatus after = probe();
             OptionalInt upgraded = after.version().map(this::compareVersion).orElse(OptionalInt.empty());
@@ -451,18 +434,18 @@ public final class CodexCliDriver
     public AgentProviderStatus probe()
     {
         try {
-            CommandResult versionResult = run(executable, "--version");
+            ProviderCli.Result versionResult = run(executable, "--version");
             if (versionResult.exitCode() != 0) {
                 return status(
                         AgentProviderStatus.Readiness.TEMPORARILY_UNAVAILABLE,
                         Optional.empty(),
-                        "codex --version failed: " + versionResult.output());
+                        "codex --version failed: " + versionResult.combinedOutput());
             }
-            String version = versionResult.output().lines()
+            String version = versionResult.combinedOutput().lines()
                     .filter(line -> line.startsWith("codex-cli "))
                     .map(line -> line.substring("codex-cli ".length()).trim())
                     .findFirst()
-                    .orElseGet(() -> versionResult.output().lines()
+                    .orElseGet(() -> versionResult.combinedOutput().lines()
                             .map(String::trim)
                             .filter(line -> !line.isBlank())
                             .findFirst()
@@ -491,7 +474,7 @@ public final class CodexCliDriver
                 CodexIsolationGuard.rejectRuleFiles(codexHome);
                 return status(AgentProviderStatus.Readiness.READY, Optional.of(version), "DeepSeek Codex profile is available");
             }
-            CommandResult login = run(executable, "login", "status");
+            ProviderCli.Result login = run(executable, "login", "status");
             if (login.exitCode() != 0) {
                 // ByteQuay's home is signed in separately from the user's, so the generic login
                 // command would land in the wrong place; readiness carries the exact one.
@@ -499,7 +482,7 @@ public final class CodexCliDriver
                         laneId,
                         AgentProviderStatus.Readiness.AUTHENTICATION_REQUIRED,
                         Optional.of(version),
-                        "Codex CLI " + version + " is not signed in for ByteQuay: " + login.output(),
+                        "Codex CLI " + version + " is not signed in for ByteQuay: " + login.combinedOutput(),
                         capabilities(),
                         Optional.of(signInCommand()));
             }
@@ -515,7 +498,7 @@ public final class CodexCliDriver
                         "Codex CLI " + version + " is signed in, but " + rules.getMessage()
                                 + ". ByteQuay tasks refuse inherited exec-policy rules; move that rules folder aside, then check again.");
             }
-            return status(AgentProviderStatus.Readiness.READY, Optional.of(version), login.output());
+            return status(AgentProviderStatus.Readiness.READY, Optional.of(version), login.combinedOutput());
         }
         catch (InterruptedException e) {
             Thread.currentThread().interrupt();
@@ -629,13 +612,13 @@ public final class CodexCliDriver
                 : ImmutableList.of();
         // A task tool token lives exactly as long as this session; the App Server reaches the
         // ByteQuay task MCP endpoint with it and never learns the task's filesystem identity.
-        Optional<CodeGraphRegistration> codeGraph = context.restricted() ? Optional.empty() : permissions.registerTools(
+        Optional<McpRegistration> codeGraph = context.restricted() ? Optional.empty() : permissions.registerTools(
                 context.taskId(), context.worktree(), context.permissionPolicy(), context.approvals(), toolRedactor,
                 deepSeekSecret.isPresent() ? Optional.empty() : context.codeGraph());
-        boolean review = codeGraph.flatMap(CodeGraphRegistration::review).isPresent();
+        boolean review = codeGraph.flatMap(McpRegistration::review).isPresent();
         if (review && context.sessionReference().stream().anyMatch(reference -> reference.contractVersion() == REVIEW_DYNAMIC_CONTRACT_VERSION)
                 && compareVersion(runningVersion, REVIEW_CHILD_GATE_MINIMUM_RELEASE).orElse(-1) < 0) {
-            codeGraph.ifPresent(CodeGraphRegistration::close);
+            codeGraph.ifPresent(McpRegistration::close);
             throw new AgentUnavailableException("This Codex version cannot resume the guarded review tools");
         }
         AgentPermissionScope scope = new AgentPermissionScope(context.permissionPolicy(), context.access(), review);
@@ -672,7 +655,7 @@ public final class CodexCliDriver
                     launchEnvironment());
         }
         catch (RuntimeException failure) {
-            codeGraph.ifPresent(CodeGraphRegistration::close);
+            codeGraph.ifPresent(McpRegistration::close);
             throw failure;
         }
         try {
@@ -683,7 +666,7 @@ public final class CodexCliDriver
             // The process is running by the time anything below it can fail, and nothing else
             // holds a reference that would ever close it.
             launch.client().close();
-            codeGraph.ifPresent(CodeGraphRegistration::close);
+            codeGraph.ifPresent(McpRegistration::close);
             throw failure;
         }
     }
@@ -790,67 +773,24 @@ public final class CodexCliDriver
         return "CODEX_HOME=\"" + codexHome + "\" " + executable + " login";
     }
 
-    private CommandResult run(String... command)
+    private ProviderCli.Result run(String... command)
             throws InterruptedException
     {
         return run(PROBE_TIMEOUT, command);
     }
 
-    private CommandResult run(Duration maximumRuntime, String... command)
+    private ProviderCli.Result run(Duration maximumRuntime, String... command)
             throws InterruptedException
     {
-        StringBuilder output = new StringBuilder();
-        ManagedProcess process = supervisor.prepare(
-                processSpec(
-                        new ProcessOwner(ProcessOwner.Kind.CLI_PROBE, "codex-cli"),
-                        ImmutableList.copyOf(command),
-                        Path.of(System.getProperty("user.dir")).toAbsolutePath(),
-                        maximumRuntime,
-                        MAX_PROBE_OUTPUT_BYTES,
-                        MAX_PROBE_OUTPUT_BYTES))
-                .start((stream, bytes) -> append(output, bytes));
-        try {
-            ProcessExit result = process.exit().toCompletableFuture()
-                    .get(maximumRuntime.toMillis() + 2000, TimeUnit.MILLISECONDS);
-            if (result.treeTermination() != ProcessExit.TreeTermination.VERIFIED_STOPPED) {
-                return new CommandResult(-1, "Codex CLI process tree could not be verified stopped");
-            }
-            supervisor.acknowledge(process.launchId());
-            if (result.reason() == ProcessExit.Reason.TIMED_OUT) {
-                return new CommandResult(-1, "Codex CLI command timed out");
-            }
-            return new CommandResult(result.exitCode(), output.toString().trim());
-        }
-        catch (java.util.concurrent.ExecutionException | java.util.concurrent.TimeoutException e) {
-            process.cancel();
-            return new CommandResult(-1, "Codex CLI command failed: " + e.getMessage());
-        }
-    }
-
-    private ProcessSpec processSpec(
-            ProcessOwner owner,
-            List<String> argv,
-            Path workingDirectory,
-            Duration maximumRuntime,
-            int maximumStdoutBytes,
-            int maximumStderrBytes)
-    {
-        return new ProcessSpec(
-                owner,
-                argv,
-                workingDirectory,
+        return ProviderCli.run(supervisor, new ProcessSpec(
+                new ProcessOwner(ProcessOwner.Kind.CLI_PROBE, "codex-cli"),
+                ImmutableList.copyOf(command),
+                Path.of(System.getProperty("user.dir")).toAbsolutePath(),
                 launchEnvironment(),
-                OptionalInt.of(maximumStdoutBytes),
-                maximumStderrBytes,
+                OptionalInt.of(MAX_PROBE_OUTPUT_BYTES),
+                MAX_PROBE_OUTPUT_BYTES,
                 maximumRuntime,
-                PROCESS_CANCELLATION_GRACE);
-    }
-
-    private static void append(StringBuilder output, ByteBuffer bytes)
-    {
-        synchronized (output) {
-            output.append(StandardCharsets.UTF_8.decode(bytes));
-        }
+                PROCESS_CANCELLATION_GRACE), "Codex CLI");
     }
 
     private Map<String, String> launchEnvironment()
@@ -858,20 +798,6 @@ public final class CodexCliDriver
         return GitCliEnvironment.withoutCredentials(
                 Maps.filterKeys(environment, name -> !name.equals("OPENAI_API_KEY")));
     }
-
-    private static Map<String, String> inheritedEnvironment()
-    {
-        ImmutableMap.Builder<String, String> environment = ImmutableMap.builder();
-        for (String name : ImmutableSet.<String>builder().addAll(INHERITED_ENVIRONMENT).addAll(GitCliEnvironment.variables()).build()) {
-            String value = System.getenv(name);
-            if (value != null) {
-                environment.put(name, value);
-            }
-        }
-        return environment.buildOrThrow();
-    }
-
-    private record CommandResult(int exitCode, String output) {}
 
     private record ClientLaunch(
             CodexAppServerClient client,
@@ -929,7 +855,7 @@ public final class CodexCliDriver
         private final AgentEventSink events;
         private final CodexEventMapper eventMapper;
         private final CodexIsolationGuard isolation;
-        private final Optional<CodeGraphRegistration> codeGraph;
+        private final Optional<McpRegistration> codeGraph;
         private final Optional<PermissionBroker.CodexReviewTools> guardedReviewTools;
         private final AgentSessionRef reference;
         private final ModelProfile modelProfile;
@@ -977,7 +903,7 @@ public final class CodexCliDriver
                 AgentEventSink events,
                 ModelProfile modelProfile,
                 CodexLaunchProfile.ChildProfile childProfile,
-                Optional<CodeGraphRegistration> codeGraph,
+                Optional<McpRegistration> codeGraph,
                 Optional<PermissionBroker.CodexReviewTools> guardedReviewTools,
                 List<String> ciWritableRoots,
                 AgentPermissionScope permissionScope,
@@ -1040,7 +966,7 @@ public final class CodexCliDriver
                             AgentCommandPolicy.instructions(permissionScope),
                             context.restricted() ? "" : PLAN_INSTRUCTION,
                             context.managedInstructions(),
-                            codeGraph.map(CodeGraphRegistration::instruction).orElse(""))
+                            codeGraph.flatMap(McpRegistration::instruction).orElse(""))
                     .filter(instruction -> !instruction.isBlank())
                     .collect(joining("\n\n"));
             Map<String, Object> config = CodexLaunchProfile.threadConfig(
@@ -1144,7 +1070,7 @@ public final class CodexCliDriver
                 throw appServerFailure("turn/start", failure);
             }
             String turnId = response.turn().id();
-            development = codeGraph.flatMap(CodeGraphRegistration::development)
+            development = codeGraph.flatMap(McpRegistration::development)
                     .filter(bridge -> bridge.turnId().equals(command.turnId()));
             running = new CodexRunningTurn(client, sessionRedactor, reference.providerValue(), turnId, this::userInput);
             CodexRunningTurn started = running;
@@ -1262,7 +1188,7 @@ public final class CodexCliDriver
                 observe(notification);
                 // Routing is in place before a discovery event is published: the child is already
                 // in the lineage and the thread set when anything about it reaches the log.
-                announceChildren(notification.emittedAtMs().map(Instant::ofEpochMilli));
+                announceChildren();
                 flushPendingNotifications();
                 if (!rootThread && !routableThread(notification.threadId())) {
                     if (!(notification instanceof CodexProtocol.ThreadStartedNotification)) {
@@ -1599,7 +1525,7 @@ public final class CodexCliDriver
         }
 
         /** Publishes one discovery event per child, after its lineage is in place. */
-        private void announceChildren(Optional<Instant> timestamp)
+        private void announceChildren()
         {
             for (Map.Entry<String, ChildFacts> child : children.entrySet()) {
                 if (!routableThread(child.getKey())) {
@@ -1609,7 +1535,6 @@ public final class CodexCliDriver
                 if (announcedChildren.add(child.getKey())) {
                     events.emit(new ProviderAgentEvent.Lifecycle(
                             Optional.of(child.getKey() + ":agent-started"),
-                            timestamp,
                             ProviderAgentEvent.LifecyclePhase.AGENT_STARTED,
                             label,
                             childSource(child.getKey())));
@@ -1619,11 +1544,9 @@ public final class CodexCliDriver
                 if (child.getValue().purpose().isPresent() && promptedChildren.add(child.getKey())) {
                     events.emit(new ProviderAgentEvent.Message(
                             Optional.of(child.getKey() + ":agent-prompt"),
-                            timestamp,
                             ProviderAgentEvent.MessageKind.PROMPT,
                             ProviderAgentEvent.MessagePhase.FINAL,
                             sessionRedactor.redact(child.getValue().purpose().orElseThrow()),
-                            Optional.empty(),
                             childSource(child.getKey())));
                 }
             }
@@ -2054,7 +1977,7 @@ public final class CodexCliDriver
                 kind = ProviderApprovalRequest.Kind.COMMAND;
                 title = "Allow Codex command";
                 String rawCommand = command.orElseThrow();
-                if (codeGraph.flatMap(CodeGraphRegistration::review).isPresent()
+                if (codeGraph.flatMap(McpRegistration::review).isPresent()
                         && ReviewBridge.deniedReason(rawCommand).isPresent()) {
                     // A review session's remote-write guard answers before any card exists.
                     try {
@@ -2130,7 +2053,6 @@ public final class CodexCliDriver
             }
 
             ProviderApprovalRequest approvalRequest = new ProviderApprovalRequest(
-                    String.valueOf(serverRequest.id()),
                     kind,
                     title,
                     detail,
@@ -2230,7 +2152,7 @@ public final class CodexCliDriver
                 closed = true;
                 running = null;
             }
-            codeGraph.ifPresent(CodeGraphRegistration::close);
+            codeGraph.ifPresent(McpRegistration::close);
             try {
                 client.close();
             }

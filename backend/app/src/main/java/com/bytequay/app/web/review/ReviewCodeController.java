@@ -107,12 +107,6 @@ public class ReviewCodeController
         return new ReviewCodeHttpModels.RunsResponse(localRuns.list(reviewId).stream().map(ReviewCodeHttpModels::run).collect(toImmutableList()));
     }
 
-    @GetMapping("/runs/{runId}")
-    public ReviewCodeHttpModels.RunResponse run(@PathVariable String reviewId, @PathVariable String runId)
-    {
-        return ReviewCodeHttpModels.run(localRuns.get(reviewId, runId));
-    }
-
     /** Starts a class run, or a method run when a method is named; command runs are only ever mirrored. */
     @PostMapping("/runs")
     @ResponseStatus(HttpStatus.CREATED)

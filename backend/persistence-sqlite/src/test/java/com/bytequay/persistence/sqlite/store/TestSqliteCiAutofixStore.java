@@ -32,21 +32,17 @@ import com.bytequay.core.ci.CiAutofixRun.RerunJournal;
 import com.bytequay.core.ci.CiAutofixRun.Scope;
 import com.bytequay.core.ci.CiAutofixRun.Warning;
 import com.bytequay.core.ci.CiAutofixRunId;
-import com.bytequay.core.ci.CiAutofixStorageException;
 import com.bytequay.core.ci.CiDescriptionChange;
 import com.bytequay.core.ci.CiRerunAssessment;
 import com.bytequay.core.domain.PullRequestRef;
 import com.bytequay.core.domain.RepoRef;
-import com.bytequay.core.domain.Workspace;
-import com.bytequay.core.domain.Workspace.Topology;
 import com.bytequay.core.rebase.BranchRebase;
 import com.bytequay.core.rebase.BranchRebaseId;
 import com.bytequay.core.rebase.BranchRebaseStore;
+import com.bytequay.core.store.StorageException;
 import com.bytequay.persistence.sqlite.entity.CiAutofixAttemptEntity;
-import com.bytequay.persistence.sqlite.entity.WorkspaceEntity;
 import com.bytequay.persistence.sqlite.repository.CiAutofixAttemptJpaRepository;
 import com.bytequay.persistence.sqlite.repository.CiAutofixRunJpaRepository;
-import com.bytequay.persistence.sqlite.repository.WorkspaceJpaRepository;
 import com.google.common.collect.ImmutableList;
 import jakarta.persistence.EntityManager;
 import org.junit.jupiter.api.Test;
@@ -87,9 +83,6 @@ class TestSqliteCiAutofixStore
 
     @Autowired
     private CiAutofixRunJpaRepository runRepository;
-
-    @Autowired
-    private WorkspaceJpaRepository workspaceRepository;
 
     @Autowired
     private JdbcTemplate jdbc;
@@ -171,8 +164,7 @@ class TestSqliteCiAutofixStore
         entityManager.flush();
         entityManager.clear();
 
-        SqliteCiAutofixStore restartedStore = new SqliteCiAutofixStore(
-                runRepository, attemptRepository, workspaceRepository);
+        SqliteCiAutofixStore restartedStore = new SqliteCiAutofixStore(runRepository, attemptRepository);
         assertThat(restartedStore.find(run.id())).contains(run);
         assertThat(restartedStore.findByIdempotencyKey("round-trip")).contains(run);
         assertThat(restartedStore.findByAgentTaskId("task-1")).contains(run);
@@ -271,7 +263,7 @@ class TestSqliteCiAutofixStore
         assertThat(store.findByActiveBranch("AUTHOR/SAMPLE", "feature")).contains(first);
         assertThat(store.findByActiveBranch("upstream/sample", "feature")).isEmpty();
         assertThat(jdbc.queryForObject("SELECT fork_repository_owner FROM ci_autofix_run WHERE id = ?", String.class, first.id().toString())).isEqualTo("author");
-        assertThat(first.scope().physicalRepository()).contains(RepoRef.of("bytequay", "physical"));
+        assertThat(first.scope().physicalRepository()).isEqualTo(RepoRef.of("bytequay", "physical"));
         assertThatThrownBy(() -> store.insert(newRun("same-fork-head", "feature", PullRequestRef.of("another-upstream", "sample", 2), fork, NOW)))
                 .isInstanceOf(CiAutofixConflictException.class);
     }
@@ -289,7 +281,7 @@ class TestSqliteCiAutofixStore
         jdbc.update("UPDATE ci_autofix_run SET fork_repository_owner = 'author' WHERE id = ?", run.id().toString());
         entityManager.clear();
 
-        assertThatThrownBy(() -> store.find(run.id())).isInstanceOf(CiAutofixStorageException.class)
+        assertThatThrownBy(() -> store.find(run.id())).isInstanceOf(StorageException.class)
                 .hasRootCauseInstanceOf(AgentStorageException.class).hasStackTraceContaining("head repository is incomplete");
     }
 
@@ -352,44 +344,6 @@ class TestSqliteCiAutofixStore
     }
 
     @Test
-    void resolvesLegacyWorktreeToItsManagedWorkspace()
-    {
-        String legacyPath = "/tmp/workspaces/legacy/repository";
-        assertThat(jdbc.queryForObject(
-                "SELECT \"notnull\" FROM pragma_table_info('ci_autofix_run') WHERE name = 'workspace_id'",
-                Integer.class)).isZero();
-        assertThat(jdbc.queryForObject(
-                "SELECT \"notnull\" FROM pragma_table_info('ci_autofix_run') WHERE name = 'worktree'",
-                Integer.class)).isOne();
-        workspaceRepository.saveAndFlush(WorkspaceEntity.fromDomain(workspace("legacy", legacyPath)));
-        CiAutofixRun run = newRun("legacy", "legacy-feature", NOW);
-        store.insert(run);
-        jdbc.update(
-                "UPDATE ci_autofix_run SET workspace_id = NULL, worktree = ? WHERE id = ?",
-                legacyPath,
-                run.id().toString());
-        entityManager.clear();
-
-        assertThat(store.find(run.id()).orElseThrow().scope().workspaceId()).isEqualTo("legacy");
-    }
-
-    @Test
-    void rejectsAnIncompletePhysicalRepository()
-    {
-        CiAutofixRun run = newRun("incomplete-repository", "feature", NOW);
-        store.insert(run);
-        jdbc.update(
-                "UPDATE ci_autofix_run SET physical_repository_owner = NULL WHERE id = ?",
-                run.id().toString());
-        entityManager.clear();
-
-        assertThatThrownBy(() -> store.find(run.id()))
-                .isInstanceOf(CiAutofixStorageException.class)
-                .hasRootCauseInstanceOf(AgentStorageException.class)
-                .hasStackTraceContaining("physical repository is incomplete");
-    }
-
-    @Test
     void persistsParentAndExcludesOwnedRunsAndRebasesBeforeTheMonitorLimit()
     {
         CiAutofixRun prototype = newRun("owned", "owned-feature", NOW);
@@ -439,7 +393,7 @@ class TestSqliteCiAutofixStore
                         pullRequest,
                         headRepository,
                         "workspace-" + key,
-                        Optional.of(RepoRef.of("bytequay", "physical")),
+                        RepoRef.of("bytequay", "physical"),
                         "author",
                         headRef,
                         "main",
@@ -467,30 +421,5 @@ class TestSqliteCiAutofixStore
                         1,
                         Optional.of(new LogReference("blobs/log-" + number, "text/plain", 10, false)))),
                 now);
-    }
-
-    private static Workspace workspace(String id, String localRepositoryPath)
-    {
-        RepoRef repository = RepoRef.of("bytequay", "sample");
-        return new Workspace(
-                id,
-                repository.fullName(),
-                100,
-                repository,
-                Optional.empty(),
-                Optional.empty(),
-                100,
-                repository,
-                Topology.DIRECT,
-                "main",
-                "https://github.com/bytequay/sample.git",
-                Optional.empty(),
-                Optional.empty(),
-                localRepositoryPath,
-                Optional.empty(),
-                Optional.empty(),
-                0,
-                NOW,
-                NOW);
     }
 }

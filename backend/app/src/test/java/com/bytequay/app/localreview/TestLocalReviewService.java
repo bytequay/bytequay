@@ -148,7 +148,7 @@ class TestLocalReviewService
         when(workspaces.findById("workspace")).thenReturn(Optional.of(workspace));
         PullRequest pr = new PullRequest(1, "owner/repo", 7, "Task", "owner", "https://github.com/owner/repo/pull/7", Instant.EPOCH, Instant.EPOCH,
                 PullRequest.Origin.AUTHORED, ImmutableList.of(), ImmutableMap.of(), true, null, null, null, ImmutableList.of(), null, 1, 1, 0,
-                null, "open", null, null, null, null, Instant.EPOCH, worktree.generatedBranch(), null, null, null, null);
+                "open", null, null, null, null, Instant.EPOCH, worktree.generatedBranch(), null, null, null, null);
         when(pullRequests.findByHeadRef("owner/repo", worktree.generatedBranch())).thenReturn(ImmutableList.of(pr));
         AgentTurnSettings settings = new AgentTurnSettings(Optional.empty(), Optional.empty(), AgentPermissionPolicy.AUTO, Duration.ofMinutes(10), ImmutableList.of());
         turn = AgentTurn.accepted(TurnId.random(), taskId, "turn", settings, Instant.EPOCH)

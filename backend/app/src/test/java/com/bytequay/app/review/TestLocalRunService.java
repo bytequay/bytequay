@@ -266,8 +266,7 @@ class TestLocalRunService
         assertThat(run.workspaceId()).isEqualTo(WORKSPACE_ID);
         assertThat(supervisor.specs.getFirst().owner()).isEqualTo(new ProcessOwner(ProcessOwner.Kind.LOCAL_RUN, worktree.taskId() + "/" + run.id()));
         assertThat(service.list(taskHost())).containsExactly(run);
-        assertThat(service.get(taskHost(), run.id())).isEqualTo(run);
-        assertThatThrownBy(() -> service.get(taskHost(), "other-task")).isInstanceOf(ReviewNotFoundException.class);
+        assertThatThrownBy(() -> service.output(taskHost(), "other-task", 0)).isInstanceOf(ReviewNotFoundException.class);
         // A review's runs are the runs of the task it owns.
         assertThat(service.list(REVIEW_ID)).containsExactly(run);
 
@@ -289,7 +288,8 @@ class TestLocalRunService
         assertTaskBusy(LocalRunService.TASK_RECOVERY_NEEDED);
         when(tasks.get(worktree.taskId())).thenReturn(developmentTask(Optional.empty()).withDevelopmentContinuation(true, NOW));
         assertTaskBusy("Development automation is working");
-        AgentTask completed = developmentTask(Optional.empty()).complete(new TaskSummary("done", Optional.empty(), AgentMetrics.empty(), Optional.empty()), NOW, NOW.plusSeconds(60));
+        AgentTask completed = developmentTask(Optional.empty()).complete(new TaskSummary("done", Optional.empty(), AgentMetrics.empty(), Optional.empty(),
+                ImmutableList.of()), NOW, NOW.plusSeconds(60));
         when(tasks.get(worktree.taskId())).thenReturn(completed);
         assertTaskBusy("The task has ended");
         when(tasks.get(worktree.taskId())).thenReturn(completed.withWorktreeRemovedAt(NOW));
@@ -638,7 +638,7 @@ class TestLocalRunService
     private AgentEventEnvelope command(ActivityState state, String argv, Optional<String> output, Optional<Integer> exitCode, Optional<Long> durationMs, boolean background,
             String itemId, Instant occurredAt, boolean truncated)
     {
-        AgentEventSource source = new AgentEventSource(Optional.empty(), Optional.empty(), Optional.empty(), Optional.empty(), Optional.of(itemId), Optional.empty(), Optional.empty());
+        AgentEventSource source = new AgentEventSource(Optional.empty(), Optional.empty(), Optional.empty(), Optional.empty(), Optional.of(itemId), Optional.empty());
         return new AgentEventEnvelope(AgentEventEnvelope.CURRENT_SCHEMA_VERSION, EventId.random(), 1, worktree.taskId(), Optional.empty(), source, occurredAt,
                 new AgentEventPayload.CommandActivity(state, ImmutableList.of(argv), output, exitCode, truncated, Optional.empty(), durationMs, ImmutableList.of(), background, Optional.empty()));
     }

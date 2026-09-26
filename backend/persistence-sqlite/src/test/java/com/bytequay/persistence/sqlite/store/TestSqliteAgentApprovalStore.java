@@ -223,7 +223,6 @@ class TestSqliteAgentApprovalStore
                 taskId,
                 TurnId.random(),
                 new ProviderApprovalRequest(
-                        "provider-" + approvalId,
                         ProviderApprovalRequest.Kind.COMMAND,
                         "Run command",
                         scope,
@@ -247,7 +246,6 @@ class TestSqliteAgentApprovalStore
                 TaskId.random(),
                 turnId,
                 new ProviderApprovalRequest(
-                        "provider-" + approvalId,
                         ProviderApprovalRequest.Kind.COMMAND,
                         "Run command",
                         "git status",

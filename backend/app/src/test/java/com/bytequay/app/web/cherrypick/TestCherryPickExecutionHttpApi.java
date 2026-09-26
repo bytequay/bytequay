@@ -191,9 +191,9 @@ class TestCherryPickExecutionHttpApi
                 CherryPickExecutionId.random(),
                 "key-1",
                 new Workspace(
-                        Optional.of("workspace-id"),
+                        "workspace-id",
                         RepoRef.of("trinodb", "trino"),
-                        Optional.empty(),
+                        RepoRef.of("trinodb", "trino"),
                         "origin",
                         "cork",
                         "master",

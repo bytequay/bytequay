@@ -74,7 +74,7 @@ export function attentionKind(pr: PullRequestDto, viewerLogin?: string | null): 
   if (!mine && requested && (pr.reviewedAt === null || pr.handledAction === null
     || pr.reviewRequestedAt != null && Date.parse(pr.reviewRequestedAt) > Date.parse(pr.reviewedAt))) return 'review';
   if (followsAllActivity && pr.reviewDecision === 'CHANGES_REQUESTED') return 'changes';
-  if (followsAllActivity && (pr.ciStatus === 'FAILING' || pr.attentionReason === 'CI_FAILING')) return 'ci';
+  if (followsAllActivity && pr.ciStatus === 'FAILING') return 'ci';
   if (followsAllActivity && pr.mergeableState === 'blocked') return 'blocked';
   if ((followsAllActivity || reviewing) && hasCommitsSinceReview(pr)) return 'commits';
   if ((followsAllActivity || reviewing) && pr.mergeable === true && pr.mergeableState === 'clean'

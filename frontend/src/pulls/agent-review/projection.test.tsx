@@ -58,7 +58,7 @@ const pr = {
   author: 'ezra-b', htmlUrl: '', createdAt: null, updatedAt: '2026-09-06T16:00:00Z',
   origin: 'REVIEW_REQUESTED', labels: [], labelColors: null, draft: false, viewedAt: null,
   reviewedAt: null, handledAction: null, requestedReviewers: [], ciStatus: 'FAILING',
-  additions: 4366, deletions: 82, commentCount: 0, attentionReason: null, state: 'open',
+  additions: 4366, deletions: 82, commentCount: 0, state: 'open',
   mergeable: true, mergeableState: 'clean', headPushedAt: null, headRef: 'nested-sort',
 } as unknown as PullRequestDto;
 

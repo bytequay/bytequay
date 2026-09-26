@@ -15,49 +15,33 @@ package com.bytequay.persistence.sqlite.converter;
 
 import com.bytequay.agent.spi.DevelopmentResultReport;
 import com.fasterxml.jackson.core.JsonProcessingException;
+import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.DeserializationFeature;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import jakarta.persistence.AttributeConverter;
 import jakarta.persistence.Converter;
+
+import static com.google.common.base.Preconditions.checkArgument;
 
 @Converter
 public class DevelopmentResultReportConverter
-        implements AttributeConverter<DevelopmentResultReport, String>
+        extends JsonColumnConverter<DevelopmentResultReport>
 {
     private static final ObjectMapper MAPPER = JsonColumns.mapper()
             .disable(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES)
             .enable(DeserializationFeature.FAIL_ON_NULL_FOR_PRIMITIVES);
 
-    @Override
-    public String convertToDatabaseColumn(DevelopmentResultReport value)
+    DevelopmentResultReportConverter()
     {
-        if (value == null) {
-            return null;
-        }
-        try {
-            return MAPPER.writeValueAsString(value);
-        }
-        catch (JsonProcessingException failure) {
-            throw new IllegalArgumentException("Cannot serialize development readiness", failure);
-        }
+        super(new TypeReference<>() {}, "development readiness", null, null, MAPPER);
     }
 
     @Override
-    public DevelopmentResultReport convertToEntityAttribute(String json)
+    DevelopmentResultReport read(String json)
+            throws JsonProcessingException
     {
-        if (json == null) {
-            return null;
-        }
-        try {
-            JsonNode value = MAPPER.readTree(json);
-            if (value == null || !value.path("readyForDelivery").isBoolean()) {
-                throw new IllegalArgumentException("Development readiness must be a boolean");
-            }
-            return MAPPER.treeToValue(value, DevelopmentResultReport.class);
-        }
-        catch (JsonProcessingException failure) {
-            throw new IllegalArgumentException("Cannot deserialize development readiness", failure);
-        }
+        JsonNode value = MAPPER.readTree(json);
+        checkArgument(value.path("readyForDelivery").isBoolean(), "Development readiness must be a boolean");
+        return MAPPER.treeToValue(value, DevelopmentResultReport.class);
     }
 }

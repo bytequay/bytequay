@@ -137,13 +137,6 @@ public record BranchRebase(
                 Optional.empty(), 0, currentTurnId, journal, resultWorkTip, now, terminalAt);
     }
 
-    public BranchRebase validating(Instant now)
-    {
-        requireRunning();
-        return copy(status, Optional.of(Step.VALIDATING), pauseReason, finishReason, summary,
-                Optional.empty(), 0, currentTurnId, journal, resultWorkTip, now, terminalAt);
-    }
-
     public BranchRebase recordTurnStarted(Instant now)
     {
         requireRunning();
@@ -292,8 +285,7 @@ public record BranchRebase(
     public enum Step
     {
         REPLAYING,
-        RESOLVING,
-        VALIDATING
+        RESOLVING
     }
 
     public enum PauseReason

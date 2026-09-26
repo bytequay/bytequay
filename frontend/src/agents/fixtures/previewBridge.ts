@@ -43,12 +43,7 @@ const FIXTURE_EVENTS: AgentEventEnvelope[] = parseAgentEventSequence(eventFixtur
 
 const PREVIEW_CAPABILITIES = {
   ...NO_AGENT_CAPABILITIES,
-  sessionResume: true,
   structuredPlans: true,
-  toolLifecycle: true,
-  incrementalCommandOutput: true,
-  interactiveApprovals: true,
-  tokenUsage: true,
   steering: true,
   attachmentMediaTypes: ['image/png', 'image/jpeg', 'image/gif'],
 };

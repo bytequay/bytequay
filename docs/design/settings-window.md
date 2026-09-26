@@ -113,11 +113,9 @@ existing definition of agent type and is reused rather than re-invented.
 Three places pick a model today. Two must change; one needs a decision.
 
 - `DefaultAgentReviewService.selectModel` — switch to the Review value.
-- `BetterWordsService.selectedModel` — rewriting a review comment is review work, so it
-  resolves through the Review value too. A consequence: because an agent-type value
-  cannot be an API key, its API-key branch is now unreachable and stored API keys are
-  inert until an API-key lane exists or comment rewriting gets its own setting. The
-  branch is marked rather than deleted.
+- `BetterWordsService.selectedModel` — rewriting is the user's own writing, so it
+  resolves through the Development value, including a workspace override, and opens
+  that lane's driver like any agent session. It has no separate API-key path.
 - Development tasks resolve **no model on the backend at all**. The renderer
   picks it in `useAgentTaskCreation.applyCatalog` from
   `providers[].selectedModel`, and `CreateTaskRequest` rejects an empty model.
@@ -131,12 +129,10 @@ sending an explicit model for this reason.
 
 ### 3.4 Migration
 
-There is no migration machinery: `app_settings` is untyped key/value and
-Hibernate owns the schema. An existing `model.main` plus its
-`model.selection.<configId>` is read once and written into
-`model.agent.DEVELOPMENT`; `model.agent.REVIEW` is left absent so Review starts
-out inheriting. The old keys are then deleted. Per-workspace overrides migrate
-to the `.DEVELOPMENT` suffix by the same read-once rule.
+There is no migration: `app_settings` is untyped key/value, Hibernate owns
+the schema, and no released database carries `model.main` or
+`model.selection.<configId>`, so neither key is read. A provider or API key
+with no agent-type value shows its catalog default.
 
 ### 3.5 Two existing defects this touches
 

@@ -86,6 +86,7 @@ import java.time.Instant;
 import java.util.Optional;
 
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.CALLS_REAL_METHODS;
 import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.inOrder;
 import static org.mockito.Mockito.mock;
@@ -348,7 +349,7 @@ class TestAgentHttpErrors
         Instant now = task.createdAt();
         String head = "a".repeat(40);
         CiAutofixRun run = CiAutofixRun.create(CiAutofixRunId.random(), "owned-ci",
-                new CiAutofixRun.Scope(new PullRequestRef("bytequay", "sample", 42), RepoRef.of("bytequay", "sample"), "workspace-1", Optional.empty(), "author",
+                new CiAutofixRun.Scope(new PullRequestRef("bytequay", "sample", 42), RepoRef.of("bytequay", "sample"), "workspace-1", RepoRef.of("bytequay", "sample"), "author",
                         task.taskWorktree().orElseThrow().generatedBranch(), "main", "claude-cli", Optional.of(task.id().toString())),
                 head, head, head, new CiAutofixRun.Authorization(true, true, true, 3, now, now.plusSeconds(28_800)), now);
         when(taskService.getInteractive("workspace-1", task.id())).thenReturn(task);
@@ -437,7 +438,7 @@ class TestAgentHttpErrors
 
     private static AgentStartupRecovery startupRecovery()
     {
-        AgentTaskStore taskStore = mock(AgentTaskStore.class);
+        AgentTaskStore taskStore = mock(AgentTaskStore.class, CALLS_REAL_METHODS);
         AgentTurnStore turnStore = mock(AgentTurnStore.class);
         AgentEventOutboxStore outboxStore = mock(AgentEventOutboxStore.class);
         AgentEventService eventService = mock(AgentEventService.class);
@@ -451,7 +452,7 @@ class TestAgentHttpErrors
                 mock(AgentApprovalService.class),
                 mock(AgentMetricsService.class),
                 mock(AgentCompletionService.class),
-                new AgentRuntimeRegistry(),
+                new AgentRuntimeRegistry(ignored -> {}),
                 Clock.systemUTC());
         return new AgentStartupRecovery(
                 outboxStore,

@@ -26,7 +26,7 @@ import static java.util.Objects.requireNonNull;
 /**
  * The list-level shape of a PR. Most fields come straight from GitHub's
  * search/list endpoints; the trailing block (ciStatus, additions, deletions,
- * commentCount, attentionReason) is populated by the sync job from the
+ * commentCount) is populated by the sync job from the
  * accompanying detail fetch so list and Home rows need no extra request.
  *
  * @param createdAt GitHub's {@code created_at}, or null on legacy rows.
@@ -61,7 +61,6 @@ public record PullRequest(
         int additions,
         int deletions,
         int commentCount,
-        AttentionReason attentionReason,
         // Detail-enrichment fields. Optional until a row has been re-synced.
         String state,
         Instant closedAt,
@@ -108,7 +107,7 @@ public record PullRequest(
                 id, repo, number, title, author, htmlUrl, createdAt, updatedAt, origin, labels,
                 labelColors, draft, viewState.viewedAt(), viewState.reviewedAt(),
                 viewState.handledAction(), requestedReviewers, ciStatus, additions, deletions,
-                commentCount, attentionReason, state, closedAt, mergedAt, mergeable, mergeableState,
+                commentCount, state, closedAt, mergedAt, mergeable, mergeableState,
                 headPushedAt, headRef, monitoredAt, activityAt, reviewRequestedAt, reviewDecision);
     }
 }

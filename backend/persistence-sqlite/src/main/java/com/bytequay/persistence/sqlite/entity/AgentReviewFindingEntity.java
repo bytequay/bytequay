@@ -33,6 +33,8 @@ import java.time.Instant;
 import java.util.List;
 import java.util.Optional;
 
+import static com.bytequay.persistence.sqlite.entity.JsonGuard.REVIEW;
+
 @Entity
 @Table(name = "agent_review_finding", indexes = @Index(name = "idx_agent_review_finding_review", columnList = "review_id"))
 public class AgentReviewFindingEntity
@@ -114,8 +116,8 @@ public class AgentReviewFindingEntity
         title = finding.title();
         body = finding.body();
         severity = finding.severity().orElse(null);
-        anchorJson = AgentReviewJson.encode(finding.anchor().orElse(null));
-        evidenceJson = AgentReviewJson.encode(finding.evidence());
+        anchorJson = REVIEW.write(finding.anchor().orElse(null), "finding anchor");
+        evidenceJson = REVIEW.write(finding.evidence(), "finding evidence");
         revision = finding.revision();
         state = finding.state();
         stateReason = finding.stateReason().orElse(null);
@@ -135,8 +137,8 @@ public class AgentReviewFindingEntity
                 title,
                 body,
                 Optional.ofNullable(severity),
-                Optional.ofNullable(AgentReviewJson.decode(anchorJson, ReviewAnchor.class)),
-                AgentReviewJson.decode(evidenceJson, EVIDENCE),
+                Optional.ofNullable(REVIEW.read(anchorJson, ReviewAnchor.class, "finding anchor")),
+                REVIEW.read(evidenceJson, EVIDENCE, "finding evidence"),
                 revision,
                 state,
                 Optional.ofNullable(stateReason),

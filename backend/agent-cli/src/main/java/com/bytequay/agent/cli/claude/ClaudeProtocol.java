@@ -13,10 +13,13 @@
  */
 package com.bytequay.agent.cli.claude;
 
+import com.bytequay.agent.spi.AgentUnavailableException;
 import com.fasterxml.jackson.annotation.JsonProperty;
 import com.fasterxml.jackson.annotation.JsonSubTypes;
 import com.fasterxml.jackson.annotation.JsonTypeInfo;
+import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import com.google.common.collect.ImmutableList;
 
 import java.math.BigDecimal;
@@ -29,6 +32,17 @@ import static java.util.Objects.requireNonNull;
 final class ClaudeProtocol
 {
     private ClaudeProtocol() {}
+
+    /** Decodes one stream-json line with a mapper that reads {@code Optional} fields and ignores unknown properties. */
+    static Message decode(ObjectMapper mapper, String line)
+    {
+        try {
+            return mapper.readValue(line, Message.class);
+        }
+        catch (JsonProcessingException e) {
+            throw new AgentUnavailableException("Invalid Claude stream message", e);
+        }
+    }
 
     @JsonTypeInfo(use = JsonTypeInfo.Id.NAME, property = "type", defaultImpl = UnknownMessage.class)
     @JsonSubTypes({
@@ -140,8 +154,7 @@ final class ClaudeProtocol
             ApiMessage message,
             @JsonProperty("parent_tool_use_id") Optional<String> parentToolUseId,
             @JsonProperty("session_id") String sessionIdValue,
-            Optional<String> uuid,
-            Optional<String> timestamp)
+            Optional<String> uuid)
             implements Message
     {
         AssistantMessage
@@ -150,7 +163,6 @@ final class ClaudeProtocol
             requireNonNull(parentToolUseId, "parentToolUseId is null");
             requireNonNull(sessionIdValue, "sessionId is null");
             requireNonNull(uuid, "uuid is null");
-            requireNonNull(timestamp, "timestamp is null");
         }
 
         @Override
@@ -165,8 +177,7 @@ final class ClaudeProtocol
             @JsonProperty("tool_use_result") Optional<JsonNode> toolUseResult,
             @JsonProperty("parent_tool_use_id") Optional<String> parentToolUseId,
             @JsonProperty("session_id") Optional<String> sessionIdValue,
-            Optional<String> uuid,
-            Optional<String> timestamp)
+            Optional<String> uuid)
             implements Message
     {
         UserMessage
@@ -176,7 +187,6 @@ final class ClaudeProtocol
             requireNonNull(parentToolUseId, "parentToolUseId is null");
             requireNonNull(sessionIdValue, "sessionId is null");
             requireNonNull(uuid, "uuid is null");
-            requireNonNull(timestamp, "timestamp is null");
         }
 
         @Override

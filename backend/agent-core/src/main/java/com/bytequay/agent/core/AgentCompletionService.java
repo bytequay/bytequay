@@ -74,10 +74,9 @@ public interface AgentCompletionService
      * summary.
      *
      * @param taskId terminal task whose retention deadline has passed
-     * @return updated cleanup result
      * @throws AgentConflictException when the task is live or cleanup is early
      */
-    CleanupResult cleanup(TaskId taskId);
+    void cleanup(TaskId taskId);
 
     /**
      * Removes a task and everything ByteQuay keeps for it: rows, event log, blobs, checkout, and

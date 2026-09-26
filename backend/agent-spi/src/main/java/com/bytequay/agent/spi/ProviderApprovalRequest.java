@@ -25,7 +25,6 @@ import static com.google.common.base.Preconditions.checkArgument;
 import static java.util.Objects.requireNonNull;
 
 public record ProviderApprovalRequest(
-        String providerRequestId,
         Kind kind,
         String title,
         String detail,
@@ -38,7 +37,6 @@ public record ProviderApprovalRequest(
 {
     public ProviderApprovalRequest
     {
-        checkNotBlank(providerRequestId, "providerRequestId");
         requireNonNull(kind, "kind is null");
         checkNotBlank(title, "title");
         requireNonNull(detail, "detail is null");
@@ -55,7 +53,6 @@ public record ProviderApprovalRequest(
 
     /** A request nothing task-wide can cover, such as one from a provider that names no scope. */
     public ProviderApprovalRequest(
-            String providerRequestId,
             Kind kind,
             String title,
             String detail,
@@ -64,7 +61,7 @@ public record ProviderApprovalRequest(
             ProviderAgentEventSource source,
             Instant requestedAt)
     {
-        this(providerRequestId, kind, title, detail, requestedPermissions, availableDecisions, Optional.empty(), source, requestedAt);
+        this(kind, title, detail, requestedPermissions, availableDecisions, Optional.empty(), source, requestedAt);
     }
 
     public enum Kind

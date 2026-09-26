@@ -312,6 +312,17 @@ class TestGitHubPullRequestOverviewClient
     }
 
     @Test
+    void searchesPullRequestsMostRecentlyUpdatedFirst()
+    {
+        Fixture fixture = fixture();
+        fixture.api().expect(request -> assertThat(request.getURI().getQuery()).isEqualTo("q=is:pr author:me&per_page=20&page=1&sort=updated&order=desc"))
+                .andRespond(withSuccess("{\"total_count\":0,\"items\":[]}", MediaType.APPLICATION_JSON));
+
+        assertThat(fixture.client().searchPullRequestsPaged("pat", "is:pr author:me", 1, 20).items()).isEmpty();
+        fixture.verify();
+    }
+
+    @Test
     void datesCommitEventsByCommitterTime()
     {
         Fixture fixture = fixture();
@@ -330,7 +341,7 @@ class TestGitHubPullRequestOverviewClient
                           "committer":{"name":"Alice","date":"2026-08-20T10:00:00Z"}}}]
                         """, MediaType.APPLICATION_JSON));
 
-        List<PrTimelineEvent> timeline = fixture.client().fetchPrTimeline("pat", PULL_REQUEST, null);
+        List<PrTimelineEvent> timeline = fixture.client().fetchPrTimeline("pat", PULL_REQUEST);
         List<PrTimelineEvent> commits = fixture.client().fetchPrCommits("pat", PULL_REQUEST);
 
         assertThat(timeline).singleElement().extracting(PrTimelineEvent::timestamp)
@@ -353,7 +364,7 @@ class TestGitHubPullRequestOverviewClient
                           "actor":{"login":"alice"},"requested_reviewer":{"login":"carol"}}]
                         """, MediaType.APPLICATION_JSON));
 
-        List<PrTimelineEvent> timeline = fixture.client().fetchPrTimeline("pat", PULL_REQUEST, null);
+        List<PrTimelineEvent> timeline = fixture.client().fetchPrTimeline("pat", PULL_REQUEST);
 
         assertThat(timeline)
                 .extracting(event -> event.githubId() + ":" + event.actor() + ":" + event.payload().requestedReviewer())
@@ -385,7 +396,7 @@ class TestGitHubPullRequestOverviewClient
                         }}}}}
                         """, MediaType.APPLICATION_JSON));
 
-        List<PrTimelineEvent> timeline = fixture.client().fetchPrTimeline("pat", PULL_REQUEST, null);
+        List<PrTimelineEvent> timeline = fixture.client().fetchPrTimeline("pat", PULL_REQUEST);
 
         assertThat(timeline).hasSize(2);
         assertThat(timeline.getFirst().payload().reactions())
@@ -415,8 +426,7 @@ class TestGitHubPullRequestOverviewClient
                         ]}]}}
                         """, MediaType.APPLICATION_JSON));
 
-        List<PrTimelineEvent> comments = fixture.client().fetchPrIssueComments(
-                "pat", PULL_REQUEST, null);
+        List<PrTimelineEvent> comments = fixture.client().fetchPrIssueComments("pat", PULL_REQUEST);
 
         assertThat(comments).singleElement().satisfies(comment ->
                 assertThat(comment.payload().reactions())

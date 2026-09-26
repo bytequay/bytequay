@@ -69,8 +69,6 @@ final class CodexProtocol
     {
         Params params();
 
-        Optional<Long> emittedAtMs();
-
         default String threadId()
         {
             return params().threadId();
@@ -115,73 +113,66 @@ final class CodexProtocol
         }
     }
 
-    record TurnStartedNotification(TurnNotificationParams params, Optional<Long> emittedAtMs)
+    record TurnStartedNotification(TurnNotificationParams params)
             implements Notification
     {
         TurnStartedNotification
         {
             requireNonNull(params, "params is null");
-            requireNonNull(emittedAtMs, "emittedAtMs is null");
         }
     }
 
-    record TurnCompletedNotification(TurnNotificationParams params, Optional<Long> emittedAtMs)
+    record TurnCompletedNotification(TurnNotificationParams params)
             implements Notification
     {
         TurnCompletedNotification
         {
             requireNonNull(params, "params is null");
-            requireNonNull(emittedAtMs, "emittedAtMs is null");
         }
     }
 
-    record ItemStartedNotification(ItemNotificationParams params, Optional<Long> emittedAtMs)
+    record ItemStartedNotification(ItemNotificationParams params)
             implements Notification
     {
         ItemStartedNotification
         {
             requireNonNull(params, "params is null");
-            requireNonNull(emittedAtMs, "emittedAtMs is null");
         }
     }
 
-    record ItemCompletedNotification(ItemNotificationParams params, Optional<Long> emittedAtMs)
+    record ItemCompletedNotification(ItemNotificationParams params)
             implements Notification
     {
         ItemCompletedNotification
         {
             requireNonNull(params, "params is null");
-            requireNonNull(emittedAtMs, "emittedAtMs is null");
         }
     }
 
-    record CommandOutputNotification(ItemDeltaParams params, Optional<Long> emittedAtMs)
+    record CommandOutputNotification(ItemDeltaParams params)
             implements Notification
     {
         CommandOutputNotification
         {
             requireNonNull(params, "params is null");
-            requireNonNull(emittedAtMs, "emittedAtMs is null");
         }
     }
 
-    record AutoApprovalReviewStartedNotification(AutoApprovalReviewParams params, Optional<Long> emittedAtMs)
+    record AutoApprovalReviewStartedNotification(AutoApprovalReviewParams params)
             implements Notification
     {
         AutoApprovalReviewStartedNotification
         {
             requireNonNull(params, "params is null");
-            requireNonNull(emittedAtMs, "emittedAtMs is null");
         }
     }
 
-    record AutoApprovalReviewCompletedNotification(AutoApprovalReviewParams params, Optional<Long> emittedAtMs)
+    record AutoApprovalReviewCompletedNotification(AutoApprovalReviewParams params)
             implements Notification
     {
         AutoApprovalReviewCompletedNotification
         {
             requireNonNull(params, "params is null");
-            requireNonNull(emittedAtMs, "emittedAtMs is null");
         }
     }
 
@@ -207,75 +198,68 @@ final class CodexProtocol
         }
     }
 
-    record AgentMessageDeltaNotification(ItemDeltaParams params, Optional<Long> emittedAtMs)
+    record AgentMessageDeltaNotification(ItemDeltaParams params)
             implements Notification
     {
         AgentMessageDeltaNotification
         {
             requireNonNull(params, "params is null");
-            requireNonNull(emittedAtMs, "emittedAtMs is null");
         }
     }
 
     /** Free-form Plan-mode text streamed a piece at a time; the structured steps arrive as turn/plan/updated. */
-    record PlanDeltaNotification(ItemDeltaParams params, Optional<Long> emittedAtMs)
+    record PlanDeltaNotification(ItemDeltaParams params)
             implements Notification
     {
         PlanDeltaNotification
         {
             requireNonNull(params, "params is null");
-            requireNonNull(emittedAtMs, "emittedAtMs is null");
         }
     }
 
     /** A thread came into being in this process; for a subagent it names its parent and nickname. */
-    record ThreadStartedNotification(ThreadStartedParams params, Optional<Long> emittedAtMs)
+    record ThreadStartedNotification(ThreadStartedParams params)
             implements Notification
     {
         ThreadStartedNotification
         {
             requireNonNull(params, "params is null");
-            requireNonNull(emittedAtMs, "emittedAtMs is null");
         }
     }
 
-    record PlanUpdatedNotification(PlanUpdatedParams params, Optional<Long> emittedAtMs)
+    record PlanUpdatedNotification(PlanUpdatedParams params)
             implements Notification
     {
         PlanUpdatedNotification
         {
             requireNonNull(params, "params is null");
-            requireNonNull(emittedAtMs, "emittedAtMs is null");
         }
     }
 
-    record TokenUsageUpdatedNotification(TokenUsageParams params, Optional<Long> emittedAtMs)
+    record TokenUsageUpdatedNotification(TokenUsageParams params)
             implements Notification
     {
         TokenUsageUpdatedNotification
         {
             requireNonNull(params, "params is null");
-            requireNonNull(emittedAtMs, "emittedAtMs is null");
         }
     }
 
-    record ErrorNotification(ErrorParams params, Optional<Long> emittedAtMs)
+    record ErrorNotification(ErrorParams params)
             implements Notification
     {
         ErrorNotification
         {
             requireNonNull(params, "params is null");
-            requireNonNull(emittedAtMs, "emittedAtMs is null");
         }
     }
 
-    record UnknownNotification(UnknownParams params, Optional<Long> emittedAtMs)
+    record UnknownNotification(UnknownParams params)
             implements Notification
     {
         UnknownNotification
         {
             requireNonNull(params, "params is null");
-            requireNonNull(emittedAtMs, "emittedAtMs is null");
         }
     }
 

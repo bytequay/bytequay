@@ -13,6 +13,8 @@
  */
 package com.bytequay.core.cherrypick;
 
+import com.bytequay.core.store.StorageException;
+
 import java.util.List;
 import java.util.Optional;
 
@@ -29,7 +31,7 @@ public interface CherryPickExecutionStore
      * @param execution proposed version-zero execution
      * @return created or existing execution
      * @throws CherryPickConflictException when the identifier already exists with a different key
-     * @throws CherryPickStorageException when persistence fails
+     * @throws StorageException when persistence fails
      */
     CherryPickExecution createOrGet(CherryPickExecution execution);
 
@@ -41,7 +43,7 @@ public interface CherryPickExecutionStore
      *
      * @param idempotencyKey bounded start idempotency key
      * @return matching execution, or empty
-     * @throws CherryPickStorageException when persistence fails
+     * @throws StorageException when persistence fails
      */
     Optional<CherryPickExecution> findByIdempotencyKey(String idempotencyKey);
 
@@ -50,7 +52,7 @@ public interface CherryPickExecutionStore
      *
      * @param executionId execution identifier
      * @return execution with items in plan order, or empty
-     * @throws CherryPickStorageException when persistence fails
+     * @throws StorageException when persistence fails
      */
     Optional<CherryPickExecution> find(CherryPickExecutionId executionId);
 
@@ -59,7 +61,7 @@ public interface CherryPickExecutionStore
      *
      * @param taskId durable agent task identifier
      * @return matching execution, or empty
-     * @throws CherryPickStorageException when persistence fails
+     * @throws StorageException when persistence fails
      */
     Optional<CherryPickExecution> findByAgentTaskId(String taskId);
 
@@ -69,7 +71,7 @@ public interface CherryPickExecutionStore
      * @param limit result limit between 1 and {@link #MAX_LIST_LIMIT}
      * @return at most {@code limit} executions
      * @throws IllegalArgumentException when limit is out of range
-     * @throws CherryPickStorageException when persistence fails
+     * @throws StorageException when persistence fails
      */
     List<CherryPickExecution> listRecent(int limit);
 
@@ -79,7 +81,7 @@ public interface CherryPickExecutionStore
      * @param limit batch size between 1 and {@link #MAX_LIST_LIMIT}
      * @return at most {@code limit} running executions
      * @throws IllegalArgumentException when limit is out of range
-     * @throws CherryPickStorageException when persistence fails
+     * @throws StorageException when persistence fails
      */
     List<CherryPickExecution> listRunning(int limit);
 
@@ -90,7 +92,7 @@ public interface CherryPickExecutionStore
      * @return stored execution carrying its next version
      * @throws CherryPickNotFoundException when the execution no longer exists
      * @throws CherryPickConflictException when another writer advanced the version
-     * @throws CherryPickStorageException when persistence fails
+     * @throws StorageException when persistence fails
      */
     CherryPickExecution save(CherryPickExecution execution);
 }

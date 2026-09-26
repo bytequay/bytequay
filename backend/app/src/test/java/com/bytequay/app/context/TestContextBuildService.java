@@ -109,6 +109,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.Mockito.CALLS_REAL_METHODS;
 import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.inOrder;
 import static org.mockito.Mockito.mock;
@@ -135,7 +136,7 @@ class TestContextBuildService
     private final ObjectMapper mapper = new ObjectMapper().registerModule(new Jdk8Module()).registerModule(new JavaTimeModule());
     private final WorkspaceStore workspaceStore = mock(WorkspaceStore.class);
     private final AgentReviewStore reviews = mock(AgentReviewStore.class);
-    private final AgentTaskStore taskStore = mock(AgentTaskStore.class);
+    private final AgentTaskStore taskStore = mock(AgentTaskStore.class, CALLS_REAL_METHODS);
     private final AgentTurnStore turnStore = mock(AgentTurnStore.class);
     private final AgentTaskService tasks = mock(AgentTaskService.class);
     private final AgentTurnService turns = mock(AgentTurnService.class);
@@ -205,7 +206,7 @@ class TestContextBuildService
                 (id, task) -> task.fail(call.getArgument(1), NOW, DELETE_AFTER)));
         when(completions.complete(any(CompleteAgentTaskCommand.class))).thenAnswer(call -> {
             CompleteAgentTaskCommand command = call.getArgument(0);
-            TaskSummary summary = new TaskSummary("Learned repository", Optional.empty(), AgentMetrics.empty(), command.notes());
+            TaskSummary summary = new TaskSummary("Learned repository", Optional.empty(), AgentMetrics.empty(), command.notes(), ImmutableList.of());
             savedTasks.compute(command.taskId(), (id, task) -> task.complete(summary, NOW, DELETE_AFTER));
             return new TaskCompletion(command.taskId(), summary, NOW, DELETE_AFTER);
         });
@@ -403,7 +404,7 @@ class TestContextBuildService
         when(resources.require(any())).thenReturn(new TaskResources(runtime, runtime.resolve("events"), runtime.resolve("blobs"), runtime.resolve("provider")));
         service = createService(new DefaultAgentCompletionService(taskStore, turnStore, mock(QueuedInputStore.class), unit,
                 mock(AgentEventOutboxStore.class), mock(AgentEventService.class), mock(TaskLogStore.class), managed, resources,
-                new AgentRuntimeRegistry(), metrics, mock(CodeGraphService.class), () -> Duration.ofDays(7), Clock.fixed(NOW, ZoneOffset.UTC)));
+                new AgentRuntimeRegistry(ignored -> {}), metrics, mock(CodeGraphService.class), () -> Duration.ofDays(7), Clock.fixed(NOW, ZoneOffset.UTC)));
         RepositoryNotebook saved = notebooks.editEntry(WORKSPACE, 0, new EditContextEntry("knowledge:project", "project", "Project", "Summary",
                 "Keep the accepted knowledge", ImmutableList.of(), ImmutableList.of()));
         ContextBuild bound = start();

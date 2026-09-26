@@ -19,7 +19,9 @@ import com.bytequay.agent.spi.DevelopmentLearningSummary;
 import com.bytequay.agent.spi.DevelopmentResultBridge;
 import com.bytequay.agent.spi.DevelopmentResultReport;
 import com.bytequay.agent.spi.ProviderAgentEvent;
+import com.fasterxml.jackson.databind.DeserializationFeature;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.datatype.jdk8.Jdk8Module;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import org.junit.jupiter.api.Test;
@@ -31,8 +33,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 class TestClaudeDevelopmentResult
 {
-    private final ObjectMapper json = new ObjectMapper();
-    private final ClaudeProtocolCodec codec = new ClaudeProtocolCodec(json);
+    private final ObjectMapper json = new ObjectMapper().registerModule(new Jdk8Module()).disable(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES);
     private final DevelopmentResultBridge bridge = new DevelopmentResultBridge("turn-1", DevelopmentResultBridge.INSTRUCTION, true);
     private final DevelopmentResultReport report = new DevelopmentResultReport(true, Optional.of("done known-secret"),
                         Optional.of(new DevelopmentLearningSummary("Purpose known-secret", ImmutableList.of(), Optional.empty(), "", ImmutableList.of())));
@@ -86,7 +87,7 @@ class TestClaudeDevelopmentResult
 
     private List<ProviderAgentEvent> start(ClaudeEventMapper mapper, boolean child)
     {
-        return mapper.map(codec.decode("""
+        return mapper.map(ClaudeProtocol.decode(json, """
                 {"type":"assistant","session_id":"session-1","uuid":"start","parent_tool_use_id":%s,
                 "message":{"role":"assistant","content":[{"type":"tool_use","id":"tool-1",
                 "name":"mcp__bytequay__report_development_result","input":{"readyForDelivery":true}}]}}
@@ -97,7 +98,7 @@ class TestClaudeDevelopmentResult
             throws Exception
     {
         String content = json.writeValueAsString(DevelopmentResultTool.receipt(receiptBridge, report));
-        return mapper.map(codec.decode("""
+        return mapper.map(ClaudeProtocol.decode(json, """
                 {"type":"user","session_id":"session-1","uuid":"finish","parent_tool_use_id":%s,
                 "message":{"role":"user","content":[{"type":"tool_result","tool_use_id":"tool-1",
                 "is_error":%s,"content":%s}]}}

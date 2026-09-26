@@ -25,18 +25,17 @@ import com.bytequay.app.service.credentials.CredentialService;
 import com.bytequay.core.domain.Workspace;
 import com.bytequay.core.store.WorkspaceStore;
 import com.google.common.collect.ImmutableList;
+import com.google.common.hash.Hasher;
+import com.google.common.hash.Hashing;
+import com.google.common.io.MoreFiles;
 
 import java.io.IOException;
-import java.io.InputStream;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.LinkOption;
 import java.nio.file.Path;
 import java.nio.file.attribute.BasicFileAttributes;
-import java.security.MessageDigest;
-import java.security.NoSuchAlgorithmException;
 import java.time.Duration;
-import java.util.HexFormat;
 import java.util.List;
 import java.util.Optional;
 
@@ -91,7 +90,7 @@ public class DevelopmentGitInspector
         requireSha(tree);
         String status = status(worktree);
         StatusCounts counts = countStatus(status);
-        MessageDigest digest = digest();
+        Hasher digest = Hashing.sha256().newHasher();
         add(digest, snapshot.head());
         add(digest, tree);
         add(digest, worktree.generatedBranch());
@@ -116,7 +115,7 @@ public class DevelopmentGitInspector
         WorktreeSnapshot after = worktrees.inspect(worktree);
         checkState(after.head().equals(snapshot.head()) && status(worktree).equals(status), "Development files changed during inspection");
         return new DevelopmentLocalFacts(
-                worktree.generatedBranch(), snapshot.head(), tree, HexFormat.of().formatHex(digest.digest()),
+                worktree.generatedBranch(), snapshot.head(), tree, digest.hash().toString(),
                 counts.staged(), counts.unstaged(), counts.untrackedPaths().size(), counts.total(), commits, diff.exitCode() == 1,
                 snapshot.gitOperationInProgress() || after.gitOperationInProgress() || counts.unmerged());
     }
@@ -296,7 +295,7 @@ public class DevelopmentGitInspector
         return new StatusCounts(staged, unstaged, total, unmerged, untracked.build());
     }
 
-    private static void hashUntracked(MessageDigest digest, Path worktree, String name)
+    private static void hashUntracked(Hasher digest, Path worktree, String name)
     {
         Path path = worktree.resolve(name).normalize();
         checkState(path.startsWith(worktree) && !path.equals(worktree), "Untracked file escaped the development worktree");
@@ -309,15 +308,7 @@ public class DevelopmentGitInspector
             else {
                 checkState(before.isRegularFile(), "Untracked development entry is not a file");
                 add(digest, "file:" + Files.isExecutable(path));
-                MessageDigest content = digest();
-                try (InputStream stream = Files.newInputStream(path, LinkOption.NOFOLLOW_LINKS)) {
-                    byte[] bytes = new byte[8192];
-                    int length;
-                    while ((length = stream.read(bytes)) != -1) {
-                        content.update(bytes, 0, length);
-                    }
-                }
-                add(digest, HexFormat.of().formatHex(content.digest()));
+                add(digest, MoreFiles.asByteSource(path, LinkOption.NOFOLLOW_LINKS).hash(Hashing.sha256()).toString());
             }
             BasicFileAttributes after = Files.readAttributes(path, BasicFileAttributes.class, LinkOption.NOFOLLOW_LINKS);
             checkState(before.size() == after.size() && before.lastModifiedTime().equals(after.lastModifiedTime())
@@ -350,20 +341,9 @@ public class DevelopmentGitInspector
         return result.output();
     }
 
-    private static MessageDigest digest()
+    private static void add(Hasher digest, String value)
     {
-        try {
-            return MessageDigest.getInstance("SHA-256");
-        }
-        catch (NoSuchAlgorithmException impossible) {
-            throw new AssertionError(impossible);
-        }
-    }
-
-    private static void add(MessageDigest digest, String value)
-    {
-        digest.update(value.getBytes(StandardCharsets.UTF_8));
-        digest.update((byte) 0);
+        digest.putString(value, StandardCharsets.UTF_8).putByte((byte) 0);
     }
 
     private record StatusCounts(int staged, int unstaged, int total, boolean unmerged, List<String> untrackedPaths)

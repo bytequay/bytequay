@@ -16,16 +16,13 @@ package com.bytequay.agent.core;
 public enum CleanupState
 {
     RETAINED,
-    DELETE_DUE,
     RETRY_PENDING,
     DELETED;
 
     public boolean canTransitionTo(CleanupState target)
     {
         return switch (this) {
-            case RETAINED -> target == DELETE_DUE;
-            case DELETE_DUE -> target == RETRY_PENDING || target == DELETED;
-            case RETRY_PENDING -> target == RETRY_PENDING || target == DELETED;
+            case RETAINED, RETRY_PENDING -> target == RETRY_PENDING || target == DELETED;
             case DELETED -> target == DELETED;
         };
     }

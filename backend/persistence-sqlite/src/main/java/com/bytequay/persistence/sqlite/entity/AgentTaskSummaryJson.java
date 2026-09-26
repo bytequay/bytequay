@@ -19,9 +19,7 @@ import com.bytequay.agent.core.TaskSummary;
 import com.bytequay.agent.core.TaskWorktree;
 import com.bytequay.agent.core.ToolCounters;
 import com.bytequay.agent.core.WorktreeSnapshot;
-import com.bytequay.persistence.sqlite.converter.JsonColumns;
 import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
-import com.fasterxml.jackson.databind.ObjectMapper;
 import com.google.common.collect.ImmutableList;
 
 import java.math.BigDecimal;
@@ -35,8 +33,6 @@ import static com.google.common.collect.ImmutableList.toImmutableList;
 
 final class AgentTaskSummaryJson
 {
-    private static final ObjectMapper OBJECT_MAPPER = JsonColumns.mapper();
-
     private AgentTaskSummaryJson() {}
 
     public static String encode(TaskSummary summary)
@@ -69,13 +65,13 @@ final class AgentTaskSummaryJson
                                 child.startedAt().orElse(null),
                                 child.endedAt().orElse(null)))
                         .collect(toImmutableList()));
-        return AGENT.guard("Cannot serialize task summary", () -> OBJECT_MAPPER.writeValueAsString(value));
+        return AGENT.write(value, "task summary");
     }
 
     public static TaskSummary decode(String json, Optional<TaskWorktree> taskWorktree)
     {
-        return AGENT.guard("Cannot deserialize task summary", () -> {
-            SummaryValue value = OBJECT_MAPPER.readValue(json, SummaryValue.class);
+        return AGENT.guard("Cannot deserialize task summary", mapper -> {
+            SummaryValue value = mapper.readValue(json, SummaryValue.class);
             AgentMetrics metrics = new AgentMetrics(
                     value.inputTokens(),
                     value.cachedInputTokens(),

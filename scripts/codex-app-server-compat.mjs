@@ -70,16 +70,16 @@ function recordBinding(javaType, mode, sources, components) {
 const referenceRecordBindings = [
   recordBinding("TurnStartedNotification", "decode", [
     schemaSource("v2", "ServerNotification", "method", "turn/started"),
-  ], [component("params"), component("emittedAtMs")]),
+  ], [component("params")]),
   recordBinding("TurnCompletedNotification", "decode", [
     schemaSource("v2", "ServerNotification", "method", "turn/completed"),
-  ], [component("params"), component("emittedAtMs")]),
+  ], [component("params")]),
   recordBinding("ItemStartedNotification", "decode", [
     schemaSource("v2", "ServerNotification", "method", "item/started"),
-  ], [component("params"), component("emittedAtMs")]),
+  ], [component("params")]),
   recordBinding("ItemCompletedNotification", "decode", [
     schemaSource("v2", "ServerNotification", "method", "item/completed"),
-  ], [component("params"), component("emittedAtMs")]),
+  ], [component("params")]),
   recordBinding("CommandOutputNotification", "decode", [
     schemaSource(
       "v2",
@@ -87,34 +87,34 @@ const referenceRecordBindings = [
       "method",
       "item/commandExecution/outputDelta",
     ),
-  ], [component("params"), component("emittedAtMs")]),
+  ], [component("params")]),
   recordBinding("AgentMessageDeltaNotification", "decode", [
     schemaSource("v2", "ServerNotification", "method", "item/agentMessage/delta"),
-  ], [component("params"), component("emittedAtMs")]),
+  ], [component("params")]),
   recordBinding("PlanDeltaNotification", "decode", [
     schemaSource("v2", "ServerNotification", "method", "item/plan/delta"),
-  ], [component("params"), component("emittedAtMs")]),
+  ], [component("params")]),
   recordBinding("ThreadStartedNotification", "decode", [
     schemaSource("v2", "ServerNotification", "method", "thread/started"),
-  ], [component("params"), component("emittedAtMs")]),
+  ], [component("params")]),
   recordBinding("ThreadStartedParams", "decode", [
     schemaSource("v2", "ThreadStartedNotification"),
   ], [component("thread")]),
   recordBinding("PlanUpdatedNotification", "decode", [
     schemaSource("v2", "ServerNotification", "method", "turn/plan/updated"),
-  ], [component("params"), component("emittedAtMs")]),
+  ], [component("params")]),
   recordBinding("TokenUsageUpdatedNotification", "decode", [
     schemaSource("v2", "ServerNotification", "method", "thread/tokenUsage/updated"),
-  ], [component("params"), component("emittedAtMs")]),
+  ], [component("params")]),
   recordBinding("ErrorNotification", "decode", [
     schemaSource("v2", "ServerNotification", "method", "error"),
-  ], [component("params"), component("emittedAtMs")]),
+  ], [component("params")]),
   recordBinding("AutoApprovalReviewStartedNotification", "decode", [
     schemaSource("v2", "ServerNotification", "method", "item/autoApprovalReview/started"),
-  ], [component("params"), component("emittedAtMs")]),
+  ], [component("params")]),
   recordBinding("AutoApprovalReviewCompletedNotification", "decode", [
     schemaSource("v2", "ServerNotification", "method", "item/autoApprovalReview/completed"),
-  ], [component("params"), component("emittedAtMs")]),
+  ], [component("params")]),
   recordBinding("AutoApprovalReviewParams", "decode", [
     schemaSource("v2", "ItemGuardianApprovalReviewStartedNotification"),
     schemaSource("v2", "ItemGuardianApprovalReviewCompletedNotification"),

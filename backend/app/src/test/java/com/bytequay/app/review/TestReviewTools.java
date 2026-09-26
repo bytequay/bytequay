@@ -1575,7 +1575,7 @@ class TestReviewTools
     {
         PullRequest row = new PullRequest(7, REPO, 7, "Known pull request", "alice", "https://example.com/7", NOW, NOW, PullRequest.Origin.OTHER,
                 ImmutableList.of(), ImmutableMap.of(), false, null, null, null, ImmutableList.of(), PullRequestDetail.CiStatus.NONE,
-                1, 0, 0, null, "merged", null, NOW, null, null, null, null, null, null, null, null);
+                1, 0, 0, "merged", null, NOW, null, null, null, null, null, null, null, null);
         when(pullRequests.findStored(REPO, 7)).thenReturn(Optional.of(row));
         PullRequestDetail detail = pullRequestDetail(7, "Cached PR body", ImmutableList.of(), ImmutableList.of(), ImmutableList.of());
         when(selectedPullRequests.read(REPO, 7, SelectedPullRequestReader.Section.PR)).thenReturn(selected(detail, Optional.empty(), false));
@@ -2000,6 +2000,17 @@ class TestReviewTools
         JsonNode replayed = call("review_save_finding", arguments);
 
         assertThat(replayed.toString()).isEqualTo(first.toString());
+        assertThat(store.listFindings(REVIEW_ID)).hasSize(1);
+
+        // Field order is not content: the same arguments in another order, nested ones included, still replay.
+        Map<String, Object> reordered = ImmutableMap.of(
+                "evidence", ImmutableList.of(ImmutableMap.of("explanation", "the frozen source window shows the missing check", "ref", "E1")),
+                "startAnchor", "A2",
+                "validation", "The source establishes a reachable unchecked input and no caller guard prevents it.",
+                "body", "The added line is used without any validation.",
+                "title", "Missing null check",
+                "operationKey", "save-1");
+        assertThat(call("review_save_finding", reordered).toString()).isEqualTo(first.toString());
         assertThat(store.listFindings(REVIEW_ID)).hasSize(1);
 
         JsonNode conflict = call("review_save_finding", finding("save-1", "A different claim entirely", "A2", ImmutableList.of(evidence("E1"))));
@@ -3074,7 +3085,12 @@ class TestReviewTools
                         ImmutableList.of("mvn", "-Dtest=TestWidget#rejectsNull", "test"),
                         Optional.of(output),
                         Optional.of(1),
-                        false));
+                        false,
+                        Optional.empty(),
+                        Optional.empty(),
+                        ImmutableList.of(),
+                        false,
+                        Optional.empty()));
         when(events.readHistory(TaskId.valueOf(TASK_ID), OptionalLong.empty(), OptionalLong.empty()))
                 .thenReturn(new AgentHistoryPage(ImmutableList.of(completed), OptionalLong.empty(), OptionalLong.empty(), 1));
     }

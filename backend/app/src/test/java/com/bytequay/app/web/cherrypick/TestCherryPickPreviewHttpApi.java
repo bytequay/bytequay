@@ -165,7 +165,7 @@ class TestCherryPickPreviewHttpApi
         verify(previewService).preview(commands.capture());
         assertThat(commands.getValue()).satisfies(command -> {
             assertThat(command.repository()).isEqualTo(Path.of("/managed/workspace-id/repository"));
-            assertThat(command.workspaceId()).contains("workspace-id");
+            assertThat(command.workspaceId()).isEqualTo("workspace-id");
             assertThat(command.sourceRepositoryId()).hasValue(202);
             assertThat(command.sourceRemote()).isEqualTo("upstream");
             assertThat(command.targetRemote()).isEqualTo("upstream");

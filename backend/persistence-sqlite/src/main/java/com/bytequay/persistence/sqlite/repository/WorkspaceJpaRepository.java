@@ -29,6 +29,4 @@ public interface WorkspaceJpaRepository
     boolean existsByIdAndWatchedTrue(String workspaceId);
 
     Optional<WorkspaceEntity> findBySelectedRepositoryId(long selectedRepositoryId);
-
-    Optional<WorkspaceEntity> findByLocalRepositoryPath(String localRepositoryPath);
 }

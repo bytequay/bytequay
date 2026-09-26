@@ -54,6 +54,7 @@ import com.bytequay.core.context.ContextDelivery;
 import com.bytequay.core.context.ContextPacket;
 import com.bytequay.core.context.ContextSelectedEntry;
 import com.bytequay.core.context.ReviewContextSnapshot;
+import com.bytequay.core.domain.DiffFile;
 import com.bytequay.core.review.AgentReview;
 import com.bytequay.core.review.ReviewMessage;
 import com.bytequay.core.review.ReviewNotFoundException;
@@ -81,6 +82,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.argThat;
+import static org.mockito.Mockito.CALLS_REAL_METHODS;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
@@ -100,7 +102,7 @@ class TestReviewRuntimeRecovery
     private final AgentReviewService reviews = mock(AgentReviewService.class);
     private final AgentTurnService turns = mock(AgentTurnService.class);
     private final ProcessSupervisor supervisor = mock(ProcessSupervisor.class);
-    private final AgentTaskStore taskStore = mock(AgentTaskStore.class);
+    private final AgentTaskStore taskStore = mock(AgentTaskStore.class, CALLS_REAL_METHODS);
     private final AgentTurnStore turnStore = mock(AgentTurnStore.class);
     private final AgentProcessLaunchStore launchStore = mock(AgentProcessLaunchStore.class);
     private final AgentStartupRecovery recovery = new AgentStartupRecovery(
@@ -307,9 +309,11 @@ class TestReviewRuntimeRecovery
     private static RunView run(Optional<ReviewContextSnapshot> context, Map<String, ContextDeliveryState> deliveries,
             List<ContextPreparationActivity> activities, List<ContextNoteRead> reads)
     {
-        return new RunView("run-1", 1, ReviewRun.Scope.FULL, "main", "a".repeat(40), "a".repeat(40), "b".repeat(40), Optional.empty(), ImmutableList.of(),
-                1, ImmutableList.of("turn-1"), ReviewRun.State.RUNNING, Optional.empty(), Optional.empty(), Optional.empty(), ImmutableList.of(), ImmutableList.of(),
-                context, deliveries, activities, reads, ImmutableList.of(), false, Optional.empty(), NOW, NOW, Optional.empty());
+        ReviewRun run = new ReviewRun("run-1", REVIEW_ID, 1, ReviewRun.Scope.FULL, "main", "a".repeat(40), "a".repeat(40), "b".repeat(40), Optional.empty(),
+                ImmutableList.of(), ImmutableList.of(new DiffFile("src/App.java", "modified", 1, 0, "@@ -1 +1 @@")), ImmutableList.of("turn-1"), ReviewRun.State.RUNNING,
+                Optional.empty(), Optional.empty(), Optional.empty(), ImmutableList.of(), false, ImmutableMap.of(), ImmutableMap.of(), context, Optional.empty(), 0,
+                NOW, NOW, Optional.empty());
+        return new RunView(run, deliveries, activities, reads, ImmutableList.of());
     }
 
     private AgentMaintenance maintenance()
@@ -317,7 +321,7 @@ class TestReviewRuntimeRecovery
         return new AgentMaintenance(
                 taskStore, turnStore, mock(QueuedInputStore.class), mock(SteerDeliveryStore.class), mock(AgentUnitOfWork.class),
                 mock(AgentEventOutboxStore.class), mock(AgentApprovalService.class), mock(AgentMetricsService.class), mock(AgentCompletionService.class),
-                new AgentRuntimeRegistry(), Clock.fixed(NOW, ZoneOffset.UTC));
+                new AgentRuntimeRegistry(ignored -> {}), Clock.fixed(NOW, ZoneOffset.UTC));
     }
 
     private static AgentTask task()

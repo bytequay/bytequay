@@ -107,7 +107,7 @@ class TestPullRequestRefreshControllers
         return new PullRequest(
                 id, "trinodb/trino", (int) id, "Review this", "alice", "https://github.com/trinodb/trino/pull/" + id,
                 NOW, NOW, PullRequest.Origin.REVIEW_REQUESTED, ImmutableList.of(), ImmutableMap.of(), false,
-                null, null, null, ImmutableList.of("viewer"), null, 0, 0, 0, null, "open", null, null,
+                null, null, null, ImmutableList.of("viewer"), null, 0, 0, 0, "open", null, null,
                 null, null, null, "feature", null, null, null, null);
     }
 

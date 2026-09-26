@@ -157,7 +157,7 @@ class TestBranchRebaseService
                 GIT,
                 Clock.fixed(NOW, ZoneOffset.UTC),
                 new DevelopmentCiOwnership(ciRuns, mock(AgentTaskStore.class), mock(AgentTurnStore.class), mock(AgentEventService.class),
-                        new AgentRuntimeRegistry(), Clock.fixed(NOW, ZoneOffset.UTC)));
+                        new AgentRuntimeRegistry(ignored -> {}), Clock.fixed(NOW, ZoneOffset.UTC)));
     }
 
     @Test
@@ -166,7 +166,7 @@ class TestBranchRebaseService
         Tips tips = cleanDivergence();
         BranchRebase started = service.start(command("owned-rebase"));
         CiAutofixRun owner = CiAutofixRun.create(CiAutofixRunId.random(), "owned-ci",
-                new CiAutofixRun.Scope(PullRequestRef.of("trinodb", "trino", 1), RepoRef.of("trinodb", "trino"), "workspace-1", Optional.of(RepoRef.of("trinodb", "trino")),
+                new CiAutofixRun.Scope(PullRequestRef.of("trinodb", "trino", 1), RepoRef.of("trinodb", "trino"), "workspace-1", RepoRef.of("trinodb", "trino"),
                         "author", workBranch(), "main", "claude-cli", Optional.of("parent")),
                 tips.original(), tips.original(), tips.base(),
                 new CiAutofixRun.Authorization(true, true, true, 3, NOW, NOW.plusSeconds(8 * 3600)), NOW).assignAgentTask(taskId.toString(), NOW);
@@ -616,7 +616,8 @@ class TestBranchRebaseService
                 taskWorktree,
                 head(),
                 !status.isBlank(),
-                false);
+                false,
+                !status.isBlank());
     }
 
     private String workBranch()

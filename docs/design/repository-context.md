@@ -2827,7 +2827,7 @@ public class ContextBuildService
 ContextBuildCoordinator subscribes to the existing task event stream. Startup
 restores observation and reconciles retained requests only. Purpose comes from
 ContextBuildStore.findByTask, resolved through the task's workspace and current
-binding. ReviewBridgeResolver attaches the fixed learning tools and trusted
+binding. ReviewBridgeResolverImpl attaches the fixed learning tools and trusted
 research policy to that identity, with the existing restricted/no-child profile
 and Global-only user skills. Interactive development ownership, delivery tools,
 PR reporting and publication are not inferred from AUTO or the task title.

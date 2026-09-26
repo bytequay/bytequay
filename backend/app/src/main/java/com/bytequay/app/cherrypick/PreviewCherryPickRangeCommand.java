@@ -16,7 +16,6 @@ package com.bytequay.app.cherrypick;
 import com.bytequay.core.cherrypick.CherryPickInvalidRequestException;
 
 import java.nio.file.Path;
-import java.util.Optional;
 import java.util.OptionalLong;
 
 import static java.util.Objects.requireNonNull;
@@ -28,7 +27,7 @@ import static java.util.Objects.requireNonNull;
  * user names neither.
  *
  * @param repository local clone to read
- * @param workspaceId durable workspace that owns the managed clone, when applicable
+ * @param workspaceId durable workspace that owns the managed clone
  * @param sourceRepositoryId stable provider ID resolved for the source remote, when known
  * @param sourceRemote remote holding the source range
  * @param sourceBaseRef exclusive start of the range
@@ -38,7 +37,7 @@ import static java.util.Objects.requireNonNull;
  */
 public record PreviewCherryPickRangeCommand(
         Path repository,
-        Optional<String> workspaceId,
+        String workspaceId,
         OptionalLong sourceRepositoryId,
         String sourceRemote,
         String sourceBaseRef,
@@ -55,9 +54,8 @@ public record PreviewCherryPickRangeCommand(
             throw new CherryPickInvalidRequestException("repository path is not absolute");
         }
         repository = repository.normalize();
-        requireNonNull(workspaceId, "workspaceId is null");
+        checkRef(workspaceId, "workspaceId");
         requireNonNull(sourceRepositoryId, "sourceRepositoryId is null");
-        workspaceId.ifPresent(value -> checkRef(value, "workspaceId"));
         if (sourceRepositoryId.isPresent() && sourceRepositoryId.orElseThrow() <= 0) {
             throw new CherryPickInvalidRequestException("sourceRepositoryId is not positive");
         }

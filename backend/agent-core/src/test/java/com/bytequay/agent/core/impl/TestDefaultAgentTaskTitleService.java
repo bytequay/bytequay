@@ -118,7 +118,7 @@ class TestDefaultAgentTaskTitleService
     void failedNamingLeavesTheCallerToChooseAFallback()
     {
         when(turn.completion()).thenReturn(CompletableFuture.completedFuture(new AgentTurnResult(
-                AgentTurnResult.State.FAILED, Optional.empty(), Optional.of("unavailable"), Duration.ZERO)));
+                AgentTurnResult.State.FAILED, Optional.empty(), Optional.of("unavailable"), Duration.ZERO, true)));
         assertThat(service.generate(AgentLaneId.CODEX_CLI, DEFAULTS, "Fix samples")).isEmpty();
         verify(session).close();
         verify(resources).delete(any());
@@ -145,6 +145,6 @@ class TestDefaultAgentTaskTitleService
     private void complete(String response)
     {
         when(turn.completion()).thenReturn(CompletableFuture.completedFuture(new AgentTurnResult(
-                AgentTurnResult.State.COMPLETED, Optional.of(response), Optional.empty(), Duration.ZERO)));
+                AgentTurnResult.State.COMPLETED, Optional.of(response), Optional.empty(), Duration.ZERO, true)));
     }
 }

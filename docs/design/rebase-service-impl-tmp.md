@@ -56,7 +56,6 @@ Checkpoint gate:
 - [x] Persist `START` before Git and recover both its before and after states.
 - [x] Accept completion only on the exact work branch, clean, with the frozen
   base as an ancestor.
-- [x] Call the explicit successful no-op validation hook once at final HEAD.
 - [x] Test fast path, clean rebase, already-upstream work, invalid inputs, and
   crash recovery after Git completes but before the result save.
 

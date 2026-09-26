@@ -1608,7 +1608,6 @@ function pullRequest(): PullRequestDto {
     additions: 10,
     deletions: 2,
     commentCount: 2,
-    attentionReason: null,
     state: 'open',
     mergeable: true,
     mergeableState: 'clean',

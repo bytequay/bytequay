@@ -218,10 +218,10 @@ public class CredentialService
 
     public synchronized String importGitHubCliToken()
     {
-        GhCliService.CliCredential credential = ghCli.readCredential();
-        UserProfile profile = gitHubAccount.fetchUserProfile(credential.token());
-        credentialStore.save(credential.token(), GITHUB_CLI_SOURCE);
-        cachedGitHubCredential = new GitHubCredential(credential.token(), profile);
+        String token = ghCli.readToken();
+        UserProfile profile = gitHubAccount.fetchUserProfile(token);
+        credentialStore.save(token, GITHUB_CLI_SOURCE);
+        cachedGitHubCredential = new GitHubCredential(token, profile);
         return profile.login();
     }
 

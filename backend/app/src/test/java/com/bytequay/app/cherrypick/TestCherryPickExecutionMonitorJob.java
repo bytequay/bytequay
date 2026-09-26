@@ -164,9 +164,9 @@ class TestCherryPickExecutionMonitorJob
                         executionId,
                         "idempotency-key",
                         new Workspace(
-                                Optional.of("workspace-id"),
+                                "workspace-id",
                                 RepoRef.of("bytequay", "sample"),
-                                Optional.empty(),
+                                RepoRef.of("bytequay", "sample"),
                                 "origin",
                                 "origin",
                                 "main",

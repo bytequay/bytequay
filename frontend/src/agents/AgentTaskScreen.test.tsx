@@ -44,7 +44,6 @@ const events = parseAgentEventSequence(fixture.events);
 
 const CAPABILITIES: AgentCapabilitiesDto = {
   ...NO_AGENT_CAPABILITIES,
-  partialAssistantText: true,
   structuredPlans: true,
   nestedAgentActivity: true,
   steering: true,
@@ -523,7 +522,6 @@ function pullRequest(number: number, title: string, state = 'open', draft = fals
     additions: 0,
     deletions: 0,
     commentCount: 0,
-    attentionReason: null,
     state,
     mergeable: null,
     mergeableState: null,

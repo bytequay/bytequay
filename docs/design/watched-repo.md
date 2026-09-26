@@ -374,10 +374,10 @@ public interface WorkspaceRepositoryService
      * Loads workspace home data, including routing and independent sync states.
      *
      * @param workspaceId ByteQuay workspace ID
-     * @return workspace details suitable for Workspace Home
+     * @return workspace summary suitable for Workspace Home
      * @throws WorkspaceNotFoundException if the workspace does not exist
      */
-    WorkspaceDetails getWorkspace(String workspaceId);
+    WorkspaceSummary getWorkspace(String workspaceId);
 
     /**
      * Resolves the trusted repository path and routing for a code operation.
@@ -438,21 +438,12 @@ package com.bytequay.app.workspace;
 public interface WorkspaceProvisioningService
 {
     /**
-     * Creates or recovers the managed checkout for a saved workspace.
-     *
-     * <p>The operation clones the selected repository as {@code origin}; when an upstream
-     * repository is selected it also configures and fetches {@code upstream}. A failure leaves the
-     * last successful synchronization timestamp unchanged and never deletes an unknown directory.</p>
-     *
-     * @param workspaceId saved workspace to provision
-     * @return the final provisioning result
-     */
-    WorkspaceProvisioningResult provision(String workspaceId);
-
-    /**
      * Creates the managed checkout when needed, otherwise fetches and prunes the configured remotes.
      *
-     * <p>This operation never resets a branch, discards local changes, rebases,
+     * <p>Creating clones the selected repository as {@code origin}; when an upstream repository is
+     * selected it also configures and fetches {@code upstream}. A failure leaves the last
+     * successful synchronization timestamp unchanged and never deletes an unknown directory.
+     * This operation never resets a branch, discards local changes, rebases,
      * force-pushes, or changes the selected pull-request base.</p>
      *
      * @param workspaceId saved workspace to synchronize
@@ -678,7 +669,6 @@ GET    /api/workspaces/{workspaceId}/git/branches
 GET    /api/workspaces/{workspaceId}/git/commits
 GET    /api/workspaces/{workspaceId}/git/diff
 GET    /api/workspaces/{workspaceId}/git/status
-POST   /api/workspaces/{workspaceId}/git/fetch
 POST   /api/workspaces/{workspaceId}/git/commit
 POST   /api/workspaces/{workspaceId}/git/reword
 POST   /api/workspaces/{workspaceId}/git/squash

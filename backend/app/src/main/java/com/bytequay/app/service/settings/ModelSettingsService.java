@@ -67,10 +67,6 @@ public class ModelSettingsService
     private static final Logger log = LoggerFactory.getLogger(ModelSettingsService.class);
 
     private static final String AGENT_MODEL_PREFIX = "model.agent.";
-    /** Read once by {@link #migrateLegacyMainModel()} and then deleted; nothing else consults it. */
-    private static final String LEGACY_MAIN_KEY = "model.main";
-    /** Read by the migration and by a lane's displayed default; nothing writes it since agent types replaced it. */
-    private static final String SELECTION_PREFIX = "model.selection.";
     private static final String CATALOG_PREFIX = "model.catalog.";
     private static final String API_KEY_ID_PREFIX = "key:";
     private static final String DEEPSEEK_LANE_PREFIX = "deepseek-key-";
@@ -295,28 +291,6 @@ public class ModelSettingsService
         return agentModel(type);
     }
 
-    /**
-     * Moves a pre-agent-type {@code model.main} into the Development value and
-     * removes it. Review is deliberately left absent so it starts out
-     * inheriting. Runs once at startup; a second call is a no-op.
-     */
-    public void migrateLegacyMainModel()
-    {
-        Optional<String> legacy = settings.get(LEGACY_MAIN_KEY);
-        if (legacy.isEmpty()) {
-            return;
-        }
-        String configId = legacy.orElseThrow();
-        if (settings.get(AGENT_MODEL_PREFIX + AgentModelType.DEVELOPMENT.name()).isEmpty()) {
-            catalog(configId)
-                    .map(catalog -> selection(configId, catalog))
-                    .ifPresent(selection -> writeJson(
-                            AGENT_MODEL_PREFIX + AgentModelType.DEVELOPMENT.name(),
-                            new StoredOverride(configId, selection.model(), selection.effort())));
-        }
-        settings.delete(LEGACY_MAIN_KEY);
-    }
-
     public ModelSettings addApiKey(String provider, String alias, String secret)
     {
         if (!KEY_PROVIDER_MODELS.containsKey(requireNonNull(provider, "provider is null"))) {
@@ -336,9 +310,7 @@ public class ModelSettingsService
 
     public ModelSettings removeApiKey(String alias)
     {
-        String id = API_KEY_ID_PREFIX + requireNonNull(alias, "alias is null");
-        apiKeys.delete(alias);
-        settings.delete(SELECTION_PREFIX + id);
+        apiKeys.delete(requireNonNull(alias, "alias is null"));
         return get();
     }
 
@@ -385,7 +357,7 @@ public class ModelSettingsService
     {
         String laneId = defaultLaneId();
         Catalog catalog = cliCatalog(laneId).orElseGet(() -> new Catalog(laneLabel(laneId), ImmutableList.of(), ""));
-        Selection selection = selection(laneId, catalog);
+        Selection selection = defaultSelection(catalog);
         return new AgentModelSetting(
                 type,
                 false,
@@ -453,7 +425,7 @@ public class ModelSettingsService
         String id = status.laneId().value();
         Catalog catalog = cliCatalog(id)
                 .orElseGet(() -> new Catalog(laneLabel(id), ImmutableList.of(), ""));
-        Selection selection = selection(id, catalog);
+        Selection selection = defaultSelection(catalog);
         return new Provider(
                 id,
                 catalog.label(),
@@ -471,7 +443,7 @@ public class ModelSettingsService
     {
         String id = API_KEY_ID_PREFIX + key.alias();
         List<String> models = KEY_PROVIDER_MODELS.getOrDefault(key.provider(), ImmutableList.of());
-        Selection selection = selection(id, catalog(id).orElseThrow());
+        Selection selection = defaultSelection(catalog(id).orElseThrow());
         return new ApiKey(
                 id,
                 key.alias(),
@@ -482,22 +454,11 @@ public class ModelSettingsService
                 selection.model());
     }
 
-    private Selection selection(String configId, Catalog catalog)
+    private static Selection defaultSelection(Catalog catalog)
     {
-        Optional<Selection> stored = settings.get(SELECTION_PREFIX + configId)
-                .flatMap(value -> readJson(value, Selection.class))
-                .filter(value -> catalog.model(value.model()).isPresent());
-        if (stored.isEmpty()) {
-            return new Selection(
-                    catalog.defaultModelId(),
-                    catalog.model(catalog.defaultModelId()).map(ModelOption::defaultEffort).orElse(null));
-        }
-        Selection selection = stored.orElseThrow();
-        ModelOption model = catalog.model(selection.model()).orElseThrow();
-        String effort = selection.effort() != null && model.efforts().contains(selection.effort())
-                ? selection.effort()
-                : model.defaultEffort();
-        return new Selection(selection.model(), effort);
+        return new Selection(
+                catalog.defaultModelId(),
+                catalog.model(catalog.defaultModelId()).map(ModelOption::defaultEffort).orElse(null));
     }
 
     private Catalog requireCatalog(String configId)

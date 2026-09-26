@@ -53,8 +53,8 @@ public class GhCliService
      *  enough that one dashboard refresh reads the keychain once. */
     private static final Duration TOKEN_TTL = Duration.ofMinutes(5);
 
-    /** {@code gh auth token} reads the keychain; {@code gh api user} makes one
-     *  HTTP call. 20 s covers a slow keychain prompt without hanging a click. */
+    /** {@code gh auth token} reads the keychain; 20 s covers a slow keychain
+     *  prompt without hanging a click. */
     private static final Duration TIMEOUT = Duration.ofSeconds(20);
     private static final int MAX_OUTPUT_BYTES = 8 * 1024;
 
@@ -87,29 +87,28 @@ public class GhCliService
     }
 
     /**
-     * Reads {@code gh}'s current token and login. Throws 503 when {@code gh}
+     * Reads {@code gh}'s current token. Throws 503 when {@code gh}
      * isn't installed, or 502 when it is installed but not logged in.
      */
-    public CliCredential readCredential()
+    public String readToken()
     {
-        return readCredential(findBinary().orElseThrow(() -> new ResponseStatusException(
+        return readToken(findBinary().orElseThrow(() -> new ResponseStatusException(
                 HttpStatusCode.valueOf(503),
                 "The GitHub CLI (gh) isn't installed, or isn't in a location ByteQuay looks in "
                         + "(/opt/homebrew/bin, /usr/local/bin, or PATH).")));
     }
 
     /** Binary-path seam so the read is testable without a real gh on disk. */
-    CliCredential readCredential(String gh)
+    String readToken(String gh)
     {
         String token = run(ImmutableList.of(gh, "auth", "token"));
-        String login = run(ImmutableList.of(gh, "api", "user", "--jq", ".login"));
         cached.set(new CachedToken(token, Instant.now()));
-        return new CliCredential(token, login);
+        return token;
     }
 
     /**
      * gh's current token, or empty when gh is missing / logged out. Unlike
-     * {@link #readCredential()} this never throws — it backs the resolution
+     * {@link #readToken()} this never throws — it backs the resolution
      * fallback, where a dead gh should degrade to the stored copy rather
      * than fail the request.
      *
@@ -121,7 +120,7 @@ public class GhCliService
         return findBinary().flatMap(this::currentToken);
     }
 
-    /** Binary-path seam, as {@link #readCredential(String)}. */
+    /** Binary-path seam, as {@link #readToken(String)}. */
     Optional<String> currentToken(String gh)
     {
         CachedToken hit = cached.get();
@@ -174,8 +173,6 @@ public class GhCliService
         }
         return output;
     }
-
-    public record CliCredential(String token, String login) {}
 
     private record CachedToken(String token, Instant readAt) {}
 }

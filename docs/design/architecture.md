@@ -172,7 +172,7 @@ Selected merged-PR/closed-issue references add optional history. Opening the app
 workspace or settings, startup recovery and source synchronization never start
 or resume learning; there is no background learning scheduler.
 ContextBuildStore keeps the latest accepted task/source binding in existing
-settings, separately from notebook content. ReviewBridgeResolver selects its
+settings, separately from notebook content. ReviewBridgeResolverImpl selects its
 fixed context tools and restricted profile from that binding, never from prompt
 text or a synthetic review. Shared preparation retains mandatory task/turn
 ownership with review/run IDs either both present or both absent. Existing task

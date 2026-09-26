@@ -75,7 +75,7 @@ development task identities:
 | CI Autofix, including its borrowed rebase task | Included |
 | Cherry-pick conflict resolution | Included |
 | PR review, discussion, or report repair | Excluded |
-| Title generation and Better Words, including API requests | Excluded |
+| Title generation and Better Words | Excluded |
 
 After excluding open review-owned tasks, the inclusion rule is positive: an
 interactive task, `CI_AUTOFIX`, or `CHERRY_PICK` permission policy. Other
@@ -229,8 +229,8 @@ wiring; title helpers retain the no-argument `Supplier<String>` resolver.
 This is independent of the optional CodeGraph/review tool registration.
 
 The existing Better Words helper resolves current Global skills for every
-request, including its CLI session and OpenAI/DeepSeek API instructions. Its required
-rewrite-only format remains part of the composed task instruction.
+request and passes them to its text-only session on the Development lane. Its
+required rewrite-only format remains part of the composed task instruction.
 
 Codex composes system guidance and applicable enabled user skills with review/CodeGraph guidance in
 `developerInstructions` on both `thread/start` and `thread/resume`, explicitly

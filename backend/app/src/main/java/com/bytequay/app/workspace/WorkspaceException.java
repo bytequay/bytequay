@@ -13,7 +13,11 @@
  */
 package com.bytequay.app.workspace;
 
+import com.bytequay.core.domain.Workspace;
+import com.bytequay.core.store.WorkspaceStore;
 import org.springframework.http.HttpStatus;
+
+import static java.util.Objects.requireNonNull;
 
 public final class WorkspaceException
         extends RuntimeException
@@ -28,6 +32,12 @@ public final class WorkspaceException
         this.code = code;
         this.status = status;
         this.retryable = retryable;
+    }
+
+    public static Workspace requireWorkspace(WorkspaceStore workspaces, String workspaceId)
+    {
+        requireNonNull(workspaceId, "workspaceId is null");
+        return workspaces.findById(workspaceId).orElseThrow(() -> notFound(workspaceId));
     }
 
     public static WorkspaceException notFound(String workspaceId)

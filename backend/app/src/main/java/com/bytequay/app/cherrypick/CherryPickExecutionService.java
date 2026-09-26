@@ -32,7 +32,6 @@ import com.bytequay.agent.core.TurnState;
 import com.bytequay.agent.spi.AgentDriverRegistry;
 import com.bytequay.agent.spi.AgentLaneId;
 import com.bytequay.agent.spi.AgentPermissionPolicy;
-import com.bytequay.app.agent.WorkflowAgentTasks;
 import com.bytequay.app.git.GitCommandRunner;
 import com.bytequay.app.git.GitSequencerDriver;
 import com.bytequay.app.git.SequenceState;
@@ -198,9 +197,9 @@ public class CherryPickExecutionService
                 CherryPickExecutionId.random(),
                 command.idempotencyKey(),
                 new Workspace(
-                        Optional.of(workspaceId),
+                        workspaceId,
                         preview.repository(),
-                        Optional.of(RepoRef.of(physicalRepository.owner(), physicalRepository.name())),
+                        RepoRef.of(physicalRepository.owner(), physicalRepository.name()),
                         preview.sourceRemote(),
                         preview.targetRemote(),
                         preview.targetBranch(),
@@ -454,14 +453,10 @@ public class CherryPickExecutionService
             }
             applied = Optional.of(commit);
         }
-        if (applied.isPresent() && !sequencer.withoutConflictMarkers(worktree, expectedHead, after.head())) {
+        if (applied.isPresent() && !git.withoutConflictMarkers(worktree, expectedHead, after.head())) {
             return pause(execution, PauseReason.UNSAFE_GIT_STATE,
                     "A created commit still contains a conflict marker");
         }
-        if (applied.isPresent() && execution.pendingItems().getFirst().agentTurnCount() > 0) {
-            validate(worktree, after.head());
-        }
-
         CherryPickExecution updated = applied
                 .map(commit -> store.save(execution.recordApplied(
                         commit.sourceSha().orElseThrow(), commit.targetSha(), clock.instant())))
@@ -525,10 +520,7 @@ public class CherryPickExecutionService
         if (!git.run(worktree, "ls-files", "-u").output().isBlank()) {
             return true;
         }
-        return git.gitPaths(worktree, ImmutableList.of(
-                        "CHERRY_PICK_HEAD", "MERGE_HEAD", "REVERT_HEAD", "rebase-merge", "rebase-apply"))
-                .stream()
-                .anyMatch(java.nio.file.Files::exists);
+        return !git.openMarkers(worktree, GitCommandRunner.OPERATION_MARKERS).isEmpty();
     }
 
     private static Optional<String> originSha(String message)
@@ -581,9 +573,7 @@ public class CherryPickExecutionService
     private void requireNoLiveExecution(CherryPickPreview preview, String workspaceId)
     {
         boolean live = store.listRunning(CherryPickExecutionStore.MAX_LIST_LIMIT).stream()
-                .anyMatch(execution -> execution.workspace().workspaceId()
-                        .map(workspaceId::equals)
-                        .orElseGet(() -> execution.workspace().repository().equals(preview.repository()))
+                .anyMatch(execution -> execution.workspace().workspaceId().equals(workspaceId)
                         && execution.workspace().localTargetBranch().equals(preview.localTargetBranch()));
         if (live) {
             throw new CherryPickConflictException(
@@ -591,9 +581,9 @@ public class CherryPickExecutionService
         }
     }
 
-    private static void requireWorkspace(Optional<String> actualWorkspaceId, String expectedWorkspaceId)
+    private static void requireWorkspace(String actualWorkspaceId, String expectedWorkspaceId)
     {
-        if (actualWorkspaceId.filter(expectedWorkspaceId::equals).isEmpty()) {
+        if (!actualWorkspaceId.equals(expectedWorkspaceId)) {
             throw new CherryPickInvalidRequestException("Cherry-pick data does not belong to this workspace");
         }
     }
@@ -794,13 +784,12 @@ public class CherryPickExecutionService
         }
         String originalHead = parentOf(worktree, conflictCommit);
         if (!sequencer.cleanAndResolved(worktree)
-                || !sequencer.withoutConflictMarkers(worktree, originalHead, fixupCommit)) {
+                || !git.withoutConflictMarkers(worktree, originalHead, fixupCommit)) {
             return store.save(execution.withJournal(journal(
                     ActionType.AGENT_REPAIR,
                     journal.sourceSha(),
                     fixupCommit), clock.instant()));
         }
-        validate(worktree, fixupCommit);
         return store.save(execution.withJournal(journal(
                 ActionType.FINALIZE_CONFLICT_PAIR,
                 journal.sourceSha(),
@@ -876,11 +865,6 @@ public class CherryPickExecutionService
                 .collect(toImmutableList());
     }
 
-    private static void validate(Path worktree, String targetSha)
-    {
-        // ponytail: successful no-op until a user-approved project validation command exists.
-    }
-
     private static CherryPickItem itemOf(CherryPickExecution execution, String sourceSha)
     {
         return execution.items().stream()
@@ -935,43 +919,26 @@ public class CherryPickExecutionService
     private AgentTask ensureAgentTask(CherryPickExecution execution, AgentTaskDefaults defaults)
     {
         TaskId taskId = TaskId.valueOf(execution.agentTaskId().orElseThrow());
-        String workspaceId = requireWorkspaceId(execution);
+        String workspaceId = execution.workspace().workspaceId();
         RepositoryIdentity selectedRepository = repositoryIdentity(
                 workspaceRepositories.requireReadyRepository(workspaceId).selectedRepository());
+        RepositoryIdentity repository = repositoryIdentity(execution.workspace().physicalRepository());
+        requireSelectedRepository(selectedRepository, repository, CherryPickConflictException::new);
         AgentTask task;
-        RepositoryIdentity repository;
         try {
             task = tasks.get(taskId);
-            repository = frozenRepository(execution).orElse(task.repository());
         }
         catch (AgentTaskNotFoundException ignored) {
-            repository = frozenRepository(execution).orElseThrow(() -> new CherryPickConflictException(
-                    "Legacy cherry-pick execution has no frozen physical repository"));
-            requireSelectedRepository(selectedRepository, repository, CherryPickConflictException::new);
-            RepositoryIdentity created = repository;
             task = createOrGet(tasks, taskId, () -> agentTask(
                     taskId,
                     workspaceId,
                     new AgentLaneId(execution.workspace().laneId()),
-                    created,
+                    repository,
                     execution.range().initialTargetSha(),
                     execution.workspace().workBranch(),
                     defaults));
-            return requireAgentTask(execution, task, repository);
         }
-        requireSelectedRepository(selectedRepository, repository, CherryPickConflictException::new);
         return requireAgentTask(execution, task, repository);
-    }
-
-    private static Optional<RepositoryIdentity> frozenRepository(CherryPickExecution execution)
-    {
-        return execution.workspace().physicalRepository().map(WorkflowAgentTasks::repositoryIdentity);
-    }
-
-    private static String requireWorkspaceId(CherryPickExecution execution)
-    {
-        return execution.workspace().workspaceId().orElseThrow(() ->
-                new CherryPickConflictException("Cherry-pick execution has no managed workspace"));
     }
 
     private static AgentTask requireAgentTask(
@@ -980,7 +947,7 @@ public class CherryPickExecutionService
             RepositoryIdentity repository)
     {
         TaskId taskId = TaskId.valueOf(execution.agentTaskId().orElseThrow());
-        String workspaceId = requireWorkspaceId(execution);
+        String workspaceId = execution.workspace().workspaceId();
         TaskWorktree worktree = task.taskWorktree().orElseThrow(() ->
                 new CherryPickConflictException("Cherry-pick agent task has no managed worktree"));
         if (!task.id().equals(taskId)
@@ -1058,7 +1025,7 @@ public class CherryPickExecutionService
                     "The work branch holds " + (created.size() - createdIndex)
                             + " unrecorded commit(s)");
         }
-        if (!sequencer.withoutConflictMarkers(worktree, execution.range().initialTargetSha(), state.head())) {
+        if (!git.withoutConflictMarkers(worktree, execution.range().initialTargetSha(), state.head())) {
             return pause(execution, PauseReason.UNSAFE_GIT_STATE,
                     "A created commit still contains a conflict marker");
         }
@@ -1066,30 +1033,10 @@ public class CherryPickExecutionService
         CherryPickExecution settled = execution.journal().isPresent()
                 ? store.save(execution.withoutJournal(clock.instant()))
                 : execution;
-        CherryPickExecution reviewed = store.save(settled.withRangeReview(rangeReview(settled, state.head()),
-                clock.instant()));
-        completeAgentTask(reviewed);
-        CherryPickExecution finished = store.save(reviewed.finish(FinishReason.COMPLETED, summary(reviewed), clock.instant()));
+        completeAgentTask(settled);
+        CherryPickExecution finished = store.save(settled.finish(FinishReason.COMPLETED, summary(settled), clock.instant()));
         cleanupAgentTask(finished);
         return finished;
-    }
-
-    private CherryPickExecution.RangeReview rangeReview(CherryPickExecution execution, String currentTargetSha)
-    {
-        GitCommandRunner.Result result = git.run(
-                execution.workspace().worktree(),
-                "range-diff",
-                execution.range().sourceBaseSha() + ".." + execution.range().sourceTipSha(),
-                execution.range().initialTargetSha() + ".." + currentTargetSha);
-        String output = result.successful() ? result.output() : "Range review unavailable: " + result.output();
-        boolean truncated = result.truncated()
-                || output.length() > CherryPickExecution.RangeReview.MAX_OUTPUT_CHARACTERS;
-        return new CherryPickExecution.RangeReview(
-                truncated
-                        ? output.substring(0, Math.min(
-                                output.length(), CherryPickExecution.RangeReview.MAX_OUTPUT_CHARACTERS))
-                        : output,
-                truncated);
     }
 
     private void completeAgentTask(CherryPickExecution execution)

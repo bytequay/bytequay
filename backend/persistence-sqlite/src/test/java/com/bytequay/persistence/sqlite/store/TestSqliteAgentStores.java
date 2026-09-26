@@ -190,7 +190,8 @@ class TestSqliteAgentStores
                 "finished",
                 Optional.of(snapshot),
                 metrics,
-                Optional.of("reviewed"));
+                Optional.of("reviewed"),
+                ImmutableList.of());
         AgentTask task = AgentTask.created(
                         taskId,
                         true,
@@ -244,7 +245,6 @@ class TestSqliteAgentStores
         Instant terminalAt = now.minus(Duration.ofDays(8));
         AgentTask retryPending = managedTask(terminalAt.minusSeconds(1))
                 .fail("failed", terminalAt, terminalAt.plus(Duration.ofDays(7)))
-                .withCleanupState(CleanupState.DELETE_DUE, Optional.empty(), now.minusSeconds(30))
                 .withCleanupState(CleanupState.RETRY_PENDING, Optional.of("still dirty"), now.minusSeconds(30));
         AgentTask due = managedTask(terminalAt)
                 .fail("failed", terminalAt.plusSeconds(1), terminalAt.plus(Duration.ofDays(7)).plusSeconds(1));
@@ -352,7 +352,8 @@ class TestSqliteAgentStores
                 "finished",
                 Optional.empty(),
                 AgentMetrics.empty(),
-                Optional.empty());
+                Optional.empty(),
+                ImmutableList.of());
         AgentTask task = newTask(now).complete(
                 summary,
                 now.plusSeconds(1),
@@ -424,7 +425,6 @@ class TestSqliteAgentStores
         RepositoryIdentity repository = new RepositoryIdentity("bytequay", "sample");
         AgentTask first = completedTask(TaskId.valueOf("00000000-0000-0000-0000-000000000001"), "workspace-a", true, repository, now)
                 .withArchived(true, now)
-                .withCleanupState(CleanupState.DELETE_DUE, Optional.empty(), now)
                 .withCleanupState(CleanupState.DELETED, Optional.empty(), now);
         AgentTask second = completedTask(TaskId.valueOf("00000000-0000-0000-0000-000000000002"), "workspace-a", true, repository, now);
         AgentTask newest = completedTask(TaskId.random(), "workspace-a", true, repository, now.plusSeconds(1));
@@ -688,7 +688,7 @@ class TestSqliteAgentStores
                 EventId.random(), task.id(), Optional.empty(), AgentEventPayload.LifecyclePhase.TURN_STARTED, "started", now);
         AgentEventOutboxEntry development = AgentEventOutboxEntry.pendingInline(
                 EventId.random(), task.id(), Optional.empty(), root(),
-                new AgentEventPayload.DevelopmentResult(false, Optional.of("Which implementation should I use?")), now);
+                new AgentEventPayload.DevelopmentResult(false, Optional.of("Which implementation should I use?"), Optional.empty()), now);
 
         outboxStore.insert(lifecycle);
         outboxStore.insert(development);
@@ -979,7 +979,7 @@ class TestSqliteAgentStores
         RecordingDriver firstProcess = new RecordingDriver();
         DefaultAgentTurnService beforeRestart = turnService(
                 firstProcess,
-                new AgentRuntimeRegistry(),
+                new AgentRuntimeRegistry(ignored -> {}),
                 new DefaultAgentEventService(logs, outboxStore, taskStore, clock),
                 logs,
                 resources,
@@ -994,7 +994,7 @@ class TestSqliteAgentStores
         entityManager.flush();
         entityManager.clear();
 
-        AgentRuntimeRegistry restartedRuntime = new AgentRuntimeRegistry();
+        AgentRuntimeRegistry restartedRuntime = new AgentRuntimeRegistry(ignored -> {});
         AgentMaintenance maintenance = new AgentMaintenance(
                 taskStore,
                 turnStore,
@@ -1174,7 +1174,8 @@ class TestSqliteAgentStores
     {
         return AgentTask.created(id, Optional.of(workspaceId), interactive, "Task conclusion", AgentLaneId.CODEX_CLI, repository,
                         Path.of("/tmp/bytequay-worktree"), AgentPermissionPolicy.AUTO, now)
-                .complete(new TaskSummary("Retained agent conclusion", Optional.empty(), AgentMetrics.empty(), Optional.empty()), now, now.plus(Duration.ofDays(7)));
+                .complete(new TaskSummary("Retained agent conclusion", Optional.empty(), AgentMetrics.empty(), Optional.empty(),
+                        ImmutableList.of()), now, now.plus(Duration.ofDays(7)));
     }
 
     private static AgentTurnSettings turnSettings()
@@ -1185,7 +1186,8 @@ class TestSqliteAgentStores
                 AgentPermissionPolicy.AUTO,
                 Duration.ofMinutes(5),
                 ImmutableList.of(new AgentAttachmentReference("attachment-1", "image.png", "image/png")),
-                Optional.of("priority"));
+                Optional.of("priority"),
+                Optional.empty());
     }
 
     /** These store tests never touch the graph; the turn service only needs a service that reports itself unavailable. */
@@ -1233,13 +1235,6 @@ class TestSqliteAgentStores
             implements AgentDriver
     {
         private static final AgentCapabilities CAPABILITIES = new AgentCapabilities(
-                true,
-                false,
-                false,
-                false,
-                false,
-                false,
-                false,
                 false,
                 false,
                 false,
@@ -1310,7 +1305,8 @@ class TestSqliteAgentStores
                                     AgentTurnResult.State.CANCELLED,
                                     Optional.empty(),
                                     Optional.of("cancelled"),
-                                    Duration.ZERO));
+                                    Duration.ZERO,
+                                    true));
                         }
                     };
                 }
@@ -1329,7 +1325,8 @@ class TestSqliteAgentStores
                     AgentTurnResult.State.COMPLETED,
                     Optional.of("done"),
                     Optional.empty(),
-                    Duration.ZERO));
+                    Duration.ZERO,
+                    true));
         }
 
         private synchronized List<AgentTurnCommand> commands()

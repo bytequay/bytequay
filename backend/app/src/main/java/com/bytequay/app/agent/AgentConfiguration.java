@@ -58,12 +58,13 @@ import com.bytequay.agent.core.store.TaskLogStore;
 import com.bytequay.agent.spi.AgentDriver;
 import com.bytequay.agent.spi.AgentDriverRegistry;
 import com.bytequay.agent.spi.AgentLaneId;
-import com.bytequay.agent.spi.DevelopmentResultBridgeResolver;
-import com.bytequay.agent.spi.IssueContextBridgeResolver;
-import com.bytequay.agent.spi.LocalReviewBridgeResolver;
-import com.bytequay.agent.spi.PullRequestCiBridgeResolver;
-import com.bytequay.agent.spi.RepositoryContextBridgeResolver;
-import com.bytequay.agent.spi.ReviewBridgeResolver;
+import com.bytequay.agent.spi.BridgeResolver;
+import com.bytequay.agent.spi.DevelopmentResultBridge;
+import com.bytequay.agent.spi.IssueContextBridge;
+import com.bytequay.agent.spi.LocalReviewBridge;
+import com.bytequay.agent.spi.PullRequestCiBridge;
+import com.bytequay.agent.spi.RepositoryContextBridge;
+import com.bytequay.agent.spi.ReviewBridge;
 import com.bytequay.app.agent.codegraph.CodeGraphBaseline;
 import com.bytequay.app.agent.codegraph.CodeGraphCli;
 import com.bytequay.app.agent.codegraph.CodeGraphProperties;
@@ -142,12 +143,12 @@ public class AgentConfiguration
             ObjectMapper objectMapper,
             ApplicationContext context,
             CiMemoryService ciMemoryService,
-            ReviewBridgeResolver reviews,
-            DevelopmentResultBridgeResolver developmentResults,
-            LocalReviewBridgeResolver localReviews,
-            PullRequestCiBridgeResolver pullRequestChecks,
-            IssueContextBridgeResolver issueContexts,
-            RepositoryContextBridgeResolver repositoryContext,
+            BridgeResolver<ReviewBridge> reviews,
+            BridgeResolver<DevelopmentResultBridge> developmentResults,
+            BridgeResolver<LocalReviewBridge> localReviews,
+            BridgeResolver<PullRequestCiBridge> pullRequestChecks,
+            BridgeResolver<IssueContextBridge> issueContexts,
+            BridgeResolver<RepositoryContextBridge> repositoryContext,
             ObjectProvider<DevelopmentFollowupCoordinator> developmentFollowups)
     {
         return new PermissionBroker(

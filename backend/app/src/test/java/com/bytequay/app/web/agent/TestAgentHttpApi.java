@@ -918,10 +918,14 @@ class TestAgentHttpApi
         ApprovalRequest request = new ApprovalRequest(
                 ApprovalId.random(), TaskId.valueOf(ownerTaskId), TurnId.valueOf(turnId),
                 new ProviderApprovalRequest(
-                        "http-approval", ProviderApprovalRequest.Kind.COMMAND, "Run command", "git status",
-                        ImmutableList.of("command:git status"), ImmutableList.of(ProviderApprovalRequest.Decision.DENY),
+                        ProviderApprovalRequest.Kind.COMMAND,
+                        "Run command",
+                        "git status",
+                        ImmutableList.of("command:git status"),
+                        ImmutableList.of(ProviderApprovalRequest.Decision.DENY),
                         new ProviderAgentEventSource(Optional.of("child-thread"), Optional.of("root-thread"), Optional.of("root/child"),
-                                Optional.of("provider-turn"), Optional.of("provider-item")), requestedAt),
+                                Optional.of("provider-turn"), Optional.of("provider-item")),
+                        requestedAt),
                 requestedAt);
         try {
             approvals.request(request, Duration.ofMinutes(1));

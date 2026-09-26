@@ -26,16 +26,19 @@ import com.bytequay.agent.spi.ProviderAgentEvent.MessagePhase;
 import com.bytequay.core.ci.CiAutofixAttempt.FailureEvidence;
 import com.bytequay.core.ci.CiAutofixAttempt.LogReference;
 import com.google.common.collect.ImmutableList;
+import com.google.common.hash.Hashing;
 import org.springframework.stereotype.Component;
 
+import java.io.IOException;
+import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.List;
+import java.util.Locale;
 import java.util.Optional;
 import java.util.concurrent.Callable;
 import java.util.concurrent.Executors;
 
-import static com.bytequay.app.utils.FileChecks.requireRealDirectory;
-import static com.bytequay.app.utils.FileChecks.requireRealFile;
 import static com.google.common.base.Ascii.truncate;
 import static com.google.common.base.Preconditions.checkArgument;
 import static com.google.common.collect.ImmutableList.toImmutableList;
@@ -129,7 +132,7 @@ final class CiAutofixLogReader
                 toIntExact(blob.size()),
                 log.truncated() || log.omittedBeginning() || log.compacted()));
         return new FailureEvidence(
-                CiFailureSignature.compute(workflow, job, log),
+                failureSignature(workflow, job, log),
                 workflow.name() + " / " + job.failureSummary() + log.unavailableReason().map(reason -> "; log unavailable: " + reason).orElse(""),
                 workflow.id(),
                 workflow.attempt(),
@@ -141,14 +144,14 @@ final class CiAutofixLogReader
     List<AgentAttachment> attachments(TaskId taskId, List<FailureEvidence> failures)
     {
         TaskResources resources = resourceService.require(taskId);
-        Path root = requireRealDirectory(resources.runtimeDirectory(), "task runtime directory");
+        Path root = realPath(resources.runtimeDirectory(), "task runtime directory", true);
         ImmutableList.Builder<AgentAttachment> attachments = ImmutableList.builder();
         for (FailureEvidence failure : failures) {
             if (failure.log().isEmpty()) {
                 continue;
             }
             LogReference log = failure.log().orElseThrow();
-            Path path = requireRealFile(root.resolve(log.path()).normalize(), "CI log attachment");
+            Path path = realPath(root.resolve(log.path()).normalize(), "CI log attachment", false);
             checkArgument(path.startsWith(root), "CI log attachment escapes task runtime directory");
             attachments.add(new AgentAttachment(
                     "github-actions-job-" + failure.jobId() + "-attempt-" + failure.jobAttempt() + ".log",
@@ -156,5 +159,38 @@ final class CiAutofixLogReader
                     path));
         }
         return attachments.build();
+    }
+
+    static String failureSignature(CiWorkflowRun workflowRun, CiJob job, BoundedCiLog log)
+    {
+        checkArgument(job.workflowRunId() == workflowRun.id(), "job does not belong to workflowRun");
+        StringBuilder canonical = new StringBuilder()
+                .append(workflowRun.workflowId()).append('\n')
+                .append(workflowRun.name().toLowerCase(Locale.ROOT)).append('\n')
+                .append(workflowRun.attempt()).append('\n')
+                .append(workflowRun.conclusion().orElse("")).append('\n')
+                .append(job.name().toLowerCase(Locale.ROOT)).append('\n')
+                .append(job.attempt()).append('\n')
+                .append(job.conclusion().orElse("")).append('\n');
+        for (CiStep step : job.failedSteps()) {
+            canonical.append(step.number()).append(':')
+                    .append(step.name().toLowerCase(Locale.ROOT)).append(':')
+                    .append(step.conclusion().orElse("")).append('\n');
+        }
+        log.terminalErrorLines().forEach(line -> canonical.append(line.toLowerCase(Locale.ROOT)).append('\n'));
+        return "ci-" + Hashing.sha256().hashString(canonical.toString(), StandardCharsets.UTF_8);
+    }
+
+    /** Resolves links so the containment check compares real paths. */
+    private static Path realPath(Path path, String name, boolean directory)
+    {
+        try {
+            Path real = path.toRealPath();
+            checkArgument(directory ? Files.isDirectory(real) : Files.isRegularFile(real), "%s is not a %s", name, directory ? "directory" : "regular file");
+            return real;
+        }
+        catch (IOException e) {
+            throw new IllegalArgumentException("Cannot resolve " + name, e);
+        }
     }
 }

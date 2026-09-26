@@ -13,14 +13,12 @@
  */
 package com.bytequay.persistence.sqlite.entity;
 
-import com.bytequay.agent.core.AgentStorageException;
 import com.bytequay.core.cherrypick.CherryPickExecution;
 import com.bytequay.core.cherrypick.CherryPickExecution.Delivery;
 import com.bytequay.core.cherrypick.CherryPickExecution.FinishReason;
 import com.bytequay.core.cherrypick.CherryPickExecution.PauseReason;
 import com.bytequay.core.cherrypick.CherryPickExecution.PullRequestDraft;
 import com.bytequay.core.cherrypick.CherryPickExecution.Range;
-import com.bytequay.core.cherrypick.CherryPickExecution.RangeReview;
 import com.bytequay.core.cherrypick.CherryPickExecution.Status;
 import com.bytequay.core.cherrypick.CherryPickExecution.Step;
 import com.bytequay.core.cherrypick.CherryPickExecution.Workspace;
@@ -55,6 +53,7 @@ public class CherryPickExecutionEntity
     @Column(nullable = false, unique = true)
     private String startIdempotencyKey;
 
+    @Column(nullable = false)
     private String workspaceId;
 
     @Column(nullable = false)
@@ -63,10 +62,10 @@ public class CherryPickExecutionEntity
     @Column(nullable = false)
     private String repositoryName;
 
-    // Nullable only for executions written before task provisioning became restart-safe.
+    @Column(nullable = false)
     private String physicalRepositoryOwner;
 
-    // Nullable only for executions written before task provisioning became restart-safe.
+    @Column(nullable = false)
     private String physicalRepositoryName;
 
     @Column(nullable = false)
@@ -146,11 +145,6 @@ public class CherryPickExecutionEntity
     @Column(nullable = false, columnDefinition = "TEXT")
     private String itemsJson;
 
-    @Column(columnDefinition = "TEXT")
-    private String rangeReview;
-
-    private Boolean rangeReviewTruncated;
-
     @Version
     @Getter
     private long version;
@@ -183,11 +177,11 @@ public class CherryPickExecutionEntity
         Workspace workspace = execution.workspace();
         Range range = execution.range();
         startIdempotencyKey = execution.startIdempotencyKey();
-        workspaceId = workspace.workspaceId().orElse(null);
+        workspaceId = workspace.workspaceId();
         repositoryOwner = workspace.repository().owner();
         repositoryName = workspace.repository().repo();
-        physicalRepositoryOwner = workspace.physicalRepository().map(RepoRef::owner).orElse(null);
-        physicalRepositoryName = workspace.physicalRepository().map(RepoRef::repo).orElse(null);
+        physicalRepositoryOwner = workspace.physicalRepository().owner();
+        physicalRepositoryName = workspace.physicalRepository().repo();
         sourceRemote = workspace.sourceRemote();
         targetRemote = workspace.targetRemote();
         targetBranch = workspace.targetBranch();
@@ -216,8 +210,6 @@ public class CherryPickExecutionEntity
         summary = execution.summary().orElse(null);
         journalJson = CherryPickJson.encodeJournal(execution.journal());
         itemsJson = CherryPickJson.encodeItems(execution.items());
-        rangeReview = execution.rangeReview().map(RangeReview::output).orElse(null);
-        rangeReviewTruncated = execution.rangeReview().map(RangeReview::truncated).orElse(null);
         createdAt = execution.createdAt();
         updatedAt = execution.updatedAt();
         terminalAt = execution.terminalAt().orElse(null);
@@ -229,9 +221,9 @@ public class CherryPickExecutionEntity
                 CherryPickExecutionId.valueOf(id),
                 startIdempotencyKey,
                 new Workspace(
-                        Optional.ofNullable(workspaceId),
+                        workspaceId,
                         RepoRef.of(repositoryOwner, repositoryName),
-                        physicalRepository(),
+                        RepoRef.of(physicalRepositoryOwner, physicalRepositoryName),
                         sourceRemote,
                         targetRemote,
                         targetBranch,
@@ -258,23 +250,10 @@ public class CherryPickExecutionEntity
                 Optional.ofNullable(finishReason),
                 Optional.ofNullable(summary),
                 CherryPickJson.decodeJournal(journalJson),
-                Optional.ofNullable(rangeReview)
-                        .map(output -> new RangeReview(output, Boolean.TRUE.equals(rangeReviewTruncated))),
                 CherryPickJson.decodeItems(itemsJson),
                 version,
                 createdAt,
                 updatedAt,
                 Optional.ofNullable(terminalAt));
-    }
-
-    private Optional<RepoRef> physicalRepository()
-    {
-        if (physicalRepositoryOwner == null && physicalRepositoryName == null) {
-            return Optional.empty();
-        }
-        if (physicalRepositoryOwner == null || physicalRepositoryName == null) {
-            throw new AgentStorageException("Stored cherry-pick physical repository is incomplete: " + id);
-        }
-        return Optional.of(RepoRef.of(physicalRepositoryOwner, physicalRepositoryName));
     }
 }

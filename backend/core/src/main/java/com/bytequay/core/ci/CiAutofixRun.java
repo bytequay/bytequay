@@ -42,7 +42,7 @@ public record CiAutofixRun(
         Optional<PauseReason> pauseReason,
         Optional<FinishReason> finishReason,
         Optional<String> summary,
-        Optional<String> taskStartCommit,
+        String taskStartCommit,
         String expectedRemoteHead,
         String latestObservedBaseSha,
         Authorization authorization,
@@ -74,8 +74,7 @@ public record CiAutofixRun(
         requireNonNull(pauseReason, "pauseReason is null");
         requireNonNull(finishReason, "finishReason is null");
         checkOptionalText(summary, "summary", 8 * 1024);
-        requireNonNull(taskStartCommit, "taskStartCommit is null");
-        taskStartCommit.ifPresent(value -> checkSha(value, "taskStartCommit"));
+        checkSha(taskStartCommit, "taskStartCommit");
         checkSha(expectedRemoteHead, "expectedRemoteHead");
         checkSha(latestObservedBaseSha, "latestObservedBaseSha");
         requireNonNull(authorization, "authorization is null");
@@ -130,7 +129,7 @@ public record CiAutofixRun(
                 Optional.empty(),
                 Optional.empty(),
                 Optional.empty(),
-                Optional.of(taskStartCommit),
+                taskStartCommit,
                 expectedRemoteHead,
                 latestObservedBaseSha,
                 authorization,
@@ -447,7 +446,7 @@ public record CiAutofixRun(
         private Optional<PauseReason> pauseReason;
         private Optional<FinishReason> finishReason;
         private Optional<String> summary;
-        private final Optional<String> taskStartCommit;
+        private final String taskStartCommit;
         private String expectedRemoteHead;
         private String latestObservedBaseSha;
         private int attemptsUsed;
@@ -640,7 +639,7 @@ public record CiAutofixRun(
             PullRequestRef pullRequest,
             RepoRef headRepository,
             String workspaceId,
-            Optional<RepoRef> physicalRepository,
+            RepoRef physicalRepository,
             String author,
             String headRef,
             String baseRef,
@@ -660,10 +659,8 @@ public record CiAutofixRun(
             }
             checkText(workspaceId, "workspaceId", 128);
             requireNonNull(physicalRepository, "physicalRepository is null");
-            physicalRepository.ifPresent(repository -> {
-                checkText(repository.owner(), "physical repository owner", 100);
-                checkText(repository.repo(), "physical repository name", 100);
-            });
+            checkText(physicalRepository.owner(), "physical repository owner", 100);
+            checkText(physicalRepository.repo(), "physical repository name", 100);
             checkText(author, "author", 100);
             checkText(headRef, "headRef", 255);
             checkText(baseRef, "baseRef", 255);

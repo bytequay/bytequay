@@ -20,7 +20,6 @@ import com.bytequay.agent.core.AgentConflictException;
 import com.bytequay.agent.core.AgentEventService;
 import com.bytequay.agent.core.AgentProcessLaunch;
 import com.bytequay.agent.core.AgentTask;
-import com.bytequay.agent.core.AgentTaskNotFoundException;
 import com.bytequay.agent.core.AgentTurnService;
 import com.bytequay.agent.core.InvalidAgentRequestException;
 import com.bytequay.agent.core.LaunchOwnerKind;
@@ -144,7 +143,7 @@ public final class AgentStartupRecovery
         if (generation == null || generation.isBlank()) {
             throw new InvalidAgentRequestException("generation must not be blank");
         }
-        AgentTask task = taskStore.find(taskId).orElseThrow(() -> new AgentTaskNotFoundException(taskId));
+        AgentTask task = taskStore.require(taskId);
         if (task.state().terminal()) {
             throw new AgentConflictException("Task is already terminal: " + taskId);
         }
@@ -349,7 +348,7 @@ public final class AgentStartupRecovery
             case APP_SERVER, DISCUSSION -> parseTaskId(owner.id());
             case CLAUDE_TURN -> parseTurnTask(owner.id());
             case LOCAL_RUN -> parseRunTask(owner.id());
-            case TASK_EXEC_SERVER, CLI_PROBE -> Optional.empty();
+            case CLI_PROBE -> Optional.empty();
         };
     }
 
@@ -359,7 +358,7 @@ public final class AgentStartupRecovery
             case APP_SERVER, DISCUSSION -> parseTaskId(launch.ownerId());
             case CLAUDE_TURN -> parseTurnTask(launch.ownerId());
             case LOCAL_RUN -> parseRunTask(launch.ownerId());
-            case TASK_EXEC_SERVER, CLI_PROBE -> Optional.empty();
+            case CLI_PROBE -> Optional.empty();
         };
     }
 

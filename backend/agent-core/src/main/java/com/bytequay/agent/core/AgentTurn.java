@@ -65,42 +65,6 @@ public record AgentTurn(
             Optional<String> model,
             Optional<AgentTurnSettings> settings,
             Optional<String> terminalReason,
-            AgentMetrics metrics)
-    {
-        this(
-                id,
-                taskId,
-                idempotencyKey,
-                state,
-                version,
-                createdAt,
-                startedAt,
-                endedAt,
-                cancellationRequestedAt,
-                providerTurnReference,
-                knownUnsent,
-                model,
-                settings,
-                terminalReason,
-                Optional.empty(),
-                metrics);
-    }
-
-    public AgentTurn(
-            TurnId id,
-            TaskId taskId,
-            String idempotencyKey,
-            TurnState state,
-            long version,
-            Instant createdAt,
-            Optional<Instant> startedAt,
-            Optional<Instant> endedAt,
-            Optional<Instant> cancellationRequestedAt,
-            Optional<ProviderTurnRef> providerTurnReference,
-            boolean knownUnsent,
-            Optional<String> model,
-            Optional<AgentTurnSettings> settings,
-            Optional<String> terminalReason,
             Optional<AgentTurnFailureKind> failureKind,
             AgentMetrics metrics)
     {

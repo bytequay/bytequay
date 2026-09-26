@@ -154,6 +154,6 @@ class TestReviewTaskObserver
     private static AgentEventEnvelope tool(TaskId taskId, long sequence, String name, ActivityState state, String ref)
     {
         return new AgentEventEnvelope(AgentEventEnvelope.CURRENT_SCHEMA_VERSION, EventId.random(), sequence, taskId, Optional.empty(),
-                AgentEventSource.root(), Instant.EPOCH, new AgentEventPayload.ToolActivity(name, state, "context-receipt:" + ref));
+                AgentEventSource.root(), Instant.EPOCH, new AgentEventPayload.ToolActivity(name, state, "context-receipt:" + ref, Optional.empty()));
     }
 }

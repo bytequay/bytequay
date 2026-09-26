@@ -13,6 +13,7 @@
  */
 package com.bytequay.persistence.sqlite.entity;
 
+import com.bytequay.agent.core.AgentAttachmentReference;
 import com.bytequay.agent.core.AgentTurnSettings;
 import com.bytequay.agent.core.BlobRef;
 import com.bytequay.agent.core.DevelopmentAutomation;
@@ -24,6 +25,7 @@ import com.bytequay.agent.core.TurnId;
 import com.bytequay.agent.spi.AgentPermissionPolicy;
 import com.bytequay.persistence.sqlite.converter.DevelopmentAutomationConverter;
 import com.bytequay.persistence.sqlite.converter.InstantToTextConverter;
+import com.fasterxml.jackson.core.type.TypeReference;
 import jakarta.persistence.Column;
 import jakarta.persistence.Convert;
 import jakarta.persistence.Entity;
@@ -36,13 +38,18 @@ import lombok.Getter;
 
 import java.time.Duration;
 import java.time.Instant;
+import java.util.List;
 import java.util.Optional;
+
+import static com.bytequay.persistence.sqlite.entity.JsonGuard.AGENT;
 
 @Entity
 @Table(name = "agent_queued_input")
 public class AgentQueuedInputEntity
         extends AssignedIdEntity<String>
 {
+    private static final TypeReference<List<AgentAttachmentReference>> ATTACHMENTS = new TypeReference<>() {};
+
     @Id
     @Getter(onMethod_ = @Override)
     private String id;
@@ -140,7 +147,7 @@ public class AgentQueuedInputEntity
         useRepositoryContext = input.settings().useRepositoryContext();
         permissionPolicy = input.settings().permissionPolicy();
         maximumRuntimeMillis = input.settings().maximumRuntime().toMillis();
-        attachmentsJson = AgentAttachmentReferenceJson.encode(input.settings().attachments());
+        attachmentsJson = AGENT.write(input.settings().attachments(), "turn attachment references");
         messageEventId = input.messageEventId().map(EventId::toString).orElse(null);
         turnId = input.turnId().map(TurnId::toString).orElse(null);
         pauseReason = input.pauseReason().orElse(null);
@@ -163,7 +170,7 @@ public class AgentQueuedInputEntity
                         Optional.ofNullable(effort),
                         permissionPolicy,
                         Duration.ofMillis(maximumRuntimeMillis),
-                        AgentAttachmentReferenceJson.decode(attachmentsJson),
+                        AGENT.read(attachmentsJson, ATTACHMENTS, "turn attachment references"),
                         Optional.ofNullable(serviceTier),
                         Optional.ofNullable(developmentAutomation),
                         !Boolean.FALSE.equals(useRepositoryContext)),

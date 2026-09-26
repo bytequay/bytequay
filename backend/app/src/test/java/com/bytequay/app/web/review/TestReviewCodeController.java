@@ -285,20 +285,16 @@ class TestReviewCodeController
     }
 
     @Test
-    void listsAndReadsRunsWithoutTheirStoredOutput()
+    void listsRunsWithoutTheirStoredOutput()
             throws Exception
     {
         when(localRuns.list("review-1")).thenReturn(ImmutableList.of(finishedRun(), runningRun()));
-        when(localRuns.get("review-1", "run-2")).thenReturn(finishedRun());
-        when(localRuns.get("review-1", "missing")).thenThrow(new ReviewNotFoundException("Run not found: missing"));
+        when(localRuns.output("review-1", "missing", 0)).thenThrow(new ReviewNotFoundException("Run not found: missing"));
 
-        mvc.perform(get("/api/agent-review/review-1/code/runs/run-2"))
-                .andExpect(status().isOk())
-                .andExpect(content().json(FINISHED_RUN_JSON, JsonCompareMode.STRICT));
         mvc.perform(get("/api/agent-review/review-1/code/runs"))
                 .andExpect(status().isOk())
                 .andExpect(content().json("{\"runs\": [" + FINISHED_RUN_JSON + ", " + RUNNING_RUN_JSON + "]}", JsonCompareMode.STRICT));
-        mvc.perform(get("/api/agent-review/review-1/code/runs/missing")).andExpect(status().isNotFound());
+        mvc.perform(get("/api/agent-review/review-1/code/runs/missing/output")).andExpect(status().isNotFound());
     }
 
     @Test

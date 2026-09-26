@@ -29,7 +29,7 @@ const workspaces = [
   { id: 'ws-2', name: 'Iceberg', selectedOwner: 'apache', selectedRepo: 'iceberg', monitoredOwner: 'apache', monitoredRepo: 'iceberg' },
 ] as WorkspaceDto[];
 const eventSource: AgentPendingApprovalDto['source'] = { providerThreadId: null, parentProviderThreadId: null, logicalAgentPath: null,
-  providerTurnId: null, providerItemId: null, providerEventId: null, providerOccurredAt: null };
+  providerTurnId: null, providerItemId: null, providerEventId: null };
 
 function notebook(second = false): RepositoryNotebookDto {
   return {

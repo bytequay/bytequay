@@ -29,6 +29,7 @@ import com.bytequay.agent.cli.process.impl.DefaultProcessSupervisor;
 import com.bytequay.agent.spi.AgentAttachment;
 import com.bytequay.agent.spi.AgentCommandPolicy;
 import com.bytequay.agent.spi.AgentPermissionPolicy;
+import com.bytequay.agent.spi.AgentPermissionScope;
 import com.bytequay.agent.spi.AgentProviderStatus;
 import com.bytequay.agent.spi.AgentSession;
 import com.bytequay.agent.spi.AgentSessionContext;
@@ -37,21 +38,17 @@ import com.bytequay.agent.spi.AgentTurnCommand;
 import com.bytequay.agent.spi.AgentTurnFailureKind;
 import com.bytequay.agent.spi.AgentTurnResult;
 import com.bytequay.agent.spi.AgentUnavailableException;
+import com.bytequay.agent.spi.BridgeResolver;
 import com.bytequay.agent.spi.CodeGraphBridge;
 import com.bytequay.agent.spi.DevelopmentResultBridge;
-import com.bytequay.agent.spi.DevelopmentResultBridgeResolver;
 import com.bytequay.agent.spi.DraftPullRequestPublisher;
 import com.bytequay.agent.spi.IssueContextBridge;
-import com.bytequay.agent.spi.IssueContextBridgeResolver;
 import com.bytequay.agent.spi.LocalReviewBridge;
-import com.bytequay.agent.spi.LocalReviewBridgeResolver;
 import com.bytequay.agent.spi.ProviderAgentEvent;
 import com.bytequay.agent.spi.ProviderApprovalDecision;
 import com.bytequay.agent.spi.PullRequestCiBridge;
-import com.bytequay.agent.spi.PullRequestCiBridgeResolver;
 import com.bytequay.agent.spi.RepositoryContextBridge;
 import com.bytequay.agent.spi.ReviewBridge;
-import com.bytequay.agent.spi.ReviewBridgeResolver;
 import com.bytequay.agent.spi.ReviewTool;
 import com.bytequay.agent.spi.RunningTurn;
 import com.bytequay.agent.spi.SessionAccess;
@@ -92,6 +89,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 class TestClaudeCliDriver
 {
+    private static final String DEVELOPMENT_POLICY = AgentCommandPolicy.instructions(new AgentPermissionScope(AgentPermissionPolicy.AUTO, SessionAccess.FULL, false));
     private final ObjectMapper objectMapper = new ObjectMapper();
 
     @TempDir
@@ -309,7 +307,7 @@ class TestClaudeCliDriver
         AgentSession session = driver.open(bridged, event -> {});
         await(session.start(command("first")));
         ProcessSpec spec = supervisor.turns().getFirst().spec();
-        assertThat(spec.argv()).containsSequence("--append-system-prompt", AgentCommandPolicy.instructions() + "\n\n" + ClaudeCliDriver.PLAN_INSTRUCTION + "\n\nuse the graph");
+        assertThat(spec.argv()).containsSequence("--append-system-prompt", DEVELOPMENT_POLICY + "\n\n" + ClaudeCliDriver.PLAN_INSTRUCTION + "\n\nuse the graph");
         int allowed = spec.argv().indexOf("--allowedTools");
         assertThat(allowed).isPositive();
         assertThat(spec.argv().get(allowed + 1)).contains("mcp__bytequay__codegraph_explore");
@@ -318,7 +316,7 @@ class TestClaudeCliDriver
         AgentSession unbridged = driver.open(plain, event -> {});
         await(unbridged.start(command("second")));
         ProcessSpec plainSpec = supervisor.turns().get(1).spec();
-        assertThat(plainSpec.argv()).containsSequence("--append-system-prompt", AgentCommandPolicy.instructions() + "\n\n" + ClaudeCliDriver.PLAN_INSTRUCTION);
+        assertThat(plainSpec.argv()).containsSequence("--append-system-prompt", DEVELOPMENT_POLICY + "\n\n" + ClaudeCliDriver.PLAN_INSTRUCTION);
         assertThat(plainSpec.argv()).noneMatch(argument -> argument.contains("codegraph_explore"));
         unbridged.close();
     }
@@ -342,7 +340,7 @@ class TestClaudeCliDriver
                 ScriptedTurn turn = supervisor.turns().getLast();
                 assertThat(turn.prompt()).isEqualTo(input + "\n");
                 assertThat(turn.spec().argv().get(turn.spec().argv().indexOf("--append-system-prompt") + 1))
-                        .contains(AgentCommandPolicy.instructions(), instructions);
+                        .contains(DEVELOPMENT_POLICY, instructions);
                 assertThat(turn.spec().argv()).noneMatch(argument -> argument.contains("reference-body-marker"));
                 assertThat(turn.spec().argv().contains("--resume")).isEqualTo(index == 1);
                 sessionReference = Optional.of(session.reference());
@@ -362,7 +360,7 @@ class TestClaudeCliDriver
             AgentSession session = driver.open(context(reference, instruction), event -> {});
             await(session.start(command("configured")));
             List<String> arguments = supervisor.turns().getLast().spec().argv();
-            String expected = AgentCommandPolicy.instructions() + "\n\n" + ClaudeCliDriver.PLAN_INSTRUCTION + (instruction.isEmpty() ? "" : "\n\n" + instruction);
+            String expected = DEVELOPMENT_POLICY + "\n\n" + ClaudeCliDriver.PLAN_INSTRUCTION + (instruction.isEmpty() ? "" : "\n\n" + instruction);
             assertThat(arguments).containsSequence("--append-system-prompt", expected);
             assertThat(arguments.stream().filter(argument -> argument.startsWith("--append-system-prompt"))).hasSize(1);
             assertThat(arguments).noneMatch(argument -> argument.contains("codegraph_explore") || argument.contains("review_finish"));
@@ -593,6 +591,16 @@ class TestClaudeCliDriver
         ClaudeCliDriver unparseableDriver = driver(unparseableSupervisor);
         assertThat(unparseableDriver.probe().readiness()).isEqualTo(AgentProviderStatus.Readiness.TEMPORARILY_UNAVAILABLE);
         unparseableDriver.close();
+    }
+
+    @Test
+    void parsesAndOrdersReleasesNumerically()
+    {
+        assertThat(ClaudeCliDriver.parseVersion("2.1.0 (Claude Code)").map(Object::toString)).contains("2.1.0");
+        assertThat(ClaudeCliDriver.parseVersion("2.1.10").orElseThrow()).isGreaterThan(ClaudeCliDriver.parseVersion("2.1.9").orElseThrow());
+        assertThat(ClaudeCliDriver.parseVersion("2.1.278").orElseThrow()).isEqualByComparingTo(ClaudeCliDriver.parseVersion("2.1.278\n").orElseThrow());
+        assertThat(ClaudeCliDriver.parseVersion("2.1")).isEmpty();
+        assertThat(ClaudeCliDriver.parseVersion("2.1.0-beta")).isEmpty();
     }
 
     @Test
@@ -1029,8 +1037,8 @@ class TestClaudeCliDriver
         IssueContextBridge issue = new IssueContextBridge(() -> "Accepted issue context", IssueContextBridge.INSTRUCTION);
         PermissionBroker broker = new PermissionBroker(
                 () -> URI.create("http://127.0.0.1:9000/internal/agent/claude/mcp"), objectMapper, (taskId, query) -> "memory",
-                ReviewBridgeResolver.NONE, DevelopmentResultBridgeResolver.NONE, DraftPullRequestPublisher.NONE, LocalReviewBridgeResolver.NONE,
-                PullRequestCiBridgeResolver.NONE, taskId -> Optional.of(issue));
+                BridgeResolver.none(), BridgeResolver.none(), DraftPullRequestPublisher.NONE, BridgeResolver.none(),
+                BridgeResolver.none(), taskId -> Optional.of(issue));
         ClaudeCliDriver driver = new ClaudeCliDriver("/fake/claude", objectMapper, broker, supervisor, claudeHome(), ImmutableMap.of());
         Optional<AgentSessionRef> reference = Optional.empty();
         for (int index = 0; index < 2; index++) {
@@ -1054,7 +1062,7 @@ class TestClaudeCliDriver
         PullRequestCiBridge ci = new PullRequestCiBridge(jobId -> "No pull request associated yet", (logId, offset) -> "raw", PullRequestCiBridge.INSTRUCTION, Optional.empty(), Optional.empty());
         PermissionBroker broker = new PermissionBroker(
                 () -> URI.create("http://127.0.0.1:9000/internal/agent/claude/mcp"), objectMapper, (taskId, query) -> "memory",
-                ReviewBridgeResolver.NONE, DevelopmentResultBridgeResolver.NONE, DraftPullRequestPublisher.NONE, LocalReviewBridgeResolver.NONE,
+                BridgeResolver.none(), BridgeResolver.none(), DraftPullRequestPublisher.NONE, BridgeResolver.none(),
                 taskId -> Optional.of(ci));
         ClaudeCliDriver driver = new ClaudeCliDriver("/fake/claude", objectMapper, broker, supervisor, claudeHome(), ImmutableMap.of());
         Optional<AgentSessionRef> reference = Optional.empty();
@@ -1078,8 +1086,8 @@ class TestClaudeCliDriver
         RepositoryContextBridge notebook = new RepositoryContextBridge(query -> "{}", "Search saved workspace notes when relevant");
         PermissionBroker broker = new PermissionBroker(
                 () -> URI.create("http://127.0.0.1:9000/internal/agent/claude/mcp"), objectMapper, (taskId, query) -> "memory",
-                ReviewBridgeResolver.NONE, DevelopmentResultBridgeResolver.NONE, DraftPullRequestPublisher.NONE,
-                LocalReviewBridgeResolver.NONE, PullRequestCiBridgeResolver.NONE, IssueContextBridgeResolver.NONE,
+                BridgeResolver.none(), BridgeResolver.none(), DraftPullRequestPublisher.NONE,
+                BridgeResolver.none(), BridgeResolver.none(), BridgeResolver.none(),
                 taskId -> Optional.of(notebook));
         try (ClaudeCliDriver driver = new ClaudeCliDriver(
                 "/fake/claude", objectMapper, broker, supervisor, claudeHome(), ImmutableMap.of())) {
@@ -1105,8 +1113,8 @@ class TestClaudeCliDriver
         LocalReviewBridge local = new LocalReviewBridge(commentId -> "[]", reply -> "{}", resolution -> "{}", LocalReviewBridge.INSTRUCTION);
         PermissionBroker broker = new PermissionBroker(
                 () -> URI.create("http://127.0.0.1:9000/internal/agent/claude/mcp"), objectMapper,
-                (taskId, query) -> "memory", ReviewBridgeResolver.NONE,
-                taskId -> Optional.of(new DevelopmentResultBridge("turn-1", DevelopmentResultBridge.INSTRUCTION)),
+                (taskId, query) -> "memory", BridgeResolver.none(),
+                taskId -> Optional.of(new DevelopmentResultBridge("turn-1", DevelopmentResultBridge.INSTRUCTION, false)),
                 DraftPullRequestPublisher.NONE, taskId -> Optional.of(local));
         Map<String, String> environment = apiKey ? ImmutableMap.of("ANTHROPIC_API_KEY", "test-api-key") : ImmutableMap.of();
         ClaudeCliDriver driver = new ClaudeCliDriver("/fake/claude", objectMapper, broker, supervisor, claudeHome(), environment);
@@ -1471,7 +1479,8 @@ class TestClaudeCliDriver
         AgentSessionContext context = new AgentSessionContext(
                 plain.taskId(), plain.worktree(), plain.runtimeDirectory(), plain.providerDirectory(), plain.permissionPolicy(),
                 plain.sessionReference(), (request, timeout) -> CompletableFuture.completedFuture(
-                        timedOut ? ProviderApprovalDecision.expired() : ProviderApprovalDecision.deny()));
+                        timedOut ? ProviderApprovalDecision.expired() : ProviderApprovalDecision.deny()),
+                Optional.empty(), Optional.empty(), SessionAccess.FULL, Optional.empty(), "");
         AgentSession session = driver.open(context, event -> {});
         RunningTurn turn = session.start(command("cancel"));
         JsonNode config = objectMapper.readTree(Files.readString(runtimeDirectory().resolve("provider/scratch/bytequay-mcp.json")));
@@ -1519,7 +1528,7 @@ class TestClaudeCliDriver
                 plain.sessionReference(), (request, timeout) -> {
                     requested.countDown();
                     return decision;
-                });
+                }, Optional.empty(), Optional.empty(), SessionAccess.FULL, Optional.empty(), "");
         try (AgentSession session = driver.open(context, event -> {})) {
             RunningTurn first = session.start(command("cancel"));
             JsonNode config = objectMapper.readTree(Files.readString(runtimeDirectory().resolve("provider/scratch/bytequay-mcp.json")));
@@ -1567,7 +1576,7 @@ class TestClaudeCliDriver
         return driver(supervisor, taskId -> Optional.empty());
     }
 
-    private ClaudeCliDriver driver(ProcessSupervisor supervisor, ReviewBridgeResolver reviews)
+    private ClaudeCliDriver driver(ProcessSupervisor supervisor, BridgeResolver<ReviewBridge> reviews)
     {
         PermissionBroker permissions = new PermissionBroker(
                 () -> URI.create("http://127.0.0.1:9000/internal/agent/claude/mcp"),
@@ -1634,7 +1643,9 @@ class TestClaudeCliDriver
                 (request, timeout) -> CompletableFuture.completedFuture(ProviderApprovalDecision.deny()),
                 model,
                 effort,
-                access);
+                access,
+                Optional.empty(),
+                "");
     }
 
     private Path runtimeDirectory()

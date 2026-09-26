@@ -11,15 +11,13 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-package com.bytequay.agent.spi;
+package com.bytequay.core.store;
 
-import java.util.Optional;
-
-/** Resolves the currently running development turn on each authenticated tool call. */
-@FunctionalInterface
-public interface RepositoryContextBridgeResolver
+public class StorageException
+        extends RuntimeException
 {
-    RepositoryContextBridgeResolver NONE = taskId -> Optional.empty();
-
-    Optional<RepositoryContextBridge> resolve(String taskId);
+    public StorageException(String message, Throwable cause)
+    {
+        super(message, cause);
+    }
 }

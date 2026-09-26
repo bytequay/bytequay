@@ -13,7 +13,6 @@
  */
 package com.bytequay.agent.cli.process.impl;
 
-import com.bytequay.agent.cli.process.ExecutionProfile;
 import com.bytequay.agent.cli.process.LaunchPhase;
 import com.bytequay.agent.cli.process.ManagedProcess;
 import com.bytequay.agent.cli.process.OwnedProcessRecovery;
@@ -755,7 +754,6 @@ class TestDefaultProcessSupervisor
         assertThat(Files.readString(worktree.resolve("args"))).isEqualTo("-B|-Dtest=demo.TestCode#fails|test|");
         LaunchMarker marker = new LaunchMarkerStore(launches).read(prepared.launchId()).orElseThrow();
         assertThat(marker.owner()).isEqualTo(owner);
-        assertThat(marker.profile()).isEqualTo(ExecutionProfile.LOCAL_COMMAND);
         assertThat(marker.executable()).isEqualTo("/bin/bash");
     }
 
@@ -768,7 +766,6 @@ class TestDefaultProcessSupervisor
 
         assertThat(marker.phase()).isEqualTo(LaunchPhase.PREPARED);
         assertThat(marker.owner()).isEqualTo(PROBE);
-        assertThat(marker.profile()).isEqualTo(PROBE.profile());
         assertThat(marker.executable()).isEqualTo("/bin/sh");
         assertThat(marker.argvDigest()).isNotBlank();
         assertThat(marker.pid()).isEmpty();

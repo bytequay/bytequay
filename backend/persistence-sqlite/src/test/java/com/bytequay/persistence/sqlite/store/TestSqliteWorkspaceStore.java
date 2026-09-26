@@ -368,24 +368,6 @@ class TestSqliteWorkspaceStore
     }
 
     @Test
-    void legacyCiPathRetainsTheWorkspaceAssociation()
-    {
-        Workspace workspace = store.createOrGet(direct("legacy-ci", 100, 0));
-        CiAutofixRun run = ciRun(workspace.id(), 0);
-        entities.persist(CiAutofixRunEntity.fromDomain(run));
-        entities.flush();
-        jdbc.update("UPDATE ci_autofix_run SET workspace_id = NULL, worktree = ? WHERE id = ?", workspace.localRepositoryPath(), run.id().toString());
-        entities.clear();
-
-        assertThat(store.hasActiveWorkflows(workspace.id())).isTrue();
-        jdbc.update("UPDATE ci_autofix_run SET terminal_at = ?, status = 'FINISHED', active_branch_slot = NULL WHERE id = ?", NOW.toString(), run.id().toString());
-
-        store.delete(workspace.id());
-
-        assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM ci_autofix_run", Integer.class)).isZero();
-    }
-
-    @Test
     void taskDeletionRejectsActiveRebasesAndRemovesFinishedRebaseAssociations()
     {
         Workspace workspace = store.createOrGet(direct("with-task", 100, 0));
@@ -431,7 +413,7 @@ class TestSqliteWorkspaceStore
     private static CiAutofixRun ciRun(String workspaceId, int index)
     {
         return CiAutofixRun.create(CiAutofixRunId.random(), "run-" + index,
-                new CiAutofixRun.Scope(PullRequestRef.of("owner", "project", index + 1), RepoRef.of("owner", "project"), workspaceId, Optional.of(RepoRef.of("owner", "project")),
+                new CiAutofixRun.Scope(PullRequestRef.of("owner", "project", index + 1), RepoRef.of("owner", "project"), workspaceId, RepoRef.of("owner", "project"),
                         "author", "branch-" + index, "main", "codex", Optional.empty()),
                 "a".repeat(40), "a".repeat(40), "b".repeat(40),
                 new CiAutofixRun.Authorization(false, false, false, 1, NOW, NOW.plusSeconds(3600)), NOW);

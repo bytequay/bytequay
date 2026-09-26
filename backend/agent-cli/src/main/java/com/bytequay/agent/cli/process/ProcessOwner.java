@@ -22,7 +22,7 @@ import static java.util.Objects.requireNonNull;
  * <p>The identifier is opaque on purpose: {@code agent-cli} never imports a task or turn type, and
  * the owning driver maps the value back to durable domain state.
  *
- * @param kind owner kind that also fixes the execution profile
+ * @param kind runtime role that owns the process
  * @param id opaque owner identifier that carries no prompt text or credential
  */
 public record ProcessOwner(Kind kind, String id)
@@ -35,50 +35,21 @@ public record ProcessOwner(Kind kind, String id)
         checkArgument(id.length() <= 200, "id is too long");
     }
 
-    /**
-     * Returns the execution profile fixed by this owner kind.
-     *
-     * @return closed execution profile
-     */
-    public ExecutionProfile profile()
-    {
-        return kind.profile;
-    }
-
     /** Identifies which ByteQuay runtime role owns a supervised process. */
     public enum Kind
     {
         /** The one shared Codex App Server process of a backend runtime. */
-        APP_SERVER(ExecutionProfile.PROVIDER_CONTROL),
-        /** One task-owned Codex exec-server process. */
-        TASK_EXEC_SERVER(ExecutionProfile.TASK_EXEC_SERVER),
+        APP_SERVER,
         /** One Claude turn process. */
-        CLAUDE_TURN(ExecutionProfile.PROVIDER_CONTROL),
+        CLAUDE_TURN,
         /** One short-lived provider control command or isolated text-only helper. */
-        CLI_PROBE(ExecutionProfile.PROVIDER_CONTROL),
+        CLI_PROBE,
         /**
          * One read-only discussion session, owned by its task. It reaches a real worktree, so
          * unlike {@code CLI_PROBE} it stays attributable to that task at startup recovery.
          */
-        DISCUSSION(ExecutionProfile.PROVIDER_CONTROL),
+        DISCUSSION,
         /** One user-requested test run in a review working copy, owned by {@code <taskId>/<runId>}. */
-        LOCAL_RUN(ExecutionProfile.LOCAL_COMMAND);
-
-        private final ExecutionProfile profile;
-
-        Kind(ExecutionProfile profile)
-        {
-            this.profile = profile;
-        }
-
-        /**
-         * Returns the execution profile this owner kind always runs under.
-         *
-         * @return closed execution profile
-         */
-        public ExecutionProfile profile()
-        {
-            return profile;
-        }
+        LOCAL_RUN
     }
 }

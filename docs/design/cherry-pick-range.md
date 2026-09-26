@@ -41,8 +41,8 @@ repository and branch as the PR base.
    A conflict retains the source-marked target and its adjacent agent fixup as
    described in section 7.
 8. After every item has a result, the backend performs exact Git accounting,
-   stores `git range-diff` only for human review, completes the agent task, and
-   removes the clean worktree while retaining the generated branch for delivery.
+   completes the agent task, and removes the clean worktree while retaining the
+   generated branch for delivery.
 
 There is no automatic rebase before or after range execution. A target move
 before start invalidates the preview. Rebasing an already-created branch is a
@@ -138,8 +138,7 @@ same commit checkboxes underneath it. Confirmed skips are transmitted as source
 SHAs, so grouping can never reorder or silently add commits.
 
 Conflict preview uses a temporary local worktree and native Git operations.
-It reports paths, conflict types, nearby text sections when available, and the
-nearest Maven module. Exact simulation stops at the first unresolved conflict;
+It reports the conflicted paths. Exact simulation stops at the first unresolved conflict;
 later results are labelled not analyzed because the chosen resolution changes
 what those commits will meet.
 
@@ -179,8 +178,7 @@ Cancellation does not write `FINISHED` unless the exact preassigned task is
 present or can be safely created; a verification failure leaves the execution
 retryable. A create race rereads and validates the exact winning task. The
 persisted physical repository prevents a workspace selection change from
-routing recovery into another clone; legacy rows with neither an existing task
-nor that frozen fact are preserved and rejected.
+routing recovery into another clone.
 
 ## 6. Durable ownership and results
 
@@ -335,18 +333,12 @@ only history action is `git commit --amend --no-edit`; it replaces `F` and may
 not append a third commit. There are at most three total turns. Wrong history
 pauses instead of guessing.
 
-### 7.5 Validation and pair finalization
+### 7.5 Pair finalization
 
-After structural checks, ByteQuay calls:
-
-```java
-validate(worktree, F)
-```
-
-The first implementation intentionally makes this a successful no-op.
-ByteQuay cannot infer how an arbitrary project builds. A future feature may
-store and run a user-approved validation profile; until then the agent's build
-attempt is useful user information, not a program control fact.
+ByteQuay runs no project validation on `F`: it cannot infer how an arbitrary
+project builds. A future feature may store and run a user-approved validation
+profile; until then the agent's build attempt is useful user information, not
+a program control fact.
 
 Before starting the next source commit, the program verifies and retains this
 history without rewriting either commit:
@@ -367,9 +359,8 @@ resolution, so dropping both would erase that history.
 
 This history shape has a conscious cost. `C` captures Git's unresolved snapshot
 and may not compile or even be marker-free when checked out by itself. ByteQuay
-does not claim that `C` is an independently valid boundary; it validates and
-accounts for `C` plus its immediately adjacent `F` as one conflict-resolution
-unit. Consumers that test every commit must likewise recognize that pair. The
+does not claim that `C` is an independently valid boundary; it accounts for
+`C` plus its immediately adjacent `F` as one conflict-resolution unit. Consumers that test every commit must likewise recognize that pair. The
 benefit is that the source target and the agent-authored resolution remain
 separately reviewable and attributable.
 
@@ -385,7 +376,7 @@ which SHA is expected, and actual Git objects explain whether the action ran.
 | Journal says snapshot, conflict still open at `H0` | Recheck saved stages, create `C` once |
 | Journal says snapshot, one valid `C` already exists | Adopt `C`; do not continue again |
 | Journal says agent turn, HEAD is `C` | Start or retry the fixup turn |
-| Journal says agent turn, one valid `F` exists | Adopt and validate `F`; do not ask for another commit |
+| Journal says agent turn, one valid `F` exists | Adopt `F`; do not ask for another commit |
 | Journal says repair, HEAD is the expected `F` | Ask the agent to amend that same fixup |
 | Journal says repair, one valid amended `F` exists | Adopt the replacement; reject a third commit |
 | Journal says finalize, HEAD is the expected `F` and `C/F` remain valid | Atomically record `targetSha=C` and `currentTargetSha=F` |
@@ -416,7 +407,7 @@ Additional edge cases:
 | Target moves after preview but before start | Reject stale preview before creating the worktree |
 | Target moves during execution | Finish against the frozen target; do not auto-rebase |
 
-## 9. Final accounting and range review
+## 9. Final accounting
 
 Completion requires:
 
@@ -441,16 +432,7 @@ subject, and absent `-x` line exactly match `F`. New pair finalization cannot
 use the exception because it records `currentTargetSha=F`, and the
 no-unrecorded-commit check therefore requires that exact child to be consumed.
 
-Only after these checks does the service store:
-
-```text
-git range-diff sourceBase..sourceTip initialTarget..finalTarget
-```
-
-This output helps a person see missing, extra, or changed patches. It is never
-parsed to decide completion because its matching is heuristic.
-
-After the review is stored, completion records the generated branch as the
+After these checks, completion records the generated branch as the
 local result and calls `WorktreeService.cleanup(taskWorktree)`. Delivery
 later pushes that recorded branch from the managed repository, so it does not
 require a checked-out worktree. Cleanup failure is retryable and does not
@@ -463,7 +445,7 @@ events drain before worktree removal. Cancellation has no destructive cleanup
 mode: the shared service refuses dirty or open Git state, uses non-force
 removal, and always retains the generated branch.
 
-`WorkspaceBranchPusher` therefore accepts the workspace plus retained local
+The managed workspace push therefore accepts the workspace plus retained local
 branch/ref and verifies it through the managed repository. It no longer
 requires the removed worktree path or requires that branch to be checked out.
 
@@ -589,8 +571,7 @@ public final class GitSequencerDriver
 ## 11. Rebase reuse
 
 Rebase can reuse the low-level observation vocabulary, command runner, agent
-task/turn lifecycle, retry rules, validation hook shape, and action-journal
-pattern. It must not reuse the cherry-pick retained-`C/F` policy.
+task/turn lifecycle, retry rules, and action-journal pattern. It must not reuse the cherry-pick retained-`C/F` policy.
 
 During a rebase conflict the agent edits and stages only; the program runs
 `git rebase --continue`. A rebase may replay multiple commits and Git owns its

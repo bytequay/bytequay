@@ -26,8 +26,6 @@ import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.ResponseStatus;
 import org.springframework.web.bind.annotation.RestController;
 
-import java.util.Optional;
-
 import static java.util.Objects.requireNonNull;
 
 /**
@@ -73,7 +71,7 @@ public class CherryPickPreviewController
         }
         CherryPickPreview preview = previewService.preview(new PreviewCherryPickRangeCommand(
                 context.repository(),
-                Optional.of(workspaceId),
+                workspaceId,
                 context.sourceRepositoryId(sourceRemote),
                 sourceRemote,
                 request.sourceBaseRef(),

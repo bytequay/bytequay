@@ -29,7 +29,6 @@ import com.bytequay.agent.spi.DevelopmentResultReport;
 import com.bytequay.app.ci.CiAutofixService;
 import com.bytequay.app.ci.CiHeadSnapshot;
 import com.bytequay.app.ci.GitHubActionsClient;
-import com.bytequay.app.ci.InspectCiHeadQuery;
 import com.bytequay.app.ci.StartCiAutofixCommand;
 import com.bytequay.app.repository.github.CreatedPullRequest;
 import com.bytequay.app.repository.github.GitHubDeliveryChecks;
@@ -394,7 +393,7 @@ public class DevelopmentFollowupCoordinator
 
     private CiHeadSnapshot inspectDeliveryActions(GitHubPullRequestIdentity publishedPr, CiAutofixRun green)
     {
-        CiHeadSnapshot snapshot = actions.inspect(new InspectCiHeadQuery(publishedPr.pullRequest()));
+        CiHeadSnapshot snapshot = actions.inspect(publishedPr.pullRequest());
         checkState(snapshot.pullRequest().equals(publishedPr.pullRequest()) && snapshot.open()
                 && snapshot.headRepository().equals(publishedPr.headRepository())
                 && snapshot.headRef().equals(publishedPr.headBranch()) && snapshot.baseRef().equals(publishedPr.baseBranch())

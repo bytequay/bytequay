@@ -151,7 +151,7 @@ public final class DefaultAgentTaskService
     public AgentTask get(TaskId taskId)
     {
         requireNonNull(taskId, "taskId is null");
-        return taskStore.find(taskId).orElseThrow(() -> new AgentTaskNotFoundException(taskId));
+        return taskStore.require(taskId);
     }
 
     @Override

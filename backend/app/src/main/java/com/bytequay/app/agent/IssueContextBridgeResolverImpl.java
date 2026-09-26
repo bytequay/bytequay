@@ -17,8 +17,8 @@ import com.bytequay.agent.core.AgentConflictException;
 import com.bytequay.agent.core.TaskId;
 import com.bytequay.agent.core.TaskState;
 import com.bytequay.agent.core.store.AgentTaskStore;
+import com.bytequay.agent.spi.BridgeResolver;
 import com.bytequay.agent.spi.IssueContextBridge;
-import com.bytequay.agent.spi.IssueContextBridgeResolver;
 import com.bytequay.core.domain.IssueTask;
 import com.bytequay.core.domain.PrTimelineEvent;
 import com.bytequay.core.domain.RepositoryIssue;
@@ -45,7 +45,7 @@ import static java.util.Objects.requireNonNull;
 /** Reads only ByteQuay's durable source and local caches; it has no GitHub client or credentials. */
 @Component
 public class IssueContextBridgeResolverImpl
-        implements IssueContextBridgeResolver
+        implements BridgeResolver<IssueContextBridge>
 {
     private static final int MAXIMUM_EVENTS = 20;
     private static final int MAXIMUM_EVENT_BODY = 2_000;

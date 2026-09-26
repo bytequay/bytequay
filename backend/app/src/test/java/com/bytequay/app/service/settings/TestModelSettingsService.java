@@ -82,7 +82,7 @@ class TestModelSettingsService
                 new ProviderModel(
                         "gpt-5.6-luna", "GPT-5.6-Luna", "Fast and affordable agentic coding model.",
                         ImmutableList.of("low", "medium", "high", "xhigh", "max"),
-                        Optional.of("medium"), false)));
+                        Optional.of("medium"), false, ImmutableList.of("text"), ImmutableList.of())));
         when(drivers.require(CODEX)).thenReturn(codexDriver);
         settingsStore = new InMemoryAppSettingsStore();
         apiKeys = new InMemoryModelApiKeyStore();
@@ -136,13 +136,6 @@ class TestModelSettingsService
     void projectsNormalizedLaneCapabilitiesWithoutProviderBranches()
     {
         AgentCapabilities capabilities = new AgentCapabilities(
-                true,
-                true,
-                true,
-                true,
-                true,
-                true,
-                true,
                 true,
                 true,
                 true,
@@ -232,26 +225,6 @@ class TestModelSettingsService
         assertThat(service.agentModel(AgentModelType.DEVELOPMENT).model()).isEqualTo("gpt-5.6-sol");
 
         assertThat(service.clearAgentModel(AgentModelType.REVIEW).model()).isEqualTo("gpt-5.6-sol");
-    }
-
-    @Test
-    void aLegacyMainModelBecomesDevelopmentAndLeavesReviewInheriting()
-    {
-        settingsStore.put("model.selection.codex", "{\"model\":\"gpt-5.6-sol\",\"effort\":\"high\"}");
-        settingsStore.put("model.main", "codex");
-
-        service.migrateLegacyMainModel();
-
-        AgentModelSetting development = service.agentModel(AgentModelType.DEVELOPMENT);
-        assertThat(development.explicit()).isTrue();
-        assertThat(development.configId()).isEqualTo("codex");
-        assertThat(development.model()).isEqualTo("gpt-5.6-sol");
-        assertThat(service.agentModel(AgentModelType.REVIEW).explicit()).isFalse();
-        assertThat(settingsStore.get("model.main")).isEmpty();
-
-        // Idempotent: a second pass has nothing to move and must not clobber the value.
-        service.migrateLegacyMainModel();
-        assertThat(service.agentModel(AgentModelType.DEVELOPMENT).model()).isEqualTo("gpt-5.6-sol");
     }
 
     @Test
@@ -360,7 +333,7 @@ class TestModelSettingsService
         when(codexDriver.models()).thenReturn(ImmutableList.of(
                 new ProviderModel(
                         "gpt-6-sol", "GPT-6-Sol", "Next frontier model.",
-                        ImmutableList.of("low", "high"), Optional.of("low"), true)));
+                        ImmutableList.of("low", "high"), Optional.of("low"), true, ImmutableList.of("text"), ImmutableList.of())));
         service.refreshCatalogs();
 
         var codex = service.get().providers().get(1);
@@ -381,7 +354,7 @@ class TestModelSettingsService
         when(codexDriver.models()).thenReturn(ImmutableList.of(
                 new ProviderModel(
                         "gpt-6-sol", "GPT-6-Sol", "Next frontier model.",
-                        ImmutableList.of("low", "high"), Optional.of("low"), true)));
+                        ImmutableList.of("low", "high"), Optional.of("low"), true, ImmutableList.of("text"), ImmutableList.of())));
 
         // A provider that became usable after startup has no catalog; this is what fills it.
         fresh.refreshMissingCatalogs(drivers.statuses());
@@ -456,17 +429,6 @@ class TestModelSettingsService
         public Optional<ModelApiKey> findById(String id)
         {
             return keys.stream().filter(key -> key.id().equals(id)).findFirst();
-        }
-
-        @Override
-        public Optional<String> findSecret(String alias)
-        {
-            for (int i = 0; i < keys.size(); i++) {
-                if (keys.get(i).alias().equals(alias)) {
-                    return Optional.of(secrets.get(i));
-                }
-            }
-            return Optional.empty();
         }
 
         @Override

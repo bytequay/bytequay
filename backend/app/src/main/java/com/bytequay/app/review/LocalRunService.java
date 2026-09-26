@@ -157,12 +157,12 @@ public class LocalRunService
         return runs.listByTask(code.task(host).id().toString(), LIST_LIMIT);
     }
 
-    public LocalRun get(String reviewId, String runId)
+    private LocalRun get(String reviewId, String runId)
     {
         return run(requireReview(reviewId).taskId(), runId);
     }
 
-    public LocalRun get(TaskCodeHost host, String runId)
+    private LocalRun get(TaskCodeHost host, String runId)
     {
         return run(code.task(host).id().toString(), runId);
     }

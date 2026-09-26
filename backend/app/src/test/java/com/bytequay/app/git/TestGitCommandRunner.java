@@ -69,6 +69,27 @@ class TestGitCommandRunner
     }
 
     @Test
+    void failsOnlyOnLeftoverMarkersNotOnWhitespaceTheAuthorWrote()
+    {
+        git(repository, "config", "user.name", "ByteQuay Test");
+        git(repository, "config", "user.email", "bytequay@example.com");
+        GitTestSupport.write(repository, "file.txt", "one\n");
+        GitTestSupport.commit(repository, "Base");
+        String before = GitTestSupport.head(repository);
+
+        GitTestSupport.write(repository, "file.txt", "one\ntrailing space here   \n\n");
+        GitTestSupport.commit(repository, "Faithful copy of untidy upstream content");
+        assertThat(GIT.withoutConflictMarkers(repository, before, GitTestSupport.head(repository)))
+                .as("upstream whitespace must not fail a faithful pick")
+                .isTrue();
+
+        String beforeMarkers = GitTestSupport.head(repository);
+        GitTestSupport.write(repository, "file.txt", "<<<<<<< HEAD\nours\n=======\ntheirs\n>>>>>>> other\n");
+        GitTestSupport.commit(repository, "Left a resolution unfinished");
+        assertThat(GIT.withoutConflictMarkers(repository, beforeMarkers, GitTestSupport.head(repository))).isFalse();
+    }
+
+    @Test
     void reportsNoPathsOutsideARepository()
             throws IOException
     {

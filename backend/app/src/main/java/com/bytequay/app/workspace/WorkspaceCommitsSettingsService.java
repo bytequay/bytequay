@@ -23,6 +23,7 @@ import org.springframework.stereotype.Service;
 import java.nio.file.Path;
 import java.util.Optional;
 
+import static com.bytequay.app.workspace.WorkspaceException.requireWorkspace;
 import static com.google.common.base.Preconditions.checkArgument;
 import static com.google.common.base.Preconditions.checkState;
 import static java.util.Objects.requireNonNull;
@@ -45,13 +46,13 @@ public class WorkspaceCommitsSettingsService
 
     public WorkspaceCommitsTarget get(String workspaceId)
     {
-        return resolve(requireWorkspace(workspaceId));
+        return resolve(requireWorkspace(workspaces, workspaceId));
     }
 
     public WorkspaceCommitsTarget save(String workspaceId, String branch)
     {
         return WorkspaceOperationLocks.withLock(workspaceId, () -> {
-            Workspace workspace = requireWorkspace(workspaceId);
+            Workspace workspace = requireWorkspace(workspaces, workspaceId);
             checkArgument(branch != null && !branch.isBlank() && branch.length() <= 512, "A branch name of at most 512 characters is required.");
             checkArgument(!branch.startsWith("-") && !branch.startsWith("refs/") && !branch.equals("HEAD"), "Enter a branch name, not a Git option or full ref.");
             // Ref validation needs no checkout, so preferences remain usable before provisioning.
@@ -66,15 +67,10 @@ public class WorkspaceCommitsSettingsService
     public WorkspaceCommitsTarget reset(String workspaceId)
     {
         return WorkspaceOperationLocks.withLock(workspaceId, () -> {
-            Workspace workspace = requireWorkspace(workspaceId);
+            Workspace workspace = requireWorkspace(workspaces, workspaceId);
             settings.delete(TARGET_BRANCH_PREFIX + workspaceId);
             return resolve(workspace);
         });
-    }
-
-    private Workspace requireWorkspace(String workspaceId)
-    {
-        return workspaces.findById(workspaceId).orElseThrow(() -> WorkspaceException.notFound(workspaceId));
     }
 
     private WorkspaceCommitsTarget resolve(Workspace workspace)

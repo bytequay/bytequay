@@ -23,6 +23,7 @@ import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
 import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.Duration;
 import java.util.ArrayList;
@@ -47,6 +48,9 @@ import static java.util.stream.Collectors.toCollection;
 public class GitCommandRunner
 {
     public static final int MAXIMUM_OUTPUT_BYTES = 5 * 1024 * 1024;
+    /** Git directory entries that exist while a merge, cherry-pick, revert, or rebase is open. */
+    public static final List<String> OPERATION_MARKERS = ImmutableList.of(
+            "CHERRY_PICK_HEAD", "MERGE_HEAD", "REVERT_HEAD", "rebase-merge", "rebase-apply");
     private static final int MAXIMUM_ERROR_BYTES = 64 * 1024;
     private static final Duration COMMAND_TIMEOUT = Duration.ofSeconds(60);
     private static final Duration DRAIN_TIMEOUT = Duration.ofSeconds(2);
@@ -207,6 +211,33 @@ public class GitCommandRunner
                 .collect(toImmutableList());
     }
 
+    /** Returns the requested {@code --git-path} markers that currently exist, in request order. */
+    public Set<String> openMarkers(Path worktree, List<String> markers)
+    {
+        List<Path> paths = gitPaths(worktree, markers);
+        Set<String> open = new LinkedHashSet<>();
+        for (int marker = 0; marker < paths.size(); marker++) {
+            if (Files.exists(paths.get(marker))) {
+                open.add(markers.get(marker));
+            }
+        }
+        return open;
+    }
+
+    /**
+     * Reports whether {@code fromSha..toSha} adds no conflict marker.
+     *
+     * <p>Only leftover conflict markers may fail this check. Whitespace the source author wrote is
+     * copied faithfully, and a repository's own {@code core.whitespace} must not change what ByteQuay accepts.
+     */
+    public boolean withoutConflictMarkers(Path worktree, String fromSha, String toSha)
+    {
+        return run(worktree,
+                "-c", "core.whitespace=-trailing-space,-space-before-tab,-indent-with-non-tab,-tab-in-indent",
+                "diff", "--check", fromSha + ".." + toSha)
+                .successful();
+    }
+
     Optional<String> markerCommit(Path worktree, String marker)
     {
         Result result = run(worktree, "rev-parse", "--verify", "--quiet", marker);
@@ -215,7 +246,7 @@ public class GitCommandRunner
                 : Optional.empty();
     }
 
-    List<ConflictedPath> conflicts(Path worktree)
+    public List<ConflictedPath> conflicts(Path worktree)
     {
         Result unmerged = run(worktree, "ls-files", "-u");
         if (!unmerged.successful() || unmerged.output().isBlank()) {

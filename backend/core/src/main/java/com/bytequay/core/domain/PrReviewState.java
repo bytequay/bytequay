@@ -42,16 +42,4 @@ public record PrReviewState(
         requireNonNull(login, "login is null");
         requireNonNull(state, "state is null");
     }
-
-    /** Convenience for call sites (mostly tests) that don't care about
-     *  the submission timestamp. Equivalent to passing null. */
-    public PrReviewState(String login, String state)
-    {
-        this(null, login, null, login != null && login.endsWith("[bot]"), state, null, null, null, null);
-    }
-
-    public PrReviewState(String login, String state, Instant submittedAt)
-    {
-        this(null, login, null, login != null && login.endsWith("[bot]"), state, submittedAt, null, null, null);
-    }
 }

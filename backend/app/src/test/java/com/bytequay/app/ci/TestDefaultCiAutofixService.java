@@ -241,13 +241,6 @@ class TestDefaultCiAutofixService
                 false,
                 false,
                 false,
-                false,
-                false,
-                false,
-                false,
-                false,
-                false,
-                false,
                 Set.of(AgentPermissionPolicy.CI_AUTOFIX),
                 Set.of());
         AgentProviderStatus providerStatus = new AgentProviderStatus(
@@ -275,7 +268,7 @@ class TestDefaultCiAutofixService
                 ImmutableList.of("error: compilation failed"),
                 Optional.empty(), Optional.empty(), true));
         when(worktreeService.inspect(any())).thenAnswer(invocation ->
-                new WorktreeSnapshot(invocation.getArgument(0), HEAD, false, false));
+                new WorktreeSnapshot(invocation.getArgument(0), HEAD, false, false, false));
         when(taskService.create(any())).thenAnswer(invocation -> task(invocation.getArgument(0)));
         when(taskService.get(any())).thenAnswer(invocation -> {
             TaskId requested = invocation.getArgument(0);
@@ -308,7 +301,7 @@ class TestDefaultCiAutofixService
         };
         taskStore = mock(AgentTaskStore.class);
         turnStore = mock(AgentTurnStore.class);
-        runtimes = new AgentRuntimeRegistry();
+        runtimes = new AgentRuntimeRegistry(ignored -> {});
         ownership = new DevelopmentCiOwnership(store, taskStore, turnStore, eventService, runtimes, Clock.fixed(NOW, ZoneOffset.UTC));
         service = new DefaultCiAutofixService(
                 store,
@@ -462,7 +455,7 @@ class TestDefaultCiAutofixService
             return completedRebase(command);
         }).when(rebaseService).start(any());
         CiAutofixRun run = service.start(startCommand("base-moves-before-turn"));
-        assertThat(run.taskStartCommit()).contains(HEAD);
+        assertThat(run.taskStartCommit()).isEqualTo(HEAD);
         BranchRebase rebase = firstRebase.get();
         when(rebaseService.get(rebase.id())).thenReturn(rebase);
         when(rebaseService.advance(rebase.id())).thenReturn(rebase.finish(
@@ -481,7 +474,7 @@ class TestDefaultCiAutofixService
 
         assertThat(run.latestObservedBaseSha()).isEqualTo(movedBase);
         assertThat(run.attempts().getFirst().inputSha()).isEqualTo(FIXED_HEAD);
-        assertThat(run.taskStartCommit()).contains(HEAD);
+        assertThat(run.taskStartCommit()).isEqualTo(HEAD);
         assertThat(run.currentTurnId()).isEmpty();
         run = service.advance(run.id());
         assertThat(run.currentTurnId()).contains(turnId.toString());
@@ -602,10 +595,9 @@ class TestDefaultCiAutofixService
 
         run = service.advance(run.id());
 
-        ArgumentCaptor<InspectAgentResultCommand> inspection =
-                ArgumentCaptor.forClass(InspectAgentResultCommand.class);
+        ArgumentCaptor<CiWorktreeRange> inspection = ArgumentCaptor.forClass(CiWorktreeRange.class);
         verify(gitService).inspectAgentResult(inspection.capture());
-        assertThat(inspection.getValue().inputSha()).isEqualTo(HEAD);
+        assertThat(inspection.getValue().remoteHeadSha()).isEqualTo(HEAD);
         assertThat(inspection.getValue().baseSha()).isEqualTo(BASE);
         assertThat(run.pushJournal()).isPresent();
         verify(rebaseService, times(2)).start(any());
@@ -701,7 +693,7 @@ class TestDefaultCiAutofixService
         useForkWorkspace(forkHead);
         CiAutofixRun run = service.start(startCommand("fork-routing"));
         assertThat(run.scope().headRepository()).isEqualTo(snapshot.headRepository());
-        assertThat(run.scope().physicalRepository()).contains(FORK);
+        assertThat(run.scope().physicalRepository()).isEqualTo(FORK);
         when(turnService.get(turnId)).thenReturn(terminalTurn(TurnState.COMPLETED, Optional.empty()));
         run = service.advance(run.id());
         when(gitService.inspectAgentResult(any())).thenReturn(CiGitInspection.ready(
@@ -725,9 +717,9 @@ class TestDefaultCiAutofixService
             assertThat(command.sourceRemote()).isEqualTo("upstream");
             assertThat(command.remoteRepository()).isEqualTo(REPOSITORY);
         });
-        ArgumentCaptor<InspectCiHeadQuery> inspect = ArgumentCaptor.forClass(InspectCiHeadQuery.class);
+        ArgumentCaptor<PullRequestRef> inspect = ArgumentCaptor.forClass(PullRequestRef.class);
         verify(gitHub, times(4)).inspect(inspect.capture());
-        assertThat(inspect.getAllValues()).extracting(InspectCiHeadQuery::pullRequest).containsOnly(PULL_REQUEST);
+        assertThat(inspect.getAllValues()).containsOnly(PULL_REQUEST);
     }
 
     @ParameterizedTest
@@ -2344,7 +2336,7 @@ class TestDefaultCiAutofixService
 
     private WorktreeSnapshot worktree(boolean dirty, String head)
     {
-        return new WorktreeSnapshot(taskWorktree, head, dirty, false);
+        return new WorktreeSnapshot(taskWorktree, head, dirty, false, dirty);
     }
 
     private Optional<WorktreeSnapshot> summaryWorktree(String head)
@@ -2437,7 +2429,8 @@ class TestDefaultCiAutofixService
                 "completed",
                 summaryWorktree(head),
                 AgentMetrics.empty(),
-                Optional.empty());
+                Optional.empty(),
+                ImmutableList.of());
         return openTask.complete(summary, NOW, NOW.plus(Duration.ofDays(7)));
     }
 
@@ -2630,7 +2623,8 @@ class TestDefaultCiAutofixService
                 "untrusted agent response",
                 summaryWorktree(head),
                 AgentMetrics.empty(),
-                Optional.of("verified"));
+                Optional.of("verified"),
+                ImmutableList.of());
         return new TaskCompletion(taskId, summary, NOW, NOW.plus(Duration.ofDays(7)));
     }
 

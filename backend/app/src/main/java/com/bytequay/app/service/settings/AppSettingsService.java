@@ -35,7 +35,6 @@ public class AppSettingsService
 {
     private static final String QUIET_HOURS_KEY = "github.quietHours";
     private static final String CODEGRAPH_KEY = "codegraph.mode";
-    private static final String LEGACY_CODEGRAPH_KEY = "codegraph.enabled";
     private static final String PREFERENCES_KEY = "app.preferences";
     private static final String DEVELOPMENT_AUTOMATION_KEY = "agent.developmentAutomation";
 
@@ -113,8 +112,6 @@ public class AppSettingsService
     {
         return store.get(CODEGRAPH_KEY)
                 .map(CodeGraphMode::valueOf)
-                // The setting was a boolean before it became a mode.
-                .or(() -> store.get(LEGACY_CODEGRAPH_KEY).map(enabled -> Boolean.parseBoolean(enabled) ? CodeGraphMode.ON : CodeGraphMode.OFF))
                 .orElse(CodeGraphMode.ON);
     }
 

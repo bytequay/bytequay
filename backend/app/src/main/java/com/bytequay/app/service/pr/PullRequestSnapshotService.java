@@ -16,7 +16,6 @@ package com.bytequay.app.service.pr;
 import com.bytequay.app.ci.CiHeadSnapshot;
 import com.bytequay.app.ci.CiRerunResult;
 import com.bytequay.app.ci.CiWorkflowRun;
-import com.bytequay.app.ci.InspectCiHeadQuery;
 import com.bytequay.app.ci.RerunFailedJobsCommand;
 import com.bytequay.app.repository.github.ConditionalList;
 import com.bytequay.app.repository.github.GitHubActionsClient;
@@ -95,7 +94,7 @@ public class PullRequestSnapshotService
 
     String readCheckLog(PullRequestRef pullRequest, long jobId)
     {
-        CiHeadSnapshot head = actions.inspect(new InspectCiHeadQuery(pullRequest));
+        CiHeadSnapshot head = actions.inspect(pullRequest);
         boolean failedJob = head.workflowRuns().stream()
                 .flatMap(run -> run.jobs().stream())
                 .anyMatch(job -> job.id() == jobId && job.actionableFailure());
@@ -107,7 +106,7 @@ public class PullRequestSnapshotService
 
     void rerunFailedChecks(PullRequestRef pullRequest)
     {
-        CiHeadSnapshot head = actions.inspect(new InspectCiHeadQuery(pullRequest));
+        CiHeadSnapshot head = actions.inspect(pullRequest);
         List<CiWorkflowRun> failedRuns = head.workflowRuns().stream()
                 .filter(run -> run.jobs().stream().anyMatch(job -> job.actionableFailure()))
                 .collect(toImmutableList());

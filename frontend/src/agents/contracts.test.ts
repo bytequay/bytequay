@@ -36,15 +36,8 @@ import {
 } from './contracts';
 
 const capabilities = {
-  sessionResume: true,
-  partialAssistantText: true,
   structuredPlans: true,
-  toolLifecycle: true,
-  incrementalCommandOutput: true,
-  hookLifecycle: false,
   nestedAgentActivity: true,
-  interactiveApprovals: true,
-  tokenUsage: true,
   steering: true,
   permissionPolicies: ['AUTO'],
   attachmentMediaTypes: ['image/png', 'image/jpeg', 'image/gif'],

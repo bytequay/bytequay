@@ -47,7 +47,6 @@ import static java.util.Objects.requireNonNull;
 /** Performs filesystem and Git operations inside a ByteQuay-owned workspace checkout. */
 @Component
 class ManagedWorkspaceGit
-        implements WorkspaceBranchPusher
 {
     private static final Logger log = LoggerFactory.getLogger(ManagedWorkspaceGit.class);
     private static final Duration NETWORK_TIMEOUT = Duration.ofMinutes(10);
@@ -84,13 +83,6 @@ class ManagedWorkspaceGit
         fetchConfiguredRemotes(current, repository, environment);
     }
 
-    void validate(Workspace previous, Workspace current)
-    {
-        validateRouting(current);
-        Path repository = requireOwnedCheckout(current);
-        reconcileRemotes(previous, current, repository);
-    }
-
     Set<String> synchronize(Workspace previous, Workspace current)
     {
         validateRouting(current);
@@ -101,8 +93,7 @@ class ManagedWorkspaceGit
     }
 
     /** Pushes one retained ByteQuay task branch to the persisted {@code origin} without force. */
-    @Override
-    public Push pushBranch(Workspace workspace, String branch, String expectedSha)
+    void pushBranch(Workspace workspace, String branch, String expectedSha)
     {
         requireNonNull(workspace, "workspace is null");
         requireNonNull(branch, "branch is null");
@@ -127,7 +118,6 @@ class ManagedWorkspaceGit
                 authenticationEnvironment(workspace),
                 ImmutableList.of("push", "--porcelain", "origin", localRef + ":refs/heads/" + branch));
         requireGitSuccess(pushed, "push generated branch to origin");
-        return new Push("origin", branch, sha);
     }
 
     private Path prepareOwnedWorkspace(Workspace workspace)

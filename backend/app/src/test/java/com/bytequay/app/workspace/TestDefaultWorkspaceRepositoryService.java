@@ -25,6 +25,7 @@ import com.bytequay.core.domain.Workspace;
 import com.bytequay.core.domain.Workspace.Topology;
 import com.bytequay.core.store.WorkspaceStore;
 import com.google.common.collect.ImmutableList;
+import com.google.common.collect.ImmutableSet;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
@@ -160,7 +161,7 @@ class TestDefaultWorkspaceRepositoryService
 
         assertThat(service.listWorkspaces()).isEmpty();
         assertThat(service.listRetiredWorkspaces()).containsExactly(WorkspaceSummary.of(workspace));
-        assertThat(service.getWorkspace(workspace.id())).isEqualTo(WorkspaceDetails.of(workspace));
+        assertThat(service.getWorkspace(workspace.id())).isEqualTo(WorkspaceSummary.of(workspace));
         assertThat(store.findAllRetained()).containsExactly(workspace);
         assertThat(service.previewWatch(100).existingWorkspaceId()).isEmpty();
         assertThat(Files.readString(taskWorktree.resolve("unfinished.txt"))).isEqualTo("local work");
@@ -170,7 +171,7 @@ class TestDefaultWorkspaceRepositoryService
         assertThat(service.listWorkspaces()).extracting(WorkspaceSummary::id).containsExactly(workspace.id());
         assertThat(service.listRetiredWorkspaces()).isEmpty();
         assertThat(Files.readString(taskWorktree.resolve("unfinished.txt"))).isEqualTo("local work");
-        verify(provisioning).provision(workspace.id());
+        verify(provisioning).synchronizeCode(workspace.id());
     }
 
     @Test
@@ -197,7 +198,7 @@ class TestDefaultWorkspaceRepositoryService
 
         assertThat(service.listRetiredWorkspaces()).containsExactly(WorkspaceSummary.of(retired));
         assertThat(service.listWorkspaces()).containsExactly(WorkspaceSummary.of(watched));
-        assertThat(service.getWorkspace(retired.id())).isEqualTo(WorkspaceDetails.of(retired));
+        assertThat(service.getWorkspace(retired.id())).isEqualTo(WorkspaceSummary.of(retired));
         assertThat(store.isWatched(retired.id())).isFalse();
         assertThat(queued).isEmpty();
         verifyNoInteractions(enrichment, gitHub, credentials, provisioning, metadata, refresh);
@@ -272,7 +273,7 @@ class TestDefaultWorkspaceRepositoryService
         reset(provisioning);
         when(provisioning.synchronizeCode(unsynced.id())).thenAnswer(ignored -> {
             Workspace synced = store.save(unsynced.withCodeSyncAt(Optional.of(NOW), NOW));
-            return WorkspaceCodeSyncResult.success(synced);
+            return WorkspaceCodeSyncResult.success(synced, ImmutableSet.of());
         });
 
         assertThat(service.requireReadyRepository(unsynced.id()).repository())
@@ -387,11 +388,10 @@ class TestDefaultWorkspaceRepositoryService
 
         service.recoverIncompleteWork();
 
-        verify(provisioning).provision(pending.id());
+        verify(provisioning).synchronizeCode(pending.id());
         verify(provisioning).synchronizeCode(syncing.id());
         verify(metadata).synchronize(pending.id());
         verify(metadata).synchronize(syncing.id());
-        verify(provisioning, never()).provision(fresh.id());
         verify(provisioning, never()).synchronizeCode(fresh.id());
         verify(metadata).synchronize(fresh.id());
     }
@@ -409,10 +409,10 @@ class TestDefaultWorkspaceRepositoryService
         WorkspaceProvisioningService provisioning = mock(WorkspaceProvisioningService.class);
         PullRequestRefreshService pullRequestRefresh = mock(PullRequestRefreshService.class);
         AtomicReference<Optional<Instant>> observed = new AtomicReference<>();
-        when(provisioning.provision(anyString())).thenAnswer(invocation -> {
+        when(provisioning.synchronizeCode(anyString())).thenAnswer(invocation -> {
             Workspace saved = store.findById(invocation.getArgument(0)).orElseThrow();
             observed.set(saved.lastCodeSyncAt());
-            return WorkspaceProvisioningResult.success(saved);
+            return WorkspaceCodeSyncResult.success(saved, ImmutableSet.of());
         });
         DefaultWorkspaceRepositoryService service = new DefaultWorkspaceRepositoryService(
                 store,

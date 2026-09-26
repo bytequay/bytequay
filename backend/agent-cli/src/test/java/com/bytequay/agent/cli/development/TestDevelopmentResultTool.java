@@ -29,7 +29,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 class TestDevelopmentResultTool
 {
     private final ObjectMapper json = new ObjectMapper();
-    private final DevelopmentResultBridge bridge = new DevelopmentResultBridge("turn-1", DevelopmentResultBridge.INSTRUCTION);
+    private final DevelopmentResultBridge bridge = new DevelopmentResultBridge("turn-1", DevelopmentResultBridge.INSTRUCTION, false);
     private final SecretRedactor redactor = SecretRedactor.fromEnvironment(ImmutableMap.of());
 
     @Test

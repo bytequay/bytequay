@@ -322,7 +322,7 @@ class TestCiAutofixHttpApi
                         PullRequestRef.of("bytequay", "sample", 42),
                         RepoRef.of("bytequay", "sample"),
                         "workspace-1",
-                        Optional.empty(),
+                        RepoRef.of("bytequay", "sample"),
                         "author",
                         "feature",
                         "main",

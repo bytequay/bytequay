@@ -186,7 +186,7 @@ public class ContextDiscoveryService
     {
         return WorkspaceOperationLocks.withLock(workspaceId, () -> {
             WorkspaceRepositoryContext workspace = workspaces.requireLocalRepository(workspaceId);
-            String identity = workspace + "\n" + workspaces.getWorkspace(workspaceId).summary().lastCodeSyncAt();
+            String identity = workspace + "\n" + workspaces.getWorkspace(workspaceId).lastCodeSyncAt();
             return new RepositoryState(workspace, Hashing.sha256().hashString(identity, UTF_8).toString());
         });
     }

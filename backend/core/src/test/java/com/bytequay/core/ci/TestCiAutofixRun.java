@@ -48,13 +48,13 @@ class TestCiAutofixRun
     void reservesTheHeadRepositoryBranchAcrossBaseRepositories()
     {
         RepoRef fork = RepoRef.of("AUTHOR", "Sample");
-        Scope first = new Scope(PullRequestRef.of("upstream", "sample", 1), fork, "workspace-1", Optional.empty(),
+        Scope first = new Scope(PullRequestRef.of("upstream", "sample", 1), fork, "workspace-1", fork,
                 "author", "feature", "main", "codex", Optional.empty());
-        Scope second = new Scope(PullRequestRef.of("another-upstream", "sample", 2), fork, "workspace-2", Optional.empty(),
+        Scope second = new Scope(PullRequestRef.of("another-upstream", "sample", 2), fork, "workspace-2", fork,
                 "author", "feature", "main", "codex", Optional.empty());
 
         assertThat(first.activeBranchSlot()).isEqualTo("author/sample:feature").isEqualTo(second.activeBranchSlot());
-        Scope direct = new Scope(PullRequestRef.of("author", "sample", 3), fork, "workspace-3", Optional.empty(),
+        Scope direct = new Scope(PullRequestRef.of("author", "sample", 3), fork, "workspace-3", fork,
                 "author", "feature", "main", "codex", Optional.empty());
         assertThat(direct.headRepository()).isEqualTo(RepoRef.of("author", "sample"));
         assertThat(direct.activeBranchSlot()).isEqualTo(first.activeBranchSlot());
@@ -277,7 +277,7 @@ class TestCiAutofixRun
                         PullRequestRef.of("bytequay", "sample", 7),
                         RepoRef.of("bytequay", "sample"),
                         "workspace-1",
-                        Optional.empty(),
+                        RepoRef.of("bytequay", "sample"),
                         "author",
                         headRef,
                         "main",

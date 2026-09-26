@@ -15,7 +15,9 @@ package com.bytequay.agent.cli.claude;
 
 import com.bytequay.agent.cli.process.SecretRedactor;
 import com.bytequay.agent.spi.ProviderAgentEvent;
+import com.fasterxml.jackson.databind.DeserializationFeature;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.datatype.jdk8.Jdk8Module;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import org.junit.jupiter.api.Test;
@@ -36,7 +38,7 @@ import static org.assertj.core.groups.Tuple.tuple;
 
 class TestClaudeEventMapper
 {
-    private final ClaudeProtocolCodec codec = new ClaudeProtocolCodec(new ObjectMapper());
+    private final ObjectMapper objectMapper = new ObjectMapper().registerModule(new Jdk8Module()).disable(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES);
     private final ClaudeEventMapper mapper = new ClaudeEventMapper(
             SecretRedactor.fromEnvironment(ImmutableMap.of("ANTHROPIC_API_KEY", "known-secret")));
 
@@ -242,7 +244,7 @@ class TestClaudeEventMapper
                 "description":"checking files","parent_tool_use_id":"parent-1",
                 "session_id":"session-1","uuid":"task-event-1"}
                 """, ProviderAgentEvent.Tool.class);
-        assertThat(nested.parentToolUseId()).contains("parent-1");
+        assertThat(nested.source().providerItemId()).contains("task-1");
         assertThat(nested.state()).isEqualTo(ProviderAgentEvent.ActivityState.PROGRESS);
     }
 
@@ -363,7 +365,7 @@ class TestClaudeEventMapper
     @Test
     void rejectsMissingRequiredFieldsAndIgnoresUnknownMessages()
     {
-        assertThatThrownBy(() -> codec.decode("""
+        assertThatThrownBy(() -> ClaudeProtocol.decode(objectMapper, """
                 {"type":"assistant","message":{"role":"assistant","content":[]}}
                 """))
                 .hasRootCauseMessage("sessionId is null");
@@ -411,7 +413,7 @@ class TestClaudeEventMapper
             assertThat(message.source().providerItemId()).isEqualTo(grandchild.source().providerItemId());
         }));
         assertThat(events).anySatisfy(event -> assertThat(event).isInstanceOfSatisfying(ProviderAgentEvent.Tool.class, tool -> {
-            assertThat(tool.toolCallId()).isEqualTo("tool-2");
+            assertThat(tool.source().providerItemId()).contains("tool-2");
             assertThat(tool.source().providerThreadId()).contains("claude-agent:tool-1");
             assertThat(tool.source().parentProviderThreadId()).contains("session-1");
         }));
@@ -716,7 +718,7 @@ class TestClaudeEventMapper
 
     private List<ProviderAgentEvent> map(String json)
     {
-        return mapper.map(codec.decode(json));
+        return mapper.map(ClaudeProtocol.decode(objectMapper, json));
     }
 
     private <T extends ProviderAgentEvent> T only(String json, Class<T> type)

@@ -130,7 +130,7 @@ class TestContextHistoryDiscovery
                 "Merged after the list refresh", ImmutableList.of(), ImmutableMap.of(), ImmutableList.of(), null, false, null, null,
                 0, 0, 0, 0, ImmutableList.of(), SHA, "head", "main");
         when(pullRequests.listPullRequests(REPO, 0, 20, "")).thenReturn(page(ImmutableList.of(row)));
-        when(details.find(row.id())).thenReturn(Optional.of(new StoredPrDetail(raw, ImmutableList.of(), ImmutableList.of(), ImmutableList.of())));
+        when(details.find(row.id())).thenReturn(Optional.of(new StoredPrDetail(raw, ImmutableList.of(), ImmutableList.of(), ImmutableList.of(), ImmutableList.of())));
 
         var result = discovery.discover(WORKSPACE, SHA, ImmutableList.of(ContextScope.project()), "", false);
 
@@ -221,7 +221,7 @@ class TestContextHistoryDiscovery
     {
         return new PullRequest(number, REPO.fullName(), number, title, "author", "https://github.com/owner/repo/pull/" + number, Instant.EPOCH,
                 Instant.EPOCH.plusSeconds(number), PullRequest.Origin.OTHER, ImmutableList.of(), ImmutableMap.of(), false, null, null, null, ImmutableList.of(), null,
-                0, 0, 0, null, state, Instant.EPOCH, mergedAt, null, null, null, null, null, null, null, null);
+                0, 0, 0, state, Instant.EPOCH, mergedAt, null, null, null, null, null, null, null, null);
     }
 
     private static GitHubSearchResponse.Item item(int number, boolean pr, String reason, String repositoryUrl, String url)

@@ -278,8 +278,9 @@ class TestSqlitePrDetailStore
     void derivesRequestedReviewerCountFromStoredReviewers()
     {
         StoredPrDetail detail = new StoredPrDetail(
-                new PrRawDetail("body", ImmutableList.of(), false, true, "clean", 1, 1, 1, 99, ImmutableList.of("alice", "bob"),
-                        "a".repeat(40), "feature"),
+                new PrRawDetail(null, null, null, null, null, null, null, null, "body", ImmutableList.of(), null, ImmutableList.of(), null, false, true, "clean", 1, 1, 1, 99,
+                        ImmutableList.of("alice", "bob"), "a".repeat(40), "feature", null),
+                ImmutableList.of(),
                 ImmutableList.of(),
                 ImmutableList.of(),
                 ImmutableList.of());
@@ -296,11 +297,12 @@ class TestSqlitePrDetailStore
     {
         PrTimelineEvent comment = remote(1, NOW);
         StoredPrDetail original = new StoredPrDetail(
-                new PrRawDetail("body", ImmutableList.of(), false, true, "clean", 1, 1, 1, 0, ImmutableList.of(),
-                        "a".repeat(40), "feature"),
-                ImmutableList.of(new PrReviewState("alice", "APPROVED")),
+                new PrRawDetail(null, null, null, null, null, null, null, null, "body", ImmutableList.of(), null, ImmutableList.of(), null, false, true, "clean", 1, 1, 1, 0,
+                        ImmutableList.of(), "a".repeat(40), "feature", null),
+                ImmutableList.of(new PrReviewState(null, "alice", null, false, "APPROVED", null, null, null, null)),
                 ImmutableList.of(comment),
-                ImmutableList.of(new PrCheckRunState(1L, "build", "completed", "success")));
+                ImmutableList.of(new PrCheckRunState(1L, "build", "completed", "success", null, "check_run", null, null)),
+                ImmutableList.of());
         store.save(prId, original);
         PrCheckRunState completedCheck = new PrCheckRunState(
                 2L, "test", "completed", "failure", null, "check_run", NOW.plusSeconds(10), NOW.plusSeconds(30));
@@ -308,14 +310,15 @@ class TestSqlitePrDetailStore
                 original.raw().withMergeability(false, "dirty"),
                 ImmutableList.of(),
                 ImmutableList.of(),
-                ImmutableList.of(completedCheck));
+                ImmutableList.of(completedCheck),
+                ImmutableList.of());
 
         store.saveStatus(prId, status);
 
         StoredPrDetail restored = store.find(prId).orElseThrow();
         assertThat(restored.raw().mergeable()).isFalse();
         assertThat(restored.raw().mergeableState()).isEqualTo("dirty");
-        assertThat(restored.reviews()).containsExactly(new PrReviewState("alice", "APPROVED"));
+        assertThat(restored.reviews()).containsExactly(new PrReviewState(null, "alice", null, false, "APPROVED", null, null, null, null));
         assertThat(restored.timeline()).containsExactly(comment);
         assertThat(restored.checkRuns()).containsExactly(completedCheck);
     }
@@ -359,8 +362,8 @@ class TestSqlitePrDetailStore
     {
         store.save(prId, detail(
                 ImmutableList.of(review(11L, "alice", "lgtm"), review(12L, "bob", "nit")),
-                ImmutableList.of(new PrCheckRunState(21L, "build", "completed", "success"),
-                        new PrCheckRunState(22L, "test", "completed", "failure"))));
+                ImmutableList.of(new PrCheckRunState(21L, "build", "completed", "success", null, "check_run", null, null),
+                        new PrCheckRunState(22L, "test", "completed", "failure", null, "check_run", null, null))));
         long aliceRowId = reviews.findByPrId(prId).stream()
                 .filter(row -> row.getGithubId() == 11L)
                 .findFirst()
@@ -370,7 +373,7 @@ class TestSqlitePrDetailStore
         // GitHub now reports only alice's review, with an edited body, and only the build check.
         store.save(prId, detail(
                 ImmutableList.of(review(11L, "alice", "still lgtm")),
-                ImmutableList.of(new PrCheckRunState(21L, "build", "completed", "success"))));
+                ImmutableList.of(new PrCheckRunState(21L, "build", "completed", "success", null, "check_run", null, null))));
 
         assertThat(reviews.findByPrId(prId)).singleElement().satisfies(row -> {
             assertThat(row.getGithubId()).isEqualTo(11L);
@@ -386,7 +389,7 @@ class TestSqlitePrDetailStore
     {
         store.save(prId, partial(
                 ImmutableList.of(review(11L, "alice", "lgtm")),
-                ImmutableList.of(new PrCheckRunState(21L, "build", "completed", "success")),
+                ImmutableList.of(new PrCheckRunState(21L, "build", "completed", "success", null, "check_run", null, null)),
                 ImmutableList.of(remote(31, NOW)),
                 ImmutableList.of()));
 
@@ -438,16 +441,17 @@ class TestSqlitePrDetailStore
                         NOW, NOW, null, "body", ImmutableList.of(), ImmutableMap.of(), ImmutableList.of(),
                         null, false, true, "clean", 1, 1, 1, 0, ImmutableList.of(),
                         "a".repeat(40), "feature", "main"),
-                ImmutableList.of(), ImmutableList.of(), ImmutableList.of());
+                ImmutableList.of(), ImmutableList.of(), ImmutableList.of(), ImmutableList.of());
     }
 
     private static StoredPrDetail detail(List<PrTimelineEvent> events)
     {
         return new StoredPrDetail(
-                new PrRawDetail("body", ImmutableList.of(), false, true, "clean", 1, 1, 1, 0, ImmutableList.of(),
-                        "a".repeat(40), "feature"),
+                new PrRawDetail(null, null, null, null, null, null, null, null, "body", ImmutableList.of(), null, ImmutableList.of(), null, false, true, "clean", 1, 1, 1, 0,
+                        ImmutableList.of(), "a".repeat(40), "feature", null),
                 ImmutableList.of(),
                 events,
+                ImmutableList.of(),
                 ImmutableList.of());
     }
 
@@ -459,20 +463,22 @@ class TestSqlitePrDetailStore
     private static StoredPrDetail detail(List<PrReviewState> reviews, List<PrCheckRunState> checkRuns)
     {
         return new StoredPrDetail(
-                new PrRawDetail("body", ImmutableList.of(), false, true, "clean", 1, 1, 1, 0, ImmutableList.of(),
-                        "a".repeat(40), "feature"),
+                new PrRawDetail(null, null, null, null, null, null, null, null, "body", ImmutableList.of(), null, ImmutableList.of(), null, false, true, "clean", 1, 1, 1, 0,
+                        ImmutableList.of(), "a".repeat(40), "feature", null),
                 reviews,
                 ImmutableList.of(),
-                checkRuns);
+                checkRuns,
+                ImmutableList.of());
     }
 
     private static StoredPrDetail detail(PrTimelineEvent event)
     {
         return new StoredPrDetail(
-                new PrRawDetail("body", ImmutableList.of(), false, true, "clean", 1, 1, 1, 0, ImmutableList.of(),
-                        "a".repeat(40), "feature"),
+                new PrRawDetail(null, null, null, null, null, null, null, null, "body", ImmutableList.of(), null, ImmutableList.of(), null, false, true, "clean", 1, 1, 1, 0,
+                        ImmutableList.of(), "a".repeat(40), "feature", null),
                 ImmutableList.of(),
                 ImmutableList.of(event),
+                ImmutableList.of(),
                 ImmutableList.of());
     }
 
@@ -494,8 +500,8 @@ class TestSqlitePrDetailStore
             List<String> unavailableSections)
     {
         return new StoredPrDetail(
-                new PrRawDetail("body", ImmutableList.of(), false, true, "clean", 1, 1, 1, 0, ImmutableList.of(),
-                        "a".repeat(40), "feature"),
+                new PrRawDetail(null, null, null, null, null, null, null, null, "body", ImmutableList.of(), null, ImmutableList.of(), null, false, true, "clean", 1, 1, 1, 0,
+                        ImmutableList.of(), "a".repeat(40), "feature", null),
                 reviews,
                 events,
                 checkRuns,

@@ -13,7 +13,7 @@
  */
 package com.bytequay.agent.cli.claude;
 
-import com.bytequay.agent.cli.mcp.McpConfigRegistration;
+import com.bytequay.agent.cli.mcp.McpRegistration;
 import com.bytequay.agent.cli.mcp.PermissionBroker;
 import com.bytequay.agent.cli.process.GitCliEnvironment;
 import com.bytequay.agent.cli.process.ManagedProcess;
@@ -23,6 +23,7 @@ import com.bytequay.agent.cli.process.ProcessOwner;
 import com.bytequay.agent.cli.process.ProcessSpec;
 import com.bytequay.agent.cli.process.ProcessStream;
 import com.bytequay.agent.cli.process.ProcessSupervisor;
+import com.bytequay.agent.cli.process.ProviderCli;
 import com.bytequay.agent.cli.process.SecretRedactor;
 import com.bytequay.agent.cli.process.Utf8LineBuffer;
 import com.bytequay.agent.spi.AgentAttachment;
@@ -47,8 +48,10 @@ import com.bytequay.agent.spi.ProviderApprovalRequest;
 import com.bytequay.agent.spi.ProviderTurnRef;
 import com.bytequay.agent.spi.RunningTurn;
 import com.bytequay.agent.spi.SessionAccess;
+import com.fasterxml.jackson.databind.DeserializationFeature;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.datatype.jdk8.Jdk8Module;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
@@ -57,6 +60,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.io.IOException;
+import java.lang.module.ModuleDescriptor.Version;
 import java.nio.ByteBuffer;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.DirectoryStream;
@@ -81,8 +85,10 @@ import java.util.concurrent.ExecutionException;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.regex.Pattern;
 import java.util.stream.Stream;
 
+import static com.bytequay.agent.cli.process.ProviderCli.failureMessage;
 import static java.util.Objects.requireNonNull;
 import static java.util.stream.Collectors.joining;
 
@@ -92,10 +98,11 @@ public final class ClaudeCliDriver
     private static final Logger log = LoggerFactory.getLogger(ClaudeCliDriver.class);
     private static final AgentLaneId LANE_ID = new AgentLaneId("claude");
     private static final int CONTRACT_VERSION = 1;
-    private static final Version MINIMUM_VERSION = new Version(2, 1, 200);
-    private static final Version SUBAGENT_TEXT_VERSION = new Version(2, 1, 219);
+    private static final Pattern RELEASE = Pattern.compile("\\d+\\.\\d+\\.\\d+");
+    private static final Version MINIMUM_VERSION = Version.parse("2.1.200");
+    private static final Version SUBAGENT_TEXT_VERSION = Version.parse("2.1.219");
     // The release whose PreToolUse hook input was verified to mark a child's tool call with agent_id, which the review child gate reads.
-    private static final Version REVIEW_CHILD_VERSION = new Version(2, 1, 278);
+    private static final Version REVIEW_CHILD_VERSION = Version.parse("2.1.278");
     private static final Duration PROBE_TIMEOUT = Duration.ofSeconds(10);
     private static final Duration UPDATE_TIMEOUT = Duration.ofMinutes(5);
     private static final Duration PROCESS_CANCELLATION_GRACE = Duration.ofSeconds(3);
@@ -161,7 +168,6 @@ public final class ClaudeCliDriver
     private final Map<String, String> environment;
     private final SecretRedactor redactor;
     private final ObjectMapper objectMapper;
-    private final ClaudeProtocolCodec codec;
     private final PermissionBroker permissions;
     private final Set<ClaudeSession> sessions = ConcurrentHashMap.newKeySet();
     private volatile boolean forwardSubagentText = true;
@@ -200,8 +206,9 @@ public final class ClaudeCliDriver
                 .put("CLAUDE_CONFIG_DIR", this.claudeHome.toString())
                 .buildOrThrow();
         this.redactor = SecretRedactor.fromEnvironment(this.environment);
-        this.objectMapper = requireNonNull(objectMapper, "objectMapper is null");
-        this.codec = new ClaudeProtocolCodec(objectMapper);
+        this.objectMapper = requireNonNull(objectMapper, "objectMapper is null").copy()
+                .registerModule(new Jdk8Module())
+                .disable(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES);
         this.permissions = requireNonNull(permissions, "permissions is null");
     }
 
@@ -221,7 +228,7 @@ public final class ClaudeCliDriver
     public Optional<String> update()
     {
         try {
-            CommandResult result = run(UPDATE_TIMEOUT, executable, "update");
+            ProviderCli.Result result = run(UPDATE_TIMEOUT, executable, "update");
             if (result.exitCode() != 0) {
                 throw new AgentUnavailableException(
                         "Claude CLI update failed: " + redactor.redact(result.combinedOutput()));
@@ -240,14 +247,7 @@ public final class ClaudeCliDriver
         // Forwarded child messages identify the Agent invocation that owns their execution.
         return new AgentCapabilities(
                 true,
-                true,
-                true,
-                true,
-                false,
-                true,
                 forwardSubagentText,
-                true,
-                true,
                 false,
                 ImmutableSet.copyOf(AgentPermissionPolicy.values()),
                 ImmutableSet.of("text/plain", "text/plain; charset=utf-8"));
@@ -263,7 +263,7 @@ public final class ClaudeCliDriver
     public AgentProviderStatus probe()
     {
         try {
-            CommandResult versionResult = run(executable, "--version");
+            ProviderCli.Result versionResult = run(executable, "--version");
             if (versionResult.truncated()) {
                 return status(
                         AgentProviderStatus.Readiness.TEMPORARILY_UNAVAILABLE,
@@ -276,7 +276,7 @@ public final class ClaudeCliDriver
                         Optional.empty(),
                         versionResult.combinedOutput());
             }
-            Optional<Version> parsed = Version.parse(versionResult.stdout());
+            Optional<Version> parsed = parseVersion(versionResult.stdout());
             if (parsed.isEmpty()) {
                 return status(
                         AgentProviderStatus.Readiness.TEMPORARILY_UNAVAILABLE,
@@ -291,7 +291,7 @@ public final class ClaudeCliDriver
                         "Unsupported Claude CLI version; expected " + MINIMUM_VERSION + " or newer");
             }
 
-            CommandResult help = run(executable, "--help");
+            ProviderCli.Result help = run(executable, "--help");
             if (help.truncated()) {
                 return status(
                         AgentProviderStatus.Readiness.TEMPORARILY_UNAVAILABLE,
@@ -323,7 +323,7 @@ public final class ClaudeCliDriver
                     && help.stdout().contains("--forward-subagent-text");
             // A review child is visible only through forwarded text, and gated only on a release with the verified hook input.
             reviewChildAgents = forwardSubagentText && version.compareTo(REVIEW_CHILD_VERSION) >= 0;
-            CommandResult defaults = run(executable, "auto-mode", "defaults");
+            ProviderCli.Result defaults = run(executable, "auto-mode", "defaults");
             if (defaults.timedOut()) {
                 return status(
                         AgentProviderStatus.Readiness.TEMPORARILY_UNAVAILABLE,
@@ -411,7 +411,7 @@ public final class ClaudeCliDriver
     }
 
     private List<String> argv(
-            McpConfigRegistration registration,
+            McpRegistration registration,
             AgentPermissionScope permissionScope,
             Optional<String> model,
             Optional<String> effort,
@@ -438,7 +438,7 @@ public final class ClaudeCliDriver
         argv.add(
                 "--strict-mcp-config",
                 "--setting-sources=",
-                "--settings", registration.settingsFile().toString());
+                "--settings", registration.settingsFile().orElseThrow().toString());
         if (permissionScope.access() == SessionAccess.TEXT_ONLY) {
             argv.add(
                     "--tools=",
@@ -490,7 +490,7 @@ public final class ClaudeCliDriver
         }
         argv.add(
                 "--permission-mode", "auto",
-                "--mcp-config", registration.configFile().toString(),
+                "--mcp-config", registration.configFile().orElseThrow().toString(),
                 "--permission-prompt-tool", "mcp__bytequay__permission_prompt",
                 resume ? "--resume" : "--session-id", sessionId);
         return argv.build();
@@ -534,10 +534,17 @@ public final class ClaudeCliDriver
         return "'" + value.replace("'", "'\"'\"'") + "'";
     }
 
+    /** The release that {@code claude --version} reports, such as {@code 2.1.278 (Claude Code)}. */
+    static Optional<Version> parseVersion(String output)
+    {
+        String first = output.strip().split("\\s+", 2)[0];
+        return RELEASE.matcher(first).matches() ? Optional.of(Version.parse(first)) : Optional.empty();
+    }
+
     private AuthenticationProbe probeAuthentication()
             throws InterruptedException
     {
-        CommandResult result = run(executable, "auth", "status", "--json");
+        ProviderCli.Result result = run(executable, "auth", "status", "--json");
         if (result.timedOut()) {
             return AuthenticationProbe.unavailable("Claude authentication status timed out");
         }
@@ -598,78 +605,22 @@ public final class ClaudeCliDriver
         }
     }
 
-    private CommandResult run(String... command)
+    private ProviderCli.Result run(String... command)
             throws InterruptedException
     {
         return run(PROBE_TIMEOUT, command);
     }
 
-    private CommandResult run(Duration maximumRuntime, String... command)
+    private ProviderCli.Result run(Duration maximumRuntime, String... command)
             throws InterruptedException
     {
-        StringBuilder stdout = new StringBuilder();
-        StringBuilder stderr = new StringBuilder();
-        ManagedProcess process = supervisor.prepare(
-                processSpec(
-                        new ProcessOwner(ProcessOwner.Kind.CLI_PROBE, "claude-cli"),
-                        ImmutableList.copyOf(command),
-                        Path.of(System.getProperty("user.dir")).toAbsolutePath(),
-                        maximumRuntime,
-                        OptionalInt.of(MAX_PROBE_OUTPUT_BYTES),
-                        MAX_PROBE_OUTPUT_BYTES))
-                .start((stream, bytes) -> append(
-                        stream == ProcessStream.STDOUT ? stdout : stderr,
-                        bytes));
-        try {
-            ProcessExit result = process.exit().toCompletableFuture()
-                    .get(maximumRuntime.toMillis() + 2000, TimeUnit.MILLISECONDS);
-            if (result.treeTermination() != ProcessExit.TreeTermination.VERIFIED_STOPPED) {
-                return new CommandResult(
-                        -1,
-                        stdout.toString().trim(),
-                        "Claude CLI process tree could not be verified stopped",
-                        false,
-                        result.stdoutTruncated(),
-                        result.stderrTruncated());
-            }
-            supervisor.acknowledge(process.launchId());
-            if (result.reason() == ProcessExit.Reason.TIMED_OUT) {
-                return new CommandResult(
-                        -1,
-                        stdout.toString().trim(),
-                        stderr.toString().trim(),
-                        true,
-                        result.stdoutTruncated(),
-                        result.stderrTruncated());
-            }
-            return new CommandResult(
-                    result.exitCode(),
-                    stdout.toString().trim(),
-                    stderr.toString().trim(),
-                    false,
-                    result.stdoutTruncated(),
-                    result.stderrTruncated());
-        }
-        catch (TimeoutException e) {
-            process.cancel();
-            return new CommandResult(
-                    -1,
-                    stdout.toString().trim(),
-                    stderr.toString().trim(),
-                    true,
-                    false,
-                    false);
-        }
-        catch (ExecutionException e) {
-            process.cancel();
-            return new CommandResult(
-                    -1,
-                    stdout.toString().trim(),
-                    "Claude CLI command failed: " + e.getMessage(),
-                    false,
-                    false,
-                    false);
-        }
+        return ProviderCli.run(supervisor, processSpec(
+                new ProcessOwner(ProcessOwner.Kind.CLI_PROBE, "claude-cli"),
+                ImmutableList.copyOf(command),
+                Path.of(System.getProperty("user.dir")).toAbsolutePath(),
+                maximumRuntime,
+                OptionalInt.of(MAX_PROBE_OUTPUT_BYTES),
+                MAX_PROBE_OUTPUT_BYTES), "Claude CLI");
     }
 
     private ProcessSpec processSpec(
@@ -691,13 +642,6 @@ public final class ClaudeCliDriver
                 PROCESS_CANCELLATION_GRACE);
     }
 
-    private static void append(StringBuilder output, ByteBuffer bytes)
-    {
-        synchronized (output) {
-            output.append(StandardCharsets.UTF_8.decode(bytes));
-        }
-    }
-
     private static Map<String, String> inheritedEnvironment()
     {
         return inheritedEnvironment(System.getenv(), Optional.ofNullable(System.getProperty("java.home")));
@@ -705,13 +649,8 @@ public final class ClaudeCliDriver
 
     static Map<String, String> inheritedEnvironment(Map<String, String> processEnvironment, Optional<String> javaHome)
     {
-        ImmutableMap.Builder<String, String> environment = ImmutableMap.builder();
-        for (String name : ImmutableSet.<String>builder().addAll(INHERITED_ENVIRONMENT).addAll(GitCliEnvironment.variables()).build()) {
-            String value = processEnvironment.get(name);
-            if (value != null) {
-                environment.put(name, value);
-            }
-        }
+        ImmutableMap.Builder<String, String> environment = ImmutableMap.<String, String>builder()
+                .putAll(ProviderCli.inheritedEnvironment(processEnvironment, INHERITED_ENVIRONMENT));
         // Claude Code's macOS sandbox limits sysctl reads, which breaks /usr/libexec/java_home and the /usr/bin/java stub.
         Stream.of(Optional.ofNullable(processEnvironment.get("JAVA_HOME")), javaHome)
                 .flatMap(Optional::stream)
@@ -725,31 +664,6 @@ public final class ClaudeCliDriver
     {
         Path java = Path.of(home, "bin", "java");
         return java.isAbsolute() && Files.isRegularFile(java) && Files.isExecutable(java);
-    }
-
-    private record CommandResult(
-            int exitCode,
-            String stdout,
-            String stderr,
-            boolean timedOut,
-            boolean stdoutTruncated,
-            boolean stderrTruncated)
-    {
-        private boolean truncated()
-        {
-            return stdoutTruncated || stderrTruncated;
-        }
-
-        private String combinedOutput()
-        {
-            if (stdout.isBlank()) {
-                return stderr;
-            }
-            if (stderr.isBlank()) {
-                return stdout;
-            }
-            return stdout + "\n" + stderr;
-        }
     }
 
     private record AuthenticationProbe(AgentProviderStatus.Readiness readiness, String diagnostic)
@@ -766,53 +680,13 @@ public final class ClaudeCliDriver
         }
     }
 
-    private record Version(int major, int minor, int patch)
-            implements Comparable<Version>
-    {
-        private static Optional<Version> parse(String text)
-        {
-            String first = text.strip().split("\\s+", 2)[0];
-            String[] parts = first.split("\\.");
-            if (parts.length != 3) {
-                return Optional.empty();
-            }
-            try {
-                return Optional.of(new Version(
-                        Integer.parseInt(parts[0]),
-                        Integer.parseInt(parts[1]),
-                        Integer.parseInt(parts[2])));
-            }
-            catch (NumberFormatException ignored) {
-                return Optional.empty();
-            }
-        }
-
-        @Override
-        public int compareTo(Version other)
-        {
-            requireNonNull(other, "other is null");
-            int majorComparison = Integer.compare(major, other.major);
-            if (majorComparison != 0) {
-                return majorComparison;
-            }
-            int minorComparison = Integer.compare(minor, other.minor);
-            return minorComparison != 0 ? minorComparison : Integer.compare(patch, other.patch);
-        }
-
-        @Override
-        public String toString()
-        {
-            return major + "." + minor + "." + patch;
-        }
-    }
-
     private final class ClaudeSession
             implements AgentSession
     {
         private final AgentSessionRef reference;
         private final AgentSessionContext context;
         private final AgentEventSink events;
-        private final McpConfigRegistration registration;
+        private final McpRegistration registration;
         private final AgentPermissionScope permissionScope;
         private final SecretRedactor redactor;
         private ClaudeRunningTurn running;
@@ -1110,7 +984,7 @@ public final class ClaudeCliDriver
         {
             ClaudeProtocol.Message message = null;
             try {
-                message = codec.decode(line);
+                message = ClaudeProtocol.decode(objectMapper, line);
                 if (message.sessionId().isPresent()
                         && !message.sessionId().orElseThrow().equals(session.reference.providerValue())) {
                     protocolFailure = "Claude returned a different session ID";
@@ -1129,7 +1003,6 @@ public final class ClaudeCliDriver
                     interruptionReason = "Unable to persist Claude terminal events: " + failureMessage(failure);
                 }
                 session.events.emit(new ProviderAgentEvent.Error(
-                        Optional.empty(),
                         Optional.empty(),
                         "claude_stream",
                         session.redactor.redact(failureMessage(failure)),
@@ -1297,7 +1170,6 @@ public final class ClaudeCliDriver
             try {
                 session.events.emit(new ProviderAgentEvent.Lifecycle(
                         result == null ? Optional.empty() : result.uuid().map(value -> value + ":completed"),
-                        Optional.empty(),
                         phase,
                         message));
             }
@@ -1360,7 +1232,6 @@ public final class ClaudeCliDriver
                                 : result.uuid().map(value -> value + (authenticationRequired
                                         ? ":authentication-required"
                                         : ":error")),
-                        Optional.empty(),
                         authenticationRequired ? "AUTHENTICATION_REQUIRED" : "claude_result",
                         authenticationRequired
                                 ? "Claude sign-in required"
@@ -1503,16 +1374,5 @@ public final class ClaudeCliDriver
     private static String absoluteReadRule(Path path)
     {
         return "Read(/" + path + ")";
-    }
-
-    private static String failureMessage(Throwable failure)
-    {
-        Throwable cause = failure;
-        while ((cause instanceof java.util.concurrent.CompletionException || cause instanceof ExecutionException)
-                && cause.getCause() != null) {
-            cause = cause.getCause();
-        }
-        String message = cause.getMessage();
-        return message == null || message.isBlank() ? cause.getClass().getSimpleName() : message;
     }
 }

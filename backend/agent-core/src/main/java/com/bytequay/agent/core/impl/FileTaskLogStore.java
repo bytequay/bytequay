@@ -630,21 +630,7 @@ public final class FileTaskLogStore
     {
         AgentEventPayload.Kind kind = AgentEventPayload.Kind.valueOf(
                 root.required("type").textValue().toUpperCase(Locale.ROOT));
-        JsonNode payloadNode = root.required("payload");
-        AgentEventPayload payload = switch (kind) {
-            case USER_MESSAGE -> objectMapper.treeToValue(payloadNode, AgentEventPayload.UserMessage.class);
-            case ASSISTANT_MESSAGE -> objectMapper.treeToValue(payloadNode, AgentEventPayload.AssistantMessage.class);
-            case DEVELOPMENT_RESULT -> objectMapper.treeToValue(payloadNode, AgentEventPayload.DevelopmentResult.class);
-            case PLAN_UPDATED -> objectMapper.treeToValue(payloadNode, AgentEventPayload.PlanUpdated.class);
-            case COMMAND -> objectMapper.treeToValue(payloadNode, AgentEventPayload.CommandActivity.class);
-            case FILE_CHANGE -> objectMapper.treeToValue(payloadNode, AgentEventPayload.FileActivity.class);
-            case TOOL -> objectMapper.treeToValue(payloadNode, AgentEventPayload.ToolActivity.class);
-            case APPROVAL_REQUESTED -> objectMapper.treeToValue(payloadNode, AgentEventPayload.ApprovalRequested.class);
-            case APPROVAL_RESOLVED -> objectMapper.treeToValue(payloadNode, AgentEventPayload.ApprovalResolved.class);
-            case USAGE -> objectMapper.treeToValue(payloadNode, AgentEventPayload.UsageUpdated.class);
-            case LIFECYCLE -> objectMapper.treeToValue(payloadNode, AgentEventPayload.Lifecycle.class);
-            case ERROR -> objectMapper.treeToValue(payloadNode, AgentEventPayload.Error.class);
-        };
+        AgentEventPayload payload = objectMapper.treeToValue(root.required("payload"), kind.type());
         return new AgentEventEnvelope(
                 AgentEventEnvelope.CURRENT_SCHEMA_VERSION,
                 EventId.valueOf(root.required("eventId").textValue()),

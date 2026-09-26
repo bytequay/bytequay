@@ -13,7 +13,6 @@
  */
 package com.bytequay.agent.cli.process.impl;
 
-import com.bytequay.agent.cli.process.ExecutionProfile;
 import com.bytequay.agent.cli.process.LaunchPhase;
 import com.bytequay.agent.cli.process.ManagedProcess;
 import com.bytequay.agent.cli.process.OwnedProcessRecovery;
@@ -186,7 +185,6 @@ class TestOwnedProcessRecovery
                 marker.backendId(),
                 marker.ownerKind(),
                 marker.ownerId(),
-                marker.profile(),
                 marker.executable(),
                 marker.argvDigest(),
                 marker.phase(),
@@ -314,6 +312,19 @@ class TestOwnedProcessRecovery
     }
 
     @Test
+    void failsClosedForAnOlderMarkerFormat()
+            throws Exception
+    {
+        LaunchMarker marker = marker(LaunchPhase.RUNNING, Optional.of(ProcessHandle.current().pid()), Optional.of(Instant.EPOCH), Optional.of(ABSENT_PROCESS_GROUP), "/bin/sleep");
+        write(marker);
+        Path file = launches.resolve(marker.launchId() + ".json");
+        Files.writeString(file, Files.readString(file).replace("\"format\":4", "\"format\":3"));
+
+        assertThat(recover().detail()).contains("undecodable");
+        assertThat(Files.readString(file)).contains("\"format\":3");
+    }
+
+    @Test
     void replaysDurableTerminalReceiptsWithoutReinterpretingThem()
     {
         LaunchMarker stopped = marker(
@@ -327,35 +338,6 @@ class TestOwnedProcessRecovery
         assertThat(recover().outcome()).isEqualTo(OwnedProcessRecovery.Outcome.VERIFIED_STOPPED);
 
         write(stopped.terminal(exit(ProcessExit.TreeTermination.UNVERIFIABLE)));
-
-        assertThat(recover().outcome()).isEqualTo(OwnedProcessRecovery.Outcome.UNVERIFIABLE);
-    }
-
-    @Test
-    void legacyReceiptWithoutDescendantIdentitiesFailsClosed()
-    {
-        LaunchMarker legacy = new LaunchMarker(
-                1,
-                "launch-1",
-                "an-earlier-backend",
-                OWNER.kind(),
-                OWNER.id(),
-                ExecutionProfile.PROVIDER_CONTROL,
-                "/bin/sleep",
-                "digest",
-                LaunchPhase.RUNNING,
-                Optional.of(ProcessHandle.current().pid()),
-                Optional.of(Instant.EPOCH.toString()),
-                Optional.of("/bin/sh"),
-                Optional.of(ABSENT_PROCESS_GROUP),
-                Optional.empty(),
-                false,
-                false,
-                Optional.empty(),
-                Optional.empty(),
-                Optional.empty(),
-                Optional.empty());
-        write(legacy.terminal(exit(ProcessExit.TreeTermination.VERIFIED_STOPPED)));
 
         assertThat(recover().outcome()).isEqualTo(OwnedProcessRecovery.Outcome.UNVERIFIABLE);
     }
@@ -431,19 +413,15 @@ class TestOwnedProcessRecovery
     }
 
     @Test
-    void bindsALegacyReceiptWithoutClearingItsGapAndWaitsForAnotherBoot()
-            throws Exception
+    void bindsAnUnboundReceiptWithoutClearingItsGapAndWaitsForAnotherBoot()
     {
         LaunchMarker blocked = blockedMarker();
         write(blocked);
-        Path receipt = launches.resolve(blocked.launchId() + ".json");
-        Files.writeString(receipt, Files.readString(receipt).replace("\"format\":4", "\"format\":3"));
 
         OwnedProcessRecovery pending = recoverOnBoot(Optional.of(FIRST_BOOT));
         assertThat(pending.outcome()).isEqualTo(OwnedProcessRecovery.Outcome.UNVERIFIABLE);
         assertThat(pending.detail()).contains("Restart your Mac");
         LaunchMarker bound = new LaunchMarkerStore(launches).read(blocked.launchId()).orElseThrow();
-        assertThat(bound.format()).isEqualTo(4);
         assertThat(bound.recoveryBootSessionId()).contains(FIRST_BOOT);
         assertThat(bound.workFinished()).isFalse();
         assertThat(bound.descendantTrackingIncomplete()).isTrue();
@@ -591,7 +569,6 @@ class TestOwnedProcessRecovery
                 "an-earlier-backend",
                 OWNER.kind(),
                 OWNER.id(),
-                ExecutionProfile.PROVIDER_CONTROL,
                 executable,
                 "digest",
                 phase,
@@ -599,7 +576,7 @@ class TestOwnedProcessRecovery
                 startToken.map(Instant::toString),
                 Optional.of("/bin/sh"),
                 processGroup,
-                phase == LaunchPhase.PREPARED ? Optional.empty() : Optional.of(ImmutableMap.of()),
+                ImmutableMap.of(),
                 false,
                 false,
                 Optional.empty(),

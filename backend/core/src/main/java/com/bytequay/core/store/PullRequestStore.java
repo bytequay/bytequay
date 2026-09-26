@@ -13,7 +13,6 @@
  */
 package com.bytequay.core.store;
 
-import com.bytequay.core.domain.AttentionReason;
 import com.bytequay.core.domain.FetchedPullRequest;
 import com.bytequay.core.domain.PrRawDetail;
 import com.bytequay.core.domain.PullRequest;
@@ -36,8 +35,6 @@ public interface PullRequestStore
     Optional<PullRequest> findById(long prId);
 
     void setMonitored(long prId, boolean monitored);
-
-    PullRequestPage findPage(int page, int pageSize, String search);
 
     PullRequestPage findRepositoryPage(String repository, int page, int pageSize);
 
@@ -76,7 +73,6 @@ public interface PullRequestStore
             int additions,
             int deletions,
             int commentCount,
-            AttentionReason attentionReason,
             Boolean mergeable,
             String mergeableState,
             Instant headPushedAt,

@@ -252,11 +252,10 @@ start, and in the commit-history refresh: after each, the application
 resolves the fetched default-branch commit, compares it with the baseline
 `HEAD`, and calls `refreshBaseline` on a virtual thread when they differ.
 Interactive and cherry-pick task creation do not fetch; they start from the
-last synchronized commit. One scheduled job drives the same synchronization for every workspace hourly by default,
-one minute after application start, and only while the helper is available,
-the CodeGraph setting is on, a GitHub account is configured, and quiet hours
-are not active. That job is the only network activity the feature adds; it
-never runs on a turn path.
+last synchronized commit. The scheduled commit-history refresh, which runs
+for every workspace whose commits are more than five minutes old outside quiet
+hours, keeps the baseline current; the feature adds no network activity of
+its own and never fetches on a turn path.
 
 ### Task creation
 
@@ -635,8 +634,7 @@ task actually had. Every turn of a task, including resumed turns, offers the
 tool bridge and managed instruction only when the stamp is true; a task
 without the graph uses the existing omission path and never builds an index.
 Code & Tests symbol reads follow the same stamp, not the current setting.
-Changing the setting affects new tasks only, except that `off` also idles the
-scheduled baseline job.
+Changing the setting affects new tasks only.
 
 ### Counters
 
@@ -748,23 +746,16 @@ means "none". Tasks never modify it.
 ### The baseline follows the remote default branch
 
 The baseline is refreshed only when a fetch shows that the remote default
-branch gained commits. Two things fetch:
-
-1. The fetches ByteQuay already performs. The workspace code
-   synchronization fetches the managed repository's remotes when a workspace
-   is first used, when the workspace service's own refresh cycle finds the
-   code stale, before every CI Autofix start, and in the commit-history
-   refresh. After each, ByteQuay resolves `origin/<default-branch>`, compares
-   it with the baseline `HEAD`, and schedules a refresh on a virtual thread
-   when they differ.
-2. One scheduled job that drives the same workspace synchronization for
-   every workspace hourly by default (`bytequay.codegraph.baseline-interval`),
-   one minute after application start, and only while the helper is
-   available, the setting is on, a GitHub account is configured, and quiet
-   hours are not active; the start-up refresh comes from the workspace
-   service itself. This is the only network activity the feature adds, it
-   never runs on a turn path, and it follows the earlier decision that
-   freshness comes from a background fetch rather than a per-turn one.
+branch gained commits. Only the fetches ByteQuay already performs count: the
+workspace code synchronization fetches the managed repository's remotes when
+a workspace is first used, when the workspace service's own refresh cycle
+finds the code stale, before every CI Autofix start, and in the commit-history
+refresh, which the scheduler runs for every workspace every five minutes
+outside quiet hours. After each, ByteQuay resolves `origin/<default-branch>`,
+compares it with the baseline `HEAD`, and schedules a refresh on a virtual
+thread when they differ. The feature adds no network activity of its own, it
+never runs on a turn path, and it follows the earlier decision that freshness
+comes from a background fetch rather than a per-turn one.
 
 A refresh runs under a per-repository lock:
 
@@ -782,8 +773,8 @@ A refresh runs under a per-repository lock:
 
 Measured on Trino from a temporary checkout: same commit 0.9 s, 10 commits
 9.6 s, 924 files 47 s, rebuild 42 s. Trino's default branch gains a few
-commits an hour, so hourly refreshes cost seconds each while the application
-runs; a day away costs one rebuild at application start.
+commits an hour, so each refresh costs seconds while the application runs;
+a day away costs one rebuild at application start.
 
 ### Task creation clones the baseline
 
@@ -818,7 +809,7 @@ records that a prepare or refresh ran.
   No `codegraph_refresh`, no pre-turn hook, no turn-service seam. An
   unchanged sync costs 0.14 s here and 0.5 s on Trino.
 - **Expected first-call latency.** Baseline current, the normal case because
-  the workspace refresh cycle and the hourly job keep it so: the query
+  the workspace refresh cycle and the commit-history refresh keep it so: the query
   itself, 0.25–1.6 s. Remote moved since the last refresh: the
   synchronization that saw it triggers a refresh of seconds, and a task
   created meanwhile clones the previous baseline and syncs the difference.

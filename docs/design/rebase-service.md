@@ -96,7 +96,7 @@ and accepted history remain service-specific:
 | who chooses the commit list | the user, through confirmed skips | nobody; it is whatever the branch holds |
 | durable per-commit result owed | yes, for per-item progress and final accounting | no |
 | conflict result | source-marked target `C` plus adjacent fixup `F`, or empty | one replayed commit produced by `rebase --continue` |
-| what the service adds | plan, positions, `-x` reconciliation, accounting, range-diff | original tip, descendant fast path, abort-restores-tip |
+| what the service adds | plan, positions, `-x` reconciliation, accounting | original tip, descendant fast path, abort-restores-tip |
 
 So cherry-pick keeps a plan with durable item results, and this service keeps
 almost no state at all. Forcing both into one state machine would mean giving
@@ -137,7 +137,6 @@ Current step, which applies only to the commit the sequencer stopped on:
 ```text
 REPLAYING
 RESOLVING
-VALIDATING
 ```
 
 The service maintains no per-commit result list. Git's sequencer is the plan:
@@ -207,17 +206,16 @@ same service without nested worktrees.
      because the sequencer, not a user selection, owns the commit list;
    - `STOPPED_CONFLICT` with attempts below the limit → start another turn with
      the actual diagnostics;
-   - `COMPLETED` → validate;
+   - `COMPLETED` → `FINISHED` with the result tip;
    - `UNSAFE` → `PAUSED`.
    - a moved HEAD, changed `REBASE_HEAD`, or closed rebase after an agent turn
      → pause because the agent or a person advanced history outside the
      program-owned command.
-7. **Validation.** After the rebase completes, call the explicit ByteQuay
-   validation hook once against the final tree. The hook is a successful no-op
-   until a user-approved project validation profile supplies a command. The
-   intermediate commits of a rebase are not individually validated.
-8. **Limit.** At most three agent turns per conflicted commit. Exhaustion
+7. **Limit.** At most three agent turns per conflicted commit. Exhaustion
    pauses.
+
+ByteQuay runs no project validation on the result: it cannot infer how an
+arbitrary repository builds, so that needs a user-approved validation profile.
 
 ## 6. Recovery, pause, and cancellation
 

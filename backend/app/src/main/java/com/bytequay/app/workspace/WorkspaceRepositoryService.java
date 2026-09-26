@@ -70,10 +70,10 @@ public interface WorkspaceRepositoryService
      * Loads routing, path ownership, and independent sync state for Workspace Home.
      *
      * @param workspaceId ByteQuay workspace identifier
-     * @return complete workspace details
+     * @return the workspace summary
      * @throws WorkspaceException when the workspace does not exist
      */
-    WorkspaceDetails getWorkspace(String workspaceId);
+    WorkspaceSummary getWorkspace(String workspaceId);
 
     /**
      * Resolves a backend-owned checkout for Git or cherry-pick operations, synchronizing it first when needed.

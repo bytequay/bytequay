@@ -28,7 +28,6 @@ import com.bytequay.app.ci.CiJob;
 import com.bytequay.app.ci.CiRerunResult;
 import com.bytequay.app.ci.CiStep;
 import com.bytequay.app.ci.CiWorkflowRun;
-import com.bytequay.app.ci.InspectCiHeadQuery;
 import com.bytequay.app.ci.ReadCiLogQuery;
 import com.bytequay.app.ci.RerunFailedJobsCommand;
 import com.bytequay.app.web.agent.AgentController;
@@ -480,19 +479,9 @@ final class CiAutofixE2eHarness
         entity.setHeadRef(E2eGitRepository.HEAD_REF);
         long prId = pullRequests.saveAndFlush(entity).getId();
         details.save(prId, new StoredPrDetail(
-                new PrRawDetail(
-                        "body",
-                        ImmutableList.of(),
-                        false,
-                        true,
-                        "clean",
-                        1,
-                        1,
-                        1,
-                        0,
-                        ImmutableList.of(),
-                        repository.initialHeadSha(),
-                        E2eGitRepository.HEAD_REF),
+                new PrRawDetail(null, null, null, null, null, null, null, null, "body", ImmutableList.of(), null, ImmutableList.of(), null, false, true, "clean", 1, 1, 1, 0,
+                        ImmutableList.of(), repository.initialHeadSha(), E2eGitRepository.HEAD_REF, null),
+                ImmutableList.of(),
                 ImmutableList.of(),
                 ImmutableList.of(),
                 ImmutableList.of()));
@@ -713,7 +702,7 @@ final class CiAutofixE2eHarness
             CiAutofixRun run,
             Optional<String> taskState,
             Optional<String> turnState,
-            List<InspectCiHeadQuery> inspectCalls,
+            List<PullRequestRef> inspectCalls,
             List<ReadCiLogQuery> logCalls,
             List<RerunFailedJobsCommand> rerunCalls,
             List<ScriptedAgentDriver.TurnCall> agentTurns,

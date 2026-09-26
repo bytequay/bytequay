@@ -127,7 +127,7 @@ class TestCherryPickPreviewService
 
         CherryPickPreview preview = service.preview(new PreviewCherryPickRangeCommand(
                 clone,
-                Optional.of("workspace-id"),
+                "workspace-id",
                 OptionalLong.of(202),
                 "origin",
                 base,
@@ -151,7 +151,7 @@ class TestCherryPickPreviewService
 
         assertThatThrownBy(() -> service.preview(new PreviewCherryPickRangeCommand(
                 clone,
-                Optional.of("workspace-id"),
+                "workspace-id",
                 OptionalLong.empty(),
                 "origin",
                 "origin/main",
@@ -258,12 +258,16 @@ class TestCherryPickPreviewService
         commit(upstream, "Source change");
 
         GitCommandRunner boundedGit = gitWithBoundedTargetHistory();
+        WorkspaceRemoteSourceService remoteSources = mock(WorkspaceRemoteSourceService.class);
+        when(remoteSources.list("workspace-id")).thenReturn(ImmutableList.of(
+                new WorkspaceRemote("origin", upstream.toString(), Role.ORIGIN),
+                new WorkspaceRemote("fork", target.toString(), Role.CUSTOM)));
         service = new CherryPickPreviewService(
                 boundedGit,
                 new CherryPickConflictScout(boundedGit),
                 enrichment,
                 credentials,
-                mock(WorkspaceRemoteSourceService.class),
+                remoteSources,
                 clock);
 
         CherryPickPreview preview = service.preview(command(base, "main"));
@@ -410,17 +414,17 @@ class TestCherryPickPreviewService
     void rejectsControlCharactersAndOptionLikeRefs()
     {
         assertThatThrownBy(() -> new PreviewCherryPickRangeCommand(
-                clone, Optional.empty(), OptionalLong.empty(), "origin", "main\nrm -rf /", "main", "fork", "main"))
+                clone, "workspace-id", OptionalLong.empty(), "origin", "main\nrm -rf /", "main", "fork", "main"))
                 .isInstanceOf(CherryPickInvalidRequestException.class)
                 .hasMessageContaining("control character");
 
         assertThatThrownBy(() -> new PreviewCherryPickRangeCommand(
-                clone, Optional.empty(), OptionalLong.empty(), "origin", "--upload-pack=evil", "main", "fork", "main"))
+                clone, "workspace-id", OptionalLong.empty(), "origin", "--upload-pack=evil", "main", "fork", "main"))
                 .isInstanceOf(CherryPickInvalidRequestException.class)
                 .hasMessageContaining("command-line option");
 
         assertThatThrownBy(() -> new PreviewCherryPickRangeCommand(
-                Path.of("relative"), Optional.empty(), OptionalLong.empty(), "origin", "main", "main", "fork", "main"))
+                Path.of("relative"), "workspace-id", OptionalLong.empty(), "origin", "main", "main", "fork", "main"))
                 .isInstanceOf(CherryPickInvalidRequestException.class)
                 .hasMessageContaining("not absolute");
     }
@@ -428,7 +432,7 @@ class TestCherryPickPreviewService
     private PreviewCherryPickRangeCommand command(String baseRef, String targetBranch)
     {
         return new PreviewCherryPickRangeCommand(
-                clone, Optional.empty(), OptionalLong.empty(), "origin", baseRef, "origin/main", "fork", targetBranch);
+                clone, "workspace-id", OptionalLong.empty(), "origin", baseRef, "origin/main", "fork", targetBranch);
     }
 
     private static Optional<TargetMatch> match(CherryPickPreview preview, String sourceSha)

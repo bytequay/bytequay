@@ -96,7 +96,8 @@ class TestLocalReviewSessionService
         route = new DevelopmentPublicationRoute(REPOSITORY, REPOSITORY, "https://github.com/owner/repo.git", "origin", "main", head, branch);
         storedTask.set(AgentTask.created(taskId, true, "Develop", TitleSource.USER, AgentLaneId.CODEX_CLI, worktree,
                 AgentTaskDefaults.forPermission(AgentPermissionPolicy.AUTO), NOW));
-        when(worktrees.inspect(worktree)).thenAnswer(invocation -> new WorktreeSnapshot(worktree, local().headSha(), local().uncommittedFileCount() > 0, false));
+        when(worktrees.inspect(worktree)).thenAnswer(invocation -> new WorktreeSnapshot(worktree, local().headSha(), local().uncommittedFileCount() > 0, false,
+                local().uncommittedFileCount() > 0));
         when(inspector.synchronizeSource(any(), any(), any(), any())).thenAnswer(invocation -> {
             assertThat(run(worktree.canonicalWorktree(), "status", "--porcelain=v1", "--untracked-files=all")).isEmpty();
             assertThat(run(worktree.canonicalWorktree(), "rev-parse", "HEAD")).isEqualTo(invocation.getArgument(1));
@@ -196,9 +197,9 @@ class TestLocalReviewSessionService
     {
         service.start(taskId, storedTask.get().version());
         Files.writeString(worktree.canonicalWorktree().resolve("TestExperiment.java"), "private test");
-        when(worktrees.inspect(worktree)).thenReturn(new WorktreeSnapshot(worktree, "a".repeat(40), true, false));
+        when(worktrees.inspect(worktree)).thenReturn(new WorktreeSnapshot(worktree, "a".repeat(40), true, false, true));
         assertThatThrownBy(() -> service.finish(taskId, storedTask.get().version())).hasMessageContaining("HEAD changed");
-        when(worktrees.inspect(worktree)).thenReturn(new WorktreeSnapshot(worktree, head, true, true));
+        when(worktrees.inspect(worktree)).thenReturn(new WorktreeSnapshot(worktree, head, true, true, true));
         assertThatThrownBy(() -> service.finish(taskId, storedTask.get().version())).hasMessageContaining("open Git operation");
         assertThat(storedTask.get().localReviewHead()).contains(head);
         assertThat(worktree.canonicalWorktree().resolve("TestExperiment.java")).hasContent("private test");

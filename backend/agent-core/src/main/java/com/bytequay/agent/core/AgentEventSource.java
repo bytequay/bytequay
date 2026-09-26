@@ -13,11 +13,9 @@
  */
 package com.bytequay.agent.core;
 
-import java.time.Instant;
 import java.util.Optional;
 
 import static com.bytequay.agent.spi.AgentChecks.checkOptionalText;
-import static java.util.Objects.requireNonNull;
 
 /** Provider source identities preserved without interpreting their values. */
 public record AgentEventSource(
@@ -26,8 +24,7 @@ public record AgentEventSource(
         Optional<String> logicalAgentPath,
         Optional<String> providerTurnId,
         Optional<String> providerItemId,
-        Optional<String> providerEventId,
-        Optional<Instant> providerOccurredAt)
+        Optional<String> providerEventId)
 {
     public AgentEventSource
     {
@@ -37,13 +34,11 @@ public record AgentEventSource(
         checkOptionalText(providerTurnId, "providerTurnId");
         checkOptionalText(providerItemId, "providerItemId");
         checkOptionalText(providerEventId, "providerEventId");
-        requireNonNull(providerOccurredAt, "providerOccurredAt is null");
     }
 
     public static AgentEventSource root()
     {
         return new AgentEventSource(
-                Optional.empty(),
                 Optional.empty(),
                 Optional.empty(),
                 Optional.empty(),

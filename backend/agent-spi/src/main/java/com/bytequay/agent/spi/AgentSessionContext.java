@@ -34,55 +34,6 @@ public record AgentSessionContext(
         Optional<CodeGraphBridge> codeGraph,
         String managedInstructions)
 {
-    public AgentSessionContext(
-            String taskId,
-            Path worktree,
-            Path runtimeDirectory,
-            Path providerDirectory,
-            AgentPermissionPolicy permissionPolicy,
-            Optional<AgentSessionRef> sessionReference,
-            AgentApprovalHandler approvals)
-    {
-        this(
-                taskId,
-                worktree,
-                runtimeDirectory,
-                providerDirectory,
-                permissionPolicy,
-                sessionReference,
-                approvals,
-                Optional.empty(),
-                Optional.empty(),
-                SessionAccess.FULL);
-    }
-
-    public AgentSessionContext(
-            String taskId,
-            Path worktree,
-            Path runtimeDirectory,
-            Path providerDirectory,
-            AgentPermissionPolicy permissionPolicy,
-            Optional<AgentSessionRef> sessionReference,
-            AgentApprovalHandler approvals,
-            Optional<String> model,
-            Optional<String> effort,
-            SessionAccess access)
-    {
-        this(
-                taskId,
-                worktree,
-                runtimeDirectory,
-                providerDirectory,
-                permissionPolicy,
-                sessionReference,
-                approvals,
-                model,
-                effort,
-                access,
-                Optional.empty(),
-                "");
-    }
-
     public AgentSessionContext
     {
         checkNotBlank(taskId, "taskId");

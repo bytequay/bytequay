@@ -142,7 +142,7 @@ class TestGitHubPaginator
     {
         server.expect(requestTo(pageUrl(2))).andRespond(withStatus(HttpStatus.NOT_MODIFIED));
 
-        assertThatThrownBy(() -> paginator.fetchPage("pat", PATH, TYPE, null, 2))
+        assertThatThrownBy(() -> paginator.fetchPage("pat", PATH, TYPE, 2))
                 .isInstanceOfSatisfying(ResponseStatusException.class, failure -> assertThat(failure.getStatusCode()).isEqualTo(HttpStatus.BAD_GATEWAY))
                 .hasMessageContaining("Empty response");
 

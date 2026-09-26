@@ -200,9 +200,9 @@ class TestWorkspaceIssueRefreshService
                 "Task",
                 ImmutableList.of("Task", "Bug"),
                 Optional.of(NOW));
-        when(issueReads.fetchPrTimeline("token", ref, null))
+        when(issueReads.fetchPrTimeline("token", ref))
                 .thenReturn(ImmutableList.of(assigned, duplicateComment));
-        when(issueReads.fetchPrIssueComments("token", ref, null)).thenReturn(ImmutableList.of(comment));
+        when(issueReads.fetchPrIssueComments("token", ref)).thenReturn(ImmutableList.of(comment));
         when(gitHub.fetchIssueType("token", DIRECT, 7)).thenReturn("Task");
         when(gitHub.fetchIssueTypes("token", DIRECT)).thenReturn(ImmutableList.of("Task", "Bug"));
         when(detailStore.find(100, 7)).thenReturn(Optional.of(expected));

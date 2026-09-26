@@ -151,13 +151,6 @@ class TestCherryPickExecutionService
                 false,
                 false,
                 false,
-                false,
-                false,
-                false,
-                false,
-                false,
-                false,
-                false,
                 ImmutableSet.of(AgentPermissionPolicy.CHERRY_PICK),
                 ImmutableSet.of());
         driver = mock(AgentDriver.class);
@@ -1106,7 +1099,7 @@ class TestCherryPickExecutionService
     }
 
     @Test
-    void storesARangeReviewAndClosesTheAgentTask()
+    void summarizesTheRangeAndClosesTheAgentTask()
     {
         String base = head(upstream);
         write(upstream, "file.txt", "content\n");
@@ -1120,9 +1113,6 @@ class TestCherryPickExecutionService
 
         CherryPickExecution finished = runToCompletion(started);
 
-        assertThat(finished.rangeReview()).isPresent();
-        assertThat(finished.rangeReview().orElseThrow().truncated()).isFalse();
-        assertThat(finished.rangeReview().orElseThrow().output()).contains("Upstream change");
         assertThat(finished.summary().orElseThrow()).contains("1 applied");
         assertThat(agent.taskCompleted()).isTrue();
         assertThat(finished.workspace().worktree()).doesNotExist();
@@ -1297,7 +1287,7 @@ class TestCherryPickExecutionService
     {
         return previews.preview(new PreviewCherryPickRangeCommand(
                 clone,
-                Optional.of(WORKSPACE_ID),
+                WORKSPACE_ID,
                 OptionalLong.empty(),
                 "origin",
                 baseRef,
@@ -1453,7 +1443,7 @@ class TestCherryPickExecutionService
                     .map(name -> git(worktree.canonicalWorktree(), "rev-parse", "--git-path", name))
                     .map(Path::of)
                     .anyMatch(Files::exists);
-            return new WorktreeSnapshot(worktree, head, dirty, operationInProgress);
+            return new WorktreeSnapshot(worktree, head, dirty, operationInProgress, dirty);
         }
 
         @Override

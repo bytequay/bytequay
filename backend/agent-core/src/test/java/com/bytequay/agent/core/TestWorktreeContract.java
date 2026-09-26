@@ -90,8 +90,8 @@ class TestWorktreeContract
     {
         TaskWorktree worktree = worktree(TaskId.random());
 
-        assertThat(new WorktreeSnapshot(worktree, RESULT_HEAD, false, false).head()).isEqualTo(RESULT_HEAD);
-        assertThatThrownBy(() -> new WorktreeSnapshot(worktree, "HEAD", false, false))
+        assertThat(new WorktreeSnapshot(worktree, RESULT_HEAD, false, false, false).head()).isEqualTo(RESULT_HEAD);
+        assertThatThrownBy(() -> new WorktreeSnapshot(worktree, "HEAD", false, false, false))
                 .isInstanceOf(IllegalArgumentException.class)
                 .hasMessageContaining("exact Git object ID");
     }

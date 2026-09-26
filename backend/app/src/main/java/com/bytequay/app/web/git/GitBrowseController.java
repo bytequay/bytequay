@@ -39,7 +39,6 @@ import java.util.Map;
 import java.util.Optional;
 
 import static com.google.common.base.Preconditions.checkArgument;
-import static com.google.common.collect.ImmutableList.toImmutableList;
 import static java.util.Objects.requireNonNull;
 
 /**
@@ -120,19 +119,6 @@ public class GitBrowseController
         return service.status(context(workspaceId).repository());
     }
 
-    @PostMapping("/fetch")
-    public Map<String, Boolean> fetch(@PathVariable String workspaceId, @RequestBody GitFetchRequest request)
-    {
-        WorkspaceRepositoryContext context = context(workspaceId);
-        checkArgument(request.remotes() != null, "remotes is null");
-        List<String> remotes = request.remotes().stream()
-                .map(remote -> allowedRemote(context, remote))
-                .distinct()
-                .collect(toImmutableList());
-        service.fetch(context.repository(), remotes);
-        return ImmutableMap.of("fetched", true);
-    }
-
     @PostMapping("/commit")
     public Map<String, String> commit(@PathVariable String workspaceId, @RequestBody GitCommitRequest request)
     {
@@ -185,8 +171,6 @@ public class GitBrowseController
         checkArgument(value.length() <= 512, "revision is too long");
         return value;
     }
-
-    public record GitFetchRequest(List<String> remotes) {}
 
     public record GitCommitRequest(String summary, String description) {}
 

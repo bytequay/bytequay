@@ -438,15 +438,8 @@ export function parseAgentTurn(value: unknown, path = 'turn'): AgentTurnDto {
 function parseAgentCapabilities(value: unknown, path = 'capabilities'): AgentCapabilitiesDto {
   const source = object(value, path);
   return {
-    sessionResume: flag(source.sessionResume, `${path}.sessionResume`),
-    partialAssistantText: flag(source.partialAssistantText, `${path}.partialAssistantText`),
     structuredPlans: flag(source.structuredPlans, `${path}.structuredPlans`),
-    toolLifecycle: flag(source.toolLifecycle, `${path}.toolLifecycle`),
-    incrementalCommandOutput: flag(source.incrementalCommandOutput, `${path}.incrementalCommandOutput`),
-    hookLifecycle: flag(source.hookLifecycle, `${path}.hookLifecycle`),
     nestedAgentActivity: flag(source.nestedAgentActivity, `${path}.nestedAgentActivity`),
-    interactiveApprovals: flag(source.interactiveApprovals, `${path}.interactiveApprovals`),
-    tokenUsage: flag(source.tokenUsage, `${path}.tokenUsage`),
     steering: flag(source.steering, `${path}.steering`),
     permissionPolicies: textList(source.permissionPolicies, `${path}.permissionPolicies`),
     attachmentMediaTypes: textList(source.attachmentMediaTypes, `${path}.attachmentMediaTypes`),

@@ -31,7 +31,6 @@ import com.bytequay.core.domain.RepoRef;
 import com.google.common.collect.ImmutableList;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
-import org.springframework.http.MediaType;
 import org.springframework.test.web.servlet.MockMvc;
 
 import java.nio.file.Path;
@@ -43,7 +42,6 @@ import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
-import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 import static org.springframework.test.web.servlet.setup.MockMvcBuilders.standaloneSetup;
@@ -106,12 +104,12 @@ class TestGitBrowseController
     {
         WorkspaceRepositoryContext context = context("workspace-a", REPOSITORY_A);
         when(workspaces.requireReadyRepository("workspace-a")).thenReturn(context);
+        when(git.remoteBranches(REPOSITORY_A, "upstream")).thenReturn(ImmutableList.of("main"));
 
-        mvc.perform(post("/api/workspaces/workspace-a/git/fetch")
-                        .contentType(MediaType.APPLICATION_JSON)
-                        .content("{\"remotes\":[\"origin\",\"upstream\"]}"))
-                .andExpect(status().isOk());
-        verify(git).fetch(REPOSITORY_A, ImmutableList.of("origin", "upstream"));
+        mvc.perform(get("/api/workspaces/workspace-a/git/branches")
+                        .param("remote", "upstream"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$[0]").value("main"));
 
         mvc.perform(get("/api/workspaces/workspace-a/git/branches")
                         .param("remote", "--upload-pack=malicious"))

@@ -13,7 +13,6 @@
  */
 package com.bytequay.persistence.sqlite.store;
 
-import com.bytequay.core.domain.AttentionReason;
 import com.bytequay.core.domain.FetchedPullRequest;
 import com.bytequay.core.domain.PrRawDetail;
 import com.bytequay.core.domain.PrViewState;
@@ -101,18 +100,6 @@ public class SqlitePullRequestStore
     {
         Page<PullRequestEntity> rows = jpaRepository.findDashboardPage(pageRequest(page, pageSize));
         return toPage(rows, page, pageSize, jpaRepository.countOpenDashboard());
-    }
-
-    @Override
-    public PullRequestPage findPage(int page, int pageSize, String search)
-    {
-        String term = normalizeSearch(search);
-        if (term.isEmpty()) {
-            return findPage(page, pageSize);
-        }
-        Integer number = pullRequestNumber(term);
-        Page<PullRequestEntity> rows = jpaRepository.searchDashboardPage(term, number, pageRequest(page, pageSize));
-        return toPage(rows, page, pageSize, jpaRepository.countOpenDashboardSearch(term, number));
     }
 
     @Override
@@ -386,7 +373,6 @@ public class SqlitePullRequestStore
             int additions,
             int deletions,
             int commentCount,
-            AttentionReason attentionReason,
             Boolean mergeable,
             String mergeableState,
             Instant headPushedAt,
@@ -418,7 +404,6 @@ public class SqlitePullRequestStore
             entity.setAdditions(additions);
             entity.setDeletions(deletions);
             entity.setCommentCount(commentCount);
-            entity.setAttentionReason(attentionReason);
             entity.setMergeable(mergeable);
             entity.setMergeableState(mergeableState);
             entity.setHeadPushedAt(headPushedAt);

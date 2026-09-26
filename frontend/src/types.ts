@@ -65,7 +65,6 @@ export type PullRequestDto = {
   additions: number;
   deletions: number;
   commentCount: number;
-  attentionReason: string | null;
   state: string | null;
   mergeable: boolean | null;
   mergeableState: string | null;
@@ -488,16 +487,6 @@ export type FindResult = {
   matches: number;
 };
 
-/** One conflicted path a simulated pick would hit. */
-type CherryPickConflictFile = {
-  path: string;
-  /** CONTENT | ADD_ADD | MODIFY_DELETE | BINARY | SUBMODULE | UNKNOWN */
-  type: string;
-  module?: string;
-  /** Real `[startLine, endLine]` marker ranges; empty when Git gave none. */
-  sections: Array<[number, number]>;
-};
-
 export type CherryPickPreviewCommit = {
   position: number;
   sourceSha: string;
@@ -510,7 +499,8 @@ export type CherryPickPreviewCommit = {
   targetMatchKind?: string;
   /** CLEAN | CONFLICT | NOT_ANALYZED */
   conflictStatus: string;
-  conflictFiles: CherryPickConflictFile[];
+  /** Paths a simulated pick would conflict on. */
+  conflictFiles: string[];
   pullRequestNumber?: number;
   pullRequestTitle?: string;
   pullRequestUrl?: string;
@@ -551,15 +541,8 @@ export type AgentProviderReadiness =
 
 /** Provider facts that control what the shared task UI may truthfully offer or render. */
 export type AgentCapabilitiesDto = {
-  sessionResume: boolean;
-  partialAssistantText: boolean;
   structuredPlans: boolean;
-  toolLifecycle: boolean;
-  incrementalCommandOutput: boolean;
-  hookLifecycle: boolean;
   nestedAgentActivity: boolean;
-  interactiveApprovals: boolean;
-  tokenUsage: boolean;
   steering: boolean;
   permissionPolicies: string[];
   attachmentMediaTypes: string[];
@@ -962,7 +945,7 @@ export type CherryPickExecutionItem = {
 
 export type CherryPickExecution = {
   executionId: string;
-  workspaceId?: string | null;
+  workspaceId: string;
   repository: string;
   workBranch: string;
   localTargetBranch: string;
@@ -1434,7 +1417,7 @@ export type Bridge = {
   watchRepository: (command: WatchRepositoryCommand) => Promise<WorkspaceDto>;
   listWorkspaces: () => Promise<WorkspaceDto[]>;
   listRetiredWorkspaces: () => Promise<WorkspaceDto[]>;
-  getWorkspace: (workspaceId: string) => Promise<{ summary: WorkspaceDto }>;
+  getWorkspace: (workspaceId: string) => Promise<WorkspaceDto>;
   getWorkspaceMetadata: (workspaceId: string) => Promise<RepositoryMetadataDto>;
   fetchWorkspaceIssues: (workspaceId: string, page: number, pageSize: number) => Promise<RepositoryIssueSnapshotDto>;
   fetchWorkspaceIssue: (workspaceId: string, issueNumber: number) => Promise<RepositoryIssueSnapshotDto['issues'][number]>;

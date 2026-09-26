@@ -507,25 +507,18 @@ public class GitHubPullRequestReadClient
                 .collect(toImmutableList());
     }
 
-    public PullRequestHistoryPage searchPullRequestsPaged(
-            String pat, String query, int page, int perPage, String sort, String order) {
+    public PullRequestHistoryPage searchPullRequestsPaged(String pat, String query, int page, int perPage) {
         requirePat(pat);
         int safePage = Math.max(1, page);
         int safePerPage = Math.clamp(perPage, 1, 100);
         GitHubSearchResponse response = translating(() ->
-                get(gitHubRestClient, pat, uri -> {
-                            uri.path("/search/issues")
-                                    .queryParam("q", query)
-                                    .queryParam("per_page", safePerPage)
-                                    .queryParam("page", safePage);
-                            if (sort != null && !sort.isBlank()) {
-                                uri.queryParam("sort", sort);
-                            }
-                            if (order != null && !order.isBlank()) {
-                                uri.queryParam("order", order);
-                            }
-                            return uri.build();
-                        })
+                get(gitHubRestClient, pat, uri -> uri.path("/search/issues")
+                        .queryParam("q", query)
+                        .queryParam("per_page", safePerPage)
+                        .queryParam("page", safePage)
+                        .queryParam("sort", "updated")
+                        .queryParam("order", "desc")
+                        .build())
                         .retrieve()
                         .body(GitHubSearchResponse.class));
         if (response == null || response.items() == null) {
@@ -1004,23 +997,18 @@ public class GitHubPullRequestReadClient
                 .collect(toImmutableList());
     }
 
-    public List<PrTimelineEvent> fetchPrTimeline(String pat, PullRequestRef pr, Instant since) {
+    public List<PrTimelineEvent> fetchPrTimeline(String pat, PullRequestRef pr) {
         // GitHub returns timeline events oldest-first, capped at per_page=100
         // per request. Long-lived PRs blow past 100 events easily (force
         // pushes + reviews + comments add up), and without pagination the
         // newest activity gets silently dropped — see #27922 where replies
         // continued weeks beyond the first page. Walk pages until we get a
         // short page or hit the safety cap.
-        //
-        // When `since` is provided we narrow the request to events after
-        // that watermark — this is the incremental-sync hot path, where
-        // an unchanged PR returns an empty page in one round trip.
         List<PrTimelineEvent> timeline = paginator
-                .paginateSince(
+                .paginate(
                         pat,
                         "/repos/{owner}/{repo}/issues/{number}/timeline",
                         new ParameterizedTypeReference<List<GitHubTimelineEvent>>() {},
-                        since,
                         pr.owner(),
                         pr.repo(),
                         pr.number())
@@ -1193,13 +1181,11 @@ public class GitHubPullRequestReadClient
         };
     }
 
-    public List<PrTimelineEvent> fetchPrIssueComments(
-            String pat, PullRequestRef pr, Instant since) {
-        List<GitHubIssueComment> comments = paginator.paginateSince(
+    public List<PrTimelineEvent> fetchPrIssueComments(String pat, PullRequestRef pr) {
+        List<GitHubIssueComment> comments = paginator.paginate(
                 pat,
                 "/repos/{owner}/{repo}/issues/{number}/comments",
                 new ParameterizedTypeReference<List<GitHubIssueComment>>() {},
-                since,
                 pr.owner(),
                 pr.repo(),
                 pr.number());

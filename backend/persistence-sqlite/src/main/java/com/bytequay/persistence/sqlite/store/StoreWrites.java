@@ -16,10 +16,9 @@ package com.bytequay.persistence.sqlite.store;
 import com.bytequay.agent.core.AgentConflictException;
 import com.bytequay.agent.core.AgentStorageException;
 import com.bytequay.core.cherrypick.CherryPickConflictException;
-import com.bytequay.core.cherrypick.CherryPickStorageException;
 import com.bytequay.core.rebase.BranchRebaseException;
-import com.bytequay.core.rebase.BranchRebaseStorageException;
 import com.bytequay.core.review.ReviewConflictException;
+import com.bytequay.core.store.StorageException;
 import org.springframework.dao.DataAccessException;
 import org.springframework.dao.OptimisticLockingFailureException;
 import org.springframework.data.jpa.repository.JpaRepository;
@@ -45,9 +44,9 @@ final class StoreWrites
     static final Failures REVIEW = new Failures(
             ReviewConflictException::new, ReviewConflictException::new, ReviewConflictException::new, ReviewConflictException::new);
     static final Failures BRANCH_REBASE = new Failures(
-            BranchRebaseException::new, BranchRebaseException::new, BranchRebaseException::new, BranchRebaseStorageException::new);
+            BranchRebaseException::new, BranchRebaseException::new, BranchRebaseException::new, StorageException::new);
     static final Failures CHERRY_PICK = new Failures(
-            CherryPickConflictException::new, CherryPickConflictException::new, CherryPickConflictException::new, CherryPickStorageException::new);
+            CherryPickConflictException::new, CherryPickConflictException::new, CherryPickConflictException::new, StorageException::new);
 
     private StoreWrites() {}
 

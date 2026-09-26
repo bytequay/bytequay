@@ -32,6 +32,7 @@ import com.bytequay.agent.spi.AgentCommandPolicy;
 import com.bytequay.agent.spi.AgentDeliveryUncertainException;
 import com.bytequay.agent.spi.AgentLaneId;
 import com.bytequay.agent.spi.AgentPermissionPolicy;
+import com.bytequay.agent.spi.AgentPermissionScope;
 import com.bytequay.agent.spi.AgentProviderStatus;
 import com.bytequay.agent.spi.AgentSession;
 import com.bytequay.agent.spi.AgentSessionContext;
@@ -40,19 +41,16 @@ import com.bytequay.agent.spi.AgentTurnCommand;
 import com.bytequay.agent.spi.AgentTurnInput;
 import com.bytequay.agent.spi.AgentTurnResult;
 import com.bytequay.agent.spi.AgentUnavailableException;
+import com.bytequay.agent.spi.BridgeResolver;
 import com.bytequay.agent.spi.CodeGraphBridge;
-import com.bytequay.agent.spi.DevelopmentResultBridgeResolver;
 import com.bytequay.agent.spi.DraftPullRequestPublisher;
 import com.bytequay.agent.spi.IssueContextBridge;
 import com.bytequay.agent.spi.LocalReviewBridge;
-import com.bytequay.agent.spi.LocalReviewBridgeResolver;
 import com.bytequay.agent.spi.ProviderAgentEvent;
 import com.bytequay.agent.spi.ProviderApprovalDecision;
 import com.bytequay.agent.spi.ProviderApprovalRequest;
 import com.bytequay.agent.spi.PullRequestCiBridge;
-import com.bytequay.agent.spi.PullRequestCiBridgeResolver;
 import com.bytequay.agent.spi.ReviewBridge;
-import com.bytequay.agent.spi.ReviewBridgeResolver;
 import com.bytequay.agent.spi.ReviewTool;
 import com.bytequay.agent.spi.RunningTurn;
 import com.bytequay.agent.spi.SessionAccess;
@@ -101,6 +99,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 class TestCodexCliDriver
 {
+    private static final String DEVELOPMENT_POLICY = AgentCommandPolicy.instructions(new AgentPermissionScope(AgentPermissionPolicy.AUTO, SessionAccess.FULL, false));
     private static final String MCP_ENDPOINT = "http://127.0.0.1:9000/internal/agent/claude/mcp";
     private final ObjectMapper objectMapper = new ObjectMapper();
 
@@ -205,7 +204,6 @@ class TestCodexCliDriver
                 .containsExactly(AgentPermissionPolicy.AUTO, AgentPermissionPolicy.CI_AUTOFIX);
         assertThat(driver.capabilities().attachmentMediaTypes())
                 .containsExactlyInAnyOrder("image/png", "image/jpeg", "image/gif", "text/plain", "text/plain; charset=utf-8");
-        assertThat(driver.capabilities().partialAssistantText()).isTrue();
         assertThat(driver.capabilities().nestedAgentActivity()).isTrue();
         assertThat(supervisor.servers())
                 .allSatisfy(server -> assertThat(server.approvalPolicies()).containsExactly("on-request"));
@@ -270,10 +268,10 @@ class TestCodexCliDriver
                 awaitCondition(() -> server.results.containsKey(92L) && server.results.containsKey(93L));
                 assertThat(server.results.get(92L).path("decision").asText()).isEqualTo("decline");
                 assertThat(server.results.get(93L).path("decision").asText()).isEqualTo("decline");
-                assertThat(approvals.stream().filter(value -> value.providerRequestId().equals("92")).toList())
+                assertThat(approvals.stream().filter(value -> value.source().providerItemId().equals(Optional.of("exec-network"))).toList())
                         .hasSize(attempt + 1)
                         .allSatisfy(value -> assertThat(value.kind()).isEqualTo(ProviderApprovalRequest.Kind.COMMAND));
-                assertThat(approvals.stream().filter(value -> value.providerRequestId().equals("93")).toList())
+                assertThat(approvals.stream().filter(value -> value.source().providerItemId().equals(Optional.of("patch-scoped"))).toList())
                         .hasSize(attempt + 1)
                         .allSatisfy(value -> assertThat(value.kind()).isEqualTo(ProviderApprovalRequest.Kind.FILE_CHANGE));
                 server.completeTurn();
@@ -291,7 +289,7 @@ class TestCodexCliDriver
         AgentSessionContext linked = ciContext(Optional.empty());
         AgentSessionContext attended = new AgentSessionContext(
                 "development-task", linked.worktree(), linked.runtimeDirectory(), linked.providerDirectory(),
-                AgentPermissionPolicy.AUTO, Optional.empty(), linked.approvals());
+                AgentPermissionPolicy.AUTO, Optional.empty(), linked.approvals(), Optional.empty(), Optional.empty(), SessionAccess.FULL, Optional.empty(), "");
         ScriptedProcessSupervisor supervisor = new ScriptedProcessSupervisor(objectMapper);
         try (AgentSession session = driver(supervisor).open(attended, event -> {})) {
             RunningTurn turn = session.start(command("commit local changes"));
@@ -423,7 +421,7 @@ class TestCodexCliDriver
         Path runtime = Files.createDirectories(worktree.resolve("runtime"));
         return new AgentSessionContext(
                 "ci-task", taskWorktree, runtime, runtime.resolve("provider"), AgentPermissionPolicy.CI_AUTOFIX, reference,
-                handler);
+                handler, Optional.empty(), Optional.empty(), SessionAccess.FULL, Optional.empty(), "");
     }
 
     @Test
@@ -457,7 +455,9 @@ class TestCodexCliDriver
                 plain.approvals(),
                 plain.model(),
                 plain.effort(),
-                SessionAccess.TEXT_ONLY);
+                SessionAccess.TEXT_ONLY,
+                Optional.empty(),
+                "");
 
         AgentSession session = driver.open(textOnly, event -> {});
 
@@ -508,7 +508,9 @@ class TestCodexCliDriver
                 plain.approvals(),
                 plain.model(),
                 plain.effort(),
-                SessionAccess.TEXT_ONLY))
+                SessionAccess.TEXT_ONLY,
+                Optional.empty(),
+                ""))
                 .isInstanceOf(IllegalArgumentException.class)
                 .hasMessageContaining("text-only worktree escapes runtimeDirectory");
 
@@ -1011,7 +1013,7 @@ class TestCodexCliDriver
         List<ProviderApprovalRequest> approvals = new CopyOnWriteArrayList<>();
         AgentSession session = driver.open(context(Optional.empty(), (request, timeout) -> {
             approvals.add(request);
-            return CompletableFuture.completedFuture(request.providerRequestId().equals("104")
+            return CompletableFuture.completedFuture(request.source().providerItemId().equals(Optional.of("permission-denied"))
                     ? ProviderApprovalDecision.deny()
                     : ProviderApprovalDecision.allow(Optional.empty()));
         }), event -> {});
@@ -1095,9 +1097,9 @@ class TestCodexCliDriver
         assertThat(server.result(100).path("decision").asText()).isEqualTo("accept");
         assertThat(server.result(104).path("permissions")).isEqualTo(objectMapper.createObjectNode());
         assertThat(server.result(104).has("scope")).isFalse();
-        assertThat(approvals.stream().map(ProviderApprovalRequest::providerRequestId).toList())
-                .containsExactlyInAnyOrder("93", "96", "99", "100", "104");
-        assertThat(approvals.stream().filter(request -> request.providerRequestId().equals("96"))
+        assertThat(approvals.stream().map(value -> value.source().providerItemId().orElseThrow()).toList())
+                .containsExactlyInAnyOrder("permission-1", "exec-permission", "exec-network", "patch-scoped", "permission-denied");
+        assertThat(approvals.stream().filter(request -> request.source().providerItemId().orElseThrow().equals("exec-permission"))
                 .findFirst().orElseThrow().detail())
                 .contains("Reason: Need [REDACTED] to download Maven dependencies")
                 .doesNotContain("known-secret");
@@ -1989,7 +1991,8 @@ class TestCodexCliDriver
         Path link = Files.createSymbolicLink(runtime.resolve("linked.log"), external);
         AgentSessionContext context = new AgentSessionContext(
                 "task-1", worktree, runtime, runtime.resolve("provider"), AgentPermissionPolicy.AUTO, Optional.empty(),
-                (request, timeout) -> CompletableFuture.completedFuture(ProviderApprovalDecision.deny()));
+                (request, timeout) -> CompletableFuture.completedFuture(ProviderApprovalDecision.deny()),
+                Optional.empty(), Optional.empty(), SessionAccess.FULL, Optional.empty(), "");
         try (AgentSession session = driver(supervisor).open(context, event -> {})) {
             for (Path rejected : ImmutableList.of(external, link, runtime, runtime.resolve("missing.log"))) {
                 assertThatThrownBy(() -> session.start(new AgentTurnCommand(
@@ -3024,8 +3027,8 @@ class TestCodexCliDriver
                 IssueContextBridge issue = new IssueContextBridge(() -> "Accepted issue context", IssueContextBridge.INSTRUCTION);
                 yield new BridgedTool(
                         new PermissionBroker(() -> URI.create(MCP_ENDPOINT), objectMapper, (taskId, query) -> "",
-                                ReviewBridgeResolver.NONE, DevelopmentResultBridgeResolver.NONE, DraftPullRequestPublisher.NONE, LocalReviewBridgeResolver.NONE,
-                                PullRequestCiBridgeResolver.NONE, taskId -> Optional.of(issue)),
+                                BridgeResolver.none(), BridgeResolver.none(), DraftPullRequestPublisher.NONE, BridgeResolver.none(),
+                                BridgeResolver.none(), taskId -> Optional.of(issue)),
                         IssueContextBridge.INSTRUCTION,
                         ImmutableList.of(IssueContextBridge.TOOL_NAME));
             }
@@ -3033,7 +3036,7 @@ class TestCodexCliDriver
                 PullRequestCiBridge ci = new PullRequestCiBridge(jobId -> "No pull request associated yet", (logId, offset) -> "raw", PullRequestCiBridge.INSTRUCTION, Optional.empty(), Optional.empty());
                 yield new BridgedTool(
                         new PermissionBroker(() -> URI.create(MCP_ENDPOINT), objectMapper, (taskId, query) -> "",
-                                ReviewBridgeResolver.NONE, DevelopmentResultBridgeResolver.NONE, DraftPullRequestPublisher.NONE, LocalReviewBridgeResolver.NONE,
+                                BridgeResolver.none(), BridgeResolver.none(), DraftPullRequestPublisher.NONE, BridgeResolver.none(),
                                 taskId -> Optional.of(ci)),
                         PullRequestCiBridge.INSTRUCTION,
                         ImmutableList.of(PullRequestCiBridge.TOOL_NAME, PullRequestCiBridge.RAW_TOOL_NAME));
@@ -3042,7 +3045,7 @@ class TestCodexCliDriver
                 LocalReviewBridge local = new LocalReviewBridge(commentId -> "[]", reply -> "{}", resolution -> "{}", LocalReviewBridge.INSTRUCTION);
                 yield new BridgedTool(
                         new PermissionBroker(() -> URI.create(MCP_ENDPOINT), objectMapper, (taskId, query) -> "",
-                                ReviewBridgeResolver.NONE, DevelopmentResultBridgeResolver.NONE, DraftPullRequestPublisher.NONE, taskId -> Optional.of(local)),
+                                BridgeResolver.none(), BridgeResolver.none(), DraftPullRequestPublisher.NONE, taskId -> Optional.of(local)),
                         LocalReviewBridge.INSTRUCTION,
                         LocalReviewBridge.TOOL_NAMES);
             }
@@ -3108,7 +3111,7 @@ class TestCodexCliDriver
         // The thread leaves the MCP map to the launch flags instead of emptying it.
         assertThat(supervisor.server().threadRequests().getFirst().path("config").has("mcp_servers")).isFalse();
         assertThat(supervisor.server().threadRequests().getFirst().path("developerInstructions").asText())
-                .startsWith(AgentCommandPolicy.instructions()).contains("native update_plan").endsWith("Keep explanations concise\n\nuse the graph");
+                .startsWith(DEVELOPMENT_POLICY).contains("native update_plan").endsWith("Keep explanations concise\n\nuse the graph");
         // Opening ran the isolation guard against the effective config, which exposes exactly this server.
         session.close();
     }
@@ -3163,7 +3166,7 @@ class TestCodexCliDriver
             JsonNode request = server.threadRequests().getFirst();
             assertThat(request.has("developerInstructions")).isTrue();
             assertThat(request.path("developerInstructions").asText())
-                    .startsWith(AgentCommandPolicy.instructions()).contains("native update_plan", "Do not repeat the checklist");
+                    .startsWith(DEVELOPMENT_POLICY).contains("native update_plan", "Do not repeat the checklist");
             if (!instruction.isEmpty()) {
                 assertThat(request.path("developerInstructions").asText()).endsWith(instruction);
             }
@@ -3243,7 +3246,9 @@ class TestCodexCliDriver
                 approvals,
                 model,
                 effort,
-                SessionAccess.FULL);
+                SessionAccess.FULL,
+                Optional.empty(),
+                "");
     }
 
     private static AgentSessionContext context(
@@ -3259,7 +3264,12 @@ class TestCodexCliDriver
                 taskWorktree.resolve("provider"),
                 AgentPermissionPolicy.AUTO,
                 reference,
-                approvals);
+                approvals,
+                Optional.empty(),
+                Optional.empty(),
+                SessionAccess.FULL,
+                Optional.empty(),
+                "");
     }
 
     private static AgentTurnCommand command(String message)

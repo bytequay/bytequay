@@ -25,8 +25,6 @@ public interface ModelApiKeyStore
 
     Optional<ModelApiKey> findById(String id);
 
-    Optional<String> findSecret(String alias);
-
     Optional<String> findSecretById(String id);
 
     /** Inserts a new key; the alias must not exist yet. */

@@ -21,7 +21,6 @@ import com.bytequay.agent.core.AgentEventService;
 import com.bytequay.agent.core.AgentHistoryPage;
 import com.bytequay.agent.core.AgentStorageException;
 import com.bytequay.agent.core.AgentTask;
-import com.bytequay.agent.core.AgentTaskNotFoundException;
 import com.bytequay.agent.core.BlobRef;
 import com.bytequay.agent.core.EventId;
 import com.bytequay.agent.core.InvalidAgentRequestException;
@@ -77,7 +76,7 @@ public final class DefaultAgentEventService
     public AgentEventEnvelope append(UnsequencedAgentEvent event)
     {
         requireNonNull(event, "event is null");
-        requireTask(event.taskId());
+        taskStore.require(event.taskId());
         TaskChannel channel = channel(event.taskId());
         AgentEventEnvelope envelope;
         List<EventSubscription> subscriptions;
@@ -111,7 +110,7 @@ public final class DefaultAgentEventService
     {
         requireNonNull(eventId, "eventId is null");
         AgentEventOutboxEntry discovered = requireOutboxEntry(eventId);
-        AgentTask task = requireTask(discovered.taskId());
+        AgentTask task = taskStore.require(discovered.taskId());
         TaskChannel channel = channel(discovered.taskId());
         AgentEventEnvelope envelope;
         List<EventSubscription> subscriptions;
@@ -165,7 +164,7 @@ public final class DefaultAgentEventService
     {
         requireNonNull(taskId, "taskId is null");
         validateCursor(afterSequence, limit);
-        requireTask(taskId);
+        taskStore.require(taskId);
         return logStore.readAfter(taskId, afterSequence, limit);
     }
 
@@ -176,10 +175,10 @@ public final class DefaultAgentEventService
         if (afterSequence < 0) {
             throw new InvalidAgentRequestException("afterSequence must be non-negative");
         }
-        requireTask(taskId);
+        taskStore.require(taskId);
         return subscriber -> {
             requireNonNull(subscriber, "subscriber is null");
-            AgentTask task = requireTask(taskId);
+            AgentTask task = taskStore.require(taskId);
             TaskChannel channel = channel(taskId);
             EventSubscription subscription;
             synchronized (channel) {
@@ -200,7 +199,7 @@ public final class DefaultAgentEventService
         if ((before.isPresent() && after.isPresent()) || before.orElse(0) < 0 || after.orElse(0) < 0) {
             throw new InvalidAgentRequestException("Provide at most one non-negative history cursor");
         }
-        requireTask(taskId);
+        taskStore.require(taskId);
         return logStore.readHistory(taskId, before, after);
     }
 
@@ -230,11 +229,6 @@ public final class DefaultAgentEventService
         }
         channel.lastSequence = lastSequence;
         channel.writerInitialized = true;
-    }
-
-    private AgentTask requireTask(TaskId taskId)
-    {
-        return taskStore.find(taskId).orElseThrow(() -> new AgentTaskNotFoundException(taskId));
     }
 
     private AgentEventOutboxEntry requireOutboxEntry(EventId eventId)

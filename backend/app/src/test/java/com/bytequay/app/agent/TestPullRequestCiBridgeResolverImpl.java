@@ -35,7 +35,6 @@ import com.bytequay.app.ci.CiRawLogStore;
 import com.bytequay.app.ci.CiStep;
 import com.bytequay.app.ci.CiWorkflowRun;
 import com.bytequay.app.ci.GitHubActionsClient;
-import com.bytequay.app.ci.InspectCiHeadQuery;
 import com.bytequay.app.ci.ReadCiLogQuery;
 import com.bytequay.app.service.pr.PullRequestService;
 import com.bytequay.app.workspace.ManagedWorktreeService;
@@ -136,9 +135,9 @@ class TestPullRequestCiBridgeResolverImpl
                 "master", "https://github.com/alice/trino.git", Optional.of("master"), Optional.of("https://github.com/trinodb/trino.git"),
                 "/tmp/trino", Optional.of(NOW), Optional.of(NOW), 0, NOW, NOW)));
         when(worktrees.currentBranch(worktree)).thenReturn(Optional.of(BRANCH));
-        when(worktrees.inspect(worktree)).thenReturn(new WorktreeSnapshot(worktree, HEAD, false, false));
+        when(worktrees.inspect(worktree)).thenReturn(new WorktreeSnapshot(worktree, HEAD, false, false, false));
         when(pullRequests.findByHeadRef(UPSTREAM.fullName(), BRANCH)).thenReturn(ImmutableList.of(row(PR)));
-        when(actions.inspect(new InspectCiHeadQuery(PR))).thenReturn(failing);
+        when(actions.inspect(PR)).thenReturn(failing);
     }
 
     @Test
@@ -183,7 +182,7 @@ class TestPullRequestCiBridgeResolverImpl
     void repositoryCapitalizationDoesNotHideTheTasksForkPullRequest()
             throws Exception
     {
-        when(actions.inspect(new InspectCiHeadQuery(PR))).thenReturn(new CiHeadSnapshot(
+        when(actions.inspect(PR)).thenReturn(new CiHeadSnapshot(
                 PR, true, "alice", new RepoRef("ALIce", "TriNo"), BRANCH, HEAD, "master", BASE, url(PR), failing.workflowRuns()));
 
         JsonNode result = read(resolver.resolve(taskId.toString()).orElseThrow(), Optional.empty());
@@ -221,7 +220,7 @@ class TestPullRequestCiBridgeResolverImpl
         assertThat(result.path("status").asText()).isEqualTo("available");
         assertThat(result.at("/pullRequest/number").asInt()).isEqualTo(PR.number());
         verify(catalog).syncRepositoryBranch(UPSTREAM, FORK.owner(), BRANCH);
-        verify(actions).inspect(new InspectCiHeadQuery(PR));
+        verify(actions).inspect(PR);
     }
 
     @Test
@@ -230,7 +229,7 @@ class TestPullRequestCiBridgeResolverImpl
     {
         PullRequestRef other = new PullRequestRef(UPSTREAM.owner(), UPSTREAM.repo(), PR.number() + 1);
         when(pullRequests.findByHeadRef(UPSTREAM.fullName(), BRANCH)).thenReturn(ImmutableList.of(row(PR), row(other)));
-        when(actions.inspect(new InspectCiHeadQuery(other))).thenReturn(snapshot(other, HEAD, 1, "checks", "failure"));
+        when(actions.inspect(other)).thenReturn(snapshot(other, HEAD, 1, "checks", "failure"));
 
         JsonNode result = read(resolver.resolve(taskId.toString()).orElseThrow(), Optional.of(201L));
 
@@ -247,7 +246,7 @@ class TestPullRequestCiBridgeResolverImpl
             when(pullRequests.findByHeadRef(UPSTREAM.fullName(), BRANCH)).thenReturn(ImmutableList.of(row(PR), row(other)));
             return null;
         }).when(catalog).syncRepositoryBranch(UPSTREAM, FORK.owner(), BRANCH);
-        when(actions.inspect(new InspectCiHeadQuery(other))).thenReturn(snapshot(other, HEAD, 1, "checks", "failure"));
+        when(actions.inspect(other)).thenReturn(snapshot(other, HEAD, 1, "checks", "failure"));
 
         JsonNode result = read(resolver.resolve(taskId.toString()).orElseThrow(), Optional.of(201L));
 
@@ -260,7 +259,7 @@ class TestPullRequestCiBridgeResolverImpl
     void onlyAnObservedFailedJobCanDownloadALog(long jobId)
             throws Exception
     {
-        when(actions.inspect(new InspectCiHeadQuery(PR))).thenReturn(snapshot(PR, HEAD, 1, "passing-check", "success"));
+        when(actions.inspect(PR)).thenReturn(snapshot(PR, HEAD, 1, "passing-check", "success"));
 
         JsonNode result = read(resolver.resolve(taskId.toString()).orElseThrow(), Optional.of(jobId));
 
@@ -282,7 +281,7 @@ class TestPullRequestCiBridgeResolverImpl
             case "closed" -> new CiHeadSnapshot(PR, false, "alice", FORK, BRANCH, HEAD, "master", BASE, url(PR), failing.workflowRuns());
             default -> throw new AssertionError(change);
         };
-        when(actions.inspect(new InspectCiHeadQuery(PR))).thenReturn(failing, after);
+        when(actions.inspect(PR)).thenReturn(failing, after);
 
         JsonNode result = read(resolver.resolve(taskId.toString()).orElseThrow(), Optional.of(201L));
 
@@ -297,7 +296,7 @@ class TestPullRequestCiBridgeResolverImpl
     {
         CiWorkflowRun current = new CiWorkflowRun(100, 10, "Build", 2, "completed", Optional.of("failure"), HEAD,
                 "https://github.com/trinodb/trino/actions/runs/100", failing.jobs());
-        when(actions.inspect(new InspectCiHeadQuery(PR))).thenReturn(new CiHeadSnapshot(
+        when(actions.inspect(PR)).thenReturn(new CiHeadSnapshot(
                 PR, true, "alice", FORK, BRANCH, HEAD, "master", BASE, url(PR), ImmutableList.of(current)));
 
         JsonNode result = read(resolver.resolve(taskId.toString()).orElseThrow(), Optional.of(201L));
@@ -352,7 +351,7 @@ class TestPullRequestCiBridgeResolverImpl
     void doesNotExposeAuthenticatedProviderErrorsToTheAgent()
             throws Exception
     {
-        when(actions.inspect(new InspectCiHeadQuery(PR))).thenThrow(new IllegalStateException("Request failed: https://token-secret@github.com/trinodb/trino"));
+        when(actions.inspect(PR)).thenThrow(new IllegalStateException("Request failed: https://token-secret@github.com/trinodb/trino"));
 
         JsonNode result = read(resolver.resolve(taskId.toString()).orElseThrow(), Optional.empty());
 
@@ -413,7 +412,7 @@ class TestPullRequestCiBridgeResolverImpl
             return new CiWorkflowRun(id, id, "\u0001".repeat(400), 1, "completed", Optional.of("failure"), HEAD,
                     "https://github.com/trinodb/trino/actions/runs/" + id, ImmutableList.of(job));
         }).collect(ImmutableList.toImmutableList());
-        when(actions.inspect(new InspectCiHeadQuery(PR))).thenReturn(new CiHeadSnapshot(
+        when(actions.inspect(PR)).thenReturn(new CiHeadSnapshot(
                 PR, true, "alice", FORK, BRANCH, HEAD, "master", BASE, url(PR), workflows));
 
         String output = resolver.resolve(taskId.toString()).orElseThrow().read().apply(Optional.empty());
@@ -433,7 +432,7 @@ class TestPullRequestCiBridgeResolverImpl
                 .collect(ImmutableList.toImmutableList());
         CiWorkflowRun passing = new CiWorkflowRun(99, 9, "Passing workflow", 1, "completed", Optional.of("success"), HEAD,
                 "https://github.com/trinodb/trino/actions/runs/99", jobs);
-        when(actions.inspect(new InspectCiHeadQuery(PR))).thenReturn(new CiHeadSnapshot(PR, true, "alice", FORK, BRANCH, HEAD, "master", BASE, url(PR),
+        when(actions.inspect(PR)).thenReturn(new CiHeadSnapshot(PR, true, "alice", FORK, BRANCH, HEAD, "master", BASE, url(PR),
                 ImmutableList.of(passing, failing.workflowRuns().getFirst())));
 
         String output = resolver.resolve(taskId.toString()).orElseThrow().read().apply(Optional.empty());
@@ -492,7 +491,7 @@ class TestPullRequestCiBridgeResolverImpl
         AgentTask autofix = AgentTask.created(taskId, false, "Fix CI", TitleSource.USER, AgentLaneId.CODEX_CLI,
                 worktree, AgentTaskDefaults.forPermission(AgentPermissionPolicy.CI_AUTOFIX), NOW);
         CiAutofixRun run = mock(CiAutofixRun.class, withSettings().mockMaker(MockMakers.INLINE));
-        when(run.scope()).thenReturn(new CiAutofixRun.Scope(PR, FORK, "workspace", Optional.of(FORK), "alice", BRANCH, "master", "codex-cli", Optional.empty()));
+        when(run.scope()).thenReturn(new CiAutofixRun.Scope(PR, FORK, "workspace", FORK, "alice", BRANCH, "master", "codex-cli", Optional.empty()));
         when(run.expectedRemoteHead()).thenReturn(HEAD);
         when(run.status()).thenReturn(CiAutofixRun.Status.ACTIVE);
         when(tasks.find(taskId)).thenReturn(Optional.of(autofix));
@@ -500,7 +499,7 @@ class TestPullRequestCiBridgeResolverImpl
         PullRequestCiBridge bridge = resolver.resolve(taskId.toString()).orElseThrow();
         assertThat(read(bridge, Optional.empty()).path("status").asText()).isEqualTo("available");
         verifyNoInteractions(catalog, pullRequests, details);
-        when(actions.inspect(new InspectCiHeadQuery(PR))).thenReturn(snapshot(PR, NEXT, 1, "test", "failure"));
+        when(actions.inspect(PR)).thenReturn(snapshot(PR, NEXT, 1, "test", "failure"));
         assertThat(read(bridge, Optional.of(201L)).path("status").asText()).isEqualTo("stale");
         verify(actions, never()).readLog(any());
     }
@@ -551,7 +550,8 @@ class TestPullRequestCiBridgeResolverImpl
 
     private static StoredPrDetail cached(String head)
     {
-        PrRawDetail raw = new PrRawDetail("", ImmutableList.of(), true, false, "blocked", 1, 0, 1, 0, ImmutableList.of(), head, BRANCH);
+        PrRawDetail raw = new PrRawDetail(null, null, null, null, null, null, null, null, "", ImmutableList.of(), null, ImmutableList.of(), null, true, false, "blocked", 1, 0, 1,
+                0, ImmutableList.of(), head, BRANCH, null);
         PrCheckRunState check = new PrCheckRunState(400L, "external-style-check", "completed", "failure", "https://ci.example.invalid/400", "status", NOW, NOW);
         return new StoredPrDetail(raw, ImmutableList.of(), ImmutableList.of(), ImmutableList.of(check), ImmutableList.of(StoredPrDetail.CHECKS));
     }
@@ -560,7 +560,7 @@ class TestPullRequestCiBridgeResolverImpl
     {
         return new PullRequest(ref.number(), ref.owner() + "/" + ref.repo(), ref.number(), "Fix Delta Lake metadata", "alice", url(ref), NOW, NOW,
                 PullRequest.Origin.AUTHORED, ImmutableList.of(), ImmutableMap.of(), true, null, null, null, ImmutableList.of(), PullRequestDetail.CiStatus.FAILING,
-                1, 0, 0, null, "open", null, null, false, "blocked", NOW, BRANCH, null, null, null, null);
+                1, 0, 0, "open", null, null, false, "blocked", NOW, BRANCH, null, null, null, null);
     }
 
     private static String url(PullRequestRef ref)

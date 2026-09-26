@@ -14,7 +14,6 @@
 package com.bytequay.agent.spi;
 
 import java.math.BigDecimal;
-import java.time.Instant;
 import java.util.Optional;
 
 import static com.bytequay.agent.spi.AgentChecks.checkOptionalText;
@@ -27,15 +26,13 @@ public record ProviderUsageSample(
         long inputTokens,
         long cachedInputTokens,
         long outputTokens,
-        Optional<BigDecimal> cost,
-        Instant observedAt)
+        Optional<BigDecimal> cost)
 {
     public ProviderUsageSample
     {
         checkOptionalText(providerEventId, "providerEventId");
         requireNonNull(semantics, "semantics is null");
         requireNonNull(cost, "cost is null");
-        requireNonNull(observedAt, "observedAt is null");
         checkArgument(inputTokens >= 0 && cachedInputTokens >= 0 && outputTokens >= 0, "token counts must not be negative");
         checkArgument(cost.stream().noneMatch(value -> value.signum() < 0), "cost must not be negative");
     }

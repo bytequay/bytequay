@@ -44,11 +44,6 @@ public record DevelopmentResultBridge(String turnId, String instruction, boolean
             policy and does not require this tool. Its refusal does not block an authorized CLI operation.
             """;
 
-    public DevelopmentResultBridge(String turnId, String instruction)
-    {
-        this(turnId, instruction, false);
-    }
-
     public DevelopmentResultBridge
     {
         checkNotBlank(turnId, "turnId");

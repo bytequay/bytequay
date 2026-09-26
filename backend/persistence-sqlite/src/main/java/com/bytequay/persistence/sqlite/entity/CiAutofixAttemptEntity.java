@@ -15,11 +15,15 @@ package com.bytequay.persistence.sqlite.entity;
 
 import com.bytequay.core.ci.CiAutofixAttempt;
 import com.bytequay.core.ci.CiAutofixAttempt.CiResult;
+import com.bytequay.core.ci.CiAutofixAttempt.FailureEvidence;
 import com.bytequay.core.ci.CiAutofixAttempt.GitResult;
 import com.bytequay.core.ci.CiAutofixAttemptId;
 import com.bytequay.core.ci.CiAutofixRunId;
+import com.bytequay.core.ci.CiDescriptionChange;
+import com.bytequay.core.ci.CiRerunAssessment;
 import com.bytequay.persistence.sqlite.converter.InstantToTextConverter;
 import com.bytequay.persistence.sqlite.converter.StringListConverter;
+import com.fasterxml.jackson.core.type.TypeReference;
 import com.google.common.collect.ImmutableList;
 import jakarta.persistence.Column;
 import jakarta.persistence.Convert;
@@ -38,6 +42,7 @@ import java.time.Instant;
 import java.util.List;
 import java.util.Optional;
 
+import static com.bytequay.persistence.sqlite.entity.JsonGuard.CI_AUTOFIX;
 import static com.google.common.base.Preconditions.checkArgument;
 
 @Entity
@@ -45,6 +50,8 @@ import static com.google.common.base.Preconditions.checkArgument;
 public class CiAutofixAttemptEntity
         extends AssignedIdEntity<String>
 {
+    private static final TypeReference<List<FailureEvidence>> FAILURES = new TypeReference<>() {};
+
     @Id
     @Getter(onMethod_ = @Override)
     private String id;
@@ -138,11 +145,11 @@ public class CiAutofixAttemptEntity
                         && attemptNumber == attempt.number(),
                 "attempt identity changed");
         inputSha = attempt.inputSha();
-        failuresJson = CiAutofixJson.encodeFailures(attempt.failures());
+        failuresJson = CI_AUTOFIX.write(attempt.failures(), "CI Autofix failures");
         agentTurnId = attempt.agentTurnId().orElse(null);
         untrustedAgentNote = attempt.untrustedAgentNote().orElse(null);
-        descriptionChangeJson = attempt.descriptionChange().map(CiAutofixJson::encodeDescriptionChange).orElse(null);
-        rerunAssessmentJson = attempt.rerunAssessment().map(CiAutofixJson::encodeRerunAssessment).orElse(null);
+        descriptionChangeJson = attempt.descriptionChange().map(change -> CI_AUTOFIX.write(change, "CI description change")).orElse(null);
+        rerunAssessmentJson = attempt.rerunAssessment().map(assessment -> CI_AUTOFIX.write(assessment, "CI rerun assessment")).orElse(null);
         inspectedLocalHead = attempt.gitResult().map(GitResult::localHead).orElse(null);
         localFingerprint = attempt.gitResult().map(GitResult::fingerprint).orElse(null);
         changedPaths = attempt.gitResult().map(GitResult::changedPaths).orElse(ImmutableList.of());
@@ -169,12 +176,12 @@ public class CiAutofixAttemptEntity
                 CiAutofixRunId.valueOf(runId),
                 attemptNumber,
                 inputSha,
-                CiAutofixJson.decodeFailures(failuresJson),
+                CI_AUTOFIX.read(failuresJson, FAILURES, "CI Autofix failures"),
                 Optional.ofNullable(agentTurnId),
                 Optional.ofNullable(untrustedAgentNote),
                 gitResult,
-                Optional.ofNullable(descriptionChangeJson).map(CiAutofixJson::decodeDescriptionChange),
-                Optional.ofNullable(rerunAssessmentJson).map(CiAutofixJson::decodeRerunAssessment),
+                Optional.ofNullable(descriptionChangeJson).map(json -> CI_AUTOFIX.read(json, CiDescriptionChange.class, "CI description change")),
+                Optional.ofNullable(rerunAssessmentJson).map(json -> CI_AUTOFIX.read(json, CiRerunAssessment.class, "CI rerun assessment")),
                 Optional.ofNullable(expectedRemoteSha),
                 Optional.ofNullable(pushedSha),
                 Optional.ofNullable(pushedAt),

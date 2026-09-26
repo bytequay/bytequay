@@ -264,17 +264,6 @@ public class ReviewController
 
     // ---- activity, scoped to the review's own task ----
 
-    @GetMapping("/{reviewId}/events")
-    public List<AgentHttpModels.EventResponse> events(
-            @PathVariable String reviewId,
-            @RequestParam(defaultValue = "0") long after,
-            @RequestParam(defaultValue = "100") int limit)
-    {
-        return events.readAfter(reviews.task(reviewId).id(), after, limit).stream()
-                .map(AgentHttpModels::event)
-                .collect(toImmutableList());
-    }
-
     @GetMapping("/{reviewId}/history")
     public AgentHttpModels.HistoryResponse history(
             @PathVariable String reviewId,

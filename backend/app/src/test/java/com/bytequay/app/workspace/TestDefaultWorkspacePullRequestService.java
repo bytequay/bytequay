@@ -19,7 +19,6 @@ import com.bytequay.app.repository.github.GitHubAccountClient;
 import com.bytequay.app.repository.github.GitHubPullRequestWriteClient;
 import com.bytequay.app.service.credentials.CredentialService;
 import com.bytequay.app.service.pr.PullRequestService;
-import com.bytequay.app.workspace.WorkspaceBranchPusher.Push;
 import com.bytequay.app.workspace.WorkspacePullRequestService.PullRequestCommand;
 import com.bytequay.app.workspace.WorkspacePullRequestService.PullRequestResult;
 import com.bytequay.app.workspace.WorkspacePullRequestService.PushCommand;
@@ -38,6 +37,7 @@ import com.bytequay.core.domain.Workspace;
 import com.bytequay.core.domain.Workspace.Topology;
 import com.bytequay.core.store.WorkspaceStore;
 import com.google.common.collect.ImmutableList;
+import com.google.common.collect.ImmutableSet;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
@@ -234,7 +234,7 @@ class TestDefaultWorkspacePullRequestService
         when(provisioning.synchronizeCode("workspace")).thenAnswer(ignored -> {
             Workspace synced = storedWorkspace.get().withCodeSyncAt(Optional.of(NOW), NOW);
             storedWorkspace.set(synced);
-            return WorkspaceCodeSyncResult.success(synced);
+            return WorkspaceCodeSyncResult.success(synced, ImmutableSet.of());
         });
         GitHubAccountClient repositories = mock(GitHubAccountClient.class);
         when(repositories.fetchRepository("token", workspace.selectedRepositoryId()))
@@ -248,9 +248,7 @@ class TestDefaultWorkspacePullRequestService
                         "https://github.com/" + workspace.monitoredRepository().fullName() + "/pull/12"));
         CredentialService credentials = mock(CredentialService.class);
         when(credentials.resolveGitHubToken()).thenReturn("token");
-        WorkspaceBranchPusher git = mock(WorkspaceBranchPusher.class);
-        when(git.pushBranch(workspace, WORK_BRANCH, PARENT_SHA))
-                .thenReturn(new Push("origin", WORK_BRANCH, SHA));
+        ManagedWorkspaceGit git = mock(ManagedWorkspaceGit.class);
         PullRequestService pullRequestCatalog = mock(PullRequestService.class);
         CiAutofixService ciAutofix = mock(CiAutofixService.class);
         CiAutofixStore ciAutofixStore = mock(CiAutofixStore.class);
@@ -285,9 +283,9 @@ class TestDefaultWorkspacePullRequestService
                         CherryPickExecutionId.random(),
                         "idempotency-key",
                         new CherryPickExecution.Workspace(
-                                Optional.of("workspace"),
+                                "workspace",
                                 workspace.monitoredRepository(),
-                                Optional.empty(),
+                                workspace.selectedRepository(),
                                 workspace.upstreamRepositoryId().isPresent() ? "upstream" : "origin",
                                 workspace.upstreamRepositoryId().isPresent() ? "upstream" : "origin",
                                 targetBranch,
@@ -424,7 +422,7 @@ class TestDefaultWorkspacePullRequestService
             Workspace workspace,
             CherryPickExecutionId executionId,
             WorkspaceProvisioningService provisioning,
-            WorkspaceBranchPusher git,
+            ManagedWorkspaceGit git,
             GitHubPullRequestWriteClient pullRequests,
             PullRequestService pullRequestCatalog,
             CiAutofixService ciAutofix)

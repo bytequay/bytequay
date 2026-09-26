@@ -87,20 +87,20 @@ class TestSqlitePullRequestWorkspaceScope
     void activityChangesOnlyWhenObservedGithubFactsChange()
     {
         PullRequest row = store.saveObserved(pullRequest(1, "owner/project", 1));
-        store.updateEnrichment(row.id(), PullRequestDetail.CiStatus.PENDING, 1, 0, 0, null, true, "clean", null, "feature",
+        store.updateEnrichment(row.id(), PullRequestDetail.CiStatus.PENDING, 1, 0, 0, true, "clean", null, "feature",
                 ImmutableList.of(), PullRequest.Origin.AUTHORED, Optional.empty(), Optional.empty(), ImmutableMap.of("checks", "pending"));
         store.setMonitored(row.id(), true);
         Instant baselineActivity = store.findById(row.id()).orElseThrow().activityAt();
-        store.updateEnrichment(row.id(), PullRequestDetail.CiStatus.PENDING, 1, 0, 0, null, true, "clean", null, "feature",
+        store.updateEnrichment(row.id(), PullRequestDetail.CiStatus.PENDING, 1, 0, 0, true, "clean", null, "feature",
                 ImmutableList.of(), PullRequest.Origin.AUTHORED, Optional.empty(), Optional.empty(), ImmutableMap.of("checks", "pending"));
         assertThat(store.findById(row.id()).orElseThrow().activityAt()).isEqualTo(baselineActivity);
 
-        store.updateEnrichment(row.id(), PullRequestDetail.CiStatus.FAILING, 1, 0, 0, null, true, "clean", null, "feature",
+        store.updateEnrichment(row.id(), PullRequestDetail.CiStatus.FAILING, 1, 0, 0, true, "clean", null, "feature",
                 ImmutableList.of(), PullRequest.Origin.AUTHORED, Optional.empty(), Optional.empty(), ImmutableMap.of("checks", "failed"));
         PullRequest changed = store.findById(row.id()).orElseThrow();
         assertThat(changed.updatedAt()).isEqualTo(row.updatedAt());
         assertThat(changed.activityAt()).isAfter(changed.monitoredAt());
-        store.updateEnrichment(row.id(), PullRequestDetail.CiStatus.FAILING, 1, 0, 0, null, true, "clean", null, "feature",
+        store.updateEnrichment(row.id(), PullRequestDetail.CiStatus.FAILING, 1, 0, 0, true, "clean", null, "feature",
                 ImmutableList.of(), PullRequest.Origin.AUTHORED, Optional.empty(), Optional.empty(), ImmutableMap.of("checks", "failed"));
         assertThat(store.findById(row.id()).orElseThrow().activityAt()).isEqualTo(changed.activityAt());
     }
@@ -167,7 +167,7 @@ class TestSqlitePullRequestWorkspaceScope
         store.saveRepositorySyncPage("owner/project", ImmutableList.of(searchRow), "generic-search");
         store.saveRepositorySyncPage("owner/project", ImmutableList.of(searchRow.withOrigin(PullRequest.Origin.REVIEW_REQUESTED)), "review-search");
         assertThat(store.findById(row.id()).orElseThrow().reviewRequestedAt()).isEqualTo(requestedAgainAt);
-        store.updateEnrichment(row.id(), PullRequestDetail.CiStatus.PASSING, 0, 0, 0, null, true, "clean", null, "feature",
+        store.updateEnrichment(row.id(), PullRequestDetail.CiStatus.PASSING, 0, 0, 0, true, "clean", null, "feature",
                 ImmutableList.of("alice"), PullRequest.Origin.REVIEW_REQUESTED, Optional.of(firstRequestedAt), Optional.empty(), ImmutableMap.of());
         assertThat(store.findById(row.id()).orElseThrow().reviewRequestedAt()).isEqualTo(requestedAgainAt);
     }
@@ -213,10 +213,6 @@ class TestSqlitePullRequestWorkspaceScope
                 .extracting(PullRequest::id)
                 .containsExactlyInAnyOrder(1L, 2L, 3L);
         assertThat(store.findPage(0, 50).openPullRequests()).isEqualTo(3);
-        assertThat(store.findPage(0, 50, "#3").pullRequests())
-                .extracting(PullRequest::id)
-                .containsExactly(3L);
-        assertThat(store.findPage(0, 50, "#4").pullRequests()).isEmpty();
         assertThat(store.findRepositoryPage("OWNER/PROJECT", 0, 50).pullRequests())
                 .extracting(PullRequest::id)
                 .containsExactlyInAnyOrder(2L, 3L);
@@ -239,16 +235,14 @@ class TestSqlitePullRequestWorkspaceScope
         assertThat(store.findPage(0, 50).pullRequests())
                 .extracting(PullRequest::id)
                 .containsExactlyInAnyOrder(1L, 2L);
-        assertThat(store.findPage(0, 50, "#3").pullRequests()).isEmpty();
         assertThat(store.findPage(0, 50).openPullRequests()).isEqualTo(2);
-        assertThat(store.findPage(0, 50, "#3").openPullRequests()).isZero();
         assertThat(store.findRepositoryPage("owner/project", 0, 50).pullRequests())
                 .extracting(PullRequest::id).containsExactlyInAnyOrder(2L, 3L);
 
         workspaceStore.setWatched(workspace.id(), true);
 
         assertThat(store.findPage(0, 50).pullRequests()).extracting(PullRequest::id).containsExactlyInAnyOrder(1L, 2L, 3L);
-        assertThat(store.findPage(0, 50, "#3").openPullRequests()).isEqualTo(1);
+        assertThat(store.findPage(0, 50).openPullRequests()).isEqualTo(3);
     }
 
     @Test

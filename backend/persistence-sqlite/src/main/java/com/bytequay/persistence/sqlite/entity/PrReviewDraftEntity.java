@@ -28,6 +28,8 @@ import lombok.Getter;
 import java.time.Instant;
 import java.util.List;
 
+import static com.bytequay.persistence.sqlite.entity.JsonGuard.REVIEW;
+
 /** The user's local pending review for one pull request; keyed by repository and number so it outlives the cached row. */
 @Entity
 @Table(name = "pr_review_draft")
@@ -80,12 +82,12 @@ public class PrReviewDraftEntity
         number = draft.number();
         body = draft.body();
         event = draft.event();
-        itemsJson = AgentReviewJson.encode(draft.items());
+        itemsJson = REVIEW.write(draft.items(), "review draft items");
         updatedAt = draft.updatedAt();
     }
 
     public ReviewDraft toDomain()
     {
-        return new ReviewDraft(id, repo, number, body, event, AgentReviewJson.decode(itemsJson, ITEMS), version, updatedAt);
+        return new ReviewDraft(id, repo, number, body, event, REVIEW.read(itemsJson, ITEMS, "review draft items"), version, updatedAt);
     }
 }

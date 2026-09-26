@@ -11,24 +11,23 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-package com.bytequay.app.workspace;
+package com.bytequay.agent.spi;
 
-import com.bytequay.core.domain.Workspace;
+import java.util.Optional;
 
-import static java.util.Objects.requireNonNull;
-
-/** Executes the one authenticated Git write allowed by workspace delivery. */
-interface WorkspaceBranchPusher
+/**
+ * Names a capability a task's provider session must expose, by task identity alone.
+ *
+ * <p>The application answers from durable facts, so a resumed session after a restart receives the same tools and
+ * instruction as the first one. Tasks without the capability resolve to nothing.
+ */
+@FunctionalInterface
+public interface BridgeResolver<B>
 {
-    Push pushBranch(Workspace workspace, String branch, String expectedSha);
-
-    record Push(String remote, String head, String sha)
+    static <B> BridgeResolver<B> none()
     {
-        public Push
-        {
-            requireNonNull(remote, "remote is null");
-            requireNonNull(head, "head is null");
-            requireNonNull(sha, "sha is null");
-        }
+        return taskId -> Optional.empty();
     }
+
+    Optional<B> resolve(String taskId);
 }

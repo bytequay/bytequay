@@ -14,7 +14,6 @@
 package com.bytequay.app.cherrypick;
 
 import com.bytequay.app.cherrypick.ConflictPreview.Status;
-import com.bytequay.app.cherrypick.ConflictPreview.Type;
 import com.bytequay.app.git.GitCommandRunner;
 import com.bytequay.app.git.GitTestSupport;
 import com.google.common.collect.ImmutableList;
@@ -79,25 +78,18 @@ class TestCherryPickConflictScout
                 scout.scout(repository, movedTarget, ImmutableList.of(clean, conflicting, later));
 
         assertThat(previews.get(clean).status()).isEqualTo(Status.CLEAN);
-        assertThat(previews.get(clean).basis()).isEqualTo(ConflictPreview.Basis.AFTER_CLEAN_PREFIX);
 
         ConflictPreview conflict = previews.get(conflicting);
         assertThat(conflict.status()).isEqualTo(Status.CONFLICT);
-        assertThat(conflict.files()).hasSize(1);
-        assertThat(conflict.files().getFirst().path()).isEqualTo("core/src/Main.java");
-        assertThat(conflict.files().getFirst().type()).isEqualTo(Type.CONTENT);
-        assertThat(conflict.files().getFirst().module()).contains("core");
-        assertThat(conflict.files().getFirst().sections()).isNotEmpty();
-        assertThat(conflict.files().getFirst().sections().getFirst().startLine()).isPositive();
+        assertThat(conflict.paths()).containsExactly("core/src/Main.java");
 
         assertThat(previews.get(later).status()).isEqualTo(Status.NOT_ANALYZED);
-        assertThat(previews.get(later).basis()).isEqualTo(ConflictPreview.Basis.ESTIMATE);
 
         assertNoLeftoverWorktree(movedTarget);
     }
 
     @Test
-    void classifiesAddAddAndModifyDeleteFromIndexStages()
+    void reportsAddAddAndModifyDeleteConflicts()
     {
         write("seed.txt", "seed\n");
         commit("Base");
@@ -114,7 +106,7 @@ class TestCherryPickConflictScout
         String target = head();
 
         Map<String, ConflictPreview> previews = scout.scout(repository, target, ImmutableList.of(addAdd));
-        assertThat(previews.get(addAdd).files().getFirst().type()).isEqualTo(Type.ADD_ADD);
+        assertThat(previews.get(addAdd).paths()).containsExactly("both.txt");
 
         git(repository, "checkout", "--quiet", "-B", "source2", base);
         write("victim.txt", "content\n");
@@ -130,32 +122,7 @@ class TestCherryPickConflictScout
         String deletedTarget = head();
 
         Map<String, ConflictPreview> deletion = scout.scout(repository, deletedTarget, ImmutableList.of(changed));
-        assertThat(deletion.get(changed).files().getFirst().type()).isEqualTo(Type.MODIFY_DELETE);
-        assertThat(deletion.get(changed).files().getFirst().sections()).isEmpty();
-    }
-
-    @Test
-    void treatsBinaryConflictsWithoutLineRanges()
-            throws IOException
-    {
-        write("seed.txt", "seed\n");
-        commit("Base");
-        String base = head();
-
-        git(repository, "checkout", "--quiet", "-b", "source");
-        Files.write(repository.resolve("image.bin"), new byte[] {1, 0, 2, 0, 3});
-        commit("Add binary on source");
-        String source = head();
-
-        git(repository, "checkout", "--quiet", "-B", "target", base);
-        Files.write(repository.resolve("image.bin"), new byte[] {9, 0, 8, 0, 7});
-        commit("Add binary on target");
-        String target = head();
-
-        Map<String, ConflictPreview> previews = scout.scout(repository, target, ImmutableList.of(source));
-        assertThat(previews.get(source).files().getFirst().sections())
-                .as("a binary conflict has no meaningful line ranges")
-                .isEmpty();
+        assertThat(deletion.get(changed).paths()).containsExactly("victim.txt");
     }
 
     @Test

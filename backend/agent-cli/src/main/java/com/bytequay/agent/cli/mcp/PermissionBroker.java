@@ -23,24 +23,19 @@ import com.bytequay.agent.spi.AgentCommandPolicy;
 import com.bytequay.agent.spi.AgentPermissionPolicy;
 import com.bytequay.agent.spi.AgentPermissionScope;
 import com.bytequay.agent.spi.AgentUnavailableException;
+import com.bytequay.agent.spi.BridgeResolver;
 import com.bytequay.agent.spi.CiDescriptionProposal;
 import com.bytequay.agent.spi.CodeGraphBridge;
 import com.bytequay.agent.spi.DevelopmentResultBridge;
-import com.bytequay.agent.spi.DevelopmentResultBridgeResolver;
 import com.bytequay.agent.spi.DevelopmentResultReport;
 import com.bytequay.agent.spi.DraftPullRequestPublisher;
 import com.bytequay.agent.spi.IssueContextBridge;
-import com.bytequay.agent.spi.IssueContextBridgeResolver;
 import com.bytequay.agent.spi.LocalReviewBridge;
-import com.bytequay.agent.spi.LocalReviewBridgeResolver;
 import com.bytequay.agent.spi.ProviderApprovalDecision;
 import com.bytequay.agent.spi.ProviderApprovalRequest;
 import com.bytequay.agent.spi.PullRequestCiBridge;
-import com.bytequay.agent.spi.PullRequestCiBridgeResolver;
 import com.bytequay.agent.spi.RepositoryContextBridge;
-import com.bytequay.agent.spi.RepositoryContextBridgeResolver;
 import com.bytequay.agent.spi.ReviewBridge;
-import com.bytequay.agent.spi.ReviewBridgeResolver;
 import com.bytequay.agent.spi.ReviewTool;
 import com.bytequay.agent.spi.SessionAccess;
 import com.fasterxml.jackson.annotation.JsonProperty;
@@ -71,7 +66,6 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
-import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.TimeUnit;
@@ -130,13 +124,13 @@ public final class PermissionBroker
     private final Supplier<URI> endpoint;
     private final ObjectMapper objectMapper;
     private final CiMemoryReader ciMemoryReader;
-    private final ReviewBridgeResolver reviews;
-    private final DevelopmentResultBridgeResolver developments;
+    private final BridgeResolver<ReviewBridge> reviews;
+    private final BridgeResolver<DevelopmentResultBridge> developments;
     private final DraftPullRequestPublisher draftPullRequests;
-    private final LocalReviewBridgeResolver localReviews;
-    private final PullRequestCiBridgeResolver pullRequestChecks;
-    private final IssueContextBridgeResolver issueContexts;
-    private final RepositoryContextBridgeResolver repositoryContext;
+    private final BridgeResolver<LocalReviewBridge> localReviews;
+    private final BridgeResolver<PullRequestCiBridge> pullRequestChecks;
+    private final BridgeResolver<IssueContextBridge> issueContexts;
+    private final BridgeResolver<RepositoryContextBridge> repositoryContext;
     private final Map<String, PermissionContext> contexts = new ConcurrentHashMap<>();
 
     public PermissionBroker(
@@ -144,24 +138,24 @@ public final class PermissionBroker
             ObjectMapper objectMapper,
             CiMemoryReader ciMemoryReader)
     {
-        this(endpoint, objectMapper, ciMemoryReader, ReviewBridgeResolver.NONE);
+        this(endpoint, objectMapper, ciMemoryReader, BridgeResolver.none());
     }
 
     public PermissionBroker(
             Supplier<URI> endpoint,
             ObjectMapper objectMapper,
             CiMemoryReader ciMemoryReader,
-            ReviewBridgeResolver reviews)
+            BridgeResolver<ReviewBridge> reviews)
     {
-        this(endpoint, objectMapper, ciMemoryReader, reviews, DevelopmentResultBridgeResolver.NONE);
+        this(endpoint, objectMapper, ciMemoryReader, reviews, BridgeResolver.none());
     }
 
     public PermissionBroker(
             Supplier<URI> endpoint,
             ObjectMapper objectMapper,
             CiMemoryReader ciMemoryReader,
-            ReviewBridgeResolver reviews,
-            DevelopmentResultBridgeResolver developments)
+            BridgeResolver<ReviewBridge> reviews,
+            BridgeResolver<DevelopmentResultBridge> developments)
     {
         this(endpoint, objectMapper, ciMemoryReader, reviews, developments, DraftPullRequestPublisher.NONE);
     }
@@ -170,65 +164,65 @@ public final class PermissionBroker
             Supplier<URI> endpoint,
             ObjectMapper objectMapper,
             CiMemoryReader ciMemoryReader,
-            ReviewBridgeResolver reviews,
-            DevelopmentResultBridgeResolver developments,
+            BridgeResolver<ReviewBridge> reviews,
+            BridgeResolver<DevelopmentResultBridge> developments,
             DraftPullRequestPublisher draftPullRequests)
     {
-        this(endpoint, objectMapper, ciMemoryReader, reviews, developments, draftPullRequests, LocalReviewBridgeResolver.NONE);
+        this(endpoint, objectMapper, ciMemoryReader, reviews, developments, draftPullRequests, BridgeResolver.none());
     }
 
     public PermissionBroker(
             Supplier<URI> endpoint,
             ObjectMapper objectMapper,
             CiMemoryReader ciMemoryReader,
-            ReviewBridgeResolver reviews,
-            DevelopmentResultBridgeResolver developments,
+            BridgeResolver<ReviewBridge> reviews,
+            BridgeResolver<DevelopmentResultBridge> developments,
             DraftPullRequestPublisher draftPullRequests,
-            LocalReviewBridgeResolver localReviews)
+            BridgeResolver<LocalReviewBridge> localReviews)
     {
-        this(endpoint, objectMapper, ciMemoryReader, reviews, developments, draftPullRequests, localReviews, PullRequestCiBridgeResolver.NONE);
+        this(endpoint, objectMapper, ciMemoryReader, reviews, developments, draftPullRequests, localReviews, BridgeResolver.none());
     }
 
     public PermissionBroker(
             Supplier<URI> endpoint,
             ObjectMapper objectMapper,
             CiMemoryReader ciMemoryReader,
-            ReviewBridgeResolver reviews,
-            DevelopmentResultBridgeResolver developments,
+            BridgeResolver<ReviewBridge> reviews,
+            BridgeResolver<DevelopmentResultBridge> developments,
             DraftPullRequestPublisher draftPullRequests,
-            LocalReviewBridgeResolver localReviews,
-            PullRequestCiBridgeResolver pullRequestChecks)
-    {
-        this(endpoint, objectMapper, ciMemoryReader, reviews, developments, draftPullRequests, localReviews, pullRequestChecks,
-                IssueContextBridgeResolver.NONE, RepositoryContextBridgeResolver.NONE);
-    }
-
-    public PermissionBroker(
-            Supplier<URI> endpoint,
-            ObjectMapper objectMapper,
-            CiMemoryReader ciMemoryReader,
-            ReviewBridgeResolver reviews,
-            DevelopmentResultBridgeResolver developments,
-            DraftPullRequestPublisher draftPullRequests,
-            LocalReviewBridgeResolver localReviews,
-            PullRequestCiBridgeResolver pullRequestChecks,
-            IssueContextBridgeResolver issueContexts)
+            BridgeResolver<LocalReviewBridge> localReviews,
+            BridgeResolver<PullRequestCiBridge> pullRequestChecks)
     {
         this(endpoint, objectMapper, ciMemoryReader, reviews, developments, draftPullRequests, localReviews, pullRequestChecks,
-                issueContexts, RepositoryContextBridgeResolver.NONE);
+                BridgeResolver.none(), BridgeResolver.none());
     }
 
     public PermissionBroker(
             Supplier<URI> endpoint,
             ObjectMapper objectMapper,
             CiMemoryReader ciMemoryReader,
-            ReviewBridgeResolver reviews,
-            DevelopmentResultBridgeResolver developments,
+            BridgeResolver<ReviewBridge> reviews,
+            BridgeResolver<DevelopmentResultBridge> developments,
             DraftPullRequestPublisher draftPullRequests,
-            LocalReviewBridgeResolver localReviews,
-            PullRequestCiBridgeResolver pullRequestChecks,
-            IssueContextBridgeResolver issueContexts,
-            RepositoryContextBridgeResolver repositoryContext)
+            BridgeResolver<LocalReviewBridge> localReviews,
+            BridgeResolver<PullRequestCiBridge> pullRequestChecks,
+            BridgeResolver<IssueContextBridge> issueContexts)
+    {
+        this(endpoint, objectMapper, ciMemoryReader, reviews, developments, draftPullRequests, localReviews, pullRequestChecks,
+                issueContexts, BridgeResolver.none());
+    }
+
+    public PermissionBroker(
+            Supplier<URI> endpoint,
+            ObjectMapper objectMapper,
+            CiMemoryReader ciMemoryReader,
+            BridgeResolver<ReviewBridge> reviews,
+            BridgeResolver<DevelopmentResultBridge> developments,
+            DraftPullRequestPublisher draftPullRequests,
+            BridgeResolver<LocalReviewBridge> localReviews,
+            BridgeResolver<PullRequestCiBridge> pullRequestChecks,
+            BridgeResolver<IssueContextBridge> issueContexts,
+            BridgeResolver<RepositoryContextBridge> repositoryContext)
     {
         this.endpoint = requireNonNull(endpoint, "endpoint is null");
         this.objectMapper = requireNonNull(objectMapper, "objectMapper is null")
@@ -245,7 +239,7 @@ public final class PermissionBroker
         this.repositoryContext = requireNonNull(repositoryContext, "repositoryContext is null");
     }
 
-    McpConfigRegistration register(
+    McpRegistration register(
             String taskId,
             Path worktree,
             Path runtimeDirectory,
@@ -266,7 +260,7 @@ public final class PermissionBroker
                 Optional.empty());
     }
 
-    McpConfigRegistration register(
+    McpRegistration register(
             String taskId,
             Path worktree,
             Path runtimeDirectory,
@@ -280,7 +274,7 @@ public final class PermissionBroker
         return register(taskId, worktree, runtimeDirectory, providerDirectory, permissionPolicy, access, approvals, redactor, codeGraph, ImmutableMap.of());
     }
 
-    public McpConfigRegistration register(
+    public McpRegistration register(
             String taskId,
             Path worktree,
             Path runtimeDirectory,
@@ -310,12 +304,13 @@ public final class PermissionBroker
         Optional<Path> childGate = context.reviewChildren() ? Optional.of(childGateFile) : Optional.empty();
         try {
             Files.createDirectories(providerDirectory);
+            URI uri = requireNonNull(endpoint.get(), "endpoint URI is null");
             // Claude's HTTP first-response deadline otherwise expires after 60 seconds, before the approval card.
             String json = objectMapper.writeValueAsString(new McpConfiguration(ImmutableMap.of(
                     "bytequay",
                     new McpServer(
                             "http",
-                            requireNonNull(endpoint.get(), "endpoint URI is null").toString(),
+                            uri.toString(),
                             ImmutableMap.of("Authorization", "Bearer " + token),
                             APPROVAL_TIMEOUT.plusSeconds(30).toMillis(),
                             true))));
@@ -330,9 +325,9 @@ public final class PermissionBroker
                     .map(ToolDefinition::name)
                     .filter(name -> !name.equals("permission_prompt"))
                     .collect(toImmutableList());
-            return new McpConfigRegistration(
-                    configFile, settingsFile, token, toolNames, codeGraph, context.review(), context.development(), context.localReview(), context.pullRequestCi(),
-                    context.issueContext(), context.notebook(), () -> {
+            return new McpRegistration(
+                    token, uri, toolNames, managedInstruction(context), context.review(), context.development(),
+                    Optional.of(configFile), Optional.of(settingsFile), () -> {
                         contexts.remove(token);
                         delete(configFile);
                         delete(settingsFile);
@@ -360,7 +355,7 @@ public final class PermissionBroker
      * configuration, exposing its CI memory, graph, review, development, or local discussion capability. Empty
      * when the task has no local tools.
      */
-    public Optional<CodeGraphRegistration> registerTools(
+    public Optional<McpRegistration> registerTools(
             String taskId,
             Path worktree,
             AgentPermissionPolicy permissionPolicy,
@@ -383,14 +378,13 @@ public final class PermissionBroker
         }
         contexts.put(token, context);
         List<String> toolNames = tools(context).stream().map(ToolDefinition::name).collect(toImmutableList());
-        return Optional.of(new CodeGraphRegistration(
-                token, requireNonNull(endpoint.get(), "endpoint URI is null"), codeGraph,
-                context.review(), context.development(), context.localReview(), context.pullRequestCi(), context.issueContext(), context.notebook(),
-                toolNames, () -> contexts.remove(token)));
+        return Optional.of(new McpRegistration(
+                token, requireNonNull(endpoint.get(), "endpoint URI is null"), toolNames, managedInstruction(context), context.review(), context.development(),
+                Optional.empty(), Optional.empty(), () -> contexts.remove(token)));
     }
 
     /** Keeps a review child's shared MCP token read-only; the root receives other tools through App Server. */
-    public CodexReviewTools guardCodexReviewToken(CodeGraphRegistration registration)
+    public CodexReviewTools guardCodexReviewToken(McpRegistration registration)
     {
         requireNonNull(registration, "registration is null");
         PermissionContext context = requireNonNull(contexts.get(registration.token()), "review token is not registered");
@@ -476,19 +470,16 @@ public final class PermissionBroker
     }
 
     /** Combines the fixed capabilities' guidance for the session's instruction channel. */
-    static Optional<String> managedInstruction(
-            Optional<CodeGraphBridge> codeGraph, Optional<ReviewBridge> review, Optional<DevelopmentResultBridge> development,
-            Optional<LocalReviewBridge> localReview, Optional<PullRequestCiBridge> pullRequestCi, Optional<IssueContextBridge> issueContext,
-            Optional<RepositoryContextBridge> notebook)
+    private static Optional<String> managedInstruction(PermissionContext context)
     {
         String joined = Stream.of(
-                        review.map(ReviewBridge::instruction),
-                        codeGraph.map(CodeGraphBridge::instruction),
-                        development.map(DevelopmentResultBridge::instruction),
-                        localReview.map(LocalReviewBridge::instruction),
-                        pullRequestCi.map(PullRequestCiBridge::instruction),
-                        issueContext.map(IssueContextBridge::instruction),
-                        notebook.map(RepositoryContextBridge::instruction))
+                        context.review().map(ReviewBridge::instruction),
+                        context.codeGraph().map(CodeGraphBridge::instruction),
+                        context.development().map(DevelopmentResultBridge::instruction),
+                        context.localReview().map(LocalReviewBridge::instruction),
+                        context.pullRequestCi().map(PullRequestCiBridge::instruction),
+                        context.issueContext().map(IssueContextBridge::instruction),
+                        context.notebook().map(RepositoryContextBridge::instruction))
                 .flatMap(Optional::stream)
                 .collect(Collectors.joining("\n\n"));
         return joined.isBlank() ? Optional.empty() : Optional.of(joined);
@@ -901,7 +892,6 @@ public final class PermissionBroker
             detail = "Runs outside Claude's filesystem sandbox with host file access.\n" + detail;
         }
         ProviderApprovalRequest approval = new ProviderApprovalRequest(
-                UUID.randomUUID().toString(),
                 kind(arguments.toolName()),
                 unsandboxed ? "Allow Claude unsandboxed command" : "Allow Claude " + arguments.toolName(),
                 detail,

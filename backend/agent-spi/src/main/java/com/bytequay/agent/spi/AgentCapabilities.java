@@ -21,15 +21,8 @@ import static com.google.common.base.Preconditions.checkArgument;
 import static java.util.Objects.requireNonNull;
 
 public record AgentCapabilities(
-        boolean sessionResume,
-        boolean partialAssistantText,
         boolean structuredPlans,
-        boolean toolLifecycle,
-        boolean incrementalCommandOutput,
-        boolean hookLifecycle,
         boolean nestedAgentActivity,
-        boolean interactiveApprovals,
-        boolean tokenUsage,
         /** Whether input can be added to a turn already running, through the provider's own steer call. */
         boolean steering,
         Set<AgentPermissionPolicy> permissionPolicies,
@@ -47,13 +40,6 @@ public record AgentCapabilities(
     public static AgentCapabilities none()
     {
         return new AgentCapabilities(
-                false,
-                false,
-                false,
-                false,
-                false,
-                false,
-                false,
                 false,
                 false,
                 false,

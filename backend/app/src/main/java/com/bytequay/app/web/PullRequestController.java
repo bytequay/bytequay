@@ -62,10 +62,9 @@ public class PullRequestController
     @GetMapping("/prs")
     public PullRequestPage list(
             @RequestParam(defaultValue = "0") int page,
-            @RequestParam(defaultValue = "50") int size,
-            @RequestParam(required = false) String search)
+            @RequestParam(defaultValue = "50") int size)
     {
-        return pullRequests.listPullRequests(page, size, search);
+        return pullRequests.listPullRequests(page, size);
     }
 
     @GetMapping("/prs/attention")

@@ -13,8 +13,8 @@
  */
 package com.bytequay.app.agent;
 
+import com.bytequay.agent.spi.BridgeResolver;
 import com.bytequay.agent.spi.LocalReviewBridge;
-import com.bytequay.agent.spi.LocalReviewBridgeResolver;
 import com.bytequay.app.localreview.LocalReviewService;
 import com.bytequay.app.localreview.LocalReviewView;
 import com.fasterxml.jackson.core.JsonProcessingException;
@@ -33,7 +33,7 @@ import static java.util.Objects.requireNonNull;
 /** Resolves lazily because the local discussion service also starts turns through the provider drivers. */
 @Component
 public class LocalReviewBridgeResolverImpl
-        implements LocalReviewBridgeResolver
+        implements BridgeResolver<LocalReviewBridge>
 {
     static final int MAXIMUM_OUTPUT_LENGTH = 64_000;
 

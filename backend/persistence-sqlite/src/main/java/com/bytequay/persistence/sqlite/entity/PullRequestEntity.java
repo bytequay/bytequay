@@ -13,7 +13,6 @@
  */
 package com.bytequay.persistence.sqlite.entity;
 
-import com.bytequay.core.domain.AttentionReason;
 import com.bytequay.core.domain.FetchedPullRequest;
 import com.bytequay.core.domain.PrViewState;
 import com.bytequay.core.domain.PullRequest;
@@ -122,11 +121,6 @@ public class PullRequestEntity
 
     @Column(nullable = false)
     private int deletions;
-
-    /** NULL means the PR isn't promoted to "Needs attention". */
-    @Enumerated(EnumType.STRING)
-    @Column(name = "attention_reason")
-    private AttentionReason attentionReason;
 
     // Detail-enrichment fields. Nullable until a row has been synced.
 
@@ -255,7 +249,6 @@ public class PullRequestEntity
                 getAdditions(),
                 getDeletions(),
                 getCommentCount(),
-                getAttentionReason(),
                 synthesizedState,
                 getClosedAt(),
                 getMergedAt(),
@@ -271,7 +264,7 @@ public class PullRequestEntity
 
     /**
      * Carries over what a fetched pull request cannot report. No list or search
-     * response includes the counts, CI status or attention reason, so a sync
+     * response includes the counts or CI status, so a sync
      * page would otherwise overwrite them with the entity defaults.
      */
     public void preserveEnrichmentFrom(PullRequestEntity previous)
@@ -290,7 +283,6 @@ public class PullRequestEntity
         setAdditions(previous.getAdditions());
         setDeletions(previous.getDeletions());
         setCommentCount(previous.getCommentCount());
-        setAttentionReason(previous.getAttentionReason());
         setHeadPushedAt(previous.getHeadPushedAt());
         // Reported by the pulls endpoint but not by search.
         if (getMergeable() == null) {

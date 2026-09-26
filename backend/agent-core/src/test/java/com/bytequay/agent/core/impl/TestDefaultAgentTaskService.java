@@ -265,7 +265,7 @@ class TestDefaultAgentTaskService
     {
         AgentTask older = service.createInteractive(interactiveCommand(TaskId.random()));
         AgentTask newer = service.createInteractive(interactiveCommand(TaskId.random()));
-        TaskSummary summary = new TaskSummary("Retained agent conclusion", Optional.empty(), AgentMetrics.empty(), Optional.empty());
+        TaskSummary summary = new TaskSummary("Retained agent conclusion", Optional.empty(), AgentMetrics.empty(), Optional.empty(), ImmutableList.of());
         AgentTask completed = stores.update(older.complete(summary, NOW.plusSeconds(1), NOW.plusSeconds(100)));
         stores.update(newer.complete(summary, NOW.plusSeconds(2), NOW.plusSeconds(100)));
 
@@ -545,7 +545,7 @@ class TestDefaultAgentTaskService
         @Override
         public WorktreeSnapshot inspect(TaskWorktree worktree)
         {
-            return new WorktreeSnapshot(worktree, worktree.startCommit(), false, false);
+            return new WorktreeSnapshot(worktree, worktree.startCommit(), false, false, false);
         }
 
         @Override

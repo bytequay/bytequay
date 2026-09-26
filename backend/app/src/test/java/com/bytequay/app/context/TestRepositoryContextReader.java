@@ -164,8 +164,9 @@ class TestRepositoryContextReader
     void multibyteDescriptionTruncationIsDisclosed()
     {
         stored(pr(1, "Current change", 0));
-        PrRawDetail raw = new PrRawDetail("你".repeat(45_000), ImmutableList.of(), false, null, null, 0, 0, 1, 0, ImmutableList.of(), HEAD, "branch");
-        when(details.find(1)).thenReturn(Optional.of(new StoredPrDetail(raw, ImmutableList.of(), ImmutableList.of(), ImmutableList.of())));
+        PrRawDetail raw = new PrRawDetail(null, null, null, null, null, null, null, null, "你".repeat(45_000), ImmutableList.of(), null, ImmutableList.of(), null, false, null,
+                null, 0, 0, 1, 0, ImmutableList.of(), HEAD, "branch", null);
+        when(details.find(1)).thenReturn(Optional.of(new StoredPrDetail(raw, ImmutableList.of(), ImmutableList.of(), ImmutableList.of(), ImmutableList.of())));
 
         assertThat(select(RepositoryNotebook.empty()).gaps()).contains("Text matching is bounded to the PR description preview and the first 100 commit messages.");
     }
@@ -457,7 +458,9 @@ class TestRepositoryContextReader
     {
         AgentTask open = openTask(1, WORKSPACE, true, PHYSICAL, "Completed task");
         TaskWorktree worktree = new TaskWorktree(open.id(), WORKSPACE, PHYSICAL, open.worktree(), "bytequay/task/" + open.id(), DIFF_BASE);
-        TaskSummary summary = new TaskSummary("Investigated behavior", Optional.of(new WorktreeSnapshot(worktree, HEAD, false, false)), AgentMetrics.empty(), Optional.empty());
+        TaskSummary summary = new TaskSummary("Investigated behavior", Optional.of(new WorktreeSnapshot(worktree, HEAD, false, false,
+                false)), AgentMetrics.empty(), Optional.empty(),
+                ImmutableList.of());
         AgentTask completed = open.complete(summary, Instant.EPOCH.plusSeconds(1), Instant.EPOCH.plusSeconds(100));
         stored(pr(1, "task:" + completed.id(), 0));
         when(tasks.getInteractive(WORKSPACE, completed.id())).thenReturn(completed);
@@ -533,7 +536,7 @@ class TestRepositoryContextReader
     {
         return new PullRequest(number, MONITORED.fullName(), number, title, "author", "url", Instant.EPOCH, Instant.EPOCH.plusSeconds(seconds),
                 PullRequest.Origin.OTHER, ImmutableList.of(), ImmutableMap.of(), false, null, null, null, ImmutableList.of(), null,
-                0, 0, 0, null, "merged", null, null, null, null, null, null, null, null, null, null);
+                0, 0, 0, "merged", null, null, null, null, null, null, null, null, null, null);
     }
 
     private static CommitEnrichment mapping(long repositoryId, String sha, int number)
@@ -579,7 +582,7 @@ class TestRepositoryContextReader
 
     private static AgentTask complete(AgentTask task, String response, Optional<String> notes, long seconds)
     {
-        return task.complete(new TaskSummary(response, Optional.empty(), AgentMetrics.empty(), notes),
+        return task.complete(new TaskSummary(response, Optional.empty(), AgentMetrics.empty(), notes, ImmutableList.of()),
                 Instant.EPOCH.plusSeconds(seconds), Instant.EPOCH.plusSeconds(seconds + 100));
     }
 

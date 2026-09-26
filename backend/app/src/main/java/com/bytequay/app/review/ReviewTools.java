@@ -94,6 +94,7 @@ import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.DeserializationFeature;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.databind.cfg.JsonNodeFeature;
 import com.fasterxml.jackson.databind.exc.ValueInstantiationException;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 import com.google.common.base.Stopwatch;
@@ -104,6 +105,7 @@ import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Component;
 import org.springframework.web.server.ResponseStatusException;
 
+import java.io.UncheckedIOException;
 import java.net.URI;
 import java.nio.charset.StandardCharsets;
 import java.time.Clock;
@@ -117,7 +119,6 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.OptionalLong;
 import java.util.Set;
-import java.util.TreeMap;
 import java.util.UUID;
 import java.util.concurrent.locks.Lock;
 import java.util.function.Function;
@@ -290,33 +291,9 @@ public class ReviewTools
                                 + "Known PRs requested through issue return PR metadata; use timeline(number, page) for their discussion. "
                                 + "Selected metadata can be newer than the frozen reviewed code; inspect freshness before relying on historical discussion or checks.",
                         schema(ImmutableMap.<String, Object>builder()
-                                .put(
-                                        "kind",
-                                        ImmutableMap.of(
-                                                "type",
-                                                "string",
-                                                "enum",
-                                                ImmutableList.of(
-                                                        "scope",
-                                                        "pr",
-                                                        "timeline",
-                                                        "thread",
-                                                        "checks",
-                                                        "issue",
-                                                        "commit_prs",
-                                                        "diff",
-                                                        "document",
-                                                        "history",
-                                                        "note",
-                                                        "note_search",
-                                                        "source",
-                                                        "command_output",
-                                                        "investigation",
-                                                        "assignment",
-                                                        "findings",
-                                                        "summary",
-                                                        "discussion",
-                                                        "evidence")))
+                                .put("kind", ImmutableMap.of("type", "string", "enum", ImmutableList.of("scope", "pr", "timeline", "thread", "checks", "issue", "commit_prs",
+                                        "diff", "document", "history", "note", "note_search", "source", "command_output", "investigation", "assignment", "findings",
+                                        "summary", "discussion", "evidence")))
                                 .put("path", ImmutableMap.of("type", "string", "maxLength", 1000))
                                 .put("revision", ImmutableMap.of("type", "string", "enum", ImmutableList.of("head", "base", "previous", "baseline")))
                                 .put("number", ImmutableMap.of("type", "integer", "minimum", 1))
@@ -350,25 +327,9 @@ public class ReviewTools
                         schema(ImmutableMap.<String, Object>builder()
                                 .put("operationKey", ImmutableMap.of("type", "string", "minLength", 1, "maxLength", MAX_KEY))
                                 .put("purpose", ImmutableMap.of("type", "string", "minLength", 1, "maxLength", 2000))
-                                .put(
-                                        "commits",
-                                        ImmutableMap.of(
-                                                "type",
-                                                "array",
-                                                "maxItems",
-                                                200,
-                                                "items",
-                                                ImmutableMap.of(
-                                                        "type",
-                                                        "object",
-                                                        "properties",
-                                                        ImmutableMap.of(
-                                                                "sha",
-                                                                ImmutableMap.of("type", "string"),
-                                                                "explanation",
-                                                                ImmutableMap.of("type", "string", "maxLength", 1000)),
-                                                        "required",
-                                                        ImmutableList.of("sha", "explanation"))))
+                                .put("commits", ImmutableMap.of("type", "array", "maxItems", 200, "items", ImmutableMap.of("type", "object", "properties", ImmutableMap.of(
+                                        "sha", ImmutableMap.of("type", "string"),
+                                        "explanation", ImmutableMap.of("type", "string", "maxLength", 1000)), "required", ImmutableList.of("sha", "explanation"))))
                                 .buildOrThrow(), ImmutableList.of("operationKey", "purpose", "commits")),
                         arguments -> call(reviewId, turnId, arguments, this::saveSummary)),
                 new ReviewTool("review_save_investigation",
@@ -415,27 +376,10 @@ public class ReviewTools
                                 .put("severity", ImmutableMap.of("type", "string", "enum", ImmutableList.of("critical", "high", "medium", "low")))
                                 .put("startAnchor", ImmutableMap.of("type", "string"))
                                 .put("endAnchor", ImmutableMap.of("type", "string"))
-                                .put(
-                                        "evidence",
+                                .put("evidence", ImmutableMap.of("type", "array", "minItems", 1, "maxItems", MAX_EVIDENCE, "items", ImmutableMap.of("type", "object", "properties",
                                         ImmutableMap.of(
-                                                "type",
-                                                "array",
-                                                "minItems",
-                                                1,
-                                                "maxItems",
-                                                MAX_EVIDENCE,
-                                                "items",
-                                                ImmutableMap.of(
-                                                        "type",
-                                                        "object",
-                                                        "properties",
-                                                        ImmutableMap.of(
-                                                                "ref",
-                                                                ImmutableMap.of("type", "string", "maxLength", MAX_EVIDENCE_REF),
-                                                                "explanation",
-                                                                ImmutableMap.of("type", "string", "maxLength", 800)),
-                                                        "required",
-                                                        ImmutableList.of("ref", "explanation"))))
+                                                "ref", ImmutableMap.of("type", "string", "maxLength", MAX_EVIDENCE_REF),
+                                                "explanation", ImmutableMap.of("type", "string", "maxLength", 800)), "required", ImmutableList.of("ref", "explanation"))))
                                 .put("scope", ImmutableMap.of("type", "string", "enum", ImmutableList.of("lines", "pull_request")))
                                 .buildOrThrow(), ImmutableList.of("operationKey", "title", "body", "evidence", "validation")),
                         arguments -> call(reviewId, turnId, arguments, this::saveFinding)),
@@ -454,13 +398,8 @@ public class ReviewTools
                                 "findingId", ImmutableMap.of("type", "string", "minLength", 1),
                                 "expectedRevision", ImmutableMap.of("type", "integer", "minimum", 1),
                                 "evidenceRefs", stringArray(MAX_EVIDENCE, MAX_EVIDENCE_REF),
-                                "explanation", ImmutableMap.of(
-                                        "type",
-                                        "string",
-                                        "minLength",
-                                        1,
-                                        "maxLength",
-                                        2000)), ImmutableList.of("operationKey", "findingId", "expectedRevision", "explanation")),
+                                "explanation", ImmutableMap.of("type", "string", "minLength", 1, "maxLength", 2000)),
+                                ImmutableList.of("operationKey", "findingId", "expectedRevision", "explanation")),
                         arguments -> call(reviewId, turnId, arguments, this::withdraw)),
                 new ReviewTool("review_finish",
                         "Seal this validation assignment. Assess every candidate as SUPPORTED, REJECTED, NEEDS_EVIDENCE, or UNRESOLVED. "
@@ -2995,21 +2934,14 @@ public class ReviewTools
         }
     }
 
-    private static String canonical(JsonNode node)
+    private String canonical(JsonNode node)
     {
-        if (node.isObject()) {
-            TreeMap<String, String> sorted = new TreeMap<>();
-            node.fields().forEachRemaining(entry -> sorted.put(entry.getKey(), canonical(entry.getValue())));
-            StringBuilder out = new StringBuilder("{");
-            sorted.forEach((key, value) -> out.append('"').append(key).append("\":").append(value).append(','));
-            return out.append('}').toString();
+        try {
+            return objectMapper.writer().with(JsonNodeFeature.WRITE_PROPERTIES_SORTED).writeValueAsString(node);
         }
-        if (node.isArray()) {
-            StringBuilder out = new StringBuilder("[");
-            node.forEach(item -> out.append(canonical(item)).append(','));
-            return out.append(']').toString();
+        catch (JsonProcessingException e) {
+            throw new UncheckedIOException(e);
         }
-        return node.toString();
     }
 
     private static String text(JsonNode node, String field, int maximum, boolean required)

@@ -15,7 +15,6 @@ package com.bytequay.app.web.cherrypick;
 
 import com.bytequay.app.cherrypick.CherryPickCommitPreview;
 import com.bytequay.app.cherrypick.CherryPickPreview;
-import com.bytequay.app.cherrypick.ConflictPreview.ConflictFile;
 import com.bytequay.app.cherrypick.PullRequestAssociation;
 import com.google.common.collect.ImmutableList;
 
@@ -77,8 +76,7 @@ public record CherryPickPreviewResponse(
             Optional<String> targetMatchCommitSha,
             boolean patchEquivalent,
             String conflictStatus,
-            String conflictBasis,
-            List<ConflictFileResponse> conflictFiles,
+            List<String> conflictFiles,
             Optional<Integer> pullRequestNumber,
             Optional<String> pullRequestTitle,
             Optional<String> pullRequestUrl,
@@ -100,33 +98,11 @@ public record CherryPickPreviewResponse(
                     commit.targetMatch().map(match -> match.targetCommitSha()),
                     commit.patchEquivalent(),
                     commit.conflict().status().name(),
-                    commit.conflict().basis().name(),
-                    commit.conflict().files().stream()
-                            .map(ConflictFileResponse::of)
-                            .collect(toImmutableList()),
+                    commit.conflict().paths(),
                     commit.pullRequest().map(PullRequestAssociation::number),
                     commit.pullRequest().map(PullRequestAssociation::title),
                     commit.pullRequest().map(PullRequestAssociation::url),
                     commit.pullRequest().map(PullRequestAssociation::mergedAt));
-        }
-    }
-
-    /** One conflicted path and its real marker ranges. */
-    public record ConflictFileResponse(
-            String path,
-            String type,
-            Optional<String> module,
-            List<int[]> sections)
-    {
-        public static ConflictFileResponse of(ConflictFile file)
-        {
-            return new ConflictFileResponse(
-                    file.path(),
-                    file.type().name(),
-                    file.module(),
-                    file.sections().stream()
-                            .map(section -> new int[] {section.startLine(), section.endLine()})
-                            .collect(toImmutableList()));
         }
     }
 }

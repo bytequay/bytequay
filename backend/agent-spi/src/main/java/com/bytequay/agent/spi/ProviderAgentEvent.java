@@ -17,7 +17,6 @@ import com.google.common.collect.ImmutableList;
 
 import java.nio.file.Path;
 import java.time.Duration;
-import java.time.Instant;
 import java.util.List;
 import java.util.Optional;
 
@@ -49,15 +48,6 @@ public sealed interface ProviderAgentEvent
     Optional<String> providerEventId();
 
     /**
-     * Returns provider event time when the protocol supplies it.
-     *
-     * <p>The backend still assigns its own receipt time to the persisted envelope.
-     *
-     * @return optional provider timestamp
-     */
-    Optional<Instant> providerTimestamp();
-
-    /**
      * Returns the opaque provider routing and item identity supplied with the event.
      *
      * @return provider event source, with absent fields left absent
@@ -66,7 +56,6 @@ public sealed interface ProviderAgentEvent
 
     record DevelopmentResult(
             Optional<String> providerEventId,
-            Optional<Instant> providerTimestamp,
             DevelopmentResultReport report,
             ProviderAgentEventSource source)
             implements ProviderAgentEvent
@@ -74,7 +63,6 @@ public sealed interface ProviderAgentEvent
         public DevelopmentResult
         {
             checkOptionalText(providerEventId, "providerEventId");
-            requireNonNull(providerTimestamp, "providerTimestamp is null");
             requireNonNull(report, "report is null");
             requireNonNull(source, "source is null");
         }
@@ -82,67 +70,41 @@ public sealed interface ProviderAgentEvent
 
     record Message(
             Optional<String> providerEventId,
-            Optional<Instant> providerTimestamp,
             MessageKind messageKind,
             MessagePhase phase,
             String text,
-            Optional<String> parentToolUseId,
             ProviderAgentEventSource source)
             implements ProviderAgentEvent
     {
-        public Message(
-                Optional<String> providerEventId,
-                Optional<Instant> providerTimestamp,
-                MessagePhase phase,
-                String text,
-                Optional<String> parentToolUseId)
-        {
-            this(providerEventId, providerTimestamp, MessageKind.ANSWER, phase, text, parentToolUseId, root());
-        }
-
         /** An answer, which is what every message was before reasoning summaries and plan text were mapped. */
         public Message(
                 Optional<String> providerEventId,
-                Optional<Instant> providerTimestamp,
                 MessagePhase phase,
                 String text,
-                Optional<String> parentToolUseId,
                 ProviderAgentEventSource source)
         {
-            this(providerEventId, providerTimestamp, MessageKind.ANSWER, phase, text, parentToolUseId, source);
+            this(providerEventId, MessageKind.ANSWER, phase, text, source);
         }
 
         public Message
         {
             checkOptionalText(providerEventId, "providerEventId");
-            requireNonNull(providerTimestamp, "providerTimestamp is null");
             requireNonNull(messageKind, "messageKind is null");
             requireNonNull(phase, "phase is null");
             requireNonNull(text, "text is null");
-            checkOptionalText(parentToolUseId, "parentToolUseId");
             requireNonNull(source, "source is null");
         }
     }
 
     record Plan(
             Optional<String> providerEventId,
-            Optional<Instant> providerTimestamp,
             List<PlanItem> items,
             ProviderAgentEventSource source)
             implements ProviderAgentEvent
     {
-        public Plan(
-                Optional<String> providerEventId,
-                Optional<Instant> providerTimestamp,
-                List<PlanItem> items)
-        {
-            this(providerEventId, providerTimestamp, items, root());
-        }
-
         public Plan
         {
             checkOptionalText(providerEventId, "providerEventId");
-            requireNonNull(providerTimestamp, "providerTimestamp is null");
             items = ImmutableList.copyOf(items);
             requireNonNull(source, "source is null");
         }
@@ -150,59 +112,36 @@ public sealed interface ProviderAgentEvent
 
     record Tool(
             Optional<String> providerEventId,
-            Optional<Instant> providerTimestamp,
-            String toolCallId,
             String name,
             ActivityState state,
             String summary,
-            Optional<String> parentToolUseId,
             ProviderAgentEventSource source,
             Optional<Duration> duration)
             implements ProviderAgentEvent
     {
         public Tool(
                 Optional<String> providerEventId,
-                Optional<Instant> providerTimestamp,
-                String toolCallId,
                 String name,
                 ActivityState state,
                 String summary,
-                Optional<String> parentToolUseId)
-        {
-            this(providerEventId, providerTimestamp, toolCallId, name, state, summary, parentToolUseId, ProviderAgentEventSource.item(toolCallId));
-        }
-
-        public Tool(
-                Optional<String> providerEventId,
-                Optional<Instant> providerTimestamp,
-                String toolCallId,
-                String name,
-                ActivityState state,
-                String summary,
-                Optional<String> parentToolUseId,
                 ProviderAgentEventSource source)
         {
-            this(providerEventId, providerTimestamp, toolCallId, name, state, summary, parentToolUseId, source, Optional.empty());
+            this(providerEventId, name, state, summary, source, Optional.empty());
         }
 
         public Tool
         {
             checkOptionalText(providerEventId, "providerEventId");
-            requireNonNull(providerTimestamp, "providerTimestamp is null");
-            checkNotBlank(toolCallId, "toolCallId");
             checkNotBlank(name, "name");
             requireNonNull(state, "state is null");
             requireNonNull(summary, "summary is null");
-            checkOptionalText(parentToolUseId, "parentToolUseId");
-            source = source == null ? ProviderAgentEventSource.item(toolCallId) : source;
+            requireNonNull(source, "source is null");
             requireNonNull(duration, "duration is null");
         }
     }
 
     record Command(
             Optional<String> providerEventId,
-            Optional<Instant> providerTimestamp,
-            String commandId,
             ActivityState state,
             List<String> argv,
             Optional<String> output,
@@ -218,21 +157,6 @@ public sealed interface ProviderAgentEvent
     {
         public Command(
                 Optional<String> providerEventId,
-                Optional<Instant> providerTimestamp,
-                String commandId,
-                ActivityState state,
-                List<String> argv,
-                Optional<String> output,
-                Optional<Integer> exitCode,
-                boolean truncated)
-        {
-            this(providerEventId, providerTimestamp, commandId, state, argv, output, exitCode, truncated, ProviderAgentEventSource.item(commandId));
-        }
-
-        public Command(
-                Optional<String> providerEventId,
-                Optional<Instant> providerTimestamp,
-                String commandId,
                 ActivityState state,
                 List<String> argv,
                 Optional<String> output,
@@ -240,14 +164,11 @@ public sealed interface ProviderAgentEvent
                 boolean truncated,
                 ProviderAgentEventSource source)
         {
-            this(providerEventId, providerTimestamp, commandId, state, argv, output, exitCode, truncated, source,
-                    Optional.empty(), Optional.empty(), ImmutableList.of());
+            this(providerEventId, state, argv, output, exitCode, truncated, source, Optional.empty(), Optional.empty(), ImmutableList.of());
         }
 
         public Command(
                 Optional<String> providerEventId,
-                Optional<Instant> providerTimestamp,
-                String commandId,
                 ActivityState state,
                 List<String> argv,
                 Optional<String> output,
@@ -258,20 +179,18 @@ public sealed interface ProviderAgentEvent
                 Optional<Duration> duration,
                 List<CommandAction> actions)
         {
-            this(providerEventId, providerTimestamp, commandId, state, argv, output, exitCode, truncated, source, cwd, duration, actions, false, Optional.empty());
+            this(providerEventId, state, argv, output, exitCode, truncated, source, cwd, duration, actions, false, Optional.empty());
         }
 
         public Command
         {
             checkOptionalText(providerEventId, "providerEventId");
-            requireNonNull(providerTimestamp, "providerTimestamp is null");
-            checkNotBlank(commandId, "commandId");
             requireNonNull(state, "state is null");
             argv = ImmutableList.copyOf(argv);
             requireNonNull(output, "output is null");
             requireNonNull(exitCode, "exitCode is null");
             checkArgument(argv.stream().noneMatch(String::isBlank), "argv contains a blank value");
-            source = source == null ? ProviderAgentEventSource.item(commandId) : source;
+            requireNonNull(source, "source is null");
             checkOptionalText(cwd, "cwd");
             requireNonNull(duration, "duration is null");
             // A record written before actions were carried has no field for them, which reads as none.
@@ -282,27 +201,15 @@ public sealed interface ProviderAgentEvent
 
     record FileChange(
             Optional<String> providerEventId,
-            Optional<Instant> providerTimestamp,
             String relativePath,
             ChangeKind change,
             Optional<String> diff,
             ProviderAgentEventSource source)
             implements ProviderAgentEvent
     {
-        public FileChange(
-                Optional<String> providerEventId,
-                Optional<Instant> providerTimestamp,
-                String relativePath,
-                ChangeKind change,
-                Optional<String> diff)
-        {
-            this(providerEventId, providerTimestamp, relativePath, change, diff, root());
-        }
-
         public FileChange
         {
             checkOptionalText(providerEventId, "providerEventId");
-            requireNonNull(providerTimestamp, "providerTimestamp is null");
             checkNotBlank(relativePath, "relativePath");
             requireNonNull(change, "change is null");
             requireNonNull(diff, "diff is null");
@@ -331,17 +238,10 @@ public sealed interface ProviderAgentEvent
         {
             return sample.providerEventId();
         }
-
-        @Override
-        public Optional<Instant> providerTimestamp()
-        {
-            return Optional.of(sample.observedAt());
-        }
     }
 
     record Lifecycle(
             Optional<String> providerEventId,
-            Optional<Instant> providerTimestamp,
             LifecyclePhase phase,
             String message,
             ProviderAgentEventSource source)
@@ -349,17 +249,15 @@ public sealed interface ProviderAgentEvent
     {
         public Lifecycle(
                 Optional<String> providerEventId,
-                Optional<Instant> providerTimestamp,
                 LifecyclePhase phase,
                 String message)
         {
-            this(providerEventId, providerTimestamp, phase, message, root());
+            this(providerEventId, phase, message, root());
         }
 
         public Lifecycle
         {
             checkOptionalText(providerEventId, "providerEventId");
-            requireNonNull(providerTimestamp, "providerTimestamp is null");
             requireNonNull(phase, "phase is null");
             requireNonNull(message, "message is null");
             requireNonNull(source, "source is null");
@@ -368,7 +266,6 @@ public sealed interface ProviderAgentEvent
 
     record Error(
             Optional<String> providerEventId,
-            Optional<Instant> providerTimestamp,
             String code,
             String message,
             boolean retryable,
@@ -377,18 +274,16 @@ public sealed interface ProviderAgentEvent
     {
         public Error(
                 Optional<String> providerEventId,
-                Optional<Instant> providerTimestamp,
                 String code,
                 String message,
                 boolean retryable)
         {
-            this(providerEventId, providerTimestamp, code, message, retryable, root());
+            this(providerEventId, code, message, retryable, root());
         }
 
         public Error
         {
             checkOptionalText(providerEventId, "providerEventId");
-            requireNonNull(providerTimestamp, "providerTimestamp is null");
             checkNotBlank(code, "code");
             checkNotBlank(message, "message");
             requireNonNull(source, "source is null");

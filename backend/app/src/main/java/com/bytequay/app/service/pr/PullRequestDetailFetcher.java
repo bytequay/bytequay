@@ -23,7 +23,6 @@ import com.bytequay.core.domain.PrTimelineEvent;
 import com.bytequay.core.domain.PrTimelinePayload;
 import com.bytequay.core.domain.PullRequestRef;
 import com.bytequay.core.domain.StoredPrDetail;
-import com.bytequay.core.store.PrDetailStore;
 import com.google.common.collect.ImmutableList;
 import com.google.common.util.concurrent.ListenableFuture;
 import com.google.common.util.concurrent.UncheckedExecutionException;
@@ -69,18 +68,15 @@ class PullRequestDetailFetcher
 
     private final GitHubPullRequestReadClient gitHub;
     private final GitHubActionsClient actions;
-    private final PrDetailStore detailStore;
     private final Executor ioExecutor;
 
     PullRequestDetailFetcher(
             GitHubPullRequestReadClient gitHub,
             GitHubActionsClient actions,
-            PrDetailStore detailStore,
             @Qualifier(IO_EXECUTOR) Executor ioExecutor)
     {
         this.gitHub = requireNonNull(gitHub, "gitHub is null");
         this.actions = requireNonNull(actions, "actions is null");
-        this.detailStore = requireNonNull(detailStore, "detailStore is null");
         this.ioExecutor = requireNonNull(ioExecutor, "ioExecutor is null");
     }
 
@@ -90,9 +86,9 @@ class PullRequestDetailFetcher
         ListenableFuture<SourceItems<PrReviewState>> reviews = fetchOptionalListAsync(
                 "fetchPrReviews", StoredPrDetail.REVIEWS, ref, () -> gitHub.fetchPrReviews(pat, ref));
         ListenableFuture<SourceItems<PrTimelineEvent>> timeline = fetchOptionalListAsync(
-                "fetchPrTimeline", StoredPrDetail.TIMELINE, ref, () -> gitHub.fetchPrTimeline(pat, ref, null));
+                "fetchPrTimeline", StoredPrDetail.TIMELINE, ref, () -> gitHub.fetchPrTimeline(pat, ref));
         ListenableFuture<SourceItems<PrTimelineEvent>> comments = fetchOptionalListAsync(
-                "fetchPrIssueComments", StoredPrDetail.COMMENTS, ref, () -> gitHub.fetchPrIssueComments(pat, ref, null));
+                "fetchPrIssueComments", StoredPrDetail.COMMENTS, ref, () -> gitHub.fetchPrIssueComments(pat, ref));
         ListenableFuture<SourceItems<PrTimelineEvent>> commits = fetchOptionalListAsync(
                 "fetchPrCommits", StoredPrDetail.COMMITS, ref, () -> gitHub.fetchPrCommits(pat, ref));
         ListenableFuture<SourceItems<PrTimelineEvent>> threads = fetchOptionalListAsync(

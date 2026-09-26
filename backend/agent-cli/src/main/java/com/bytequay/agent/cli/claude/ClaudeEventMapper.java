@@ -24,8 +24,6 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.google.common.collect.ImmutableList;
 
 import java.time.Duration;
-import java.time.Instant;
-import java.time.format.DateTimeParseException;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
@@ -184,11 +182,9 @@ final class ClaudeEventMapper
             stream.append(text.text());
             return ImmutableList.of(new ProviderAgentEvent.Message(
                     Optional.empty(),
-                    Optional.empty(),
                     ProviderAgentEvent.MessageKind.COMMENTARY,
                     ProviderAgentEvent.MessagePhase.PARTIAL,
                     bounded(text.text()),
-                    message.parentToolUseId(),
                     source(message.parentToolUseId(), Optional.of(stream.itemId()))));
         }
         return ImmutableList.of();
@@ -200,7 +196,6 @@ final class ClaudeEventMapper
         if (message.parentToolUseId().isEmpty()) {
             rootTerminal = false;
         }
-        Optional<Instant> timestamp = timestamp(message.timestamp());
         int index = 0;
         for (ClaudeProtocol.ContentBlock block : message.message().content()) {
             if (block instanceof ClaudeProtocol.TextBlock text && !text.text().isEmpty()) {
@@ -211,11 +206,9 @@ final class ClaudeEventMapper
                                 .orElseGet(() -> "claude-message-" + UUID.randomUUID()));
                 events.add(new ProviderAgentEvent.Message(
                         eventId(message.uuid(), "text", index),
-                        timestamp,
                         ProviderAgentEvent.MessageKind.COMMENTARY,
                         ProviderAgentEvent.MessagePhase.FINAL,
                         bounded(text.text()),
-                        message.parentToolUseId(),
                         source(message.parentToolUseId(), Optional.of(itemId))));
                 if (message.parentToolUseId().isEmpty()) {
                     latestRootTextItemId = Optional.of(itemId);
@@ -228,9 +221,9 @@ final class ClaudeEventMapper
                 ToolCall call = new ToolCall(tool.name(), tool.input(), message.parentToolUseId());
                 tools.put(tool.id(), call);
                 activeTools.add(tool.id());
-                events.add(startedTool(eventId(message.uuid(), "tool", index), timestamp, tool.id(), call));
+                events.add(startedTool(eventId(message.uuid(), "tool", index), tool.id(), call));
                 if (call.isAgent()) {
-                    startAgent(tool.id(), call, message.uuid(), timestamp, events);
+                    startAgent(tool.id(), call, message.uuid(), events);
                 }
             }
             index++;
@@ -268,7 +261,6 @@ final class ClaudeEventMapper
         if (message.parentToolUseId().isEmpty()) {
             rootTerminal = false;
         }
-        Optional<Instant> timestamp = timestamp(message.timestamp());
         int index = 0;
         for (ClaudeProtocol.ContentBlock block : message.message().content()) {
             if (block instanceof ClaudeProtocol.ToolResultBlock result) {
@@ -281,7 +273,6 @@ final class ClaudeEventMapper
                 activeTools.remove(result.toolUseId());
                 events.add(completedTool(
                         eventId(message.uuid(), "tool-result", index),
-                        timestamp,
                         result,
                         call));
                 completeInvocation(message, result, call, events);
@@ -292,7 +283,7 @@ final class ClaudeEventMapper
                             && call.parentToolUseId().map(agents::containsKey).orElse(true)) {
                         ToolCall completed = call;
                         todoPlan(call.input().todos()).ifPresent(items -> events.add(new ProviderAgentEvent.Plan(
-                                Optional.of(result.toolUseId() + ":plan"), timestamp, items,
+                                Optional.of(result.toolUseId() + ":plan"), items,
                                 source(completed.parentToolUseId(), Optional.of(result.toolUseId())))));
                     }
                 }
@@ -301,7 +292,7 @@ final class ClaudeEventMapper
                     if (!result.error() && call.parentToolUseId().isEmpty() && message.parentToolUseId().isEmpty()) {
                         development.flatMap(bridge -> DevelopmentResultTool.readReceipt(result.content(), bridge, redactor))
                                 .ifPresent(report -> events.add(new ProviderAgentEvent.DevelopmentResult(
-                                        Optional.of(result.toolUseId() + ":development-result"), timestamp, report,
+                                        Optional.of(result.toolUseId() + ":development-result"), report,
                                         new ProviderAgentEventSource(sessionId, Optional.empty(), Optional.empty(),
                                                 development.map(DevelopmentResultBridge::turnId), Optional.of(result.toolUseId())))));
                     }
@@ -342,17 +333,14 @@ final class ClaudeEventMapper
     {
         rootTerminal = true;
         ImmutableList.Builder<ProviderAgentEvent> events = ImmutableList.builder();
-        Instant observedAt = Instant.now();
         if (result.successful()) {
             result.result()
                     .filter(value -> !value.isBlank())
                     .ifPresent(response -> events.add(new ProviderAgentEvent.Message(
                             eventId(result.uuid(), "answer", 0),
-                            Optional.empty(),
                             ProviderAgentEvent.MessageKind.ANSWER,
                             ProviderAgentEvent.MessagePhase.FINAL,
                             bounded(response),
-                            Optional.empty(),
                             source(Optional.empty(), Optional.of(latestRootTextItemId.orElseGet(() ->
                                     eventId(result.uuid(), "answer-item", 0)
                                             .orElseGet(() -> "claude-message-" + UUID.randomUUID())))))));
@@ -366,12 +354,10 @@ final class ClaudeEventMapper
                         Math.addExact(usage.cacheCreationInputTokens(), usage.cacheReadInputTokens())),
                 usage.cacheReadInputTokens(),
                 usage.outputTokens(),
-                result.totalCostUsd(),
-                observedAt)));
+                result.totalCostUsd())));
         if (!result.successful()) {
             events.add(new ProviderAgentEvent.Error(
                     eventId(result.uuid(), "error", 0),
-                    Optional.of(observedAt),
                     "claude_result",
                     bounded(result.errorMessage()),
                     false));
@@ -406,8 +392,6 @@ final class ClaudeEventMapper
         if (call != null && call.isCommand()) {
             return ImmutableList.of(new ProviderAgentEvent.Command(
                     progress.uuid(),
-                    Optional.empty(),
-                    toolUseId,
                     ProviderAgentEvent.ActivityState.PROGRESS,
                     call.input().command().stream().map(this::bounded).collect(toImmutableList()),
                     Optional.empty(),
@@ -422,26 +406,20 @@ final class ClaudeEventMapper
         }
         return ImmutableList.of(new ProviderAgentEvent.Tool(
                 progress.uuid(),
-                Optional.empty(),
-                toolUseId,
                 progress.toolName(),
                 ProviderAgentEvent.ActivityState.PROGRESS,
                 "Running for %.1f seconds".formatted(progress.elapsedTimeSeconds()),
-                parentToolId,
                 source(parentToolId, Optional.of(toolUseId))));
     }
 
     private ProviderAgentEvent startedTool(
             Optional<String> eventId,
-            Optional<Instant> timestamp,
             String toolUseId,
             ToolCall call)
     {
         if (call.isCommand()) {
             return new ProviderAgentEvent.Command(
                     eventId,
-                    timestamp,
-                    toolUseId,
                     ProviderAgentEvent.ActivityState.STARTED,
                     call.input().command().stream().map(this::bounded).collect(toImmutableList()),
                     Optional.empty(),
@@ -456,18 +434,14 @@ final class ClaudeEventMapper
         }
         return new ProviderAgentEvent.Tool(
                 eventId,
-                timestamp,
-                toolUseId,
                 call.name(),
                 ProviderAgentEvent.ActivityState.STARTED,
                 bounded(call.input().description().orElse(call.name())),
-                call.parentToolUseId(),
                 source(call.parentToolUseId(), Optional.of(toolUseId)));
     }
 
     private ProviderAgentEvent completedTool(
             Optional<String> eventId,
-            Optional<Instant> timestamp,
             ClaudeProtocol.ToolResultBlock result,
             ToolCall call)
     {
@@ -477,8 +451,6 @@ final class ClaudeEventMapper
         if (call.isCommand()) {
             return new ProviderAgentEvent.Command(
                     eventId,
-                    timestamp,
-                    result.toolUseId(),
                     state,
                     call.input().command().stream().map(this::bounded).collect(toImmutableList()),
                     Optional.of(bounded(result.text())),
@@ -497,12 +469,9 @@ final class ClaudeEventMapper
                 : bounded(result.text());
         return new ProviderAgentEvent.Tool(
                 eventId,
-                timestamp,
-                result.toolUseId(),
                 call.name(),
                 state,
                 summary,
-                call.parentToolUseId(),
                 source(call.parentToolUseId(), Optional.of(result.toolUseId())));
     }
 
@@ -524,19 +493,16 @@ final class ClaudeEventMapper
                 .orElse(name);
         return new ProviderAgentEvent.Tool(
                 message.uuid(),
-                Optional.empty(),
-                id,
                 "hook/" + name,
                 state,
                 bounded(summary),
-                Optional.empty());
+                ProviderAgentEventSource.item(id));
     }
 
     private void startAgent(
             String toolId,
             ToolCall call,
             Optional<String> eventId,
-            Optional<Instant> timestamp,
             ImmutableList.Builder<ProviderAgentEvent> events)
     {
         ProviderAgentEventSource parent = source(call.parentToolUseId(), Optional.empty());
@@ -551,14 +517,12 @@ final class ClaudeEventMapper
         agents.put(toolId, new AgentCall(child));
         activeAgents.add(toolId);
         events.add(new ProviderAgentEvent.Lifecycle(
-                eventId.map(value -> value + ":agent-start:" + toolId), timestamp, ProviderAgentEvent.LifecyclePhase.AGENT_STARTED, bounded(label), child));
+                eventId.map(value -> value + ":agent-start:" + toolId), ProviderAgentEvent.LifecyclePhase.AGENT_STARTED, bounded(label), child));
         call.input().prompt().filter(value -> !value.isBlank()).ifPresent(prompt -> events.add(new ProviderAgentEvent.Message(
                 eventId.map(value -> value + ":agent-prompt:" + toolId),
-                timestamp,
                 ProviderAgentEvent.MessageKind.PROMPT,
                 ProviderAgentEvent.MessagePhase.FINAL,
                 bounded(prompt),
-                Optional.of(toolId),
                 child.withItem(Optional.of(toolId + ":prompt")))));
     }
 
@@ -624,15 +588,12 @@ final class ClaudeEventMapper
         unidentifiedBackgroundTools.remove(toolId);
         Optional.ofNullable(latestAgentText.remove(toolId)).ifPresent(text -> events.add(new ProviderAgentEvent.Message(
                 eventId.map(value -> value + ":agent-answer:" + toolId),
-                Optional.empty(),
                 ProviderAgentEvent.MessageKind.ANSWER,
                 ProviderAgentEvent.MessagePhase.FINAL,
                 text.text(),
-                Optional.of(toolId),
                 agents.get(toolId).source().withItem(Optional.of(text.itemId())))));
         events.add(new ProviderAgentEvent.Lifecycle(
                 eventId.map(value -> value + ":agent-end:" + toolId),
-                Optional.empty(),
                 state == ProviderAgentEvent.ActivityState.FAILED ? ProviderAgentEvent.LifecyclePhase.AGENT_FAILED : ProviderAgentEvent.LifecyclePhase.AGENT_COMPLETED,
                 bounded(summary),
                 agents.get(toolId).source()));
@@ -706,12 +667,9 @@ final class ClaudeEventMapper
                         .orElseGet(() -> ProviderAgentEventSource.item(id)));
         events.add(new ProviderAgentEvent.Tool(
                 message.uuid(),
-                Optional.empty(),
-                id,
                 "Task",
                 state,
                 bounded(summary),
-                message.parentToolUseId().or(() -> message.toolUseId()),
                 eventSource));
         if (finished && agent.isPresent()) {
             finishAgent(toolId.orElseThrow(), state, summary, message.uuid(), events);
@@ -719,7 +677,6 @@ final class ClaudeEventMapper
         else if (agent.isPresent() && activeAgents.add(toolId.orElseThrow())) {
             events.add(new ProviderAgentEvent.Lifecycle(
                     message.uuid().map(value -> value + ":agent-resume"),
-                    Optional.empty(),
                     ProviderAgentEvent.LifecyclePhase.AGENT_STARTED,
                     bounded(summary),
                     agent.orElseThrow().source()));
@@ -732,7 +689,7 @@ final class ClaudeEventMapper
             ProviderAgentEvent.LifecyclePhase phase,
             String message)
     {
-        return new ProviderAgentEvent.Lifecycle(eventId, Optional.empty(), phase, bounded(message));
+        return new ProviderAgentEvent.Lifecycle(eventId, phase, bounded(message));
     }
 
     /** Claude labels its own shell calls; that label names the row where the argv only shows the shell. */
@@ -752,16 +709,6 @@ final class ClaudeEventMapper
     private static Optional<String> eventId(Optional<String> uuid, String suffix, int index)
     {
         return uuid.map(value -> value + ":" + suffix + ":" + index);
-    }
-
-    private static Optional<Instant> timestamp(Optional<String> timestamp)
-    {
-        try {
-            return timestamp.map(Instant::parse);
-        }
-        catch (DateTimeParseException ignored) {
-            return Optional.empty();
-        }
     }
 
     private record ToolCall(

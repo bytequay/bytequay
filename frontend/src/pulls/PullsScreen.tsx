@@ -1314,7 +1314,6 @@ export function remotePullRequest(detail: PullRequestDetailDto, viewerLogin?: st
     deletions: detail.deletions,
     commentCount: detail.recentActivity.filter(item =>
       item.eventType === 'commented' || item.eventType === 'reviewed').length,
-    attentionReason: null,
     state: detail.state,
     mergeable: detail.mergeable,
     mergeableState: detail.mergeableState,

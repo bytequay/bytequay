@@ -32,11 +32,11 @@ import com.bytequay.agent.core.TurnState;
 import com.bytequay.agent.core.store.AgentTurnStore;
 import com.bytequay.agent.core.store.TaskLogStore;
 import com.bytequay.agent.spi.AgentPermissionPolicy;
-import com.bytequay.agent.spi.DevelopmentResultBridgeResolver;
+import com.bytequay.agent.spi.BridgeResolver;
+import com.bytequay.agent.spi.DevelopmentResultBridge;
 import com.bytequay.app.ci.CiAutofixMonitorTestDriver;
 import com.bytequay.app.ci.CiAutofixService;
 import com.bytequay.app.ci.CiMemoryService;
-import com.bytequay.app.ci.InspectCiHeadQuery;
 import com.bytequay.app.ci.RerunFailedJobsCommand;
 import com.bytequay.app.ci.RoutedGitCommandRunner;
 import com.bytequay.app.git.GitCommandRunner;
@@ -49,7 +49,6 @@ import com.bytequay.app.service.credentials.CredentialService;
 import com.bytequay.app.service.github.GhCliService;
 import com.bytequay.app.workspace.WorkspaceCodeSyncResult;
 import com.bytequay.app.workspace.WorkspacePaths;
-import com.bytequay.app.workspace.WorkspaceProvisioningResult;
 import com.bytequay.app.workspace.WorkspaceProvisioningService;
 import com.bytequay.core.ci.CiAutofixAttempt.CiResult;
 import com.bytequay.core.ci.CiAutofixRun;
@@ -64,6 +63,7 @@ import com.bytequay.persistence.sqlite.repository.PullRequestJpaRepository;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.google.common.collect.ImmutableList;
+import com.google.common.collect.ImmutableSet;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -250,7 +250,7 @@ class TestCiAutofixEndToEnd
                 pr, "https://github.com/" + pr.fullName(), repo, branch, remoteHead.get(), repo, E2eGitRepository.BASE_REF,
                 repository.baseSha(), GitHubPullRequestIdentity.State.OPEN, draft.get(), "author");
         when(gh.findBinary()).thenReturn(Optional.of("/fixture/gh"));
-        when(gh.readCredential()).thenReturn(new GhCliService.CliCredential("test-token", "author"));
+        when(gh.readToken()).thenReturn("test-token");
         when(publicationReads.fetchPullRequestIdentities("test-token", repo, repo, branch))
                 .thenAnswer(ignored -> published.get() ? ImmutableList.of(identity.get()) : ImmutableList.of());
         when(publicationReads.fetchPullRequestIdentity("test-token", pr)).thenAnswer(ignored -> identity.get());
@@ -990,7 +990,7 @@ class TestCiAutofixEndToEnd
             throws Exception
     {
         PullRequestRef unknown = PullRequestRef.of("bytequay", "unknown", 91);
-        assertThatThrownBy(() -> gitHub.inspect(new InspectCiHeadQuery(unknown)))
+        assertThatThrownBy(() -> gitHub.inspect(unknown))
                 .isInstanceOf(IllegalStateException.class)
                 .hasMessageContaining(unknown.fullName());
 
@@ -1025,7 +1025,7 @@ class TestCiAutofixEndToEnd
         }
 
         @Bean
-        ScriptedAgentDriver scriptedAgentDriver(CiMemoryService memory, DevelopmentResultBridgeResolver developmentResults)
+        ScriptedAgentDriver scriptedAgentDriver(CiMemoryService memory, BridgeResolver<DevelopmentResultBridge> developmentResults)
         {
             return new ScriptedAgentDriver(memory, developmentResults);
         }
@@ -1071,15 +1071,9 @@ class TestCiAutofixEndToEnd
             return new WorkspaceProvisioningService()
             {
                 @Override
-                public WorkspaceProvisioningResult provision(String workspaceId)
-                {
-                    return WorkspaceProvisioningResult.success(store.findById(workspaceId).orElseThrow());
-                }
-
-                @Override
                 public WorkspaceCodeSyncResult synchronizeCode(String workspaceId)
                 {
-                    return WorkspaceCodeSyncResult.success(store.findById(workspaceId).orElseThrow());
+                    return WorkspaceCodeSyncResult.success(store.findById(workspaceId).orElseThrow(), ImmutableSet.of());
                 }
             };
         }

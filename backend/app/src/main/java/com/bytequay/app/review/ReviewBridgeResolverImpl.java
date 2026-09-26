@@ -16,8 +16,8 @@ package com.bytequay.app.review;
 import com.bytequay.agent.core.TaskId;
 import com.bytequay.agent.core.TaskState;
 import com.bytequay.agent.core.store.AgentTaskStore;
+import com.bytequay.agent.spi.BridgeResolver;
 import com.bytequay.agent.spi.ReviewBridge;
-import com.bytequay.agent.spi.ReviewBridgeResolver;
 import com.bytequay.app.context.ContextBuildTools;
 import com.google.common.collect.ImmutableList;
 import org.springframework.beans.factory.ObjectProvider;
@@ -33,7 +33,7 @@ import static java.util.Objects.requireNonNull;
  */
 @Component
 public class ReviewBridgeResolverImpl
-        implements ReviewBridgeResolver
+        implements BridgeResolver<ReviewBridge>
 {
     private final ObjectProvider<ReviewTools> tools;
     private final ObjectProvider<ContextBuildTools> builders;

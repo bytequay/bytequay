@@ -38,7 +38,7 @@ describe('AttentionList', () => {
         htmlUrl: 'https://github.com/trinodb/trino/pull/30920', createdAt: null, updatedAt: '2026-08-28T00:00:00Z',
         origin: 'REVIEW_REQUESTED', labels: [], labelColors: null, draft: false, viewedAt: null, reviewedAt: null,
         handledAction: null, requestedReviewers: ['viewer'], ciStatus: null, additions: 0, deletions: 0, commentCount: 1,
-        attentionReason: null, state: 'open', mergeable: null, mergeableState: null, headPushedAt: null, headRef: 'branch',
+        state: 'open', mergeable: null, mergeableState: null, headPushedAt: null, headRef: 'branch',
         activityAt: '2026-08-29T23:11:00Z',
         latestActivity: { event: 'commented', actor: 'bob', timestamp: '2026-08-28T00:00:00Z', state: null, label: null, requestedReviewer: null },
       },

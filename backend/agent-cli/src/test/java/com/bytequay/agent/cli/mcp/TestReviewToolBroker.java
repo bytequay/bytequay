@@ -15,8 +15,8 @@ package com.bytequay.agent.cli.mcp;
 
 import com.bytequay.agent.cli.process.SecretRedactor;
 import com.bytequay.agent.spi.AgentPermissionPolicy;
+import com.bytequay.agent.spi.BridgeResolver;
 import com.bytequay.agent.spi.CodeGraphBridge;
-import com.bytequay.agent.spi.DevelopmentResultBridgeResolver;
 import com.bytequay.agent.spi.DraftPullRequestPublisher;
 import com.bytequay.agent.spi.LocalReviewBridge;
 import com.bytequay.agent.spi.ProviderApprovalDecision;
@@ -90,14 +90,14 @@ class TestReviewToolBroker
                     throw new AssertionError("Private reviews cannot expose development CI tools");
                 });
         SecretRedactor redactor = SecretRedactor.fromEnvironment(ImmutableMap.of());
-        try (CodeGraphRegistration codex = broker.registerTools("development-task", temporaryDirectory, AgentPermissionPolicy.AUTO,
+        try (McpRegistration codex = broker.registerTools("development-task", temporaryDirectory, AgentPermissionPolicy.AUTO,
                 (request, timeout) -> CompletableFuture.completedFuture(ProviderApprovalDecision.deny()), redactor, Optional.empty()).orElseThrow();
-                McpConfigRegistration claude = broker.register("development-task", temporaryDirectory, temporaryDirectory, temporaryDirectory,
+                McpRegistration claude = broker.register("development-task", temporaryDirectory, temporaryDirectory, temporaryDirectory,
                         AgentPermissionPolicy.AUTO, SessionAccess.FULL,
                         (request, timeout) -> CompletableFuture.completedFuture(ProviderApprovalDecision.allow(Optional.empty())), redactor, Optional.empty())) {
             assertThat(codex.review()).contains(review);
             assertThat(claude.review()).contains(review);
-            assertThat(codex.instruction()).contains(review.instruction(), local.instruction());
+            assertThat(codex.instruction()).hasValueSatisfying(instruction -> assertThat(instruction).contains(review.instruction(), local.instruction()));
             assertThat(claude.instruction()).hasValueSatisfying(instruction -> assertThat(instruction).contains(review.instruction(), local.instruction()));
             for (String token : ImmutableList.of(codex.token(), claude.token())) {
                 JsonNode listed = broker.handle(token, objectMapper.readTree("""
@@ -128,13 +128,13 @@ class TestReviewToolBroker
         LocalReviewBridge local = new LocalReviewBridge(id -> "[]", reply -> "saved", resolution -> "resolved", LocalReviewBridge.INSTRUCTION);
         PermissionBroker broker = new PermissionBroker(
                 () -> URI.create("http://127.0.0.1:9000/internal/agent/claude/mcp"), objectMapper, (taskId, query) -> "memory",
-                taskId -> Optional.of(bridge(new AtomicReference<>())), DevelopmentResultBridgeResolver.NONE, DraftPullRequestPublisher.NONE,
+                taskId -> Optional.of(bridge(new AtomicReference<>())), BridgeResolver.none(), DraftPullRequestPublisher.NONE,
                 taskId -> Optional.of(local));
         SecretRedactor redactor = SecretRedactor.fromEnvironment(ImmutableMap.of());
-        try (CodeGraphRegistration registration = broker.registerTools("review-task", temporaryDirectory, AgentPermissionPolicy.AUTO,
+        try (McpRegistration registration = broker.registerTools("review-task", temporaryDirectory, AgentPermissionPolicy.AUTO,
                 (request, timeout) -> CompletableFuture.completedFuture(ProviderApprovalDecision.deny()), redactor, Optional.empty()).orElseThrow()) {
             assertThat(registration.review()).isPresent();
-            assertThat(registration.instruction()).contains(LocalReviewBridge.INSTRUCTION);
+            assertThat(registration.instruction()).hasValueSatisfying(instruction -> assertThat(instruction).contains(LocalReviewBridge.INSTRUCTION));
             JsonNode reply = broker.handle(registration.token(), objectMapper.readTree("""
                     {"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"reply_local_review_comment",
                     "arguments":{"commentId":"local-1","body":"An explanation","operationKey":"reply"}}}
@@ -142,11 +142,11 @@ class TestReviewToolBroker
             assertThat(reply.at("/result/isError").asBoolean()).isFalse();
             assertThat(reply.at("/result/content/0/text").asText()).isEqualTo("saved");
         }
-        try (McpConfigRegistration registration = broker.register("review-task", temporaryDirectory, temporaryDirectory,
+        try (McpRegistration registration = broker.register("review-task", temporaryDirectory, temporaryDirectory,
                 temporaryDirectory, AgentPermissionPolicy.AUTO, SessionAccess.FULL,
                 (request, timeout) -> CompletableFuture.completedFuture(ProviderApprovalDecision.deny()), redactor, Optional.empty())) {
             assertThat(registration.review()).isPresent();
-            assertThat(registration.localReview()).contains(local);
+            assertThat(registration.toolNames()).containsAll(LocalReviewBridge.TOOL_NAMES);
         }
     }
 
@@ -163,10 +163,10 @@ class TestReviewToolBroker
         SecretRedactor redactor = SecretRedactor.fromEnvironment(ImmutableMap.of("ANTHROPIC_API_KEY", "known-secret"));
         assertThat(broker.registerTools("plain-task", temporaryDirectory, AgentPermissionPolicy.AUTO,
                 (request, timeout) -> CompletableFuture.completedFuture(ProviderApprovalDecision.deny()), redactor, Optional.empty())).isEmpty();
-        CodeGraphRegistration registration = broker.registerTools("review-task", temporaryDirectory, AgentPermissionPolicy.AUTO,
+        McpRegistration registration = broker.registerTools("review-task", temporaryDirectory, AgentPermissionPolicy.AUTO,
                 (request, timeout) -> CompletableFuture.completedFuture(ProviderApprovalDecision.deny()), redactor, Optional.empty()).orElseThrow();
         assertThat(registration.review()).isPresent();
-        assertThat(registration.instruction()).isEqualTo("Review policy: report through the review tools.");
+        assertThat(registration.instruction()).contains("Review policy: report through the review tools.");
 
         JsonNode listed = broker.handle(registration.token(), objectMapper.readTree("""
                 {"jsonrpc":"2.0","id":1,"method":"tools/list","params":{}}
@@ -209,7 +209,7 @@ class TestReviewToolBroker
                 objectMapper,
                 (taskId, query) -> "memory",
                 taskId -> Optional.of(bridge(new AtomicReference<>())));
-        McpConfigRegistration registration = broker.register(
+        McpRegistration registration = broker.register(
                 "review-task",
                 temporaryDirectory,
                 temporaryDirectory,
@@ -263,7 +263,7 @@ class TestReviewToolBroker
                 (taskId, query) -> "memory",
                 taskId -> taskId.equals("review-task") ? Optional.of(bridge(new AtomicReference<>())) : Optional.empty());
         for (String taskId : ImmutableList.of("review-task", "plain-task")) {
-            try (McpConfigRegistration registration = broker.register(
+            try (McpRegistration registration = broker.register(
                     taskId,
                     temporaryDirectory,
                     temporaryDirectory,
@@ -274,7 +274,7 @@ class TestReviewToolBroker
                         return CompletableFuture.completedFuture(ProviderApprovalDecision.allow(Optional.empty()));
                     },
                     SecretRedactor.fromEnvironment(ImmutableMap.of()))) {
-                JsonNode deniedTools = objectMapper.readTree(Files.readString(registration.settingsFile())).at("/permissions/deny");
+                JsonNode deniedTools = objectMapper.readTree(Files.readString(registration.settingsFile().orElseThrow())).at("/permissions/deny");
                 if (registration.review().isPresent()) {
                     // The child gate, not a blanket refusal, keeps review write tools with the root agent.
                     assertThat(deniedTools).extracting(JsonNode::asText).contains("Skill", "Workflow", "SendMessage").doesNotContain("Agent", "Task");

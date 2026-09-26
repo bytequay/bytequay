@@ -104,7 +104,7 @@ historical checkpoint evidence and explicitly deferred future work.
 - [Cherry-pick Range](cherry-pick-range.md) specifies source-range preview,
   target-presence detection, pull-request grouping and skip selection,
   conflict scope, immutable confirmation, local execution handoff, and final
-  range review.
+  accounting.
 - [Commit History and Refresh](commits.md) specifies local-only commit display,
   durable commit-to-PR and avatar enrichment, scheduled and manual refresh,
   backend service contracts, and the renderer call chain.
@@ -121,10 +121,9 @@ also true when `tree(F)` equals the previous target tree, because the pair is
 the durable attribution for how the conflict was settled. The tradeoff is
 deliberate: `C` may contain conflict markers or an incomplete selected side and
 therefore may not build when checked out alone; only the `C` plus `F` boundary
-is the validated result. The first implementation keeps the ByteQuay validation
-hook as a successful no-op; a project-aware command needs an explicit
-user-selected validation profile because ByteQuay cannot infer how an arbitrary
-repository builds.
+is the verified result. ByteQuay runs no project validation hook; a
+project-aware command needs an explicit user-selected validation profile
+because ByteQuay cannot infer how an arbitrary repository builds.
 
 ## Design principles
 

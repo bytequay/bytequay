@@ -352,10 +352,10 @@ public interface GitHubActionsClient
     /**
      * Reads the current PR head, target branch, and latest check attempts.
      *
-     * @param query repository and PR number
+     * @param pullRequest repository and PR number
      * @return one current GitHub snapshot
      */
-    CiHeadSnapshot inspect(InspectCiHeadQuery query);
+    CiHeadSnapshot inspect(PullRequestRef pullRequest);
 
     /**
      * Caches one complete credential-redacted job log and selects diagnostic blocks.
@@ -433,10 +433,10 @@ public interface CiGitService
      * PR range is linear, and the local head can be published from the expected
      * remote head. It does not choose or validate the semantic fixup target.
      *
-     * @param command worktree, input SHA, fetched base SHA, and PR range
+     * @param range worktree, fetched base SHA, and expected remote head as the attempt input
      * @return no change, ready local head, or bounded rejection
      */
-    CiGitInspection inspectAgentResult(InspectAgentResultCommand command);
+    CiGitInspection inspectAgentResult(CiWorktreeRange range);
 
     /**
      * Pushes one inspected local head with an exact lease.
@@ -464,10 +464,10 @@ public interface CiGitService
      * This check validates placement, not whether the agent chose the best
      * semantic target.
      *
-     * @param command worktree, current head, and PR range
+     * @param range worktree, PR base, and the head to check
      * @return valid or bounded position diagnostics
      */
-    FixupPositionCheck checkFixupPositions(CheckFixupPositionsCommand command);
+    FixupPositionCheck checkFixupPositions(CiWorktreeRange range);
 }
 ```
 
@@ -1030,26 +1030,20 @@ These files use the agent task's existing seven-day retention policy.
 - expected remote SHA, pushed SHA, and push time; and
 - observed CI result and timeline event key.
 
-For populated pre-workspace databases, Hibernate adds the workspace-ID column
-as nullable and retains the former non-null worktree column. A legacy row is
-readable only when that recorded path exactly identifies a current managed
-workspace; the next write stores its workspace ID. An unmatched path fails
-with an explicit storage diagnostic and is never resumed against a guessed
-workspace.
+The run's workspace ID, physical repository, and task start commit are
+required. The former non-null `worktree` column is still written with the
+workspace ID and is never read.
 
 Start preassigns the task ID and inserts these frozen provisioning facts before
 it calls the task service. Start, repeated start, every non-finished monitor
 advance (including a paused run), and cancellation share one idempotent ensure
 operation: an absent task is created from those facts, while a concurrent
 create conflict is resolved by rereading and validating the exact task. A
-changed workspace repository selection is rejected. A legacy row may
-reuse an existing task's immutable worktree facts, but a legacy row with no
-task and no frozen physical repository is preserved rather than routed to
-today's selection. An ordinary provisioning failure is surfaced while the
-inserted run remains `ACTIVE` with the same preassigned task ID; it never writes
-a terminal or paused run across an unverified task gap. Repeated start or a
-later monitor pass retries the same ensure operation and then continues the
-normal flow.
+changed workspace repository selection is rejected. An ordinary provisioning
+failure is surfaced while the inserted run remains `ACTIVE` with the same
+preassigned task ID; it never writes a terminal or paused run across an
+unverified task gap. Repeated start or a later monitor pass retries the same
+ensure operation and then continues the normal flow.
 
 There is no fixup-target or commit-mapping table. Detailed prompts, output,
 diffs, and logs remain in existing agent runtime files.

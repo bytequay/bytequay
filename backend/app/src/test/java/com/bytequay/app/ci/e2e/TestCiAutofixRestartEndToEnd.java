@@ -23,7 +23,6 @@ import com.bytequay.agent.core.TaskId;
 import com.bytequay.agent.core.TaskState;
 import com.bytequay.agent.core.store.TaskLogStore;
 import com.bytequay.app.ByteQuayApplication;
-import com.bytequay.app.ci.CheckFixupPositionsCommand;
 import com.bytequay.app.ci.CiAutofixMonitorTestDriver;
 import com.bytequay.app.ci.CiAutofixService;
 import com.bytequay.app.ci.CiBaseSynchronization;
@@ -33,8 +32,8 @@ import com.bytequay.app.ci.CiGitService;
 import com.bytequay.app.ci.CiMemoryService;
 import com.bytequay.app.ci.CiMemoryView;
 import com.bytequay.app.ci.CiPushResult;
+import com.bytequay.app.ci.CiWorktreeRange;
 import com.bytequay.app.ci.FixupPositionCheck;
-import com.bytequay.app.ci.InspectAgentResultCommand;
 import com.bytequay.app.ci.PushCiHeadCommand;
 import com.bytequay.app.ci.ReadCiMemoryCommand;
 import com.bytequay.app.ci.RoutedGitCommandRunner;
@@ -46,7 +45,6 @@ import com.bytequay.app.service.github.GhCliService;
 import com.bytequay.app.web.agent.AgentRequestFilter;
 import com.bytequay.app.workspace.WorkspaceCodeSyncResult;
 import com.bytequay.app.workspace.WorkspacePaths;
-import com.bytequay.app.workspace.WorkspaceProvisioningResult;
 import com.bytequay.app.workspace.WorkspaceProvisioningService;
 import com.bytequay.core.ci.CiAutofixRun;
 import com.bytequay.core.ci.CiAutofixRunId;
@@ -57,6 +55,7 @@ import com.bytequay.core.store.WorkspaceCredentialStore;
 import com.bytequay.core.store.WorkspaceStore;
 import com.bytequay.persistence.sqlite.repository.PullRequestJpaRepository;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.google.common.collect.ImmutableSet;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 import org.junit.jupiter.api.parallel.Execution;
@@ -370,17 +369,10 @@ class TestCiAutofixRestartEndToEnd
                     () -> new WorkspaceProvisioningService()
                     {
                         @Override
-                        public WorkspaceProvisioningResult provision(String workspaceId)
-                        {
-                            WorkspaceStore store = context.getBean(WorkspaceStore.class);
-                            return WorkspaceProvisioningResult.success(store.findById(workspaceId).orElseThrow());
-                        }
-
-                        @Override
                         public WorkspaceCodeSyncResult synchronizeCode(String workspaceId)
                         {
                             WorkspaceStore store = context.getBean(WorkspaceStore.class);
-                            return WorkspaceCodeSyncResult.success(store.findById(workspaceId).orElseThrow());
+                            return WorkspaceCodeSyncResult.success(store.findById(workspaceId).orElseThrow(), ImmutableSet.of());
                         }
                     },
                     bean -> bean.setPrimary(true));
@@ -418,7 +410,7 @@ class TestCiAutofixRestartEndToEnd
         }
 
         @Override
-        public CiGitInspection inspectAgentResult(InspectAgentResultCommand command)
+        public CiGitInspection inspectAgentResult(CiWorktreeRange command)
         {
             return delegate.inspectAgentResult(command);
         }
@@ -441,7 +433,7 @@ class TestCiAutofixRestartEndToEnd
         }
 
         @Override
-        public FixupPositionCheck checkFixupPositions(CheckFixupPositionsCommand command)
+        public FixupPositionCheck checkFixupPositions(CiWorktreeRange command)
         {
             return delegate.checkFixupPositions(command);
         }

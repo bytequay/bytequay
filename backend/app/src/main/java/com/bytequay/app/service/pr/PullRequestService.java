@@ -174,10 +174,10 @@ public class PullRequestService
         this.applicationContext = requireNonNull(applicationContext, "applicationContext is null");
     }
 
-    public PullRequestPage listPullRequests(int page, int pageSize, String search)
+    public PullRequestPage listPullRequests(int page, int pageSize)
     {
         checkPage(page, pageSize);
-        return store.findPage(page, pageSize, validateSearch(search));
+        return store.findPage(page, pageSize);
     }
 
     public List<PullRequest> listAttentionCandidates()
@@ -234,17 +234,7 @@ public class PullRequestService
     public PullRequestPage listPullRequests(RepoRef repository, int page, int pageSize, String search)
     {
         checkPage(page, pageSize);
-        return store.findRepositoryPage(
-                requireNonNull(repository, "repository is null").fullName(), page, pageSize, validateSearch(search));
-    }
-
-    private static String validateSearch(String search)
-    {
-        String value = search == null ? "" : search.trim();
-        if (value.length() > 200) {
-            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "search must not exceed 200 characters");
-        }
-        return value;
+        return store.findRepositoryPage(requireNonNull(repository, "repository is null").fullName(), page, pageSize, search);
     }
 
     /** Exact-fetches a newly created pull request so its workspace projection does not wait for GitHub search. */
@@ -1050,7 +1040,7 @@ public class PullRequestService
     {
         for (int page = 1; page <= MAX_SEARCH_PAGES; page++) {
             PullRequestHistoryPage result =
-                    gitHub.searchPullRequestsPaged(pat, query, page, SEARCH_PAGE_SIZE, "updated", "desc");
+                    gitHub.searchPullRequestsPaged(pat, query, page, SEARCH_PAGE_SIZE);
             List<FetchedPullRequest> fresh = result.items().stream()
                     .filter(pullRequest -> seen.add(pullRequest.repo() + "#" + pullRequest.number()))
                     .map(pullRequest -> pullRequest.withOrigin(origin))
@@ -1101,7 +1091,7 @@ public class PullRequestService
     {
         for (int page = 1; page <= MAX_SEARCH_PAGES; page++) {
             PullRequestHistoryPage result =
-                    gitHub.searchPullRequestsPaged(pat, query, page, SEARCH_PAGE_SIZE, "updated", "desc");
+                    gitHub.searchPullRequestsPaged(pat, query, page, SEARCH_PAGE_SIZE);
             List<FetchedPullRequest> fresh = result.items().stream()
                     .map(pullRequest -> reviewRequested
                             ? pullRequest.withOrigin(REVIEW_REQUESTED)
@@ -1297,16 +1287,13 @@ public class PullRequestService
         viewState = viewStateStore.findByPrIds(ImmutableSet.of(prId)).get(prId);
         if (needsReviewAgain(pullRequest, detail, currentLogin, viewState)) {
             viewStateStore.markNeedsReview(prId);
-            viewState = viewStateStore.findByPrIds(ImmutableSet.of(prId)).get(prId);
         }
-        Instant viewedAt = viewState != null ? viewState.viewedAt() : null;
         store.updateEnrichment(
                 prId,
-                detail.checkRunsComplete() ? PrAttention.aggregateCiStatus(detail) : pullRequest.ciStatus(),
+                detail.checkRunsComplete() ? PullRequestDetailMapper.aggregateCiStatus(detail.checkRuns()) : pullRequest.ciStatus(),
                 detail.raw().additions(),
                 detail.raw().deletions(),
-                detail.timelineComplete() ? PrAttention.countComments(detail) : pullRequest.commentCount(),
-                PrAttention.promoteReason(pullRequest, detail, currentLogin, viewedAt, Instant.now()),
+                detail.timelineComplete() ? PullRequestDetailMapper.countComments(detail.timeline()) : pullRequest.commentCount(),
                 detail.raw().mergeable(),
                 detail.raw().mergeableState(),
                 detail.timelineComplete() ? PullRequestDetailMapper.latestPushAt(detail.timeline()) : pullRequest.headPushedAt(),

@@ -48,6 +48,7 @@ import java.util.concurrent.locks.Lock;
 
 import static com.bytequay.app.config.AsyncConfig.APPLICATION_EXECUTOR;
 import static com.bytequay.app.git.RepositoryUrls.isPlainHttps;
+import static com.bytequay.app.workspace.WorkspaceException.requireWorkspace;
 import static com.google.common.base.Preconditions.checkArgument;
 import static com.google.common.collect.ImmutableList.toImmutableList;
 import static com.google.common.collect.ImmutableSet.toImmutableSet;
@@ -195,9 +196,9 @@ public class DefaultWorkspaceRepositoryService
     }
 
     @Override
-    public WorkspaceDetails getWorkspace(String workspaceId)
+    public WorkspaceSummary getWorkspace(String workspaceId)
     {
-        return WorkspaceDetails.of(requireWorkspace(workspaceId));
+        return WorkspaceSummary.of(requireWorkspace(store, workspaceId));
     }
 
     @Override
@@ -215,7 +216,7 @@ public class DefaultWorkspaceRepositoryService
     @Override
     public WorkspaceRepositoryContext requireLocalRepository(String workspaceId)
     {
-        Workspace workspace = requireWorkspace(workspaceId);
+        Workspace workspace = requireWorkspace(store, workspaceId);
         if (workspace.lastCodeSyncAt().isEmpty()) {
             throw WorkspaceException.repositoryNotReady();
         }
@@ -224,10 +225,10 @@ public class DefaultWorkspaceRepositoryService
 
     private Workspace requireSynchronizedWorkspace(String workspaceId)
     {
-        Workspace workspace = requireWorkspace(workspaceId);
+        Workspace workspace = requireWorkspace(store, workspaceId);
         if (workspace.lastCodeSyncAt().isEmpty()) {
             provisioning.synchronizeCode(workspaceId);
-            workspace = requireWorkspace(workspaceId);
+            workspace = requireWorkspace(store, workspaceId);
             if (workspace.lastCodeSyncAt().isEmpty()) {
                 throw WorkspaceException.repositoryNotReady();
             }
@@ -256,7 +257,7 @@ public class DefaultWorkspaceRepositoryService
     @Override
     public Workspace requestSync(String workspaceId)
     {
-        Workspace workspace = requireWorkspace(workspaceId);
+        Workspace workspace = requireWorkspace(store, workspaceId);
         scheduleRefreshes(workspace, false);
         submit(() -> pullRequestRefresh.refreshWorkspace(workspaceId), workspaceId);
         return workspace;
@@ -265,7 +266,7 @@ public class DefaultWorkspaceRepositoryService
     @Override
     public Workspace requestSyncAfterConfigurationChange(String workspaceId)
     {
-        Workspace workspace = requireWorkspace(workspaceId);
+        Workspace workspace = requireWorkspace(store, workspaceId);
         scheduleRefreshes(workspace, true);
         submit(() -> pullRequestRefresh.refreshWorkspace(workspaceId), workspaceId);
         return workspace;
@@ -275,7 +276,7 @@ public class DefaultWorkspaceRepositoryService
     public Workspace setUpstream(String workspaceId, Optional<Long> upstreamRepositoryId)
     {
         requireNonNull(upstreamRepositoryId, "upstreamRepositoryId is null");
-        Workspace workspace = requireWorkspace(workspaceId);
+        Workspace workspace = requireWorkspace(store, workspaceId);
         if (workspace.upstreamRepositoryId().equals(upstreamRepositoryId)) {
             return workspace;
         }
@@ -318,7 +319,7 @@ public class DefaultWorkspaceRepositoryService
         if (trimmed.isEmpty() || trimmed.length() > 200) {
             throw WorkspaceException.invalidRepository("Workspace name must be 1 to 200 characters.");
         }
-        Workspace workspace = requireWorkspace(workspaceId);
+        Workspace workspace = requireWorkspace(store, workspaceId);
         if (workspace.name().equals(trimmed)) {
             return workspace;
         }
@@ -328,7 +329,7 @@ public class DefaultWorkspaceRepositoryService
     @Override
     public void unwatch(String workspaceId)
     {
-        requireWorkspace(workspaceId);
+        requireWorkspace(store, workspaceId);
         store.setWatched(workspaceId, false);
     }
 
@@ -372,15 +373,6 @@ public class DefaultWorkspaceRepositoryService
         Workspace saved = store.createOrGet(proposed);
         scheduleIncompleteWork(saved);
         return saved;
-    }
-
-    private Workspace requireWorkspace(String workspaceId)
-    {
-        if (workspaceId == null || workspaceId.isBlank()) {
-            throw WorkspaceException.notFound(String.valueOf(workspaceId));
-        }
-        return store.findById(workspaceId)
-                .orElseThrow(() -> WorkspaceException.notFound(workspaceId));
     }
 
     private UserRepo requireUpstream(Workspace workspace, long upstreamRepositoryId)
@@ -597,9 +589,7 @@ public class DefaultWorkspaceRepositoryService
         }
         Instant now = clock.instant();
         if (forceCode || stale(workspace.lastCodeSyncAt(), now, CODE_FRESHNESS)) {
-            submitUnique(codeRefreshes, workspace.id(), workspace.lastCodeSyncAt().isPresent()
-                    ? () -> provisioning.synchronizeCode(workspace.id())
-                    : () -> provisioning.provision(workspace.id()));
+            submitUnique(codeRefreshes, workspace.id(), () -> provisioning.synchronizeCode(workspace.id()));
         }
         // The metadata service owns each projection's TTL. Always schedule its cheap local
         // freshness check so newly added projections are populated after an app upgrade.

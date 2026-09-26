@@ -267,7 +267,7 @@ sources and exact operation receipts. Task/turn records remain the lifecycle
 authority. No PR, review run or parallel build-job state is manufactured.
 
 Purpose is resolved from the current saved task binding, never from the task's
-title, user message or model-authored field. ReviewBridgeResolver gives that root
+title, user message or model-authored field. ReviewBridgeResolverImpl gives that root
 the existing restricted/no-child profile with only repository_context_read and
 repository_context_prepare. Global user skills apply; AUTO does not grant
 development delivery, PR-reporting or publication authority. Source bodies remain
@@ -814,9 +814,9 @@ Turn: ACCEPTED -> RUNNING -> COMPLETED
       |             +-----> INTERRUPTED
       +-------------------> FAILED | CANCELLED | INTERRUPTED
 
-Runtime cleanup: RETAINED -> DELETE_DUE -> DELETED
-                                 |
-                                 +--------> RETRY_PENDING -> DELETED
+Runtime cleanup: RETAINED -> DELETED
+                    |
+                    +--------> RETRY_PENDING -> DELETED
 
 Queued input: QUEUED -> STARTING -> STARTED
               PAUSED -> STARTING
@@ -1716,10 +1716,9 @@ public interface AgentCompletionService
      * their owning workflow has completed worktree cleanup.
      *
      * @param taskId terminal task whose retention deadline has passed
-     * @return the updated cleanup result
      * @throws AgentConflictException when the task is nonterminal or its retention deadline has not passed
      */
-    CleanupResult cleanup(TaskId taskId);
+    void cleanup(TaskId taskId);
 }
 ```
 
@@ -2015,7 +2014,7 @@ public interface ProcessSupervisor
      * {@link PreparedProcess#start}. This closes the database/process gap.
      *
      * @param spec owner kind/ID, executable, arguments, environment allowlist,
-     * execution profile, worktree, and limits
+     * worktree, and limits
      * @return durable prepared launch; no payload process exists yet
      */
     PreparedProcess prepare(ProcessSpec spec);
@@ -2077,32 +2076,31 @@ the stdin writer's lock. It stops the owned process group and known descendants
 before closing stdin, so a blocked write cannot prevent cancellation while
 stdout is backpressured.
 
-`ProcessOwner.Kind` also carries one closed `ExecutionProfile` value rather
-than arbitrary sandbox text:
+`ProcessOwner.Kind` is a closed set of owner roles rather than arbitrary
+sandbox text:
 
-- `PROVIDER_CONTROL` owns one task's App Server or one Claude turn process and
-  does not claim an endpoint-level network allowlist;
-- `LOCAL_COMMAND` owns one user-requested command in a review task's or
-  development task's working copy ([Code & Tests](code-tests.md) §11), selected
-  only by `ProcessOwner.Kind.LOCAL_RUN`. ByteQuay builds its
-  argv: a fixed `/bin/bash -c` wrapper around the worktree's Maven wrapper,
-  with the test selector as positional arguments. It runs with the user's
-  login-shell environment minus every `BYTEQUAY_*` variable, and under no
-  provider sandbox or approval ([Code & Tests](code-tests.md) §5.3);
-- `TASK_EXEC_SERVER` is retained only to recover markers written by the
-  superseded loopback-executor design; no current launch selects it.
+- `APP_SERVER`, `CLAUDE_TURN`, `DISCUSSION`, and `CLI_PROBE` own provider
+  control processes: one task's App Server, one Claude turn process, one
+  read-only discussion session, or a short-lived control command. None claims
+  an endpoint-level network allowlist;
+- `LOCAL_RUN` owns one user-requested command in a review task's or
+  development task's working copy ([Code & Tests](code-tests.md) §11).
+  ByteQuay builds its argv: a fixed `/bin/bash -c` wrapper around the
+  worktree's Maven wrapper, with the test selector as positional arguments. It
+  runs with the user's login-shell environment minus every `BYTEQUAY_*`
+  variable, and under no provider sandbox or approval
+  ([Code & Tests](code-tests.md) §5.3).
 
-Within `PROVIDER_CONTROL`, `CLI_PROBE` identifies short-lived provider control
-commands and validated text-only helpers. The exact
-`APP_SERVER/codex-model-catalog` owner is also control-only. Every other
-`APP_SERVER` owner, every `CLAUDE_TURN` owner, and every `LOCAL_RUN` owner is
-task-worktree-capable.
+`CLI_PROBE` identifies short-lived provider control commands and validated
+text-only helpers. The exact `APP_SERVER/codex-model-catalog` owner is also
+control-only. Every other `APP_SERVER` owner, every `CLAUDE_TURN` owner, and
+every `LOCAL_RUN` owner is task-worktree-capable.
 Keeping this classification on existing owner values preserves durable marker
 and SQLite compatibility without adding a lifecycle state.
 
-Adding another profile requires a design change and compatibility fixture. A
-caller cannot supply raw Seatbelt rules, broaden writable roots, or turn a
-provider approval into a different execution profile.
+Adding another owner role requires a design change and compatibility fixture.
+A caller cannot supply raw Seatbelt rules, broaden writable roots, or turn a
+provider approval into a different runtime boundary.
 
 `prepare(...)` and `PreparedProcess.start(...)` use a gated-launch protocol
 instead of a spawn-then-record race:
@@ -2301,9 +2299,7 @@ any other experimental method.
 
 The launch owner is the task id, so a recovered orphan is attributable to the
 task that leaked it rather than to a single process shared by the backend.
-`ProcessOwner.Kind.APP_SERVER` carries that id; the persisted
-`LaunchOwnerKind.TASK_EXEC_SERVER` constant is retained only so launch markers
-and `agent_process_launch` rows written before this change still deserialize.
+`ProcessOwner.Kind.APP_SERVER` carries that id.
 
 A per-turn session owns its task's process. After root completion and bounded
 recursive provider reconciliation, or after that reconciliation fails, the
@@ -2666,16 +2662,17 @@ invent missing provider status or historical identities. An unresolved receipt
 keeps its existing task-local recovery claim and worktree. A crash after the
 proof uses that same receipt to finish cleanup; it never replays the user input.
 
-Legacy marker formats 1 and 2 remain readable. An absent descendant map means
-incomplete tracking; an empty map means no descendants were recorded. Neither
-implies `workFinished`. Do not backfill proof into an unresolved old launch or
-reopen already-settled tasks merely to manufacture new receipts. The upgrade
-adds no task lifecycle state or whole-workspace migration gate.
+Recovery reads only the current launch-marker format. A marker in any other
+format, or one without its descendant map, is undecodable and fails closed as
+unverifiable. An empty map means no descendants were recorded, and incomplete
+tracking is an explicit flag; neither implies `workFinished`. Do not backfill
+proof into an unresolved old launch or reopen already-settled tasks merely to
+manufacture new receipts.
 
 An unresolved old run can recover after an independently verified operating
-system restart. Format-4 launch markers retain an optional macOS boot-session
-UUID. For an older marker without that observation, recovery durably records
-the current `kern.bootsessionuuid` in the existing marker and retains its claim.
+system restart. Launch markers retain an optional macOS boot-session UUID. For
+a marker without that observation, recovery durably records the current
+`kern.bootsessionuuid` in the existing marker and retains its claim.
 Repeated Stop or a backend/app restart during that same boot cannot release it.
 Only a later, valid, different boot-session UUID establishes that every process
 which could have existed at the recorded observation has stopped. Recovery
@@ -4338,8 +4335,10 @@ process exit.
 
 ### 8.3 Capability differences
 
-`AgentCapabilities` advertises event fidelity rather than one generic
-"streaming" boolean:
+Providers differ in event fidelity rather than in one generic "streaming"
+boolean. `AgentCapabilities` advertises only the differences that services or
+the UI act on: structured checklists, nested agent activity, steering,
+permission policies, and attachment media types.
 
 | Capability | Codex App Server | Claude Code CLI |
 | --- | --- | --- |
@@ -4393,7 +4392,6 @@ Every envelope has:
 | `source.providerItemId` | Opaque item key for deltas and authoritative completion |
 | `type` | Typed payload family listed below |
 | `occurredAt` | Backend receipt time; used for ByteQuay timing |
-| `source.providerOccurredAt` | Optional source timestamp; never required for ordering |
 | `source.providerEventId` | Optional provider event key; ByteQuay's `eventId` remains authoritative |
 | `payload` | Type-specific normalized data or a typed relative blob reference |
 

@@ -233,7 +233,7 @@ async function localReviewExperiments(reloadPrivate = false): Promise<{ name: st
   const pr: PullRequestDto = {
     id: 1, repo: 'acme/demo', number: 1, title: 'Development result', author: 'alice', htmlUrl: 'https://github.com/acme/demo/pull/1',
     createdAt: '', updatedAt: '', origin: 'AUTHORED', labels: [], labelColors: null, draft: true, viewedAt: null, reviewedAt: null,
-    handledAction: null, requestedReviewers: [], ciStatus: null, additions: 1, deletions: 0, commentCount: 0, attentionReason: null,
+    handledAction: null, requestedReviewers: [], ciStatus: null, additions: 1, deletions: 0, commentCount: 0,
     state: 'open', mergeable: null, mergeableState: null, headPushedAt: null, headRef: task.generatedBranch,
   };
   bridge.getAgentTask = async () => task;

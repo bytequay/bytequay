@@ -48,7 +48,7 @@ const page = (first: number, last: number): AgentEventEnvelope[] => Array.from({
   occurredAt: '2026-09-08T00:00:00Z',
   source: {
     providerThreadId: 'thread', providerTurnId: 'turn', providerItemId: `item-${first + offset}`,
-    providerEventId: null, parentProviderThreadId: null, logicalAgentPath: '/', providerOccurredAt: null,
+    providerEventId: null, parentProviderThreadId: null, logicalAgentPath: '/',
   },
   type: 'assistant_message',
   payload: { messageKind: 'COMMENTARY', phase: 'FINAL', text: `Message ${first + offset}` },

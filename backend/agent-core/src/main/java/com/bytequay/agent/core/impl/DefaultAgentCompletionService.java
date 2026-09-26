@@ -21,8 +21,6 @@ import com.bytequay.agent.core.AgentMetrics;
 import com.bytequay.agent.core.AgentMetricsService;
 import com.bytequay.agent.core.AgentResourceService;
 import com.bytequay.agent.core.AgentTask;
-import com.bytequay.agent.core.AgentTaskNotFoundException;
-import com.bytequay.agent.core.CleanupResult;
 import com.bytequay.agent.core.CleanupState;
 import com.bytequay.agent.core.CodeGraphService;
 import com.bytequay.agent.core.CompleteAgentTaskCommand;
@@ -61,6 +59,8 @@ import static java.util.Objects.requireNonNull;
 public final class DefaultAgentCompletionService
         implements AgentCompletionService
 {
+    private static final System.Logger log = System.getLogger(DefaultAgentCompletionService.class.getName());
+
     private final AgentTaskStore taskStore;
     private final AgentTurnStore turnStore;
     private final QueuedInputStore queueStore;
@@ -137,7 +137,7 @@ public final class DefaultAgentCompletionService
     private AgentTask claimCompletion(TaskId taskId)
     {
         synchronized (runtimeRegistry.taskLock(taskId)) {
-            AgentTask task = requireTask(taskId);
+            AgentTask task = taskStore.require(taskId);
             if (task.state() == TaskState.COMPLETED) {
                 return task;
             }
@@ -193,7 +193,7 @@ public final class DefaultAgentCompletionService
         Instant deleteAfter = completedAt.plus(retentionPeriod.get());
         EventId eventId = EventId.random();
         return unitOfWork.execute(() -> {
-            AgentTask current = requireTask(taskId);
+            AgentTask current = taskStore.require(taskId);
             AgentTask terminal = taskStore.update(current.complete(summary, completedAt, deleteAfter, claim));
             outboxStore.insert(pendingLifecycle(
                     eventId,
@@ -227,7 +227,7 @@ public final class DefaultAgentCompletionService
             return eventCommitter.commit(
                     pendingLifecycle(EventId.random(), taskId, Optional.empty(), AgentEventPayload.LifecyclePhase.TASK_FAILED, reason, failedAt),
                     () -> {
-                        AgentTask current = requireTask(taskId);
+                        AgentTask current = taskStore.require(taskId);
                         settleQueueForFailedTask(taskId, failedAt);
                         // The worktree is kept, not cleaned: the reason this task is stuck is that
                         // something may still have been writing to it, and that evidence is the point.
@@ -269,7 +269,7 @@ public final class DefaultAgentCompletionService
      */
     private void requireAbandonable(TaskId taskId)
     {
-        AgentTask task = requireTask(taskId);
+        AgentTask task = taskStore.require(taskId);
         if (task.state().terminal()) {
             throw new AgentConflictException("Task is already terminal: " + taskId);
         }
@@ -286,7 +286,7 @@ public final class DefaultAgentCompletionService
     {
         synchronized (runtimeRegistry.taskLock(taskId)) {
             suppressFailure(failure, () -> unitOfWork.execute(() -> {
-                AgentTask task = requireTask(taskId);
+                AgentTask task = taskStore.require(taskId);
                 if (!task.state().terminal() && task.worktreeMutationClaim().equals(Optional.of(claim))) {
                     taskStore.update(task.releaseWorktreeMutation(claim, Instant.now(clock)));
                 }
@@ -300,7 +300,7 @@ public final class DefaultAgentCompletionService
     {
         requireNonNull(taskId, "taskId is null");
         synchronized (runtimeRegistry.taskLock(taskId)) {
-            AgentTask task = requireTask(taskId);
+            AgentTask task = taskStore.require(taskId);
             if (!task.state().terminal()) {
                 throw new AgentConflictException("Cannot clean up a live task worktree: " + taskId);
             }
@@ -318,7 +318,7 @@ public final class DefaultAgentCompletionService
     private void recordFailedWorktreeCleanup(TaskId taskId, RuntimeException failure)
     {
         suppressFailure(failure, () -> {
-            AgentTask current = requireTask(taskId);
+            AgentTask current = taskStore.require(taskId);
             if (current.worktreeRemovedAt().isEmpty()) {
                 taskStore.update(current.withWorktreeCleanupAttemptAt(Instant.now(clock)));
             }
@@ -326,24 +326,19 @@ public final class DefaultAgentCompletionService
     }
 
     @Override
-    public CleanupResult cleanup(TaskId taskId)
+    public void cleanup(TaskId taskId)
     {
         requireNonNull(taskId, "taskId is null");
         synchronized (runtimeRegistry.taskLock(taskId)) {
-            AgentTask task = requireTask(taskId);
+            AgentTask task = taskStore.require(taskId);
             if (!task.state().terminal()) {
                 throw new AgentConflictException("Cannot clean up a live task: " + taskId);
             }
             if (task.cleanupState() == CleanupState.DELETED) {
-                return new CleanupResult(taskId, CleanupState.DELETED, Optional.of(task.updatedAt()), Optional.empty());
+                return;
             }
-
-            Instant now = Instant.now(clock);
-            if (task.deleteAfter().orElseThrow().isAfter(now)) {
+            if (task.deleteAfter().orElseThrow().isAfter(Instant.now(clock))) {
                 throw new AgentConflictException("Task retention deadline has not passed: " + taskId);
-            }
-            if (task.cleanupState() == CleanupState.RETAINED) {
-                task = taskStore.update(task.withCleanupState(CleanupState.DELETE_DUE, Optional.empty(), now));
             }
             try {
                 drainPending(outboxStore, eventService, taskId);
@@ -351,19 +346,11 @@ public final class DefaultAgentCompletionService
                 resourceService.delete(taskId);
             }
             catch (RuntimeException failure) {
-                AgentTask retry = taskStore.update(task.withCleanupState(
-                        CleanupState.RETRY_PENDING,
-                        Optional.of(message(failure)),
-                        Instant.now(clock)));
-                return new CleanupResult(taskId, retry.cleanupState(), Optional.empty(), retry.cleanupFailure());
+                taskStore.update(task.withCleanupState(CleanupState.RETRY_PENDING, Optional.of(message(failure)), Instant.now(clock)));
+                log.log(System.Logger.Level.WARNING, "Agent runtime cleanup remains pending for task " + taskId + ": " + message(failure));
+                return;
             }
-            AgentTask deleted = taskStore.update(
-                    task.withCleanupState(CleanupState.DELETED, Optional.empty(), Instant.now(clock)));
-            return new CleanupResult(
-                    taskId,
-                    CleanupState.DELETED,
-                    Optional.of(deleted.updatedAt()),
-                    Optional.empty());
+            taskStore.update(task.withCleanupState(CleanupState.DELETED, Optional.empty(), Instant.now(clock)));
         }
     }
 
@@ -382,7 +369,7 @@ public final class DefaultAgentCompletionService
             if (!deletable(taskId)) {
                 return;
             }
-            AgentTask task = requireTask(taskId);
+            AgentTask task = taskStore.require(taskId);
             TaskResources resources = resourceService.pathsForDeletion(taskId);
             task.taskWorktree().ifPresent(worktreeService::delete);
             // Wait for an in-flight graph preparation before removing its runtime files.
@@ -435,11 +422,6 @@ public final class DefaultAgentCompletionService
         // Only after the worktree is gone: a refused cleanup keeps the index for the retry, and retention covers the rest.
         task.taskWorktree().ifPresent(ignored -> codeGraph.deleteIndex(resourceService.require(task.id())));
         return taskStore.update(task.withWorktreeRemovedAt(Instant.now(clock)));
-    }
-
-    private AgentTask requireTask(TaskId taskId)
-    {
-        return taskStore.find(taskId).orElseThrow(() -> new AgentTaskNotFoundException(taskId));
     }
 
     private static TaskCompletion completion(AgentTask task)

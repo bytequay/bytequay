@@ -97,7 +97,7 @@ function pullRequest(repo: string, number: number, title: string): PullRequestDt
     id: number, repo, number, title, author: 'alice', htmlUrl: `https://github.com/${repo}/pull/${number}`,
     createdAt: '2026-09-01T00:00:00Z', updatedAt: '2026-09-11T00:00:00Z', origin: 'REVIEW_REQUESTED',
     labels: [], labelColors: null, draft: false, viewedAt: null, reviewedAt: null, handledAction: null, requestedReviewers: [],
-    ciStatus: null, additions: 0, deletions: 0, commentCount: 0, attentionReason: null, state: 'open',
+    ciStatus: null, additions: 0, deletions: 0, commentCount: 0, state: 'open',
     mergeable: null, mergeableState: null, headPushedAt: null, headRef: 'feature',
   };
 }

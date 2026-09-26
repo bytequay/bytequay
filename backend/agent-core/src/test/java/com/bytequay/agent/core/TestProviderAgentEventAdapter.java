@@ -33,9 +33,10 @@ class TestProviderAgentEventAdapter
         ProviderAgentEventSource source = new ProviderAgentEventSource(
                 Optional.of("root-thread"), Optional.empty(), Optional.of("/"), Optional.of("turn-1"), Optional.of("report-1"));
         ProviderAgentEvent.DevelopmentResult result = new ProviderAgentEvent.DevelopmentResult(
-                Optional.of("event-1"), Optional.empty(),
+                Optional.of("event-1"),
                 new DevelopmentResultReport(false, Optional.of("Which approach?"),
-                        Optional.of(new DevelopmentLearningSummary("Purpose", ImmutableList.of(), Optional.empty(), "Tests", ImmutableList.of()))), source);
+                        Optional.of(new DevelopmentLearningSummary("Purpose", ImmutableList.of(), Optional.empty(), "Tests", ImmutableList.of()))),
+                source);
 
         ProviderAgentEventAdapter.CanonicalEvent canonical = ProviderAgentEventAdapter.adapt(result);
 
@@ -57,10 +58,8 @@ class TestProviderAgentEventAdapter
                 Optional.of("message-1"));
         ProviderAgentEvent.Message message = new ProviderAgentEvent.Message(
                 Optional.of("event-1"),
-                Optional.empty(),
                 ProviderAgentEvent.MessagePhase.FINAL,
                 "done",
-                Optional.empty(),
                 source);
 
         AgentEventSource adapted = ProviderAgentEventAdapter.adapt(message).source();
@@ -78,21 +77,18 @@ class TestProviderAgentEventAdapter
     {
         ProviderAgentEvent.Tool tool = new ProviderAgentEvent.Tool(
                 Optional.empty(),
-                Optional.empty(),
-                "tool-call-1",
                 "read",
                 ProviderAgentEvent.ActivityState.STARTED,
                 "reading",
-                Optional.empty());
+                ProviderAgentEventSource.item("tool-call-1"));
         ProviderAgentEvent.Command command = new ProviderAgentEvent.Command(
                 Optional.empty(),
-                Optional.empty(),
-                "command-1",
                 ProviderAgentEvent.ActivityState.COMPLETED,
                 ImmutableList.of("git", "status"),
                 Optional.empty(),
                 Optional.of(0),
-                false);
+                false,
+                ProviderAgentEventSource.item("command-1"));
 
         assertThat(ProviderAgentEventAdapter.adapt(tool).source().providerItemId()).contains("tool-call-1");
         assertThat(ProviderAgentEventAdapter.adapt(command).source().providerItemId()).contains("command-1");
@@ -103,19 +99,15 @@ class TestProviderAgentEventAdapter
     {
         ProviderAgentEvent.Message summary = new ProviderAgentEvent.Message(
                 Optional.of("event-1"),
-                Optional.empty(),
                 ProviderAgentEvent.MessageKind.REASONING_SUMMARY,
                 ProviderAgentEvent.MessagePhase.FINAL,
                 "why",
-                Optional.empty(),
                 ProviderAgentEventSource.root());
         assertThat(((AgentEventPayload.AssistantMessage) ProviderAgentEventAdapter.adapt(summary).payload()).messageKind())
                 .isEqualTo(ProviderAgentEvent.MessageKind.REASONING_SUMMARY);
 
         ProviderAgentEvent.Command command = new ProviderAgentEvent.Command(
                 Optional.of("event-2"),
-                Optional.empty(),
-                "exec-1",
                 ProviderAgentEvent.ActivityState.COMPLETED,
                 ImmutableList.of("rg TODO"),
                 Optional.empty(),
@@ -141,12 +133,9 @@ class TestProviderAgentEventAdapter
 
         ProviderAgentEvent.Tool tool = new ProviderAgentEvent.Tool(
                 Optional.empty(),
-                Optional.empty(),
-                "tool-1",
                 "Web search",
                 ProviderAgentEvent.ActivityState.COMPLETED,
                 "trino",
-                Optional.empty(),
                 ProviderAgentEventSource.item("tool-1"),
                 Optional.of(Duration.ofMillis(20)));
         assertThat(((AgentEventPayload.ToolActivity) ProviderAgentEventAdapter.adapt(tool).payload()).durationMs())

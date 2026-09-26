@@ -96,7 +96,6 @@ class TestSqliteWorkspaceCredentialStores
 
         assertThat(apiKeys.findAll()).containsExactly(key);
         assertThat(apiKeys.findById(key.id())).contains(key);
-        assertThat(apiKeys.findSecret("personal-deepseek")).contains("sk-secret");
         assertThat(apiKeys.findSecretById(key.id())).contains("sk-secret");
         assertThatThrownBy(() -> apiKeys.save(
                 new ModelApiKey("personal-deepseek", "DeepSeek", "sk-ot••••••ther", createdAt), "sk-other"))

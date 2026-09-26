@@ -42,7 +42,23 @@ public sealed interface AgentEventPayload
         AgentEventPayload.UsageUpdated, AgentEventPayload.Lifecycle, AgentEventPayload.Error,
         AgentEventPayload.DevelopmentResult
 {
-    Kind kind();
+    default Kind kind()
+    {
+        return switch (this) {
+            case UserMessage ignored -> Kind.USER_MESSAGE;
+            case AssistantMessage ignored -> Kind.ASSISTANT_MESSAGE;
+            case DevelopmentResult ignored -> Kind.DEVELOPMENT_RESULT;
+            case PlanUpdated ignored -> Kind.PLAN_UPDATED;
+            case CommandActivity ignored -> Kind.COMMAND;
+            case FileActivity ignored -> Kind.FILE_CHANGE;
+            case ToolActivity ignored -> Kind.TOOL;
+            case ApprovalRequested ignored -> Kind.APPROVAL_REQUESTED;
+            case ApprovalResolved ignored -> Kind.APPROVAL_RESOLVED;
+            case UsageUpdated ignored -> Kind.USAGE;
+            case Lifecycle ignored -> Kind.LIFECYCLE;
+            case Error ignored -> Kind.ERROR;
+        };
+    }
 
     record UserMessage(String text, List<AgentAttachmentReference> attachments, DeliveryKind deliveryKind)
             implements AgentEventPayload
@@ -52,12 +68,6 @@ public sealed interface AgentEventPayload
             checkNotBlank(text, "text");
             attachments = ImmutableList.copyOf(attachments);
             requireNonNull(deliveryKind, "deliveryKind is null");
-        }
-
-        @Override
-        public Kind kind()
-        {
-            return Kind.USER_MESSAGE;
         }
     }
 
@@ -70,12 +80,6 @@ public sealed interface AgentEventPayload
             requireNonNull(phase, "phase is null");
             requireNonNull(text, "text is null");
         }
-
-        @Override
-        public Kind kind()
-        {
-            return Kind.ASSISTANT_MESSAGE;
-        }
     }
 
     record PlanUpdated(List<PlanItem> items)
@@ -84,12 +88,6 @@ public sealed interface AgentEventPayload
         public PlanUpdated
         {
             items = ImmutableList.copyOf(items);
-        }
-
-        @Override
-        public Kind kind()
-        {
-            return Kind.PLAN_UPDATED;
         }
     }
 
@@ -102,20 +100,9 @@ public sealed interface AgentEventPayload
             this(report.readyForDelivery(), report.message(), report.learningSummary());
         }
 
-        public DevelopmentResult(boolean readyForDelivery, Optional<String> message)
-        {
-            this(readyForDelivery, message, Optional.empty());
-        }
-
         public DevelopmentResult
         {
             new DevelopmentResultReport(readyForDelivery, message, learningSummary);
-        }
-
-        @Override
-        public Kind kind()
-        {
-            return Kind.DEVELOPMENT_RESULT;
         }
     }
 
@@ -132,31 +119,6 @@ public sealed interface AgentEventPayload
             Optional<String> description)
             implements AgentEventPayload
     {
-        /** A command that runs in the foreground; a stored row written before the flag existed reads the same way. */
-        public CommandActivity(
-                ActivityState state,
-                List<String> argv,
-                Optional<String> output,
-                Optional<Integer> exitCode,
-                boolean truncated,
-                Optional<String> cwd,
-                Optional<Long> durationMs,
-                List<CommandAction> actions)
-        {
-            this(state, argv, output, exitCode, truncated, cwd, durationMs, actions, false, Optional.empty());
-        }
-
-        /** The shape stored before the working directory, duration, and parsed actions were carried. */
-        public CommandActivity(
-                ActivityState state,
-                List<String> argv,
-                Optional<String> output,
-                Optional<Integer> exitCode,
-                boolean truncated)
-        {
-            this(state, argv, output, exitCode, truncated, Optional.empty(), Optional.empty(), ImmutableList.of());
-        }
-
         public CommandActivity
         {
             requireNonNull(state, "state is null");
@@ -170,12 +132,6 @@ public sealed interface AgentEventPayload
             // A row stored before actions were carried has no field for them, which reads as none.
             actions = actions == null ? ImmutableList.of() : ImmutableList.copyOf(actions);
             checkOptionalText(description, "description");
-        }
-
-        @Override
-        public Kind kind()
-        {
-            return Kind.COMMAND;
         }
     }
 
@@ -195,23 +151,11 @@ public sealed interface AgentEventPayload
             Path path = Path.of(relativePath);
             checkArgument(!path.isAbsolute() && !path.normalize().startsWith(".."), "relativePath is unsafe");
         }
-
-        @Override
-        public Kind kind()
-        {
-            return Kind.FILE_CHANGE;
-        }
     }
 
     record ToolActivity(String name, ActivityState state, String summary, Optional<Long> durationMs)
             implements AgentEventPayload
     {
-        /** The shape stored before a tool's duration was carried. */
-        public ToolActivity(String name, ActivityState state, String summary)
-        {
-            this(name, state, summary, Optional.empty());
-        }
-
         public ToolActivity
         {
             checkNotBlank(name, "name");
@@ -219,12 +163,6 @@ public sealed interface AgentEventPayload
             requireNonNull(summary, "summary is null");
             requireNonNull(durationMs, "durationMs is null");
             durationMs.ifPresent(value -> checkArgument(value >= 0, "durationMs is negative"));
-        }
-
-        @Override
-        public Kind kind()
-        {
-            return Kind.TOOL;
         }
     }
 
@@ -251,12 +189,6 @@ public sealed interface AgentEventPayload
             checkArgument(actionable == !availableDecisions.isEmpty(),
                     "availableDecisions must be non-empty exactly when actionable");
         }
-
-        @Override
-        public Kind kind()
-        {
-            return Kind.APPROVAL_REQUESTED;
-        }
     }
 
     record ApprovalResolved(String approvalId, ApprovalOutcome outcome, boolean forTask)
@@ -267,12 +199,6 @@ public sealed interface AgentEventPayload
             checkNotBlank(approvalId, "approvalId");
             requireNonNull(outcome, "outcome is null");
             checkArgument(!forTask || outcome == ApprovalOutcome.ALLOWED, "only an allowed approval can cover the task");
-        }
-
-        @Override
-        public Kind kind()
-        {
-            return Kind.APPROVAL_RESOLVED;
         }
     }
 
@@ -291,12 +217,6 @@ public sealed interface AgentEventPayload
             checkArgument(inputTokens >= 0 && cachedInputTokens >= 0 && outputTokens >= 0, "token counts must not be negative");
             checkArgument(cost.stream().noneMatch(value -> value.signum() < 0), "cost must not be negative");
         }
-
-        @Override
-        public Kind kind()
-        {
-            return Kind.USAGE;
-        }
     }
 
     record Lifecycle(LifecyclePhase phase, String message)
@@ -306,12 +226,6 @@ public sealed interface AgentEventPayload
         {
             requireNonNull(phase, "phase is null");
             requireNonNull(message, "message is null");
-        }
-
-        @Override
-        public Kind kind()
-        {
-            return Kind.LIFECYCLE;
         }
     }
 
@@ -323,28 +237,34 @@ public sealed interface AgentEventPayload
             checkNotBlank(code, "code");
             checkNotBlank(message, "message");
         }
-
-        @Override
-        public Kind kind()
-        {
-            return Kind.ERROR;
-        }
     }
 
     enum Kind
     {
-        USER_MESSAGE,
-        ASSISTANT_MESSAGE,
-        DEVELOPMENT_RESULT,
-        PLAN_UPDATED,
-        COMMAND,
-        FILE_CHANGE,
-        TOOL,
-        APPROVAL_REQUESTED,
-        APPROVAL_RESOLVED,
-        USAGE,
-        LIFECYCLE,
-        ERROR
+        USER_MESSAGE(UserMessage.class),
+        ASSISTANT_MESSAGE(AssistantMessage.class),
+        DEVELOPMENT_RESULT(DevelopmentResult.class),
+        PLAN_UPDATED(PlanUpdated.class),
+        COMMAND(CommandActivity.class),
+        FILE_CHANGE(FileActivity.class),
+        TOOL(ToolActivity.class),
+        APPROVAL_REQUESTED(ApprovalRequested.class),
+        APPROVAL_RESOLVED(ApprovalResolved.class),
+        USAGE(UsageUpdated.class),
+        LIFECYCLE(Lifecycle.class),
+        ERROR(Error.class);
+
+        private final Class<? extends AgentEventPayload> type;
+
+        Kind(Class<? extends AgentEventPayload> type)
+        {
+            this.type = type;
+        }
+
+        public Class<? extends AgentEventPayload> type()
+        {
+            return type;
+        }
     }
 
     enum DeliveryKind

@@ -31,21 +31,13 @@ import com.bytequay.app.service.settings.AgentModelSetting;
 import com.bytequay.app.service.settings.AgentModelType;
 import com.bytequay.app.service.settings.AgentSkillService;
 import com.bytequay.app.service.settings.ModelSettingsService;
-import com.bytequay.core.domain.ModelApiKey;
 import com.bytequay.core.domain.RepoRef;
 import com.bytequay.core.domain.Workspace;
-import com.bytequay.core.store.ModelApiKeyStore;
 import com.bytequay.core.store.WorkspaceStore;
-import com.google.common.collect.ImmutableList;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 import org.mockito.ArgumentCaptor;
-import org.springframework.http.HttpHeaders;
-import org.springframework.http.HttpMethod;
-import org.springframework.http.MediaType;
-import org.springframework.test.web.client.MockRestServiceServer;
-import org.springframework.web.client.RestClient;
 
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -56,23 +48,13 @@ import java.util.concurrent.CompletableFuture;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
-import static org.hamcrest.Matchers.containsString;
-import static org.hamcrest.Matchers.not;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
-import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
-import static org.springframework.test.web.client.ExpectedCount.once;
-import static org.springframework.test.web.client.match.MockRestRequestMatchers.content;
-import static org.springframework.test.web.client.match.MockRestRequestMatchers.header;
-import static org.springframework.test.web.client.match.MockRestRequestMatchers.jsonPath;
-import static org.springframework.test.web.client.match.MockRestRequestMatchers.method;
-import static org.springframework.test.web.client.match.MockRestRequestMatchers.requestTo;
-import static org.springframework.test.web.client.response.MockRestResponseCreators.withSuccess;
 
 class TestBetterWordsService
 {
@@ -94,9 +76,8 @@ class TestBetterWordsService
             throws Exception
     {
         ModelSettingsService settings = mock(ModelSettingsService.class);
-        when(settings.agentModel(eq(AgentModelType.REVIEW), eq(Optional.of("ws-1")))).thenReturn(
-                new AgentModelSetting(AgentModelType.REVIEW, true, "claude", "Claude", "sonnet", "Sonnet", Optional.of("Low")));
-        ModelApiKeyStore keys = mock(ModelApiKeyStore.class);
+        when(settings.agentModel(eq(AgentModelType.DEVELOPMENT), eq(Optional.of("ws-1")))).thenReturn(
+                new AgentModelSetting(AgentModelType.DEVELOPMENT, true, "claude", "Claude", "sonnet", "Sonnet", Optional.of("Low")));
         AgentDriverRegistry drivers = mock(AgentDriverRegistry.class);
         AgentResourceService resources = mock(AgentResourceService.class);
         Path runtime = temporaryDirectory.resolve("runtime");
@@ -118,16 +99,10 @@ class TestBetterWordsService
                 AgentTurnResult.State.COMPLETED,
                 Optional.of("Could we rename this for clarity?"),
                 Optional.empty(),
-                Duration.ofMillis(20))));
+                Duration.ofMillis(20),
+                true)));
 
-        BetterWordsService service = service(
-                settings,
-                workspaceStore("ws-1", RepoRef.of("owner", "repo")),
-                keys,
-                drivers,
-                resources,
-                unusedClient(),
-                unusedClient());
+        BetterWordsService service = service(settings, workspaceStore("ws-1", RepoRef.of("owner", "repo")), drivers, resources);
         assertThat(service.improve("rename this var pls", REPOSITORY, Optional.of("ws-1")))
                 .isEqualTo("Could we rename this for clarity?");
 
@@ -157,7 +132,37 @@ class TestBetterWordsService
         ArgumentCaptor<TaskId> taskId = ArgumentCaptor.forClass(TaskId.class);
         verify(resources).allocate(taskId.capture());
         verify(resources).delete(taskId.getValue());
-        verify(settings).agentModel(AgentModelType.REVIEW, Optional.of("ws-1"));
+        verify(settings).agentModel(AgentModelType.DEVELOPMENT, Optional.of("ws-1"));
+    }
+
+    @Test
+    void rewritesOnTheWorkspaceDevelopmentDefaultEvenWhenItIsADeepSeekKeyLane()
+            throws Exception
+    {
+        ModelSettingsService settings = mock(ModelSettingsService.class);
+        when(settings.agentModel(eq(AgentModelType.DEVELOPMENT), eq(Optional.of("ws-1")))).thenReturn(developmentModel("deepseek-key-7", "deepseek-v4-pro"));
+        AgentResourceService resources = mock(AgentResourceService.class);
+        Path runtime = temporaryDirectory.resolve("deepseek-runtime");
+        Files.createDirectories(runtime.resolve("provider"));
+        when(resources.allocate(any())).thenReturn(new TaskResources(runtime, runtime.resolve("events.jsonl"), runtime.resolve("blobs"), runtime.resolve("provider")));
+        AgentDriverRegistry drivers = mock(AgentDriverRegistry.class);
+        AgentDriver driver = mock(AgentDriver.class);
+        AgentSession session = mock(AgentSession.class);
+        RunningTurn turn = mock(RunningTurn.class);
+        when(drivers.require(new AgentLaneId("deepseek-key-7"))).thenReturn(driver);
+        when(driver.open(any(), any())).thenReturn(session);
+        when(session.start(any())).thenReturn(turn);
+        when(turn.completion()).thenReturn(CompletableFuture.completedFuture(
+                new AgentTurnResult(AgentTurnResult.State.COMPLETED, Optional.of("Could you explain this change?"), Optional.empty(), Duration.ofMillis(20), true)));
+
+        BetterWordsService service = service(settings, workspaceStore("ws-1", RepoRef.of("owner", "repo")), drivers, resources);
+
+        assertThat(service.improve("why u do this?", REPOSITORY, Optional.of("ws-1"))).isEqualTo("Could you explain this change?");
+        ArgumentCaptor<AgentSessionContext> context = ArgumentCaptor.forClass(AgentSessionContext.class);
+        verify(driver).open(context.capture(), any(AgentEventSink.class));
+        assertThat(context.getValue().model()).contains("deepseek-v4-pro");
+        verify(drivers).require(new AgentLaneId("deepseek-key-7"));
+        verify(settings, never()).agentModel(eq(AgentModelType.REVIEW), any());
     }
 
     @Test
@@ -165,7 +170,7 @@ class TestBetterWordsService
             throws Exception
     {
         ModelSettingsService settings = mock(ModelSettingsService.class);
-        when(settings.agentModel(eq(AgentModelType.REVIEW), any())).thenReturn(reviewModel("claude", "sonnet"));
+        when(settings.agentModel(eq(AgentModelType.DEVELOPMENT), any())).thenReturn(developmentModel("claude", "sonnet"));
         AgentDriverRegistry drivers = mock(AgentDriverRegistry.class);
         AgentResourceService resources = mock(AgentResourceService.class);
         Path runtime = temporaryDirectory.resolve("retained-runtime");
@@ -187,17 +192,11 @@ class TestBetterWordsService
                 AgentTurnResult.State.COMPLETED,
                 Optional.of("Rewritten comment"),
                 Optional.empty(),
-                Duration.ofMillis(20))));
+                Duration.ofMillis(20),
+                true)));
         doThrow(new AgentUnavailableException("unverifiable process tree")).when(session).close();
 
-        BetterWordsService service = service(
-                settings,
-                mock(WorkspaceStore.class),
-                mock(ModelApiKeyStore.class),
-                drivers,
-                resources,
-                unusedClient(),
-                unusedClient());
+        BetterWordsService service = service(settings, mock(WorkspaceStore.class), drivers, resources);
 
         assertThatThrownBy(() -> service.improve("rewrite this", REPOSITORY, Optional.empty()))
                 .isInstanceOf(AgentUnavailableException.class)
@@ -206,165 +205,11 @@ class TestBetterWordsService
     }
 
     @Test
-    void usesOpenAiResponsesApiWithTheSelectedModelAndKey()
-    {
-        ModelSettingsService settings = mock(ModelSettingsService.class);
-        when(settings.agentModel(eq(AgentModelType.REVIEW), any())).thenReturn(reviewModel("key:work", "gpt-5.2-mini"));
-        ModelApiKeyStore keys = apiKeyStore("work", "OpenAI", "sk-openai-secret");
-
-        RestClient.Builder openAiBuilder = RestClient.builder().baseUrl("https://openai.test");
-        MockRestServiceServer server = MockRestServiceServer.bindTo(openAiBuilder).build();
-        server.expect(once(), requestTo("https://openai.test/v1/responses"))
-                .andExpect(method(HttpMethod.POST))
-                .andExpect(header(HttpHeaders.AUTHORIZATION, "Bearer sk-openai-secret"))
-                .andExpect(content().contentType(MediaType.APPLICATION_JSON))
-                .andExpect(jsonPath("$.instructions", containsString("Use plain language.")))
-                .andExpect(jsonPath("$.instructions", containsString("Return only the rewritten comment")))
-                .andExpect(jsonPath("$.instructions", containsString("These rewrite requirements take precedence over style preferences")))
-                .andExpect(content().json("""
-                        {
-                          "model": "gpt-5.2-mini",
-                          "input": "fix it asap",
-                          "max_output_tokens": 1200,
-                          "store": false
-                        }
-                        """, false))
-                .andRespond(withSuccess("""
-                        {"status":"completed","output":[{"content":[{"type":"output_text","text":"Could we address this soon?"}]}]}
-                        """, MediaType.APPLICATION_JSON));
-        server.expect(once(), requestTo("https://openai.test/v1/responses"))
-                .andExpect(jsonPath("$.instructions", containsString("Use the updated terminology.")))
-                .andExpect(jsonPath("$.instructions", not(containsString("Use plain language."))))
-                .andExpect(jsonPath("$.instructions", containsString("Return only the rewritten comment")))
-                .andRespond(withSuccess("""
-                        {"status":"completed","output_text":"Please resolve this soon."}
-                        """, MediaType.APPLICATION_JSON));
-
-        BetterWordsService service = service(
-                settings,
-                workspaceStore("ws-without-override", RepoRef.of("owner", "repo")),
-                keys,
-                mock(AgentDriverRegistry.class),
-                mock(AgentResourceService.class),
-                openAiBuilder.build(),
-                unusedClient());
-        assertThat(service.improve("fix it asap", REPOSITORY, Optional.of("ws-without-override")))
-                .isEqualTo("Could we address this soon?");
-        when(skills.instructions()).thenReturn("Use the updated terminology.");
-        assertThat(service.improve("fix it asap", REPOSITORY, Optional.of("ws-without-override")))
-                .isEqualTo("Please resolve this soon.");
-        verify(settings, times(2)).agentModel(eq(AgentModelType.REVIEW), any());
-        verify(skills, times(2)).instructions();
-        server.verify();
-    }
-
-    @Test
-    void usesDeepSeekChatCompletionsWithTheSelectedModelAndKey()
-    {
-        ModelSettingsService settings = mock(ModelSettingsService.class);
-        when(settings.agentModel(eq(AgentModelType.REVIEW), any())).thenReturn(reviewModel("key:personal", "deepseek-flash"));
-        ModelApiKeyStore keys = apiKeyStore("personal", "DeepSeek", "sk-deepseek-secret");
-
-        RestClient.Builder deepSeekBuilder = RestClient.builder().baseUrl("https://deepseek.test");
-        MockRestServiceServer server = MockRestServiceServer.bindTo(deepSeekBuilder).build();
-        server.expect(once(), requestTo("https://deepseek.test/chat/completions"))
-                .andExpect(method(HttpMethod.POST))
-                .andExpect(header(HttpHeaders.AUTHORIZATION, "Bearer sk-deepseek-secret"))
-                .andExpect(jsonPath("$.messages[0].content", containsString("Use plain language.")))
-                .andExpect(jsonPath("$.messages[0].content", containsString("Return only the rewritten comment")))
-                .andExpect(jsonPath("$.messages[0].content", containsString("These rewrite requirements take precedence over style preferences")))
-                .andExpect(content().json("""
-                        {
-                          "model": "deepseek-flash",
-                          "messages": [
-                            {"role": "system"},
-                            {"role": "user", "content": "why u do this?"}
-                          ],
-                          "max_tokens": 1200,
-                          "stream": false
-                        }
-                        """, false))
-                .andRespond(withSuccess("""
-                        {"choices":[{"finish_reason":"stop","message":{"role":"assistant","content":"Could you explain the reason for this change?"}}]}
-                        """, MediaType.APPLICATION_JSON));
-
-        BetterWordsService service = service(
-                settings,
-                mock(WorkspaceStore.class),
-                keys,
-                mock(AgentDriverRegistry.class),
-                mock(AgentResourceService.class),
-                unusedClient(),
-                deepSeekBuilder.build());
-        assertThat(service.improve("why u do this?", REPOSITORY, Optional.empty()))
-                .isEqualTo("Could you explain the reason for this change?");
-        verify(skills).instructions();
-        server.verify();
-    }
-
-    @Test
-    void rejectsTruncatedProviderResponses()
-    {
-        ModelSettingsService openAiSettings = mock(ModelSettingsService.class);
-        when(openAiSettings.agentModel(eq(AgentModelType.REVIEW), any())).thenReturn(reviewModel("key:work", "gpt-5.2-mini"));
-        RestClient.Builder openAiBuilder = RestClient.builder().baseUrl("https://openai.test");
-        MockRestServiceServer openAiServer = MockRestServiceServer.bindTo(openAiBuilder).build();
-        openAiServer.expect(once(), requestTo("https://openai.test/v1/responses"))
-                .andRespond(withSuccess("""
-                        {"status":"incomplete","incomplete_details":{"reason":"max_output_tokens"},
-                         "output":[{"content":[{"type":"output_text","text":"Cut off"}]}]}
-                        """, MediaType.APPLICATION_JSON));
-
-        BetterWordsService openAi = service(
-                openAiSettings,
-                mock(WorkspaceStore.class),
-                apiKeyStore("work", "OpenAI", "sk-openai-secret"),
-                mock(AgentDriverRegistry.class),
-                mock(AgentResourceService.class),
-                openAiBuilder.build(),
-                unusedClient());
-        assertThatThrownBy(() -> openAi.improve("A long comment", REPOSITORY, Optional.empty()))
-                .isInstanceOf(AgentUnavailableException.class)
-                .hasMessageContaining("stopped before finishing");
-        openAiServer.verify();
-
-        ModelSettingsService deepSeekSettings = mock(ModelSettingsService.class);
-        when(deepSeekSettings.agentModel(eq(AgentModelType.REVIEW), any())).thenReturn(reviewModel("key:personal", "deepseek-v4-pro"));
-        RestClient.Builder deepSeekBuilder = RestClient.builder().baseUrl("https://deepseek.test");
-        MockRestServiceServer deepSeekServer = MockRestServiceServer.bindTo(deepSeekBuilder).build();
-        deepSeekServer.expect(once(), requestTo("https://deepseek.test/chat/completions"))
-                .andRespond(withSuccess("""
-                        {"choices":[{"finish_reason":"length",
-                         "message":{"role":"assistant","content":"Cut off"}}]}
-                        """, MediaType.APPLICATION_JSON));
-
-        BetterWordsService deepSeek = service(
-                deepSeekSettings,
-                mock(WorkspaceStore.class),
-                apiKeyStore("personal", "DeepSeek", "sk-deepseek-secret"),
-                mock(AgentDriverRegistry.class),
-                mock(AgentResourceService.class),
-                unusedClient(),
-                deepSeekBuilder.build());
-        assertThatThrownBy(() -> deepSeek.improve("A long comment", REPOSITORY, Optional.empty()))
-                .isInstanceOf(AgentUnavailableException.class)
-                .hasMessageContaining("stopped before finishing");
-        deepSeekServer.verify();
-    }
-
-    @Test
     void rejectsInvalidInput()
     {
         ModelSettingsService settings = mock(ModelSettingsService.class);
         AgentResourceService resources = mock(AgentResourceService.class);
-        BetterWordsService service = service(
-                settings,
-                mock(WorkspaceStore.class),
-                mock(ModelApiKeyStore.class),
-                mock(AgentDriverRegistry.class),
-                resources,
-                unusedClient(),
-                unusedClient());
+        BetterWordsService service = service(settings, mock(WorkspaceStore.class), mock(AgentDriverRegistry.class), resources);
 
         assertThatThrownBy(() -> service.improve(null, REPOSITORY, Optional.empty()))
                 .isInstanceOf(IllegalArgumentException.class)
@@ -386,14 +231,7 @@ class TestBetterWordsService
     {
         ModelSettingsService settings = mock(ModelSettingsService.class);
         WorkspaceStore workspaces = workspaceStore("wrong-repo", RepoRef.of("other", "repo"));
-        BetterWordsService service = service(
-                settings,
-                workspaces,
-                mock(ModelApiKeyStore.class),
-                mock(AgentDriverRegistry.class),
-                mock(AgentResourceService.class),
-                unusedClient(),
-                unusedClient());
+        BetterWordsService service = service(settings, workspaces, mock(AgentDriverRegistry.class), mock(AgentResourceService.class));
 
         assertThatThrownBy(() -> service.improve("Please clarify this.", REPOSITORY, Optional.of("removed")))
                 .isInstanceOf(IllegalArgumentException.class)
@@ -408,7 +246,7 @@ class TestBetterWordsService
     void validatesForkWorkspaceAgainstItsMonitoredRepository()
     {
         ModelSettingsService settings = mock(ModelSettingsService.class);
-        when(settings.agentModel(eq(AgentModelType.REVIEW), any())).thenReturn(reviewModel("codex", "gpt-5.6-sol"));
+        when(settings.agentModel(eq(AgentModelType.DEVELOPMENT), any())).thenReturn(developmentModel("codex", "gpt-5.6-sol"));
         AgentResourceService resources = mock(AgentResourceService.class);
         // The monitored repository matched, so the rewrite runs; stop it at its first provider step.
         when(resources.allocate(any())).thenThrow(new IllegalStateException("reached the provider"));
@@ -418,11 +256,8 @@ class TestBetterWordsService
                         "fork-workspace",
                         RepoRef.of("user", "fork"),
                         RepoRef.of("owner", "repo")),
-                mock(ModelApiKeyStore.class),
                 mock(AgentDriverRegistry.class),
-                resources,
-                unusedClient(),
-                unusedClient());
+                resources);
 
         assertThatThrownBy(() -> service.improve(
                 "Please clarify this.", "OWNER/REPO", Optional.of("fork-workspace")))
@@ -434,16 +269,9 @@ class TestBetterWordsService
                 .hasMessageContaining("does not belong");
     }
 
-    private BetterWordsService service(
-            ModelSettingsService settings,
-            WorkspaceStore workspaces,
-            ModelApiKeyStore keys,
-            AgentDriverRegistry drivers,
-            AgentResourceService resources,
-            RestClient openAi,
-            RestClient deepSeek)
+    private BetterWordsService service(ModelSettingsService settings, WorkspaceStore workspaces, AgentDriverRegistry drivers, AgentResourceService resources)
     {
-        return new BetterWordsService(settings, workspaces, keys, drivers, resources, skills, openAi, deepSeek);
+        return new BetterWordsService(settings, workspaces, drivers, resources, skills);
     }
 
     private static WorkspaceStore workspaceStore(String workspaceId, RepoRef repository)
@@ -505,22 +333,8 @@ class TestBetterWordsService
         return workspaces;
     }
 
-    private static AgentModelSetting reviewModel(String configId, String model)
+    private static AgentModelSetting developmentModel(String configId, String model)
     {
-        return new AgentModelSetting(AgentModelType.REVIEW, true, configId, configId, model, model, Optional.empty());
-    }
-
-    private static ModelApiKeyStore apiKeyStore(String alias, String provider, String secret)
-    {
-        ModelApiKeyStore keys = mock(ModelApiKeyStore.class);
-        when(keys.findAll()).thenReturn(ImmutableList.of(
-                new ModelApiKey(alias, provider, "sk-1••••••••2Je", Instant.parse("2026-08-28T00:00:00Z"))));
-        when(keys.findSecret(alias)).thenReturn(Optional.of(secret));
-        return keys;
-    }
-
-    private static RestClient unusedClient()
-    {
-        return RestClient.builder().baseUrl("https://unused.test").build();
+        return new AgentModelSetting(AgentModelType.DEVELOPMENT, true, configId, configId, model, model, Optional.empty());
     }
 }

@@ -389,8 +389,7 @@
         "logicalAgentPath": null,
         "providerTurnId": null,
         "providerItemId": null,
-        "providerEventId": null,
-        "providerOccurredAt": null
+        "providerEventId": null
       },
       "occurredAt": "<timestamp>",
       "type": "user_message",
@@ -412,8 +411,7 @@
         "logicalAgentPath": null,
         "providerTurnId": null,
         "providerItemId": null,
-        "providerEventId": null,
-        "providerOccurredAt": null
+        "providerEventId": null
       },
       "occurredAt": "<timestamp>",
       "type": "lifecycle",
@@ -434,8 +432,7 @@
         "logicalAgentPath": null,
         "providerTurnId": null,
         "providerItemId": null,
-        "providerEventId": null,
-        "providerOccurredAt": null
+        "providerEventId": null
       },
       "occurredAt": "<timestamp>",
       "type": "lifecycle",
@@ -456,8 +453,7 @@
         "logicalAgentPath": null,
         "providerTurnId": null,
         "providerItemId": null,
-        "providerEventId": "message-<turn-1>",
-        "providerOccurredAt": null
+        "providerEventId": "message-<turn-1>"
       },
       "occurredAt": "<timestamp>",
       "type": "assistant_message",
@@ -479,8 +475,7 @@
         "logicalAgentPath": null,
         "providerTurnId": "deterministic-<turn-1>",
         "providerItemId": "report-<turn-1>",
-        "providerEventId": "report-<turn-1>",
-        "providerOccurredAt": null
+        "providerEventId": "report-<turn-1>"
       },
       "occurredAt": "<timestamp>",
       "type": "development_result",
@@ -502,8 +497,7 @@
         "logicalAgentPath": null,
         "providerTurnId": null,
         "providerItemId": null,
-        "providerEventId": null,
-        "providerOccurredAt": null
+        "providerEventId": null
       },
       "occurredAt": "<timestamp>",
       "type": "lifecycle",
@@ -524,8 +518,7 @@
         "logicalAgentPath": null,
         "providerTurnId": null,
         "providerItemId": null,
-        "providerEventId": null,
-        "providerOccurredAt": null
+        "providerEventId": null
       },
       "occurredAt": "<timestamp>",
       "type": "lifecycle",
@@ -546,8 +539,7 @@
         "logicalAgentPath": null,
         "providerTurnId": null,
         "providerItemId": null,
-        "providerEventId": null,
-        "providerOccurredAt": null
+        "providerEventId": null
       },
       "occurredAt": "<timestamp>",
       "type": "user_message",
@@ -569,8 +561,7 @@
         "logicalAgentPath": null,
         "providerTurnId": null,
         "providerItemId": null,
-        "providerEventId": null,
-        "providerOccurredAt": null
+        "providerEventId": null
       },
       "occurredAt": "<timestamp>",
       "type": "lifecycle",
@@ -591,8 +582,7 @@
         "logicalAgentPath": null,
         "providerTurnId": null,
         "providerItemId": null,
-        "providerEventId": "message-<turn-2>",
-        "providerOccurredAt": null
+        "providerEventId": "message-<turn-2>"
       },
       "occurredAt": "<timestamp>",
       "type": "assistant_message",
@@ -614,8 +604,7 @@
         "logicalAgentPath": null,
         "providerTurnId": "deterministic-<turn-2>",
         "providerItemId": "report-<turn-2>",
-        "providerEventId": "report-<turn-2>",
-        "providerOccurredAt": null
+        "providerEventId": "report-<turn-2>"
       },
       "occurredAt": "<timestamp>",
       "type": "development_result",
@@ -637,8 +626,7 @@
         "logicalAgentPath": null,
         "providerTurnId": null,
         "providerItemId": null,
-        "providerEventId": null,
-        "providerOccurredAt": null
+        "providerEventId": null
       },
       "occurredAt": "<timestamp>",
       "type": "lifecycle",
@@ -659,8 +647,7 @@
         "logicalAgentPath": null,
         "providerTurnId": null,
         "providerItemId": null,
-        "providerEventId": null,
-        "providerOccurredAt": null
+        "providerEventId": null
       },
       "occurredAt": "<timestamp>",
       "type": "lifecycle",
@@ -683,8 +670,7 @@
         "logicalAgentPath": null,
         "providerTurnId": null,
         "providerItemId": null,
-        "providerEventId": null,
-        "providerOccurredAt": null
+        "providerEventId": null
       },
       "occurredAt": "<timestamp>",
       "type": "user_message",
@@ -706,8 +692,7 @@
         "logicalAgentPath": null,
         "providerTurnId": null,
         "providerItemId": null,
-        "providerEventId": null,
-        "providerOccurredAt": null
+        "providerEventId": null
       },
       "occurredAt": "<timestamp>",
       "type": "lifecycle",
@@ -728,8 +713,7 @@
         "logicalAgentPath": null,
         "providerTurnId": null,
         "providerItemId": null,
-        "providerEventId": "message-<turn-2>",
-        "providerOccurredAt": null
+        "providerEventId": "message-<turn-2>"
       },
       "occurredAt": "<timestamp>",
       "type": "assistant_message",
@@ -751,8 +735,7 @@
         "logicalAgentPath": null,
         "providerTurnId": "deterministic-<turn-2>",
         "providerItemId": "report-<turn-2>",
-        "providerEventId": "report-<turn-2>",
-        "providerOccurredAt": null
+        "providerEventId": "report-<turn-2>"
       },
       "occurredAt": "<timestamp>",
       "type": "development_result",
@@ -774,8 +757,7 @@
         "logicalAgentPath": null,
         "providerTurnId": null,
         "providerItemId": null,
-        "providerEventId": null,
-        "providerOccurredAt": null
+        "providerEventId": null
       },
       "occurredAt": "<timestamp>",
       "type": "lifecycle",
@@ -796,8 +778,7 @@
         "logicalAgentPath": null,
         "providerTurnId": null,
         "providerItemId": null,
-        "providerEventId": null,
-        "providerOccurredAt": null
+        "providerEventId": null
       },
       "occurredAt": "<timestamp>",
       "type": "lifecycle",
@@ -819,8 +800,7 @@
       "logicalAgentPath": null,
       "providerTurnId": null,
       "providerItemId": null,
-      "providerEventId": null,
-      "providerOccurredAt": null
+      "providerEventId": null
     },
     "occurredAt": "<timestamp>",
     "type": "user_message",

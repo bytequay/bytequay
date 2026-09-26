@@ -26,10 +26,10 @@ import com.bytequay.agent.spi.AgentSessionContext;
 import com.bytequay.agent.spi.AgentSessionRef;
 import com.bytequay.agent.spi.AgentTurnCommand;
 import com.bytequay.agent.spi.AgentTurnResult;
+import com.bytequay.agent.spi.BridgeResolver;
 import com.bytequay.agent.spi.DevelopmentLearningCommit;
 import com.bytequay.agent.spi.DevelopmentLearningSummary;
 import com.bytequay.agent.spi.DevelopmentResultBridge;
-import com.bytequay.agent.spi.DevelopmentResultBridgeResolver;
 import com.bytequay.agent.spi.DevelopmentResultReport;
 import com.bytequay.agent.spi.ProviderAgentEvent;
 import com.bytequay.agent.spi.ProviderAgentEventSource;
@@ -45,7 +45,6 @@ import com.google.common.collect.ImmutableSet;
 
 import java.nio.file.Path;
 import java.time.Duration;
-import java.time.Instant;
 import java.util.ArrayDeque;
 import java.util.ArrayList;
 import java.util.HashMap;
@@ -73,14 +72,14 @@ final class ScriptedAgentDriver
     private final List<GitAction> gitActions = new ArrayList<>();
     private final List<TurnCall> cancellations = new ArrayList<>();
     private final CiMemoryService memory;
-    private final DevelopmentResultBridgeResolver developmentResults;
+    private final BridgeResolver<DevelopmentResultBridge> developmentResults;
 
     ScriptedAgentDriver(CiMemoryService memory)
     {
-        this(memory, DevelopmentResultBridgeResolver.NONE);
+        this(memory, BridgeResolver.none());
     }
 
-    ScriptedAgentDriver(CiMemoryService memory, DevelopmentResultBridgeResolver developmentResults)
+    ScriptedAgentDriver(CiMemoryService memory, BridgeResolver<DevelopmentResultBridge> developmentResults)
     {
         this.memory = requireNonNull(memory, "memory is null");
         this.developmentResults = requireNonNull(developmentResults, "developmentResults is null");
@@ -115,7 +114,7 @@ final class ScriptedAgentDriver
             completion = pendingTurns.remove(turnId);
         }
         checkState(completion != null, "No pending turn " + turnId);
-        completion.complete(new AgentTurnResult(AgentTurnResult.State.COMPLETED, Optional.of(finalResponse), Optional.empty(), Duration.ZERO));
+        completion.complete(new AgentTurnResult(AgentTurnResult.State.COMPLETED, Optional.of(finalResponse), Optional.empty(), Duration.ZERO, true));
     }
 
     synchronized void enqueueCompleted(
@@ -188,15 +187,8 @@ final class ScriptedAgentDriver
     public AgentCapabilities capabilities()
     {
         return new AgentCapabilities(
-                true,
                 false,
                 false,
-                true,
-                false,
-                false,
-                false,
-                false,
-                true,
                 false,
                 ImmutableSet.of(AgentPermissionPolicy.AUTO, AgentPermissionPolicy.CI_AUTOFIX),
                 ImmutableSet.of("text/plain"));
@@ -339,7 +331,6 @@ final class ScriptedAgentDriver
             TurnCall call = started.call();
             events.emit(new ProviderAgentEvent.Lifecycle(
                     Optional.of("started-" + command.turnId()),
-                    Optional.empty(),
                     ProviderAgentEvent.LifecyclePhase.TURN_STARTED,
                     "Scripted agent turn started"));
             action.memoryQuery().ifPresent(query -> {
@@ -353,37 +344,34 @@ final class ScriptedAgentDriver
                 recordGitAction(new GitAction(script.pullRequest(), context.worktree(), action.actionName()));
                 events.emit(new ProviderAgentEvent.Command(
                         Optional.of("command-" + command.turnId()),
-                        Optional.empty(),
-                        "command-" + command.turnId(),
                         action.result().state() == AgentTurnResult.State.COMPLETED
                                 ? ProviderAgentEvent.ActivityState.COMPLETED
                                 : ProviderAgentEvent.ActivityState.FAILED,
                         ImmutableList.of("ci-e2e", action.actionName()),
                         Optional.empty(),
                         Optional.of(action.result().state() == AgentTurnResult.State.COMPLETED ? 0 : 1),
-                        false));
+                        false,
+                        ProviderAgentEventSource.item("command-" + command.turnId())));
                 action.changedPath().ifPresent(path -> events.emit(new ProviderAgentEvent.FileChange(
                         Optional.of("file-" + command.turnId()),
-                        Optional.empty(),
                         path,
                         ProviderAgentEvent.ChangeKind.MODIFIED,
-                        Optional.empty())));
+                        Optional.empty(),
+                        ProviderAgentEventSource.root())));
                 events.emit(new ProviderAgentEvent.Usage(new ProviderUsageSample(
                         Optional.of("usage-" + command.turnId()),
                         ProviderUsageSample.Semantics.FINAL_FOR_INVOCATION,
                         1,
                         0,
                         1,
-                        Optional.empty(),
-                        Instant.EPOCH)));
+                        Optional.empty())));
             }
             if (action.untrustedFinalResponse().isPresent()) {
                 events.emit(new ProviderAgentEvent.Message(
                         Optional.of("final-" + command.turnId()),
-                        Optional.empty(),
                         ProviderAgentEvent.MessagePhase.FINAL,
                         action.untrustedFinalResponse().orElseThrow(),
-                        Optional.empty()));
+                        ProviderAgentEventSource.root()));
             }
             if (!action.waitsForCancellation()) {
                 if (context.permissionPolicy() == AgentPermissionPolicy.AUTO && action.result().state() == AgentTurnResult.State.COMPLETED) {
@@ -400,14 +388,13 @@ final class ScriptedAgentDriver
                                     "Read the synchronized committed diff.",
                                     ImmutableList.of("This scripted report does not execute tests.")));
                     events.emit(new ProviderAgentEvent.DevelopmentResult(
-                            Optional.of("report-" + command.turnId()), Optional.empty(),
+                            Optional.of("report-" + command.turnId()),
                             new DevelopmentResultReport(true, Optional.empty(), learningSummary),
                             new ProviderAgentEventSource(Optional.empty(), Optional.empty(), Optional.empty(),
                                     Optional.of("ci-e2e-" + command.turnId()), Optional.of("report-" + command.turnId()))));
                 }
                 events.emit(new ProviderAgentEvent.Lifecycle(
                         Optional.of("finished-" + command.turnId()),
-                        Optional.empty(),
                         lifecycle(action.result().state()),
                         action.result().state().name()));
             }
@@ -458,7 +445,8 @@ final class ScriptedAgentDriver
                     AgentTurnResult.State.CANCELLED,
                     Optional.empty(),
                     Optional.of("cancelled by test"),
-                    Duration.ZERO));
+                    Duration.ZERO,
+                    true));
         }
     }
 
@@ -492,7 +480,8 @@ final class ScriptedAgentDriver
                             AgentTurnResult.State.CANCELLED,
                             Optional.empty(),
                             Optional.of("cancelled by test"),
-                            Duration.ZERO),
+                            Duration.ZERO,
+                            true),
                     true,
                     "blocked",
                     Optional.empty(),
@@ -513,7 +502,8 @@ final class ScriptedAgentDriver
                             AgentTurnResult.State.COMPLETED,
                             Optional.of(untrustedFinalResponse),
                             Optional.empty(),
-                            Duration.ZERO),
+                            Duration.ZERO,
+                            true),
                     false,
                     actionName,
                     memoryQuery,
@@ -526,7 +516,7 @@ final class ScriptedAgentDriver
             return new AgentAction(
                     Optional.empty(),
                     ignored -> {},
-                    new AgentTurnResult(state, Optional.empty(), Optional.of(reason), Duration.ZERO),
+                    new AgentTurnResult(state, Optional.empty(), Optional.of(reason), Duration.ZERO, true),
                     false,
                     state.name().toLowerCase(Locale.ROOT),
                     Optional.empty(),

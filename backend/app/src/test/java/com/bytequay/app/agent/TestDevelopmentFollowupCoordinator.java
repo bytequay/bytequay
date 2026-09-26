@@ -1397,7 +1397,7 @@ class TestDevelopmentFollowupCoordinator
     private CiAutofixRun ciRun()
     {
         return CiAutofixRun.create(CiAutofixRunId.random(), "owned-ci",
-                new CiAutofixRun.Scope(pr(HEAD, true).pullRequest(), route.headRepository(), "workspace", Optional.of(route.headRepository()), "owner", route.headBranch(), "main",
+                new CiAutofixRun.Scope(pr(HEAD, true).pullRequest(), route.headRepository(), "workspace", route.headRepository(), "owner", route.headBranch(), "main",
                         source.settings().orElseThrow().developmentAutomation().orElseThrow().ciLaneId().orElse(task.laneId()).value(), Optional.of(taskId.toString())),
                 deliveredHead, deliveredHead, BASE, new CiAutofixRun.Authorization(true, true, true, 3, NOW, NOW.plus(Duration.ofHours(8))), NOW);
     }

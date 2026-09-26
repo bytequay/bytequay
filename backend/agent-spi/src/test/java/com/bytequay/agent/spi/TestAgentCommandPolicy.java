@@ -20,15 +20,17 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 class TestAgentCommandPolicy
 {
+    private static final String DEVELOPMENT_POLICY = AgentCommandPolicy.instructions(new AgentPermissionScope(AgentPermissionPolicy.AUTO, SessionAccess.FULL, false));
+
     @Test
     void modelAndReviewerInstructionsShareEveryRestriction()
     {
         assertThat(AgentCommandPolicy.restrictions()).isNotEmpty().allSatisfy(restriction -> {
             assertThat(restriction).startsWith("Block ");
-            assertThat(AgentCommandPolicy.instructions()).contains(restriction);
+            assertThat(DEVELOPMENT_POLICY).contains(restriction);
         });
         assertThatThrownBy(() -> AgentCommandPolicy.restrictions().clear()).isInstanceOf(UnsupportedOperationException.class);
-        assertThat(AgentCommandPolicy.instructions()).contains(
+        assertThat(DEVELOPMENT_POLICY).contains(
                 "Git and gh are available for attended development",
                 "subscription or API key",
                 "direct explicit user authorization",
@@ -43,7 +45,7 @@ class TestAgentCommandPolicy
                 "reviewer approves it",
                 "ByteQuay checks",
                 "requests it receives");
-        assertThat(AgentCommandPolicy.instructions()).startsWith("## ByteQuay Development Scope").doesNotContain("Automatic Approval Scope", "sandbox weakening");
+        assertThat(DEVELOPMENT_POLICY).startsWith("## ByteQuay Development Scope").doesNotContain("Automatic Approval Scope", "sandbox weakening");
         assertThat(AgentCommandPolicy.reviewInstructions()).startsWith("## ByteQuay Private Review Scope").doesNotContain("Automatic Approval Scope");
     }
 

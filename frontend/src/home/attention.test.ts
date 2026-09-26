@@ -53,7 +53,6 @@ describe('attentionKind', () => {
 
   it('excludes unrelated PRs even when their CI fails or they are mergeable', () => {
     expect(attentionKind(pr({ origin: 'OTHER', ciStatus: 'FAILING' }))).toBeNull();
-    expect(attentionKind(pr({ origin: 'OTHER', attentionReason: 'CI_FAILING' }))).toBeNull();
     expect(attentionKind(pr({ origin: 'OTHER' }))).toBeNull();
     expect(attentionKind(pr({ origin: 'AUTHORED', author: 'alice' }), 'jack')).toBeNull();
   });

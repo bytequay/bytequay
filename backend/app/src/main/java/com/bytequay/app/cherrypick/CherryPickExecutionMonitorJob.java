@@ -80,11 +80,9 @@ final class CherryPickExecutionMonitorJob
         if (!servingGate.isReady()) {
             return;
         }
-        loop.pass(() -> {
-            loop.advanceEach(running(), service::advance);
-            loop.advanceEach(finishedWithLiveTask(), service::advance);
-            loop.advanceEach(finishedWithPendingCleanup(), service::advance);
-        });
+        loop.advanceEach(running(), service::advance);
+        loop.advanceEach(finishedWithLiveTask(), service::advance);
+        loop.advanceEach(finishedWithPendingCleanup(), service::advance);
     }
 
     private List<CherryPickExecutionId> running()

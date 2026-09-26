@@ -30,6 +30,7 @@ import com.bytequay.core.review.ReviewEvidence;
 import com.bytequay.core.review.ReviewFinding;
 import com.bytequay.core.review.ReviewInvestigation;
 import com.bytequay.core.review.ReviewMessage;
+import com.bytequay.core.review.ReviewRun;
 import com.bytequay.core.review.ReviewStep;
 import com.bytequay.core.review.ReviewSummary;
 import com.google.common.collect.ImmutableList;
@@ -80,8 +81,9 @@ final class ReviewHttpModels
                 projection.worktreeSync().map(sync -> new WorktreeSyncResponse(sync.state().name(), sync.headSha(), sync.targetHeadSha(), sync.dirty(), sync.reason())));
     }
 
-    private static RunResponse run(AgentReviewProjection.RunView run)
+    private static RunResponse run(AgentReviewProjection.RunView view)
     {
+        ReviewRun run = view.run();
         return new RunResponse(
                 run.id(),
                 run.ordinal(),
@@ -92,19 +94,19 @@ final class ReviewHttpModels
                 run.headSha(),
                 run.priorHeadSha(),
                 run.commits(),
-                run.changedFiles(),
+                run.diff().size(),
                 run.turnIds(),
                 run.state().name(),
                 run.summary().map(ReviewHttpModels::summary),
                 run.coverage().map(ReviewHttpModels::coverage),
                 run.investigation(),
                 run.steps(),
-                run.evidence().stream().map(ReviewHttpModels::evidence).collect(toImmutableList()),
+                run.evidence().values().stream().map(ReviewHttpModels::evidence).collect(toImmutableList()),
                 run.context(),
-                run.contextDeliveryStates(),
-                run.contextPreparationActivities(),
-                run.contextNoteReads(),
-                run.contextNoteSearches(),
+                view.contextDeliveryStates(),
+                view.contextPreparationActivities(),
+                view.contextNoteReads(),
+                view.contextNoteSearches(),
                 run.outcome(),
                 run.createdAt(),
                 run.endedAt());

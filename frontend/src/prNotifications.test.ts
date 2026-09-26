@@ -23,7 +23,7 @@ const pr: PullRequestDto = {
   id: 1, repo: 'owner/repo', number: 42, title: 'A monitored PR', author: 'someone', htmlUrl: '',
   createdAt: baseline, updatedAt: baseline, origin: 'OTHER', labels: [], labelColors: null, draft: false,
   viewedAt: null, reviewedAt: null, handledAction: null, requestedReviewers: [], ciStatus: 'FAILING',
-  additions: 0, deletions: 0, commentCount: 0, attentionReason: null, state: 'open', mergeable: false,
+  additions: 0, deletions: 0, commentCount: 0, state: 'open', mergeable: false,
   mergeableState: 'unstable', headPushedAt: null, headRef: 'branch', monitoredAt: baseline, activityAt: activity,
 };
 const empty = (): PrNotificationState => ({ handled: {}, delivered: {} });

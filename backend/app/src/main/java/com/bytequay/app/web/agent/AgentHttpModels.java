@@ -85,7 +85,7 @@ public final class AgentHttpModels
         return new PendingApprovalResponse(
                 request.id().toString(), request.taskId().toString(), request.turnId().toString(),
                 new AgentEventSource(source.providerThreadId(), source.parentProviderThreadId(), source.logicalAgentPath(),
-                        source.providerTurnId(), source.providerItemId(), Optional.empty(), Optional.of(provider.requestedAt())),
+                        source.providerTurnId(), source.providerItemId(), Optional.empty()),
                 request.requestedAt(), provider.title(), provider.detail(),
                 switch (provider.kind()) {
                     case COMMAND, FILE_CHANGE -> provider.kind().name();

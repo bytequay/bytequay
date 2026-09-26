@@ -31,7 +31,6 @@ import com.google.common.collect.ImmutableList;
 import com.google.common.util.concurrent.Striped;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.stereotype.Service;
 
 import java.time.Clock;
@@ -40,10 +39,9 @@ import java.time.Instant;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
-import java.util.concurrent.Executor;
 import java.util.concurrent.locks.Lock;
 
-import static com.bytequay.app.config.AsyncConfig.IO_EXECUTOR;
+import static com.bytequay.app.workspace.WorkspaceException.requireWorkspace;
 import static java.util.Objects.requireNonNull;
 
 @Service
@@ -63,7 +61,6 @@ public final class DefaultWorkspaceMetadataService
     private final AvatarCache avatarCache;
     private final CredentialService credentials;
     private final Clock clock;
-    private final Executor ioExecutor;
     private final Striped<Lock> locks = Striped.lock(64);
 
     public DefaultWorkspaceMetadataService(
@@ -73,8 +70,7 @@ public final class DefaultWorkspaceMetadataService
             GitHubPullRequestReadClient pullRequests,
             AvatarCache avatarCache,
             CredentialService credentials,
-            Clock clock,
-            @Qualifier(IO_EXECUTOR) Executor ioExecutor)
+            Clock clock)
     {
         this.workspaces = requireNonNull(workspaces, "workspaces is null");
         this.metadata = requireNonNull(metadata, "metadata is null");
@@ -83,7 +79,6 @@ public final class DefaultWorkspaceMetadataService
         this.avatarCache = requireNonNull(avatarCache, "avatarCache is null");
         this.credentials = requireNonNull(credentials, "credentials is null");
         this.clock = requireNonNull(clock, "clock is null");
-        this.ioExecutor = requireNonNull(ioExecutor, "ioExecutor is null");
     }
 
     @Override
@@ -94,7 +89,7 @@ public final class DefaultWorkspaceMetadataService
 
     private void synchronizeLocked(String workspaceId)
     {
-        Workspace workspace = requireWorkspace(workspaceId);
+        Workspace workspace = requireWorkspace(workspaces, workspaceId);
         Lock lock = locks.get(workspace.monitoredRepositoryId());
         lock.lock();
         try {
@@ -109,7 +104,7 @@ public final class DefaultWorkspaceMetadataService
             }
             refreshExpired(workspace);
             now = clock.instant();
-            Workspace latest = requireWorkspace(workspaceId);
+            Workspace latest = requireWorkspace(workspaces, workspaceId);
             workspaces.save(latest.withMetadataSyncAt(Optional.of(now), now));
         }
         catch (RuntimeException failure) {
@@ -124,7 +119,7 @@ public final class DefaultWorkspaceMetadataService
     @Override
     public RepositoryMetadataSnapshot getSnapshot(String workspaceId)
     {
-        return snapshot(requireWorkspace(workspaceId));
+        return snapshot(requireWorkspace(workspaces, workspaceId));
     }
 
     @Override
@@ -220,13 +215,6 @@ public final class DefaultWorkspaceMetadataService
         return metadata.find(workspace.monitoredRepositoryId())
                 .orElseGet(() -> RepositoryMetadataSnapshot.empty(
                         workspace.monitoredRepositoryId(), workspace.monitoredRepository()));
-    }
-
-    private Workspace requireWorkspace(String workspaceId)
-    {
-        requireNonNull(workspaceId, "workspaceId is null");
-        return workspaces.findById(workspaceId)
-                .orElseThrow(() -> WorkspaceException.notFound(workspaceId));
     }
 
     private Optional<Workspace> findWorkspace(RepoRef repository)

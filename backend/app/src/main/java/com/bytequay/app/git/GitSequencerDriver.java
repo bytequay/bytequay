@@ -21,7 +21,6 @@ import com.google.common.collect.ImmutableSet;
 import org.springframework.stereotype.Component;
 
 import java.nio.file.Path;
-import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Optional;
 import java.util.Set;
@@ -43,17 +42,10 @@ import static java.util.Objects.requireNonNull;
 @Component
 public final class GitSequencerDriver
 {
-    /**
-     * Only leftover conflict markers may fail this check.
-     *
-     * <p>Whitespace the source author wrote is copied faithfully, and a
-     * repository's own {@code core.whitespace} must not change what ByteQuay
-     * accepts.
-     */
-    private static final List<String> MARKER_ONLY_WHITESPACE = ImmutableList.of(
-            "-c", "core.whitespace=-trailing-space,-space-before-tab,-indent-with-non-tab,-tab-in-indent");
-    private static final List<String> OPERATION_MARKERS = ImmutableList.of(
-            "CHERRY_PICK_HEAD", "MERGE_HEAD", "REVERT_HEAD", "rebase-merge", "rebase-apply");
+    private static final List<String> MARKERS = ImmutableList.<String>builder()
+            .addAll(GitCommandRunner.OPERATION_MARKERS)
+            .add("sequencer")
+            .build();
 
     private final GitCommandRunner git;
 
@@ -191,23 +183,6 @@ public final class GitSequencerDriver
     }
 
     /**
-     * Reports whether a range carries a leftover conflict marker.
-     *
-     * @param worktree worktree to inspect
-     * @param fromSha range start, exclusive
-     * @param toSha range end, inclusive
-     * @return true when no marker was left behind
-     */
-    public boolean withoutConflictMarkers(Path worktree, String fromSha, String toSha)
-    {
-        return git.run(worktree, ImmutableList.<String>builder()
-                .addAll(MARKER_ONLY_WHITESPACE)
-                .add("diff", "--check", fromSha + ".." + toSha)
-                .build())
-                .successful();
-    }
-
-    /**
      * Reports whether a worktree is clean with no operation open.
      *
      * @param worktree worktree to inspect
@@ -220,17 +195,7 @@ public final class GitSequencerDriver
 
     private Set<String> openMarkers(Path worktree)
     {
-        List<String> markers = ImmutableList.<String>builder()
-                .addAll(OPERATION_MARKERS)
-                .add("sequencer")
-                .build();
-        List<Path> paths = git.gitPaths(worktree, markers);
-        Set<String> open = new LinkedHashSet<>();
-        for (int marker = 0; marker < paths.size(); marker++) {
-            if (java.nio.file.Files.exists(paths.get(marker))) {
-                open.add(markers.get(marker));
-            }
-        }
+        Set<String> open = git.openMarkers(worktree, MARKERS);
         // The sequencer directory can outlive a completed operation until the next
         // command clears it, so on its own it does not mean work is open.
         if (open.equals(ImmutableSet.of("sequencer"))) {

@@ -48,7 +48,7 @@ const pr: PullRequestDto = {
   id: 1, repo: 'owner/repo', number: 1, title: 'Implementation', author: 'alice', htmlUrl: 'https://github.com/owner/repo/pull/1',
   createdAt: '2026-01-01T00:00:00Z', updatedAt: '2026-01-01T00:00:00Z', origin: 'AUTHORED', labels: [], labelColors: null,
   draft: true, viewedAt: null, reviewedAt: null, handledAction: null, requestedReviewers: [], ciStatus: null, additions: 2,
-  deletions: 2, commentCount: 0, attentionReason: null, state: 'open', mergeable: null, mergeableState: null,
+  deletions: 2, commentCount: 0, state: 'open', mergeable: null, mergeableState: null,
   headPushedAt: null, headRef: 'feature/change',
 };
 

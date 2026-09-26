@@ -345,7 +345,7 @@ class TestSelectedPullRequestDiffReader
     private static PullRequest row(String repo, int number)
     {
         return new PullRequest(ID, repo, number, "PR title", "octocat", "https://github.com/owner/repo/pull/7", UPDATED, UPDATED, PullRequest.Origin.OTHER,
-                ImmutableList.of(), ImmutableMap.of(), false, null, null, null, ImmutableList.of(), PullRequestDetail.CiStatus.NONE, 1, 0, 0, null,
+                ImmutableList.of(), ImmutableMap.of(), false, null, null, null, ImmutableList.of(), PullRequestDetail.CiStatus.NONE, 1, 0, 0,
                 "closed", UPDATED, null, true, "clean", null, "feature", null, null, null, null);
     }
 }

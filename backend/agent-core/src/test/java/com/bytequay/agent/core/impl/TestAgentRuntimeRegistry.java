@@ -41,7 +41,7 @@ class TestAgentRuntimeRegistry
     @Test
     void closesEverySessionItStillHolds()
     {
-        AgentRuntimeRegistry registry = new AgentRuntimeRegistry();
+        AgentRuntimeRegistry registry = new AgentRuntimeRegistry(ignored -> {});
         List<String> closed = new CopyOnWriteArrayList<>();
         registry.registerSession(FIRST, session("task-1", closed));
         registry.registerSession(SECOND, session("task-2", closed));
@@ -57,7 +57,7 @@ class TestAgentRuntimeRegistry
     @Test
     void closesTheRemainingSessionsWhenOneRefuses()
     {
-        AgentRuntimeRegistry registry = new AgentRuntimeRegistry();
+        AgentRuntimeRegistry registry = new AgentRuntimeRegistry(ignored -> {});
         List<String> closed = new CopyOnWriteArrayList<>();
         registry.registerSession(FIRST, new StubSession("task-1", closed)
         {
@@ -79,7 +79,7 @@ class TestAgentRuntimeRegistry
     @Test
     void closesSessionsRegisteredAfterShutdownAndKeepsFailedClosesTracked()
     {
-        AgentRuntimeRegistry registry = new AgentRuntimeRegistry();
+        AgentRuntimeRegistry registry = new AgentRuntimeRegistry(ignored -> {});
         List<String> closed = new CopyOnWriteArrayList<>();
         registry.close();
 
@@ -104,7 +104,7 @@ class TestAgentRuntimeRegistry
     @Test
     void rejectsDevelopmentReservationsAndTurnsAfterShutdown()
     {
-        AgentRuntimeRegistry registry = new AgentRuntimeRegistry();
+        AgentRuntimeRegistry registry = new AgentRuntimeRegistry(ignored -> {});
         TurnId source = TurnId.random();
         DevelopmentTurnOrigin origin = new DevelopmentTurnOrigin(DevelopmentTurnOrigin.Kind.AUTO_COMMIT, source);
         registry.reserveDevelopmentOwner(FIRST, source);
@@ -122,7 +122,7 @@ class TestAgentRuntimeRegistry
     @Test
     void stoppedDevelopmentKeepsExclusionButCannotAuthorizeAnotherTurn()
     {
-        AgentRuntimeRegistry registry = new AgentRuntimeRegistry();
+        AgentRuntimeRegistry registry = new AgentRuntimeRegistry(ignored -> {});
         TurnId source = TurnId.random();
         DevelopmentTurnOrigin origin = new DevelopmentTurnOrigin(DevelopmentTurnOrigin.Kind.AUTO_COMMIT, source);
         registry.reserveDevelopmentOwner(FIRST, source);
@@ -155,7 +155,7 @@ class TestAgentRuntimeRegistry
     private static void assertDrainsDevelopmentAction(boolean shutdown)
             throws Exception
     {
-        AgentRuntimeRegistry registry = new AgentRuntimeRegistry();
+        AgentRuntimeRegistry registry = new AgentRuntimeRegistry(ignored -> {});
         TurnId source = TurnId.random();
         List<String> closed = new CopyOnWriteArrayList<>();
         registry.reserveDevelopmentOwner(FIRST, source);

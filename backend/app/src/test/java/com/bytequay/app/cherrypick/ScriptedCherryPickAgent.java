@@ -441,9 +441,8 @@ final class ScriptedCherryPickAgent
     }
 
     @Override
-    public com.bytequay.agent.core.CleanupResult cleanup(TaskId taskId)
+    public void cleanup(TaskId taskId)
     {
-        return null;
     }
 
     @Override
@@ -497,6 +496,7 @@ final class ScriptedCherryPickAgent
                 state == TurnState.COMPLETED
                         ? Optional.empty()
                         : Optional.of("Everything is fine and validation passed."),
+                Optional.empty(),
                 new AgentMetrics(0, 0, 0, Optional.empty(), java.time.Duration.ZERO));
     }
 

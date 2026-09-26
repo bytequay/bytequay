@@ -44,7 +44,7 @@ import { useFindingActions } from './useFindingActions';
 import ReviewSummaryCard from './ReviewSummaryCard';
 import { findingLines } from './contracts';
 import type { AgentReviewDto, ReviewFindingDto } from './contracts';
-import { latestRun, newCommits, openFindings, provisional, reviewElapsed, reviewProgress, reviewRecoveryRequired, reviewRunning, reviewStatus, shortSha, shownRun } from './model';
+import { latestRun, newCommits, openFindings, provisional, reviewElapsed, reviewProgress, reviewRecoveryRequired, reviewRunning, reviewStatus, reviewWorktreeNotice, shortSha, shownRun } from './model';
 
 export type ReviewNavigationTarget = {
   path: string;
@@ -67,7 +67,7 @@ const EMPTY_REVIEW = {
 } as unknown as AgentReviewDto;
 
 export default function AgentReviewTab({
-  detail,
+  detail = null,
   workspaceId,
   viewer,
   review,
@@ -78,8 +78,9 @@ export default function AgentReviewTab({
   ownStream = true,
   onOpenWorkspace,
   localReview,
+  onSelectCommit,
 }: {
-  detail: PullRequestDetailDto;
+  detail?: PullRequestDetailDto | null;
   /** The workspace whose managed clone the review runs in; without one there is nothing to check out. */
   workspaceId: string | undefined;
   viewer: UserProfileDto | null;
@@ -98,6 +99,7 @@ export default function AgentReviewTab({
   ownStream?: boolean;
   onOpenWorkspace?: () => void;
   localReview?: LocalReviewThreads;
+  onSelectCommit?: (sha: string, snapshot?: { headSha: string; baseSha: string }) => void;
 }) {
   const [starting, setStarting] = useState(false);
   const [pendingAction, setPendingAction] = useState<PendingAction | null>(null);
@@ -145,6 +147,7 @@ export default function AgentReviewTab({
       : reviewStatus(review);
   const progress = review === null ? null : reviewProgress(review);
   const currentRun = review === null ? null : shownRun(review);
+  const worktreeNotice = review === null ? null : reviewWorktreeNotice(review);
   const run = review?.runs.find(item => item.id === reportRunId) ?? currentRun;
   const findings = review === null ? [] : openFindings(review);
   const withdrawn = review === null ? [] : review.findings.filter(finding => finding.state === 'WITHDRAWN');
@@ -353,7 +356,7 @@ export default function AgentReviewTab({
   }, [focusFindingId]);
 
   const start = () => {
-    if (workspaceId === undefined) return;
+    if (workspaceId === undefined || detail === null) return;
     setStarting(true);
     setError(null);
     void window.bridge.startAgentReview(workspaceId, detail.repo, detail.number)
@@ -389,14 +392,15 @@ export default function AgentReviewTab({
       <div className="agr-empty">
         <div className="agr-empty__title">Agent review needs a watched repository</div>
         <p>
-          Watch {detail.repo} in Workspaces to start a private review. ByteQuay uses that workspace&apos;s managed
+          Watch {detail?.repo ?? review?.repo ?? 'this repository'} in Workspaces to start a private review. ByteQuay uses that workspace&apos;s managed
           worktree, and the review is available here or from the workspace.
         </p>
       </div>
     );
   }
 
-  if (review === null) {
+  if (review === null && detail === null) return null;
+  if (review === null && detail !== null) {
     const commits = detail.recentActivity.filter(activity => activity.eventType === 'committed').length;
     return (
       <div className="agr-summary">
@@ -429,6 +433,8 @@ export default function AgentReviewTab({
       </div>
     );
   }
+
+  if (review === null) return null;
 
   const message = (delivery: 'TURN' | 'STEER' | 'QUEUE') => run_(async () => {
     const text = composer.trim();
@@ -532,14 +538,14 @@ export default function AgentReviewTab({
               {onOpenWorkspace !== undefined && <button type="button" className="agr-action is-quiet" onClick={onOpenWorkspace}>See what happened</button>}
             </div>
           )}
-          {newCommits(review) && (
+          {(newCommits(review) || worktreeNotice !== null) && (
             <div className="agr-banner is-warn">
-              <span className="agr-banner__chip">New commits</span>
+              <span className="agr-banner__chip">{worktreeNotice?.label ?? 'New commits'}</span>
               <div className="agr-banner__text">
-                Commits were pushed since this review ({shortSha(currentRun?.headSha ?? '')} → {shortSha(review.observedHeadSha ?? '')}).
-                {' '}Finding comments stay attached to their reviewed commit.
+                {worktreeNotice?.message ?? <>The source has new commits since this review ({shortSha(currentRun?.headSha ?? '')} → {shortSha(review.observedHeadSha ?? '')}).
+                  {' '}Finding comments stay attached to their reviewed commit.</>}
               </div>
-              <button type="button" className="agr-action is-primary" disabled={busy || recovery || localRun} title={localRunReason}
+              <button type="button" className="agr-action is-primary" disabled={busy || running || recovery || localRun} title={localRunReason}
                 onClick={() => { void run_(async () => onReviewChange(await window.bridge.updateAgentReview(review.id))); }}>Update review</button>
             </div>
           )}
@@ -556,6 +562,7 @@ export default function AgentReviewTab({
           <ReviewSummaryCard
             review={review}
             run={run}
+            onSelectCommit={onSelectCommit}
             findings={review.findings}
             viewerLogin={viewer?.login ?? ''}
             viewerAvatarUrl={viewer?.avatarUrl ?? null}

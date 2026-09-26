@@ -238,13 +238,13 @@ async function independentLearningCards(): Promise<void> {
     return card;
   };
   const ask = async (id: string, question: string) => {
-    button(section(id), 'Ask agent').click();
+    button(section(id), 'Ask reviewer').click();
     await settle();
     const input = section(id).querySelector<HTMLTextAreaElement>('textarea');
     assert(input !== null, 'Each card must open its own question composer');
     changeInput(input, question);
     await settle();
-    button(section(id), 'Ask agent').click();
+    button(section(id), 'Ask reviewer').click();
     await settle();
   };
   render();

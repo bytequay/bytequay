@@ -21,6 +21,8 @@
 .ct-search input::-webkit-search-cancel-button { cursor: pointer; }
 
 .ct-banner { display: flex; align-items: center; gap: 10px; border-bottom: 1px solid #e8eaed; padding: 7px 12px; font-size: 12.5px; }
+.ct-sync > span { min-width: 0; flex: 1; }
+.ct-sync > button { flex: none; white-space: nowrap; }
 .ct-banner.is-error { border-color: #f3c2bd; background: #ffebe9; color: #8b1c2b; }
 .ct-banner button,
 .ct-editor__empty button { border: 1px solid #d6dce2; border-radius: 6px; background: #fff; color: #24292f; cursor: pointer; padding: 2px 9px; font-size: 12px; }

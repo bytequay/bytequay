@@ -1,32 +1,33 @@
 # Code & Tests
 
+[WorkBench](workbench.md) owns the shared navigation, task-bound code access,
+and reviews of local development commits. Its source and hosting contracts
+apply to the existing services described here.
+
 > **Status: approved; implementation in progress.** Section 9 lists the
 > approved canonical-design amendments, schema costs and dependencies. The
 > [implementation checklist](code-tests-impl-tmp.md) tracks delivery.
 
 ## 1. Decision
 
-**Code & Tests** is a fourth tab on the pull-request detail pane, beside
-**PR #N**, **Changes** and **Review & Learning**. It is for reading whole
-files, following symbols, running tests, editing test source and using a
-terminal. It works against the ByteQuay worktree bound to the PR: the owning
-**development task's worktree** when one exists (section 11), otherwise the
-PR's **Agent review working copy**, the managed task worktree that
-`DefaultAgentReviewService.start` already provisions at the frozen PR head.
+**Code & Tests** is a secondary WorkBench tab beside Summary and Changes. It
+reads whole files, follows symbols, runs tests, edits source where permitted,
+and provides a terminal. It reads the managed worktree bound to the selected
+task, independently of whether that task is interactive or has a PR. An
+explicit review workspace uses the reviewer's working copy; a development
+WorkBench keeps the developer's working copy when a linked review starts.
 
-- **Changes stays the diff.** The tab is added only to `PullsScreen`.
-  `PullDetailHeader` is shared with the task window's PR panel
-  (`AgentTaskScreen`), so the header itself does not change. `PullsScreen`
-  injects the Code & Tests button through the header's existing `agentTab`
-  slot, and passes `tab={detailTab === 'code' ? null : detailTab}`.
+- **Changes is the diff.** WorkBench Changes uses the shared diff viewer and a
+  source picker for the published GitHub PR, local branch history, uncommitted
+  work, and selected commit snapshots. GitHub comment actions belong to the
+  published PR source.
+- **No worktree, no working copy.** The tab shows why the selected task's
+  working copy is unavailable. Opening it never creates a checkout or starts
+  review. Historical review source remains readable through the existing
+  revision fallback after review cleanup.
 - **Other tabs change only where the run lock reaches them.** While a local run
-  holds the working copy, the Review & Learning controls that would start agent
+  holds the working copy, the Summary controls that would start agent
   work are disabled with the run's reason (section 5.3).
-- **No worktree, no working copy.** For another author's PR without a
-  development task or an open Agent review, the tab shows an empty state whose
-  one action is the existing **Start review** (`bridge.startAgentReview`). The
-  user's own PR with neither has no Code & Tests tab. ByteQuay never creates a
-  second checkout.
 - **Ended reviews are read-only.** `findAgentReview` returns only an OPEN
   review. So the empty state also lists this PR's ended reviews from the
   existing `listAgentReviews(workspaceId)`. Opening one loads it by ID, and its
@@ -301,7 +302,7 @@ A new controller, `web/review/ReviewCodeController`, is mounted at
 | Method and path | Request | Response |
 |---|---|---|
 | `GET /files` | – | `CodeFilesResponse{source: WORKING_COPY\|REVISION, revision, codeGraph: READY\|OFF\|UNAVAILABLE, sourceFingerprint?, savedExperiment, files: [{path, changedInPr, addedInPr, onlyInWorkingCopy, uncommitted}], truncated}` |
-| `GET /file?path=` | – | `CodeFileResponse{path, content, contentHash, editable, readOnlyReason?, prPatch?, lineChanges: [{kind: ADDED\|MODIFIED\|DELETED, line, count}]}` |
+| `GET /file?path=` | Optional `expectedRevision` from the file listing | `CodeFileResponse{path, content, contentHash, editable, readOnlyReason?, prPatch?, lineChanges: [{kind: ADDED\|MODIFIED\|DELETED, line, count}]}`, or 409 if the revision changed |
 | `PUT /file` | `{path, content, expectedHash}` | `CodeFileResponse`, or 409 `{currentHash, currentContent}` |
 | `POST /discard` | `{expectedHead}` | `CodeFilesResponse`, or 409 |
 | `GET /symbols?query=&limit=` | – | `{status: READY\|BUSY\|UPDATING\|UNAVAILABLE, symbols: [{name, kind, qualifiedName?, path, startLine, startColumn, endLine, signature?, test}]}` |
@@ -574,7 +575,7 @@ otherwise fail the new review run.
      otherwise return silently.
    - **Record.** `source_head_sha`, `local_paths_json` and `source_fingerprint`
      are read after the claim succeeds.
-   - **Review & Learning.** `AgentReviewTab` disables Resume, Update review,
+   - **Summary.** `AgentReviewTab` disables Resume, Update review,
      End review and Run review again with that reason while
      `review.task.mutationClaim === 'LOCAL_RUN'`. Send to agent is disabled the
      same way. `runtimeStatus` (`agents/model.ts`) treats `LOCAL_RUN` as a busy
@@ -773,7 +774,7 @@ hovering a line number and pressing **+**.
 
   Everything else is listed below the file as unplaced cards (the
   `UnplacedReviewThreads` pattern). Each pending card is marked pending. Like
-  Changes, withdrawn and outdated findings stay in Review & Learning only.
+  Changes, withdrawn and outdated findings stay in Summary only.
 
 ## 7. Terminal
 
@@ -850,7 +851,7 @@ Each phase is runnable and reviewable on its own. Each runs the full gates
 | 0: mechanical | Extract a controlled `ReviewLineComposer` from `DiffFileCard`. Split `PendingReviewCard` from `PendingReviewCommentRow`. Generalize `buildFileTree` to path lists. Move `MavenModules` out of `cherrypick` and make it public. No behaviour change. |
 | 1: read | Tab button, mounting, loading/empty/ended states. `GET /files` and `/file`. FileTree with scope and markers. CodeMirror read-only view, tabs, Back/Forward, fold and resize, revision mode. |
 | 2: navigate | CodeGraph port additions, bundle patch and stamp. `/symbols`, `/outline`. Palette, breadcrumb outline, ⌘-click with chooser, graph states, Tests tree. |
-| 3: run and log | `local_run` store. `LOCAL_RUN` claim, owner kind and recovery. Runner, preflight and report reader. Run routes, polling log, RunPanel, run icons wherever the design shows them. Blocked reasons on Review & Learning controls. Agent mirroring. **Gate addition:** start the backend against a copy of a populated pre-phase-3 database after the chosen data step (section 9), then start and stop one user run. |
+| 3: run and log | `local_run` store. `LOCAL_RUN` claim, owner kind and recovery. Runner, preflight and report reader. Run routes, polling log, RunPanel, run icons wherever the design shows them. Blocked reasons on Summary controls. Agent mirroring. **Gate addition:** start the backend against a copy of a populated pre-phase-3 database after the chosen data step (section 9), then start and stop one user run. |
 | 4: comment and edit | Inline composer and cards. `PUT /file` with conflict. Unsaved bar and gutter marks, Save, Save and rerun, Discard with confirmation. End review's uncommitted refusal. |
 | 5: terminal | node-pty, xterm, main IPC and lifetime, packaging. |
 
@@ -860,7 +861,7 @@ Each phase is runnable and reviewable on its own. Each runs the full gates
    - review-scoped `/code` routes;
    - `mutateWorkingCopy` under the review lock;
    - Update, Resume and End refusing during a local run, and the matching
-     disabled reasons on Review & Learning;
+     disabled reasons on Summary;
    - End review checking for uncommitted changes before `observer.unwatch`,
      returning 409 "Discard saved edits before ending the review". Today `end`
      unwatches first, so a refused completion leaves an OPEN review that is no
@@ -964,6 +965,14 @@ Each phase is runnable and reviewable on its own. Each runs the full gates
   edits, and discards them on conflict, which the Review tab already discloses.
   Unsaved drafts stay in the mounted tab. When the file changes on disk, the
   next refresh or save shows the conflict banner instead of overwriting.
+- **Automatic remote catch-up.** A clean idle remote-review worktree follows a
+  changed PR head without rerunning the review. Saved local edits prevent that
+  move and show a stale-branch notice with Update review. Unsaved editor drafts
+  remain accessible when a refresh changes or removes their file; their original
+  save hash remains the conflict guard. Findings and review comments continue
+  to use their recorded review revision, not the automatically updated checkout.
+  File reads check the listing's expected revision so a head change between
+  listing and reading cannot pair new content with old comment anchors.
 - **Large repositories.** A truncated `ls-files` or `status` result drops its
   last partial entry and marks the list `truncated`. That happens at about
   60,000 paths, the 5 MiB `GitCommandRunner` cap.
@@ -977,49 +986,36 @@ Each phase is runnable and reviewable on its own. Each runs the full gates
 ## 11. Development-task host
 
 Approved 2026-09-17. A pull request developed in ByteQuay already has a
-worktree and an agent, so Code & Tests opens on it directly, with no Agent
-review.
+worktree and an agent, so Code & Tests opens on the development task directly before or after PR
+creation, without starting review.
 
-**Which worktree.** The code is bound to the worktree, not to the kind of task:
+**Which worktree.** Task WorkBench always binds to its own task/workspace.
+PR browsing can resolve an owning development task; a review workspace opened
+by ID always binds to the reviewer. A linked reviewer never replaces the source
+developer's working copy. The lookup stays separate from summary loading.
 
-1. `bridge.findPullRequestTask(workspaceId, repo, number)` returns an
-   interactive development task, and `getAgentTask` shows its worktree still
-   present (`checkoutRemovedAt === null`): Code & Tests reads that task.
-2. Otherwise an Agent review (open, or ended and opened read-only) is read as
-   today.
-3. Otherwise the user's own PR has no Code & Tests tab, and another author's PR
-   shows the Start review empty state.
+**Routes.** `/agent/tasks/{taskId}/code/...?workspaceId=...` accepts the existing
+file, symbol, outline, run, terminal, and save paths without repo/PR parameters.
+Task reads validate matching workspace, retained checkout, and managed worktree
+ownership for every task kind. Mutation/run/terminal routes retain interactive
+task guards; review-host operations retain review-specific permissions. The task
+host has no destructive discard endpoint or implicit revision fallback.
 
-The lookup runs for every PR with a known workspace, not only authored ones,
-including a review opened by ID. It is separate from loading the review, so a
-slow or failed lookup never holds up Review & Learning: Code & Tests waits for
-it ("Loading working copy…") and falls back to the review when it fails.
-
-**Routes.** `/agent/tasks/{taskId}/code/...?workspaceId=&repo=&number=`, with
-the same paths, bodies and responses as the review routes of section 4.1
-except `POST /discard`, which the task host does not have. Review routes stay
-review-only (agent-review.md: review routes do not become interactive task
-routes). Every task request re-resolves:
-
-- `getInteractive(workspaceId, taskId)`;
-- that the PR belongs to the task (`TaskPullRequestOwnership`): its
-  `pull_request_task` assignment, or the stored PR's `headRef` equals the
-  task's generated branch, or its current branch when the PR is the user's own
-  (`AUTHORED`), since a renamed branch can share a common name with another
-  author's fork. `PullRequestTaskService.find` applies the same rule. Local
-  review uses the same check and also requires the PR to be open, assigned or
-  not;
-- the worktree is present, or 409 "The task's worktree was removed". There is
-  no revision fallback.
+Both hosts expose `/code/changes` with ALL, UNCOMMITTED, COMMITTED, or COMMIT
+scope and optional full base/head/commit IDs. Reads never checkout, fetch, or
+run external diff drivers. Responses include branch/comparison identity,
+commits, changed files, staged/unstaged/untracked paths, and truncation. A commit
+compares against its first parent. Review links supply the exact recorded merge
+base and head, including older runs with the same head and a different base.
 
 **Working-copy facts for a task.** `ReviewCodeService` builds one source record
 from either host:
 
 | Fact | Review host | Task host |
 |---|---|---|
-| Changed/added files, `prPatch` | frozen run diff | stored PR diff (`getPullRequestDiffFiles`, database only); approximate when HEAD is ahead of the pushed head |
+| Changed/added files, `prPatch` | frozen run diff | local Git diff at the task head; includes unpushed commits |
 | Head for rename pairing | run `headSha` | worktree HEAD |
-| Merge base for `lineChanges` | run `mergeBaseSha` | `git merge-base HEAD refs/remotes/<remote>/<baseRef>` in the worktree, no fetch; the remote follows `PullRequestTaskService.assign`; empty marks when it fails |
+| Merge base for `lineChanges` | run `mergeBaseSha` | local PR merge base when associated, otherwise the task starting commit; no fetch |
 | Writable | review OPEN | task OPEN |
 | Editable paths | `src/test/` only | every path |
 | Always refused | `.git` components, symlinks in the chain, creating files | same |
@@ -1069,4 +1065,3 @@ cleanup and delete, each of which can remove the worktree.
   window does; the backend enforces its local-review entry rules.
 - No findings are shown for a task host. Wording says "working copy", not
   "review working copy".
-

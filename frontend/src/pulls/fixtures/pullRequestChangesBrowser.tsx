@@ -72,6 +72,7 @@ async function runHook(): Promise<string[]> {
     comparisons[0].resolve([file('first-only')]);
     await settle();
     assert(current().files[0]?.filename === 'first-only' && current().commits.length === 2, 'Selected files must preserve the full commit picker');
+    assert(current().allFiles[0]?.filename === 'all', 'A selected commit must retain the complete PR snapshot for working-copy comment checks');
     click('All');
     await settle();
     assert(current().commitRange === null && current().files[0]?.filename === 'all', 'All commits must restore the cached complete diff');
@@ -94,6 +95,7 @@ async function runHook(): Promise<string[]> {
     defaultFile = 'other-pr';
     render();
     assert(current().commitRange === null && current().files.length === 0, 'Changing PR must discard the previous selection and files before effects run');
+    assert(current().allFiles.length === 0, 'A new PR must never expose the previous PR snapshot for commenting');
     await settle();
     comparisons[3].reject(new Error('late failure from the old PR'));
     await settle();
@@ -214,6 +216,7 @@ export async function run(): Promise<string[]> {
   completed.push(await runAssignedPrActions());
   completed.push(await runCheckLogs());
   completed.push(await runReviewWorkspace());
+  completed.push(await runReviewWorkspace(true));
   completed.push(await runOpenReviewWorkspaceStream());
   completed.push(await runReviewSheet());
   completed.push(await runSelectionStability());

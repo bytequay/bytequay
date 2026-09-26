@@ -41,6 +41,7 @@ import org.junit.jupiter.api.Test;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.Optional;
+import java.util.OptionalInt;
 import java.util.OptionalLong;
 
 import static com.bytequay.core.review.ReviewStep.Kind.INVESTIGATE;
@@ -62,8 +63,8 @@ class TestReviewToolAssignment
     private final QueuedInputStore queue = mock(QueuedInputStore.class);
     private final AgentReviewStore reviews = mock(AgentReviewStore.class);
     private final ReviewToolAssignment assignments = new ReviewToolAssignment(turns, queue, reviews);
-    private final AgentReview review = new AgentReview(REVIEW_ID, "workspace", "acme/widgets", 1, OptionalLong.empty(), TASK_ID.toString(),
-            AgentReview.State.OPEN, false, Optional.empty(), Optional.empty(), 0, NOW, NOW, Optional.empty());
+    private final AgentReview review = new AgentReview(REVIEW_ID, "workspace", "acme/widgets", OptionalInt.of(1), OptionalLong.empty(), TASK_ID.toString(), Optional.empty(),
+            AgentReview.State.OPEN, false, Optional.empty(), Optional.empty(), Optional.empty(), 0, NOW, NOW, Optional.empty());
     private ReviewRun run;
 
     @BeforeEach

@@ -1,5 +1,9 @@
 # Agent Task UI Design
 
+[WorkBench](workbench.md) owns the shared navigation, task-bound code access,
+and reviews of local development commits. Its source and hosting contracts
+apply to the existing services described here.
+
 ## Issue development entry points
 
 The approved [issue development scope](issue-development-plan.md) adds Goal
@@ -400,9 +404,14 @@ The transcript displays:
   is chosen by that turn's publication origin and never by matching its words;
 - initial, incremental, and completion-repair review requests use compact
   cards built from the saved review scope instead of generated prompts;
+- generated Refine summary and Auto commit requests use compact action cards,
+  selected by durable turn-origin metadata. Their full prompts are available
+  in the closed-by-default disclosure, rendered as Markdown with sections,
+  lists, and inline code. Saved plain-text instructions retain their line
+  breaks. Ordinary user messages and steering retain their text;
 - review questions and replies use the same outlined request-card style, with
   a green title bar, review topic, and one-line preview of the saved user's
-  message. Clicking the title selects **Review & Learning**, opens the matching
+  message. Clicking the title selects **Summary**, opens the matching
   summary, commit, finding, or local discussion card, and scrolls it into view.
   Earlier requests retain their original report run. A separate chevron
   expands the full message and reviewed revision, or the existing private
@@ -591,8 +600,8 @@ Such an inventory-only child does not manufacture cards or a V2 path, including
 saved children of resumed turns.
 
 The panel opens on the task's pull request and uses the main PR page's toolbar,
-content spacing, and actions. **Review & Learning** sits beside
-**PR #&lt;number&gt;** and **Changes** for both development and review tasks.
+content spacing, and actions. **PR** and **WorkBench** are the primary destinations. WorkBench contains
+**Summary**, **Changes**, and **Code & Tests** for development and review tasks.
 Development tasks also expose the learning tab before a PR exists. After a
 successful turn changes code or commits, a dedicated **Refine summary** turn
 updates the change intention and each commit’s design and implementation.
@@ -628,9 +637,9 @@ explicit action. Drafts cannot be merged from that dialog.
 The PR tab mounts ByteQuay's existing pull-request detail surface in the panel,
 so the pull request is read beside the conversation without leaving the task. A
 transcript link to that pull request selects the tab instead of navigating, and
-the task route does not change. **Changes** shows the same pull request's diff
+the task route does not change. **WorkBench → Changes → Published PR** shows the same pull request's diff
 with GitHub threads, private local discussions, and agent findings on their
-reviewed lines. **View in Changes** and **Open in Review & Learning** navigate
+reviewed lines. **View in Changes** and **Open in Summary** navigate
 the same finding within the panel. Both the panel and full-width surface use the
 same diff loader, commit-range selection, line selection, inline composer,
 review-thread renderer, detail loader, and timeline. Selecting a commit compares
@@ -658,7 +667,7 @@ current checkout before editing because its quoted revision may be older.
 Each accepted submission creates a durable **Local review comment**, marked
 **Private**, with the selected code snapshot and its revision. The conversation
 shows its review card instead of the generated agent-context prompt. The same
-thread appears in **Review & Learning**, the task PR timeline, full-width PR
+thread appears in **Summary**, the task PR timeline, full-width PR
 timeline, and diff. The learning tab lists private discussions from all tasks
 associated with that PR, including its separate review task. Each discussion
 continues with its owning agent.
@@ -765,7 +774,7 @@ product tool.
 ### 2.8 Screen shape and navigation
 
 Authored PR browsing uses **Assign agent** beside GitHub and omits the
-**Review & Learning** tab. Assignment opens the existing task layout with
+**Summary** tab. Assignment opens the existing task layout with
 navigation, conversation and PR side pane, loading the PR context in its first
 turn. **View in task** is available for all PRs in a matching workspace, using
 an interactive task for authored PRs and a review task for other authors.
@@ -848,7 +857,7 @@ grey icon. Reviews are grouped by local calendar start date into **Today**, **Ye
 **Recent 7 days**, **Recent 30 days**, and **Older**. Groups do not overlap;
 empty groups are hidden, and rows are newest first within each group.
 Selecting a row opens that exact review in the existing PR detail
-overlay's **Review & Learning** tab; closing the overlay returns to the
+overlay's **Summary** tab; closing the overlay returns to the
 selected list. Each row also has a **View inside workspace** icon. It opens the
 exact review at `tasks/review/{reviewId}`, so reload and back/forward retain
 the selected review. The workspace shows the existing review conversation on
@@ -1185,6 +1194,13 @@ so the image button is gated by the selected model, not only by provider. It
 does not add another model-registry endpoint. Selector changes save the task's
 next-turn defaults with an expected task version; every send/queue request also
 carries its effective snapshot so a concurrent default change is unambiguous.
+
+The composer refreshes its authoritative task projection on task-level
+`WORKTREE_UPDATED` events from Code & Tests saves, worktree synchronization,
+and local-run claim acquisition or release. An editor's own polling cannot
+replace that shared refresh: Send must observe the new task version without
+requiring navigation or a failed first attempt. The version guard remains in
+place; a concurrent change still preserves the draft and retry identity.
 
 For Codex, a validated local upload is passed as `localImage {path}` using its
 task-owned blob path. The URL-based `image` input is not part of the first

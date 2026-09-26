@@ -108,7 +108,7 @@ export function ReviewTaskList({ reviews, loading, error, onRetry, onOpenReview,
       {!loading && error === null && reviews.length === 0 && (
         <div className="agt-empty-hero">
           <div className="agt-empty-hero__title">No review tasks yet</div>
-          <div className="agt-muted">Start a review from a pull request&apos;s Review &amp; Learning tab to see it here.</div>
+          <div className="agt-muted">Request a review from WorkBench → Summary to see it here.</div>
         </div>
       )}
       {reviews.length > 0 && (
@@ -126,8 +126,8 @@ export function ReviewTaskList({ reviews, loading, error, onRetry, onOpenReview,
                   <div className="agt-review-entry" key={review.id}>
                   <button type="button" className="agt-trow agt-review-row" onClick={() => onOpenReview(review)}>
                     <PullRequestStateIcon pullRequest={review.pullRequest} size={16} className="agt-review-row__icon" />
-                    <span className="agt-trow__title" title={`${review.repo} #${review.number}${review.pullRequest === null ? '' : ` ${review.pullRequest.title}`}`}>
-                      {review.pullRequest === null ? `${review.repo} #${review.number}` : `#${review.number} ${review.pullRequest.title}`}
+                    <span className="agt-trow__title" title={review.number === null ? `${review.repo} · Local changes` : `${review.repo} #${review.number}${review.pullRequest === null ? '' : ` ${review.pullRequest.title}`}`}>
+                      {review.number === null ? `${review.repo} · Local changes` : review.pullRequest === null ? `${review.repo} #${review.number}` : `#${review.number} ${review.pullRequest.title}`}
                     </span>
                     <span className="agt-mono agt-trow__meta">
                       {review.task.laneLabel}{review.task.model === null ? '' : ` · ${displayModelName(review.task.model)}`}
@@ -140,7 +140,7 @@ export function ReviewTaskList({ reviews, loading, error, onRetry, onOpenReview,
                     <ChevronRight className="agt-trow__chev" size={14} aria-hidden="true" />
                   </button>
                   <button type="button" className="agt-headbtn agt-review-entry__workspace" title="View inside workspace"
-                    aria-label={`View review #${review.number} inside workspace`} onClick={() => onOpenWorkspace(review)}>
+                    aria-label={review.number === null ? 'View local review inside workspace' : `View review #${review.number} inside workspace`} onClick={() => onOpenWorkspace(review)}>
                     <PanelLeft size={16} aria-hidden="true" />
                   </button>
                   </div>

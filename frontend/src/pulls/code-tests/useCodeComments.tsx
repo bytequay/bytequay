@@ -47,7 +47,7 @@ export type CodeCommentsOptions = {
   localReview: LocalReviewThreads;
   /** Present only while the Agent review is open. */
   onAskAgent?: (comment: DiffAgentComment) => Promise<void>;
-  /** Shows a finding in Review & Learning, as its card's link does on Changes. */
+  /** Shows a finding in Summary, as its card's link does on Changes. */
   onOpenFindingInReview?: (findingId: string) => void;
 };
 

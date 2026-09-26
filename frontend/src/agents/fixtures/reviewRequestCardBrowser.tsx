@@ -14,6 +14,9 @@
 import { flushSync } from 'react-dom';
 import { createRoot } from 'react-dom/client';
 import { ReviewRequestCard } from '../ReviewRequestCard';
+import { TurnView } from '../AgentConversation';
+import { parseAgentTurn } from '../contracts';
+import contracts from './agent-contracts-v1.json';
 import '../../css/base.css';
 import '../../css/agents.css';
 import { assert, settle } from '../../fixtures/harness';
@@ -84,3 +87,49 @@ export async function verify(open: boolean, expectedActions = 0, expectedOpens =
 export function clickToggle() { toggle().click(); }
 export function openReview() { card().querySelector<HTMLButtonElement>('.agt-review-request__open')?.click(); }
 export function retry() { card().querySelector<HTMLButtonElement>('.agt-review-request__content button')?.click(); }
+
+export async function generatedPrompt(markdown = false) {
+  const path = 'worktree/'.repeat(60) + 'Implementation.java';
+  const prompt = markdown ? '# ByteQuay · Refining summary\n\nRefresh the summary from the final code and actual commits.\n\n'
+    + '## Scope\n\n- **Worktree:** `' + path + '`\n- **Expected HEAD:** `9d4fa8f`\n\n'
+    + '## Instructions\n\n- Read the current diff and commit history, including uncommitted changes.\n'
+    + '- Explain the task’s intention and each commit’s design.\n- Preserve the existing question.\n\n'
+    + '## Report\n\nCall `report_development_result` with `readyForDelivery=true` and `learningSummary`.\n\n'
+    + 'This records the private summary; it does not authorize delivery of held work.'
+    : 'ByteQuay · Refining summary\nRefresh this development task’s private Review & Learning cards from the final code and actual commits.\n'
+    + 'Read the current diff and commit history, including any uncommitted changes. '.repeat(30)
+    + '\n' + path;
+  const turn = parseAgentTurn({ ...contracts.turn, developmentOrigin: { kind: 'REFINE_SUMMARY', parentUserTurnId: 'source-turn' } });
+  flushSync(() => root.render(<TurnView
+    turn={{ turnId: turn.id, ordinal: 1, blocks: [], answer: null, startedAt: null, endedAt: null, outcome: null,
+      users: [{ id: 'generated', text: prompt, attachments: [], delivery: 'TURN', at: '2026-01-01T12:00:00Z' }] }}
+    first={false} open={false} now={0} models={[]} durableTurns={{ [turn.id]: turn }} activityChoice={{}} previews={{}} agentLabels={{}}
+    onToggle={() => {}} onToggleActivity={() => {}} />));
+  await settle();
+  const request = card();
+  const content = request.querySelector<HTMLElement>('.agt-review-request__content');
+  assert(content !== null, 'Generated prompt must have a disclosure');
+  assert(host.querySelector('.agt-user__bubble') === null, 'Generated prompt must not render as an ordinary user bubble');
+  assert(request.querySelector('.agt-user__request-action')?.textContent === 'ByteQuay · Refine summary', 'Card must name the trusted origin');
+  assert(content.hidden && content.getBoundingClientRect().height === 0, 'Generated instructions must start hidden');
+  assert(request.getBoundingClientRect().height <= 100, 'Generated request must remain compact');
+  assert(request.scrollWidth <= request.clientWidth + 1, 'Collapsed generated request must fit its card');
+  toggle().click();
+  await settle();
+  assert(!content.hidden && content.getBoundingClientRect().height > 0, 'Disclosure must expose generated instructions');
+  const rendered = request.querySelector('.agt-review-request__body > .agt-md');
+  assert(rendered !== null, 'Expanded instructions must use the conversation Markdown renderer');
+  if (markdown) {
+    assert(rendered.querySelector('p > strong')?.textContent === 'ByteQuay · Refining summary', 'Markdown headings must render without their source markers');
+    assert(rendered.querySelectorAll('li').length === 5 && rendered.querySelector('code')?.textContent === path,
+      'Instructions must render readable lists and complete code-formatted paths');
+    assert(rendered.textContent?.includes('report_development_result') && !rendered.textContent?.includes('`'), 'Report fields must render as inline code');
+  } else {
+    assert(rendered.textContent === prompt, 'Saved plain-text instructions must retain their complete text and line breaks');
+  }
+  assert(document.documentElement.scrollWidth <= innerWidth && request.scrollWidth <= request.clientWidth + 1, 'Expanded instructions must wrap at narrow widths');
+  toggle().click();
+  await settle();
+  assert(content.hidden && request.getBoundingClientRect().height <= 100, 'Generated request must collapse back to its summary');
+  return { width: innerWidth, compact: content.hidden };
+}

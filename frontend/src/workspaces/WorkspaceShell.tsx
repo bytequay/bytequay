@@ -59,7 +59,7 @@ export default function WorkspaceShell({ workspace, tab, onSelectTab, onWorkspac
   const [commitSourceSelection, setCommitSourceSelection] = useState<CommitSourceSelection>();
   // Every agent screen can show every task as a window; ⇧⌘\ toggles it, Escape puts it away.
   const [overviewOpen, setOverviewOpen] = useState(false);
-  const [openReview, setOpenReview] = useState<Pick<AgentReviewDto, 'id' | 'repo' | 'number'> | null>(null);
+  const [openReview, setOpenReview] = useState<{ id: string; repo: string; number: number } | null>(null);
   // The launch chosen when development was started from an issue; the composer seeds itself with it.
   const [startLaunch, setStartLaunch] = useState<TaskLaunch>();
   const monitoredRepository = `${workspace.monitoredOwner}/${workspace.monitoredRepo}`;
@@ -236,7 +236,7 @@ export default function WorkspaceShell({ workspace, tab, onSelectTab, onWorkspac
           launch={sourceIssueNumber === null ? undefined : startLaunch}
           onOpenCreatedTask={task => { window.location.hash = workspaceAgentTaskRoute(task.workspaceId, task.id); }}
           headerAction={overviewOpen || zoomedCherryPick ? undefined : overviewToggle}
-          onOpenReview={(review) => setOpenReview({ id: review.id, repo: review.repo, number: review.number })}
+          onOpenReview={review => review.number === null ? openReviewWorkspace(review) : setOpenReview({ id: review.id, repo: review.repo, number: review.number })}
           onOpenReviewWorkspace={openReviewWorkspace}
           onOpenTask={(taskId) => onSelectAgentTask(taskId, 'push')}
           onOpenSettings={() => { window.location.hash = settingsRoute('ws-agents', workspace.id); }}

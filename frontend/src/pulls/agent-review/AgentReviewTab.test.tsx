@@ -154,7 +154,7 @@ describe('the status strip', () => {
     });
     const html = tab(failed);
     expect(html).toContain('Cannot start the review turn');
-    expect(html).toContain('PR intention');
+    expect(html).toContain('Change intention');
     expect(html).not.toContain('Retry review');
     expect(html).not.toContain('>Resume</button>');
     expect(html).not.toContain('>Run review again</button>');
@@ -171,7 +171,7 @@ describe('the status strip', () => {
     expect(html).not.toContain('>Resume</button>');
     expect(html).toMatch(/disabled=""[^>]*>Update review<\/button>/);
     expect(html).toMatch(/disabled=""[^>]*>End review<\/button>/);
-    expect(html).toMatch(/disabled=""[^>]*>Ask agent<\/button>/);
+    expect(html).toMatch(/disabled=""[^>]*>Ask reviewer<\/button>/);
     expect(html).not.toContain('>Stop</button>');
     expect(html).not.toContain('preparing the review');
   });
@@ -215,7 +215,7 @@ describe('banners', () => {
       summary: null, coverage: null, outcome: 'The review tools could not save the report' }] });
     expect(html).toContain('The review tools could not save the report');
     expect(html).toContain('The previous completed review is shown below.');
-    expect(html).toContain('PR intention');
+    expect(html).toContain('Change intention');
     expect(html).not.toContain('finished ');
   });
 
@@ -225,6 +225,29 @@ describe('banners', () => {
     expect(html).toContain('d9a0c41 → 5e17b02');
     expect(html).toContain('Finding comments stay attached to their reviewed commit');
     expect(card(reviewFixture({ observedHeadSha: '5e17b02a1b2c3d4e' }), reviewFixture().findings[0])).toContain('Post comment now');
+  });
+
+  it.each([
+    ['CURRENT', false, 'Working copy up to date', 'Review results still cover d9a0c41'],
+    ['PENDING', false, 'Working copy waiting to sync', 'will sync when the review is idle'],
+    ['BLOCKED', true, 'Working copy is stale', 'Saved local changes are preserved'],
+    ['UNAVAILABLE', false, 'Working copy sync unavailable', 'Fetch failed'],
+  ] as const)('explains %s worktree sync separately from the reviewed snapshot', (state, dirty, label, message) => {
+    const review = reviewFixture({ observedHeadSha: '5e17b02a1b2c3d4e', worktreeSync: {
+      state, dirty, headSha: state === 'CURRENT' ? '5e17b02a1b2c3d4e' : 'd9a0c41a1b2c3d4e',
+      targetHeadSha: '5e17b02a1b2c3d4e', reason: state === 'UNAVAILABLE' ? 'Fetch failed' : null,
+    } });
+    const parsed = parseAgentReview(JSON.parse(JSON.stringify(review)));
+    expect(parsed.worktreeSync).toEqual(review.worktreeSync);
+    const html = tab(parsed);
+    expect(html).toContain(label);
+    expect(html).toContain(message);
+    expect(html).toContain('>Update review</button>');
+    expect(parsed.runs[0].headSha).toBe(reviewFixture().runs[0].headSha);
+  });
+
+  it('rejects an unknown worktree sync state', () => {
+    expect(() => parseAgentReview({ ...reviewFixture(), worktreeSync: { state: 'RESETTING' } })).toThrow('worktree sync state');
   });
 
   it('says a stopped review keeps its discussion open', () => {
@@ -385,9 +408,9 @@ describe('the summary card', () => {
     expect(summary(review)).not.toContain('Verification warning');
   });
 
-  it('separates PR intention and commit implementation without redundant report cards', () => {
+  it('separates Change intention and commit implementation without redundant report cards', () => {
     const html = summary(review);
-    expect(html).toContain('PR intention');
+    expect(html).toContain('Change intention');
     expect(html).toContain('Commit implementation');
     expect(html).toContain('agr-learning-card--purpose');
     expect(html.match(/agr-learning-card--commit/g)).toHaveLength(5);
@@ -418,7 +441,7 @@ describe('the summary card', () => {
     expect(html).toContain('pr-inline-thread is-local-review');
     expect(html).toContain('Why does the second commit change IcebergUtil');
     expect(html.match(/data-review-card=/g)).toHaveLength(6);
-    expect(html).toContain('Ask agent');
+    expect(html).toContain('Ask reviewer');
     expect(html).not.toContain('Post comment now');
   });
 
@@ -447,7 +470,7 @@ describe('the finding card', () => {
 
   it('separates private actions from the one that reaches GitHub', () => {
     const html = card(review, finding);
-    expect(html).toContain('Ask agent');
+    expect(html).toContain('Ask reviewer');
     expect(html).toContain('Resolve locally');
     expect(html).toContain('View in Changes');
     expect(html).toContain('Add to my review');
@@ -458,7 +481,7 @@ describe('the finding card', () => {
 
   it('labels the way back differently in each projection but keeps one identity', () => {
     expect(card(review, finding, 'review')).toContain('View in Changes');
-    expect(card(review, finding, 'changes')).toContain('Open in Review &amp; Learning');
+    expect(card(review, finding, 'changes')).toContain('Open in Summary');
     expect(card(review, finding, 'changes')).toContain('data-finding-id="finding-1"');
     expect(card(review, finding, 'review')).toContain('data-finding-id="finding-1"');
   });
@@ -489,7 +512,7 @@ describe('the finding card', () => {
     const html = card(reviewFixture({ findings: [withdrawn] }), withdrawn);
     expect(html).toContain('The agent withdrew this finding');
     expect(html).toContain('can no longer be published');
-    expect(html).not.toContain('Ask agent');
+    expect(html).not.toContain('Ask reviewer');
     expect(html).not.toContain('Add to my review');
   });
 

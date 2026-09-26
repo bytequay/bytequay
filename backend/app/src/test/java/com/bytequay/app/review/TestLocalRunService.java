@@ -49,7 +49,6 @@ import com.bytequay.agent.spi.AgentLaneId;
 import com.bytequay.agent.spi.AgentPermissionPolicy;
 import com.bytequay.agent.spi.AgentUnavailableException;
 import com.bytequay.agent.spi.ProviderAgentEvent.ActivityState;
-import com.bytequay.app.agent.TaskPullRequestOwnership;
 import com.bytequay.app.agent.codegraph.FakeCodeGraphService;
 import com.bytequay.app.git.GitCommandRunner;
 import com.bytequay.app.git.ReviewExperiments;
@@ -67,6 +66,8 @@ import com.bytequay.core.review.LocalRunStore;
 import com.bytequay.core.review.ReviewConflictException;
 import com.bytequay.core.review.ReviewNotFoundException;
 import com.bytequay.core.review.ReviewRun;
+import com.bytequay.core.store.PullRequestStore;
+import com.bytequay.core.store.PullRequestTaskStore;
 import com.bytequay.core.store.WorkspaceStore;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
@@ -140,7 +141,6 @@ class TestLocalRunService
     private final AgentReviewService reviews = mock(AgentReviewService.class);
     private final AgentTurnService turns = mock(AgentTurnService.class);
     private final AgentTaskService tasks = mock(AgentTaskService.class);
-    private final TaskPullRequestOwnership pullRequestOwnership = mock(TaskPullRequestOwnership.class);
     private final InMemoryLocalRunStore runs = new InMemoryLocalRunStore();
     private final FakeSupervisor supervisor = new FakeSupervisor();
     private Path checkout;
@@ -190,10 +190,10 @@ class TestLocalRunService
         when(reviewStore.findReview(REVIEW_ID)).thenReturn(Optional.of(review(true)));
         when(reviewStore.listRuns(REVIEW_ID)).thenReturn(ImmutableList.of(reviewRun()));
         when(reviews.task(REVIEW_ID)).thenReturn(task(Optional.empty()));
-        when(tasks.getInteractive(WORKSPACE_ID, worktree.taskId())).thenReturn(developmentTask(Optional.empty()));
-        when(pullRequestOwnership.owns(any(), eq(REPOSITORY.fullName()), eq(7), eq(false))).thenReturn(true);
+        when(tasks.get(worktree.taskId())).thenReturn(developmentTask(Optional.empty()));
         code = new ReviewCodeService(reviewStore, reviews, worktrees, mock(WorkspaceRepositoryService.class), runner, new FakeCodeGraphService(), mock(AgentResourceService.class),
-                new ReviewExperiments(runner, worktrees), tasks, turns, pullRequestOwnership, mock(PullRequestService.class));
+                new ReviewExperiments(runner, worktrees), tasks, turns, mock(PullRequestTaskStore.class), mock(PullRequestStore.class),
+                new WorktreeDiffReader(runner), mock(PullRequestService.class));
         service = service(ImmutableMap.of("JAVA_HOME", jdk.toString(), "PATH", "/usr/bin:/bin", "BYTEQUAY_SESSION_TOKEN", "secret"));
     }
 
@@ -279,27 +279,27 @@ class TestLocalRunService
     }
 
     @Test
-    void aDevelopmentTaskRefusesRunsWhileBusyEndedOrNoLongerOwningThePullRequest()
+    void aDevelopmentTaskRefusesRunsWhileBusyEndedOrOutsideItsWorkspace()
     {
         TurnId turnId = TurnId.random();
-        when(tasks.getInteractive(WORKSPACE_ID, worktree.taskId())).thenReturn(developmentTask(Optional.of(WorktreeMutationClaim.turn(turnId, NOW))));
+        when(tasks.get(worktree.taskId())).thenReturn(developmentTask(Optional.of(WorktreeMutationClaim.turn(turnId, NOW))));
         when(turns.get(turnId)).thenReturn(AgentTurn.accepted(turnId, worktree.taskId(), "develop", settings(), NOW));
         assertTaskBusy("The task's agent is working");
-        when(tasks.getInteractive(WORKSPACE_ID, worktree.taskId())).thenReturn(developmentTask(Optional.of(WorktreeMutationClaim.recovery("launch-1", NOW))));
+        when(tasks.get(worktree.taskId())).thenReturn(developmentTask(Optional.of(WorktreeMutationClaim.recovery("launch-1", NOW))));
         assertTaskBusy(LocalRunService.TASK_RECOVERY_NEEDED);
-        when(tasks.getInteractive(WORKSPACE_ID, worktree.taskId())).thenReturn(developmentTask(Optional.empty()).withDevelopmentContinuation(true, NOW));
+        when(tasks.get(worktree.taskId())).thenReturn(developmentTask(Optional.empty()).withDevelopmentContinuation(true, NOW));
         assertTaskBusy("Development automation is working");
         AgentTask completed = developmentTask(Optional.empty()).complete(new TaskSummary("done", Optional.empty(), AgentMetrics.empty(), Optional.empty()), NOW, NOW.plusSeconds(60));
-        when(tasks.getInteractive(WORKSPACE_ID, worktree.taskId())).thenReturn(completed);
+        when(tasks.get(worktree.taskId())).thenReturn(completed);
         assertTaskBusy("The task has ended");
-        when(tasks.getInteractive(WORKSPACE_ID, worktree.taskId())).thenReturn(completed.withWorktreeRemovedAt(NOW));
+        when(tasks.get(worktree.taskId())).thenReturn(completed.withWorktreeRemovedAt(NOW));
         assertTaskBusy("The task's worktree was removed");
         assertThatThrownBy(() -> service.list(taskHost())).isInstanceOf(ReviewConflictException.class).hasMessage("The task's worktree was removed");
 
-        when(tasks.getInteractive(WORKSPACE_ID, worktree.taskId())).thenReturn(developmentTask(Optional.empty()));
-        when(pullRequestOwnership.owns(any(), eq(REPOSITORY.fullName()), eq(7), eq(false))).thenReturn(false);
-        assertThatThrownBy(() -> service.start(taskHost(), TEST_PATH, Optional.empty())).isInstanceOf(ReviewNotFoundException.class);
-        assertThatThrownBy(() -> service.list(taskHost())).isInstanceOf(ReviewNotFoundException.class);
+        when(tasks.get(worktree.taskId())).thenReturn(developmentTask(Optional.empty()));
+        TaskCodeHost other = new TaskCodeHost("other", worktree.taskId().toString());
+        assertThatThrownBy(() -> service.start(other, TEST_PATH, Optional.empty())).isInstanceOf(ReviewNotFoundException.class);
+        assertThatThrownBy(() -> service.list(other)).isInstanceOf(ReviewNotFoundException.class);
 
         verify(turns, never()).claimLocalRun(any(), anyString());
         assertThat(runs.list()).isEmpty();
@@ -378,6 +378,7 @@ class TestLocalRunService
     @Test
     void keepsTheClaimForAnUnverifiableTreeUntilStopVerifiesIt()
     {
+        when(reviewStore.findReviewByTask(worktree.taskId().toString())).thenReturn(Optional.of(review(true)));
         LocalRun run = service.start(REVIEW_ID, TEST_PATH, Optional.empty());
         report(PASSING_REPORT, Instant.now());
         FakeProcess process = supervisor.process();
@@ -389,6 +390,7 @@ class TestLocalRunService
         assertThat(finished.treeUnverified()).isTrue();
         verify(turns, never()).releaseLocalRun(any(), anyString());
         assertThat(supervisor.acknowledged).isEmpty();
+        verify(reviews, never()).reconcile(REVIEW_ID);
 
         process.stopResult = ProcessExit.TreeTermination.UNVERIFIABLE;
         assertThat(service.stop(REVIEW_ID, run.id()).treeUnverified()).isTrue();
@@ -403,6 +405,7 @@ class TestLocalRunService
         InOrder order = inOrder(turns);
         order.verify(turns).releaseLocalRun(worktree.taskId(), run.id());
         assertThat(supervisor.acknowledged).containsExactly("launch-1");
+        verify(reviews, timeout(1000)).reconcile(REVIEW_ID);
     }
 
     @Test
@@ -708,7 +711,7 @@ class TestLocalRunService
 
     private TaskCodeHost taskHost()
     {
-        return new TaskCodeHost(WORKSPACE_ID, worktree.taskId().toString(), REPOSITORY.fullName(), 7);
+        return new TaskCodeHost(WORKSPACE_ID, worktree.taskId().toString());
     }
 
     private AgentTask developmentTask(Optional<WorktreeMutationClaim> claim)
@@ -778,8 +781,9 @@ class TestLocalRunService
 
     private AgentReview review(boolean followUpPaused)
     {
-        return new AgentReview(REVIEW_ID, WORKSPACE_ID, REPOSITORY.fullName(), 7, OptionalLong.empty(), worktree.taskId().toString(), AgentReview.State.OPEN, followUpPaused,
-                Optional.empty(), Optional.empty(), 0, NOW, NOW, Optional.empty());
+        return new AgentReview(REVIEW_ID, WORKSPACE_ID, REPOSITORY.fullName(), OptionalInt.of(7), OptionalLong.empty(), worktree.taskId().toString(), Optional.empty(),
+                AgentReview.State.OPEN, followUpPaused,
+                Optional.empty(), Optional.empty(), Optional.empty(), 0, NOW, NOW, Optional.empty());
     }
 
     private ReviewRun reviewRun()

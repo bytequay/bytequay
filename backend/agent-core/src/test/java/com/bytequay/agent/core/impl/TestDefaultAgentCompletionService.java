@@ -760,6 +760,12 @@ class TestDefaultAgentCompletionService
         private boolean uncommitted;
 
         @Override
+        public Path ownedCheckout(TaskWorktree worktree)
+        {
+            return worktree.canonicalWorktree();
+        }
+
+        @Override
         public TaskWorktree provision(ProvisionWorktreeCommand command)
         {
             throw new UnsupportedOperationException();

@@ -15,13 +15,12 @@ package com.bytequay.app.review;
 
 import static java.util.Objects.requireNonNull;
 
-/** A development task's working copy opened from one of its pull requests; every request re-checks that the task still owns it. */
-public record TaskCodeHost(String workspaceId, String taskId, String repo, int number)
+/** A task-owned working copy, independent of pull-request or review creation. */
+public record TaskCodeHost(String workspaceId, String taskId)
 {
     public TaskCodeHost
     {
         requireNonNull(workspaceId, "workspaceId is null");
         requireNonNull(taskId, "taskId is null");
-        requireNonNull(repo, "repo is null");
     }
 }

@@ -48,6 +48,8 @@ interface Selection {
 
 export interface PullRequestChangesSource {
   files: DiffFileDto[];
+  /** The complete PR snapshot, retained while a commit range is selected. */
+  allFiles: DiffFileDto[];
   commits: DiffCommitDto[];
   loading: boolean;
   error: string | null;
@@ -64,7 +66,7 @@ export function usePullRequestChanges(
 ): PullRequestChangesSource {
   const [refreshVersion, setRefreshVersion] = useState(0);
   const [selection, setSelection] = useState<Selection | null>(null);
-  const [history, setHistory] = useState<{ scope: string; commits: DiffCommitDto[] } | null>(null);
+  const [history, setHistory] = useState<{ scope: string; commits: DiffCommitDto[]; files: DiffFileDto[] } | null>(null);
   const [result, setResult] = useState<{ key: string; files: DiffFileDto[]; error: string | null } | null>(null);
   const repo = target?.repo ?? null;
   const number = target?.number ?? null;
@@ -93,7 +95,7 @@ export function usePullRequestChanges(
         window.bridge.fetchPrDiffFiles(repo, number),
         window.bridge.fetchPrDiffCommits(repo, number),
       ]).then(([files, loadedCommits]) => {
-        if (live && currentKey.current === key) setHistory({ scope, commits: loadedCommits });
+        if (live && currentKey.current === key) setHistory({ scope, commits: loadedCommits, files });
         return files;
       })
       : window.bridge.refreshPrDiffFiles(repo, number, selected.baseSha, selected.headSha);
@@ -121,6 +123,7 @@ export function usePullRequestChanges(
   const current = result?.key === key ? result : null;
   return {
     files: current?.files ?? [],
+    allFiles: history?.scope === scope ? history.files : [],
     commits,
     loading: active && target !== null && current === null,
     error: current?.error ?? null,

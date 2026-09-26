@@ -60,6 +60,7 @@ import java.time.Duration;
 import java.time.Instant;
 import java.time.ZoneOffset;
 import java.util.Optional;
+import java.util.OptionalInt;
 import java.util.OptionalLong;
 import java.util.concurrent.atomic.AtomicReference;
 
@@ -83,8 +84,9 @@ class TestRepositoryContextTurnInput
     private static final TaskId TASK = TaskId.valueOf("e4469e62-6122-4c61-b279-459a6ad35f20");
     private static final AgentTurnSettings SETTINGS = new AgentTurnSettings(
             Optional.empty(), Optional.empty(), AgentPermissionPolicy.AUTO, Duration.ofMinutes(5), ImmutableList.of());
-    private static final AgentReview REVIEW = new AgentReview("review", "workspace", "example/repository", 1, OptionalLong.empty(), TASK.toString(),
-            AgentReview.State.OPEN, false, Optional.empty(), Optional.of(HEAD), 0, NOW, NOW, Optional.empty());
+    private static final AgentReview REVIEW = new AgentReview("review", "workspace", "example/repository", OptionalInt.of(1),
+                OptionalLong.empty(), TASK.toString(), Optional.empty(),
+            AgentReview.State.OPEN, false, Optional.empty(), Optional.of(HEAD), Optional.of(HEAD), 0, NOW, NOW, Optional.empty());
 
     @Test
     void suppliesExactFrozenBootstrapAndPersistsItsBindingBeforeSubmission()

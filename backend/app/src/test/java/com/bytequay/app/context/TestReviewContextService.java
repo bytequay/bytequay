@@ -49,6 +49,7 @@ import java.time.Instant;
 import java.time.ZoneOffset;
 import java.util.List;
 import java.util.Optional;
+import java.util.OptionalInt;
 import java.util.OptionalLong;
 import java.util.stream.IntStream;
 
@@ -73,8 +74,9 @@ class TestReviewContextService
     private static final String BASE = "b".repeat(40);
     private static final WorkspaceRepositoryContext WORKSPACE = new WorkspaceRepositoryContext("workspace", Path.of("/tmp/context-test"), 42,
             RepoRef.of("example", "repository"), OptionalLong.empty(), RepoRef.of("example", "repository"), "origin", "origin", "main", ImmutableList.of());
-    private static final AgentReview REVIEW = new AgentReview("review", "workspace", "example/repository", 1, OptionalLong.empty(), "task", AgentReview.State.OPEN,
-            false, Optional.empty(), Optional.of(HEAD), 0, NOW, NOW, Optional.empty());
+    private static final AgentReview REVIEW = new AgentReview("review", "workspace", "example/repository", OptionalInt.of(1),
+                OptionalLong.empty(), "task", Optional.empty(), AgentReview.State.OPEN,
+            false, Optional.empty(), Optional.of(HEAD), Optional.of(HEAD), 0, NOW, NOW, Optional.empty());
     private static final ContextSourceEvidence SOURCE = new ContextSourceEvidence("source-doc", new ContextReference.Document("docs", "https://example.com/docs/page"),
             "Captured documentation provenance", "The retained source contract", ContextSourceEvidence.Capture.BYTEQUAY_READ,
             Optional.of(NOW), Optional.of("sha256:source"), Optional.of("release-1"), false);

@@ -23,7 +23,7 @@ import type { LocalReviewThreads } from '../pulls/local-review/types';
 import { linkIssueNumbers } from '../pulls/MarkdownBody';
 import type { AgentIssueSourceDto,AgentApprovalDecision,AgentAttachmentDto,AgentPendingApprovalDto,AgentQueuedInputDto,AgentStreamConnectionState,AgentTurnDto,ModelOptionDto,ToolCountersDto } from '../types';
 import { AgentMark } from './AgentMark';
-import { developmentTurnLabel,draftPullRequestRequest } from './DevelopmentFacts';
+import { developmentTurnRequest,draftPullRequestRequest } from './DevelopmentFacts';
 import type { AgentEventEnvelope } from './events';
 import { captureHistoryAnchors,restoreHistoryAnchor,type HistoryScrollAnchor } from './historyScroll';
 import { ImageAttachment } from './ImageAttachment';
@@ -672,8 +672,8 @@ export function TurnView({ turn, repository, first, open, now, models, durableTu
   const live = running && !waiting;
   const hasLog = turn.startedAt !== null || turn.blocks.length > 0;
   const durable = turn.turnId === null ? undefined : durableTurns[turn.turnId];
-  const generatedLabel = developmentTurnLabel(durable) ?? (generatedRequest ? 'Review request' : null);
   const opening = turn.users[0];
+  const developmentRequest = opening?.delivery === 'TURN' ? developmentTurnRequest(durable) : null;
   const request = opening?.delivery === 'TURN' ? draftPullRequestRequest(durable, opening, generatedBranch) : null;
   // Legacy source responses lack the ID; ordinal 1 is known only when history includes its beginning.
   const issueRequest = issueSource != null && turn.turnId != null && (issueSource.initialTurnId != null
@@ -711,10 +711,17 @@ export function TurnView({ turn, repository, first, open, now, models, durableTu
                 {request.head !== null && <>{' '}<span className="agt-user__request-head" title={request.head}>{request.head}</span></>}
                 {request.base !== null && <>{' '}<span className="agt-user__request-base">→ {request.base}</span></>}
               </div>
+            ) : index === 0 && developmentRequest !== null ? (
+              <ReviewRequestCard {...developmentRequest} detail="Generated instructions sent to the agent">
+                {user.attachments.length > 0 && <div className="agt-user__files">
+                  {user.attachments.map(attachment => <AttachmentTile key={attachment.id} attachment={attachment} preview={previews[attachment.id]} />)}
+                </div>}
+                <div className="agt-review-request__body">{renderMarkdown(user.text, repository, true)}</div>
+              </ReviewRequestCard>
             ) : (
               <div className="agt-user__bubble">
-                {generatedLabel !== null && index === 0 && user.delivery === 'TURN' && (
-                  <div className="agt-user__attribution">ByteQuay · {generatedLabel}</div>
+                {generatedRequest && index === 0 && user.delivery === 'TURN' && (
+                  <div className="agt-user__attribution">ByteQuay · Review request</div>
                 )}
                 {user.attachments.length > 0 && (
                   <div className="agt-user__files">

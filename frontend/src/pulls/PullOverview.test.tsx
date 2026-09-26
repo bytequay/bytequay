@@ -1358,7 +1358,7 @@ describe('PullOverview', () => {
     const html = renderToStaticMarkup(<PullDetailHeader
       pr={{ ...pullRequest(), origin: 'REVIEW_REQUESTED' }}
       detail={value}
-      tab="changes"
+      tab="overview"
       onTab={() => {}}
       onRefresh={async () => {}}
       onReviewSubmitted={() => {}}
@@ -1370,12 +1370,12 @@ describe('PullOverview', () => {
     expect(html).toContain('class="pull-detail__review-action"');
     expect(html).toContain('>Submit review</button>');
     expect(html).toContain('class="pull-detail__merge-action is-conflicts"');
-    expect(html).toContain('class="pull-detail__pr-tab is-open"');
+    expect(html).toContain('class="pull-detail__pr-tab is-open is-active"');
     expect(html).toContain('PR #42');
     expect(html).toContain('aria-pressed="false"');
     expect(html).toContain('aria-pressed="true"');
-    expect(html).toContain('class="pull-detail__change-count is-addition">+10</span>');
-    expect(html).toContain('class="pull-detail__change-count is-deletion">−2</span>');
+    expect(html).not.toContain('Files changed');
+    expect(html).not.toContain('Change source');
     expect(html).toContain('aria-label="Zoom pull request details"');
     expect(html).toContain('aria-label="Refresh pull request"');
     expect(html).not.toContain('requested your review');
@@ -1436,7 +1436,7 @@ describe('PullOverview', () => {
     const html = renderToStaticMarkup(<PullDetailHeader
       pr={{ ...pullRequest(), origin: 'REVIEW_REQUESTED' }}
       detail={detail()}
-      tab="changes"
+      tab="files"
       onTab={() => {}}
       onRefresh={async () => {}}
       onReviewSubmitted={() => {}}
@@ -1511,7 +1511,8 @@ describe('PullOverview', () => {
     expect(html).toContain('aria-label="Enter full screen" aria-pressed="false"');
     expect(html).not.toContain('aria-label="Zoom pull request details"');
     expect(html).toContain('aria-label="Refresh pull request"');
-    expect(html).toContain('> Changes');
+    expect(html).toContain('WorkBench');
+    expect(html).not.toContain('Files changed');
   });
 
   it('moves focus into review and merge dialogs when they open', () => {

@@ -25,6 +25,7 @@ import contracts from './fixtures/agent-contracts-v1.json';
 import events from './fixtures/agent-events-v2.json';
 import { previewTask, TASK_BODY_NOOPS } from './fixtures/previewBridge';
 import type { AgentTaskDto, AgentTurnDto } from '../types';
+import type { TranscriptTurn } from './transcript';
 
 const baseTurn = parseAgentTurn(contracts.turn);
 function taskHtml(turn: AgentTurnDto, approvals = false): string {
@@ -97,6 +98,38 @@ it('shows the create-PR request as the action and the branches it names, never a
   expect(html).toContain('→ master');
   expect(html).not.toContain('agt-user__bubble');
   expect(html).not.toContain('gh pr create');
+});
+
+it('folds only trusted generated development requests while preserving user messages and steering', () => {
+  const prompt = 'ByteQuay · Refining summary\nRefresh this development task’s private Review & Learning cards from the final code and actual commits.';
+  const promptHtml = prompt.replace('&', '&amp;');
+  const user: TranscriptTurn['users'][number] = { id: 'request', text: prompt, attachments: [], delivery: 'TURN', at: '2026-01-01T12:00:00Z' };
+  const html = (durable: AgentTurnDto | undefined, users = [user]) => renderToStaticMarkup(<TurnView
+    turn={{ turnId: baseTurn.id, ordinal: 1, blocks: [], answer: null, startedAt: null, endedAt: null, outcome: null, users }}
+    first={false} open={false} now={0} models={[]} durableTurns={durable === undefined ? {} : { [durable.id]: durable }}
+    activityChoice={{}} previews={{}} agentLabels={{}} onToggle={() => {}} onToggleActivity={() => {}} />);
+  for (const kind of ['REFINE_SUMMARY', 'AUTO_COMMIT'] as const) {
+    const generated = { ...baseTurn, developmentOrigin: { kind, parentUserTurnId: 'source-turn' } };
+    const markup = html(generated);
+    expect(markup).toContain('agt-review-request__preview');
+    expect(markup).toContain('aria-expanded="false"');
+    expect(markup).toContain('class="agt-review-request__content" hidden=""');
+    expect(markup).toContain(`<div class="agt-review-request__body"><div class="agt-md"><p>${promptHtml}</p></div></div>`);
+    expect(markup).not.toContain('agt-user__bubble');
+    for (const delivery of ['STEER', 'QUEUED'] as const) {
+      const ordinary = html(generated, [{ ...user, delivery }]);
+      expect(ordinary).toContain('agt-user__bubble');
+      expect(ordinary).toContain(promptHtml);
+      expect(ordinary).not.toContain('agt-review-request');
+    }
+    const steered = html(generated, [user, { ...user, id: 'steered', delivery: 'STEER' }]);
+    expect(steered).toContain(`<div class="agt-user__bubble"><div>${promptHtml}</div>`);
+  }
+  for (const durable of [baseTurn, undefined]) {
+    const ordinary = html(durable);
+    expect(ordinary).toContain(`<div class="agt-user__bubble"><div>${promptHtml}</div>`);
+    expect(ordinary).not.toContain('agt-review-request');
+  }
 });
 
 it('uses Idle for settled runtime and preserves live automation and recovery precedence in task cards', () => {

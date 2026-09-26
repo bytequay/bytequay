@@ -390,6 +390,7 @@ public sealed interface AgentEventPayload
         TURN_STARTED,
         TITLE_UPDATED,
         DEVELOPMENT_AUTOMATION_UPDATED,
+        WORKTREE_UPDATED,
         QUEUE_CHANGED,
         QUEUED_INPUT_STARTED,
         QUEUED_INPUT_PAUSED,

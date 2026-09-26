@@ -27,7 +27,7 @@ function bullets(items: string[]): string {
   return [...new Set(items)].map(item => `- ${item}`).join('\n');
 }
 
-function SummarySectionCard({ card, review, run, viewerLogin, viewerAvatarUrl, busy, onAsk }: {
+function SummarySectionCard({ card, review, run, viewerLogin, viewerAvatarUrl, busy, onAsk, onSelectCommit }: {
   card: SummaryCard;
   review: AgentReviewDto;
   run: ReviewRunDto;
@@ -35,6 +35,7 @@ function SummarySectionCard({ card, review, run, viewerLogin, viewerAvatarUrl, b
   viewerAvatarUrl: string | null;
   busy: boolean;
   onAsk: AskAboutCard;
+  onSelectCommit?: (sha: string, snapshot?: { headSha: string; baseSha: string }) => void;
 }) {
   const [composing, setComposing] = useState(false);
   const [text, setText] = useState('');
@@ -55,17 +56,17 @@ function SummarySectionCard({ card, review, run, viewerLogin, viewerAvatarUrl, b
     location={<span className="pr-local-review__location agr-learning-card__title">{card.commit ? 'Review & discussion' : card.title}</span>}
     controls={<footer className={composing ? 'agr-learning-card__reply' : undefined}>
       {composing ? <ReviewComposer repository={review.repo} value={text} autoFocus busy={busy}
-        placeholder={`Ask the agent about ${card.title.toLowerCase()}…`}
-        ariaLabel={`Ask the agent about ${card.title.toLowerCase()}`} primaryLabel={askLabel(review)}
+        placeholder={`Ask the reviewer about ${card.title.toLowerCase()}…`}
+        ariaLabel={`Ask the reviewer about ${card.title.toLowerCase()}`} primaryLabel={askLabel(review)}
         onChange={setText} onSubmit={() => { void submit(); }} onCancel={close} />
         : <><button type="button" className="pr-thread-reply__open" disabled={busy || review.state === 'CLOSED'}
-          onClick={() => setComposing(true)}>Ask agent</button>
+          onClick={() => setComposing(true)}>Ask reviewer</button>
         {askQueues(review) && <span className="pr-local-review__note">Agent is busy — your question will queue</span>}
         <span className="agr-spacer" /><span className="pr-local-review__note">Private — never published</span></>}
       {error && <span className="pr-thread-reply__error" role="alert">{error}</span>}
     </footer>}>
     {card.body !== null && <ReviewThreadMessage timestamp={run.endedAt ?? run.createdAt}
-      author={<><Avatar login="Agent" size={22} allowGitHubFallback={false} /><strong>Agent</strong><span>{review.task.laneLabel}</span></>}
+      author={<><Avatar login="Agent" size={22} allowGitHubFallback={false} /><strong>Reviewer</strong><span>{review.task.laneLabel}</span></>}
       menu={<>{card.pending && <span className="agr-pill is-pending">not yet read</span>}
         {provisional(review) && <span className="agr-pill is-provisional">Provisional · rev {revision}</span>}
         <span className="agr-card__refs">head {shortSha(run.headSha)}</span></>}>
@@ -74,11 +75,13 @@ function SummarySectionCard({ card, review, run, viewerLogin, viewerAvatarUrl, b
     <ReviewThread review={review} messages={messages} viewerLogin={viewerLogin} viewerAvatarUrl={viewerAvatarUrl} />
   </ReviewThreadCard>;
   const className = `agr-learning-card agr-learning-card--${card.kind ?? 'history'}`;
-  if (card.commit) {
-    const [title, ...body] = card.commit.message.split('\n');
+  const commit = card.commit;
+  if (commit) {
+    const [title, ...body] = commit.message.split('\n');
     const message = body.join('\n').trim();
     return <article className="agr-commit-entry" data-review-card={card.id}>
       <h3 className="agr-commit-list__title">{title} <code>{shortSha(card.commit.sha)}</code></h3>
+      {onSelectCommit && <button type="button" className="agr-action" onClick={() => onSelectCommit(commit.sha, { headSha: run.headSha, baseSha: run.mergeBaseSha })}>View changes</button>}
       {message && <div className="agr-commit-list__body"><MarkdownBody body={message} repository={review.repo} /></div>}
       <div className={className}>{discussion}</div>
     </article>;
@@ -86,7 +89,7 @@ function SummarySectionCard({ card, review, run, viewerLogin, viewerAvatarUrl, b
   return <article className={className} data-review-card={card.id}>{discussion}</article>;
 }
 
-export default function ReviewSummaryCard({ review, run, findings, viewerLogin, viewerAvatarUrl, busy, onAsk, onSelectFinding }: {
+export default function ReviewSummaryCard({ review, run, findings, viewerLogin, viewerAvatarUrl, busy, onAsk, onSelectFinding, onSelectCommit }: {
   review: AgentReviewDto;
   run: ReviewRunDto | null;
   findings: ReviewFindingDto[];
@@ -94,6 +97,7 @@ export default function ReviewSummaryCard({ review, run, findings, viewerLogin, 
   viewerAvatarUrl: string | null;
   busy: boolean;
   onAsk: AskAboutCard;
+  onSelectCommit?: (sha: string, snapshot?: { headSha: string; baseSha: string }) => void;
   onSelectFinding: (finding: ReviewFindingDto) => void;
 }) {
   const summary = run?.summary;
@@ -106,7 +110,7 @@ export default function ReviewSummaryCard({ review, run, findings, viewerLogin, 
   const evidence = [...new Map(findings.filter(finding => finding.runId === run.id)
     .flatMap(finding => finding.evidence).map(item => [item.ref, item])).values()];
   const warnings = run.coverage?.warnings ?? [];
-  const purpose: SummaryCard = { id: `${run.id}:purpose`, title: 'PR intention', kind: 'purpose', body: <>
+  const purpose: SummaryCard = { id: `${run.id}:purpose`, title: 'Change intention', kind: 'purpose', body: <>
     {markdown(summary.purpose)}
     {warnings.length > 0 && <aside className="agr-banner is-warn agr-learning-card__warnings" aria-label="Verification warning">
       <strong className="agr-banner__chip">Verification warning</strong>
@@ -143,11 +147,11 @@ export default function ReviewSummaryCard({ review, run, findings, viewerLogin, 
       : <ul className="agr-critical agr-learning-card__content">{critical.map(finding => <li key={finding.id}>
         <span className="agr-severity is-critical">{finding.severity ?? 'Critical'}</span>
         <button type="button" className="agr-link" onClick={() => onSelectFinding(finding)}>{finding.title}</button>
-        <span className="agr-critical__where">{finding.path === null ? 'Whole pull request' : `${finding.path.split('/').pop()} ${finding.range}`}</span>
+        <span className="agr-critical__where">{finding.path === null ? 'Whole change' : `${finding.path.split('/').pop()} ${finding.range}`}</span>
       </li>)}</ul> },
   ].filter(card => review.messages.some(message => message.findingId === null && message.cardId === card.id));
   const renderCard = (card: SummaryCard) => <SummarySectionCard key={card.id} card={card} review={review} run={run}
-    viewerLogin={viewerLogin} viewerAvatarUrl={viewerAvatarUrl} busy={busy} onAsk={onAsk} />;
+    viewerLogin={viewerLogin} viewerAvatarUrl={viewerAvatarUrl} busy={busy} onAsk={onAsk} onSelectCommit={onSelectCommit} />;
   return <div className="agr-learning-cards">
     {renderCard(purpose)}
     <section className="agr-commit-section" aria-label="Commit implementation">

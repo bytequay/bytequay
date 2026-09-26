@@ -32,13 +32,14 @@ import static java.util.Objects.requireNonNull;
 final class ReviewPrompts
 {
     static final String INSTRUCTION = loadReviewInstructions() + "\n\n" + """
-            You are performing a private code review of one GitHub pull request for the ByteQuay user. \
+            You are performing a private code review of committed development changes or a GitHub pull request for the ByteQuay user. \
             You publish nothing; the user decides later what, if anything, becomes a comment, and a body \
             they submit is posted as written. So write every summary, finding and reply as the comment it \
             may become: no attribution, co-authorship or generated-with trailer, and no tool or model named \
             as its author.
 
-            Context: call review_get_context. It reads the pull request (kind "pr"), its timeline, checks, \
+            Context: call review_get_context kind "scope" for the frozen change set and requiredReviewFiles. \
+            When a PR is associated, kind "pr" reads it, followed by its timeline and checks; it also reads \
             linked issues or pull requests by number, a timeline discussion thread (kind "thread", threadId \
             from its event, optional same-repository number and paginated replies), the frozen diff with \
             anchor identifiers (kind "diff", paginated per file), exact source windows (kind "source", \
@@ -53,7 +54,7 @@ final class ReviewPrompts
             Investigation: understand before/after behavior and inspect affected contracts, callers, ownership, \
             error paths, tests, and relevant unchanged files. For each changed behavior, follow the relevant \
             callers and sibling paths; inspect implementations, by-name registries and configuration where the \
-            change can reach them. Use the timeline to find relevant comments, then page through their thread \
+            change can reach them. When a PR is associated, use the timeline to find relevant comments, then page through their thread \
             with the first response's threadVersion on later pages before treating a reply as a candidate lead. \
             Revisit the exact changed code and affected unchanged source before sealing each candidate; a graph \
             result or comment is a lead, not proof. Save only purpose and one explanation per actual \
@@ -240,11 +241,15 @@ final class ReviewPrompts
         requireNonNull(review, "review is null");
         requireNonNull(run, "run is null");
         StringBuilder request = new StringBuilder()
-                .append("Review pull request ").append(review.repo()).append("#").append(review.number())
+                .append(review.sourceTaskId().isPresent() ? "Review local development changes in " : "Review pull request ").append(review.repo())
+                .append(review.number().isPresent() ? "#" + review.number().getAsInt() : "")
                 .append(" at head ").append(shortSha(run.headSha()))
                 .append(" (").append(run.commits().size()).append(run.commits().size() == 1 ? " commit" : " commits")
                 .append(" vs ").append(run.baseRef()).append("@").append(shortSha(run.baseSha())).append(").\n\n")
                 .append("Purpose: private review for ").append(userLogin).append(". The scope is frozen at this head. ");
+        review.sourceTaskId().ifPresent(taskId -> request.append("Source development task: ").append(taskId)
+                .append(". Review only committed changes, including unpushed commits; uncommitted development edits are excluded. ")
+                .append("Your conversation and experimental worktree are separate from the developer.\n"));
         if (run.scope() == ReviewRun.Scope.INCREMENTAL && previous.isPresent()) {
             request.append("This is an incremental review: the last completed review covered head ")
                     .append(shortSha(previous.orElseThrow().headSha()))
@@ -267,7 +272,7 @@ final class ReviewPrompts
                     .append("Old evidence is history, not a current-run ref. User-resolved findings stay resolved.\n");
         }
         return request.append("\nInvestigation pass: understand the change and trace affected behavior before proposing candidates. ")
-                .append("Use review_get_context for the PR, timeline, diff, source, and requiredReviewFiles. ")
+                .append("Use review_get_context kind scope for frozen commits and requiredReviewFiles, then diff and source. Read PR or timeline context when a PR is associated. ")
                 .append("Report with review_save_summary and review_save_investigation, then end this turn. ")
                 .append("Do not save findings yet; ByteQuay will start a separate validation turn. ")
                 .append("Optional CodeGraph exploration is available when codegraph_explore is listed. No remote writes.")

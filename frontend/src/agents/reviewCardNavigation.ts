@@ -29,7 +29,9 @@ export function focusReviewCard(container: HTMLElement, target: ReviewRequestTar
   if (details !== null) details.open = true;
   element.tabIndex = -1;
   element.focus({ preventScroll: true });
-  element.scrollIntoView({ block: 'center', behavior: 'smooth' });
+  // Center the heading of long cards immediately, including when reopening a kept pane mid-scroll.
+  const heading = element.querySelector('.agr-commit-list__title, summary') ?? element;
+  heading.scrollIntoView({ block: 'center', behavior: 'instant' });
   return true;
 }
 

@@ -13,12 +13,13 @@
  */
 /** Wire shapes for the Code & Tests tab, parsed in main before they reach the renderer. */
 
+import type { DiffCommitDto, DiffFileDto } from '../../types';
 import { count, object, oneOf, optionalCount, optionalText, text } from '../wireParse';
 
-/** The worktree Code & Tests reads: an Agent review's, or the development task's that owns the pull request. */
+/** The managed working copy, independent of whether a pull request exists. */
 export type CodeHostRef =
   | { kind: 'review'; reviewId: string }
-  | { kind: 'task'; taskId: string; workspaceId: string; repo: string; number: number };
+  | { kind: 'task'; taskId: string; workspaceId: string };
 
 /** One key per host, so a review and a task never share a terminal. */
 export function codeHostKey(host: CodeHostRef): string {
@@ -29,9 +30,8 @@ export function codeHostKey(host: CodeHostRef): string {
 export function parseCodeHost(value: unknown): CodeHostRef {
   const source = typeof value === 'object' && value !== null ? value as Record<string, unknown> : {};
   if (source.kind === 'review' && typeof source.reviewId === 'string') return { kind: 'review', reviewId: source.reviewId };
-  if (source.kind === 'task' && typeof source.taskId === 'string' && typeof source.workspaceId === 'string' && typeof source.repo === 'string'
-    && typeof source.number === 'number' && Number.isInteger(source.number)) {
-    return { kind: 'task', taskId: source.taskId, workspaceId: source.workspaceId, repo: source.repo, number: source.number };
+  if (source.kind === 'task' && typeof source.taskId === 'string' && typeof source.workspaceId === 'string') {
+    return { kind: 'task', taskId: source.taskId, workspaceId: source.workspaceId };
   }
   throw new Error('Malformed Code & Tests host');
 }
@@ -318,3 +318,51 @@ export type RunRefusalDto = { reason: string; action: 'OPEN_TERMINAL' | null };
 
 /** The file on disk no longer matches the draft's starting point; nothing was written. */
 export type SaveConflictDto = { currentHash: string | null; currentContent: string | null };
+
+export type WorktreeChangeScope = 'ALL' | 'UNCOMMITTED' | 'COMMITTED' | 'COMMIT';
+export type WorktreeChangesRequest = { scope: WorktreeChangeScope; commit?: string; base?: string; head?: string };
+export type WorktreeChangesDto = {
+  branch: string;
+  headSha: string;
+  baseSha: string;
+  baseLabel: string;
+  scope: WorktreeChangeScope;
+  selectedCommit: string | null;
+  sourceFingerprint: string | null;
+  commits: DiffCommitDto[];
+  files: DiffFileDto[];
+  staged: string[];
+  unstaged: string[];
+  untracked: string[];
+  truncated: boolean;
+};
+
+export function parseWorktreeChanges(value: unknown): WorktreeChangesDto {
+  const source = object(value, 'working copy changes');
+  if (!Array.isArray(source.commits) || !Array.isArray(source.files)) throw new Error('Malformed working copy changes');
+  const paths = (value: unknown): string[] => {
+    if (!Array.isArray(value) || value.some(path => typeof path !== 'string')) throw new Error('Malformed working copy paths');
+    return value as string[];
+  };
+  return {
+    branch: text(source.branch, 'branch'),
+    headSha: text(source.headSha, 'head revision'),
+    baseSha: text(source.baseSha, 'base revision'),
+    baseLabel: text(source.baseLabel, 'comparison base'),
+    scope: oneOf(source.scope, ['ALL', 'UNCOMMITTED', 'COMMITTED', 'COMMIT'] as const, 'change scope'),
+    selectedCommit: optionalText(source.selectedCommit),
+    sourceFingerprint: optionalText(source.sourceFingerprint),
+    commits: source.commits.map(value => {
+      const commit = object(value, 'commit');
+      return { sha: text(commit.sha, 'commit revision'), parentSha: optionalText(commit.parentSha),
+        message: optionalText(commit.message), author: optionalText(commit.author), authoredAt: optionalText(commit.authoredAt) };
+    }),
+    files: source.files.map(value => {
+      const file = object(value, 'changed file');
+      return { filename: text(file.filename, 'file path'), status: text(file.status, 'file status'),
+        additions: count(file.additions, 'added lines'), deletions: count(file.deletions, 'deleted lines'), patch: optionalText(file.patch) };
+    }),
+    staged: paths(source.staged), unstaged: paths(source.unstaged), untracked: paths(source.untracked),
+    truncated: source.truncated === true,
+  };
+}

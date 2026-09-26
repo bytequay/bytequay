@@ -3675,6 +3675,8 @@
 .agt-review-request__preview { padding: 7px 14px 9px 38px; color: #57606a; }
 .agt-review-request__content { padding: 12px 14px; border-top: 1px solid #cce4df; overflow-wrap: anywhere; }
 .agt-review-request__body { white-space: pre-wrap; }
+.agt-review-request__body > .agt-md { line-height: 1.6; }
+.agt-review-request__body .agt-md li + li { margin-top: 6px; }
 .agt-review-request__detail { margin-bottom: 8px; color: #6e7781; font-size: 11.5px; }
 .agt-review-request.is-open .agt-review-request__heading { flex-wrap: wrap; gap: 0 8px; }
 .agt-review-request.is-open .agt-review-request__topic { white-space: normal; overflow-wrap: anywhere; }

@@ -164,7 +164,7 @@ export function runGate(review: AgentReviewDto, files: ReviewCodeFilesDto | null
     return { hidden: false, blocked: 'A run is using this working copy' };
   }
   if (claim === 'RECOVERY' || (claim === 'TURN' && !turnRunning)) {
-    return { hidden: false, blocked: 'The working copy needs recovery — see Review & Learning' };
+    return { hidden: false, blocked: 'The working copy needs recovery — see Summary' };
   }
   if (claim === 'COMPLETION') return { hidden: false, blocked: 'The working copy is being updated' };
   const reviewRun = latestRun(review);
@@ -177,7 +177,7 @@ export function runGate(review: AgentReviewDto, files: ReviewCodeFilesDto | null
 
 /** The same gate for a development task's working copy, which only exists while the task keeps its worktree. */
 export function taskRunGate(task: AgentTaskDto, files: ReviewCodeFilesDto | null, runs: readonly LocalRunDto[]): RunGate {
-  if (task.state !== 'OPEN' || task.checkoutRemovedAt !== null || files === null) return { hidden: true, blocked: null };
+  if (task.interactive === false || task.state !== 'OPEN' || task.checkoutRemovedAt !== null || files === null) return { hidden: true, blocked: null };
   const claim = task.mutationClaim?.kind ?? null;
   if (claim === 'LOCAL_RUN' || runs.some(run => run.status === 'RUNNING' || run.treeUnverified)) {
     return { hidden: false, blocked: 'A run is using this working copy' };

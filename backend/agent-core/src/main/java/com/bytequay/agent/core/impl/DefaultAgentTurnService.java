@@ -127,6 +127,8 @@ import static java.util.Objects.requireNonNull;
 public final class DefaultAgentTurnService
         implements AgentTurnService
 {
+    private static final System.Logger log = System.getLogger(DefaultAgentTurnService.class.getName());
+
     private final AgentTaskStore taskStore;
     private final AgentTurnStore turnStore;
     private final QueuedInputStore queueStore;
@@ -356,7 +358,7 @@ public final class DefaultAgentTurnService
                 throw new AgentConflictException("Remove or resume the queued question");
             }
             Instant now = Instant.now(clock);
-            return taskStore.update(task.claimWorktreeMutation(WorktreeMutationClaim.localRun(runId, now), now));
+            return updateWorktreeTask(task.claimWorktreeMutation(WorktreeMutationClaim.localRun(runId, now), now));
         }
     }
 
@@ -369,7 +371,7 @@ public final class DefaultAgentTurnService
             AgentTask task = requireTask(taskId);
             task.worktreeMutationClaim()
                     .filter(claim -> claim.kind() == WorktreeMutationClaim.Kind.LOCAL_RUN && claim.ownerId().equals(runId))
-                    .ifPresent(claim -> taskStore.update(task.releaseWorktreeMutation(claim, Instant.now(clock))));
+                    .ifPresent(claim -> updateWorktreeTask(task.releaseWorktreeMutation(claim, Instant.now(clock))));
         }
     }
 
@@ -391,23 +393,45 @@ public final class DefaultAgentTurnService
             Instant now = Instant.now(clock);
             // The existing completion claim is recovered only after quiescence if the backend stops here.
             WorktreeMutationClaim claim = new WorktreeMutationClaim(WorktreeMutationClaim.Kind.COMPLETION, "review-worktree:" + taskId, now);
-            AgentTask claimed = taskStore.update(task.claimWorktreeMutation(claim, now));
+            AgentTask claimed = updateWorktreeTask(task.claimWorktreeMutation(claim, now));
             try {
                 Optional<String> head = requireNonNull(action.apply(claimed), "local review action result is null");
                 AgentTask current = requireTask(taskId);
                 Instant finishedAt = Instant.now(clock);
-                return taskStore.update(current.withLocalReviewHead(head, finishedAt).releaseWorktreeMutation(claim, finishedAt));
+                return updateWorktreeTask(current.withLocalReviewHead(head, finishedAt).releaseWorktreeMutation(claim, finishedAt));
             }
             catch (RuntimeException failure) {
                 suppressFailure(failure, () -> {
                     AgentTask current = requireTask(taskId);
                     if (current.worktreeMutationClaim().equals(Optional.of(claim))) {
-                        taskStore.update(current.releaseWorktreeMutation(claim, Instant.now(clock)));
+                        updateWorktreeTask(current.releaseWorktreeMutation(claim, Instant.now(clock)));
                     }
                 });
                 throw failure;
             }
         }
+    }
+
+    /** A worktree writer changes the version used by every task action, including the composer. */
+    private AgentTask updateWorktreeTask(AgentTask task)
+    {
+        AgentEventOutboxEntry event = pendingLifecycle(EventId.random(), task.id(), Optional.empty(),
+                AgentEventPayload.LifecyclePhase.WORKTREE_UPDATED, "Working copy updated", task.updatedAt());
+        AgentTask updated = unitOfWork.execute(() -> {
+            AgentTask stored = taskStore.update(task);
+            outboxStore.insert(event);
+            return stored;
+        });
+        try {
+            eventService.drain(event.eventId());
+        }
+        catch (RuntimeException failure) {
+            // The ownership change is already durable. A notification failure must not strand a
+            // successfully claimed run or turn a released writer into a failed operation; the
+            // outbox retains this refresh for the next task request or startup recovery.
+            log.log(System.Logger.Level.WARNING, "Working-copy refresh will retry for task " + task.id(), failure);
+        }
+        return updated;
     }
 
     @Override

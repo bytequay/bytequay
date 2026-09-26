@@ -28,10 +28,13 @@ import lombok.Getter;
 
 import java.time.Instant;
 import java.util.Optional;
+import java.util.OptionalInt;
 import java.util.OptionalLong;
 
 @Entity
-@Table(name = "agent_review", indexes = @Index(name = "idx_agent_review_pr", columnList = "workspace_id, repo, number"))
+@Table(name = "agent_review", indexes = {
+        @Index(name = "idx_agent_review_pr", columnList = "workspace_id, repo, number"),
+        @Index(name = "idx_agent_review_source_task", columnList = "source_task_id")})
 public class AgentReviewEntity
         extends AssignedIdEntity<String>
 {
@@ -45,11 +48,14 @@ public class AgentReviewEntity
     @Column(nullable = false)
     private String repo;
 
-    @Column(nullable = false)
-    private int number;
+    @Column
+    private Integer number;
 
     @Column(name = "pull_request_id")
     private Long pullRequestId;
+
+    @Column(name = "source_task_id")
+    private String sourceTaskId;
 
     @Column(name = "task_id", nullable = false, unique = true)
     private String taskId;
@@ -66,6 +72,9 @@ public class AgentReviewEntity
 
     @Column(name = "observed_head_sha")
     private String observedHeadSha;
+
+    @Column(name = "worktree_head_sha")
+    private String worktreeHeadSha;
 
     @Version
     @Getter
@@ -97,13 +106,15 @@ public class AgentReviewEntity
     {
         workspaceId = review.workspaceId();
         repo = review.repo();
-        number = review.number();
+        number = review.number().isPresent() ? review.number().getAsInt() : null;
+        sourceTaskId = review.sourceTaskId().orElse(null);
         pullRequestId = review.pullRequestId().isPresent() ? review.pullRequestId().getAsLong() : null;
         taskId = review.taskId();
         state = review.state();
         followUpPaused = review.followUpPaused();
         latestCompletedRunId = review.latestCompletedRunId().orElse(null);
         observedHeadSha = review.observedHeadSha().orElse(null);
+        worktreeHeadSha = review.worktreeHeadSha().orElse(null);
         createdAt = review.createdAt();
         updatedAt = review.updatedAt();
         closedAt = review.closedAt().orElse(null);
@@ -115,13 +126,15 @@ public class AgentReviewEntity
                 id,
                 workspaceId,
                 repo,
-                number,
+                number == null ? OptionalInt.empty() : OptionalInt.of(number),
                 pullRequestId == null ? OptionalLong.empty() : OptionalLong.of(pullRequestId),
                 taskId,
+                Optional.ofNullable(sourceTaskId),
                 state,
                 followUpPaused,
                 Optional.ofNullable(latestCompletedRunId),
                 Optional.ofNullable(observedHeadSha),
+                Optional.ofNullable(worktreeHeadSha),
                 version,
                 createdAt,
                 updatedAt,

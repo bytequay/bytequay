@@ -48,6 +48,7 @@ import java.nio.file.Path;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.Optional;
+import java.util.OptionalInt;
 import java.util.OptionalLong;
 import java.util.concurrent.locks.ReentrantLock;
 
@@ -66,8 +67,8 @@ class TestReviewContextPreparationCleanup
     private static final TurnId TURN = TurnId.valueOf("22222222-2222-4222-8222-222222222222");
     private static final String TURN_KEY = "review-step:run:1";
     private static final Instant NOW = Instant.EPOCH;
-    private static final AgentReview REVIEW = new AgentReview("review", WORKSPACE, "owner/repository", 1, OptionalLong.empty(), TASK.toString(),
-            AgentReview.State.OPEN, true, Optional.empty(), Optional.empty(), 0, NOW, NOW, Optional.empty());
+    private static final AgentReview REVIEW = new AgentReview("review", WORKSPACE, "owner/repository", OptionalInt.of(1), OptionalLong.empty(), TASK.toString(), Optional.empty(),
+            AgentReview.State.OPEN, true, Optional.empty(), Optional.empty(), Optional.empty(), 0, NOW, NOW, Optional.empty());
     private static final AgentTurnSettings SETTINGS = new AgentTurnSettings(Optional.empty(), Optional.empty(), AgentPermissionPolicy.AUTO,
             Duration.ofMinutes(10), ImmutableList.of());
     private static final ActiveContextPreparation ACTIVE = new ActiveContextPreparation("attempt", "request", "sha256:" + "a".repeat(64),

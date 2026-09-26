@@ -11,7 +11,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-import { useCallback, useState } from 'react';
+import { useCallback, useRef, useState } from 'react';
 import { remoteErrorMessage } from '../PullOverview';
 import type { FindingActions } from './ReviewFindingCard';
 import type { AgentReviewDto, ReviewFindingDto } from './contracts';
@@ -33,6 +33,7 @@ export function useFindingActions({
   onReviewChange: (review: AgentReviewDto) => void;
   onNavigate: (finding: ReviewFindingDto) => void;
 }): { actions: FindingActions; busy: boolean; error: string | null; clearError: () => void } {
+  const fixKeys = useRef(new Map<string, string>());
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -56,8 +57,36 @@ export function useFindingActions({
   }, [onReviewChange, review.id]);
 
   const draftVersion = () => review.draft?.version ?? 0;
+  const number = () => {
+    if (review.number === null) throw new Error('This local review has no pull request');
+    return review.number;
+  };
 
   const actions: FindingActions = {
+    onRequestFix: review.sourceTaskId == null ? undefined : (finding, instruction) => guard(async () => {
+      const sourceTaskId = review.sourceTaskId;
+      if (sourceTaskId == null) return;
+      const task = await window.bridge.getAgentTask(sourceTaskId, review.workspaceId);
+      if (task.state !== 'OPEN' || task.checkoutRemovedAt !== null) throw new Error('The development task is no longer available for changes');
+      if (task.developmentContinuationUnfinished) throw new Error('Wait for development automation to finish before requesting a fix');
+      const location = finding.path === null ? 'Whole change' : `${finding.path} ${finding.range ?? ''}`;
+      const message = [instruction, '', `Reviewer finding: ${finding.title}`, `Reviewed commit: ${finding.validatedHeadSha}`,
+        `Location: ${location}`, '', finding.body, '', 'Check this finding against the current code before making changes.'].join('\n');
+      const identity = `${finding.id}:${finding.revision}:${instruction}`;
+      let idempotencyKey = fixKeys.current.get(identity);
+      if (idempotencyKey === undefined) {
+        idempotencyKey = `review-fix:${crypto.randomUUID()}`;
+        fixKeys.current.set(identity, idempotencyKey);
+      }
+      if (task.mutationClaim?.kind === 'TURN') {
+        await window.bridge.queueAgentInput({ taskId: sourceTaskId, workspaceId: review.workspaceId,
+          expectedVersion: task.version, message, idempotencyKey });
+      }
+      else {
+        await window.bridge.startAgentTurn({ taskId: sourceTaskId, expectedTaskVersion: task.version, message, idempotencyKey });
+      }
+      fixKeys.current.delete(identity);
+    }, true),
     onAsk: (finding, message) => guard(async () => {
       onReviewChange(await window.bridge.askAgentReview(review.id, finding.id, finding.revision, message));
     }, true),
@@ -68,7 +97,7 @@ export function useFindingActions({
       onReviewChange(await window.bridge.reopenAgentReviewFinding(review.id, finding.id, finding.version));
     }),
     onAddToReview: finding => guard(async () => {
-      await window.bridge.addReviewDraftFinding(review.repo, review.number, draftVersion(), review.id, finding.id);
+      await window.bridge.addReviewDraftFinding(review.repo, number(), draftVersion(), review.id, finding.id);
       await reload();
     }),
     onPostNow: (finding, body) => guard(async () => {
@@ -78,24 +107,24 @@ export function useFindingActions({
       const existing = review.draft?.items.find(item => item.findingId === finding.id) ?? null;
       let itemId = existing?.id ?? null;
       if (itemId === null) {
-        const draft = await window.bridge.addReviewDraftFinding(review.repo, review.number, version, review.id, finding.id);
+        const draft = await window.bridge.addReviewDraftFinding(review.repo, number(), version, review.id, finding.id);
         version = draft.version;
         itemId = draft.items.find(item => item.findingId === finding.id)?.id ?? null;
       }
       if (itemId === null) throw new Error('The comment could not be prepared for sending');
       if (body !== (existing?.body ?? finding.body)) {
-        version = (await window.bridge.editReviewDraftComment(review.repo, review.number, version, itemId, body, true)).version;
+        version = (await window.bridge.editReviewDraftComment(review.repo, number(), version, itemId, body, true)).version;
       }
-      await window.bridge.publishReviewDraftComment(review.repo, review.number, version, itemId);
+      await window.bridge.publishReviewDraftComment(review.repo, number(), version, itemId);
       await reload();
     }, true),
     onEditDraft: (finding, body) => guard(async () => {
       const item = review.draft?.items.find(candidate => candidate.findingId === finding.id) ?? null;
       if (item !== null) {
-        await window.bridge.editReviewDraftComment(review.repo, review.number, draftVersion(), item.id, body, item.included);
+        await window.bridge.editReviewDraftComment(review.repo, number(), draftVersion(), item.id, body, item.included);
       }
       else if (finding.path === null && review.draft !== null) {
-        await window.bridge.saveReviewDraft(review.repo, review.number, draftVersion(), body, review.draft.event);
+        await window.bridge.saveReviewDraft(review.repo, number(), draftVersion(), body, review.draft.event);
       }
       else return;
       await reload();
@@ -103,10 +132,10 @@ export function useFindingActions({
     onRemoveFromReview: finding => guard(async () => {
       const item = review.draft?.items.find(candidate => candidate.findingId === finding.id) ?? null;
       if (item !== null) {
-        await window.bridge.removeReviewDraftComment(review.repo, review.number, draftVersion(), item.id);
+        await window.bridge.removeReviewDraftComment(review.repo, number(), draftVersion(), item.id);
       }
       else if (finding.path === null && review.draft !== null) {
-        await window.bridge.saveReviewDraft(review.repo, review.number, draftVersion(), review.draft.body.replace(finding.body.trim(), '').trim(), review.draft.event);
+        await window.bridge.saveReviewDraft(review.repo, number(), draftVersion(), review.draft.body.replace(finding.body.trim(), '').trim(), review.draft.event);
       }
       else return;
       await reload();

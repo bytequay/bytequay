@@ -49,6 +49,7 @@ import org.junit.jupiter.params.provider.ValueSource;
 import java.time.Instant;
 import java.util.Map;
 import java.util.Optional;
+import java.util.OptionalInt;
 import java.util.OptionalLong;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.Executors;
@@ -417,8 +418,8 @@ class TestRepositoryContextService
 
     private static AgentReview review(String workspaceId)
     {
-        return new AgentReview("review", workspaceId, "example/repository", 1, OptionalLong.empty(), "task", AgentReview.State.OPEN,
-                false, Optional.empty(), Optional.of(HEAD), 0, Instant.EPOCH, Instant.EPOCH, Optional.empty());
+        return new AgentReview("review", workspaceId, "example/repository", OptionalInt.of(1), OptionalLong.empty(), "task", Optional.empty(), AgentReview.State.OPEN,
+                false, Optional.empty(), Optional.of(HEAD), Optional.of(HEAD), 0, Instant.EPOCH, Instant.EPOCH, Optional.empty());
     }
 
     private static ReviewRun run(Map<String, ReviewEvidence> evidence)

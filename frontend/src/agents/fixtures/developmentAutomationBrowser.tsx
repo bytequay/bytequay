@@ -15,7 +15,7 @@ import { useCallback } from 'react';
 import { flushSync } from 'react-dom';
 import { createRoot } from 'react-dom/client';
 import type { AgentStreamMessage, AgentTaskDto, AgentTurnDto, CreateAgentTaskRequest, PullRequestDto, StartAgentTurnRequest } from '../../types';
-import type { AgentEventEnvelope } from '../events';
+import { parseAgentEventSequence, type AgentEventEnvelope } from '../events';
 import { TaskComposer, useAgentTaskCreation } from '../AgentTasksView';
 import { createPreviewBridge } from './previewBridge';
 import AgentTaskScreen from '../AgentTaskScreen';
@@ -209,7 +209,7 @@ async function multilineDraft(): Promise<{ name: string; error?: string }[]> {
 }
 
 export async function run(): Promise<{ name: string; error?: string }[]> {
-  return [...await createLocalTask(), ...await createDeepSeekTask(), ...await multilineDraft(), ...await retryLocalTurn(), ...await localReviewExperiments(), ...await localReviewExperiments(true), ...await continuationAdmission(), ...await stopPreservesTask(), ...await pullRequestLookupPolicy(), ...await runCiAutofixScenarios(), ...await runDevelopmentDeliveryScenarios()];
+  return [...await createLocalTask(), ...await createDeepSeekTask(), ...await multilineDraft(), ...await retryLocalTurn(), ...await localReviewExperiments(), ...await localReviewExperiments(true), ...await continuationAdmission(), ...await stopPreservesTask(), ...await pullRequestLookupPolicy(), ...await worktreeVersionRefresh(), ...await worktreeVersionRefresh(true), ...await runCiAutofixScenarios(), ...await runDevelopmentDeliveryScenarios()];
 }
 
 async function localReviewExperiments(reloadPrivate = false): Promise<{ name: string; error?: string }[]> {
@@ -517,5 +517,92 @@ async function pullRequestLookupPolicy(): Promise<{ name: string; error?: string
     return [{ name: 'Task pull requests are looked up only on settled turns and settled automation markers' }];
   }
   catch (error) { return [{ name: 'Task pull request lookup', error: error instanceof Error ? error.message : String(error) }]; }
+  finally { flushSync(() => root.unmount()); host.remove(); }
+}
+
+
+async function worktreeVersionRefresh(conflictAfterRefresh = false): Promise<{ name: string; error?: string }[]> {
+  const bridge = createPreviewBridge('workspace-1');
+  const event = bridge.events[0];
+  assert(event.turnId !== null, 'Fixture must identify a turn');
+  let task: AgentTaskDto = { ...await bridge.getAgentTask(event.taskId, 'workspace-1'), interactive: true, mutationClaim: null,
+    developmentContinuationUnfinished: false };
+  let turn: AgentTurnDto = { ...await bridge.getAgentTurn(event.turnId), id: event.turnId, state: 'COMPLETED', endedAt: '2026-01-01T12:00:00Z' };
+  let taskReads = 0;
+  let accepted = 0;
+  const requests: StartAgentTurnRequest[] = [];
+  bridge.getAgentTask = async () => { taskReads++; return task; };
+  bridge.getAgentTurn = async () => turn;
+  bridge.readAgentHistory = async () => ({ events: [event], beforeCursor: null, afterCursor: null, latestSequence: event.sequence });
+  let notify: (message: AgentStreamMessage) => void = () => {};
+  bridge.subscribeAgentTask = async (taskId, _after, listener) => {
+    notify = listener;
+    listener({ subscriptionId: 'worktree-update', taskId, kind: 'state', state: 'open' });
+    return () => {};
+  };
+  bridge.startAgentTurn = async request => {
+    requests.push(request);
+    if (conflictAfterRefresh && requests.length === 1) task = { ...task, version: task.version + 1 };
+    if (request.expectedTaskVersion !== task.version) throw new Error(`Task version changed: ${task.id}`);
+    accepted++;
+    turn = { ...turn, id: 'after-worktree-update', state: 'RUNNING', endedAt: null };
+    task = { ...task, version: task.version + 1, mutationClaim: { kind: 'TURN', ownerId: turn.id, acquiredAt: '' } };
+    return turn;
+  };
+  let sequence = event.sequence;
+  const emit = () => {
+    const events = parseAgentEventSequence([{ ...event, eventId: `worktree-${++sequence}`, sequence, turnId: null,
+      type: 'lifecycle', payload: { phase: 'WORKTREE_UPDATED', message: 'WORKTREE_INTERNAL_REFRESH_SIGNAL' } }], sequence - 1);
+    const message: AgentStreamMessage = { subscriptionId: 'worktree-update', taskId: task.id, kind: 'events', events };
+    notify(message);
+    return message;
+  };
+  const host = document.createElement('div');
+  document.body.append(host);
+  const root = createRoot(host);
+  const name = conflictAfterRefresh ? 'A racing worktree update preserves the input and requires an explicit retry'
+    : 'Worktree save and run lifecycle updates refresh the version before Send without changing the draft';
+  flushSync(() => root.render(<AgentTaskScreen workspaceId="workspace-1" taskId={task.id} bridge={bridge} onBack={() => {}} />));
+  try {
+    await settle();
+    const input = host.querySelector<HTMLTextAreaElement>('textarea');
+    assert(input !== null, 'The idle task must expose its composer');
+    const draft = 'Keep this draft after saving\nthen explain the test result.';
+    changeInput(input, draft); await settle();
+    const initialReads = taskReads;
+    task = { ...task, version: task.version + 2 };
+    emit(); await settle();
+    assert(taskReads > initialReads && input.value === draft, 'A background save must refresh the authoritative task and preserve the draft');
+    const afterSaveReads = taskReads;
+    task = { ...task, version: task.version + 1, mutationClaim: { kind: 'LOCAL_RUN', ownerId: 'run-1', acquiredAt: '' } };
+    emit(); await settle();
+    assert(taskReads > afterSaveReads && input.value === draft, 'A local run claim must reach the existing projection refresh');
+    const afterClaimReads = taskReads;
+    task = { ...task, version: task.version + 1, mutationClaim: null };
+    const released = emit(); await settle();
+    assert(taskReads > afterClaimReads && input.value === draft, 'Releasing a failed or completed run must preserve the draft and refresh its version');
+    const afterReleaseReads = taskReads;
+    notify(released); await settle();
+    assert(taskReads === afterReleaseReads && requests.length === 0, 'Replayed worktree signals must neither reread nor submit the draft');
+    assert(!host.textContent?.includes('WORKTREE_INTERNAL_REFRESH_SIGNAL'), 'Task-level worktree signals must stay out of the conversation');
+    const send = host.querySelector<HTMLButtonElement>('button[aria-label="Send message"]');
+    assert(send !== null && !send.disabled, 'The released task must allow the retained message to be sent');
+    const expectedVersion = task.version;
+    send.click(); await settle();
+    assert(Number(requests.length) === 1 && requests[0].expectedTaskVersion === expectedVersion && requests[0].message === draft,
+      'Send must use the newly observed version and unchanged message exactly once');
+    if (conflictAfterRefresh) {
+      assert(Number(accepted) === 0 && input.value === draft && host.textContent?.includes('Your input is preserved; try again.') === true,
+        'A newer racing mutation must preserve the draft and explain the explicit retry');
+      assert(!host.textContent?.includes(`Task version changed: ${task.id}`), 'A task UUID must not be presented as a meaningful version');
+      const retryVersion = task.version;
+      host.querySelector<HTMLButtonElement>('button[aria-label="Send message"]')?.click(); await settle();
+      assert(Number(requests.length) === 2 && requests[1].expectedTaskVersion === retryVersion && requests[1].idempotencyKey === requests[0].idempotencyKey,
+        'Only another explicit Send may retry with the refreshed version and retained request identity');
+    }
+    assert(Number(accepted) === 1 && String(input.value) === '', 'The accepted message must clear once without duplicate submission');
+    return [{ name }];
+  }
+  catch (error) { return [{ name, error: error instanceof Error ? error.message : String(error) }]; }
   finally { flushSync(() => root.unmount()); host.remove(); }
 }

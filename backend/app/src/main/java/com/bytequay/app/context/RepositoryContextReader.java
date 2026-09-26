@@ -147,13 +147,13 @@ public class RepositoryContextReader
         ImmutableList.Builder<String> gaps = ImmutableList.builder();
         Optional<String> baseline = baseline(workspace, gaps);
         List<String> paths = matchingPaths(workspace, run, previous, gaps);
-        Optional<PullRequest> current = pullRequests.findStored(review.repo(), review.number());
+        Optional<PullRequest> current = review.number().stream().mapToObj(number -> pullRequests.findStored(review.repo(), number)).flatMap(Optional::stream).findFirst();
         Optional<StoredPrDetail> currentDetail = current.flatMap(row -> details.find(row.id()));
         StringBuilder text = new StringBuilder(current.map(PullRequest::title).orElse(""));
         String body = currentDetail.map(detail -> Optional.ofNullable(detail.raw().body()).orElse("")).orElse("");
         text.append('\n').append(excerpt(body, PR_DESCRIPTION_BYTES));
         CURRENT_COMMIT_TEXT.select(run.commits().stream()).forEach(commit -> text.append('\n').append(excerpt(commit.message(), COMMIT_MESSAGE_BYTES)));
-        if (currentDetail.isEmpty()) {
+        if (review.number().isPresent() && currentDetail.isEmpty()) {
             gaps.add("The current PR description is not cached; text matching uses available title and commit messages.");
         }
         if (run.commits().size() > CURRENT_COMMIT_TEXT.limit() || ContextLimits.bytes(body) > PR_DESCRIPTION_BYTES
@@ -171,7 +171,7 @@ public class RepositoryContextReader
         baseline.ifPresent(sha -> history(workspace, sha, paths, notes, prCandidates, gaps));
         for (String term : PR_SEARCH_TERMS.select(terms)) {
             pullRequests.listPullRequests(workspace.monitoredRepository(), 0, PR_SEARCH_PAGE_SIZE, term).pullRequests().stream()
-                    .filter(row -> row.number() != review.number() && row.repo().equalsIgnoreCase(review.repo()))
+                    .filter(row -> review.number().stream().noneMatch(value -> value == row.number()) && row.repo().equalsIgnoreCase(review.repo()))
                     .filter(row -> matchesTerm(matchingText(row.title(), "PR #" + row.number() + " title", gaps), term))
                     .forEach(row -> prCandidates.add(new PrCandidate(
                             row.number(), row.title(), 3, "Configured term in cached PR title: " + term, Optional.empty(), row.updatedAt())));
@@ -182,7 +182,7 @@ public class RepositoryContextReader
         }
         Map<Integer, PrCandidate> prs = prCandidates.build().stream().collect(toImmutableMap(PrCandidate::number, identity(), minBy(prOrder())));
         ImmutableList.Builder<Related> related = ImmutableList.builder();
-        RELATED_ITEMS.select(prs.values().stream().filter(candidate -> candidate.number() != review.number()), prOrder())
+        RELATED_ITEMS.select(prs.values().stream().filter(candidate -> review.number().stream().noneMatch(value -> value == candidate.number())), prOrder())
                 .map(candidate -> pullRequest(workspace, run, candidate, gaps)).forEach(related::add);
         if (prs.size() > RELATED_ITEMS.limit()) {
             gaps.add("Only " + RELATED_ITEMS.limit() + " related PR previews are selected; additional candidates remain outside this packet.");
@@ -249,7 +249,7 @@ public class RepositoryContextReader
                 continue;
             }
             long parsed = Long.parseLong(references.group(4) == null ? references.group(3) : references.group(4));
-            if (parsed > Integer.MAX_VALUE || !seen.add((int) parsed) || parsed == review.number()) {
+            if (parsed > Integer.MAX_VALUE || !seen.add((int) parsed) || review.number().stream().anyMatch(value -> value == parsed)) {
                 continue;
             }
             int number = (int) parsed;

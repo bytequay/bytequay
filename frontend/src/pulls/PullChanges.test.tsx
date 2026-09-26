@@ -15,6 +15,7 @@ import { renderToStaticMarkup } from 'react-dom/server';
 import { describe, expect, it, vi } from 'vitest';
 import type { DiffCommitDto, DiffFileDto, InlineReviewCommentDto, PullRequestDetailDto, PullRequestDto, PullTimelinePayloadDto, UserProfileDto } from '../types';
 import { parseUnifiedDiff } from '../diffParse';
+import { reviewFixture } from './agent-review/fixtures/review';
 import {
   DiffViewer,
   filenameTooltip,
@@ -281,6 +282,25 @@ describe('DiffViewer', () => {
     }
     expect(html.indexOf('Outdated discussion')).toBeGreaterThan(html.indexOf('</table>'));
     expect(html.indexOf('Binary-file discussion')).toBeGreaterThan(html.indexOf('Binary file or diff unavailable.'));
+  });
+
+  it('projects agent findings only onto the displayed validated revision', () => {
+    const review = reviewFixture();
+    const finding = { ...review.findings[0], path: file.filename, startLine: 96, endLine: 96,
+      validatedHeadSha: commits[2].sha };
+    const projection: NonNullable<DiffViewerProps['agentReview']> = {
+      review: { ...review, findings: [finding] }, viewer: null, navigation: null,
+      onReviewChange: () => {}, onOpenInReview: () => {},
+    };
+    const render = (agentReview = projection, displayedCommits = commits) => renderToStaticMarkup(
+      <DiffViewer files={[file]} commits={displayedCommits} agentReview={agentReview} />);
+
+    expect(render()).toContain('class="is-review-finding"');
+    expect(render(projection, commits.slice(0, 2))).not.toContain('class="is-review-finding"');
+    expect(render({ ...projection, headSha: 'different-worktree-head' })).not.toContain('class="is-review-finding"');
+    expect(render({ ...projection, headSha: finding.validatedHeadSha }, commits.slice(0, 2)))
+      .toContain('class="is-review-finding"');
+    expect(render(projection, [])).toContain('class="is-review-finding"');
   });
 
   it('retains threads for files outside the diff and excludes unrelated timeline events', () => {

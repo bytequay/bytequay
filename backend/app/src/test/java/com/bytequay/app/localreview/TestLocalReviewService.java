@@ -83,6 +83,7 @@ import java.time.ZoneOffset;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.Optional;
+import java.util.OptionalInt;
 import java.util.OptionalLong;
 
 import static com.google.common.collect.ImmutableList.toImmutableList;
@@ -334,8 +335,9 @@ class TestLocalReviewService
         task = AgentTask.created(taskId, false, "Review", TitleSource.USER, AgentLaneId.CODEX_CLI, task.taskWorktree().orElseThrow(),
                 AgentTaskDefaults.forPermission(AgentPermissionPolicy.AUTO), Instant.EPOCH);
         when(tasks.get(taskId)).thenReturn(task);
-        AgentReview review = new AgentReview("review", "workspace", "owner/repo", 7, OptionalLong.empty(), taskId.toString(), AgentReview.State.OPEN,
-                false, Optional.empty(), Optional.empty(), 0, Instant.EPOCH, Instant.EPOCH, Optional.empty());
+        AgentReview review = new AgentReview("review", "workspace", "owner/repo", OptionalInt.of(7),
+                OptionalLong.empty(), taskId.toString(), Optional.empty(), AgentReview.State.OPEN,
+                false, Optional.empty(), Optional.empty(), Optional.empty(), 0, Instant.EPOCH, Instant.EPOCH, Optional.empty());
         when(reviews.findReviewByTask(taskId.toString())).thenReturn(Optional.of(review));
         doAnswer(call -> {
             String prompt = call.getArgument(2);
@@ -431,14 +433,16 @@ class TestLocalReviewService
         AgentTurn summary = learningTurn(0);
         when(turnStore.list(taskId)).thenReturn(ImmutableList.of(summary));
         when(pullRequests.findByHeadRef(anyString(), anyString())).thenReturn(ImmutableList.of());
+        when(sessions.start(eq(taskId), org.mockito.ArgumentMatchers.anyLong()))
+                .thenThrow(new AgentConflictException("Create a pull request before starting local review"));
         doAnswer(call -> {
             StartAgentTurnCommand command = call.getArgument(0);
             assertThat(stored).containsKey("learning-thread");
             assertThat(command.developmentAutomation().orElseThrow().autoCommit()).isFalse();
             assertThat(command.developmentAutomation().orElseThrow().autoDraftPr()).isFalse();
             assertThat(command.developmentAutomation().orElseThrow().autoCiFix()).isFalse();
-            assertThat(command.message()).contains("Saved card body:\nKeep null values", "reply_local_review_comment", "private verification",
-                    "Never commit or publish experiments", "reference evidence", "User comment:");
+            assertThat(command.message()).contains("Saved card body:\nKeep null values", "reply_local_review_comment", "Do not edit code",
+                    "Never commit, push, or publish", "reference evidence", "User comment:");
             accepted.put(command.idempotencyKey(), turn);
             return turn;
         }).when(turns).start(any());
@@ -464,6 +468,7 @@ class TestLocalReviewService
         assertThat(service.resolveFromAgent(taskId.toString(), saved.id(), true, "resolve").learningAnchor()).contains(anchor);
         assertThat(service.list(taskId.toString(), "workspace").getFirst().resolved()).isTrue();
         verify(turns, times(3)).start(any());
+        verify(sessions, never()).start(any(), org.mockito.ArgumentMatchers.anyLong());
     }
 
     @Test

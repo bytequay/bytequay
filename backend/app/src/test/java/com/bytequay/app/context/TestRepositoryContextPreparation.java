@@ -58,6 +58,7 @@ import java.time.Duration;
 import java.time.Instant;
 import java.util.List;
 import java.util.Optional;
+import java.util.OptionalInt;
 import java.util.OptionalLong;
 import java.util.UUID;
 import java.util.stream.IntStream;
@@ -84,8 +85,8 @@ class TestRepositoryContextPreparation
     private static final String DIGEST = "sha256:" + "b".repeat(64);
     private static final String READ_ID = "context-read:" + UUID.randomUUID();
     private static final RepoRef REPOSITORY = RepoRef.of("example", "repository");
-    private static final AgentReview REVIEW = new AgentReview("review", "workspace", REPOSITORY.fullName(), 1, OptionalLong.empty(), "task",
-            AgentReview.State.OPEN, false, Optional.empty(), Optional.of(SHA), 0, Instant.EPOCH, Instant.EPOCH, Optional.empty());
+    private static final AgentReview REVIEW = new AgentReview("review", "workspace", REPOSITORY.fullName(), OptionalInt.of(1), OptionalLong.empty(), "task", Optional.empty(),
+            AgentReview.State.OPEN, false, Optional.empty(), Optional.of(SHA), Optional.of(SHA), 0, Instant.EPOCH, Instant.EPOCH, Optional.empty());
 
     private final WorkspaceStore workspaceStore = mock(WorkspaceStore.class);
     private final ContextInputReader inputs = mock(ContextInputReader.class);

@@ -16,6 +16,7 @@ import { afterEach, expect, it, vi } from 'vitest';
 import { CI_RUN } from './agents/fixtures/ciAutofix';
 import { parseAgentReview } from './pulls/agent-review/contracts';
 import { runningReviewFixture } from './pulls/agent-review/fixtures/review';
+import type { ReviewCodeFileDto } from './pulls/code-tests/contracts';
 import type { ContextBuildViewDto, ContextDiscoveryDto, ContextUsageActivitiesDto, ContextUsageOverviewDto, RepositoryNotebookDto } from './repository-context/contracts';
 import type { AgentRuntimeStopImpactDto } from './types';
 
@@ -128,7 +129,7 @@ it('still reports a refused review update without retrying it', async () => {
 it('routes Code & Tests reads and writes to the review or the development task that hosts the working copy', async () => {
   await import('./main');
   await expect(desktop.listeners.get('ready')?.()).rejects.toThrow('End test startup');
-  const task = { kind: 'task', taskId: 'task/one', workspaceId: 'workspace/one', repo: 'trinodb/trino', number: 30304 };
+  const task = { kind: 'task', taskId: 'task/one', workspaceId: 'workspace/one' };
   const review = { kind: 'review', reviewId: 'review/one' };
   const json = (body: unknown, status = 200) => new Response(JSON.stringify(body), { status, headers: { 'Content-Type': 'application/json' } });
   const output = { text: 'ok', nextOffset: 2, skippedBytes: 0, complete: true };
@@ -141,9 +142,21 @@ it('routes Code & Tests reads and writes to the review or the development task t
     return async (...args: unknown[]) => found?.({}, ...args);
   };
 
+  const codeFile: ReviewCodeFileDto = { path: 'src/Example.java', content: 'class Example {}', contentHash: 'hash', editable: false,
+    readOnlyReason: null, unavailableReason: null, prPatch: null, lineChanges: [] };
+  fetch.mockResolvedValueOnce(json(codeFile));
+  await expect(handler('code:file')(task, codeFile.path, 'a'.repeat(40))).resolves.toEqual(codeFile);
+  expect(fetch).toHaveBeenLastCalledWith(`http://127.0.0.1:9527/agent/tasks/task%2Fone/code/file?workspaceId=workspace%2Fone&path=src%2FExample.java&expectedRevision=${'a'.repeat(40)}`,
+    expect.objectContaining({ headers: { 'X-ByteQuay-Session': 'test-session' } }));
+  fetch.mockResolvedValueOnce(json(codeFile));
+  await expect(handler('code:file')(review, codeFile.path)).resolves.toEqual(codeFile);
+  expect(fetch).toHaveBeenLastCalledWith('http://127.0.0.1:9527/api/agent-review/review%2Fone/code/file?path=src%2FExample.java', expect.any(Object));
+  fetch.mockResolvedValueOnce(json({ message: 'The working copy changed. Refresh its files.' }, 409));
+  await expect(handler('code:file')(review, codeFile.path, 'a'.repeat(40))).rejects.toThrow('The working copy changed. Refresh its files.');
+
   await expect(handler('code:runs:output')(task, 'run/1', 12.7)).resolves.toEqual(output);
   expect(fetch).toHaveBeenLastCalledWith(
-    'http://127.0.0.1:9527/agent/tasks/task%2Fone/code/runs/run%2F1/output?workspaceId=workspace%2Fone&repo=trinodb%2Ftrino&number=30304&after=12',
+    'http://127.0.0.1:9527/agent/tasks/task%2Fone/code/runs/run%2F1/output?workspaceId=workspace%2Fone&after=12',
     expect.objectContaining({ headers: { 'X-ByteQuay-Session': 'test-session' } }));
   await expect(handler('code:runs:output')(review, 'run/1', 0)).resolves.toEqual(output);
   expect(fetch).toHaveBeenLastCalledWith('http://127.0.0.1:9527/api/agent-review/review%2Fone/code/runs/run%2F1/output?after=0', expect.any(Object));
@@ -151,13 +164,13 @@ it('routes Code & Tests reads and writes to the review or the development task t
   fetch.mockResolvedValueOnce(json({ reason: 'No Maven wrapper (mvnw) in this working copy', action: 'OPEN_TERMINAL' }, 422));
   await expect(handler('code:runs:start')(task, 'core/src/test/java/io/x/TestAccess.java', null))
     .resolves.toEqual({ refusal: { reason: 'No Maven wrapper (mvnw) in this working copy', action: 'OPEN_TERMINAL' } });
-  expect(fetch).toHaveBeenLastCalledWith('http://127.0.0.1:9527/agent/tasks/task%2Fone/code/runs?workspaceId=workspace%2Fone&repo=trinodb%2Ftrino&number=30304',
+  expect(fetch).toHaveBeenLastCalledWith('http://127.0.0.1:9527/agent/tasks/task%2Fone/code/runs?workspaceId=workspace%2Fone',
     expect.objectContaining({ method: 'POST', body: JSON.stringify({ path: 'core/src/test/java/io/x/TestAccess.java', method: null }) }));
 
   fetch.mockResolvedValueOnce(json({ currentHash: 'h2', currentContent: 'disk' }, 409));
   await expect(handler('code:save')(task, 'core/src/main/java/io/x/Access.java', 'draft', 'h1'))
     .resolves.toEqual({ conflict: { currentHash: 'h2', currentContent: 'disk' } });
-  expect(fetch).toHaveBeenLastCalledWith('http://127.0.0.1:9527/agent/tasks/task%2Fone/code/file?workspaceId=workspace%2Fone&repo=trinodb%2Ftrino&number=30304',
+  expect(fetch).toHaveBeenLastCalledWith('http://127.0.0.1:9527/agent/tasks/task%2Fone/code/file?workspaceId=workspace%2Fone',
     expect.objectContaining({ method: 'PUT', body: JSON.stringify({ path: 'core/src/main/java/io/x/Access.java', content: 'draft', expectedHash: 'h1' }) }));
 
   fetch.mockResolvedValueOnce(json({ message: "The task's worktree was removed" }, 409));

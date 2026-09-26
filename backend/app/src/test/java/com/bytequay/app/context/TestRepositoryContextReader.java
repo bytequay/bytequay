@@ -63,6 +63,7 @@ import java.nio.file.Path;
 import java.time.Instant;
 import java.util.List;
 import java.util.Optional;
+import java.util.OptionalInt;
 import java.util.OptionalLong;
 import java.util.UUID;
 import java.util.stream.IntStream;
@@ -96,8 +97,8 @@ class TestRepositoryContextReader
     private static final String FILE = "plugin/iceberg/Metadata.java";
     private static final WorkspaceRepositoryContext WORKSPACE_CONTEXT = new WorkspaceRepositoryContext(
             WORKSPACE, REPOSITORY, 5, RepoRef.of("fork", "trino"), OptionalLong.of(REPOSITORY_ID), MONITORED, "upstream", "origin", "main", ImmutableList.of());
-    private static final AgentReview REVIEW = new AgentReview("review-current", WORKSPACE, MONITORED.fullName(), 1, OptionalLong.of(1), "task",
-            AgentReview.State.OPEN, false, Optional.empty(), Optional.empty(), 0, Instant.EPOCH, Instant.EPOCH, Optional.empty());
+    private static final AgentReview REVIEW = new AgentReview("review-current", WORKSPACE, MONITORED.fullName(), OptionalInt.of(1), OptionalLong.of(1), "task", Optional.empty(),
+            AgentReview.State.OPEN, false, Optional.empty(), Optional.empty(), Optional.empty(), 0, Instant.EPOCH, Instant.EPOCH, Optional.empty());
 
     private final GitBrowseService browse = mock(GitBrowseService.class);
     private final GitCommandRunner git = mock(GitCommandRunner.class);
@@ -389,8 +390,8 @@ class TestRepositoryContextReader
         AgentTask owner = task(1, "Iceberg review", "Review conclusion", Optional.empty(), 10);
         AgentTask prior = task(2, "Iceberg review", "Prior review conclusion", Optional.empty(), 20);
         AgentTask development = task(3, "Iceberg task", "Development conclusion", Optional.empty(), 30);
-        AgentReview owningReview = new AgentReview(REVIEW.id(), WORKSPACE, MONITORED.fullName(), 1, OptionalLong.of(1), owner.id().toString(),
-                AgentReview.State.OPEN, false, Optional.empty(), Optional.empty(), 0, Instant.EPOCH, Instant.EPOCH, Optional.empty());
+        AgentReview owningReview = new AgentReview(REVIEW.id(), WORKSPACE, MONITORED.fullName(), OptionalInt.of(1), OptionalLong.of(1), owner.id().toString(), Optional.empty(),
+                AgentReview.State.OPEN, false, Optional.empty(), Optional.empty(), Optional.empty(), 0, Instant.EPOCH, Instant.EPOCH, Optional.empty());
         stored(pr(1, "task:" + owner.id() + " task:" + prior.id(), 0));
         when(tasks.getInteractive(WORKSPACE, owner.id())).thenReturn(owner);
         when(tasks.getInteractive(WORKSPACE, prior.id())).thenReturn(prior);

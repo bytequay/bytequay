@@ -34,7 +34,7 @@ import { buildFileTree, type FileTreeItem } from '../fileTree';
 import type { DiffAgentComment } from '../PullChanges';
 import { remoteErrorMessage } from '../PullOverview';
 import type { AgentReviewDto } from '../agent-review/contracts';
-import { latestRun } from '../agent-review/model';
+import { latestRun, reviewRecoveryRequired, reviewRunning, reviewWorktreeNotice } from '../agent-review/model';
 import CodeView, { type FollowRequest, type RunMarker } from './CodeView';
 import RunButton, { type RunTarget } from './RunButton';
 import RunPanel from './RunPanel';
@@ -81,13 +81,14 @@ export type CodeTestsBridge = Pick<Bridge,
   | 'listAgentReviews'
   | 'startAgentReview'
   | 'getAgentReview'
+  | 'updateAgentReview'
   | 'subscribeAgentReview'
   | 'getAgentTask'>;
 
 /** Whose worktree the tab reads: an Agent review's, or the development task's that owns the pull request. */
 export type CodeTestsHost =
   | { kind: 'review'; review: AgentReviewDto }
-  | { kind: 'task'; task: AgentTaskDto; workspaceId: string; repo: string; number: number };
+  | { kind: 'task'; task: AgentTaskDto; workspaceId: string };
 
 /** The backend's own ceiling. A ⌘-click asks for all of it, because a name like `addColumn` has dozens of declarations. */
 const DEFINITION_LOOKUP_LIMIT = 200;
@@ -95,11 +96,11 @@ const DEFINITION_LOOKUP_LIMIT = 200;
 /** Each entry remembers the file-list generation it was read in, so a later list re-reads it in the background. */
 type FileState = { generation: number } & (
   | { status: 'loading' }
-  | { status: 'loaded'; file: ReviewCodeFileDto }
+  | { status: 'loaded'; file: ReviewCodeFileDto; refreshError?: string }
   | { status: 'failed'; error: string });
 
 export default function CodeTestsTab({
-  detail,
+  detail = null,
   workspaceId,
   review,
   task = null,
@@ -110,7 +111,7 @@ export default function CodeTestsTab({
   comments,
   bridge = window.bridge,
 }: {
-  detail: PullRequestDetailDto;
+  detail?: PullRequestDetailDto | null;
   workspaceId: string | undefined;
   review: AgentReviewDto | null;
   /** The development task whose worktree the pull request is bound to; it wins over any review. */
@@ -133,7 +134,7 @@ export default function CodeTestsTab({
     return (
       <WorkingCopy
         key={`task:${task.id}`}
-        host={{ kind: 'task', task, workspaceId, repo: detail.repo, number: detail.number }}
+        host={{ kind: 'task', task, workspaceId }}
         onReviewChange={onReviewChange}
         onUnsavedChange={onUnsavedChange}
         comments={comments}
@@ -143,9 +144,11 @@ export default function CodeTestsTab({
       />
     );
   }
-  if (shown === null) {
+  if (shown === null && detail === null) return <div className="ct-empty" role="status">This task has no available working copy.</div>;
+  if (shown === null && detail !== null) {
     return <NoReview detail={detail} workspaceId={workspaceId} bridge={bridge} onReviewChange={onReviewChange} onOpenEnded={setEndedReview} />;
   }
+  if (shown === null) return null;
   return (
     <WorkingCopy
       key={`review:${shown.id}`}
@@ -254,7 +257,7 @@ function WorkingCopy({ host, onReviewChange, onExit, onUnsavedChange, comments, 
   const [query, setQuery] = useState('');
   const [columnOpen, setColumnOpen] = useState(true);
   const [openDirectories, setOpenDirectories] = useState<ReadonlySet<string>>(new Set());
-  // A filtered tree (Changed in PR or a search) starts expanded; these are the folders the user collapsed in it.
+  // A filtered tree (Changed files or a search) starts expanded; these are the folders the user collapsed in it.
   const [collapsedDirectories, setCollapsedDirectories] = useState<ReadonlySet<string>>(new Set());
   const [testsOnly, setTestsOnly] = useState(false);
   const [paletteFocus, setPaletteFocus] = useState(0);
@@ -266,7 +269,11 @@ function WorkingCopy({ host, onReviewChange, onExit, onUnsavedChange, comments, 
   const [refusal, setRefusal] = useState<RunRefusalDto | null>(null);
   // Unsaved edits by path: the text and the saved version (content and hash) the edit started from.
   const [drafts, setDrafts] = useState<ReadonlyMap<string, { text: string; base: string; baseHash: string }>>(new Map());
+  const draftsRef = useRef(drafts);
+  draftsRef.current = drafts;
   const [saving, setSaving] = useState(false);
+  const [updatingReview, setUpdatingReview] = useState(false);
+  const [updateReviewError, setUpdateReviewError] = useState<string | null>(null);
   const [saveError, setSaveError] = useState<string | null>(null);
   const [discardOpen, setDiscardOpen] = useState(false);
   const [discarding, setDiscarding] = useState(false);
@@ -275,7 +282,7 @@ function WorkingCopy({ host, onReviewChange, onExit, onUnsavedChange, comments, 
   const column = useResizablePane(280, 190, 420);
   // The parent keys this component by host, so the reference bridge calls take never changes.
   const [hostRef] = useState<CodeHostRef>(() => host.kind === 'review' ? { kind: 'review', reviewId: host.review.id }
-    : { kind: 'task', taskId: host.task.id, workspaceId: host.workspaceId, repo: host.repo, number: host.number });
+    : { kind: 'task', taskId: host.task.id, workspaceId: host.workspaceId });
   // A task host is polled here; a review host is kept live through onReviewChange.
   const [polledTask, setPolledTask] = useState<AgentTaskDto | null>(null);
   const review = host.kind === 'review' ? host.review : null;
@@ -285,6 +292,8 @@ function WorkingCopy({ host, onReviewChange, onExit, onUnsavedChange, comments, 
   const hostOpen = (review ?? task)?.state === 'OPEN';
   const hostVersion = review?.task.version ?? task?.version;
   const runHead = review === null ? null : latestRun(review)?.headSha ?? null;
+  const worktreeHead = review?.worktreeSync?.headSha ?? null;
+  const worktreeNotice = review === null ? null : reviewWorktreeNotice(review);
 
   // A turn, a save or an Update review can change the working copy; the task version moves with each of them.
   useEffect(() => {
@@ -298,7 +307,7 @@ function WorkingCopy({ host, onReviewChange, onExit, onUnsavedChange, comments, 
       })
       .catch(failure => { if (live) setFilesError(remoteErrorMessage(failure)); });
     return () => { live = false; };
-  }, [bridge, hostRef, hostOpen, hostVersion, runHead, filesReload]);
+  }, [bridge, hostRef, hostOpen, hostVersion, runHead, worktreeHead, filesReload]);
 
   useEffect(() => {
     onUnsavedChange?.(drafts.size);
@@ -307,6 +316,7 @@ function WorkingCopy({ host, onReviewChange, onExit, onUnsavedChange, comments, 
 
   // Runs are polled: fast while one is live so its status keeps up, slowly otherwise so an agent's run still appears.
   const anyRunning = runs.some(run => run.status === 'RUNNING');
+  const pollTask = host.kind === 'task' && host.task.interactive !== false;
   // Only the first load picks the newest run; afterwards an empty selection means the user closed its tab.
   const runSelectedOnce = useRef(false);
   useEffect(() => {
@@ -326,7 +336,7 @@ function WorkingCopy({ host, onReviewChange, onExit, onUnsavedChange, comments, 
         // The next poll retries; the panel keeps the runs it already shows.
       }
       // Subscribing to the task would replace the task window's own stream, so its run gate follows this tick instead.
-      if (hostRef.kind === 'task') {
+      if (hostRef.kind === 'task' && pollTask) {
         await bridge.getAgentTask(hostRef.taskId, hostRef.workspaceId).then(updated => { if (live) setPolledTask(updated); }, () => {});
       }
       if (live) timer = setTimeout(() => { void poll(); }, anyRunning ? 1000 : 5000);
@@ -336,9 +346,9 @@ function WorkingCopy({ host, onReviewChange, onExit, onUnsavedChange, comments, 
       live = false;
       if (timer !== undefined) clearTimeout(timer);
     };
-  }, [anyRunning, bridge, hostRef]);
+  }, [anyRunning, bridge, hostRef, pollTask]);
 
-  // Nothing else streams this review while its Review & Learning tab is hidden.
+  // Nothing else streams this review while its Summary tab is hidden.
   useEffect(() => {
     if (!active || reviewId === null || !reviewOpen || !ownReviewStream) return;
     let live = true;
@@ -387,7 +397,7 @@ function WorkingCopy({ host, onReviewChange, onExit, onUnsavedChange, comments, 
   const { outlines, request: requestOutline } = useOutlines(readOutline, generation);
   const searchSymbols = useCallback((query: string) => bridge.searchCodeSymbols(hostRef, query, 50), [bridge, hostRef]);
 
-  const paths = useMemo(() => new Set(files?.files.map(file => file.path) ?? []), [files]);
+  const paths = useMemo(() => new Set([...(files?.files.map(file => file.path) ?? []), ...drafts.keys()]), [files, drafts]);
   useEffect(() => {
     // A truncated list cannot prove a file is gone.
     if (files !== null && !files.truncated) dispatch({ type: 'retain', paths });
@@ -397,20 +407,30 @@ function WorkingCopy({ host, onReviewChange, onExit, onUnsavedChange, comments, 
   const openPath = location !== null && navigation.tabs.includes(location.path) ? location.path : null;
 
   useEffect(() => {
-    if (openPath === null) return;
+    if (openPath === null || files === null) return;
     const existing = contentsRef.current.get(openPath);
     if (existing !== undefined && existing.generation === generation) return;
+    if (existing?.status === 'loaded' && draftsRef.current.has(openPath) && files !== null && !files.truncated && !files.files.some(file => file.path === openPath)) {
+      // A refreshed checkout can delete a file, but its unsaved text must remain accessible.
+      setContents(current => new Map(current).set(openPath, { status: 'loaded', file: existing.file, generation }));
+      return;
+    }
     // A file already on screen stays readable while its newer copy loads. Results are keyed by path, so a read that
     // finishes after the user moved to another file still lands, and returning to that file never waits forever.
     if (existing?.status !== 'loaded') setContents(current => new Map(current).set(openPath, { status: 'loading', generation }));
     const settle = (state: FileState) => setContents(current => {
       const previous = current.get(openPath);
-      return previous !== undefined && previous.generation > state.generation ? current : new Map(current).set(openPath, state);
+      if (previous !== undefined && previous.generation > state.generation) return current;
+      // The checkout may remove a file between listing and reading it. Keep its editor and draft accessible.
+      if (state.status === 'failed' && previous?.status === 'loaded' && draftsRef.current.has(openPath)) {
+        return new Map(current).set(openPath, { ...previous, generation: state.generation, refreshError: state.error });
+      }
+      return new Map(current).set(openPath, state);
     });
-    void bridge.readCodeFile(hostRef, openPath)
+    void bridge.readCodeFile(hostRef, openPath, files.revision)
       .then(file => settle({ status: 'loaded', file, generation }))
       .catch(failure => settle({ status: 'failed', error: remoteErrorMessage(failure), generation }));
-  }, [bridge, generation, hostRef, openPath]);
+  }, [bridge, files, generation, hostRef, openPath]);
 
   // Opening a file reveals it in the tree.
   useEffect(() => {
@@ -574,13 +594,15 @@ function WorkingCopy({ host, onReviewChange, onExit, onUnsavedChange, comments, 
     else setOpenDirectories(flip);
   };
   const openState = openPath === null ? null : contents.get(openPath) ?? null;
+  const missingDraft = openPath !== null && drafts.has(openPath) && files !== null && !files.truncated && !files.files.some(file => file.path === openPath);
   const openFile = openState?.status === 'loaded' ? openState.file : null;
+  const refreshError = openState?.status === 'loaded' ? openState.refreshError : undefined;
   const openOutline = openPath === null ? undefined : outlines.get(openPath);
   const openEntry = openPath === null ? undefined : entryByPath.get(openPath);
   const claim = review?.task.mutationClaim ?? task?.mutationClaim?.kind ?? null;
   // A task's working copy is the revision its local comments are placed against, unless private local review pinned one.
   const reviewedHead = review !== null || files === null ? runHead : task?.localReviewHead ?? files.revision;
-  const commentContext = openPath === null || openFile?.content == null || files === null ? null : {
+  const commentContext = openPath === null || openFile?.content == null || files === null || openState?.generation !== generation || missingDraft || refreshError !== undefined ? null : {
     path: openPath,
     text: drafts.get(openPath)?.text ?? openFile.content,
     prPatch: openFile.prPatch,
@@ -590,11 +612,11 @@ function WorkingCopy({ host, onReviewChange, onExit, onUnsavedChange, comments, 
     reviewedHead,
     observedHead: review?.observedHeadSha ?? null,
     askBlocked: claim === 'LOCAL_RUN' ? 'A run is using this working copy'
-      : claim === 'RECOVERY' ? review !== null ? 'The working copy needs recovery — see Review & Learning' : 'The task needs recovery — see the task window'
+      : claim === 'RECOVERY' ? review !== null ? 'The working copy needs recovery — see Summary' : 'The task needs recovery — see the task window'
         : task?.developmentContinuationUnfinished === true ? 'Development automation is working' : null,
   };
   const askAgent = comments?.onAskAgent;
-  // A review ended and opened read-only here is not the one Review & Learning shows, so its findings have nowhere to open.
+  // A review ended and opened read-only here is not the one Summary shows, so its findings have nowhere to open.
   const commentOptions = comments === undefined ? undefined : {
     ...comments,
     onAskAgent: !hostOpen || askAgent === undefined ? undefined : host.kind === 'review' ? askAgent : async (comment: DiffAgentComment) => {
@@ -691,6 +713,16 @@ function WorkingCopy({ host, onReviewChange, onExit, onUnsavedChange, comments, 
           <button type="button" onClick={() => setFilesReload(value => value + 1)}>Retry</button>
         </div>
       )}
+      {worktreeNotice !== null && review !== null && <div className="ct-banner ct-sync" role="status">
+        <span><strong>{worktreeNotice.label}.</strong> {worktreeNotice.message}</span>
+        <button type="button" disabled={updatingReview || gate.blocked !== null || reviewRunning(review) || reviewRecoveryRequired(review) || review.worktreeSync?.state === 'PENDING'} title={gate.blocked ?? undefined}
+          onClick={() => {
+            setUpdatingReview(true); setUpdateReviewError(null);
+            void bridge.updateAgentReview(review.id).then(onReviewChange)
+              .catch(failure => setUpdateReviewError(remoteErrorMessage(failure))).finally(() => setUpdatingReview(false));
+          }}>{updatingReview ? 'Updating…' : 'Update review'}</button>
+      </div>}
+      {updateReviewError !== null && <div className="ct-banner is-error" role="alert">{updateReviewError}</div>}
       <div className="ct-work">
         {columnOpen && (
           <>
@@ -702,11 +734,11 @@ function WorkingCopy({ host, onReviewChange, onExit, onUnsavedChange, comments, 
                       setScope('all');
                       setCollapsedDirectories(new Set());
                     }}><span className="ct-scope__label">All files</span></button>
-                  <button type="button" aria-pressed={scope === 'changed'} title="Only files this pull request or this working copy touched"
+                  <button type="button" aria-pressed={scope === 'changed'} title="Files changed on this branch or in the working copy"
                     onClick={() => {
                       setScope('changed');
                       setCollapsedDirectories(new Set());
-                    }}><span className="ct-scope__label">Changed in PR</span><span className="ct-scope__count">{touchedCount(entries)}</span></button>
+                    }}><span className="ct-scope__label">Changed files</span><span className="ct-scope__count">{touchedCount(entries)}</span></button>
                   <button type="button" className="ct-scope__tests" aria-pressed={testsOnly} title="Show only test files" aria-label="Show only test files"
                     onClick={() => setTestsOnly(value => !value)}><TestTubeDiagonal size={14} strokeWidth={1.8} aria-hidden="true" /></button>
                 </div>
@@ -717,7 +749,7 @@ function WorkingCopy({ host, onReviewChange, onExit, onUnsavedChange, comments, 
                 {files === null && filesError === null && <div className="ct-files__note" role="status">Loading files…</div>}
                 {files !== null && shownEntries.length === 0 && (
                   <div className="ct-files__note">
-                    {query.trim() !== '' ? 'No match' : testsOnly ? scope === 'changed' ? 'No test files in this pull request' : 'No test files' : scope === 'changed' ? 'Nothing touched' : 'No files'}
+                    {query.trim() !== '' ? 'No match' : testsOnly ? scope === 'changed' ? 'No changed test files' : 'No test files' : scope === 'changed' ? 'Nothing touched' : 'No files'}
                   </div>
                 )}
                 <TreeItems items={tree} depth={0} selected={openPath} isOpen={directoryOpen} onToggle={toggleDirectory} onOpen={open} />
@@ -796,12 +828,16 @@ function WorkingCopy({ host, onReviewChange, onExit, onUnsavedChange, comments, 
               ) : openState.status === 'failed' ? (
                 <div className="ct-editor__empty" role="alert">
                   Could not read {fileName(openPath)}. {openState.error}
-                  <button type="button" onClick={() => setGeneration(current => current + 1)}>Retry</button>
+                  <button type="button" onClick={() => setFilesReload(value => value + 1)}>Retry</button>
                 </div>
               ) : openState.file.content === null ? (
                 <div className="ct-editor__empty">{openState.file.unavailableReason ?? 'This file cannot be shown.'}</div>
               ) : (
                 <>
+                {refreshError !== undefined && <div className="ct-banner is-error" role="alert">
+                  Could not refresh {fileName(openPath)}. Your unsaved draft is preserved. {refreshError}
+                  <button type="button" onClick={() => setFilesReload(value => value + 1)}>Retry</button>
+                </div>}
                 {(() => {
                   const draft = drafts.get(openPath);
                   const file = openState.file;
@@ -816,7 +852,7 @@ function WorkingCopy({ host, onReviewChange, onExit, onUnsavedChange, comments, 
                   const method = runs.find(run => run.path === openPath && run.scope !== 'COMMAND')?.testMethod ?? null;
                   return (
                     <>
-                      <UnsavedBar saved={draft.base} draft={draft.text} blocked={gate.blocked} saving={saving}
+                      <UnsavedBar saved={draft.base} draft={draft.text} blocked={missingDraft ? 'This file was removed from the working copy. Your unsaved draft is preserved; copy it before discarding.' : refreshError !== undefined ? 'Refresh the file before saving your preserved draft.' : gate.blocked} saving={saving}
                         rerunLabel={isTestSource(openPath) && !gate.hidden ? method === null ? 'Save and rerun class' : 'Save and rerun method' : null}
                         onRevert={() => dropDraft(openPath)}
                         onSave={() => { void saveDraft(openPath); }}

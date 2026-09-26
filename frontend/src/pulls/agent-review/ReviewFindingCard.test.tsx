@@ -75,7 +75,7 @@ describe('finding suggestions', () => {
       body: 'Commit message: name the behavior. Proposed subject: Reject null widget input',
       path: null, side: null, startLine: null, endLine: null, range: null, excerpt: [] };
     const html = render(whole);
-    expect(html).toContain('Whole pull request');
+    expect(html).toContain('Whole change');
     expect(html).not.toContain('Reviewed code');
     expect(html).toContain('Add to my review');
     expect(html).not.toContain('Post comment now');

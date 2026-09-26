@@ -219,6 +219,7 @@ public final class ManagedWorktreeService
     }
 
     /** The task's checkout root for lock-free reads, after the same ownership checks as {@link #changes}. */
+    @Override
     public Path ownedCheckout(TaskWorktree worktree)
     {
         requireNonNull(worktree, "worktree is null");

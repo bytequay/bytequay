@@ -1,0 +1,16 @@
+.wb-changes { display: flex; flex-direction: column; min-height: 0; height: 100%; }
+.wb-changes__selection { display: flex; flex: 1 1 140px; min-width: 100px; max-width: 320px; font-size: 12px; }
+.wb-changes__selection select { width: 100%; min-width: 0; color: inherit; background: var(--bg); border: 1px solid var(--border); border-radius: 5px; padding: 4px; font: inherit; text-overflow: ellipsis; }
+.wb-changes__details { position: static; min-width: 0; max-width: 190px; }
+.wb-changes__details summary { display: flex; align-items: center; gap: 4px; min-height: 28px; padding: 0 5px; cursor: pointer; list-style: none; border-radius: 5px; color: var(--text-3); font-size: 11px; }
+.wb-changes__details summary::-webkit-details-marker { display: none; }
+.wb-changes__details summary:hover { background: var(--bg-hover); }
+.wb-changes__details summary:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+.wb-changes__details summary code { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.wb-changes__details summary svg { flex: none; }
+.wb-changes__details-body { position: absolute; right: 0; top: calc(100% + 5px); z-index: 20; width: min(400px, 100%); max-height: min(440px, 65vh); overflow: auto; border: 1px solid var(--border); border-radius: 8px; background: var(--bg); color: var(--text-1); box-shadow: 0 6px 24px #1f232820; }
+.wb-changes__source { display: flex; flex-direction: column; gap: 5px; padding: 12px; font-size: 11px; color: var(--text-3); overflow-wrap: anywhere; }
+.wb-changes__source code { overflow-wrap: anywhere; }
+.wb-changes__commit { display: flex; flex-direction: column; gap: 5px; padding: 12px; font-size: 12px; border-top: 1px solid var(--border); }
+.wb-changes__commit pre { white-space: pre-wrap; overflow-wrap: anywhere; margin: 4px 0; font: inherit; }
+.wb-changes > .pull-changes { flex: 1; min-height: 0; }

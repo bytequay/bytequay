@@ -20,7 +20,8 @@ import PullRequestTaskActions from '../PullRequestTaskActions';
 import PullsScreen, { remotePullRequest, ReviewDialog } from '../PullsScreen';
 import ReviewTaskScreen from '../../agents/ReviewTaskScreen';
 import type { AgentEventEnvelope } from '../../agents/events';
-import { createPreviewBridge } from '../../agents/fixtures/previewBridge';
+import { createPreviewBridge, previewTask } from '../../agents/fixtures/previewBridge';
+import type { CodeHostRef } from '../code-tests/contracts';
 import type { AgentReviewDto, ReviewDraftDto } from '../agent-review/contracts';
 import { reviewFixture } from '../agent-review/fixtures/review';
 import '../../css/base.css';
@@ -42,7 +43,7 @@ const reviewDetail = (review: AgentReviewDto): PullRequestDetailDto => ({
   checkRuns: [], unavailableSections: [], viewerCanWrite: false,
 });
 
-export async function runMainScreen(): Promise<string> {
+export async function runMainScreen(keepMounted = false): Promise<string> {
   let detail: PullRequestDetailDto = {
     id: 7, repo: 'owner/repo', number: 7, title: 'Implementation', htmlUrl: null, state: 'open', draft: true,
     mergeable: null, mergeableState: null, author: 'alice', authorAvatarUrl: null, createdAt: null, updatedAt: '2026-01-01T00:00:00Z',
@@ -69,6 +70,7 @@ export async function runMainScreen(): Promise<string> {
     fetchPrs: async () => ({ pullRequests: [row], page: 0, pageSize: 50, totalPullRequests: 1, openPullRequests: 1, hasMore: false }),
     onPullRequestsSynced: () => () => {},
     listWorkspaces: async () => [],
+    listLocalReviewComments: async () => [],
     fetchPullRequestDetailByRef: async () => detail,
     refreshPullRequestDetailByRef: async () => ({ full: true as const, detail, status: null }),
     refreshAllPullRequestDetailByRef: async () => detail,
@@ -76,7 +78,7 @@ export async function runMainScreen(): Promise<string> {
     fetchPrDiffCommits: async () => commits,
     refreshPrDiffFiles: async (_repo, _number, base, head) => { comparisons.push([base, head]); return [file('selected.txt')]; },
     recordRecentTouch: async () => {},
-  } satisfies Pick<Bridge, 'getUserProfile' | 'fetchPrs' | 'onPullRequestsSynced' | 'listWorkspaces' | 'fetchPullRequestDetailByRef'
+  } satisfies Pick<Bridge, 'getUserProfile' | 'fetchPrs' | 'onPullRequestsSynced' | 'listWorkspaces' | 'listLocalReviewComments' | 'fetchPullRequestDetailByRef'
     | 'refreshPullRequestDetailByRef' | 'refreshAllPullRequestDetailByRef' | 'fetchPrDiffFiles' | 'fetchPrDiffCommits'
     | 'refreshPrDiffFiles' | 'recordRecentTouch'>;
   Object.assign(window, { bridge });
@@ -98,11 +100,26 @@ export async function runMainScreen(): Promise<string> {
   try {
     flushSync(() => root.render(<PullsScreen />));
     await settle();
+    button('WorkBench').click(); await settle();
     button('Changes').click();
     await settle();
     const choice = host.querySelector<HTMLInputElement>('[aria-label="Select one: one"]');
     assert(choice !== null, 'Main PR page must load its commit picker');
+    assert(host.querySelector<HTMLSelectElement>('[aria-label="Changes source"]')?.value === 'published',
+      'PR-only browsing must default to Published PR in the unified Changes destination');
+    assert(host.querySelectorAll('.pull-changes__toolbar').length === 1
+      && host.querySelector('.pull-changes__toolbar')?.closest('.pull-detail__header') !== null,
+      'The published diff must use one shared header toolbar');
+    assert(host.querySelector('.pull-file-tree') === null, 'The side panel must start with its changed-file sidebar closed');
+    const picker = host.querySelector<HTMLDetailsElement>('.pull-commit-picker');
+    assert(picker !== null, 'Published Changes must retain the commit picker');
+    picker.open = true; await settle();
+    const menu = picker.querySelector('.pull-commit-picker__menu')?.getBoundingClientRect();
+    const pane = host.querySelector('.pull-detail')?.getBoundingClientRect();
+    assert(menu !== undefined && pane !== undefined && menu.width > 100 && menu.left >= pane.left && menu.right <= pane.right,
+      'The portaled commit picker must stay within the detail pane');
     choice.click();
+    picker.open = false;
     await settle();
     assert(comparisons.length === 1 && comparisons[0][0] === 'base' && comparisons[0][1] === 'one'
       && host.textContent?.includes('selected.txt') === true, 'Main PR commit selection must show the requested comparison');
@@ -130,9 +147,10 @@ export async function runMainScreen(): Promise<string> {
       'Unrelated timeline updates must retain the pending review');
     assert(host.querySelector('.pulls-list')?.textContent?.includes('reviewed-label') === true,
       'The shared detail update must reconcile the visible list row');
-    button('PR #7').click();
+    button('PR #').click();
     await settle();
     assert(host.textContent?.includes('New timeline discussion') === true, 'The overview must render the shared refreshed timeline');
+    button('WorkBench').click(); await settle();
     button('Changes').click();
     await settle();
     assert(host.querySelector<HTMLInputElement>('[aria-label="Deselect one: one"]')?.checked === true,
@@ -149,6 +167,7 @@ export async function runMainScreen(): Promise<string> {
     await settle();
     assert(host.querySelector('.pull-detail.zoom-card') !== null && host.querySelector('.pull-detail.is-full') === null
       && host.querySelector('.zoom-scrim') !== null, 'Zoom must open a card over the list, not cover the window');
+    assert(host.querySelector('.pull-file-tree') !== null, 'Zoom must default the changed-file sidebar open');
     // The browser rail is fixed chrome painted above every layer, so a layer that reached under
     // it would be covered by the web page list instead of the page it was opened from.
     document.body.style.setProperty('--browser-rail-width', '220px');
@@ -165,6 +184,11 @@ export async function runMainScreen(): Promise<string> {
     assert(host.querySelector('[aria-label="Exit full screen"]') !== null
       && host.querySelector('[aria-label="Close pull request details"]') !== null,
     'Full screen must keep both the way back to the card and the way out');
+    if (keepMounted) {
+      host.querySelector<HTMLInputElement>('[aria-label="Select one: one"]')?.click();
+      await settle();
+      return 'Compact Changes preview';
+    }
     window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' }));
     await settle();
     assert(host.querySelector('.pull-detail.zoom-card') === null && host.querySelector('.pulls-list') !== null,
@@ -172,18 +196,19 @@ export async function runMainScreen(): Promise<string> {
     return 'Main PR page shares commit selection, timeline polling, row reconciliation, range invalidation, and the zoom layer';
   }
   finally {
-    flushSync(() => root.unmount());
-    host.remove();
+    if (!keepMounted) { flushSync(() => root.unmount()); host.remove(); }
     window.setTimeout = originalTimeout;
   }
 }
 
-export async function runReviewWorkspace(): Promise<string> {
+export async function runReviewWorkspace(local = false): Promise<string> {
   const agent = createPreviewBridge('workspace-1', { replayThrough: Number.MAX_SAFE_INTEGER });
-  const review = reviewFixture({ id: 'retained-review', state: 'CLOSED', closedAt: '2026-09-07T00:00:00Z' });
+  const review = reviewFixture({ id: 'retained-review', state: 'CLOSED', closedAt: '2026-09-07T00:00:00Z', sourceTaskId: 'development-task',
+    ...(local ? { number: null, sourceTaskId: 'development-task' } : {}) });
   review.task = { ...review.task, id: agent.events[0].taskId };
   const detail = reviewDetail(review);
   const reviewReads: string[] = [];
+  const codeSources: CodeHostRef[] = [];
   let historyReads = 0;
   let listReads = 0;
   let back = 0;
@@ -198,6 +223,14 @@ export async function runReviewWorkspace(): Promise<string> {
       return review;
     },
     findAgentReview: async () => { throw new Error('An exact retained review must not be replaced by the newest review'); },
+    findPullRequestTask: async () => ({ workspaceId: review.workspaceId, taskId: 'development-task', taskState: 'OPEN', version: 1, linked: true }),
+    getAgentTask: async () => previewTask(review.workspaceId, 'development-task'),
+    listCodeFiles: async host => {
+      codeSources.push(host);
+      return { source: 'WORKING_COPY' as const, revision: review.runs[0].headSha, codeGraph: 'OFF' as const,
+        truncated: false, sourceFingerprint: null, savedExperiment: false, files: [] };
+    },
+    listCodeRuns: async () => [],
     readAgentReviewHistory: async (id, taskId, before, after) => {
       assert(id === review.id && taskId === review.task.id, 'Conversation history must stay scoped to the retained review and task');
       historyReads++;
@@ -206,13 +239,13 @@ export async function runReviewWorkspace(): Promise<string> {
     fetchAttentionPrs: async () => [],
     fetchPrs: async () => { listReads++; throw new Error('A review workspace must not load the PR list'); },
     fetchPullRequestDetailByRef: async (repo, number) => {
-      assert(repo === review.repo && number === review.number, 'Review workspace must open the owning pull request');
+      assert(!local && repo === review.repo && number === review.number, 'A local review must never fetch a fake pull request');
       return detail;
     },
     refreshPullRequestDetailByRef: async () => ({ full: true as const, detail, status: null }),
     listLocalReviewComments: async () => [],
     recordRecentTouch: async () => {},
-  } satisfies Pick<Bridge, 'getUserProfile' | 'getModelSettings' | 'getAgentTurn' | 'getAgentReview' | 'findAgentReview'
+  } satisfies Pick<Bridge, 'getUserProfile' | 'getModelSettings' | 'getAgentTurn' | 'getAgentReview' | 'findAgentReview' | 'findPullRequestTask' | 'getAgentTask' | 'listCodeFiles' | 'listCodeRuns'
     | 'readAgentReviewHistory' | 'fetchAttentionPrs' | 'fetchPrs' | 'fetchPullRequestDetailByRef'
     | 'refreshPullRequestDetailByRef' | 'listLocalReviewComments' | 'recordRecentTouch'>;
   const originalBridge = window.bridge;
@@ -230,14 +263,14 @@ export async function runReviewWorkspace(): Promise<string> {
     const pane = host.querySelector<HTMLElement>('.pull-detail');
     assert(conversation?.textContent?.includes('I found one authentication regression.') === true,
       'The left workspace conversation must replay the review agent response');
-    assert(pane?.textContent?.includes('PR intention') === true && pane.querySelector('[data-finding-id="finding-1"]') !== null,
+    assert(pane?.textContent?.includes('Change intention') === true && pane.querySelector('[data-finding-id="finding-1"]') !== null,
       'The right PR pane must show independent learning and finding cards');
     assert(conversation.parentElement === pane.parentElement
       && Boolean(conversation.compareDocumentPosition(pane) & Node.DOCUMENT_POSITION_FOLLOWING),
     'Conversation and PR cards must be sibling panes in left-to-right order');
     assert(host.querySelector('.pulls-list') === null && listReads === 0 && host.querySelector('[aria-modal="true"]') === null,
       'The workspace layout must show neither a PR list nor a modal');
-    assert(reviewReads.length >= 2 && reviewReads.every(id => id === review.id) && historyReads > 0,
+    assert(reviewReads.length >= (local ? 1 : 2) && reviewReads.every(id => id === review.id) && historyReads > 0,
       'Opening and loading the workspace must retain its exact review identity');
     assert(!host.textContent?.includes('Summary & comments') && host.querySelector('.agr-strip__tabs') === null,
       'Review cards must not restore Summary or Activity subtabs');
@@ -264,7 +297,7 @@ export async function runReviewWorkspace(): Promise<string> {
       && Math.abs(conversation.getBoundingClientRect().width - initialConversationWidth - 80) < 1,
     `Dragging must resize the visible panes immediately, including when CSS constrained the starting width: PR ${initialWidth} -> ${resizedWidth}, conversation ${initialConversationWidth} -> ${conversation.getBoundingClientRect().width}`);
     pane.querySelector<HTMLButtonElement>('.pull-detail__pr-tab')?.click(); await settle();
-    const learningTab = [...pane.querySelectorAll<HTMLButtonElement>('button')].find(button => button.textContent?.includes('Review & Learning'));
+    const learningTab = [...pane.querySelectorAll<HTMLButtonElement>('button')].find(button => button.textContent?.includes('WorkBench'));
     assert(learningTab !== undefined, 'The resized PR must retain its learning tab');
     learningTab.click(); await settle();
     assert(Math.abs(pane.getBoundingClientRect().width - resizedWidth) < 1,
@@ -275,9 +308,17 @@ export async function runReviewWorkspace(): Promise<string> {
     assert(pane.style.getPropertyValue('width') === '1600px' && conversation.getBoundingClientRect().width > 0
       && pane.getBoundingClientRect().right <= host.getBoundingClientRect().right + 1,
     'The shared maximum and CSS bounds must retain the conversation without overflowing the workspace');
+    const codeTab = [...pane.querySelectorAll<HTMLButtonElement>('button')].find(button => button.textContent?.includes('Code & Tests'));
+    assert(codeTab !== undefined, 'A retained reviewer must offer Code & Tests');
+    codeTab.click(); await settle();
+    assert(codeSources.length > 0 && codeSources.every(source => source.kind === 'review' && source.reviewId === review.id),
+      'A reviewer workspace must keep its exact review worktree even when a matching development task exists');
+    assert(pane.querySelector('[aria-label="Review of development changes"]') === null,
+      'A reviewer workspace must not mount the development Summary or replace its conversation stream');
     conversation.querySelector<HTMLButtonElement>('[aria-label="Back to tasks"]')?.click();
     assert(back === 1, 'The review workspace back action must return to its task list');
-    return 'Retained review workspace replays its conversation beside learning cards and returns to tasks';
+    return local ? 'Local review workspace keeps its reviewer conversation without fetching PR details'
+      : 'Retained review workspace replays its conversation beside learning cards and returns to tasks';
   }
   finally {
     flushSync(() => root.unmount());
@@ -333,13 +374,13 @@ export async function runOpenReviewWorkspaceStream(): Promise<string> {
     for (let attempt = 0; attempt < 20 && !(conversation().includes('I found one authentication regression.') && streams.length > 0); attempt++) await settle();
     await settle();
     const pane = host.querySelector<HTMLElement>('.pull-detail');
-    assert(pane?.textContent?.includes('PR intention') === true, 'The open review must show its learning cards beside the conversation');
-    // Leaving and returning to Review & Learning remounts its cards while the conversation stays mounted.
+    assert(pane?.textContent?.includes('Change intention') === true, 'The open review must show its learning cards beside the conversation');
+    // Leaving and returning to Summary remounts its cards while the conversation stays mounted.
     pane.querySelector<HTMLButtonElement>('.pull-detail__pr-tab')?.click();
     await settle();
-    [...pane.querySelectorAll<HTMLButtonElement>('button')].find(button => button.textContent?.includes('Review & Learning'))?.click();
+    [...pane.querySelectorAll<HTMLButtonElement>('button')].find(button => button.textContent?.includes('WorkBench'))?.click();
     await settle();
-    assert(pane.textContent?.includes('PR intention') === true, 'Returning to Review & Learning must show the cards again');
+    assert(pane.textContent?.includes('Change intention') === true, 'Returning to Summary must show the cards again');
     delivered = true;
     for (const stream of streams.filter(item => item.live)) {
       stream.listener({ subscriptionId: 'review-stream', taskId: review.task.id, kind: 'changed', sequence: sent.sequence, turnId: sent.turnId });
@@ -347,7 +388,7 @@ export async function runOpenReviewWorkspaceStream(): Promise<string> {
     for (let attempt = 0; attempt < 40 && !conversation().includes('Check the new head again'); attempt++) await new Promise(resolve => setTimeout(resolve, 25));
     assert(conversation().includes('Check the new head again'), 'A message delivered after the cards remount must reach the conversation');
     assert(streams.length === 1, `The review workspace must open one review stream for both panes, opened ${streams.length}`);
-    return 'Open review workspace keeps its conversation live after Review & Learning remounts';
+    return 'Open review workspace keeps its conversation live after Summary remounts';
   }
   finally {
     flushSync(() => root.unmount());

@@ -362,7 +362,7 @@
   background: #fff;
   padding: 15px 20px 0;
 }
-.pull-detail__header--tabs { border-bottom: 0; padding: 10px; }
+.pull-detail__header--tabs { overflow: visible; border-bottom: 1px solid #e7e9ec; padding: 8px 10px; }
 .pull-detail__toolbar { display: flex; min-width: 0; align-items: center; flex-wrap: wrap; gap: 8px 14px; }
 
 .pull-detail__title-row { display: flex; align-items: flex-start; gap: 16px; }
@@ -628,6 +628,27 @@
 .pull-detail__tabs button:hover { background: #f6f8fa; color: #24292f; }
 .pull-detail__tabs button.is-active { background: #f1f2f3; color: #24292f; }
 .pull-detail__tabs svg { width: 17px; height: 17px; }
+.pull-detail__subtoolbar { display: flex; min-width: 0; align-items: center; flex-wrap: wrap; gap: 6px 10px; margin-top: 5px; }
+.pull-detail__subtabs { flex: 0 0 auto; }
+.pull-detail__subtabs button, .pull-detail__utilities button { min-height: 28px; border-radius: 8px; padding: 4px 9px; font-size: var(--font-size-md); }
+.pull-detail__utilities { flex: 0 1 auto; margin-left: auto; }
+.pull-detail__utilities button { color: #6e7781; }
+.pull-detail__utilities svg { width: 14px; height: 14px; }
+.pull-detail__changes-tools { position: relative; display: flex; min-width: 0; flex: 1 1 auto; align-items: center; flex-wrap: wrap; gap: 6px; }
+.pull-detail__changes-source { min-width: 0; max-width: 160px; height: 28px; border: 1px solid #d0d7de; border-radius: 6px; background: #fff; color: #24292f; padding: 3px 6px; font: inherit; font-size: var(--font-size-md); }
+.pull-detail__changes-source:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+.pull-detail__changes-toolbar { display: contents; }
+.pull-detail__changes-toolbar:empty { display: none; }
+.pull-detail__changes-toolbar .pull-changes__toolbar { display: contents; }
+.pull-detail__changes-toolbar .pull-commit-picker > summary { min-height: 28px; padding: 4px 8px; font-size: var(--font-size-md); }
+.pull-detail__changes-toolbar .pull-changes__files-toggle,
+.pull-detail__changes-toolbar .pull-changes__bulk-toggle { order: -1; height: 28px; gap: 5px; padding: 0 6px; }
+.pull-detail__tabs button:disabled { opacity: .5; cursor: default; }
+.pull-detail__tabs button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.pull-detail__body[hidden], .agt-panel__flush > [hidden] { display: none; }
+.agt-panel__flush > .pull-detail__changes { display: flex; flex: 1; flex-direction: column; min-height: 0; }
+.agt-panel__flush > .pull-detail__changes[hidden] { display: none; }
+
 .pull-detail__pr-tab.is-open > svg { color: #1a7f37; }
 .pull-detail__pr-tab.is-merged > svg { color: #8250df; }
 .pull-detail__pr-tab.is-closed > svg { color: #cf222e; }
@@ -1080,7 +1101,7 @@
 .pr-composer > footer button.pr-composer__close { border-color: #d0d7de; background: #f6f8fa; color: #cf222e; }
 .pr-composer > footer button:disabled { opacity: 0.45; }
 .pull-changes { display: flex; min-width: 0; min-height: 0; flex: 1; flex-direction: column; }
-.pull-changes__toolbar { position: relative; display: flex; min-height: 43px; flex: 0 0 43px; align-items: center; gap: 9px; border-bottom: 1px solid #e7e9ec; padding: 7px 12px; background: #fff; color: #59636e; font-size: var(--ui-font-size); }
+.pull-changes__toolbar { position: relative; display: flex; min-width: 0; min-height: 43px; flex: 0 0 auto; align-items: center; flex-wrap: wrap; gap: 6px 9px; border-bottom: 1px solid #e7e9ec; padding: 7px 12px; background: #fff; color: #59636e; font-size: var(--ui-font-size); }
 .pull-changes__toolbar button { display: inline-flex; width: 28px; height: 28px; align-items: center; justify-content: center; border: 0; border-radius: 6px; background: transparent; color: #59636e; }
 .pull-changes__toolbar button:hover,
 .pull-changes__toolbar button.is-active { background: #e7e9ec; color: #17191c; }
@@ -1204,10 +1225,6 @@
 .pull-commit-picker[open] > summary { background: #e1e5e9; }
 .pull-commit-picker > summary:focus-visible { box-shadow: 0 0 0 2px var(--accent); }
 .pull-detail.is-zoomed .pull-detail__tabs button { min-height: 34px; padding: 6px 12px; }
-.pull-detail.is-zoomed .pull-changes__toolbar { min-height: 54px; flex-basis: 54px; }
-.pull-detail.is-zoomed .pull-changes__files-toggle { height: 40px; padding: 0 12px; }
-.pull-detail.is-zoomed .pull-changes__bulk-toggle { height: 40px; padding: 0 12px; }
-.pull-detail.is-zoomed .pull-commit-picker > summary { min-height: 40px; padding: 8px 14px; }
 /* The toolbar, not the picker, contains the menu, so a narrow pane shrinks it instead of pushing it past the edge; the anchor keeps it under the button. */
 .pull-commit-picker__menu { position: absolute; z-index: 6; position-anchor: --commit-picker; top: calc(anchor(bottom) + 6px); left: anchor(left); right: 12px; max-width: 640px; overflow: hidden; border: 1px solid #d8dee4; border-radius: 12px; background: #fff; box-shadow: 0 10px 28px rgba(31, 35, 40, 0.18); }
 /* An open message takes the pane's width and never re-wraps, so a line longer than a project's limit (72 or 120 columns) stays visible as one line. */

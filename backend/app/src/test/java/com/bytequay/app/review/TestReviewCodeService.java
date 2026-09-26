@@ -31,10 +31,11 @@ import com.bytequay.agent.core.TitleSource;
 import com.bytequay.agent.core.WorktreeMutationClaim;
 import com.bytequay.agent.spi.AgentLaneId;
 import com.bytequay.agent.spi.AgentPermissionPolicy;
-import com.bytequay.app.agent.TaskPullRequestOwnership;
 import com.bytequay.app.agent.codegraph.FakeCodeGraphService;
 import com.bytequay.app.git.GitCommandRunner;
 import com.bytequay.app.git.ReviewExperiments;
+import com.bytequay.app.review.ReviewCodeService.ChangeScope;
+import com.bytequay.app.review.ReviewCodeService.Changes;
 import com.bytequay.app.review.ReviewCodeService.CodeFile;
 import com.bytequay.app.review.ReviewCodeService.CodeFileEntry;
 import com.bytequay.app.review.ReviewCodeService.CodeFiles;
@@ -50,6 +51,7 @@ import com.bytequay.app.workspace.WorkspaceRepositoryContext;
 import com.bytequay.app.workspace.WorkspaceRepositoryService;
 import com.bytequay.core.domain.DiffFile;
 import com.bytequay.core.domain.PullRequestDetail;
+import com.bytequay.core.domain.PullRequestTask;
 import com.bytequay.core.domain.RepoRef;
 import com.bytequay.core.domain.Workspace;
 import com.bytequay.core.review.AgentReview;
@@ -57,6 +59,8 @@ import com.bytequay.core.review.AgentReviewStore;
 import com.bytequay.core.review.ReviewConflictException;
 import com.bytequay.core.review.ReviewNotFoundException;
 import com.bytequay.core.review.ReviewRun;
+import com.bytequay.core.store.PullRequestStore;
+import com.bytequay.core.store.PullRequestTaskStore;
 import com.bytequay.core.store.WorkspaceStore;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableListMultimap;
@@ -65,18 +69,18 @@ import com.google.common.hash.Hashing;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
-import org.springframework.http.HttpStatus;
-import org.springframework.web.server.ResponseStatusException;
 
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.attribute.FileTime;
 import java.nio.file.attribute.PosixFilePermissions;
+import java.time.Duration;
 import java.time.Instant;
 import java.util.Arrays;
 import java.util.List;
 import java.util.Optional;
+import java.util.OptionalInt;
 import java.util.OptionalLong;
 import java.util.function.Consumer;
 import java.util.function.Function;
@@ -136,7 +140,8 @@ class TestReviewCodeService
     private final FakeCodeGraphService codeGraph = new FakeCodeGraphService();
     private final AgentTaskService tasks = mock(AgentTaskService.class);
     private final AgentTurnService turns = mock(AgentTurnService.class);
-    private final TaskPullRequestOwnership pullRequestOwnership = mock(TaskPullRequestOwnership.class);
+    private final PullRequestTaskStore assignments = mock(PullRequestTaskStore.class);
+    private final PullRequestStore pullRequestRows = mock(PullRequestStore.class);
     private final PullRequestService pullRequests = mock(PullRequestService.class);
     private Path repository;
     private Path checkout;
@@ -188,23 +193,129 @@ class TestReviewCodeService
         Path runtime = directory.resolve("runtime").toAbsolutePath();
         when(resources.require(taskId)).thenReturn(new TaskResources(runtime, runtime.resolve("events.jsonl"), runtime.resolve("blobs"), runtime.resolve("provider")));
         service = new ReviewCodeService(store, reviews, worktrees, workspaces, runner, codeGraph, resources, new ReviewExperiments(runner, worktrees), tasks, turns,
-                pullRequestOwnership, pullRequests);
+                assignments, pullRequestRows, new WorktreeDiffReader(runner), pullRequests);
         when(reviews.mutateWorkingCopy(eq(REVIEW_ID), any())).thenAnswer(invocation -> {
             Function<AgentTask, ?> mutation = invocation.getArgument(1);
             return mutation.apply(reviews.task(REVIEW_ID));
         });
 
-        when(tasks.getInteractive(WORKSPACE_ID, taskId)).thenReturn(developmentTask());
-        when(pullRequestOwnership.owns(any(), eq(REPOSITORY.fullName()), eq(7), eq(false))).thenReturn(true);
+        when(tasks.get(taskId)).thenReturn(developmentTask());
+        when(assignments.findByTaskId(taskId.toString())).thenReturn(Optional.of(new PullRequestTask(taskId.toString(), WORKSPACE_ID, REPOSITORY.fullName(), 7, "Imported PR")));
         when(pullRequests.getPullRequestDiffFiles(REPOSITORY.fullName(), 7, null, null)).thenReturn(ImmutableList.of(
                 new DiffFile(MAIN_PATH, "modified", 1, 1, "@@ -1 +1 @@\n-old\n+production source"),
                 new DiffFile(ADDED_PATH, "added", 1, 0, "@@ -0,0 +1 @@\n+added test")));
         when(pullRequests.findPullRequestDetail(REPOSITORY.fullName(), 7)).thenReturn(Optional.of(pullRequestDetail("main")));
         doAnswer(invocation -> {
             Consumer<AgentTask> action = invocation.getArgument(2);
-            action.accept(tasks.getInteractive(WORKSPACE_ID, taskId));
+            action.accept(tasks.get(taskId));
             return null;
         }).when(turns).synchronizeWorktree(eq(taskId), anyLong(), any());
+    }
+
+    @Test
+    void caughtUpCodeUsesCurrentFileMarksWhileReviewedChangesStayFrozen()
+    {
+        String listedRevision = service.files(REVIEW_ID).revision();
+        assertThat(service.file(REVIEW_ID, TEST_PATH, Optional.of(listedRevision)).content()).contains("test source\n");
+        write(checkout, TEST_PATH, "caught up test\n");
+        write(checkout, "src/test/java/TestLatest.java", "new remote test\n");
+        git(checkout, "add", ".");
+        git(checkout, "commit", "-m", "New remote head");
+        String current = git(checkout, "rev-parse", "HEAD");
+
+        assertThatThrownBy(() -> service.file(REVIEW_ID, TEST_PATH, Optional.of(listedRevision)))
+                .isInstanceOf(ReviewConflictException.class).hasMessageContaining("revision changed");
+        assertThatThrownBy(() -> service.file(taskHost(), TEST_PATH, Optional.of(listedRevision)))
+                .isInstanceOf(ReviewConflictException.class).hasMessageContaining("revision changed");
+        assertThat(service.file(REVIEW_ID, TEST_PATH, Optional.of(current)).content()).contains("caught up test\n");
+        assertThat(service.file(taskHost(), TEST_PATH, Optional.of(current)).content()).contains("caught up test\n");
+
+        CodeFiles files = service.files(REVIEW_ID);
+        assertThat(files.revision()).isEqualTo(current);
+        assertThat(files.files()).filteredOn(CodeFileEntry::changedInPr).extracting(CodeFileEntry::path)
+                .containsExactly(TEST_PATH, "src/test/java/TestLatest.java");
+        assertThat(files.files()).filteredOn(CodeFileEntry::addedInPr).extracting(CodeFileEntry::path)
+                .containsExactly("src/test/java/TestLatest.java");
+        assertThat(service.file(REVIEW_ID, TEST_PATH).prPatch()).get().asString().contains("-test source", "+caught up test").doesNotContain("-old test");
+        assertThat(service.file(REVIEW_ID, "src/test/java/TestLatest.java").prPatch()).get().asString().contains("+new remote test");
+
+        Changes reviewed = service.changes(REVIEW_ID, ChangeScope.COMMITTED, Optional.empty(), Optional.empty(), Optional.empty());
+        assertThat(reviewed.headSha()).isEqualTo(head);
+        assertThat(reviewed.files()).isEmpty();
+        assertThat(store.listRuns(REVIEW_ID).getFirst().headSha()).isEqualTo(head);
+
+        AgentTask completed = openTask().complete(new TaskSummary("done", Optional.empty(), AgentMetrics.empty(), Optional.empty()), NOW, NOW.plusSeconds(60));
+        when(reviews.task(REVIEW_ID)).thenReturn(completed.withWorktreeRemovedAt(NOW.plusSeconds(60)));
+        assertThat(service.files(REVIEW_ID).revision()).isEqualTo(head);
+        assertThat(service.file(REVIEW_ID, TEST_PATH).content()).contains("test source\n");
+        assertThat(service.file(REVIEW_ID, TEST_PATH).prPatch()).contains(TEST_PATCH);
+        assertThat(service.file(REVIEW_ID, TEST_PATH, Optional.of(head)).prPatch()).contains(TEST_PATCH);
+        assertThatThrownBy(() -> service.file(REVIEW_ID, TEST_PATH, Optional.of(current)))
+                .isInstanceOf(ReviewConflictException.class).hasMessageContaining("revision changed");
+    }
+
+    @Test
+    void forcePushedCodeUsesCurrentMergeBaseWithoutRewritingTheReviewedComparison()
+    {
+        write(repository, "Upstream.java", "old upstream\n");
+        git(repository, "add", ".");
+        git(repository, "commit", "-m", "Previous upstream");
+        String oldBase = git(repository, "rev-parse", "HEAD");
+        git(checkout, "merge", "--ff-only", oldBase);
+        write(checkout, TEST_PATH, "previous reviewed test\n");
+        git(checkout, "commit", "-am", "Previous review");
+        String reviewedHead = git(checkout, "rev-parse", "HEAD");
+        when(store.listRuns(REVIEW_ID)).thenReturn(ImmutableList.of(run(reviewedHead, oldBase)));
+
+        git(repository, "reset", "--hard", head);
+        write(repository, "Upstream.java", "rewritten upstream\n");
+        git(repository, "add", ".");
+        git(repository, "commit", "-m", "Rewritten upstream");
+        String newBase = git(repository, "rev-parse", "HEAD");
+        git(repository, "update-ref", "refs/remotes/origin/main", newBase);
+        git(checkout, "reset", "--hard", newBase);
+        write(checkout, TEST_PATH, "rebased remote test\n");
+        git(checkout, "commit", "-am", "Rebased remote head");
+        String current = git(checkout, "rev-parse", "HEAD");
+
+        assertThat(service.files(REVIEW_ID).files()).filteredOn(CodeFileEntry::changedInPr).extracting(CodeFileEntry::path).containsExactly(TEST_PATH);
+        assertThat(service.file(REVIEW_ID, "Upstream.java").prPatch()).isEmpty();
+        Changes live = service.changes(REVIEW_ID, ChangeScope.ALL, Optional.empty(), Optional.empty(), Optional.empty());
+        assertThat(live.baseSha()).isEqualTo(newBase);
+        assertThat(live.headSha()).isEqualTo(current);
+        assertThat(live.files()).extracting(DiffFile::filename).containsExactly(TEST_PATH);
+        assertThat(service.changes(REVIEW_ID, ChangeScope.COMMIT, Optional.of(current), Optional.empty(), Optional.empty()).baseSha()).isEqualTo(newBase);
+        assertThat(service.changes(REVIEW_ID, ChangeScope.UNCOMMITTED, Optional.empty(), Optional.empty(), Optional.empty()).files()).isEmpty();
+
+        Changes reviewed = service.changes(REVIEW_ID, ChangeScope.COMMITTED, Optional.empty(), Optional.empty(), Optional.empty());
+        assertThat(reviewed.headSha()).isEqualTo(reviewedHead);
+        assertThat(reviewed.baseSha()).isEqualTo(oldBase);
+        assertThat(reviewed.files()).extracting(DiffFile::filename).containsExactly(TEST_PATH);
+        assertThat(service.changes(REVIEW_ID, ChangeScope.COMMITTED, Optional.empty(), Optional.empty(), Optional.of(reviewedHead)).baseSha()).isEqualTo(oldBase);
+    }
+
+    @Test
+    void refusesCodeReadsThatRaceAHeadMove()
+    {
+        GitCommandRunner runner = new GitCommandRunner()
+        {
+            @Override
+            public Result runStdout(Path directory, String... arguments)
+            {
+                Result result = super.runStdout(directory, arguments);
+                if (Arrays.asList(arguments).contains("ls-files") || Arrays.asList(arguments).contains("diff")) {
+                    write(checkout, TEST_PATH, "new remote source after " + arguments[0] + "\n");
+                    git(checkout, "commit", "-am", "Remote catch-up during read");
+                }
+                return result;
+            }
+        };
+        ReviewCodeService racing = new ReviewCodeService(store, reviews, worktrees, workspaces, runner, codeGraph, resources,
+                new ReviewExperiments(runner, worktrees), tasks, turns, assignments, pullRequestRows, new WorktreeDiffReader(runner), pullRequests);
+
+        assertThatThrownBy(() -> racing.files(REVIEW_ID)).isInstanceOf(ReviewConflictException.class).hasMessageContaining("changed while it was being read");
+        assertThatThrownBy(() -> racing.file(REVIEW_ID, TEST_PATH)).isInstanceOf(ReviewConflictException.class).hasMessageContaining("changed while it was being read");
+        verify(turns, never()).synchronizeWorktree(any(), anyLong(), any());
     }
 
     @Test
@@ -692,15 +803,17 @@ class TestReviewCodeService
     void aDevelopmentTaskReadsAndEditsAnyFileOfItsWorkingCopyUnderItsClaim()
             throws IOException
     {
+        write(checkout, MAIN_PATH, "committed production\n");
+        git(checkout, "commit", "-am", "Develop locally");
         CodeFiles files = service.files(taskHost());
         assertThat(files.source()).isEqualTo(CodeSource.WORKING_COPY);
-        assertThat(files.revision()).isEqualTo(head);
-        assertThat(files.files()).contains(new CodeFileEntry(MAIN_PATH, true, false, false, false), new CodeFileEntry(ADDED_PATH, true, true, false, false),
+        assertThat(files.revision()).isEqualTo(git(checkout, "rev-parse", "HEAD"));
+        assertThat(files.files()).contains(new CodeFileEntry(MAIN_PATH, true, false, false, false), new CodeFileEntry(ADDED_PATH, false, false, false, false),
                 new CodeFileEntry(TEST_PATH, false, false, false, false));
 
         CodeFile production = service.file(taskHost(), MAIN_PATH);
         assertThat(production.editable()).isTrue();
-        assertThat(production.prPatch()).contains("@@ -1 +1 @@\n-old\n+production source");
+        assertThat(production.prPatch()).hasValueSatisfying(patch -> assertThat(patch).contains("+committed production"));
         assertThat(service.file(taskHost(), "README.md").editable()).isTrue();
 
         CodeFile saved = service.save(taskHost(), MAIN_PATH, "edited production\n", production.contentHash().orElseThrow());
@@ -726,12 +839,12 @@ class TestReviewCodeService
     @Test
     void aDevelopmentTaskSaveRefusesWhileTheTaskIsBusy()
     {
-        when(tasks.getInteractive(WORKSPACE_ID, worktree.taskId())).thenReturn(developmentTask().claimWorktreeMutation(WorktreeMutationClaim.localRun("run-1", NOW), NOW));
+        when(tasks.get(worktree.taskId())).thenReturn(developmentTask().claimWorktreeMutation(WorktreeMutationClaim.localRun("run-1", NOW), NOW));
         String hash = Hashing.sha256().hashString("production source\n", UTF_8).toString();
 
         assertThatThrownBy(() -> service.save(taskHost(), MAIN_PATH, "edited\n", hash)).isInstanceOf(ReviewConflictException.class).hasMessage("A run is using this working copy");
 
-        when(tasks.getInteractive(WORKSPACE_ID, worktree.taskId())).thenReturn(developmentTask().withDevelopmentContinuation(true, NOW));
+        when(tasks.get(worktree.taskId())).thenReturn(developmentTask().withDevelopmentContinuation(true, NOW));
         assertThatThrownBy(() -> service.save(taskHost(), MAIN_PATH, "edited\n", hash)).isInstanceOf(ReviewConflictException.class).hasMessage("Development automation is working");
         verify(turns, never()).synchronizeWorktree(any(), anyLong(), any());
         assertThat(checkout.resolve(MAIN_PATH)).hasContent("production source\n");
@@ -751,44 +864,213 @@ class TestReviewCodeService
                 new LineChange(LineChange.Kind.MODIFIED, 2, 1),
                 new LineChange(LineChange.Kind.ADDED, 4, 1));
 
-        // Without a known or fetched base branch the marks are simply absent.
-        when(pullRequests.findPullRequestDetail(REPOSITORY.fullName(), 7)).thenReturn(Optional.of(pullRequestDetail("release")));
-        assertThat(service.file(taskHost(), MAIN_PATH).lineChanges()).isEmpty();
+        // Without a fetched PR base, the visible baseline remains the task's starting commit.
         when(pullRequests.findPullRequestDetail(REPOSITORY.fullName(), 7)).thenReturn(Optional.empty());
-        assertThat(service.file(taskHost(), MAIN_PATH).lineChanges()).isEmpty();
-
-        // A diff never stored reads the files without pull-request marks.
-        when(pullRequests.getPullRequestDiffFiles(REPOSITORY.fullName(), 7, null, null)).thenThrow(new ResponseStatusException(HttpStatus.NOT_FOUND, "not refreshed"));
-        assertThat(service.files(taskHost()).files()).noneMatch(CodeFileEntry::changedInPr);
-        assertThat(service.file(taskHost(), MAIN_PATH).prPatch()).isEmpty();
+        assertThat(service.file(taskHost(), MAIN_PATH).lineChanges()).isNotEmpty();
+        assertThat(service.files(taskHost()).files()).anyMatch(CodeFileEntry::changedInPr);
+        assertThat(service.file(taskHost(), MAIN_PATH).prPatch()).isPresent();
     }
 
     @Test
-    void aDevelopmentTaskIsReadOnlyOnceEndedAndRefusedWithoutItsPullRequestOrWorktree()
+    void aDevelopmentTaskIsReadOnlyOnceEndedAndRefusedWithoutItsWorkspaceOrWorktree()
     {
         assertThat(service.terminalDirectory(taskHost())).isEqualTo(checkout);
 
         AgentTask completed = developmentTask().complete(new TaskSummary("done", Optional.empty(), AgentMetrics.empty(), Optional.empty()), NOW, NOW.plusSeconds(60));
-        when(tasks.getInteractive(WORKSPACE_ID, worktree.taskId())).thenReturn(completed);
+        when(tasks.get(worktree.taskId())).thenReturn(completed);
         assertThat(service.file(taskHost(), MAIN_PATH).readOnlyReason()).contains("This task has ended — read-only");
         assertThatThrownBy(() -> service.terminalDirectory(taskHost())).isInstanceOf(ReviewConflictException.class).hasMessage("The task has ended");
 
-        when(tasks.getInteractive(WORKSPACE_ID, worktree.taskId())).thenReturn(completed.withWorktreeRemovedAt(NOW));
+        when(tasks.get(worktree.taskId())).thenReturn(completed.withWorktreeRemovedAt(NOW));
         assertThatThrownBy(() -> service.files(taskHost())).isInstanceOf(ReviewConflictException.class).hasMessage("The task's worktree was removed");
         assertThatThrownBy(() -> service.terminalDirectory(taskHost())).isInstanceOf(ReviewConflictException.class).hasMessage("The task's worktree was removed");
 
-        when(tasks.getInteractive(WORKSPACE_ID, worktree.taskId())).thenReturn(developmentTask());
-        when(pullRequestOwnership.owns(any(), eq(REPOSITORY.fullName()), eq(7), eq(false))).thenReturn(false);
-        assertThatThrownBy(() -> service.files(taskHost())).isInstanceOf(ReviewNotFoundException.class).hasMessageContaining("does not belong to this task");
-        assertThatThrownBy(() -> service.file(taskHost(), MAIN_PATH)).isInstanceOf(ReviewNotFoundException.class);
-        assertThatThrownBy(() -> service.terminalDirectory(taskHost())).isInstanceOf(ReviewNotFoundException.class);
-        assertThatThrownBy(() -> service.save(taskHost(), MAIN_PATH, "edited\n", "hash")).isInstanceOf(ReviewNotFoundException.class);
+        when(tasks.get(worktree.taskId())).thenReturn(developmentTask());
+        TaskCodeHost otherWorkspace = new TaskCodeHost("other", worktree.taskId().toString());
+        assertThatThrownBy(() -> service.files(otherWorkspace)).isInstanceOf(ReviewNotFoundException.class).hasMessageContaining("does not belong to this workspace");
+        assertThatThrownBy(() -> service.file(otherWorkspace, MAIN_PATH)).isInstanceOf(ReviewNotFoundException.class);
+        assertThatThrownBy(() -> service.terminalDirectory(otherWorkspace)).isInstanceOf(ReviewNotFoundException.class);
+        assertThatThrownBy(() -> service.save(otherWorkspace, MAIN_PATH, "edited\n", "hash")).isInstanceOf(ReviewNotFoundException.class);
+        verify(turns, never()).synchronizeWorktree(any(), anyLong(), any());
+    }
+
+    @Test
+    void workingDiffKeepsItsPathsAndPatchesTogetherWhenTheAgentChangesAnotherFile()
+    {
+        write(checkout, MAIN_PATH, "captured main change\n");
+        GitCommandRunner racing = new GitCommandRunner()
+        {
+            @Override
+            public Result runLocalBoundedStdout(Path workingDirectory, Duration timeout, int maximumOutputBytes, List<String> arguments)
+            {
+                Result result = super.runLocalBoundedStdout(workingDirectory, timeout, maximumOutputBytes, arguments);
+                if (arguments.contains("--raw")) {
+                    write(workingDirectory, MAIN_PATH, "production source\n");
+                    write(workingDirectory, TEST_PATH, "later test change\n");
+                }
+                return result;
+            }
+        };
+        WorktreeDiffReader.Diff diff = new WorktreeDiffReader(racing).diff(checkout, head, Optional.empty());
+        assertThat(diff.files()).singleElement().satisfies(file -> {
+            assertThat(file.filename()).isEqualTo(MAIN_PATH);
+            assertThat(file.patch()).contains("+captured main change").doesNotContain("later test change");
+        });
+    }
+
+    @Test
+    void uncommittedReplacementHasOneCombinedDiffAndRetainsBothGitStatuses()
+    {
+        git(checkout, "rm", "--cached", "README.md");
+        write(checkout, "README.md", "untracked replacement   \n");
+        Changes changes = service.changes(taskHost(), ChangeScope.UNCOMMITTED, Optional.empty(), Optional.empty(), Optional.empty());
+        assertThat(changes.files()).singleElement().satisfies(file -> {
+            assertThat(file.filename()).isEqualTo("README.md");
+            assertThat(file.status()).isEqualTo("modified");
+            assertThat(file.patch()).contains("-readme\n+untracked replacement   \n");
+        });
+        assertThat(changes.staged()).containsExactly("README.md");
+        assertThat(changes.unstaged()).isEmpty();
+        assertThat(changes.untracked()).containsExactly("README.md");
+        assertThat(git(checkout, "status", "--porcelain=v1")).contains("D  README.md", "?? README.md");
+    }
+
+    @Test
+    void gitPatchesRetainTrailingSourceWhitespace()
+    {
+        write(checkout, MAIN_PATH, "changed with trailing spaces   \n");
+        WorktreeDiffReader.Diff diff = new WorktreeDiffReader(new GitCommandRunner()).diff(checkout, head, Optional.empty());
+        assertThat(diff.files()).singleElement().satisfies(file -> assertThat(file.patch()).endsWith("+changed with trailing spaces   \n"));
+    }
+
+    @Test
+    void taskChangesIncludeLocalCommitsDirtyFilesAndStablePerCommitDiffs()
+            throws IOException
+    {
+        when(assignments.findByTaskId(worktree.taskId().toString())).thenReturn(Optional.empty());
+        String quoted = "space and \"quote\"\nfile.txt";
+        write(checkout, MAIN_PATH, "first commit\n");
+        write(checkout, quoted, "first file\n");
+        git(checkout, "add", "--", MAIN_PATH, quoted);
+        git(checkout, "commit", "-m", "First local commit");
+        String first = git(checkout, "rev-parse", "HEAD");
+        git(checkout, "mv", "Old.java", "Renamed.java");
+        write(checkout, MAIN_PATH, "second commit\n");
+        git(checkout, "commit", "-am", "Second local commit");
+        String second = git(checkout, "rev-parse", "HEAD");
+        write(checkout, MAIN_PATH, "staged edit\n");
+        git(checkout, "add", MAIN_PATH);
+        write(checkout, MAIN_PATH, "unstaged edit\n");
+        Files.delete(checkout.resolve("Gone.java"));
+        write(checkout, "local new.txt", "new local file\n");
+        Files.write(checkout.resolve("binary.dat"), new byte[] {1, 0, 3});
+        write(checkout, "build/ignored.txt", "ignored\n");
+        git(checkout, "config", "diff.external", "false");
+        git(checkout, "config", "color.ui", "always");
+        // A concurrent provider owns index.lock; read-only inspection must still succeed.
+        Path index = Path.of(git(checkout, "rev-parse", "--git-path", "index"));
+        Files.writeString(index.resolveSibling("index.lock"), "held");
+
+        Changes all = service.changes(taskHost(), ChangeScope.ALL, Optional.empty(), Optional.empty(), Optional.empty());
+        assertThat(all.baseSha()).isEqualTo(head);
+        assertThat(all.headSha()).isEqualTo(second);
+        assertThat(all.commits()).extracting(commit -> commit.sha()).containsExactly(second, first);
+        assertThat(all.files()).extracting(DiffFile::filename)
+                .contains(MAIN_PATH, quoted, "Gone.java", "Renamed.java", "local new.txt", "binary.dat").doesNotContain("build/ignored.txt");
+        assertThat(all.files()).filteredOn(file -> file.filename().equals(quoted)).singleElement()
+                .satisfies(file -> assertThat(file.patch()).contains("+first file"));
+        assertThat(all.staged()).containsExactly(MAIN_PATH);
+        assertThat(all.unstaged()).containsExactly("Gone.java", MAIN_PATH);
+        assertThat(all.untracked()).containsExactly("binary.dat", "local new.txt");
+        assertThat(all.sourceFingerprint()).isPresent();
+        assertThat(all.truncated()).isFalse();
+
+        Changes dirty = service.changes(taskHost(), ChangeScope.UNCOMMITTED, Optional.empty(), Optional.empty(), Optional.empty());
+        assertThat(dirty.files()).extracting(DiffFile::filename).containsExactlyInAnyOrder(MAIN_PATH, "Gone.java", "binary.dat", "local new.txt");
+        assertThat(dirty.files()).filteredOn(file -> file.filename().equals(MAIN_PATH)).singleElement()
+                .satisfies(file -> assertThat(file.patch()).contains("-second commit", "+unstaged edit"));
+        Changes selected = service.changes(taskHost(), ChangeScope.COMMIT, Optional.of(first), Optional.empty(), Optional.empty());
+        assertThat(selected.selectedCommit()).contains(first);
+        assertThat(selected.files()).extracting(DiffFile::filename).containsExactlyInAnyOrder(MAIN_PATH, quoted);
+        assertThat(selected.files()).filteredOn(file -> file.filename().equals(MAIN_PATH)).singleElement()
+                .satisfies(file -> assertThat(file.patch()).contains("-production source", "+first commit").doesNotContain("unstaged edit"));
+        assertThat(git(checkout, "rev-parse", "HEAD")).isEqualTo(second);
+        assertThat(checkout.resolve(MAIN_PATH)).hasContent("unstaged edit\n");
+        assertThatThrownBy(() -> service.changes(taskHost(), ChangeScope.COMMIT, Optional.of("--all"), Optional.empty(), Optional.empty()))
+                .isInstanceOf(IllegalArgumentException.class);
+        assertThatThrownBy(() -> service.changes(taskHost(), ChangeScope.ALL, Optional.empty(), Optional.of(second), Optional.of(first)))
+                .isInstanceOf(IllegalArgumentException.class);
+
+        when(store.listRuns(REVIEW_ID)).thenReturn(ImmutableList.of(run(first, head)));
+        Changes reviewed = service.changes(REVIEW_ID, ChangeScope.COMMITTED, Optional.empty(), Optional.empty(), Optional.empty());
+        assertThat(reviewed.headSha()).isEqualTo(first);
+        assertThat(reviewed.files()).extracting(DiffFile::filename).containsExactlyInAnyOrder(MAIN_PATH, quoted);
+        assertThat(reviewed.sourceFingerprint()).isEmpty();
+    }
+
+    @Test
+    void anEarlierReviewUsesItsRecordedMergeBaseAfterTheSourceHistoryChanges()
+    {
+        write(checkout, MAIN_PATH, "earlier reviewed change\n");
+        git(checkout, "commit", "-am", "Earlier review");
+        String earlierHead = git(checkout, "rev-parse", "HEAD");
+        write(repository, "upstream.txt", "upstream change\n");
+        git(repository, "add", "upstream.txt");
+        git(repository, "commit", "-m", "Diverged base branch");
+        String upstream = git(repository, "rev-parse", "HEAD");
+        ReviewRun earlier = run(earlierHead, upstream, head, ImmutableList.of());
+        git(checkout, "reset", "--hard", upstream);
+        write(checkout, MAIN_PATH, "rewritten reviewed change\n");
+        git(checkout, "commit", "-am", "Rewritten review");
+        String currentHead = git(checkout, "rev-parse", "HEAD");
+        when(store.listRuns(REVIEW_ID)).thenReturn(ImmutableList.of(earlier, run(currentHead, upstream)));
+
+        Changes selected = service.changes(REVIEW_ID, ChangeScope.COMMITTED, Optional.empty(), Optional.empty(), Optional.of(earlierHead));
+        assertThat(selected.baseSha()).isEqualTo(head);
+        assertThat(selected.headSha()).isEqualTo(earlierHead);
+        assertThat(selected.files()).extracting(DiffFile::filename).containsExactly(MAIN_PATH);
+        assertThat(selected.files().getFirst().patch()).contains("+earlier reviewed change").doesNotContain("rewritten reviewed change");
+        Changes current = service.changes(REVIEW_ID, ChangeScope.COMMITTED, Optional.empty(), Optional.empty(), Optional.empty());
+        assertThat(current.baseSha()).isEqualTo(upstream);
+        assertThat(current.headSha()).isEqualTo(currentHead);
+        assertThat(git(checkout, "rev-parse", "HEAD")).isEqualTo(currentHead);
+        assertThatThrownBy(() -> service.changes(REVIEW_ID, ChangeScope.COMMITTED, Optional.empty(), Optional.empty(), Optional.of(upstream)))
+                .isInstanceOf(ReviewNotFoundException.class).hasMessage("No review run exists for this revision");
+    }
+
+    @Test
+    void inspectsMergedCommitsThatBranchedBeforeTheSelectedBase()
+    {
+        write(repository, "side.txt", "side branch change\n");
+        git(repository, "add", "side.txt");
+        git(repository, "commit", "-m", "Side branch commit");
+        String side = git(repository, "rev-parse", "HEAD");
+        write(checkout, MAIN_PATH, "task baseline\n");
+        git(checkout, "commit", "-am", "Task baseline");
+        String base = git(checkout, "rev-parse", "HEAD");
+        git(checkout, "merge", "--no-ff", "-m", "Merge side branch", side);
+        Changes selected = service.changes(taskHost(), ChangeScope.COMMIT, Optional.of(side), Optional.of(base), Optional.empty());
+        assertThat(selected.commits()).extracting(commit -> commit.sha()).contains(side);
+        assertThat(selected.files()).extracting(DiffFile::filename).containsExactly("side.txt");
+    }
+
+    @Test
+    void workflowAndBusyTasksCanBrowseWithoutGrantingNewMutationRights()
+    {
+        AgentTask workflow = openTask().claimWorktreeMutation(WorktreeMutationClaim.localRun("run-1", NOW), NOW);
+        when(tasks.get(worktree.taskId())).thenReturn(workflow);
+        assertThat(service.files(taskHost()).files()).isNotEmpty();
+        assertThat(service.file(taskHost(), MAIN_PATH).content()).contains("production source\n");
+        assertThat(service.file(taskHost(), MAIN_PATH).editable()).isFalse();
+        assertThatThrownBy(() -> service.save(taskHost(), MAIN_PATH, "change", "hash"))
+                .isInstanceOf(ReviewConflictException.class).hasMessageContaining("read-only");
+        assertThatThrownBy(() -> service.terminalDirectory(taskHost())).isInstanceOf(ReviewConflictException.class).hasMessageContaining("read-only");
         verify(turns, never()).synchronizeWorktree(any(), anyLong(), any());
     }
 
     private TaskCodeHost taskHost()
     {
-        return new TaskCodeHost(WORKSPACE_ID, worktree.taskId().toString(), REPOSITORY.fullName(), 7);
+        return new TaskCodeHost(WORKSPACE_ID, worktree.taskId().toString());
     }
 
     private AgentTask developmentTask()
@@ -829,8 +1111,9 @@ class TestReviewCodeService
 
     private AgentReview review(AgentReview.State state)
     {
-        return new AgentReview(REVIEW_ID, WORKSPACE_ID, REPOSITORY.fullName(), 7, OptionalLong.empty(), worktree.taskId().toString(), state, false,
-                Optional.empty(), Optional.empty(), 0, NOW, NOW, state == AgentReview.State.CLOSED ? Optional.of(NOW) : Optional.empty());
+        return new AgentReview(REVIEW_ID, WORKSPACE_ID, REPOSITORY.fullName(), OptionalInt.of(7), OptionalLong.empty(), worktree.taskId().toString(), Optional.empty(),
+                state, false,
+                Optional.empty(), Optional.empty(), Optional.empty(), 0, NOW, NOW, state == AgentReview.State.CLOSED ? Optional.of(NOW) : Optional.empty());
     }
 
     private static ReviewRun run(String headSha)
@@ -849,7 +1132,12 @@ class TestReviewCodeService
 
     private static ReviewRun run(String headSha, String mergeBaseSha, List<DiffFile> diff)
     {
-        return new ReviewRun("run-" + headSha, REVIEW_ID, 1, ReviewRun.Scope.FULL, "main", mergeBaseSha, mergeBaseSha, headSha, Optional.empty(), ImmutableList.of(), diff,
+        return run(headSha, mergeBaseSha, mergeBaseSha, diff);
+    }
+
+    private static ReviewRun run(String headSha, String baseSha, String mergeBaseSha, List<DiffFile> diff)
+    {
+        return new ReviewRun("run-" + headSha, REVIEW_ID, 1, ReviewRun.Scope.FULL, "main", baseSha, mergeBaseSha, headSha, Optional.empty(), ImmutableList.of(), diff,
                 ImmutableList.of(), ReviewRun.State.RUNNING, Optional.empty(), Optional.empty(), Optional.empty(), ImmutableList.of(), false,
                 ImmutableMap.of(), ImmutableMap.of(), Optional.empty(), Optional.empty(), 0, NOW, NOW, Optional.empty());
     }

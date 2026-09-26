@@ -86,6 +86,7 @@ export const NO_PULL_REQUEST_DETAIL: TaskPullRequestDetail = {
 
 export interface TaskPullRequestChanges {
   files: DiffFileDto[];
+  allFiles: DiffFileDto[];
   commits: DiffCommitDto[];
   loading: boolean;
   error: string | null;
@@ -93,6 +94,7 @@ export interface TaskPullRequestChanges {
 
 export const NO_PULL_REQUEST_CHANGES: TaskPullRequestChanges = {
   files: [],
+  allFiles: [],
   commits: [],
   loading: false,
   error: null,
@@ -149,11 +151,15 @@ export function TaskPullRequestView({
  * detail there is nothing to hang threads on, so it falls back to the plain viewer.
  */
 export function TaskChangesView({
-  pr, detail, changes, workspaceId, commitRange, pendingComments, agentReview,
+  pr, detail, changes, workspaceId, commitRange, pendingComments, agentReview, toolbarTarget, toolbarStart, defaultTreeOpen, toolbarVisible,
   onCommitRangeChange, onPendingCommentsChange, onRefresh, onDetailUpdate, onDetailChange, onAskAgent, onAskAgentDisabled, localReview,
 }: {
   pr: PullRequestDto | null;
   agentReview?: AgentReviewProjection;
+  toolbarTarget?: HTMLElement | null;
+  toolbarStart?: React.ReactNode;
+  defaultTreeOpen?: boolean;
+  toolbarVisible?: boolean;
   localReview?: LocalReviewThreads;
   detail: PullRequestDetailDto | null;
   changes: TaskPullRequestChanges;
@@ -181,6 +187,7 @@ export function TaskChangesView({
       {changes.error !== null && <div className="agt-note" role="alert">{changes.error}</div>}
       {detail === null ? (
         <DiffViewer
+          toolbarTarget={toolbarTarget} toolbarStart={toolbarStart} defaultTreeOpen={defaultTreeOpen} toolbarVisible={toolbarVisible}
           files={changes.files}
           commits={changes.commits}
           commitRange={commitRange}
@@ -194,6 +201,7 @@ export function TaskChangesView({
         />
       ) : (
         <PullChanges
+          toolbarTarget={toolbarTarget} toolbarStart={toolbarStart} defaultTreeOpen={defaultTreeOpen} toolbarVisible={toolbarVisible}
           repo={detail.repo}
           number={detail.number}
           workspaceId={workspaceId}

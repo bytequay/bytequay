@@ -36,6 +36,7 @@ import java.nio.file.Path;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.Optional;
+import java.util.OptionalInt;
 import java.util.OptionalLong;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -99,8 +100,8 @@ class TestDevelopmentResultBridgeResolverImpl
         AgentTask review = task(true, Optional.of(AUTOMATION));
         accept(review, Optional.of(AUTOMATION));
         when(reviews.findReviewByTask(review.id().toString())).thenReturn(Optional.of(new AgentReview(
-                "review", "workspace", "bytequay/sample", 1, OptionalLong.empty(), review.id().toString(), AgentReview.State.OPEN,
-                false, Optional.empty(), Optional.empty(), 0, review.createdAt(), review.createdAt(), Optional.empty())));
+                "review", "workspace", "bytequay/sample", OptionalInt.of(1), OptionalLong.empty(), review.id().toString(), Optional.empty(), AgentReview.State.OPEN,
+                false, Optional.empty(), Optional.empty(), Optional.empty(), 0, review.createdAt(), review.createdAt(), Optional.empty())));
         assertThat(resolver.resolve(review.id().toString())).isEmpty();
     }
 

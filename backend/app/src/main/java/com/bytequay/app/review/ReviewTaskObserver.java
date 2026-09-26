@@ -52,7 +52,7 @@ import static java.util.Objects.requireNonNull;
  * <p>One in-process subscription per open review reacts to settled lifecycle events by asking the
  * review service to reconcile; the service reads the durable turn and claim facts, so a duplicate
  * or early event is harmless. Startup restores every open review's subscription, and pull-request
- * refreshes record newer heads for the user's next Update review action.
+ * refreshes record newer heads and catch up idle clean working copies without starting another review.
  */
 @Component
 public class ReviewTaskObserver
@@ -67,7 +67,8 @@ public class ReviewTaskObserver
             AgentEventPayload.LifecyclePhase.TASK_COMPLETED,
             AgentEventPayload.LifecyclePhase.TASK_FAILED,
             AgentEventPayload.LifecyclePhase.QUEUED_INPUT_STARTED,
-            AgentEventPayload.LifecyclePhase.QUEUED_INPUT_PAUSED);
+            AgentEventPayload.LifecyclePhase.QUEUED_INPUT_PAUSED,
+            AgentEventPayload.LifecyclePhase.QUEUE_CHANGED);
     private static final Set<ActivityState> MIRRORED_STATES = EnumSet.of(
             ActivityState.STARTED,
             ActivityState.COMPLETED,
@@ -136,9 +137,12 @@ public class ReviewTaskObserver
     public void onPullRequestsRefreshed(PullRequestsRefreshed event)
     {
         for (AgentReview review : store.listOpenReviews()) {
+            if (review.sourceTaskId().isPresent() || review.number().isEmpty()) {
+                continue;
+            }
             executor.execute(() -> {
                 try {
-                    refresh.getObject().refreshDetail(review.repo(), review.number());
+                    refresh.getObject().refreshDetail(review.repo(), review.number().getAsInt());
                 }
                 catch (RuntimeException failure) {
                     log.debug("Review {} could not refresh its pull request: {}", review.id(), failure.toString());
@@ -184,7 +188,7 @@ public class ReviewTaskObserver
         replayUsage(requireNonNull(review, "review is null"));
     }
 
-    private void reconcileLater(String reviewId)
+    public void reconcileLater(String reviewId)
     {
         executor.execute(() -> {
             try {

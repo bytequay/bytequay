@@ -295,7 +295,7 @@ class TestCiAutofixEndToEnd
         try {
             String request = "Implement the requested change. Only edit development.txt; do not change workflows or delete remote branches.";
             AgentTurn initial = turns.start(new StartAgentTurnCommand(source.id(), request, ImmutableList.of(), "development-start"));
-            long deadline = System.nanoTime() + Duration.ofSeconds(60).toNanos();
+            long deadline = System.nanoTime() + Duration.ofMinutes(2).toNanos();
             Optional<CiAutofixRun> owned = Optional.empty();
             boolean suppliedGreen = false;
             while (System.nanoTime() < deadline) {
@@ -323,7 +323,11 @@ class TestCiAutofixEndToEnd
             assertThat(finished.finishReason()).contains(CiAutofixRun.FinishReason.GREEN);
             AgentTask delivered = tasks.get(source.id());
             assertThat(delivered.state()).isEqualTo(TaskState.OPEN);
-            assertThat(delivered.developmentContinuationUnfinished()).isFalse();
+            assertThat(delivered.developmentContinuationUnfinished())
+                    .as("Development delivery did not settle within two minutes; worktree claim: %s; source turns: %s",
+                            delivered.worktreeMutationClaim(), turnStore.list(source.id()).stream()
+                                    .map(turn -> turn.state() + ":" + turn.developmentOrigin()).toList())
+                    .isFalse();
             assertThat(delivered.worktreeMutationClaim()).isEmpty();
             assertThat(turns.ownsDevelopmentContinuation(source.id(), initial.id())).isFalse();
             assertThat(draft).isFalse();

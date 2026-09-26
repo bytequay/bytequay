@@ -38,6 +38,7 @@ import java.time.Instant;
 import java.time.ZoneOffset;
 import java.util.List;
 import java.util.Optional;
+import java.util.OptionalInt;
 import java.util.OptionalLong;
 import java.util.stream.IntStream;
 
@@ -54,8 +55,8 @@ class TestContextDiscussionReader
     private final AgentReviewStore reviews = mock(AgentReviewStore.class);
     private final PullRequestService pullRequests = mock(PullRequestService.class);
     private final PrDetailStore details = mock(PrDetailStore.class);
-    private final AgentReview review = new AgentReview("review", "workspace", "example/repository", 42, OptionalLong.of(1), "task",
-            AgentReview.State.OPEN, false, Optional.empty(), Optional.empty(), 0, NOW, NOW, Optional.empty());
+    private final AgentReview review = new AgentReview("review", "workspace", "example/repository", OptionalInt.of(42), OptionalLong.of(1), "task", Optional.empty(),
+            AgentReview.State.OPEN, false, Optional.empty(), Optional.empty(), Optional.empty(), 0, NOW, NOW, Optional.empty());
     private final ReviewRun run = new ReviewRun("run", "review", 1, ReviewRun.Scope.FULL, "main", "a".repeat(40), "a".repeat(40), "a".repeat(40),
             Optional.empty(), ImmutableList.of(), ImmutableList.of(), ImmutableList.of(), ReviewRun.State.RUNNING,
             Optional.empty(), Optional.empty(), Optional.empty(), ImmutableList.of(), false, ImmutableMap.of(), ImmutableMap.of(),

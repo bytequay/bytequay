@@ -40,7 +40,7 @@ import type {
   ReviewLessonDraftDto,
   ReviewSide,
 } from './pulls/agent-review/contracts';
-import type { CodeHostRef, LocalRunDto, LocalRunOutputDto, ReviewCodeFileDto, ReviewCodeFilesDto, ReviewCodeSymbolsDto, RunRefusalDto, SaveConflictDto } from './pulls/code-tests/contracts';
+import type { WorktreeChangesDto, WorktreeChangesRequest, CodeHostRef, LocalRunDto, LocalRunOutputDto, ReviewCodeFileDto, ReviewCodeFilesDto, ReviewCodeSymbolsDto, RunRefusalDto, SaveConflictDto } from './pulls/code-tests/contracts';
 
 type CiStatus = 'PASSING' | 'FAILING' | 'PENDING' | 'NONE';
 export type PullRequestDto = {
@@ -1712,6 +1712,8 @@ export type Bridge = {
   findAgentReview: (workspaceId: string, repo: string, number: number) => Promise<AgentReviewDto | null>;
   /** Starts a private review, or returns the open one: one review per workspace and pull request. */
   startAgentReview: (workspaceId: string, repo: string, number: number) => Promise<AgentReviewDto>;
+  findTaskAgentReview: (workspaceId: string, taskId: string) => Promise<AgentReviewDto | null>;
+  startTaskAgentReview: (workspaceId: string, taskId: string) => Promise<AgentReviewDto>;
   getAgentReview: (reviewId: string) => Promise<AgentReviewDto>;
   draftReviewLesson: (reviewId: string, messageId: string) => Promise<ReviewLessonDraftDto>;
   stopAgentReview: (reviewId: string) => Promise<AgentReviewDto>;
@@ -1724,8 +1726,9 @@ export type Bridge = {
   /** Completes the task, closes the review, then cleans the worktree. */
   endAgentReview: (reviewId: string) => Promise<AgentReviewDto>;
   /** Every file of the host's working copy, or of a review's reviewed revision once its working copy is gone. */
+  readWorktreeChanges: (host: CodeHostRef, request: WorktreeChangesRequest) => Promise<WorktreeChangesDto>;
   listCodeFiles: (host: CodeHostRef) => Promise<ReviewCodeFilesDto>;
-  readCodeFile: (host: CodeHostRef, path: string) => Promise<ReviewCodeFileDto>;
+  readCodeFile: (host: CodeHostRef, path: string, expectedRevision?: string) => Promise<ReviewCodeFileDto>;
   /** CodeGraph symbols by name in the host's working copy; the status says when the index cannot answer. */
   searchCodeSymbols: (host: CodeHostRef, query: string, limit: number) => Promise<ReviewCodeSymbolsDto>;
   readCodeOutline: (host: CodeHostRef, path: string) => Promise<ReviewCodeSymbolsDto>;

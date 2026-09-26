@@ -105,9 +105,9 @@ describe('projecting the transcript', () => {
     sequence = 0;
   });
 
-  it('does not render the task-level queue refresh signal as transcript content', () => {
+  it.each(['QUEUE_CHANGED', 'WORKTREE_UPDATED'])('does not render the task-level %s refresh signal as transcript content', phase => {
     expect(projectTranscript([
-      event('lifecycle', { phase: 'QUEUE_CHANGED', message: 'Queued input added' }, { turnId: null }),
+      event('lifecycle', { phase, message: 'Task state changed' }, { turnId: null }),
     ])).toEqual([]);
   });
 

@@ -189,7 +189,7 @@ describe('findCodeTask', () => {
   }
   const task = { ...parseAgentTask(contracts.task), interactive: true };
 
-  it('binds Code & Tests to the owning interactive task while its worktree is present', async () => {
+  it('binds Code & Tests to the owning task while its worktree is present', async () => {
     const ports = bridge(task);
     await expect(findCodeTask(ports, 'workspace-1', 'trinodb/trino', 30304)).resolves.toEqual(task);
     expect(ports.findPullRequestTask).toHaveBeenCalledWith('workspace-1', 'trinodb/trino', 30304);
@@ -201,7 +201,7 @@ describe('findCodeTask', () => {
     await expect(findCodeTask(none, 'workspace-1', 'trinodb/trino', 30304)).resolves.toBeNull();
     expect(none.getAgentTask).not.toHaveBeenCalled();
     await expect(findCodeTask(bridge({ ...task, checkoutRemovedAt: '2026-09-17T00:00:00Z' }), 'workspace-1', 'trinodb/trino', 30304)).resolves.toBeNull();
-    await expect(findCodeTask(bridge({ ...task, interactive: false }), 'workspace-1', 'trinodb/trino', 30304)).resolves.toBeNull();
+    await expect(findCodeTask(bridge({ ...task, interactive: false }), 'workspace-1', 'trinodb/trino', 30304)).resolves.toEqual({ ...task, interactive: false });
   });
 });
 

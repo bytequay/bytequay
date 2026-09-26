@@ -44,6 +44,8 @@ const commits: DiffCommitDto[] = [
 export async function run(): Promise<{ name: string; error?: string }[]> {
   const agent = createPreviewBridge(review.workspaceId, { replayThrough: Number.MAX_SAFE_INTEGER });
   let detail = stored;
+  let reviewedReads = 0;
+  const submissions: Parameters<Bridge['submitReview']>[] = [];
   let polls: (() => void)[] = [];
   const originalTimeout = window.setTimeout;
   window.setTimeout = ((handler: TimerHandler, delay?: number, ...args: unknown[]) => {
@@ -64,6 +66,12 @@ export async function run(): Promise<{ name: string; error?: string }[]> {
     fetchPrDiffFiles: async () => files,
     fetchPrDiffCommits: async () => commits,
     refreshPrDiffFiles: async () => files,
+    readWorktreeChanges: async (host, request) => {
+      assert(host.kind === 'review' && host.reviewId === review.id, 'Reviewed changes must read the separate reviewer worktree');
+      reviewedReads++;
+      return { branch: 'reviewer', baseSha: 'base', headSha: 'two', baseLabel: 'master', scope: request.scope,
+        selectedCommit: null, sourceFingerprint: 'reviewed-two', truncated: false, staged: [], unstaged: [], untracked: [], files, commits };
+    },
     getAgentReview: async () => review,
     findAgentReview: async () => review,
     findPullRequestTask: async () => null,
@@ -75,12 +83,13 @@ export async function run(): Promise<{ name: string; error?: string }[]> {
     listAgentReviews: async () => [review],
     subscribeAgentReview: async () => () => {},
     fetchMergeMode: async () => ({ mergeQueue: false }),
+    submitReview: async (...request) => { submissions.push(request); return detail; },
     recordRecentTouch: async () => {},
   } satisfies Pick<Bridge, 'getUserProfile' | 'readAgentReviewHistory' | 'fetchAttentionPrs' | 'fetchPullRequestDetailByRef'
     | 'refreshPullRequestDetailByRef' | 'refreshAllPullRequestDetailByRef' | 'fetchPrDiffFiles' | 'fetchPrDiffCommits'
-    | 'refreshPrDiffFiles' | 'getAgentReview' | 'findAgentReview' | 'findPullRequestTask' | 'listWorkspaces'
+    | 'refreshPrDiffFiles' | 'readWorktreeChanges' | 'getAgentReview' | 'findAgentReview' | 'findPullRequestTask' | 'listWorkspaces'
     | 'listLocalReviewComments' | 'listCodeFiles' | 'listCodeRuns' | 'listAgentReviews' | 'subscribeAgentReview'
-    | 'fetchMergeMode' | 'recordRecentTouch'>;
+    | 'fetchMergeMode' | 'submitReview' | 'recordRecentTouch'>;
   const previous = window.bridge;
   Object.assign(window, { bridge: { ...agent, ...stubs } });
   const host = document.createElement('main');
@@ -93,6 +102,13 @@ export async function run(): Promise<{ name: string; error?: string }[]> {
     return found;
   };
   const named = (text: string) => [...host.querySelectorAll<HTMLButtonElement>('button')].some(entry => entry.textContent?.includes(text));
+  const selectSource = async (value: 'published' | 'reviewed') => {
+    const source = host.querySelector<HTMLSelectElement>('[aria-label="Changes source"]');
+    assert(source !== null, 'Changes must expose its source');
+    source.value = value;
+    source.dispatchEvent(new Event('change', { bubbles: true }));
+    await settle();
+  };
   /** The staged comment counted in the toolbar and drawn on the line it was written on. */
   const staged = async (): Promise<boolean> => {
     for (let attempt = 0; attempt < 30; attempt++) {
@@ -114,8 +130,11 @@ export async function run(): Promise<{ name: string; error?: string }[]> {
   try {
     flushSync(() => root.render(<PullsScreen initialPr={{ repo: review.repo, number: review.number }} initialReviewId={review.id}
       repositoryScope={{ workspaceId: review.workspaceId, repository: review.repo }} reviewWorkspace={{ onBack: () => {} }} />));
-    for (let attempt = 0; attempt < 60 && !named('Changes'); attempt++) await settle();
-    button('Changes').click();
+    for (let attempt = 0; attempt < 60 && !named('WorkBench'); attempt++) await settle();
+    button('WorkBench').click(); await settle();
+    button('Changes').click(); await settle();
+    assert(host.querySelector<HTMLSelectElement>('[aria-label="Changes source"]')?.value === 'published',
+      'Opening Changes for a PR must default to the published diff with inline review comments');
     for (let attempt = 0; attempt < 30 && host.querySelector('[aria-label="Add a comment on new line 1"]') === null; attempt++) await settle();
     const add = host.querySelector<HTMLButtonElement>('[aria-label="Add a comment on new line 1"]');
     assert(add !== null, 'The diff must offer the inline comment gutter');
@@ -130,12 +149,22 @@ export async function run(): Promise<{ name: string; error?: string }[]> {
     await settle();
     assert(await staged(), 'Adding an inline comment must stage it on the diff');
 
+    await selectSource('reviewed');
+    assert(reviewedReads > 0 && host.querySelector('.pull-detail__changes:not([hidden]) .pull-diff-file') !== null,
+      'The reviewed source must render its real diff before checking shared comments');
+    assert(host.querySelector('[aria-label="Add a comment on new line 1"]') !== null
+      && host.querySelector('.pull-detail__changes:not([hidden])')?.textContent?.includes('Keep this pending review'),
+    'A reviewed snapshot matching the published PR must share its comment gutter and staged comments');
+    await selectSource('published');
+    assert(await staged(), 'Switching diff sources must preserve the staged GitHub review');
+
     button('PR #').click();
     await settle();
+    button('WorkBench').click(); await settle();
     button('Code & Tests').click();
     for (let attempt = 0; attempt < 30 && host.querySelector('.pull-detail__code') === null; attempt++) await settle();
-    button('Changes').click();
-    await settle();
+    button('WorkBench').click(); await settle();
+    button('Changes').click(); await settle();
     assert(await staged(), 'A trip through the other panel tabs must keep the staged review');
 
     // GitHub restates a busy pull request's totals on the next refresh, which used to reach the
@@ -148,6 +177,21 @@ export async function run(): Promise<{ name: string; error?: string }[]> {
     range.click();
     for (let attempt = 0; attempt < 30 && host.querySelector('[aria-label="Deselect two: two"]') === null; attempt++) await settle();
     assert(await staged(), 'Narrowing the diff to selected commits must keep the staged review');
+
+    button('Summary').click(); await settle();
+    button('Submit review').click(); await settle();
+    const submit = host.querySelector<HTMLButtonElement>('.pr-review-sheet__footer .is-primary');
+    assert(submit !== null && !submit.disabled, 'WorkBench Summary must open the shared review dialog with the staged comment');
+    assert(submissions.length === 0, 'Opening and staging review comments must not publish them');
+    submit.click(); await settle();
+    assert(Number(submissions.length) === 1, 'The explicit submit action must publish the review exactly once');
+    const [, repo, number, event, , comments] = submissions[0];
+    assert(repo === detail.repo && number === detail.number && event === 'APPROVE' && comments?.length === 1
+      && comments[0].path === files[0].filename && comments[0].side === 'RIGHT' && comments[0].line === 1
+      && comments[0].commitId === 'two' && comments[0].body === 'Keep this pending review',
+    'Submitting from WorkBench must preserve the PR, revision, line, and staged comment');
+    assert(host.querySelector('.pr-review-sheet') === null && host.querySelector('[aria-label^="Submit review, 1 pending"]') === null,
+      'Successful submission must close the dialog and clear the staged comment');
     return [{ name: 'A staged review lasts as long as the pull request page' }];
   }
   catch (error) { return [{ name: 'A staged review lasts as long as the pull request page', error: error instanceof Error ? error.message : String(error) }]; }

@@ -75,7 +75,7 @@ class TestReviewBridgeResolverImpl
         ReviewBridge bridge = resolver.resolve(privateReview.id().toString()).orElseThrow();
 
         assertThat(bridge.tools()).isEmpty();
-        assertThat(bridge.instruction()).contains(HEAD, "uncommitted", "Never commit", "committed PR diff", "Only the user");
+        assertThat(bridge.instruction()).contains(HEAD, "uncommitted", "Never commit", "committed review diff", "Only the user");
         when(tasks.find(development.id())).thenReturn(Optional.of(development));
         assertThat(resolver.resolve(development.id().toString())).isEmpty();
     }

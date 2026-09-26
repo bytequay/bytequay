@@ -32,6 +32,7 @@ import org.junit.jupiter.params.provider.ValueSource;
 import java.nio.file.Path;
 import java.time.Instant;
 import java.util.Optional;
+import java.util.OptionalInt;
 import java.util.OptionalLong;
 
 import static com.bytequay.agent.spi.AgentPermissionPolicy.AUTO;
@@ -319,11 +320,13 @@ class TestAgentSkillService
                 "review-" + task.id(),
                 "workspace",
                 "owner/repository",
-                1,
+                OptionalInt.of(1),
                 OptionalLong.empty(),
                 task.id().toString(),
+                Optional.empty(),
                 AgentReview.State.OPEN,
                 false,
+                Optional.empty(),
                 Optional.empty(),
                 Optional.empty(),
                 0,

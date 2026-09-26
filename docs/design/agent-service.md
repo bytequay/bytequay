@@ -1,5 +1,9 @@
 # Agent Service Design
 
+[WorkBench](workbench.md) owns the shared navigation, task-bound code access,
+and reviews of local development commits. Its source and hosting contracts
+apply to the existing services described here.
+
 ## DeepSeek API-key task lane
 
 [DeepSeek API-key task lane](deepseek-api-key-lane.md) extends the existing
@@ -101,7 +105,7 @@ new generated branch.
 
 Interactive development and PR-owned review tasks own private **Local review
 comments** on a file line or range. These durable discussions appear in the
-shared **Review & Learning** tab, alongside the PR overview, commit explanations,
+shared **Summary** tab, alongside the PR overview, commit explanations,
 supporting evidence/tests, coverage, limitations, and agent findings. Every
 report card has its own private discussion; the report's run and card identity
 keep questions attached to the reviewed version as later reviews finish.
@@ -123,7 +127,10 @@ requirement. The server derives this anchor from a completed report belonging
 to the task; clients cannot supply its contents. These discussions appear in
 the task conversation and learning tab, with earlier versions retained below
 the current cards, and never appear as file comments in the diff. Questions
-carry local-only settings and use the same private reply/resolve tools.
+carry local-only settings and use the same private reply/resolve tools. Summary
+clarifications do not enter a private experiment session or require a published
+PR; their prompt asks the developer to explain existing code and evidence
+without code edits or publication.
 
 The application service saves a user message before dispatching it through the
 existing turn or FIFO queue service. Its operation key and accepted input
@@ -135,7 +142,7 @@ review comments by parsing user text. Failed delivery retains the comment and
 offers explicit Retry. Reads never dispatch work.
 
 Posting or replying sends directly to the associated task agent. For development
-tasks, the first input enters private local review of a clean published PR
+file comments, the first input enters private local review of a clean published PR
 revision. Requested edits and verification tests remain uncommitted. All later
 inputs, including the main composer, stay private until the user finishes local
 review and confirms discarding experiments. A running development turn must stop
@@ -147,6 +154,14 @@ carry no development delivery authorization; their comments cannot publish or
 update the contributor's branch. Review-owned comment admission takes the same
 review lock as head updates and closure, so a discussion cannot start while the
 review advances its worktree.
+
+Remote PR observation can also advance a clean reviewer checkout after its
+whole review run has finished. This application-owned operation uses the same
+`synchronizeWorktree` task boundary and requires an idle task with no queued
+input, retained process claim, saved local edits, or open Git operation. It
+starts no turn and changes no reviewed-run revision. Existing task terminal
+events and review reconciliation retry an update deferred during execution.
+Development tasks and local development-source reviews are excluded.
 
 A separate fixed `LocalReviewBridge` exposes listing, replying, and changing
 resolution within the registered development or review-owned task. Both the task's root and its
@@ -1373,6 +1388,13 @@ delivered only after the log flush and then publishes SSE or completes a
 provider callback. Display-only provider events with no SQLite projection may
 use `append(...)` directly. Startup drains pending rows first. The outbox is
 transport state, not a second retained transcript.
+
+Worktree synchronization and Code & Tests local-run claim changes emit a
+task-level `WORKTREE_UPDATED` lifecycle event through that same outbox. Both
+claim acquisition and release advance the task version, including release
+after a failed edit. Open task screens therefore refresh the task facts used
+by Send and its availability guards even when no agent turn is running.
+These events carry no turn ID and do not start or settle a review.
 
 ```java
 package com.bytequay.agent.core;

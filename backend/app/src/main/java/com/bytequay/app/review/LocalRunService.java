@@ -210,7 +210,7 @@ public class LocalRunService
     {
         checkSelector(path, method);
         String runId = UUID.randomUUID().toString();
-        AgentTask task = code.task(host);
+        AgentTask task = code.mutableTask(host);
         if (task.state() != TaskState.OPEN) {
             throw new ReviewConflictException("The task has ended");
         }
@@ -705,6 +705,14 @@ public class LocalRunService
                 }
             }
         }
+        FINISHER.execute(() -> {
+            try {
+                reviewStore.findReviewByTask(liveRun.run().taskId()).ifPresent(review -> reviews.reconcile(review.id()));
+            }
+            catch (RuntimeException failure) {
+                log.debug("Cannot reconcile the review after local run {}: {}", liveRun.run().id(), failure.toString());
+            }
+        });
     }
 
     private void releaseAfterFailure(TaskId taskId, String runId, RuntimeException failure)

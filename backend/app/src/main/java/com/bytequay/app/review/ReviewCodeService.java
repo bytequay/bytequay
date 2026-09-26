@@ -23,7 +23,6 @@ import com.bytequay.agent.core.CodeSymbolResult;
 import com.bytequay.agent.core.TaskId;
 import com.bytequay.agent.core.TaskState;
 import com.bytequay.agent.core.TaskWorktree;
-import com.bytequay.app.agent.TaskPullRequestOwnership;
 import com.bytequay.app.git.GitCommandRunner;
 import com.bytequay.app.git.GitCommandRunner.Result;
 import com.bytequay.app.git.ReviewExperiments;
@@ -31,12 +30,17 @@ import com.bytequay.app.service.pr.PullRequestService;
 import com.bytequay.app.workspace.ManagedWorktreeService;
 import com.bytequay.app.workspace.WorkspaceRepositoryContext;
 import com.bytequay.app.workspace.WorkspaceRepositoryService;
+import com.bytequay.core.domain.DiffCommit;
 import com.bytequay.core.domain.DiffFile;
+import com.bytequay.core.domain.PullRequest;
+import com.bytequay.core.domain.PullRequestTask;
 import com.bytequay.core.review.AgentReview;
 import com.bytequay.core.review.AgentReviewStore;
 import com.bytequay.core.review.ReviewConflictException;
 import com.bytequay.core.review.ReviewNotFoundException;
 import com.bytequay.core.review.ReviewRun;
+import com.bytequay.core.store.PullRequestStore;
+import com.bytequay.core.store.PullRequestTaskStore;
 import com.google.common.base.Splitter;
 import com.google.common.base.Suppliers;
 import com.google.common.collect.ContiguousSet;
@@ -48,7 +52,6 @@ import com.google.common.hash.Hasher;
 import com.google.common.hash.Hashing;
 import com.google.common.io.MoreFiles;
 import org.springframework.stereotype.Component;
-import org.springframework.web.server.ResponseStatusException;
 
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
@@ -57,7 +60,9 @@ import java.nio.file.Files;
 import java.nio.file.LinkOption;
 import java.nio.file.Path;
 import java.nio.file.StandardOpenOption;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 import java.util.function.Supplier;
@@ -74,7 +79,7 @@ import static java.util.Objects.requireNonNull;
 
 /**
  * Whole-file reads for a review, its working copy while that exists, else the latest run's frozen head in the managed
- * repository; or for a development task that owns a pull request, its working copy.
+ * repository; or for any workspace task, its owned working copy.
  *
  * <p>Reads never inspect the worktree through {@code WorktreeService.inspect}: its status takes Git's
  * optional index lock, so a poll could make Update's stash or merge fail on {@code index.lock}.
@@ -97,7 +102,9 @@ public class ReviewCodeService
     private final ReviewExperiments experiments;
     private final AgentTaskService tasks;
     private final AgentTurnService turns;
-    private final TaskPullRequestOwnership pullRequestOwnership;
+    private final PullRequestTaskStore assignments;
+    private final PullRequestStore pullRequestRows;
+    private final WorktreeDiffReader localDiff;
     private final PullRequestService pullRequests;
 
     public ReviewCodeService(
@@ -111,7 +118,9 @@ public class ReviewCodeService
             ReviewExperiments experiments,
             AgentTaskService tasks,
             AgentTurnService turns,
-            TaskPullRequestOwnership pullRequestOwnership,
+            PullRequestTaskStore assignments,
+            PullRequestStore pullRequestRows,
+            WorktreeDiffReader localDiff,
             PullRequestService pullRequests)
     {
         this.store = requireNonNull(store, "store is null");
@@ -124,7 +133,9 @@ public class ReviewCodeService
         this.experiments = requireNonNull(experiments, "experiments is null");
         this.tasks = requireNonNull(tasks, "tasks is null");
         this.turns = requireNonNull(turns, "turns is null");
-        this.pullRequestOwnership = requireNonNull(pullRequestOwnership, "pullRequestOwnership is null");
+        this.assignments = requireNonNull(assignments, "assignments is null");
+        this.pullRequestRows = requireNonNull(pullRequestRows, "pullRequestRows is null");
+        this.localDiff = requireNonNull(localDiff, "localDiff is null");
         this.pullRequests = requireNonNull(pullRequests, "pullRequests is null");
     }
 
@@ -153,7 +164,7 @@ public class ReviewCodeService
             return new CodeFiles(CodeSource.REVISION, revision, codeGraphState(source), Optional.empty(), false, listed.truncated(), files);
         }
         Path checkout = source.checkout().orElseThrow();
-        String head = head(checkout);
+        String head = source.headSha().get();
         Result listed = git.runStdout(checkout, "ls-files", "-z", "--cached", "--others", "--exclude-standard");
         checkState(listed.successful(), "Cannot list the working copy: %s", listed.output().strip());
         Result status = status(checkout);
@@ -169,8 +180,10 @@ public class ReviewCodeService
             boolean notInHead = pathCodes.stream().anyMatch(code -> code.equals("??") || "ARC".indexOf(code.charAt(0)) >= 0);
             files.add(new CodeFileEntry(path, changed.contains(path), added.contains(path), notInHead, !pathCodes.isEmpty()));
         }
-        return new CodeFiles(CodeSource.WORKING_COPY, head, codeGraphState(source), Optional.of(fingerprint(checkout, head, codes.keySet())),
+        CodeFiles result = new CodeFiles(CodeSource.WORKING_COPY, head, codeGraphState(source), Optional.of(fingerprint(checkout, head, codes.keySet())),
                 experiments.hasSavedExperiment(source.task().taskWorktree().orElseThrow()), listed.truncated() || status.truncated(), files.build());
+        requireUnchangedHead(source);
+        return result;
     }
 
     /** The HEAD, uncommitted or working-copy-only paths, and fingerprint a run records at start, read like {@link #files}. */
@@ -225,14 +238,33 @@ public class ReviewCodeService
 
     public CodeFile file(String reviewId, String path)
     {
+        return file(reviewId, path, Optional.empty());
+    }
+
+    public CodeFile file(String reviewId, String path, Optional<String> expectedRevision)
+    {
         checkPath(path);
-        return file(source(reviewId), path);
+        return file(source(reviewId), path, expectedRevision);
     }
 
     public CodeFile file(TaskCodeHost host, String path)
     {
+        return file(host, path, Optional.empty());
+    }
+
+    public CodeFile file(TaskCodeHost host, String path, Optional<String> expectedRevision)
+    {
         checkPath(path);
-        return file(source(host), path);
+        return file(source(host), path, expectedRevision);
+    }
+
+    private CodeFile file(Source source, String path, Optional<String> expectedRevision)
+    {
+        requireNonNull(expectedRevision, "expectedRevision is null");
+        if (expectedRevision.isPresent() && !expectedRevision.orElseThrow().equals(source.headSha().get())) {
+            throw new ReviewConflictException("The working copy revision changed; refresh the file list before reading this file");
+        }
+        return file(source, path);
     }
 
     private CodeFile file(Source source, String path)
@@ -254,8 +286,10 @@ public class ReviewCodeService
         byte[] bytes = readCheckout(root, path);
         boolean symlinked = symlinked(root, path);
         // Git diffs a link's target text, not the file shown through it.
-        return content(path, bytes, bytes.length > MAXIMUM_FILE_BYTES, readOnlyReason(source, true, path, symlinked), prPatch,
+        CodeFile result = content(path, bytes, bytes.length > MAXIMUM_FILE_BYTES, readOnlyReason(source, true, path, symlinked), prPatch,
                 () -> symlinked ? ImmutableList.of() : lineChanges(root, source, Optional.empty(), path));
+        requireUnchangedHead(source);
+        return result;
     }
 
     /**
@@ -402,6 +436,7 @@ public class ReviewCodeService
     {
         checkPath(path);
         byte[] bytes = savedBytes(content, expectedHash);
+        mutableTask(host);
         Source source = source(host);
         LocalRunService.requireTaskIdle(turns, source.task());
         turns.synchronizeWorktree(source.task().id(), source.task().version(), claimed -> overwrite(source, path, bytes, expectedHash));
@@ -474,7 +509,7 @@ public class ReviewCodeService
     /** The canonical working copy a terminal shell starts in, while the task is open and owns the pull request. */
     public Path terminalDirectory(TaskCodeHost host)
     {
-        AgentTask task = task(host);
+        AgentTask task = mutableTask(host);
         if (task.state() != TaskState.OPEN) {
             throw new ReviewConflictException("The task has ended");
         }
@@ -533,6 +568,7 @@ public class ReviewCodeService
                 .map(ReviewDiffAnchors.Line::line)
                 .collect(toImmutableSet());
         CodeSymbolResult result = codeGraph.fileSymbols(worktree.get(), resources.require(source.task().id()), path);
+        requireUnchangedHead(source);
         return new CodeOutline(result.status(), result.symbols().stream()
                 .sorted(comparingInt(CodeSymbol::startLine))
                 .map(symbol -> new OutlineSymbol(symbol, testMethod(lines, symbol), addedLines.containsAll(ContiguousSet.closed(symbol.startLine(), symbol.endLine()))))
@@ -580,6 +616,11 @@ public class ReviewCodeService
 
     private Source source(String reviewId)
     {
+        return source(reviewId, true);
+    }
+
+    private Source source(String reviewId, boolean live)
+    {
         AgentReview review = store.findReview(reviewId).orElseThrow(() -> new ReviewNotFoundException("Review not found: " + reviewId));
         List<ReviewRun> runs = store.listRuns(reviewId);
         if (runs.isEmpty()) {
@@ -587,24 +628,61 @@ public class ReviewCodeService
         }
         ReviewRun run = runs.getLast();
         AgentTask task = reviews.task(reviewId);
-        return new Source(task, checkout(task), run::diff, () -> Optional.of(run.mergeBaseSha()), run::headSha,
-                review.state() == AgentReview.State.OPEN ? Optional.empty() : Optional.of("This review has ended — read-only"), true);
+        Optional<Path> checkout = checkout(task);
+        Optional<String> ended = review.state() == AgentReview.State.OPEN ? Optional.empty() : Optional.of("This review has ended — read-only");
+        if (live && checkout.isPresent()) {
+            Path directory = checkout.orElseThrow();
+            String head = head(directory);
+            if (!head.equals(run.headSha())) {
+                // Catch-up changes code without changing the frozen review. Derive file marks from the checkout's own committed revision.
+                Supplier<Base> base = Suppliers.memoize(() -> reviewBase(review, run, directory, head));
+                return new Source(task, checkout, Suppliers.memoize(() -> localDiff.diff(directory, base.get().sha(), Optional.of(head)).files()),
+                        () -> Optional.of(base.get().sha()), () -> head, ended, true);
+            }
+        }
+        return new Source(task, checkout, run::diff, () -> Optional.of(run.mergeBaseSha()), run::headSha, ended, true);
     }
 
-    /**
-     * The development task a task host names, resolved again on every request.
-     *
-     * @throws ReviewNotFoundException when the pull request does not belong to the task
-     * @throws ReviewConflictException when the task's worktree was removed
-     */
+    /** Reads remain available during execution, but a head move cannot pair one revision's code with another revision's marks. */
+    private void requireUnchangedHead(Source source)
+    {
+        if (source.checkout().isPresent() && !source.headSha().get().equals(head(source.checkout().orElseThrow()))) {
+            throw new ReviewConflictException("The working copy changed while it was being read; refresh to read its current revision");
+        }
+    }
+
+    private Base reviewBase(AgentReview review, ReviewRun run, Path checkout, String head)
+    {
+        WorkspaceRepositoryContext workspace = workspaces.requireReadyRepository(review.workspaceId());
+        String baseRef = review.number().stream().boxed().findFirst()
+                .flatMap(number -> pullRequests.findPullRequestDetail(review.repo(), number))
+                .flatMap(detail -> Optional.ofNullable(detail.baseRef())).orElse(run.baseRef());
+        String remote = workspace.selectedRepository().equals(workspace.monitoredRepository()) ? "origin" : workspace.sourceRemote();
+        Result base = localDiff.read(checkout, "rev-parse", "--verify", "refs/remotes/" + remote + "/" + baseRef + "^{commit}");
+        String tip = base.successful() && !base.truncated() ? base.output().strip() : run.baseSha();
+        return new Base(localDiff.require(checkout, "merge-base", tip, head).strip(), baseRef);
+    }
+
+    /** Resolves workspace ownership on every read; browsing never acquires a worktree mutation claim. */
     public AgentTask task(TaskCodeHost host)
     {
-        AgentTask task = tasks.getInteractive(host.workspaceId(), TaskId.valueOf(host.taskId()));
-        if (!pullRequestOwnership.owns(task, host.repo(), host.number(), false)) {
-            throw new ReviewNotFoundException("Pull request %s#%s does not belong to this task".formatted(host.repo(), host.number()));
+        AgentTask task = tasks.get(TaskId.valueOf(host.taskId()));
+        if (!task.workspaceId().equals(Optional.of(host.workspaceId()))) {
+            throw new ReviewNotFoundException("Task does not belong to this workspace");
         }
         if (liveWorktree(task).isEmpty()) {
             throw new ReviewConflictException("The task's worktree was removed");
+        }
+        worktrees.ownedCheckout(task.taskWorktree().orElseThrow());
+        return task;
+    }
+
+    /** Task routes retain their development-only mutation policy; review mutations use the review-owned routes. */
+    public AgentTask mutableTask(TaskCodeHost host)
+    {
+        AgentTask task = task(host);
+        if (!task.interactive()) {
+            throw new ReviewConflictException("This task's working copy is read-only here");
         }
         return task;
     }
@@ -613,34 +691,165 @@ public class ReviewCodeService
     {
         AgentTask task = task(host);
         Path checkout = worktrees.ownedCheckout(task.taskWorktree().orElseThrow());
-        return new Source(task, Optional.of(checkout), Suppliers.memoize(() -> storedDiff(host)), Suppliers.memoize(() -> mergeBase(checkout, host)),
-                Suppliers.memoize(() -> head(checkout)), task.state() == TaskState.OPEN ? Optional.empty() : Optional.of("This task has ended — read-only"), false);
+        Supplier<Base> base = Suppliers.memoize(() -> taskBase(task, checkout));
+        Supplier<String> head = Suppliers.memoize(() -> head(checkout));
+        Optional<String> readOnly = task.state() != TaskState.OPEN ? Optional.of("This task has ended — read-only")
+                : !task.interactive() ? Optional.of("This task's working copy is read-only here") : Optional.empty();
+        return new Source(task, Optional.of(checkout), Suppliers.memoize(() -> localDiff.diff(checkout, base.get().sha(), Optional.of(head.get())).files()),
+                () -> Optional.of(base.get().sha()), head, readOnly, false);
     }
 
-    /** The pull request's stored diff, which is approximate while the worktree HEAD is ahead of the pushed head. */
-    private List<DiffFile> storedDiff(TaskCodeHost host)
+    private Base taskBase(AgentTask task, Path checkout)
     {
-        try {
-            return pullRequests.getPullRequestDiffFiles(host.repo(), host.number(), null, null);
+        Optional<ReviewRun> reviewed = store.findReviewByTask(task.id().toString()).flatMap(review -> store.listRuns(review.id()).stream().reduce((left, right) -> right));
+        if (reviewed.isPresent()) {
+            ReviewRun run = reviewed.orElseThrow();
+            return new Base(run.mergeBaseSha(), run.baseRef());
         }
-        catch (ResponseStatusException notStored) {
-            // A diff never refreshed from GitHub: the files still read, without pull-request marks.
-            return ImmutableList.of();
+        WorkspaceRepositoryContext workspace = workspaces.requireReadyRepository(task.workspaceId().orElseThrow());
+        Optional<PullRequestTask> assigned = assignments.findByTaskId(task.id().toString());
+        String branch = localDiff.require(checkout, "rev-parse", "--abbrev-ref", "HEAD").strip();
+        Optional<String> baseRef = assigned.flatMap(pr -> pullRequests.findPullRequestDetail(pr.repo(), pr.number()))
+                .or(() -> pullRequestRows.findByHeadRef(workspace.monitoredRepository().fullName(), branch).stream()
+                        .filter(pr -> pr.origin() == PullRequest.Origin.AUTHORED || branch.equals(task.taskWorktree().orElseThrow().generatedBranch()))
+                        .findFirst().flatMap(pr -> pullRequests.findPullRequestDetail(pr.repo(), pr.number())))
+                .flatMap(detail -> Optional.ofNullable(detail.baseRef()));
+        if (baseRef.isPresent()) {
+            String remote = workspace.selectedRepository().equals(workspace.monitoredRepository()) ? "origin" : workspace.sourceRemote();
+            Result base = localDiff.read(checkout, "merge-base", "HEAD", "refs/remotes/" + remote + "/" + baseRef.orElseThrow());
+            if (base.successful() && !base.truncated()) {
+                return new Base(base.output().strip(), baseRef.orElseThrow());
+            }
         }
+        return new Base(task.taskWorktree().orElseThrow().startCommit(), "Task starting commit");
     }
 
-    /** The merge base with the pull request's base branch as last fetched into the worktree's repository; never fetches. */
-    private Optional<String> mergeBase(Path checkout, TaskCodeHost host)
+    public Changes changes(TaskCodeHost host, ChangeScope scope, Optional<String> commit, Optional<String> base, Optional<String> head)
     {
-        Optional<String> baseRef = pullRequests.findPullRequestDetail(host.repo(), host.number()).flatMap(detail -> Optional.ofNullable(detail.baseRef()));
-        if (baseRef.isEmpty()) {
-            return Optional.empty();
+        Source source = source(host);
+        Path checkout = source.checkout().orElseThrow();
+        return changes(source, taskBase(source.task(), checkout), scope, commit, base, head, Optional.empty());
+    }
+
+    public Changes changes(String reviewId, ChangeScope scope, Optional<String> commit, Optional<String> base, Optional<String> head)
+    {
+        boolean historical = scope == ChangeScope.COMMITTED || head.isPresent();
+        Source source = source(reviewId, !historical);
+        List<ReviewRun> runs = store.listRuns(reviewId);
+        ReviewRun run = head.map(revision -> runs.reversed().stream().filter(item -> item.headSha().equals(revision)).findFirst()
+                .orElseThrow(() -> new ReviewNotFoundException("No review run exists for this revision"))).orElseGet(runs::getLast);
+        Base defaultBase = historical || source.checkout().isEmpty() ? new Base(run.mergeBaseSha(), run.baseRef())
+                : reviewBase(store.findReview(reviewId).orElseThrow(), run, source.checkout().orElseThrow(), source.headSha().get());
+        return changes(source, defaultBase, scope, commit, base, head, Optional.of(reviewId));
+    }
+
+    private Changes changes(Source source, Base defaultBase, ChangeScope scope, Optional<String> commit, Optional<String> requestedBase,
+            Optional<String> requestedHead, Optional<String> reviewId)
+    {
+        Path checkout = source.checkout().orElseGet(() -> repository(source.task()));
+        boolean workingCopy = scope == ChangeScope.ALL || scope == ChangeScope.UNCOMMITTED;
+        if (workingCopy && source.checkout().isEmpty()) {
+            throw new ReviewConflictException("The task's worktree was removed");
         }
-        WorkspaceRepositoryContext workspace = workspaces.requireReadyRepository(host.workspaceId());
-        // The remote assigning a pull request to a task, and starting a review, fetch the base branch into.
-        String remote = workspace.selectedRepository().equals(workspace.monitoredRepository()) ? "origin" : workspace.sourceRemote();
-        Result base = git.runStdout(checkout, "merge-base", "HEAD", "refs/remotes/" + remote + "/" + baseRef.orElseThrow());
-        return base.successful() && !base.truncated() ? Optional.of(base.output().strip()) : Optional.empty();
+        checkArgument(!workingCopy || requestedHead.isEmpty(), "Working-copy changes cannot select a historical head");
+        boolean live = workingCopy || scope == ChangeScope.COMMIT && requestedHead.isEmpty();
+        String currentHead = live || source.checkout().isEmpty() ? source.headSha().get() : head(checkout);
+        String selectedHead = requestedHead.map(value -> localDiff.commit(checkout, value)).orElseGet(() ->
+                scope == ChangeScope.COMMITTED && reviewId.isPresent() ? source.headSha().get() : currentHead);
+        if (!selectedHead.equals(currentHead)) {
+            requireSourceCommit(checkout, selectedHead, currentHead, reviewId);
+        }
+        String base = requestedBase.map(value -> localDiff.commit(checkout, value)).orElse(defaultBase.sha());
+        checkArgument(localDiff.read(checkout, "merge-base", "--is-ancestor", base, selectedHead).successful(), "Comparison base is not an ancestor of the selected head");
+        String comparedBase = scope == ChangeScope.UNCOMMITTED ? currentHead : base;
+        Optional<String> selectedCommit = Optional.empty();
+        if (scope == ChangeScope.COMMIT) {
+            String revision = localDiff.commit(checkout, commit.orElseThrow(() -> new IllegalArgumentException("A commit is required")));
+            checkArgument(localDiff.read(checkout, "merge-base", "--is-ancestor", revision, selectedHead).successful(), "Commit is not part of the selected branch");
+            checkArgument(!localDiff.read(checkout, "merge-base", "--is-ancestor", revision, base).successful(), "Commit is outside the comparison range");
+            comparedBase = localDiff.require(checkout, "rev-parse", "--verify", revision + "^1").strip();
+            selectedCommit = Optional.of(revision);
+        }
+        else {
+            checkArgument(commit.isEmpty(), "Commit selection requires COMMIT scope");
+        }
+        WorktreeDiffReader.History history = localDiff.history(checkout, base, selectedHead);
+        WorktreeDiffReader.Diff diff = localDiff.diff(checkout, comparedBase, workingCopy ? Optional.empty() : Optional.of(selectedCommit.orElse(selectedHead)));
+        Result status = source.checkout().isPresent() ? status(checkout) : new Result(0, "", false);
+        ListMultimap<String, String> codes = statusCodes(entries(status.output(), status.truncated()));
+        List<String> staged = codes.keySet().stream()
+                .filter(path -> codes.get(path).stream().anyMatch(code -> code.charAt(0) != ' ' && !code.equals("??"))).sorted().collect(toImmutableList());
+        List<String> unstaged = codes.keySet().stream()
+                .filter(path -> codes.get(path).stream().anyMatch(code -> code.charAt(1) != ' ' && !code.equals("??"))).sorted().collect(toImmutableList());
+        List<String> untracked = codes.keySet().stream().filter(path -> codes.get(path).contains("??")).sorted().collect(toImmutableList());
+        Map<String, DiffFile> files = new LinkedHashMap<>();
+        diff.files().forEach(file -> files.put(file.filename(), file));
+        boolean truncated = diff.truncated() || history.truncated() || status.truncated();
+        if (workingCopy) {
+            int patches = 0;
+            int remainingPatchBytes = GitCommandRunner.MAXIMUM_OUTPUT_BYTES;
+            for (String path : untracked) {
+                boolean replacement = Optional.ofNullable(files.get(path)).filter(file -> file.status().equals("removed")).isPresent();
+                if (!files.containsKey(path) || replacement) {
+                    boolean show = patches++ < 50 && !symlinked(checkout, path) && Files.isRegularFile(checkout.resolve(path), LinkOption.NOFOLLOW_LINKS);
+                    DiffFile file = show ? (replacement ? localDiff.replacement(checkout, comparedBase, path) : localDiff.untracked(checkout, path))
+                            : new DiffFile(path, replacement ? "modified" : "added", 0, 0, null);
+                    int bytes = Optional.ofNullable(file.patch()).map(patch -> patch.getBytes(UTF_8).length).orElse(0);
+                    if (bytes > remainingPatchBytes) {
+                        file = new DiffFile(path, file.status(), file.additions(), file.deletions(), null);
+                        truncated = true;
+                    }
+                    else {
+                        remainingPatchBytes -= bytes;
+                    }
+                    files.put(path, file);
+                    truncated |= patches > 50;
+                }
+            }
+            // A staged change can have been reversed only in the working tree, leaving no net HEAD diff but still needing inspection.
+            for (String path : staged) {
+                if (!files.containsKey(path) && !untracked.contains(path)) {
+                    files.put(path, new DiffFile(path, "modified", 0, 0, null));
+                }
+            }
+        }
+        String branch = source.checkout().isPresent() ? localDiff.require(checkout, "rev-parse", "--abbrev-ref", "HEAD").strip() : "Reviewed revision";
+        Optional<String> fingerprint = workingCopy ? Optional.of(fingerprint(checkout, currentHead, codes.keySet())) : Optional.empty();
+        if (live) {
+            requireUnchangedHead(source);
+        }
+        return new Changes(branch, selectedHead, base, requestedBase.isPresent() ? base : defaultBase.label(), scope, selectedCommit, fingerprint,
+                history.commits(), ImmutableList.copyOf(files.values()), staged, unstaged, untracked, truncated);
+    }
+
+    private void requireSourceCommit(Path checkout, String selected, String current, Optional<String> reviewId)
+    {
+        boolean retained = reviewId.map(id -> store.listRuns(id).stream().anyMatch(run -> run.headSha().equals(selected))).orElse(false);
+        checkArgument(retained || localDiff.read(checkout, "merge-base", "--is-ancestor", selected, current).successful(), "Head is outside this task's history");
+    }
+
+    private record Base(String sha, String label) {}
+
+    public enum ChangeScope
+    {
+        ALL,
+        UNCOMMITTED,
+        COMMITTED,
+        COMMIT
+    }
+
+    public record Changes(String branch, String headSha, String baseSha, String baseLabel, ChangeScope scope, Optional<String> selectedCommit,
+            Optional<String> sourceFingerprint, List<DiffCommit> commits, List<DiffFile> files,
+            List<String> staged, List<String> unstaged, List<String> untracked, boolean truncated)
+    {
+        public Changes
+        {
+            commits = ImmutableList.copyOf(commits);
+            files = ImmutableList.copyOf(files);
+            staged = ImmutableList.copyOf(staged);
+            unstaged = ImmutableList.copyOf(unstaged);
+            untracked = ImmutableList.copyOf(untracked);
+        }
     }
 
     private Optional<Path> checkout(AgentTask task)
@@ -775,7 +984,7 @@ public class ReviewCodeService
     }
 
     /**
-     * What one host reads: a review's latest run, or a development task's stored pull request and worktree HEAD.
+     * What one host reads: a review's latest run, or a task's local branch changes and worktree HEAD.
      *
      * @param headSha the revision a missing working copy is read at and renames are paired to
      * @param ended why the host no longer accepts edits

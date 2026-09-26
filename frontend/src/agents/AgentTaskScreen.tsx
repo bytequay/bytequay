@@ -17,10 +17,7 @@ Archive,
 ArchiveRestore,
 Bot,
 CircleCheck,
-Code,
 CircleX,
-FileDiff,
-GitPullRequest,
 ListChecks,
 MessageCircle,
 PanelRight,
@@ -35,6 +32,9 @@ import { useRenameDraft } from '../renameDraft';
 import { remoteErrorMessage } from '../pulls/PullOverview';
 import { canSubmitReview, PullDetailHeader } from '../pulls/PullsScreen';
 import CodeTestsTab from '../pulls/code-tests/CodeTestsTab';
+import WorktreeChanges, { type WorktreePublishedReview } from '../pulls/code-tests/WorktreeChanges';
+import type { CodeHostRef } from '../pulls/code-tests/contracts';
+import TaskReviewSummary from '../pulls/agent-review/TaskReviewSummary';
 import {
 laneLabel,
 isDeepSeekKeyLane,
@@ -141,7 +141,7 @@ type TaskPullRequestDetail
 } from './TaskPullRequestPanel';
 export { TurnView,type AttachmentPreview } from './AgentConversation';
 
-type PanelTab = 'pr' | 'changes' | 'review' | 'code' | 'agents' | 'discussions';
+type PanelTab = 'pr' | 'files' | 'changes' | 'review' | 'code' | 'agents' | 'discussions';
 
 interface AgentTaskScreenProps {
   workspaceId: string;
@@ -498,30 +498,6 @@ function AgentRow({ agent, now, onOpen }: { agent: AgentNode; now: number; onOpe
   );
 }
 
-/** The same tab styling before the task's branch has a pull request. */
-function PanelTabs({ tab, agentTab, onSelect }: {
-  tab: PanelTab;
-  agentTab: React.ReactNode;
-  onSelect: (tab: PanelTab) => void;
-}): React.JSX.Element {
-  return (
-    <header className="pull-detail__header pull-detail__header--tabs">
-      <nav className="pull-detail__tabs" aria-label="Task side panel views">
-        <button type="button" className={tab === 'pr' ? 'is-active' : ''} aria-pressed={tab === 'pr'} onClick={() => onSelect('pr')}>
-          <GitPullRequest aria-hidden="true" /> Pull request
-        </button>
-        <button type="button" className={tab === 'changes' ? 'is-active' : ''} aria-pressed={tab === 'changes'} onClick={() => onSelect('changes')}>
-          <FileDiff aria-hidden="true" /> Changes
-        </button>
-        <button type="button" className={tab === 'review' ? 'is-active' : ''} aria-pressed={tab === 'review'} onClick={() => onSelect('review')}>
-          <MessageCircle aria-hidden="true" /> Review &amp; Learning
-        </button>
-        {agentTab}
-      </nav>
-    </header>
-  );
-}
-
 /**
  * The design keeps the panel tabs pinned while only the selected panel body scrolls.
  *
@@ -583,7 +559,7 @@ function SidePanel({
   transcript: TranscriptTurn[];
   now: number;
   tab: PanelTab;
-  /** The task whose worktree Code & Tests reads; the tab needs an interactive task that still has its worktree. */
+  /** The task whose worktree Code & Tests reads. */
   task?: AgentTaskDto | null;
   /** The pull request on this task's branch, or null while the branch has none. */
   pullRequest: PullRequestDto | null;
@@ -619,7 +595,7 @@ function SidePanel({
   discussionTurns?: { turnId: string; ordinal: number; synopsis: string }[];
   /** The discussion a transcript footer asked to see, which opens its card. */
   discussionFocus?: { id: string } | null;
-  learning?: React.ReactNode;
+  learning?: React.ReactNode | ((onSelectCommit: (sha: string) => void) => React.ReactNode);
   reviewFocus?: ReviewCardFocus | null;
   /** How many files hold unsaved Code & Tests drafts, so the screen can confirm before they are dropped. */
   onCodeUnsavedChange?: (count: number) => void;
@@ -629,11 +605,15 @@ function SidePanel({
   logChoice?: string | null;
   onToggleLog?: (choice: string) => void;
 }): React.JSX.Element {
-  const codeAvailable = pullRequest !== null && workspaceId !== undefined && task !== null && task.interactive && task.checkoutRemovedAt === null;
-  const tab = requestedTab === 'code' && !codeAvailable ? 'pr' : requestedTab;
+  const codeAvailable = workspaceId !== undefined && task !== null && task.checkoutRemovedAt === null;
+  const tab = requestedTab;
   // Mounted on first visit and then kept, like the PR page's Code & Tests tab.
   const [codeVisited, setCodeVisited] = useState(false);
   if (tab === 'code' && !codeVisited) setCodeVisited(true);
+  const [changesVisited, setChangesVisited] = useState(false);
+  if (tab === 'changes' && !changesVisited) setChangesVisited(true);
+  const [summaryVisited, setSummaryVisited] = useState(false);
+  if (tab === 'review' && !summaryVisited) setSummaryVisited(true);
   const reviewContainer = useRef<HTMLDivElement>(null);
   useReviewCardFocus(reviewContainer, reviewFocus, tab === 'review');
   const [review, setReview] = useState<AgentReviewDto | null>(null);
@@ -642,6 +622,18 @@ function SidePanel({
   const [reviewReload, setReviewReload] = useState(0);
   const [reviewNavigation, setReviewNavigation] = useState<ReviewNavigationTarget | null>(null);
   const [focusFindingId, setFocusFindingId] = useState<string | null>(null);
+  const [reviewedSource, setReviewedSource] = useState(false);
+  const [changesToolbar, setChangesToolbar] = useState<HTMLElement | null>(null);
+  const [commitSelection, setCommitSelection] = useState<{ source: 'task' | 'review'; commitSha: string; headSha?: string; baseSha?: string; token: number } | null>(null);
+  const selectCommit = (source: 'task' | 'review', commitSha: string, snapshot?: { headSha: string; baseSha: string }): void => {
+    setReviewNavigation(null);
+    setReviewedSource(source === 'review');
+    setCommitSelection(current => ({ source, commitSha, ...snapshot, token: (current?.token ?? 0) + 1 }));
+    onSelectTab('changes');
+  };
+  const showReviewedChanges = review !== null && (!codeAvailable || reviewedSource || reviewNavigation !== null || commitSelection?.source === 'review');
+  const changesHost: CodeHostRef | null = showReviewedChanges ? { kind: 'review', reviewId: review.id }
+    : codeAvailable ? { kind: 'task', taskId: task.id, workspaceId } : null;
   const prRepo = pullRequest?.repo;
   const prNumber = pullRequest?.number;
   const prLocalReview = useLocalReviewThreads(prRepo === undefined || prNumber === undefined ? null : {
@@ -670,28 +662,24 @@ function SidePanel({
     setReviewLoading(true);
     setReviewNavigation(null);
     setFocusFindingId(null);
-    if (workspaceId === undefined || prRepo === undefined || prNumber === undefined) {
+    if (workspaceId === undefined || (!task?.interactive && (prRepo === undefined || prNumber === undefined))) {
       setReviewLoading(false);
       return;
     }
     let active = true;
-    void Promise.resolve().then(() => window.bridge.findAgentReview(workspaceId, prRepo, prNumber))
+    void Promise.resolve().then(() => task?.interactive ? window.bridge.findTaskAgentReview(workspaceId, task.id)
+      : prRepo === undefined || prNumber === undefined ? null : window.bridge.findAgentReview(workspaceId, prRepo, prNumber))
       .then(value => { if (active) setReview(value); })
       .catch(failure => { if (active) setReviewError(failure instanceof Error ? failure.message : 'Unable to load review'); })
       .finally(() => { if (active) setReviewLoading(false); });
     return () => { active = false; };
-  }, [workspaceId, prRepo, prNumber, reviewReload]);
+  }, [workspaceId, prRepo, prNumber, reviewReload, task?.id, task?.interactive]);
   const active = activeAgents(agents);
   const done = agents.filter((agent) => agent.status !== 'running');
   const labels = Object.fromEntries(agents.map((agent) => [agent.threadId, agent.label]));
   const agentCount = agents.length + expiredChildren.length;
   const agentTab = (
     <>
-      {codeAvailable && (
-        <button type="button" className={tab === 'code' ? 'is-active' : ''} aria-pressed={tab === 'code'} onClick={() => onSelectTab('code')}>
-          <Code aria-hidden="true" /> Code &amp; Tests
-        </button>
-      )}
       {showAgents && (
         <button type="button" className={tab === 'agents' ? 'is-active' : ''} aria-pressed={tab === 'agents'} onClick={() => onSelectTab('agents')}>
           <Bot aria-hidden="true" /> Subagents
@@ -706,12 +694,15 @@ function SidePanel({
       )}
     </>
   );
-  const tabs = pullRequest === null
-    ? <PanelTabs tab={tab} agentTab={agentTab} onSelect={onSelectTab} />
-    : <PullDetailHeader
+  const tabs = <PullDetailHeader
       pr={pullRequest}
       detail={pullRequestDetail.detail}
-      tab={tab === 'pr' ? 'overview' : tab === 'agents' || tab === 'code' || tab === 'discussions' ? null : tab}
+      tab={tab === 'pr' ? 'overview' : tab === 'agents' || tab === 'discussions' ? null : tab}
+      codeAvailable={codeAvailable}
+      workingCopyAvailable={codeAvailable}
+      changesSource={tab === 'files' ? 'published' : showReviewedChanges ? 'reviewed' : 'working'}
+      onChangesSourceChange={source => { setReviewedSource(source === 'reviewed'); setReviewNavigation(null); setCommitSelection(null); }}
+      onChangesToolbar={setChangesToolbar}
       review={review}
       onReviewChange={setReview}
       agentTab={agentTab}
@@ -722,7 +713,7 @@ function SidePanel({
       onDetailUpdate={pullRequestDetail.update}
       pendingComments={pullRequestPendingComments}
       onPendingCommentsChange={onPullRequestPendingCommentsChange}
-      onZoom={onOpenPullRequest === undefined
+      onZoom={onOpenPullRequest === undefined || pullRequest === null
         ? undefined
         : () => onOpenPullRequest(pullRequest.number)}
     />;
@@ -737,51 +728,96 @@ function SidePanel({
       ? <div className="agt-muted agt-panel__empty" role="status">Checking for a pull request…</div>
       : null;
   const detail = pullRequestDetail.detail;
-  const codeBody = codeAvailable && (codeVisited || tab === 'code') ? (
-    <>
-      {detail === null ? <div className="agt-muted agt-panel__empty" role="status">Loading pull request…</div> : (
-        <div className="pull-detail__code">
-          <CodeTestsTab
-            detail={detail}
-            workspaceId={workspaceId}
-            review={null}
-            task={task}
-            onReviewChange={() => {}}
-            active={tab === 'code'}
-            ownReviewStream={false}
-            onUnsavedChange={onCodeUnsavedChange}
-            comments={{
-              repo: pullRequest.repo,
-              number: pullRequest.number,
-              workspaceId,
-              canReview: canSubmitReview(pullRequest, detail),
-              viewer: null,
-              pending: pullRequestPendingComments,
-              onPendingChange: onPullRequestPendingCommentsChange,
-              threads: {
-                activities: detail.recentActivity,
-                pr: pullRequest,
-                workspaceId,
-                unavailable: detail.unavailableSections.includes('reviewThreads'),
-                onRefresh: pullRequestDetail.refresh,
-                onDetailUpdate: pullRequestDetail.update,
-              },
-              onDetailChange: pullRequestDetail.replace,
-              localReview: localThreads,
-              onAskAgent: onAskAgentDisabled == null ? onAskAgent : undefined,
-            }} />
-        </div>
-      )}
-    </>
+  const publishedReview: WorktreePublishedReview | undefined = detail === null || pullRequest === null ? undefined : {
+    files: pullRequestChanges.allFiles,
+    commits: pullRequestChanges.commits,
+    loading: pullRequestChanges.loading,
+    error: pullRequestChanges.error,
+    options: {
+      repo: pullRequest.repo, number: pullRequest.number, workspaceId,
+      canReview: canSubmitReview(pullRequest, detail),
+      pendingComments: pullRequestPendingComments,
+      onPendingCommentsChange: onPullRequestPendingCommentsChange,
+      onDetailChange: pullRequestDetail.replace,
+    },
+    threads: {
+      activities: detail.recentActivity, pr: pullRequest, workspaceId,
+      unavailable: detail.unavailableSections.includes('reviewThreads'),
+      onRefresh: pullRequestDetail.refresh, onDetailUpdate: pullRequestDetail.update,
+    },
+    localReview: localThreads,
+    onAskAgent: onAskAgentDisabled == null ? onAskAgent : undefined,
+    onAskAgentDisabled,
+    onOpenPublished: () => { onPullRequestCommitRangeChange(null); onSelectTab('files'); },
+  };
+  const codeBody = !codeAvailable && tab === 'code' ? <div className="agt-panel__empty">The task&apos;s worktree is unavailable.</div>
+    : codeAvailable && (codeVisited || tab === 'code') ? (
+    <div className="pull-detail__code" hidden={tab !== 'code'}>
+      <CodeTestsTab
+        detail={detail ?? undefined}
+        workspaceId={workspaceId}
+        review={null}
+        task={task}
+        onReviewChange={() => {}}
+        active={tab === 'code'}
+        ownReviewStream={false}
+        onUnsavedChange={onCodeUnsavedChange}
+        comments={detail === null || pullRequest === null ? undefined : {
+          repo: pullRequest.repo,
+          number: pullRequest.number,
+          workspaceId,
+          canReview: canSubmitReview(pullRequest, detail),
+          viewer: null,
+          pending: pullRequestPendingComments,
+          onPendingChange: onPullRequestPendingCommentsChange,
+          threads: {
+            activities: detail.recentActivity,
+            pr: pullRequest,
+            workspaceId,
+            unavailable: detail.unavailableSections.includes('reviewThreads'),
+            onRefresh: pullRequestDetail.refresh,
+            onDetailUpdate: pullRequestDetail.update,
+          },
+          onDetailChange: pullRequestDetail.replace,
+          localReview: localThreads,
+          onAskAgent: onAskAgentDisabled == null ? onAskAgent : undefined,
+        }} />
+    </div>
   ) : null;
-  const code = { kept: codeBody, keptShown: tab === 'code' };
+  const summaryBody = summaryVisited ? <div className="agr-development-learning" ref={reviewContainer} hidden={tab !== 'review'}>
+    {(typeof learning === 'function' ? learning(sha => selectCommit('task', sha)) : learning) ?? <p className="agr-card__empty">After a turn changes code or commits, the agent will refine the summary here automatically.</p>}
+    {localThreads.threads.length > 0 && <section className="agr-local-comments" aria-label="Local review comments">
+      <div className="agr-findings__head"><h2>Local review comments</h2><span className="agr-findings__count">{localThreads.threads.length} private discussions</span></div>
+      {localThreads.threads.map(thread => <LocalReviewThreadCard key={thread.id} thread={thread} {...localThreads} />)}
+    </section>}
+    {task !== null && task.interactive && workspaceId !== undefined ? <TaskReviewSummary task={task} workspaceId={workspaceId}
+      active={tab === 'review'} onReviewChange={setReview} onSelectCommit={(sha, snapshot) => selectCommit('review', sha, snapshot)} focusFindingId={focusFindingId} focusReviewCard={reviewFocus}
+      onNavigateToChanges={target => { setCommitSelection(null); setReviewNavigation(target); setFocusFindingId(null); onSelectTab('changes'); }} />
+      : pullRequest !== null && reviewLoading ? <div className="agt-panel__empty" role="status">Loading review cards…</div>
+      : reviewError !== null ? <div className="agt-panel__empty" role="alert">{reviewError}
+        <button type="button" className="agt-action" onClick={() => setReviewReload(value => value + 1)}>Retry</button>
+      </div>
+      : review !== null && <AgentReviewTab detail={detail ?? undefined} workspaceId={workspaceId} viewer={null}
+        review={review} onReviewChange={setReview} onSelectCommit={(sha, snapshot) => selectCommit('review', sha, snapshot)} focusFindingId={focusFindingId} ownStream={tab === 'review'}
+        onOpenWorkspace={() => { window.location.hash = workspaceReviewTaskRoute(review.workspaceId, review.id); }}
+        onNavigateToChanges={target => { setCommitSelection(null); setReviewNavigation(target); setFocusFindingId(null); onSelectTab('changes'); }} />}
+  </div> : null;
+  const changesBody = changesVisited ? <div className="pull-detail__changes" hidden={tab !== 'changes'}>
+    {changesHost !== null ? <WorktreeChanges key={changesHost.kind === 'review' ? changesHost.reviewId : changesHost.taskId} selection={commitSelection}
+        reviewNavigation={reviewNavigation} review={review} onReviewChange={setReview}
+        onOpenInReview={findingId => { setFocusFindingId(findingId); onSelectTab('review'); }}
+        host={changesHost} active={tab === 'changes'} toolbarTarget={changesToolbar} publishedReview={publishedReview} />
+    : <div className="agt-panel__empty">The task&apos;s worktree is unavailable.</div>}
+  </div> : null;
+  const code = { kept: <>{codeBody}{summaryBody}{changesBody}</>, keptShown: tab === 'code' || tab === 'review' || tab === 'changes' };
   if (tab === 'discussions' && discussions !== undefined) {
     return <PanelFrame label="Discussions" tabs={tabs} width={width} {...code}>
       <DiscussionsPanel discussions={discussions} repository={repository} turns={discussionTurns} focus={discussionFocus}
         onJump={onJumpToPassage} onHover={onHoverDiscussion} />
     </PanelFrame>;
   }
-  if (tab === 'code') return <PanelFrame label="Code & Tests" tabs={tabs} width={width} flush {...code} />;
+  if (tab === 'code' || tab === 'review' || tab === 'changes') return <PanelFrame
+    label={tab === 'code' ? 'Code & Tests' : tab === 'review' ? 'Summary' : 'Changes'} tabs={tabs} width={width} flush {...code} />;
   if (tab === 'pr') {
     return (
       <PanelFrame label={pullRequest === null ? 'Pull request' : `Pull request #${pullRequest.number}`} tabs={tabs} width={width} overview={pullRequest !== null} {...code}>
@@ -804,24 +840,7 @@ function SidePanel({
       </PanelFrame>
     );
   }
-  if (tab === 'review') return <PanelFrame label="Review & Learning" tabs={tabs} width={width} flush {...code}>
-    <div className="agr-development-learning" ref={reviewContainer}>
-    {learning ?? <p className="agr-card__empty">After a turn changes code or commits, the agent will refine the summary here automatically.</p>}
-    {localThreads.threads.length > 0 && <section className="agr-local-comments" aria-label="Local review comments">
-      <div className="agr-findings__head"><h2>Local review comments</h2><span className="agr-findings__count">{localThreads.threads.length} private discussions</span></div>
-      {localThreads.threads.map(thread => <LocalReviewThreadCard key={thread.id} thread={thread} {...localThreads} />)}
-    </section>}
-    {pullRequest !== null && reviewLoading ? <div className="agt-panel__empty" role="status">Loading review cards…</div>
-      : reviewError !== null ? <div className="agt-panel__empty" role="alert">{reviewError}
-        <button type="button" className="agt-action" onClick={() => setReviewReload(value => value + 1)}>Retry</button>
-      </div>
-      : review !== null && pullRequestDetail.detail !== null && <AgentReviewTab detail={pullRequestDetail.detail} workspaceId={workspaceId} viewer={null}
-        review={review} onReviewChange={setReview} focusFindingId={focusFindingId}
-        onOpenWorkspace={review === null ? undefined : () => { window.location.hash = workspaceReviewTaskRoute(review.workspaceId, review.id); }}
-        onNavigateToChanges={target => { setReviewNavigation(target); setFocusFindingId(null); onSelectTab('changes'); }} />}
-    </div>
-  </PanelFrame>;
-  if (tab === 'changes') {
+  if (tab === 'files') {
     return (
       <PanelFrame label="Changes" tabs={tabs} width={width} flush={pullRequest !== null} {...code}>
         {pullRequestNotice}
@@ -829,6 +848,7 @@ function SidePanel({
           pr={pullRequest}
           detail={pullRequestDetail.detail}
           changes={pullRequestChanges}
+          toolbarTarget={changesToolbar}
           workspaceId={workspaceId}
           commitRange={pullRequestCommitRange}
           pendingComments={pullRequestPendingComments}
@@ -1057,7 +1077,7 @@ export function AgentTaskBody({
   discussionFocus?: { id: string } | null;
   onJumpToPassage?: (target: { turnId: string; discussionId?: string }) => void;
   onHoverDiscussion?: (discussionId: string | null) => void;
-  learning?: React.ReactNode;
+  learning?: React.ReactNode | ((onSelectCommit: (sha: string) => void) => React.ReactNode);
   contextActivity?: React.ReactNode;
   reviewFocus?: ReviewCardFocus | null;
   onOpenReview?: (target: ReviewRequestTarget) => void;
@@ -1550,7 +1570,8 @@ function failureText(failure: unknown): string {
     const command = unavailable.signInCommand ? ` Run: ${unavailable.signInCommand}` : '';
     return `${laneLabel(unavailable.laneId)} is not ready — ${unavailable.diagnostic}${command}`;
   }
-  return remoteErrorMessage(failure);
+  const message = remoteErrorMessage(failure);
+  return message.startsWith('Task version changed:') ? 'This task changed in the background. Your input is preserved; try again.' : message;
 }
 
 /** Replaces a possibly stale READY row with the typed refusal returned by the turn preflight. */
@@ -1618,7 +1639,7 @@ export default function AgentTaskScreen({
   };
   const [ciPollingError, setCiPollingError] = useState<string | null>(null);
   const [openAgent, setOpenAgent] = useState<string | null>(null);
-  const [panelTab, setPanelTab] = useState<PanelTab>('pr');
+  const [panelTab, setPanelTab] = useState<PanelTab>('review');
   // A fresh object per request: asking for the same discussion twice opens its card again.
   const [discussionFocus, setDiscussionFocus] = useState<{ id: string } | null>(null);
   const [reviewFocus, setReviewFocus] = useState<ReviewCardFocus | null>(null);
@@ -1924,7 +1945,7 @@ export default function AgentTaskScreen({
   const detailSource = usePullRequestDetail(taskPr, { active: panelOpen });
   const diffRevision = pullRequestDiffRevision(detailSource.detail, taskPr?.headPushedAt);
   const pullRequestChanges = usePullRequestChanges(taskPr, {
-    active: panelOpen && panelTab === 'changes',
+    active: panelOpen && (panelTab === 'files' || panelTab === 'changes'),
     revision: diffRevision,
   });
   const pullRequestDetail = {
@@ -1955,7 +1976,7 @@ export default function AgentTaskScreen({
       await action();
     }
     catch (failure) {
-      // A version conflict means another window changed durable task facts. Re-read them while
+      // Another window or a background worktree operation can change durable task facts. Re-read them while
       // keeping the draft and its retry identity intact, so the next deliberate action can use
       // the newly observed version instead of conflicting forever.
       try {
@@ -2135,8 +2156,6 @@ export default function AgentTaskScreen({
 
   const taskCommentDisabled = state.task?.state !== 'OPEN' ? 'This task is closed.'
     : state.task?.developmentContinuationUnfinished ? 'Wait for the current follow-up to finish.'
-    : state.task?.localReviewHead == null && (taskPr === null || taskPr.state === 'closed' || taskPr.state === 'merged')
-      ? 'Private local review is available after publishing an open pull request.'
     : state.connection !== 'open' ? 'Reconnect to the task before replying.'
     : state.sending || attaching ? 'Wait for the current submission to finish.'
     : !['idle', 'running'].includes(runtimeStatus(state)) ? 'Wait until this task can accept another message.' : null;
@@ -2543,8 +2562,8 @@ export default function AgentTaskScreen({
       discussionFocus={discussionFocus}
       onOpenDiscussion={id => { setPanelChoice(true); setPanelTab('discussions'); setDiscussionFocus({ id }); }}
       onJumpToPassage={revealPassage}
-      learning={state.task === null ? undefined : <DevelopmentLearningPanel key={taskId} task={state.task} repository={workspace === undefined ? '' : `${workspace.monitoredOwner}/${workspace.monitoredRepo}`}
-        refreshKey={state.lifecycleEpoch} refining={state.task.developmentContinuationUnfinished && state.turn?.developmentOrigin?.kind === 'REFINE_SUMMARY'}
+      learning={onSelectCommit => state.task === null ? null : <DevelopmentLearningPanel key={taskId} task={state.task} onSelectCommit={onSelectCommit} repository={workspace === undefined ? '' : `${workspace.monitoredOwner}/${workspace.monitoredRepo}`}
+        refreshKey={state.lifecycleEpoch} refining={state.task?.developmentContinuationUnfinished === true && state.turn?.developmentOrigin?.kind === 'REFINE_SUMMARY'}
         disabledReason={taskCommentDisabled}
         localReview={localReview} bridge={live()} />}
       contextActivity={state.task?.interactive && state.task.localReviewHead == null && live().getAgentTaskRepositoryContext

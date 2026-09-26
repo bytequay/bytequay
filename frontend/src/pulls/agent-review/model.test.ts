@@ -481,7 +481,7 @@ describe('discussion', () => {
 
   it('says the question will queue while the agent is busy', () => {
     expect(askQueues(reviewFixture())).toBe(false);
-    expect(askLabel(reviewFixture())).toBe('Ask agent');
+    expect(askLabel(reviewFixture())).toBe('Ask reviewer');
     expect(askQueues(runningReviewFixture())).toBe(true);
     expect(askLabel(runningReviewFixture())).toBe('Queue question');
   });

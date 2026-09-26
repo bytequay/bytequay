@@ -135,8 +135,12 @@ public class ContextDiscussionReader
 
     private List<Candidate> pullRequestComments(AgentReview review, ReviewRun run, ReviewMessage question, List<String> gaps)
     {
-        Optional<PullRequest> row = pullRequests.findStored(review.repo(), review.number());
-        row.ifPresent(value -> checkArgument(value.repo().equalsIgnoreCase(review.repo()) && value.number() == review.number(), "PR cache identity differs"));
+        if (review.number().isEmpty()) {
+            return ImmutableList.of();
+        }
+        int number = review.number().getAsInt();
+        Optional<PullRequest> row = pullRequests.findStored(review.repo(), number);
+        row.ifPresent(value -> checkArgument(value.repo().equalsIgnoreCase(review.repo()) && value.number() == number, "PR cache identity differs"));
         Optional<StoredPrDetail> cached = row.flatMap(value -> details.find(value.id()));
         if (cached.isEmpty()) {
             gaps.add("This PR has no cached discussion detail; use an explicit selected timeline read if needed.");
@@ -149,9 +153,9 @@ public class ContextDiscussionReader
         if (question.findingId().isPresent() && path.isEmpty()) {
             gaps.add("The original finding revision is unavailable; cached PR comment selection could not be narrowed by its original path.");
         }
-        String provenance = "ByteQuay PR cache for " + review.repo() + "#" + review.number()
+        String provenance = "ByteQuay PR cache for " + review.repo() + "#" + number
                 + "; detailUpdatedAt=" + detail.raw().updatedAt()
-                + "; cacheWrittenAt=" + details.findSyncedAt(review.repo(), review.number()).map(Instant::toString).orElse("unknown")
+                + "; cacheWrittenAt=" + details.findSyncedAt(review.repo(), number).map(Instant::toString).orElse("unknown")
                 + "; observedHead=" + detail.raw().headSha() + "; this may differ from the frozen reviewed head";
         List<Candidate> inspected = INSPECTED.select(INSPECTED.select(detail.timeline().stream(),
                         Comparator.comparing((PrTimelineEvent event) -> Optional.ofNullable(event.timestamp()).orElse(Instant.EPOCH)).reversed())

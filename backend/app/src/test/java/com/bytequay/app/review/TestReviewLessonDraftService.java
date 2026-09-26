@@ -57,6 +57,7 @@ import java.nio.file.Path;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.Optional;
+import java.util.OptionalInt;
 import java.util.OptionalLong;
 import java.util.concurrent.CompletableFuture;
 
@@ -90,8 +91,8 @@ class TestReviewLessonDraftService
             throws Exception
     {
         Instant earlier = Instant.parse("2026-01-01T00:00:00Z");
-        AgentReview review = new AgentReview("review-1", "workspace-1", "bytequay/sample", 7, OptionalLong.empty(), taskId.toString(),
-                AgentReview.State.OPEN, false, Optional.empty(), Optional.empty(), 0, earlier, earlier, Optional.empty());
+        AgentReview review = new AgentReview("review-1", "workspace-1", "bytequay/sample", OptionalInt.of(7), OptionalLong.empty(), taskId.toString(), Optional.empty(),
+                AgentReview.State.OPEN, false, Optional.empty(), Optional.empty(), Optional.empty(), 0, earlier, earlier, Optional.empty());
         when(reviews.findReview("review-1")).thenReturn(Optional.of(review));
 
         ReviewEvidence evidence = new ReviewEvidence("E1", "Frozen test", "Saved run evidence", "The old test missed parent IDs.", "Observed in the review");

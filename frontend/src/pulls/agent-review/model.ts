@@ -110,6 +110,24 @@ export function newCommits(review: AgentReviewDto): boolean {
   return liveScope(review) && run !== null && head !== null && head !== run.headSha;
 }
 
+export function reviewWorktreeNotice(review: AgentReviewDto): { label: string; message: string } | null {
+  const sync = review.worktreeSync;
+  if (sync == null || !liveScope(review)) return null;
+  const run = shownRun(review);
+  const assessment = run === null ? '' : ` Review results still cover ${shortSha(run.headSha)}.`;
+  if (sync.state === 'CURRENT') {
+    if (!newCommits(review)) return null;
+    return { label: 'Working copy up to date', message: `Working copy is at the latest PR commit ${shortSha(sync.headSha ?? '')}.${assessment} Update review to assess the new changes.` };
+  }
+  if (sync.state === 'PENDING') {
+    return { label: 'Working copy waiting to sync', message: `The PR has changed. The working copy will sync when the review is idle.${assessment}` };
+  }
+  if (sync.state === 'BLOCKED') {
+    return { label: 'Working copy is stale', message: `${sync.dirty ? 'Saved local changes are preserved; this branch is out of date.' : sync.reason ?? 'Local work prevents automatic sync.'} Use Update review to catch up and review the PR.` };
+  }
+  return { label: 'Working copy sync unavailable', message: `${sync.reason ?? 'The working copy could not be synced.'} Use Update review to retry.` };
+}
+
 export function reviewStatus(review: AgentReviewDto): ReviewStatusView {
   const run = latestRun(review);
   const findings = openFindings(review);
@@ -244,7 +262,7 @@ export function askQueues(review: AgentReviewDto): boolean {
 
 /** The composer's primary label: the same control queues when the agent is busy, and says so. */
 export function askLabel(review: AgentReviewDto): string {
-  return askQueues(review) ? 'Queue question' : 'Ask agent';
+  return askQueues(review) ? 'Queue question' : 'Ask reviewer';
 }
 
 export function messagesFor(review: AgentReviewDto, findingId: string | null): ReviewMessageDto[] {
@@ -279,6 +297,7 @@ type FindingPublication =
  * reviewed commit even when a newer PR head or base is available.
  */
 export function findingPublication(review: AgentReviewDto, finding: ReviewFindingDto): FindingPublication {
+  if (review.number === null) return { kind: 'blocked', reason: 'Private local review' };
   const item = draftItemFor(review.draft, finding.id);
   if (item !== null && item.published) return { kind: 'published', item };
   if (finding.state === 'WITHDRAWN') return { kind: 'blocked', reason: 'The agent withdrew this finding' };
@@ -331,7 +350,7 @@ export function reviewRequests(review: AgentReviewDto): ReviewRequest[] {
     const run = review.runs.find(item => item.id === (message.runId ?? finding?.runId));
     const section = run && message.cardId?.startsWith(`${run.id}:`) ? message.cardId.slice(run.id.length + 1) : null;
     const titles: Record<string, string> = {
-      purpose: 'PR intention', 'combined-result': 'Combined result', evidence: 'Supporting evidence & tests',
+      purpose: 'Change intention', 'combined-result': 'Combined result', evidence: 'Supporting evidence & tests',
       coverage: 'Review coverage', 'critical-issues': 'Critical issues', limitations: 'Limitations',
     };
     const commit = section?.startsWith('commit:') ? run?.commits.find(item => item.sha === section.slice(7)) : undefined;

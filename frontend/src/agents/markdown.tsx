@@ -26,7 +26,7 @@ import { linkIssueNumbers, ReferenceLink, tableAlignments, tableCells } from '..
 export type MarkdownBlock = { node: React.ReactNode; text: string };
 
 /** The rendered blocks of one answer, in document order, for a caller that interleaves its own. */
-export function renderMarkdownBlocks(text: string, repository?: string | null): MarkdownBlock[] {
+export function renderMarkdownBlocks(text: string, repository?: string | null, preserveLineBreaks = false): MarkdownBlock[] {
   const lines = text.replace(/\r\n?/g, '\n').split('\n');
   const blocks: MarkdownBlock[] = [];
   let paragraph: string[] = [];
@@ -34,7 +34,7 @@ export function renderMarkdownBlocks(text: string, repository?: string | null): 
   const push = (node: React.ReactNode, source: string): void => { blocks.push({ node, text: source }); };
   const flush = (): void => {
     if (paragraph.length === 0) return;
-    const source = paragraph.join(' ');
+    const source = paragraph.join(preserveLineBreaks ? '\n' : ' ');
     push(<p key={key++}>{inline(source, repository)}</p>, source);
     paragraph = [];
   };
@@ -108,7 +108,7 @@ export function renderMarkdownBlocks(text: string, repository?: string | null): 
       flush();
       continue;
     }
-    paragraph.push(line.trim());
+    paragraph.push(preserveLineBreaks ? line : line.trim());
   }
   flush();
   return blocks;
@@ -121,8 +121,8 @@ export function renderMarkdownBlocks(text: string, repository?: string | null): 
  * Anything else is left as the text it is; nothing here executes, and only a link to a GitHub pull
  * request or issue reads that item, for its title and preview.
  */
-export function renderMarkdown(text: string, repository?: string | null): React.ReactNode {
-  return <div className="agt-md">{renderMarkdownBlocks(text, repository).map(block => block.node)}</div>;
+export function renderMarkdown(text: string, repository?: string | null, preserveLineBreaks = false): React.ReactNode {
+  return <div className="agt-md">{renderMarkdownBlocks(text, repository, preserveLineBreaks).map(block => block.node)}</div>;
 }
 
 // Underscores only mark emphasis at word edges; a_b_c is an identifier, not italics.

@@ -98,6 +98,7 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.EnumSource;
+import org.junit.jupiter.params.provider.ValueSource;
 
 import java.io.IOException;
 import java.math.BigDecimal;
@@ -131,6 +132,7 @@ import java.util.function.Consumer;
 import static com.bytequay.agent.spi.ProviderAgentEventSource.root;
 import static com.bytequay.agent.spi.ProviderApprovalRequest.Decision.ALLOW_ONCE;
 import static com.bytequay.agent.spi.ProviderApprovalRequest.Decision.DENY;
+import static com.google.common.collect.ImmutableList.toImmutableList;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
@@ -219,6 +221,12 @@ class TestDefaultAgentTurnService
         private FixedWorktreeService(Path worktree)
         {
             this.worktree = worktree;
+        }
+
+        @Override
+        public Path ownedCheckout(TaskWorktree worktree)
+        {
+            return worktree.canonicalWorktree();
         }
 
         @Override
@@ -543,6 +551,143 @@ class TestDefaultAgentTurnService
     }
 
     @Test
+    void worktreeUpdatesRefreshTheTaskWithoutRevivingItsPreviousTurn()
+    {
+        service.start(command("First request", "before-worktree-save"));
+        driver.complete("Done");
+        AgentTask before = taskService.get(task.id());
+
+        service.synchronizeWorktree(task.id(), before.version(), claimed -> {
+            assertThat(worktreeEvents(task.id())).hasSize(1);
+            assertThat(taskService.get(task.id()).version()).isEqualTo(claimed.version());
+            assertThat(claimed.worktreeMutationClaim()).isPresent();
+        });
+
+        AgentTask after = taskService.get(task.id());
+        assertThat(after.version()).isEqualTo(before.version() + 2);
+        assertThat(worktreeEvents(task.id())).hasSize(2).allSatisfy(event -> assertThat(event.turnId()).isEmpty());
+        assertThatThrownBy(() -> service.start(new StartAgentTurnCommand(task.id(), before.version(), "Amend and force push", ImmutableList.of(), "after-save")))
+                .isInstanceOf(AgentConflictException.class).hasMessageContaining("Task version changed");
+        assertThat(service.findTurnByIdempotencyKey(task.id(), "after-save")).isEmpty();
+
+        AgentTurn accepted = service.start(new StartAgentTurnCommand(task.id(), after.version(), "Amend and force push", ImmutableList.of(), "after-save"));
+        assertThat(service.start(new StartAgentTurnCommand(task.id(), before.version(), "Amend and force push", ImmutableList.of(), "after-save"))).isEqualTo(accepted);
+        assertThat(driver.commands()).extracting(AgentTurnCommand::message).containsExactly("First request", "Amend and force push");
+    }
+
+    @Test
+    void failedWorktreeActionStillPublishesItsReleasedVersion()
+    {
+        assertThatThrownBy(() -> service.synchronizeWorktree(task.id(), task.version(), claimed -> {
+            assertThat(worktreeEvents(task.id())).hasSize(1);
+            throw new IllegalStateException("Cannot save this file");
+        })).hasMessage("Cannot save this file");
+
+        assertThat(taskService.get(task.id()).worktreeMutationClaim()).isEmpty();
+        assertThat(taskService.get(task.id()).version()).isEqualTo(task.version() + 2);
+        assertThat(worktreeEvents(task.id())).hasSize(2).allSatisfy(event -> assertThat(event.turnId()).isEmpty());
+    }
+
+    @Test
+    void worktreeClaimAndRefreshRollBackTogetherBeforeTheAction()
+    {
+        stores.failOutboxInsert(AgentEventPayload.Kind.LIFECYCLE, new AgentStorageException("Cannot record refresh"));
+        AtomicInteger writes = new AtomicInteger();
+
+        assertThatThrownBy(() -> service.synchronizeWorktree(task.id(), task.version(), claimed -> writes.incrementAndGet()))
+                .isInstanceOf(AgentStorageException.class).hasMessage("Cannot record refresh");
+
+        assertThat(writes).hasValue(0);
+        assertThat(taskService.get(task.id())).isEqualTo(task);
+        assertThat(worktreeEvents(task.id())).isEmpty();
+    }
+
+    @Test
+    void failedReleaseOutboxWriteKeepsTheOriginalErrorAndRetriesClaimCleanup()
+    {
+        assertThatThrownBy(() -> service.synchronizeWorktree(task.id(), task.version(), claimed ->
+                stores.failOutboxInsert(AgentEventPayload.Kind.LIFECYCLE, new AgentStorageException("Cannot record released version"))))
+                .isInstanceOf(AgentStorageException.class).hasMessage("Cannot record released version");
+
+        assertThat(taskService.get(task.id()).worktreeMutationClaim()).isEmpty();
+        assertThat(taskService.get(task.id()).version()).isEqualTo(task.version() + 2);
+        assertThat(worktreeEvents(task.id())).hasSize(2);
+    }
+
+    @Test
+    void failedLocalRunOutboxWriteDoesNotLeaveAnUnreportedClaim()
+    {
+        stores.failOutboxInsert(AgentEventPayload.Kind.LIFECYCLE, new AgentStorageException("Cannot record run claim"));
+        assertThatThrownBy(() -> service.claimLocalRun(task.id(), "run-1"))
+                .isInstanceOf(AgentStorageException.class).hasMessage("Cannot record run claim");
+        assertThat(taskService.get(task.id())).isEqualTo(task);
+        assertThat(worktreeEvents(task.id())).isEmpty();
+
+        service.claimLocalRun(task.id(), "run-1");
+        stores.failOutboxInsert(AgentEventPayload.Kind.LIFECYCLE, new AgentStorageException("Cannot record run release"));
+        assertThatThrownBy(() -> service.releaseLocalRun(task.id(), "run-1"))
+                .isInstanceOf(AgentStorageException.class).hasMessage("Cannot record run release");
+        assertThat(taskService.get(task.id()).worktreeMutationClaim()).contains(WorktreeMutationClaim.localRun("run-1", NOW));
+        assertThat(worktreeEvents(task.id())).hasSize(1);
+
+        service.releaseLocalRun(task.id(), "run-1");
+        assertThat(taskService.get(task.id()).worktreeMutationClaim()).isEmpty();
+        assertThat(worktreeEvents(task.id())).hasSize(2);
+    }
+
+    @ParameterizedTest
+    @ValueSource(booleans = {false, true})
+    void failedLocalRunRefreshDrainPreservesTheCommittedOwnershipAndCanReplay(boolean failRelease)
+    {
+        FailLifecycleDrainEventService failing = new FailLifecycleDrainEventService(events, stores, AgentEventPayload.LifecyclePhase.WORKTREE_UPDATED, !failRelease);
+        service = service(driver, runtimeRegistry, failing);
+        AgentTask claimed = service.claimLocalRun(task.id(), "run-1");
+        assertThat(taskService.get(task.id()).worktreeMutationClaim()).isEqualTo(claimed.worktreeMutationClaim());
+        assertThatThrownBy(() -> service.start(command("While running", "during-refresh-failure")))
+                .isInstanceOf(AgentConflictException.class).hasMessage("A run is using this working copy");
+        if (failRelease) {
+            failing.failNextDrain();
+        }
+        service.releaseLocalRun(task.id(), "run-1");
+        AgentTask released = taskService.get(task.id());
+        assertThat(released.worktreeMutationClaim()).isEmpty();
+
+        // A task request drains pending notifications before accepting a new turn.
+        service.start(new StartAgentTurnCommand(task.id(), released.version(), "After the local run", ImmutableList.of(), "after-local-run"));
+
+        assertThat(worktreeEvents(task.id())).hasSize(2).allSatisfy(event -> assertThat(event.turnId()).isEmpty());
+        assertThat(stores.outboxEntries()).allSatisfy(event -> assertThat(event.sequence()).isPresent());
+        assertThat(driver.commands()).extracting(AgentTurnCommand::message).containsExactly("After the local run");
+    }
+
+    @Test
+    void worktreeActionRetainsItsDurableClaimWhenTheRefreshCannotDrain()
+    {
+        FailLifecycleDrainEventService failing = new FailLifecycleDrainEventService(events, stores, AgentEventPayload.LifecyclePhase.WORKTREE_UPDATED);
+        service = service(driver, runtimeRegistry, failing);
+        AtomicInteger writes = new AtomicInteger();
+        service.synchronizeWorktree(task.id(), task.version(), claimed -> {
+            assertThat(taskService.get(task.id()).worktreeMutationClaim()).isEqualTo(claimed.worktreeMutationClaim());
+            writes.incrementAndGet();
+            failing.failNextDrain();
+        });
+
+        AgentTask saved = taskService.get(task.id());
+        assertThat(writes).hasValue(1);
+        assertThat(saved.worktreeMutationClaim()).isEmpty();
+        assertThat(saved.version()).isEqualTo(task.version() + 2);
+        service.start(new StartAgentTurnCommand(task.id(), saved.version(), "Continue", ImmutableList.of(), "after-save-refresh-failure"));
+        assertThat(worktreeEvents(task.id())).hasSize(2).allSatisfy(event -> assertThat(event.turnId()).isEmpty());
+    }
+
+    private List<AgentEventEnvelope> worktreeEvents(TaskId taskId)
+    {
+        return events.readAfter(taskId, 0, 100).stream()
+                .filter(event -> event.payload() instanceof AgentEventPayload.Lifecycle lifecycle && lifecycle.phase() == AgentEventPayload.LifecyclePhase.WORKTREE_UPDATED)
+                .collect(toImmutableList());
+    }
+
+    @Test
     void worktreeSynchronizationRejectsActiveQueuedAndClaimedTasks()
     {
         AtomicInteger calls = new AtomicInteger();
@@ -585,6 +730,7 @@ class TestDefaultAgentTurnService
         service.releaseLocalRun(task.id(), "run-1");
         service.releaseLocalRun(task.id(), "run-1");
         assertThat(taskService.get(task.id()).worktreeMutationClaim()).isEmpty();
+        assertThat(worktreeEvents(task.id())).hasSize(2).allSatisfy(event -> assertThat(event.turnId()).isEmpty());
     }
 
     @Test

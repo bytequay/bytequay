@@ -24,6 +24,7 @@ import type { AgentReviewDto, ReviewFindingDto } from './contracts';
 import { askLabel, draftCommentCommit, draftItemFor, findingPill, findingPublication, messagesFor, shortPath, shortSha } from './model';
 
 export type FindingActions = {
+  onRequestFix?: (finding: ReviewFindingDto, instruction: string) => Promise<void>;
   onAsk: (finding: ReviewFindingDto, message: string) => Promise<void>;
   onResolve: (finding: ReviewFindingDto, reason: string) => Promise<void>;
   onReopen: (finding: ReviewFindingDto) => Promise<void>;
@@ -71,7 +72,8 @@ export default function ReviewFindingCard({
   defaultOpen?: boolean;
 }) {
   const [evidenceOpen, setEvidenceOpen] = useState(false);
-  const [composer, setComposer] = useState<'ask' | 'resolve' | 'post' | 'draft' | null>(null);
+  const [composer, setComposer] = useState<'ask' | 'resolve' | 'post' | 'draft' | 'fix' | null>(null);
+  const [fixSent, setFixSent] = useState(false);
   const [text, setText] = useState('');
   const [error, setError] = useState<string | null>(null);
   const pill = findingPill(review, finding);
@@ -110,6 +112,7 @@ export default function ReviewFindingCard({
     if (busy || (body === '' && composer !== 'resolve' && !(composer === 'draft' && reviewText !== null))) return;
     setError(null);
     try {
+      if (composer === 'fix') { await actions.onRequestFix?.(finding, body); setFixSent(true); }
       if (composer === 'ask') await actions.onAsk(finding, body);
       if (composer === 'resolve') await actions.onResolve(finding, body);
       if (composer === 'post') await actions.onPostNow(finding, body);
@@ -130,7 +133,7 @@ export default function ReviewFindingCard({
       <ReviewThreadCard resolved={finding.state === 'RESOLVED'} outdated={finding.outdated} defaultOpen={defaultOpen}
         privateLabel="Agent finding · Private"
         location={<>{lines === null
-          ? <span className="pr-local-review__location">Whole pull request</span>
+          ? <span className="pr-local-review__location">Whole change</span>
           : <code className="pr-local-review__location" title={lines.path}>{shortPath(lines.path)} {lines.range}</code>}
           {pill.text !== 'Private' && <span className={`agr-pill is-${pill.tone}`}>{pill.text}</span>}</>}
         code={lines !== null && finding.excerpt.length > 0 && <div>
@@ -149,11 +152,11 @@ export default function ReviewFindingCard({
               autoFocus
               busy={busy}
               allowEmpty={composer === 'resolve' || (composer === 'draft' && reviewText !== null)}
-              placeholder={composer === 'resolve' ? 'Why are you resolving this finding locally? (optional)'
-                : composer === 'ask' ? 'Ask the agent about this finding…' : reviewText !== null ? 'Your review summary…' : 'Comment text (edits here never change the finding)'}
-              ariaLabel={composer === 'resolve' ? 'Resolution reason (optional)' : composer === 'ask' ? 'Ask the agent about this finding' : reviewText !== null ? 'Review summary text' : 'Outgoing comment text'}
-              primaryLabel={composer === 'resolve' ? 'Resolve locally' : composer === 'ask' ? askLabel(review) : composer === 'post' ? 'Post now' : 'Save'}
-              outgoing={composer === 'ask' || composer === 'resolve'
+              placeholder={composer === 'fix' ? 'Tell the developer what to fix…' : composer === 'resolve' ? 'Why are you resolving this finding locally? (optional)'
+                : composer === 'ask' ? 'Ask the reviewer about this finding…' : reviewText !== null ? 'Your review summary…' : 'Comment text (edits here never change the finding)'}
+              ariaLabel={composer === 'fix' ? 'Instructions for the development agent' : composer === 'resolve' ? 'Resolution reason (optional)' : composer === 'ask' ? 'Ask the reviewer about this finding' : reviewText !== null ? 'Review summary text' : 'Outgoing comment text'}
+              primaryLabel={composer === 'fix' ? 'Send to developer' : composer === 'resolve' ? 'Resolve locally' : composer === 'ask' ? askLabel(review) : composer === 'post' ? 'Post now' : 'Save'}
+              outgoing={composer === 'ask' || composer === 'resolve' || composer === 'fix'
                 ? null
                 : composer === 'post' && lines !== null
                   ? `Posts to GitHub on ${shortPath(lines.path, 28)} ${lines.range} at reviewed commit ${shortSha(finding.validatedHeadSha)}`
@@ -166,14 +169,17 @@ export default function ReviewFindingCard({
           {composer === null && !withdrawn && (
             <div className="agr-actions">
               <button type="button" className="agr-action" disabled={busy || review.state === 'CLOSED'}
-                onClick={() => openComposer('ask', '')}>Ask agent</button>
+                onClick={() => openComposer('ask', '')}>Ask reviewer</button>
+              {actions.onRequestFix !== undefined && finding.state === 'OPEN' && <button type="button" className="agr-action" disabled={busy}
+                onClick={() => openComposer('fix', 'Please investigate and address this finding.')}>Request fix</button>}
+              {fixSent && <span className="pr-local-review__note" role="status">Sent to developer</span>}
               {finding.state === 'OPEN' && (
                 <button type="button" className="agr-action" disabled={busy}
                   onClick={() => openComposer('resolve', '')}>Resolve locally</button>
               )}
               {actions.onNavigate !== undefined && lines !== null && (
                 <button type="button" className="agr-action" onClick={() => actions.onNavigate?.(finding)}>
-                  {projection === 'review' ? 'View in Changes' : 'Open in Review & Learning'}
+                  {projection === 'review' ? 'View in Changes' : 'Open in Summary'}
                 </button>
               )}
               <span className="agr-spacer" />

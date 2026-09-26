@@ -1388,6 +1388,12 @@ class TestCherryPickExecutionService
         }
 
         @Override
+        public Path ownedCheckout(TaskWorktree worktree)
+        {
+            return worktree.canonicalWorktree();
+        }
+
+        @Override
         public TaskWorktree provision(ProvisionWorktreeCommand command)
         {
             String branch = command.generatedBranch();

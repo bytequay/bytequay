@@ -1,5 +1,17 @@
 # ByteQuay Architecture
 
+[WorkBench](workbench.md) owns the shared navigation, task-bound code access,
+and reviews of local development commits. Its source and hosting contracts
+apply to the existing services described here.
+
+Remote-review worktrees catch up to observed PR heads through the existing
+review observer, reconciliation, and task synchronization claim. A clean idle
+checkout may advance without starting an agent review. The review aggregate
+retains the last service-aligned worktree head separately from immutable review
+run heads; SQLite adds that nullable field through Hibernate. Dirty or busy
+worktrees remain untouched, and the derived projection reports why catch-up is
+pending or blocked. No scheduler, sync job, or additional lifecycle is added.
+
 Issue-backed development exposes one read-only task-bound context tool through
 the existing provider bridge. The application reads its durable issue association
 and existing local caches; the tool performs no remote issue fetch. Codex and

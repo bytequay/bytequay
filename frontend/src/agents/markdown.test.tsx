@@ -67,6 +67,15 @@ describe('agent markdown', () => {
     expect(html('2 * 3 = 6 and a_b_c stays')).toBe('<div class="agt-md"><p>2 * 3 = 6 and a_b_c stays</p></div>');
   });
 
+  it('preserves saved instruction line breaks when requested without changing ordinary answers', () => {
+    const text = 'Read the diff.\nKeep the existing question.\n\n## Report\n\n- Use `report_development_result`.\n- Keep it private.\n\n```\nfirst line\nsecond line\n```';
+    const out = renderToStaticMarkup(<>{renderMarkdown(text, null, true)}</>);
+    expect(out).toContain('<p>Read the diff.\nKeep the existing question.</p>');
+    expect(out).toContain('<ul><li>Use <code>report_development_result</code>.</li><li>Keep it private.</li></ul>');
+    expect(out).toContain('<pre class="agt-code">first line\nsecond line</pre>');
+    expect(html(text)).toContain('<p>Read the diff. Keep the existing question.</p>');
+  });
+
   it('renders a table as a table rather than one run-on paragraph', () => {
     const out = html('Commit order\n\n| Commit | Role |\n|---|:---:|\n| `60354c3a554` | Reattach the page source |\n| `07582ac4416` | Drop trivial overrides |\n\nDone.');
     expect(out).toContain('<th style="text-align:left">Commit</th><th style="text-align:center">Role</th>');

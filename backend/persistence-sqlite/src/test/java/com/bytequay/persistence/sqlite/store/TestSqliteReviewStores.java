@@ -121,6 +121,40 @@ class TestSqliteReviewStores
     }
 
     @Test
+    void retainsDevelopmentSourceWithoutAPullRequest()
+    {
+        AgentReview review = new AgentReview("local-review", "workspace-a", "bytequay/sample", OptionalInt.empty(), OptionalLong.empty(), "reviewer",
+                Optional.of("developer"), AgentReview.State.OPEN, false, Optional.empty(), Optional.of(HEAD_SHA), Optional.of(HEAD_SHA), 0, NOW, NOW, Optional.empty());
+        store.insertReview(review);
+        entityManager.flush();
+        entityManager.clear();
+
+        assertThat(store.findReview("local-review")).contains(review);
+        assertThat(store.findReviewByTask("reviewer")).contains(review);
+        assertThat(store.findOpenReview("workspace-a", "bytequay/sample", 7)).isEmpty();
+        assertThat(store.listReviews("workspace-a")).containsExactly(review);
+    }
+
+    @Test
+    void workingCopyBaselineRoundTripsIndependentlyOfTheAssessedAndObservedHeads()
+    {
+        AgentReview review = store.insertReview(newReview("review-sync", "workspace-a", "bytequay/sample", 7, "task-sync", NOW)
+                .withObservedHead(NEXT_HEAD_SHA, NOW).withWorktreeHead(PRIOR_HEAD_SHA, NOW));
+        ReviewRun run = store.insertRun(newRun("run-sync", review.id()));
+        entityManager.clear();
+
+        AgentReview restored = store.findReview(review.id()).orElseThrow();
+        assertThat(restored.worktreeHeadSha()).contains(PRIOR_HEAD_SHA);
+        assertThat(restored.observedHeadSha()).contains(NEXT_HEAD_SHA);
+        assertThat(store.findRun(run.id()).orElseThrow().headSha()).isEqualTo(HEAD_SHA);
+
+        store.updateReview(restored.withWorktreeHead(NEXT_HEAD_SHA, NOW.plusSeconds(1)));
+        entityManager.clear();
+        assertThat(store.findReview(review.id()).orElseThrow().worktreeHeadSha()).contains(NEXT_HEAD_SHA);
+        assertThat(store.findRun(run.id())).contains(run);
+    }
+
+    @Test
     void roundTripsEveryReviewRecordThroughSqlite()
     {
         AgentReview review = newReview("review-1", "workspace-a", "bytequay/sample", 7, "task-1", NOW);
@@ -612,12 +646,14 @@ class TestSqliteReviewStores
                 id,
                 workspaceId,
                 repo,
-                number,
+                OptionalInt.of(number),
                 OptionalLong.of(4242),
                 taskId,
+                Optional.empty(),
                 AgentReview.State.OPEN,
                 false,
                 Optional.empty(),
+                Optional.of(HEAD_SHA),
                 Optional.of(HEAD_SHA),
                 0,
                 createdAt,

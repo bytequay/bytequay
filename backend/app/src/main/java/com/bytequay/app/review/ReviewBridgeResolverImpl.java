@@ -55,7 +55,7 @@ public class ReviewBridgeResolverImpl
                         "This task is in private local review of commit " + head + ". "
                                 + "You may edit code and write or run verification tests. Keep every experiment uncommitted. "
                                 + "Never commit, change branch history, push, publish, or use development delivery tools. "
-                                + "Review comments refer to the committed PR diff, never to experiment line numbers. "
+                                + "Review comments refer to the committed review diff, never to experiment line numbers. "
                                 + "Only the user can finish local review through ByteQuay before development resumes."))));
     }
 }

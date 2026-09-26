@@ -137,6 +137,17 @@ public class GitCommandRunner
     /** Runs a bounded local object read without replacement objects or on-demand fetching from a promisor remote. */
     public Result runLocalBounded(Path worktree, Duration timeout, int maximumOutputBytes, List<String> arguments)
     {
+        return runLocalBounded(worktree, timeout, maximumOutputBytes, arguments, false);
+    }
+
+    /** Local object reads with separate errors, so successful Git warnings cannot corrupt structured stdout. */
+    public Result runLocalBoundedStdout(Path worktree, Duration timeout, int maximumOutputBytes, List<String> arguments)
+    {
+        return runLocalBounded(worktree, timeout, maximumOutputBytes, arguments, true);
+    }
+
+    private Result runLocalBounded(Path worktree, Duration timeout, int maximumOutputBytes, List<String> arguments, boolean separateErrors)
+    {
         requireNonNull(worktree, "worktree is null");
         requireNonNull(timeout, "timeout is null");
         checkArgument(!timeout.isZero() && !timeout.isNegative(), "timeout is not positive");
@@ -150,7 +161,7 @@ public class GitCommandRunner
         builder.environment().put("GIT_NO_LAZY_FETCH", "1");
         builder.environment().put("GIT_NO_REPLACE_OBJECTS", "1");
         try {
-            return execute(builder, timeout, maximumOutputBytes, "Git", false);
+            return execute(builder, timeout, maximumOutputBytes, "Git", separateErrors);
         }
         catch (InterruptedException e) {
             Thread.currentThread().interrupt();

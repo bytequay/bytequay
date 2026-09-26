@@ -71,7 +71,7 @@ import {
   parseReviewLessonDraft,
   parseReviewDraft,
 } from './pulls/agent-review/contracts';
-import { codeHostKey, parseCodeHost, parseLocalRun, parseLocalRunOutput, parseLocalRuns, parseReviewCodeFile, parseReviewCodeFiles, parseReviewCodeSymbols } from './pulls/code-tests/contracts';
+import { parseWorktreeChanges, codeHostKey, parseCodeHost, parseLocalRun, parseLocalRunOutput, parseLocalRuns, parseReviewCodeFile, parseReviewCodeFiles, parseReviewCodeSymbols } from './pulls/code-tests/contracts';
 import { AgentSubscriptions } from './agents/subscriptions';
 import { CodeTerminals, terminalEnvironment } from './terminals';
 import { clipboardImagePng, MAX_ATTACHMENT_BYTES } from './agents/clipboardImage';
@@ -910,6 +910,14 @@ function registerIpc(): void {
   // Starting or updating a review fetches remote refs and waits for provider startup before responding.
   ipcMain.handle('review:start', (_event, workspaceId: string, repo: string, number: number) =>
     review('', {}, { method: 'POST', body: JSON.stringify({ workspaceId, repo, number }), signal: AbortSignal.timeout(15 * 60_000) }));
+  ipcMain.handle('review:task:find', async (_event, workspaceId: string, taskId: string) => {
+    const response = await fetch(reviewUrl(`/tasks/${encodeURIComponent(taskId)}`, { workspaceId }), { headers: agentHeaders() });
+    if (response.status === 204) return null;
+    if (!response.ok) throw new Error(extractMessage(await response.text().catch(() => '')) || `Review lookup returned ${response.status}`);
+    return parseAgentReview(await response.json());
+  });
+  ipcMain.handle('review:task:start', (_event, workspaceId: string, taskId: string) =>
+    review(`/tasks/${encodeURIComponent(taskId)}`, { workspaceId }, { method: 'POST', signal: AbortSignal.timeout(15 * 60_000) }));
   ipcMain.handle('review:get', (_event, reviewId: string) => review(`/${encodeURIComponent(reviewId)}`));
   ipcMain.handle('review:lesson-draft', (_event, reviewId: string, messageId: string) =>
     backendJson(reviewUrl(`/${encodeURIComponent(reviewId)}/lesson-draft`), {
@@ -937,7 +945,7 @@ function registerIpc(): void {
     const host = parseCodeHost(value);
     if (host.kind === 'review') return reviewUrl(`/${encodeURIComponent(host.reviewId)}/code${path}`, query);
     const url = new URL(taskUrl(host.taskId, `/code${path}`));
-    Object.entries({ workspaceId: host.workspaceId, repo: host.repo, number: String(host.number), ...query })
+    Object.entries({ workspaceId: host.workspaceId, ...query })
       .forEach(([key, value]) => url.searchParams.set(key, value));
     return url.toString();
   };
@@ -962,10 +970,22 @@ function registerIpc(): void {
   });
   ipcMain.on('terminal:write', (event, terminalId: string, data: string) => codeTerminals.write(event.sender, terminalId, data));
   ipcMain.on('terminal:resize', (event, terminalId: string, cols: number, rows: number) => codeTerminals.resize(event.sender, terminalId, cols, rows));
+  ipcMain.handle('code:changes', (_event, host: unknown, request: unknown) => {
+    if (typeof request !== 'object' || request === null) throw new Error('Malformed change selection');
+    const selection = request as Record<string, unknown>;
+    if (!['ALL', 'UNCOMMITTED', 'COMMITTED', 'COMMIT'].includes(String(selection.scope))) throw new Error('Malformed change scope');
+    const query: Record<string, string> = { scope: String(selection.scope) };
+    for (const field of ['commit', 'base', 'head']) {
+      if (selection[field] === undefined) continue;
+      if (typeof selection[field] !== 'string' || !/^(?:[0-9a-f]{40}|[0-9a-f]{64})$/.test(selection[field])) throw new Error('Malformed change revision');
+      query[field] = selection[field];
+    }
+    return backendJson(codeUrl(host, '/changes', query), { headers: agentHeaders() }).then(parseWorktreeChanges);
+  });
   ipcMain.handle('code:files', (_event, host: unknown) =>
     backendJson(codeUrl(host, '/files'), { headers: agentHeaders() }).then(parseReviewCodeFiles));
-  ipcMain.handle('code:file', (_event, host: unknown, path: string) =>
-    backendJson(codeUrl(host, '/file', { path }), { headers: agentHeaders() }).then(parseReviewCodeFile));
+  ipcMain.handle('code:file', (_event, host: unknown, path: string, expectedRevision?: string) =>
+    backendJson(codeUrl(host, '/file', { path, ...(expectedRevision === undefined ? {} : { expectedRevision }) }), { headers: agentHeaders() }).then(parseReviewCodeFile));
   ipcMain.handle('code:symbols', (_event, host: unknown, query: string, limit: number) =>
     backendJson(codeUrl(host, '/symbols', { query, limit: String(limit) }), { headers: agentHeaders() })
       .then(parseReviewCodeSymbols));

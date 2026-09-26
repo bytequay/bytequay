@@ -263,7 +263,7 @@ public class ReviewTools
     {
         List<ReviewTool> tools = ImmutableList.of(
                 new ReviewTool("review_get_context",
-                        "Read bounded pull request context for this review: kind pr, timeline, checks "
+                        "Read bounded review context: kind scope reads frozen local or PR changes; kind pr, timeline, checks "
                                 + "(optional same-repository PR number; defaults to this review; page for timeline/checks), "
                                 + "thread (threadId from timeline, optional number and page; send its threadVersion on later pages), "
                                 + "issue (required number), diff (optional same-repository PR number, path, page, diffVersion, refresh), "
@@ -297,6 +297,7 @@ public class ReviewTools
                                                 "string",
                                                 "enum",
                                                 ImmutableList.of(
+                                                        "scope",
                                                         "pr",
                                                         "timeline",
                                                         "thread",
@@ -1493,10 +1494,11 @@ public class ReviewTools
         ObjectNode arguments = call.arguments();
         String kind = text(arguments, "kind", 30, true).toLowerCase(Locale.ROOT);
         return switch (kind) {
-            case "pr" -> pullRequest(call, integer(arguments, "number").orElse(call.review().number()));
-            case "timeline" -> timeline(call, integer(arguments, "number").orElse(call.review().number()), page(arguments));
-            case "thread" -> thread(call, integer(arguments, "number").orElse(call.review().number()), page(arguments));
-            case "checks" -> checks(call, integer(arguments, "number").orElse(call.review().number()), page(arguments));
+            case "scope" -> scope(call);
+            case "pr" -> pullRequest(call, pullRequestNumber(call));
+            case "timeline" -> timeline(call, pullRequestNumber(call), page(arguments));
+            case "thread" -> thread(call, pullRequestNumber(call), page(arguments));
+            case "checks" -> checks(call, pullRequestNumber(call), page(arguments));
             case "issue" -> issue(call, integer(arguments, "number").orElseThrow(() -> new ReviewInvalidRequestException("number: required for kind issue")), page(arguments));
             case "commit_prs" -> commitPullRequests(call);
             case "diff" -> diff(call);
@@ -1514,6 +1516,12 @@ public class ReviewTools
             case "evidence" -> evidence(call, text(arguments, "ref", MAX_EVIDENCE_REF, true));
             default -> throw new ReviewInvalidRequestException("kind: unknown context kind " + kind);
         };
+    }
+
+    private static int pullRequestNumber(Call call)
+    {
+        return integer(call.arguments(), "number").orElseGet(() -> call.review().number()
+                .orElseThrow(() -> new ReviewInvalidRequestException("number: select a pull request for this local review")));
     }
 
     private JsonNode note(Call call)
@@ -2148,6 +2156,23 @@ public class ReviewTools
         });
     }
 
+    private JsonNode scope(Call call)
+    {
+        ReviewRun run = call.run();
+        ObjectNode node = objectMapper.createObjectNode().put("repository", call.review().repo())
+                .put("baseRef", run.baseRef()).put("baseSha", run.baseSha()).put("mergeBaseSha", run.mergeBaseSha())
+                .put("headSha", run.headSha()).put("scope", run.scope().name());
+        call.review().sourceTaskId().ifPresent(id -> node.put("sourceTaskId", id));
+        call.review().number().ifPresent(number -> node.put("number", number));
+        node.putPOJO("commits", run.commits());
+        node.putPOJO("requiredReviewFiles", requiredFiles(call));
+        node.set("assignment", assignment(call));
+        node.putPOJO("changedFiles", run.diff().stream()
+                .map(file -> ImmutableMap.of("path", file.filename(), "status", file.status(), "additions", file.additions(), "deletions", file.deletions()))
+                .collect(toImmutableList()));
+        return node;
+    }
+
     private JsonNode pullRequest(Call call, int number)
     {
         SelectedPullRequestReader.Read read = selectedPullRequest(call, number, SelectedPullRequestReader.Section.PR);
@@ -2164,7 +2189,7 @@ public class ReviewTools
         node.putPOJO("labels", detail.labels().stream().map(PullRequestDetail.Label::name).collect(toImmutableList()));
         node.put("evidenceRef", registerEvidence(call, call.review().repo() + "#" + number + " metadata", pullRequestProvenance(call, number, read),
                 bounded(detail.title() + "\nAuthor: " + detail.author() + "; state: " + detail.state() + "; draft: " + detail.draft() + "\n" + body, MAX_EXCERPT)));
-        if (number == call.review().number()) {
+        if (call.review().number().stream().anyMatch(value -> value == number)) {
             node.put("baseRef", run.baseRef()).put("baseSha", run.baseSha()).put("mergeBaseSha", run.mergeBaseSha())
                     .put("headSha", run.headSha()).put("scope", run.scope().name());
             run.priorHeadSha().ifPresent(sha -> node.put("previousReviewedHead", sha));
@@ -2438,7 +2463,7 @@ public class ReviewTools
                 .put("note", "incomplete describes the requested section; unavailableSections lists all known cache gaps. Cache freshness does not establish remote currentness "
                         + "or complete historical discussion. cacheUpdatedAt may reflect a status-only update.");
         freshness.putPOJO("unavailableSections", read.detail().unavailableSections());
-        if (number == call.review().number()) {
+        if (call.review().number().stream().anyMatch(value -> value == number)) {
             read.observedHeadSha().ifPresentOrElse(head -> freshness.put("matchesReviewedHead", head.equals(call.run().headSha())),
                     () -> freshness.putNull("matchesReviewedHead"));
         }
@@ -2457,7 +2482,8 @@ public class ReviewTools
                 + "; refreshAttempted=" + read.refreshAttempted() + "; refreshFailed=" + read.refreshFailed()
                 + "; stale=" + read.stale() + "; incomplete=" + read.incomplete() + "; unavailableSections=" + read.detail().unavailableSections()
                 + "; cache freshness is not remote currentness or complete discussion evidence; cacheUpdatedAt may reflect a status-only update";
-        return number == call.review().number() ? provenance + "; frozenReviewedHead=" + call.run().headSha() : provenance + "; related historical source";
+        return call.review().number().stream().anyMatch(value -> value == number)
+                ? provenance + "; frozenReviewedHead=" + call.run().headSha() : provenance + "; related historical source";
     }
 
     private JsonNode issue(Call call, int number, int page)
@@ -2567,14 +2593,14 @@ public class ReviewTools
     private JsonNode diff(Call call)
     {
         ObjectNode arguments = call.arguments();
-        int number = integer(arguments, "number").orElse(call.review().number());
+        Optional<Integer> selectedNumber = integer(arguments, "number");
         int page = page(arguments);
         JsonNode refreshValue = arguments.get("refresh");
         if (refreshValue != null && !refreshValue.isBoolean()) {
             throw new ReviewInvalidRequestException("refresh: must be a boolean");
         }
         boolean refresh = refreshValue != null && refreshValue.booleanValue();
-        if (number == call.review().number()) {
+        if (selectedNumber.isEmpty() || call.review().number().stream().anyMatch(value -> value == selectedNumber.orElseThrow())) {
             if (arguments.has("diffVersion")) {
                 throw new ReviewInvalidRequestException("diffVersion: unavailable for the current review's frozen diff");
             }
@@ -2604,6 +2630,7 @@ public class ReviewTools
         if (refresh && (path.isPresent() || page != 1 || version.isPresent())) {
             throw new ReviewInvalidRequestException("refresh: only the initial related diff index without diffVersion can refresh");
         }
+        int number = selectedNumber.orElseThrow();
         SelectedPullRequestDiffReader.Read read;
         try {
             read = selectedPullRequestDiffs.read(call.review().repo(), number, version, refresh);

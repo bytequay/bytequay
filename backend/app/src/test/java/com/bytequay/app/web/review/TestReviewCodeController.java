@@ -111,10 +111,10 @@ class TestReviewCodeController
     void readsFilesWithNullsForAbsentValues()
             throws Exception
     {
-        when(code.file("review-1", "src/test/java/TestCode.java")).thenReturn(new CodeFile(
+        when(code.file("review-1", "src/test/java/TestCode.java", Optional.empty())).thenReturn(new CodeFile(
                 "src/test/java/TestCode.java", Optional.of("class TestCode {}\n"), Optional.of("hash"), Optional.empty(), Optional.empty(), Optional.of("@@ -1 +1 @@"),
                 ImmutableList.of(new LineChange(LineChange.Kind.MODIFIED, 1, 1), new LineChange(LineChange.Kind.DELETED, 0, 2))));
-        when(code.file("review-1", "image.png")).thenReturn(new CodeFile(
+        when(code.file("review-1", "image.png", Optional.empty())).thenReturn(new CodeFile(
                 "image.png", Optional.empty(), Optional.empty(), Optional.of("Production source — read-only here"), Optional.of("Binary file"), Optional.empty(), ImmutableList.of()));
 
         mvc.perform(get("/api/agent-review/review-1/code/file").param("path", "src/test/java/TestCode.java"))
@@ -130,6 +130,18 @@ class TestReviewCodeController
                         {"path": "image.png", "content": null, "contentHash": null, "editable": false,
                          "readOnlyReason": "Production source — read-only here", "unavailableReason": "Binary file", "prPatch": null, "lineChanges": []}
                         """, JsonCompareMode.STRICT));
+    }
+
+    @Test
+    void refusesAFileReadFromAnEarlierListingRevision()
+            throws Exception
+    {
+        when(code.file("review-1", "TestCode.java", Optional.of(HEAD)))
+                .thenThrow(new ReviewConflictException("The working copy revision changed; refresh the file list before reading this file"));
+
+        mvc.perform(get("/api/agent-review/review-1/code/file").param("path", "TestCode.java").param("expectedRevision", HEAD))
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.message").value("The working copy revision changed; refresh the file list before reading this file"));
     }
 
     @Test
@@ -260,8 +272,8 @@ class TestReviewCodeController
     {
         when(code.files("missing")).thenThrow(new ReviewNotFoundException("Review not found: missing"));
         when(code.files("new")).thenThrow(new ReviewConflictException("This review has no run yet"));
-        when(code.file("review-1", "Missing.java")).thenThrow(new ReviewNotFoundException("File not found: Missing.java"));
-        when(code.file("review-1", "../secret")).thenThrow(new IllegalArgumentException("path must be a normalized repository-relative path"));
+        when(code.file("review-1", "Missing.java", Optional.empty())).thenThrow(new ReviewNotFoundException("File not found: Missing.java"));
+        when(code.file("review-1", "../secret", Optional.empty())).thenThrow(new IllegalArgumentException("path must be a normalized repository-relative path"));
 
         mvc.perform(get("/api/agent-review/missing/code/files")).andExpect(status().isNotFound());
         mvc.perform(get("/api/agent-review/new/code/files"))

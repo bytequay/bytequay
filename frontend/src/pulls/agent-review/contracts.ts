@@ -101,6 +101,7 @@ export type ReviewRunDto = {
   scope: 'FULL' | 'INCREMENTAL';
   baseRef: string;
   baseSha: string;
+  mergeBaseSha: string;
   headSha: string;
   priorHeadSha: string | null;
   commits: ReviewCommitDto[];
@@ -234,14 +235,24 @@ export type ReviewDraftDto = {
   updatedAt: string;
 };
 
+export type ReviewWorktreeSyncDto = {
+  state: 'CURRENT' | 'PENDING' | 'BLOCKED' | 'UNAVAILABLE';
+  headSha: string | null;
+  targetHeadSha: string | null;
+  dirty: boolean;
+  reason: string | null;
+};
+
 export type AgentReviewDto = {
   id: string;
   workspaceId: string;
   repo: string;
-  number: number;
+  number: number | null;
+  sourceTaskId?: string | null;
   state: 'OPEN' | 'CLOSED';
   followUpPaused: boolean;
   observedHeadSha: string | null;
+  worktreeSync: ReviewWorktreeSyncDto | null;
   latestCompletedRunId: string | null;
   version: number;
   createdAt: string;
@@ -485,6 +496,7 @@ function parseRun(value: unknown): ReviewRunDto {
     scope: oneOf(run.scope, ['FULL', 'INCREMENTAL'] as const, 'run scope'),
     baseRef: text(run.baseRef, 'base branch'),
     baseSha: text(run.baseSha, 'base sha'),
+    mergeBaseSha: text(run.mergeBaseSha, 'merge base sha'),
     headSha: text(run.headSha, 'head sha'),
     priorHeadSha: optionalText(run.priorHeadSha),
     commits: list(run.commits).map(item => {
@@ -613,16 +625,25 @@ export function parseAgentReviews(value: unknown): AgentReviewDto[] {
 export function parseAgentReview(value: unknown): AgentReviewDto {
   const review = object(value, 'review');
   const task = object(review.task, 'review task');
+  const sync = review.worktreeSync == null ? null : object(review.worktreeSync, 'worktree sync');
   const activeTurn = review.activeTurn === null || review.activeTurn === undefined ? null : object(review.activeTurn, 'review turn');
   const pullRequest = review.pullRequest === null || review.pullRequest === undefined ? null : object(review.pullRequest, 'review pull request');
   return {
     id: text(review.id, 'review id'),
     workspaceId: text(review.workspaceId, 'workspace'),
     repo: text(review.repo, 'repository'),
-    number: count(review.number, 'pull request number'),
+    number: optionalCount(review.number),
+    sourceTaskId: optionalText(review.sourceTaskId),
     state: oneOf(review.state, ['OPEN', 'CLOSED'] as const, 'review state'),
     followUpPaused: flag(review.followUpPaused),
     observedHeadSha: optionalText(review.observedHeadSha),
+    worktreeSync: sync === null ? null : {
+      state: oneOf(sync.state, ['CURRENT', 'PENDING', 'BLOCKED', 'UNAVAILABLE'] as const, 'worktree sync state'),
+      headSha: optionalText(sync.headSha),
+      targetHeadSha: optionalText(sync.targetHeadSha),
+      dirty: flag(sync.dirty),
+      reason: optionalText(sync.reason),
+    },
     latestCompletedRunId: optionalText(review.latestCompletedRunId),
     version: count(review.version, 'review version'),
     createdAt: text(review.createdAt, 'review time'),

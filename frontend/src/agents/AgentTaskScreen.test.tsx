@@ -594,17 +594,18 @@ describe('agent task side panel', () => {
     capabilities: CAPABILITIES,
   };
 
-  it('offers Code & Tests on the task\'s pull request only while the task keeps its worktree', () => {
-    const render = (extra: Partial<AgentTaskDto>) => renderToStaticMarkup(
+  it('offers Code & Tests for any task with a worktree, before or after a pull request exists', () => {
+    const render = (extra: Partial<AgentTaskDto>, pulls: PullRequestDto[] = []) => renderToStaticMarkup(
       <AgentTaskBody
         state={{ ...state, task: { ...state.task, interactive: true, checkoutRemovedAt: null, ...extra } }}
-        panelOpen
-        pullRequests={[pullRequest(482, 'Fix preview output limit')]}
+        panelOpen panelTab="review"
+        pullRequests={pulls}
         {...props}
       />);
     expect(render({})).toMatch(/<button[^>]*aria-pressed="false"[^>]*>[^]*?Code &amp; Tests/);
-    expect(render({ checkoutRemovedAt: '2026-08-21T10:00:00Z' })).not.toContain('Code &amp; Tests');
-    expect(render({ interactive: false })).not.toContain('Code &amp; Tests');
+    expect(render({}, [pullRequest(482, 'Fix preview output limit')])).toContain('Code &amp; Tests');
+    expect(render({ checkoutRemovedAt: '2026-08-21T10:00:00Z' })).toMatch(/<button[^>]*disabled=""[^>]*>[^]*?Code &amp; Tests/);
+    expect(render({ interactive: false })).toContain('Code &amp; Tests');
   });
 
   it('keeps Discussions beside the other tabs once the task has a pull request', () => {
@@ -621,12 +622,12 @@ describe('agent task side panel', () => {
     // The panel header is replaced when a task has a pull request, so a tab registered in that
     // header's own list would vanish here. This asserts it lives in the shared slot instead.
     const withPullRequest = renderToStaticMarkup(
-      <AgentTaskBody state={state} panelOpen discussions={discussions}
+      <AgentTaskBody state={state} panelOpen panelTab="agents" discussions={discussions}
         pullRequests={[pullRequest(482, 'Fix preview output limit')]} {...props} />);
     expect(withPullRequest).toMatch(/<button[^>]*aria-pressed="false"[^>]*>[^]*?Discussions/);
 
     const withoutPullRequest = renderToStaticMarkup(
-      <AgentTaskBody state={state} panelOpen discussions={discussions} pullRequests={[]} {...props} />);
+      <AgentTaskBody state={state} panelOpen panelTab="agents" discussions={discussions} pullRequests={[]} {...props} />);
     expect(withoutPullRequest).toMatch(/<button[^>]*aria-pressed="false"[^>]*>[^]*?Discussions/);
 
     // No hook, no tab: a screen that never asked for discussions must not grow one.
@@ -634,7 +635,7 @@ describe('agent task side panel', () => {
       .not.toContain('Discussions');
   });
 
-  it('opens on the authored pull request with Changes and Subagents beside it', () => {
+  it('keeps PR overview separate from the WorkBench tools', () => {
     const markup = renderToStaticMarkup(
       <AgentTaskBody
         state={state}
@@ -645,18 +646,17 @@ describe('agent task side panel', () => {
       />);
     expect(markup).toContain('aria-label="Show or hide the side panel"');
     expect(markup).toContain('aria-label="Pull request #482"');
-    // Three tabs, the pull request first and selected without another click.
+    // PR and WorkBench are the only top-level destinations.
     expect(markup).toMatch(/<button[^>]*aria-pressed="true"[^>]*>[^]*?PR #482</);
-    expect(markup).toMatch(/<button[^>]*aria-pressed="false"[^>]*>[^]*?Changes/);
-    expect(markup).toMatch(/<button[^>]*aria-pressed="false"[^>]*>[^]*?Subagents/);
-    expect(markup).toContain('>+12<');
-    expect(markup).toContain('>−3<');
+    expect(markup).toMatch(/<button[^>]*aria-pressed="false"[^>]*>[^]*?WorkBench/);
+    expect(markup).not.toContain('Files changed');
+    expect(markup).not.toContain('Subagents');
     // The panel uses the same PR toolbar, including refresh and the zoom action.
     expect(markup).toContain('aria-label="Zoom pull request details"');
     expect(markup).toContain('aria-label="Refresh pull request"');
     expect(markup).not.toContain('aria-label="Hide the side panel"');
     expect(markup).not.toContain('Agent review');
-    expect(markup).not.toContain('Review &amp; Learning');
+    expect(markup).not.toContain('Summary');
     expect(markup).toContain('title="Drag to resize the panel"');
     expect(markup).toContain('style="width:960px"');
     expect(markup).toContain('class="pull-detail__body"');
@@ -701,8 +701,8 @@ describe('agent task side panel', () => {
     expect(markup).toContain('aria-label="Subagents"');
     expect(markup).toMatch(/<button[^>]*aria-pressed="true"[^>]*>[^]*?Subagents/);
     expect(markup).toContain('No active subagents');
-    // The tab reads Pull request, without a number, until the branch has one.
-    expect(markup).toContain('Pull request<');
+    // The top-level PR destination has no number until a pull request exists.
+    expect(markup).toContain(' PR<');
     expect(markup).not.toContain('No pull requests from this task yet');
   });
 
@@ -716,7 +716,7 @@ describe('agent task side panel', () => {
     }
   });
 
-  it.each(['pr', 'changes'] as const)('retains the cached pull request and task error after a failed lookup on %s', (panelTab) => {
+  it.each(['pr', 'files'] as const)('retains the cached pull request and task error after a failed lookup on %s', (panelTab) => {
     const pullRequestError = 'Could not refresh the branch pull request.';
     const markup = renderToStaticMarkup(
       <AgentTaskBody
@@ -735,7 +735,7 @@ describe('agent task side panel', () => {
     expect(markup).not.toContain('this task&#x27;s branch has no pull request');
   });
 
-  it.each(['pr', 'changes'] as const)('does not report an empty branch when the lookup failed on %s', (panelTab) => {
+  it.each(['pr', 'files'] as const)('does not report an empty branch when the lookup failed on %s', (panelTab) => {
     const pullRequestError = 'Could not refresh the branch pull request.';
     const markup = renderToStaticMarkup(
       <AgentTaskBody
@@ -775,7 +775,7 @@ describe('agent task side panel', () => {
     expect(markup).toContain('aria-label="Pull request"');
     expect(markup).not.toContain('Subagents');
     expect(markup).not.toContain('No active subagents');
-    expect(markup).toMatch(/<button[^>]*aria-pressed="true"[^>]*>[^]*?Pull request</);
+    expect(markup).toMatch(/<button[^>]*aria-pressed="true"[^>]*>[^]*? PR</);
   });
 
   it('reads the task pull request in the panel instead of a list that navigates away', () => {
@@ -794,7 +794,7 @@ describe('agent task side panel', () => {
     expect(markup).not.toContain('on this task&#x27;s branch');
     // Changes reads the same pull request's diff; findings still open on the full-width surface.
     const changes = renderToStaticMarkup(
-      <AgentTaskBody state={state} panelOpen panelTab="changes" pullRequests={[]} {...props} />);
+      <AgentTaskBody state={state} panelOpen panelTab="files" pullRequests={[]} {...props} />);
     expect(changes).toContain('aria-label="Changes"');
     expect(changes).toContain('this task&#x27;s branch has no pull request');
   });
@@ -802,6 +802,7 @@ describe('agent task side panel', () => {
   it('shows review threads on the panel diff once the pull request detail is read', () => {
     const pr = pullRequest(482, 'Fix preview output limit');
     const changes: TaskPullRequestChanges = {
+      allFiles: [],
       files: [{
         filename: 'src/Example.java',
         status: 'modified',
@@ -815,13 +816,13 @@ describe('agent task side panel', () => {
     };
     const withoutDetail = renderToStaticMarkup(
       <AgentTaskBody
-        state={state} panelOpen panelTab="changes" pullRequests={[pr]}
+        state={state} panelOpen panelTab="files" pullRequests={[pr]}
         onAskAgent={async () => {}}
         pullRequestChanges={changes}
         {...props} />);
     const withDetail = renderToStaticMarkup(
       <AgentTaskBody
-        state={state} panelOpen panelTab="changes" pullRequests={[pr]}
+        state={state} panelOpen panelTab="files" pullRequests={[pr]}
         onAskAgent={async () => {}}
         pullRequestChanges={changes}
         pullRequestDetail={{
@@ -844,10 +845,10 @@ describe('agent task side panel', () => {
 
   it('keeps commit selection available after a comparison fails', () => {
     const markup = renderToStaticMarkup(<AgentTaskBody
-      state={state} panelOpen panelTab="changes"
+      state={state} panelOpen panelTab="files"
       pullRequests={[pullRequest(482, 'Fix preview output limit')]}
       pullRequestChanges={{
-        files: [], loading: false, error: 'Comparison failed',
+        files: [], allFiles: [], loading: false, error: 'Comparison failed',
         commits: [{ sha: 'abcdef1', parentSha: 'abcdef0', message: 'Fix output', author: 'alice', authoredAt: null }],
       }}
       pullRequestCommitRange={{ start: 0, end: 0 }}
@@ -861,12 +862,12 @@ describe('agent task side panel', () => {
     const markup = renderToStaticMarkup(<AgentTaskBody
       state={{ ...state, task: { ...state.task, state: 'COMPLETED' } }}
       onAskAgent={async () => {}}
-      panelOpen panelTab="changes"
+      panelOpen panelTab="files"
       pullRequests={[pullRequest(482, 'Fix preview output limit')]}
       pullRequestChanges={{ files: [{
         filename: 'src/Example.java', status: 'modified', additions: 1, deletions: 0,
         patch: '@@ -1,1 +1,2 @@\n line one\n+line two',
-      }], commits: [], loading: false, error: null }}
+      }], allFiles: [], commits: [], loading: false, error: null }}
       {...props} />);
     expect(markup).toContain('src/Example.java');
     expect(markup).not.toContain('aria-label="Add a comment on new line 2"');

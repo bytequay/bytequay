@@ -178,7 +178,7 @@ public class ReviewLessonDraftService
         try {
             String data = mapper.writeValueAsString(ImmutableMap.of(
                     "repository", review.repo(),
-                    "pullRequestNumber", review.number(),
+                    "pullRequest", review.number().isPresent() ? review.repo() + "#" + review.number().getAsInt() : "No associated pull request",
                     "reviewedHead", run.headSha(),
                     "selectedMessage", ImmutableMap.of("author", source.author().name(), "text", excerpt(source.body(), 8000)),
                     "earlierDiscussion", preceding,

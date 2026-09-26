@@ -1,6 +1,10 @@
 # Agent Review
 
-This is the canonical design for the PR-owned Review & Learning workflow. Changes to the
+[WorkBench](workbench.md) owns the shared navigation, task-bound code access,
+and reviews of local development commits. Its source and hosting contracts
+apply to the existing services described here.
+
+This is the canonical design for the review workflow shown in WorkBench Summary. Changes to the
 product boundary or the invariants below require explicit approval. Delivery
 and verification belong in [the implementation checklist](agent-review-impl-tmp.md),
 not in this document. Keep this document as final design content, without a
@@ -8,7 +12,8 @@ dated progress log.
 
 ## 1. Decision
 
-Agent review is a private, PR-owned workflow over the existing agent service.
+Agent review is a private workflow over the existing agent service, sourced from
+a GitHub PR or a development task's committed branch snapshot.
 One ongoing review owns one agent task, provider conversation, and managed
 worktree. Multiple investigation, discussion, and incremental-review turns
 reuse them. Finishing one review run does not complete the agent task.
@@ -73,20 +78,19 @@ or restoration of deleted task/development-flow systems.
 
 ## 2. UI placement and reuse
 
-PR browsing exposes **Review & Learning** beside **PR #number** and **Changes**
-for other authors' pull requests. Authored PRs omit this tab in browsing and the
-task PR pane. Their **Assign agent** icon beside GitHub uses the existing
-interactive development task service to load the PR context and continue work;
-see [Assigning an existing authored pull request](agent-service.md#assigning-an-existing-authored-pull-request).
-A **View in task** icon for every PR with a matching workspace opens navigation,
-the agent conversation and the PR together. It reuses a linked task/review;
-without one, its tooltip explains that it assigns an agent or starts a review.
-Both icons are disabled without a matching workspace, with an explanatory tooltip.
-Workspace lookup loading and errors remain distinct from absence.
+The shared panel exposes **PR** and **WorkBench**. PR shows the overview with
+GitHub actions. WorkBench contains Summary, Changes, and
+Code & Tests. Summary is available for authored and other authors' PRs and for
+development tasks before PR creation. **Review changes** on a development task
+starts a separate reviewer with the configured Review provider/model; the
+source developer keeps its conversation and working copy. An explicitly opened
+review workspace always shows that reviewer's source and shares its one stream.
+The authored PR's **Assign agent** and **View in task** entry points continue to
+use the existing task navigation and ownership checks.
 
 The tab shows independent private cards
-in three visually distinct areas: **PR intention**, **Commit implementation**,
-and **Findings**. PR intention has a larger green card and stronger top border.
+in three visually distinct areas: **Change intention**, **Commit implementation**,
+and **Findings**. Change intention has a larger green card and stronger top border.
 Commit implementation is a native ordered list with visible `1.`, `2.`, `3.`
 markers in source order. Each entry shows the commit's title, short SHA, and
 original message body first. Its separate blue-header, white-body review card
@@ -97,7 +101,7 @@ inline review-comment presentation. Each card retains its own private discussion
 through the shared [Local review comments](agent-service.md#local-review-comments)
 components. Do not generate combined-result, evidence/test, coverage, or
 critical-issues cards. Nonblocking verification warnings, such as cloud tests
-that could not run without external credentials, appear inside the PR intention
+that could not run without external credentials, appear inside the change intention
 card for the displayed run. An accepted review with warnings remains **Finished**
 and its supported findings can be selected for publication.
 A collapsed **Review details** disclosure shows the
@@ -117,7 +121,7 @@ The tab shows **Reviewing** throughout investigation, validation, and automatic
 report repair, including the gap between automatic assignments. An accepted result is **Finished**;
 a persistent failure is **Could not finish**, with its reason. There is no routine **Retry review**
 action: ByteQuay owns recovery within the running review. **Resume** is for a review the user stopped;
-**Update review** remains the explicit action to synchronize the remote head. Internal
+**Update review** remains the explicit action to review the latest source revision. Internal
 incomplete-report states are not user-facing stages. Only an accepted result's
 timestamp says **finished**; an unsuccessful attempt says **ended**. Saved
 partial work remains provisional, and a failed attempt never claims there are
@@ -161,8 +165,8 @@ copies the other's state. **View in Changes** opens the exact file/range and
 recorded snapshot, not an unrelated line in the latest diff.
 
 Private review is available for other authors' closed/merged PRs when their
-source can be resolved. Authored PRs enter through assignment instead; retained
-older private reviews remain accessible from their existing task routes.
+source can be resolved. Authored PRs can start a private review or use their development WorkBench;
+retained reviews remain accessible from their existing task routes.
 Do not reuse the remote-review eligibility predicate for private review. Remote publication retains existing
 account/PR eligibility checks; a private review does not grant new remote
 approval or comment permissions.
@@ -194,7 +198,7 @@ pull request's title, state and draft flag; it is absent until ByteQuay has
 stored that pull request, and nothing fetches it to fill the gap. Supplying `repo` and `number` retains the existing
 single-PR lookup; `GET /api/agent-review/{reviewId}` opens an exact retained review.
 
-In PR browsing, a **Code & Tests** tab beside Review & Learning reads whole
+In PR browsing, a **Code & Tests** tab beside Summary reads whole
 files, follows symbols, runs tests, edits test source and opens a terminal in
 the open review's working copy. Its routes under
 `/api/agent-review/{reviewId}/code` (`files`, `file`, `symbols`, `outline`,
@@ -262,7 +266,7 @@ this is not a second task engine:
 
 | Record | Required facts |
 | --- | --- |
-| Review | Workspace and logical PR identity, physical repository/head-branch identity, agent task ID, latest completed run, latest observed PR head, follow-up execution enabled/paused, optimistic version, explicit closure |
+| Review | Workspace, optional source development task, optional logical PR identity, physical repository/head-branch identity, reviewer agent task ID, latest completed run, latest observed PR head, follow-up execution enabled/paused, optimistic version, explicit closure |
 | Run | Review ID, full/incremental scope, frozen base tip and merge base, head SHA, prior successful reviewed head if any, turn IDs, ordered assignments, latest investigation, optional context snapshot with sealed contributions and immutable delivery bindings, accepted result/coverage, terminal outcome |
 | Assignment | Consecutive number, investigation/validation/evidence-collection kind, reporting-repair attempt, immutable report when sealed |
 | Investigation | Change map, distinct assessed changed-file paths, captured supporting context refs, numbered hypotheses, evidence-request answers, latest validation conclusions |
@@ -276,8 +280,9 @@ this is not a second task engine:
 These are logical records, not a mandate for one table per row. Reuse existing
 draft and publication mechanisms where they satisfy durability and identity.
 Use optimistic versions and operation idempotency at every local mutation.
-Enforce one open review per workspace/logical PR; duplicate Start actions
-return it rather than allocate another task/worktree. Replace the ephemeral
+Enforce one open review per workspace/source development task or, for PR-owned
+reviews, workspace/logical PR. Duplicate Start actions reuse that source's
+reviewer task and worktree. Replace the ephemeral
 pending-comment array with the same durable draft path for manual Add to
 review and agent Add to my review. Manual-only review must still work without
 an agent review record.
@@ -306,11 +311,20 @@ guaranteed correct or that every possible test ran.
 ## 4. Background execution and worktree
 
 Starting review is a direct user action. ByteQuay checks provider readiness,
-resolves/fetches the exact PR head and base, and provisions through
+captures the exact source head and base, and provisions through
 [WorktreeService](worktree-service.md). The generated local branch remains
 ByteQuay-owned; it maps to the contributor's branch but is not that remote
 branch and is never pushed by this workflow. Resolve fork PR heads through
 trusted repository/PR metadata, not an agent-supplied shell command or URL.
+For a development source, read the verified source worktree's local Git objects
+without fetching or touching its index. Capture committed work, including
+unpushed commits; exclude uncommitted files. The fresh reviewer receives the
+source task's requirements and selected code, not the developer's conversation.
+GET/POST `/api/agent-review/tasks/{sourceTaskId}?workspaceId=...` finds or starts
+this review. The source task may be deleted later without deleting retained
+reviewer results; further updates then explain that the source is unavailable.
+An explicit Update can adopt a subsequently created real source PR, retaining
+the reviewer and source identities. Nothing publishes automatically.
 
 Create a workflow-owned task and start its first turn with a ByteQuay-built
 review request. Display that input as **ByteQuay · Review request**, not as a
@@ -340,10 +354,14 @@ refresh event. Show newer PR commits as information about the reviewed version;
 they do not prevent publishing comments on their original reviewed commit.
 Advancement of the merge target branch, such as another PR merging into master,
 does not invalidate the review or its outgoing comments. Retained closed/merged
-runs stay bound to their historical scope. Refresh does not move the checkout
-or start another review. Only an explicit user **Update review** or **Resume**
-action may synchronize it; never interrupt an active investigation or move its
-worktree beneath it.
+runs stay bound to their historical scope. A newer remote head automatically
+updates a clean reviewer checkout once its complete review run and all task
+work are idle. This includes a force-pushed head. Never interrupt an active
+investigation, validation, repair, discussion, or local run, or move the worktree
+beneath its processes. Terminal task events and the existing reconciliation
+path retry a deferred catch-up. Observing or catching up never starts another
+review; **Update review** or **Resume** still explicitly assesses the new head.
+Development-source reviews follow their local source only on explicit update.
 An explicit update can capture the current base tip and merge base as source
 context and start a full review when that context changed. This analysis choice
 does not change the commit or location of any existing outgoing comment. An
@@ -352,15 +370,19 @@ changed base code need source or executable evidence, or remain unresolved.
 
 Before syncing, require the existing task execution boundary to exclude turn
 start, queued start, tools, and cleanup. Verify provider quiescence, generated
-branch/repository ownership, expected HEAD, and no open Git operation. Save
-uncommitted experiments before moving; require a clean index/worktree including
-untracked files at the move itself. An unrelated review-only mutex that
+branch/repository ownership, expected HEAD, and no open Git operation. Automatic
+catch-up refuses staged, unstaged, or untracked changes, saved experiments, and
+unrelated local commits; it never stashes or discards them. Show the stale branch
+and the existing Update review action when saved edits block catch-up. Explicit
+Update retains the experiment handling below. Require a clean index/worktree
+including untracked files at the move itself. An unrelated review-only mutex that
 the agent queue can bypass is insufficient.
 
 The core `synchronizeWorktree` callback uses the same durable task version,
 task lock, and existing mutation claim as private local-review transitions.
-It excludes direct and queued starts throughout stash, move, and restoration,
-and releases ownership before launching the next review turn. A review mutex
+It excludes direct and queued starts throughout automatic moves and explicit
+stash, move, and restoration, and releases ownership before launching any next
+review turn. Automatic catch-up launches none. A review mutex
 alone is insufficient because the core queue can start without it. Native
 stash operations also hold a repository lock across linked worktrees.
 `WorktreeService` itself gains no review lifecycle, discard mode or generic
@@ -375,13 +397,18 @@ takes the task's `LOCAL_RUN` mutation claim under the review lock and keeps it
 until its processes are verified stopped. Turn start, enqueue and
 synchronization already refuse a held claim. Update review, Resume and End
 review also refuse it explicitly with "A run is using this working copy", and
-Review & Learning disables those controls, Run review again and Send to agent
+Summary disables those controls, Run review again and Send to agent
 with that reason.
 
 For an ordinary descendant head, update the verified generated branch with a
 guarded fast-forward and verify the resulting HEAD. Unknown local commits are
-refused. Keep `TaskWorktree.startCommit` as the original provisioning fact; the
-current and completed review heads remain run facts.
+refused. Keep `TaskWorktree.startCommit` as the original provisioning fact and
+each reviewed head as an immutable run fact. Separately retain the last
+service-aligned worktree head so repeated remote updates can catch up without
+mistaking the earlier automatic move for a local commit. Derived worktree sync
+status reports its actual head, target, dirty state, and blocker independently
+of whether that target has been reviewed. The additive nullable head field is
+managed by Hibernate without a data reset.
 
 Dirty experiments, including new tests and manual edits, are saved with native
 `git stash push --include-untracked` before sync. Apply that exact stash at the
@@ -402,10 +429,10 @@ or Git failures remain ordinary errors.
 
 Local-only commits, a different branch, or an open Git operation still require
 inspection before syncing. For a force push/non-descendant update, compute a
-full-review scope; the explicit **Update review** action authorizes realignment
-to the verified remote revision. Experiments use
-the same stash-and-restore path. Keep the old review readable until a new run
-has completed.
+full-review scope when the user requests another review. A clean idle worktree
+can realign automatically to the verified remote revision; dirty experiments
+require explicit **Update review** and use the same stash-and-restore path.
+Keep the old review readable until a new run has completed.
 
 **Stop** cancels the current run, pauses queued/new-head execution, and keeps
 the review open for discussion or explicit resume. **End review** closes the
@@ -1355,7 +1382,7 @@ publication. Reuse existing PR refresh cadence for observed head changes.
 
 Defer a fourth column, new global review inbox, cross-PR agent memory,
 independent reviewer/verifier multi-agent execution, arbitrary application tool
-registry, automatic force-push worktree repair, automatic commit/push,
+registry, automatic conflict repair of local changes, automatic commit/push,
 provider-history editing, and a new scheduler or graph framework. Do not
 describe CodeRabbit's private implementation as an established specification;
 this is ByteQuay's design.
@@ -1365,12 +1392,12 @@ this is ByteQuay's design.
 Copy the following prompt into the UI-design task. Supply the current PR
 details screenshot and access to the current frontend when available.
 
-> Design the Review & Learning tab for ByteQuay, a macOS desktop app. This is a
+> Design the Summary tab for ByteQuay, a macOS desktop app. This is a
 > design/prototype task, not backend implementation. Follow
 > `docs/design/agent-review.md`; do not change its product behavior.
 >
 > Preserve the existing shell: left navigation, middle PR list, and the
-> right-hand PR pane. Add Review & Learning beside PR #number and Changes in
+> right-hand PR pane. Add Summary beside PR #number and Changes in
 > both the PR list and development task PR pane. Append the derived run status.
 > Do not add a fourth column or put the summary into the GitHub timeline.
 >
@@ -1385,7 +1412,7 @@ details screenshot and access to the current frontend when available.
 > do not introduce a review-only dark theme. If source is unavailable, use the
 > screenshot and explicitly list assumptions instead of claiming code reuse.
 >
-> Review & Learning separates a larger green PR intention card, a numbered
+> Summary separates a larger green PR intention card, a numbered
 > commit list, and Findings below a clear divider. Each numbered item has the
 > Git commit title/message above its separate review explanation and discussion
 > card; use the existing code-diff comment editor for that card's input. Bugs, critical issues, and concrete inline code suggestions belong

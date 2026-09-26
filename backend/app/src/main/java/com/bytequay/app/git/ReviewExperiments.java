@@ -46,6 +46,22 @@ public class ReviewExperiments
         this.worktrees = requireNonNull(worktrees, "worktrees is null");
     }
 
+    /** Automatic catch-up never captures, restores, or discards private work. */
+    public void synchronizeClean(TaskWorktree worktree, String expectedHead, String targetHead, Runnable moveHead)
+    {
+        Lock lock = repositoryLock(worktree);
+        lock.lock();
+        try {
+            requireCleanHead(worktree, expectedHead);
+            checkState(ownedStashes(worktree).isEmpty(), "Saved private experiments are waiting; update the review explicitly");
+            moveHead.run();
+            requireCleanHead(worktree, targetHead);
+        }
+        finally {
+            lock.unlock();
+        }
+    }
+
     /** Explicit sync may discard experiments that cannot be restored; returned information always describes the verified target revision. */
     public Optional<String> synchronize(TaskWorktree worktree, String expectedHead, String targetHead, Runnable moveHead)
     {

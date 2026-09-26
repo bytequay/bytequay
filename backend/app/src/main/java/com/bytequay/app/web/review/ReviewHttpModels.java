@@ -59,6 +59,7 @@ final class ReviewHttpModels
                 review.workspaceId(),
                 review.repo(),
                 review.number(),
+                review.sourceTaskId(),
                 review.state().name(),
                 review.followUpPaused(),
                 review.observedHeadSha(),
@@ -75,7 +76,8 @@ final class ReviewHttpModels
                 projection.pendingApprovals(),
                 projection.byteQuayTurnIds(),
                 projection.draft().map(ReviewHttpModels::draft),
-                projection.pullRequest().map(pullRequest -> new PullRequestResponse(pullRequest.title(), pullRequest.state(), pullRequest.draft())));
+                projection.pullRequest().map(pullRequest -> new PullRequestResponse(pullRequest.title(), pullRequest.state(), pullRequest.draft())),
+                projection.worktreeSync().map(sync -> new WorktreeSyncResponse(sync.state().name(), sync.headSha(), sync.targetHeadSha(), sync.dirty(), sync.reason())));
     }
 
     private static RunResponse run(AgentReviewProjection.RunView run)
@@ -86,6 +88,7 @@ final class ReviewHttpModels
                 run.scope().name(),
                 run.baseRef(),
                 run.baseSha(),
+                run.mergeBaseSha(),
                 run.headSha(),
                 run.priorHeadSha(),
                 run.commits(),
@@ -230,7 +233,8 @@ final class ReviewHttpModels
             String id,
             String workspaceId,
             String repo,
-            int number,
+            OptionalInt number,
+            Optional<String> sourceTaskId,
             String state,
             boolean followUpPaused,
             Optional<String> observedHeadSha,
@@ -247,7 +251,10 @@ final class ReviewHttpModels
             int pendingApprovals,
             List<String> byteQuayTurnIds,
             Optional<DraftResponse> draft,
-            Optional<PullRequestResponse> pullRequest) {}
+            Optional<PullRequestResponse> pullRequest,
+            Optional<WorktreeSyncResponse> worktreeSync) {}
+
+    record WorktreeSyncResponse(String state, Optional<String> headSha, Optional<String> targetHeadSha, boolean dirty, Optional<String> reason) {}
 
     record RunResponse(
             String id,
@@ -255,6 +262,7 @@ final class ReviewHttpModels
             String scope,
             String baseRef,
             String baseSha,
+            String mergeBaseSha,
             String headSha,
             Optional<String> priorHeadSha,
             List<ReviewCommit> commits,

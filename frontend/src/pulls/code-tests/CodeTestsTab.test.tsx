@@ -42,6 +42,7 @@ function bridge(): CodeTestsBridge {
     listAgentReviews: vi.fn(),
     startAgentReview: vi.fn(),
     getAgentReview: vi.fn(),
+    updateAgentReview: vi.fn(),
     subscribeAgentReview: vi.fn(),
     getAgentTask: vi.fn(),
   };
@@ -70,9 +71,28 @@ describe('CodeTestsTab', () => {
     expect(html).toContain('aria-pressed="false" title="Show only test files"');
     expect(html).toContain('aria-label="Back"');
     expect(html).toContain('aria-pressed="false" title="Every file in the repository"><span class="ct-scope__label">All files');
-    expect(html).toContain('title="Only files this pull request or this working copy touched"><span class="ct-scope__label">Changed in PR</span><span class="ct-scope__count">');
+    expect(html).toContain('title="Files changed on this branch or in the working copy"><span class="ct-scope__label">Changed files</span><span class="ct-scope__count">');
     expect(html).toContain('Loading files…');
     expect(html).toContain('Open a file from the tree to read it whole.');
+  });
+
+  it('shows preserved local work when automatic sync is blocked', () => {
+    const review = reviewFixture({ observedHeadSha: 'new-head', worktreeSync: {
+      state: 'BLOCKED', headSha: 'old-head', targetHeadSha: 'new-head', dirty: true, reason: 'Local edits',
+    } });
+    const html = renderToStaticMarkup(<CodeTestsTab workspaceId="workspace-1" review={review}
+      onReviewChange={() => {}} active ownReviewStream={false} bridge={bridge()} />);
+    expect(html).toContain('Working copy is stale');
+    expect(html).toContain('Saved local changes are preserved');
+    expect(html).toContain('>Update review</button>');
+  });
+
+  it('opens code before a PR exists, including for a workflow task', () => {
+    const task = { ...parseAgentTask(contracts.task), interactive: false };
+    const html = renderToStaticMarkup(<CodeTestsTab workspaceId="workspace-1" review={null} task={task}
+      onReviewChange={() => {}} active ownReviewStream={false} bridge={bridge()} />);
+    expect(html).toContain('aria-label="Go to file or symbol"');
+    expect(html).not.toContain('Start review');
   });
 
   it('truncates the scope labels in a narrow files column instead of pushing its icons out', () => {

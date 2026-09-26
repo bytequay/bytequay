@@ -569,23 +569,44 @@ public class DevelopmentFollowupCoordinator
     static String summaryPrompt(DevelopmentBaseline baseline, DevelopmentLocalFacts local)
     {
         return """
-                ByteQuay · Refining summary
+                # ByteQuay · Refining summary
+
                 Refresh this development task's private Review & Learning cards from the final code and actual commits.
-                Worktree: %s. Branch: %s. Expected HEAD: %s. Frozen comparison base: %s.
+
+                ## Scope
+
+                - **Worktree:** %s
+                - **Branch:** %s
+                - **Expected HEAD:** `%s`
+                - **Frozen comparison base:** `%s`
+
                 Read the current diff and commit history, including any uncommitted changes. Explain the task's intention
                 and each commit's design and implementation. Ground explanations in the final code; do not invent rationale
                 or verification. Distinguish inferred rationale from the stated intent.
-                This is a reporting-only follow-up. Do not edit files, create or rewrite commits, push, publish, run
-                repairs, release held work, or resolve a pending user decision. Preserve the task's existing question.
-                Call report_development_result with readyForDelivery=true and learningSummary containing purpose,
-                commits (one object per actual commit with full sha, title, and summary). Include only these two fields.
-                Explain how uncommitted work differs from the commits in the intention. Do not write the summary into a
-                worktree file. All text stays private to this task.
+
+                ## Guardrails
+
+                - This is a reporting-only follow-up. Do not edit files, create or rewrite commits, push, publish, or run repairs.
+                - Do not release held work or resolve a pending user decision. Preserve the task's existing question.
+                - Do not write the summary into a worktree file. All text stays private to this task.
+                - This reporting-only follow-up does not start a new review.
+
+                ## Writing
+
+                Explain how uncommitted work differs from the commits in the intention.
+
                 Follow the shared card writing targets and applicable writing skills. Use short, complete sentences for
                 the intention and each commit; explain why the design and implementation solve the problem. Keep bugs and
-                concrete code improvements in anchored Findings when the review tools are available. This reporting-only
-                follow-up does not start a new review. Replace stale prose; do not append another recap.
-                readyForDelivery here only confirms this summary was recorded; it does not authorize delivery of held work.
+                concrete code improvements in anchored Findings when the review tools are available.
+
+                Replace stale prose; do not append another recap.
+
+                ## Report
+
+                Call `report_development_result` with `readyForDelivery=true` and `learningSummary` containing `purpose`,
+                `commits` (one object per actual commit with full `sha`, `title`, and `summary`). Include only these two fields.
+
+                `readyForDelivery` here only confirms this summary was recorded; it does not authorize delivery of held work.
                 """.formatted(quote(baseline.worktree().canonicalWorktree().toString()), quote(baseline.route().headBranch()), local.headSha(), baseline.route().baseSha());
     }
 
@@ -610,16 +631,33 @@ public class DevelopmentFollowupCoordinator
     static String commitPrompt(DevelopmentBaseline baseline, DevelopmentLocalFacts local)
     {
         return """
-                ByteQuay · Auto commit
+                # ByteQuay · Auto commit
+
                 The user's accepted Auto commit setting authorizes this bounded follow-up for the completed task work.
-                Work only in %s on branch %s. Expected starting HEAD: %s.
-                Check that ownership and HEAD still match before making changes. If they do not, stop and report the problem.
+
+                ## Scope
+
+                - **Worktree:** %s
+                - **Branch:** %s
+                - **Expected starting HEAD:** `%s`
+
+                Work only in this worktree and on this branch. Check that ownership and HEAD still match before making
+                changes. If they do not, stop and report the problem.
+
+                ## Commit
+
                 Commit the completed task changes in focused commits, choosing subjects and bodies from the actual changes
-                and the repository's commit conventions. Never add an attribution, co-authorship, or generated-with trailer.
-                Preserve existing commits; do not amend, rebase, reset, or change branches.
-                Do not discard changes merely to make the checkout clean. Exclude ignored build output and credentials.
-                Do not push or create a pull request in this turn. Preserve the previously reported local validation limitations.
-                If a user decision remains, report_development_result with readyForDelivery=false and ask in the final response.
+                and the repository's commit conventions.
+
+                - Never add an attribution, co-authorship, or generated-with trailer.
+                - Preserve existing commits; do not amend, rebase, reset, or change branches.
+                - Do not discard changes merely to make the checkout clean. Exclude ignored build output and credentials.
+                - Do not push or create a pull request in this turn.
+                - Preserve the previously reported local validation limitations.
+
+                ## Report
+
+                If a user decision remains, call `report_development_result` with `readyForDelivery=false` and ask in the final response.
                 Otherwise report readiness before ending. ByteQuay controls later stages using the user's accepted automation settings.
                 """.formatted(quote(baseline.worktree().canonicalWorktree().toString()), quote(baseline.route().headBranch()), local.headSha());
     }

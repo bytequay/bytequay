@@ -525,7 +525,7 @@ public class DefaultReviewPublicationService
     private Optional<String> acceptedReviewProblem(String repo, int number, ReviewFinding finding, String commit)
     {
         Optional<AgentReview> owner = reviews.findReview(finding.reviewId())
-                .filter(review -> review.repo().equalsIgnoreCase(DefaultAgentReviewService.normalize(repo)) && review.number() == number);
+                .filter(review -> review.repo().equalsIgnoreCase(DefaultAgentReviewService.normalize(repo)) && review.number().stream().anyMatch(value -> value == number));
         if (owner.isEmpty()) {
             return Optional.of("This finding belongs to a different pull request");
         }

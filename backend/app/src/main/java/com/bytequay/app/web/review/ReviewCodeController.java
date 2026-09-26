@@ -48,6 +48,17 @@ public class ReviewCodeController
         this.localRuns = requireNonNull(localRuns, "localRuns is null");
     }
 
+    @GetMapping("/changes")
+    public ReviewCodeService.Changes changes(
+            @PathVariable String reviewId,
+            @RequestParam(defaultValue = "ALL") ReviewCodeService.ChangeScope scope,
+            @RequestParam Optional<String> commit,
+            @RequestParam Optional<String> base,
+            @RequestParam Optional<String> head)
+    {
+        return code.changes(reviewId, scope, commit, base, head);
+    }
+
     @GetMapping("/files")
     public ReviewCodeHttpModels.FilesResponse files(@PathVariable String reviewId)
     {
@@ -55,9 +66,9 @@ public class ReviewCodeController
     }
 
     @GetMapping("/file")
-    public ReviewCodeHttpModels.FileResponse file(@PathVariable String reviewId, @RequestParam String path)
+    public ReviewCodeHttpModels.FileResponse file(@PathVariable String reviewId, @RequestParam String path, @RequestParam Optional<String> expectedRevision)
     {
-        return ReviewCodeHttpModels.file(code.file(reviewId, path));
+        return ReviewCodeHttpModels.file(code.file(reviewId, path, expectedRevision));
     }
 
     @PutMapping("/file")

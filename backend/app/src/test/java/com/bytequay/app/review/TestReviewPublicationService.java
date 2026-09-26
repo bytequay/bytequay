@@ -673,8 +673,8 @@ class TestReviewPublicationService
     {
         private final Map<String, ReviewFinding> findings = new HashMap<>();
         private final List<ReviewRun> runs = new ArrayList<>(List.of(run(ReviewRun.State.ACCEPTED)));
-        private final AgentReview review = new AgentReview(REVIEW_ID, "workspace-1", REPO, NUMBER, OptionalLong.of(PR_ID), "task-1",
-                AgentReview.State.OPEN, false, Optional.of(RUN_ID), Optional.of(REVIEWED_HEAD), 0, NOW, NOW, Optional.empty());
+        private final AgentReview review = new AgentReview(REVIEW_ID, "workspace-1", REPO, OptionalInt.of(NUMBER), OptionalLong.of(PR_ID), "task-1", Optional.empty(),
+                AgentReview.State.OPEN, false, Optional.of(RUN_ID), Optional.of(REVIEWED_HEAD), Optional.of(REVIEWED_HEAD), 0, NOW, NOW, Optional.empty());
 
         void put(ReviewFinding finding)
         {

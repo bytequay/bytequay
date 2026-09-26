@@ -68,7 +68,8 @@ public record AgentReviewProjection(
         int pendingApprovals,
         List<String> byteQuayTurnIds,
         Optional<ReviewDraft> draft,
-        Optional<PullRequest> pullRequest)
+        Optional<PullRequest> pullRequest,
+        Optional<WorktreeSyncView> worktreeSync)
 {
     private static final ObjectMapper ACTIVITY_MAPPER = new ObjectMapper();
 
@@ -84,6 +85,27 @@ public record AgentReviewProjection(
         byteQuayTurnIds = ImmutableList.copyOf(byteQuayTurnIds);
         requireNonNull(draft, "draft is null");
         requireNonNull(pullRequest, "pullRequest is null");
+        requireNonNull(worktreeSync, "worktreeSync is null");
+    }
+
+    /** Live checkout facts; catching up does not change the reviewed run or its findings. */
+    public record WorktreeSyncView(State state, Optional<String> headSha, Optional<String> targetHeadSha, boolean dirty, Optional<String> reason)
+    {
+        public WorktreeSyncView
+        {
+            requireNonNull(state, "state is null");
+            requireNonNull(headSha, "headSha is null");
+            requireNonNull(targetHeadSha, "targetHeadSha is null");
+            requireNonNull(reason, "reason is null");
+        }
+
+        public enum State
+        {
+            CURRENT,
+            PENDING,
+            BLOCKED,
+            UNAVAILABLE
+        }
     }
 
     /** Saved discussion content with the current delivery identities from its accepted input. */

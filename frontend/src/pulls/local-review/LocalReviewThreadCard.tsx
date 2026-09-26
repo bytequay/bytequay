@@ -80,7 +80,7 @@ export default function LocalReviewThreadCard({ thread, onReply, onResolve, onRe
     <pre>{thread.code}</pre>
   </div> : undefined;
   return <ReviewThreadCard localId={thread.id} resolved={thread.resolved} outdated={outdated}
-    privateLabel={thread.learningAnchor == null ? undefined : 'Review & Learning · Private'}
+    privateLabel={thread.learningAnchor == null ? undefined : 'Summary · Private'}
     location={thread.learningAnchor != null ? <span className="pr-local-review__location agr-learning-card__title">{thread.learningAnchor.title}</span>
       : showCode ? <code className="pr-local-review__location" title={thread.path}>{thread.path}:{range}</code>
       : <span className="pr-local-review__location">Comment on {start === thread.line ? 'line' : 'lines'} <strong>{range}</strong></span>}

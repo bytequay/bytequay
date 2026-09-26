@@ -6,7 +6,7 @@
  *     http://www.apache.org/licenses/LICENSE-2.0
  */
 
-/* Review & Learning uses the same private thread cards as development tasks. */
+/* Summary uses the same private thread cards as development tasks. */
 
 .agr-pane { display: flex; min-height: 0; flex: 1; flex-direction: column; overflow: hidden; }
 

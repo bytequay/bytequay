@@ -16,8 +16,11 @@ package com.bytequay.app.review;
 import com.bytequay.agent.core.AgentApprovalService;
 import com.bytequay.agent.core.AgentCompletionService;
 import com.bytequay.agent.core.AgentConflictException;
+import com.bytequay.agent.core.AgentEventPayload;
+import com.bytequay.agent.core.AgentEventService;
 import com.bytequay.agent.core.AgentTask;
 import com.bytequay.agent.core.AgentTaskDefaults;
+import com.bytequay.agent.core.AgentTaskNotFoundException;
 import com.bytequay.agent.core.AgentTaskService;
 import com.bytequay.agent.core.AgentTurn;
 import com.bytequay.agent.core.AgentTurnService;
@@ -46,6 +49,7 @@ import com.bytequay.app.agent.WorkflowAgentTasks;
 import com.bytequay.app.context.ReviewContextService;
 import com.bytequay.app.git.GitCommandRunner;
 import com.bytequay.app.git.ReviewExperiments;
+import com.bytequay.app.review.AgentReviewProjection.WorktreeSyncView;
 import com.bytequay.app.service.credentials.CredentialService;
 import com.bytequay.app.service.pr.PullRequestRefreshService;
 import com.bytequay.app.service.pr.PullRequestService;
@@ -56,7 +60,9 @@ import com.bytequay.app.workspace.WorkspaceRepositoryContext;
 import com.bytequay.app.workspace.WorkspaceRepositoryService;
 import com.bytequay.core.context.ContextUsageEvent;
 import com.bytequay.core.domain.DiffFile;
+import com.bytequay.core.domain.PullRequest;
 import com.bytequay.core.domain.PullRequestDetail;
+import com.bytequay.core.domain.PullRequestTask;
 import com.bytequay.core.review.AgentReview;
 import com.bytequay.core.review.AgentReviewStore;
 import com.bytequay.core.review.ReviewCandidateValidation;
@@ -72,6 +78,8 @@ import com.bytequay.core.review.ReviewRun;
 import com.bytequay.core.review.ReviewStep;
 import com.bytequay.core.review.ReviewValidation;
 import com.bytequay.core.store.ContextUsageStore;
+import com.bytequay.core.store.PullRequestStore;
+import com.bytequay.core.store.PullRequestTaskStore;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.util.concurrent.Striped;
@@ -79,14 +87,20 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 
+import java.nio.file.Files;
+import java.nio.file.LinkOption;
 import java.nio.file.Path;
 import java.time.Clock;
+import java.time.Duration;
 import java.time.Instant;
 import java.util.List;
 import java.util.Locale;
+import java.util.Map;
 import java.util.Optional;
+import java.util.OptionalInt;
 import java.util.OptionalLong;
 import java.util.UUID;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.concurrent.locks.Lock;
 import java.util.function.Function;
@@ -99,6 +113,7 @@ import static com.bytequay.app.review.DefaultAgentReviewService.CompletionAction
 import static com.bytequay.app.review.DefaultAgentReviewService.CompletionAction.INCOMPLETE_REPORT;
 import static com.bytequay.app.review.DefaultAgentReviewService.CompletionAction.REPAIR;
 import static com.bytequay.app.review.DefaultAgentReviewService.CompletionAction.VALIDATE;
+import static com.google.common.base.Preconditions.checkState;
 import static com.google.common.collect.ImmutableList.toImmutableList;
 import static com.google.common.collect.ImmutableMap.toImmutableMap;
 import static java.util.Objects.requireNonNull;
@@ -108,11 +123,16 @@ public class DefaultAgentReviewService
         implements AgentReviewService
 {
     private static final Logger log = LoggerFactory.getLogger(DefaultAgentReviewService.class);
+    private static final List<String> GIT_OPERATION_PATHS = ImmutableList.of(
+            "MERGE_HEAD", "CHERRY_PICK_HEAD", "REVERT_HEAD", "REBASE_HEAD", "BISECT_LOG", "BISECT_START", "rebase-merge", "rebase-apply");
+
+    private final Map<String, SyncFailure> syncFailures = new ConcurrentHashMap<>();
 
     private final AgentReviewStore store;
     private final ReviewDraftStore drafts;
     private final ReviewPublicationService publications;
     private final AgentTaskService tasks;
+    private final AgentEventService events;
     private final AgentTurnService turns;
     private final AgentTurnStore turnStore;
     private final QueuedInputStore queueStore;
@@ -123,6 +143,9 @@ public class DefaultAgentReviewService
     private final WorkspaceRepositoryService workspaces;
     private final WorktreeService worktrees;
     private final GitCommandRunner git;
+    private final WorktreeDiffReader browse;
+    private final PullRequestTaskStore assignments;
+    private final PullRequestStore pullRequestStore;
     private final ReviewExperiments experiments;
     private final PullRequestService pullRequests;
     private final PullRequestRefreshService refresh;
@@ -140,6 +163,7 @@ public class DefaultAgentReviewService
             ReviewDraftStore drafts,
             ReviewPublicationService publications,
             AgentTaskService tasks,
+            AgentEventService events,
             AgentTurnService turns,
             AgentTurnStore turnStore,
             QueuedInputStore queueStore,
@@ -150,6 +174,9 @@ public class DefaultAgentReviewService
             WorkspaceRepositoryService workspaces,
             WorktreeService worktrees,
             GitCommandRunner git,
+            WorktreeDiffReader browse,
+            PullRequestTaskStore assignments,
+            PullRequestStore pullRequestStore,
             ReviewExperiments experiments,
             PullRequestService pullRequests,
             PullRequestRefreshService refresh,
@@ -165,6 +192,7 @@ public class DefaultAgentReviewService
         this.drafts = requireNonNull(drafts, "drafts is null");
         this.publications = requireNonNull(publications, "publications is null");
         this.tasks = requireNonNull(tasks, "tasks is null");
+        this.events = requireNonNull(events, "events is null");
         this.turns = requireNonNull(turns, "turns is null");
         this.turnStore = requireNonNull(turnStore, "turnStore is null");
         this.queueStore = requireNonNull(queueStore, "queueStore is null");
@@ -175,6 +203,9 @@ public class DefaultAgentReviewService
         this.workspaces = requireNonNull(workspaces, "workspaces is null");
         this.worktrees = requireNonNull(worktrees, "worktrees is null");
         this.git = requireNonNull(git, "git is null");
+        this.browse = requireNonNull(browse, "browse is null");
+        this.assignments = requireNonNull(assignments, "assignments is null");
+        this.pullRequestStore = requireNonNull(pullRequestStore, "pullRequestStore is null");
         this.experiments = requireNonNull(experiments, "experiments is null");
         this.pullRequests = requireNonNull(pullRequests, "pullRequests is null");
         this.refresh = requireNonNull(refresh, "refresh is null");
@@ -191,6 +222,54 @@ public class DefaultAgentReviewService
     public Optional<AgentReviewProjection> find(String workspaceId, String repo, int number)
     {
         return store.findOpenReview(workspaceId, normalize(repo), number).map(review -> projection(review.id()));
+    }
+
+    @Override
+    public Optional<AgentReviewProjection> findForTask(String workspaceId, String sourceTaskId)
+    {
+        tasks.getInteractive(workspaceId, TaskId.valueOf(sourceTaskId));
+        return store.listReviews(workspaceId).stream().filter(review -> review.sourceTaskId().equals(Optional.of(sourceTaskId)))
+                .findFirst().map(review -> projection(review.id()));
+    }
+
+    @Override
+    public AgentReviewProjection startForTask(String workspaceId, String sourceTaskId)
+    {
+        AgentTask source = tasks.getInteractive(workspaceId, TaskId.valueOf(sourceTaskId));
+        Lock lock = startLocks.get("task:" + sourceTaskId);
+        lock.lock();
+        try {
+            Optional<AgentReview> existing = store.listReviews(workspaceId).stream()
+                    .filter(review -> review.sourceTaskId().equals(Optional.of(sourceTaskId)) && review.state() == AgentReview.State.OPEN).findFirst();
+            if (existing.isPresent()) {
+                return projection(existing.orElseThrow().id());
+            }
+            WorkspaceRepositoryContext workspace = workspaces.requireReadyRepository(workspaceId);
+            WorkflowAgentTasks.requireSelectedRepository(WorkflowAgentTasks.repositoryIdentity(workspace.selectedRepository()), source.repository(), ReviewConflictException::new);
+            String repository = normalize(workspace.monitoredRepository().fullName());
+            OptionalInt number = sourcePullRequest(source, repository);
+            ModelSelection selection = selectModel(workspaceId);
+            WorkflowAgentTasks.requireReady(drivers, selection.laneId(), AgentPermissionPolicy.AUTO);
+            Snapshot snapshot = localSnapshot(source, workspace, number);
+            TaskId taskId = TaskId.random();
+            String title = "Review: " + source.title();
+            String branch = TaskBranches.generate(taskId, credentials.resolveGitHubCredential().profile().login(), title);
+            AgentTask task = WorkflowAgentTasks.createOrGet(tasks, taskId, () -> tasks.create(new CreateAgentTaskCommand(
+                    taskId, workspaceId, selection.laneId(), source.repository(), snapshot.headSha(), branch, title, selection.defaults())));
+            Instant now = Instant.now(clock);
+            String reviewId = UUID.randomUUID().toString();
+            return locked(reviewId, () -> {
+                AgentReview review = insertReview(new AgentReview(reviewId, workspaceId, repository, number, snapshot.pullRequestId(), task.id().toString(),
+                        Optional.of(sourceTaskId), AgentReview.State.OPEN, false, Optional.empty(), Optional.of(snapshot.headSha()),
+                        Optional.of(snapshot.headSha()), 0, now, now, Optional.empty()));
+                observer.watch(review);
+                startRun(review, snapshot, workspace, 1, Optional.empty(), ImmutableList.of());
+                return projection(review.id());
+            });
+        }
+        finally {
+            lock.unlock();
+        }
     }
 
     @Override
@@ -239,16 +318,18 @@ public class DefaultAgentReviewService
             Instant now = Instant.now(clock);
             String reviewId = UUID.randomUUID().toString();
             return locked(reviewId, () -> {
-                AgentReview review = store.insertReview(new AgentReview(
+                AgentReview review = insertReview(new AgentReview(
                         reviewId,
                         workspaceId,
                         repository,
-                        number,
+                        OptionalInt.of(number),
                         snapshot.pullRequestId(),
                         task.id().toString(),
+                        Optional.empty(),
                         AgentReview.State.OPEN,
                         false,
                         Optional.empty(),
+                        Optional.of(snapshot.headSha()),
                         Optional.of(snapshot.headSha()),
                         0,
                         now,
@@ -261,6 +342,26 @@ public class DefaultAgentReviewService
         }
         finally {
             lock.unlock();
+        }
+    }
+
+    private AgentReview insertReview(AgentReview review)
+    {
+        try {
+            return store.insertReview(review);
+        }
+        catch (RuntimeException failure) {
+            try {
+                // Only an unowned startup can be discarded: a committed review must retain its task for retry.
+                if (store.findReview(review.id()).isEmpty()) {
+                    completions.delete(TaskId.valueOf(review.taskId()));
+                }
+            }
+            catch (RuntimeException cleanupFailure) {
+                failure.addSuppressed(cleanupFailure);
+                log.warn("Review {} could not discard its unstarted task {} after startup failed", review.id(), review.taskId(), cleanupFailure);
+            }
+            throw failure;
         }
     }
 
@@ -302,11 +403,29 @@ public class DefaultAgentReviewService
     {
         AgentReview review = requireOpen(reviewId);
         requireNoLocalRun(tasks.get(TaskId.valueOf(review.taskId())));
-        refresh.refreshAllDetail(review.repo(), review.number());
-        String head = pullRequests.findHeadSha(review.repo(), review.number())
-                .orElseThrow(() -> new ReviewConflictException("The pull request head is unknown after refresh"));
+        String head;
+        OptionalInt number;
+        OptionalLong pullRequestId;
+        if (review.sourceTaskId().isPresent()) {
+            AgentTask source = sourceTask(review);
+            number = review.number().isPresent() ? review.number() : sourcePullRequest(source, review.repo());
+            Snapshot snapshot = localSnapshot(source, workspaces.requireReadyRepository(review.workspaceId()), number);
+            head = snapshot.headSha();
+            pullRequestId = snapshot.pullRequestId();
+        }
+        else {
+            number = review.number();
+            pullRequestId = review.pullRequestId();
+            refresh.refreshAllDetail(review.repo(), number.orElseThrow());
+            head = pullRequests.findHeadSha(review.repo(), number.orElseThrow())
+                    .orElseThrow(() -> new ReviewConflictException("The pull request head is unknown after refresh"));
+        }
         return locked(reviewId, () -> {
-            store.updateReview(requireOpen(reviewId).withObservedHead(head, Instant.now(clock)));
+            AgentReview current = requireOpen(reviewId);
+            if (current.number().isEmpty() && number.isPresent()) {
+                current = current.withPullRequest(number.getAsInt(), pullRequestId, Instant.now(clock));
+            }
+            store.updateReview(current.withObservedHead(head, Instant.now(clock)));
             return resume(reviewId);
         });
     }
@@ -530,6 +649,7 @@ public class DefaultAgentReviewService
             LocalRunService.requireIdle(turns, store.listRuns(reviewId), review, task);
             AtomicReference<T> result = new AtomicReference<>();
             turns.synchronizeWorktree(task.id(), task.version(), claimed -> result.set(mutation.apply(claimed)));
+            observer.reconcileLater(reviewId);
             return result.get();
         });
     }
@@ -558,6 +678,7 @@ public class DefaultAgentReviewService
             }
             return null;
         });
+        catchUpWorkingCopy(reviewId);
     }
 
     @Override
@@ -574,7 +695,8 @@ public class DefaultAgentReviewService
     {
         String repository = normalize(repo);
         store.listOpenReviews().stream()
-                .filter(review -> review.repo().equals(repository) && review.number() == number)
+                .filter(review -> review.sourceTaskId().isEmpty())
+                .filter(review -> review.repo().equals(repository) && review.number().stream().anyMatch(value -> value == number))
                 .forEach(review -> {
                     if (!review.observedHeadSha().equals(Optional.of(headSha))) {
                         locked(review.id(), () -> {
@@ -583,8 +705,176 @@ public class DefaultAgentReviewService
                             return null;
                         });
                     }
+                    catchUpWorkingCopy(review.id());
                 });
     }
+
+    /** Network work stays outside the review/task locks; only a still-current target may move the checkout. */
+    private void catchUpWorkingCopy(String reviewId)
+    {
+        Optional<AgentReview> stored = store.findReview(reviewId);
+        if (stored.isEmpty() || !remoteReview(stored.orElseThrow())) {
+            syncFailures.remove(reviewId);
+            return;
+        }
+        AgentReview review = stored.orElseThrow();
+        String target = review.observedHeadSha().orElseThrow();
+        try {
+            AgentTask task = tasks.get(TaskId.valueOf(review.taskId()));
+            List<ReviewRun> runs = store.listRuns(reviewId);
+            if (syncBusy(task, runs)) {
+                return;
+            }
+            CheckoutState checkout = checkoutState(task);
+            if (checkout.head().equals(target) && review.worktreeHeadSha().equals(Optional.of(target))) {
+                return;
+            }
+            if (syncBlocker(review, task, runs, checkout).isPresent()) {
+                return;
+            }
+            WorkspaceRepositoryContext workspace = workspaces.requireReadyRepository(review.workspaceId());
+            String remote = workspace.selectedRepository().equals(workspace.monitoredRepository()) ? "origin" : workspace.sourceRemote();
+            String headRef = "refs/bytequay/review/" + review.number().orElseThrow();
+            ImmutableList.Builder<String> fetch = ImmutableList.<String>builder()
+                    .add("fetch", "--no-tags", "--no-recurse-submodules", "--no-write-fetch-head", remote,
+                            "+refs/pull/" + review.number().orElseThrow() + "/head:" + headRef);
+            pullRequests.findPullRequestDetail(review.repo(), review.number().orElseThrow()).map(PullRequestDetail::baseRef)
+                    .ifPresent(base -> fetch.add("+refs/heads/" + base + ":refs/remotes/" + remote + "/" + base));
+            GitCommandRunner.Result fetched = git.run(workspace.repository(), fetch.build());
+            checkState(fetched.successful() && !fetched.truncated(), "Cannot fetch the latest PR commit: %s", fetched.output().strip());
+            if (!revParse(workspace.repository(), headRef).equals(target)) {
+                refresh.refreshAllDetail(review.repo(), review.number().orElseThrow());
+                return;
+            }
+            locked(reviewId, () -> {
+                AgentReview current = requireReview(reviewId);
+                AgentTask currentTask = tasks.get(TaskId.valueOf(current.taskId()));
+                if (!remoteReview(current) || !current.observedHeadSha().equals(Optional.of(target)) || syncBusy(currentTask, store.listRuns(reviewId))) {
+                    return null;
+                }
+                turns.synchronizeWorktree(currentTask.id(), currentTask.version(), claimed -> {
+                    AgentReview latest = requireReview(reviewId);
+                    checkState(remoteReview(latest) && latest.observedHeadSha().equals(Optional.of(target)), "The observed PR head changed during catch-up");
+                    CheckoutState fresh = checkoutState(claimed);
+                    Optional<String> blocker = syncBlocker(latest, claimed, store.listRuns(reviewId), fresh);
+                    checkState(blocker.isEmpty(), "%s", blocker.orElse(""));
+                    if (!fresh.head().equals(target)) {
+                        TaskWorktree worktree = claimed.taskWorktree().orElseThrow();
+                        experiments.synchronizeClean(worktree, fresh.head(), target, () -> {
+                            checkState(requireReview(reviewId).observedHeadSha().equals(Optional.of(target)), "The observed PR head changed during catch-up");
+                            moveCleanHead(worktree, fresh.head(), target, workspace);
+                        });
+                    }
+                    store.updateReview(requireReview(reviewId).withWorktreeHead(target, Instant.now(clock)));
+                });
+                syncFailures.remove(reviewId);
+                return null;
+            });
+        }
+        catch (RuntimeException failure) {
+            syncFailures.put(reviewId, new SyncFailure(target, failure.getMessage() == null ? "Automatic catch-up could not finish" : failure.getMessage()));
+            log.debug("Review {} working copy could not catch up: {}", reviewId, failure.toString());
+        }
+    }
+
+    private boolean syncBusy(AgentTask task, List<ReviewRun> runs)
+    {
+        return !idle(task) || runs.stream().anyMatch(ReviewRun::active) || turnStore.findActive(task.id()).isPresent() || !turns.queued(task.id()).isEmpty();
+    }
+
+    private static boolean remoteReview(AgentReview review)
+    {
+        return review.state() == AgentReview.State.OPEN && review.sourceTaskId().isEmpty() && review.number().isPresent() && review.observedHeadSha().isPresent();
+    }
+
+    private Optional<WorktreeSyncView> worktreeSync(AgentReview review, AgentTask task, List<ReviewRun> runs)
+    {
+        if (!remoteReview(review)) {
+            return Optional.empty();
+        }
+        Optional<String> head = Optional.empty();
+        boolean dirty = false;
+        try {
+            CheckoutState checkout = checkoutState(task);
+            head = Optional.of(checkout.head());
+            dirty = checkout.dirty();
+            if (head.equals(review.observedHeadSha())) {
+                return Optional.of(new WorktreeSyncView(WorktreeSyncView.State.CURRENT, head, review.observedHeadSha(), dirty, Optional.empty()));
+            }
+            if (syncBusy(task, runs)) {
+                return Optional.of(new WorktreeSyncView(WorktreeSyncView.State.PENDING, head, review.observedHeadSha(), dirty,
+                        Optional.of("Waiting for the review and its working copy to become idle")));
+            }
+            Optional<String> blocker = syncBlocker(review, task, runs, checkout);
+            if (blocker.isPresent()) {
+                return Optional.of(new WorktreeSyncView(WorktreeSyncView.State.BLOCKED, head, review.observedHeadSha(), dirty, blocker));
+            }
+            SyncFailure failure = syncFailures.get(review.id());
+            if (failure != null && review.observedHeadSha().equals(Optional.of(failure.head()))) {
+                return Optional.of(new WorktreeSyncView(WorktreeSyncView.State.UNAVAILABLE, head, review.observedHeadSha(), dirty, Optional.of(failure.reason())));
+            }
+            return Optional.of(new WorktreeSyncView(WorktreeSyncView.State.PENDING, head, review.observedHeadSha(), dirty,
+                    Optional.of("Waiting to catch up with the published PR")));
+        }
+        catch (RuntimeException failure) {
+            return Optional.of(new WorktreeSyncView(WorktreeSyncView.State.UNAVAILABLE, head, review.observedHeadSha(), dirty,
+                    Optional.ofNullable(failure.getMessage()).or(() -> Optional.of("The working copy could not be inspected"))));
+        }
+    }
+
+    private Optional<String> syncBlocker(AgentReview review, AgentTask task, List<ReviewRun> runs, CheckoutState checkout)
+    {
+        if (checkout.operation()) {
+            return Optional.of("Finish the working copy's open Git operation before catching up");
+        }
+        if (checkout.dirty()) {
+            return Optional.of("Saved local changes are preserved; update the review explicitly or discard the edits");
+        }
+        String expected = review.worktreeHeadSha().or(() -> runs.isEmpty() ? Optional.empty() : Optional.of(runs.getLast().headSha()))
+                .orElseGet(() -> task.taskWorktree().orElseThrow().startCommit());
+        if (!checkout.head().equals(expected) && !review.observedHeadSha().equals(Optional.of(checkout.head()))) {
+            return Optional.of("Local commits are preserved; inspect the working copy before updating");
+        }
+        if (experiments.hasSavedExperiment(task.taskWorktree().orElseThrow())) {
+            return Optional.of("Saved private experiments are waiting; update the review explicitly");
+        }
+        return Optional.empty();
+    }
+
+    /** One bounded status read provides actual HEAD and dirtiness without refreshing Git's index. */
+    private CheckoutState checkoutState(AgentTask task)
+    {
+        checkState(task.worktreeRemovedAt().isEmpty(), "The review working copy is no longer available");
+        TaskWorktree worktree = task.taskWorktree().orElseThrow(() -> new ReviewConflictException("The review has no managed working copy"));
+        Path checkout = worktrees.ownedCheckout(worktree);
+        GitCommandRunner.Result status = git.runLocalBoundedStdout(checkout, Duration.ofSeconds(2), 128 * 1024, ImmutableList.of(
+                "--no-optional-locks", "-c", "core.fsmonitor=false", "-c", "core.untrackedCache=false", "status", "--porcelain=v2", "--branch", "-z",
+                "--untracked-files=all", "--ignore-submodules=none"));
+        checkState(status.successful() && !status.truncated(), "Cannot inspect the working copy: %s", status.output().strip());
+        String head = "";
+        String branch = "";
+        boolean dirty = false;
+        for (String entry : status.output().split("\\x00")) {
+            if (entry.startsWith("# branch.oid ")) {
+                head = entry.substring("# branch.oid ".length());
+            }
+            else if (entry.startsWith("# branch.head ")) {
+                branch = entry.substring("# branch.head ".length());
+            }
+            else if (!entry.isEmpty() && !entry.startsWith("# ")) {
+                dirty = true;
+            }
+        }
+        checkState(head.matches("[0-9a-f]{40}|[0-9a-f]{64}"), "Cannot identify the working copy HEAD");
+        checkState(branch.equals(worktree.generatedBranch()), "The working copy is on another branch");
+        List<Path> operations = git.gitPaths(checkout, GIT_OPERATION_PATHS);
+        checkState(operations.size() == GIT_OPERATION_PATHS.size(), "Cannot inspect the working copy's Git operations");
+        return new CheckoutState(head, dirty, operations.stream().anyMatch(path -> !Files.notExists(path, LinkOption.NOFOLLOW_LINKS)));
+    }
+
+    private record CheckoutState(String head, boolean dirty, boolean operation) {}
+
+    private record SyncFailure(String head, String reason) {}
 
     /** Applies only the current assignment's accepted turn after its runtime has stopped. */
     private AgentReview settle(AgentReview review, ReviewRun run, AgentTask task)
@@ -821,7 +1111,9 @@ public class DefaultAgentReviewService
             return;
         }
         WorkspaceRepositoryContext workspace = workspaces.requireReadyRepository(review.workspaceId());
-        Snapshot snapshot = snapshot(workspace, review.repo(), review.number());
+        Snapshot snapshot = review.sourceTaskId()
+                .map(ignored -> localSnapshot(sourceTask(review), workspace, review.number()))
+                .orElseGet(() -> snapshot(workspace, review.repo(), review.number().orElseThrow()));
         boolean changed = latest.map(run -> !run.headSha().equals(snapshot.headSha())
                 || !run.baseRef().equals(snapshot.baseRef())
                 || !run.baseSha().equals(snapshot.baseSha())
@@ -842,7 +1134,9 @@ public class DefaultAgentReviewService
         // Compared with the fetched head: a retry can find a newer head than the observed one, and every run must sit where the worktree does.
         try {
             turns.synchronizeWorktree(taskId, task.version(),
-                    claimed -> moveWorktree(claimed, latest.map(ReviewRun::headSha), snapshot.headSha(), workspace));
+                    claimed -> moveWorktree(claimed, review.worktreeHeadSha().or(() -> latest.map(ReviewRun::headSha)), snapshot.headSha(), workspace));
+            store.updateReview(requireReview(review.id()).withWorktreeHead(snapshot.headSha(), Instant.now(clock)));
+            syncFailures.remove(review.id());
         }
         catch (ReviewConflictException | AgentConflictException refusal) {
             store.updateReview(store.findReview(review.id()).orElseThrow().withFollowUpPaused(true, Instant.now(clock)));
@@ -868,29 +1162,30 @@ public class DefaultAgentReviewService
         if (!snapshot.head().equals(expectedHead) && !snapshot.head().equals(headSha)) {
             throw new ReviewConflictException("The review worktree has local commits on top of the reviewed head; remove them before updating the review");
         }
-        // Hooks stay off so a hooks path inside the tree cannot run the pull request's own scripts.
-        List<String> move;
-        if (snapshot.head().equals(headSha) || git.run(workspace.repository(), "merge-base", "--is-ancestor", snapshot.head(), headSha).successful()) {
-            move = ImmutableList.of("-c", "core.hooksPath=/dev/null", "merge", "--ff-only", "--no-overwrite-ignore", headSha);
-        }
-        else {
-            // Unlike reset --keep, checkout refuses to overwrite ignored files, not only files that became dirty or untracked after the inspection.
-            move = ImmutableList.of("-c", "core.hooksPath=/dev/null", "checkout", "--no-overwrite-ignore", "--no-recurse-submodules", "-B", worktree.generatedBranch(), headSha);
-        }
         try {
             experiments.synchronize(worktree, expectedHead, headSha, () -> {
                 if (snapshot.head().equals(headSha)) {
                     return;
                 }
-                GitCommandRunner.Result moved = git.run(worktree.canonicalWorktree(), move);
-                if (!moved.successful() || !worktrees.inspect(worktree).head().equals(headSha)) {
-                    throw new ReviewConflictException("The review worktree could not be moved to " + ReviewPrompts.shortSha(headSha) + ": " + moved.output().strip());
-                }
+                moveCleanHead(worktree, snapshot.head(), headSha, workspace);
             }).ifPresent(message -> log.info("Review task {} synchronized: {}", task.id(), message));
         }
         catch (RuntimeException failure) {
             throw new ReviewConflictException(failure.getMessage(), failure);
         }
+    }
+
+    private void moveCleanHead(TaskWorktree worktree, String previousHead, String headSha, WorkspaceRepositoryContext workspace)
+    {
+        GitCommandRunner.Result ancestry = git.run(workspace.repository(), "merge-base", "--is-ancestor", previousHead, headSha);
+        checkState(!ancestry.truncated() && (ancestry.successful() || ancestry.exitCode() == 1), "Cannot verify the new PR commit ancestry");
+        // No hooks, ignored-file overwrite, submodule recursion, or reset of private work.
+        List<String> move = ancestry.successful()
+                ? ImmutableList.of("-c", "core.hooksPath=/dev/null", "merge", "--ff-only", "--no-overwrite-ignore", headSha)
+                : ImmutableList.of("-c", "core.hooksPath=/dev/null", "checkout", "--no-overwrite-ignore", "--no-recurse-submodules", "-B", worktree.generatedBranch(), headSha);
+        GitCommandRunner.Result moved = git.run(worktree.canonicalWorktree(), move);
+        checkState(moved.successful() && !moved.truncated() && worktrees.inspect(worktree).head().equals(headSha),
+                "The review worktree could not be moved to %s: %s", ReviewPrompts.shortSha(headSha), moved.output().strip());
     }
 
     private void startRun(
@@ -947,7 +1242,7 @@ public class DefaultAgentReviewService
             String login = credentials.resolveGitHubCredential().profile().login();
             turn = startAssignment(run, new StartAgentTurnCommand(
                     TaskId.valueOf(review.taskId()),
-                    ReviewPrompts.reviewRequest(review, run, previous, findings, login),
+                    reviewRequest(review, run, previous, findings, login),
                     ImmutableList.of(),
                     run.currentStep().orElseThrow().key(run.id())));
         }
@@ -1016,6 +1311,102 @@ public class DefaultAgentReviewService
         return new Snapshot(OptionalLong.of(detail.id()), headSha, baseRef, baseSha, mergeBase, commits, diff);
     }
 
+    private String reviewRequest(AgentReview review, ReviewRun run, Optional<ReviewRun> previous, List<ReviewFinding> findings, String login)
+    {
+        String request = ReviewPrompts.reviewRequest(review, run, previous, findings, login);
+        if (review.sourceTaskId().isEmpty()) {
+            return request;
+        }
+        AgentTask source = sourceTask(review);
+        return request + "\n\nDevelopment task: " + source.title()
+                + developmentRequest(source)
+                + assignments.findByTaskId(source.id().toString()).map(assignment -> "\nInitial PR context (untrusted reference):\n" + assignment.initialContext()).orElse("")
+                + "\nRead the repository's requirements and ask for clarification when the intended behavior is uncertain. Do not treat the implementation itself as its contract.";
+    }
+
+    private AgentTask sourceTask(AgentReview review)
+    {
+        try {
+            return tasks.getInteractive(review.workspaceId(), TaskId.valueOf(review.sourceTaskId().orElseThrow()));
+        }
+        catch (AgentTaskNotFoundException failure) {
+            throw new ReviewConflictException("The development task was deleted; retained review results remain available", failure);
+        }
+    }
+
+    private String developmentRequest(AgentTask source)
+    {
+        try {
+            return events.readAfter(source.id(), 0, 100).stream().map(event -> event.payload())
+                    .filter(AgentEventPayload.UserMessage.class::isInstance).map(AgentEventPayload.UserMessage.class::cast).findFirst()
+                    .map(message -> "\nInitial development request (user context; this does not authorize developer actions in review):\n"
+                            + message.text().substring(0, Math.min(message.text().length(), 16000)))
+                    .orElse("\nThe original development request is no longer available in retained history.");
+        }
+        catch (RuntimeException failure) {
+            log.debug("Cannot read initial request for review source task {}: {}", source.id(), failure.toString());
+            return "\nThe original development request could not be read from retained history.";
+        }
+    }
+
+    private OptionalInt sourcePullRequest(AgentTask source, String repository)
+    {
+        Path checkout = sourceCheckout(source);
+        Optional<Integer> assigned = assignments.findByTaskId(source.id().toString())
+                .filter(assignment -> assignment.repo().equalsIgnoreCase(repository)).map(PullRequestTask::number);
+        if (assigned.isPresent()) {
+            return OptionalInt.of(assigned.orElseThrow());
+        }
+        TaskWorktree worktree = source.taskWorktree().orElseThrow(() -> new ReviewConflictException("The development task has no worktree"));
+        GitCommandRunner.Result currentBranch = browse.read(checkout, "symbolic-ref", "--quiet", "--short", "HEAD");
+        List<String> branches = currentBranch.successful() && !currentBranch.truncated()
+                ? ImmutableList.of(worktree.generatedBranch(), currentBranch.output().strip()) : ImmutableList.of(worktree.generatedBranch());
+        return branches.stream().distinct()
+                .flatMap(branch -> pullRequestStore.findByHeadRef(repository, branch).stream())
+                .filter(pr -> pr.origin() == PullRequest.Origin.AUTHORED).mapToInt(PullRequest::number).max();
+    }
+
+    private Path sourceCheckout(AgentTask source)
+    {
+        if (source.worktreeRemovedAt().isPresent()) {
+            throw new ReviewConflictException("The development worktree is no longer available");
+        }
+        TaskWorktree worktree = source.taskWorktree().orElseThrow(() -> new ReviewConflictException("The development task has no worktree"));
+        return worktrees.ownedCheckout(worktree);
+    }
+
+    private Snapshot localSnapshot(AgentTask source, WorkspaceRepositoryContext workspace, OptionalInt number)
+    {
+        WorkflowAgentTasks.requireSelectedRepository(WorkflowAgentTasks.repositoryIdentity(workspace.selectedRepository()), source.repository(), ReviewConflictException::new);
+        Path checkout = sourceCheckout(source);
+        TaskWorktree worktree = source.taskWorktree().orElseThrow();
+        List<Path> operationPaths = git.gitPaths(checkout, GIT_OPERATION_PATHS);
+        if (operationPaths.size() != GIT_OPERATION_PATHS.size() || operationPaths.stream().anyMatch(path -> !Files.notExists(path, LinkOption.NOFOLLOW_LINKS))) {
+            throw new ReviewConflictException("Finish the development worktree's open Git operation before requesting review");
+        }
+        String head = browse.require(checkout, "rev-parse", "--verify", "HEAD^{commit}").strip();
+        String baseRef = worktree.startCommit();
+        String base = worktree.startCommit();
+        OptionalLong pullRequestId = OptionalLong.empty();
+        if (number.isPresent()) {
+            PullRequestDetail detail = pullRequests.findPullRequestDetail(workspace.monitoredRepository().fullName(), number.getAsInt())
+                    .orElseThrow(() -> new ReviewConflictException("Refresh the associated pull request before reviewing its local branch"));
+            baseRef = Optional.ofNullable(detail.baseRef()).orElseThrow(() -> new ReviewConflictException("The pull request base branch is unknown"));
+            String remote = workspace.selectedRepository().equals(workspace.monitoredRepository()) ? "origin" : workspace.sourceRemote();
+            base = browse.require(checkout, "rev-parse", "--verify", "refs/remotes/" + remote + "/" + baseRef + "^{commit}").strip();
+            pullRequestId = OptionalLong.of(detail.id());
+        }
+        String mergeBase = browse.require(checkout, "merge-base", head, base).strip();
+        WorktreeDiffReader.History history = browse.history(checkout, mergeBase, head);
+        WorktreeDiffReader.Diff diff = browse.diff(checkout, mergeBase, Optional.of(head));
+        if (history.truncated() || diff.truncated()) {
+            throw new ReviewConflictException("The local change set exceeds the review snapshot limit; narrow the committed changes before reviewing");
+        }
+        List<ReviewCommit> commits = history.commits().reversed().stream()
+                .map(commit -> new ReviewCommit(commit.sha(), commit.message(), commit.author())).collect(toImmutableList());
+        return new Snapshot(pullRequestId, head, baseRef, base, mergeBase, commits, diff.files());
+    }
+
     private String revParse(Path repository, String... arguments)
     {
         GitCommandRunner.Result result = arguments.length == 1
@@ -1079,8 +1470,10 @@ public class DefaultAgentReviewService
                 queued,
                 pendingApprovals,
                 runs.stream().flatMap(run -> run.turnIds().stream()).collect(toImmutableList()),
-                drafts.find(review.repo(), review.number()).map(ignored -> publications.draft(review.repo(), review.number())),
-                pullRequests.findStored(review.repo(), review.number()));
+                review.number().stream().mapToObj(number -> drafts.find(review.repo(), number).map(ignored -> publications.draft(review.repo(), number)))
+                        .flatMap(Optional::stream).findFirst(),
+                review.number().stream().mapToObj(number -> pullRequests.findStored(review.repo(), number)).flatMap(Optional::stream).findFirst(),
+                worktreeSync(review, task, runs));
     }
 
     private AgentReviewProjection.MessageView messageView(ReviewMessage message)

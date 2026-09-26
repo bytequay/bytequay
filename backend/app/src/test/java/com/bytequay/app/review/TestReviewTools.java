@@ -134,6 +134,7 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
+import java.util.OptionalInt;
 import java.util.OptionalLong;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.Executors;
@@ -152,6 +153,8 @@ import static java.util.concurrent.TimeUnit.SECONDS;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyBoolean;
+import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.clearInvocations;
@@ -274,6 +277,26 @@ class TestReviewTools
         when(git.run(repository, "show", HEAD_SHA + ":" + DIFF_PATH)).thenReturn(new GitCommandRunner.Result(0, "alpha\nbeta\ngamma\n", false));
 
         bridge = tools.bridge(TASK_ID).orElseThrow();
+    }
+
+    @Test
+    void localReviewReadsFrozenScopeAndDiffWithoutAPullRequest()
+    {
+        AgentReview original = store.findReview(REVIEW_ID).orElseThrow();
+        store.updateReview(new AgentReview(original.id(), original.workspaceId(), original.repo(), OptionalInt.empty(), OptionalLong.empty(), original.taskId(),
+                Optional.of("development-task"), original.state(), original.followUpPaused(), original.latestCompletedRunId(), original.observedHeadSha(),
+                original.worktreeHeadSha(),
+                original.version(), original.createdAt(), original.updatedAt(), original.closedAt()));
+
+        JsonNode scope = call("review_get_context", ImmutableMap.of("kind", "scope"));
+        assertThat(scope.path("headSha").asText()).isEqualTo(store.listRuns(REVIEW_ID).getFirst().headSha());
+        assertThat(scope.path("sourceTaskId").asText()).isEqualTo("development-task");
+        assertThat(scope.has("number")).isFalse();
+        assertThat(scope.path("requiredReviewFiles").isArray()).isTrue();
+        assertThat(call("review_get_context", ImmutableMap.of("kind", "diff")).has("error")).isFalse();
+        assertThat(call("review_get_context", ImmutableMap.of("kind", "pr")).path("error").isMissingNode()).isFalse();
+        verify(selectedPullRequests, never()).read(anyString(), anyInt(), any());
+        verify(selectedPullRequestDiffs, never()).read(anyString(), anyInt(), any(), anyBoolean());
     }
 
     @Test
@@ -3489,11 +3512,13 @@ class TestReviewTools
                 REVIEW_ID,
                 WORKSPACE_ID,
                 REPO,
-                42,
+                OptionalInt.of(42),
                 OptionalLong.empty(),
                 TASK_ID,
+                Optional.empty(),
                 state,
                 false,
+                Optional.empty(),
                 Optional.empty(),
                 Optional.empty(),
                 0,
@@ -3624,7 +3649,7 @@ class TestReviewTools
         {
             return reviews.values().stream()
                     .filter(review -> review.state() == AgentReview.State.OPEN)
-                    .filter(review -> review.workspaceId().equals(workspaceId) && review.repo().equals(repo) && review.number() == number)
+                    .filter(review -> review.workspaceId().equals(workspaceId) && review.repo().equals(repo) && review.number().stream().anyMatch(value -> value == number))
                     .findFirst();
         }
 

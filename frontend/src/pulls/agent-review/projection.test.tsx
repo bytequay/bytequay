@@ -72,9 +72,9 @@ const detail = {
 } as unknown as PullRequestDetailDto;
 
 function header(
-  tab: 'overview' | 'changes' | 'review' | null,
+  tab: 'overview' | 'files' | 'changes' | 'review' | 'code' | null,
   review: AgentReviewDto | null,
-  options: Pick<ComponentProps<typeof PullDetailHeader>, 'agentTab' | 'onZoom'> = {},
+  options: Partial<Pick<ComponentProps<typeof PullDetailHeader>, 'agentTab' | 'onZoom' | 'zoom' | 'pr' | 'detail'>> = {},
 ): string {
   return renderToStaticMarkup(
     <PullDetailHeader
@@ -97,41 +97,79 @@ function changes(review: AgentReviewDto | null, navigation: { path: string; side
 }
 
 describe('the pane tab row', () => {
-  it('adds Agent review beside the existing tabs without changing them', () => {
+  it('separates GitHub views from WorkBench views', () => {
     const html = header('overview', null);
     expect(html).toContain('PR #30304');
-    expect(html).toContain('Changes');
-    expect(html).toContain('Review &amp; Learning');
-    // The existing tabs keep their counters and classes.
-    expect(html).toContain('pull-detail__change-count is-addition');
-    expect(html).toContain('pull-detail__change-count is-deletion');
+    expect(html).toContain('WorkBench');
+    expect(html).not.toContain('Files changed');
+    expect(html).not.toContain('Summary');
+    const workbench = header('review', null);
+    expect(workbench).toContain('Summary');
+    expect(workbench).toContain('Changes');
+    expect(workbench).toContain('Code &amp; Tests');
+    expect(workbench).not.toContain('Files changed');
   });
 
-  it('marks whichever tab is open, including the third one', () => {
+  it('marks the top-level destination and its selected view', () => {
     const active = (html: string) => html.split('<button').filter(part => part.includes('aria-pressed="true"'));
-    expect(active(header('review', null))).toHaveLength(1);
-    expect(active(header('review', null))[0]).toContain('Review &amp; Learning');
-    expect(active(header('changes', null))[0]).toContain('Changes');
+    expect(active(header('review', null))).toHaveLength(2);
+    expect(active(header('review', null))[0]).toContain('WorkBench');
+    expect(active(header('review', null))[1]).toContain('Summary');
+    expect(active(header('changes', null))[1]).toContain('Changes');
     expect(active(header('overview', null))[0]).toContain('PR #30304');
+    expect(active(header('overview', null))).toHaveLength(1);
+    expect(active(header('files', null))[0]).toContain('WorkBench');
+    expect(active(header('files', null))[1]).toContain('Changes');
+    expect(header('files', null)).toContain('Published PR');
   });
 
-  it('reuses the PR toolbar with a selected task Subagents tab', () => {
+  it('keeps task utilities at the top level beside the linked PR actions', () => {
     const html = header(null, null, {
       agentTab: <button type="button" aria-pressed="true">Subagents 2</button>,
     });
-    expect(html).toContain('Subagents 2');
-    expect(html).toContain('Review &amp; Learning');
+    expect(html.match(/aria-label="Task destinations">([^]*?)<\/nav>/)?.[1]).toContain('Subagents 2');
+    // A utility is a destination of its own: PR and WorkBench step back and WorkBench's views go.
     expect(html.match(/aria-pressed="true"/g)).toHaveLength(1);
+    expect(html).not.toContain('Summary');
     expect(html).toContain('aria-label="Zoom pull request details"');
     expect(html).toContain('aria-label="Refresh pull request"');
     expect(html).toContain('Submit review');
+    expect(html).toContain('pull-detail__merge-action');
   });
 
-  it('keeps Review & Learning when the task supplies no Subagents tab or zoom action', () => {
+  it.each(['overview', 'files', 'changes', 'review', 'code', null] as const)('keeps the shared PR actions on %s', tab => {
+    const html = header(tab, null, {
+      zoom: { full: false, toggle: () => {}, close: () => {} },
+    });
+    expect(html).toContain('aria-label="Enter full screen"');
+    expect(html).toContain('aria-label="Refresh pull request"');
+    expect(html).toContain('aria-label="Submit review"');
+    expect(html).toContain('class="pull-detail__merge-action');
+  });
+
+  it('retains only pane controls before there is a PR', () => {
+    const html = header('changes', null, {
+      pr: null, detail: null, zoom: { full: true, toggle: () => {}, close: () => {} },
+    });
+    expect(html).toContain('aria-label="Exit full screen"');
+    expect(html).toContain('aria-label="Close pull request details"');
+    expect(html).not.toContain('aria-label="Refresh pull request"');
+    expect(html).not.toContain('Submit review');
+    expect(html).not.toContain('pull-detail__merge-action');
+  });
+
+  it.each(['closed', 'merged'])('keeps the existing %s PR action guards inside WorkBench', state => {
+    const html = header('review', null, { pr: { ...pr, state }, detail: { ...detail, state } });
+    expect(html).toContain('aria-label="Refresh pull request"');
+    expect(html).not.toContain('Submit review');
+    expect(html).not.toContain('pull-detail__merge-action');
+  });
+
+  it('keeps WorkBench available when there are no task utilities', () => {
     const html = header('overview', null, { agentTab: null, onZoom: undefined });
     expect(html).toContain('PR #30304');
-    expect(html).toContain('Changes');
-    expect(html).toContain('Review &amp; Learning');
+    expect(html).not.toContain('Files changed');
+    expect(html).toContain('WorkBench');
     expect(html).not.toContain('Zoom pull request details');
     expect(html).toContain('aria-label="Refresh pull request"');
   });
@@ -175,13 +213,13 @@ describe('the same finding in Changes', () => {
     expect(html).toContain('data-diff-row="plugin/trino-iceberg/src/main/java/io/trino/plugin/iceberg/IcebergSortField.java:RIGHT:131"');
   });
 
-  it('offers the same actions and the way back to Review & Learning', () => {
+  it('offers the same actions and the way back to Summary', () => {
     const html = changes(review);
-    expect(html).toContain('Ask agent');
+    expect(html).toContain('Ask reviewer');
     expect(html).toContain('Resolve locally');
     expect(html).toContain('Add to my review');
     expect(html).toContain('Post comment now');
-    expect(html).toContain('Open in Review &amp; Learning');
+    expect(html).toContain('Open in Summary');
     expect(html).not.toContain('View in Changes');
   });
 

@@ -74,6 +74,7 @@ import java.time.ZoneOffset;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.OptionalInt;
 import java.util.OptionalLong;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -334,14 +335,14 @@ class TestReviewRuntimeRecovery
     private static AgentReviewProjection projection(List<RunView> runs)
     {
         AgentReview review = new AgentReview(
-                REVIEW_ID, "workspace-1", "owner/repo", 7, OptionalLong.empty(), TASK_ID.toString(), AgentReview.State.OPEN, true,
-                Optional.empty(), Optional.of("head"), 0, NOW, NOW, Optional.empty());
+                REVIEW_ID, "workspace-1", "owner/repo", OptionalInt.of(7), OptionalLong.empty(), TASK_ID.toString(), Optional.empty(), AgentReview.State.OPEN, true,
+                Optional.empty(), Optional.of("head"), Optional.of("head"), 0, NOW, NOW, Optional.empty());
         return new AgentReviewProjection(
                 review, runs, ImmutableList.of(), ImmutableList.of(new AgentReviewProjection.MessageView(
                         new ReviewMessage("message-1", REVIEW_ID, Optional.empty(), Optional.of("run-1:limitations"), ReviewMessage.Author.USER,
                                 "Explain this limitation", 1, "run-1", Optional.empty(), Optional.of("queue-1"), 0, NOW),
                         Optional.of("turn-2"), Optional.of("event-1"))),
                 new AgentReviewProjection.TaskView(TASK_ID.toString(), "workspace-1", "OPEN", 8, "claude", "Claude Code", Optional.empty(), Optional.empty(), false, false),
-                Optional.empty(), ImmutableList.of(), 0, ImmutableList.of(), Optional.empty(), Optional.empty());
+                Optional.empty(), ImmutableList.of(), 0, ImmutableList.of(), Optional.empty(), Optional.empty(), Optional.empty());
     }
 }

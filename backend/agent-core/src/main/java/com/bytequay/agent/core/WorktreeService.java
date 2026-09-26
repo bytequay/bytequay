@@ -13,6 +13,8 @@
  */
 package com.bytequay.agent.core;
 
+import java.nio.file.Path;
+
 /** Creates, verifies, and removes ByteQuay-generated task worktrees without owning workflow state. */
 public interface WorktreeService
 {
@@ -24,6 +26,13 @@ public interface WorktreeService
      * @throws AgentStorageException when Git cannot be updated safely
      */
     TaskWorktree provision(ProvisionWorktreeCommand command);
+
+    /**
+     * Resolves the owned checkout for read-only source inspection without requiring its generated branch or refreshing its index.
+     *
+     * @throws InvalidAgentRequestException when the checkout is absent or its workspace/repository ownership cannot be verified
+     */
+    Path ownedCheckout(TaskWorktree worktree);
 
     /**
      * Returns current Git facts after revalidating the recorded ownership facts.

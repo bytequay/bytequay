@@ -14,9 +14,17 @@
 
 import type { AgentTurnDto } from '../types';
 
-export function developmentTurnLabel(turn: AgentTurnDto | null | undefined): string | null {
-  if (turn?.developmentOrigin?.kind === 'REFINE_SUMMARY') return 'Refine summary';
-  if (turn?.developmentOrigin?.kind === 'AUTO_COMMIT') return 'Auto commit';
+export function developmentTurnRequest(turn: AgentTurnDto | null | undefined) {
+  if (turn?.developmentOrigin?.kind === 'REFINE_SUMMARY') return {
+    action: 'ByteQuay · Refine summary',
+    topic: 'WorkBench',
+    body: 'Refresh the change intention and commit explanations from the current code and commit history.',
+  };
+  if (turn?.developmentOrigin?.kind === 'AUTO_COMMIT') return {
+    action: 'ByteQuay · Auto commit',
+    topic: 'Working changes',
+    body: 'Commit the completed changes in this task’s worktree.',
+  };
   return null;
 }
 

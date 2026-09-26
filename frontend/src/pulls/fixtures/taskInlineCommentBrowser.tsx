@@ -43,7 +43,7 @@ const detail: PullRequestDetailDto = {
 
 const INTERNAL_PROMPT = 'INTERNAL_LOCAL_REVIEW_CONTEXT_NOT_A_USER_MESSAGE';
 
-async function scenario(mode: 'idle' | 'queued' | 'unsent'): Promise<void> {
+async function scenario(mode: 'idle' | 'queued' | 'unsent' | 'published'): Promise<void> {
   const bridge = createPreviewBridge('workspace-1');
   const original = bridge.events.find(event => event.type === 'user_message');
   assert(original !== undefined && original.turnId !== null, 'Fixture must retain one completed turn');
@@ -93,7 +93,8 @@ async function scenario(mode: 'idle' | 'queued' | 'unsent'): Promise<void> {
   bridge.readAgentHistory = async () => ({ events: [...history], beforeCursor: null, afterCursor: null, latestSequence: history.at(-1)?.sequence ?? 0 });
   bridge.readAgentPendingApprovals = async () => [];
   bridge.listAgentQueue = async () => [...queue];
-  bridge.listAgentTaskPullRequests = async () => [remotePullRequest(detail, 'alice')];
+  const viewer = mode === 'published' ? 'bob' : 'alice';
+  bridge.listAgentTaskPullRequests = async () => [remotePullRequest(detail, viewer)];
   bridge.subscribeAgentTask = async (taskId, _after, listener) => {
     notify = listener;
     listener({ subscriptionId: 'inline', taskId, kind: 'state', state: 'open' });
@@ -166,19 +167,32 @@ async function scenario(mode: 'idle' | 'queued' | 'unsent'): Promise<void> {
     return updated;
   };
   let githubWrites = 0;
+  const posted: Parameters<Bridge['postPrReviewComment']>[] = [];
   const prBridge = {
     findAgentReview: async () => null,
-    getUserProfile: async () => ({ login: 'alice', name: null, avatarUrl: '', htmlUrl: '', publicRepos: 0, followers: 0,
+    findTaskAgentReview: async () => null,
+    getUserProfile: async () => ({ login: viewer, name: null, avatarUrl: '', htmlUrl: '', publicRepos: 0, followers: 0,
       following: 0, bio: null, location: null, company: null, email: null }),
     fetchPullRequestDetailByRef: async () => detail,
     refreshPullRequestDetailByRef: async () => ({ full: true as const, detail, status: null }),
     fetchPrDiffFiles: async () => [file], fetchPrDiffCommits: async () => commits,
+    readWorktreeChanges: async (host, request) => {
+      assert(host.kind === 'task' && host.taskId === task.id && host.workspaceId === task.workspaceId,
+        'Working changes must read the current task worktree');
+      return { branch: 'feature', baseSha: '0000000', headSha: '2222222', baseLabel: 'main', scope: request.scope,
+        selectedCommit: null, sourceFingerprint: 'working-copy', truncated: false, staged: [], unstaged: [], untracked: [], files: [file], commits };
+    },
     refreshPrDiffFiles: async (_repo, _number, base, head) => {
       assert(base === '1111111' && head === '2222222', 'Task selection must compare the requested commit'); return [file];
     },
-    postPrReviewComment: async () => { githubWrites++; throw new Error('Private feedback must not post to GitHub'); },
-  } satisfies Pick<Bridge, 'findAgentReview' | 'getUserProfile' | 'fetchPullRequestDetailByRef' | 'refreshPullRequestDetailByRef'
-    | 'fetchPrDiffFiles' | 'fetchPrDiffCommits' | 'refreshPrDiffFiles' | 'postPrReviewComment'>;
+    postPrReviewComment: async (...request) => {
+      githubWrites++;
+      assert(mode === 'published', 'Private feedback must not post to GitHub');
+      posted.push(request);
+      return detail;
+    },
+  } satisfies Pick<Bridge, 'findAgentReview' | 'findTaskAgentReview' | 'getUserProfile' | 'fetchPullRequestDetailByRef' | 'refreshPullRequestDetailByRef'
+    | 'fetchPrDiffFiles' | 'fetchPrDiffCommits' | 'readWorktreeChanges' | 'refreshPrDiffFiles' | 'postPrReviewComment'>;
   const originalBridge = window.bridge;
   Object.defineProperty(window, 'bridge', { configurable: true, value: { ...bridge, ...prBridge } });
   const host = document.createElement('div');
@@ -193,9 +207,32 @@ async function scenario(mode: 'idle' | 'queued' | 'unsent'): Promise<void> {
     const attach = host.querySelector<HTMLButtonElement>('[aria-label="Attach an image"]');
     assert(attach !== null && !attach.disabled, 'Fixture must exercise a retained image attachment');
     attach.click(); await settle();
-    const changes = [...host.querySelectorAll<HTMLButtonElement>('button')].find(candidate => candidate.textContent?.includes('Changes'));
+    const changes = [...host.querySelectorAll<HTMLButtonElement>('button')].find(candidate => candidate.textContent?.trim() === 'Changes');
     assert(changes !== undefined, 'The associated draft PR must open the task panel');
     changes.click(); await settle();
+    const source = host.querySelector<HTMLSelectElement>('[aria-label="Changes source"]');
+    assert(source?.value === 'published', 'Clicking Changes must open the published PR directly, even when the task has a working copy');
+    if (mode === 'published') {
+      const add = host.querySelector<HTMLButtonElement>('[aria-label="Add a comment on new line 1"]');
+      assert(add !== null, 'The default Changes view must offer the inline comment gutter');
+      add.click(); await settle();
+      const inline = host.querySelector<HTMLTextAreaElement>('.pull-diff-review textarea');
+      assert(inline !== null, 'Clicking a published line must open its review composer');
+      changeInput(inline, 'Please cover this implementation with a test'); await settle();
+      const post = button(host, 'Post now');
+      assert(!post.disabled && githubWrites === 0, 'A published line must allow posting without writing before the explicit action');
+      post.click(); await settle();
+      const request = posted[0];
+      assert(posted.length === 1 && request[0] === detail.repo && request[1] === detail.number
+        && request[2].path === file.filename && request[2].side === 'RIGHT' && request[2].line === 1 && request[2].startLine === null
+        && request[2].commitId === '2222222' && request[2].body === 'Please cover this implementation with a test',
+      'Post now must publish exactly once to the displayed PR revision and selected line');
+      assert(host.querySelector('.pull-diff-review') === null && composer.value === 'Keep my unrelated draft'
+        && host.querySelector('[aria-label="Remove image draft.png"]') !== null && requests.length === 0
+        && !bridge.commands.some(command => ['startAgentTurn', 'queueAgentInput', 'steerAgentTurn'].includes(command.name)),
+      'Posting a review comment must close its composer while preserving the task draft and avoiding agent dispatch');
+      return;
+    }
     const choice = host.querySelector<HTMLInputElement>('[aria-label="Select 2222222: Second"]');
     assert(choice !== null, 'Task must show its real commit picker');
     choice.click(); await settle();
@@ -266,14 +303,14 @@ async function scenario(mode: 'idle' | 'queued' | 'unsent'): Promise<void> {
       assert(replyRequest !== undefined, 'A transcript reply must offer navigation to its private discussion');
       replyRequest.click(); await settle();
       const learningCard = host.querySelector<HTMLDetailsElement>(`.agt-panel [data-local-review-thread="${request.id}"]`);
-      assert(host.querySelector('.agt-panel[aria-label="Review & Learning"]') !== null && learningCard?.open === true,
-        'Clicking a reply must select Review & Learning and expand its exact resolved discussion');
+      assert(host.querySelector('.agt-panel[aria-label="Summary"]') !== null && learningCard?.open === true,
+        'Clicking a reply must select Summary and expand its exact resolved discussion');
       assert(learningCard.contains(document.activeElement), 'The matching panel discussion must receive focus instead of its transcript copy');
       learningCard.open = false;
       replyRequest.click(); await settle();
       assert(learningCard.open, 'Clicking the same reply again must reopen the matching discussion');
       assert(learningCard?.textContent?.includes('The implementation is simpler now.') === true && learningCard.textContent?.includes('Resolved') === true,
-        'Review & Learning must show the same private discussion before the first agent review');
+        'Summary must show the same private discussion before the first agent review');
       assert(![...host.querySelectorAll('button')].some(element => element.textContent === 'Start review')
         && host.querySelector('[data-learning-card="purpose"]')?.textContent?.includes('Simplify optional value handling.') === true && !host.querySelector('.agr-strip__tabs'),
         'The development PR must show the current intention without manual startup or Activity subtabs');
@@ -312,8 +349,8 @@ async function scenario(mode: 'idle' | 'queued' | 'unsent'): Promise<void> {
 
 export async function runTaskInlineCommentScenarios(): Promise<{ name: string; error?: string }[]> {
   const results: { name: string; error?: string }[] = [];
-  for (const mode of ['idle', 'queued', 'unsent'] as const) {
-    const name = `Live persistent local review: ${mode}`;
+  for (const mode of ['idle', 'queued', 'unsent', 'published'] as const) {
+    const name = mode === 'published' ? 'Task Changes opens the published PR for explicit line comments' : `Live persistent local review: ${mode}`;
     try { await scenario(mode); results.push({ name }); }
     catch (error) { results.push({ name, error: error instanceof Error ? error.message : String(error) }); }
   }

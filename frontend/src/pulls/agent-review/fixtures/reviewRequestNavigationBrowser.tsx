@@ -105,10 +105,13 @@ export async function run(): Promise<string[]> {
     listLocalReviewComments: async () => [local],
     fetchPrDiffFiles: async () => [],
     fetchPrDiffCommits: async () => [],
+    readWorktreeChanges: async (_host, request) => ({ scope: request.scope, selectedCommit: request.commit ?? null,
+      sourceFingerprint: 'review-head', baseSha: 'base', headSha: 'head', baseLabel: 'main', branch: 'review',
+      files: [], commits: [], staged: [], unstaged: [], untracked: [], truncated: false }),
     recordRecentTouch: async () => {},
   } satisfies Pick<Bridge, 'getUserProfile' | 'getModelSettings' | 'getAgentTurn' | 'getAgentReview' | 'readAgentReviewHistory'
     | 'fetchAttentionPrs' | 'fetchPullRequestDetailByRef' | 'refreshPullRequestDetailByRef' | 'listLocalReviewComments'
-    | 'fetchPrDiffFiles' | 'fetchPrDiffCommits' | 'recordRecentTouch'>;
+    | 'fetchPrDiffFiles' | 'fetchPrDiffCommits' | 'readWorktreeChanges' | 'recordRecentTouch'>;
   const previous = window.bridge;
   Object.assign(window, { bridge });
   const host = document.createElement('main');
@@ -162,13 +165,13 @@ export async function run(): Promise<string[]> {
     const commitCards = [...pane.querySelectorAll<HTMLElement>('.agr-commit-list > li > .agr-commit-entry')];
     assert(commitList !== null && getComputedStyle(commitList).listStyleType === 'decimal',
       'Commits must use a native decimal ordered list');
-    assert(intention?.classList.contains('agr-learning-card--purpose') === true && intention.textContent?.includes('PR intention') === true,
-      'The report must begin with a distinct PR intention card');
+    assert(intention?.classList.contains('agr-learning-card--purpose') === true && intention.textContent?.includes('Change intention') === true,
+      'The report must begin with a distinct Change intention card');
     assert(commitCards.length === current.commits.length && commitCards.every((card, index) =>
       card.dataset.reviewCard === `${current.id}:commit:${current.commits[index].sha}`),
     'Every commit must have its own numbered entry in source order');
     assert(pane.querySelectorAll('[data-review-card]').length === current.commits.length + 1,
-      'A report without earlier discussions must contain only the PR intention and per-commit entries');
+      'A report without earlier discussions must contain only the Change intention and per-commit entries');
     for (const section of ['combined-result', 'evidence', 'coverage', 'critical-issues', 'limitations']) {
       assert(pane.querySelector(`[data-review-card="${current.id}:${section}"]`) === null,
         `The normal report must not render a redundant ${section} card`);
@@ -212,7 +215,7 @@ export async function run(): Promise<string[]> {
     const lastCommit = commitCards.at(-1);
     assert(findingsHeading !== undefined && lastCommit !== undefined && Boolean(lastCommit.compareDocumentPosition(findingsHeading)
       & Node.DOCUMENT_POSITION_FOLLOWING), 'Findings must follow the commit list');
-    results.push('PR intention and numbered Git commits with separate review discussion cards lead directly to findings');
+    results.push('Change intention and numbered Git commits with separate review discussion cards lead directly to findings');
 
     const target = (selector: string) => {
       const element = pane.querySelector<HTMLElement>(selector);
@@ -229,7 +232,7 @@ export async function run(): Promise<string[]> {
         if (ancestor instanceof HTMLDetailsElement) assert(ancestor.open, 'Navigation must expand the earlier-discussions container');
         ancestor = ancestor.parentElement;
       }
-      assert(document.activeElement === destination || destination.contains(document.activeElement), 'Navigation must focus the destination in the right pane');
+      assert(document.activeElement === destination || destination.contains(document.activeElement), `Navigation must focus ${selector} in the right pane; active ${document.activeElement?.outerHTML.slice(0, 200)}`);
       const summary = destination.querySelector('.agr-commit-list__title') ?? disclosure.querySelector('summary') ?? destination;
       const viewport = pane.getBoundingClientRect();
       for (let attempt = 0; attempt < 60; attempt++) {
@@ -242,12 +245,15 @@ export async function run(): Promise<string[]> {
     const open = async (turnId: string, selector: string) => {
       const card = request(turnId);
       const control = card.querySelector<HTMLButtonElement>('.agt-review-request__open');
-      assert(control !== null && /^Open .+ in Review & Learning$/.test(control.getAttribute('aria-label') ?? ''),
+      assert(control !== null && /^Open .+ in Summary$/.test(control.getAttribute('aria-label') ?? ''),
         'Request navigation must have an explicit accessible destination');
       control.click();
       await verifyTarget(selector);
     };
     button(pane, 'Changes').click(); await settle();
+    const source = pane.querySelector<HTMLSelectElement>('[aria-label="Changes source"]');
+    assert(source !== null, 'Changes must expose its source');
+    source.value = 'published'; source.dispatchEvent(new Event('change', { bubbles: true })); await settle();
     await open('turn-review', `[data-review-card="${current.id}:purpose"]`);
     button(pane, `PR #${review.number}`).click(); await settle();
     await open('turn-commit', `[data-review-card="${commit.cardId}"]`);

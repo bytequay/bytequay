@@ -15,7 +15,7 @@
 import { expect, it } from 'vitest';
 import { runBrowserFixture, type ScenarioResult } from '../fixtures/browserFixture';
 
-it('opens saved review requests in the matching Review & Learning card in the real PR workspace', async () => {
+it('opens saved review requests in the matching Summary card in the real PR workspace', async () => {
   const results = await runBrowserFixture<ScenarioResult[]>({
     prefix: 'bytequay-review-navigation-',
     entry: 'src/pulls/agent-review/fixtures/reviewRequestNavigationBrowser.tsx',

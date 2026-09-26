@@ -31,6 +31,12 @@ public interface AgentReviewService
     /** The open review of a pull request, else its most recent ended one, else empty. */
     Optional<AgentReviewProjection> find(String workspaceId, String repo, int number);
 
+    /** The newest review linked to this workspace's development task, including retained ended reviews. */
+    Optional<AgentReviewProjection> findForTask(String workspaceId, String sourceTaskId);
+
+    /** Starts a separate reviewer for the development task's committed working-copy revision. */
+    AgentReviewProjection startForTask(String workspaceId, String sourceTaskId);
+
     AgentReviewProjection get(String reviewId);
 
     /** Lists open and closed workspace reviews by descending update time, without starting work or refreshing GitHub. */

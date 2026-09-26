@@ -60,7 +60,7 @@ function LearningCard({ card, turn, repository, disabledReason, onAsk }: {
         {error !== null && <span className="pr-thread-reply__error" role="alert">{error}</span>}
       </footer>}>
       <ReviewThreadMessage timestamp={turn.endedAt ?? turn.createdAt}
-        author={<><Avatar login="Agent" size={22} allowGitHubFallback={false} /><strong>Agent</strong></>}>
+        author={<><Avatar login="Agent" size={22} allowGitHubFallback={false} /><strong>Developer</strong></>}>
         <MarkdownBody body={card.body} repository={repository} />
       </ReviewThreadMessage>
     </ReviewThreadCard>
@@ -68,9 +68,10 @@ function LearningCard({ card, turn, repository, disabledReason, onAsk }: {
 }
 
 /** Reads the kept report, independently of the conversation's bounded history window. */
-export default function DevelopmentLearningPanel({ task, repository, refreshKey, refining, disabledReason, localReview, bridge }: {
+export default function DevelopmentLearningPanel({ task, repository, refreshKey, refining, disabledReason, localReview, bridge, onSelectCommit }: {
   task: AgentTaskDto; repository: string; refreshKey: number; refining: boolean; disabledReason: string | null;
   localReview: LearningThreads; bridge: LearningBridge;
+  onSelectCommit?: (sha: string) => void;
 }) {
   const [turn, setTurn] = useState<AgentTurnDto | null>(null);
   const [loading, setLoading] = useState(true);
@@ -117,6 +118,7 @@ export default function DevelopmentLearningPanel({ task, repository, refreshKey,
         <div className="agr-commit-section__head"><h2>Commit implementation</h2></div>
         <ol className="agr-commit-list">{cards.slice(1).map((card, index) => <li key={card.id}>
           <h3 className="agr-commit-list__title">{summary.commits[index].title} <code>{summary.commits[index].sha.slice(0, 7)}</code></h3>
+          {onSelectCommit && <button type="button" className="agr-action" onClick={() => onSelectCommit(summary.commits[index].sha)}>View changes</button>}
           {renderCard(card)}
         </li>)}</ol>
       </section>}

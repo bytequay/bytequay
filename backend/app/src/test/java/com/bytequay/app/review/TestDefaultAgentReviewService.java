@@ -16,9 +16,11 @@ package com.bytequay.app.review;
 import com.bytequay.agent.core.AgentApprovalService;
 import com.bytequay.agent.core.AgentCompletionService;
 import com.bytequay.agent.core.AgentConflictException;
+import com.bytequay.agent.core.AgentEventService;
 import com.bytequay.agent.core.AgentMetrics;
 import com.bytequay.agent.core.AgentTask;
 import com.bytequay.agent.core.AgentTaskDefaults;
+import com.bytequay.agent.core.AgentTaskNotFoundException;
 import com.bytequay.agent.core.AgentTaskService;
 import com.bytequay.agent.core.AgentTurn;
 import com.bytequay.agent.core.AgentTurnService;
@@ -68,9 +70,11 @@ import com.bytequay.app.workspace.WorkspaceRepositoryContext;
 import com.bytequay.app.workspace.WorkspaceRepositoryService;
 import com.bytequay.core.context.ContextPacket;
 import com.bytequay.core.context.ReviewContextSnapshot;
+import com.bytequay.core.domain.DiffCommit;
 import com.bytequay.core.domain.DiffFile;
 import com.bytequay.core.domain.PullRequest;
 import com.bytequay.core.domain.PullRequestDetail;
+import com.bytequay.core.domain.PullRequestTask;
 import com.bytequay.core.domain.RepoRef;
 import com.bytequay.core.domain.UserProfile;
 import com.bytequay.core.review.AgentReview;
@@ -94,16 +98,20 @@ import com.bytequay.core.review.ReviewStep;
 import com.bytequay.core.review.ReviewSummary;
 import com.bytequay.core.review.ReviewValidation;
 import com.bytequay.core.store.ContextUsageStore;
+import com.bytequay.core.store.PullRequestStore;
+import com.bytequay.core.store.PullRequestTaskStore;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.io.TempDir;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.EnumSource;
 import org.junit.jupiter.params.provider.ValueSource;
 import org.mockito.ArgumentCaptor;
 import org.mockito.InOrder;
 
+import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.Clock;
 import java.time.Duration;
@@ -114,6 +122,7 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.OptionalInt;
 import java.util.OptionalLong;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.Executors;
@@ -128,12 +137,14 @@ import static com.google.common.collect.ImmutableList.toImmutableList;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.anyList;
 import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.argThat;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.doAnswer;
+import static org.mockito.Mockito.doReturn;
 import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.inOrder;
 import static org.mockito.Mockito.mock;
@@ -169,6 +180,228 @@ class TestDefaultAgentReviewService
             AgentPermissionPolicy.AUTO,
             Duration.ofMinutes(30),
             ImmutableList.of());
+
+    @Test
+    void developmentReviewUsesASeparateReviewTaskAndFrozenUnpushedCommits()
+    {
+        Fixture fixture = new Fixture();
+        AgentTask source = developmentSource();
+        localSource(fixture, source, HEAD);
+        when(fixture.worktrees.inspect(source.taskWorktree().orElseThrow()))
+                .thenReturn(new WorktreeSnapshot(source.taskWorktree().orElseThrow(), HEAD, true, false));
+
+        when(fixture.browse.read(source.worktree(), "symbolic-ref", "--quiet", "--short", "HEAD")).thenReturn(ok("feature/configuration"));
+
+        AgentReviewProjection result = fixture.service.startForTask(WORKSPACE, source.id().toString());
+        verify(fixture.worktrees, never()).inspect(source.taskWorktree().orElseThrow());
+        assertThat(result.review().sourceTaskId()).contains(source.id().toString());
+        assertThat(result.review().taskId()).isEqualTo(TASK_ID.toString()).isNotEqualTo(source.id().toString());
+        assertThat(result.review().number()).isEmpty();
+        assertThat(result.review().pullRequestId()).isEmpty();
+        assertThat(result.runs().getFirst().baseSha()).isEqualTo(BASE_SHA);
+        assertThat(result.runs().getFirst().headSha()).isEqualTo(HEAD);
+        assertThat(result.runs().getFirst().commits()).extracting(commit -> commit.sha()).containsExactly(HEAD);
+        assertThat(fixture.service.findForTask(WORKSPACE, source.id().toString()).orElseThrow().review().id()).isEqualTo(result.review().id());
+        assertThat(fixture.service.startForTask(WORKSPACE, source.id().toString()).review().id()).isEqualTo(result.review().id());
+        verify(fixture.models).agentModel(AgentModelType.REVIEW, Optional.of(WORKSPACE));
+        verify(fixture.tasks, times(1)).create(argThat(command -> command.startCommit().equals(HEAD) && !command.taskId().equals(source.id())));
+        verify(fixture.turns).start(argThat(command -> command.taskId().equals(TASK_ID) && command.message().contains("uncommitted development edits are excluded")));
+        verify(fixture.pullRequests, never()).getPullRequestDetail(anyString(), anyInt());
+        verify(fixture.refresh, never()).refreshAllDetail(anyString(), anyInt());
+        verify(fixture.turns, never()).synchronizeWorktree(eq(source.id()), anyLong(), any());
+    }
+
+    @Test
+    void importedDevelopmentReviewUsesThePullRequestBaseRatherThanItsInitialHead()
+    {
+        Fixture fixture = new Fixture();
+        AgentTask source = developmentSource(HEAD);
+        localSource(fixture, source, HEAD);
+        when(fixture.assignments.findByTaskId(source.id().toString()))
+                .thenReturn(Optional.of(new PullRequestTask(source.id().toString(), WORKSPACE, REPO, NUMBER, "Initial PR context")));
+        when(fixture.pullRequests.findPullRequestDetail(REPO, NUMBER)).thenReturn(Optional.of(detail()));
+        when(fixture.browse.require(source.worktree(), "rev-parse", "--verify", "refs/remotes/origin/main^{commit}")).thenReturn(BASE_SHA);
+
+        AgentReviewProjection result = fixture.service.startForTask(WORKSPACE, source.id().toString());
+
+        assertThat(result.review().number()).hasValue(NUMBER);
+        assertThat(result.runs().getFirst().baseRef()).isEqualTo("main");
+        assertThat(result.runs().getFirst().baseSha()).isEqualTo(BASE_SHA);
+        assertThat(result.runs().getFirst().commits()).hasSize(1);
+        verify(fixture.refresh, never()).refreshAllDetail(anyString(), anyInt());
+        verify(fixture.pullRequests, never()).getPullRequestDetail(anyString(), anyInt());
+    }
+
+    @Test
+    void localReviewUpdatesReuseTheReviewerAndDoNotFollowRemoteHeads()
+    {
+        Fixture fixture = new Fixture();
+        AgentTask source = developmentSource();
+        localSource(fixture, source, HEAD);
+        AgentReviewProjection first = fixture.service.startForTask(WORKSPACE, source.id().toString());
+        ReviewRun run = fixture.store.listRuns(first.review().id()).getFirst();
+        fixture.store.updateRun(run.ended(ReviewRun.State.FAILED, Optional.of("Stopped for test"), NOW));
+        localSource(fixture, source, NEW_HEAD);
+        when(fixture.git.run(REPOSITORY, "merge-base", "--is-ancestor", HEAD, NEW_HEAD)).thenReturn(ok(""));
+        when(fixture.worktrees.inspect(taskWorktree())).thenReturn(new WorktreeSnapshot(taskWorktree(), HEAD, false, false),
+                new WorktreeSnapshot(taskWorktree(), NEW_HEAD, false, false));
+        when(fixture.git.run(taskWorktree().canonicalWorktree(), fastForward(NEW_HEAD))).thenReturn(ok(""));
+
+        AgentReviewProjection updated = fixture.service.update(first.review().id());
+
+        assertThat(updated.review().taskId()).isEqualTo(first.review().taskId());
+        assertThat(updated.runs()).hasSize(2);
+        assertThat(updated.runs().getLast().headSha()).isEqualTo(NEW_HEAD);
+        verify(fixture.tasks, times(1)).create(any(CreateAgentTaskCommand.class));
+        verify(fixture.refresh, never()).refreshAllDetail(anyString(), anyInt());
+        verify(fixture.turns, never()).synchronizeWorktree(eq(source.id()), anyLong(), any());
+    }
+
+    @Test
+    void localReviewRejectsUnavailableOrWrongWorkspaceSourceBeforeProvisioning()
+    {
+        Fixture fixture = new Fixture();
+        AgentTask source = developmentSource();
+        localSource(fixture, source, HEAD);
+        when(fixture.tasks.getInteractive("other-workspace", source.id())).thenThrow(new AgentConflictException("Wrong workspace"));
+        assertThatThrownBy(() -> fixture.service.startForTask("other-workspace", source.id().toString())).hasMessage("Wrong workspace");
+        when(fixture.git.gitPaths(eq(source.worktree()), anyList())).thenAnswer(invocation -> {
+            List<String> markers = invocation.getArgument(1);
+            return markers.stream().map(ignored -> Path.of("/tmp")).collect(toImmutableList());
+        });
+        assertThatThrownBy(() -> fixture.service.startForTask(WORKSPACE, source.id().toString())).hasMessageContaining("open Git operation");
+        verify(fixture.tasks, never()).create(any(CreateAgentTaskCommand.class));
+    }
+
+    @ParameterizedTest
+    @ValueSource(booleans = {false, true})
+    void failedReviewInsertionDiscardsOnlyTheUnstartedReviewer(boolean development)
+    {
+        Fixture fixture = new Fixture();
+        AgentTask source = developmentSource();
+        localSource(fixture, source, HEAD);
+        ReviewConflictException failure = new ReviewConflictException("The review row could not be stored");
+        doThrow(failure).when(fixture.store).insertReview(any(AgentReview.class));
+
+        assertThatThrownBy(() -> {
+            if (development) {
+                fixture.service.startForTask(WORKSPACE, source.id().toString());
+            }
+            else {
+                fixture.service.start(WORKSPACE, REPO, NUMBER);
+            }
+        }).isSameAs(failure);
+
+        verify(fixture.completions).delete(TASK_ID);
+        verify(fixture.completions, never()).delete(source.id());
+        verify(fixture.turns, never()).start(any(StartAgentTurnCommand.class));
+        verify(fixture.observer, never()).watch(any(AgentReview.class));
+        assertThat(fixture.store.listOpenReviews()).isEmpty();
+    }
+
+    @Test
+    void reviewInsertionRollbackPreservesTheOriginalFailureWhenCleanupFails()
+    {
+        Fixture fixture = new Fixture();
+        AgentTask source = developmentSource();
+        localSource(fixture, source, HEAD);
+        ReviewConflictException failure = new ReviewConflictException("The review row could not be stored");
+        AgentConflictException cleanupFailure = new AgentConflictException("Cleanup could not verify the generated worktree");
+        doThrow(failure).when(fixture.store).insertReview(any(AgentReview.class));
+        doThrow(cleanupFailure).when(fixture.completions).delete(TASK_ID);
+
+        assertThatThrownBy(() -> fixture.service.startForTask(WORKSPACE, source.id().toString())).isSameAs(failure);
+        assertThat(failure.getSuppressed()).containsExactly(cleanupFailure);
+        verify(fixture.turns, never()).start(any(StartAgentTurnCommand.class));
+    }
+
+    @Test
+    void reviewInsertionWithAnUncertainResponseKeepsItsRecordedTask()
+    {
+        Fixture fixture = new Fixture();
+        AgentTask source = developmentSource();
+        localSource(fixture, source, HEAD);
+        ReviewConflictException failure = new ReviewConflictException("The insertion response was interrupted");
+        doAnswer(invocation -> {
+            invocation.callRealMethod();
+            throw failure;
+        }).when(fixture.store).insertReview(any(AgentReview.class));
+
+        assertThatThrownBy(() -> fixture.service.startForTask(WORKSPACE, source.id().toString())).isSameAs(failure);
+        assertThat(fixture.store.listOpenReviews()).hasSize(1);
+        verify(fixture.completions, never()).delete(any(TaskId.class));
+    }
+
+    @Test
+    void deletingDevelopmentSourceRetainsReviewerResultsAndRefusesFurtherUpdates()
+    {
+        Fixture fixture = new Fixture();
+        AgentTask source = developmentSource();
+        localSource(fixture, source, HEAD);
+        AgentReviewProjection original = fixture.service.startForTask(WORKSPACE, source.id().toString());
+        when(fixture.tasks.getInteractive(WORKSPACE, source.id())).thenThrow(new AgentTaskNotFoundException(source.id()));
+
+        assertThat(fixture.service.get(original.review().id()).runs()).hasSize(1);
+        assertThat(fixture.service.get(original.review().id()).review().sourceTaskId()).contains(source.id().toString());
+        assertThatThrownBy(() -> fixture.service.update(original.review().id())).isInstanceOf(ReviewConflictException.class)
+                .hasMessage("The development task was deleted; retained review results remain available");
+        assertThat(fixture.store.listRuns(original.review().id())).hasSize(1);
+        verify(fixture.tasks, times(1)).create(any(CreateAgentTaskCommand.class));
+    }
+
+    @Test
+    void explicitLocalUpdateAdoptsANewlyCreatedPullRequestWithoutReplacingReviewer()
+    {
+        Fixture fixture = new Fixture();
+        AgentTask source = developmentSource();
+        localSource(fixture, source, HEAD);
+        AgentReviewProjection original = fixture.service.startForTask(WORKSPACE, source.id().toString());
+        when(fixture.assignments.findByTaskId(source.id().toString()))
+                .thenReturn(Optional.of(new PullRequestTask(source.id().toString(), WORKSPACE, REPO, NUMBER, "Initial PR context")));
+        when(fixture.pullRequests.findPullRequestDetail(REPO, NUMBER)).thenReturn(Optional.of(detail()));
+        when(fixture.browse.require(source.worktree(), "rev-parse", "--verify", "refs/remotes/origin/main^{commit}")).thenReturn(BASE_SHA);
+
+        AgentReviewProjection updated = fixture.service.update(original.review().id());
+
+        assertThat(updated.review().number()).hasValue(NUMBER);
+        assertThat(updated.review().pullRequestId()).hasValue(detail().id());
+        assertThat(updated.review().sourceTaskId()).contains(source.id().toString());
+        assertThat(updated.review().taskId()).isEqualTo(original.review().taskId());
+        verify(fixture.tasks, times(1)).create(any(CreateAgentTaskCommand.class));
+        verify(fixture.refresh, never()).refreshAllDetail(anyString(), anyInt());
+    }
+
+    private static AgentTask developmentSource()
+    {
+        return developmentSource(BASE_SHA);
+    }
+
+    private static AgentTask developmentSource(String startCommit)
+    {
+        TaskId id = TaskId.valueOf("aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa");
+        TaskWorktree worktree = new TaskWorktree(id, WORKSPACE, new RepositoryIdentity("owner", "repo"), Path.of("/tmp/bytequay/worktrees").resolve(id.toString()),
+                "bytequay/task/" + id, startCommit);
+        return AgentTask.created(id, true, "Handle missing configuration", TitleSource.USER, LANE, worktree, DEFAULTS, NOW);
+    }
+
+    private static void localSource(Fixture fixture, AgentTask source, String head)
+    {
+        when(fixture.tasks.getInteractive(WORKSPACE, source.id())).thenReturn(source);
+        when(fixture.worktrees.ownedCheckout(source.taskWorktree().orElseThrow())).thenReturn(source.worktree());
+        when(fixture.browse.require(source.worktree(), "rev-parse", "--verify", "HEAD^{commit}")).thenReturn(head);
+        when(fixture.git.gitPaths(eq(source.worktree()), anyList())).thenAnswer(invocation -> {
+            List<String> markers = invocation.getArgument(1);
+            return markers.stream().map(marker -> source.worktree().resolve(marker)).collect(toImmutableList());
+        });
+        when(fixture.worktrees.inspect(source.taskWorktree().orElseThrow()))
+                .thenReturn(new WorktreeSnapshot(source.taskWorktree().orElseThrow(), head, false, false));
+        when(fixture.browse.read(source.worktree(), "symbolic-ref", "--quiet", "--short", "HEAD")).thenReturn(ok(source.taskWorktree().orElseThrow().generatedBranch()));
+        when(fixture.browse.require(source.worktree(), "merge-base", head, BASE_SHA)).thenReturn(MERGE_BASE);
+        when(fixture.browse.history(source.worktree(), MERGE_BASE, head))
+                .thenReturn(new WorktreeDiffReader.History(ImmutableList.of(new DiffCommit(head, BASE_SHA, "Handle missing configuration", "Developer", NOW)), false));
+        when(fixture.browse.diff(source.worktree(), MERGE_BASE, Optional.of(head)))
+                .thenReturn(new WorktreeDiffReader.Diff(ImmutableList.of(new DiffFile("src/App.java", "modified", 1, 0, "@@ -1 +1,2 @@\n context\n+added\n")), false));
+    }
 
     @Test
     void contextSnapshotIsStoredBeforeSynchronousProviderLaunch()
@@ -1951,12 +2184,14 @@ class TestDefaultAgentReviewService
                 "other-review",
                 WORKSPACE,
                 REPO,
-                9,
+                OptionalInt.of(9),
                 OptionalLong.empty(),
                 TaskId.random().toString(),
+                Optional.empty(),
                 AgentReview.State.OPEN,
                 false,
                 Optional.empty(),
+                Optional.of(HEAD),
                 Optional.of(HEAD),
                 0,
                 NOW,
@@ -1975,50 +2210,255 @@ class TestDefaultAgentReviewService
 
     @ParameterizedTest
     @ValueSource(booleans = {false, true})
-    void observingANewHeadWaitsForExplicitUpdateBeforeMovingTheWorktree(boolean rewritten)
+    void observingANewHeadCatchesUpTheCleanWorktreeWithoutReviewingAgain(boolean rewritten)
     {
         Fixture fixture = rewrittenHistory();
+        AutoCheckout checkout = new AutoCheckout(fixture);
         String reviewId = fixture.store.listOpenReviews().getFirst().id();
-        if (!rewritten) {
-            when(fixture.git.run(REPOSITORY, "merge-base", "--is-ancestor", HEAD, NEW_HEAD)).thenReturn(ok(""));
-        }
+        ReviewRun assessed = fixture.store.listRuns(reviewId).getFirst();
+        ReviewFinding finding = fixture.store.insertFinding(finding("preserved", reviewId, assessed.id(), 1, ReviewFinding.State.OPEN));
+        when(fixture.git.run(REPOSITORY, "merge-base", "--is-ancestor", HEAD, NEW_HEAD))
+                .thenReturn(new GitCommandRunner.Result(rewritten ? 1 : 0, "", false));
 
         fixture.service.observeHead(REPO, NUMBER, NEW_HEAD);
         fixture.service.reconcile(reviewId);
 
-        assertThat(fixture.store.findReview(reviewId).orElseThrow().observedHeadSha()).contains(NEW_HEAD);
+        assertThat(checkout.head).isEqualTo(NEW_HEAD);
+        assertThat(fixture.store.findReview(reviewId).orElseThrow().worktreeHeadSha()).contains(NEW_HEAD);
         assertThat(fixture.store.findReview(reviewId).orElseThrow().followUpPaused()).isFalse();
-        assertThat(fixture.store.listRuns(reviewId)).hasSize(1);
-        verify(fixture.worktrees, never()).inspect(taskWorktree());
-        verify(fixture.git, never()).run(eq(taskWorktree().canonicalWorktree()), anyList());
+        assertThat(fixture.store.listRuns(reviewId)).containsExactly(assessed);
+        assertThat(fixture.store.findFinding(finding.id())).contains(finding);
+        AgentReviewProjection.WorktreeSyncView sync = fixture.service.get(reviewId).worktreeSync().orElseThrow();
+        assertThat(sync.state()).isEqualTo(AgentReviewProjection.WorktreeSyncView.State.CURRENT);
+        assertThat(sync.headSha()).contains(NEW_HEAD);
+        assertThat(sync.dirty()).isFalse();
+        verify(fixture.git).run(taskWorktree().canonicalWorktree(), rewritten ? realign(NEW_HEAD) : fastForward(NEW_HEAD));
+        verify(fixture.turns, times(2)).start(any(StartAgentTurnCommand.class));
         verify(fixture.experiments, never()).synchronize(any(TaskWorktree.class), anyString(), anyString(), any(Runnable.class));
+    }
 
-        // Ignored build output from the agent's test runs marks the snapshot dirty without blocking the move.
-        when(fixture.worktrees.inspect(taskWorktree()))
-                .thenReturn(new WorktreeSnapshot(taskWorktree(), HEAD, true, false), new WorktreeSnapshot(taskWorktree(), NEW_HEAD, true, false));
-        List<String> move = rewritten ? realign(NEW_HEAD) : fastForward(NEW_HEAD);
-        when(fixture.git.run(taskWorktree().canonicalWorktree(), move)).thenReturn(ok(""));
+    @Test
+    void repeatedCatchUpTracksItsOwnHeadAndExplicitUpdateReviewsTheCurrentRevision()
+    {
+        Fixture fixture = rewrittenHistory();
+        AutoCheckout checkout = new AutoCheckout(fixture);
+        String reviewId = fixture.store.listOpenReviews().getFirst().id();
+        ReviewRun assessed = fixture.store.listRuns(reviewId).getFirst();
+        fixture.service.observeHead(REPO, NUMBER, NEW_HEAD);
+        String thirdHead = "c3d4e5f6a70123456789abcdef0123456789abcd";
+        pushHead(fixture, thirdHead);
+        when(fixture.git.run(REPOSITORY, "merge-base", "--is-ancestor", NEW_HEAD, thirdHead)).thenReturn(ok(""));
+        fixture.service.observeHead(REPO, NUMBER, thirdHead);
 
+        assertThat(checkout.head).isEqualTo(thirdHead);
+        assertThat(fixture.store.findReview(reviewId).orElseThrow().worktreeHeadSha()).contains(thirdHead);
+        assertThat(fixture.store.listRuns(reviewId)).containsExactly(assessed);
+        verify(fixture.turns, times(2)).start(any(StartAgentTurnCommand.class));
+
+        when(fixture.git.run(REPOSITORY, "merge-base", "--is-ancestor", HEAD, thirdHead)).thenReturn(ok(""));
         fixture.service.update(reviewId);
 
-        assertThat(fixture.store.findReview(reviewId).orElseThrow().followUpPaused()).isFalse();
-        ReviewRun rerun = fixture.store.listRuns(reviewId).getLast();
-        assertThat(rerun.headSha()).isEqualTo(NEW_HEAD);
-        assertThat(rerun.scope()).isEqualTo(rewritten ? ReviewRun.Scope.FULL : ReviewRun.Scope.INCREMENTAL);
-        verify(fixture.git).run(taskWorktree().canonicalWorktree(), move);
+        assertThat(fixture.store.listRuns(reviewId)).hasSize(2);
+        assertThat(fixture.store.listRuns(reviewId).getFirst()).isEqualTo(assessed);
+        assertThat(fixture.store.listRuns(reviewId).getLast().headSha()).isEqualTo(thirdHead);
         verify(fixture.turns, times(3)).start(any(StartAgentTurnCommand.class));
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"turn", "runtime", "local-run", "queue", "active-turn"})
+    void automaticCatchUpWaitsForEveryWorkingCopyOwnerAndQueuedQuestion(String owner)
+    {
+        Fixture fixture = rewrittenHistory();
+        AutoCheckout checkout = new AutoCheckout(fixture);
+        String reviewId = fixture.store.listOpenReviews().getFirst().id();
+        switch (owner) {
+            case "turn" -> when(fixture.tasks.get(TASK_ID)).thenReturn(busyTask());
+            case "runtime" -> when(fixture.tasks.get(TASK_ID)).thenReturn(idleTask().claimWorktreeMutation(WorktreeMutationClaim.recovery("runtime", NOW), NOW));
+            case "local-run" -> when(fixture.tasks.get(TASK_ID)).thenReturn(idleTask().claimWorktreeMutation(WorktreeMutationClaim.localRun("run", NOW), NOW));
+            case "queue" -> when(fixture.turns.queued(TASK_ID)).thenReturn(ImmutableList.of(queuedInput()));
+            case "active-turn" -> when(fixture.turnStore.findActive(TASK_ID)).thenReturn(Optional.of(AgentTurn.accepted(TURN_ONE, TASK_ID, "ask", SETTINGS, NOW)));
+            default -> throw new AssertionError(owner);
+        }
+        fixture.service.observeHead(REPO, NUMBER, NEW_HEAD);
+
+        assertThat(checkout.head).isEqualTo(HEAD);
+        assertThat(fixture.service.get(reviewId).worktreeSync().orElseThrow().state()).isEqualTo(AgentReviewProjection.WorktreeSyncView.State.PENDING);
+        verify(fixture.experiments, never()).synchronizeClean(any(TaskWorktree.class), anyString(), anyString(), any(Runnable.class));
+
+        when(fixture.tasks.get(TASK_ID)).thenReturn(idleTask());
+        when(fixture.turns.queued(TASK_ID)).thenReturn(ImmutableList.of());
+        when(fixture.turnStore.findActive(TASK_ID)).thenReturn(Optional.empty());
+        fixture.service.reconcile(reviewId);
+
+        assertThat(checkout.head).isEqualTo(NEW_HEAD);
+        assertThat(fixture.store.listRuns(reviewId)).hasSize(1);
+        verify(fixture.turns, times(2)).start(any(StartAgentTurnCommand.class));
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"staged", "unstaged", "untracked", "local-commit", "experiment", "operation"})
+    void automaticCatchUpPreservesPrivateWorkAndReportsTheReason(String obstacle)
+    {
+        Fixture fixture = rewrittenHistory();
+        AutoCheckout checkout = new AutoCheckout(fixture);
+        String reviewId = fixture.store.listOpenReviews().getFirst().id();
+        switch (obstacle) {
+            case "staged" -> checkout.entries = "1 M. N... 100644 100644 100644 a b saved.txt\0";
+            case "unstaged" -> checkout.entries = "1 .M N... 100644 100644 100644 a b saved.txt\0";
+            case "untracked" -> checkout.entries = "? private.txt\0";
+            case "local-commit" -> checkout.head = "c3d4e5f6a70123456789abcdef0123456789abcd";
+            case "experiment" -> when(fixture.experiments.hasSavedExperiment(taskWorktree())).thenReturn(true);
+            case "operation" -> when(fixture.git.gitPaths(eq(taskWorktree().canonicalWorktree()), anyList()))
+                    .thenAnswer(invocation -> invocation.<List<String>>getArgument(1).stream().map(name -> Path.of(".")).collect(toImmutableList()));
+            default -> throw new AssertionError(obstacle);
+        }
+        String previousHead = checkout.head;
+        fixture.service.observeHead(REPO, NUMBER, NEW_HEAD);
+
+        AgentReviewProjection.WorktreeSyncView sync = fixture.service.get(reviewId).worktreeSync().orElseThrow();
+        assertThat(sync.state()).isEqualTo(AgentReviewProjection.WorktreeSyncView.State.BLOCKED);
+        assertThat(sync.reason()).isPresent();
+        assertThat(sync.headSha()).contains(previousHead);
+        assertThat(sync.dirty()).isEqualTo(ImmutableSet.of("staged", "unstaged", "untracked").contains(obstacle));
+        assertThat(checkout.head).isEqualTo(previousHead);
+        assertThat(fixture.store.findReview(reviewId).orElseThrow().followUpPaused()).isFalse();
+        verify(fixture.experiments, never()).synchronizeClean(any(TaskWorktree.class), anyString(), anyString(), any(Runnable.class));
+        verify(fixture.turns, times(2)).start(any(StartAgentTurnCommand.class));
+    }
+
+    @Test
+    void staleObservedHeadCannotRollBackANewerFetchedRemoteRevision()
+    {
+        Fixture fixture = rewrittenHistory();
+        AutoCheckout checkout = new AutoCheckout(fixture);
+        String reviewId = fixture.store.listOpenReviews().getFirst().id();
+        String thirdHead = "c3d4e5f6a70123456789abcdef0123456789abcd";
+        pushHead(fixture, thirdHead);
+        fixture.service.observeHead(REPO, NUMBER, NEW_HEAD);
+
+        assertThat(checkout.head).isEqualTo(HEAD);
+        verify(fixture.refresh).refreshAllDetail(REPO, NUMBER);
+        verify(fixture.experiments, never()).synchronizeClean(any(TaskWorktree.class), anyString(), anyString(), any(Runnable.class));
+        assertThat(fixture.store.listRuns(reviewId)).hasSize(1);
+    }
+
+    @ParameterizedTest
+    @ValueSource(booleans = {false, true})
+    void catchUpRechecksBothTheObservedRevisionAndSavedEditsUnderTheClaim(boolean remoteChanged)
+    {
+        Fixture fixture = rewrittenHistory();
+        AutoCheckout checkout = new AutoCheckout(fixture);
+        String reviewId = fixture.store.listOpenReviews().getFirst().id();
+        doAnswer(invocation -> {
+            if (remoteChanged) {
+                fixture.store.updateReview(fixture.store.findReview(reviewId).orElseThrow().withObservedHead(BASE_SHA, NOW));
+            }
+            else {
+                checkout.entries = "? created-during-fetch.txt\0";
+            }
+            invocation.<Consumer<AgentTask>>getArgument(2).accept(idleTask());
+            return null;
+        }).when(fixture.turns).synchronizeWorktree(eq(TASK_ID), anyLong(), any());
+
+        fixture.service.observeHead(REPO, NUMBER, NEW_HEAD);
+
+        assertThat(checkout.head).isEqualTo(HEAD);
+        assertThat(fixture.store.findReview(reviewId).orElseThrow().followUpPaused()).isFalse();
+        verify(fixture.experiments, never()).synchronizeClean(any(TaskWorktree.class), anyString(), anyString(), any(Runnable.class));
+        verify(fixture.turns, times(2)).start(any(StartAgentTurnCommand.class));
+    }
+
+    @Test
+    void developmentSourceReviewsNeverCatchUpFromThePublishedPr()
+    {
+        Fixture fixture = rewrittenHistory();
+        AutoCheckout checkout = new AutoCheckout(fixture);
+        AgentReview review = fixture.store.listOpenReviews().getFirst();
+        fixture.store.updateReview(new AgentReview(review.id(), review.workspaceId(), review.repo(), review.number(), review.pullRequestId(), review.taskId(),
+                Optional.of("development-task"), review.state(), review.followUpPaused(), review.latestCompletedRunId(), review.observedHeadSha(), review.worktreeHeadSha(),
+                review.version(), review.createdAt(), review.updatedAt(), review.closedAt()));
+
+        fixture.service.observeHead(REPO, NUMBER, NEW_HEAD);
+        fixture.service.reconcile(review.id());
+
+        assertThat(checkout.head).isEqualTo(HEAD);
+        assertThat(fixture.store.findReview(review.id()).orElseThrow().observedHeadSha()).contains(HEAD);
+        assertThat(fixture.service.get(review.id()).worktreeSync()).isEmpty();
+        verify(fixture.experiments, never()).synchronizeClean(any(TaskWorktree.class), anyString(), anyString(), any(Runnable.class));
+    }
+
+    @Test
+    void alreadyAlignedRemoteHeadRepairsTheDurableBaselineWithoutMovingFiles()
+    {
+        Fixture fixture = rewrittenHistory();
+        AutoCheckout checkout = new AutoCheckout(fixture);
+        checkout.head = NEW_HEAD;
+        String reviewId = fixture.store.listOpenReviews().getFirst().id();
+
+        fixture.service.observeHead(REPO, NUMBER, NEW_HEAD);
+
+        assertThat(fixture.store.findReview(reviewId).orElseThrow().worktreeHeadSha()).contains(NEW_HEAD);
+        verify(fixture.turns).synchronizeWorktree(eq(TASK_ID), anyLong(), any());
+        verify(fixture.git, never()).run(eq(taskWorktree().canonicalWorktree()), anyList());
+        verify(fixture.experiments, never()).synchronizeClean(any(TaskWorktree.class), anyString(), anyString(), any(Runnable.class));
+    }
+
+    @ParameterizedTest
+    @ValueSource(booleans = {false, true})
+    void automaticMoveFailureDoesNotPauseReviewOrLaunchAnotherRun(boolean truncated)
+    {
+        Fixture fixture = rewrittenHistory();
+        AutoCheckout checkout = new AutoCheckout(fixture);
+        String reviewId = fixture.store.listOpenReviews().getFirst().id();
+        doReturn(new GitCommandRunner.Result(truncated ? 0 : 1, "Cannot overwrite ignored output", truncated))
+                .when(fixture.git).run(taskWorktree().canonicalWorktree(), fastForward(NEW_HEAD));
+
+        fixture.service.observeHead(REPO, NUMBER, NEW_HEAD);
+
+        assertThat(checkout.head).isEqualTo(HEAD);
+        assertThat(fixture.service.get(reviewId).worktreeSync().orElseThrow().state()).isEqualTo(AgentReviewProjection.WorktreeSyncView.State.UNAVAILABLE);
+        assertThat(fixture.store.findReview(reviewId).orElseThrow().followUpPaused()).isFalse();
+        assertThat(fixture.store.listRuns(reviewId)).hasSize(1);
+        verify(fixture.turns, times(2)).start(any(StartAgentTurnCommand.class));
+    }
+
+    @Test
+    void projectionParsesRealNullDelimitedPorcelainWithoutWritingTheIndex(@TempDir Path repository)
+            throws Exception
+    {
+        GitCommandRunner realGit = new GitCommandRunner();
+        assertThat(realGit.run(repository, "init", "-b", taskWorktree().generatedBranch()).successful()).isTrue();
+        assertThat(realGit.run(repository, "-c", "user.name=Test", "-c", "user.email=test@example.com", "commit", "--allow-empty", "-m", "Initial").successful()).isTrue();
+        String realHead = realGit.run(repository, "rev-parse", "HEAD").output().strip();
+        Files.writeString(repository.resolve("private.txt"), "Keep me");
+        Fixture fixture = rewrittenHistory();
+        new AutoCheckout(fixture);
+        String reviewId = fixture.store.listOpenReviews().getFirst().id();
+        fixture.store.updateReview(fixture.store.findReview(reviewId).orElseThrow().withObservedHead(realHead, NOW));
+        when(fixture.git.runLocalBoundedStdout(eq(taskWorktree().canonicalWorktree()), eq(Duration.ofSeconds(2)), eq(128 * 1024), anyList()))
+                .thenAnswer(invocation -> realGit.runLocalBoundedStdout(repository, Duration.ofSeconds(2), 128 * 1024, invocation.getArgument(3)));
+
+        AgentReviewProjection.WorktreeSyncView sync = fixture.service.get(reviewId).worktreeSync().orElseThrow();
+
+        assertThat(sync.headSha()).contains(realHead);
+        assertThat(sync.dirty()).isTrue();
+        assertThat(sync.state()).isEqualTo(AgentReviewProjection.WorktreeSyncView.State.CURRENT);
+        assertThat(Files.readString(repository.resolve("private.txt"))).isEqualTo("Keep me");
     }
 
     @Test
     void aNewRemoteHeadDoesNotInterruptTheCurrentInvestigationAndValidation()
     {
         Fixture fixture = new Fixture();
+        AutoCheckout checkout = new AutoCheckout(fixture);
         String reviewId = fixture.service.start(WORKSPACE, REPO, NUMBER).review().id();
         pushHead(fixture, NEW_HEAD);
         fixture.service.observeHead(REPO, NUMBER, NEW_HEAD);
 
+        assertThat(checkout.head).isEqualTo(HEAD);
         ReviewRun validating = beginValidation(fixture, fixture.store.listRuns(reviewId).getFirst());
         assertThat(validating.currentStep().orElseThrow().kind()).isEqualTo(ReviewStep.Kind.VALIDATE);
+        assertThat(checkout.head).isEqualTo(HEAD);
         completeValidation(fixture, validating);
         fixture.service.reconcile(reviewId);
 
@@ -2027,7 +2467,7 @@ class TestDefaultAgentReviewService
         assertThat(fixture.store.listRuns(reviewId).getFirst().headSha()).isEqualTo(HEAD);
         assertThat(fixture.store.findReview(reviewId).orElseThrow().observedHeadSha()).contains(NEW_HEAD);
         verify(fixture.turns, times(2)).start(any(StartAgentTurnCommand.class));
-        verify(fixture.worktrees, never()).inspect(taskWorktree());
+        assertThat(checkout.head).isEqualTo(NEW_HEAD);
         verify(fixture.experiments, never()).synchronize(any(TaskWorktree.class), anyString(), anyString(), any(Runnable.class));
     }
 
@@ -2392,12 +2832,39 @@ class TestDefaultAgentReviewService
                 ImmutableList.of(), ImmutableList.of(), ImmutableList.of(), ImmutableList.of(), ImmutableList.of(), ImmutableList.of(), ImmutableList.of());
     }
 
+    private static final class AutoCheckout
+    {
+        private String head = HEAD;
+        private String entries = "";
+
+        private AutoCheckout(Fixture fixture)
+        {
+            Path checkout = taskWorktree().canonicalWorktree();
+            when(fixture.worktrees.ownedCheckout(taskWorktree())).thenReturn(checkout);
+            when(fixture.git.runLocalBoundedStdout(eq(checkout), eq(Duration.ofSeconds(2)), eq(128 * 1024), anyList()))
+                    .thenAnswer(invocation -> ok("# branch.oid " + head + "\0# branch.head " + taskWorktree().generatedBranch() + "\0" + entries));
+            when(fixture.git.gitPaths(eq(checkout), anyList())).thenAnswer(invocation -> invocation.<List<String>>getArgument(1).stream()
+                    .map(name -> checkout.resolve("absent-git-operation").resolve(name)).collect(toImmutableList()));
+            when(fixture.worktrees.inspect(taskWorktree())).thenAnswer(invocation -> new WorktreeSnapshot(taskWorktree(), head, false, false));
+            when(fixture.git.run(eq(checkout), anyList())).thenAnswer(invocation -> {
+                head = invocation.<List<String>>getArgument(1).getLast();
+                return ok("");
+            });
+            when(fixture.git.run(eq(REPOSITORY), eq("merge-base"), eq("--is-ancestor"), anyString(), anyString())).thenReturn(ok(""));
+            doAnswer(invocation -> {
+                invocation.getArgument(3, Runnable.class).run();
+                return null;
+            }).when(fixture.experiments).synchronizeClean(any(TaskWorktree.class), anyString(), anyString(), any(Runnable.class));
+        }
+    }
+
     private static final class Fixture
     {
         private final AgentReviewStore store = spy(new InMemoryReviewStore());
         private final ReviewDraftStore drafts = mock(ReviewDraftStore.class);
         private final ReviewPublicationService publications = mock(ReviewPublicationService.class);
         private final AgentTaskService tasks = mock(AgentTaskService.class);
+        private final AgentEventService events = mock(AgentEventService.class);
         private final AgentTurnService turns = mock(AgentTurnService.class);
         private final AgentTurnStore turnStore = mock(AgentTurnStore.class);
         private final QueuedInputStore queueStore = mock(QueuedInputStore.class);
@@ -2409,6 +2876,9 @@ class TestDefaultAgentReviewService
         private final WorkspaceRepositoryService workspaces = mock(WorkspaceRepositoryService.class);
         private final WorktreeService worktrees = mock(WorktreeService.class);
         private final GitCommandRunner git = mock(GitCommandRunner.class);
+        private final WorktreeDiffReader browse = mock(WorktreeDiffReader.class);
+        private final PullRequestTaskStore assignments = mock(PullRequestTaskStore.class);
+        private final PullRequestStore pullRequestStore = mock(PullRequestStore.class);
         private final ReviewExperiments experiments = mock(ReviewExperiments.class);
         private final PullRequestService pullRequests = mock(PullRequestService.class);
         private final PullRequestRefreshService refresh = mock(PullRequestRefreshService.class);
@@ -2427,6 +2897,7 @@ class TestDefaultAgentReviewService
                     drafts,
                     publications,
                     tasks,
+                    events,
                     turns,
                     turnStore,
                     queueStore,
@@ -2437,6 +2908,9 @@ class TestDefaultAgentReviewService
                     workspaces,
                     worktrees,
                     git,
+                    browse,
+                    assignments,
+                    pullRequestStore,
                     experiments,
                     pullRequests,
                     refresh,
@@ -2553,7 +3027,7 @@ class TestDefaultAgentReviewService
         {
             return reviews.values().stream()
                     .filter(review -> review.state() == AgentReview.State.OPEN)
-                    .filter(review -> review.workspaceId().equals(workspaceId) && review.repo().equals(repo) && review.number() == number)
+                    .filter(review -> review.workspaceId().equals(workspaceId) && review.repo().equals(repo) && review.number().stream().anyMatch(value -> value == number))
                     .findFirst();
         }
 

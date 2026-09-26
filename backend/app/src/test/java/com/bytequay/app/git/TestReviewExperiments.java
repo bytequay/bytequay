@@ -26,6 +26,8 @@ import com.bytequay.core.store.WorkspaceStore;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 
 import java.io.IOException;
 import java.nio.file.Files;
@@ -34,6 +36,7 @@ import java.time.Instant;
 import java.util.Optional;
 import java.util.concurrent.atomic.AtomicInteger;
 
+import static com.google.common.base.Preconditions.checkState;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.Mockito.doCallRealMethod;
@@ -93,6 +96,110 @@ class TestReviewExperiments
         worktree = worktrees.provision(new ProvisionWorktreeCommand(taskId, WORKSPACE_ID, RepositoryIdentity.valueOf(REPOSITORY.fullName()),
                 base, "bytequay/task/" + taskId));
         experiments = new ReviewExperiments(git, worktrees);
+    }
+
+    @Test
+    void automaticCleanUpdatePreservesIgnoredOutputAndUnrelatedStashes()
+            throws IOException
+    {
+        Files.writeString(repository.resolve("Code.java"), "unrelated user edit\n");
+        run(repository, "stash", "push", "--message", "User work in another checkout");
+        String unrelated = run(repository, "rev-parse", "stash@{0}");
+        Files.createDirectories(worktree.canonicalWorktree().resolve("build"));
+        Files.writeString(worktree.canonicalWorktree().resolve("build/output"), "ignored result\n");
+
+        experiments.synchronizeClean(worktree, base, target,
+                () -> run(worktree.canonicalWorktree(), "merge", "--ff-only", "--no-overwrite-ignore", target));
+
+        assertThat(head()).isEqualTo(target);
+        assertThat(worktrees.inspect(worktree).uncommitted()).isFalse();
+        assertThat(worktree.canonicalWorktree().resolve("Remote.java")).hasContent("remote improvement\n");
+        assertThat(worktree.canonicalWorktree().resolve("build/output")).hasContent("ignored result\n");
+        assertThat(run(repository, "stash", "list", "--format=%H")).isEqualTo(unrelated);
+    }
+
+    @ParameterizedTest
+    @ValueSource(booleans = {false, true})
+    void automaticRewritePreservesIgnoredOutputAndRefusesTrackedCollisions(boolean collision)
+            throws IOException
+    {
+        moveToTarget();
+        String previous = target;
+        run(repository, "reset", "--hard", base);
+        Files.writeString(repository.resolve("Code.java"), "rewritten remote source\n");
+        if (collision) {
+            Files.createDirectories(repository.resolve("build"));
+            Files.writeString(repository.resolve("build/output"), "new tracked remote file\n");
+            run(repository, "add", "-f", "build/output");
+        }
+        run(repository, "add", "Code.java");
+        run(repository, "commit", "-m", "Rewritten PR");
+        target = run(repository, "rev-parse", "HEAD");
+        Files.createDirectories(worktree.canonicalWorktree().resolve("build"));
+        Files.writeString(worktree.canonicalWorktree().resolve("build/output"), "private ignored output\n");
+        assertThat(git.run(repository, "merge-base", "--is-ancestor", previous, target).exitCode()).isEqualTo(1);
+        Runnable move = () -> {
+            Result result = git.run(worktree.canonicalWorktree(), "-c", "core.hooksPath=/dev/null", "checkout",
+                    "--no-overwrite-ignore", "--no-recurse-submodules", "-B", worktree.generatedBranch(), target);
+            checkState(result.successful(), "Move refused: %s", result.output());
+        };
+
+        if (collision) {
+            assertThatThrownBy(() -> experiments.synchronizeClean(worktree, previous, target, move)).hasMessageContaining("would be overwritten");
+            assertThat(head()).isEqualTo(previous);
+            assertThat(worktree.canonicalWorktree().resolve("Code.java")).hasContent("original source\n");
+        }
+        else {
+            experiments.synchronizeClean(worktree, previous, target, move);
+            assertThat(head()).isEqualTo(target);
+            assertThat(worktree.canonicalWorktree().resolve("Code.java")).hasContent("rewritten remote source\n");
+        }
+        assertThat(worktree.canonicalWorktree().resolve("build/output")).hasContent("private ignored output\n");
+        assertThat(worktrees.inspect(worktree).uncommitted()).isFalse();
+        assertThat(run(repository, "stash", "list")).isEmpty();
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"staged", "unstaged", "untracked"})
+    void automaticUpdateRefusesPrivateChangesWithoutStashingOrMoving(String change)
+            throws IOException
+    {
+        Path file = worktree.canonicalWorktree().resolve(change.equals("untracked") ? "TestPrivate.java" : "Code.java");
+        Files.writeString(file, "private experiment\n");
+        if (change.equals("staged")) {
+            run(worktree.canonicalWorktree(), "add", "Code.java");
+        }
+        String status = run(worktree.canonicalWorktree(), "status", "--porcelain=v1");
+        AtomicInteger moves = new AtomicInteger();
+
+        assertThatThrownBy(() -> experiments.synchronizeClean(worktree, base, target, moves::incrementAndGet))
+                .hasMessageContaining("experiments were preserved");
+
+        assertThat(moves).hasValue(0);
+        assertThat(head()).isEqualTo(base);
+        assertThat(file).hasContent("private experiment\n");
+        assertThat(run(worktree.canonicalWorktree(), "status", "--porcelain=v1")).isEqualTo(status);
+        assertThat(run(repository, "stash", "list")).isEmpty();
+    }
+
+    @Test
+    void automaticUpdateLeavesASavedPrivateExperimentForExplicitUpdate()
+            throws IOException
+    {
+        Files.writeString(worktree.canonicalWorktree().resolve("TestPrivate.java"), "saved experiment\n");
+        saveInterruptedExperiment();
+        String saved = run(repository, "rev-parse", "stash@{0}");
+        AtomicInteger moves = new AtomicInteger();
+        assertThat(worktrees.inspect(worktree).uncommitted()).isFalse();
+
+        assertThatThrownBy(() -> experiments.synchronizeClean(worktree, base, target, moves::incrementAndGet))
+                .hasMessageContaining("Saved private experiments are waiting");
+
+        assertThat(moves).hasValue(0);
+        assertThat(head()).isEqualTo(base);
+        assertThat(worktree.canonicalWorktree().resolve("TestPrivate.java")).doesNotExist();
+        assertThat(run(repository, "stash", "list", "--format=%H")).isEqualTo(saved);
+        assertThat(run(repository, "stash", "show", "--include-untracked", "-p", "stash@{0}")).contains("saved experiment");
     }
 
     @Test

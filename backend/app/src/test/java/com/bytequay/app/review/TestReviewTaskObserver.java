@@ -33,6 +33,7 @@ import org.springframework.beans.factory.ObjectProvider;
 
 import java.time.Instant;
 import java.util.Optional;
+import java.util.OptionalInt;
 import java.util.OptionalLong;
 
 import static org.mockito.ArgumentMatchers.any;
@@ -56,8 +57,8 @@ class TestReviewTaskObserver
         ObjectProvider<PullRequestRefreshService> refresh = mock(ObjectProvider.class);
         when(reviewService.getObject()).thenReturn(mock(AgentReviewService.class));
         TaskId taskId = TaskId.random();
-        AgentReview review = new AgentReview("review-1", "workspace-1", "acme/widgets", 1, OptionalLong.empty(), taskId.toString(),
-                AgentReview.State.OPEN, false, Optional.empty(), Optional.empty(), 0, Instant.EPOCH, Instant.EPOCH, Optional.empty());
+        AgentReview review = new AgentReview("review-1", "workspace-1", "acme/widgets", OptionalInt.of(1), OptionalLong.empty(), taskId.toString(), Optional.empty(),
+                AgentReview.State.OPEN, false, Optional.empty(), Optional.empty(), Optional.empty(), 0, Instant.EPOCH, Instant.EPOCH, Optional.empty());
         String search = "context-search:" + "a".repeat(64);
         String note = "context-note:" + "b".repeat(64);
         when(reviews.listOpenReviews()).thenReturn(ImmutableList.of(review));
@@ -101,8 +102,8 @@ class TestReviewTaskObserver
         AgentTurnStore turns = mock(AgentTurnStore.class);
         ContextUsageRecorder usage = mock(ContextUsageRecorder.class);
         TaskId taskId = TaskId.random();
-        AgentReview review = new AgentReview("review-1", "workspace-1", "acme/widgets", 1, OptionalLong.empty(), taskId.toString(),
-                AgentReview.State.OPEN, false, Optional.empty(), Optional.empty(), 0, Instant.EPOCH, Instant.EPOCH, Optional.empty());
+        AgentReview review = new AgentReview("review-1", "workspace-1", "acme/widgets", OptionalInt.of(1), OptionalLong.empty(), taskId.toString(), Optional.empty(),
+                AgentReview.State.OPEN, false, Optional.empty(), Optional.empty(), Optional.empty(), 0, Instant.EPOCH, Instant.EPOCH, Optional.empty());
         String ref = "context-note:" + "b".repeat(64);
         when(turns.list(taskId)).thenReturn(ImmutableList.of());
         when(reviews.listRuns(review.id())).thenReturn(ImmutableList.of());
@@ -117,6 +118,33 @@ class TestReviewTaskObserver
             observer.confirmRetainedUsage(review);
             verify(usage).confirm("workspace-1", ref, ContextUsageEvent.Stage.OPENED);
             verify(events).readAfter(taskId, 2, 200);
+        }
+        finally {
+            observer.close();
+        }
+    }
+
+    @Test
+    void removingTheFinalQueuedQuestionReconcilesAnIdleReview()
+    {
+        AgentEventService events = mock(AgentEventService.class);
+        AgentReviewService service = mock(AgentReviewService.class);
+        ObjectProvider<AgentReviewService> services = mock(ObjectProvider.class);
+        when(services.getObject()).thenReturn(service);
+        TaskId taskId = TaskId.random();
+        AgentReview review = new AgentReview("review-queue", "workspace-1", "acme/widgets", OptionalInt.of(1), OptionalLong.empty(), taskId.toString(), Optional.empty(),
+                AgentReview.State.OPEN, false, Optional.empty(), Optional.empty(), Optional.empty(), 0, Instant.EPOCH, Instant.EPOCH, Optional.empty());
+        when(events.readHistory(eq(taskId), any(), any())).thenReturn(new AgentHistoryPage(ImmutableList.of(), OptionalLong.empty(), OptionalLong.empty(), 0));
+        when(events.subscribe(taskId, 0)).thenReturn(subscriber -> {
+            subscriber.onSubscribe(mock(java.util.concurrent.Flow.Subscription.class));
+            subscriber.onNext(new AgentEventEnvelope(AgentEventEnvelope.CURRENT_SCHEMA_VERSION, EventId.random(), 1, taskId, Optional.empty(),
+                    AgentEventSource.root(), Instant.EPOCH, new AgentEventPayload.Lifecycle(AgentEventPayload.LifecyclePhase.QUEUE_CHANGED, "Removed queued question")));
+        });
+        ReviewTaskObserver observer = new ReviewTaskObserver(events, mock(AgentReviewStore.class), mock(AgentTurnStore.class), services,
+                mock(ObjectProvider.class), mock(ObjectProvider.class), mock(ContextUsageRecorder.class));
+        try {
+            observer.watch(review);
+            verify(service, timeout(1000)).reconcile(review.id());
         }
         finally {
             observer.close();

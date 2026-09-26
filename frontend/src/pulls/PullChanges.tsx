@@ -11,7 +11,8 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-import { Fragment, type CSSProperties, type MouseEvent as ReactMouseEvent, type RefObject, useEffect, useId, useMemo, useReducer, useRef, useState } from 'react';
+import { Fragment, type CSSProperties, type MouseEvent as ReactMouseEvent, type ReactNode, type RefObject, useEffect, useId, useMemo, useReducer, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { Check, ChevronRight, FileDiff, Folder, GitCommitHorizontal, PanelLeft } from 'lucide-react';
 import Avatar from '../Avatar';
 import { parseUnifiedDiff, type DiffRow } from '../diffParse';
@@ -59,6 +60,7 @@ export type DiffAgentComment = {
 export type AgentReviewProjection = {
   review: AgentReviewDto;
   viewer: UserProfileDto | null;
+  headSha?: string;
   /** The range Agent review asked to show; a new token re-scrolls even to the same lines. */
   navigation: ReviewNavigationTarget | null;
   onReviewChange: (review: AgentReviewDto) => void;
@@ -84,6 +86,10 @@ type PullChangesProps = {
   commits: DiffCommitDto[];
   commitRange: CommitRange;
   loading: boolean;
+  toolbarTarget?: HTMLElement | null;
+  toolbarStart?: ReactNode;
+  toolbarVisible?: boolean;
+  defaultTreeOpen?: boolean;
   canReview: boolean;
   pendingComments: InlineReviewCommentDto[];
   reviewThreads: ReviewThreads;
@@ -111,6 +117,10 @@ export type DiffViewerProps = {
   commits?: DiffCommitDto[];
   commitRange?: CommitRange;
   loading?: boolean;
+  toolbarTarget?: HTMLElement | null;
+  toolbarStart?: ReactNode;
+  toolbarVisible?: boolean;
+  defaultTreeOpen?: boolean;
   onCommitRangeChange?: (range: CommitRange) => void;
   review?: ReviewOptions;
   reviewThreads?: ReviewThreads;
@@ -133,6 +143,10 @@ export default function PullChanges({
   commits,
   commitRange,
   loading,
+  toolbarTarget,
+  toolbarStart,
+  toolbarVisible,
+  defaultTreeOpen,
   canReview,
   pendingComments,
   reviewThreads,
@@ -150,6 +164,10 @@ export default function PullChanges({
       commits={commits}
       commitRange={commitRange}
       loading={loading}
+      toolbarTarget={toolbarTarget}
+      toolbarStart={toolbarStart}
+      toolbarVisible={toolbarVisible}
+      defaultTreeOpen={defaultTreeOpen}
       reviewThreads={reviewThreads}
       agentReview={agentReview}
       localReview={localReview}
@@ -176,6 +194,10 @@ export function DiffViewer({
   commits = [],
   commitRange = null,
   loading = false,
+  toolbarTarget,
+  toolbarStart,
+  toolbarVisible = true,
+  defaultTreeOpen = false,
   onCommitRangeChange,
   review,
   reviewThreads,
@@ -186,7 +208,9 @@ export function DiffViewer({
   loadFileContent,
 }: DiffViewerProps) {
   const viewer = useViewer(Boolean(review?.canReview || review?.pendingComments.length || reviewThreads));
-  const [treeOpen, setTreeOpen] = useState(false);
+  const [treeOpenByMode, setTreeOpenByMode] = useState<{ compact?: boolean; expanded?: boolean }>({});
+  const treeMode = defaultTreeOpen ? 'expanded' : 'compact';
+  const treeOpen = treeOpenByMode[treeMode] ?? defaultTreeOpen;
   const [selected, setSelected] = useState(files[0]?.filename ?? null);
   const [closed, setClosed] = useState<ReadonlySet<string>>(new Set());
   const [allFilesOpen, setAllFilesOpen] = useState(false);
@@ -277,44 +301,49 @@ export function DiffViewer({
     setSelected(filename);
   };
 
-  return (
-    <div className="pull-changes">
-      <div className="pull-changes__toolbar">
+  const toolbar = toolbarVisible ? (
+    <div className="pull-changes__toolbar">
+      <button
+        type="button"
+        className={`pull-changes__files-toggle${treeOpen ? ' is-active' : ''}`}
+        onClick={() => setTreeOpenByMode(previous => ({ ...previous, [treeMode]: !treeOpen }))}
+        aria-expanded={treeOpen}
+        aria-controls={fileTreeId}
+        title={`${treeOpen ? 'Hide' : 'Show'} changed files`}
+      >
+        <PanelLeft size={14} strokeWidth={1.7} aria-hidden="true" />
+        <span>{files.length} changed {files.length === 1 ? 'file' : 'files'}</span>
+      </button>
+      {files.length > 0 && (
         <button
           type="button"
-          className={`pull-changes__files-toggle${treeOpen ? ' is-active' : ''}`}
-          onClick={() => setTreeOpen(value => !value)}
-          aria-expanded={treeOpen}
-          aria-controls={fileTreeId}
-          title={`${treeOpen ? 'Hide' : 'Show'} changed files`}
+          className="pull-changes__bulk-toggle"
+          onClick={() => {
+            setAllFilesOpen(!everyFileOpen);
+            setClosed(everyFileOpen
+              ? new Set(files.map(file => file.filename))
+              : new Set());
+          }}
+          aria-label={`${everyFileOpen ? 'Collapse' : 'Expand'} all file diffs`}
+          title={`${everyFileOpen ? 'Collapse' : 'Expand'} all file diffs`}
         >
-          <PanelLeft size={14} strokeWidth={1.7} aria-hidden="true" />
-          <span>{files.length} changed {files.length === 1 ? 'file' : 'files'}</span>
+          {everyFileOpen ? 'Collapse all' : 'Expand all'}
         </button>
-        {onCommitRangeChange && (
-          <CommitPicker commits={commits} range={commitRange} onChange={onCommitRangeChange} />
-        )}
-        {files.length > 0 && (
-          <button
-            type="button"
-            className="pull-changes__bulk-toggle"
-            onClick={() => {
-              setAllFilesOpen(!everyFileOpen);
-              setClosed(everyFileOpen
-                ? new Set(files.map(file => file.filename))
-                : new Set());
-            }}
-            aria-label={`${everyFileOpen ? 'Collapse' : 'Expand'} all file diffs`}
-            title={`${everyFileOpen ? 'Collapse' : 'Expand'} all file diffs`}
-          >
-            {everyFileOpen ? 'Collapse all' : 'Expand all'}
-          </button>
-        )}
-        <span className="pull-changes__totals">
-          <span>+{totals.additions}</span>
-          <span>−{totals.deletions}</span>
-        </span>
-      </div>
+      )}
+      {toolbarStart}
+      {onCommitRangeChange && (
+        <CommitPicker commits={commits} range={commitRange} onChange={onCommitRangeChange} />
+      )}
+      <span className="pull-changes__totals">
+        <span>+{totals.additions}</span>
+        <span>−{totals.deletions}</span>
+      </span>
+    </div>
+  ) : null;
+
+  return (
+    <div className="pull-changes">
+      {toolbarTarget && toolbar ? createPortal(toolbar, toolbarTarget) : toolbar}
       <div className="pull-changes__panes">
         {treeOpen && (
           <nav
@@ -763,9 +792,11 @@ function DiffFileCard({
   const placedLocalThreads = new Set<string>();
   // A mapped line alone does not clear an outdated finding; its card stays in Agent review
   // until the claim is reassessed against the current scope.
+  const findingHeadSha = agentReview?.headSha ?? headSha;
   const fileFindings = (fullDiff && agentReview !== undefined
     ? agentReview.review.findings.filter(finding =>
-      finding.path === file.filename && finding.state !== 'WITHDRAWN' && !finding.outdated)
+      finding.path === file.filename && finding.state !== 'WITHDRAWN' && !finding.outdated
+        && (findingHeadSha === undefined || finding.validatedHeadSha === findingHeadSha))
     : []);
   const findingActions = useFindingActions({
     review: agentReview?.review ?? PLACEHOLDER_REVIEW,
@@ -908,7 +939,7 @@ function DiffFileCard({
     const rowSelected = selection !== null && row >= selection.rowStart && row <= selection.rowEnd;
     const composerAfter = selection?.rowEnd === row;
     const rowComments = pendingReviewCommentsForLine(
-      review?.pendingComments ?? [], file.filename, oldLine, newLine);
+      review?.pendingComments ?? [], file.filename, oldLine, newLine, headSha);
     const rowSide: ReviewSide | null = newLine !== null ? 'RIGHT' : oldLine !== null ? 'LEFT' : null;
     const rowLine = rowSide === 'RIGHT' ? newLine : oldLine;
     const rowFindings = rowSide === null || rowLine === null
@@ -1286,8 +1317,10 @@ function pendingReviewCommentsForLine(
   path: string,
   oldLine: number | null,
   newLine: number | null,
+  headSha: string | undefined,
 ) {
   return comments.filter(comment => comment.path === path
+    && (headSha === undefined || comment.commitId === null || comment.commitId === headSha)
     && (comment.side === 'LEFT' ? comment.line === oldLine : comment.line === newLine));
 }
 

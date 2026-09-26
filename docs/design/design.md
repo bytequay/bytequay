@@ -10,6 +10,10 @@ historical checkpoint evidence and explicitly deferred future work.
 
 ## Design documents
 
+- [WorkBench](workbench.md) defines the shared PR/WorkBench navigation, task-bound
+  working-copy inspection, local commit history, and explicit development review
+  using the existing isolated reviewer.
+
 - [Issue-backed Development](issue-development-plan.md) defines the approved small
   GitHub release: local Goal marking, issue-to-task launch and navigation, and
   actionable work items in both existing Needs attention views. The broader
@@ -51,7 +55,7 @@ historical checkpoint evidence and explicitly deferred future work.
   storage, and per-turn provider-neutral
   instruction delivery, including always-applied internal ByteQuay guidance
   that is excluded from user-facing skill management.
-- [Agent Review](agent-review.md) defines **Review & Learning** for other authors’ PRs and retained development learning: a private intention card, distinct commit
+- [Agent Review](agent-review.md) defines shared **WorkBench Summary** for PR and development reviews and retained development learning: a private intention card, distinct commit
   implementation cards, and inline findings, shared local discussions, and workspace review
   conversations beside the PR. It reuses agent tasks, incremental review and
   explicit user publication. Its [implementation checklist](agent-review-impl-tmp.md)
@@ -70,7 +74,7 @@ historical checkpoint evidence and explicitly deferred future work.
   defines the implemented read-only search and exact-note retrieval extension
   for development tasks and active reviews, with a usage and coverage view.
   Provider quality and performance acceptance remains open.
-- [Code & Tests](code-tests.md) specifies the PR detail tab for reading whole
+- [Code & Tests](code-tests.md) specifies the task-bound WorkBench tab for reading whole
   files, following symbols, running tests, editing test source, and a terminal
   in the Agent review working copy. Its [implementation checklist](code-tests-impl-tmp.md)
   tracks the phased delivery.

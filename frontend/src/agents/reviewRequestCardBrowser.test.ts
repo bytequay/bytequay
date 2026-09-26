@@ -56,3 +56,22 @@ it('discloses complete review requests with keyboard and pointer without overflo
   expect(results.map(result => result.width)).toEqual([760, 320]);
   expect(results.every(result => result.open)).toBe(true);
 }, 30_000);
+
+it('folds generated summary prompts into compact request cards with complete expandable instructions', async () => {
+  const results = await runBrowserFixture<{ width: number; compact: boolean }[]>({
+    prefix: 'bytequay-generated-requests-',
+    entry: 'src/agents/fixtures/reviewRequestCardBrowser.tsx',
+    global: 'ReviewRequestTests',
+    styles: true,
+    charset: true,
+    body: `
+      const results = [];
+      for (const width of [760, 320]) {
+        window.setContentSize(width, 900);
+        results.push(await window.webContents.executeJavaScript('ReviewRequestTests.generatedPrompt()'));
+        results.push(await window.webContents.executeJavaScript('ReviewRequestTests.generatedPrompt(true)'));
+      }
+    `,
+  });
+  expect(results).toEqual([{ width: 760, compact: true }, { width: 760, compact: true }, { width: 320, compact: true }, { width: 320, compact: true }]);
+}, 30_000);

@@ -31,7 +31,7 @@ export type ReviewRequest = {
   target?: ReviewRequestTarget;
 };
 
-/** Only saved user text and review facts belong here; provider instructions stay out of the UI. */
+/** The preview names the saved request; optional children supply its full details on expansion. */
 export function ReviewRequestCard({ action, topic, body, detail, children, onOpen }: ReviewRequest & { children?: ReactNode; onOpen?: () => void }) {
   const [open, setOpen] = useState(false);
   const contentId = useId();
@@ -39,8 +39,8 @@ export function ReviewRequestCard({ action, topic, body, detail, children, onOpe
   return <article className={`agt-user__request agt-review-request${open ? ' is-open' : ''}`}>
     <div className="agt-review-request__bar">
       <button type="button" className="agt-review-request__open" onClick={onOpen ?? toggle}
-        aria-label={onOpen ? `Open ${topic} in Review & Learning` : `${action}: ${topic}`}
-        title={onOpen ? 'Open in Review & Learning' : 'Show request details'}>
+        aria-label={onOpen ? `Open ${topic} in Summary` : `${action}: ${topic}`}
+        title={onOpen ? 'Open in Summary' : 'Show request details'}>
         <MessageSquare aria-hidden="true" />
         <span className="agt-review-request__heading">
           <span className="agt-user__request-action">{action}</span>

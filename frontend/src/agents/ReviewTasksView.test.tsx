@@ -166,7 +166,7 @@ describe('workspace review tasks', () => {
 
     const empty = renderToStaticMarkup(<ReviewTaskList {...props} reviews={[]} />);
     expect(empty).toContain('No review tasks yet');
-    expect(empty).toContain('Review &amp; Learning tab');
+    expect(empty).toContain('WorkBench → Summary');
     expect(empty).not.toContain('role="alert"');
     expect(empty).not.toContain('class="agt-group"');
   });

@@ -14,6 +14,9 @@ historical checkpoint evidence and explicitly deferred future work.
   working-copy inspection, local commit history, and explicit development review
   using the existing isolated reviewer.
 
+- [Jira development integration](jira-integration.md) specifies the native My sprint
+  page, hosted OAuth boundary, local source context and shared development flow.
+
 - [Issue-backed Development](issue-development-plan.md) defines the approved small
   GitHub release: local Goal marking, issue-to-task launch and navigation, and
   actionable work items in both existing Needs attention views. The broader

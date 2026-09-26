@@ -82,8 +82,8 @@ export async function run(): Promise<{ name: string; error?: string }[]> {
       button('Review changes').click(); await settle();
       assert(Number(starts.length) === 1 && starts[0] === `${task.workspaceId}/${task.id}`, 'Review must target the source developer task');
       assert(host.querySelector('.agr-event')?.textContent?.includes('Agent review') === true
-        && host.querySelectorAll('.agr-finding .lrc.is-local').length === review.findings.length && host.textContent?.includes('Change intention') === true,
-        'The review must join the timeline as local finding cards, keeping the reviewer\'s report without PR details');
+        && host.querySelectorAll('.agr-finding .lrc.is-local').length === review.findings.length && host.querySelector('[data-review-card]') === null,
+        'The review must join the timeline as local finding cards without repeating the reviewer\'s own summary');
       assert(!host.textContent?.includes('Post comment now'), 'A local-only review must not offer GitHub publication');
     });
     await scenario('Reviewer questions and explicit developer fixes stay in separate conversations', async () => {

@@ -225,7 +225,7 @@
 /* Each card hangs off the event above it, right of the timeline's line. */
 .agr-timeline :is(.agr-summary-card, .agr-finding) { position: relative; margin: 12px 0 24px 22px; }
 .agr-timeline :is(.agr-banner, .agr-error, .agr-progress, .agr-none, .agr-pending, .agr-card__empty) { position: relative; margin: 12px 0 16px 44px; }
-.agr-timeline > .agr-learning-history, .agr-timeline .agr-pane > .agr-summary > .agr-learning-history { position: relative; margin: 0 0 16px 44px; border-top: 0; }
+.agr-timeline > .agr-learning-history { position: relative; margin: 0 0 16px 44px; border-top: 0; }
 .agr-summary-page__review { scroll-margin-top: 12px; }
 .agr-summary-page > .agr-card__empty, .agr-summary-page > .agt-note { margin: 0 0 16px; padding: 0; }
 .agr-pane.is-timeline { display: block; overflow: visible; }

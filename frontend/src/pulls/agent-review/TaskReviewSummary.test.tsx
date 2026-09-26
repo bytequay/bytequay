@@ -54,9 +54,11 @@ describe('the Summary strip and review event', () => {
     const timeline = section(state(review));
     expect(timeline).toContain('<strong>Agent review</strong> left 3 local review comments');
     expect(timeline).toContain('Local · never posted to GitHub');
-    // The page's strip and this event replace the review's own strip and Findings heading.
+    // The page's strip and this event replace the review's own strip and Findings heading, and the developer's
+    // cards above already explain the change, so the reviewer's own summary and details stay in its workspace.
     expect(timeline).not.toContain('agr-strip');
     expect(timeline).not.toContain('<h2>Findings</h2>');
-    expect(timeline).toContain('<summary>Reviewer summary and details</summary>');
+    expect(timeline).not.toContain('data-review-card=');
+    expect(timeline).not.toContain('Review details');
   });
 });

@@ -98,10 +98,11 @@ title, a `···` toggle for the Git message body, short SHA, time, and
 **View changes**. Each event is followed by its own private card with the
 agent's explanation and discussion, so folding the card leaves the commit event
 visible. On a development task the reviewer's event follows the commits and
-leads directly to its findings; its own summary cards and Review details fold
-under **Reviewer summary and details**, because the developer's cards already
-explain the change. Reviewing another author's PR shows the reviewer's
-intention and commit cards as that timeline, followed by Findings.
+leads directly to its findings. The reviewer's own summary cards and Review
+details are not repeated there, because the developer's cards already explain
+the change; they remain in the review's workspace. Reviewing another author's
+PR shows the reviewer's intention and commit cards as that timeline, followed
+by Findings.
 
 Every private card (change intention with a green header, a commit's design and
 implementation with a blue header, and findings and local review comments in

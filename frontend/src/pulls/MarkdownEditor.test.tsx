@@ -102,11 +102,11 @@ describe('the Private label', () => {
     expect(reviewComposer('Posts to GitHub')).not.toContain('pull-diff-review__private');
   });
 
-  it('replaces the help text, and disabled reasons become titles plus off-screen status', () => {
+  it('shows disabled reasons beside the actions and announces them to assistive technology', () => {
     const markup = lineComposer(true, true);
 
     expect(markup).not.toContain('Private —');
-    const statusId = markup.match(/<p id="([^"]+)" class="sr-only" role="status">The agent is reconnecting\. Outside this diff<\/p>/)?.[1];
+    const statusId = markup.match(/<p id="([^"]+)" class="pull-diff-review__status" role="status">The agent is reconnecting\. Outside this diff<\/p>/)?.[1];
     expect(statusId).toBeDefined();
     expect(markup.match(/role="status"/g)).toHaveLength(1);
     expect(markup).toContain('title="The agent is reconnecting.">Send to agent</button>');

@@ -179,7 +179,7 @@ async function asynchronousSubmission(): Promise<void> {
     await selectLine(host, 'old', 3, true);
     await writeComment(host, 'Please explain this removal');
     assert(button(host, 'Send to agent').disabled && button(host, 'Send to agent').title === 'The agent is reconnecting.'
-      && host.querySelector('.pull-diff-review .sr-only[role="status"]')?.textContent === 'The agent is reconnecting.',
+      && host.querySelector('.pull-diff-review [role="status"]')?.textContent === 'The agent is reconnecting.',
     'Unavailable private submission must give its reason as the action title and to assistive technology');
     assert(host.querySelector<HTMLButtonElement>('.pull-diff-review__bar .pull-diff-review__private')?.disabled === true
       && host.textContent?.includes('Private — only you and the agent') === false,

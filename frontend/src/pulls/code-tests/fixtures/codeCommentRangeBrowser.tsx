@@ -179,15 +179,18 @@ const crossHunk = () => mounted(async host => {
   await move(lineNumber(host, 14));
   await release();
   await write(host, 'Is this covered?');
-  assert(!button(host, 'Post now').disabled && host.querySelector('.pull-diff-review .sr-only[role="status"]')?.textContent === '',
+  assert(!button(host, 'Post now').disabled && host.querySelector('.pull-diff-review [role="status"]')?.textContent === '',
     'A range inside one hunk must allow GitHub comments');
   await press(host, 6);
   await move(lineNumber(host, 11));
   await release();
   assert(heading(host) === 'Add a comment on lines R6 to R11', 'A drag may cross hunks');
   assert(button(host, 'Post now').disabled && button(host, 'Add to review').disabled && button(host, 'Post now').title === reason
-    && host.querySelector('.pull-diff-review .sr-only[role="status"]')?.textContent === reason,
+    && host.querySelector('.pull-diff-review [role="status"]')?.textContent === reason,
   'A range across hunks must block GitHub actions with the reason');
+  const status = host.querySelector<HTMLElement>('.pull-diff-review [role="status"]');
+  assert(status !== null && !status.classList.contains('sr-only') && getComputedStyle(status).position !== 'absolute' && status.getBoundingClientRect().height > 1,
+    'The blocked reason must be visible beside the actions');
   assert(!button(host, 'Send to agent').disabled, 'Send to agent must still take a range across hunks');
 });
 

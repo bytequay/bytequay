@@ -110,9 +110,9 @@ async function replyAndResolve(): Promise<void> {
     await settle();
     const blocked = button(host, 'Reply to agent');
     assert(blocked.disabled && blocked.title === disabledReason && !input.disabled && !button(host, 'Cancel').disabled
-      && host.querySelector('.pull-diff-review .sr-only[role="status"]')?.textContent === disabledReason
+      && host.querySelector('.pull-diff-review [role="status"]')?.textContent === disabledReason
       && host.querySelector('.pr-local-review__note') === null,
-    'A blocked reply must keep editing available and carry its reason as a title and a hidden status');
+    'A blocked reply must keep editing available and carry its reason as a title and a visible status');
     input.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', metaKey: true, bubbles: true, cancelable: true }));
     await settle();
     assert(replies === 0, 'Cmd+Enter must not reply while blocked');
@@ -409,8 +409,8 @@ async function developmentLearningRefresh(): Promise<void> {
     await settle();
     const blockedAsk = button(card(commitId), 'Ask agent');
     assert(!blockedInput.disabled && !button(card(commitId), 'Cancel').disabled && blockedAsk.disabled && blockedAsk.title === learningDisabled
-      && card(commitId).querySelector('.sr-only[role="status"]')?.textContent === learningDisabled,
-    'A blocked question must keep editing and Cancel available and carry its reason as a title and a hidden status');
+      && card(commitId).querySelector('[role="status"]')?.textContent === learningDisabled,
+    'A blocked question must keep editing and Cancel available and carry its reason as a title and a visible status');
     blockedInput.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true }));
     await settle();
     assert(card(commitId).querySelector('textarea') === null, 'Escape must still close a blocked question');

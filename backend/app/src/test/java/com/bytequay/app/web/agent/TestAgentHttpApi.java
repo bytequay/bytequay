@@ -1639,7 +1639,11 @@ class TestAgentHttpApi
                 .isEqualTo(HttpStatus.CONFLICT);
         driver.reportNextTurn(new DevelopmentResultReport(true, Optional.empty()));
         driver.completeHeldTurn();
-        awaitCondition(() -> get(queuePath).getBody().isEmpty());
+        await().pollInSameThread()
+                .pollDelay(Duration.ZERO)
+                .pollInterval(Duration.ofMillis(50))
+                .atMost(Duration.ofSeconds(30))
+                .untilAsserted(() -> assertThat(get(queuePath).getBody()).isEmpty());
         awaitContinuationSettled(taskId);
         JsonNode events = get("/agent/tasks/" + taskId + "/events?after=0&limit=20").getBody();
         assertThat(events).anySatisfy(event -> {
